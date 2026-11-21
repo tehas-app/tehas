@@ -92,6 +92,9 @@ A running preview of every pull request has been seen working on one host,
 the example instance; parts of it are covered by tests only. Previews, energy use (viiwork backends only) and the
 Protolab are optional and can be ignored for a first install.
 
+Start with [Start]({{ $base }}/start.md): what to find in the repository
+first, the install in order, and where to stop and ask your human.
+
 1. Read [A new project]({{ $base }}/new-project.md) in full. It is the
    install guide: a prepared host, an instance directory of settings, and your
    toolchain in the sandbox image.
@@ -101,6 +104,7 @@ Protolab are optional and can be ignored for a first install.
 3. On the host, follow the guide step by step. Secrets, the GitHub App and the
    allow list are your human's decisions: ask, do not invent them.
 
+- [Start]({{ $base }}/start.md): what to tell an agent, and the order of the install for an agent
 - [A new project]({{ $base }}/new-project.md): the contract, the host, the install
 - [Bootstrap a host]({{ $base }}/bootstrap.md): preparing the machine before the install
 - [A GitHub App for a factory]({{ $base }}/github-app.md): the identity the factory acts as on GitHub, made and installed

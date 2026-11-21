@@ -1,0 +1,18 @@
+# The front of a machine with no factory: `tehas` with only its help and the
+# commands of the parts of the tehas family (core/src/parts.rs). A release
+# carries it static (musl) as tehas-front-vX.Y.Z-linux-x86_64, which a part's
+# install puts in place as /usr/local/bin/tehas where no tehas is. A member of
+# the workspace in ../Cargo.toml.
+[package]
+name = "tehas-front"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+
+[[bin]]
+name = "tehas-front"
+path = "src/main.rs"
+
+[dependencies]
+tehas-core = { path = "../core" }

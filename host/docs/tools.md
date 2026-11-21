@@ -70,8 +70,10 @@ and `protolab` among them, run
 under `console run`, which checks the arguments, loads the settings, requires
 what the command cannot run without and runs it (`console/src/run.rs`), and so
 do `tehas dispatch`, `plan`, `check-product` and `tehasbot dispatch`, `review`
-and `github-token`, which have no script of their own. A command neither of them knows
-is exit 64 with the list on standard error. `tehas <command> --help`
+and `github-token`, which have no script of their own. A word that is no
+`tehas` command may be [another part's](#the-commands-of-other-parts). A
+command neither of them knows, and no part has, is exit 64 with the list on
+standard error. `tehas <command> --help`
 prints the same text as `tehas help <command>`.
 
 Every command that needs the instance settings loads them first and stops with
@@ -87,6 +89,32 @@ and `tehas host-message` on [the factory API](/api#tehas-panel) and
 `tehas state load --from <file>` are the two verbs `tehas state` holds beside
 [`pack`, `unpack` and `check`](/tools-control#tehas-state), on
 [the factory API](/api#tehas-state-copy).
+
+## The commands of other parts
+
+`tehas <part> [words]` runs the program `tehas-<part>` from `PATH` with the
+words, in place of tehas, for the other parts of the tehas family:
+
+```
+tehas industry factory list      # runs: tehas-industry factory list
+```
+
+Its output and exit status are the part's. `tehas help <part>` runs `tehas-<part>
+--help`, and `tehas help` ends with the parts it finds.
+
+A command of tehas always wins over a part of the same word. Only absolute
+directories of `PATH` are searched, never `~/tehas/libexec` or `~/tehas/bin`,
+and a part's word is lowercase letters, digits and single hyphens. tehas
+keeps `industry`, `kaizen`, `kata`, `monozukuri` and `yokoten` for the
+family: it never takes one for a command of its own. `tehasbot` runs no part.
+
+A machine that runs no factory, such as the one that runs industry, has no
+tehas of its own. Each release carries a small `tehas` for it, the asset
+`tehas-front-vX.Y.Z-linux-x86_64` with its hash and signature. A part's
+install puts it in place as `/usr/local/bin/tehas`. It knows only its help
+and the parts' commands. The rule is in
+`docs/specs/2026-11-21-part-commands.md` of the platform repository, and
+[the contract](/contract#the-commands-of-other-parts) keeps it through 1.x.
 
 ## Instance settings
 
@@ -536,7 +564,7 @@ not pass:
 ```
 test.sh: 431 cases in 96 files, 16 at a time
 test.sh: the slowest files:
-      8.4 s  test/work_test.sh
+      8.4 s  test/work_approval_test.sh
       6.1 s  test/dispatch_queue_test.sh
 test.sh: failed checks (2), not run (0)
     shellcheck

@@ -8,8 +8,8 @@
 # contractor program of outsource in contractor/ and the
 # development tasks behind scripts/ in xtask/ as well.
 [workspace]
-members = ["analytics", "attach", "contractor", "core", "cycle", "dispatch", "mcp", "ops", "proxy", "store", "xtask"]
-default-members = [".", "analytics", "attach", "contractor", "core", "cycle", "dispatch", "mcp", "ops", "proxy", "store", "xtask"]
+members = ["analytics", "attach", "contractor", "core", "cycle", "dispatch", "front", "mcp", "ops", "proxy", "store", "xtask"]
+default-members = [".", "analytics", "attach", "contractor", "core", "cycle", "dispatch", "front", "mcp", "ops", "proxy", "store", "xtask"]
 
 [package]
 name = "console"

@@ -1,0 +1,7 @@
+{
+  "kind": "refresh",
+  "trigger": "timer",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "head": "89abcdef0123456789abcdef0123456789abcdef",
+  "model": {"id": "plugin", "tokens": 2000000}
+}

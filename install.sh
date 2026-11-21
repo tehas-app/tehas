@@ -553,20 +553,24 @@ tehas_tool_paths
 refuse_home
 
 # --- 1c. The commit the store records -----------------------------------------
-# The store's database records which commit of tehas made it: git's for a
-# checkout, the COMMIT file's for a tree with no git of its own, which is what
-# a release carries. Asked before the lock and the first write, so a tree with
-# neither is refused while nothing has been written.
-tree_commit() {
-  if [ -z "$(git -C "$root" rev-parse --show-prefix 2>/dev/null || echo none)" ]; then
-    git -C "$root" rev-parse HEAD 2>/dev/null
-    return
-  fi
-  [ ! -f "$root/COMMIT" ] || head -n 1 "$root/COMMIT"
-}
-store_commit=$(tree_commit) || store_commit=""
+# The store's database records which commit of tehas made it, and the pages and
+# the store show the version, both as the console reads them from this tree
+# (console/ops/src/update/tree.rs). Asked before the lock and the first write,
+# so a tree with no commit is refused while nothing has been written. --check
+# builds nothing, so its console can be older than the tree: it reports that.
+loaded_console=${built_console:-$(_tehas_settings_console)}
+tree_rc=0
+tree=$("$loaded_console" update tree "$root") || tree_rc=$?
+if [ "$tree_rc" != 0 ] && [ "$check" != 1 ]; then
+  echo "tehas: the console at $loaded_console could not read the commit of $root (status $tree_rc); nothing was installed" >&2
+  exit 1
+fi
+store_commit=$(sed -n 's/^commit //p' <<<"$tree")
+tree_version=$(sed -n 's/^version //p' <<<"$tree")
 store_refusal=""
-if [[ ! $store_commit =~ ^[0-9a-f]{40}$ ]]; then
+if [ "$tree_rc" != 0 ]; then
+  store_refusal="the console at $loaded_console cannot read the commit of $root (status $tree_rc); a real run of install.sh builds the one this tree needs"
+elif [[ ! $store_commit =~ ^[0-9a-f]{40}$ ]]; then
   store_refusal="the commit of $root is not known (no git commit, no COMMIT file with 40 hex digits), and the store records it"
   if [ "$check" != 1 ]; then
     echo "tehas: $store_refusal; nothing was installed" >&2
@@ -623,7 +627,6 @@ if [ "$check" = 1 ] && [ -f "$agent/settings.json" ]; then
   # One it cannot read is made again, and the compare below says it differs.
   cp "$agent/settings.json" "$made/settings.json" 2>/dev/null || :
 fi
-loaded_console=${built_console:-$(_tehas_settings_console)}
 pi_rc=0
 "$loaded_console" update pi "$instance" "$host/pi/settings.json" "$PI_ENSEMBLE_SUBAGENT_PROVIDER" \
   "$PI_ENSEMBLE_SUBAGENT_MODEL" "$made" || pi_rc=$?
@@ -1050,27 +1053,10 @@ if ! "$loaded_console" update assets "$host" "$stage"; then
 fi
 copy_files --sync docs --sync fun <<<"$(printf '%s\n' "${files[@]}")"
 
-# The version in the footer of every page: the newest tag this checkout holds
-# and the commit it is at, in a file beside the pages, which read it. Only a
-# checkout that is a git repository of its own has one; a tree that came from a
-# release tarball has no git and no commit, and its VERSION file, written by
-# scripts/pack-release.sh, names the release instead. It is no part of --check:
-# a host is as current as its files are.
-checkout_version() {
-  local tag hash
-  if [ -z "$(git -C "$root" rev-parse --show-prefix 2>/dev/null || echo none)" ]; then
-    hash=$(git -C "$root" rev-parse --short=7 HEAD 2>/dev/null) || return 0
-    tag=$(git -C "$root" describe --tags --abbrev=0 2>/dev/null) || tag=""
-    printf '%s\n' "${tag:+$tag+}$hash" | tr -cd 'A-Za-z0-9._+\n-'
-    return 0
-  fi
-  # One line, vX.Y.Z. Read as it is: what a tarball carries is this script's
-  # own bytes, and tehas api and the footers bound what they take from it.
-  [ -f "$root/VERSION" ] || return 0
-  head -n 1 "$root/VERSION"
-}
+# The version in the footer of every page (1c), in a file beside the pages,
+# which read it. It is no part of --check: a host is as current as its files are.
 if [ "$check" != 1 ]; then
-  version=$(checkout_version)
+  version=$tree_version
   for dir in docs fun; do
     to=$TEHAS_HOME/$dir/version.txt
     if [ -z "$version" ]; then
@@ -1082,18 +1068,22 @@ if [ "$check" != 1 ]; then
   done
 fi
 
-# A build stages two names of the image's recipe beside the installed build
-# script, in the directory this script owns: the copy it hands docker and the
-# `mktemp` temporary it renames from. A run that ended takes both back and a run
-# a signal took off leaves at most one, which `tehasbot clean` takes past
-# TEHAS_CLEAN_AFTER hours. Either found here of an earlier install's is this
-# directory's to retire: nothing installs them, and nothing else writes them.
-for f in "$TEHAS_HOME"/sandbox/sandbox-uid.Dockerfile \
-  "$TEHAS_HOME"/sandbox/sandbox-uid.Dockerfile.[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z]; do
-  [ -f "$f" ] && [ ! -L "$f" ] || continue
-  changed+=("sandbox/${f##*/}")
-  if [ "$check" = 1 ]; then note "stale: $f"; else rm -f "$f" && echo "removed: $f"; fi
-done
+# What a sandbox build staged beside the installed build script and a run a
+# signal took off left there (console/ops/src/update/leftovers.rs): named in
+# --check, removed by a real run.
+leftovers=()
+[ "$check" != 1 ] || leftovers+=(--check)
+left_rc=0
+left=$("$loaded_console" update leftovers "${leftovers[@]}" "$TEHAS_HOME") || left_rc=$?
+[ "$left_rc" = 0 ] ||
+  note "note: the console at $loaded_console could not look for what a sandbox build left (status $left_rc)"
+while IFS= read -r line; do
+  case $line in
+    "") ;;
+    "changed "*) changed+=("${line#changed }") ;;
+    *) note "$line" ;;
+  esac
+done <<<"$left"
 
 # The files of an older layout, as the console lists them
 # (console/ops/src/update/retired.list). Found here, removed in step 5 once systemd
@@ -1175,8 +1165,7 @@ fi
 # A store that fails stops the run: the files are copied, the database is left
 # as it was, and the store's own line says why.
 store_db() {
-  local store=$TEHAS_HOME/libexec/store db=$TEHAS_HOME/state/tehas.db version name verb
-  version=$(checkout_version)
+  local store=$TEHAS_HOME/libexec/store db=$TEHAS_HOME/state/tehas.db version=$tree_version name verb
   name=${instance%/}
   name=${name##*/}
   [ -n "$version" ] || version=${store_commit:0:7}
@@ -1199,45 +1188,19 @@ store_db
 # workspaces, while no turn holds the issue's lock (console/ops/src/update/host.rs).
 "$loaded_console" update keeps "$TEHAS_HOME" "$TEHAS_WORK_DIR" || exit 1
 
-# A cycle used to leave state/cycles/<issue> - one empty file per issue number,
-# the record that this host had run a cycle for it. Nothing read it, and the
-# workspace is a fresh clone every time, so the record and the flag it fed are
-# gone. The files of a host that ran cycles then are removed here; the lock,
-# the taken mark and every file with a suffix stay.
-for left in "$TEHAS_HOME"/state/cycles/[0-9]*; do
-  [ -f "$left" ] && [ ! -L "$left" ] || continue
-  case "${left##*/}" in *[!0-9]*) continue ;; esac
-  rm -f "$left" && echo "removed: $left"
-done
+# The marker a cycle used to leave, state/cycles/<issue>, which nothing reads.
+"$loaded_console" update cycles "$TEHAS_HOME" ||
+  echo "note: the console at $loaded_console could not take back the markers in $TEHAS_HOME/state/cycles"
 
 # The previews' network keeps a preview from the host: it reaches the router
-# and the other previews and nothing else. What that takes is in
-# console/ops/src/edge.rs, and `tehasbot preview` decides by the same code before
-# every run. The router's compose file names the network as external and
-# `tehasbot preview` puts containers on it, so it is made here, whichever of the
-# two starts first. A host with no Docker yet gets it from `tehasbot preview`. A
-# Docker older than 27.1 is not asked: it does not know the option that keeps
-# the host out. A network that is there and does not keep the host out is not
-# removed here: containers may be on it.
+# and the other previews and nothing else. The router's compose file names it
+# as external, so it is made here, as `tehasbot preview` makes it, whichever
+# starts first. A host with no Docker yet gets it from `tehasbot preview`. What
+# the network takes, and what a person is told of one that is not as it should
+# be, is console/ops/src/edge.rs.
 if command -v docker >/dev/null 2>&1; then
-  previews_rc=0
-  previews_fault=$("$TEHAS_HOME/libexec/console" preview network check tehas-previews 2>/dev/null) || previews_rc=$?
-  case "$previews_rc" in
-    0) ;;
-    1)
-      note "The network tehas-previews does not keep the host out ($previews_fault). It has to be remade before a preview is built; the manual's troubleshooting page says how."
-      ;;
-    2)
-      "$TEHAS_HOME/libexec/console" preview network create tehas-previews ||
-        note "The network tehas-previews could not be made; the edge router will not start without it."
-      ;;
-    3)
-      note "The network tehas-previews was not made or checked: $previews_fault. No preview is built until Docker is 27.1 or later."
-      ;;
-    *)
-      note "The network tehas-previews was not made or checked: the console did not answer."
-      ;;
-  esac
+  "$TEHAS_HOME/libexec/console" preview network install tehas-previews ||
+    note "The network tehas-previews was not made or checked: the console did not answer."
 fi
 
 "$loaded_console" update notes "$root" "${slice[@]}" "${images[@]}" ||
