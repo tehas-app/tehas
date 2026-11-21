@@ -384,8 +384,8 @@ stderr is dropped. At most two calls of a plugin run at once and one of
 each caller; one past that is refused as busy and leaves no row. A call
 with `--login` is that person's: the login must have `TEHAS_PLUGIN_ACCESS`
 on `TEHAS_REPO`, checked as the plugins' gate checks it, by GitHub user id,
-and the verdict is kept for 10 minutes in `~/tehas/plugins/access.json`
-(mode 600), so a call costs at most one lookup. No access, or GitHub not
+on every call, since a verdict kept for a login could pass for whoever holds
+that login next. No access, or GitHub not
 answering, is a refusal, and a person's lock is by their user id. The row,
 kind `call`, keeps the time, the result and the answer's size, and no
 login, and the run's files are removed. `tehas plugin` leaves calls out

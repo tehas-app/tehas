@@ -4,17 +4,16 @@
 //! GitHub is behind [`GitHub`], so the tests stub it: the person's token for
 //! the web flow's code, who the token is, and the person's permission on the
 //! repository with the installation token. [`check`] compares the answer
-//! with `TEHAS_PLUGIN_ACCESS` by user id, and [`Cache`] keeps its verdicts
+//! with `TEHAS_PLUGIN_ACCESS` by user id
 //! for 10 minutes in a file.
 //!
 //! [`Curl`] asks through curl, as console/ops/src/github.rs does: every token,
 //! secret and code goes on curl's standard input, never on a command line.
 //! The installation token is what `tehasbot github-token` prints.
 
-use crate::file::{write_atomic, Temp};
-use serde_json::{json, Map, Value};
+use serde_json::Value;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 /// A permission on a repository, least first.
@@ -291,97 +290,9 @@ pub fn check(
     })
 }
 
-impl Level {
-    fn word(self) -> &'static str {
-        match self {
-            Level::Read => "read",
-            Level::Triage => "triage",
-            Level::Write => "write",
-            Level::Maintain => "maintain",
-            Level::Admin => "admin",
-        }
-    }
-}
-
-/// The verdicts of [`check`] by login, in a file, each good for
-/// [`Cache::LIFE`] seconds and for the access it was checked against. A
-/// miss asks GitHub once; an error is never kept.
-pub struct Cache {
-    pub file: PathBuf,
-}
-
-impl Cache {
-    pub const LIFE: u64 = 10 * 60;
-    /// The most logins kept: the oldest go first.
-    pub const MOST: usize = 256;
-
-    /// `~/tehas/plugins/access.json`.
-    pub fn of_home(home: &Path) -> Cache {
-        Cache {
-            file: home.join("plugins").join("access.json"),
-        }
-    }
-
-    fn read(&self) -> Map<String, Value> {
-        std::fs::read(&self.file)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-            .and_then(|v| v.as_object().cloned())
-            .unwrap_or_default()
-    }
-
-    /// The user id `login` has access as, from the file or GitHub.
-    pub fn check(
-        &self,
-        gh: &dyn GitHub,
-        access: Level,
-        login: &str,
-        now: u64,
-    ) -> Result<Option<u64>, String> {
-        let fresh = |e: &Value| {
-            e["access"] == access.word()
-                && e["at"]
-                    .as_u64()
-                    .is_some_and(|at| at <= now && now - at < Cache::LIFE)
-        };
-        let mut kept = self.read();
-        if let Some(e) = kept.get(login).filter(|e| fresh(e)) {
-            return Ok(e["user"].as_u64());
-        }
-        let v = check(gh, access, login, None)?;
-        kept.retain(|_, e| fresh(e));
-        while kept.len() >= Cache::MOST {
-            let oldest = kept
-                .iter()
-                .min_by_key(|(_, e)| e["at"].as_u64())
-                .map(|(k, _)| k.clone());
-            match oldest {
-                Some(k) => kept.remove(&k),
-                None => break,
-            };
-        }
-        kept.insert(
-            login.to_string(),
-            json!({"user": v.user, "at": now, "access": access.word()}),
-        );
-        // A cache that cannot be written costs the next call a lookup.
-        if let Some(dir) = self.file.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let _ = write_atomic(
-            &self.file,
-            Value::Object(kept).to_string().as_bytes(),
-            0o600,
-            &Temp::Unique,
-        );
-        Ok(v.user)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testdir::TestDir;
     use std::sync::Mutex;
 
     /// GitHub answering `level` for user 7, or an error, and counting asks.
@@ -446,25 +357,5 @@ mod tests {
             Some(7)
         );
         assert!(check(&stub(Err("down".into())), Level::Write, "x", None).is_err());
-    }
-
-    #[test]
-    fn the_cache_keeps_a_verdict_ten_minutes_for_its_access_and_no_error() {
-        let d = TestDir::new("access-cache");
-        let c = Cache::of_home(&d);
-        let w = stub(Ok(Some(Level::Write)));
-        assert_eq!(c.check(&w, Level::Write, "octocat", 1000), Ok(Some(7)));
-        assert_eq!(c.check(&w, Level::Write, "octocat", 1599), Ok(Some(7)));
-        assert_eq!(*w.asked.lock().unwrap(), 1);
-        assert_eq!(c.check(&w, Level::Admin, "octocat", 1599), Ok(None));
-        assert_eq!(c.check(&w, Level::Write, "octocat", 1600), Ok(Some(7)));
-        assert_eq!(*w.asked.lock().unwrap(), 3);
-        let down = stub(Err("GitHub could not be reached".into()));
-        assert!(c.check(&down, Level::Write, "other", 1600).is_err());
-        assert!(c.check(&down, Level::Write, "other", 1601).is_err());
-        assert_eq!(*down.asked.lock().unwrap(), 2);
-        use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(&c.file).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600);
     }
 }
