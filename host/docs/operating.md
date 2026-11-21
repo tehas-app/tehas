@@ -2621,8 +2621,11 @@ Two things run there:
   `kani` runners they run side by side, and with fewer they queue. The
   proofs run only here, not in `scripts/verify.sh` or on pull requests.
   With no `kani` runner online the jobs wait, and the run is not green
-  until all three have run. The run's title is
-  `release-gate <commit>`.
+  until all three have run. The run's title is `release-gate <commit>`.
+  An alpha or a beta skips the proofs: `tag-release` starts its run with
+  `proofs=false`, titled `release-gate <commit> without proofs`, and such a
+  run gates only an alpha or a beta. A release candidate or a release needs
+  a run with the proofs.
 - **Express batches.** `verify.yml` runs a pull request whose title starts
   with `Express Lane` on `[self-hosted, speedlane]`. Every other pull request
   into main or a `release/` branch, and every push to them, runs where it

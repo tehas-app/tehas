@@ -5,6 +5,10 @@
 //!
 //! tag-release trusts a green run on the exact commit it tags. With none, it
 //! starts one with `gh workflow run` and waits for it, up to a bound.
+//!
+//! An alpha or a beta needs no Kani proofs: its run is started with
+//! `proofs=false` and titled `release-gate <commit> without proofs`. Such a
+//! run gates only an alpha or a beta; any other release needs a run with them.
 
 use serde_json::Value;
 
@@ -20,9 +24,13 @@ pub struct Run {
     pub url: String,
 }
 
-/// The title of a run that gates `commit`.
-pub fn title(commit: &str) -> String {
-    format!("release-gate {commit}")
+/// The title of a run that gates `commit`, with the proofs or without.
+pub fn title(commit: &str, proofs: bool) -> String {
+    if proofs {
+        format!("release-gate {commit}")
+    } else {
+        format!("release-gate {commit} without proofs")
+    }
 }
 
 /// The fields `parse` reads.
@@ -61,11 +69,13 @@ pub enum Verdict {
 }
 
 /// The verdict of the runs that gate `commit` and are newer than `after`.
-pub fn judge(runs: &[Run], commit: &str, after: u64) -> Verdict {
-    let want = title(commit);
+/// With `proofs`, a run without them does not count.
+pub fn judge(runs: &[Run], commit: &str, after: u64, proofs: bool) -> Verdict {
+    let full = title(commit, true);
+    let bare = title(commit, false);
     let mut mine: Vec<&Run> = runs
         .iter()
-        .filter(|r| r.title == want && r.id > after)
+        .filter(|r| r.id > after && (r.title == full || (!proofs && r.title == bare)))
         .collect();
     mine.sort_by_key(|r| std::cmp::Reverse(r.id));
     if let Some(r) = mine
@@ -98,7 +108,7 @@ pub enum Outcome {
     NoStart,
 }
 
-/// The lane for `commit`. `list` gives the workflow's runs, `start` starts
+/// The lane for `commit`, with the proofs or without. `list` gives the workflow's runs, `start` starts
 /// one, `wait` waits between looks and says false once the bound has passed.
 /// A green run already there is taken at once; one that has not ended is
 /// waited for; with neither (none, or only red ones) a run is started and
@@ -106,6 +116,7 @@ pub enum Outcome {
 /// second one.
 pub fn gate(
     commit: &str,
+    proofs: bool,
     mut list: impl FnMut() -> Option<Vec<Run>>,
     start: impl FnOnce() -> bool,
     mut wait: impl FnMut() -> bool,
@@ -116,7 +127,7 @@ pub fn gate(
     };
     let mut after = 0;
     let mut seen = None;
-    match judge(&runs, commit, 0) {
+    match judge(&runs, commit, 0, proofs) {
         Verdict::Green(url) => return Outcome::Green(url),
         Verdict::Running(url) => {
             say(&format!("waiting for the release gate: {url}"));
@@ -138,7 +149,7 @@ pub fn gate(
         let Some(runs) = list() else {
             return Outcome::NoList;
         };
-        match judge(&runs, commit, after) {
+        match judge(&runs, commit, after, proofs) {
             Verdict::Green(url) => return Outcome::Green(url),
             Verdict::Red(url) => return Outcome::Red(url),
             Verdict::Running(url) => {
@@ -162,7 +173,7 @@ mod tests {
     fn run(id: u64, commit: &str, status: &str, conclusion: &str) -> Run {
         Run {
             id,
-            title: title(commit),
+            title: title(commit, true),
             status: status.into(),
             conclusion: conclusion.into(),
             url: format!("u{id}"),
@@ -178,7 +189,7 @@ mod tests {
             parse(&json),
             Some(vec![Run {
                 id: 7,
-                title: title(C),
+                title: title(C, true),
                 status: "in_progress".into(),
                 conclusion: String::new(),
                 url: "https://x/7".into(),
@@ -192,25 +203,43 @@ mod tests {
     #[test]
     fn only_runs_on_the_exact_commit_count() {
         let green_other = [run(5, OTHER, "completed", "success")];
-        assert_eq!(judge(&green_other, C, 0), Verdict::Missing);
+        assert_eq!(judge(&green_other, C, 0, true), Verdict::Missing);
         // A title that only starts with the commit is another one.
         let mut prefix = run(6, C, "completed", "success");
         prefix.title = format!("release-gate {}", &C[..12]);
-        assert_eq!(judge(&[prefix], C, 0), Verdict::Missing);
+        assert_eq!(judge(&[prefix], C, 0, true), Verdict::Missing);
         let runs = [
             run(3, C, "completed", "failure"),
             run(4, C, "completed", "success"),
             run(5, OTHER, "in_progress", ""),
         ];
-        assert_eq!(judge(&runs, C, 0), Verdict::Green("u4".into()));
-        assert_eq!(judge(&runs, C, 4), Verdict::Missing);
+        assert_eq!(judge(&runs, C, 0, true), Verdict::Green("u4".into()));
+        assert_eq!(judge(&runs, C, 4, true), Verdict::Missing);
         let runs = [run(3, C, "completed", "failure"), run(4, C, "queued", "")];
-        assert_eq!(judge(&runs, C, 0), Verdict::Running("u4".into()));
+        assert_eq!(judge(&runs, C, 0, true), Verdict::Running("u4".into()));
         let runs = [
             run(3, C, "completed", "failure"),
             run(4, C, "completed", "cancelled"),
         ];
-        assert_eq!(judge(&runs, C, 0), Verdict::Red("u4".into()));
+        assert_eq!(judge(&runs, C, 0, true), Verdict::Red("u4".into()));
+    }
+
+    #[test]
+    fn a_run_without_proofs_gates_only_a_release_that_needs_none() {
+        let mut bare = run(4, C, "completed", "success");
+        bare.title = title(C, false);
+        assert_eq!(bare.title, format!("release-gate {C} without proofs"));
+        assert_eq!(
+            judge(&[bare.clone()], C, 0, false),
+            Verdict::Green("u4".into())
+        );
+        assert_eq!(judge(&[bare.clone()], C, 0, true), Verdict::Missing);
+        // A run with the proofs gates either.
+        let full = run(5, C, "completed", "success");
+        assert_eq!(judge(&[full], C, 0, false), Verdict::Green("u5".into()));
+        let mut running = run(6, C, "in_progress", "");
+        running.title = title(C, false);
+        assert_eq!(judge(&[bare, running], C, 0, true), Verdict::Missing);
     }
 
     /// The lane over a list of answers to `list`, one per look; `wait` says
@@ -221,6 +250,7 @@ mod tests {
         let mut waited = 0;
         let out = gate(
             C,
+            true,
             || {
                 calls.borrow_mut().push("list".to_string());
                 answers.next().unwrap_or(Some(vec![]))
@@ -298,7 +328,19 @@ mod tests {
 
     #[test]
     fn the_release_gate_workflow_is_the_one_this_reads() {
-        assert!(GATE.contains(&format!("\nrun-name: {}\n", title("${{ inputs.commit }}"))));
+        assert!(GATE.contains(&format!(
+            "\nrun-name: {}${{{{ !inputs.proofs && ' without proofs' || '' }}}}\n",
+            title("${{ inputs.commit }}", true)
+        )));
+        // A run without the proofs skips the proofs job and nothing else.
+        assert!(GATE.contains("\n      proofs:\n        description:"));
+        assert!(GATE.contains("        type: boolean\n        default: true\n"));
+        let gated: Vec<String> = jobs(GATE)
+            .into_iter()
+            .filter(|(_, b)| b.contains("    if: inputs.proofs\n"))
+            .map(|(j, _)| j.to_string())
+            .collect();
+        assert_eq!(gated, ["proofs"]);
         assert!(GATE.contains("\n  workflow_dispatch:\n"));
         assert!(GATE.contains("runs-on: [self-hosted, speedlane]\n"));
         assert!(!GATE.contains("tehas]"));
