@@ -181,8 +181,6 @@ fn a_call_not_ready_granted_or_of_a_login_is_refused_and_runs_nothing() {
     let (home, mut x) = world("call-refused", out("{}"));
     let login = ask(&mut x, &home, &q(), &Caller::Login("octocat".into()));
     assert_eq!(login, Err(Failed::Refused(LOGIN.into())));
-    let bad_key = ask(&mut x, &home, &q(), &Caller::Mcp("0A1B2C3D".into()));
-    assert!(matches!(bad_key, Err(Failed::Refused(_))), "{bad_key:?}");
     let other = call(
         &mut x,
         &home,
@@ -263,4 +261,31 @@ fn two_calls_of_a_plugin_and_one_of_a_caller_run_at_once_and_more_are_busy() {
         (&r[0]["trigger"], &r[0]["by"]),
         (&json!("mcp"), &json!("ffffffff"))
     );
+}
+
+#[test]
+fn an_mcp_key_id_is_8_lower_case_hex_and_the_rows_by() {
+    let (home, mut x) = world("call-mcp", out("{}"));
+    let no = Err(Failed::Args("the MCP key id is 8 lower-case hex".into()));
+    for key in [
+        "0A1B2C3D",
+        "0a1b2c3",
+        "0a1b2c3d4",
+        "0a1b2c3g",
+        "",
+        "../../x",
+    ] {
+        assert_eq!(
+            ask(&mut x, &home, &q(), &Caller::Mcp(key.into())),
+            no,
+            "{key}"
+        );
+    }
+    assert_eq!(rows(&home), Vec::<Value>::new());
+    assert_eq!(
+        ask(&mut x, &home, &q(), &Caller::Mcp(KEY.into())),
+        Ok(json!({}))
+    );
+    let r = &rows(&home)[0];
+    assert_eq!((&r["trigger"], &r["by"]), (&json!("mcp"), &json!(KEY)));
 }
