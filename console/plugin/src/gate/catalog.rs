@@ -22,6 +22,9 @@ pub struct Facts {
     /// The folders of the plugin's views, each with whether it is granted:
     /// `/` for v1's `view`, each view's path of `views`.
     pub paths: Vec<(String, bool)>,
+    /// Kept files to frame at `/_frame/`. `keep:` is not a capability yet,
+    /// so no plugin has any.
+    pub keep: bool,
 }
 
 pub trait Catalog: Send + Sync {
@@ -57,6 +60,7 @@ pub fn facts_of(
             .cloned()
             .collect(),
         paths: Vec::new(),
+        keep: false,
     }
 }
 
