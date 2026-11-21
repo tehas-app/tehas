@@ -248,6 +248,24 @@ fn a_call_killed_before_docker_wrote_its_cid_removes_its_container_while_it_hold
 }
 
 #[test]
+fn a_row_the_store_did_not_end_keeps_its_directory() {
+    let (home, mut x) = world("call-end", out("{}"));
+    let answers = home.join("answers");
+    fs::write(&answers, "plugin-run-end|78|store: broken: no\n").unwrap();
+    crate::store::testing::plant(&home, &answers);
+    let dir = prepare::dir(&home, "floorplan").join("run-1");
+    assert_eq!(
+        ask(&mut x, &home, &q(), &Caller::Host),
+        Err(Failed::Tool(format!(
+            "the store did not end run 1, so {} is kept: store: broken: no",
+            dir.display()
+        )))
+    );
+    assert!(dir.join("call.json").exists());
+    assert_eq!(rows(&home)[0]["result"], Value::Null);
+}
+
+#[test]
 fn a_call_not_ready_or_granted_is_refused_and_runs_nothing() {
     let (home, mut x) = world("call-refused", out("{}"));
     let other = call(

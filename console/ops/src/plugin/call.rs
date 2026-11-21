@@ -9,7 +9,8 @@
 //! `plugin_runs`, the run's directory with its context and `call.json`, the
 //! container attached at the tool's timeout, its answer read, then the row
 //! ended and the directory removed. Nothing of the call is kept but the
-//! row's time, size and result.
+//! row's time, size and result, and the directory of a row the store did
+//! not end.
 
 use super::exec::{Called, Cmd, Exec};
 use super::prepare;
@@ -166,8 +167,13 @@ pub fn call(
         tool: Some(&t.id),
     };
     let (got, result, size) = run_in(x, &run, &t, args);
+    // A row left open keeps its directory, for a sweep to find.
+    end(home, id, result, size).map_err(|line| {
+        Failed::Tool(format!(
+            "the store did not end run {id}, so {dir_text} is kept: {line}"
+        ))
+    })?;
     let _ = fs::remove_dir_all(&dir);
-    end(home, id, result, size);
     got
 }
 
@@ -289,20 +295,17 @@ fn run_in(
     }
 }
 
-/// The row ended with what the call came to.
-fn end(home: &Path, id: u64, result: &str, size: Option<usize>) {
+/// The row ended with what the call came to, or the store's refusal.
+fn end(home: &Path, id: u64, result: &str, size: Option<usize>) -> Result<(), String> {
     let id = id.to_string();
     let size = size.map(|n| n.to_string());
     let mut args = vec!["plugin-run-end", "--run", &id, "--result", result];
     if let Some(n) = &size {
         args.extend(["--size", n.as_str()]);
     }
-    if let Err(no) = crate::store::try_call(home, 3, &args) {
-        eprintln!(
-            "plugin call: run {id}: the store did not end it: {}",
-            no.line
-        );
-    }
+    crate::store::try_call(home, 3, &args)
+        .map(drop)
+        .map_err(|no| no.line)
 }
 
 #[cfg(test)]
