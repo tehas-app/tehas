@@ -638,7 +638,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     let (handoff, lean_posted, repo_setting) = {
         let b = text(&outcome, "handoffBody");
         let marker = regex::Regex::new(r"\A<!-- pi-rukas:handoff [^\n]*-->\n*").unwrap();
-        let b = v(&marker.replace(&b, ""));
+        let b = for_host(&v(&marker.replace(&b, "")));
         let repo_setting = lean_repo_setting(&b);
         // Lean on the forge channel posted this itself: one comment, not two.
         let posted = lean && !b.is_empty() && text(&outcome, "handoffChannel") == "forge";
@@ -2075,8 +2075,55 @@ fn waits_only_for_a_merge(cap: &str) -> bool {
     matches!(cap, "awaiting-human-merge" | "lens-fix-reposition")
 }
 
+/// pi-rukas's handoff names its interactive `/work <n> --restart` command,
+/// which a tehas host has no way to run. The comment says what a person does
+/// here instead: change a protected path themselves, then tick a retry box.
+pub fn for_host(body: &str) -> String {
+    let cmd = regex::Regex::new(
+        r"(?i:(re-?run|run)\s+)?`/work \d+ --restart(?: --allow-protected ([^`]*))?[^`]*`",
+    )
+    .unwrap();
+    cmd.replace_all(body, |c: &regex::Captures| {
+        let said = match c.get(2).map(|m| m.as_str().trim()).filter(|p| !p.is_empty()) {
+            Some(paths) => format!(
+                "make the change to `{paths}` yourself, since a cycle may not change a protected path, then tick a retry box on this comment"
+            ),
+            None => "tick a retry box on this comment".to_string(),
+        };
+        let upper = c
+            .get(1)
+            .and_then(|w| w.as_str().chars().next())
+            .is_some_and(char::is_uppercase);
+        if upper {
+            let mut ch = said.chars();
+            ch.next()
+                .map(|f| f.to_uppercase().chain(ch).collect())
+                .unwrap_or(said)
+        } else {
+            said
+        }
+    })
+    .into_owned()
+}
+
 #[cfg(test)]
 mod tests {
+    /// #2637: pi-rukas's interactive `/work` command becomes what a person
+    /// does on a tehas host.
+    #[test]
+    fn a_handoff_s_work_command_is_said_as_the_host_s_way() {
+        assert_eq!(
+            super::for_host("Run `/work 1435 --restart --allow-protected .pi/verify-cmd` once it is right."),
+            "Make the change to `.pi/verify-cmd` yourself, since a cycle may not change a protected path, then tick a retry box on this comment once it is right."
+        );
+        assert_eq!(
+            super::for_host("fix the change the evidence names, then re-run `/work 7 --restart`"),
+            "fix the change the evidence names, then tick a retry box on this comment"
+        );
+        let plain = "Nothing to run here; `tehas work 7` and `/work` alone stay.";
+        assert_eq!(super::for_host(plain), plain);
+    }
+
     use super::*;
     use serde_json::json;
     use tehas_core::text::has_marker;

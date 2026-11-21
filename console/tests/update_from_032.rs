@@ -4,6 +4,7 @@
 //! test/fixtures/install-0.32 is what a v0.32.0 install leaves in the home
 //! and an instance that v0.32.0 loads.
 
+#[path = "update/mod.rs"]
 mod common;
 mod releases;
 

@@ -80,6 +80,8 @@ pub struct Held {
     pub name: String,
     pub current: String,
     pub newest: String,
+    /// The file that keeps the pin.
+    pub file: String,
 }
 
 fn moved_prefix(name: &str) -> String {
@@ -165,8 +167,8 @@ pub fn changelog(
         let mut add = vec!["### Held back".to_string(), String::new()];
         for h in held {
             add.push(format!(
-                "- {} {} is out, a new major version. `host/versions.env` keeps {}: the move is a person's call.",
-                h.name, h.newest, h.current
+                "- {} {} is out, a new major version. `{}` keeps {}: the move is a person's call.",
+                h.name, h.newest, h.file, h.current
             ));
         }
         add.push(String::new());

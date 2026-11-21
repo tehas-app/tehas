@@ -27,6 +27,26 @@
 import { createMemo, createSignal, flush, getOwner, onCleanup, untrack } from "./vendor/solid.js";
 import { accepts, bodyOf, dateOf, headersOf, keyOf, pickHeaders } from "./request.js";
 import { release, shared } from "./state.js";
+/** @import { Accept, Headers, Parse } from "./request.js" */
+
+/**
+ * @typedef {{ every?: number, headers?: Headers, credentials?: RequestCredentials, parse?: Parse,
+ *   accept?: Accept, expose?: string[] }} FeedOptions
+ * @typedef {{ status: number, headers: Record<string, string | null>, date: number | null, at: number }} Meta
+ * @typedef {{ readonly ok: true, readonly status: number, readonly data: any }
+ *   | { readonly ok: false, readonly status: number, readonly error: unknown }} FeedAnswer
+ *   What refresh() resolves with; it never rejects.
+ * @typedef {{ readonly src: string, readonly data: () => any, readonly error: () => unknown,
+ *   readonly at: () => number, readonly meta: () => Meta | null, readonly refresh: () => Promise<FeedAnswer>,
+ *   readonly put: (value: any) => void }} Feed
+ */
+
+/**
+ * @typedef {{ token: string | null, data: any, at: number, error: unknown, put?: string | null }} Entry
+ * @typedef {{ periods: number[], every: number, timer: number, due: boolean, out: AbortController | null | undefined,
+ *   again: boolean, gone: boolean, waiting: ((a: FeedAnswer) => void)[], giving: boolean,
+ *   run?: number, cur?: Entry | null, asked?: number, retime: () => void, api: Feed }} Source
+ */
 
 const MIN_EVERY = 1000;
 const TIMEOUT = 30000;
@@ -37,6 +57,7 @@ const KEYED = ["headers", "credentials", "parse", "accept", "expose"];
 
 // A put value as JSON, to know a poll that brings the same data; null when
 // it has none.
+/** @param {unknown} v */
 function json(v) {
   try {
     return JSON.stringify(v) ?? null;
@@ -44,17 +65,24 @@ function json(v) {
     return null;
   }
 }
+/** @type {(put: string | null | undefined, data: unknown) => boolean} */
 const same = (put, data) => put !== null && put === json(data);
 
+/**
+ * @param {string} src
+ * @param {FeedOptions} opts
+ * @returns {Source}
+ */
 function make(src, opts) {
   const [tick, setTick] = createSignal(0);
-  const [meta, setMeta] = createSignal(null);
-  const [given, give] = createSignal(null, { equals: false });
-  const f = { periods: [], every: Infinity, timer: 0, due: false, out: undefined, again: false, gone: false, waiting: [], giving: false };
+  const [meta, setMeta] = createSignal(/** @type {Meta | null} */ (null));
+  const [given, give] = createSignal(/** @type {Entry | null} */ (null), { equals: false });
+  /** @type {Source} */
+  const f = /** @type {any} */ ({ periods: [], every: Infinity, timer: 0, due: false, out: undefined, again: false, gone: false, waiting: [], giving: false });
   // f.asked is the tick the memo last asked for, f.run counts its runs and
   // f.cur is the entry it holds, which a put compares itself with.
   // A put takes the place of a poll out, whose answer was asked before it.
-  const entry = createMemo((prev) => {
+  const entry = createMemo((/** @type {Entry | undefined} */ prev) => {
     const t = tick();
     const g = given();
     f.run = (f.run ?? 0) + 1;
@@ -66,11 +94,15 @@ function make(src, opts) {
         f.asked = t;
         queueMicrotask(poll);
       }
-      return g;
+      return /** @type {Entry} */ (g);
     }
     f.asked = t;
     return ask(prev);
   });
+  /**
+   * @param {Entry | undefined} prev
+   * @returns {Promise<Entry>}
+   */
   async function ask(prev) {
     const out = new AbortController();
     f.out = out;
@@ -79,14 +111,17 @@ function make(src, opts) {
     const waiting = f.waiting;
     f.waiting = [];
     let status = 0;
+    /** @type {FeedAnswer | undefined} */
     let heard;
     // Unless a put has taken its place, the entry this poll gives.
+    /** @param {Entry} e */
     const hold = (e) => {
       if (f.run === run) f.cur = e;
       return e;
     };
     const limit = setTimeout(() => out.abort(new Error(`${src}: no answer in ${TIMEOUT} ms`)), TIMEOUT);
     try {
+      /** @type {RequestInit} */
       const init = { cache: "no-store", signal: out.signal };
       // Untracked: a signal the function reads must not start a fetch of its own.
       if (opts.headers) init.headers = untrack(() => headersOf(opts.headers));
@@ -97,7 +132,7 @@ function make(src, opts) {
       setMeta({ status: res.status, headers: pickHeaders(res, opts.expose), date: dateOf(res), at: Date.now() });
       status = res.status;
       if (!res.ok && !accepts(opts.accept, res.status)) {
-        const error = new Error(`${src}: ${res.status} ${res.statusText ?? ""}`.trim());
+        const error = /** @type {Error & { status?: number }} */ (new Error(`${src}: ${res.status} ${res.statusText ?? ""}`.trim()));
         error.status = res.status;
         throw error;
       }
@@ -122,9 +157,10 @@ function make(src, opts) {
       return hold({ ...prev, error });
     } finally {
       clearTimeout(limit);
-      queueMicrotask(() => landed(out, waiting, Object.freeze(heard)));
+      queueMicrotask(() => landed(out, waiting, Object.freeze(/** @type {FeedAnswer} */ (heard))));
     }
   }
+  /** @type {(out: AbortController, waiting: ((a: FeedAnswer) => void)[], heard: FeedAnswer) => void} */
   const landed = (out, waiting, heard) => {
     // A step later the memo has taken the answer, so a refresh that hears it
     // finds it in data() and its effects have run.
@@ -169,6 +205,7 @@ function make(src, opts) {
     if (!hidden() && f.due) poll();
   };
   globalThis.document?.addEventListener?.("visibilitychange", onVisible);
+  /** @returns {FeedAnswer} */
   const goneError = () => Object.freeze({ ok: false, status: 0, error: new Error(`${src}: the feed is gone`) });
   onCleanup(() => {
     f.gone = true;
@@ -184,7 +221,7 @@ function make(src, opts) {
     at: () => entry().at,
     meta,
     refresh: () =>
-      new Promise((done) => {
+      new Promise(/** @param {(a: FeedAnswer) => void} done */ (done) => {
         if (f.gone) {
           done(goneError());
           return;
@@ -192,7 +229,7 @@ function make(src, opts) {
         f.waiting.push(done);
         poll();
       }),
-    put: (data) => {
+    put: (/** @type {unknown} */ data) => {
       if (f.gone) return;
       // The same data as the readers have, with no poll out and no error:
       // nothing to tell.
@@ -225,11 +262,8 @@ function make(src, opts) {
  * period. A put while a poll is out takes the place of that poll's
  * answer, which was asked before the value was known.
  * @param {string} src
- * @param {{ every?: number, headers?: object | (() => object), credentials?: RequestCredentials,
- *   parse?: "json" | "text", accept?: Record<number, any>, expose?: string[] }} [options]
- * @returns {{ src: string, data: () => any, error: () => unknown, at: () => number,
- *   meta: () => null | { status: number, headers: Record<string, string | null>, date: number | null, at: number },
- *   refresh: () => Promise<{ ok: boolean, status: number, data?: any, error?: unknown }>, put: (value: any) => void }}
+ * @param {FeedOptions} [options]
+ * @returns {Feed}
  */
 export function feed(src, options = {}) {
   const { every = Infinity } = options;

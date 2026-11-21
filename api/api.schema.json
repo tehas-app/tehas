@@ -22,7 +22,8 @@
         "protolab-zip-url": {"type": "boolean"},
         "prototype-file": {"type": "boolean"},
         "lean": {"type": "boolean"},
-        "review": {"type": "boolean"}
+        "review": {"type": "boolean"},
+        "plugins": {"type": "boolean"}
       }
     },
     "millwright": {"type": ["string", "null"], "minLength": 1},

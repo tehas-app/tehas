@@ -282,6 +282,16 @@ fn the_pull_requests_say_what_they_do_and_what_waits() {
         pins_body(&["moved jq: 1.8.1 to 1.8.2", "held node: 24"], "v0.2.0"),
         "Each pinned tool at the newest release of the major version it has, with its checksum, digest or lockfile:\n\n- moved jq: 1.8.1 to 1.8.2\n- held node: 24\n\nA held tool has a new major version out; moving to it is a person's call. CHANGELOG.md names both.\n\nOpened by scripts/tag-release.sh, which tags v0.2.0 once this is merged."
     );
+    assert_eq!(
+        pins_body(
+            &[
+                "moved jq: 1.8.1 to 1.8.2",
+                "kept solid-js 2.0.3: 2.0.4 asks for @solidjs/signals ^2.0.4, and @solidjs/signals would be 2.0.3",
+            ],
+            "v0.2.0"
+        ),
+        "Each pinned tool at the newest release of the major version it has, with its checksum, digest or lockfile:\n\n- moved jq: 1.8.1 to 1.8.2\n\nA held tool has a new major version out; moving to it is a person's call. CHANGELOG.md names both.\n\nThese Solid pins stay where they are. A newer release of their major needs a version of another Solid package that this move does not take:\n\n- kept solid-js 2.0.3: 2.0.4 asks for @solidjs/signals ^2.0.4, and @solidjs/signals would be 2.0.3\n\nOpened by scripts/tag-release.sh, which tags v0.2.0 once this is merged."
+    );
 }
 
 /// A bare remote with one commit tagged v0.1.0 and a clone the task runs in.

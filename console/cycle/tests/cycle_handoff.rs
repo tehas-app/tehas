@@ -319,6 +319,25 @@ fn a_park_carries_pi_rukass_handoff_under_its_marker_cleaned_like_any_agents_wor
     assert_eq!(ticked.find_iter(body).count(), 0);
 }
 
+// #2637: pi-rukas's interactive command is said as what a person does here.
+#[test]
+fn a_park_s_handoff_names_no_work_command_a_host_cannot_run() {
+    let w = World::new("ho-host-hint");
+    w.ended("handoff", "develop", "feature/x", "verify-failed:develop");
+    w.entry(|e| {
+        e["handoff"] = json!({"channel": "host", "body": "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->\n## Cap hit\n\nRun `/work 7 --restart --allow-protected .pi/verify-cmd` once it is right."})
+    });
+    w.run7();
+    let gh = w.gh();
+    let at = gh
+        .find("issues/7/comments -f body=")
+        .expect("no park comment");
+    let body = &gh[at..];
+    lacks(body, "/work 7");
+    lacks(body, "--allow-protected");
+    has(body, "Make the change to `.pi/verify-cmd` yourself, since a cycle may not change a protected path, then tick a retry box on this comment once it is right.");
+}
+
 #[test]
 fn a_waiting_merge_posts_pi_rukass_handoff_on_the_pull_request_with_the_usage() {
     let w = World::new("ho-merge-handoff");

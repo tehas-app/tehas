@@ -7,6 +7,7 @@
 //! install leaves in the home and settings an instance of 0.30.x may set that
 //! this release renamed or removed.
 
+#[path = "update/mod.rs"]
 mod common;
 mod releases;
 
