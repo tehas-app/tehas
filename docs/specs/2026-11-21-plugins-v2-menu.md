@@ -33,11 +33,14 @@ list of their own.
 | --- | --- |
 | `id` | `a-z` and `-`, 1 to 16, unique |
 | `label` | 1 to 24 characters |
-| `path` | A directory of the view, starting and ending with `/`, none inside another view's path |
+| `path` | A directory of the view, starting and ending with `/`, each view its own; a path may be inside another view's |
 | `open` | `dock` or `page` |
 
 At most 4. Each needs `view:<id>`; v1's `view` grant is a single view at
-`/`. A path no granted view covers is 404 at the gate.
+`/`. A request belongs to the view with the longest path that holds it. If
+that view is not granted, the request is 404: it never falls back to a view
+with a shorter path, so a grant left out of `/health/` is not served through
+`/`. A path no view holds is 404 at the gate.
 
 ## Widgets
 
