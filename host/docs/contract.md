@@ -497,6 +497,9 @@ with exit 78 and says `plugins` is still being built.
   `api/plugin-verdict.schema.json` and
   their samples are not contract until the release that ships the feature.
 - The state store has the table `plugin_runs` from schema 19, empty.
+- `live/plugins.json`, the plugins menu, is written only while the feature
+  is on and a ready plugin is granted `menu`, so a release writes none. Its
+  shape is not contract until the release that ships the feature.
 - `tehas-plugin` and its units are not installed, `tehasbot plugin` runs
   nothing, and no plugin container starts.
 - The gate's program `tehas-plugin-gate` and its unit

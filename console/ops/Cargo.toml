@@ -19,6 +19,7 @@ testing = []
 [dependencies]
 libc = "0.2"
 rustix = { version = "1", default-features = false, features = ["std"] }
+serde = "1"
 serde_json = "1"
 sha2 = "0.10"
 # The state store, called in this process (src/store.rs).
