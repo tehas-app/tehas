@@ -181,7 +181,7 @@ A plugin never holds the model's key, never reaches the endpoint, and has no
 network. With `model:<tokens>` granted, `tehas-plugin` serves a unix socket for
 the run, `/run/tehas/model.sock`, mode 0666 in a directory of 0755 made
 for that run and mounted only into its container, and stops it when the run
-ends. It is a part
+ends. The runner makes the directory. It is a part
 of the `tehas-plugin` program, not of `tehas-proxy`: it shares no token, port
 or route with outsource.
 
@@ -191,27 +191,37 @@ What it answers:
   the id the context names. Anything else: 404.
 - The body is read whole, at most 1 MiB, and parsed. Only these fields pass:
   `model`, `messages`, `max_tokens`, `temperature`, `top_p`, `stop`, `tools`,
-  `tool_choice`, `response_format`, `seed`. Any other field: 400.
-- `model` must be the id the context names; it is rewritten to the
-  endpoint's own.
-- A message has `role`, `content`, and for tool turns `tool_calls`,
-  `tool_call_id` and `name`. Its content is text: a string, `null` on an
+  `tool_choice`, `response_format`, `seed`, and `stream` and `n` as below.
+  Any other field: 400.
+- At most 16 connections at once; past that, 503. A request head is at most
+  8 KiB, read within 10 seconds.
+- `model` must be the id the context names (`model.id`, the id the plugin
+  sends); the socket rewrites it to the endpoint's own.
+- A message has `role` (`system`, `user`, `assistant` or `tool`; any other,
+  `developer` included, is 400), `content`, and for tool turns `tool_calls`,
+  `tool_call_id` and `name`. An assistant turn that calls tools may leave out
+  `content`. Its content is text: a string, `null` on an
   assistant turn that calls tools, or parts of `type: text` only. No image
   or file part, so the model is never asked to fetch an address.
-- `stream` and `n` other than 1: 400. v1 answers whole.
+- `stream: false` and `n: 1` are accepted and dropped. Any other value: 400.
+  v1 answers whole.
 - `max_tokens` is required, at most 16384.
-- **The budget is held before the request.** The prompt's bytes divided by 3,
+- **The budget is held before the request.** The bytes of the whole body as sent, divided by 3,
   plus `max_tokens`, is reserved against the run's `<tokens>` and the day's
   `TEHAS_PLUGIN_MODEL_DAY` before it is sent. The answer's `usage` then
   replaces the reserve; an answer without `usage` keeps it. A request that
-  would pass either total is 429 and is not sent.
+  would pass either total is 429 and is not sent. An error keeps the
+  reserve: the endpoint's own error is passed back with its status when it is
+  JSON, a `curl` failure is 502, a timeout 504.
 - One request at a time per run. A second waits.
-- The request goes to the endpoint and key of the product model's provider in
-  `models.json`, the one the cycle's main role uses, over
+- The request goes to the main endpoint and key of the product model's
+  provider in `models.json`, the one the cycle's main role uses, over
   `http://` or `https://` (through `curl`, as `models.rs` reaches the
   endpoint), with a 300-second bound. The answer is passed back as JSON, at
   most 4 MiB.
-- Counts, not bodies, are kept: requests and tokens on the run's row.
+- Counts, not bodies, are kept. The socket gives them to the runner when it
+  stops, and the runner writes them to the run's row (`plugin_runs.tokens`).
+  The day's total is `~/tehas/plugins/model-day`, owned by the host's user.
 
 The cycles call the model directly, so a plugin and a cycle share the
 endpoint's capacity. v1 bounds a plugin by its budget, one request at a time,
