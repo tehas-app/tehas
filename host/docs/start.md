@@ -144,12 +144,11 @@ this is the order and where to stop.
 
 ### 3. Add a feature beside the factory
 
-Plugins are not built yet. Their design is a draft in the repository,
-[docs/specs/2026-11-21-plugins.md](https://github.com/tehas-app/tehas/blob/main/docs/specs/2026-11-21-plugins.md):
-a program from a git repository pinned to a commit, run in a locked-down
+Plugins are still being built, and no release runs one yet. A plugin is a
+program from a git repository pinned to a commit, run in a locked-down
 container outside the cycle, given nothing until a person grants each
-thing it asks for. When a release ships them, this page says how to write
-one.
+thing it asks for. [Plugins](/plugins) says how one is set up and what each
+grant gives. When a release ships them, this page says how to write one.
 
 Until then, a program beside the factory can use what tehas-industry uses:
 the factory's commands with `--json` ([The factory API](/api)), the
