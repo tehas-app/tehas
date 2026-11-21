@@ -17,7 +17,7 @@ use tehas_core::plugin::manifest::{self, Manifest};
 use tehas_core::plugin::state::{State, Word};
 use tehas_core::plugin::{compare, dockerfile, skill, Grants, Pin};
 
-fn sha256(bytes: &[u8]) -> String {
+pub(super) fn sha256(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -131,6 +131,22 @@ fn blob(
     Ok(Some(got.out))
 }
 
+/// A skill's file of the fetched commit, read as [`read`] reads it and held
+/// to the skill's rules.
+pub fn skill_text(
+    x: &mut dyn Exec,
+    home: &Path,
+    name: &str,
+    commit: &str,
+    path: &str,
+) -> Result<String, String> {
+    let bytes = blob(x, &repo(home, name), commit, path, skill::BYTES_MAX as u64)?
+        .ok_or_else(|| format!("{path}: not in the commit"))?;
+    skill::text(&bytes)
+        .map(str::to_string)
+        .map_err(|why| format!("{path}: {why}"))
+}
+
 /// A commit's manifest and Dockerfile as read.
 #[derive(Debug, Default)]
 pub struct Reading {
@@ -141,6 +157,13 @@ pub struct Reading {
     pub bases: Vec<String>,
     /// Each rule the commit breaks.
     pub refusals: Vec<String>,
+}
+
+impl Reading {
+    /// Whether the manifest read now is not the one `kept` records.
+    pub fn manifest_sha256_differs(&self, kept: Option<&str>) -> bool {
+        kept != Some(self.sha256.as_str())
+    }
 }
 
 /// The manifest, its skills and its Dockerfile, read from the fetched
