@@ -17,6 +17,12 @@
 //! written; 64 an argument other than `--json`; 78 the feature is off, or the
 //! settings are missing or malformed.
 
+pub mod build;
+pub mod check;
+pub mod collect;
+pub mod publish;
+pub mod render;
+
 use serde_json::{json, Value};
 use std::env;
 use std::fs;

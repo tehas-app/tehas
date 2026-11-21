@@ -24,6 +24,10 @@ publish = false
 # The link rule, the fetch and the manifest (src/attach.rs, src/protolab).
 attach = { path = "attach" }
 libc = "0.2"
+# The wiki's Markdown, rendered on the host with any HTML in it shown as text
+# (src/wiki/render.rs).
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+regex = "1"
 rustix = { version = "1", default-features = false, features = ["std"] }
 serde_json = "1"
 sha2 = "0.10"
