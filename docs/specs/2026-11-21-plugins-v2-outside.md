@@ -40,15 +40,19 @@ At most 4 origins.
 
 - **The address.** The host name is resolved once, every A and AAAA is
   checked, and the connection goes to the address that was checked, never a
-  second lookup. Refused: loopback, private, link-local, unique-local
-  (RFC 4193), shared CGNAT space (RFC 6598), "this network" (RFC 791), multicast, the
-  documentation ranges, IPv4-mapped and NAT64 IPv6, and the Docker bridge
-  ranges the host reports. One refused address refuses the name.
+  second lookup. Only global unicast is allowed: an address that IANA's
+  special-purpose registries for IPv4 and IPv6 mark as not globally
+  reachable is refused, and so are the host's own addresses and the Docker
+  bridge ranges the host reports. One refused address refuses the name.
 - **Port 443 only**, TLS with the system's roots.
 - **No proxy from the environment.**
 - **The path** is normalised (`..`, `%2e`, `//`, encoded slashes) before the
   prefix check, and the normalised path is what is sent.
 - **Redirects** are not followed. A 3xx is passed back as 502.
+- **What goes upstream.** Nothing the browser or the run sent but the path
+  and, for a `POST`, the body. tehas sets `Host`, `User-Agent` and `Accept`
+  itself, and a `Content-Type` for a body. No cookie, no `Authorization`,
+  no `Referer`, no header of the person.
 - **Methods** `GET` and `HEAD` from a view; `GET` and `POST` from a run, a
   body at most 1 MiB.
 - **The answer.** Upstream headers are dropped but `Content-Type` and
@@ -74,6 +78,13 @@ contractor (`console/mcp/src/egress.rs`). `POST /fetch` with `{"id",
 "method", "path", "body"}`; the same fetch and caps. The run's argument list
 gains the socket's directory only with the grant;
 `test/fixtures/argv/plugin-net` pins it.
+
+The socket answers `/fetch` only. It is no HTTP proxy and takes no
+`CONNECT`: a tunnel would hide the path, the headers and the decoded size
+that the rules above check. A plugin that runs a browser in its container
+puts a proxy of its own beside it, which ends the browser's TLS with a key
+made in the container and turns each request into a `/fetch`. Every request
+then passes the same rules, and the rate counts each one.
 
 ## Enforced in one place
 
