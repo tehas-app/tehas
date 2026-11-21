@@ -3,7 +3,7 @@
 
 use super::text::Ver;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256, Sha512};
 use std::path::Path;
 
 /// The outside world a move reads. The tests give it a fake.
@@ -31,6 +31,8 @@ pub enum Source {
     Crate(&'static str),
     /// An npm package and the tree, under the root, that pins it.
     Npm(&'static str, &'static str),
+    /// An npm package pinned by the sum of its tarball, not by a tree.
+    NpmTarball(&'static str),
     Caddy,
 }
 
@@ -117,11 +119,19 @@ pub const TOOLS: &[Tool] = &[
         source: Source::Releases("google/osv-scanner", "v"),
     },
     Tool {
+        key: "TSC_VERSION",
+        name: "tsc",
+        source: Source::NpmTarball(TSC_PACKAGE),
+    },
+    Tool {
         key: "CADDY_VERSION",
         name: "Caddy",
         source: Source::Caddy,
     },
 ];
+
+/// The npm package that holds the native tsc for linux x86_64.
+const TSC_PACKAGE: &str = "@typescript/typescript-linux-x64";
 
 /// The files besides versions.env that name Caddy's digest and version.
 pub const CADDY_FILES: &[&str] = &[
@@ -215,7 +225,7 @@ pub fn versions(tool: &Tool, world: &dyn World) -> Result<Vec<Ver>, String> {
                     .filter_map(|v| Ver::parse(v["num"].as_str()?)),
             );
         }
-        Source::Npm(package, _) => {
+        Source::Npm(package, _) | Source::NpmTarball(package) => {
             found.extend(npm_versions(&npm_doc(world, package)?, world));
         }
         Source::Caddy => {
@@ -334,9 +344,33 @@ pub fn companions(
                 .ok_or_else(|| format!("{url} names no sha256 digest"))?;
             one("CADDY_DIGEST", digest)
         }
+        "TSC_VERSION" => one("TSC_SHA256", npm_tarball(TSC_PACKAGE, v, world)?),
         "VIPUNE_VERSION" => model(v, world),
         _ => Ok(Vec::new()),
     }
+}
+
+/// The sha256 of the registry's tarball of `package` at `v`, the file the
+/// gate's workflows, the sandbox image and bootstrap.sh download. npm
+/// publishes a sha512 integrity of it, and the download must match that.
+fn npm_tarball(package: &str, v: &str, world: &dyn World) -> Result<String, String> {
+    let base = package.rsplit('/').next().unwrap_or(package);
+    let url = format!("https://registry.npmjs.org/{package}/-/{base}-{v}.tgz");
+    let doc = npm_doc(world, package)?;
+    let want = doc["versions"][v]["dist"]["integrity"]
+        .as_str()
+        .ok_or_else(|| format!("the registry names no integrity of {package} {v}"))?;
+    let body = world.get(&url)?;
+    let got = format!(
+        "sha512-{}",
+        tehas_core::file::base64(&Sha512::digest(&body))
+    );
+    if got != want {
+        return Err(format!(
+            "{url} is not the tarball the registry's integrity names"
+        ));
+    }
+    Ok(sha256(&body))
 }
 
 /// The embedding model vipune `v` asks for, from its crate, and the hashes of
