@@ -420,6 +420,13 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
             tools(v, &caps, &mut out)
         }
     };
+    for cap in &caps {
+        if let Cap::Mcp(id) = cap {
+            if !tools.iter().any(|t| &t.id == id) {
+                out.say(format!("asks: mcp:{id} names no tool of tools"));
+            }
+        }
+    }
     let needs = match field("needs") {
         None => Vec::new(),
         Some(v) => needs(v, &caps, name, &mut out),
@@ -1228,6 +1235,29 @@ mod tests {
 
     fn refusals_of_docs(v: &Value) -> Vec<String> {
         read(v.to_string().as_bytes(), "docs").unwrap_err()
+    }
+
+    #[test]
+    fn mcp_asks_for_a_tool_of_tools() {
+        let m = read(
+            tooled(|m| m["asks"] = json!(["tool:find-doc", "mcp:find-doc"]))
+                .to_string()
+                .as_bytes(),
+            "docs",
+        )
+        .unwrap();
+        assert_eq!(m.asks, ["tool:find-doc", "mcp:find-doc"]);
+        let got = refusals_of_docs(&tooled(|m| {
+            m["asks"] = json!(["tool:find-doc", "mcp:grep"]);
+        }));
+        assert_eq!(got, ["asks: mcp:grep names no tool of tools"]);
+        let got = refusals_of_docs(&tooled(|m| {
+            m["asks"] = json!(["tool:find-doc", "mcp:Find"]);
+        }));
+        assert_eq!(
+            got,
+            ["asks: mcp:Find: a tool's id is 1 to 16 characters of a-z and -"]
+        );
     }
 
     #[test]

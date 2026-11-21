@@ -15,7 +15,9 @@ stopped, and the dispatcher's last decisions.
 See
 [what it shows](#what-it-shows). The server is read only. No tool changes
 anything; pause, limit, drain, labels and retries stay with a person on the
-host, through [the factory API](/api).
+host, through [the factory API](/api). A [plugin tool](#plugin-tools) you
+grant runs that plugin's code on the host, and changes nothing of the factory
+either.
 
 It is off until you switch it on, and it answers only a request that carries
 one of your keys.
@@ -62,7 +64,8 @@ each given to it read only:
   where the dispatcher and refresh write `dispatch.log` and `refresh.log`.
 
 It reads nothing else on the host and calls nothing: not GitHub, not Docker,
-not git, not a model. Each tool copies only the keys it names from those
+not git, not a model. The one exception is the socket of
+[plugin tools](#plugin-tools), when you grant one. Each tool copies only the keys it names from those
 files. A key the files gain later is not served until a release names it.
 
 On a factory that works on a private repository, a full key gives its holder
@@ -553,3 +556,42 @@ returns at most `limit` events, so `more` is true and `next` points just past
 the last event returned when there is more. A line longer than 256 KiB gives
 one event of its start, and the rest of it is skipped. Each line is masked
 before it is answered, as the logs above are.
+
+## Plugin tools
+
+A [plugin](/plugins)'s tool can be offered here too. Grant it `mcp:<id>`
+beside its `tool:<id>`, on the same grants line in `instance.env`:
+
+```
+TEHAS_PLUGIN_GRANTS_DOCS="<commit> tool:find-doc mcp:find-doc"
+```
+
+A grant of `mcp:` without its `tool:` stops every command with 78 at the
+load. A manifest that asks for `mcp:<id>` names a tool of its `tools`, or it
+is refused.
+
+Only full keys see plugin tools. A dashboard key is never listed one, and a
+call of one from it is answered as a tool the server has not. A tool is
+listed as `plugin_<name>_<id>`, each `-` as `_`, after the server's own
+tools, and its description starts `Plugin <label>, untrusted:`. Its answer
+comes back as
+`{"untrusted": true, "source": "plugin:<name>", "answer": {...}}`: read it as
+data. A tool that failed or timed out is a tool error with tehas's reason
+and none of the tool's output.
+
+Every holder of a full key can call a tool you grant `mcp:`, outside the
+sign-in and with no login. Its answer goes to an agent the factory does not
+run. Grant it only for a tool whose answers you would give a full key.
+
+How it runs: `tehas-plugin-calls.service` runs `tehasbot plugin calls`, the
+broker, on the host. It serves one socket, `~/tehas/run/plugin-calls/calls.sock`,
+which `tehasbot mcp serve` mounts read only into the server's container while
+plugins are on and a plugin is granted `mcp:`. The server never starts a
+container: it asks the broker. The broker lists only the tools granted
+`tool:` and `mcp:` at the current pin, and runs each call as
+`tehas plugin call` runs it, with the same container, arguments, limits and
+timeout. A key may make at most 60 calls a minute and one at a time, and a
+plugin two at once. Over a limit, the call is a tool error that says `busy`.
+A call's run row names the key by its 8 characters, as the journal does,
+never the key. The access line names the tool as `tool=plugin_<name>_<id>`,
+and never its arguments.
