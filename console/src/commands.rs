@@ -21,7 +21,7 @@
 //!   console tehas freeze <issue> [--reason TEXT] [--json]
 //!   console tehas thaw <issue> [--json]
 //!   console tehas wake [--json]
-//!   console tehas wiki [--json]
+//!   console tehas wiki [--json] | build [--full] [--json]
 //!   console tehas dev <arguments>
 //!   console tehas dev-login "Name <email>" [-- <pi arguments>]
 //!   console tehas github writes

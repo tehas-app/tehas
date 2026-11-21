@@ -1,19 +1,11 @@
 #!/usr/bin/env bash
 # Every docker run tehas makes for a container of its own: the whole argument
-# list, in order, against a golden file in test/fixtures/argv. One file per
-# call, <case>.<n>, one argument per line. These files are what a port of a
-# command to Rust must keep, so a port does not change them.
-#
-# What differs from run to run is made one word: the scratch directory, the uid
-# and gid, a commit, a mktemp suffix (in a path and in a container's name), a
-# run's time stamp and the cycle's deadline. The -e PI_ENSEMBLE_* block comes from
-# the order of the environment, which bash decides, so that block is sorted.
-# Everything else stands in the order it was given. Other docker calls (info,
-# image inspect, rm, stop) start no container and are not recorded.
-#
-# To record the files again, after a change that means to change them, and read
-# the diff before committing it:
-#
+# list, in order, against test/fixtures/argv/<case>.<n>, one argument per line.
+# A port of a command to Rust keeps these files. What differs from run to run
+# (the scratch directory, uid and gid, a commit, a mktemp suffix, a time stamp,
+# the cycle's deadline) is made one word, and the -e PI_ENSEMBLE_* block is
+# sorted. Calls that start no container (info, inspect, rm, stop) are not kept.
+# To record the files again and read the diff before committing it:
 #   TEHAS_TEST_ARGV_RECORD=1 bash test/sandbox_argv_test.sh
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
@@ -23,8 +15,7 @@
 
 goldens=$T_ROOT/test/fixtures/argv
 
-# The product of every command here. On top of work_lib's gate: what the
-# contract asks for, and the files that make --sandbox run all it can.
+# The product: work_lib's gate, what the contract asks, all --sandbox runs.
 mkdir -p "$upstream/.pi"
 echo rules >"$upstream/AGENTS.md"
 echo 'make full' >"$upstream/.pi/verify-cmd-full"
@@ -54,7 +45,8 @@ cp "$T_CYCLE" "$shim/libexec/tehas-cycle"
 jq '. + {contract: "0.14.0"}
   | .features.planTurns = true
   | .verbs.plan.flags = ["--start", "--context", "--resume", "--answer", "--confirm", "--issue"]
-  | .verbs["lens-review"].flags = ["--base", "--head", "--since", "--full", "--context", "--pr", "--json"]' \
+  | .verbs["lens-review"].flags = ["--base", "--head", "--since", "--full", "--context", "--pr", "--json"]
+  | .verbs.wiki.flags = ["--raw", "--out", "--full", "--json"]' \
   "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
 echo sha256:1111111111111111111111111111111111111111111111111111111111111111 >"$T/image.inspect"
 reads_image 1
@@ -96,6 +88,9 @@ case " $* " in
     cat "$T/fx/turn.json"
     exit 11 ;;
   *" lens-review "*) cat "$T/fx/review.json" | tee "${doc:-/dev/null}" ;;
+  *" wiki --raw "*) out=$(printf "%s\n" "$@" | sed -n "s#:/run/tehas/wiki/out\$##p")
+    v=$(jq -r ".commit[0:8]" "${out%/out}/raw/head.json"); printf -- "---\ntitle: T\nverified_at: %s\n---\n[s](SCHEMA.md) [l](log.md)\n" "$v" | tee "$out/index.md" >"$out/SCHEMA.md"
+    printf "# Log\n\n## %s\n" "$v" >"$out/log.md" && echo "{}" ;;
   *" index_repository "*)
     echo index >"$written/widget.db"
     echo "{\"project\":\"p\",\"status\":\"indexed\",\"nodes\":5,\"edges\":7}" ;;
@@ -108,16 +103,14 @@ echo '{"subcommand":"plan","mode":"turn","exitCode":11,"status":"question","sess
 echo '{"verdict":"APPROVED","exitCode":0}' >"$fx/review.json"
 printf '# Faster search\n\nMake it fast.\n' >"$T/brief.md"
 printf 'yes\n' >"$T/answer.md"
-# Two tokens by name, as a host's models.json has them, so their order is pinned.
-# No backupBaseUrl, so no run asks an endpoint.
+# Two tokens by name, as a host has them, to pin their order; no backupBaseUrl.
 echo '{"providers":{"test-provider":{"baseUrl":"http://models.test/v1","apiKey":"$TEHAS_MODEL_KEY_MAIN","backupApiKey":"$TEHAS_MODEL_KEY_FLEET"}}}' >"$T/home/.pi/agent/models.json"
 
 # The instance of every case, and the tokens of the host's environment: all a
 # container can be given by name. A container that takes no token shows it too.
-all=("${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_REVIEW=1)
-# review is still being built: the review's container is pinned as a test
-# turns the feature on.
-T_ENV_ALWAYS+=(TEHAS_TEST_FEATURES=review)
+all=("${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_REVIEW=1 TEHAS_WIKI=1)
+# review and wiki are still being built: a test turns them on to pin them.
+T_ENV_ALWAYS+=("TEHAS_TEST_FEATURES=review wiki")
 clean() {
   fresh
   rm -f "$T/docker.n"
@@ -205,6 +198,12 @@ clean
 t_run "$shim/bin/tehasbot review"
 t_eq "$t_rc" 0
 compare review
+
+t_case "a wiki build"
+clean
+t_run "$shim/bin/tehasbot wiki build"
+t_eq "$t_rc" 0
+compare wiki
 
 t_case "the indexer"
 clean

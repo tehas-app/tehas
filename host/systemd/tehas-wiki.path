@@ -1,0 +1,10 @@
+[Unit]
+Description=Tehas: build the product wiki when tehas wiki build asks
+
+[Path]
+# tehas wiki build writes it; the build takes it.
+PathExists=%h/tehas/state/wiki.ask
+Unit=tehas-wiki.service
+
+[Install]
+WantedBy=default.target

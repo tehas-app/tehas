@@ -1,18 +1,31 @@
-tehas wiki: the state of the product wiki.
+tehas wiki: the state of the product wiki, and asking for a build.
 
-The wiki is built from the product's code, its version tags and its commit
-history, and shown at /wiki on the factory's site. This says which build is
-current, from which commit, and how far it is behind main: the commits since
-its commit and the age, in days, or in months from 60 days. It reads the
-product checkout and ~/tehas/wiki, and runs no model and no call to GitHub.
-tehasbot wiki writes the same state to ~/tehas/live/wiki.json for the page;
-tehas-wiki-status.timer runs it every five minutes.
+The wiki is built by the model from the product's code, its version tags and
+its commit history, and shown at /wiki on the factory's site. tehas wiki
+says which build is current, from which commit, and how far it is behind
+main: the commits since its commit and the age, in days, or in months from
+60 days. It reads the product checkout and ~/tehas/wiki, and runs no model
+and no call to GitHub. tehasbot wiki writes the same state to
+~/tehas/live/wiki.json for the page; tehas-wiki-status.timer runs it every
+five minutes.
+
+tehas wiki build asks for a build and returns at once: it writes
+~/tehas/state/wiki.ask, and tehas-wiki.path starts tehasbot wiki build. The
+build runs pi-rukas's wiki verb in a container with the code and the raw
+sources read-only and no token, checks the pages, renders them and moves the
+build into place. A build of a commit already built does nothing, but with
+--full, which lets every page change. tehas-wiki.timer asks every night.
 
 The wiki is still being built in this release: TEHAS_WIKI=on stops every
 command with 78.
 
-Usage: tehas wiki [--json], which prints one object with state, current,
-main and behind.
+Usage:
+  tehas wiki [--json]
+  tehas wiki build [--full] [--json]
 
-Exit: 0 the state was printed; 64 an argument other than --json; 78 the
-wiki is off, or the instance settings are missing or malformed.
+--json prints one object: the state, with state, current, main and behind;
+or for build, {"api": 1, "asked": true, "full": false}.
+
+Exit: 0 the state was printed or the build asked for; 1 the ask could not be
+written; 64 an argument it does not take; 78 the wiki is off, or the
+instance settings are missing or malformed.

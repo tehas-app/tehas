@@ -1,0 +1,13 @@
+[Unit]
+Description=Tehas: one build of the product wiki
+
+[Service]
+NoNewPrivileges=yes
+Type=oneshot
+Nice=19
+CPUWeight=idle
+IOSchedulingClass=idle
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot wiki build >> %h/tehas/logs/wiki.log 2>&1"
+# The model has no time limit (docs/specs/2026-11-21-wiki.md); a day bounds a
+# build that hangs, so the next night can start one.
+TimeoutStartSec=1d

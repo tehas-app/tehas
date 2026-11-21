@@ -333,6 +333,9 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
             env::set_var("PATH", path);
             hand_to_dispatcher(libexec, rest, Some(format!("{home}/logs/refresh.log")))
         }
+        ["tehasbot", "wiki"] if rest.first().is_some_and(|w| w == "build") => {
+            crate::wiki::runner::main(&rest[1..])
+        }
         ["tehasbot", "wiki"] => crate::wiki::publish(rest),
         ["tehasbot", "review"] if !tehas_core::features::on("review") => 0,
         ["tehasbot", "review"] => review::main(&["main".to_string()]),

@@ -1,0 +1,11 @@
+[Unit]
+Description=Tehas: build the product wiki every night
+
+[Timer]
+# By the clock, so that restarting the timer does not start a build. A night
+# with no new commit builds nothing.
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
