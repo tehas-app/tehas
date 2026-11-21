@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tehas-app/tehas/api/plugin-manifest.schema.json",
   "title": "tehas-plugin.json",
-  "description": "A plugin's manifest, version 1: tehas-plugin.json at the root of the plugin's repository, at the pinned commit. Plugins are a feature still being built, so this is not contract until the release that ships them. Every object is closed: a field this does not name is refused, so a manifest made for a later tehas never runs half read. The reader is console/core/src/plugin/manifest.rs; its tests hold it and this schema to the same verdict on the samples beside this file and on each field broken one way. Three rules are the reader's alone: the name equals the one TEHAS_PLUGINS gives, each action's id is asked as action:<id>, and no two actions share an id. An ask of a later tehas (gate:, another hook point, skill:, tool:, net:, factory-read, factory-sessions) and a kind other than batch are refused by the reader as reserved for plugins v2.",
+  "description": "A plugin's manifest, version 1: tehas-plugin.json at the root of the plugin's repository, at the pinned commit. Plugins are a feature still being built, so this is not contract until the release that ships them. Every object is closed: a field this does not name is refused, so a manifest made for a later tehas never runs half read. The reader is console/core/src/plugin/manifest.rs; its tests hold it and this schema to the same verdict on the samples beside this file and on each field broken one way. A plugin with a build has an image and runs; one with none is text alone, such as skills, and never runs. Some rules are the reader's alone: the name equals the one TEHAS_PLUGINS gives, each action's and each skill's id is asked as action:<id> or skill:<id>, no two actions or skills share an id, and a plugin with no build asks for nothing that needs a run (anything but skill:). An ask of a later tehas (gate:, another hook point, tool:, net:, factory-read, factory-sessions) and a kind other than batch are refused by the reader as reserved for plugins v2.",
   "type": "object",
-  "required": ["plugin", "kind", "name", "label", "build", "asks", "timeout"],
+  "required": ["plugin", "name", "label", "asks"],
   "additionalProperties": false,
   "properties": {
     "plugin": {"const": 1},
@@ -15,9 +15,9 @@
     "build": {"type": "string", "maxLength": 255, "pattern": "^(\\.?[A-Za-z0-9_-])+\\.?(/(\\.?[A-Za-z0-9_-])+\\.?)*$"},
     "asks": {
       "type": "array",
-      "maxItems": 6,
+      "maxItems": 32,
       "uniqueItems": true,
-      "items": {"type": "string", "pattern": "^(view|product|model|hook:after:work|action:[a-z-]{1,16})$"}
+      "items": {"type": "string", "pattern": "^(view|product|model|hook:after:work|action:[a-z-]{1,16}|skill:[a-z-]{1,16})$"}
     },
     "timeout": {"type": "integer", "minimum": 60, "maximum": 14400},
     "ui": {
@@ -61,10 +61,32 @@
           "timeout": {"type": "integer", "minimum": 60, "maximum": 1800}
         }
       }
+    },
+    "skills": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["id", "about", "path", "chats"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z-]{1,16}$"},
+          "about": {"type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[^\u0000-\u001f\u007f-\u009f\u2028\u2029]*$"},
+          "path": {"type": "string", "maxLength": 255, "pattern": "^((\\.?[A-Za-z0-9_-])+\\.?/)*(\\.?[A-Za-z0-9_-])+\\.md$"},
+          "chats": {
+            "type": "array",
+            "uniqueItems": true,
+            "contains": {"enum": ["obeya", "wizard", "assistant"]},
+            "items": {"enum": ["obeya", "wizard", "assistant"]}
+          }
+        }
+      }
     }
   },
   "dependentSchemas": {
     "view": {"properties": {"asks": {"contains": {"const": "view"}}}},
-    "hooks": {"properties": {"asks": {"contains": {"const": "hook:after:work"}}}}
+    "hooks": {"properties": {"asks": {"contains": {"const": "hook:after:work"}}}},
+    "build": {"required": ["kind", "timeout"]},
+    "timeout": {"required": ["build"]}
   }
 }

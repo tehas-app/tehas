@@ -1932,7 +1932,7 @@ mod tests {
     /// and the fault of the system, and stops the start with 78: it is not the
     /// exit 127 of a program that was not there, and the lines the step before
     /// it wrote are not quoted as the install's own output (#2227). The words
-    /// of the message are read back by the case in test/work_caps_test.sh.
+    /// of the message are read back by the case in tests/work_caps.rs.
     #[test]
     fn an_install_whose_log_cannot_be_opened_stops_the_start() {
         let d = tehas_core::testdir::TestDir::new("install-log");

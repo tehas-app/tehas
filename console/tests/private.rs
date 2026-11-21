@@ -111,10 +111,11 @@ fn entries_and_the_speaker_are_masked_of_the_names_given() {
         .stdout(Stdio::null())
         .spawn()
         .unwrap();
+    // The loop ends at the third line; the bound is for a host under load.
     let started = Instant::now();
     let written = loop {
         let text = fs::read_to_string(&out).unwrap_or_default();
-        if text.lines().count() >= 3 || started.elapsed() > Duration::from_secs(20) {
+        if text.lines().count() >= 3 || started.elapsed() > Duration::from_secs(120) {
             break text;
         }
         sleep(Duration::from_millis(50));

@@ -154,7 +154,7 @@
 //! that swallows the push check, must not hold the issue's lock and its slot
 //! for ever.
 //!
-//! What the container is given is deliberate and pinned by test/work_test.sh:
+//! What the container is given is deliberate and pinned by tests/work_container.rs:
 //! the bot token (pi-rukas pushes and opens the pull request from inside), the
 //! PI_ENSEMBLE_* settings, the bot's git identity, the cycle's workspace, and a
 //! directory of its own for what it writes: its copy of the code index, its
