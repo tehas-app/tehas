@@ -11,7 +11,7 @@ fresh() { # the exit status of the stub test.sh
   rm -rf "$tree" "$T/test-args"
   mkdir -p "$tree/scripts"
   cp "$T_ROOT/scripts/verify.sh" "$tree/scripts/"
-  for s in check-generic check-bash-lines select-tests; do
+  for s in check-generic check-bash-lines check-test-lines select-tests; do
     printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$tree/scripts/$s.sh"
   done
   printf '%s\n' '#!/usr/bin/env bash' "echo \"\$*\" >'$T/test-args'" "exit $1" >"$tree/scripts/test.sh"

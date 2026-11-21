@@ -12,7 +12,7 @@ fresh() {
   rm -rf "$tree" "$T/cargo-tmp"
   mkdir -p "$tree/scripts"
   cp "$T_ROOT/scripts/verify.sh" "$tree/scripts/"
-  for s in check-generic check-bash-lines test select-tests; do
+  for s in check-generic check-bash-lines check-test-lines test select-tests; do
     printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$tree/scripts/$s.sh"
   done
   chmod +x "$tree/scripts/"*.sh

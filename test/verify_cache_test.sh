@@ -13,6 +13,7 @@ fresh() {
   cp "$T_ROOT/scripts/verify.sh" "$tree/scripts/"
   printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$tree/scripts/check-generic.sh"
   printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$tree/scripts/check-bash-lines.sh"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$tree/scripts/check-test-lines.sh"
   # The selection names one test file: a change to scripts/verify.sh itself
   # asks for the whole gate, which would run cargo test whatever the case is
   # about, and some cases count the runs of the workspace's tests.
