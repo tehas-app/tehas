@@ -2,7 +2,7 @@
 //! Every text in them is escaped, and each carries the policy that
 //! [`super::csp`] works out from its own bytes.
 
-use serde_json::Value;
+use tehas_core::plugin::verdict::{End, Word};
 
 pub fn escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -53,30 +53,43 @@ pub fn refusal(title: &str, why: &str) -> Vec<u8> {
     page(title, &format!("<p>{}</p>", escape(why)), None)
 }
 
-/// The findings of a kept verdict (docs/specs/2026-11-21-plugins-hooks.md,
-/// "The verdict"). None: not a verdict.
-pub fn findings(name: &str, pr: u64, verdict: &[u8]) -> Option<Vec<u8>> {
-    let v: Value = serde_json::from_slice(verdict).ok()?;
-    let word = v["verdict"].as_str()?;
-    let summary = v["summary"].as_str().unwrap_or("");
+/// The page of a hook's end, `hooks/<pr>.verdict.json`
+/// (docs/specs/2026-11-21-plugins-hooks.md, "The verdict"): the head it read
+/// and its findings, or that it did not finish. None: no end of `pr`.
+pub fn findings(name: &str, pr: u64, file: &[u8]) -> Option<Vec<u8>> {
+    let end = End::read(file).filter(|e| e.pr == pr)?;
+    let short = &end.head[..12];
     let mut body = format!(
-        "<p>Verdict: <strong>{}</strong></p><p>{}</p>",
-        escape(word),
-        escape(summary)
+        "<p>Head: <code title=\"{}\">{}</code></p>",
+        escape(&end.head),
+        escape(short)
     );
-    let list = v["findings"].as_array().map_or(&[][..], |a| a.as_slice());
-    if list.is_empty() {
+    let Some(v) = end.finished() else {
+        body.push_str(&format!(
+            "<p>The hook did not finish: it ended {}.</p>",
+            escape(&end.result)
+        ));
+        return Some(page(&format!("{name} on #{pr}"), &body, None));
+    };
+    let word = match v.verdict {
+        Word::Pass => "pass",
+        Word::Note => "note",
+    };
+    body.push_str(&format!(
+        "<p>Verdict: <strong>{word}</strong></p><p>{}</p>",
+        escape(&v.summary)
+    ));
+    if v.findings.is_empty() {
         body.push_str("<p>No findings.</p>");
     } else {
         body.push_str("<ul>");
-        for f in list {
-            let place = match (f["file"].as_str(), f["line"].as_u64()) {
+        for f in &v.findings {
+            let place = match (&f.file, f.line) {
                 (Some(file), Some(line)) => format!("<code>{}:{line}</code> ", escape(file)),
                 (Some(file), None) => format!("<code>{}</code> ", escape(file)),
                 _ => String::new(),
             };
-            let text = escape(f["text"].as_str().unwrap_or(""));
-            body.push_str(&format!("<li>{place}{text}</li>"));
+            body.push_str(&format!("<li>{place}{}</li>", escape(&f.text)));
         }
         body.push_str("</ul>");
     }

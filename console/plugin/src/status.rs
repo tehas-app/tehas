@@ -135,12 +135,28 @@ fn say(line: &str) {
 
 /// A reason after the words it follows: gh's reasons start with `: `, the
 /// runner's own do not.
-fn said(why: &str) -> String {
+pub(crate) fn said(why: &str) -> String {
     if why.starts_with(": ") {
         why.to_string()
     } else {
         format!(": {why}")
     }
+}
+
+/// The head and base of `pr` as GitHub gives them now, both from one
+/// answer. None: it is no open pull request of the bot's.
+pub fn pull(h: &mut dyn Host, s: &Setup, pr: u64) -> Result<Option<(String, String)>, String> {
+    let repo = (s.get)("TEHAS_REPO");
+    if !tehas_ops::forge::repo_shaped(&repo) {
+        return Err("TEHAS_REPO names no repository".into());
+    }
+    let mut bot = (s.get)("TEHAS_BOT_LOGIN");
+    if bot.is_empty() {
+        bot = tehas_core::settings::bot_login(s.home).unwrap_or_default();
+    }
+    let out = h.github(&["api", &format!("repos/{repo}/pulls/{pr}")])?;
+    let pull = serde_json::from_str::<Value>(&out).unwrap_or(Value::Null);
+    Ok(open_bot_pull(&pull, &repo, &bot))
 }
 
 /// After the hook of `name` on `req.pr` ended, having read `head`: GitHub
@@ -157,16 +173,8 @@ pub fn after(h: &mut dyn Host, s: &Setup, name: &str, view: bool, req: &HookAsk,
         ));
         return;
     }
-    let mut bot = get("TEHAS_BOT_LOGIN");
-    if bot.is_empty() {
-        bot = tehas_core::settings::bot_login(s.home).unwrap_or_default();
-    }
-    let path = format!("repos/{repo}/pulls/{pr}");
-    let now = match h.github(&["api", &path]) {
-        Ok(out) => {
-            let pull = serde_json::from_str::<Value>(&out).unwrap_or(Value::Null);
-            open_bot_pull(&pull, &repo, &bot)
-        }
+    let now = match pull(h, s, pr) {
+        Ok(now) => now,
         Err(why) => {
             say(&format!(
                 "plugin {name}: GitHub did not say the head of #{pr}{}: its status goes on {head}",
