@@ -328,7 +328,10 @@ public before the feature became building, which stays on
 `api/surface-1.0.txt` ([review](#review)). `tehas api --json` lists
 every feature in `flags`, `false` while it is building, and a shipped
 feature's word in `features`. `api/settings-rules.json` marks the rows of a
-building feature `"building": true`. Promoting a
+building feature `"building": true`. `api/commands.txt` marks a command of a
+building feature `building=<feature>` at the end of its row, and a flag of
+one that a public command gains `--flag:building=<feature>`: neither is on
+the surface until the feature ships. Promoting a
 feature to shipped only adds. A lab host proves a building feature on a build
 that reads `TEHAS_TEST_FEATURES`, which no release does: see [proving a
 building feature on a lab host](/tools-update#proving-a-building-feature-on-a-lab-host).
