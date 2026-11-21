@@ -70,7 +70,7 @@ A preview, `uat-<pr>.<domain>`, is the same site as a plugin's name, so
 | --- | --- |
 | `/_kit/<file>` | A file of the installed tehas's `host/fun/kit/MANIFEST`, when the manifest has `ui.kit` |
 | `/_actions/<id>` | A press, see "Actions" |
-| `/_hooks/<pr>` | The findings of the plugin's last hook on that pull request, as plain text in a page the gate makes |
+| `/_hooks/<pr>` | The findings of the plugin's last hook on that pull request, in a page the gate makes, every text escaped: a finding may quote names the model wrote |
 | `/_session` | `GET`: 200 `{"signed": true}` or 401, for a frame to poll |
 | `/_signout` | `POST`, see "The session" |
 | anything else | A file of `view/`, `index.html` for a directory |
@@ -173,6 +173,9 @@ same-origin-allow-popups`.
   reference plugin frames its map.
 - **The export's own policy.** A page that also carries a `<meta>` policy
   gets both; the browser applies the stricter.
+- **Styles added at run time.** A `<style>` element a script makes is not
+  hashed and does not apply; a view sets styles as attributes or in its
+  files.
 - **A page that names another site** in a `<script src>`, `<link>` or
   `@import` loads nothing from it. The swap logs each such address.
   `<meta http-equiv="refresh">` and inline event handlers (`onclick=`) are
@@ -200,7 +203,8 @@ A press is `POST /_actions/<id>` from the view, with the kit's `press()`.
 - It asks for a refresh, as `tehas plugin run` does, and records the login.
 - 202 asked; 409 a refresh is running; 429 within 10 minutes of the plugin's
   last press; 403 not granted or no access; 401 no session.
-- `GET /_actions` answers the ids granted, so a view shows only those buttons.
+- `GET /_actions` answers `{"api": 1, "actions": ["refresh"]}`, the ids
+  granted, so a view shows only those buttons.
 
 ## The panel
 

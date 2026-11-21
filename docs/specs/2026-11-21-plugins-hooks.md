@@ -65,7 +65,7 @@ read, and a new request for the new head follows.
 | --- | --- |
 | `verdict` | `pass` or `note`. `fail` is v2 and is read as `note` |
 | `summary` | One line, at most 140 characters |
-| `findings` | At most 20. `file` a path in the product, `line` 1 or more or absent, `text` at most 300 characters |
+| `findings` | At most 20. `file` a path in the product or absent, `line` 1 or more or absent, `text` at most 300 characters |
 
 `api/plugin-verdict.schema.json` holds it, with samples. A verdict that breaks
 the schema, a hook that fails or runs out of time: tehas posts the status

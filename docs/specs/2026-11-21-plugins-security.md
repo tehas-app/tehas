@@ -74,9 +74,18 @@ docker run --init --name tehas-plugin-<name>-<run>
   what no plugin in the settings owns.
 - **Time.** At `timeout` tehas runs `docker kill` on the id in `cidfile`; a
   killed client is not enough.
-- **The context**, `/run/context.json`: the run's kind and trigger, the
-  plugin's commit, the head commit of `/product`, and in a hook the pull
-  request's number, base and head. Nothing of a person.
+- **The context**, `/run/context.json`, `api/plugin-context.schema.json`:
+  `kind` (`refresh` or `hook`), `trigger` (`timer`, `host`, `action`,
+  `cycle`), `commit` (the plugin's), `head` (of `/product`), `model`
+  (`{"id", "tokens"}` with `model` granted: the id to send and the run's
+  budget), and in a hook `pr` (`{"number", "base", "head"}`). Nothing of a
+  person.
+- **The image's own directories.** A new Docker volume takes the owner of
+  the image's directory at its mount point. So an image must have `/work`,
+  `/out` and `/state`, owned by 10001; a run whose image lacks them fails
+  with that reason. The reference Dockerfile shows how.
+- **Exit status.** 0 is done; anything else is a failed run, and its last
+  log lines are kept for `tehas plugin log`.
 
 Test: `test/fixtures/argv/plugin-*` pins the arguments for no grant, for each
 capability alone, and for the reference set, and `test/sandbox_argv_test.sh`
@@ -155,20 +164,25 @@ or a cycle's workspace.
 
 A plugin never holds the model's key, never reaches the endpoint, and has no
 network. With `model:<tokens>` granted, `tehas-plugin` serves a unix socket for
-the run, `/run/tehas/model.sock`, and stops it when the run ends. It is a part
+the run, `/run/tehas/model.sock`, mode 0666 in a directory of 0755 made
+for that run and mounted only into its container, and stops it when the run
+ends. It is a part
 of the `tehas-plugin` program, not of `tehas-proxy`: it shares no token, port
 or route with outsource.
 
 What it answers:
 
-- `POST /v1/chat/completions` and `GET /v1/models`. Anything else: 404.
+- `POST /v1/chat/completions` and `GET /v1/models`, which lists one model,
+  the id the context names. Anything else: 404.
 - The body is read whole, at most 1 MiB, and parsed. Only these fields pass:
   `model`, `messages`, `max_tokens`, `temperature`, `top_p`, `stop`, `tools`,
   `tool_choice`, `response_format`, `seed`. Any other field: 400.
-- `model` must be the product model of `models.json`; it is rewritten to the
-  endpoint's id.
-- A message's content is text: a string, or parts of `type: text` only. No
-  image or file part, so the model is never asked to fetch an address.
+- `model` must be the id the context names; it is rewritten to the
+  endpoint's own.
+- A message has `role`, `content`, and for tool turns `tool_calls`,
+  `tool_call_id` and `name`. Its content is text: a string, `null` on an
+  assistant turn that calls tools, or parts of `type: text` only. No image
+  or file part, so the model is never asked to fetch an address.
 - `stream` and `n` other than 1: 400. v1 answers whole.
 - `max_tokens` is required, at most 16384.
 - **The budget is held before the request.** The prompt's bytes divided by 3,
