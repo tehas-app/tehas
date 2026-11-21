@@ -78,9 +78,9 @@
 //!   store cycle-heartbeat <issue> [--attempt N] --running|--ended --status <word>
 //!                [--step <word>] [--text <notice>]
 //!   store publish [--dispatch <file>] [--health <file>]
-//!   store plugin-run-begin --plugin <name> --commit <sha> --kind refresh|hook
-//!                --how timer|host|action|cycle --by <who> --head <sha>
-//!   store plugin-run-end --run N --result done|failed|timeout|lost [--tokens N]
+//!   store plugin-run-begin --plugin <name> --commit <sha> --kind refresh|hook|call
+//!                --how timer|host|action|cycle|chat|mcp --by <who> --head <sha>
+//!   store plugin-run-end --run N --result done|failed|timeout|lost [--tokens N] [--size N]
 //!   store plugin-runs --plugin <name> [--limit N]
 //!   store order-show | order-set --issues N[,N...] [--only] [--until <unix>]
 //!                [--reason TEXT] | order-clear
