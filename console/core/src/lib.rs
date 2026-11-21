@@ -40,6 +40,7 @@ pub mod models;
 pub mod order;
 pub mod out;
 pub mod outcome;
+pub mod parts;
 pub mod pause;
 pub mod plan;
 #[cfg(feature = "mask")]
