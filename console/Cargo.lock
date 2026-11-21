@@ -610,6 +610,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tehas-front"
+version = "0.1.0"
+dependencies = [
+ "tehas-core",
+]
+
+[[package]]
 name = "tehas-mcp"
 version = "0.1.0"
 dependencies = [

@@ -11,7 +11,11 @@ set tehas up for another repository, where the live data is, and how to ask a fa
 
 ## Hand it to your agent
 
-Paste one of these, with this host's address in place of `<this host>`:
+To set tehas up for a repository, tell your agent to go to
+[Start](/start): it is the order to do the install in and where to stop.
+
+To work with this factory, paste one of these, with this host's address in
+place of `<this host>`:
 
 ```
 Read http://<this host>/llms.txt, then write an issue this factory can build for: <what you want>
