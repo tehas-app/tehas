@@ -636,7 +636,16 @@ fn the_copy_holds_cargos_lock_so_no_cargo_replaces_a_program_meanwhile() {
     pipe.read_to_end(&mut piped).unwrap();
     assert!(piped == console, "the copy is not the console");
     copier.join().unwrap().unwrap();
+    // A child another test forks holds a copy of the lock's file until its
+    // exec, so the lock may free a moment after the copy let it go.
     for lock in &cargo {
-        lock.try_lock().unwrap();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while let Err(e) = lock.try_lock() {
+            assert!(
+                std::time::Instant::now() < until,
+                "{lock:?} is still held after the copy: {e:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
     }
 }

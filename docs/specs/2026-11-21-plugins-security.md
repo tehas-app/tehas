@@ -206,7 +206,8 @@ What it answers:
 - `stream: false` and `n: 1` are accepted and dropped. Any other value: 400.
   v1 answers whole.
 - `max_tokens` is required, at most 16384.
-- **The budget is held before the request.** The bytes of the whole body as sent, divided by 3,
+- **The budget is held before the request.** The bytes of the whole body as
+  sent (without image data, with `model:images`, v3), divided by 3,
   plus `max_tokens`, is reserved against the run's `<tokens>` and the day's
   `TEHAS_PLUGIN_MODEL_DAY` before it is sent. The answer's `usage` then
   replaces the reserve; an answer without `usage` keeps it. A request that

@@ -165,6 +165,32 @@ struct Run {
     sums: String,
     /// Outsource is on: the server serves `factory_contractors`.
     outsource: bool,
+    /// A plugin is granted `mcp:`: the server is given the broker's socket.
+    plugin_calls: bool,
+}
+
+/// Where the broker of plugin calls keeps its socket, under the home.
+const CALLS_DIR: &str = "run/plugin-calls";
+/// Where the server finds it.
+const CALLS_MOUNT: &str = "/run/tehas/calls";
+
+/// Whether the server is given the broker's socket: plugins are on and a
+/// grants line of a pinned plugin holds an `mcp:` word.
+/// (docs/specs/2026-11-21-plugins-mcp.md)
+fn plugin_calls(get: &dyn Fn(&str) -> String) -> bool {
+    if !tehas_core::features::on_in("plugins", get) {
+        return false;
+    }
+    let Ok(pins) = tehas_core::plugin::pins(&get("TEHAS_PLUGINS")) else {
+        return false;
+    };
+    pins.iter().any(|pin| {
+        let line = get(&format!(
+            "TEHAS_PLUGIN_GRANTS_{}",
+            pin.name.to_ascii_uppercase()
+        ));
+        line.split(' ').skip(1).any(|w| w.starts_with("mcp:"))
+    })
 }
 
 /// Every argument the container gets. A change here widens or narrows what a
@@ -200,28 +226,42 @@ fn run_args(run: &Run) -> Vec<String> {
         &format!("{home}/logs:/logs:ro"),
         "-v",
         &format!("{home}/libexec/tehas-mcp:/tehas-mcp:ro"),
-        "-e",
-        "TEHAS_MCP_KEYS",
-        "-e",
-        "TEHAS_MCP_DASHBOARD_KEYS",
-        "-e",
-        "TEHAS_MCP_MASK",
-        "--entrypoint",
-        "/tehas-mcp",
-        &format!("caddy@{}", run.digest),
-        "--live",
-        "/live",
-        "--sessions",
-        "/sessions",
-        "--logs",
-        "/logs",
-        "--listen",
-        &format!("0.0.0.0:{PORT}"),
-        "--server-version",
-        &run.version,
     ]
     .map(str::to_string)
     .to_vec();
+    // A unix socket on a read-only mount still takes a connection.
+    if run.plugin_calls {
+        args.push("-v".to_string());
+        args.push(format!("{home}/{CALLS_DIR}:{CALLS_MOUNT}:ro"));
+    }
+    args.extend(
+        [
+            "-e",
+            "TEHAS_MCP_KEYS",
+            "-e",
+            "TEHAS_MCP_DASHBOARD_KEYS",
+            "-e",
+            "TEHAS_MCP_MASK",
+            "--entrypoint",
+            "/tehas-mcp",
+            &format!("caddy@{}", run.digest),
+            "--live",
+            "/live",
+            "--sessions",
+            "/sessions",
+            "--logs",
+            "/logs",
+            "--listen",
+            &format!("0.0.0.0:{PORT}"),
+            "--server-version",
+            &run.version,
+        ]
+        .map(str::to_string),
+    );
+    if run.plugin_calls {
+        args.push("--plugin-calls".to_string());
+        args.push(format!("{CALLS_MOUNT}/calls.sock"));
+    }
     if run.outsource {
         args.push("--outsource".to_string());
     }
@@ -262,6 +302,11 @@ fn prepare(home: &str) -> Result<Run, (u8, String)> {
         .map_err(|e| fail(format!("could not read /dev/urandom: {e}")))?;
     network().map_err(fail)?;
     snapshot_dir(&Path::new(home).join("mcp")).map_err(fail)?;
+    let calls = plugin_calls(&setting);
+    if calls {
+        // Made here, so Docker never makes it as root.
+        snapshot_dir(&Path::new(home).join(CALLS_DIR)).map_err(fail)?;
+    }
     // Standard error stays the command's, as git's complaint about a broken
     // configuration says more than an empty name.
     let email = stdout_of(
@@ -285,6 +330,7 @@ fn prepare(home: &str) -> Result<Run, (u8, String)> {
         private: mask::host_names(&models::host_path(), &email),
         sums: mask::sums_line(&salt),
         outsource: tehas_core::features::on("outsource"),
+        plugin_calls: calls,
     })
 }
 
@@ -523,6 +569,7 @@ mod tests {
             private: vec!["gpu1".to_string()],
             sums: "salt 9:abcd:sum".to_string(),
             outsource: false,
+            plugin_calls: false,
         });
         let mounts: Vec<&String> = args
             .iter()
@@ -543,6 +590,98 @@ mod tests {
         // The sums go by name, never in an argument.
         assert!(args.iter().any(|a| a == "TEHAS_MCP_MASK"));
         assert!(!args.iter().any(|a| a.contains("abcd")));
+    }
+
+    const PIN: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    fn vars(pairs: &[(&str, String)]) -> impl Fn(&str) -> String {
+        let pairs: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect();
+        move |name: &str| {
+            pairs
+                .iter()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
+        }
+    }
+
+    fn plugin_vars(grants: &str, switch: &str) -> Vec<(&'static str, String)> {
+        vec![
+            (tehas_core::features::TEST_VAR, "plugins".to_string()),
+            ("TEHAS_PLUGIN", switch.to_string()),
+            (
+                "TEHAS_PLUGINS",
+                format!("docs=https://github.com/example/tehas-plugin-docs@{PIN}"),
+            ),
+            ("TEHAS_PLUGIN_GRANTS_DOCS", format!("{PIN} {grants}")),
+        ]
+    }
+
+    #[test]
+    fn the_socket_is_given_only_while_plugins_are_on_and_a_plugin_is_granted_mcp() {
+        assert!(plugin_calls(&vars(&plugin_vars(
+            "tool:find mcp:find",
+            "on"
+        ))));
+        assert!(!plugin_calls(&vars(&plugin_vars("tool:find", "on"))));
+        assert!(!plugin_calls(&vars(&plugin_vars(
+            "tool:find mcp:find",
+            "off"
+        ))));
+        // The commit is the line's first word, never a grant.
+        let mut v = plugin_vars("tool:find", "on");
+        v[3].1 = "mcp:find tool:find".to_string();
+        assert!(!plugin_calls(&vars(&v)));
+        // A grants line of a plugin that is not pinned gives nothing.
+        let mut v = plugin_vars("", "on");
+        v.push(("TEHAS_PLUGIN_GRANTS_OTHER", format!("{PIN} mcp:find")));
+        assert!(!plugin_calls(&vars(&v)));
+        assert!(!plugin_calls(&vars(&[])));
+    }
+
+    // The container's arguments with the broker's socket, against
+    // test/fixtures/argv/mcp-plugins, one word a line. To write the file again
+    // after a change meant to change it, and read the diff:
+    //   TEHAS_TEST_ARGV_RECORD=1 cargo test --locked -p tehas-ops mcp_plugins_argv
+    #[test]
+    fn mcp_plugins_argv_is_pinned_and_adds_only_the_socket() {
+        let run = |plugin_calls| {
+            run_args(&Run {
+                home: "/h".to_string(),
+                addr: "127.0.0.1".to_string(),
+                user: "1:2".to_string(),
+                digest: "sha256:x".to_string(),
+                version: "v1".to_string(),
+                private: vec![],
+                sums: String::new(),
+                outsource: false,
+                plugin_calls,
+            })
+        };
+        let with = run(true);
+        let got: String = with.iter().map(|a| format!("{a}\n")).collect();
+        let file = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../test/fixtures/argv/mcp-plugins"
+        );
+        if std::env::var_os("TEHAS_TEST_ARGV_RECORD").is_some() {
+            fs::write(file, &got).unwrap();
+        }
+        let want = fs::read_to_string(file).unwrap_or_else(|e| panic!("{file}: {e}"));
+        assert_eq!(got, want, "{file}");
+        // Each added pair is a flag and the word after it.
+        let mut without = with.clone();
+        for value in [
+            "/h/run/plugin-calls:/run/tehas/calls:ro",
+            "/run/tehas/calls/calls.sock",
+        ] {
+            let at = without.iter().position(|w| w == value).unwrap();
+            without.drain(at - 1..=at);
+        }
+        assert_eq!(without, run(false));
     }
 
     /// A home with the binary install.sh puts in libexec/.
@@ -589,6 +728,7 @@ mod tests {
                 private: vec![],
                 sums: String::new(),
                 outsource,
+                plugin_calls: false,
             })
         };
         assert!(!run(false).iter().any(|a| a == "--outsource"));
