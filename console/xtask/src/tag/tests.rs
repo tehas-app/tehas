@@ -152,6 +152,49 @@ fn the_next_prerelease_counts_on_within_its_stage() {
 }
 
 #[test]
+fn a_named_version_may_skip_releases_but_not_go_back() {
+    assert_eq!(
+        args(&["--version", "v1.4.0"]).version.as_deref(),
+        Some("v1.4.0")
+    );
+    for bad in [
+        &["--version"][..],
+        &["--version", "1.4.0"],
+        &["--version", "v1.4.0-beta.1"],
+    ] {
+        assert_eq!(
+            parse(&s(bad), Path::new("/")),
+            Err("--version needs a release, vX.Y.Z".into())
+        );
+    }
+    let pick = |latest, v| chosen_version(latest, Part::Patch, Some(v));
+    assert_eq!(pick(Some("v1.2.0"), "v1.4.0"), Ok("v1.4.0".into()));
+    assert_eq!(pick(Some("v1.9.0"), "v1.10.0"), Ok("v1.10.0".into()));
+    assert_eq!(pick(None, "v0.3.0"), Ok("v0.3.0".into()));
+    assert_eq!(
+        pick(Some("v1.2.0"), "v1.2.0"),
+        Err("v1.2.0 does not come after v1.2.0".into())
+    );
+    assert_eq!(
+        pick(Some("v1.10.0"), "v1.9.0"),
+        Err("v1.9.0 does not come after v1.10.0".into())
+    );
+    assert_eq!(
+        chosen_version(Some("v1.2.0"), Part::Minor, None),
+        Ok("v1.3.0".into())
+    );
+}
+
+#[test]
+fn a_named_version_is_tagged_with_its_prerelease() {
+    let r = Remote::new();
+    r.changelog("## Unreleased\n\n### Changes\n\n- x\n\n### Adopter action\n\nSet X.\n");
+    assert_eq!(r.run(&["--version", "v0.1.0"]), 1);
+    assert_eq!(r.run(&["--version", "v0.3.0", "--pre", "beta"]), 0);
+    assert_eq!(r.tags(), "v0.1.0 v0.3.0-beta.1");
+}
+
+#[test]
 fn the_next_version_raises_one_part_and_resets_those_below() {
     assert_eq!(next_version(Some("v0.7.6"), Part::Patch), "v0.7.7");
     assert_eq!(next_version(Some("v0.7.6"), Part::Minor), "v0.8.0");

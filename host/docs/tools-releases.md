@@ -144,6 +144,10 @@ prereleases are tagged from `main` too, so the pull request lands before the
 first one. Patches to the old line after that need a branch to tag from that
 is not `main`, which the release workflow does not take today.
 
+`--version vX.Y.Z` names the release instead of raising a part, so a
+release can skip a version: from v1.2.0, `--version v1.4.0` tags v1.4.0,
+and with `--pre beta` v1.4.0-beta.1. It must come after the newest release.
+
 A factory works on one branch, `main` unless `TEHAS_BRANCH` names another,
 so a host that builds the next minor sets `TEHAS_BRANCH=release/vX.Y.Z`.
 
