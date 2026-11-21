@@ -19,34 +19,34 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 
 ## Unreleased
 
+## v1.2.0 (2026-11-21)
+
+### Highlights
+
+- **A store deadlock is gone.** The bundled SQLite moves to 3.54.1 (rusqlite 0.41). SQLite 3.51.1 could deadlock two threads of one process that opened and closed the same database at once, which stopped the model proxy's job channel and hung the contractor tests in `tehas check-product --sandbox` (#2536). It also fixes RUSTSEC-2026-0459.
+- **The product check runs as a cycle does.** `tehas check-product --sandbox` gives the product's install and gates the memory and CPU limits a cycle's container gets, in place of a fixed 4 GiB, so a large build no longer has its compiler killed on a host with many CPUs.
+- **A typed kit.** The kit's modules carry JSDoc types, checked strict by a pinned tsc 7.0.2, and the kit ships `vendor/solid.d.ts`, so a program that copies the kit gets its types. The release's pins step moves the kit's Solid within 2.x and tsc within its major (#2629, #2632, #2660).
+- **The family under one command.** `tehas <part>` runs the other parts of the tehas family, such as `tehas industry`. Each release also carries `tehas-front`, a small signed `tehas` for a machine that runs no factory.
+- **Tests of Rust code are in Rust.** The shell tests of the dispatcher, the cycle, work, update and status are Rust tests now, about 25,000 lines of shell fewer, and `scripts/test-lines.max` holds what is left.
+
 ### Changes
 
-- `tehas wake [--json]` asks the factory for a poll now and returns at once, the same ask as `tehas dispatch --soon`, for a webhook receiver or a scheduler. `tehas api` lists the feature `wake` (#2436).
-- `tehas order --json` adds `starts`: for each ranked issue, whether the dispatcher's last poll started it, or a reason code and text for why not, taken from the poll's own decision. `tehas blockers [--json]` is new. It shows the holds between issues the last poll read, any cycles among them, and the issue at the end of each chain with what holds it. `tehas api` lists `start-reasons` and `blockers`. Which issues start does not change (#2442).
-- With outsource on, a factory kills a `docker save` of its sandbox image that runs past 30 minutes and answers 503, so one hung save no longer stalls every contractor's image download (#2536).
-- `bootstrap.sh user` and `check` read the instance's `PI_RUKAS_FOLLOW` from `instance.env`, as the sandbox build does, so the host's pi-rukas clone follows the same commit as the image. `tehas update` no longer prints its `bootstrap.sh user` line on every run for an instance that sets its own `PI_RUKAS_FOLLOW`. Instance settings that do not load stop `user` and `check` with 78 (#2603).
-- A release's pinned pi-rukas commit is fetched by its id when no tag or branch upstream holds it any more, so `bootstrap.sh user` and the sandbox build still find it. One that cannot be had stops with a message that names it (#2604).
-- With `TEHAS_MILLWRIGHT_EPICS=on`, a `tehas:ready` on an epic that a person or an outsider took off no longer approves the epic's sub-issues for the millwright. Tehas's own removal still keeps the approval. The count of waiting work and the epic's comment read the label the same way the starts do (#2605).
-- A product can pin its own Node in the sandbox: an instance layer puts it first on PATH, and a tehas Node bump no longer moves the Node its tests run on. The image keeps tehas's Node in `/opt/tehas-node`, and pi and the npm tools tehas ships run it by its path. `instances/example/product-node.Dockerfile` is the example (#2607).
-- `TEHAS_EDGE_ONE_LEVEL=on` keeps the edge's names one level under the parent of a `TEHAS_DOMAIN` that is itself a subdomain, where Cloudflare's free certificate covers them: with `demo.example.org`, a preview is `uat-12-demo.example.org`, a ticket `lab-7-demo.example.org` and the list `lab-demo.example.org`. The pull request's notice, the dashboard's Previews and the Protolab's links say these names; the proxy in front maps each onto the router's `<label>.<domain>` (`edge.md`, "A domain that is itself a subdomain"). Off by default, and refused with a domain of two labels (#2618).
-- A factory that acts as a GitHub App now gets previews of its own cycles' pull requests. They are opened as `<slug>[bot]`, which GitHub's `author_association` calls `NONE`, so `tehasbot preview` counted them as opened by someone outside the repository and built none. The App's login, from `state/github/login`, now counts as the repository's own, for a branch in the repository only; any other bot still does not (#2621).
-- The bundled SQLite is 3.54.1 (rusqlite 0.41). SQLite 3.51.1 could deadlock when two threads of one process opened and closed the same database at once, which stopped every later store call of the model proxy's job channel and hung the contractor tests in `tehas check-product --sandbox` (#2536). The update also fixes RUSTSEC-2026-0459.
-- The kit's seven modules carry JSDoc types and check clean under `tsc --checkJs --strict`, held by a workspace test with a pinned tsc 7.0.2. A program that copies the kit gets its types from the modules and `vendor/solid.d.ts`, with no copies of its own. The dashboard's script grows by 5123 bytes, nearly all of them comments (#2629).
-- A second `pageStore` of the same name whose actions read the state while they are made now gets the store, where it threw a TypeError (#2629).
-- The release's pins step moves the kit's Solid too: `scripts/pins.sh check` lists solid-js, @solidjs/signals, @solidjs/web and @solidjs/html with their newest 2.x on npm, and `move` takes each to it with its tarball and integrity and rebuilds the kit's `vendor/solid.js` with `tools/vendor-solid`. A 3.x is held back, and a release whose Solid dependencies the other pins do not meet is kept back with the reason (#2632).
-- A park comment no longer tells a person to run pi-rukas's `/work <n> --restart` or `--allow-protected`, which a tehas host has no way to run. It says what to do instead: change a protected path yourself, then tick a retry box on the comment (#2637).
-- A new manual page, Start (`/start`), for a coding agent a developer sends there: what to find in the repository first, the install in order, the five places it stops to ask a person, and what is not built yet. The overview, the For agents page and `llms.txt` link it.
-- The kit ships `vendor/solid.d.ts`, types for the names its Solid exports, and lists it in `kit/MANIFEST`. A program that copies the kit can check its pages with `tsc --checkJs` against it. An install does not copy a `.d.ts` file into the home, so no page changes (#2629).
-- `tehas <part> [words]` runs `tehas-<part>` from `PATH`, so the other parts of the tehas family are commands of tehas: `tehas industry ...` runs industry. A command of tehas always wins, and `industry`, `kaizen`, `kata`, `monozukuri` and `yokoten` are kept for the family. `tehas help <part>` shows the part's help.
-- Each release carries `tehas-front-vX.Y.Z-linux-x86_64`, a small signed `tehas` for a machine that runs no factory, such as the one that runs industry. It knows only its help and the parts' commands.
-- Plugins, a feature still being built: a release refuses `TEHAS_PLUGIN=on`, and a line of `TEHAS_PLUGINS`, `TEHAS_PLUGIN_GRANTS_<NAME>`, `TEHAS_PLUGIN_ACCESS`, `TEHAS_PLUGIN_LIMITS` or `TEHAS_PLUGIN_MODEL_DAY`, with 78, and `tehas api --json` lists `plugins` in `flags` as `false`. This release brings the settings' rules, the reader of a plugin's manifest with `api/plugin-manifest.schema.json`, and `tehas plugin [--json]`, which exits 78 while the feature is off. Nothing is fetched, built or run yet.
-- The files in `api/` are dedicated to the public domain under CC0-1.0, in `api/LICENSE`, so a program may copy the schemas and samples freely.
+- `tehas wake` asks the factory for a poll now (#2436). `tehas order --json` adds `starts`: for each ranked issue, whether the last poll started it or the reason it did not. `tehas blockers [--json]` shows the holds between issues and the chains behind them (#2442). These only add: no field or exit status of an existing command changes.
+- With `TEHAS_MILLWRIGHT_EPICS=on`, a `tehas:ready` that someone other than tehas took off an epic no longer approves its sub-issues (#2605).
+- `bootstrap.sh user` follows the instance's `PI_RUKAS_FOLLOW`, as the sandbox build does, and a release's pinned pi-rukas commit is fetched by its id when no tag or branch holds it any more (#2603, #2604).
+- A product can pin its own Node in the sandbox with an instance layer, and pi and tehas's npm tools keep tehas's Node (#2607).
+- A factory that acts as a GitHub App now gets previews of its own pull requests (#2621). `TEHAS_EDGE_ONE_LEVEL=on` names the edge's hosts one level under a domain that is itself a subdomain, such as `uat-12-demo.example.org` (#2618).
+- A park comment says what a person does on the host where pi-rukas named `/work --restart --allow-protected` (#2637).
+- `tehas check-product` stops with 78 when the slice cannot be used, as `tehas work` does.
+- The state store moves to schema 21 (`plugin_runs` and `plugin_records`) at the next `tehas update`, which backs it up first.
+- Plugins are still being built and off in every release: their settings, manifest, `tehas plugin` and `tehas plugin review`, and the fetch and build in `tehas update` with the feature on.
+- A new manual page, Start (`/start`), for a coding agent a developer sends to install tehas. The files in `api/` are CC0-1.0.
 
 ### Adopter action
 
-On a host whose instance sets `PI_RUKAS_FOLLOW`, run `./bootstrap.sh user` once after updating to move the clone to the image's commit.
+Run `./bootstrap.sh user` from the platform checkout after updating. It installs the pinned tsc and moves the pi-rukas clone to the image's commit. `tehas update` then rebuilds the sandbox image and migrates the store to schema 21.
 
-Nothing is required. To keep a product's tests on its own Node, copy `instances/example/product-node.Dockerfile` to `sandbox.Dockerfile` in the instance directory (or add its lines to yours), set the version and its sum, run `~/tehas/sandbox/build.sh` and `tehas check-product --sandbox`. A layer that unpacks a Node over `/usr/local` should move it to a prefix of its own.
+To keep a product's tests on its own Node, copy `instances/example/product-node.Dockerfile` to the instance's `sandbox.Dockerfile`, set the version and its sum, and run `~/tehas/sandbox/build.sh` and `tehas check-product --sandbox`. A layer that unpacks a Node over `/usr/local` should move it to a prefix of its own.
 
 ## v1.1.0 (2026-11-20)
 

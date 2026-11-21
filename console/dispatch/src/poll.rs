@@ -434,6 +434,8 @@ fn writer(
         fetched: false,
         looked: HashMap::new(),
         say_now: Some(say),
+        plans_ended: Vec::new(),
+        asked_again: false,
     }
 }
 
@@ -893,10 +895,12 @@ fn body(
             say(&format!("WARN: no part of the poll applies the action {a}"));
         }
         if let Some(rc) = done.exit {
+            demand_again(home, w, &d);
             return rc;
         }
     }
     lines_to(d.log.len(), &mut next);
+    demand_again(home, w, &d);
     if d.exit == 0 && d.tidy && !dry {
         write_starts(home, &d);
     }
@@ -1169,20 +1173,7 @@ fn demand_health(home: &Path, w: &mut Writer, d: &crate::Decision) {
         if demand.is_null() {
             let _ = std::fs::remove_file(&file);
         } else {
-            let mut v = demand.clone();
-            v["time"] = json!(iso_now());
-            // A unique name, not the fixed `demand.json.new` two polls can
-            // share: each writer holds its own file until its rename.
-            if tehas_core::file::write_atomic(
-                &file,
-                format!("{v}\n").as_bytes(),
-                0o644,
-                &tehas_core::file::Temp::Unique,
-            )
-            .is_err()
-            {
-                say(&format!("WARN: could not write {}", file.display()));
-            }
+            write_demand(&file, demand);
         }
         // health, whose gh calls are given the poll's token as the poll's own
         // are: TEHAS_HEALTH_CMD is a test's name for it, as TEHAS_STATUS_CMD
@@ -1200,6 +1191,34 @@ fn demand_health(home: &Path, w: &mut Writer, d: &crate::Decision) {
                 crate::apply::start::named(&w.host.health_cmd, &w.host.health_args)
             ));
         }
+    }
+}
+
+fn write_demand(file: &Path, demand: &Value) {
+    let mut v = demand.clone();
+    v["time"] = json!(iso_now());
+    // A unique name, not the fixed `demand.json.new` two polls can
+    // share: each writer holds its own file until its rename.
+    if tehas_core::file::write_atomic(
+        file,
+        format!("{v}\n").as_bytes(),
+        0o644,
+        &tehas_core::file::Temp::Unique,
+    )
+    .is_err()
+    {
+        say(&format!("WARN: could not write {}", file.display()));
+    }
+}
+
+/// live/demand.json again, once the poll's actions are done, when they ended
+/// a planning session the demand left an issue out for: industry reads the
+/// file between polls, and the start of this one counted that issue as
+/// held. Health is left to the poll the session's end asked for.
+fn demand_again(home: &Path, w: &Writer, d: &crate::Decision) {
+    let Some(demand) = &d.demand else { return };
+    if let Some(v) = crate::decide::demand_after(demand, &d.demand_planning, &w.plans_ended) {
+        write_demand(&home.join("live/demand.json"), &v);
     }
 }
 

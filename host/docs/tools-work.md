@@ -448,6 +448,22 @@ says how many files were fetched, with each hash, and that the pi-rukas that
 tehas pins does not read them yet: the manifest is ready for a release that
 does.
 
+A plugin's filed files come the same way, beside the attachments, with no
+mount and no variable more. A line `tehas-files: <plugin>/<id> <sha256>` of the
+approved body, the body the start holds to the approval's hash and never a
+fresh read, names a record of the state store. Its files are given only when
+that record was filed in this issue, by an account of
+`TEHAS_ALLOWED_LABELERS` whose login still holds the GitHub id
+`state/account-ids` records for it, is not closed, and pins the same sha256.
+They are copied from `~/tehas/state/plugin-files/<plugin>/<id>/` into
+`plugin-files/<plugin>/<id>/` of the directory, regular files only and through
+no link, at most 16 files and 4 MB together, and listed in
+`plugin-files/manifest.json` with each file's size and sha256. A line no such
+record matches gives nothing. Files that are not the ones the record pins,
+by the sha256 of their `sha256sum` lines, stop the start with
+`plugin-files-changed`, and the issue says so. No plugin files records yet:
+plugins are still being built.
+
 With `TEHAS_WORK_ZIPS=on` a zip the issue links is unpacked into the same
 directory, which adds no mount and no variable more, and the setting needs
 `TEHAS_WORK_IMAGES=on` or `TEHAS_WORK_FILES=on`, else the command stops with 78:

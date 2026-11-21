@@ -230,6 +230,8 @@ fn world() -> World {
         fetched: false,
         looked: Default::default(),
         say_now: None,
+        plans_ended: Vec::new(),
+        asked_again: false,
     };
     World {
         dir,
@@ -3200,6 +3202,10 @@ fn a_refine_that_filed_replaces_its_issue() {
     assert!(ledger.contains(
         r#""source":7,"filed":9,"url":"https://github.com/example-owner/example-product/issues/9"}"#
     ));
+    // Its room for planning is free for the next poll, and the issue closed
+    // waits for nothing.
+    assert!(t.w.home.join("state/dispatch.again").exists());
+    assert!(t.w.plans_ended.is_empty(), "{:?}", t.w.plans_ended);
 }
 
 #[test]
@@ -4489,6 +4495,36 @@ fn a_session_ended_by_a_person_is_closed_and_said() {
     assert_eq!(w[0], "gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention");
     assert_eq!(w[1], "store plan-end 7 --close");
     assert!(w[2].ends_with("<<< Planning session ended by alice."));
+    // What the session held is free now: the poll after this one comes at
+    // once, and the demand counts the issue (#2708).
+    assert!(t.w.home.join("state/dispatch.again").exists());
+    assert!(t.w.asked_again);
+    assert_eq!(t.w.plans_ended, vec![7]);
+}
+
+#[test]
+fn a_session_the_poll_finds_over_is_closed_and_asks_for_the_next_poll() {
+    let mut t = world();
+    t.apply(json!([{"plan_close": 7}]));
+    assert!(t.writes().contains(&"store plan-end 7 --close".to_string()));
+    assert!(t.w.home.join("state/dispatch.again").exists());
+    assert_eq!(t.w.plans_ended, vec![7]);
+}
+
+#[test]
+fn a_session_the_store_would_not_end_asks_for_no_poll_and_frees_nothing() {
+    let mut t = world();
+    t.fail("store", "plan-end 7 --close");
+    let a = t.apply(json!([{"plan_end": 7, "say": "Planning session ended by alice."}]));
+    assert!(
+        a.log
+            .iter()
+            .any(|l| l.contains("could not be ended on the state store")),
+        "{:?}",
+        a.log
+    );
+    assert!(!t.w.home.join("state/dispatch.again").exists());
+    assert!(t.w.plans_ended.is_empty());
 }
 
 #[test]
@@ -5455,6 +5491,24 @@ fn a_due_index_is_launched_and_holds_and_one_that_ran_lets_the_starts_go() {
         .calls()
         .iter()
         .any(|c| c.contains("--add-label tehas:running")));
+    // A session this poll ended asked for the next poll too, and keeps it.
+    let mut t = world();
+    t.w.host.systemctl = t.dir.join("systemctl").to_string_lossy().into_owned();
+    let script = t.dir.join("index-start");
+    tehas_core::testing::write_exe(
+        &script,
+        format!(
+            "#!/bin/sh\necho 1 >{}\n",
+            t.w.home.join("state/index.rc").display()
+        ),
+    )
+    .unwrap();
+    t.w.host.index_start_cmd = Some(script.to_string_lossy().into_owned());
+    let mut actions = vec![json!({"plan_close": 9})];
+    actions.extend(gates(7, json!([])).as_array().unwrap().iter().cloned());
+    let a = t.apply(Value::Array(actions));
+    assert_eq!(a.exit, None);
+    assert!(t.w.home.join("state/dispatch.again").exists());
 }
 
 #[test]

@@ -22,7 +22,9 @@ dispatcher reads it on every poll: room for new cycles is the smaller of
 `--cycles` and `TEHAS_MAX_CYCLES`, less the cycles running, and its
 hold is `limit`. With `--plan off` no new planning session starts; an answer to a planning
 question still runs. One that expired or cannot be read holds every start, answers and
-retry ticks included, while the poll goes on cleaning up. See
+retry ticks included, while the poll goes on cleaning up. A `set` or `clear`
+that lets more cycles run while the last poll's demand has an issue waiting
+asks for a poll, as `tehas wake` does. See
 [Limit and drain](/operating#limit-and-drain) and
 [the factory API](/api#tehas-limit) for the JSON. The reading, the checks of an
 argument that reaches it, the write and the words of the answer are the
