@@ -49,8 +49,8 @@ names `--app-id` and `--app-key-file`.
 With `--new-app`, after the endpoint check:
 
 - It asks GitHub whether the owner is an organisation (`GET /users/<owner>`)
-  and builds the app's manifest: Contents, Issues and Pull requests write;
-  Metadata, Actions, Checks and Commit statuses read; no workflows, no events,
+  and builds the app's manifest: Contents, Issues, Pull requests and Commit
+  statuses write; Metadata, Actions and Checks read; no workflows, no events,
   the webhook off; private.
 - It prints one `data:text/html` link. Pasted into a browser's address bar, the
   page posts the manifest to GitHub's new-app form for the owner. The same page

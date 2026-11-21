@@ -77,7 +77,7 @@ asks for. In the organisation (or account) that owns the product repository:
 | Metadata | Read-only | Required by GitHub |
 | Actions | Read-only | Read CI runs |
 | Checks | Read-only | Read a pull request's checks |
-| Commit statuses | Read-only | The same, for statuses |
+| Commit statuses | Read and write | Read a pull request's statuses; a plugin's hook posts one ([plugins](/plugins)) |
 
 Leave **Workflows** at "No access" on purpose: with it off, no cycle can push a
 change to `.github/workflows/`. No organisation or account permissions, and

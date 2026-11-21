@@ -29,6 +29,12 @@ pub struct Fake {
     /// `docker cp` sources and the tar each gives.
     pub tars: BTreeMap<String, Vec<u8>>,
     pub on_run: Option<OnRun>,
+    /// The calls of gh, each its words one space apart.
+    pub gh: Vec<String>,
+    /// What GitHub gives for the pull request; None answers 404.
+    pub pull: Option<Value>,
+    /// What GitHub answers a status.
+    pub statuses: Result<String, String>,
     next: u64,
 }
 
@@ -47,6 +53,9 @@ impl Fake {
             limit: None,
             tars: BTreeMap::new(),
             on_run: None,
+            gh: Vec::new(),
+            pull: None,
+            statuses: Ok("{}".into()),
             next: 7,
         }
     }
@@ -88,6 +97,17 @@ impl Host for Fake {
 
     fn logs(&mut self, container: &str, to: &Path, _max: u64) -> Result<(), String> {
         fs::write(to, format!("the log of {container}\n")).map_err(|e| e.to_string())
+    }
+
+    fn github(&mut self, args: &[&str]) -> Result<String, String> {
+        self.gh.push(args.join(" "));
+        if args.iter().any(|a| a.contains("/statuses/")) {
+            return self.statuses.clone();
+        }
+        self.pull
+            .as_ref()
+            .map(Value::to_string)
+            .ok_or_else(|| ": HTTP 404".to_string())
     }
 }
 
@@ -746,4 +766,110 @@ fn a_hook_granted_the_model_gets_no_socket() {
     assert_eq!(go(&mut h, &w, &hook_ask()), 0);
     assert_eq!(ctx.borrow().get("model"), None);
     assert!(!h.argv[0].iter().any(|a| a.contains("dst=/run/tehas")));
+}
+
+/// A world whose GitHub knows the repository, the bot and the pull request
+/// at `head`, its plugin granted `grants`.
+fn on_github(name: &str, h: &mut Fake, grants: &str, head: &str) -> World {
+    let mut w = world(name, h, "", grants);
+    w.set("TEHAS_REPO", "acme/widget");
+    w.set("TEHAS_BOT_LOGIN", "acme-bot[bot]");
+    w.set("TEHAS_DOMAIN", "example.org");
+    h.pull = Some(json!({
+        "state": "open", "merged": false,
+        "user": {"login": "acme-bot[bot]"},
+        "head": {"sha": head, "repo": {"full_name": "acme/widget"}},
+        "base": {"sha": B},
+    }));
+    for id in ["7", "8", "9"] {
+        h.tars.insert(
+            format!("tehas-plugin-demo-{id}:/out/_tehas"),
+            tar(
+                "_tehas",
+                &[(
+                    "verdict.json",
+                    r#"{"verdict": "note", "summary": "One new finding at @octocat."}"#,
+                )],
+            ),
+        );
+    }
+    w
+}
+
+#[test]
+fn a_hooks_end_posts_one_status_on_the_head_it_read() {
+    let mut h = Fake::new();
+    let w = on_github("plugin-run-status", &mut h, "view hook:after:work", H);
+    ask_hook_on(&w, &mut h, H);
+    assert_eq!(go(&mut h, &w, &hook_ask()), 0);
+    let post = format!("api -X POST repos/acme/widget/statuses/{H} -f state=success -f context=tehas/plugin/demo -f description=One new finding at @\u{200b}octocat. -f target_url=https://plugin-demo.example.org/_hooks/42");
+    assert_eq!(h.gh, ["api repos/acme/widget/pulls/42".to_string(), post]);
+    assert_eq!(h.argv.len(), 1);
+    assert!(!runs::unwritten(&w.home, "demo").exists());
+}
+
+#[test]
+fn a_hook_that_did_not_finish_is_an_error_with_no_target_without_a_view() {
+    let mut h = Fake::new();
+    let w = on_github("plugin-run-status-error", &mut h, "hook:after:work", H);
+    ask_hook_on(&w, &mut h, H);
+    h.ended = Ended::Killed;
+    assert_eq!(go(&mut h, &w, &hook_ask()), 1);
+    assert_eq!(
+        h.gh[1],
+        format!("api -X POST repos/acme/widget/statuses/{H} -f state=error -f context=tehas/plugin/demo -f description=the plugin's hook did not finish")
+    );
+}
+
+#[test]
+fn a_head_that_moved_while_the_hook_ran_is_asked_for_again() {
+    let mut h = Fake::new();
+    let w = on_github("plugin-run-status-moved", &mut h, "hook:after:work", H2);
+    ask_hook_on(&w, &mut h, H);
+    assert_eq!(go(&mut h, &w, &hook_ask()), 0);
+    // The verdict of H is posted on H, then H2 is asked for and run.
+    assert_eq!(h.argv.len(), 2);
+    let posts: Vec<&String> = h.gh.iter().filter(|c| c.contains("/statuses/")).collect();
+    assert_eq!(posts.len(), 2);
+    assert!(posts[0].contains(&format!("statuses/{H} ")));
+    assert!(posts[1].contains(&format!("statuses/{H2} ")));
+    assert!(
+        h.calls[2].ends_with(&format!("--head {H2}")),
+        "{:?}",
+        h.calls
+    );
+    // The first request's start, then the new head's.
+    let starts =
+        h.x.ran
+            .iter()
+            .filter(|c| c.starts_with("systemctl"))
+            .count();
+    assert_eq!(starts, 2);
+    assert!(!runs::hook_request(&w.home, "demo", 42).exists());
+}
+
+#[test]
+fn a_status_github_refuses_the_app_is_kept_for_tehas_plugin() {
+    let mut h = Fake::new();
+    let w = on_github("plugin-run-status-refused", &mut h, "hook:after:work", H);
+    ask_hook_on(&w, &mut h, H);
+    h.statuses = Err(": HTTP 403".into());
+    assert_eq!(go(&mut h, &w, &hook_ask()), 0);
+    // A refusal is not tried again.
+    assert_eq!(h.gh.iter().filter(|c| c.contains("/statuses/")).count(), 1);
+    assert_eq!(
+        runs::status_unwritten(&w.home, "demo").as_deref(),
+        Some("GitHub refused the status on #42: HTTP 403: the App needs Commit statuses: Read and write")
+    );
+    // Any other failure is tried once more, and a status written clears it.
+    h.gh.clear();
+    h.statuses = Err(": HTTP 502".into());
+    ask_hook_on(&w, &mut h, H);
+    assert_eq!(go(&mut h, &w, &hook_ask()), 0);
+    assert_eq!(h.gh.iter().filter(|c| c.contains("/statuses/")).count(), 2);
+    assert!(runs::status_unwritten(&w.home, "demo").is_some());
+    h.statuses = Ok("{}".into());
+    ask_hook_on(&w, &mut h, H);
+    assert_eq!(go(&mut h, &w, &hook_ask()), 0);
+    assert_eq!(runs::status_unwritten(&w.home, "demo"), None);
 }
