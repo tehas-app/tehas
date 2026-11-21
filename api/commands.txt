@@ -53,6 +53,7 @@ pause --reason
 plan --answer --brief --comment --keep --kind --out --session internal=--answer,--brief,--comment,--keep,--kind,--out,--session
 plugin --json building=plugins
 plugin review --json building=plugins
+plugin skills --chat --json building=plugins
 prototype building=prototype-file
 prototype file --body-file --spec --spec-sha256 --title --zip --zip-sha256 building=prototype-file
 refresh --json --pr

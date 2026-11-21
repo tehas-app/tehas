@@ -6,6 +6,7 @@ exits 78.
 
 Usage: tehas plugin [--json]
        tehas plugin review <name> [<commit>] [--json]
+       tehas plugin skills [--chat obeya|wizard|assistant] [--json]
        tehas plugin -h|--help    print this text and exit 0
 
 A plugin is a program from a git repository, pinned by commit. Each one is a
@@ -33,6 +34,15 @@ lets it do and whether it is granted at that commit, the Dockerfile's base
 images and their ONBUILD triggers, whether the model runs on this host, what
 changed since the pin, and the lines to write to grant it. It pulls the base
 images by digest and writes nothing else.
+
+skills lists, for the chat hosts, the granted skills of every ready plugin,
+or of those for one chat with --chat: each skill's plugin, label, pin, id,
+what it is about, its chats, its text and the text's sha256
+(api/plugin-skills.schema.json). It reads each text again from the
+plugin's repository at its pin, with git and nothing else. A plugin is left
+out, and the reason said, when its grants are not for the pin, its manifest
+is not the one tehas update read, a skill's file breaks its rules, or its
+skills would pass 8192 bytes of skills in all.
 
 Exit: 0 listed, or reviewed and not refused; 1 the fetch or the read
 failed; 3 refused, with why; 64 a bad argument or a name TEHAS_PLUGINS does
