@@ -5,6 +5,7 @@
 //! runs no regular expression of a plugin's.
 
 use serde_json::{Map, Value};
+use std::cmp::Ordering;
 
 /// The largest schema, serialized.
 pub const SCHEMA_MAX: usize = 4096;
@@ -174,6 +175,16 @@ fn is_type(v: &Value, t: &str) -> bool {
     }
 }
 
+/// A number against a bound: exactly when both are integers, as f64
+/// otherwise.
+fn order(v: &Value, bound: &Value) -> Option<Ordering> {
+    let int = |n: &Value| n.as_i64().map(i128::from).or(n.as_u64().map(i128::from));
+    match (int(v), int(bound)) {
+        (Some(a), Some(b)) => Some(a.cmp(&b)),
+        _ => v.as_f64()?.partial_cmp(&bound.as_f64()?),
+    }
+}
+
 fn fits(v: &Value, s: &Value, path: &str) -> Result<(), String> {
     let at = if path.is_empty() {
         "the arguments"
@@ -196,17 +207,11 @@ fn fits(v: &Value, s: &Value, path: &str) -> Result<(), String> {
             return Err(format!("{at}: expected one of the schema's enum"));
         }
     }
-    if let Some(n) = v.as_f64() {
-        if s.get("minimum")
-            .and_then(Value::as_f64)
-            .is_some_and(|m| n < m)
-        {
+    if v.is_number() {
+        if s.get("minimum").and_then(|m| order(v, m)) == Some(Ordering::Less) {
             return Err(format!("{at}: under {}", s["minimum"]));
         }
-        if s.get("maximum")
-            .and_then(Value::as_f64)
-            .is_some_and(|m| n > m)
-        {
+        if s.get("maximum").and_then(|m| order(v, m)) == Some(Ordering::Greater) {
             return Err(format!("{at}: over {}", s["maximum"]));
         }
     }
@@ -485,6 +490,34 @@ mod tests {
         ];
         for (args, why) in cases {
             assert_eq!(check(&args, &s), Err(why.to_string()), "{args}");
+        }
+    }
+
+    #[test]
+    fn an_integer_is_held_to_its_bounds_exactly() {
+        let cases = [
+            (
+                "maximum",
+                json!(9007199254740992u64),
+                json!(9007199254740993u64),
+                "over",
+            ),
+            (
+                "minimum",
+                json!(-9007199254740992i64),
+                json!(-9007199254740993i64),
+                "under",
+            ),
+            ("maximum", json!(u64::MAX - 1), json!(u64::MAX), "over"),
+        ];
+        for (bound, b, v, word) in cases {
+            let s = json!({"type": "object", "properties": {"n": {"type": "integer", bound: b}}});
+            assert_eq!(
+                check(&json!({"n": v}), &s),
+                Err(format!("n: {word} {b}")),
+                "{v}"
+            );
+            assert_eq!(check(&json!({"n": b}), &s), Ok(()), "{b}");
         }
     }
 

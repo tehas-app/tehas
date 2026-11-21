@@ -362,12 +362,21 @@ pub fn prepare(x: &mut dyn Exec, home: &Path, pin: &Pin, grants: Option<&Grants>
 
 /// [`prepare`], with the label of the manifest's view at the pin when the
 /// plugin is ready and its manifest has one.
+/// What the dashboard may show of a ready plugin: its label, v1's panel
+/// label when the manifest has `view`, and the views of `views`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Shown {
+    pub label: String,
+    pub panel: Option<String>,
+    pub views: Vec<tehas_core::plugin::manifest::View>,
+}
+
 pub fn prepare_view(
     x: &mut dyn Exec,
     home: &Path,
     pin: &Pin,
     grants: Option<&Grants>,
-) -> (State, Option<String>) {
+) -> (State, Option<Shown>) {
     let mut view = None;
     let s = prepared(x, home, pin, grants, &mut view);
     if let Err(e) = write_state(home, &pin.name, &s) {
@@ -383,7 +392,7 @@ fn prepared(
     home: &Path,
     pin: &Pin,
     grants: Option<&Grants>,
-    view: &mut Option<String>,
+    view: &mut Option<Shown>,
 ) -> State {
     let c = &pin.commit;
     if let Err(why) = fetched(x, home, pin, c) {
@@ -405,7 +414,11 @@ fn prepared(
         return refused(c, &r, refusals);
     }
     let mut s = State::new(Word::Ready, c);
-    view.clone_from(&m.view);
+    *view = Some(Shown {
+        label: m.label.clone(),
+        panel: m.view.clone(),
+        views: m.views.clone(),
+    });
     s.manifest_sha256 = Some(r.sha256.clone());
     s.bases.clone_from(&r.bases);
     let Some(file) = &m.build else {
