@@ -328,7 +328,10 @@ public before the feature became building, which stays on
 `api/surface-1.0.txt` ([review](#review)). `tehas api --json` lists
 every feature in `flags`, `false` while it is building, and a shipped
 feature's word in `features`. `api/settings-rules.json` marks the rows of a
-building feature `"building": true`. Promoting a
+building feature `"building": true`. `api/commands.txt` marks a command of a
+building feature `building=<feature>` at the end of its row, and a flag of
+one that a public command gains `--flag:building=<feature>`: neither is on
+the surface until the feature ships. Promoting a
 feature to shipped only adds. A lab host proves a building feature on a build
 that reads `TEHAS_TEST_FEATURES`, which no release does: see [proving a
 building feature on a lab host](/tools-update#proving-a-building-feature-on-a-lab-host).
@@ -481,18 +484,37 @@ with exit 78 and says `plugins` is still being built.
 - `tehas api --json` has `"plugins": false` in `flags`, and no word `plugins`
   in `features`.
 - The settings `TEHAS_PLUGINS`, `TEHAS_PLUGIN_GRANTS_<NAME>`,
-  `TEHAS_PLUGIN_ACCESS`, `TEHAS_PLUGIN_LIMITS` and `TEHAS_PLUGIN_MODEL_DAY`
+  `TEHAS_PLUGIN_ACCESS`, `TEHAS_PLUGIN_LIMITS`, `TEHAS_PLUGIN_MODEL_DAY` and
+  `TEHAS_PLUGIN_GATE_ADDR`
   are in `api/settings-rules.json`, but they are not contract: a line that
   gives one a value stops every command with exit 78 and names `plugins`.
-- `tehas plugin` and `tehas plugin review` exit 78 and read nothing more,
-  and `tehas update` fetches and builds no plugin. `tehas help plugin` prints
+- `tehas plugin` and its subcommands exit 78 and read nothing more,
+  and `tehas update` fetches and builds no plugin. `tehas plugin check
+  <dir>` runs: it reads a local folder and no settings. `tehas help plugin` prints
   its text, and the list of `tehas help` does not name it.
 - `api/plugin.schema.json`, `api/plugin-review.schema.json`,
-  `api/plugin-manifest.schema.json` and `api/plugin-context.schema.json` and
+  `api/plugin-manifest.schema.json`, `api/plugin-context.schema.json` and
+  `api/plugin-verdict.schema.json` and
   their samples are not contract until the release that ships the feature.
 - The state store has the table `plugin_runs` from schema 19, empty.
+- `tehas-plugin` and its units are not installed, `tehasbot plugin` runs
+  nothing, and no plugin container starts.
 - No label, no `--json` field of another command, no MCP tool, no unit, no
   file under `live/`.
+
+### wiki
+
+Building since v1.3.0. Off by default; `TEHAS_WIKI=on` stops every command
+with exit 78 and says `wiki` is still being built.
+
+- `tehas api --json` has `"wiki": false` in `flags`, and no word `wiki` in
+  `features`.
+- `tehas wiki` exits 78 and reads nothing more. `tehas help wiki` prints its
+  text, and the list of `tehas help` does not name it.
+- `tehasbot wiki` exits 0 and writes nothing. `install.sh` does not install
+  `tehas-wiki-status.service` and its timer.
+- No label, no `--json` field of another command, no MCP tool and no file
+  under `live/`.
 
 ## Exit statuses
 

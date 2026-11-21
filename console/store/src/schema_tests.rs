@@ -138,6 +138,7 @@ fn step_sql(to: i64) -> &'static str {
         19 => db::STEP_19,
         20 => db::STEP_20,
         21 => db::STEP_21,
+        22 => db::STEP_22,
         _ => unreachable!("no step to {to}"),
     }
 }
@@ -273,13 +274,13 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_21() {
-    assert_eq!(db::SCHEMA_VERSION, 21);
-    let home = home("schema-21");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 21);
+fn init_writes_schema_22() {
+    assert_eq!(db::SCHEMA_VERSION, 22);
+    let home = home("schema-22");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 22);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "21"
+        "22"
     );
     // The five tables of the feature are laid by every init, and stay empty
     // while it is off.
@@ -331,6 +332,7 @@ fn init_writes_schema_21() {
     assert_eq!(count(&home, "plugin_records"), 0);
     // Schema 21: who filed a record's issue.
     assert!(columns(&c, "plugin_records").contains(&"filed_by".to_string()));
+    assert!(columns(&c, "plugin_records").contains(&"filed_by_id".to_string()));
     let made = tables(&c);
     for t in DROPPED {
         assert!(!made.contains(&t.to_string()), "{t}");

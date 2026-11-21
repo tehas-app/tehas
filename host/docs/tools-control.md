@@ -22,7 +22,9 @@ dispatcher reads it on every poll: room for new cycles is the smaller of
 `--cycles` and `TEHAS_MAX_CYCLES`, less the cycles running, and its
 hold is `limit`. With `--plan off` no new planning session starts; an answer to a planning
 question still runs. One that expired or cannot be read holds every start, answers and
-retry ticks included, while the poll goes on cleaning up. See
+retry ticks included, while the poll goes on cleaning up. A `set` or `clear`
+that lets more cycles run while the last poll's demand has an issue waiting
+asks for a poll, as `tehas wake` does. See
 [Limit and drain](/operating#limit-and-drain) and
 [the factory API](/api#tehas-limit) for the JSON. The reading, the checks of an
 argument that reaches it, the write and the words of the answer are the
@@ -288,11 +290,17 @@ being built in this release, so every subcommand exits 78. See
 ```
 tehas plugin [--json]
 tehas plugin review <name> [<commit>] [--json]
+tehas plugin run <name>
+tehas plugin hook <name> <pr>
+tehas plugin log <name> [--hook <pr>]
+tehas plugin check <dir> [--json]
 ```
 
 The plugins of this factory, as its settings set them: each one's pin, what
-is granted at the pin, and its state: `unbuilt`, `building`, `ready` or
-`refused` with why, as the last `tehas update` left it. With the feature on,
+is granted at the pin, its state: `unbuilt`, `building`, `ready` or
+`refused` with why, as the last `tehas update` left it, its last run and the
+model tokens its runs used today, from the state store, and why its hook's
+last commit status could not be written, when it could not. With the feature on,
 `tehas update` fetches each pin into `~/tehas/plugins/<name>/repo.git`,
 checks its manifest, skills and Dockerfile, pulls its base images by digest
 and builds its image with no network, then prunes the repository to the pin's
@@ -307,7 +315,88 @@ ONBUILD triggers, where the model runs (the provider of
 the pin and the lines to write. It writes nothing but the fetched objects and
 the base images.
 Exit 0; 1 the fetch or the read failed; 3 refused, with why; 64; 78.
-Plugins are still being built in this release, so both exit 78. See the
+
+`run` asks for a refresh now and `hook` for the plugin's hook on an open pull
+request of the bot's, at its current head. Each writes a request under
+`~/tehas/plugins/<name>/` and starts a unit with `systemctl --user start
+--no-block`, and waits for nothing: `tehas-plugin@<name>.service` for a
+refresh, `tehas-plugin-hook@<name>-<pr>.service` for a hook. Exit 0 asked; 3
+one is running, the plugin is not ready, or there is no such open bot pull
+request; 1 GitHub or systemd failed; 64; 78. A plugin refused because its
+`/state` passed the disk limit runs again only through `run`.
+
+`log` prints the last run's log, at most 1 MiB, as the plugin wrote it: the
+last refresh's, or with `--hook` the last hook's on that pull request.
+Exit 0; 3 none; 64; 78.
+
+A run is one container of the plugin's image, started by `tehas-plugin`:
+the arguments of [the security part of the
+spec](https://github.com/tehas-app/tehas/blob/main/docs/specs/2026-11-21-plugins-security.md),
+a row in `plugin_runs`, a clone of the product's mirror at the run's head
+when `product` is granted, the model socket when `model` is (a refresh only:
+a hook gets no model in v1), `docker kill` at
+the manifest's timeout, then `/out` read through the tar reader: a refresh's
+view swapped into `~/tehas/plugins/<name>/view/` with one rename, a hook's
+`/out/_tehas/verdict.json` (`api/plugin-verdict.schema.json`) kept as
+`hooks/<pr>.verdict.json` until the tick removes it. The volumes are measured against `disk`, and the
+container, its `/work` and `/out` and the run's files are removed. The row
+ends `done`, `failed`, `timeout` or `lost`, with the model's tokens. A hook
+waits for a refresh of the same plugin to end, at most one hook of a plugin
+and two in all run at once, and a newer request for the same pull request
+runs after the one that runs.
+
+A cycle asks for the hooks itself. After its report, a cycle that was not
+stopped by a signal, was not refused at its start and left an open pull
+request of the bot's, a refresh's too, reads that pull request from GitHub.
+For each plugin granted `hook:after:work` and ready at its pin it writes
+`~/tehas/plugins/<name>/hooks/<pr>.json` (the pull request, its head as
+GitHub gave it, its base and the issue) and starts
+`tehas-plugin-hook@<name>-<pr>.service`. It waits for none of them. A hook
+holds no slot, lock or label. A merged or closed pull request gets no hook.
+
+When a hook ends, `tehas-plugin` asks GitHub for the pull request's head and
+posts one commit status on the head the hook read, and nothing else, never
+a comment: context `tehas/plugin/<name>`; `success` for a `pass` or `note`
+verdict; `error` with "the plugin's hook did not finish" for a hook that
+failed, ran out of time or left a verdict that breaks its schema. The
+description is the verdict's summary, cleaned as a question comment is
+(check boxes, `<!--` markers and `@` mentions disarmed, secret-looking text
+masked) and cut at 140 characters. With `view` granted the status links to
+`https://plugin-<name>.<TEHAS_DOMAIN>/_hooks/<pr>`, or the one-level name
+when `TEHAS_EDGE_ONE_LEVEL` is on, where the gate shows the findings,
+which nothing installs yet. A post that fails is tried once more. GitHub
+refuses a status with 403 when the App lacks "Commit statuses: Read and
+write" ([the App's permissions](/github-app)): the refusal is kept in
+`~/tehas/plugins/<name>/status-unwritten`, and `tehas plugin` says "the
+status could not be written" (`status_unwritten` in `--json`) until a status
+is written. A head that moved while the hook ran gets the status on the
+commit the hook read, then a new request for the new head, which runs next.
+
+`tehas-plugin.timer` runs `tehasbot plugin tick` every 10 minutes. It reads
+the head the poll fetched into the product's mirror, asks GitHub nothing,
+and asks for a refresh of each ready plugin whose last refresh began at
+another head. It starts nothing while the factory is paused by
+`state/pause.json`, drained, read-only, or while `tehas update` runs, and
+says why in `~/tehas/logs/plugins.log`, where the runs write too. It removes
+the containers, volumes and files a run that died left, and ends its row as
+`lost`. It removes a hook's `hooks/<pr>.verdict.json`, and that pull
+request's request unless its hook runs, when the verdict's head is in the
+default branch of the mirror (merged), or when the verdict is older than 30
+days (closed or left). Each removal is logged with why. `install.sh` installs `tehas-plugin`, the two templates, the timer
+and its service only while the feature is on, and a first install enables
+the timer.
+
+`check` reads a plugin's folder on this machine as `review` reads a commit:
+the manifest, its skills' text and the Dockerfile's rules, each ask known and
+not reserved. It needs no instance settings, runs no git or docker and
+reaches no network, so a plugin's author runs it anywhere tehas unpacks, with
+the feature off too. It reads only the folder's regular files, through no
+link. The bases' ONBUILD triggers need a pull, so `check` leaves them to
+`review` and `tehas update` and says so. Exit 0 the folder keeps the rules;
+3 refused, with why, a folder with no manifest among them; 64.
+
+Plugins are still being built in this release, so every subcommand but
+`check` exits 78. See the
 `TEHAS_PLUGIN` rows of
 [the settings table](/tools#instance-settings) and [what the feature leaves
 visible](/contract#plugins).

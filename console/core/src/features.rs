@@ -104,8 +104,8 @@ pub const FEATURES: &[Feature] = &[
         programs: &[],
         units: &["tehas-review.service", "tehas-review.timer"],
     },
-    // docs/specs/2026-11-21-plugins.md. Its programs and units come with the
-    // run.
+    // docs/specs/2026-11-21-plugins.md. The gate's program and unit come with
+    // the gate.
     Feature {
         name: "plugins",
         stage: Stage::Building,
@@ -116,10 +116,26 @@ pub const FEATURES: &[Feature] = &[
             "TEHAS_PLUGIN_ACCESS",
             "TEHAS_PLUGIN_LIMITS",
             "TEHAS_PLUGIN_MODEL_DAY",
+            "TEHAS_PLUGIN_GATE_ADDR",
         ],
         since: "v1.2.0",
+        programs: &["tehas-plugin"],
+        units: &[
+            "tehas-plugin@.service",
+            "tehas-plugin-hook@.service",
+            "tehas-plugin.service",
+            "tehas-plugin.timer",
+        ],
+    },
+    // docs/specs/2026-11-21-wiki.md. The build's units come with the build.
+    Feature {
+        name: "wiki",
+        stage: Stage::Building,
+        setting: "TEHAS_WIKI",
+        settings: &[],
+        since: "v1.3.0",
         programs: &[],
-        units: &[],
+        units: &["tehas-wiki-status.service", "tehas-wiki-status.timer"],
     },
 ];
 
@@ -207,6 +223,14 @@ pub fn units() -> impl Iterator<Item = &'static str> {
 pub fn timed(unit: &str, units: &[&str]) -> bool {
     unit.strip_suffix(".service")
         .is_some_and(|stem| units.contains(&format!("{stem}.timer").as_str()))
+}
+
+/// Whether `unit` is a template, `<name>@.<type>`: it runs only as an
+/// instance something starts, so it is installed but never enabled or
+/// restarted by name.
+pub fn template(unit: &str) -> bool {
+    unit.split_once('.')
+        .is_some_and(|(stem, _)| stem.ends_with('@'))
 }
 
 /// The names of the shipped features: the words they add to `features`.
@@ -617,7 +641,7 @@ mod tests {
         assert!(flags().contains(&(name, false)));
         let tested = vars(&[("TEHAS_PLUGIN", "on"), (TEST_VAR, name)]);
         assert!(on_in(name, &tested));
-        assert_eq!(installs_in(&tested), (vec![], vec![]));
+        assert_eq!(installs_in(&tested).0, ["tehas-plugin"]);
         assert_eq!(
             refuse_building(&vars(&[("TEHAS_PLUGIN", "on")])),
             Err("TEHAS_PLUGIN is on and plugins is still being built in this release: set it to off or take the line out".to_string())
@@ -815,9 +839,33 @@ mod tests {
             [
                 "tehas-outsource-proxy.service",
                 "tehas-review.service",
-                "tehas-review.timer"
+                "tehas-review.timer",
+                "tehas-plugin@.service",
+                "tehas-plugin-hook@.service",
+                "tehas-plugin.service",
+                "tehas-plugin.timer",
+                "tehas-wiki-status.service",
+                "tehas-wiki-status.timer"
             ]
         );
+    }
+
+    #[test]
+    fn plugins_install_their_program_runs_and_timer_only_while_on() {
+        let on = vars(&[("TEHAS_PLUGIN", "on"), (TEST_VAR, "plugins")]);
+        let (programs, units) = installs_in(&on);
+        assert_eq!(programs, ["tehas-plugin"]);
+        assert_eq!(units.len(), 4);
+        assert_eq!(installs_in(&vars(&[("TEHAS_PLUGIN", "on")])).0.len(), 0);
+        // The timer's service is the timer's; the runs are templates.
+        assert!(timed("tehas-plugin.service", &units));
+        for u in ["tehas-plugin@.service", "tehas-plugin-hook@.service"] {
+            assert!(template(u), "{u}");
+            assert!(!timed(u, &units), "{u}");
+        }
+        for u in ["tehas-plugin.timer", "tehas-cycle.service", "a@b.service"] {
+            assert!(!template(u), "{u}");
+        }
     }
 
     #[test]

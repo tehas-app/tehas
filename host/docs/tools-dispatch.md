@@ -271,7 +271,11 @@ no retry after an outage, and a list that cannot be read ends the poll (exit 1
 when the store is busy, 78 when it cannot be used). Read again after a
 planning write of the poll, a list that cannot be read holds every issue for
 the rest of that poll. A turn running on record is not begun again by a new
-`tehas:plan`; the poll logs the issue and starts nothing.
+`tehas:plan`; the poll logs the issue and starts nothing. A poll that ends a
+session leaves `state/dispatch.again`, so the next poll comes at once: it can
+start the issue the session held, or another session in its room. When the
+issue is ready, the poll that ended the session writes `live/demand.json`
+again at its end with the issue counted.
 
 One planning turn runs at a time. A turn on record as running counts as
 running while its lock is held or its unit `tehas-plan-<issue>.service` is

@@ -43,7 +43,8 @@
     "prototype-file": false,
     "lean": false,
     "review": false,
-    "plugins": false
+    "plugins": false,
+    "wiki": false
   },
   "millwright": "millbot[bot]",
   "poll": {

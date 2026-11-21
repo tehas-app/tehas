@@ -36,7 +36,11 @@
 # outsource is on (TEHAS_OUTSOURCE) it compiles two more, the model proxy
 # (console/proxy, libexec/tehas-proxy) and the contractor program
 # (console/contractor, libexec/tehas-contractor), and installs the proxy's
-# unit, tehas-outsource-proxy.service; off, none of the three. The review
+# unit, tehas-outsource-proxy.service; off, none of the three. While plugins
+# are on (TEHAS_PLUGIN) it compiles the runner (console/plugin,
+# libexec/tehas-plugin) and installs its units: the templates of a run,
+# tehas-plugin@.service and tehas-plugin-hook@.service, and tehas-plugin.timer
+# with its service; off, none of them. The review
 # loop's units, tehas-review.service and .timer, are installed only while
 # review is on (TEHAS_REVIEW), which no release allows yet; off, a timer an
 # earlier release left enabled is stopped and disabled, its files kept. A real
@@ -719,7 +723,8 @@ for f in "$root"/lib/polyfill-*.sh; do
 done
 shopt -u nullglob
 # What a feature that is on installs besides the rest: outsource's model proxy,
-# its unit and the contractor program, review's units
+# its unit and the contractor program, review's units, the plugins' runner and
+# units
 # (console/ops/src/update/host.rs). Off,
 # none of it is installed or compared.
 featured=$(export "${!TEHAS_@}"; "$loaded_console" update featured) ||

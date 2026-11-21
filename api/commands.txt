@@ -1,7 +1,8 @@
 # The tehas commands, their subcommands and the flags each takes, one line per
 # command and one per subcommand, in order: the command, the subcommand, its
 # flags, then two marks. `building=<feature>` marks a command of a feature
-# still being built, which is not public until that feature ships.
+# still being built, which is not public until that feature ships, and
+# `--flag:building=<feature>` marks one flag of such a feature the same way.
 # `internal=<flag>,...` marks flags that a unit or the dashboard writes, not a
 # person or a program; they are not public. Within 1.x a public command,
 # subcommand or flag is only added. The tests of console/src/front.rs hold
@@ -52,7 +53,11 @@ panel set --label --url
 pause --reason
 plan --answer --brief --comment --keep --kind --out --session internal=--answer,--brief,--comment,--keep,--kind,--out,--session
 plugin --json building=plugins
+plugin check --json building=plugins
+plugin hook building=plugins
+plugin log --hook building=plugins
 plugin review --json building=plugins
+plugin run building=plugins
 plugin skills --chat --json building=plugins
 prototype building=prototype-file
 prototype file --body-file --spec --spec-sha256 --title --zip --zip-sha256 building=prototype-file
@@ -72,4 +77,5 @@ thaw --json
 top --every --json --once internal=--json
 update --accept-id --check --pending --to
 wake --json
+wiki --json building=wiki
 work --driver --restart

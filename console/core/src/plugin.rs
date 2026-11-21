@@ -3,21 +3,25 @@
 //! settings and the capabilities, which the settings' rules, the manifest's
 //! reader and `tehas plugin` share, and the parts of a run that are rules:
 //! the Dockerfile's, the reader of `/out`, a run as data, the fetch's and
-//! the build's commands, the state they leave and the words of a review.
-//! Only that reader writes files; nothing here reaches the network.
+//! the build's commands, the state they leave, the words of a review and a
+//! hook's request. Only that reader and the request write files; nothing
+//! here reaches the network.
 
 pub mod build;
 pub mod dockerfile;
 pub mod draft;
+pub mod hook;
 pub mod manifest;
 pub mod needs;
 pub mod out;
+pub mod params;
 pub mod review;
 pub mod run;
 #[cfg(test)]
 mod schema;
 pub mod skill;
 pub mod state;
+pub mod verdict;
 
 /// The front of the grants settings, one per plugin:
 /// `TEHAS_PLUGIN_GRANTS_<NAME>`, the name in upper case.
@@ -66,7 +70,7 @@ pub fn is_name(s: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
 }
 
-/// An action's or a skill's id: `a-z` and `-`, 1 to 16 characters.
+/// An action's, a skill's or a tool's id: `a-z` and `-`, 1 to 16 characters.
 pub fn is_action_id(s: &str) -> bool {
     (1..=ACTION_MAX).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_lowercase() || b == b'-')
 }
@@ -191,6 +195,10 @@ pub enum Cap {
     Needs(String),
     /// Image parts in the run's model requests (the v3 part).
     ModelImages,
+    /// A tool the chats may call, a run of its own each call.
+    Tool(String),
+    /// One view of `views`, by its id (the v2 menu part).
+    ViewOf(String),
 }
 
 impl Cap {
@@ -204,7 +212,9 @@ impl Cap {
             Cap::HookAfterWork => "hook:after:work".to_string(),
             Cap::Skill(id) => format!("skill:{id}"),
             Cap::Needs(name) => format!("needs:{name}"),
+            Cap::ViewOf(id) => format!("view:{id}"),
             Cap::ModelImages => "model:images".to_string(),
+            Cap::Tool(id) => format!("tool:{id}"),
         }
     }
 
@@ -217,7 +227,7 @@ impl Cap {
 
 /// Whether a word is a capability of a later tehas.
 fn reserved(word: &str) -> bool {
-    ["gate:", "tool:", "net:", "hook:"]
+    ["gate:", "net:", "hook:"]
         .iter()
         .any(|front| word.starts_with(front))
         || matches!(word, "factory-read" | "factory-sessions")
@@ -272,12 +282,30 @@ fn cap(word: &str, granted: bool) -> Result<(Cap, Option<u64>), String> {
             ))
         };
     }
+    if let Some(id) = word.strip_prefix("view:") {
+        return if is_action_id(id) {
+            Ok((Cap::ViewOf(id.to_string()), None))
+        } else {
+            Err(format!(
+                "{word}: a view's id is 1 to 16 characters of a-z and -"
+            ))
+        };
+    }
     if let Some(id) = word.strip_prefix("skill:") {
         return if is_action_id(id) {
             Ok((Cap::Skill(id.to_string()), None))
         } else {
             Err(format!(
                 "{word}: a skill's id is 1 to 16 characters of a-z and -"
+            ))
+        };
+    }
+    if let Some(id) = word.strip_prefix("tool:") {
+        return if is_action_id(id) {
+            Ok((Cap::Tool(id.to_string()), None))
+        } else {
+            Err(format!(
+                "{word}: a tool's id is 1 to 16 characters of a-z and -"
             ))
         };
     }
@@ -680,12 +708,36 @@ mod tests {
     }
 
     #[test]
+    fn a_tool_is_granted_and_asked_by_its_id_and_needs_a_run() {
+        let g = grants(&format!("{C} tool:find-doc tool:grep")).unwrap();
+        assert_eq!(
+            g.caps,
+            [Cap::Tool("find-doc".into()), Cap::Tool("grep".into())]
+        );
+        assert_eq!(ask("tool:find-doc"), Ok(Cap::Tool("find-doc".into())));
+        assert_eq!(Cap::Tool("find-doc".into()).ask(), "tool:find-doc");
+        assert!(Cap::Tool("find-doc".into()).needs_run());
+        for bad in ["tool:", "tool:Find", "tool:a_b", "tool:abcdefghijklmnopq"] {
+            assert_eq!(
+                ask(bad).unwrap_err(),
+                format!("{bad}: a tool's id is 1 to 16 characters of a-z and -")
+            );
+        }
+        assert_eq!(
+            grants(&format!("{C} tool:grep tool:grep")).unwrap_err(),
+            "tool:grep is granted twice"
+        );
+        let got = compare(&words(&["tool:grep"]), Some(&g), C);
+        assert!(got.granted(), "{got:?}");
+        assert_eq!(got.unasked, ["tool:find-doc"]);
+    }
+
+    #[test]
     fn a_grant_of_a_later_tehas_is_refused_naming_the_word() {
         for word in [
             "gate:verify",
             "hook:before:work",
             "hook:after:merge",
-            "tool:read",
             "net:api.example.org",
             "factory-read",
             "factory-sessions",

@@ -13,11 +13,30 @@
 //! cannot be opened, one replaced while it was opened, and a lock error other
 //! than contention: a lock is taken and released by descriptor, so a probe of a
 //! name that is not the file that was locked proves nothing either way.
+//!
+//! [`try_lock`] is the other side: a holder that takes a lock now or not at
+//! all, and creates its file to do so.
 
 use std::fs::{self, File, TryLockError};
 use std::io::ErrorKind;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
+use std::time::Duration;
+
+/// A lock taken now, or None when another holds it.
+pub fn try_lock(path: &Path) -> Result<Option<File>, String> {
+    let f = File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    // A lock just given back can still be held a moment by a child forked
+    // while it was taken, until that child's exec closes it.
+    for _ in 0..10 {
+        match f.try_lock() {
+            Ok(()) => return Ok(Some(f)),
+            Err(TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(50)),
+            Err(TryLockError::Error(e)) => return Err(format!("{}: {e}", path.display())),
+        }
+    }
+    Ok(None)
+}
 
 /// The names of the `*.lock` files in `dir` that are held, in the order of a
 /// glob. One that cannot be read counts as held: nothing may guess that nobody
@@ -134,6 +153,21 @@ mod tests {
         assert_eq!(probe(&d.join("7.lock")), Probe::Absent);
         assert!(!d.join("7.lock").exists());
         assert_eq!(fs::read_dir(d.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_lock_held_elsewhere_is_not_taken_and_one_given_back_is() {
+        let d = TestDir::new("lock-try");
+        let f = d.join("x.lock");
+        let held = try_lock(&f).unwrap().expect("a free lock is taken");
+        assert_eq!(probe(&f), Probe::Held);
+        assert!(try_lock(&f).unwrap().is_none());
+        drop(held);
+        assert!(try_lock(&f).unwrap().is_some());
+        let missing = d.join("no/x.lock");
+        assert!(try_lock(&missing)
+            .unwrap_err()
+            .starts_with(&missing.display().to_string()));
     }
 
     #[test]

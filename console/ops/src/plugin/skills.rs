@@ -54,7 +54,7 @@ pub fn list(
         ..Listing::default()
     };
     let mut total = 0;
-    for row in super::rows(get, &|name| prepare::read_state(home, name)) {
+    for row in super::rows(get, &|name| prepare::read_state(home, name), &|_| (None, 0)) {
         if row.state.state != Word::Ready {
             continue;
         }
@@ -188,8 +188,8 @@ mod tests {
     use tehas_core::plugin::state::State;
     use tehas_core::testdir::TestDir;
 
-    const GRILL: &str = "## Interview\n\nOne question at a time.\n";
-    const SPEC: &str = "## Specify\n\nProblem, solution, criteria.\n";
+    const GRILL: &str = "### Interview\n\nOne question at a time.\n";
+    const SPEC: &str = "### Specify\n\nProblem, solution, criteria.\n";
 
     fn manifest() -> String {
         r#"{"plugin": 1, "name": "floorplan", "label": "Spec interview", "asks": ["skill:grill", "skill:spec"],

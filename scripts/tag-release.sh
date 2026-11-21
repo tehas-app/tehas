@@ -82,7 +82,8 @@
 # from the workspace beside this script, or the build TEHAS_XTASK names. It
 # still runs git, gh, docker and the head's scripts for the steps above.
 #
-# Usage: scripts/tag-release.sh [--patch|--minor|--major] [--message <text>]
+# Usage: scripts/tag-release.sh [--patch|--minor|--major|--version <vX.Y.Z>]
+#                               [--message <text>]
 #                               [--no-verify] [--dry-run] [--remote <name>]
 #                               [--rukas-caps <file>] [--no-pins]
 #                               [--local-gate] [--gate-wait <minutes>]
@@ -90,6 +91,8 @@
 #   --patch      the default: v0.7.6 becomes v0.7.7
 #   --minor      v0.7.6 becomes v0.8.0
 #   --major      v0.7.6 becomes v1.0.0
+#   --version    that release, which must come after the newest: v1.2.0 with
+#                --version v1.4.0 becomes v1.4.0, skipping v1.3.0
 #   --pre        tag the next prerelease of that version at this stage instead:
 #                v0.7.6 with --major --pre alpha becomes v1.0.0-alpha.1, then
 #                v1.0.0-alpha.2; no alpha once a beta of it is out. The release
@@ -111,6 +114,7 @@
 #       remote, GitHub or docker failed, the newest tag is not on the branch,
 #       CHANGELOG.md has no Changes or no Adopter action for the release,
 #       or the tag before a prerelease has no Unreleased section,
+#       --version names a release that does not come after the newest,
 #       a polyfill it keeps
 #       has no live upstream issue and pull request, a pinned tool could not be
 #       moved, the fragments could not be collected, or the gate failed, or

@@ -29,6 +29,10 @@
 //! under the settings: the model proxy of outsource, which says itself
 //! whether the feature is on.
 //!
+//! tehasbot plugin is `tehas-plugin` beside this program, by exec under the
+//! settings: a plugin's run and the plugins' tick, which say themselves
+//! whether the feature is on.
+//!
 //! tehasbot cycle, tehas work and tehas index are `tehas-cycle` beside this
 //! program, by exec under the settings. It takes the command's lock itself and
 //! hands it down to what it starts (console/cycle/src/lock.rs).
@@ -307,6 +311,7 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
             cycle_program(libexec, "tehas index", &words)
         }
         ["tehasbot", "cycle"] => cycle_run(libexec, rest.first().ok_or(64u8)?),
+        ["tehasbot", "plugin"] => beside(libexec, "tehas-plugin", "tehasbot plugin", rest),
         ["tehasbot", "outsource-proxy"] if rest.is_empty() => {
             beside(libexec, "tehas-proxy", "tehasbot outsource-proxy", &[])
         }
@@ -321,6 +326,7 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
             env::set_var("PATH", path);
             hand_to_dispatcher(libexec, rest, Some(format!("{home}/logs/refresh.log")))
         }
+        ["tehasbot", "wiki"] => crate::wiki::publish(rest),
         ["tehasbot", "review"] if !tehas_core::features::on("review") => 0,
         ["tehasbot", "review"] => review::main(&["main".to_string()]),
         _ => commands::tehasbot(&words[1..]),

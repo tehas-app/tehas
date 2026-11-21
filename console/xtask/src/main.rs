@@ -10,6 +10,7 @@
 //!   xtask tag-deploy --script <path> <argument>...
 //!   xtask polyfills --script <path> <argument>...
 //!   xtask test --root <dir> [path...]
+//!   xtask kani-shard <kani-list.json> <index> <count>
 //!
 //! select-tests is scripts/select-tests.sh: src/select.rs says what it prints.
 //! pack-release is scripts/pack-release.sh, whose header (the --script) is its
@@ -22,15 +23,18 @@
 //! src/polyfills.rs; its default tree is the checkout two levels above the
 //! --script. test
 //! is scripts/test.sh: src/run.rs. Each check of its pool runs as
-//! `xtask test-task`, a process of this program's own.
+//! `xtask test-task`, a process of this program's own. kani-shard is the
+//! release gate's proofs job: src/kani.rs.
 //!
-//! Exit: what the task says; 64 a task or an argument it does not know.
+//! Exit: what the task says; 64 a task or an argument it does not know;
+//! kani-shard 65 a list or a shard it refuses.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 mod changelog;
 mod deploy;
+mod kani;
 mod notes;
 mod pack;
 mod polyfills;
@@ -54,6 +58,7 @@ fn main() -> ExitCode {
         Some("release-notes") => release_notes(&args[1..]),
         Some("polyfills") => polyfills(&args[1..]),
         Some("test") => test(&args[1..]),
+        Some("kani-shard") => kani_shard(&args[1..]),
         _ => {
             eprintln!("xtask: usage: xtask select-tests --root <dir> <path>...");
             eprintln!("       xtask pack-release --script <path> <argument>...");
@@ -63,6 +68,7 @@ fn main() -> ExitCode {
             eprintln!("       xtask release-notes --script <path> <argument>...");
             eprintln!("       xtask polyfills --script <path> <argument>...");
             eprintln!("       xtask test --root <dir> [path...]");
+            eprintln!("       xtask kani-shard <kani-list.json> <index> <count>");
             ExitCode::from(64)
         }
     }
@@ -259,6 +265,38 @@ fn test(args: &[String]) -> ExitCode {
         return ExitCode::from(2);
     };
     ExitCode::from(run::main(&root, paths, &me))
+}
+
+fn kani_shard(args: &[String]) -> ExitCode {
+    let usage = || {
+        eprintln!("xtask: usage: xtask kani-shard <kani-list.json> <index> <count>");
+        ExitCode::from(64)
+    };
+    let [list, index, count] = args else {
+        return usage();
+    };
+    let (Ok(index), Ok(count)) = (index.parse(), count.parse()) else {
+        return usage();
+    };
+    let text = match std::fs::read_to_string(list) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("kani-shard: {list}: {e}");
+            return ExitCode::from(65);
+        }
+    };
+    match kani::shard(&text, index, count) {
+        Ok(names) => {
+            for n in names {
+                tehas_core::outln!("{n}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(msg) => {
+            eprintln!("kani-shard: {msg}");
+            ExitCode::from(65)
+        }
+    }
 }
 
 fn refuse(f: pack::Fail) -> ExitCode {

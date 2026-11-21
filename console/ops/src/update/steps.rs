@@ -145,6 +145,7 @@ fn steps_for_in(sources: &[String], get: &dyn Fn(&str) -> String) -> Vec<String>
                 .is_some_and(|stem| changed(&format!("{stem}.service")));
             if !units.contains(&unit)
                 && !tehas_core::features::timed(unit, &all)
+                && !tehas_core::features::template(unit)
                 && (on.contains(&unit) || servers.contains(&unit) || changed(unit) || service)
             {
                 units.push(unit);
@@ -593,6 +594,25 @@ mod tests {
         }
         // A line an older version recorded with the timer still runs.
         assert!(valid(&with_timer));
+    }
+
+    #[test]
+    fn the_plugins_timer_is_restarted_and_no_template_is_named() {
+        let on = |name: &str| {
+            match name {
+                "TEHAS_PLUGIN" => "on",
+                "TEHAS_TEST_FEATURES" => "plugins",
+                _ => "",
+            }
+            .to_string()
+        };
+        let all = format!("units {} tehas-plugin.timer", UNITS.join(" "));
+        let files = [
+            "systemd/tehas-plugin@.service",
+            "systemd/tehas-plugin-hook@.service",
+            "systemd/tehas-plugin.service",
+        ];
+        assert_eq!(steps_for_in(&lines(&files), &on), [all.as_str()]);
     }
 
     #[test]

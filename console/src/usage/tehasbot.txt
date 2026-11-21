@@ -16,6 +16,10 @@ Usage:
   tehasbot mcp serve            the read-only MCP server (the service)
   tehasbot outsource-proxy      the model proxy of outsource, while it is on
                                 (the service)
+  tehasbot plugin tick          a refresh of each plugin whose default branch moved
+                                (the timer), while plugins are on
+  tehasbot plugin run <name> --kind refresh|hook
+                                one run of a plugin (its units)
   tehasbot github-token [--cycle]
                                 the GitHub App's token, or the cycle's (the gh shim);
                                 --check is tehas github check, by its old name

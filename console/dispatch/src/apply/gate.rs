@@ -251,9 +251,11 @@ impl Writer {
             return true;
         }
         // A launcher that ran the index to its end: the poll it asked for is
-        // this one.
+        // this one, unless a session this poll ended asked for one too.
         if self.index_report(log) {
-            let _ = std::fs::remove_file(self.home.join("state/dispatch.again"));
+            if !self.asked_again {
+                let _ = std::fs::remove_file(self.home.join("state/dispatch.again"));
+            }
             return true;
         }
         log.push("holding: the code index is refreshed first, as tehas-index.service; the cycles start on the poll after it".into());

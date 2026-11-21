@@ -368,6 +368,27 @@ fn demand_the_health_file_carries_it_after_the_poll() {
 }
 
 #[test]
+fn demand_counts_a_ready_issue_whose_planning_session_the_poll_ended() {
+    let w = World::new("queue-demand-plan");
+    ready_at(&w, 7, "alice", "2026-10-17T10:00:00Z");
+    // #7 no longer asks, so the poll ends its session after it counted.
+    w.t_plan(7, json!({"turns": 1, "comment": 4001}));
+    w.hold(5);
+    let r = w.poll();
+    w.release();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(w.rec_open(), "none");
+    let demand = std::fs::read_to_string(w.demand_file()).unwrap();
+    assert_eq!(
+        jq("{waiting, oldest}", &demand),
+        r#"{"waiting":1,"oldest":"2026-10-17T10:00:00Z"}"#
+    );
+    assert_eq!(jq(".time | fromdateiso8601 | type", &demand), r#""number""#);
+    // And the poll that can start it comes at once (#2708).
+    assert!(w.home.join("state/dispatch.again").exists());
+}
+
+#[test]
 fn demand_the_fixers_label_waits_like_a_persons() {
     let w = World::new("queue-demand-fixer");
     w.slots(1, &[]);

@@ -16,7 +16,8 @@
 //! a container starts from, `conflict` reads whether a refresh's pull request
 //! conflicts before one starts, and `watch` starts a cycle's container and sees it
 //! to its end. `progress` summarises what the runner wrote.
-//! `supervise` starts a cycle, runs tehas work and sees to its report.
+//! `supervise` starts a cycle, runs tehas work and sees to its report, and
+//! `hook` then asks for the plugins' hooks on the pull request it left.
 //! `memory` answers a cycle's vipune calls that come through the relay.
 //! `lock` takes the locks of a cycle, tehas work and the index, and hands them
 //! down to what they start.
@@ -32,6 +33,7 @@ pub mod facts;
 pub mod finish;
 pub mod freeze;
 pub mod gives;
+pub mod hook;
 pub mod host;
 pub mod index;
 pub mod last_attempt;

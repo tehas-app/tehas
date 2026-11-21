@@ -10,7 +10,10 @@
       "refusal": "the grants are for another commit",
       "image": null,
       "manifest_sha256": null,
-      "bases": []
+      "bases": [],
+      "last_run": null,
+      "tokens_today": 0,
+      "status_unwritten": null
     }
   ]
 }

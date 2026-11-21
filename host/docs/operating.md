@@ -2616,13 +2616,16 @@ Two things run there:
   list on a GitHub-hosted runner, so the list never reaches the lane. A
   third runs the Kani proofs beside the code (`#[cfg(kani)]` modules), with
   Kani at the version it pins, on a runner of its own,
-  `[self-hosted, kani]`. The proofs run only here, not in
-  `scripts/verify.sh` or on pull requests. With no `kani` runner online the
-  job waits, and the run is not green until it has run. The run's title is
-  `release-gate <commit>`. An alpha or a beta skips the proofs: `tag-release`
-  starts its run with `proofs=false`, titled `release-gate <commit> without
-  proofs`, and such a run gates only an alpha or a beta. A release candidate
-  or a release needs a run with the proofs.
+  `[self-hosted, kani]`. It is three jobs, `proofs (1)` to `proofs (3)`:
+  each takes every third harness and checks four at a time, so with three
+  `kani` runners they run side by side, and with fewer they queue. The
+  proofs run only here, not in `scripts/verify.sh` or on pull requests.
+  With no `kani` runner online the jobs wait, and the run is not green
+  until all three have run. The run's title is `release-gate <commit>`.
+  An alpha or a beta skips the proofs: `tag-release` starts its run with
+  `proofs=false`, titled `release-gate <commit> without proofs`, and such a
+  run gates only an alpha or a beta. A release candidate or a release needs
+  a run with the proofs.
 - **Express batches.** `verify.yml` runs a pull request whose title starts
   with `Express Lane` on `[self-hosted, speedlane]`. Every other pull request
   into main or a `release/` branch, and every push to them, runs where it
@@ -2665,8 +2668,10 @@ its pi-rukas clone in `~/.cache/tehas-speedlane/repos/pi-rukas` between runs.
 
 ### Registering a kani runner
 
-The release gate's proofs job asks for `[self-hosted, kani]`. Give it a
-machine with plenty of memory and network access to GitHub and the Rust
+The release gate's proofs jobs ask for `[self-hosted, kani]`. Up to three
+runners are used at once, so register one on each of up to three machines.
+Give each a machine with 8 or more cores, 16 GB or more free for the job,
+and network access to GitHub and the Rust
 toolchain servers, and an account of its own that holds nothing else: no
 tehas settings, no SSH keys, no gh login. The job runs the gated commit's
 code as that account.

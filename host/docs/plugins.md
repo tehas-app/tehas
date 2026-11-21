@@ -22,6 +22,7 @@ the line of this table. Read it before you write the grant.
 | Capability | What it lets the plugin do |
 | --- | --- |
 | `view` | Its /out is served behind the sign-in, and a panel in the dock: everyone the sign-in lets in sees it |
+| `view:<id>` | One of its views, the part of its /out at that view's path, is served behind the sign-in and opens from the plugins menu: everyone the sign-in lets in sees it |
 | `product` | Reads all of the product's code, read only, in every run |
 | `model:<tokens>` | Chat completions through a socket, up to the tokens of the grant a run |
 | `model:images` | Images in its model requests, each carried in the request and never fetched: what it sends of the product's pages goes to the model |
@@ -29,5 +30,6 @@ the line of this table. Read it before you write the grant.
 | `hook:after:work` | A run on each pull request a cycle leaves; its summary is on the pull request for every reader of the repository |
 | `skill:<id>` | Its text from the pinned commit goes into the chats' instructions |
 | `needs:<name>` | Runs only while the named plugin is ready, and its chat gets the skills that plugin grants to a plugin's chat; it grants the other plugin nothing |
+| `tool:<id>` | The chats it names may call it: each call is a run with the caller's arguments and the plugin's /state read only, and its answer goes to the model |
 
 A grant of anything not in this table is refused when the settings load.
