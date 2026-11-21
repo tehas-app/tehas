@@ -1,5 +1,7 @@
 # Spec: plugins v1, the security model
 
+**Version**: part of the plugin specification 1.0.0, `2026-11-21-plugins-1.0.0.md`.
+
 **Status**: Draft 2026-11-21. Part of `2026-11-21-plugins.md`, which holds the
 terms, settings and manifest. Nothing is built.
 
