@@ -121,7 +121,7 @@ first, the install in order, and where to stop and ask your human.
 - [Analytics]({{ $base }}/analytics.md): the factory's 365 days of runs in SQLite, its schema, and how to fetch a copy
 - [The MCP server]({{ $base }}/mcp-server.md): a read-only view of the factory for agents outside the host, behind API keys
 - [Outsource, the model proxy]({{ $base }}/outsource.md): the one way a contractor's cycle reaches the factory's model, and what it refuses
-- [Plugins]({{ $base }}/plugins.md): what each capability lets a plugin do, the table `tehas plugin review` prints from
+- [Plugins]({{ $base }}/plugins.md): plugins, still being built: how one is set up and run, what each capability gives, and what no grant gives
 
 ## Ask this factory over MCP
 
