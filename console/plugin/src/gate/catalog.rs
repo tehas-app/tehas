@@ -19,6 +19,9 @@ pub struct Facts {
     pub kit: bool,
     /// The ids of the actions asked for and granted.
     pub actions: Vec<String>,
+    /// Kept files to frame at `/_frame/`. `keep:` is not a capability yet,
+    /// so no plugin has any.
+    pub keep: bool,
 }
 
 pub trait Catalog: Send + Sync {
@@ -53,6 +56,7 @@ pub fn facts_of(
             .filter(|id| caps.contains(&Cap::Action(id.to_string())))
             .cloned()
             .collect(),
+        keep: false,
     }
 }
 
