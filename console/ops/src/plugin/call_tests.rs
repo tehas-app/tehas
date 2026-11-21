@@ -340,7 +340,9 @@ fn a_login_is_checked_against_the_repositorys_access_and_kept_ten_minutes() {
     let gh = People::default();
     assert_eq!(as_login(&mut x, &gh, &home, "octocat"), Ok(json!({})));
     assert_eq!(as_login(&mut x, &gh, &home, "octocat"), Ok(json!({})));
-    assert_eq!(*gh.asked.lock().unwrap(), ["octocat"]);
+    // Asked on every call: a kept verdict could pass for whoever holds the
+    // login next.
+    assert_eq!(*gh.asked.lock().unwrap(), ["octocat", "octocat"]);
     let no = Err(Failed::Refused(NO_ACCESS.into()));
     assert_eq!(as_login(&mut x, &gh, &home, "nobody"), no);
     let down = as_login(&mut x, &gh, &home, "other");
@@ -352,16 +354,14 @@ fn a_login_is_checked_against_the_repositorys_access_and_kept_ten_minutes() {
     );
     // An error is not kept: the next call asks again.
     as_login(&mut x, &gh, &home, "other").unwrap_err();
-    assert_eq!(gh.asked.lock().unwrap().len(), 4);
+    assert_eq!(gh.asked.lock().unwrap().len(), 5);
     let r = rows(&home);
     assert_eq!(r.len(), 2);
     assert_eq!(
         (&r[0]["trigger"], &r[0]["by"]),
         (&json!("chat"), &json!("chat"))
     );
-    assert!(fs::read_to_string(home.join("plugins/access.json"))
-        .unwrap()
-        .contains("octocat"));
+    assert!(!home.join("plugins/access.json").exists());
 }
 
 #[test]
