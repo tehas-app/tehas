@@ -7,7 +7,8 @@
 //!   console check-product [--sandbox]
 //!     The checks, one line each, and state/check-product.json. Exit 0 every
 //!     check passed, 1 the sandbox could not be run, 3 a check failed, 64
-//!     usage, 78 a setting is missing, 141 the reader went away.
+//!     usage, 78 a setting is missing or the slice cannot be used, 141 the
+//!     reader went away.
 //!   console check-product table
 //!     The row of test/sandbox_test.sh's table of runs for the one container
 //!     started here, read off the arguments it is started with.
@@ -29,7 +30,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tehas_core::file::Temp;
 use tehas_core::install::{self, Step};
-use tehas_core::{exit, sandbox, time};
+use tehas_core::{exit, sandbox, slice, time};
 
 const HEAD: &str = "tehas/init-product";
 const COMMIT: &str = "The tehas contract files";
@@ -433,42 +434,59 @@ fn kill_container(name: &str) {
     quiet(Command::new("docker").args(["kill", name]));
 }
 
+/// The limits a cycle's container has on this host, made by the code tehas
+/// work makes them with, so the gates run with the memory and CPUs a cycle's
+/// gate has. A slice that cannot be used is 78, as it is for tehas work.
+fn limits() -> Result<Vec<String>, u8> {
+    let who = "tehas check-product";
+    let load = slice::Load::from_env();
+    match sandbox::take(&slice::Host::here(), &load, who, "the gates") {
+        Ok(taken) => Ok(taken.limits),
+        Err(line) => {
+            complain(&line);
+            Err(78)
+        }
+    }
+}
+
 // A container of the check: <dir> mounted at its own path, <at> the directory
-// it starts in, bash its entrypoint, <name> its name.
-fn container(dir: &str, at: &str, image: &str, user: &str, name: &str) -> Vec<String> {
-    [
-        "run",
-        sandbox::NEVER_PULL,
-        "--rm",
-        "--name",
-        name,
-        "--cgroup-parent",
-        "tehas.slice",
-        "--memory",
-        "4g",
-        "--memory-swap",
-        "4g",
-        "--user",
-        user,
-        "-e",
-        "HOME=/home/vscode",
-        "-v",
-        &format!("{dir}:{dir}"),
-        "-w",
-        at,
-        "--entrypoint",
-        "bash",
-        image,
-    ]
-    .map(String::from)
-    .to_vec()
+// it starts in, bash its entrypoint, <name> its name, <limits> a cycle's.
+fn container(
+    dir: &str,
+    at: &str,
+    image: &str,
+    user: &str,
+    name: &str,
+    limits: &[String],
+) -> Vec<String> {
+    let mut argv: Vec<String> = ["run", sandbox::NEVER_PULL, "--rm", "--name", name]
+        .map(String::from)
+        .to_vec();
+    argv.extend_from_slice(limits);
+    argv.extend(
+        [
+            "--user",
+            user,
+            "-e",
+            "HOME=/home/vscode",
+            "-v",
+            &format!("{dir}:{dir}"),
+            "-w",
+            at,
+            "--entrypoint",
+            "bash",
+            image,
+        ]
+        .map(String::from),
+    );
+    argv
 }
 
 // The arguments of the gates' container. test/check_product_test.sh pins them
 // in order, and table() reads this file's rows of the table of runs off them.
 // <dir> holds the clone and the worktree of it the gates run in, as a cycle has
 // them.
-fn gates_run(dir: &str, image: &str, user: &str, gates: &Gates) -> Vec<String> {
+fn gates_run(dir: &str, image: &str, user: &str, limits: &[String], gates: &Gates) -> Vec<String> {
     let mut script = String::new();
     if gates.setup {
         script.push_str("sh .pi/worktree-setup && ");
@@ -478,15 +496,21 @@ fn gates_run(dir: &str, image: &str, user: &str, gates: &Gates) -> Vec<String> {
         script.push_str(" && sh -c \"$2\"");
     }
     let name = container_name(dir, "gates");
-    let mut argv = container(dir, &format!("{dir}/tree"), image, user, &name);
+    let mut argv = container(dir, &format!("{dir}/tree"), image, user, &name, limits);
     argv.extend(["-c", &script, "gates", &gates.gate, &gates.smoke].map(String::from));
     argv
 }
 
 // The container of the product's install, at the root of the clone.
-fn install_run(dir: &str, image: &str, user: &str, steps: &[Step]) -> Vec<String> {
+fn install_run(
+    dir: &str,
+    image: &str,
+    user: &str,
+    limits: &[String],
+    steps: &[Step],
+) -> Vec<String> {
     let name = container_name(dir, "install");
-    let mut argv = container(dir, &format!("{dir}/clone"), image, user, &name);
+    let mut argv = container(dir, &format!("{dir}/clone"), image, user, &name, limits);
     argv.extend(["-c".to_string(), install::script(steps)]);
     argv
 }
@@ -500,8 +524,8 @@ fn table() -> String {
         setup: false,
     };
     let rows = [
-        gates_run("", image, "", &gates),
-        install_run("", image, "", &[]),
+        gates_run("", image, "", &[], &gates),
+        install_run("", image, "", &[], &[]),
     ];
     let rows = rows.iter().map(|argv| {
         let at = argv.iter().position(|a| a == "--entrypoint");
@@ -514,11 +538,17 @@ fn table() -> String {
 // The product's install in the clone, in the image. Ok when it passed; else
 // the failures it is said as. Its error stream goes to ours line by line, and
 // only the lines that name a missing tool are kept.
-fn installed(dir: &str, image: &str, user: &str, steps: &[Step]) -> Result<(), Vec<String>> {
+fn installed(
+    dir: &str,
+    image: &str,
+    user: &str,
+    limits: &[String],
+    steps: &[Step],
+) -> Result<(), Vec<String>> {
     let wait = install::WAIT.to_string();
     let child = Command::new("timeout")
         .args(["-k", "10", &wait, "docker"])
-        .args(install_run(dir, image, user, steps))
+        .args(install_run(dir, image, user, limits, steps))
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::piped())
@@ -577,6 +607,7 @@ fn in_sandbox(
         run.fail("sandbox", "no gate to run in the sandbox".to_string());
         return Ok(None);
     }
+    let limits = limits()?;
     if !quiet(Command::new("docker").args(["image", "inspect", &image])) {
         let build = format!("{home}/sandbox/build.sh");
         complain(&format!(
@@ -622,7 +653,7 @@ fn in_sandbox(
         read(Command::new("id").arg("-g")).unwrap_or_default()
     );
     if !gates.install.is_empty() {
-        if let Err(failures) = installed(&dir.0, &image, &user, &gates.install) {
+        if let Err(failures) = installed(&dir.0, &image, &user, &limits, &gates.install) {
             for words in failures {
                 run.fail("install", words);
             }
@@ -630,7 +661,7 @@ fn in_sandbox(
         }
         run.pass("install", &format!("the install passed in {image}"));
     }
-    let argv = gates_run(&dir.0, &image, &user, &gates);
+    let argv = gates_run(&dir.0, &image, &user, &limits, &gates);
     let gated = gates_in(&argv, &container_name(&dir.0, "gates"), bound);
     match gated {
         Gated::Passed => run.pass("sandbox", &format!("the gates passed in {image}")),
@@ -1228,19 +1259,55 @@ mod tests {
             install: Vec::new(),
             setup: true,
         };
-        let said = gates_run("/t/check-product.AbC123", "img", "1:2", &gates).join(" ");
+        let limits = ["--cgroup-parent", "tehas.slice", "--memory", "2048m"].map(String::from);
+        let said = gates_run("/t/check-product.AbC123", "img", "1:2", &limits, &gates).join(" ");
         assert_eq!(
             said.replace("/t/check-product.AbC123", "/t"),
-            "run --pull=never --rm --name tehas-check-product-AbC123-gates --cgroup-parent tehas.slice --memory 4g --memory-swap 4g --user 1:2 \
+            "run --pull=never --rm --name tehas-check-product-AbC123-gates --cgroup-parent tehas.slice --memory 2048m --user 1:2 \
              -e HOME=/home/vscode -v /t:/t -w /t/tree --entrypoint bash img \
              -c sh .pi/worktree-setup && sh -c \"$1\" gates g "
         );
-        let said = install_run("/t", "img", "1:2", &[]).join(" ");
-        assert!(said.starts_with("run --pull=never --rm --name tehas-check-product-t-install "));
+        let said = install_run("/t", "img", "1:2", &limits, &[]).join(" ");
+        assert!(said.starts_with(
+            "run --pull=never --rm --name tehas-check-product-t-install --cgroup-parent tehas.slice --memory 2048m --user "
+        ));
         assert!(said.contains(" -v /t:/t -w /t/clone --entrypoint bash img -c set -e\n"));
         assert_eq!(
             table(),
             "check-product\tPI_ENSEMBLE_IMAGE\tbash\ncheck-product\tPI_ENSEMBLE_IMAGE\tbash"
         );
+    }
+
+    // A host of 96 CPUs whose slice is 185 GiB, in four containers: the gates
+    // get a cycle's quarter of the memory and the quota of all CPUs but one,
+    // and no cpuset, as a cycle has none.
+    #[test]
+    fn the_gates_have_the_limits_a_cycle_has() {
+        let host = slice::Usable {
+            max: 185 * 1_073_741_824,
+            active: "active".into(),
+            ceiling_mb: 185 * 1024 / 4,
+            cpus: 96,
+            nproc: 96,
+        };
+        let load = slice::Load {
+            reserve: "2g".into(),
+            containers: "4".into(),
+            cycles: "3".into(),
+            slots: "1".into(),
+        };
+        let limits = slice::limits(&host, &load).unwrap();
+        let gates = Gates {
+            gate: "g".to_string(),
+            smoke: String::new(),
+            install: Vec::new(),
+            setup: false,
+        };
+        let said = gates_run("/t", "img", "1:2", &limits, &gates).join(" ");
+        assert!(said.contains(
+            " --cgroup-parent tehas.slice --memory 47360m --memory-swap 47360m \
+             --memory-reservation 2g --cpus 95.00 --pids-limit 4096 --cpu-shares 1024 --user 1:2 "
+        ));
+        assert!(!said.contains("cpuset"));
     }
 }
