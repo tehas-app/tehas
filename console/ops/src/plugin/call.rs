@@ -3,7 +3,8 @@
 //! plugin call` and the MCP broker both call [`call`].
 //!
 //! In order: the plugin ready, the tool in its manifest and granted, the
-//! caller, the arguments against the tool's `params`, a slot and the
+//! caller (a login checked against the repository's access, as the gate
+//! checks it), the arguments against the tool's `params`, a slot and the
 //! caller's lock taken now or the call refused as busy, a row in
 //! `plugin_runs`, the run's directory with its context and `call.json`, the
 //! container attached at the tool's timeout, its answer read, then the row
@@ -18,6 +19,7 @@ use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::path::Path;
 use std::time::Duration;
+use tehas_core::access::{Cache, GitHub, Level};
 use tehas_core::file::{write_atomic, Temp};
 use tehas_core::lock::try_lock;
 use tehas_core::plugin::manifest::Tool;
@@ -28,8 +30,9 @@ use tehas_core::sandbox;
 /// The most bytes of an answer.
 pub const ANSWER_MAX: usize = 16 << 10;
 
-/// The refusal of a login until the gate's access check is in core.
-pub const LOGIN: &str = "a login is checked once the gate's access check is in core";
+/// The refusal of a login without access, or one GitHub's answer does not
+/// let in.
+pub const NO_ACCESS: &str = "the login has no access to the repository";
 
 /// Who asks for a call.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,12 +57,14 @@ pub enum Failed {
 }
 
 impl Caller {
-    /// The name of its lock, `by-<this>.lock`.
-    fn lock(&self) -> String {
-        match self {
-            Caller::Login(_) => "chat".into(),
-            Caller::Mcp(key) => format!("mcp-{key}"),
-            Caller::Host => "host".into(),
+    /// The name of its lock, `by-<this>.lock`: a person's by GitHub's user
+    /// id, so a renamed login is the same person.
+    fn lock(&self, user: Option<u64>) -> String {
+        match (self, user) {
+            (Caller::Login(_), Some(id)) => format!("login-{id}"),
+            (Caller::Login(_), None) => "login".into(),
+            (Caller::Mcp(key), _) => format!("mcp-{key}"),
+            (Caller::Host, _) => "host".into(),
         }
     }
 
@@ -87,9 +92,32 @@ fn is_key_id(s: &str) -> bool {
     s.len() == 8 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
+/// The GitHub user id of a login with access, from the cache or GitHub.
+/// GitHub's error is a refusal: a login it could not check gets no answer.
+fn login_access(
+    home: &Path,
+    get: &dyn Fn(&str) -> String,
+    gh: &dyn GitHub,
+    login: &str,
+) -> Result<u64, Failed> {
+    let access = Level::of_setting(&get("TEHAS_PLUGIN_ACCESS"))
+        .ok_or_else(|| Failed::Refused("TEHAS_PLUGIN_ACCESS is not set".into()))?;
+    let now = u64::try_from(tehas_core::time::now()).unwrap_or(0);
+    match Cache::of_home(home).check(gh, access, login, now) {
+        Ok(Some(id)) => Ok(id),
+        Ok(None) => Err(Failed::Refused(NO_ACCESS.into())),
+        Err(why) => Err(Failed::Refused(format!(
+            "GitHub could not say whether the login has access: {why}"
+        ))),
+    }
+}
+
 /// One call of `tool` of `plugin` with `args`: its answer, one JSON object.
+/// `gh` checks a login's access; a host or the MCP broker never asks it.
+#[allow(clippy::too_many_arguments)]
 pub fn call(
     x: &mut dyn Exec,
+    gh: &dyn GitHub,
     home: &Path,
     get: &dyn Fn(&str) -> String,
     plugin: &str,
@@ -112,9 +140,10 @@ pub fn call(
         .filter(|_| r.grants.caps.contains(&cap) && r.manifest.asks.contains(&cap.ask()))
         .ok_or_else(|| Failed::Refused(format!("no tool {tool} is granted at the pin")))?
         .clone();
-    if let Caller::Login(_) = caller {
-        return Err(Failed::Refused(LOGIN.into()));
-    }
+    let user = match caller {
+        Caller::Login(login) => Some(login_access(home, get, gh, login)?),
+        _ => None,
+    };
     params::check(args, &t.params).map_err(Failed::Args)?;
     let limits = plugin::limits(&get("TEHAS_PLUGIN_LIMITS"))
         .ok_or_else(|| Failed::Refused("TEHAS_PLUGIN_LIMITS cannot be read".into()))?;
@@ -122,7 +151,7 @@ pub fn call(
         .image
         .clone()
         .ok_or_else(|| Failed::Refused("it has no build".into()))?;
-    let _held = locks(home, plugin, caller)?;
+    let _held = locks(home, plugin, &caller.lock(user))?;
     let id = begin(home, &r, caller)?;
     let dir = prepare::dir(home, plugin).join(format!("run-{id}"));
     let dir_text = dir.display().to_string();
@@ -148,7 +177,7 @@ pub fn call(
 }
 
 /// A slot of two and the caller's lock, taken now, or busy.
-fn locks(home: &Path, name: &str, caller: &Caller) -> Result<[File; 2], Failed> {
+fn locks(home: &Path, name: &str, by: &str) -> Result<[File; 2], Failed> {
     let dir = runs::calls(home, name);
     let no = |e: String| Failed::Refused(e);
     fs::create_dir_all(&dir).map_err(|e| no(format!("{}: {e}", dir.display())))?;
@@ -159,7 +188,7 @@ fn locks(home: &Path, name: &str, caller: &Caller) -> Result<[File; 2], Failed> 
             .map_err(no)?
             .ok_or_else(busy)?,
     };
-    let by = try_lock(&dir.join(format!("by-{}.lock", caller.lock())))
+    let by = try_lock(&dir.join(format!("by-{by}.lock")))
         .map_err(no)?
         .ok_or_else(busy)?;
     Ok([slot, by])

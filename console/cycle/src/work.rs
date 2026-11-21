@@ -780,6 +780,21 @@ fn images_refused(why: &str, kinds: &str) -> String {
     format!("Tehas started no cycle: {}. This instance gives a cycle the {kinds} an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply `tehas:ready`.", disarm(why))
 }
 
+/// The comment of a start whose plugin's files are not the ones a person
+/// filed: a retry gives the same files, so a person files them again.
+fn files_refused(why: &str) -> String {
+    format!("Tehas started no cycle: {}. A plugin's files reach a cycle only as they were when a person filed the issue that links them. File them again from the plugin, then apply `tehas:ready`.", disarm(why))
+}
+
+/// The words of the comment on a start the issue's files refused.
+fn refused_comment(why: &str, kinds: &str) -> String {
+    if why.starts_with(gives::FILES_CHANGED) {
+        files_refused(why)
+    } else {
+        images_refused(why, kinds)
+    }
+}
+
 /// The comment of a retry that could not get the issue's comments.
 fn comments_refused(why: &str) -> String {
     format!("Tehas started no cycle: {}. The retry was ticked for the issue and all its comments, and a cycle without them is not that retry. To retry, apply `tehas:ready`.", disarm(why))
@@ -879,7 +894,7 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
     if let Err(why) = ok {
         let _ = fs::remove_dir_all(f.dir);
         eprintln!("tehas work: {why}, not starting a cycle");
-        comment(n, f.text_wait, &images_refused(&why, f.kinds));
+        comment(n, f.text_wait, &refused_comment(&why, f.kinds));
         return Err(i32::from(NOT_STARTED));
     }
     if env("TEHAS_WORK_DESCRIBE") == "1" {
@@ -1422,10 +1437,28 @@ mod tests {
             images_refused(&why, "images"),
             comments_refused(&why),
             spec_refused(&why),
+            files_refused(&why),
         ] {
             assert!(!has_marker(&body), "{body}");
             assert!(body.contains("could not be read"), "{body}");
         }
+    }
+
+    #[test]
+    fn changed_plugin_files_ask_for_a_new_filing_not_a_retry() {
+        let why = format!(
+            "{}: the files of pageticket/p-1 are not the ones filed",
+            gives::FILES_CHANGED
+        );
+        let body = refused_comment(&why, "images");
+        assert!(body.contains("are not the ones filed"), "{body}");
+        assert!(body.contains("File them again from the plugin"), "{body}");
+        assert!(!body.contains("This instance gives a cycle"), "{body}");
+        let other = refused_comment("the link could not be read", "images");
+        assert!(
+            other.contains("This instance gives a cycle the images"),
+            "{other}"
+        );
     }
 
     fn words(line: &str) -> Vec<String> {

@@ -718,7 +718,7 @@ echo "[$(gate_run 7 "$c" completed success)]" >"$T/runs.next"
 t_run "$work/scripts/tag-release.sh --gate-wait 1"
 t_eq "$t_rc" 0
 t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
-t_contains "$(t_calls gh)" "workflow run release-gate.yml --ref main -f commit=$c"
+t_contains "$(t_calls gh)" "workflow run release-gate.yml --ref main -f commit=$c -f proofs=true"
 t_contains "$t_out" "waiting for the release gate: https://github.com/acme/widget/actions/runs/7"
 t_contains "$t_out" "actions/runs/7; no local gate"
 t_eq "$(t_calls verify)" ""

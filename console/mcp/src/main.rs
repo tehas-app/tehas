@@ -2,7 +2,7 @@
 //!
 //!   tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port>
 //!             --server-version <v> [--io-timeout <seconds>] [--private <name>]...
-//!             [--outsource] [--plugin-calls <socket>]
+//!             [--outsource] [--plugin-calls <socket>] [--checkout <dir>]
 //!
 //! --outsource serves the tool of outsource, `factory_contractors`, to both
 //! kinds of key. `tehasbot mcp serve` passes it while the feature is on.
@@ -10,6 +10,10 @@
 //! --plugin-calls serves, to full keys, the plugin tools of the broker on
 //! that socket (mcp::plugins). `tehasbot mcp serve` passes it while a plugin
 //! is granted `mcp:`.
+//!
+//! --checkout serves, to full keys, the history of the shared checkout of
+//! the product at <dir> (mcp::git). A directory that is not a git repository
+//! with a commit, or is a shallow clone, stops the server with 78.
 //!
 //! A log is masked as the console masks it, the names given with --private
 //! included. A name is not a secret. The host's secret values come as salted
@@ -51,7 +55,7 @@ fn of(setting: Setting) -> (&'static Setting, &'static str) {
 fn usage(why: &str) -> ! {
     eprintln!("tehas-mcp: {why}");
     eprintln!(
-        "usage: tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port> --server-version <v> [--io-timeout <seconds>] [--private <name>]... [--outsource] [--plugin-calls <socket>]"
+        "usage: tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port> --server-version <v> [--io-timeout <seconds>] [--private <name>]... [--outsource] [--plugin-calls <socket>] [--checkout <dir>]"
     );
     std::process::exit(78);
 }
@@ -120,6 +124,15 @@ fn main() {
                 .next()
                 .unwrap_or_else(|| usage("--plugin-calls needs a socket"));
             mcp::plugins::serve_from(PathBuf::from(socket));
+            continue;
+        }
+        if a == "--checkout" {
+            let dir = args
+                .next()
+                .unwrap_or_else(|| usage("--checkout needs a directory"));
+            if let Err(why) = mcp::git::serve_from(std::path::Path::new(&dir)) {
+                usage(&why);
+            }
             continue;
         }
         if a == "--private" {

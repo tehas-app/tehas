@@ -12,6 +12,7 @@
 mod common;
 mod decisions;
 mod events;
+mod git;
 mod logs;
 mod outcomes;
 mod park;

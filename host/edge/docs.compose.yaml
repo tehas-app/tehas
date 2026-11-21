@@ -32,6 +32,7 @@ services:
       - "../docs:/srv/docs:ro"
       - "../live:/srv/live:ro"
       - "../fun:/srv/fun:ro"
+      - "../wiki:/srv/wiki:ro"
     ports:
       - "${TEHAS_HOST_ADDR:-127.0.0.1}:8080:8080"
     restart: unless-stopped

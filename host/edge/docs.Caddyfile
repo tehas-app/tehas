@@ -43,7 +43,7 @@
             # The two lists are one, and test/edge_test.sh says so; a name a
             # writer adds under live/ is served once both name it. The health
             # handlers below read /srv/live outside this list on purpose.
-            @unnamed not path /status.json /running.json /endings.json /epics.json /health.json /health.down /dispatch.json /demand.json /energy.json /analytics.json /top.json /panels.json /disk.json /platform.json /rukas.json /previews.json /protolab.json /cycles/*.json /console-*.txt /console-*.txt.now
+            @unnamed not path /status.json /running.json /endings.json /epics.json /health.json /health.down /dispatch.json /demand.json /energy.json /analytics.json /top.json /panels.json /disk.json /platform.json /rukas.json /previews.json /protolab.json /wiki.json /cycles/*.json /console-*.txt /console-*.txt.now
             respond @unnamed 404
             # The consoles are what the agents of a running cycle did. This
             # server has no sign-in, so they are not served at all unless the
@@ -157,6 +157,25 @@
         @markdown path_regexp ^/[a-z0-9-]+\.md$
         handle @markdown {
             header Content-Type "text/markdown; charset=utf-8"
+            file_server
+        }
+        # The product wiki (docs/specs/2026-11-21-wiki.md): the page and its
+        # builds answer only while live/wiki.json is there, which tehasbot wiki
+        # writes only while the feature is on. A build is model text: no script,
+        # nothing from another origin, and only by the address of its id.
+        @wiki_off {
+            path /wiki /wiki/ /wiki/*
+            not file {
+                root /srv/live
+                try_files /wiki.json
+            }
+        }
+        respond @wiki_off 404
+        @wiki_build path_regexp ^/wiki/[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9a-f]{8}/
+        handle @wiki_build {
+            root * /srv
+            header Content-Security-Policy "default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+            header Cache-Control "no-cache"
             file_server
         }
         # Never hand out the fragments, the backups or the layout as files.

@@ -961,6 +961,13 @@
       "reason": "key 1 is not at least 32 characters of A-Za-z0-9_-"
     },
     {
+      "name": "TEHAS_MCP_CHECKOUT",
+      "rule": "checkout",
+      "when": "given",
+      "default": null,
+      "reason": "expected the absolute path of a clone such as /srv/checkout/product"
+    },
+    {
       "name": "TEHAS_ENERGY",
       "rule": "one-of",
       "when": "given",

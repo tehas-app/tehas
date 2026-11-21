@@ -521,6 +521,8 @@ with exit 78 and says `wiki` is still being built.
   text, and the list of `tehas help` does not name it.
 - `tehasbot wiki` exits 0 and writes nothing. `install.sh` does not install
   `tehas-wiki-status.service` and its timer.
+- `/wiki` and every address under it answer 404, because no `live/wiki.json`
+  is written, and the dashboard's `wiki` link stays hidden.
 - No label, no `--json` field of another command, no MCP tool and no file
   under `live/`.
 

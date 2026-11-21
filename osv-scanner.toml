@@ -9,3 +9,48 @@
 # decision is the whole scan, so its reason has to be true of all of it. An
 # ignore whose advisory no longer applies is reported as unused and still
 # passes, so it comes out when the dependency moves.
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0574"
+effectiveUntil = 2027-02-21
+reason = "heapless 0.8.0 comes in only through faster-hex 0.10.1, which gix-hash 0.28.1 (gix 0.90, the MCP server's reader of the shared checkout) pins with its std feature. With std, faster-hex uses alloc String and Vec and compiles its heapless code out: no heapless type is used, so the code these advisories name is never run. No npm tree here has heapless. Look again when gix-hash moves to faster-hex 2 or heapless 0.9."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0575"
+effectiveUntil = 2027-02-21
+reason = "heapless 0.8.0 comes in only through faster-hex 0.10.1, which gix-hash 0.28.1 (gix 0.90, the MCP server's reader of the shared checkout) pins with its std feature. With std, faster-hex uses alloc String and Vec and compiles its heapless code out: no heapless type is used, so the code these advisories name is never run. No npm tree here has heapless. Look again when gix-hash moves to faster-hex 2 or heapless 0.9."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0576"
+effectiveUntil = 2027-02-21
+reason = "heapless 0.8.0 comes in only through faster-hex 0.10.1, which gix-hash 0.28.1 (gix 0.90, the MCP server's reader of the shared checkout) pins with its std feature. With std, faster-hex uses alloc String and Vec and compiles its heapless code out: no heapless type is used, so the code these advisories name is never run. No npm tree here has heapless. Look again when gix-hash moves to faster-hex 2 or heapless 0.9."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0577"
+effectiveUntil = 2027-02-21
+reason = "heapless 0.8.0 comes in only through faster-hex 0.10.1, which gix-hash 0.28.1 (gix 0.90, the MCP server's reader of the shared checkout) pins with its std feature. With std, faster-hex uses alloc String and Vec and compiles its heapless code out: no heapless type is used, so the code these advisories name is never run. No npm tree here has heapless. Look again when gix-hash moves to faster-hex 2 or heapless 0.9."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0578"
+effectiveUntil = 2027-02-21
+reason = "heapless 0.8.0 comes in only through faster-hex 0.10.1, which gix-hash 0.28.1 (gix 0.90, the MCP server's reader of the shared checkout) pins with its std feature. With std, faster-hex uses alloc String and Vec and compiles its heapless code out: no heapless type is used, so the code these advisories name is never run. No npm tree here has heapless. Look again when gix-hash moves to faster-hex 2 or heapless 0.9."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0579"
+effectiveUntil = 2027-02-21
+reason = "heapless 0.8.0 comes in only through faster-hex 0.10.1, which gix-hash 0.28.1 (gix 0.90, the MCP server's reader of the shared checkout) pins with its std feature. With std, faster-hex uses alloc String and Vec and compiles its heapless code out: no heapless type is used, so the code these advisories name is never run. No npm tree here has heapless. Look again when gix-hash moves to faster-hex 2 or heapless 0.9."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0580"
+effectiveUntil = 2027-02-21
+reason = "heapless 0.8.0 comes in only through faster-hex 0.10.1, which gix-hash 0.28.1 (gix 0.90, the MCP server's reader of the shared checkout) pins with its std feature. With std, faster-hex uses alloc String and Vec and compiles its heapless code out: no heapless type is used, so the code these advisories name is never run. No npm tree here has heapless. Look again when gix-hash moves to faster-hex 2 or heapless 0.9."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0581"
+effectiveUntil = 2027-02-21
+reason = "heapless 0.8.0 comes in only through faster-hex 0.10.1, which gix-hash 0.28.1 (gix 0.90, the MCP server's reader of the shared checkout) pins with its std feature. With std, faster-hex uses alloc String and Vec and compiles its heapless code out: no heapless type is used, so the code these advisories name is never run. No npm tree here has heapless. Look again when gix-hash moves to faster-hex 2 or heapless 0.9."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0582"
+effectiveUntil = 2027-02-21
+reason = "heapless 0.8.0 comes in only through faster-hex 0.10.1, which gix-hash 0.28.1 (gix 0.90, the MCP server's reader of the shared checkout) pins with its std feature. With std, faster-hex uses alloc String and Vec and compiles its heapless code out: no heapless type is used, so the code these advisories name is never run. No npm tree here has heapless. Look again when gix-hash moves to faster-hex 2 or heapless 0.9."

@@ -12,14 +12,15 @@ pub mod auth;
 pub mod catalog;
 pub mod csp;
 pub mod frame;
-pub mod github;
+/// What the gate asks GitHub, and the access check it shares with a call.
+pub use tehas_core::access as github;
 pub mod http;
 pub mod page;
 pub mod path;
 
 use auth::{Memory, Session, Site};
 use catalog::Catalog;
-use github::{GitHub, Level, Permission, Person};
+use github::{GitHub, Level, Person};
 use http::{Body, Request, Response};
 use path::Route;
 use serde_json::json;
@@ -290,25 +291,14 @@ impl Gate {
     /// Whether `person` has access now. Err: GitHub could not say, which is
     /// a refusal.
     fn access(&self, person: &Person) -> Result<bool, String> {
-        let access = self.settings.access;
-        if access <= Level::Triage && self.github.public()? {
-            eprintln!(
-                "tehas-plugin-gate: the repository is public, so read and triage let no one in"
-            );
-            return Ok(false);
-        }
-        match self.github.permission(&person.login)? {
-            Permission::None => Ok(false),
-            Permission::Of(id, level, role) => {
-                let role: String = role
-                    .chars()
-                    .filter(|c| c.is_ascii_alphanumeric() || " _-".contains(*c))
-                    .take(64)
-                    .collect();
-                eprintln!("tehas-plugin-gate: {} has the role {role:?}", person.login);
-                Ok(id == person.id && level.is_some_and(|l| l >= access))
-            }
-        }
+        let v = github::check(
+            self.github.as_ref(),
+            self.settings.access,
+            &person.login,
+            Some(person.id),
+        )?;
+        eprintln!("tehas-plugin-gate: {}", v.said);
+        Ok(v.user.is_some())
     }
 
     /// The live session of the request's cookie on `site`, checked again if
