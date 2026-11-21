@@ -742,6 +742,41 @@ fn a_solid_release_whose_peers_are_not_met_is_not_taken() {
 }
 
 #[test]
+fn keeping_a_later_solid_pin_can_keep_an_earlier_one() {
+    // solid-js 2.0.4 asks for an html that would move, and that html for a
+    // web that is not out: html is kept, and then solid-js.
+    let world = with_solid(vec![
+        (
+            "solid-js",
+            solid_doc(
+                "solid-js",
+                &[
+                    ("2.0.3", json!({})),
+                    ("2.0.4", json!({"@solidjs/html": "^2.0.2"})),
+                ],
+            ),
+        ),
+        (
+            "@solidjs/html",
+            solid_doc(
+                "@solidjs/html",
+                &[
+                    ("2.0.1", json!({"@solidjs/web": "^2.0.3"})),
+                    ("2.0.2", json!({"@solidjs/web": "^2.0.5"})),
+                ],
+            ),
+        ),
+    ]);
+    let lines = check(&tree(), &world).unwrap();
+    for want in [
+        "solid-js 2.0.3 2.0.3 kept: 2.0.4 asks for @solidjs/html ^2.0.2, and @solidjs/html would be 2.0.1",
+        "@solidjs/html 2.0.1 2.0.1 kept: 2.0.2 asks for @solidjs/web ^2.0.5, and @solidjs/web would be 2.0.3",
+    ] {
+        assert!(lines.contains(&want.to_string()), "{want}: {lines:?}");
+    }
+}
+
+#[test]
 fn a_solid_release_younger_than_npms_min_release_age_is_not_taken() {
     // 2.0.3 is from the 1st of October, 2.0.4 from the 2nd.
     let docs = || {
@@ -803,6 +838,10 @@ fn a_solid_move_that_fails_stops_with_its_reason() {
         ),
         (
             json!({"tarball": tarball("solid-js", "2.0.4"), "integrity": format!("{good}\"")}),
+            "integrity",
+        ),
+        (
+            json!({"tarball": tarball("solid-js", "2.0.4"), "integrity": "sha512-abc="}),
             "integrity",
         ),
         (json!({}), "tarball"),
@@ -909,6 +948,10 @@ fn a_range_of_npm_is_met_or_not() {
         ("^1.9.0 || ^2.1.0", "2.0.3", false),
         (">2.0.3", "2.0.4", true),
         ("<=2.0.3", "2.0.4", false),
+        (">2.0.3-rc.1", "2.0.3", true),
+        (">2.0.3-rc.1", "2.0.2", false),
+        ("~2.1.3", "2.1.2", false),
+        ("~2.1.3", "2.1.3", true),
         // Forms this does not read are not met.
         ("2.0.0 - 2.9.0", "2.0.3", false),
         ("2.0.3-rc.1", "2.0.3", false),
