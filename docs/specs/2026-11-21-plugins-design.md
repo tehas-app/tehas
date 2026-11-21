@@ -218,17 +218,37 @@ components before the resolver does. A held theme is not ready.
 | A theme | 4 MiB |
 | A `data:` value in tokens | 32 KiB |
 
-## What changes elsewhere
+## Changes to v1
 
-- v1 (`plugins.md`): `design` and `design:code` join the capabilities;
-  `TEHAS_DESIGN` names themes.
-- v2 menu part: "Widgets" is rewritten to point here.
-- v3: `needs` covers themes, and a theme's place in the stack follows it.
-- 1.1.0 voice: the lock and End are drawn in a closed shadow root.
-- Settings: `TEHAS_DESIGN=beesknees26` is refused with "the base is always
-  beesknees26: take the line out", like other retired values.
-- The manual: `host/docs/frontend.md` (themes, slots, the catalogue) and
-  `host/docs/plugins.md` (the grants), when each part is built.
+| Where | Now | Change | Why |
+| --- | --- | --- | --- |
+| Capabilities | No design capability | Add `design` and `design:code` (Grants, above) | A theme is a plugin and goes through the same review and grants |
+| Settings, `TEHAS_DESIGN` | `beesknees26` or `pixel`, a complete theme each, and it picks the front page | A stack of up to 3 theme names over beesknees26 (Settings, above). `TEHAS_DESIGN=beesknees26` is refused with "the base is always beesknees26: take the line out", like other retired values. The front page is the theme's `front` | The base is always beesknees26 |
+| Web part, the dashboard's policy | `style-src 'self'`, `font-src 'self'`, `img-src 'self' data:` | Unchanged, and `script-src 'self'` with no inline script is written down for the dashboard's pages. A theme changes no header | The resolver's rules rely on the policy as a second wall |
+
+## Changes to v2
+
+| Where | Now | Change | Why |
+| --- | --- | --- | --- |
+| Menu part, "Widgets" | No plugin code on the dashboard's origin | Becomes: "A plugin's code runs on the dashboard's origin only as a replaced component, under `design:code`, never as an added widget, and never in place of a fixed part." **Security change**: under that grant the plugin's code runs as the page's own code for every person who opens it, presses included. Without `design:code` nothing changes: tokens, styles, slots and assets run no code | The owner's decision that a theme overrides components. The grant, its review row, the diff in `review`, the `.d.ts` contract and the fixed parts bound it |
+| Inspection part | Skills, tools, fetches and the rest cross `inspect` | Add theme files, at fetch | Every crossing goes through one point |
+
+## Changes to v3
+
+| Where | Now | Change | Why |
+| --- | --- | --- | --- |
+| `needs` | Between plugins | Covers themes; a needed theme sits below the one that needs it | A theme can build on another |
+
+## Changes to 1.1.0
+
+| Where | Now | Change | Why |
+| --- | --- | --- | --- |
+| The lock | The host sets `inert` and draws End | The lock and End are drawn in a closed shadow root that no page stylesheet reaches, and are fixed parts | A theme's style must not hide End |
+
+## The manual
+
+`host/docs/frontend.md` (themes, slots, the catalogue) and
+`host/docs/plugins.md` (the grants) change when each part is built.
 
 ## The design plugin
 
