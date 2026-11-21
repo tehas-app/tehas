@@ -269,6 +269,8 @@ docker build \
   --build-arg SHELLCHECK_SHA256="$SHELLCHECK_SHA256" \
   --build-arg JQ_VERSION="$JQ_VERSION" \
   --build-arg JQ_SHA256="$JQ_SHA256" \
+  --build-arg TSC_VERSION="$TSC_VERSION" \
+  --build-arg TSC_SHA256="$TSC_SHA256" \
   --build-arg RUST_VERSION="$RUST_VERSION" \
   --build-arg PLAYWRIGHT_VERSION="$PLAYWRIGHT_VERSION" \
   --build-arg PLAYWRIGHT_LOCK_SHA256="$PLAYWRIGHT_LOCK_SHA256" \

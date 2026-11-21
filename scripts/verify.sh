@@ -9,8 +9,12 @@
 #                              workspace, its format and lints (rustfmt,
 #                              clippy) and, where node is installed, the
 #                              tests of the front page
-#   scripts/verify.sh --full   the above, and the front page's tests even
-#                              where node is missing
+#   scripts/verify.sh --full   the above, as CI runs it: the front page's
+#                              tests even where node is missing, and
+#                              TEHAS_TEST_STRICT=1 exported, so the shell
+#                              step fails without shellcheck, and the kit's
+#                              type check without the tsc of TSC_VERSION in
+#                              host/versions.env
 #   scripts/verify.sh --changed  only what the change since the merge base with
 #                              origin/main can affect, uncommitted and untracked
 #                              files included: the name lint and the bash
@@ -23,11 +27,11 @@
 #                              needs everything, or there is no merge base, it
 #                              runs as scripts/verify.sh does.
 #
-# Needs bash, git, jq, shellcheck and cargo; --full also needs node. Without
-# cargo the gate fails, fast or full: the dispatcher's rules are Rust tests. A
-# missing node is a "skip" line in the fast gate and a failure in the full one;
-# rustfmt and clippy, which not every toolchain holds, are "skip" lines
-# except in CI and with --full, where they fail. A step that checked less
+# Needs bash, git, jq, shellcheck and cargo; --full also needs node and tsc.
+# Without cargo the gate fails, fast or full: the dispatcher's rules are Rust
+# tests. A missing node is a "skip" line in the fast gate and a failure in the
+# full one; rustfmt and clippy, which not every toolchain holds, are "skip"
+# lines except in CI and with --full, where they fail. A step that checked less
 # than it names is a "skip" line too: the name lint without
 # scripts/check-generic.names, and the shell step whose runner reported a
 # check it did not run. The line of the name lint says what it did not check
@@ -59,6 +63,7 @@ case "${1:-}" in
   --full) full=1 ;;
   --changed) changed=1 ;;
 esac
+[ "$full" = 0 ] || export TEHAS_TEST_STRICT=1
 
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT

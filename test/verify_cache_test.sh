@@ -25,7 +25,7 @@ fresh() {
   # exits as $T/suite_rc says.
   cat >"$tree/scripts/test.sh" <<'EOF'
 #!/usr/bin/env bash
-echo run >>"$T/calls/suite"
+echo "run ${TEHAS_TEST_STRICT-}" >>"$T/calls/suite"
 [ ! -f "$T/touch" ] || echo more >>"$(cat "$T/touch")"
 exit "$(cat "$T/suite_rc" 2>/dev/null || echo 0)"
 EOF
@@ -123,12 +123,12 @@ t_eq "$t_rc" 1
 t_eq "$(runs)" 2
 t_contains "$t_out" "FAIL  shellcheck and the shell tests"
 
-t_case "another mode runs the gate again"
+t_case "another mode runs the gate again, and only --full is strict"
 fresh
 t_run "$gate"
 t_run "$gate --full"
 t_eq "$t_rc" 0
-t_eq "$(runs)" 2
+t_eq "$(t_calls suite | tr '\n' '|')" "run |run 1|"
 t_run "$gate --full"
 t_eq "$(runs)" 2
 

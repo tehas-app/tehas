@@ -139,12 +139,13 @@ more than one repository from one host.
 ```
 scripts/verify.sh --changed  # only what the change can affect; the gate a cycle's developer runs
 scripts/verify.sh            # the lint, shellcheck, the shell tests, the workspace's tests, the front page's tests where node is
-scripts/verify.sh --full     # plus the workspace's format and lints (rustfmt, clippy); a missing node fails
+scripts/verify.sh --full     # plus the workspace's format and lints (rustfmt, clippy); a missing node, shellcheck or tsc fails
 ```
 
 The gate needs bash, git, jq, shellcheck and cargo; the full gate also needs
-node. It uses no network and no sandbox image, except that cargo fetches the
-workspace's crates the first time. A Rust test makes its scratch
+node and `tsc` at `TSC_VERSION` of `host/versions.env`, and fails without
+shellcheck or that `tsc`, as CI does. It uses no network and no sandbox
+image, except that cargo fetches the workspace's crates the first time. A Rust test makes its scratch
 directories with `tehas_core::testdir::TestDir`, which removes them when the
 test ends; the gate fails when the workspace's tests leave anything in their
 TMPDIR. Their line counts the tests that passed, and the gate fails when
@@ -156,8 +157,8 @@ check, from [`.github/workflows/verify.yml`](.github/workflows/verify.yml). A
 pull request onto another branch, such as a release train, runs no gate: its
 author quotes `scripts/verify.sh --changed` in it, and the train's own pull
 request gates the batch. It runs on the
-organisation's own runner, installs shellcheck and jq at the versions in
-`host/versions.env` and checks each against a published checksum, scans the
+organisation's own runner, installs shellcheck, jq and `tsc` at the versions
+in `host/versions.env` and checks each against its checksum there, scans the
 repository's lockfiles against published advisories with OSV-Scanner at its
 pinned version, and uses the runner's bash, git, jq and cargo. A runner
 without cargo, rustc, rustfmt or clippy fails the job before the gate runs,

@@ -361,7 +361,7 @@ from the root of a clone of the product. For the example product:
 ```
 scripts/verify.sh --changed  # developer's: the lint, then shellcheck and the tests of what the change touched
 scripts/verify.sh            # fast: the lint, shellcheck, the shell tests, the workspace's tests, the front page's tests where node is
-scripts/verify.sh --full     # plus the workspace's format and lints (rustfmt, clippy); a missing node fails
+scripts/verify.sh --full     # plus the workspace's format and lints (rustfmt, clippy); a missing node, shellcheck or tsc fails
 ```
 
 `.pi/verify-cmd-fast` is `scripts/verify.sh --changed`. pi-rukas tells a
@@ -380,9 +380,9 @@ pull request into any branch that changes its Dockerfile, `host/versions.env`
 or the workflow itself.
 
 CI adds two things of its own, as steps of
-`.github/workflows/verify.yml`. It installs shellcheck and jq at the versions
-`host/versions.env` pins, each checked against a published checksum before it
-runs. A download whose transfer fails, such as a TLS read that breaks
+`.github/workflows/verify.yml`. It installs shellcheck, jq and `tsc` at the
+versions `host/versions.env` pins, each checked against its checksum there
+before it runs. A download whose transfer fails, such as a TLS read that breaks
 mid-transfer, is tried again up to five times; the checksum is checked as
 before. The release gate and the release workflow download the same way. And it
 scans the repository's lockfiles against published advisories with
@@ -584,8 +584,10 @@ shell script is as much a failed check as an error, and a platform checkout is
 kept clean at that level. Without shellcheck the lint is a `SKIPPED:` line and
 the run passes on the test files, except in CI (`CI` set) or with
 `TEHAS_TEST_STRICT` set, where the lint counts as failed and the run fails, as
-a missing rustfmt or clippy does in `scripts/verify.sh`. The one accepted
-suppression is a note shellcheck gets wrong: on a line whose single quotes are
+a missing rustfmt or clippy does in `scripts/verify.sh`. `scripts/verify.sh
+--full` exports `TEHAS_TEST_STRICT=1`, so the full gate fails without
+shellcheck, and without the pinned `tsc` the kit's type check needs. The one
+accepted suppression is a note shellcheck gets wrong: on a line whose single quotes are
 the point, an assertion that some text is a literal, it says an expansion was
 meant (`SC2016 (info)`). Silence that one code, with the reason beside it, and
 nothing else:
