@@ -116,6 +116,7 @@ pub const FEATURES: &[Feature] = &[
             "TEHAS_PLUGIN_ACCESS",
             "TEHAS_PLUGIN_LIMITS",
             "TEHAS_PLUGIN_MODEL_DAY",
+            "TEHAS_PLUGIN_GATE_ADDR",
         ],
         since: "v1.2.0",
         programs: &["tehas-plugin"],
