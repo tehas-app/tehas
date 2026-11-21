@@ -197,6 +197,10 @@ through `incus exec` with no stdin and no way to place a file
   none of the tool's output. The host says the tool did not answer.
 - A tool's author learns why a call failed from that reason only: stderr is
   gone, by design, so a tool reports what it means in its answer.
+- A call reads `/state` while a refresh may be writing it, since a call
+  never waits for one. tehas never opens `/state`, so a tool that cannot read
+  its own files answers `{"busy": true}`, and the host tells the person "the
+  plugin is busy, try again", never the plugin's own text.
 - Nothing of the call is kept: its run row holds the time, the size and the
   result, and no login.
 - At most 2 calls of a plugin at once, and 1 per person, so a slow tool slows
