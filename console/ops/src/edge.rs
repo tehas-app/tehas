@@ -1,7 +1,7 @@
 //! What tehasbot protolab and tehasbot preview share: a numbered set under
 //! the home, and the previews' network.
 //!
-//!   console preview network check|create|ensure <network>
+//!   console preview network check|create|ensure|install <network>
 //!
 //! A preview runs a pull request's own code, so its network has to keep it
 //! from the host. What does that is checked, not a name: the network is
@@ -17,12 +17,15 @@
 //!
 //! `check` is install.sh's: it changes nothing. `create` makes the network.
 //! `ensure` is what tehasbot preview does: it makes a network Docker does not
-//! have, then checks.
+//! have, then checks. `install` is what install.sh does: it checks, makes a
+//! network Docker does not have and leaves one that is there, and says on
+//! standard output what a person has to know, one line or nothing.
 //!
 //! Exit, with the reason on standard output for 1, 2 and 3: 0 the network
-//! keeps the host out, or `create` made it; 1 it does not, or `create` failed;
-//! 2 Docker shows no such network; 3 this Docker cannot keep the host out, and
-//! the network was not asked about; 64 usage.
+//! keeps the host out, `create` made it, or `install` said what it found;
+//! 1 it does not, or `create` failed; 2 Docker shows no such network; 3 this
+//! Docker cannot keep the host out, and the network was not asked about;
+//! 64 usage.
 
 use std::fs::{self, File};
 use std::io;
@@ -130,6 +133,25 @@ fn net_answer(
     }
 }
 
+/// What install.sh says of the network after `check`, making it when Docker
+/// has none, or nothing when it keeps the host out.
+fn install(docker: &mut impl FnMut(&[&str]) -> Option<String>, network: &str) -> Option<String> {
+    match check(docker, network) {
+        (0, _) => None,
+        (2, _) => (!net_create(docker, network)).then(|| {
+            format!("The network {network} could not be made; the edge router will not start without it.")
+        }),
+        (3, why) => Some(format!(
+            "The network {network} was not made or checked: {}. No preview is built until Docker is 27.1 or later.",
+            why.unwrap_or_default()
+        )),
+        (_, why) => Some(format!(
+            "The network {network} does not keep the host out ({}). It has to be remade before a preview is built; the manual's troubleshooting page says how.",
+            why.unwrap_or_default()
+        )),
+    }
+}
+
 /// Why the network does not keep the host out, as `ensure` finds it: a network
 /// Docker does not have is made first.
 pub fn network_fault(network: &str) -> Option<String> {
@@ -158,6 +180,7 @@ pub fn network_main(given: &[String]) -> u8 {
         "check" if !network.is_empty() => check(&mut ask, network),
         "ensure" if !network.is_empty() => ensure(&mut ask, network),
         "create" if !network.is_empty() => (u8::from(!net_create(&mut ask, network)), None),
+        "install" if !network.is_empty() => (0, install(&mut ask, network)),
         _ => return usage(),
     };
     if let Some(why) = why {
@@ -167,7 +190,7 @@ pub fn network_main(given: &[String]) -> u8 {
 }
 
 fn usage() -> u8 {
-    eprintln!("console preview network: usage: check|create|ensure <network>");
+    eprintln!("console preview network: usage: check|create|ensure|install <network>");
     64
 }
 
@@ -410,8 +433,81 @@ mod tests {
     }
 
     #[test]
+    fn a_host_without_the_previews_network_gets_it_internal_and_with_no_address_for_the_host() {
+        let mut fake = Fake::network(None);
+        assert_eq!(install(&mut |args: &[&str]| fake.ask(args), "net"), None);
+        assert_eq!(fake.calls, [VERSION, INSPECT, CREATE]);
+        let mut fake = Fake::new(&[
+            (VERSION, Some("29.1.3\n")),
+            ("network inspect", None),
+            ("network create", None),
+        ]);
+        assert_eq!(
+            install(&mut |args: &[&str]| fake.ask(args), "tehas-previews").as_deref(),
+            Some("The network tehas-previews could not be made; the edge router will not start without it.")
+        );
+    }
+
+    #[test]
+    fn a_docker_older_than_27_1_is_not_asked_for_the_network_and_the_run_says_why() {
+        for (version, reason) in [
+            (Some("26.1.4\n"), "Docker 26.1.4 is older than 27.1"),
+            (Some("27.0.3\n"), "Docker 27.0.3 is older than 27.1"),
+            (Some("\n"), "Docker's version could not be read"),
+            (None, "Docker's version could not be read"),
+        ] {
+            let mut fake = Fake::new(&[(VERSION, version), ("network", None)]);
+            let said = install(&mut |args: &[&str]| fake.ask(args), "tehas-previews");
+            assert_eq!(
+                said,
+                Some(format!("The network tehas-previews was not made or checked: {reason}. No preview is built until Docker is 27.1 or later.")),
+                "{version:?}"
+            );
+            assert_eq!(fake.calls, [VERSION], "{version:?}");
+        }
+    }
+
+    #[test]
+    fn a_network_that_does_not_keep_the_host_out_is_left_and_the_run_says_why_and_that_it_has_to_be_remade(
+    ) {
+        for (answer, reason) in [
+            ("true bridge false \n", "it is not isolated from the host"),
+            (
+                "true bridge false nat\n",
+                "it is not isolated from the host",
+            ),
+            ("false bridge false isolated\n", "it is not internal"),
+            ("true bridge true isolated\n", "it has IPv6"),
+            ("true ipvlan false isolated\n", "its driver is not bridge"),
+        ] {
+            let mut fake = Fake::new(&[
+                (VERSION, Some("27.1.0\n")),
+                ("network inspect --format", Some(answer)),
+            ]);
+            let said = install(&mut |args: &[&str]| fake.ask(args), "net").unwrap_or_default();
+            assert!(
+                said.starts_with(&format!(
+                    "The network net does not keep the host out ({reason}). It has to be remade"
+                )),
+                "{said}"
+            );
+            assert!(said.contains("troubleshooting"), "{said}");
+            assert_eq!(fake.calls, [VERSION, INSPECT], "{answer}");
+        }
+        let mut fake = Fake::network(Some("true bridge false isolated\n"));
+        assert_eq!(install(&mut |args: &[&str]| fake.ask(args), "net"), None);
+        assert_eq!(fake.calls, [VERSION, INSPECT]);
+    }
+
+    #[test]
     fn a_usage_is_64_so_it_is_no_status_of_the_network() {
-        for given in [&["check"][..], &["open", "net"], &["check", ""], &[]] {
+        for given in [
+            &["check"][..],
+            &["open", "net"],
+            &["check", ""],
+            &["install", ""],
+            &[],
+        ] {
             let given: Vec<String> = given.iter().map(|w| w.to_string()).collect();
             assert_eq!(network_main(&given), 64);
         }
