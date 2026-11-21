@@ -321,7 +321,7 @@ fn an_mcp_key_id_is_8_lower_case_hex_and_the_rows_by() {
     assert_eq!((&r["trigger"], &r["by"]), (&json!("mcp"), &json!(KEY)));
 }
 
-fn as_login(x: &mut Peek, gh: &People, home: &Path, login: &str) -> Result<Value, Failed> {
+fn as_login(x: &mut Peek, gh: &dyn GitHub, home: &Path, login: &str) -> Result<Value, Failed> {
     call(
         x,
         gh,
@@ -334,8 +334,50 @@ fn as_login(x: &mut Peek, gh: &People, home: &Path, login: &str) -> Result<Value
     )
 }
 
+/// GitHub naming `octocat` user 7 with write first, then, the login renamed
+/// and taken, user 9 with no access.
+#[derive(Default)]
+struct Renamed {
+    asked: std::sync::Mutex<u32>,
+}
+
+impl GitHub for Renamed {
+    fn token(&self, _: &str) -> Result<String, String> {
+        Err("not asked".into())
+    }
+    fn user(&self, _: &str) -> Result<Person, String> {
+        Err("not asked".into())
+    }
+    fn permission(&self, _: &str) -> Result<Permission, String> {
+        let mut n = self.asked.lock().unwrap();
+        *n += 1;
+        Ok(if *n == 1 {
+            Permission::Of(7, Some(Level::Write), "write".into())
+        } else {
+            Permission::Of(9, None, "".into())
+        })
+    }
+    fn public(&self) -> Result<bool, String> {
+        Err("not asked".into())
+    }
+}
+
 #[test]
-fn a_login_is_checked_against_the_repositorys_access_and_kept_ten_minutes() {
+fn a_login_taken_by_someone_else_is_refused_at_once() {
+    let (home, mut x) = world("call-renamed", out("{}"));
+    let gh = Renamed::default();
+    assert_eq!(as_login(&mut x, &gh, &home, "octocat"), Ok(json!({})));
+    // The same login, now another person's with no access: refused on the
+    // next call, never passed on the first holder's verdict.
+    assert_eq!(
+        as_login(&mut x, &gh, &home, "octocat"),
+        Err(Failed::Refused(NO_ACCESS.into()))
+    );
+    assert_eq!(*gh.asked.lock().unwrap(), 2);
+}
+
+#[test]
+fn a_login_is_checked_against_the_repositorys_access_on_every_call() {
     let (home, mut x) = world("call-login", out("{}"));
     let gh = People::default();
     assert_eq!(as_login(&mut x, &gh, &home, "octocat"), Ok(json!({})));
