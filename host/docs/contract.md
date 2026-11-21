@@ -40,7 +40,10 @@ Public:
   with the state store and analytics migrated;
 - [the cycle inputs rule](#cycle-inputs);
 - the host namespace `/host/` and [the host bridge](/api#the-host-bridge);
-- [analytics.db at schema 4](#analyticsdb).
+- [analytics.db at schema 4](#analyticsdb);
+- [the commands of other parts](#the-commands-of-other-parts): the rule by
+  which `tehas <part>` runs `tehas-<part>`, the words kept for the family,
+  and the front asset of a release.
 
 [The pull request spec block](#the-pull-request-spec-block) is defined
 below as part of `spec-pipe`, a feature still being built: it becomes public
@@ -153,6 +156,31 @@ Decided for 1.0 on 2026-11-18.
 - **Release repository and key.** From 1.0 the update reads releases from the
   repository built into tehas and checks them with the key built into tehas,
   as [tehas update](/tools-update#from-a-release) says.
+
+## The commands of other parts
+
+`tehas <part> [words]` runs `tehas-<part>` from `PATH`, by
+[the rule of the commands page](/tools#the-commands-of-other-parts). Through
+1.x:
+
+- a command of tehas wins over a part of the same word;
+- `industry`, `kaizen`, `kata`, `monozukuri` and `yokoten` are kept for the
+  family and never become a command of tehas; the list is only added to;
+- a part's word is a lowercase letter, then lowercase letters and digits in
+  groups joined by one hyphen, at most 32 bytes;
+- the part runs in place of tehas with the remaining words as given, no
+  settings loaded; its output and its exit status are its own, and are that
+  part's contract, not tehas's;
+- a word that is no command and no part is exit 64, as before; a part that is
+  found but cannot be run is exit 1;
+- each release carries the front, `tehas-front-vX.Y.Z-linux-x86_64`, with
+  `.sha256` and `.minisig` beside it, signed with the release key. It exits
+  with a part's status, 0 for its usage, 64 for a word no part has, 1 for a
+  part that cannot be run and 141 when standard output closes.
+
+A command tehas adds in 1.x may take a word that is not kept for the family,
+and then wins over a part of that word. A part that wants its word for good
+asks for it to be kept.
 
 ## Settings and the knob rule
 
@@ -438,6 +466,24 @@ is still being built.
 
 [The review loop](/operating#the-review-loop) says what the feature does once
 it ships.
+
+### plugins
+
+Building since v1.2.0. Off by default; `TEHAS_PLUGIN=on` stops every command
+with exit 78 and says `plugins` is still being built.
+
+- `tehas api --json` has `"plugins": false` in `flags`, and no word `plugins`
+  in `features`.
+- The settings `TEHAS_PLUGINS`, `TEHAS_PLUGIN_GRANTS_<NAME>`,
+  `TEHAS_PLUGIN_ACCESS`, `TEHAS_PLUGIN_LIMITS` and `TEHAS_PLUGIN_MODEL_DAY`
+  are in `api/settings-rules.json`, but they are not contract: a line that
+  gives one a value stops every command with exit 78 and names `plugins`.
+- `tehas plugin` exits 78 and reads nothing more. `tehas help plugin` prints
+  its text, and the list of `tehas help` does not name it.
+- `api/plugin.schema.json` and `api/plugin-manifest.schema.json` and their
+  samples are not contract until the release that ships the feature.
+- No label, no `--json` field of another command, no MCP tool, no unit, no
+  file under `live/`.
 
 ## Exit statuses
 

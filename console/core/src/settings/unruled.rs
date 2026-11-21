@@ -189,6 +189,7 @@ pub const FAMILIES: &[(&str, &str)] = &[
 /// A setting of the instance or of the host, a model key's name included.
 fn ruled(name: &str) -> bool {
     name.starts_with(rules::MODEL_KEY)
+        || name.starts_with(crate::plugin::GRANTS)
         || rules::TABLE
             .iter()
             .chain(rules::HOST)

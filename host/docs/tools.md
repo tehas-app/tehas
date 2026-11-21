@@ -70,8 +70,10 @@ and `protolab` among them, run
 under `console run`, which checks the arguments, loads the settings, requires
 what the command cannot run without and runs it (`console/src/run.rs`), and so
 do `tehas dispatch`, `plan`, `check-product` and `tehasbot dispatch`, `review`
-and `github-token`, which have no script of their own. A command neither of them knows
-is exit 64 with the list on standard error. `tehas <command> --help`
+and `github-token`, which have no script of their own. A word that is no
+`tehas` command may be [another part's](#the-commands-of-other-parts). A
+command neither of them knows, and no part has, is exit 64 with the list on
+standard error. `tehas <command> --help`
 prints the same text as `tehas help <command>`.
 
 Every command that needs the instance settings loads them first and stops with
@@ -87,6 +89,32 @@ and `tehas host-message` on [the factory API](/api#tehas-panel) and
 `tehas state load --from <file>` are the two verbs `tehas state` holds beside
 [`pack`, `unpack` and `check`](/tools-control#tehas-state), on
 [the factory API](/api#tehas-state-copy).
+
+## The commands of other parts
+
+`tehas <part> [words]` runs the program `tehas-<part>` from `PATH` with the
+words, in place of tehas, for the other parts of the tehas family:
+
+```
+tehas industry factory list      # runs: tehas-industry factory list
+```
+
+Its output and exit status are the part's. `tehas help <part>` runs `tehas-<part>
+--help`, and `tehas help` ends with the parts it finds.
+
+A command of tehas always wins over a part of the same word. Only absolute
+directories of `PATH` are searched, never `~/tehas/libexec` or `~/tehas/bin`,
+and a part's word is lowercase letters, digits and single hyphens. tehas
+keeps `industry`, `kaizen`, `kata`, `monozukuri` and `yokoten` for the
+family: it never takes one for a command of its own. `tehasbot` runs no part.
+
+A machine that runs no factory, such as the one that runs industry, has no
+tehas of its own. Each release carries a small `tehas` for it, the asset
+`tehas-front-vX.Y.Z-linux-x86_64` with its hash and signature. A part's
+install puts it in place as `/usr/local/bin/tehas`. It knows only its help
+and the parts' commands. The rule is in
+`docs/specs/2026-11-21-part-commands.md` of the platform repository, and
+[the contract](/contract#the-commands-of-other-parts) keeps it through 1.x.
 
 ## Instance settings
 
@@ -135,6 +163,12 @@ settings and `TEHAS_PROTOLAB_ZIP_HOSTS` in this release.
 | `TEHAS_CYCLE_MIN_FREE`          | `10g`                                    | Free disk space below which no cycle starts: the smaller of the file system of `~/tehas` and the one Docker keeps its images on, read with `df`. Space that cannot be read holds too. Running cycles are not touched (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A size such as `512m` or `10g`, else every command stops with 78 |
 | `TEHAS_REVIEW_REPO`             | empty                                    | `owner/name` of the repository [tehasbot review](/tools-plan#tehasbot-review) files the findings of a run in, as one issue a person triages. Never `TEHAS_REPO`: the findings are a model's, and a person triages them into tickets of the product first, so loading refuses it with exit 78. Still being built in this release: a line that gives it a value stops every command with 78, naming `review` |
 | `TEHAS_REVIEW`                  | `off`                                    | `on` turns on the review loop: `tehas-review.timer` starts [tehasbot review](/tools-plan#tehasbot-review) once a week, and off a run exits 0 at once and calls nothing. Anything but `on`, `off`, `1` or `0` stops every command with 78. Still being built in this release, so `on` stops every command with 78 too, naming `review` (see [the review loop](/operating#the-review-loop)) |
+| `TEHAS_PLUGIN`                  | `off`                                    | `on` turns on plugins: programs from pinned git repositories, each with the grants a person wrote for its commit. Still being built in this release: `on` stops every command with 78, and so does a line of any `TEHAS_PLUGIN*` setting below |
+| `TEHAS_PLUGINS`                 | empty                                    | The plugins, at most 4, one space apart, each `<name>=<url>@<commit>`: a name of `a-z` and `0-9`, a letter first, 1 to 12 characters, each once, and none of the words tehas-industry takes for a secret (`key`, `token`, `secret`, `private`, `password`, `passwd`, each also with an `s`); an `https://` address with no user, password, query or fragment; the whole commit, 40 lower-case hex digits. Anything else stops every command with 78 |
+| `TEHAS_PLUGIN_GRANTS_<NAME>`    | unset                                    | What the plugin `<name>` may have, its name in upper case: its commit, then its grants one space apart, from `view`, `product`, `model:<tokens a run>`, `action:<id>` and `hook:after:work`, each once. Grants for a commit other than the pin's grant nothing. A grant of a later version (`gate:`, another `hook:`, `skill:`, `tool:`, `net:`, `factory-read`, `factory-sessions`) is refused naming it, and so is a line for a plugin `TEHAS_PLUGINS` does not name, both with 78. `view` or `action:` stops every command with 78 without `TEHAS_DOMAIN` and `TEHAS_PLUGIN_ACCESS` |
+| `TEHAS_PLUGIN_ACCESS`           | unset                                    | The least permission on `TEHAS_REPO` that lets a person see a plugin's view: `read`, `triage`, `write`, `maintain` or `admin`. Required when a plugin is granted `view` or `action:` |
+| `TEHAS_PLUGIN_LIMITS`           | `memory=2 cpus=2 disk=4`                 | The most one run of a plugin may have: `memory=<GiB> cpus=<n> disk=<GiB>`, all three in this order, each a whole number from 1 to 999 |
+| `TEHAS_PLUGIN_MODEL_DAY`        | `5000000`                                | The model's tokens a day for all plugins together |
 | `TEHAS_MILLWRIGHT_APP`          | empty                                    | Optional. The login of a second GitHub App, `<slug>[bot]`, that the factory trusts as [its millwright](/operating#the-millwrights-grant) in place of its own app. The factory still acts as its own app; only the millwright's grant moves. A value that is not `<slug>[bot]` stops every command with 78. Empty: the millwright is the factory's own app |
 | `TEHAS_CYCLE_LOGIN`             | refused                                  | Not a setting. The login of the account a cycle's token belonged to, which a host needed when a cycle ran as a second account with `GH_CYCLE_TOKEN`. The factory acts as one GitHub App and a cycle's pull requests are the app's own, so a line for this name stops every command with 78 and says `TEHAS_CYCLE_LOGIN is no longer used: the factory acts as a GitHub App.` Take the line out and run `tehas setup --new-app`. See [Moving a host that used a token](/github-app#moving-a-host-that-used-a-token) |
 | `TEHAS_GITHUB_APP_ID`           | required                                 | The ID of the GitHub App the factory acts as ([tehas github check](/tools-github#tehas-github-check)). `tehas setup` writes it. The installation and the bot's login are looked up and kept in `~/tehas/state/github`, not set. A line that sets `TEHAS_GITHUB_APP_INSTALLATION` or `TEHAS_BOT_LOGIN` stops every command with 78: each is a row of `api/renames-1.0.tsv` |

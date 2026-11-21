@@ -30,6 +30,28 @@ pub fn copy_exe(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<()> 
     install(from.as_ref(), to.as_ref())
 }
 
+/// Make `to` the program `from` as a hard link of one copy this process
+/// shares, kept under the test directories' root. A test host with many tests
+/// at once holds each program once, not once per test, so a memory ceiling
+/// that counts written files does not fill. Where no link can be made it is a
+/// copy. A rewrite of `to` replaces it and leaves the shared copy as it was:
+/// `install` unlinks the file it writes over.
+pub fn link_exe(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<()> {
+    let (from, to) = (from.as_ref(), to.as_ref());
+    let _held = crate::testdir::ROOT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let dir = crate::testdir::root().join(crate::testdir::SHARED);
+    let key = from.to_string_lossy().replace('/', "%");
+    let shared = dir.join(key);
+    if !shared.is_file() {
+        fs::create_dir_all(&dir)?;
+        install(from, &shared)?;
+    }
+    let _ = fs::remove_file(to);
+    fs::hard_link(&shared, to).or_else(|_| install(from, to))
+}
+
 fn beside(path: &Path) -> PathBuf {
     let name = path
         .file_name()
@@ -112,6 +134,28 @@ mod tests {
         write_exe(&b, "#!/bin/sh\necho two\n").unwrap();
         let out = Command::new(&b).output().unwrap();
         assert_eq!(String::from_utf8_lossy(&out.stdout), "two\n");
+    }
+
+    #[test]
+    fn a_linked_exe_shares_one_copy_and_a_rewrite_leaves_it() {
+        let d = TestDir::new("link-exe");
+        let src = d.join("src");
+        write_exe(&src, "#!/bin/sh\necho one\n").unwrap();
+        let (a, b) = (d.join("a"), d.join("b"));
+        link_exe(&src, &a).unwrap();
+        link_exe(&src, &b).unwrap();
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(
+            fs::metadata(&a).unwrap().ino(),
+            fs::metadata(&b).unwrap().ino()
+        );
+        assert!(fs::metadata(&a).unwrap().nlink() >= 3);
+        write_exe(&b, "#!/bin/sh\necho two\n").unwrap();
+        let run = |p: &Path| {
+            String::from_utf8_lossy(&Command::new(p).output().unwrap().stdout).into_owned()
+        };
+        assert_eq!(run(&a), "one\n");
+        assert_eq!(run(&b), "two\n");
     }
 
     #[test]

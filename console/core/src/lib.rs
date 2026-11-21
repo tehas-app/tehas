@@ -40,8 +40,10 @@ pub mod models;
 pub mod order;
 pub mod out;
 pub mod outcome;
+pub mod parts;
 pub mod pause;
 pub mod plan;
+pub mod plugin;
 #[cfg(feature = "mask")]
 pub mod question;
 pub mod queue_lists;

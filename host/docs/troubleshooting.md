@@ -529,7 +529,7 @@ The common ones:
 | underspecified, needs clarification | The issue does not say enough                       | The factory refines it once on its own; after that, add acceptance criteria and relabel |
 | `explore-bodies-empty`              | `gh` could not read the issue                       | Check the bot token: `gh auth status`                    |
 | verify or smoke failure             | The gates failed on the developer's change          | Read the gate output in the handoff; often a real defect |
-| protected paths                     | The patch touched `.pi/`, `.github/`, `CODEOWNERS` or `agents.json` | By design. Make that change yourself                     |
+| protected paths                     | The patch touched `.pi/`, `.github/`, `CODEOWNERS` or `agents.json` | By design. Make that change yourself, then tick a retry box on the park comment. The comment says so in place of pi-rukas's `/work --restart --allow-protected`, which a host cannot run |
 | review round cap                    | The review kept finding problems                    | Read the review on the pull request                      |
 | developer timeout                   | An agent ran out of time                            | Usually model endpoint capacity; retry later             |
 | `wall-clock`, `stall`               | tehas ended the cycle: its time limit `TEHAS_WORK_TIMEOUT`, or no log moved for `TEHAS_WORK_STALL` | Read the run log the comment names; see [a cycle stops at a cap](#a-cycle-stops-at-a-cap) |

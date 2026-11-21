@@ -577,6 +577,10 @@ fn an_out_dir_that_cannot_be_made_is_a_bad_argument() {
 /// each with why. Every other program is in each list below.
 const NOT_INSTALLED: &[(&str, &str)] = &[("tehas-xtask", "the development tasks of scripts/")];
 
+/// Programs a release builds and carries as an asset of their own, outside
+/// the tarball, which install.sh does not install.
+const ASSETS: &[(&str, &str)] = &[("tehas-front", "the front of a machine with no factory")];
+
 /// The name of `[package]` in a manifest.
 fn package_name(manifest: &str) -> String {
     let mut in_package = false;
@@ -631,6 +635,14 @@ fn every_program_of_the_workspace_reaches_a_host_or_is_named_as_not_installed() 
         );
     }
 
+    let mut installed = programs.clone();
+    for (name, why) in ASSETS {
+        assert!(
+            installed.remove(*name),
+            "{name} ({why}) is no program of the workspace"
+        );
+    }
+
     let install = read("install.sh");
     let compiled = install
         .lines()
@@ -656,7 +668,7 @@ fn every_program_of_the_workspace_reaches_a_host_or_is_named_as_not_installed() 
         "install.sh asks for the programs of a feature"
     );
     assert_eq!(
-        compiled, programs,
+        compiled, installed,
         "install.sh compiled=(...) and the features' programs"
     );
 
@@ -674,7 +686,7 @@ fn every_program_of_the_workspace_reaches_a_host_or_is_named_as_not_installed() 
         packed.insert(name.to_string());
         pack_flags.insert(flag.to_string());
     }
-    assert_eq!(packed, programs, "pack-release PROGRAMS");
+    assert_eq!(packed, installed, "pack-release PROGRAMS");
     let built = names_after(&between("cargo build", "mkdir -p"), " -p ", &[' ', '\n']);
     assert_eq!(built, programs, "release.yml: cargo build -p");
     let copies = between("cp \"$target", "\"$RUNNER_TEMP/programs/\"");
@@ -686,6 +698,17 @@ fn every_program_of_the_workspace_reaches_a_host_or_is_named_as_not_installed() 
         .map(String::from)
         .collect();
     assert_eq!(flags, pack_flags, "release.yml: pack-release.sh flags");
+    for (name, _) in ASSETS {
+        let asset = format!("{name}-$TAG-linux-x86_64");
+        assert!(
+            between("the front, an asset", "- name: sign").contains(&asset),
+            "release.yml makes the asset {asset}"
+        );
+        assert!(
+            between("- name: sign", "- name: publish").contains(&asset),
+            "release.yml signs {asset}"
+        );
+    }
     // By feature too, so a program a feature adds is never left out of a release.
     for f in tehas_core::features::FEATURES {
         for p in f.programs {
