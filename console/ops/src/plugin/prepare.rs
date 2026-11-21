@@ -355,14 +355,34 @@ fn drop_others(x: &mut dyn Exec, name: &str, keep: Option<&str>) {
 /// does it: what it came to, also written to `state.json`. An image of the
 /// commit already built is kept, not built again.
 pub fn prepare(x: &mut dyn Exec, home: &Path, pin: &Pin, grants: Option<&Grants>) -> State {
-    let s = prepared(x, home, pin, grants);
-    if let Err(e) = write_state(home, &pin.name, &s) {
-        return State::refused(&pin.commit, format!("state.json could not be written: {e}"));
-    }
-    s
+    prepare_view(x, home, pin, grants).0
 }
 
-fn prepared(x: &mut dyn Exec, home: &Path, pin: &Pin, grants: Option<&Grants>) -> State {
+/// [`prepare`], with the label of the manifest's view at the pin when the
+/// plugin is ready and its manifest has one.
+pub fn prepare_view(
+    x: &mut dyn Exec,
+    home: &Path,
+    pin: &Pin,
+    grants: Option<&Grants>,
+) -> (State, Option<String>) {
+    let mut view = None;
+    let s = prepared(x, home, pin, grants, &mut view);
+    if let Err(e) = write_state(home, &pin.name, &s) {
+        let why = format!("state.json could not be written: {e}");
+        return (State::refused(&pin.commit, why), None);
+    }
+    let view = view.filter(|_| s.state == Word::Ready);
+    (s, view)
+}
+
+fn prepared(
+    x: &mut dyn Exec,
+    home: &Path,
+    pin: &Pin,
+    grants: Option<&Grants>,
+    view: &mut Option<String>,
+) -> State {
     let c = &pin.commit;
     if let Err(why) = fetched(x, home, pin, c) {
         return State::refused(c, why);
@@ -383,6 +403,7 @@ fn prepared(x: &mut dyn Exec, home: &Path, pin: &Pin, grants: Option<&Grants>) -
         return refused(c, &r, refusals);
     }
     let mut s = State::new(Word::Ready, c);
+    view.clone_from(&m.view);
     s.manifest_sha256 = Some(r.sha256.clone());
     s.bases.clone_from(&r.bases);
     let Some(file) = &m.build else {
