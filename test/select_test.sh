@@ -27,7 +27,8 @@ fresh() {
   chmod +x "$repo/scripts/select-tests.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$repo/scripts/check-generic.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$repo/scripts/check-bash-lines.sh"
-  chmod +x "$repo/scripts/check-generic.sh" "$repo/scripts/check-bash-lines.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$repo/scripts/check-test-lines.sh"
+  chmod +x "$repo/scripts/check-generic.sh" "$repo/scripts/check-bash-lines.sh" "$repo/scripts/check-test-lines.sh"
   : >"$repo/test/lib.sh"
   t_stub shellcheck 'exit 0'
   rm -f "$T/bin/cargo" "$T/cargo-args" "$T/cargo-fails"

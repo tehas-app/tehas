@@ -15,6 +15,7 @@ fresh() {
   cp "$T_ROOT/scripts/verify.sh" "$tree/scripts/"
   cp "$T_ROOT/scripts/check-generic.sh" "$tree/scripts/"
   printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$tree/scripts/check-bash-lines.sh"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$tree/scripts/check-test-lines.sh"
   printf '%s\n' '#!/usr/bin/env bash' 'echo "test test/a_test.sh"' >"$tree/scripts/select-tests.sh"
   # The shell suite answers what $T/suite_out holds, so a case can make the
   # runner report checks it did not run.

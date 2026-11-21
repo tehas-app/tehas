@@ -14,6 +14,7 @@ fresh() {
   cp "$T_ROOT/scripts/verify.sh" "$tree/scripts/"
   printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$tree/scripts/check-generic.sh"
   printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$tree/scripts/check-bash-lines.sh"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$tree/scripts/check-test-lines.sh"
   printf '%s\n' '#!/usr/bin/env bash' 'echo "test test/a_test.sh"' >"$tree/scripts/select-tests.sh"
   # The shell suite: 60 numbered lines, more than a failure's tail shows, then
   # the exit $T/suite_rc says.
