@@ -583,6 +583,20 @@ Every holder of a full key can call a tool you grant `mcp:`, outside the
 sign-in and with no login. Its answer goes to an agent the factory does not
 run. Grant it only for a tool whose answers you would give a full key.
 
+To switch them on, grant the tool, then on the host:
+
+```
+tehas update
+systemctl --user enable --now tehas-plugin-calls.service
+systemctl --user restart tehas-mcp.service
+```
+
+A first install enables the broker's unit while plugins are on; on a host
+that had plugins before, enable it as above. The restart gives the server the
+broker's socket, which it is given only from its next start after the grant.
+Without the broker running, the server lists no plugin tool and the journal
+says why.
+
 How it runs: `tehas-plugin-calls.service` runs `tehasbot plugin calls`, the
 broker, on the host. It serves one socket, `~/tehas/run/plugin-calls/calls.sock`,
 which `tehasbot mcp serve` mounts read only into the server's container while

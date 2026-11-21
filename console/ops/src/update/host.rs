@@ -422,7 +422,7 @@ mod tests {
         let on = [("TEHAS_PLUGIN", "on"), ("TEHAS_TEST_FEATURES", "plugins")];
         assert_eq!(
             units(&on, None),
-            "tehas-dispatch.timer tehas-dispatch.path tehas-plugin.timer"
+            "tehas-dispatch.timer tehas-dispatch.path tehas-plugin.timer tehas-plugin-calls.service"
         );
     }
 

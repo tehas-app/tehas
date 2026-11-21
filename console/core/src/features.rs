@@ -125,6 +125,7 @@ pub const FEATURES: &[Feature] = &[
             "tehas-plugin-hook@.service",
             "tehas-plugin.service",
             "tehas-plugin.timer",
+            "tehas-plugin-calls.service",
         ],
     },
 ];
@@ -834,6 +835,7 @@ mod tests {
                 "tehas-plugin-hook@.service",
                 "tehas-plugin.service",
                 "tehas-plugin.timer",
+                "tehas-plugin-calls.service",
             ]
         );
     }
@@ -843,7 +845,7 @@ mod tests {
         let on = vars(&[("TEHAS_PLUGIN", "on"), (TEST_VAR, "plugins")]);
         let (programs, units) = installs_in(&on);
         assert_eq!(programs, ["tehas-plugin"]);
-        assert_eq!(units.len(), 4);
+        assert_eq!(units.len(), 5);
         assert_eq!(installs_in(&vars(&[("TEHAS_PLUGIN", "on")])).0.len(), 0);
         // The timer's service is the timer's; the runs are templates.
         assert!(timed("tehas-plugin.service", &units));

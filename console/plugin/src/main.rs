@@ -5,21 +5,23 @@
 //!   tehas-plugin run <name> --kind hook --pr <n> [--trigger cycle|host]
 //!   tehas-plugin run <name>-<pr> --kind hook     what tehas-plugin-hook@.service gives
 //!   tehas-plugin tick
+//!   tehas-plugin calls                            the MCP broker, until stopped
 //!
 //! `run` is one run of the plugin's container (src/run.rs). With no
 //! `--trigger`, what asked for it is read from the request it left. `tick` is
-//! the timer's step (src/tick.rs).
+//! the timer's step (src/tick.rs). `calls` serves the socket the MCP server is
+//! given for plugin tools (tehas_ops::plugin::calls).
 //!
 //! Exit, run: 0 done; 1 failed or out of time; 3 running, or not ready to
 //! run; 64 usage; 78 the feature is off or the settings name no product
-//! mirror. tick: 0.
+//! mirror. tick: 0. calls: 1 when it cannot serve; 78 the feature is off.
 
 use std::time::Duration;
 use tehas_plugin::host::Real;
 use tehas_plugin::run::{self, Setup};
 use tehas_plugin::tick;
 
-const USAGE: &str = "usage: tehas-plugin run <name> --kind refresh|hook [--pr N] [--trigger timer|host|action|cycle] [--by <login>] | tehas-plugin tick";
+const USAGE: &str = "usage: tehas-plugin run <name> --kind refresh|hook [--pr N] [--trigger timer|host|action|cycle] [--by <login>] | tehas-plugin tick | tehas-plugin calls";
 
 fn main() {
     std::process::exit(i32::from(go()));
@@ -37,6 +39,7 @@ fn go() -> u8 {
             }
         },
         Some((verb, rest)) if verb == "tick" && rest.is_empty() => None,
+        Some((verb, rest)) if verb == "calls" && rest.is_empty() => return calls(&get),
         _ => {
             eprintln!("{USAGE}");
             return 64;
@@ -60,5 +63,35 @@ fn go() -> u8 {
     match ask {
         Some(a) => run::run(&mut host, &setup, &a),
         None => tick::tick(&mut host, &setup),
+    }
+}
+
+/// `calls`: the broker's socket under the home, served until stopped.
+fn calls(get: &dyn Fn(&str) -> String) -> u8 {
+    if !tehas_core::features::on_in("plugins", get) {
+        eprintln!("tehas-plugin calls: plugins are off (TEHAS_PLUGIN)");
+        return 78;
+    }
+    let Some(home) = run::home(get) else {
+        eprintln!("tehas-plugin: TEHAS_HOME is not set");
+        return 78;
+    };
+    match tehas_ops::plugin::calls::listen(&home) {
+        Ok(listener) => {
+            eprintln!(
+                "tehas-plugin calls: serving {}",
+                tehas_ops::plugin::calls::socket(&home).display()
+            );
+            let host = tehas_ops::plugin::calls::Host {
+                home,
+                get: |name| std::env::var(name).unwrap_or_default(),
+            };
+            tehas_ops::plugin::calls::serve(listener, std::sync::Arc::new(host));
+            1
+        }
+        Err(why) => {
+            eprintln!("tehas-plugin calls: {why}");
+            1
+        }
     }
 }

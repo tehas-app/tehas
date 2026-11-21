@@ -39,8 +39,9 @@
 # unit, tehas-outsource-proxy.service; off, none of the three. While plugins
 # are on (TEHAS_PLUGIN) it compiles the runner (console/plugin,
 # libexec/tehas-plugin) and installs its units: the templates of a run,
-# tehas-plugin@.service and tehas-plugin-hook@.service, and tehas-plugin.timer
-# with its service; off, none of them. The review
+# tehas-plugin@.service and tehas-plugin-hook@.service, tehas-plugin.timer
+# with its service, and the broker of plugin tools for the MCP server,
+# tehas-plugin-calls.service; off, none of them. The review
 # loop's units, tehas-review.service and .timer, are installed only while
 # review is on (TEHAS_REVIEW), which no release allows yet; off, a timer an
 # earlier release left enabled is stopped and disabled, its files kept. A real

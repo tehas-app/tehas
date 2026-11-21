@@ -597,7 +597,7 @@ mod tests {
     }
 
     #[test]
-    fn the_plugins_timer_is_restarted_and_no_template_is_named() {
+    fn the_plugins_timer_and_broker_are_restarted_and_no_template_is_named() {
         let on = |name: &str| {
             match name {
                 "TEHAS_PLUGIN" => "on",
@@ -606,7 +606,10 @@ mod tests {
             }
             .to_string()
         };
-        let all = format!("units {} tehas-plugin.timer", UNITS.join(" "));
+        let all = format!(
+            "units {} tehas-plugin.timer tehas-plugin-calls.service",
+            UNITS.join(" ")
+        );
         let files = [
             "systemd/tehas-plugin@.service",
             "systemd/tehas-plugin-hook@.service",

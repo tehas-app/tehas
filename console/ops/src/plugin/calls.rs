@@ -9,13 +9,20 @@
 //! adds the request rules and the rate per key. `key` is the key's id, the
 //! first 8 hex characters of its sha256: the broker never sees a key.
 
+use super::call::{self as one, Caller, Failed};
+use super::exec;
+use super::ready::ready;
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
+use std::fs;
 use std::io::{Read, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tehas_core::plugin::{self, Cap};
 
 const HEAD_MAX: usize = 8192;
 /// A call's body: 2 KiB of arguments and the four fields around them.
@@ -37,24 +44,69 @@ pub struct Served {
     pub params: Value,
 }
 
-/// Why a call gave no answer, as the call function says it.
-#[derive(Debug, PartialEq)]
-pub enum Failed {
-    /// The arguments break the tool's `params` or are over 2 KiB.
-    Args(String),
-    /// Not granted at the pin, held, not ready, or busy.
-    Refused(String),
-    /// tehas's reason: over 16 KiB, not one object, not UTF-8, a non-zero
-    /// exit, or past the timeout.
-    Tool(String),
-}
-
 /// What the broker serves and how a call is made: the plugin settings and
 /// states on a host, a stub in a test.
 pub trait Calls: Send + Sync {
     fn served(&self) -> Vec<Served>;
     /// One call for the key `key`. Ok is the one JSON object the tool wrote.
     fn call(&self, plugin: &str, tool: &str, args: &Value, key: &str) -> Result<Value, Failed>;
+}
+
+/// The host's: the plugins of the settings, each call `tehas plugin call`'s.
+pub struct Host {
+    pub home: PathBuf,
+    pub get: fn(&str) -> String,
+}
+
+impl Calls for Host {
+    fn served(&self) -> Vec<Served> {
+        let get = self.get;
+        let pins = plugin::pins(&get("TEHAS_PLUGINS")).unwrap_or_default();
+        let mut out = Vec::new();
+        for pin in pins {
+            let Ok(r) = ready(&mut exec::Host, &self.home, &get, &pin.name) else {
+                continue;
+            };
+            out.extend(served_of(&pin.name, &r.manifest, &r.grants));
+        }
+        out
+    }
+
+    fn call(&self, plugin: &str, tool: &str, args: &Value, key: &str) -> Result<Value, Failed> {
+        let get = self.get;
+        let caller = Caller::Mcp(key.to_string());
+        one::call(
+            &mut exec::Host,
+            &self.home,
+            &get,
+            plugin,
+            tool,
+            args,
+            &caller,
+        )
+    }
+}
+
+/// The tools of one ready plugin that are asked and granted both `tool:<id>`
+/// and `mcp:<id>` at its pin.
+pub fn served_of(
+    name: &str,
+    manifest: &tehas_core::plugin::manifest::Manifest,
+    grants: &tehas_core::plugin::Grants,
+) -> Vec<Served> {
+    let both = |cap: Cap| grants.caps.contains(&cap) && manifest.asks.contains(&cap.ask());
+    manifest
+        .tools
+        .iter()
+        .filter(|t| both(Cap::Tool(t.id.clone())) && both(Cap::Mcp(t.id.clone())))
+        .map(|t| Served {
+            plugin: name.to_string(),
+            id: t.id.clone(),
+            label: manifest.label.clone(),
+            about: t.about.clone(),
+            params: t.params.clone(),
+        })
+        .collect()
 }
 
 /// The calls of each key in the last minute.
@@ -175,6 +227,30 @@ fn call(
             status(403)
         }
     }
+}
+
+/// The broker's directory under the home, which `tehasbot mcp serve` mounts.
+pub const DIR: &str = "run/plugin-calls";
+
+/// The socket the broker serves.
+pub fn socket(home: &Path) -> PathBuf {
+    home.join(DIR).join("calls.sock")
+}
+
+/// The socket, bound in a directory of mode 700, a socket left by a broker
+/// that stopped taken away first.
+pub fn listen(home: &Path) -> Result<UnixListener, String> {
+    let dir = home.join(DIR);
+    fs::create_dir_all(&dir)
+        .and_then(|()| fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)))
+        .map_err(|e| format!("could not make {}: {e}", dir.display()))?;
+    let path = socket(home);
+    match fs::remove_file(&path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("could not take away {}: {e}", path.display())),
+    }
+    UnixListener::bind(&path).map_err(|e| format!("could not bind {}: {e}", path.display()))
 }
 
 /// A place among the connections, given back when its thread ends.
@@ -332,6 +408,40 @@ mod tests {
     }
 
     const KEY: &str = "3511bfc5";
+    const PIN: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    fn docs(asks: &[&str]) -> tehas_core::plugin::manifest::Manifest {
+        let mut v: Value =
+            serde_json::from_str(include_str!("../../../../api/plugin-manifest.tools.json"))
+                .unwrap();
+        v["asks"] = json!(asks);
+        tehas_core::plugin::manifest::read(v.to_string().as_bytes(), "docs").unwrap()
+    }
+
+    fn granted(words: &str) -> tehas_core::plugin::Grants {
+        plugin::grants(&format!("{PIN} {words}")).unwrap()
+    }
+
+    #[test]
+    fn a_tool_is_served_only_asked_and_granted_tool_and_mcp() {
+        let both = docs(&["tool:find-doc", "mcp:find-doc"]);
+        let got = served_of("docs", &both, &granted("tool:find-doc mcp:find-doc"));
+        assert_eq!(got.len(), 1);
+        assert_eq!(
+            (
+                got[0].plugin.as_str(),
+                got[0].id.as_str(),
+                got[0].label.as_str()
+            ),
+            ("docs", "find-doc", "Product docs")
+        );
+        assert_eq!(got[0].params["properties"]["q"]["maxLength"], 200);
+        // Granted for the chats only.
+        assert!(served_of("docs", &both, &granted("tool:find-doc")).is_empty());
+        // Granted mcp: that the manifest does not ask for.
+        let chats = docs(&["tool:find-doc"]);
+        assert!(served_of("docs", &chats, &granted("tool:find-doc mcp:find-doc")).is_empty());
+    }
 
     fn ask(
         s: &Stub,
@@ -508,9 +618,15 @@ mod tests {
 
     #[test]
     fn the_socket_answers_a_call_whole() {
-        let dir = tehas_core::testdir::TestDir::new("plugin-calls-serve");
-        let sock = dir.join("calls.sock");
-        let listener = UnixListener::bind(&sock).unwrap();
+        let home = tehas_core::testdir::TestDir::new("plugin-calls-serve");
+        // A socket left behind is taken away, and the directory is the
+        // factory's user's alone.
+        fs::create_dir_all(home.join(DIR)).unwrap();
+        fs::write(socket(&home), "").unwrap();
+        let listener = listen(&home).unwrap();
+        let mode = fs::metadata(home.join(DIR)).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+        let sock = socket(&home);
         let calls: Arc<dyn Calls> = Arc::new(stub(|| Ok(json!({"n": 1}))));
         std::thread::spawn(move || serve(listener, calls));
         let body = a_call("docs", "find-doc").to_string();
