@@ -17,6 +17,14 @@
 //! with npm, which must be on PATH; a version younger than npm's
 //! `min-release-age` is not taken, since npm would not lock it.
 //!
+//! The kit's Solid, the `PINS` of tools/vendor-solid/src/main.rs, moves too:
+//! each package to the newest release of its major on npm, with its tarball
+//! and sha512 integrity, under the same `min-release-age`. A release whose
+//! peer dependencies or dependencies on another of the pinned packages are
+//! not met by what that one moves to is not taken: `check` says why after
+//! `kept:`, `move` prints `kept <name> <pinned>: <why>`. When a Solid pin
+//! moved, `move` runs tools/vendor-solid, which rebuilds the kit's bundle.
+//!
 //! A later major is never taken. `move` writes the moves and what was held
 //! back into the release's section of CHANGELOG.md (`--release`'s, else
 //! Unreleased): one line per move under `### Changes`, and `### Held back`.
@@ -26,6 +34,7 @@
 //! Exit: 0 done; 1 a source could not be read, or a move could not be made
 //! (the tree may then be half moved: the caller throws it away); 64 usage.
 
+mod solid;
 mod text;
 mod tools;
 
@@ -108,18 +117,34 @@ fn plan(env: &str, world: &dyn World) -> Result<Plan, String> {
 
 fn check(root: &Path, world: &dyn World) -> Result<Vec<String>, String> {
     let env = read(&root.join("host/versions.env"))?;
-    Ok(plan(&env, world)?
+    let held = |later: Option<Ver>| later.map(|v| format!(" held {v}")).unwrap_or_default();
+    let mut out: Vec<String> = plan(&env, world)?
         .into_iter()
-        .map(|(tool, current, pin, later)| {
-            let held = later.map(|v| format!(" held {v}")).unwrap_or_default();
-            format!("{} {current} {pin}{held}", tool.name)
-        })
-        .collect())
+        .map(|(tool, current, pin, later)| format!("{} {current} {pin}{}", tool.name, held(later)))
+        .collect();
+    for c in solid::plan(&read(&root.join(solid::MAIN_RS))?, world)? {
+        let kept = c
+            .kept
+            .as_ref()
+            .map(|k| format!(" kept: {k}"))
+            .unwrap_or_default();
+        out.push(format!(
+            "{} {} {}{}{kept}",
+            c.name,
+            c.current,
+            c.pin,
+            held(c.later)
+        ));
+    }
+    Ok(out)
 }
 
 fn run(root: &Path, release: Option<&str>, world: &dyn World) -> Result<Vec<String>, String> {
     let env_path = root.join("host/versions.env");
     let mut env = read(&env_path)?;
+    let main_path = root.join(solid::MAIN_RS);
+    let main_was = read(&main_path)?;
+    let solid_plan = solid::plan(&main_was, world)?;
     let mut moved = Vec::new();
     let mut held = Vec::new();
     for (tool, current, pin, later) in plan(&env, world)? {
@@ -128,6 +153,7 @@ fn run(root: &Path, release: Option<&str>, world: &dyn World) -> Result<Vec<Stri
                 name: tool.name.into(),
                 current: pin.to_string(),
                 newest: v.to_string(),
+                file: "host/versions.env".into(),
             });
         }
         if pin == current {
@@ -184,6 +210,35 @@ fn run(root: &Path, release: Option<&str>, world: &dyn World) -> Result<Vec<Stri
         });
     }
     write(&env_path, &env)?;
+
+    let mut main = main_was.clone();
+    let mut kept = Vec::new();
+    for c in &solid_plan {
+        if let Some(v) = c.later {
+            held.push(Held {
+                name: c.name.clone(),
+                current: c.pin.to_string(),
+                newest: v.to_string(),
+                file: solid::MAIN_RS.into(),
+            });
+        }
+        if let Some(why) = &c.kept {
+            kept.push(format!("kept {} {}: {why}", c.name, c.current));
+        }
+        if c.pin != c.current {
+            main = solid::set(&main, &c.moved()?)?;
+            moved.push(Moved {
+                name: c.name.clone(),
+                from: c.current.to_string(),
+                to: c.pin.to_string(),
+            });
+        }
+    }
+    if main != main_was {
+        write(&main_path, &main)?;
+        world.vendor_solid(root)?;
+    }
+
     let log = root.join("CHANGELOG.md");
     write(
         &log,
@@ -193,6 +248,7 @@ fn run(root: &Path, release: Option<&str>, world: &dyn World) -> Result<Vec<Stri
         .iter()
         .map(|m| format!("moved {}: {} to {}", m.name, m.from, m.to))
         .collect();
+    out.extend(kept);
     out.extend(
         held.iter()
             .map(|h| format!("held {}: {}, {} is out", h.name, h.current, h.newest)),
@@ -333,5 +389,20 @@ impl World for Curl {
                 dir.display()
             )
         })
+    }
+
+    fn vendor_solid(&self, root: &Path) -> Result<(), String> {
+        let manifest = "tools/vendor-solid/Cargo.toml";
+        // Its stdout is the moves: what the tool says goes to stderr.
+        let status = Command::new("cargo")
+            .args(["run", "--release", "--locked", "--manifest-path", manifest])
+            .current_dir(root)
+            .stdout(Stdio::null())
+            .status()
+            .map_err(|e| format!("cannot run cargo for {manifest}: {e}"))?;
+        status
+            .success()
+            .then_some(())
+            .ok_or_else(|| format!("tools/vendor-solid failed in {}", root.display()))
     }
 }
