@@ -415,10 +415,23 @@ pub fn polyfill_body(rukas: &str, carried: &[Carried], expired: &[&str], next: &
 /// The body of the pull request that moves the pinned tools, one line of
 /// `moved` each.
 pub fn pins_body(moved: &[&str], next: &str) -> String {
-    let lines: Vec<String> = moved.iter().map(|m| format!("- {m}")).collect();
+    let list = |kept: bool| {
+        moved
+            .iter()
+            .filter(|m| m.starts_with("kept ") == kept)
+            .map(|m| format!("- {m}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let kept = list(true);
+    let kept = if kept.is_empty() {
+        kept
+    } else {
+        format!("These Solid pins stay where they are. A newer release of their major needs a version of another Solid package that this move does not take:\n\n{kept}\n\n")
+    };
     format!(
-        "Each pinned tool at the newest release of the major version it has, with its checksum, digest or lockfile:\n\n{}\n\nA held tool has a new major version out; moving to it is a person's call. CHANGELOG.md names both.\n\nOpened by scripts/tag-release.sh, which tags {next} once this is merged.",
-        lines.join("\n")
+        "Each pinned tool at the newest release of the major version it has, with its checksum, digest or lockfile:\n\n{}\n\nA held tool has a new major version out; moving to it is a person's call. CHANGELOG.md names both.\n\n{kept}Opened by scripts/tag-release.sh, which tags {next} once this is merged.",
+        list(false)
     )
 }
 
