@@ -15,6 +15,7 @@ pub fn does(cap: &Cap) -> &'static str {
         Cap::Action(_) => "a button in the view: a signed-in person asks for a refresh",
         Cap::HookAfterWork => "a run on each pull request a cycle leaves; its summary is on the pull request for every reader of the repository",
         Cap::Skill(_) => "its text from the pinned commit goes into the chats' instructions",
+        Cap::ModelImages => "images in its model requests, each carried in the request and never fetched: what it sends of the product's pages goes to the model",
         Cap::Needs(_) => "runs only while the named plugin is ready, and its chat gets the skills that plugin grants to a plugin's chat; it grants the other plugin nothing",
     }
 }

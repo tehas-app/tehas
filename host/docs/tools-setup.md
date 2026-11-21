@@ -204,7 +204,13 @@ clone as pi-rukas makes one in a cycle, `.pi/worktree-setup` with `sh` when ther
 the first command of `.pi/verify-cmd-full` (else `.pi/verify-cmd`) and the first
 command of `.pi/smoke-cmd` when there is one. An install that fails, or a tool
 the image lacks (`no pnpm in the sandbox image`), is a `FAIL install` line and
-no gate runs. The gates' container may run for `TEHAS_VERIFY_TIMEOUT` seconds
+no gate runs. Both containers get the limits a cycle's container gets on this
+host, made by the same code (see [Limits and concurrency](/host#limits-and-concurrency)):
+the memory ceiling, the CPU quota, the floor, the pids limit and the weight. No
+cpuset is set, so `nproc` inside counts the host's CPUs, as in a cycle. When
+the slice cannot be used, the check prints the line `tehas work` would, such as
+`tehas check-product: no slice file on this host (sudo ./bootstrap.sh slice)`,
+exits 78 and clones and starts nothing. The gates' container may run for `TEHAS_VERIFY_TIMEOUT` seconds
 (1800 by default), the bound of one run of the gate in a cycle. One still
 running then is killed by its name and is a `FAIL sandbox` line, `the gates did
 not end within <n>s`, so a gate that hangs fails `tehas setup` instead of
@@ -217,8 +223,8 @@ It changes nothing in the product. The result goes to
 the check itself, and the `Product:` line does not change install.sh's exit
 status. Exit 0 when every check passed, 1 when the sandbox could not be run (no
 image, or the clone failed), 3 when a check failed, 64 on a wrong argument, 78
-when the settings are missing or malformed, or no console stands beside the
-command.
+when the settings are missing or malformed, no console stands beside the
+command, or with `--sandbox` the slice cannot be used.
 The command loads the settings; the checks and the run are the console's
 (`console check-product`, `console/src/product.rs`).
 

@@ -44,8 +44,9 @@ manifest field and no new setting. With `TEHAS_MCP` off, or with
   takes effect without a restart.
 - **Dashboard keys.** A dashboard key is never served a plugin tool. It is
   told about it the same way it is told about any tool it may not call.
-- **A call.** The server checks the arguments against `params` and the 2 KiB
-  cap, then sends the call to the broker. The answer comes back as one text
+- **A call.** The server checks that the arguments are an object within the
+  2 KiB cap, then sends the call to the broker. The call function checks
+  them against `params`, in one place, as for `tehas plugin call`. The answer comes back as one text
   content block holding
   `{"untrusted": true, "source": "plugin:<name>", "answer": <answer>}`, as
   the chats' hosts mark a tool result. A tool that failed or timed out is an

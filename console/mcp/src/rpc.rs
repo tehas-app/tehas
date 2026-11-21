@@ -8,8 +8,10 @@
 
 use crate::keys::{Authenticated, Keys};
 use crate::logs::LogGuard;
+use crate::plugins;
 use crate::tools::{self, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Value};
+use std::path::Path;
 
 pub const MODERN: &str = "2026-07-28";
 pub const LEGACY: &str = "2025-11-25";
@@ -164,6 +166,18 @@ pub fn gate(req: &Request, keys: &Keys) -> Result<Authenticated, Refusal> {
 /// [`Keys::check`], so the scope it carries decides which tools the request may
 /// see and call: no caller can bring a scope of its own.
 pub fn answer(req: &Request, key: &Authenticated, dirs: &Dirs, server_version: &str) -> Response {
+    answer_in(req, key, dirs, server_version, plugins::broker())
+}
+
+/// `answer` for a server whose plugin tools come from the broker at
+/// `broker`, or that has none.
+pub fn answer_in(
+    req: &Request,
+    key: &Authenticated,
+    dirs: &Dirs,
+    server_version: &str,
+    broker: Option<&Path>,
+) -> Response {
     if req.body.len() > MAX_BODY {
         return Response::empty(413);
     }
@@ -196,7 +210,7 @@ pub fn answer(req: &Request, key: &Authenticated, dirs: &Dirs, server_version: &
     let info = json!({"name": "tehas", "version": server_version});
     let mut hold = None;
     let mut tool = None;
-    let mut result = match (method, modern) {
+    let result = match (method, modern) {
         ("server/discover", _) => json!({
             "resultType": "complete",
             "supportedVersions": [MODERN, LEGACY],
@@ -219,7 +233,7 @@ pub fn answer(req: &Request, key: &Authenticated, dirs: &Dirs, server_version: &
         ("ping", false) => json!({}),
         ("tools/list", _) => json!({
             "resultType": "complete",
-            "tools": tools::list_scoped(key.scope()),
+            "tools": with_plugins(tools::list_scoped(key.scope()), key.scope(), broker),
             "ttlMs": LIST_TTL_MS,
             "cacheScope": "private",
         }),
@@ -229,6 +243,18 @@ pub fn answer(req: &Request, key: &Authenticated, dirs: &Dirs, server_version: &
             // the log: the arguments can carry an issue number or text from a
             // private repository, and are never copied.
             let name = params["name"].as_str();
+            if let Some((t, socket)) = plugin_tool(name, key.scope(), broker) {
+                let args = params.get("arguments").cloned().unwrap_or(json!({}));
+                let result = match plugins::call(socket, &t, &args, key.fingerprint()) {
+                    Ok(v) => json!({
+                        "resultType": "complete",
+                        "content": [{"type": "text", "text": v.to_string()}],
+                        "structuredContent": v,
+                    }),
+                    Err(why) => tool_error(&why),
+                };
+                return finish(&id, result, modern, &info, None, Some(t.name));
+            }
             // The line says which tool the request asked for even when the
             // call is refused: the server's own name for one it serves, `?`
             // for a text name it has not, and `-` for a name that is not
@@ -287,6 +313,17 @@ pub fn answer(req: &Request, key: &Authenticated, dirs: &Dirs, server_version: &
         }
         _ => return error(404, &id, -32601, "Method not found", None),
     };
+    finish(&id, result, modern, &info, hold, tool)
+}
+
+fn finish(
+    id: &Value,
+    mut result: Value,
+    modern: bool,
+    info: &Value,
+    hold: Option<LogGuard>,
+    tool: Option<String>,
+) -> Response {
     if modern {
         result["_meta"] = json!({SERVER_INFO_KEY: info});
     }
@@ -294,6 +331,32 @@ pub fn answer(req: &Request, key: &Authenticated, dirs: &Dirs, server_version: &
     r.hold = hold;
     r.tool = tool;
     r
+}
+
+/// The server's tools, then the plugin tools the scope is served.
+fn with_plugins(own: Value, scope: Scope, broker: Option<&Path>) -> Value {
+    let mut all = own.as_array().cloned().unwrap_or_default();
+    all.extend(
+        plugins::for_scope(scope, broker)
+            .iter()
+            .map(plugins::Tool::entry),
+    );
+    Value::Array(all)
+}
+
+/// The plugin tool a `tools/call` names, when the key's scope is served it.
+/// A name the list does not hold goes on to the server's own tools, which
+/// answer it as a tool they have not.
+fn plugin_tool<'a>(
+    name: Option<&str>,
+    scope: Scope,
+    broker: Option<&'a Path>,
+) -> Option<(plugins::Tool, &'a Path)> {
+    let name = name.filter(|n| n.starts_with(plugins::PREFIX))?;
+    let tool = plugins::for_scope(scope, broker)
+        .into_iter()
+        .find(|t| t.name == name)?;
+    Some((tool, broker?))
 }
 
 fn tool_error(text: &str) -> Value {

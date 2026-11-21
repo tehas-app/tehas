@@ -1,4 +1,4 @@
-// The MCP server's integration tests as one binary: nine modules, the tests'
+// The MCP server's integration tests as one binary: ten modules, the tests'
 // names unchanged. Each file is linked as a module of this one instead of as a
 // test target of its own, so the workspace links one copy of the test harness
 // and the server's code rather than nine (issue #1116).
@@ -15,6 +15,7 @@ mod events;
 mod logs;
 mod outcomes;
 mod park;
+mod plugins;
 mod rpc;
 mod serve;
 mod sessions;

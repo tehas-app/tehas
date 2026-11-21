@@ -361,17 +361,26 @@ the image.
 install and its own gates inside the image, as the unprivileged user, with
 nothing mounted but a clone made as a cycle's is, with `origin/main` and
 `origin/HEAD`, and checks the contract files first. The install runs at the root
-of the clone and the gates in a worktree of it, as in a cycle. By hand, for a
-product whose one lockfile is `extension/bun.lock`, it is:
+of the clone and the gates in a worktree of it, as in a cycle. Both containers
+get the limits a cycle's container gets on this host (see
+[Limits and concurrency](/host#limits-and-concurrency)): `--memory` is the
+slice's `MemoryMax` over `TEHAS_SLICE_CONTAINERS` and `--cpus` the host's CPUs
+less one. No cpuset is set, so `nproc` inside still counts the host's CPUs, as
+in a cycle. When the slice cannot be used the check stops with 78 and the line
+`tehas work` would print, and starts nothing. By hand, for a product whose one
+lockfile is `extension/bun.lock`, with `$M` the memory ceiling and `$C` the
+CPUs, it is:
 
 ```
 T=~/tehas/tmp/contract-test
 git clone -q ~/tehas/repos/<name> "$T/clone"
 git -C "$T/clone" worktree add -q --detach "$T/tree"
-docker run --rm --cgroup-parent tehas.slice --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" \
+docker run --rm --cgroup-parent tehas.slice --memory "$M" --memory-swap "$M" --cpus "$C" \
+  --user "$(id -u):$(id -g)" \
   -e HOME=/home/vscode -v "$T:$T" -w "$T/clone/extension" --entrypoint bash \
   "$PI_ENSEMBLE_IMAGE" -c 'bun install --frozen-lockfile'
-docker run --rm --cgroup-parent tehas.slice --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" \
+docker run --rm --cgroup-parent tehas.slice --memory "$M" --memory-swap "$M" --cpus "$C" \
+  --user "$(id -u):$(id -g)" \
   -e HOME=/home/vscode -v "$T:$T" -w "$T/tree" --entrypoint bash \
   "$PI_ENSEMBLE_IMAGE" -c '
     sh .pi/worktree-setup &&
