@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 21;
+pub const SCHEMA_VERSION: i64 = 22;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The five tables of section 3.15, the outsource state. Every store of this
@@ -265,6 +265,14 @@ CREATE INDEX plugin_records_issue ON plugin_records (issue);
 /// `issue`; a row filed before it is null and so is never a cycle's.
 pub const STEP_21: &str = "
 ALTER TABLE plugin_records ADD COLUMN filed_by TEXT;
+";
+
+/// The step from 21 to 22: the GitHub user id of who filed, beside the login,
+/// so a cycle holds the filer to the id `state/account-ids` records for that
+/// login, as the dispatcher holds a label, and a renamed or reused login does
+/// not pass.
+pub const STEP_22: &str = "
+ALTER TABLE plugin_records ADD COLUMN filed_by_id INTEGER;
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -1191,6 +1199,7 @@ pub fn write_schema(
     tx.execute_batch(STEP_19).map_err(classify)?;
     tx.execute_batch(STEP_20).map_err(classify)?;
     tx.execute_batch(STEP_21).map_err(classify)?;
+    tx.execute_batch(STEP_22).map_err(classify)?;
     let rows = [
         ("schema", SCHEMA_VERSION.to_string()),
         ("created_at", now.to_string()),
@@ -1336,6 +1345,8 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     (20, |c| step(c, 20, STEP_20)),
     // A store at 20 is one this binary wrote before a record named its filer.
     (21, |c| step(c, 21, STEP_21)),
+    // A store at 21 is one this binary wrote before a filer had an id.
+    (22, |c| step(c, 22, STEP_22)),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and
