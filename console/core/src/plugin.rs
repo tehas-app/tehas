@@ -2,17 +2,21 @@
 //! programs from pinned git repositories. Here are the grammar of their
 //! settings and the capabilities, which the settings' rules, the manifest's
 //! reader and `tehas plugin` share, and the parts of a run that are rules:
-//! the Dockerfile's, the reader of `/out` and a run as data. Only that
-//! reader writes files; nothing here reaches the network.
+//! the Dockerfile's, the reader of `/out`, a run as data, the fetch's and
+//! the build's commands, the state they leave and the words of a review.
+//! Only that reader writes files; nothing here reaches the network.
 
+pub mod build;
 pub mod dockerfile;
 pub mod manifest;
 pub mod needs;
 pub mod out;
+pub mod review;
 pub mod run;
 #[cfg(test)]
 mod schema;
 pub mod skill;
+pub mod state;
 
 /// The front of the grants settings, one per plugin:
 /// `TEHAS_PLUGIN_GRANTS_<NAME>`, the name in upper case.

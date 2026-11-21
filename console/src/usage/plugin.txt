@@ -5,6 +5,7 @@ setting, stops every command with 78, and with the feature off this command
 exits 78.
 
 Usage: tehas plugin [--json]
+       tehas plugin review <name> [<commit>] [--json]
        tehas plugin -h|--help    print this text and exit 0
 
 A plugin is a program from a git repository, pinned by commit. Each one is a
@@ -14,14 +15,26 @@ for another commit grant nothing.
 
 For each plugin it prints its name, its pin, its state and what is granted:
 
-  floorplan  https://github.com/tehas-app/tehas-plugin-floorplan@0123...  unbuilt  grants: view product
+  floorplan  https://github.com/tehas-app/tehas-plugin-floorplan@0123...  ready  grants: view product
 
-  unbuilt  set and granted; this release neither fetches nor builds it yet
-  refused  it may not run, and the line says why
+  unbuilt   set, and not yet fetched or built at its pin
+  building  tehas update is building it
+  ready     fetched, checked and built: it may run
+  refused   it may not run, and the line says why
 
-  {"api":1,"plugins":[{"name":"floorplan","url":"https://github.com/tehas-app/tehas-plugin-floorplan","commit":"0123...","grants":["view","product"],"state":"unbuilt","refusal":null}]}
+  {"api":1,"plugins":[{"name":"floorplan","url":"https://github.com/tehas-app/tehas-plugin-floorplan","commit":"0123...","grants":["view","product"],"state":"ready","refusal":null,"image":"sha256:...","manifest_sha256":"...","bases":["node@sha256:..."]}]}
 
-It reads the settings and nothing else: no network, no git, no write.
+It reads the settings and what tehas update left in
+~/tehas/plugins/<name>/state.json: no network, no git, no write.
 
-Exit: 0 listed; 64 a bad argument; 78 the feature is off, or the instance
-settings are missing or malformed.
+review fetches a commit of the plugin, its pin by default, into
+~/tehas/plugins/<name>/repo.git and prints what it asks for, what each ask
+lets it do and whether it is granted at that commit, the Dockerfile's base
+images and their ONBUILD triggers, whether the model runs on this host, what
+changed since the pin, and the lines to write to grant it. It pulls the base
+images by digest and writes nothing else.
+
+Exit: 0 listed, or reviewed and not refused; 1 the fetch or the read
+failed; 3 refused, with why; 64 a bad argument or a name TEHAS_PLUGINS does
+not hold; 78 the feature is off, or the instance settings are missing or
+malformed.
