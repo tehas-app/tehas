@@ -7,6 +7,9 @@ exits 78.
 Usage: tehas plugin [--json]
        tehas plugin review <name> [<commit>] [--json]
        tehas plugin skills [--chat obeya|wizard|assistant] [--json]
+       tehas plugin run <name>
+       tehas plugin hook <name> <pr>
+       tehas plugin log <name> [--hook <pr>]
        tehas plugin check <dir> [--json]
        tehas plugin -h|--help    print this text and exit 0
 
@@ -15,19 +18,21 @@ line of TEHAS_PLUGINS, <name>=<url>@<commit>, and its grants are the line
 TEHAS_PLUGIN_GRANTS_<NAME>: the same commit, then what it may have. Grants
 for another commit grant nothing.
 
-For each plugin it prints its name, its pin, its state and what is granted:
+For each plugin it prints its name, its pin, its state, what is granted,
+its last run and the model tokens its runs used today:
 
-  floorplan  https://github.com/tehas-app/tehas-plugin-floorplan@0123...  ready  grants: view product
+  floorplan  https://github.com/tehas-app/tehas-plugin-floorplan@0123...  ready  grants: view product  last run: refresh timer, done  tokens today: 0
 
   unbuilt   set, and not yet fetched or built at its pin
   building  tehas update is building it
   ready     fetched, checked and built: it may run
   refused   it may not run, and the line says why
 
-  {"api":1,"plugins":[{"name":"floorplan","url":"https://github.com/tehas-app/tehas-plugin-floorplan","commit":"0123...","grants":["view","product"],"state":"ready","refusal":null,"image":"sha256:...","manifest_sha256":"...","bases":["node@sha256:..."]}]}
+  {"api":1,"plugins":[{"name":"floorplan","url":"https://github.com/tehas-app/tehas-plugin-floorplan","commit":"0123...","grants":["view","product"],"state":"ready","refusal":null,"image":"sha256:...","manifest_sha256":"...","bases":["node@sha256:..."],"last_run":{"kind":"refresh","trigger":"timer","start":1763700000,"end":1763700600,"result":"done","tokens":0},"tokens_today":0}]}
 
-It reads the settings and what tehas update left in
-~/tehas/plugins/<name>/state.json: no network, no git, no write.
+It reads the settings, what tehas update left in
+~/tehas/plugins/<name>/state.json and the runs in the state store: no
+network, no git, no write.
 
 review fetches a commit of the plugin, its pin by default, into
 ~/tehas/plugins/<name>/repo.git and prints what it asks for, what each ask
@@ -45,6 +50,18 @@ out, and the reason said, when its grants are not for the pin, its manifest
 is not the one tehas update read, a skill's file breaks its rules, or its
 skills would pass 8192 bytes of skills in all.
 
+run asks for a refresh now: it starts tehas-plugin@<name>.service and waits
+for nothing. A plugin refused because its /state passed the disk limit runs
+again this way. tehas-plugin.timer asks for one every 10 minutes when the
+default branch moved.
+
+hook runs the plugin's hook on that pull request's current head. The pull
+request must be open, the bot's and of TEHAS_REPO. It starts
+tehas-plugin-hook@<name>-<pr>.service and waits for nothing.
+
+log prints the last run's log, at most 1 MiB, as the plugin wrote it: the
+last refresh's, or with --hook the last hook's on that pull request.
+
 check reads a plugin's folder on this machine as review reads a commit: the
 manifest, its skills' text and the Dockerfile's rules, each ask known and not
 reserved. It needs no settings, runs no git or docker, reaches no network
@@ -52,7 +69,9 @@ and works with the feature off. It reads only regular files of the folder,
 through no link. The bases' ONBUILD triggers are left to review and
 tehas update, which pull the bases.
 
-Exit: 0 listed, checked or reviewed and not refused; 1 the fetch or the read
-failed; 3 refused, with why; 64 a bad argument or a name TEHAS_PLUGINS does
-not hold; 78 the feature is off, or the instance settings are missing or
-malformed.
+Exit: 0 listed, asked, printed, checked, or reviewed and not refused; 1 the fetch,
+the read, GitHub or systemd failed; 3 refused, with why: for run and hook,
+one is running, the plugin is not ready, or there is no such open bot pull
+request; for log, there is none; 64 a bad argument or a name TEHAS_PLUGINS
+does not hold; 78 the feature is off, or the instance settings are missing
+or malformed.

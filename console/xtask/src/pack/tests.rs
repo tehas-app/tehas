@@ -575,13 +575,7 @@ fn an_out_dir_that_cannot_be_made_is_a_bad_argument() {
 
 /// The packages of the workspace that build a program and that no host is given,
 /// each with why. Every other program is in each list below.
-const NOT_INSTALLED: &[(&str, &str)] = &[
-    ("tehas-xtask", "the development tasks of scripts/"),
-    (
-        "tehas-plugin",
-        "the plugins' program, which has no command yet",
-    ),
-];
+const NOT_INSTALLED: &[(&str, &str)] = &[("tehas-xtask", "the development tasks of scripts/")];
 
 /// Programs a release builds and carries as an asset of their own, outside
 /// the tarball, which install.sh does not install.

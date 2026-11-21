@@ -11,7 +11,7 @@ use super::prepare::{self, prepare};
 use std::fs;
 use std::path::Path;
 use tehas_core::plugin::state::Word;
-use tehas_core::plugin::{self, is_name};
+use tehas_core::plugin::{self, is_name, needs, Cap, Pin};
 
 /// What the step said, and whether a plugin was refused.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -20,17 +20,94 @@ pub struct Said {
     pub refused: bool,
 }
 
+/// A plugin as `needs::resolve` reads it: the needs of its manifest at the
+/// pin, when the pin is fetched, and what its grants give.
+fn weighed(
+    x: &mut dyn Exec,
+    home: &Path,
+    get: &dyn Fn(&str) -> String,
+    pin: &Pin,
+    state: needs::State,
+) -> needs::Plugin {
+    let grants = plugin::grants(&get(&plugin::grants_setting(&pin.name)))
+        .ok()
+        .filter(|g| g.commit == pin.commit);
+    let caps = grants.map(|g| g.caps).unwrap_or_default();
+    let needs = prepare::read(x, home, &pin.name, &pin.commit)
+        .ok()
+        .and_then(|r| r.manifest)
+        .map(|m| m.needs)
+        .unwrap_or_default();
+    needs::Plugin {
+        name: pin.name.clone(),
+        state,
+        needs,
+        granted: caps
+            .iter()
+            .filter_map(|c| match c {
+                Cap::Needs(n) => Some(n.clone()),
+                _ => None,
+            })
+            .collect(),
+        offers: caps
+            .iter()
+            .filter_map(|c| match c {
+                Cap::Skill(id) => Some(id.clone()),
+                _ => None,
+            })
+            .collect(),
+    }
+}
+
 pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said {
     let mut said = Said::default();
     if !tehas_core::features::on_in("plugins", get) {
         return said;
     }
     let pins = plugin::pins(&get("TEHAS_PLUGINS")).unwrap_or_default();
-    // TODO(#2673): walk plugin::needs::resolve's order, dependencies first,
-    // and skip a plugin it gives a why.
-    for pin in &pins {
+    // Dependencies first, by the needs of each manifest a fetch already
+    // brought; then the needs weighed again on what the builds came to.
+    let first: Vec<needs::Plugin> = pins
+        .iter()
+        .map(|p| weighed(x, home, get, p, needs::State::Ready))
+        .collect();
+    let mut states = Vec::new();
+    for (name, _) in needs::resolve(&first) {
+        let Some(pin) = pins.iter().find(|p| p.name == name) else {
+            continue;
+        };
         let grants = plugin::grants(&get(&plugin::grants_setting(&pin.name))).ok();
         let s = prepare(x, home, pin, grants.as_ref());
+        if let Err(why) = prepare::prune(x, home, pin) {
+            said.lines.push(format!("plugin {}: {why}", pin.name));
+        }
+        states.push((pin, s));
+    }
+    let built: Vec<needs::Plugin> = states
+        .iter()
+        .map(|(pin, s)| {
+            let state = if s.state == Word::Ready {
+                needs::State::Ready
+            } else {
+                needs::State::Refused
+            };
+            weighed(x, home, get, pin, state)
+        })
+        .collect();
+    let whys = needs::resolve(&built);
+    for (pin, mut s) in states {
+        let why = whys
+            .iter()
+            .find(|(n, _)| *n == pin.name)
+            .and_then(|(_, w)| w.clone());
+        if let (Word::Ready, Some(why)) = (s.state, why) {
+            s.state = Word::Refused;
+            s.refusal = Some(why);
+            if let Err(e) = prepare::write_state(home, &pin.name, &s) {
+                said.lines
+                    .push(format!("plugin {}: state.json: {e}", pin.name));
+            }
+        }
         let line = match (s.state, &s.image, &s.refusal) {
             (Word::Ready, Some(id), _) => format!("plugin {}: ready, image {id}", pin.name),
             (Word::Ready, None, _) => format!("plugin {}: ready, no image", pin.name),
@@ -44,9 +121,6 @@ pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said
             }
         };
         said.lines.push(line);
-        if let Err(why) = prepare::prune(x, home, pin) {
-            said.lines.push(format!("plugin {}: {why}", pin.name));
-        }
     }
     let Ok(dirs) = fs::read_dir(prepare::root(home)) else {
         return said;
@@ -100,6 +174,35 @@ mod tests {
         let get = vars(&[("TEHAS_PLUGINS", format!("floorplan={URL}@{C}"))]);
         assert_eq!(step(&mut x, &home, &get), Said::default());
         assert!(x.ran.is_empty());
+    }
+
+    #[test]
+    fn a_plugin_whose_needs_are_not_met_is_refused_after_its_build() {
+        let m = r#"{"plugin": 1, "kind": "batch", "name": "floorplan", "label": "Floorplan", "build": "Dockerfile", "asks": ["product", "needs:specs"], "timeout": 3600, "needs": [{"name": "specs", "skills": ["grill"]}]}"#;
+        let d = dockerfile();
+        let (home, mut x) = good(
+            "plugin-update-needs",
+            &[("tehas-plugin.json", m), ("Dockerfile", &d)],
+        );
+        x.on("{{.Id}}", ok(&format!("{ID}\n")));
+        x.on("for-each-ref", ok(""));
+        x.on("gc --prune=now", ok(""));
+        let get = on(&[
+            ("TEHAS_PLUGINS", format!("floorplan={URL}@{C}")),
+            (
+                "TEHAS_PLUGIN_GRANTS_FLOORPLAN",
+                format!("{C} product needs:specs"),
+            ),
+        ]);
+        let said = step(&mut x, &home, &get);
+        assert!(said.refused);
+        assert_eq!(
+            said.lines,
+            ["plugin floorplan: refused and left off: needs `specs`, which is not in TEHAS_PLUGINS"]
+        );
+        let s = prepare::read_state(&home, "floorplan").unwrap();
+        assert_eq!(s.state, Word::Refused);
+        assert_eq!(s.image.as_deref(), Some(ID));
     }
 
     #[test]

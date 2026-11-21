@@ -140,7 +140,7 @@ fn tehasbot(words: &[String]) -> Go {
         None | Some("help" | "-h" | "--help") => Go::Usage,
         Some(
             "health" | "status" | "top" | "refresh" | "clean" | "preview" | "protolab" | "dispatch"
-            | "review" | "github-token" | "cycle" | "outsource-proxy",
+            | "review" | "github-token" | "cycle" | "outsource-proxy" | "plugin",
         ) => Go::Run,
         Some("mcp") if words.get(1).map(String::as_str) == Some("serve") => Go::Run,
         Some("mcp" | "github-writes") => Go::Verb,
@@ -439,6 +439,7 @@ mod tests {
         assert_eq!(b(&["improve"]), Go::Unknown("improve".into()));
         assert_eq!(b(&["mcp", "serve"]), Go::Run);
         assert_eq!(b(&["outsource-proxy"]), Go::Run);
+        assert_eq!(b(&["plugin", "tick"]), Go::Run);
         assert_eq!(
             t(&["outsource-proxy"]),
             Go::Unknown("outsource-proxy".into())
@@ -643,7 +644,17 @@ mod tests {
 
     fn pinned() -> Vec<Row> {
         let file = concat!(env!("CARGO_MANIFEST_DIR"), "/../api/commands.txt");
-        let text = fs::read_to_string(file).unwrap();
+        rows_of(&fs::read_to_string(file).unwrap())
+    }
+
+    #[test]
+    fn a_flag_marked_building_is_still_a_flag_of_its_row() {
+        let rows = rows_of("setup --check --app-secret-file:building=setup-app\n");
+        let flags: Vec<&str> = rows[0].flags.iter().map(String::as_str).collect();
+        assert_eq!(flags, ["--app-secret-file", "--check"]);
+    }
+
+    fn rows_of(text: &str) -> Vec<Row> {
         let lines = text
             .lines()
             .filter(|l| !l.is_empty() && !l.starts_with('#'));
@@ -669,7 +680,11 @@ mod tests {
                             assert!(row.internal.insert(f.into()), "{l}");
                         }
                     } else if word.starts_with("--") {
-                        assert!(row.flags.insert(word.into()), "{l}");
+                        // A flag's own building mark is the surface's to read
+                        // (console/tests/surface.rs); the flag is documented
+                        // all the same.
+                        let flag = word.split_once(":building=").map_or(word, |(f, _)| f);
+                        assert!(row.flags.insert(flag.into()), "{l}");
                     } else {
                         panic!("api/commands.txt: {word} in {l:?} is no flag");
                     }
@@ -875,6 +890,7 @@ mod tests {
             "plugin-context",
             "plugin-review",
             "plugin-skills",
+            "plugin-verdict",
         ]);
         let mut found = Vec::new();
         for e in fs::read_dir(api).unwrap() {

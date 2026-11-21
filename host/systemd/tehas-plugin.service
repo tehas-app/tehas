@@ -1,0 +1,11 @@
+[Unit]
+Description=Tehas: the plugins' tick, a refresh of each plugin whose default branch moved
+
+[Service]
+NoNewPrivileges=yes
+Type=oneshot
+# Installed only while TEHAS_PLUGIN is on, with its timer. It reads the head
+# the poll fetched, asks GitHub nothing, starts each refresh as its own unit
+# and waits for none.
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot plugin tick >> %h/tehas/logs/plugins.log 2>&1"
+TimeoutStartSec=5min
