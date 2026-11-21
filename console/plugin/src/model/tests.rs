@@ -1017,3 +1017,24 @@ fn images_are_at_most_four_of_four_mib_and_only_they_open_the_larger_body() {
     assert_eq!(Content::TextAndImages.max_body(), MAX_BODY_IMAGES);
     assert_eq!(Content::Text.max_body(), MAX_BODY);
 }
+
+#[test]
+fn an_image_reserves_its_tokens_and_not_its_bytes() {
+    // The largest four images that fit the body together.
+    let each = (MAX_BODY_IMAGES - 64 * 1024) / 4 / 4 * 3;
+    let mut big = PNG.to_vec();
+    big.resize(each, 0);
+    let body = asking(vec![image("image/png", &big); MAX_IMAGES]);
+    assert!(body.len() <= MAX_BODY_IMAGES);
+    let (sent, max_tokens) = check(&body, ID, OWN, Content::TextAndImages).unwrap();
+    let held = super::reserve(&sent, max_tokens);
+    let url = format!("data:image/png;base64,{}", b64_encode(&big)).len();
+    let rest = (sent.to_string().len() - MAX_IMAGES * url) as u64;
+    assert_eq!(
+        held,
+        rest / 3 + IMAGE_TOKENS * MAX_IMAGES as u64 + max_tokens
+    );
+    assert!(held <= 20_000, "{held}");
+    // Text alone is held as before: its bytes divided by 3, and max_tokens.
+    assert_eq!(super::reserve(&with("model", json!(OWN)), 100), reserve());
+}

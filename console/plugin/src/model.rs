@@ -34,6 +34,8 @@ pub const MAX_BODY_IMAGES: usize = 20 << 20;
 pub const MAX_IMAGES: usize = 4;
 /// The largest image, decoded.
 pub const MAX_IMAGE: usize = 4 << 20;
+/// The tokens reserved for one image part, in place of its bytes.
+pub const IMAGE_TOKENS: u64 = 2000;
 /// The largest answer passed back.
 pub const MAX_ANSWER: usize = 4 << 20;
 /// The largest `max_tokens`.
@@ -276,8 +278,8 @@ fn chat(body: &[u8], shared: &Shared) -> Answer {
         Ok(v) => v,
         Err(why) => return Answer::error(400, &why),
     };
+    let reserve = reserve(&sent, max_tokens);
     let sent = sent.to_string();
-    let reserve = sent.len() as u64 / 3 + max_tokens;
     let mut counts = lock(&shared.counts);
     if shared.stop.load(Ordering::SeqCst) {
         return Answer::error(503, "the run has ended");
@@ -304,6 +306,24 @@ fn chat(body: &[u8], shared: &Shared) -> Answer {
         Err(Fail::NotJson) => Answer::error(502, "the model's answer is not JSON"),
         Err(Fail::NoAnswer) => Answer::error(502, "the model could not be asked"),
     }
+}
+
+/// The tokens held before a request is sent: its bytes as sent, without the
+/// data of its images, divided by 3, then [`IMAGE_TOKENS`] for each image and
+/// its `max_tokens`. The answer's usage replaces it.
+fn reserve(sent: &Value, max_tokens: u64) -> u64 {
+    let urls: Vec<usize> = sent
+        .get("messages")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|m| m.get("content").and_then(Value::as_array))
+        .flatten()
+        .filter_map(|p| p.pointer("/image_url/url").and_then(Value::as_str))
+        .map(str::len)
+        .collect();
+    let bytes = sent.to_string().len() - urls.iter().sum::<usize>();
+    bytes as u64 / 3 + IMAGE_TOKENS * urls.len() as u64 + max_tokens
 }
 
 /// The request to send, the model rewritten to the endpoint's own, and its
