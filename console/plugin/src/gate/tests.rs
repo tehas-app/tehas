@@ -98,6 +98,7 @@ fn facts(kit: bool) -> Facts {
         view: true,
         kit,
         actions: vec!["refresh".to_string()],
+        paths: vec!["/".to_string()],
     }
 }
 
@@ -1182,7 +1183,8 @@ fn a_plugin_is_granted_by_its_manifest_and_its_grants_line() {
         Facts {
             view: true,
             kit: true,
-            actions: vec!["refresh".into()]
+            actions: vec!["refresh".into()],
+            paths: Vec::new(),
         }
     );
     // Another commit's grants grant nothing.
@@ -1245,4 +1247,31 @@ fn the_listener_writes_the_answer_and_closes() {
         out.starts_with("HTTP/1.1 413 ") && out.contains("X-Content-Type-Options: nosniff\r\n"),
         "{out}"
     );
+}
+
+#[test]
+fn a_path_is_served_only_inside_a_granted_views_folder() {
+    let seg = |p: &str| -> Vec<String> {
+        p.split('/')
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect()
+    };
+    let v1 = vec!["/".to_string()];
+    for p in ["", "index.html", "health/", "a/b.js"] {
+        assert!(catalog::covered(&v1, &seg(p)), "{p}");
+    }
+    let health = vec!["/health/".to_string()];
+    for (p, yes) in [
+        ("health", true),
+        ("health/index.html", true),
+        ("health/a/b.js", true),
+        ("", false),
+        ("index.html", false),
+        ("healthy/x", false),
+        ("other/health/x", false),
+    ] {
+        assert_eq!(catalog::covered(&health, &seg(p)), yes, "{p}");
+    }
+    assert!(!catalog::covered(&[], &seg("index.html")));
 }

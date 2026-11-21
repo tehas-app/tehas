@@ -279,6 +279,7 @@ pub(crate) mod tests {
             timeout: Some(600),
             kit: false,
             view: None,
+            views: vec![],
             actions: vec![],
             hook: asks.contains(&"hook:after:work").then_some(300),
             skills: vec![],

@@ -19,6 +19,9 @@ pub struct Facts {
     pub kit: bool,
     /// The ids of the actions asked for and granted.
     pub actions: Vec<String>,
+    /// The folders of the view served: `/` for v1's `view`, each granted
+    /// view's path of `views`. A path no folder holds is 404.
+    pub paths: Vec<String>,
 }
 
 pub trait Catalog: Send + Sync {
@@ -53,7 +56,14 @@ pub fn facts_of(
             .filter(|id| caps.contains(&Cap::Action(id.to_string())))
             .cloned()
             .collect(),
+        paths: Vec::new(),
     }
+}
+
+/// Whether a path of the view, its segments, is in one of `paths`.
+pub fn covered(paths: &[String], segs: &[String]) -> bool {
+    let at = format!("/{}/", segs.join("/")).replace("//", "/");
+    paths.iter().any(|p| at.starts_with(p.as_str()))
 }
 
 /// Whether the text of `state.json` says the plugin is ready at `commit`.
@@ -116,7 +126,19 @@ impl Installed {
             self.grants.get(&pin.name),
             &pin.commit,
         );
-        f.view = f.view && m.view.is_some();
+        let grants = self.grants.get(&pin.name);
+        if plugin::compare(&m.asks, grants, &pin.commit).granted() {
+            let caps = grants.map_or(&[][..], |g| &g.caps);
+            if f.view && m.view.is_some() {
+                f.paths.push("/".to_string());
+            }
+            for v in &m.views {
+                if caps.contains(&Cap::ViewOf(v.id.clone())) {
+                    f.paths.push(v.path.clone());
+                }
+            }
+        }
+        f.view = !f.paths.is_empty();
         f
     }
 }

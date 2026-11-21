@@ -28,6 +28,7 @@ pub fn fits(v: &Value, s: &Value) -> bool {
         "uniqueItems",
         "contains",
         "dependentSchemas",
+        "not",
     ];
     for key in s.keys() {
         assert!(known.contains(&key.as_str()), "the schema uses {key}");
@@ -56,6 +57,9 @@ pub fn fits(v: &Value, s: &Value) -> bool {
         .and_then(Value::as_array)
         .is_some_and(|words| !words.contains(v))
     {
+        return false;
+    }
+    if s.get("not").is_some_and(|n| fits(v, n)) {
         return false;
     }
     if let Some(n) = v.as_f64() {

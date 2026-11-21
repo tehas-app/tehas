@@ -565,7 +565,9 @@ impl Gate {
             return Response::empty(401);
         };
         match (route, get) {
-            (Route::File(segs), true) if facts.view => self.file(name, &segs),
+            (Route::File(segs), true) if facts.view && catalog::covered(&facts.paths, &segs) => {
+                self.file(name, &segs)
+            }
             (Route::Kit(file), true) if facts.kit => self.kit(&file),
             (Route::Actions, true) => Response::with(
                 200,
