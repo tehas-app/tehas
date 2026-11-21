@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/plugin-review.schema.json",
+  "title": "tehas plugin review --json",
+  "description": "What tehas plugin review <name> [<commit>] --json prints, version 1: a commit of a plugin of TEHAS_PLUGINS as fetched and read for a person to grant. Plugins are a feature still being built, so this is not contract until the release that ships them. commit is the commit reviewed and pin the one TEHAS_PLUGINS names. asks are the manifest's, each with what it lets the plugin do and whether the grants line grants it at this commit; unasked are grants the manifest does not ask for, which give nothing. bases are the Dockerfile's base images, pulled by digest, with their ONBUILD triggers. model says, for a plugin that asks for the model, where each provider the factory uses runs: here is true for a loopback address or one of the host's own names. changes is what changed since the pin's manifest, null for the pin itself or when the pin's manifest could not be read. refusals are the rules the commit breaks; with any, the command exits 3. settings are the lines to write to grant it. A commit whose manifest cannot be fetched or read prints nothing here and exits 1. console/ops/src/plugin/review.rs holds what the command prints to the samples beside this file, and console/core/src/plugin/schema.rs holds the samples to this schema.",
+  "type": "object",
+  "required": ["api", "name", "url", "commit", "pin", "manifest_sha256", "label", "license", "build", "asks", "unasked", "grants_commit", "bases", "model", "warnings", "changes", "refusals", "settings"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9]{0,11}$"},
+    "url": {"type": "string", "pattern": "^https://"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "pin": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "label": {"type": ["string", "null"]},
+    "license": {"type": ["string", "null"]},
+    "build": {"type": ["string", "null"]},
+    "asks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ask", "does", "granted"],
+        "additionalProperties": false,
+        "properties": {
+          "ask": {"type": "string"},
+          "does": {"type": "string"},
+          "granted": {"type": "boolean"}
+        }
+      }
+    },
+    "unasked": {"type": "array", "items": {"type": "string"}},
+    "grants_commit": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+    "bases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["image", "onbuild"],
+        "additionalProperties": false,
+        "properties": {
+          "image": {"type": "string", "pattern": "@sha256:[0-9a-f]{64}$"},
+          "onbuild": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "model": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["provider", "host", "here"],
+        "additionalProperties": false,
+        "properties": {
+          "provider": {"type": "string"},
+          "host": {"type": ["string", "null"]},
+          "here": {"type": "boolean"}
+        }
+      }
+    },
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "changes": {"type": ["array", "null"], "items": {"type": "string"}},
+    "refusals": {"type": "array", "items": {"type": "string"}},
+    "settings": {"type": "array", "items": {"type": "string"}}
+  }
+}

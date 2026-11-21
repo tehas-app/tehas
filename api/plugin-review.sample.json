@@ -1,0 +1,56 @@
+{
+  "api": 1,
+  "name": "floorplan",
+  "url": "https://github.com/tehas-app/tehas-plugin-floorplan",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "pin": "0123456789abcdef0123456789abcdef01234567",
+  "manifest_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "label": "Floorplan",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "asks": [
+    {
+      "ask": "view",
+      "does": "its /out is served behind the sign-in, and a panel in the dock: everyone the sign-in lets in sees it",
+      "granted": false
+    },
+    {
+      "ask": "product",
+      "does": "reads all of the product's code, read only, in every run",
+      "granted": true
+    },
+    {
+      "ask": "model",
+      "does": "chat completions through a socket, up to the tokens of the grant a run",
+      "granted": true
+    },
+    {
+      "ask": "action:refresh",
+      "does": "a button in the view: a signed-in person asks for a refresh",
+      "granted": false
+    }
+  ],
+  "unasked": ["hook:after:work"],
+  "grants_commit": "0123456789abcdef0123456789abcdef01234567",
+  "bases": [
+    {
+      "image": "node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "onbuild": []
+    }
+  ],
+  "model": [
+    {
+      "provider": "local",
+      "host": "127.0.0.1",
+      "here": true
+    }
+  ],
+  "warnings": [
+    "view and product together: the view shows what the plugin made of the code, and a page can still navigate away with data in its address"
+  ],
+  "changes": null,
+  "refusals": [],
+  "settings": [
+    "TEHAS_PLUGIN_GRANTS_FLOORPLAN=\"0123456789abcdef0123456789abcdef01234567 view product model:2000000 action:refresh\""
+  ]
+}
