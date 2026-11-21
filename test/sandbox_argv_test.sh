@@ -103,8 +103,7 @@ echo '{"subcommand":"plan","mode":"turn","exitCode":11,"status":"question","sess
 echo '{"verdict":"APPROVED","exitCode":0}' >"$fx/review.json"
 printf '# Faster search\n\nMake it fast.\n' >"$T/brief.md"
 printf 'yes\n' >"$T/answer.md"
-# Two tokens by name, as a host's models.json has them, so their order is pinned.
-# No backupBaseUrl, so no run asks an endpoint.
+# Two tokens by name, as a host has them, to pin their order; no backupBaseUrl.
 echo '{"providers":{"test-provider":{"baseUrl":"http://models.test/v1","apiKey":"$TEHAS_MODEL_KEY_MAIN","backupApiKey":"$TEHAS_MODEL_KEY_FLEET"}}}' >"$T/home/.pi/agent/models.json"
 
 # The instance of every case, and the tokens of the host's environment: all a
