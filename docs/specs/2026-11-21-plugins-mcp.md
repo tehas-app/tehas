@@ -78,9 +78,10 @@ starts nothing but that container. A tool not granted `mcp:` at the current
 pin, a held plugin, or any other path is refused with 403 and one line on
 stderr naming the plugin and the tool.
 
-**Who called.** The run row holds `mcp:<key id>` where a chat's holds the
-login, as `--by` names who asked for a hold. No login is checked: an MCP key
-is not a person, and a full key already reads the logs of the repository.
+**Who called.** The run row's trigger is `mcp:<key id>`, as `--by` names
+who asked for a hold; a chat call's is `chat`, with no login, so what a
+person asks a tool stays theirs. No login is checked: an MCP key is not a
+person, and a full key already reads the logs of the repository.
 
 **Rates.** At most 2 calls of a plugin at once, as in v2, and at most 1 per
 key at once. At most 60 calls a minute per key across all plugins. Over a
