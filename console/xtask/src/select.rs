@@ -62,6 +62,7 @@ use std::process::Command;
 pub const RUNS: &[(&str, &str)] = &[
     ("console", "store"),
     ("tehas-cycle", "store"),
+    ("tehas-cycle", "console"),
     ("tehas-dispatch", "store"),
     ("tehas-dispatch", "console"),
 ];
