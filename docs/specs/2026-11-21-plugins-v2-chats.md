@@ -77,8 +77,9 @@ skill beside it is not, so a person weighs the two together.
   `tehas plugin review` shows is the text the grant pins and the text a chat
   gets. What a run writes is never instructions.
 - Each file is UTF-8, at most 2 KiB, with no control character but newline,
-  no line starting with `<!--`, and no `#` or `##` heading: those are the
-  hosts' own sections, so a skill's headings start at `###`. A file that
+  no line starting with `<!--`, and no `#` or `##` heading outside a fenced
+  block: those are the hosts' own sections, so a skill's headings start at
+  `###`. A fenced block, such as a template, may hold any line. A file that
   breaks a rule refuses the plugin, naming the file.
 - `tehas plugin review <name>` prints every skill's full text and its sha256,
   and the grant line to write.

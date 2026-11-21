@@ -30,12 +30,19 @@ pub fn text(bytes: &[u8]) -> Result<&str, String> {
         return Err("a line opens an HTML comment".to_string());
     }
     // A host's own sections are `#` and `##` headings, so a skill's would
-    // read as one of them: a skill starts its headings at `###`.
-    let heading = |l: &str| {
-        let l = l.trim_start();
-        l.starts_with("# ") || l.starts_with("## ") || l == "#" || l == "##"
-    };
-    if s.lines().any(heading) {
+    // read as one of them: a skill starts its headings at `###`. A fenced
+    // block holds text, not headings, such as a template a skill gives.
+    let mut fenced = false;
+    let mut heading = false;
+    for l in s.lines().map(str::trim_start) {
+        if l.starts_with("```") || l.starts_with("~~~") {
+            fenced = !fenced;
+        } else if !fenced && (l.starts_with("# ") || l.starts_with("## ") || l == "#" || l == "##")
+        {
+            heading = true;
+        }
+    }
+    if heading {
         return Err("a line is a # or ## heading: a skill's headings start at ###".to_string());
     }
     Ok(s)
@@ -49,6 +56,8 @@ mod tests {
     fn plain_markdown_is_the_skill() {
         let s = "### Interview\n\n- Ask one question at a time, #12 or #hashtag.\n";
         assert_eq!(text(s.as_bytes()), Ok(s));
+        let template = "### Write it\n\n```\n## Problem\n## Acceptance criteria\n```\n";
+        assert_eq!(text(template.as_bytes()), Ok(template));
         assert_eq!(
             text("x".repeat(BYTES_MAX).as_bytes()).map(str::len),
             Ok(BYTES_MAX)
@@ -57,7 +66,7 @@ mod tests {
 
     #[test]
     fn what_a_person_could_not_read_as_shown_is_refused() {
-        let cases: [(&[u8], &str); 10] = [
+        let cases: [(&[u8], &str); 11] = [
             (&[b'x'; BYTES_MAX + 1], "over 2048 bytes"),
             (b"\xff\xfe", "not UTF-8"),
             (b" \n\t\n", "empty"),
@@ -81,6 +90,10 @@ mod tests {
             ),
             (
                 b"Intro.\n   ##\n",
+                "a line is a # or ## heading: a skill's headings start at ###",
+            ),
+            (
+                b"```\n## In a fence\n```\n## Out of it\n",
                 "a line is a # or ## heading: a skill's headings start at ###",
             ),
         ];
