@@ -10,13 +10,15 @@
 //! - `hooks/<pr>.json`: the request of a hook (`tehas_core::plugin::hook`);
 //!   `hooks/<pr>.verdict.json` the verdict read; `hooks/<pr>.log` its log.
 //! - `status-unwritten`: why the last hook's commit status was not written.
+//! - `calls/slot-0.lock` and `calls/slot-1.lock`: one held by each call of a
+//!   tool while it runs, and `calls/by-<caller>.lock` by each caller's.
 
 use super::exec::{Cmd, Exec};
 use super::prepare;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use tehas_core::file::{write_atomic, Temp};
-use tehas_core::lock::{probe, Probe};
+use tehas_core::lock::{held_in, probe, Probe};
 use tehas_core::plugin::hook;
 use tehas_core::plugin::run::Trigger;
 
@@ -36,6 +38,17 @@ pub fn hook_lock(home: &Path, name: &str, pr: u64) -> PathBuf {
 /// Whether a lock is held; one that cannot be probed counts as held.
 pub fn held(file: &Path) -> bool {
     matches!(probe(file), Probe::Held | Probe::Unknown(_))
+}
+
+pub fn calls(home: &Path, name: &str) -> PathBuf {
+    prepare::dir(home, name).join("calls")
+}
+
+/// Whether a call of the plugin runs, so the sweep leaves its run alone.
+pub fn calling(home: &Path, name: &str) -> bool {
+    held_in(&calls(home, name))
+        .iter()
+        .any(|l| l.starts_with("slot-"))
 }
 
 pub fn refresh_lock(home: &Path, name: &str) -> PathBuf {
