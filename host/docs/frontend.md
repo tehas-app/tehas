@@ -863,7 +863,7 @@ The budgets for new work:
 | The library | Its `library solid` line | The test |
 | An existing page | Its line in `pages.max` | The test |
 | A plain element | 2 KB | Review |
-| The kit's core modules | 30 KB (30720 bytes) for `island.js`, `feed.js`, `request.js`, `state.js` and `parts.js`, which a page that polls loads: a review figure, not a gate. The owner set 24 KB on 2026-11-20 and then approved the growth of the kit's JSDoc types, but named no new figure: 30 KB is proposed by the change that typed the kit and waits for the owner's word. At `kit 1` with the types they are 29616 bytes, under it. `stream.js` and `press.js`, 19843 more, load only on a page that imports them | Review |
+| The kit's core modules | 30 KB (30720 bytes) for `island.js`, `feed.js`, `request.js`, `state.js` and `parts.js`, which a page that polls loads: a review figure, not a gate. The owner set 24 KB on 2026-11-20 and raised it to 30 KB on 2026-11-21 for the kit's JSDoc types. At `kit 1` with the types they are 29616 bytes, under it. `stream.js` and `press.js`, 19843 more, load only on a page that imports them | Review |
 | A new page | 40 KB of script, 30 KB of CSS beside the theme and the kit | Review, and its line in `pages.max` |
 | A page with no island | No script beyond `fun/mode.js` | Review |
 
