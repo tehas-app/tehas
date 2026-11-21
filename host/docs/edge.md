@@ -388,19 +388,18 @@ plugins' gate is not answering.", never a preview's or the Protolab's page.
 
 The router runs in a container, and the gate runs on the host. The container
 reaches the host's own addresses through its network, but `127.0.0.1` in the
-container is the container itself. So `TEHAS_PLUGIN_GATE_ADDR`, whose default
-is `127.0.0.1:8095`, must name an address of the host the container can reach,
-such as the one of `TEHAS_HOST_ADDR`, with a port of its own:
+container is the container itself. So the gate listens on the address of
+`TEHAS_HOST_ADDR`, which the docs server binds too, on port 8095:
+`TEHAS_PLUGIN_GATE_ADDR` is `<TEHAS_HOST_ADDR>:8095` unless the instance names
+another (an IPv6 address in brackets, as `[::1]:8095`). The router reaches
+it there with nothing to set. A `TEHAS_HOST_ADDR` the gate may not listen on,
+a host name, `0.0.0.0` or a public address, gives `127.0.0.1:8095`, which
+the router cannot reach: then the plugins' names answer 503.
 
-```
-TEHAS_PLUGIN_GATE_ADDR=<address>:8095
-```
-
-While plugins are being built, a line of the setting stops every command
-with 78, so this is for when the feature ships. `router.compose.yaml` passes
-the setting to the router, so restart the router
-after it changes: `. ~/tehas/env.sh` and the `docker compose` line of step 8.
-A firewall on the host has to let the router's Docker network reach that port.
+`router.compose.yaml` passes the address to the router, so restart the router
+after `TEHAS_HOST_ADDR` changes: `. ~/tehas/env.sh` and the `docker compose`
+line of step 8. A firewall on the host has to let the router's Docker network
+reach port 8095.
 
 ### The proxy in front and Cloudflare
 

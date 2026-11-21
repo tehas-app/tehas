@@ -47,7 +47,8 @@
         # The plugins' names first, and only to the gate: nothing of the
         # previews or the Protolab answers them. The gate sets its own
         # headers; what it says about sniffing this server has already said.
-        # The address is the gate's own, given by router.compose.yaml.
+        # The address is the gate's own, which router.compose.yaml always
+        # gives; the loopback is for a caddy run without it.
         handle @plugin {
             reverse_proxy {$TEHAS_PLUGIN_GATE_ADDR:127.0.0.1:8095} {
                 header_down -X-Robots-Tag

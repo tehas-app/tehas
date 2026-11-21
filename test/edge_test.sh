@@ -32,7 +32,7 @@ t_eq "$(awk '/@gatedown \{/ {d = NR} /Host \(\?i\)\^plugin$/ && d && !h {h = NR}
 t_case "the router is hardened and on the previews' network"
 for want in 'name: tehas-edge' 'read_only: true' '- ALL' 'no-new-privileges:true' \
   'name: tehas-previews' 'external: true' './router.Caddyfile:/etc/caddy/Caddyfile:ro' \
-  '${TEHAS_HOST_ADDR:-127.0.0.1}:8081:8081' 'TEHAS_PLUGIN_GATE_ADDR: "${TEHAS_PLUGIN_GATE_ADDR:-127.0.0.1:8095}"'; do
+  '${TEHAS_HOST_ADDR:-127.0.0.1}:8081:8081' 'TEHAS_PLUGIN_GATE_ADDR: "${TEHAS_PLUGIN_GATE_ADDR:-${TEHAS_HOST_ADDR:-127.0.0.1}:8095}"'; do
   t_contains "$(cat "$compose")" "$want"
 done
 t_lacks "$(cat "$compose")" "docker.sock"

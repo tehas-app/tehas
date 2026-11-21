@@ -388,10 +388,12 @@ pub const TABLE: &[Setting] = &[
         "memory=2 cpus=2 disk=4",
     ),
     always("TEHAS_PLUGIN_MODEL_DAY", Rule::Count, "5000000"),
-    always(
+    // Without a line, TEHAS_HOST_ADDR's address on GATE_PORT (load.rs).
+    row(
         "TEHAS_PLUGIN_GATE_ADDR",
         Rule::GateAddress,
-        "127.0.0.1:8095",
+        When::Always,
+        None,
     ),
     always("TEHAS_WORKSTREAMS", Rule::Count, "1"),
     row("TEHAS_MAX_CYCLES", Rule::Cycles, When::Always, None),
@@ -738,24 +740,50 @@ const LISTEN_WHY: &str = "expected an address or host name and a port, as 127.0.
 /// (host/edge/router.compose.yaml).
 pub const EDGE_PORTS: [u16; 2] = [8080, 8081];
 
+/// The gate's port when TEHAS_PLUGIN_GATE_ADDR is left out.
+pub const GATE_PORT: u16 = 8095;
+
 /// The gate's address: a private or loopback address, never a host name,
-/// which could resolve to a public one, and never every address.
+/// which could resolve to a public one, and never every address. An IPv6
+/// address is in brackets, as a socket address and Caddy's upstream take it.
 fn gate_address(v: &str) -> bool {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     let Some((addr, port)) = v.rsplit_once(':') else {
         return false;
     };
-    let private = match addr.parse::<std::net::IpAddr>() {
-        Ok(std::net::IpAddr::V4(a)) => {
+    let ip = match addr.strip_prefix('[').and_then(|a| a.strip_suffix(']')) {
+        Some(inner) => inner.parse::<Ipv6Addr>().ok().map(IpAddr::V6),
+        None => addr.parse::<Ipv4Addr>().ok().map(IpAddr::V4),
+    };
+    let private = match ip {
+        Some(IpAddr::V4(a)) => {
             let [a0, a1, ..] = a.octets();
             a.is_private() || a.is_loopback() || (a0 == 100 && (64..128).contains(&a1))
         }
-        Ok(std::net::IpAddr::V6(a)) => a.is_loopback() || (a.segments()[0] & 0xfe00) == 0xfc00,
-        Err(_) => false,
+        Some(IpAddr::V6(a)) => a.is_loopback() || (a.segments()[0] & 0xfe00) == 0xfc00,
+        None => false,
     };
-    listen_address(v) && private && port.parse().is_ok_and(|p| !EDGE_PORTS.contains(&p))
+    private && leading(port, 5) && port.parse::<u16>().is_ok_and(|p| !EDGE_PORTS.contains(&p))
 }
 
-const GATE_WHY: &str = "expected a private address and a port other than the dashboard's 8080 and the router's 8081, as 127.0.0.1:8095";
+/// The gate's address when the instance names none: TEHAS_HOST_ADDR's
+/// address, which the docs server binds and the router's container reaches,
+/// on GATE_PORT. A host address the gate may not listen on, a name, every
+/// address or a public one, gives the loopback, which only the host reaches.
+pub fn gate_default(host: &str) -> String {
+    let at = if host.contains(':') {
+        format!("[{host}]:{GATE_PORT}")
+    } else {
+        format!("{host}:{GATE_PORT}")
+    };
+    if gate_address(&at) {
+        at
+    } else {
+        format!("127.0.0.1:{GATE_PORT}")
+    }
+}
+
+const GATE_WHY: &str = "expected a private address and a port other than the dashboard's 8080 and the router's 8081, as 127.0.0.1:8095, an IPv6 address in brackets, as [::1]:8095";
 
 /// `[1-9][0-9]*`, at most `max` digits.
 fn leading(s: &str, max: usize) -> bool {
@@ -1905,13 +1933,21 @@ mod tests {
             v4(172, 16, 4, 2, 9000),
             v4(192, 168, 1, 20, 65535),
             v4(100, 64, 0, 1, 8095),
-            "::1:8095".to_string(),
-            format!("{ula}:8095"),
+            "[::1]:8095".to_string(),
+            format!("[{ula}]:8095"),
         ] {
             takes("TEHAS_PLUGIN_GATE_ADDR", &v);
         }
         let private_on_8081 = v4(10, 0, 0, 7, 8081);
+        let unbracketed = format!("{ula}:8095");
+        let bracketed_v4 = format!("[{}]:8095", Ipv4Addr::new(10, 0, 0, 7));
         for bad in [
+            "::1:8095",
+            unbracketed.as_str(),
+            bracketed_v4.as_str(),
+            "[fe80::1]:8095",
+            "[::1]",
+            "[::1:8095",
             "0.0.0.0:8095",
             "192.0.2.7:8095",
             "8.8.8.8:8095",
@@ -1927,6 +1963,23 @@ mod tests {
             "",
         ] {
             refuses("TEHAS_PLUGIN_GATE_ADDR", bad, GATE_WHY);
+        }
+    }
+
+    #[test]
+    fn the_gates_default_is_the_host_address_on_its_port_or_the_loopback() {
+        use std::net::{Ipv4Addr, Ipv6Addr};
+        let private = Ipv4Addr::new(10, 0, 0, 7).to_string();
+        let ula = Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 7).to_string();
+        assert_eq!(gate_default("127.0.0.1"), "127.0.0.1:8095");
+        assert_eq!(gate_default(&private), format!("{private}:8095"));
+        assert_eq!(gate_default(&ula), format!("[{ula}]:8095"));
+        assert_eq!(gate_default("::1"), "[::1]:8095");
+        for host in ["0.0.0.0", "192.0.2.7", "fe80::1", "tehas.example", ""] {
+            assert_eq!(gate_default(host), "127.0.0.1:8095", "{host}");
+        }
+        for host in ["127.0.0.1", private.as_str(), ula.as_str()] {
+            assert!(gate_address(&gate_default(host)), "{host}");
         }
     }
 
