@@ -869,6 +869,7 @@ mod tests {
             "plugin-manifest",
             "plugin-context",
             "plugin-review",
+            "plugin-skills",
         ]);
         let mut found = Vec::new();
         for e in fs::read_dir(api).unwrap() {
