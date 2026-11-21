@@ -2,10 +2,14 @@
 //!
 //!   tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port>
 //!             --server-version <v> [--io-timeout <seconds>] [--private <name>]...
-//!             [--outsource]
+//!             [--outsource] [--plugin-calls <socket>]
 //!
 //! --outsource serves the tool of outsource, `factory_contractors`, to both
 //! kinds of key. `tehasbot mcp serve` passes it while the feature is on.
+//!
+//! --plugin-calls serves, to full keys, the plugin tools of the broker on
+//! that socket (mcp::plugins). `tehasbot mcp serve` passes it while a plugin
+//! is granted `mcp:`.
 //!
 //! A log is masked as the console masks it, the names given with --private
 //! included. A name is not a secret. The host's secret values come as salted
@@ -47,7 +51,7 @@ fn of(setting: Setting) -> (&'static Setting, &'static str) {
 fn usage(why: &str) -> ! {
     eprintln!("tehas-mcp: {why}");
     eprintln!(
-        "usage: tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port> --server-version <v> [--io-timeout <seconds>] [--private <name>]... [--outsource]"
+        "usage: tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port> --server-version <v> [--io-timeout <seconds>] [--private <name>]... [--outsource] [--plugin-calls <socket>]"
     );
     std::process::exit(78);
 }
@@ -109,6 +113,13 @@ fn main() {
     while let Some(a) = args.next() {
         if a == "--outsource" {
             mcp::tools::serve_outsource();
+            continue;
+        }
+        if a == "--plugin-calls" {
+            let socket = args
+                .next()
+                .unwrap_or_else(|| usage("--plugin-calls needs a socket"));
+            mcp::plugins::serve_from(PathBuf::from(socket));
             continue;
         }
         if a == "--private" {
