@@ -128,7 +128,7 @@ pub const FEATURES: &[Feature] = &[
             "tehas-plugin-gate.service",
         ],
     },
-    // docs/specs/2026-11-21-wiki.md. The build's units come with the build.
+    // docs/specs/2026-11-21-wiki.md.
     Feature {
         name: "wiki",
         stage: Stage::Building,
@@ -136,7 +136,13 @@ pub const FEATURES: &[Feature] = &[
         settings: &[],
         since: "v1.3.0",
         programs: &[],
-        units: &["tehas-wiki-status.service", "tehas-wiki-status.timer"],
+        units: &[
+            "tehas-wiki-status.service",
+            "tehas-wiki-status.timer",
+            "tehas-wiki.service",
+            "tehas-wiki.timer",
+            "tehas-wiki.path",
+        ],
     },
 ];
 
@@ -854,7 +860,10 @@ mod tests {
                 "tehas-plugin.timer",
                 "tehas-plugin-gate.service",
                 "tehas-wiki-status.service",
-                "tehas-wiki-status.timer"
+                "tehas-wiki-status.timer",
+                "tehas-wiki.service",
+                "tehas-wiki.timer",
+                "tehas-wiki.path"
             ]
         );
     }

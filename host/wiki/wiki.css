@@ -1,0 +1,10 @@
+:root { --ink: #1d2320; --muted: #5d6762; --line: #d9dfdb; --ground: #fbfcfb; --link: #2f6b4f; }
+@media (prefers-color-scheme: dark) { :root { --ink: #e6ebe8; --muted: #a3ada8; --line: #36403b; --ground: #161b18; --link: #8fc9a9; } }
+body { margin: 0; background: var(--ground); color: var(--ink); font: 16px/1.55 system-ui, sans-serif; }
+header { padding: 10px 16px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
+main { max-width: 860px; margin: 0 auto; padding: 16px; }
+a { color: var(--link); }
+pre, code { font-family: ui-monospace, monospace; font-size: 14px; }
+pre { overflow-x: auto; padding: 12px; border: 1px solid var(--line); }
+table { border-collapse: collapse; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }

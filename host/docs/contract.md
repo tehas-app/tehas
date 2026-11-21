@@ -522,8 +522,11 @@ with exit 78 and says `wiki` is still being built.
   `features`.
 - `tehas wiki` exits 78 and reads nothing more. `tehas help wiki` prints its
   text, and the list of `tehas help` does not name it.
-- `tehasbot wiki` exits 0 and writes nothing. `install.sh` does not install
-  `tehas-wiki-status.service` and its timer.
+- `tehas wiki build` exits 78 too, and `tehasbot wiki` and
+  `tehasbot wiki build` exit 0 and write nothing. `install.sh` installs none
+  of `tehas-wiki-status.service`, `tehas-wiki.service` and their timers, and
+  not `tehas-wiki.path`.
+- The sandbox kind `wiki` and its argument list are not contract.
 - `/wiki` and every address under it answer 404, because no `live/wiki.json`
   is written, and the dashboard's `wiki` link stays hidden.
 - No label, no `--json` field of another command, no MCP tool and no file
