@@ -60,7 +60,7 @@ fn script(which: &str, command: &str) -> Option<&'static str> {
 
 /// The verbs of `tehas`. work and index are tehas-cycle's, which takes their
 /// lock (src/run.rs).
-const VERBS: [&str; 34] = [
+const VERBS: [&str; 35] = [
     "work",
     "index",
     "dispatch",
@@ -93,6 +93,7 @@ const VERBS: [&str; 34] = [
     "github",
     "outsource",
     "prototype",
+    "plugin",
     "wake",
     "blockers",
 ];
@@ -748,7 +749,11 @@ mod tests {
         marked.dedup();
         assert_eq!(
             marked,
-            [("outsource", "outsource"), ("prototype", "prototype-file")]
+            [
+                ("outsource", "outsource"),
+                ("plugin", "plugins"),
+                ("prototype", "prototype-file")
+            ]
         );
         for (command, name) in marked {
             for r in pinned.iter().filter(|r| r.command == command) {
@@ -809,8 +814,9 @@ mod tests {
             assert!(fs::metadata(&file).is_ok(), "no {file}");
         }
         // Files the docs server serves or the release carries, no command's
-        // output.
-        named.extend(["host-bridge", "settings-rules"]);
+        // output, and those of plugins, which is still being built: its
+        // command's and its manifest's.
+        named.extend(["host-bridge", "settings-rules", "plugin", "plugin-manifest"]);
         let mut found = Vec::new();
         for e in fs::read_dir(api).unwrap() {
             let name = e.unwrap().file_name().to_string_lossy().into_owned();

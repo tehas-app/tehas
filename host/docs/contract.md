@@ -439,6 +439,24 @@ is still being built.
 [The review loop](/operating#the-review-loop) says what the feature does once
 it ships.
 
+### plugins
+
+Building since v1.2.0. Off by default; `TEHAS_PLUGIN=on` stops every command
+with exit 78 and says `plugins` is still being built.
+
+- `tehas api --json` has `"plugins": false` in `flags`, and no word `plugins`
+  in `features`.
+- The settings `TEHAS_PLUGINS`, `TEHAS_PLUGIN_GRANTS_<NAME>`,
+  `TEHAS_PLUGIN_ACCESS`, `TEHAS_PLUGIN_LIMITS` and `TEHAS_PLUGIN_MODEL_DAY`
+  are in `api/settings-rules.json`, but they are not contract: a line that
+  gives one a value stops every command with exit 78 and names `plugins`.
+- `tehas plugin` exits 78 and reads nothing more. `tehas help plugin` prints
+  its text, and the list of `tehas help` does not name it.
+- `api/plugin.schema.json` and `api/plugin-manifest.schema.json` and their
+  samples are not contract until the release that ships the feature.
+- No label, no `--json` field of another command, no MCP tool, no unit, no
+  file under `live/`.
+
 ## Exit statuses
 
 A status means the same in every public command, but for the exceptions a

@@ -1,0 +1,13 @@
+{
+  "api": 1,
+  "plugins": [
+    {
+      "name": "floorplan",
+      "url": "https://github.com/tehas-app/tehas-plugin-floorplan",
+      "commit": "0123456789abcdef0123456789abcdef01234567",
+      "grants": [],
+      "state": "refused",
+      "refusal": "the grants are for another commit"
+    }
+  ]
+}
