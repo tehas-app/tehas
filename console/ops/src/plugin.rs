@@ -7,6 +7,7 @@
 mod exec;
 mod prepare;
 mod review;
+mod skills;
 pub mod update;
 
 use std::env;
@@ -16,7 +17,7 @@ use tehas_core::plugin::state::{State, Word};
 use tehas_core::plugin::{self, Pin};
 use tehas_core::{exit, features, outln};
 
-const USAGE: &str = "usage: tehas plugin [--json] | tehas plugin review <name> [<commit>] [--json]";
+const USAGE: &str = "usage: tehas plugin [--json] | tehas plugin review <name> [<commit>] [--json] | tehas plugin skills [--chat obeya|wizard|assistant] [--json]";
 
 /// What the arguments ask for.
 #[derive(Debug, PartialEq, Eq)]
@@ -27,6 +28,10 @@ pub enum Words {
     Review {
         name: String,
         commit: Option<String>,
+        json: bool,
+    },
+    Skills {
+        chat: Option<String>,
         json: bool,
     },
 }
@@ -57,6 +62,13 @@ pub fn words(given: &[String]) -> Result<Words, u8> {
             Ok(Words::Review {
                 name: name.to_string(),
                 commit: Some(commit.to_string()),
+                json,
+            })
+        }
+        [verb] if *verb == "skills" => Ok(Words::Skills { chat: None, json }),
+        [verb, flag, chat] if *verb == "skills" && *flag == "--chat" && skills::is_chat(chat) => {
+            Ok(Words::Skills {
+                chat: Some(chat.to_string()),
                 json,
             })
         }
@@ -227,6 +239,7 @@ pub fn main(given: &[String]) -> u8 {
     let what = match asked {
         Words::List { .. } => "tehas plugin",
         Words::Review { .. } => "tehas plugin review",
+        Words::Skills { .. } => "tehas plugin skills",
     };
     if let Err(why) = features::needs("plugins", what, &get) {
         eprintln!("{what}: {why}");
@@ -250,6 +263,20 @@ pub fn main(given: &[String]) -> u8 {
         }
         Words::Review { name, commit, json } => {
             review_main(&home, &get, &name, commit.as_deref(), json)
+        }
+        Words::Skills { chat, json } => {
+            let l = skills::list(&mut exec::Host, &home, &get, chat.as_deref());
+            if json {
+                outln!("{}", l.json().dump());
+                for (name, why) in &l.left_out {
+                    eprintln!("tehas plugin skills: left out {name}: {why}");
+                }
+            } else {
+                for line in l.text() {
+                    outln!("{line}");
+                }
+            }
+            exit::OK
         }
     }
 }
@@ -322,6 +349,27 @@ mod tests {
         assert_eq!(words_of(&["review", "floorplan", "0123abc"]), Err(64));
         assert_eq!(words_of(&["review", "floorplan", PIN, "x"]), Err(64));
         assert_eq!(words_of(&["run", "floorplan"]), Err(64));
+    }
+
+    #[test]
+    fn the_skills_words_take_one_chat_or_none() {
+        assert_eq!(
+            words_of(&["skills"]),
+            Ok(Words::Skills {
+                chat: None,
+                json: false
+            })
+        );
+        assert_eq!(
+            words_of(&["skills", "--chat", "wizard", "--json"]),
+            Ok(Words::Skills {
+                chat: Some("wizard".into()),
+                json: true
+            })
+        );
+        assert_eq!(words_of(&["skills", "--chat", "slack"]), Err(64));
+        assert_eq!(words_of(&["skills", "--chat"]), Err(64));
+        assert_eq!(words_of(&["skills", "floorplan"]), Err(64));
     }
 
     #[test]

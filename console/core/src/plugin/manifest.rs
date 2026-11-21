@@ -4,6 +4,7 @@
 //! api/plugin-manifest.schema.json holds the same rules for a plugin's
 //! author; the tests below hold the two to each other.
 
+use super::needs::Need;
 use super::{ask, is_action_id, is_name, Cap};
 use serde_json::{Map, Value};
 
@@ -17,17 +18,19 @@ pub const BUILD_MAX: usize = 255;
 pub const ASKS_MAX: usize = 32;
 pub const ACTIONS_MAX: usize = 2;
 pub const SKILLS_MAX: usize = 8;
+/// The most plugins one plugin needs.
+pub const NEEDS_MAX: usize = 2;
 /// The longest line a chat shows for a skill.
 pub const ABOUT_MAX: usize = 120;
 /// The chat hosts a skill may go to.
-pub const CHATS: [&str; 3] = ["obeya", "wizard", "assistant"];
+pub const CHATS: [&str; 4] = ["obeya", "wizard", "assistant", "plugin"];
 pub const TIMEOUT: (u64, u64) = (60, 14400);
 pub const HOOK_TIMEOUT: (u64, u64) = (60, 1800);
 
 /// The fields of version 1, in the order a refusal names them.
-pub const FIELDS: [&str; 13] = [
+pub const FIELDS: [&str; 14] = [
     "plugin", "kind", "name", "label", "license", "build", "asks", "timeout", "ui", "view",
-    "actions", "hooks", "skills",
+    "actions", "hooks", "skills", "needs",
 ];
 pub const REQUIRED: [&str; 4] = ["plugin", "name", "label", "asks"];
 /// Required of a plugin with an image. One with none is text alone.
@@ -68,6 +71,8 @@ pub struct Manifest {
     /// The timeout of the hook at `after:work`, when it has one.
     pub hook: Option<u64>,
     pub skills: Vec<Skill>,
+    /// The plugins it needs, and what it wants from each.
+    pub needs: Vec<Need>,
 }
 
 /// The reasons are collected, so a plugin's author reads them all at once.
@@ -391,6 +396,10 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
         None => Vec::new(),
         Some(v) => skills(v, &caps, &mut out),
     };
+    let needs = match field("needs") {
+        None => Vec::new(),
+        Some(v) => needs(v, &caps, name, &mut out),
+    };
 
     if !out.0.is_empty() {
         return Err(out.0);
@@ -409,6 +418,7 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
             actions,
             hook,
             skills,
+            needs,
         }),
         _ => Err(vec!["the manifest could not be read".to_string()]),
     }
@@ -504,6 +514,83 @@ fn skills(v: &Value, caps: &[Cap], out: &mut Refusals) -> Vec<Skill> {
     got
 }
 
+/// `needs`: at most [`NEEDS_MAX`] other plugins, each asked as
+/// `needs:<name>`, each with the skills this plugin wants from it.
+fn needs(v: &Value, caps: &[Cap], own: &str, out: &mut Refusals) -> Vec<Need> {
+    let Some(list) = v.as_array() else {
+        out.say("needs: expected a list");
+        return Vec::new();
+    };
+    if list.len() > NEEDS_MAX {
+        out.say(format!("needs: at most {NEEDS_MAX}"));
+    }
+    let mut got: Vec<Need> = Vec::new();
+    for (i, v) in list.iter().enumerate() {
+        let at = format!("needs[{i}]");
+        let Some(n) = v.as_object() else {
+            out.say(format!("{at}: expected an object"));
+            continue;
+        };
+        closed(n, &["name", "skills"], &format!("{at}."), out);
+        let name = match n.get("name").map(|v| v.as_str()) {
+            None => {
+                out.say(format!("{at}.name is missing"));
+                None
+            }
+            Some(Some(s)) if is_name(s) => Some(s.to_string()),
+            Some(_) => {
+                out.say(format!(
+                    "{at}.name: expected a plugin's name, 1 to 12 characters of a-z and 0-9, a letter first"
+                ));
+                None
+            }
+        };
+        let skills: Option<Vec<String>> = match n.get("skills") {
+            None => {
+                out.say(format!("{at}.skills is missing"));
+                None
+            }
+            Some(v) => {
+                let ids: Option<Vec<String>> = v.as_array().and_then(|l| {
+                    l.iter()
+                        .map(|s| s.as_str().filter(|s| is_action_id(s)).map(String::from))
+                        .collect()
+                });
+                match ids {
+                    Some(ids)
+                        if !ids.is_empty()
+                            && ids.iter().enumerate().all(|(i, s)| !ids[..i].contains(s)) =>
+                    {
+                        Some(ids)
+                    }
+                    _ => {
+                        out.say(format!(
+                            "{at}.skills: expected one or more skill ids, each once"
+                        ));
+                        None
+                    }
+                }
+            }
+        };
+        let Some(name) = name else { continue };
+        if name == own {
+            out.say(format!("{at}: a plugin does not need itself"));
+        }
+        if got.iter().any(|g| g.name == name) {
+            out.say(format!("{at}: the plugin {name} is there twice"));
+        }
+        if !caps.contains(&Cap::Needs(name.clone())) {
+            out.say(format!(
+                "{at}: the plugin {name} needs the ask needs:{name}"
+            ));
+        }
+        if let Some(skills) = skills {
+            got.push(Need { name, skills });
+        }
+    }
+    got
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -566,8 +653,83 @@ mod tests {
                 }],
                 hook: Some(600),
                 skills: vec![],
+                needs: vec![],
             }
         );
+    }
+
+    #[test]
+    fn a_need_names_another_plugin_its_ask_and_the_skills_it_wants() {
+        let needing = |needs: Value, asks: &[&str]| {
+            with(|m| {
+                for a in asks {
+                    m["asks"].as_array_mut().unwrap().push(json!(a));
+                }
+                m.insert("needs".into(), needs.clone());
+            })
+        };
+        let m = read(
+            needing(
+                json!([{"name": "specs", "skills": ["grill", "spec"]}]),
+                &["needs:specs"],
+            )
+            .to_string()
+            .as_bytes(),
+            "floorplan",
+        )
+        .unwrap();
+        assert_eq!(
+            m.needs,
+            [Need {
+                name: "specs".into(),
+                skills: vec!["grill".into(), "spec".into()]
+            }]
+        );
+        assert_eq!(
+            refusals(&needing(
+                json!([{"name": "specs", "skills": ["grill"]}]),
+                &[]
+            )),
+            ["needs[0]: the plugin specs needs the ask needs:specs"]
+        );
+        assert_eq!(
+            refusals(&needing(
+                json!([{"name": "floorplan", "skills": ["a"]}]),
+                &["needs:floorplan"]
+            )),
+            ["needs[0]: a plugin does not need itself"]
+        );
+        assert_eq!(
+            refusals(&needing(
+                json!([{"name": "specs", "skills": ["a"]}, {"name": "specs", "skills": ["b"]}]),
+                &["needs:specs"]
+            )),
+            ["needs[1]: the plugin specs is there twice"]
+        );
+        for (needs, why) in [
+            (
+                json!([{"name": "page-ticket", "skills": ["a"]}]),
+                "needs[0].name: expected a plugin's name",
+            ),
+            (
+                json!([{"name": "specs", "skills": []}]),
+                "needs[0].skills: expected one or more",
+            ),
+            (json!([{"name": "specs"}]), "needs[0].skills is missing"),
+            (
+                json!([{"name": "specs", "skills": ["a"], "pin": 1}]),
+                "needs[0].pin: no field",
+            ),
+            (json!({"name": "specs"}), "needs: expected a list"),
+        ] {
+            let got = refusals(&needing(needs.clone(), &["needs:specs"]));
+            assert!(got.iter().any(|g| g.starts_with(why)), "{needs}: {got:?}");
+        }
+        assert_eq!(
+            ask("needs:page-ticket").unwrap_err(),
+            "needs:page-ticket: a plugin's name is 1 to 12 characters of a-z and 0-9, a letter first"
+        );
+        assert!(!Cap::Needs("specs".into()).needs_run());
     }
 
     #[test]
@@ -916,7 +1078,7 @@ mod tests {
             }));
             assert_eq!(
                 got,
-                ["skills[0].chats: expected one or more of obeya, wizard, assistant, each once"],
+                ["skills[0].chats: expected one or more of obeya, wizard, assistant, plugin, each once"],
                 "{chats}"
             );
         }
@@ -1137,6 +1299,35 @@ mod tests {
             ("bare".into(), serde_json::from_str(BARE).unwrap()),
             ("skills".into(), serde_json::from_str(SKILLS).unwrap()),
         ];
+        for (what, needs) in [
+            ("needs", json!([{"name": "specs", "skills": ["grill"]}])),
+            ("need name", json!([{"name": "Specs", "skills": ["grill"]}])),
+            ("need no skill", json!([{"name": "specs", "skills": []}])),
+            (
+                "need skill twice",
+                json!([{"name": "specs", "skills": ["a", "a"]}]),
+            ),
+            (
+                "need field",
+                json!([{"name": "specs", "skills": ["a"], "pin": "x"}]),
+            ),
+            (
+                "three needs",
+                json!([
+                    {"name": "specs", "skills": ["a"]},
+                    {"name": "specs", "skills": ["a"]},
+                    {"name": "specs", "skills": ["a"]}
+                ]),
+            ),
+        ] {
+            cases.push((
+                what.into(),
+                with(|m| {
+                    m["asks"].as_array_mut().unwrap().push(json!("needs:specs"));
+                    m.insert("needs".into(), needs.clone());
+                }),
+            ));
+        }
         let text = |m: &mut Map<String, Value>| {
             let t: Map<String, Value> = serde_json::from_str(SKILLS).unwrap();
             *m = t;

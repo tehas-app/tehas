@@ -70,15 +70,18 @@ It answers two requests and nothing else:
 
 A call is the call of `tehas plugin call`: the same function, the same
 `inspect` check, the same container (`test/fixtures/argv/plugin-call`, kind
-`call`: no `product`, no `model`, no `net`, `/state` read only, `/out` a
-tmpfs of 1 MiB), the same `timeout`, the same 16 KiB answer. The broker
+`call`: no `product`, no `model`, no `net`, `/state` read only, no `/out`,
+`--pids-limit 64`, attached with `--log-driver none`), the same `timeout`,
+the same answer of exactly one JSON object on stdout, at most 16 KiB, and the
+same failed call (v2 chats part, "A call"). The broker
 starts nothing but that container. A tool not granted `mcp:` at the current
 pin, a held plugin, or any other path is refused with 403 and one line on
 stderr naming the plugin and the tool.
 
-**Who called.** The run row holds `mcp:<key id>` where a chat's holds the
-login, as `--by` names who asked for a hold. No login is checked: an MCP key
-is not a person, and a full key already reads the logs of the repository.
+**Who called.** The run row's trigger is `mcp:<key id>`, as `--by` names
+who asked for a hold; a chat call's is `chat`, with no login, so what a
+person asks a tool stays theirs. No login is checked: an MCP key is not a
+person, and a full key already reads the logs of the repository.
 
 **Rates.** At most 2 calls of a plugin at once, as in v2, and at most 1 per
 key at once. At most 60 calls a minute per key across all plugins. Over a
