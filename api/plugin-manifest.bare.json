@@ -1,0 +1,9 @@
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "floorplan",
+  "label": "Floorplan",
+  "build": "Dockerfile",
+  "asks": [],
+  "timeout": 3600
+}

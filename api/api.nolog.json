@@ -42,7 +42,8 @@
     "protolab-zip-url": false,
     "prototype-file": false,
     "lean": false,
-    "review": false
+    "review": false,
+    "plugins": false
   },
   "millwright": null,
   "poll": {

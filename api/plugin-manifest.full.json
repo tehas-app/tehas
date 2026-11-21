@@ -1,0 +1,14 @@
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "floorplan",
+  "label": "Floorplan",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "asks": ["view", "product", "model", "action:refresh", "hook:after:work"],
+  "timeout": 3600,
+  "ui": {"kit": 1},
+  "view": {"label": "Floorplan"},
+  "actions": [{"id": "refresh", "label": "Refresh floorplan"}],
+  "hooks": [{"at": "after:work", "timeout": 600}]
+}

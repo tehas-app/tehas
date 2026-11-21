@@ -104,6 +104,23 @@ pub const FEATURES: &[Feature] = &[
         programs: &[],
         units: &["tehas-review.service", "tehas-review.timer"],
     },
+    // docs/specs/2026-11-21-plugins.md. Its programs and units come with the
+    // run.
+    Feature {
+        name: "plugins",
+        stage: Stage::Building,
+        setting: "TEHAS_PLUGIN",
+        settings: &[
+            "TEHAS_PLUGINS",
+            "TEHAS_PLUGIN_GRANTS_<NAME>",
+            "TEHAS_PLUGIN_ACCESS",
+            "TEHAS_PLUGIN_LIMITS",
+            "TEHAS_PLUGIN_MODEL_DAY",
+        ],
+        since: "v1.2.0",
+        programs: &[],
+        units: &[],
+    },
 ];
 
 /// The internal variable that lets a test turn building features on: their
@@ -227,8 +244,9 @@ pub fn refuse_building(get: &dyn Fn(&str) -> String) -> Result<(), String> {
 
 /// A line that sets one of a building feature's own settings, as the load
 /// refuses it: the feature leaves no setting in use while it is building.
-/// `set` is whether the instance gave the name a value. Err is the reason,
-/// without the file.
+/// `set` is whether the instance gave the name a value; for a family's row
+/// (`rules::FAMILY`), whether it gave any name of the family one. Err is the
+/// reason, without the file.
 pub fn refuse_building_settings(
     set: &dyn Fn(&str) -> bool,
     get: &dyn Fn(&str) -> String,
@@ -254,6 +272,24 @@ pub fn found_in(text: &[u8], file: &str) -> Vec<String> {
 
 fn found_in_with(text: &[u8], file: &str, get: &dyn Fn(&str) -> String) -> Vec<String> {
     let value = |name: &str| crate::settings::renamed::value_in(text, name).unwrap_or_default();
+    // A family's row stands for each name of it the file sets.
+    let names = |row: &str| -> Vec<String> {
+        let Some(front) = row.strip_suffix(crate::settings::rules::FAMILY) else {
+            return vec![row.to_string()];
+        };
+        let mut names: Vec<String> = text
+            .split(|b| *b == b'\n')
+            .filter_map(|line| {
+                let line = crate::settings::load::bare_line(line);
+                let name = line.split(|b| *b == b'=').next()?;
+                let name = String::from_utf8_lossy(name).into_owned();
+                (name.len() > front.len() && name.starts_with(front)).then_some(name)
+            })
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    };
     let mut found = Vec::new();
     for f in FEATURES.iter().filter(|f| !usable(f, get)) {
         if switch(&value(f.setting)) == Some(true) {
@@ -262,7 +298,8 @@ fn found_in_with(text: &[u8], file: &str, get: &dyn Fn(&str) -> String) -> Vec<S
                 f.setting, f.name
             ));
         }
-        for name in f.settings.iter().filter(|n| !value(n).is_empty()) {
+        let set = f.settings.iter().flat_map(|row| names(row));
+        for name in set.filter(|n| !value(n).is_empty()) {
             found.push(format!(
                 "{name} is set and {} is still being built in this release: take the line out (see {file})",
                 f.name
@@ -569,6 +606,51 @@ mod tests {
             installs_in(&on),
             (vec![], vec!["tehas-review.service", "tehas-review.timer"])
         );
+    }
+
+    #[test]
+    fn plugins_is_building_and_follows_its_switch_only_in_a_test() {
+        let name = "plugins";
+        assert_eq!(find(name).map(|f| f.stage), Some(Stage::Building));
+        assert!(!shipped().contains(&name));
+        assert!(!on_in(name, &vars(&[("TEHAS_PLUGIN", "on")])));
+        assert!(flags().contains(&(name, false)));
+        let tested = vars(&[("TEHAS_PLUGIN", "on"), (TEST_VAR, name)]);
+        assert!(on_in(name, &tested));
+        assert_eq!(installs_in(&tested), (vec![], vec![]));
+        assert_eq!(
+            refuse_building(&vars(&[("TEHAS_PLUGIN", "on")])),
+            Err("TEHAS_PLUGIN is on and plugins is still being built in this release: set it to off or take the line out".to_string())
+        );
+        for setting in [
+            "TEHAS_PLUGINS",
+            "TEHAS_PLUGIN_ACCESS",
+            "TEHAS_PLUGIN_LIMITS",
+            "TEHAS_PLUGIN_MODEL_DAY",
+        ] {
+            assert!(building_setting(setting), "{setting}");
+            let set = |n: &str| n == setting;
+            assert_eq!(
+                refuse_building_settings(&set, &vars(&[])),
+                Err(format!("{setting} is set and plugins is still being built in this release: take the line out"))
+            );
+        }
+    }
+
+    #[test]
+    fn a_grants_line_of_any_plugin_is_refused_while_plugins_is_building() {
+        // The load answers for a family's row whether any name of it is set.
+        let set = |n: &str| n == "TEHAS_PLUGIN_GRANTS_<NAME>";
+        assert_eq!(
+            refuse_building_settings(&set, &vars(&[])),
+            Err("TEHAS_PLUGIN_GRANTS_<NAME> is set and plugins is still being built in this release: take the line out".to_string())
+        );
+        let text = b"TEHAS_REPO=acme/widget\nexport TEHAS_PLUGIN_GRANTS_FLOORPLAN='0123 view'\nTEHAS_PLUGIN_GRANTS_B=\nTEHAS_PLUGIN_GRANTS_=x\n# TEHAS_PLUGIN_GRANTS_C=x\n";
+        assert_eq!(
+            found_in_with(text, "/i/instance.env", &vars(&[])),
+            ["TEHAS_PLUGIN_GRANTS_FLOORPLAN is set and plugins is still being built in this release: take the line out (see /i/instance.env)"]
+        );
+        assert!(found_in_with(text, "/i/instance.env", &vars(&[(TEST_VAR, "plugins")])).is_empty());
     }
 
     #[test]

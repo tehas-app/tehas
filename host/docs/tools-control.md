@@ -282,3 +282,15 @@ The contractors that run this factory's cycles: invite a host, list them,
 count them, end one at once, or ask one to take no new job. Outsource is still
 being built in this release, so every subcommand exits 78. See
 [outsource](/outsource#the-commands).
+
+## tehas plugin
+
+```
+tehas plugin [--json]
+```
+
+The plugins of this factory, as its settings set them: each one's pin, what
+is granted at the pin, and its state. Plugins are still being built in this
+release, so the command exits 78. See the `TEHAS_PLUGIN` rows of
+[the settings table](/tools#instance-settings) and [what the feature leaves
+visible](/contract#plugins).
