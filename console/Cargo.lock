@@ -655,8 +655,10 @@ dependencies = [
 name = "tehas-plugin"
 version = "0.1.0"
 dependencies = [
+ "rustix",
  "serde_json",
  "tehas-core",
+ "tehas-ops",
 ]
 
 [[package]]
