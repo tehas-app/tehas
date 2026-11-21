@@ -13,6 +13,8 @@
 //!   console update files write <path>
 //!   console update findings <euid> [<bash>]
 //!   console update keeps <home> <work dir>
+//!   console update leftovers [--check] <home>
+//!   console update cycles <home>
 //!   console update units <env file>
 //!   console update login <root> <login command> <marker>
 //!   console update pi <instance> <generic settings> <provider> <model> <out>
@@ -24,6 +26,7 @@
 //!   console update sandbox <host versions> <checkout versions> <dockerfile> <recorded>
 //!   console update sources <workspace> <package>...
 //!   console update steps ids|units|valid <line>|owed|for <source>...|record <source>...
+//!   console update tree <root>
 //!   console update wait update|dispatch
 //!
 //! `run` is in src/update/run.rs and holds the lock, src/update/lock.rs. Its
@@ -46,6 +49,9 @@
 //! installed, `report` is the --check report and `notes` what a real run says
 //! about the slice and the sandbox image, see src/update/report.rs. `sandbox`
 //! says whether install.sh owes the sandbox build, see src/update/sandbox.rs.
+//! `leftovers` and `cycles` take back files an earlier run left in the home,
+//! see src/update/leftovers.rs. `tree` names the commit and the version of the
+//! tree install.sh installs from, see src/update/tree.rs.
 //! `assets` stages the dashboard's files for install.sh, with each tag-named
 //! script and stylesheet under a content-hashed name, see src/update/assets.rs.
 //! `sources`
@@ -69,6 +75,7 @@ mod finish;
 mod host;
 #[cfg(test)]
 mod kit;
+mod leftovers;
 mod lock;
 #[cfg(test)]
 mod pages;
@@ -81,6 +88,7 @@ mod run;
 mod sandbox;
 mod sources;
 pub(crate) mod steps;
+mod tree;
 mod wait;
 
 use std::env;
@@ -578,6 +586,9 @@ pub fn main(given: &[String]) -> u8 {
         Some((verb, rest)) if verb == "files" => files::verb(rest),
         Some((verb, rest)) if verb == "findings" => findings::verb(rest),
         Some((verb, rest)) if verb == "keeps" => host::keeps_verb(rest),
+        Some((verb, rest)) if verb == "leftovers" => leftovers::leftovers_verb(rest),
+        Some((verb, rest)) if verb == "cycles" => leftovers::cycles_verb(rest),
+        Some((verb, rest)) if verb == "tree" => tree::verb(rest),
         Some((verb, rest)) if verb == "units" => host::units_verb(rest),
         Some((verb, rest)) if verb == "featured" => host::featured_verb(rest),
         Some((verb, rest)) if verb == "login" => host::login_verb(rest),
@@ -592,7 +603,7 @@ pub fn main(given: &[String]) -> u8 {
         Some((verb, rest)) if verb == "steps" => steps::verb(rest),
         Some((verb, rest)) if verb == "wait" => wait::verb(rest),
         _ => {
-            tell("console update: usage: run <console> <arguments> | api | finish | files <options> <root> <host> | files write <path> | findings <euid> [<bash>] | keeps <home> <work dir> | units <env file> | featured | login <root> <login command> <marker> | pi <instance> <generic settings> <provider> <model> <out> | programs <home> release|build <tree> <program>... | programs stamp <program> release|<source sum> | release <question> | retired | report <root> <instance> <options> | notes <root> <options> | sandbox <host versions> <checkout versions> <dockerfile> <recorded> | assets <host dir> <stage dir> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
+            tell("console update: usage: run <console> <arguments> | api | finish | files <options> <root> <host> | files write <path> | findings <euid> [<bash>] | keeps <home> <work dir> | leftovers [--check] <home> | cycles <home> | tree <root> | units <env file> | featured | login <root> <login command> <marker> | pi <instance> <generic settings> <provider> <model> <out> | programs <home> release|build <tree> <program>... | programs stamp <program> release|<source sum> | release <question> | retired | report <root> <instance> <options> | notes <root> <options> | sandbox <host versions> <checkout versions> <dockerfile> <recorded> | assets <host dir> <stage dir> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
             64
         }
     }
