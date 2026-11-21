@@ -11,9 +11,10 @@
 //   const board = useBoard();   // the same object in every island
 //   board.state.picked          // a reactive read
 //   board.actions.pick(42)      // the only way to write; lands on the next microtask
-import { createRoot, createStore, getOwner, runWithOwner } from "./vendor/solid.js";
+import { createRoot, createStore, getOwner, runWithOwner, untrack } from "./vendor/solid.js";
 
 const owner = createRoot(() => getOwner());
+/** @type {Map<string, { value: any, dispose: () => void }>} */
 const made = new Map();
 
 /**
@@ -31,10 +32,13 @@ export function shared(key, make) {
       runWithOwner(owner, () => createRoot((dispose) => ({ value: make(), dispose }))),
     );
   }
-  return made.get(key).value;
+  return /** @type {{ value: T }} */ (made.get(key)).value;
 }
 
-/** Disposes the value of `key`; the next `shared(key)` makes it again. */
+/**
+ * Disposes the value of `key`; the next `shared(key)` makes it again.
+ * @param {string} key
+ */
 export function release(key) {
   made.get(key)?.dispose();
   made.delete(key);
@@ -45,7 +49,8 @@ export function resetPage() {
   for (const key of [...made.keys()]) release(key);
 }
 
-const actionNames = (spec) => Object.keys(spec.actions(() => {}, {})).sort().join();
+/** @param {object} actions */
+const names = (actions) => Object.keys(actions).sort().join();
 
 /**
  * A named page store. Returns `use()`, which gives `{ state, actions }`: the
@@ -65,7 +70,8 @@ export function pageStore(name, spec) {
       const actions = Object.freeze(spec.actions(set, state));
       return { spec, store: Object.freeze({ state, actions }) };
     });
-    if (entry.spec !== spec && actionNames(entry.spec) !== actionNames(spec)) {
+    // Made against the store's state, untracked: actions may read it as they are made.
+    if (entry.spec !== spec && names(entry.store.actions) !== names(untrack(() => spec.actions(() => {}, entry.store.state)))) {
       throw new Error(`page store ${name} is defined twice with other actions`);
     }
     return entry.store;
