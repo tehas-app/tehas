@@ -17,10 +17,26 @@
 // that aborts when the element disconnects. update(props) gets the props
 // again when an observed attribute changes.
 
+/**
+ * @typedef {StringConstructor | NumberConstructor | BooleanConstructor} Kind
+ * @typedef {Record<string, Kind>} Kinds
+ * @typedef {Record<string, string | number | boolean>} Props
+ * @typedef {{ props: Props, data: any, first: ChildNode[], emit: (verb: string, detail?: unknown) => boolean,
+ *   signal: AbortSignal }} Ctx
+ * @typedef {{ update?: (props: Props) => void, unmount: () => void }} Handle
+ * @typedef {{ mount: (host: HTMLElement, ctx: Ctx) => Handle }} RenderModule
+ * @typedef {{ props?: Kinds, load: () => RenderModule | Promise<RenderModule> }} IslandSpec
+ */
+
 const TRIGGERS = ["load", "visible", "idle", "interaction"];
 
 // Waits for the trigger the element names, then calls go. Aborting `signal`
 // stops the wait.
+/**
+ * @param {HTMLElement} el
+ * @param {AbortSignal} signal
+ * @param {() => void} go
+ */
 function whenTriggered(el, signal, go) {
   const how = el.getAttribute("hydrate") || "load";
   if (!TRIGGERS.includes(how) || how === "load") {
@@ -67,24 +83,36 @@ function whenTriggered(el, signal, go) {
 
 // The attributes as typed props. `kinds` maps a property name to a converter
 // (String, Number, Boolean); the attribute is the name in kebab case.
+/**
+ * @param {Element} el
+ * @param {Kinds} kinds
+ * @returns {Props}
+ */
 export function readProps(el, kinds) {
+  /** @type {Props} */
   const props = {};
   for (const [name, kind] of Object.entries(kinds)) {
     const attr = attrName(name);
     if (kind === Boolean) props[name] = el.hasAttribute(attr);
     else if (el.hasAttribute(attr)) {
-      const raw = el.getAttribute(attr);
+      const raw = /** @type {string} */ (el.getAttribute(attr));
       props[name] = kind === Number ? Number(raw) : kind(raw);
     }
   }
   return props;
 }
 
+/** @param {string} name */
 export function attrName(name) {
   return name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 }
 
 // A CustomEvent `<element>:<verb>` that bubbles, its detail plain JSON.
+/**
+ * @param {Element} el
+ * @param {string} verb
+ * @param {unknown} [detail]
+ */
 export function eventFor(el, verb, detail) {
   const plain = detail === undefined ? null : JSON.parse(JSON.stringify(detail));
   return new CustomEvent(`${el.localName}:${verb}`, { bubbles: true, detail: plain });
@@ -92,12 +120,19 @@ export function eventFor(el, verb, detail) {
 
 // Defines the custom element `name` on the island base. `spec.props` names the
 // attributes, `spec.load` returns the render module (or a promise of it).
+/**
+ * @param {string} name
+ * @param {IslandSpec} spec
+ */
 export function island(name, spec) {
   const kinds = spec.props ?? {};
   class Island extends HTMLElement {
     static observedAttributes = Object.keys(kinds).map(attrName);
+    /** @type {AbortController | null} */
     #abort = null;
+    /** @type {Handle | null} */
     #handle = null;
+    /** @type {unknown} */
     #data = undefined;
 
     connectedCallback() {
@@ -107,7 +142,7 @@ export function island(name, spec) {
       if (this.#data === undefined) {
         const json = this.querySelector(":scope > script[type='application/json']");
         try {
-          this.#data = json ? JSON.parse(json.textContent) : null;
+          this.#data = json ? JSON.parse(/** @type {string} */ (json.textContent)) : null;
         } catch {
           this.#data = null;
         }
@@ -123,11 +158,18 @@ export function island(name, spec) {
       this.removeAttribute("data-tehas-mounted");
     }
 
+    /**
+     * @param {string} _attr
+     * @param {string | null} before
+     * @param {string | null} after
+     */
     attributeChangedCallback(_attr, before, after) {
       if (before !== after) this.#handle?.update?.(readProps(this, kinds));
     }
 
+    /** @param {AbortController} abort */
     async #mount(abort) {
+      /** @type {RenderModule} */
       let view;
       try {
         view = await spec.load();
@@ -137,7 +179,7 @@ export function island(name, spec) {
       }
       if (abort.signal.aborted || this.#handle) return;
       const first = [...this.childNodes].filter(
-        (n) => !(n.nodeName === "SCRIPT" && n.type === "application/json"),
+        (n) => !(n.nodeName === "SCRIPT" && /** @type {HTMLScriptElement} */ (n).type === "application/json"),
       );
       this.replaceChildren();
       this.#handle = view.mount(this, {

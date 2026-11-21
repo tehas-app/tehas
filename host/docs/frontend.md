@@ -595,7 +595,7 @@ release that ships it:
 | --- | --- |
 | `vendor/solid.js` | Solid 2, one minified ES module made by `tools/vendor-solid`. Do not edit it |
 | `vendor/LICENSES` | The licences of the bundled packages |
-| `vendor/solid.d.ts` | Types for `vendor/solid.js`, written by hand from the packages' own `.d.ts` files, for each name it exports and no other. A checker such as `tsc --checkJs` reads it in place of the bundle. An install never stages it or copies it into a home, and it counts in no page. A pull request's preview copies `host/fun` whole, so the preview serves it |
+| `vendor/solid.d.ts` | Types for `vendor/solid.js`, written by hand from the packages' own `.d.ts` files, for each name it exports and no other, an async `createMemo` among them, whose accessor gives what its promise resolves to. A checker such as `tsc --checkJs` reads it in place of the bundle. An install never stages it or copies it into a home, and it counts in no page. A pull request's preview copies `host/fun` whole, so the preview serves it |
 | `island.js` | The island base: attributes, the hydrate trigger, the mount and the disposal, the events. No library |
 | `feed.js` | The feed store ([Feeds](#feeds)) |
 | `stream.js` | The stream source ([Streams](#streams)) |
@@ -624,6 +624,18 @@ copy it into the home, and the sweep removes one there. An address of one in a
 JSDoc comment, such as `import("./vendor/solid.d.ts")`, is no import: the asset
 checks and `pages.max` do not read it. An address of one in code is an import
 of a file no home has, and the checks refuse it.
+
+The kit's modules carry their types as JSDoc comments: what each export takes
+and returns, and the types a caller names. `request.js` has `Headers`, `Accept`
+and `Parse`; `island.js` has `Ctx`, `Handle`, `RenderModule` and `IslandSpec`;
+`feed.js` has `FeedOptions`, `FeedAnswer` and `Feed`; `press.js` has
+`PressOptions` and `PressAnswer`; `stream.js` has `StreamOptions`,
+`StreamEvent` and `Stream`. A file names one with
+`/** @import { Feed } from "../kit/feed.js" */`. The comments are served and
+counted like any other bytes; they change no code. `tsc --checkJs --strict`
+reads the kit with no error. A program that copies the kit and checks its own
+code with `tsc --checkJs` gets the kit's types from the modules and
+`vendor/solid.d.ts`, and needs no copy of its own.
 
 The kit holds generic parts only. The `tehas-factory-*` islands that read the
 files under `/live/` are not in it.
@@ -836,9 +848,12 @@ rules of
 that grows a page raises its line in the same change, and that raise is a
 person's call, said in the pull request, as with the bash ceiling.
 
-The owner approved two lines on 2026-11-20: `library solid 123689`, the kit's
-Solid as `tools/vendor-solid` bundles it, and `page dashboard 83939 53988`,
-the dashboard's script at 83939 bytes on the kit.
+The owner approved these lines on 2026-11-20: `library solid 123689`, the
+kit's Solid as `tools/vendor-solid` bundles it, `page dashboard 83939 53988`,
+the dashboard's script at 83939 bytes on the kit, then
+`page dashboard 88935 53988`, the dashboard's script with the kit's JSDoc
+types, and under that approval of the types' growth
+`page dashboard 88967 53988`, with a page store's comparison untracked.
 
 The budgets for new work:
 
@@ -848,7 +863,7 @@ The budgets for new work:
 | The library | Its `library solid` line | The test |
 | An existing page | Its line in `pages.max` | The test |
 | A plain element | 2 KB | Review |
-| The kit's core modules | 24 KB (24576 bytes) for `island.js`, `feed.js`, `request.js`, `state.js` and `parts.js`, which a page that polls loads: a review figure, set by the owner on 2026-11-20, not a gate. At `kit 1` they are 24493 bytes, under it. `stream.js` and `press.js`, 17651 more, load only on a page that imports them | Review |
+| The kit's core modules | 30 KB (30720 bytes) for `island.js`, `feed.js`, `request.js`, `state.js` and `parts.js`, which a page that polls loads: a review figure, not a gate. The owner set 24 KB on 2026-11-20 and raised it to 30 KB on 2026-11-21 for the kit's JSDoc types. At `kit 1` with the types they are 29616 bytes, under it. `stream.js` and `press.js`, 19843 more, load only on a page that imports them | Review |
 | A new page | 40 KB of script, 30 KB of CSS beside the theme and the kit | Review, and its line in `pages.max` |
 | A page with no island | No script beyond `fun/mode.js` | Review |
 
@@ -881,6 +896,25 @@ The budgets for new work:
   `install.sh` does, and serves the stage, so the page is checked with the
   hashed names a home gets; it also fails when an address under `/fun/` has
   no file.
+- The kit's types are checked by the workspace test `update::types` in
+  `console/ops/src/update/types.rs`. It runs TypeScript's native `tsc` 7.0.2
+  with `--checkJs --strict --noEmit` over the kit's seven modules and
+  `test/fixtures/kit-types/uses.js`, which uses the kit as this page says,
+  and fails on any error. Each `misuse-*.js` beside it makes one mistake, on
+  the line marked `// rejected: TS<code>`: an option spelt wrong, the data of
+  a refresh's answer read without asking whether it is ok, a method a feed
+  does not have, `load` spelt wrong, and a `mount` that returns no handle.
+  `tsc` must reject each there with that code and nowhere else.
+  `TEHAS_TSC` names the `tsc`; otherwise one on `PATH` of that version is
+  used. With neither the test says `SKIPPED` on stderr and passes, except
+  when `CI` or `TEHAS_TEST_STRICT` is set to anything, `false` too, where it
+  fails, as a missing shellcheck fails the shell tests. The gate's workflows
+  install npm's `@typescript/typescript-linux-x64` 7.0.2, checked by its
+  sha256 on every run, and name it. By hand, in `console/`:
+  `TEHAS_TSC=/path/to/tsc cargo test --locked -p tehas-ops update::types`.
+  `scripts/verify.sh` prints no line for that skip, and a pass it keeps for
+  a tree does not depend on whether a `tsc` was there: name one and set
+  `TEHAS_VERIFY_FRESH=1` to run the check through the gate.
 - The markup and the CSS of today's pages are pinned as text by
   `test/front_page_test.sh` and `test/theme_test.sh`. A change to a page
   changes them in the same commit.

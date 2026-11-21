@@ -22,7 +22,11 @@ export type JSXElement = Node | string | number | boolean | null | undefined | J
 /** A function as the value makes a derived signal: use the second form for that. */
 export function createSignal<T>(value: Exclude<T, Function>, options?: { equals?: Equals<T> }): [Accessor<T>, Setter<T>];
 export function createSignal<T>(fn: (prev: T | undefined) => T, options?: { equals?: Equals<T> }): [Accessor<T>, Setter<T>];
-export function createMemo<T>(compute: (prev: T | undefined) => T, options?: { equals?: Equals<T> }): Refreshable<Accessor<T>>;
+/** An async memo: a compute that returns a promise gives what it resolves to. */
+export function createMemo<T>(
+  compute: (prev: T | undefined) => T | PromiseLike<T> | AsyncIterable<T>,
+  options?: { equals?: Equals<T> },
+): Refreshable<Accessor<T>>;
 export function createStore<T extends object>(init: T): [T, SetStore<T>];
 export function createRoot<T>(init: (dispose: () => void) => T): T;
 export function createEffect<T>(
