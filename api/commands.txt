@@ -77,4 +77,5 @@ thaw --json
 top --every --json --once internal=--json
 update --accept-id --check --pending --to
 wake --json
+wiki --json building=wiki
 work --driver --restart

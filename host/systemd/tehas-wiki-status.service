@@ -1,0 +1,11 @@
+[Unit]
+Description=Tehas: write the product wiki's state for the page
+
+[Service]
+NoNewPrivileges=yes
+Type=oneshot
+Nice=19
+CPUWeight=idle
+IOSchedulingClass=idle
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot wiki >> %h/tehas/logs/wiki.log 2>&1"
+TimeoutStartSec=2min

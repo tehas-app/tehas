@@ -3,12 +3,14 @@
 //! settings and the capabilities, which the settings' rules, the manifest's
 //! reader and `tehas plugin` share, and the parts of a run that are rules:
 //! the Dockerfile's, the reader of `/out`, a run as data, the fetch's and
-//! the build's commands, the state they leave and the words of a review.
-//! Only that reader writes files; nothing here reaches the network.
+//! the build's commands, the state they leave, the words of a review and a
+//! hook's request. Only that reader and the request write files; nothing
+//! here reaches the network.
 
 pub mod build;
 pub mod dockerfile;
 pub mod draft;
+pub mod hook;
 pub mod manifest;
 pub mod needs;
 pub mod out;

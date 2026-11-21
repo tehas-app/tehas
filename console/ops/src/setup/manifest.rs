@@ -26,7 +26,7 @@ pub fn json(name: &str, owner_url: &str, redirect: &str, callback: Option<&str>)
             "metadata": "read",
             "actions": "read",
             "checks": "read",
-            "statuses": "read"
+            "statuses": "write"
         }
     });
     if let Some(url) = callback {
@@ -298,7 +298,7 @@ mod tests {
                 "metadata": "read",
                 "actions": "read",
                 "checks": "read",
-                "statuses": "read"
+                "statuses": "write"
             })
         );
         assert!(m["default_permissions"].get("workflows").is_none());

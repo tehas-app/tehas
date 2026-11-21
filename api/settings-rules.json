@@ -378,6 +378,20 @@
       "building": true
     },
     {
+      "name": "TEHAS_WIKI",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "on",
+        "off",
+        "1",
+        "0"
+      ],
+      "reason": "expected on or off",
+      "building": true
+    },
+    {
       "name": "TEHAS_WORKSTREAMS",
       "rule": "count",
       "when": "always",

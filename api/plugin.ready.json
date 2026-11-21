@@ -27,7 +27,8 @@
         "result": "done",
         "tokens": 120000
       },
-      "tokens_today": 120000
+      "tokens_today": 120000,
+      "status_unwritten": null
     }
   ]
 }

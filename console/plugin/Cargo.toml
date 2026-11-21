@@ -24,7 +24,8 @@ rustix = { version = "1", default-features = false, features = ["fs", "std"] }
 serde_json = "1"
 # The hashes of a page's inline blocks, and of the hand-off's nonce.
 sha2 = "0.10"
-tehas-core = { path = "../core" }
+# The mask, for the description of a hook's status (src/status.rs).
+tehas-core = { path = "../core", features = ["mask"] }
 # The fetch's seam, the plugin's state and the store (ops/src/plugin).
 tehas-ops = { path = "../ops" }
 

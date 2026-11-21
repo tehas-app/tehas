@@ -23,7 +23,8 @@
         "prototype-file": {"type": "boolean"},
         "lean": {"type": "boolean"},
         "review": {"type": "boolean"},
-        "plugins": {"type": "boolean"}
+        "plugins": {"type": "boolean"},
+        "wiki": {"type": "boolean"}
       }
     },
     "millwright": {"type": ["string", "null"], "minLength": 1},

@@ -160,6 +160,30 @@ store that cannot answer being no poll on record; no network, no git, and it
 writes nothing. Exit 0, 64 on an argument it does not know, 78 when the
 settings are missing or malformed.
 
+## tehas wiki
+
+```
+tehas wiki [--json]
+tehasbot wiki
+```
+
+```
+wiki: 2026-11-21-68ffab1d from 68ffab1d (v1.2.0-5-g68ffab1d), built 2026-11-21T03:04:10Z
+wiki: 5 commits and 2 days behind main
+```
+
+The state of the product wiki: the current build, the commit it was built
+from, and how far it is behind main, the commits since that commit and the
+age between the two commit dates, in days, or in months from 60 days. With
+no build yet it says `wiki: no build yet`. It reads `~/tehas/wiki/current/build.json`
+and the product checkout; no model, no GitHub call, and it writes nothing.
+`tehasbot wiki` writes the same object to `~/tehas/live/wiki.json`, and
+`tehas-wiki-status.timer` runs it every five minutes.
+
+The wiki is still being built: with `TEHAS_WIKI` off, or in a release, it
+exits 78 and says so. Exit 0, 64 on an argument but `--json`, 78 when the
+wiki is off or the settings are missing or malformed.
+
 ## tehas disk
 
 ```
