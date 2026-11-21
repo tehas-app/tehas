@@ -1,3 +1,4 @@
+use super::solid::{self, satisfies};
 use super::text::{changelog, choose, env_get, env_set, Held, Moved, Ver};
 use super::tools::{sha256, World};
 use super::{check, run};
@@ -5,7 +6,7 @@ use serde_json::json;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tehas_core::testdir::TestDir;
 
 fn v(s: &str) -> Ver {
@@ -67,6 +68,7 @@ fn held(name: &str, current: &str, newest: &str) -> Held {
         name: name.into(),
         current: current.into(),
         newest: newest.into(),
+        file: "host/versions.env".into(),
     }
 }
 
@@ -127,6 +129,9 @@ struct Fake {
     lock: String,
     cutoff: Option<String>,
     asked: RefCell<Vec<String>>,
+    /// The roots tools/vendor-solid was run in.
+    vendored: RefCell<Vec<PathBuf>>,
+    vendor_error: Option<String>,
 }
 
 impl Fake {
@@ -156,6 +161,10 @@ impl World for Fake {
     }
     fn npm_lock(&self, dir: &Path) -> Result<(), String> {
         fs::write(dir.join("package-lock.json"), &self.lock).map_err(|e| e.to_string())
+    }
+    fn vendor_solid(&self, root: &Path) -> Result<(), String> {
+        self.vendored.borrow_mut().push(root.to_path_buf());
+        self.vendor_error.clone().map_or(Ok(()), Err)
     }
 }
 
@@ -238,6 +247,10 @@ fn sources() -> Fake {
         )
         .json("https://hub.docker.com/page2", json!({"results": [{"name": "2.11.8"}], "next": null}))
         .json("https://hub.docker.com/v2/repositories/library/caddy/tags/2.11.8", json!({"digest": NEW_DIGEST}))
+        .json("https://registry.npmjs.org/solid-js", solid_doc("solid-js", &[("2.0.3", json!({}))]))
+        .json("https://registry.npmjs.org/@solidjs%2Fsignals", solid_doc("@solidjs/signals", &[("2.0.3", json!({}))]))
+        .json("https://registry.npmjs.org/@solidjs%2Fweb", solid_doc("@solidjs/web", &[("2.0.3", json!({"solid-js": "^2.0.3"}))]))
+        .json("https://registry.npmjs.org/@solidjs%2Fhtml", solid_doc("@solidjs/html", &[("2.0.1", json!({"@solidjs/web": "^2.0.3"}))]))
 }
 
 fn tree() -> TestDir {
@@ -256,6 +269,7 @@ VIPUNE_MODEL_SHA256_TOKENIZER=dd\nPI_LOCK_SHA256=ee\nOSV_SCANNER_SHA256=ff\nCADD
         ("host/edge/docs.compose.yaml", format!("    # caddy 2.11.7, named by digest\n    image: caddy@{DIGEST}\n")),
         ("host/edge/router.compose.yaml", format!("    # caddy 2.11.7, named by digest\n    image: caddy@{DIGEST}\n")),
         ("preview/Dockerfile", format!("# caddy 2.11.7, named by digest\nFROM caddy@{DIGEST}\n")),
+        (solid::MAIN_RS, SOLID_MAIN.to_string()),
     ] {
         let p = dir.join(path);
         fs::create_dir_all(p.parent().unwrap()).unwrap();
@@ -463,5 +477,505 @@ fn move_takes_a_release_or_a_prerelease_and_nothing_else() {
         let mut a = args(bad);
         a.push("/nonexistent/tehas-pins-root".to_string());
         assert_eq!(super::main(&a), 64, "{bad}");
+    }
+}
+
+/// tools/vendor-solid/src/main.rs as the tests know it: its shape, its pins
+/// and a line after them that names a version and is no pin.
+const SOLID_MAIN: &str = r#"//! Bundles the pinned Solid 2 packages.
+
+struct Pin {
+    name: &'static str,
+    version: &'static str,
+    tarball: &'static str,
+    integrity: &'static str,
+}
+
+const PINS: [Pin; 4] = [
+    Pin {
+        name: "solid-js",
+        version: "2.0.3",
+        tarball: "https://registry.npmjs.org/solid-js/-/solid-js-2.0.3.tgz",
+        integrity: "sha512-OLD1",
+    },
+    Pin {
+        name: "@solidjs/signals",
+        version: "2.0.3",
+        tarball: "https://registry.npmjs.org/@solidjs/signals/-/signals-2.0.3.tgz",
+        integrity: "sha512-OLD2",
+    },
+    Pin {
+        name: "@solidjs/web",
+        version: "2.0.3",
+        tarball: "https://registry.npmjs.org/@solidjs/web/-/web-2.0.3.tgz",
+        integrity: "sha512-OLD3",
+    },
+    Pin {
+        name: "@solidjs/html",
+        version: "2.0.1",
+        tarball: "https://registry.npmjs.org/@solidjs/html/-/html-2.0.1.tgz",
+        integrity: "sha512-OLD4",
+    },
+];
+
+const NOT_A_PIN: [&str; 2] = ["name: \"solid-js\",", "version: \"2.0.3\","];
+"#;
+
+fn integrity(name: &str, v: &str) -> String {
+    format!(
+        "sha512-{}{}==",
+        sha256(format!("{name}@{v}").as_bytes()),
+        "x".repeat(22)
+    )
+}
+
+fn tarball(name: &str, v: &str) -> String {
+    let base = name.rsplit('/').next().unwrap();
+    format!("https://registry.npmjs.org/{name}/-/{base}-{v}.tgz")
+}
+
+/// A registry document of a Solid package: each version with its peer
+/// dependencies, published a day apart from the 1st of October.
+fn solid_doc(name: &str, versions: &[(&str, serde_json::Value)]) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    let mut times = serde_json::Map::new();
+    for (i, (v, peers)) in versions.iter().enumerate() {
+        map.insert(
+            v.to_string(),
+            json!({
+                "peerDependencies": peers,
+                "dist": {"tarball": tarball(name, v), "integrity": integrity(name, v)},
+            }),
+        );
+        times.insert(
+            v.to_string(),
+            json!(format!("2026-10-{:02}T08:00:00.000Z", i + 1)),
+        );
+    }
+    json!({ "versions": map, "time": times })
+}
+
+fn solid_url(name: &str) -> String {
+    format!("https://registry.npmjs.org/{}", name.replace('/', "%2F"))
+}
+
+/// The sources with these Solid documents in place of the ones that offer
+/// only what is pinned.
+fn with_solid(docs: Vec<(&str, serde_json::Value)>) -> Fake {
+    docs.into_iter()
+        .fold(sources(), |f, (name, doc)| f.json(&solid_url(name), doc))
+}
+
+/// The entry of SOLID_MAIN for `name`, its three strings replaced.
+fn main_with(text: &str, name: &str, old: (&str, &str), new: &str) -> String {
+    let (version, integrity_was) = old;
+    let was = format!(
+        "        version: \"{version}\",\n        tarball: \"{}\",\n        integrity: \"{integrity_was}\",\n",
+        tarball(name, version)
+    );
+    let now = format!(
+        "        version: \"{new}\",\n        tarball: \"{}\",\n        integrity: \"{}\",\n",
+        tarball(name, new),
+        integrity(name, new)
+    );
+    assert_eq!(text.matches(&was).count(), 1, "{name}");
+    text.replace(&was, &now)
+}
+
+#[test]
+fn check_lists_each_solid_package_with_its_newest_2x_and_a_held_3x() {
+    let dir = tree();
+    let world = with_solid(vec![(
+        "solid-js",
+        solid_doc(
+            "solid-js",
+            &[
+                ("2.0.3", json!({})),
+                ("2.0.4", json!({})),
+                ("3.0.0", json!({})),
+            ],
+        ),
+    )]);
+    let lines = check(&dir, &world).unwrap();
+    for want in [
+        "solid-js 2.0.3 2.0.4 held 3.0.0",
+        "@solidjs/signals 2.0.3 2.0.3",
+        "@solidjs/web 2.0.3 2.0.3",
+        "@solidjs/html 2.0.1 2.0.1",
+    ] {
+        assert!(lines.contains(&want.to_string()), "{want}: {lines:?}");
+    }
+    assert_eq!(
+        fs::read_to_string(dir.join(solid::MAIN_RS)).unwrap(),
+        SOLID_MAIN
+    );
+    assert!(world.vendored.borrow().is_empty());
+}
+
+#[test]
+fn move_takes_solid_patches_rewrites_their_pins_and_rebuilds_the_bundle() {
+    let dir = tree();
+    let world = Fake {
+        unpacked: vipune_engine(NEW_REV),
+        lock: lock("1.5.0"),
+        ..with_solid(vec![
+            (
+                "solid-js",
+                solid_doc("solid-js", &[("2.0.3", json!({})), ("2.0.4", json!({}))]),
+            ),
+            (
+                "@solidjs/signals",
+                solid_doc(
+                    "@solidjs/signals",
+                    &[("2.0.3", json!({})), ("2.0.4", json!({}))],
+                ),
+            ),
+            (
+                "@solidjs/web",
+                solid_doc(
+                    "@solidjs/web",
+                    &[
+                        ("2.0.3", json!({"solid-js": "^2.0.3"})),
+                        ("2.0.4", json!({"solid-js": "^2.0.4"})),
+                    ],
+                ),
+            ),
+            (
+                "@solidjs/html",
+                solid_doc(
+                    "@solidjs/html",
+                    &[
+                        ("2.0.1", json!({"@solidjs/web": "^2.0.3"})),
+                        ("3.0.0", json!({"@solidjs/web": "^3.0.0"})),
+                    ],
+                ),
+            ),
+        ])
+    };
+    let out = run(&dir, Some("v0.3.0"), &world).unwrap();
+    let solid_lines: Vec<&String> = out.iter().filter(|l| l.contains("solid")).collect();
+    assert_eq!(
+        solid_lines,
+        [
+            "moved solid-js: 2.0.3 to 2.0.4",
+            "moved @solidjs/signals: 2.0.3 to 2.0.4",
+            "moved @solidjs/web: 2.0.3 to 2.0.4",
+            "held @solidjs/html: 2.0.1, 3.0.0 is out",
+        ]
+    );
+    let mut want = main_with(SOLID_MAIN, "solid-js", ("2.0.3", "sha512-OLD1"), "2.0.4");
+    want = main_with(&want, "@solidjs/signals", ("2.0.3", "sha512-OLD2"), "2.0.4");
+    want = main_with(&want, "@solidjs/web", ("2.0.3", "sha512-OLD3"), "2.0.4");
+    assert_eq!(fs::read_to_string(dir.join(solid::MAIN_RS)).unwrap(), want);
+    assert_eq!(*world.vendored.borrow(), [dir.to_path_buf()]);
+    let log = fs::read_to_string(dir.join("CHANGELOG.md")).unwrap();
+    assert!(
+        log.contains("- The pinned solid-js moves from 2.0.3 to 2.0.4.\n"),
+        "{log}"
+    );
+    assert!(
+        log.contains("- @solidjs/html 3.0.0 is out, a new major version. `tools/vendor-solid/src/main.rs` keeps 2.0.1: the move is a person's call.\n"),
+        "{log}"
+    );
+    assert!(
+        log.contains("- Node 24.0.0 is out, a new major version. `host/versions.env` keeps 22.2.0"),
+        "{log}"
+    );
+}
+
+#[test]
+fn a_solid_release_whose_peers_are_not_met_is_not_taken() {
+    // solid-js 2.0.4 asks for a signals that is not out, web 2.0.4 for that
+    // solid-js, and html 2.0.2 for that web.
+    let mut solid_js = solid_doc("solid-js", &[("2.0.3", json!({})), ("2.0.4", json!({}))]);
+    solid_js["versions"]["2.0.4"]["dependencies"] =
+        json!({"@solidjs/signals": "^2.0.4", "seroval": "^1.8.0"});
+    let world = with_solid(vec![
+        ("solid-js", solid_js),
+        (
+            "@solidjs/web",
+            solid_doc(
+                "@solidjs/web",
+                &[
+                    ("2.0.3", json!({"solid-js": "^2.0.3"})),
+                    ("2.0.4", json!({"solid-js": "^2.0.4"})),
+                ],
+            ),
+        ),
+        (
+            "@solidjs/html",
+            solid_doc(
+                "@solidjs/html",
+                &[
+                    ("2.0.1", json!({"@solidjs/web": "^2.0.3"})),
+                    ("2.0.2", json!({"@solidjs/web": "^2.0.4"})),
+                ],
+            ),
+        ),
+    ]);
+    let lines = check(&tree(), &world).unwrap();
+    assert!(
+        lines.contains(&"@solidjs/web 2.0.3 2.0.3 kept: 2.0.4 asks for solid-js ^2.0.4, and solid-js would be 2.0.3".to_string()),
+        "{lines:?}"
+    );
+    let dir = tree();
+    let world = Fake {
+        unpacked: vipune_engine(NEW_REV),
+        lock: lock("1.5.0"),
+        ..world
+    };
+    let out = run(&dir, None, &world).unwrap();
+    let solid_lines: Vec<&String> = out.iter().filter(|l| l.contains("solid")).collect();
+    assert_eq!(
+        solid_lines,
+        [
+            "kept solid-js 2.0.3: 2.0.4 asks for @solidjs/signals ^2.0.4, and @solidjs/signals would be 2.0.3",
+            "kept @solidjs/web 2.0.3: 2.0.4 asks for solid-js ^2.0.4, and solid-js would be 2.0.3",
+            "kept @solidjs/html 2.0.1: 2.0.2 asks for @solidjs/web ^2.0.4, and @solidjs/web would be 2.0.3",
+        ]
+    );
+    assert_eq!(
+        fs::read_to_string(dir.join(solid::MAIN_RS)).unwrap(),
+        SOLID_MAIN
+    );
+    assert!(world.vendored.borrow().is_empty());
+}
+
+#[test]
+fn keeping_a_later_solid_pin_can_keep_an_earlier_one() {
+    // solid-js 2.0.4 asks for an html that would move, and that html for a
+    // web that is not out: html is kept, and then solid-js.
+    let world = with_solid(vec![
+        (
+            "solid-js",
+            solid_doc(
+                "solid-js",
+                &[
+                    ("2.0.3", json!({})),
+                    ("2.0.4", json!({"@solidjs/html": "^2.0.2"})),
+                ],
+            ),
+        ),
+        (
+            "@solidjs/html",
+            solid_doc(
+                "@solidjs/html",
+                &[
+                    ("2.0.1", json!({"@solidjs/web": "^2.0.3"})),
+                    ("2.0.2", json!({"@solidjs/web": "^2.0.5"})),
+                ],
+            ),
+        ),
+    ]);
+    let lines = check(&tree(), &world).unwrap();
+    for want in [
+        "solid-js 2.0.3 2.0.3 kept: 2.0.4 asks for @solidjs/html ^2.0.2, and @solidjs/html would be 2.0.1",
+        "@solidjs/html 2.0.1 2.0.1 kept: 2.0.2 asks for @solidjs/web ^2.0.5, and @solidjs/web would be 2.0.3",
+    ] {
+        assert!(lines.contains(&want.to_string()), "{want}: {lines:?}");
+    }
+}
+
+#[test]
+fn a_solid_pin_that_stays_keeps_a_move_it_does_not_meet() {
+    // No newer web is out, and web 2.0.3 asks for solid-js ~2.0.3.
+    let world = with_solid(vec![
+        (
+            "solid-js",
+            solid_doc("solid-js", &[("2.0.3", json!({})), ("2.1.0", json!({}))]),
+        ),
+        (
+            "@solidjs/web",
+            solid_doc("@solidjs/web", &[("2.0.3", json!({"solid-js": "~2.0.3"}))]),
+        ),
+    ]);
+    let lines = check(&tree(), &world).unwrap();
+    let want = "solid-js 2.0.3 2.0.3 kept: @solidjs/web 2.0.3 asks for solid-js ~2.0.3, which 2.1.0 does not meet";
+    assert!(lines.contains(&want.to_string()), "{lines:?}");
+}
+
+#[test]
+fn a_solid_release_younger_than_npms_min_release_age_is_not_taken() {
+    // 2.0.3 is from the 1st of October, 2.0.4 from the 2nd.
+    let docs = || {
+        vec![(
+            "solid-js",
+            solid_doc("solid-js", &[("2.0.3", json!({})), ("2.0.4", json!({}))]),
+        )]
+    };
+    for (cutoff, want) in [
+        ("2026-10-01T12:00:00", "solid-js 2.0.3 2.0.3"),
+        ("2026-10-02T08:00:00", "solid-js 2.0.3 2.0.4"),
+    ] {
+        let world = Fake {
+            cutoff: Some(cutoff.into()),
+            ..with_solid(docs())
+        };
+        let lines = check(&tree(), &world).unwrap();
+        assert!(lines.contains(&want.to_string()), "{cutoff}: {lines:?}");
+    }
+}
+
+#[test]
+fn no_solid_move_leaves_main_rs_and_the_bundle_alone() {
+    let dir = tree();
+    let world = Fake {
+        unpacked: vipune_engine(NEW_REV),
+        lock: lock("1.5.0"),
+        ..sources()
+    };
+    let out = run(&dir, None, &world).unwrap();
+    assert!(!out.iter().any(|l| l.contains("solid")), "{out:?}");
+    assert_eq!(
+        fs::read_to_string(dir.join(solid::MAIN_RS)).unwrap(),
+        SOLID_MAIN
+    );
+    assert!(world.vendored.borrow().is_empty());
+}
+
+#[test]
+fn a_solid_move_that_fails_stops_with_its_reason() {
+    let newer = |dist: serde_json::Value| {
+        let mut doc = solid_doc("solid-js", &[("2.0.3", json!({})), ("2.0.4", json!({}))]);
+        doc["versions"]["2.0.4"]["dist"] = dist;
+        Fake {
+            unpacked: vipune_engine(NEW_REV),
+            lock: lock("1.5.0"),
+            ..with_solid(vec![("solid-js", doc)])
+        }
+    };
+    let good = integrity("solid-js", "2.0.4");
+    for (dist, why) in [
+        (
+            json!({"tarball": "https://example.org/solid-js-2.0.4.tgz", "integrity": good}),
+            "tarball",
+        ),
+        (
+            json!({"tarball": tarball("solid-js", "2.0.4"), "integrity": "sha1-abc"}),
+            "integrity",
+        ),
+        (
+            json!({"tarball": tarball("solid-js", "2.0.4"), "integrity": format!("{good}\"")}),
+            "integrity",
+        ),
+        (
+            json!({"tarball": tarball("solid-js", "2.0.4"), "integrity": "sha512-abc="}),
+            "integrity",
+        ),
+        (json!({}), "tarball"),
+    ] {
+        let dir = tree();
+        let e = run(&dir, None, &newer(dist)).unwrap_err();
+        assert!(e.starts_with("solid-js 2.0.4: ") && e.contains(why), "{e}");
+    }
+
+    let dir = tree();
+    let world = Fake {
+        vendor_error: Some("tools/vendor-solid failed".into()),
+        ..newer(json!({"tarball": tarball("solid-js", "2.0.4"), "integrity": good}))
+    };
+    let e = run(&dir, None, &world).unwrap_err();
+    assert!(e.contains("tools/vendor-solid failed"), "{e}");
+
+    let dir = tree();
+    fs::write(dir.join(solid::MAIN_RS), "no pins here\n").unwrap();
+    let e = check(&dir, &sources()).unwrap_err();
+    assert!(e.contains("names no PINS"), "{e}");
+}
+
+#[test]
+fn a_pin_of_vendor_solid_is_read_and_set_in_place() {
+    let pins = solid::pins(SOLID_MAIN).unwrap();
+    let names: Vec<(&str, &str)> = pins
+        .iter()
+        .map(|p| (p.name.as_str(), p.version.as_str()))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            ("solid-js", "2.0.3"),
+            ("@solidjs/signals", "2.0.3"),
+            ("@solidjs/web", "2.0.3"),
+            ("@solidjs/html", "2.0.1"),
+        ]
+    );
+    let web = solid::Pin {
+        name: "@solidjs/web".into(),
+        version: "2.0.4".into(),
+        tarball: tarball("@solidjs/web", "2.0.4"),
+        integrity: integrity("@solidjs/web", "2.0.4"),
+    };
+    assert_eq!(
+        solid::set(SOLID_MAIN, &web).unwrap(),
+        main_with(
+            SOLID_MAIN,
+            "@solidjs/web",
+            ("2.0.3", "sha512-OLD3"),
+            "2.0.4"
+        )
+    );
+    let other = solid::Pin {
+        name: "solid-js/store".into(),
+        ..web
+    };
+    assert!(solid::set(SOLID_MAIN, &other)
+        .unwrap_err()
+        .contains("no pin of solid-js/store"));
+
+    // The real file reads, and setting each pin to itself changes nothing.
+    let real = include_str!("../../../../tools/vendor-solid/src/main.rs");
+    let pins = solid::pins(real).unwrap();
+    let names: Vec<&str> = pins.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "solid-js",
+            "@solidjs/signals",
+            "@solidjs/web",
+            "@solidjs/html"
+        ]
+    );
+    for p in &pins {
+        assert!(p.integrity.starts_with("sha512-"), "{}", p.name);
+        assert_eq!(solid::set(real, p).unwrap(), real, "{}", p.name);
+    }
+}
+
+#[test]
+fn a_range_of_npm_is_met_or_not() {
+    for (range, ver, met) in [
+        ("^2.0.3", "2.0.3", true),
+        ("^2.0.3", "2.9.0", true),
+        ("^2.0.3", "2.0.2", false),
+        ("^2.0.3", "3.0.0", false),
+        ("^0.2.3", "0.2.9", true),
+        ("^0.2.3", "0.3.0", false),
+        ("^0.0.3", "0.0.4", false),
+        ("^2.0.0-rc.22", "2.0.1", true),
+        ("~2.1.0", "2.1.9", true),
+        ("~2.1.0", "2.2.0", false),
+        ("2.0.3", "2.0.3", true),
+        ("=2.0.3", "2.0.4", false),
+        ("2.x", "2.7.1", true),
+        ("2", "3.0.0", false),
+        ("*", "9.9.9", true),
+        ("", "1.0.0", true),
+        (">=2.0.0 <3.0.0", "2.5.0", true),
+        (">=2.0.0 <3.0.0", "3.0.0", false),
+        ("^1.9.0 || ^2.0.0", "2.0.3", true),
+        ("^1.9.0 || ^2.1.0", "2.0.3", false),
+        (">2.0.3", "2.0.4", true),
+        ("<=2.0.3", "2.0.4", false),
+        (">2.0.3-rc.1", "2.0.3", true),
+        (">2.0.3-rc.1", "2.0.2", false),
+        ("~2.1.3", "2.1.2", false),
+        ("~2.1.3", "2.1.3", true),
+        // Forms this does not read are not met.
+        ("2.0.0 - 2.9.0", "2.0.3", false),
+        ("2.0.3-rc.1", "2.0.3", false),
+        ("latest", "2.0.3", false),
+        ("workspace:*", "2.0.3", false),
+    ] {
+        assert_eq!(satisfies(range, v(ver)), met, "{range} {ver}");
     }
 }
