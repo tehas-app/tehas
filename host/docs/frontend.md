@@ -949,10 +949,12 @@ The budgets for new work:
   a refresh's answer read without asking whether it is ok, a method a feed
   does not have, `load` spelt wrong, and a `mount` that returns no handle.
   `tsc` must reject each there with that code and nowhere else.
-  `TEHAS_TSC` names the `tsc`; otherwise one on `PATH` of that version is
-  used. With neither the test says `SKIPPED` on stderr and passes, except
-  when `CI` or `TEHAS_TEST_STRICT` is set to anything, `false` too, where it
-  fails, as a missing shellcheck fails the shell tests. The gate's workflows
+  `TEHAS_TSC` names the `tsc`; otherwise the first on `PATH` of that version
+  is used, so a global `tsc` of another version ahead of it does not hide it.
+  With neither the test says `SKIPPED` on stderr and passes, except when `CI`
+  or `TEHAS_TEST_STRICT` is set to anything, `false` too, where it fails, as
+  a missing shellcheck fails the shell tests, and names each `tsc` on `PATH`
+  it passed over with its version. The gate's workflows
   install npm's `@typescript/typescript-linux-x64` at that pin, checked by its
   `TSC_SHA256` on every run, and name it. The sandbox image has it on `PATH`,
   and `bootstrap.sh user` links it into `~/tehas/bin`. By hand, in `console/`:

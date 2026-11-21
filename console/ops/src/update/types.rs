@@ -125,12 +125,13 @@ fn strict(ci: Option<&str>, asked: Option<&str>) -> bool {
 }
 
 /// Which `tsc` to run. One that is `named` must be the pinned version, or the
-/// check fails: it was named on purpose. One found `on_path` is used only when
-/// it is that version, since another version reads the files differently.
-/// With none, the check is skipped, but when `strict` it fails.
+/// check fails: it was named on purpose. Of those `on_path`, in its order, the
+/// first of that version is used, since another version reads the files
+/// differently. With none, the check is skipped, but when `strict` it fails
+/// and names each one it passed over.
 fn choose(
     named: Option<PathBuf>,
-    on_path: Option<PathBuf>,
+    on_path: &[PathBuf],
     strict: bool,
     version: impl Fn(&Path) -> Result<String, String>,
 ) -> Result<Option<PathBuf>, String> {
@@ -145,13 +146,24 @@ fn choose(
         }
         return Ok(Some(path));
     }
-    let found = on_path.filter(|p| version(p).is_ok_and(|v| v == want));
-    if found.is_none() && strict {
-        return Err(format!(
-            "no tsc {want}, and CI or TEHAS_TEST_STRICT is set: name it in {TSC_VAR}"
-        ));
+    let mut passed = Vec::new();
+    for path in on_path {
+        match version(path) {
+            Ok(v) if v == want => return Ok(Some(path.clone())),
+            Ok(v) => passed.push(format!("{} is {v}", path.display())),
+            Err(e) => passed.push(format!("{}: {e}", path.display())),
+        }
     }
-    Ok(found)
+    if !strict {
+        return Ok(None);
+    }
+    let seen = match passed.is_empty() {
+        true => "none on PATH".to_owned(),
+        false => passed.join("; "),
+    };
+    Err(format!(
+        "no tsc {want} ({seen}), and CI or TEHAS_TEST_STRICT is set: name it in {TSC_VAR}"
+    ))
 }
 
 /// The `tsc` to run, from `TEHAS_TSC`, `PATH`, `CI` and `TEHAS_TEST_STRICT`,
@@ -160,16 +172,19 @@ fn find_tsc() -> Result<Option<PathBuf>, String> {
     let named = std::env::var_os(TSC_VAR)
         .filter(|v| !v.is_empty())
         .map(PathBuf::from);
-    let on_path = std::env::var_os("PATH").and_then(|path| {
-        std::env::split_paths(&path)
-            .map(|dir| dir.join("tsc"))
-            .find(|p| p.is_file())
-    });
+    let on_path: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|path| {
+            std::env::split_paths(&path)
+                .map(|dir| dir.join("tsc"))
+                .filter(|p| p.is_file())
+                .collect()
+        })
+        .unwrap_or_default();
     let strict = strict(
         std::env::var("CI").ok().as_deref(),
         std::env::var("TEHAS_TEST_STRICT").ok().as_deref(),
     );
-    choose(named, on_path, strict, version_of)
+    choose(named, &on_path, strict, version_of)
 }
 
 /// Checks `files`, relative to `root`, with the `tsc` at `tsc`. What it
@@ -400,37 +415,55 @@ mod tests {
         let older = |_: &Path| Ok("5.9.3".to_owned());
         let broken = |_: &Path| Err("no version".to_owned());
         let named = Some(PathBuf::from("/opt/tsc"));
-        let on_path = Some(PathBuf::from("/usr/bin/tsc"));
+        let on_path = vec![PathBuf::from("/usr/bin/tsc")];
 
         for ci in [false, true] {
-            assert_eq!(
-                choose(named.clone(), on_path.clone(), ci, pinned).unwrap(),
-                named
-            );
-            let err = choose(named.clone(), on_path.clone(), ci, older).unwrap_err();
+            assert_eq!(choose(named.clone(), &on_path, ci, pinned).unwrap(), named);
+            let err = choose(named.clone(), &on_path, ci, older).unwrap_err();
             assert!(err.contains(TSC_VAR) && err.contains("5.9.3"), "{err}");
-            assert!(choose(named.clone(), None, ci, broken).is_err());
-            assert_eq!(choose(None, on_path.clone(), ci, pinned).unwrap(), on_path);
+            assert!(choose(named.clone(), &[], ci, broken).is_err());
+            assert_eq!(
+                choose(None, &on_path, ci, pinned).unwrap().as_ref(),
+                on_path.first()
+            );
         }
 
         // With no pinned tsc the check is skipped, and when strict it fails.
-        assert_eq!(choose(None, on_path.clone(), false, older).unwrap(), None);
-        assert_eq!(choose(None, on_path.clone(), false, broken).unwrap(), None);
-        assert_eq!(choose(None, None, false, pinned).unwrap(), None);
+        assert_eq!(choose(None, &on_path, false, older).unwrap(), None);
+        assert_eq!(choose(None, &on_path, false, broken).unwrap(), None);
+        assert_eq!(choose(None, &[], false, pinned).unwrap(), None);
         for (on_path, version) in [
             (
                 on_path.clone(),
                 older as fn(&Path) -> Result<String, String>,
             ),
             (on_path, broken),
-            (None, pinned),
+            (vec![], pinned),
         ] {
-            let err = choose(None, on_path, true, version).unwrap_err();
+            let err = choose(None, &on_path, true, version).unwrap_err();
             assert!(
                 err.contains("TEHAS_TEST_STRICT") && err.contains(TSC_VAR),
                 "{err}"
             );
         }
+    }
+
+    #[test]
+    fn the_pinned_tsc_is_found_behind_another_on_path_and_strict_names_those_it_passed() {
+        let global = PathBuf::from("/usr/local/bin/tsc");
+        let home = PathBuf::from("/home/tehas/tehas/bin/tsc");
+        let version = |p: &Path| match p.starts_with("/usr") {
+            true => Ok("5.9.3".to_owned()),
+            false => Ok(super::pinned().to_owned()),
+        };
+        let both = [global.clone(), home.clone()];
+        assert_eq!(choose(None, &both, true, version).unwrap(), Some(home));
+
+        let err = choose(None, &[global], true, version).unwrap_err();
+        assert!(err.contains("/usr/local/bin/tsc is 5.9.3"), "{err}");
+        let broken = |_: &Path| Err("no version".to_owned());
+        let err = choose(None, &both[..1], true, broken).unwrap_err();
+        assert!(err.contains("/usr/local/bin/tsc: no version"), "{err}");
     }
 
     #[test]
