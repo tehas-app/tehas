@@ -954,7 +954,9 @@ The budgets for new work:
   With neither the test says `SKIPPED` on stderr and passes, except when `CI`
   or `TEHAS_TEST_STRICT` is set to anything, `false` too, where it fails, as
   a missing shellcheck fails the shell tests, and names each `tsc` on `PATH`
-  it passed over with its version. The gate's workflows
+  it passed over with its version. `scripts/verify.sh --full` exports
+  `TEHAS_TEST_STRICT=1`, so a missing `tsc` fails the full gate as it fails
+  CI. The gate's workflows
   install npm's `@typescript/typescript-linux-x64` at that pin, checked by its
   `TSC_SHA256` on every run, and name it. The sandbox image has it on `PATH`,
   and `bootstrap.sh user` links it into `~/tehas/bin`. By hand, in `console/`:
