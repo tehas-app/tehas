@@ -1,0 +1,40 @@
+{
+  "api": 1,
+  "name": "floorplan",
+  "url": "https://github.com/tehas-app/tehas-plugin-floorplan",
+  "commit": "89abcdef0123456789abcdef0123456789abcdef",
+  "pin": "0123456789abcdef0123456789abcdef01234567",
+  "manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "label": "Floorplan",
+  "license": null,
+  "build": "Dockerfile",
+  "asks": [
+    {
+      "ask": "product",
+      "does": "reads all of the product's code, read only, in every run",
+      "granted": false
+    }
+  ],
+  "unasked": [],
+  "grants_commit": "0123456789abcdef0123456789abcdef01234567",
+  "bases": [
+    {
+      "image": "node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "onbuild": [
+        "RUN make"
+      ]
+    }
+  ],
+  "model": null,
+  "warnings": [],
+  "changes": [
+    "build changed"
+  ],
+  "refusals": [
+    "the base image node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa has ONBUILD triggers, which would run in the build: RUN make"
+  ],
+  "settings": [
+    "TEHAS_PLUGINS: floorplan=https://github.com/tehas-app/tehas-plugin-floorplan@89abcdef0123456789abcdef0123456789abcdef",
+    "TEHAS_PLUGIN_GRANTS_FLOORPLAN=\"89abcdef0123456789abcdef0123456789abcdef product\""
+  ]
+}

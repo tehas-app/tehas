@@ -7,7 +7,10 @@
       "commit": "0123456789abcdef0123456789abcdef01234567",
       "grants": [],
       "state": "refused",
-      "refusal": "the grants are for another commit"
+      "refusal": "the grants are for another commit",
+      "image": null,
+      "manifest_sha256": null,
+      "bases": []
     }
   ]
 }

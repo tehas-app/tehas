@@ -136,24 +136,22 @@ fn step_sql(to: i64) -> &'static str {
         17 => db::STEP_17,
         18 => db::STEP_18,
         19 => db::STEP_19,
+        20 => db::STEP_20,
         _ => unreachable!("no step to {to}"),
     }
 }
 
-/// Every table but meta, with its rows, in rowid order.
-/// A table a store gains from the step to 19, which older stores lack: it is
-/// left out of the rows a step keeps while it has none.
-const LATER: [&str; 1] = ["plugin_records"];
-
+/// Every table but meta, plugin_runs and plugin_records, with its rows, in
+/// rowid order. The two are new at 19 and 20, so no store a step starts from
+/// holds them.
 fn rows(c: &Connection) -> Vec<(String, usize)> {
     tables(c)
         .into_iter()
-        .filter(|t| t != "meta")
+        .filter(|t| t != "meta" && t != "plugin_runs" && t != "plugin_records")
         .map(|t| {
             let n = dump(c, &t, &columns(c, &t)).len();
             (t, n)
         })
-        .filter(|(t, n)| !(LATER.contains(&t.as_str()) && *n == 0))
         .collect()
 }
 
@@ -274,16 +272,14 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_19() {
-    assert_eq!(db::SCHEMA_VERSION, 19);
-    let home = home("schema-19");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 19);
+fn init_writes_schema_20() {
+    assert_eq!(db::SCHEMA_VERSION, 20);
+    let home = home("schema-20");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 20);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "19"
+        "20"
     );
-    // Schema 19: a plugin's records, none until a plugin keeps one.
-    assert_eq!(count(&home, "plugin_records"), 0);
     // The five tables of the feature are laid by every init, and stay empty
     // while it is off.
     for t in db::OUTSOURCE_TABLES {
@@ -312,6 +308,26 @@ fn init_writes_schema_19() {
             "{col}"
         );
     }
+    // Schema 19: a run of a plugin.
+    assert_eq!(
+        columns(&c, "plugin_runs"),
+        [
+            "id",
+            "plugin",
+            "plugin_commit",
+            "kind",
+            "how",
+            "started_by",
+            "head",
+            "started_at",
+            "ended_at",
+            "result",
+            "tokens"
+        ]
+    );
+    assert_eq!(count(&home, "plugin_runs"), 0);
+    // Schema 20: a plugin's records, none until a plugin keeps one.
+    assert_eq!(count(&home, "plugin_records"), 0);
     let made = tables(&c);
     for t in DROPPED {
         assert!(!made.contains(&t.to_string()), "{t}");
@@ -374,7 +390,7 @@ fn the_fixtures_are_the_stores_of_the_releases() {
 }
 
 #[test]
-fn a_store_of_each_release_1_0_updates_from_comes_to_19_with_every_row() {
+fn a_store_of_each_release_1_0_updates_from_comes_to_18_with_every_row() {
     let made = home("init-shape");
     let b = conn(&made);
     for (version, schema, _) in RELEASES {
@@ -454,7 +470,7 @@ fn a_store_of_each_release_1_0_updates_from_comes_to_19_with_every_row() {
 /// and a stop inside a step leaves it where the step began. Either way the
 /// next migrate goes on from there to the schema init writes, with every row.
 #[test]
-fn a_migrate_stopped_at_any_step_comes_to_19_when_it_runs_again() {
+fn a_migrate_stopped_at_any_step_comes_to_18_when_it_runs_again() {
     let made = home("stopped-shape");
     let b = conn(&made);
     for (version, schema, _) in RELEASES {
@@ -957,7 +973,7 @@ fn a_migrated_store_with_the_feature_off_writes_no_outsource_row() {
 const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 /// The sources of the verbs, without their tests.
-const VERB_SOURCES: [(&str, &str); 22] = [
+const VERB_SOURCES: [(&str, &str); 23] = [
     ("approval.rs", include_str!("approval.rs")),
     ("batch.rs", include_str!("batch.rs")),
     ("call.rs", include_str!("call.rs")),
@@ -974,6 +990,7 @@ const VERB_SOURCES: [(&str, &str); 22] = [
     ("outsource.rs", include_str!("outsource.rs")),
     ("park.rs", include_str!("park.rs")),
     ("plan.rs", include_str!("plan.rs")),
+    ("plugin.rs", include_str!("plugin.rs")),
     ("poll.rs", include_str!("poll.rs")),
     ("record.rs", include_str!("record.rs")),
     ("review_issue.rs", include_str!("review_issue.rs")),

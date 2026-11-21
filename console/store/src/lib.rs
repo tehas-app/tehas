@@ -19,6 +19,7 @@ mod order;
 pub mod outsource;
 mod park;
 mod plan;
+mod plugin;
 mod poll;
 mod record;
 mod review_issue;

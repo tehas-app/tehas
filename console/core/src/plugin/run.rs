@@ -214,13 +214,14 @@ pub(crate) mod tests {
             name: "demo".into(),
             label: "Demo".into(),
             license: None,
-            build: "Dockerfile".into(),
+            build: Some("Dockerfile".into()),
             asks: asks.iter().map(|a| a.to_string()).collect(),
-            timeout: 600,
+            timeout: Some(600),
             kit: false,
             view: None,
             actions: vec![],
             hook: asks.contains(&"hook:after:work").then_some(300),
+            skills: vec![],
         }
     }
 

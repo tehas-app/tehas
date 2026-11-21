@@ -26,4 +26,4 @@ tehas-core = { path = "../core", features = ["mask"] }
 tehas-cycle = { path = "../cycle" }
 
 [dev-dependencies]
-rusqlite = "0.38"
+rusqlite = "0.41"

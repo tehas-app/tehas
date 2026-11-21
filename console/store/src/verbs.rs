@@ -4,7 +4,8 @@
 //! mapping of an error to its exit.
 
 use crate::{
-    approval, cycle, db, history, journal, live, order, outsource, park, plan, poll, record, upkeep,
+    approval, cycle, db, history, journal, live, order, outsource, park, plan, plugin, poll,
+    record, upkeep,
 };
 use rusqlite::Connection;
 use serde_json::Value;
@@ -30,6 +31,7 @@ pub enum Call {
     Journal(journal::Call),
     Order(order::Call),
     Outsource(outsource::Call),
+    Plugin(plugin::Call),
     Record(record::Call),
 }
 
@@ -68,6 +70,9 @@ pub fn parse(args: &[String]) -> Option<Result<Call, String>> {
     if let Some(r) = outsource::parse(name, rest) {
         return Some(r.map(Call::Outsource));
     }
+    if let Some(r) = plugin::parse(name, rest) {
+        return Some(r.map(Call::Plugin));
+    }
     if let Some(r) = record::parse(name, rest) {
         return Some(r.map(Call::Record));
     }
@@ -87,6 +92,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Journal(c) => journal::run(home, c, now),
         Call::Order(c) => order::run(home, c, now),
         Call::Outsource(c) => outsource::run(home, c, now),
+        Call::Plugin(c) => plugin::run(home, c, now),
         Call::Record(c) => record::run(home, c, now),
     }
 }
