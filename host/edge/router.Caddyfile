@@ -3,6 +3,9 @@
 # proxy in front of the host carries the certificate.
 #
 # It picks by the first label of the Host header, so no domain is written here:
+#   plugin-<name>.  a plugin's view, and
+#   plugins.        the plugins' sign-in: both only by the gate,
+#                   tehas-plugin-gate, at TEHAS_PLUGIN_GATE_ADDR
 #   uat-<number>.   the preview of that pull request, a container named
 #                   tehas-preview-<number> that `tehasbot preview` runs
 #   uat-main.       the preview of the default branch, a container named
@@ -24,6 +27,11 @@
     header X-Robots-Tag "noindex, nofollow"
     header X-Content-Type-Options "nosniff"
 
+    # A dot after the label, or a dash under TEHAS_EDGE_ONE_LEVEL: the gate
+    # checks the whole name. A plugin's name is a letter and up to 11 more.
+    @plugin header_regexp plugin Host (?i)^(plugin-[a-z][a-z0-9]{0,11}|plugins)[.-]
+    # Any other name that starts so: no plugin can have it.
+    @noplugin header_regexp noplugin Host (?i)^plugin
     @preview header_regexp preview Host ^uat-([1-9][0-9]{0,8})\.
     @main header_regexp main Host ^uat-main\.
     @ticket header_regexp ticket Host ^lab-([1-9][0-9]{0,8})\.
@@ -36,6 +44,20 @@
     @pathfiles path_regexp ^/[0-9]+/files/.
 
     route {
+        # The plugins' names first, and only to the gate: nothing of the
+        # previews or the Protolab answers them. The gate sets its own
+        # headers; what it says about sniffing this server has already said.
+        # The address is the gate's own, given by router.compose.yaml.
+        handle @plugin {
+            reverse_proxy {$TEHAS_PLUGIN_GATE_ADDR:127.0.0.1:8095} {
+                header_down -X-Robots-Tag
+                header_down -X-Content-Type-Options
+            }
+        }
+        handle @noplugin {
+            respond "No plugin is set at this address." 404
+        }
+
         # A preview answers for itself. What it says about indexing and
         # sniffing is dropped: this server has already said it.
         handle @preview {
@@ -104,6 +126,12 @@
         }
     }
     handle_errors {
+        # The gate is stopped, or the router cannot reach its address.
+        @gatedown {
+            header_regexp Host (?i)^plugin
+            expression `{err.status_code} in [502, 503, 504]`
+        }
+        respond @gatedown "The plugins' gate is not answering. Its unit is tehas-plugin-gate.service." 503
         # No container of that name, or one that does not answer.
         @nopreview expression `{err.status_code} in [502, 503, 504]`
         respond @nopreview "No preview is running at this address. One is built within five minutes of a push to a pull request or to the default branch. A pull request's is removed when it is closed." 404

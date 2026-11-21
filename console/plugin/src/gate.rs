@@ -32,6 +32,9 @@ pub const PRESS_GAP: u64 = 10 * 60;
 pub const PAGE_MAX: u64 = 8 << 20;
 /// The largest verdict kept for a hook.
 pub const VERDICT_MAX: u64 = 64 * 1024;
+/// The answer to a name that is none of the settings' names, as the edge
+/// router says it for a name no plugin can have.
+pub const NO_PLUGIN: &str = "No plugin is set at this address.\n";
 
 /// What a press came to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -246,7 +249,11 @@ impl Gate {
             return Response::empty(400);
         };
         let Some(at) = host.and_then(|h| self.site(&h.to_ascii_lowercase())) else {
-            return Response::empty(404);
+            return Response::with(
+                404,
+                "text/plain; charset=utf-8",
+                NO_PLUGIN.as_bytes().to_vec(),
+            );
         };
         if req.method == "OPTIONS" {
             return Response::empty(403);

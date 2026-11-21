@@ -9,14 +9,12 @@ compose=$T_ROOT/host/edge/router.compose.yaml
 
 t_case "the router's file names no domain and takes numbers only"
 t_eq "$(grep -c -E 'tehas\.app|example\.' "$caddyfile")" 0
-t_contains "$(cat "$caddyfile")" '@preview header_regexp preview Host ^uat-([1-9][0-9]{0,8})\.'
-t_contains "$(cat "$caddyfile")" '@main header_regexp main Host ^uat-main\.'
-t_contains "$(cat "$caddyfile")" 'reverse_proxy tehas-preview-main:8080'
+for want in '@preview header_regexp preview Host ^uat-([1-9][0-9]{0,8})\.' '@main header_regexp main Host ^uat-main\.' 'reverse_proxy tehas-preview-main:8080' \
+  '@ticket header_regexp ticket Host ^lab-([1-9][0-9]{0,8})\.' 'reverse_proxy tehas-preview-{re.preview.1}:8080' 'root * /srv/protolab/{re.ticket.1}'; do
+  t_contains "$(cat "$caddyfile")" "$want"
+done
 t_eq "$(awk '/handle @main \{/ {a = NR} /handle @odd \{/ {b = NR} END {print (a && a < b) ? "before" : "after"}' "$caddyfile")" before
 t_contains "$(cat "$T_ROOT/host/fun/factory/tehas-factory-previews.model.js")" 'const isMain = !!it && it.name === "main";'
-t_contains "$(cat "$caddyfile")" '@ticket header_regexp ticket Host ^lab-([1-9][0-9]{0,8})\.'
-t_contains "$(cat "$caddyfile")" 'reverse_proxy tehas-preview-{re.preview.1}:8080'
-t_contains "$(cat "$caddyfile")" 'root * /srv/protolab/{re.ticket.1}'
 
 t_case "every answer of the router says noindex, a preview's own header is dropped"
 t_contains "$(cat "$caddyfile")" 'header X-Robots-Tag "noindex, nofollow"'
@@ -25,10 +23,16 @@ t_contains "$(cat "$caddyfile")" 'header_down -X-Robots-Tag'
 t_case "a preview that is not there is a 404, not a gateway error"
 t_contains "$(cat "$caddyfile")" '{err.status_code} in [502, 503, 504]'
 
+t_case "the plugins' names go to the gate before anything else, and a name with no plugin and the gate down say so"
+for want in '@plugin header_regexp plugin Host (?i)^(plugin-[a-z][a-z0-9]{0,11}|plugins)[.-]' '@noplugin header_regexp noplugin Host (?i)^plugin' 'reverse_proxy {$TEHAS_PLUGIN_GATE_ADDR:127.0.0.1:8095} {' \
+  'respond "No plugin is set at this address." 404' "respond @gatedown \"The plugins' gate is not answering. Its unit is tehas-plugin-gate.service.\" 503"; do t_contains "$(cat "$caddyfile")" "$want"; done
+t_eq "$(grep -v '^ *#' "$caddyfile" | awk '/^    route \{/ {r = 1; next} r {print $1, $2; exit}')" "handle @plugin"
+t_eq "$(awk '/@gatedown \{/ {d = NR} /Host \(\?i\)\^plugin$/ && d && !h {h = NR} /err.status_code/ && h && !e {e = NR} /respond @gatedown / {g = NR} /respond @nopreview / {p = NR} END {print (d && d < h && h < e && e < g && g < p) ? "in order" : "not"}' "$caddyfile")" "in order"
+
 t_case "the router is hardened and on the previews' network"
 for want in 'name: tehas-edge' 'read_only: true' '- ALL' 'no-new-privileges:true' \
   'name: tehas-previews' 'external: true' './router.Caddyfile:/etc/caddy/Caddyfile:ro' \
-  '${TEHAS_HOST_ADDR:-127.0.0.1}:8081:8081'; do
+  '${TEHAS_HOST_ADDR:-127.0.0.1}:8081:8081' 'TEHAS_PLUGIN_GATE_ADDR: "${TEHAS_PLUGIN_GATE_ADDR:-127.0.0.1:8095}"'; do
   t_contains "$(cat "$compose")" "$want"
 done
 t_lacks "$(cat "$compose")" "docker.sock"
