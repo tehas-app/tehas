@@ -2,7 +2,7 @@
 //!
 //!   tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port>
 //!             --server-version <v> [--io-timeout <seconds>] [--private <name>]...
-//!             [--outsource] [--plugin-calls <socket>] [--checkout <dir>]
+//!             [--outsource] [--plugin-calls <socket>] [--checkout <dir> [--checkout-fetch <socket>]]
 //!
 //! --outsource serves the tool of outsource, `factory_contractors`, to both
 //! kinds of key. `tehasbot mcp serve` passes it while the feature is on.
@@ -14,6 +14,9 @@
 //! --checkout serves, to full keys, the history of the shared checkout of
 //! the product at <dir> (mcp::git). A directory that is not a git repository
 //! with a commit, or is a shallow clone, stops the server with 78.
+//! --checkout-fetch names the socket of tehas-mcp-fetch.socket: a client's
+//! handshake connects to it, which asks the host to fetch the checkout, and
+//! the git tools give the report the fetch leaves beside the snapshot.
 //!
 //! A log is masked as the console masks it, the names given with --private
 //! included. A name is not a secret. The host's secret values come as salted
@@ -55,7 +58,7 @@ fn of(setting: Setting) -> (&'static Setting, &'static str) {
 fn usage(why: &str) -> ! {
     eprintln!("tehas-mcp: {why}");
     eprintln!(
-        "usage: tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port> --server-version <v> [--io-timeout <seconds>] [--private <name>]... [--outsource] [--plugin-calls <socket>] [--checkout <dir>]"
+        "usage: tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port> --server-version <v> [--io-timeout <seconds>] [--private <name>]... [--outsource] [--plugin-calls <socket>] [--checkout <dir> [--checkout-fetch <socket>]]"
     );
     std::process::exit(78);
 }
@@ -114,6 +117,7 @@ fn main() {
     let (mut listen, mut version) = (None, None);
     let mut io_timeout: Option<String> = None;
     let mut private = Vec::new();
+    let mut fetch: Option<PathBuf> = None;
     while let Some(a) = args.next() {
         if a == "--outsource" {
             mcp::tools::serve_outsource();
@@ -133,6 +137,13 @@ fn main() {
             if let Err(why) = mcp::git::serve_from(std::path::Path::new(&dir)) {
                 usage(&why);
             }
+            continue;
+        }
+        if a == "--checkout-fetch" {
+            fetch = Some(PathBuf::from(
+                args.next()
+                    .unwrap_or_else(|| usage("--checkout-fetch needs a socket")),
+            ));
             continue;
         }
         if a == "--private" {
@@ -175,6 +186,12 @@ fn main() {
     // The host keeps the outcomes counts beside the snapshot and gives the
     // container that one directory, so it is asked for no second one.
     let sessions_dir = dir(sessions, "--sessions");
+    if let Some(socket) = fetch {
+        if !mcp::git::serving() {
+            usage("--checkout-fetch needs --checkout");
+        }
+        mcp::git::serve_fetch(socket, sessions_dir.clone());
+    }
     let dirs = Dirs {
         live: dir(live, "--live"),
         sessions: sessions_dir,

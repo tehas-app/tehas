@@ -213,15 +213,19 @@ pub fn answer_in(
     let mut hold = None;
     let mut tool = None;
     let result = match (method, modern) {
-        ("server/discover", _) => json!({
+        ("server/discover", _) => {
+            git::ask_fetch();
+            json!({
             "resultType": "complete",
             "supportedVersions": [MODERN, LEGACY],
             "capabilities": {"tools": {}},
             "instructions": INSTRUCTIONS,
             "ttlMs": LIST_TTL_MS,
             "cacheScope": "private",
-        }),
+            })
+        }
         ("initialize", false) => {
+            git::ask_fetch();
             return Response::json(
                 200,
                 json!({"jsonrpc": "2.0", "id": id, "result": {
@@ -230,7 +234,7 @@ pub fn answer_in(
                     "serverInfo": info,
                     "instructions": INSTRUCTIONS,
                 }}),
-            )
+            );
         }
         ("ping", false) => json!({}),
         ("tools/list", _) => json!({

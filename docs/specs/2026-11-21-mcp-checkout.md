@@ -50,9 +50,28 @@ A security change. `host/docs/mcp-server.md` changes with the code.
 gix with `blame`, `revision` and `sha1` and no default features adds 107
 crates to the lock file and doubles the release binary, from 3.4 to 7.3 MiB.
 
-## Not in this step
+## Step 2: current on a connection (#2715)
 
-Fetching the clone on a new connection and telling sessions about it (step 2).
-The 2026-07-28 revision the server speaks keeps no session, so step 2 has to
-find another way than a session id to tell a client the clone moved.
+- `tehas-mcp-fetch.socket` (`Accept=yes`, at most 4 at once) listens on
+  `~/tehas/run/mcp-fetch/fetch.sock`. Each connection starts one
+  `tehas-mcp-fetch@.service`, which runs `tehasbot mcp fetch`.
+- The server connects to it on `initialize` and `server/discover`, on a thread
+  of its own. It writes nothing: the socket's directory is mounted read only,
+  as the plugin calls socket is.
+- The fetch: a lock, nothing within 60 s of the last report, `git fetch --prune
+  origin`, `git merge --ff-only @{upstream}`, both with `core.hooksPath=/dev/null`.
+  The report, `~/tehas/mcp/checkout.json`, is read by the server from the
+  directory it already has.
+- The revision the server speaks keeps no session, so a client passes `seen`,
+  the `head` it last saw, and the answer adds `checkoutUpdated`.
+
+| Where | Was (step 1) | Is |
+| --- | --- | --- |
+| The container's mounts | ... `<checkout>:/checkout:ro` | And `~/tehas/run/mcp-fetch:/run/tehas/fetch:ro`, only with the checkout |
+| Its arguments | ... `--checkout /checkout` | And `--checkout-fetch /run/tehas/fetch/fetch.sock` |
+| What it reaches on the host | Nothing | A connection to one socket, which carries no byte |
+| What the host runs for it | Nothing | `git fetch` and a fast-forward of the clone, at most once a minute |
+
+## Not in these steps
+
 Tickets, the code index and learnings are steps 3 to 5.

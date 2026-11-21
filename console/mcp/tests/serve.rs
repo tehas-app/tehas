@@ -1557,3 +1557,89 @@ fn a_checkout_that_is_no_whole_repository_is_78() {
     assert_eq!(rc, 78, "{err}");
     assert!(err.contains("--checkout needs a directory"), "{err}");
 }
+
+// A client's handshake connects to the fetch socket, which asks the host for a
+// fetch of the checkout; the server writes nothing on it.
+#[test]
+fn a_handshake_asks_the_fetch_socket_for_a_fetch() {
+    use std::io::Read;
+    let repo = TestDir::new("mcp-serve-fetch");
+    let ok = Command::new("git")
+        .args(["init", "-q", "-b", "main"])
+        .current_dir(&*repo)
+        .status()
+        .unwrap()
+        .success()
+        && Command::new("git")
+            .args([
+                "-c",
+                "user.name=A",
+                "-c",
+                "user.email=a@example.org",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "one",
+            ])
+            .current_dir(&*repo)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .status()
+            .unwrap()
+            .success();
+    assert!(ok);
+    let sock_dir = TestDir::new("mcp-serve-fetch-sock");
+    let socket = sock_dir.join("fetch.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let dir = repo.display().to_string();
+    let sock = socket.display().to_string();
+    let mut s = Server::start_with(
+        &fixture("live"),
+        &fixture("sessions"),
+        &fixture("logs"),
+        &["--checkout", &dir, "--checkout-fetch", &sock],
+    );
+    let auth = format!("Bearer {K1}");
+    let (status, _) = s.post_with(Some(&auth), &[], LEGACY_LIST);
+    assert_eq!(status, 200);
+    s.log_line();
+    listener.set_nonblocking(false).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let got = listener.accept().map(|(mut c, _)| {
+            let mut b = Vec::new();
+            let _ = c.read_to_end(&mut b);
+            b
+        });
+        let _ = tx.send(got.ok());
+    });
+    let got = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("no request for a fetch");
+    assert_eq!(got, Some(Vec::new()));
+    s.stop();
+}
+
+#[test]
+fn a_fetch_socket_without_a_checkout_is_78() {
+    let (rc, err) = run_once(
+        Some(K1),
+        &[
+            "--live",
+            "/x",
+            "--sessions",
+            "/x",
+            "--logs",
+            "/x",
+            "--listen",
+            "127.0.0.1:0",
+            "--server-version",
+            "v",
+            "--checkout-fetch",
+            "/x/s",
+        ],
+    );
+    assert_eq!(rc, 78, "{err}");
+    assert!(err.contains("--checkout-fetch needs --checkout"), "{err}");
+}

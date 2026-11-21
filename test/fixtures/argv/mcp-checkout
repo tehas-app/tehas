@@ -28,6 +28,8 @@ no-new-privileges:true
 /h/libexec/tehas-mcp:/tehas-mcp:ro
 -v
 /srv/checkout/p:/checkout:ro
+-v
+/h/run/mcp-fetch:/run/tehas/fetch:ro
 -e
 TEHAS_MCP_KEYS
 -e
@@ -49,3 +51,5 @@ caddy@sha256:x
 v1
 --checkout
 /checkout
+--checkout-fetch
+/run/tehas/fetch/fetch.sock
