@@ -166,13 +166,14 @@ impl Exec for Host {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod fake {
     //! An [`Exec`] that answers from a list: the first rule whose words the
     //! command's line holds answers it, and a command no rule names fails.
 
     use super::*;
 
+    #[derive(Default)]
     pub struct Fake {
         /// What a line holds, the answer, and how many more times it gives
         /// it: None, always.

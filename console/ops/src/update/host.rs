@@ -217,7 +217,7 @@ fn first_units(get: impl Fn(&str) -> Option<String>, env_file: Option<&str>) -> 
         featured
             .iter()
             .copied()
-            .filter(|u| !features::timed(u, &featured)),
+            .filter(|u| !features::timed(u, &featured) && !features::template(u)),
     );
     units
 }
@@ -418,6 +418,15 @@ mod tests {
     }
 
     #[test]
+    fn a_first_install_enables_the_plugins_timer_and_no_template() {
+        let on = [("TEHAS_PLUGIN", "on"), ("TEHAS_TEST_FEATURES", "plugins")];
+        assert_eq!(
+            units(&on, None),
+            "tehas-dispatch.timer tehas-dispatch.path tehas-plugin.timer"
+        );
+    }
+
+    #[test]
     fn featured_names_the_programs_and_units_of_the_features_that_are_on() {
         let get = |pairs: &'static [(&'static str, &'static str)]| {
             move |name: &str| {
@@ -428,7 +437,7 @@ mod tests {
                     .unwrap_or_default()
             }
         };
-        let idle = ["idle tehas-review.timer"];
+        let idle = ["idle tehas-review.timer", "idle tehas-plugin.timer"];
         assert_eq!(featured(&get(&[])), idle);
         assert_eq!(featured(&get(&[("TEHAS_OUTSOURCE", "on")])), idle);
         assert_eq!(
@@ -440,7 +449,8 @@ mod tests {
                 "program tehas-proxy",
                 "program tehas-contractor",
                 "unit tehas-outsource-proxy.service",
-                "idle tehas-review.timer"
+                "idle tehas-review.timer",
+                "idle tehas-plugin.timer"
             ]
         );
         // On, the timer is installed and no longer idle.
@@ -449,7 +459,11 @@ mod tests {
                 ("TEHAS_REVIEW", "on"),
                 ("TEHAS_TEST_FEATURES", "review")
             ])),
-            ["unit tehas-review.service", "unit tehas-review.timer"]
+            [
+                "unit tehas-review.service",
+                "unit tehas-review.timer",
+                "idle tehas-plugin.timer"
+            ]
         );
         assert_eq!(featured_verb(&["x".to_string()]), 64);
     }
