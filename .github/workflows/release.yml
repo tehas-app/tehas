@@ -131,12 +131,12 @@ jobs:
           rustup target add x86_64-unknown-linux-musl
           target=$RUNNER_TEMP/target
           cargo build --release --locked --manifest-path console/Cargo.toml --target-dir "$target" -p console -p analytics -p store -p attach -p tehas-dispatch -p tehas-cycle \
-            -p tehas-proxy -p tehas-contractor -p tehas-plugin
+            -p tehas-proxy -p tehas-contractor -p tehas-plugin -p tehas-plugin-gate
           cargo build --release --locked --manifest-path console/Cargo.toml --target-dir "$target" \
             --target x86_64-unknown-linux-musl -p tehas-mcp -p tehas-front
           mkdir -p "$RUNNER_TEMP/programs"
           cp "$target/release/console" "$target/release/analytics" "$target/release/store" "$target/release/attach" "$target/release/tehas-dispatch" "$target/release/tehas-cycle" \
-            "$target/release/tehas-proxy" "$target/release/tehas-contractor" "$target/release/tehas-plugin" \
+            "$target/release/tehas-proxy" "$target/release/tehas-contractor" "$target/release/tehas-plugin" "$target/release/tehas-plugin-gate" \
             "$target/x86_64-unknown-linux-musl/release/tehas-mcp" "$target/x86_64-unknown-linux-musl/release/tehas-front" \
             "$RUNNER_TEMP/programs/"
           # An ELF for x86_64 (e_machine 0x3e), whatever the runner's defaults.
@@ -160,7 +160,7 @@ jobs:
           echo "pi-rukas pinned at ${rukas%% *}, ${rukas#* }"
           TEHAS_PACK_ROOT=$PWD scripts/pack-release.sh "$TAG" "$DIST" --console "$p/console" \
             --analytics "$p/analytics" --mcp "$p/tehas-mcp" --store "$p/store" --attach "$p/attach" --dispatch "$p/tehas-dispatch" --cycle "$p/tehas-cycle" \
-            --proxy "$p/tehas-proxy" --contractor "$p/tehas-contractor" --plugin "$p/tehas-plugin" \
+            --proxy "$p/tehas-proxy" --contractor "$p/tehas-contractor" --plugin "$p/tehas-plugin" --plugin-gate "$p/tehas-plugin-gate" \
             --commit "$(git rev-parse HEAD)" --rukas-commit "${rukas%% *}"
           (cd "$DIST" && sha256sum -c "tehas-$TAG-linux-x86_64.tar.gz.sha256")
           if [ -f host/release/install ]; then cp host/release/install "$DIST/install"; fi

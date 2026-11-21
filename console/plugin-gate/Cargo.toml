@@ -1,0 +1,15 @@
+# tehas-plugin-gate, the plugins' gate of the views
+# (docs/specs/2026-11-21-plugins-web.md): a package of its own, so install.sh
+# builds and installs it by its name while plugins are on. Its rules are the
+# library of ../plugin. A member of the workspace in ../Cargo.toml.
+[package]
+name = "tehas-plugin-gate"
+version = "0.1.0"
+edition = "2021"
+# The library it takes needs 1.89.
+rust-version = "1.89"
+publish = false
+
+[dependencies]
+tehas-core = { path = "../core" }
+tehas-plugin = { path = "../plugin" }

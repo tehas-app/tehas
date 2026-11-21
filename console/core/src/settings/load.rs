@@ -515,6 +515,8 @@ fn defaults(vars: &mut Vars, host: &mut dyn Host, uid: &str) {
             or_default(vars, setting.name, default.to_string());
         }
     }
+    let gate = rules::gate_default(&vars.text("TEHAS_HOST_ADDR"));
+    or_default(vars, "TEHAS_PLUGIN_GATE_ADDR", gate);
     let ceiling = if has(vars, "TEHAS_MAX_CYCLES") {
         String::new()
     } else {
@@ -2353,6 +2355,21 @@ mod tests {
         for bad in ["", "\n", "acme", "[bot]", "a b[bot]"] {
             assert_eq!(login_of(bad.as_bytes()), None, "{bad:?}");
         }
+    }
+
+    #[test]
+    fn the_gate_listens_on_the_host_address_by_default() {
+        assert_eq!(loads(&[]).text("TEHAS_PLUGIN_GATE_ADDR"), "127.0.0.1:8095");
+        let private = std::net::Ipv4Addr::new(10, 0, 0, 7);
+        let line = format!("TEHAS_HOST_ADDR={private}");
+        let vars = loads(&[line.as_str()]);
+        assert_eq!(
+            vars.text("TEHAS_PLUGIN_GATE_ADDR"),
+            format!("{private}:8095")
+        );
+        // Every address is no address for the gate: it keeps to the loopback.
+        let vars = loads(&["TEHAS_HOST_ADDR=0.0.0.0"]);
+        assert_eq!(vars.text("TEHAS_PLUGIN_GATE_ADDR"), "127.0.0.1:8095");
     }
 
     #[test]

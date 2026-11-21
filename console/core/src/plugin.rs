@@ -32,6 +32,12 @@ pub const MAX: usize = 4;
 pub const NAME_MAX: usize = 12;
 /// The longest action id.
 pub const ACTION_MAX: usize = 16;
+/// The files of the GitHub App's client beside its key in ~/.config/tehas,
+/// mode 600: `tehas setup` writes them, the gate's sign-in reads them.
+pub const CLIENT_ID_FILE: &str = "github-app.client-id";
+pub const CLIENT_SECRET_FILE: &str = "github-app.client-secret";
+/// The id of a panel of a plugin's view starts so; a person's may not.
+pub const PANEL_PREFIX: &str = "p-";
 
 /// The words tehas-industry refuses as a part of a variable's name, since it
 /// takes such a variable for a secret when it pushes an instance. A plugin's
@@ -460,6 +466,29 @@ pub fn edge_names(pins: &[Pin], domain: &str, one_level: bool) -> Vec<String> {
     names
 }
 
+/// A value of the App's client, the one line of its file: printable ASCII
+/// with no space, up to 255 characters.
+pub fn is_client_value(s: &str) -> bool {
+    (1..=255).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_graphic())
+}
+
+/// The address of a plugin's view, the URL of its panel.
+pub fn view_url(name: &str, domain: &str, one_level: bool) -> String {
+    format!(
+        "https://{}/",
+        crate::settings::edge_name(&format!("plugin-{name}"), domain, one_level)
+    )
+}
+
+/// The address GitHub sends a person back to after the plugins' sign-in, the
+/// GitHub App's callback URL.
+pub fn callback_url(domain: &str, one_level: bool) -> String {
+    format!(
+        "https://{}/_auth/callback",
+        crate::settings::edge_name("plugins", domain, one_level)
+    )
+}
+
 /// The first name of `names` that is there twice.
 pub fn twice(names: &[String]) -> Option<&str> {
     names
@@ -478,6 +507,36 @@ mod tests {
 
     fn floorplan() -> String {
         format!("floorplan=https://github.com/tehas-app/tehas-plugin-floorplan@{C}")
+    }
+
+    #[test]
+    fn the_views_and_the_callback_are_names_of_the_edge() {
+        assert_eq!(
+            view_url("floorplan", "example.org", false),
+            "https://plugin-floorplan.example.org/"
+        );
+        assert_eq!(
+            view_url("floorplan", "demo.example.org", true),
+            "https://plugin-floorplan-demo.example.org/"
+        );
+        assert_eq!(
+            callback_url("example.org", false),
+            "https://plugins.example.org/_auth/callback"
+        );
+        assert_eq!(
+            callback_url("demo.example.org", true),
+            "https://plugins-demo.example.org/_auth/callback"
+        );
+    }
+
+    #[test]
+    fn a_value_of_the_client_is_one_printable_word() {
+        assert!(is_client_value("Iv23li0123456789abcd"));
+        assert!(is_client_value(&"f".repeat(40)));
+        for bad in ["", "a b", "a\nb", "a\tb", "\u{e9}"] {
+            assert!(!is_client_value(bad), "{bad:?}");
+        }
+        assert!(!is_client_value(&"a".repeat(256)));
     }
 
     #[test]

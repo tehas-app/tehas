@@ -4,6 +4,9 @@
 //! to live/panels.json, which the dashboard reads (host/fun/panels.js). With no
 //! panels both files are gone. Every write is under state/panel.lock, beside
 //! the file and renamed into place. Reading makes no network call.
+//!
+//! Ids starting `p-` are the plugins' views: `tehas update` sets and clears
+//! them with [`set_views`], and a person's `tehas panel set p-...` is 64.
 
 use crate::edge;
 use serde_json::Value;
@@ -36,6 +39,11 @@ pub enum Asked {
     Show { json: bool },
     Set(Panel),
     Clear(String),
+}
+
+/// Whether the id is a plugin's view's, which only `tehas update` sets.
+pub fn is_view(id: &str) -> bool {
+    id.starts_with(tehas_core::plugin::PANEL_PREFIX)
 }
 
 pub fn id_ok(id: &str) -> bool {
@@ -120,6 +128,9 @@ pub fn words(given: &[String]) -> Result<Asked, u8> {
         ["set", id, ref rest @ ..] => {
             if !id_ok(id) {
                 return bad("an id is 1 to 32 characters of a-z, 0-9 and -");
+            }
+            if is_view(id) {
+                return bad("an id starting p- is a plugin's view, which tehas update sets");
             }
             let (mut label, mut url) = (None, None);
             let mut i = 0;
@@ -259,6 +270,49 @@ fn store(home: &Path, panels: &[Panel]) -> Result<(), String> {
     write(&kept, &text, 0o600).map_err(|e| said(&kept, e))?;
     fs::create_dir_all(&live).map_err(|e| said(&live, e))?;
     write(&shown, &text, 0o644).map_err(|e| said(&shown, e))
+}
+
+/// The plugins' views as `tehas update` leaves them: each of `views` set as
+/// `tehas panel set` sets a panel, and every other `p-` panel cleared. A
+/// view that would be a fifth panel, or whose label or url a panel may not
+/// have, is left off and named with why; the other panels are kept as they
+/// are. Nothing is written when nothing changes, and with no view to set and
+/// none there the lock is not taken.
+pub fn set_views(home: &Path, views: &[Panel]) -> Result<Vec<(String, String)>, String> {
+    let file = home.join("state/panels.json");
+    if views.is_empty() && !read(&file)?.iter().any(|p| is_view(&p.id)) {
+        return Ok(Vec::new());
+    }
+    let Some(_lock) = edge::lock(home, "panel", Some(Duration::from_secs(10))) else {
+        return Err("another tehas panel is writing".to_string());
+    };
+    let before = read(&file)?;
+    let mut panels: Vec<Panel> = before
+        .iter()
+        .filter(|p| !is_view(&p.id) || views.iter().any(|v| v.id == p.id))
+        .cloned()
+        .collect();
+    let mut left = Vec::new();
+    for view in views {
+        let fit = if label_of(&view.label).as_deref() != Some(view.label.as_str()) {
+            Err("its label is not one line of 1 to 24 characters".to_string())
+        } else if let Err(why) = url_host(&view.url) {
+            Err(why.to_string())
+        } else {
+            with(panels.clone(), view.clone())
+        };
+        match fit {
+            Ok(p) => panels = p,
+            Err(why) => {
+                panels.retain(|p| p.id != view.id);
+                left.push((view.id.clone(), why));
+            }
+        }
+    }
+    if panels != before {
+        store(home, &panels)?;
+    }
+    Ok(left)
 }
 
 fn say(panels: &[Panel], json_out: bool) {
@@ -459,6 +513,14 @@ mod tests {
                 "https://x.org",
             ],
             &["set", "a", "--label", "", "--url", "https://x.org"],
+            &[
+                "set",
+                "p-floorplan",
+                "--label",
+                "A",
+                "--url",
+                "https://x.org",
+            ],
             &["set", "a", "--label", "A", "--url", "x.org"],
             &[
                 "set",
@@ -542,6 +604,74 @@ mod tests {
         p.url = "https://example.org/x".into();
         assert_eq!(run(&d, "example.org", Asked::Set(p)), 64);
         assert!(!d.join("state/panels.json").exists());
+    }
+
+    fn view(name: &str) -> Panel {
+        Panel {
+            id: format!("p-{name}"),
+            label: format!("V {name}"),
+            url: format!("https://plugin-{name}.example.org/"),
+        }
+    }
+
+    fn ids(home: &Path) -> Vec<String> {
+        read(&home.join("state/panels.json"))
+            .unwrap()
+            .into_iter()
+            .map(|p| p.id)
+            .collect()
+    }
+
+    #[test]
+    fn the_views_are_set_and_cleared_beside_a_persons_panels() {
+        let d = TestDir::new("panel-views");
+        assert_eq!(run(&d, "example.org", Asked::Set(panel("support"))), 0);
+        assert_eq!(
+            set_views(&d, &[view("floorplan"), view("specs")]),
+            Ok(vec![])
+        );
+        assert_eq!(ids(&d), ["support", "p-floorplan", "p-specs"]);
+        let shown = fs::read_to_string(d.join("live/panels.json")).unwrap();
+        assert!(
+            shown.contains("https://plugin-floorplan.example.org/"),
+            "{shown}"
+        );
+        // Again: nothing changes, and a new label is set where it stands.
+        let mut relabelled = view("floorplan");
+        relabelled.label = "Map".into();
+        assert_eq!(set_views(&d, &[relabelled, view("specs")]), Ok(vec![]));
+        assert_eq!(ids(&d), ["support", "p-floorplan", "p-specs"]);
+        assert_eq!(read(&d.join("state/panels.json")).unwrap()[1].label, "Map");
+        // A plugin that goes, or is refused, takes its panel with it.
+        assert_eq!(set_views(&d, &[view("specs")]), Ok(vec![]));
+        assert_eq!(ids(&d), ["support", "p-specs"]);
+        assert_eq!(set_views(&d, &[]), Ok(vec![]));
+        assert_eq!(ids(&d), ["support"]);
+    }
+
+    #[test]
+    fn a_fifth_panel_leaves_the_view_off_and_keeps_the_rest() {
+        let d = TestDir::new("panel-views-full");
+        for id in ["a", "b", "c"] {
+            assert_eq!(run(&d, "example.org", Asked::Set(panel(id))), 0);
+        }
+        let left = set_views(&d, &[view("floorplan"), view("specs")]).unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].0, "p-specs");
+        assert!(left[0].1.contains("at most 4 panels"), "{}", left[0].1);
+        assert_eq!(ids(&d), ["a", "b", "c", "p-floorplan"]);
+        let mut bad = view("x");
+        bad.label = String::new();
+        let left = set_views(&d, &[view("floorplan"), bad]).unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(ids(&d), ["a", "b", "c", "p-floorplan"]);
+    }
+
+    #[test]
+    fn with_no_view_and_none_there_nothing_is_touched() {
+        let d = TestDir::new("panel-views-none");
+        assert_eq!(set_views(&d, &[]), Ok(vec![]));
+        assert!(!d.join("state").exists());
     }
 
     #[test]
