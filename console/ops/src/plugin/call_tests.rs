@@ -2,6 +2,7 @@ use super::super::exec::fake::Fake;
 use super::super::exec::{Cmd, Done};
 use super::super::prepare::tests::{dockerfile, good, C, ID, URL};
 use super::*;
+use tehas_core::access::{Permission, Person};
 use tehas_core::plugin::state::{State, Word};
 use tehas_core::testdir::TestDir;
 
@@ -83,6 +84,7 @@ fn settings(grants: &str) -> impl Fn(&str) -> String {
         "TEHAS_PLUGINS" => format!("floorplan={URL}@{C}"),
         "TEHAS_PLUGIN_GRANTS_FLOORPLAN" => grants.clone(),
         "TEHAS_PLUGIN_LIMITS" => "memory=2 cpus=2 disk=4".into(),
+        "TEHAS_PLUGIN_ACCESS" => "write".into(),
         _ => String::new(),
     }
 }
@@ -91,9 +93,38 @@ fn q() -> Value {
     json!({"q": "where is the install guide"})
 }
 
+/// GitHub with octocat (7) and hubot (8) at write, nobody without access,
+/// and an error for any other login. Each ask counted.
+#[derive(Default)]
+struct People {
+    asked: std::sync::Mutex<Vec<String>>,
+}
+
+impl GitHub for People {
+    fn token(&self, _: &str) -> Result<String, String> {
+        Err("not asked".into())
+    }
+    fn user(&self, _: &str) -> Result<Person, String> {
+        Err("not asked".into())
+    }
+    fn permission(&self, login: &str) -> Result<Permission, String> {
+        self.asked.lock().unwrap().push(login.to_string());
+        match login {
+            "octocat" => Ok(Permission::Of(7, Some(Level::Write), "write".into())),
+            "hubot" => Ok(Permission::Of(8, Some(Level::Write), "write".into())),
+            "nobody" => Ok(Permission::None),
+            _ => Err("GitHub answered 502 for the permission".into()),
+        }
+    }
+    fn public(&self) -> Result<bool, String> {
+        Err("not asked".into())
+    }
+}
+
 fn ask(x: &mut Peek, home: &Path, args: &Value, caller: &Caller) -> Result<Value, Failed> {
     call(
         x,
+        &People::default(),
         home,
         &settings("tool:find-doc"),
         "floorplan",
@@ -177,12 +208,11 @@ fn an_answer_that_is_not_one_object_over_the_cap_late_or_failed_is_the_tools_fai
 }
 
 #[test]
-fn a_call_not_ready_granted_or_of_a_login_is_refused_and_runs_nothing() {
+fn a_call_not_ready_or_granted_is_refused_and_runs_nothing() {
     let (home, mut x) = world("call-refused", out("{}"));
-    let login = ask(&mut x, &home, &q(), &Caller::Login("octocat".into()));
-    assert_eq!(login, Err(Failed::Refused(LOGIN.into())));
     let other = call(
         &mut x,
+        &People::default(),
         &home,
         &settings("tool:find-doc"),
         "floorplan",
@@ -198,6 +228,7 @@ fn a_call_not_ready_granted_or_of_a_login_is_refused_and_runs_nothing() {
     );
     let ungranted = call(
         &mut x,
+        &People::default(),
         &home,
         &settings(""),
         "floorplan",
@@ -288,4 +319,105 @@ fn an_mcp_key_id_is_8_lower_case_hex_and_the_rows_by() {
     );
     let r = &rows(&home)[0];
     assert_eq!((&r["trigger"], &r["by"]), (&json!("mcp"), &json!(KEY)));
+}
+
+fn as_login(x: &mut Peek, gh: &dyn GitHub, home: &Path, login: &str) -> Result<Value, Failed> {
+    call(
+        x,
+        gh,
+        home,
+        &settings("tool:find-doc"),
+        "floorplan",
+        "find-doc",
+        &q(),
+        &Caller::Login(login.into()),
+    )
+}
+
+/// GitHub naming `octocat` user 7 with write first, then, the login renamed
+/// and taken, user 9 with no access.
+#[derive(Default)]
+struct Renamed {
+    asked: std::sync::Mutex<u32>,
+}
+
+impl GitHub for Renamed {
+    fn token(&self, _: &str) -> Result<String, String> {
+        Err("not asked".into())
+    }
+    fn user(&self, _: &str) -> Result<Person, String> {
+        Err("not asked".into())
+    }
+    fn permission(&self, _: &str) -> Result<Permission, String> {
+        let mut n = self.asked.lock().unwrap();
+        *n += 1;
+        Ok(if *n == 1 {
+            Permission::Of(7, Some(Level::Write), "write".into())
+        } else {
+            Permission::Of(9, None, "".into())
+        })
+    }
+    fn public(&self) -> Result<bool, String> {
+        Err("not asked".into())
+    }
+}
+
+#[test]
+fn a_login_taken_by_someone_else_is_refused_at_once() {
+    let (home, mut x) = world("call-renamed", out("{}"));
+    let gh = Renamed::default();
+    assert_eq!(as_login(&mut x, &gh, &home, "octocat"), Ok(json!({})));
+    // The same login, now another person's with no access: refused on the
+    // next call, never passed on the first holder's verdict.
+    assert_eq!(
+        as_login(&mut x, &gh, &home, "octocat"),
+        Err(Failed::Refused(NO_ACCESS.into()))
+    );
+    assert_eq!(*gh.asked.lock().unwrap(), 2);
+}
+
+#[test]
+fn a_login_is_checked_against_the_repositorys_access_on_every_call() {
+    let (home, mut x) = world("call-login", out("{}"));
+    let gh = People::default();
+    assert_eq!(as_login(&mut x, &gh, &home, "octocat"), Ok(json!({})));
+    assert_eq!(as_login(&mut x, &gh, &home, "octocat"), Ok(json!({})));
+    // Asked on every call: a kept verdict could pass for whoever holds the
+    // login next.
+    assert_eq!(*gh.asked.lock().unwrap(), ["octocat", "octocat"]);
+    let no = Err(Failed::Refused(NO_ACCESS.into()));
+    assert_eq!(as_login(&mut x, &gh, &home, "nobody"), no);
+    let down = as_login(&mut x, &gh, &home, "other");
+    assert_eq!(
+        down,
+        Err(Failed::Refused(
+            "GitHub could not say whether the login has access: GitHub answered 502 for the permission".into()
+        ))
+    );
+    // An error is not kept: the next call asks again.
+    as_login(&mut x, &gh, &home, "other").unwrap_err();
+    assert_eq!(gh.asked.lock().unwrap().len(), 5);
+    let r = rows(&home);
+    assert_eq!(r.len(), 2);
+    assert_eq!(
+        (&r[0]["trigger"], &r[0]["by"]),
+        (&json!("chat"), &json!("chat"))
+    );
+    assert!(!home.join("plugins/access.json").exists());
+}
+
+#[test]
+fn two_people_call_at_once_and_one_person_twice_is_busy() {
+    let (home, mut x) = world("call-people", out("{}"));
+    let gh = People::default();
+    let dir = runs::calls(&home, "floorplan");
+    fs::create_dir_all(&dir).unwrap();
+    let held = try_lock(&dir.join("by-login-7.lock")).unwrap().unwrap();
+    assert_eq!(
+        as_login(&mut x, &gh, &home, "octocat"),
+        Err(Failed::Refused("busy".into()))
+    );
+    assert_eq!(as_login(&mut x, &gh, &home, "hubot"), Ok(json!({})));
+    drop(held);
+    assert_eq!(rows(&home).len(), 1);
 }

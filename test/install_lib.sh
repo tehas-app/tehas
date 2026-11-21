@@ -101,6 +101,8 @@ files="./.bashrc
 ./.config/systemd/user/tehas-dispatch.service
 ./.config/systemd/user/tehas-dispatch.timer
 ./.config/systemd/user/tehas-energy.service
+./.config/systemd/user/tehas-mcp-fetch.socket
+./.config/systemd/user/tehas-mcp-fetch@.service
 ./.config/systemd/user/tehas-mcp.service
 ./.config/systemd/user/tehas-preview-sweep.service
 ./.config/systemd/user/tehas-preview-sweep.timer

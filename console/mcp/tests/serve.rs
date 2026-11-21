@@ -1447,3 +1447,199 @@ fn the_contractors_tool_is_served_only_with_outsource_on() {
         s.stop();
     }
 }
+
+// The git tools are served by a server started with --checkout, to a full key
+// only: a dashboard key is listed none and a call of one is an unknown tool,
+// and the access log names the tool and none of its arguments.
+#[test]
+fn the_git_tools_are_served_to_a_full_key_with_a_checkout() {
+    let repo = TestDir::new("mcp-serve-checkout");
+    let git = |args: &[&str]| {
+        let ok = Command::new("git")
+            .args(args)
+            .current_dir(&*repo)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "Ada")
+            .env("GIT_AUTHOR_EMAIL", "ada@example.org")
+            .env("GIT_COMMITTER_NAME", "Ada")
+            .env("GIT_COMMITTER_EMAIL", "ada@example.org")
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    git(&["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&["add", "a.txt"]);
+    git(&["commit", "-q", "-m", "Secret plan for a.txt"]);
+    let d = "qwertyuiopasdfghjklzxcvbnm012345";
+    let legacy = [("MCP-Protocol-Version", "2025-11-25")];
+    let list = br#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#;
+    let call = br#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"factory_git_log","arguments":{"grep":"Secret plan"}}}"#;
+    let body = |out: &str| -> Value {
+        serde_json::from_str(out.split_once("\r\n\r\n").map_or("", |(_, b)| b)).unwrap()
+    };
+    let names = |v: &Value| -> Vec<String> {
+        v["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let dir = repo.display().to_string();
+    for (extra, on) in [(&["--checkout", dir.as_str()][..], true), (&[][..], false)] {
+        let mut s = Server::start_env(
+            &fixture("live"),
+            &fixture("sessions"),
+            &fixture("logs"),
+            extra,
+            K1,
+            Some(d),
+        );
+        let mut log = String::new();
+        for (key, full) in [(K1, true), (d, false)] {
+            let auth = format!("Bearer {key}");
+            let (_, out) = s.post_with(Some(&auth), &legacy, list);
+            log.push_str(&s.log_line());
+            let listed = names(&body(&out));
+            for tool in ["factory_git_log", "factory_git_show", "factory_git_blame"] {
+                assert_eq!(
+                    listed.iter().any(|n| n == tool),
+                    on && full,
+                    "{tool} {listed:?}"
+                );
+            }
+            let (status, out) = s.post_with(Some(&auth), &legacy, call);
+            log.push_str(&s.log_line());
+            assert_eq!(status, 200, "{out}");
+            let v = body(&out);
+            if on && full {
+                let got = &v["result"]["structuredContent"];
+                assert_eq!(got["commits"][0]["subject"], "Secret plan for a.txt", "{v}");
+            } else {
+                assert_eq!(v["error"]["message"], "Unknown tool", "{v}");
+            }
+        }
+        assert!(!log.contains("Secret plan"), "{log}");
+        if on {
+            assert!(log.contains("tool=factory_git_log"), "{log}");
+        }
+        s.stop();
+    }
+}
+
+#[test]
+fn a_checkout_that_is_no_whole_repository_is_78() {
+    let plain = TestDir::new("mcp-serve-checkout-plain");
+    let dir = plain.display().to_string();
+    let base = [
+        "--live",
+        "/x",
+        "--sessions",
+        "/x",
+        "--logs",
+        "/x",
+        "--listen",
+        "127.0.0.1:0",
+        "--server-version",
+        "v",
+    ];
+    let mut args = base.to_vec();
+    args.extend(["--checkout", dir.as_str()]);
+    let (rc, err) = run_once(Some(K1), &args);
+    assert_eq!(rc, 78, "{err}");
+    assert!(err.contains("is not a git repository"), "{err}");
+    let mut args = base.to_vec();
+    args.push("--checkout");
+    let (rc, err) = run_once(Some(K1), &args);
+    assert_eq!(rc, 78, "{err}");
+    assert!(err.contains("--checkout needs a directory"), "{err}");
+}
+
+// A client's handshake connects to the fetch socket, which asks the host for a
+// fetch of the checkout; the server writes nothing on it.
+#[test]
+fn a_handshake_asks_the_fetch_socket_for_a_fetch() {
+    use std::io::Read;
+    let repo = TestDir::new("mcp-serve-fetch");
+    let ok = Command::new("git")
+        .args(["init", "-q", "-b", "main"])
+        .current_dir(&*repo)
+        .status()
+        .unwrap()
+        .success()
+        && Command::new("git")
+            .args([
+                "-c",
+                "user.name=A",
+                "-c",
+                "user.email=a@example.org",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "one",
+            ])
+            .current_dir(&*repo)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .status()
+            .unwrap()
+            .success();
+    assert!(ok);
+    let sock_dir = TestDir::new("mcp-serve-fetch-sock");
+    let socket = sock_dir.join("fetch.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let dir = repo.display().to_string();
+    let sock = socket.display().to_string();
+    let mut s = Server::start_with(
+        &fixture("live"),
+        &fixture("sessions"),
+        &fixture("logs"),
+        &["--checkout", &dir, "--checkout-fetch", &sock],
+    );
+    let auth = format!("Bearer {K1}");
+    let (status, _) = s.post_with(Some(&auth), &[], LEGACY_LIST);
+    assert_eq!(status, 200);
+    s.log_line();
+    listener.set_nonblocking(false).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let got = listener.accept().map(|(mut c, _)| {
+            let mut b = Vec::new();
+            let _ = c.read_to_end(&mut b);
+            b
+        });
+        let _ = tx.send(got.ok());
+    });
+    let got = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("no request for a fetch");
+    assert_eq!(got, Some(Vec::new()));
+    s.stop();
+}
+
+#[test]
+fn a_fetch_socket_without_a_checkout_is_78() {
+    let (rc, err) = run_once(
+        Some(K1),
+        &[
+            "--live",
+            "/x",
+            "--sessions",
+            "/x",
+            "--logs",
+            "/x",
+            "--listen",
+            "127.0.0.1:0",
+            "--server-version",
+            "v",
+            "--checkout-fetch",
+            "/x/s",
+        ],
+    );
+    assert_eq!(rc, 78, "{err}");
+    assert!(err.contains("--checkout-fetch needs --checkout"), "{err}");
+}

@@ -6,9 +6,11 @@
 //! `initialize` is answered, then the client's requests carry the header
 //! `MCP-Protocol-Version: 2025-11-25`. No session is kept for either.
 
+use crate::git;
 use crate::keys::{Authenticated, Keys};
 use crate::logs::LogGuard;
 use crate::plugins;
+use crate::tickets;
 use crate::tools::{self, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Value};
 use std::path::Path;
@@ -211,15 +213,19 @@ pub fn answer_in(
     let mut hold = None;
     let mut tool = None;
     let result = match (method, modern) {
-        ("server/discover", _) => json!({
+        ("server/discover", _) => {
+            git::ask_fetch();
+            json!({
             "resultType": "complete",
             "supportedVersions": [MODERN, LEGACY],
             "capabilities": {"tools": {}},
             "instructions": INSTRUCTIONS,
             "ttlMs": LIST_TTL_MS,
             "cacheScope": "private",
-        }),
+            })
+        }
         ("initialize", false) => {
+            git::ask_fetch();
             return Response::json(
                 200,
                 json!({"jsonrpc": "2.0", "id": id, "result": {
@@ -228,7 +234,7 @@ pub fn answer_in(
                     "serverInfo": info,
                     "instructions": INSTRUCTIONS,
                 }}),
-            )
+            );
         }
         ("ping", false) => json!({}),
         ("tools/list", _) => json!({
@@ -254,6 +260,34 @@ pub fn answer_in(
                     Err(why) => tool_error(&why),
                 };
                 return finish(&id, result, modern, &info, None, Some(t.name));
+            }
+            if let Some(n) = name.and_then(|n| git::NAMES.into_iter().find(|g| *g == n)) {
+                if git::serves(key.scope(), n) {
+                    let args = params.get("arguments").cloned().unwrap_or(json!({}));
+                    let result = match git::call(n, &args) {
+                        Ok(v) => json!({
+                            "resultType": "complete",
+                            "content": [{"type": "text", "text": v.to_string()}],
+                            "structuredContent": v,
+                        }),
+                        Err(why) => tool_error(&why),
+                    };
+                    return finish(&id, result, modern, &info, None, Some(n.to_string()));
+                }
+            }
+            if let Some(n) = name.and_then(|n| tickets::NAMES.into_iter().find(|t| *t == n)) {
+                if tickets::serves(key.scope(), n) {
+                    let args = params.get("arguments").cloned().unwrap_or(json!({}));
+                    let result = match tickets::call(&dirs.sessions, n, &args) {
+                        Ok(v) => json!({
+                            "resultType": "complete",
+                            "content": [{"type": "text", "text": v.to_string()}],
+                            "structuredContent": v,
+                        }),
+                        Err(why) => tool_error(&why),
+                    };
+                    return finish(&id, result, modern, &info, None, Some(n.to_string()));
+                }
             }
             // The line says which tool the request asked for even when the
             // call is refused: the server's own name for one it serves, `?`
@@ -333,9 +367,12 @@ fn finish(
     r
 }
 
-/// The server's tools, then the plugin tools the scope is served.
+/// The server's tools, the ticket tools, the checkout's while it has one,
+/// then the plugin tools the scope is served.
 fn with_plugins(own: Value, scope: Scope, broker: Option<&Path>) -> Value {
     let mut all = own.as_array().cloned().unwrap_or_default();
+    all.extend(tickets::entries(scope));
+    all.extend(git::entries(scope));
     all.extend(
         plugins::for_scope(scope, broker)
             .iter()

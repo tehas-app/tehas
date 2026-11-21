@@ -17,6 +17,7 @@
 {{- /* A page whose front matter names a section in faq: has that section's
        ### questions as an FAQ in its structured data, read from the text. */ -}}
 {{- $faq := "" -}}
+{{- if eq $path "wiki" }}{{ $title = "Wiki" }}{{ $description = "The product's wiki, built from its code and its history." }}{{ end -}}
 {{- if $isFrag -}}
 {{- $body = readFile $frag -}}
 {{- else -}}

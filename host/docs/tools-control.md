@@ -381,10 +381,14 @@ are at most 2 KiB. The image runs attached by the arguments of
 `/state` read only, the arguments at `/run/call.json`, no log kept, killed
 at the tool's timeout. Its stdout is the answer, at most 16 KiB, and its
 stderr is dropped. At most two calls of a plugin run at once and one of
-each caller; one past that is refused as busy and leaves no row. The row,
+each caller; one past that is refused as busy and leaves no row. A call
+with `--login` is that person's: the login must have `TEHAS_PLUGIN_ACCESS`
+on `TEHAS_REPO`, checked as the plugins' gate checks it, by GitHub user id,
+on every call, since a verdict kept for a login could pass for whoever holds
+that login next. No access, or GitHub not
+answering, is a refusal, and a person's lock is by their user id. The row,
 kind `call`, keeps the time, the result and the answer's size, and no
-login, and the run's files are removed. A call with `--login` is refused
-until the gate's access check is in core. `tehas plugin` leaves calls out
+login, and the run's files are removed. `tehas plugin` leaves calls out
 of its last run, in the store's query. With `--json` every outcome but
 78 is one object on stdout: the answer, or `{"api":1,"error":"..."}` with
 why. Exit 0 answered; 1 the tool did not answer; 3 refused, busy among

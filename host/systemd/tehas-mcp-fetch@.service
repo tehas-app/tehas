@@ -1,0 +1,11 @@
+[Unit]
+Description=Tehas: fetch the MCP server's shared checkout
+
+# Started by tehas-mcp-fetch.socket, one per connection. The connection is
+# its standard input and is not read.
+[Service]
+Type=oneshot
+NoNewPrivileges=yes
+StandardInput=socket
+StandardOutput=journal
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot mcp fetch"

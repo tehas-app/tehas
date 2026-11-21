@@ -415,7 +415,7 @@ home_marker=.tehas-home
 # them without the marker is not known to be tehas's, and this run would remove
 # the pages of someone else from them.
 home_dirs=(bin libexec lib live logs mcp platform preview protolab repos sandbox
-  state tmp tools work target .cargo versions current run)
+  state tmp tools work target .cargo versions current run wiki)
 
 home_refusal() { # the reason $TEHAS_HOME is not provably tehas's, or nothing
   local path=${TEHAS_HOME:-} entry part rest
@@ -685,6 +685,8 @@ files=(
   "systemd/tehas-dispatch.timer|$units/tehas-dispatch.timer|644"
   "systemd/tehas-energy.service|$units/tehas-energy.service|644"
   "systemd/tehas-mcp.service|$units/tehas-mcp.service|644"
+  "systemd/tehas-mcp-fetch.socket|$units/tehas-mcp-fetch.socket|644"
+  "systemd/tehas-mcp-fetch@.service|$units/tehas-mcp-fetch@.service|644"
   "systemd/tehas-protolab.service|$units/tehas-protolab.service|644"
   "systemd/tehas-protolab.timer|$units/tehas-protolab.timer|644"
   "systemd/tehas-preview.service|$units/tehas-preview.service|644"
@@ -991,7 +993,7 @@ had_versions=0
 # --check changes nothing, so it makes neither.
 if [ "$check" != 1 ]; then
   mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
-    "$TEHAS_HOME/preview"
+    "$TEHAS_HOME/preview" "$TEHAS_HOME/wiki"
   # A home with no env.sh has never been installed.
   [ -f "$TEHAS_HOME/env.sh" ] || : >"$first_owed"
   if ! bashrc_ok; then

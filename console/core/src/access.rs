@@ -1,7 +1,11 @@
-//! What the gate asks GitHub, behind [`GitHub`] so the tests stub it: the
-//! person's token for the web flow's code, who the token is, and the person's
-//! permission on the factory's repository with the installation token
-//! (docs/specs/2026-11-21-plugins-web.md, "Who gets in").
+//! Who has access to the factory's repository, one check for the plugins'
+//! gate and for a call of a tool with `--login`
+//! (docs/specs/2026-11-21-plugins-web.md, "Who gets in"). What is asked of
+//! GitHub is behind [`GitHub`], so the tests stub it: the person's token for
+//! the web flow's code, who the token is, and the person's permission on the
+//! repository with the installation token. [`check`] compares the answer
+//! with `TEHAS_PLUGIN_ACCESS` by user id
+//! for 10 minutes in a file.
 //!
 //! [`Curl`] asks through curl, as console/ops/src/github.rs does: every token,
 //! secret and code goes on curl's standard input, never on a command line.
@@ -190,7 +194,7 @@ impl GitHub for Curl {
         }
         let v = json(&body)?;
         match (v["id"].as_u64(), v["login"].as_str()) {
-            (Some(id), Some(login)) if tehas_core::settings::rules::is_login(login) => Ok(Person {
+            (Some(id), Some(login)) if crate::settings::rules::is_login(login) => Ok(Person {
                 id,
                 login: login.to_string(),
             }),
@@ -240,4 +244,118 @@ pub fn permission_of(status: u16, body: &[u8]) -> Result<Permission, String> {
         Level::of_permissions(&v["user"]["permissions"]),
         role,
     ))
+}
+
+/// What [`check`] found: the user id it lets in, if any, and a line for a
+/// log of why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Verdict {
+    pub user: Option<u64>,
+    pub said: String,
+}
+
+/// Whether `login` has `access` now: the user GitHub names for the login,
+/// when it is `id` if one is given and its level is at least `access`. On a
+/// public repository read and triage let no one in, since every account has
+/// them. Err: GitHub could not say, which a caller takes as a refusal.
+pub fn check(
+    gh: &dyn GitHub,
+    access: Level,
+    login: &str,
+    id: Option<u64>,
+) -> Result<Verdict, String> {
+    if access <= Level::Triage && gh.public()? {
+        return Ok(Verdict {
+            user: None,
+            said: "the repository is public, so read and triage let no one in".into(),
+        });
+    }
+    Ok(match gh.permission(login)? {
+        Permission::None => Verdict {
+            user: None,
+            said: format!("{login} has no access"),
+        },
+        Permission::Of(user, level, role) => {
+            let role: String = role
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric() || " _-".contains(*c))
+                .take(64)
+                .collect();
+            let ok = id.is_none_or(|i| i == user) && level.is_some_and(|l| l >= access);
+            Verdict {
+                user: ok.then_some(user),
+                said: format!("{login} has the role {role:?}"),
+            }
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// GitHub answering `level` for user 7, or an error, and counting asks.
+    pub struct Stub {
+        pub level: Result<Option<Level>, String>,
+        pub public: bool,
+        pub asked: Mutex<u32>,
+    }
+
+    impl GitHub for Stub {
+        fn token(&self, _: &str) -> Result<String, String> {
+            Err("no".into())
+        }
+        fn user(&self, _: &str) -> Result<Person, String> {
+            Err("no".into())
+        }
+        fn permission(&self, _: &str) -> Result<Permission, String> {
+            *self.asked.lock().unwrap() += 1;
+            match self.level.clone()? {
+                None => Ok(Permission::None),
+                Some(l) => Ok(Permission::Of(7, Some(l), "write".into())),
+            }
+        }
+        fn public(&self) -> Result<bool, String> {
+            Ok(self.public)
+        }
+    }
+
+    fn stub(level: Result<Option<Level>, String>) -> Stub {
+        Stub {
+            level,
+            public: false,
+            asked: Mutex::new(0),
+        }
+    }
+
+    #[test]
+    fn a_login_has_access_at_its_level_and_its_id_only() {
+        let w = stub(Ok(Some(Level::Write)));
+        assert_eq!(
+            check(&w, Level::Write, "octocat", None).unwrap().user,
+            Some(7)
+        );
+        assert_eq!(
+            check(&w, Level::Write, "octocat", Some(7)).unwrap().user,
+            Some(7)
+        );
+        assert_eq!(
+            check(&w, Level::Write, "octocat", Some(8)).unwrap().user,
+            None
+        );
+        assert_eq!(check(&w, Level::Admin, "octocat", None).unwrap().user, None);
+        assert_eq!(
+            check(&stub(Ok(None)), Level::Read, "x", None).unwrap().user,
+            None
+        );
+        let mut public = stub(Ok(Some(Level::Admin)));
+        public.public = true;
+        assert_eq!(check(&public, Level::Triage, "x", None).unwrap().user, None);
+        assert_eq!(
+            check(&public, Level::Write, "x", None).unwrap().user,
+            Some(7)
+        );
+        assert!(check(&stub(Err("down".into())), Level::Write, "x", None).is_err());
+    }
 }

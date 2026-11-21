@@ -207,7 +207,7 @@ t_eq "$(cd "$th/fun" && find . -type f ! -name version.txt -regextype posix-exte
 t_eq "$(cd "$th/fun" && find . -name '*.d.ts')" ""
 # Two pages name some of these files, so the copies are fewer than the tags.
 t_eq "$(cd "$th/fun" && find . -type f -regextype posix-extended \
-      -regex '.*/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)' | wc -l)" 29
+      -regex '.*/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)' | wc -l)" 31
 
 t_case "a tag of a dashboard page names the hashed copy, which is installed"
 # The name holds the first 12 hex digits of the sha256 of the file's bytes, the
@@ -262,8 +262,9 @@ t_case "nothing installed names a file that is absent"
 missing=""
 for unit in "$home"/.config/systemd/user/*; do
   while read -r ref; do
-    # The path unit watches for a file a cycle leaves and a poll removes.
-    case "$ref" in */logs/* | */state/dispatch.again) ref=$(dirname "$ref") ;; esac
+    # The path unit watches for a file a cycle leaves and a poll removes; the
+    # fetch socket is made by systemd when tehas mcp serve starts it.
+    case "$ref" in */logs/* | */state/dispatch.again) ref=$(dirname "$ref") ;; */run/mcp-fetch/fetch.sock) continue ;; esac
     [ -e "$ref" ] || missing="$missing $ref"
   done < <(grep -o '%h/tehas/[A-Za-z0-9_./-]*' "$unit" | sed "s|%h|$home|")
 done

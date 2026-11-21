@@ -356,6 +356,36 @@ fn a_read_of_the_epics_that_fails_leaves_the_file_as_it_was_and_the_snapshot_is_
     assert_eq!(left, 0);
 }
 
+// While the MCP server is on, the status run writes the tickets it reads into
+// the private mcp/tickets, one file each; with it off it reads none.
+#[test]
+fn the_tickets_are_written_for_the_mcp_server_only_while_it_is_on() {
+    let w = World::new("tickets");
+    w.fx(
+        "tickets-page.json",
+        r#"{"data":{"search":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+  {"__typename":"Issue","number":7,"title":"An issue","state":"OPEN","updatedAt":"2026-11-01T00:00:00Z","body":"Why","author":{"login":"alice"},
+   "labels":{"nodes":[]},"subIssues":{"nodes":[]},"comments":{"totalCount":0,"nodes":[]}}]}}}"#,
+    );
+    let r = w.status();
+    ok(&r);
+    let dir = w.home.join("mcp/tickets");
+    assert!(!dir.exists(), "tickets read with the MCP server off");
+    assert!(!w.gh().contains("closingIssuesReferences"), "{}", w.gh());
+    w.env("TEHAS_MCP", "1");
+    let r = w.status();
+    ok(&r);
+    let t = fs::read_to_string(dir.join("7.json")).unwrap();
+    assert_eq!(
+        jq("[.kind, .number, .state, .body]", &t),
+        r#"["issue",7,"open","Why"]"#
+    );
+    assert_eq!(
+        std::os::unix::fs::PermissionsExt::mode(&fs::metadata(&dir).unwrap().permissions()) & 0o777,
+        0o700
+    );
+}
+
 #[test]
 fn no_failed_tehas_unit_is_no_warning() {
     let w = World::new("units-none");

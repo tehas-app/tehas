@@ -279,7 +279,7 @@ reset
 t_no_instance
 t_run "$mcp nope"
 t_eq "$t_rc" 64
-t_contains "$t_out" "usage: tehasbot mcp serve | tehas mcp key"
+t_contains "$t_out" "usage: tehasbot mcp serve | fetch | tehas mcp key"
 t_eq "$(t_calls docker)" ""
 
 t_case "a word after key or serve is 64, whatever the settings hold, and prints no key"
@@ -289,7 +289,7 @@ for words in "$mcp key --bogus-flag" "$mcp key x" "$mcp serve --bogus-flag" "$mc
   "$T_ROOT/bin/tehas mcp key --bogus-flag" "$T_ROOT/bin/tehas mcp serve x"; do
   t_run "$words"
   t_eq "$t_rc" 64
-  t_contains "$t_out" "usage: tehasbot mcp serve | tehas mcp key"
+  t_contains "$t_out" "usage: tehasbot mcp serve | fetch | tehas mcp key"
   [[ $t_out =~ [A-Za-z0-9_-]{43} ]] && t_bad "a key was printed: $t_out"
 done
 t_eq "$(t_calls docker)" ""

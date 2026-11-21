@@ -11,13 +11,17 @@
 # page dashboard 83939 53988. Approved by the owner on 2026-11-20 with the
 # kit's JSDoc types: page dashboard 88935 53988, and under the same approval
 # page dashboard 88967 53988 for the untracked comparison in state.js.
+# The wiki, asked for by the owner on 2026-11-21 with its link on the
+# dashboard (#2687): page dashboard 90375 54342, page manual 0 49974 for the
+# wiki page's title in the layout, and the new page wiki.
 # Approved by the owner on 2026-11-21 for the plugins menu in panels.js and
 # panels.css, which both pages load: page business 101015 40730 and page
 # floor 146222 68698.
 page business 101015 40730
 page floor 146222 68698
-page dashboard 88967 53988
-page manual 0 49838
+page dashboard 90375 54342
+page manual 0 49974
+page wiki 48094 51706
 island factory/tehas-factory-console 4156
 island factory/tehas-factory-days 4686
 island factory/parts 847
@@ -26,4 +30,6 @@ island factory/tehas-factory-issues 3728
 island factory/tehas-factory-previews 4073
 island factory/tehas-factory-readonly 2877
 island factory/tehas-factory-state 3261
+island factory/tehas-factory-wiki 2712
+island factory/tehas-factory-wikilink 1408
 library solid 123689

@@ -16,13 +16,20 @@ left running and exits 0. Keys are space-separated, 32 characters of
 A-Za-z0-9_- at least, and reach the container by name. Port 8082 on
 TEHAS_HOST_ADDR, else the loopback.
 
+With TEHAS_MCP_CHECKOUT, the server also reads that shared clone of the
+product, and a client's handshake asks tehas-mcp-fetch.socket for a fetch of
+it: at most one a minute, a fast-forward to its upstream, no hook run.
+
 Usage: tehasbot mcp serve    run the server in the foreground (the service)
+       tehasbot mcp fetch    fetch the shared checkout (tehas-mcp-fetch@.service)
        tehas mcp key         print a new key; writes nothing
 
-Exit: 0 the server ended, or it is off; or a key was printed;
+Exit: 0 the server ended, or it is off; or a key was printed; or the
+        checkout was fetched, or was fetched less than a minute ago;
       1 the binary or the image's digest is missing (run install.sh), a
         network named tehas-mcp exists that lets the container out, or
-        ~/tehas/mcp cannot be made;
+        ~/tehas/mcp cannot be made; or the fetch failed, which
+        ~/tehas/mcp/checkout.json says;
       64 an unknown argument;
       78 the instance settings, TEHAS_MCP or the two lists of keys are
          malformed: the line names the setting, never a key.

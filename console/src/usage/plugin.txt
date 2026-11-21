@@ -78,9 +78,11 @@ network, no product and no model, its /state read only and its arguments
 at /run/call.json, killed at the tool's timeout. Its stdout is the answer,
 at most 16 KiB, and its stderr is dropped. At most two calls of a plugin
 run at once, and one of each caller: a call past that is refused as busy.
-Its run row keeps the time, the result and the answer's size, and no
-login. A call with --login is refused until the gate's access check
-is in core. With --json every outcome but the feature off is one object:
+A call with --login is for that person: the login must have
+TEHAS_PLUGIN_ACCESS on TEHAS_REPO, checked as the plugins' gate checks it,
+by GitHub user id, on every call. No access, or GitHub not answering, is a
+refusal. One call of each person runs at once. Its run row keeps the time,
+the result and the answer's size, and no login. With --json every outcome but the feature off is one object:
 the answer, or {"api":1,"error":"..."} with why. Exit 0 answered; 1 the
 tool did not answer; 3 refused, busy among them; 64 arguments the tool's
 params refuse.

@@ -805,6 +805,11 @@ reads "loading", the lists are empty and the optional sections are hidden.
 | `tehas-factory-days` | `analytics.json` | Last 10 days |
 | `tehas-factory-previews` | `previews.json` | The previews |
 | `tehas-factory-host` | `top.json` | The host and its units, the snapshot's age by the server's clock |
+| `tehas-factory-wikilink` | `wiki.json` | The link "wiki" to the current build of the product wiki, hidden with no build |
+
+The wiki page, `/wiki` (`host/docs/wiki.frag`), is one island,
+`tehas-factory-wiki`, on `wiki.json`, read every 30 seconds: the current build,
+when and at which commit it was built, how far it is behind main and its link.
 
 - Seven islands read `status.json` through one feed, polled every ten seconds;
   `running.json` the same. `analytics.json` is read once a minute. `top.json`
@@ -868,6 +873,7 @@ library solid <bytes>
 | `floor` | `fun/index.html` |
 | `dashboard` | `docs/_layout.html` and `docs/dashboard.frag`, with the islands its tags load |
 | `manual` | `docs/_layout.html` |
+| `wiki` | `docs/_layout.html` and `docs/wiki.frag`, with the island its tag loads |
 
 A page's script bytes are the files its `<script src="/fun/…">` tags name and
 the modules those import by a relative address, at any depth, each file once,

@@ -811,6 +811,34 @@ fn epics(repo: &str, live: &Path) {
         .status();
 }
 
+/// The tickets of the MCP server (src/tickets.rs), under the same limit, while
+/// the server is on: nothing else reads them.
+fn tickets(repo: &str, home: &Path) {
+    if env::var("TEHAS_MCP").as_deref() != Ok("1") {
+        return;
+    }
+    let Ok(me) = env::current_exe() else {
+        return;
+    };
+    let dir = home.join("mcp/tickets");
+    if fs::create_dir_all(&dir)
+        .and_then(|()| {
+            fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o700))
+        })
+        .is_err()
+    {
+        log(&format!("WARN {} cannot be made", dir.display()));
+        return;
+    }
+    let _ = Command::new("timeout")
+        .args(["-k", "1", &SEARCH_WAIT.as_secs().to_string()])
+        .arg(me)
+        .args(["tickets", repo])
+        .arg(&dir)
+        .stdin(Stdio::null())
+        .status();
+}
+
 fn health() {
     let Ok(me) = env::current_exe() else {
         return;
@@ -1018,6 +1046,10 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
         return;
     }
     epics(repo, live);
+    if stopped() {
+        return;
+    }
+    tickets(repo, home);
     if stopped() {
         return;
     }
