@@ -78,10 +78,11 @@ docker run --init --name tehas-plugin-<name>-<run>
   killed client is not enough.
 - **The context**, `/run/context.json`, `api/plugin-context.schema.json`:
   `kind` (`refresh` or `hook`), `trigger` (`timer`, `host`, `action`,
-  `cycle`), `commit` (the plugin's), `head` (of `/product`), `model`
+  `cycle`), `commit` (the plugin's), `head` (of `/product`, only with
+  `product`), `model`
   (`{"id", "tokens"}` with `model` granted: the id to send and the run's
-  budget), and in a hook `pr` (`{"number", "base", "head"}`). Nothing of a
-  person.
+  budget), and in a hook `pr` (`{"number", "base", "head"}`, base and head
+  as commits). Nothing of a person.
 - **The image's own directories.** A new Docker volume takes the owner of
   the image's directory at its mount point. So an image must have `/work`,
   `/out` and `/state`, owned by 10001; a run whose image lacks them fails
@@ -90,8 +91,10 @@ docker run --init --name tehas-plugin-<name>-<run>
   log lines are kept for `tehas plugin log`.
 
 Test: `test/fixtures/argv/plugin-*` pins the arguments for no grant, for each
-capability alone, and for the reference set, and `test/sandbox_argv_test.sh`
-compares them, as for the cycle's lists. A change there is a security change
+capability alone, and for the reference set. A Rust test beside `sandbox.rs`
+compares them (`TEHAS_TEST_ARGV_RECORD=1` records them). They move to
+`test/sandbox_argv_test.sh`, as for the cycle's lists, once `tehas-plugin`
+starts the container. A change there is a security change
 (hard rule 4).
 
 ## The build
@@ -109,15 +112,19 @@ pin changed or whose image is gone.
   `.git`, no file outside the commit.
 - **The Dockerfile's rules**, read by tehas with BuildKit's own grammar
   (continuations, heredocs, `ARG`) before the build:
-  - every `FROM` names an image by `@sha256:` digest, with no `ARG` in it;
+  - every `FROM` names an image by `@sha256:` digest, with no `ARG` in it,
+    except a `FROM` of an earlier stage and `FROM scratch`;
   - no `# syntax=` line;
   - `COPY --from` and `RUN --mount=from=` name a stage of the file, never an
     image;
   - no `ADD` of a URL or a git address.
   A Dockerfile that breaks one is refused, naming the line.
 - **The base images** are pulled by digest before the build, with the host's
-  Docker, and the digests are shown by `tehas plugin review`.
-- **The build itself** is `timeout 1800 docker build --network none
+  Docker, and the digests are shown by `tehas plugin review`. A base image
+  with an `ONBUILD` trigger is refused, and `review` names the trigger: its
+  steps would run outside the rules above.
+- **The build itself** uses BuildKit (`DOCKER_BUILDKIT=1`); the classic
+  builder reads a heredoc's body as instructions. It is `timeout 1800 docker build --network none
   --cgroup-parent tehas.slice --memory 4g --no-cache --pull=false
   -t tehas-plugin-<name>:<commit> -`, as the preview build is
   `--network none`. A plugin that needs packages carries them in its
@@ -159,7 +166,8 @@ or a cycle's workspace.
   the mirror first, as `tehas-cycle finish` does.
 - It is owned by the host's user and mounted read only. The container is
   given `GIT_CONFIG_COUNT=1`, `GIT_CONFIG_KEY_0=safe.directory`,
-  `GIT_CONFIG_VALUE_0=/product`, so git in the container reads it.
+  `GIT_CONFIG_VALUE_0=/product`, so git in the container reads it. These
+  `-e` options sit after the mounts and before the image.
 - It is removed after the run.
 
 ## The model socket
