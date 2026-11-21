@@ -861,8 +861,14 @@ mod tests {
         }
         // Files the docs server serves or the release carries, no command's
         // output, and those of plugins, which is still being built: its
-        // command's and its manifest's.
-        named.extend(["host-bridge", "settings-rules", "plugin", "plugin-manifest"]);
+        // command's, its manifest's and its run's context.
+        named.extend([
+            "host-bridge",
+            "settings-rules",
+            "plugin",
+            "plugin-manifest",
+            "plugin-context",
+        ]);
         let mut found = Vec::new();
         for e in fs::read_dir(api).unwrap() {
             let name = e.unwrap().file_name().to_string_lossy().into_owned();
