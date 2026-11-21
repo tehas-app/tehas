@@ -255,7 +255,6 @@ fn tsc_or_skip(test: &str) -> Option<PathBuf> {
 mod tests {
     use super::super::testing::dir;
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     fn names(paths: &[PathBuf]) -> Vec<String> {
         paths
@@ -437,8 +436,8 @@ mod tests {
     fn what_tsc_reports_is_the_error() {
         let d = dir("types-fake");
         let exe = |name: &str, body: &str| {
-            let path = d.file(name, &format!("#!/bin/sh\n{body}\n"));
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+            let path = d.0.path().join(name);
+            tehas_core::testing::write_exe(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
             path
         };
         let tsc = exe(
