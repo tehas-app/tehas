@@ -6,6 +6,7 @@
 //! reader writes files; nothing here reaches the network.
 
 pub mod dockerfile;
+pub mod draft;
 pub mod manifest;
 pub mod needs;
 pub mod out;
