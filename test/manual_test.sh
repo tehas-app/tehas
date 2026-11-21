@@ -169,8 +169,8 @@ done
 # the check of the token got a tehas name of its own, and `## Host settings`
 # when the host's settings got rules beside the instance's, and `## tehas outsource`
 # when outsource got its commands.
-t_case "the tools pages hold the 46 sections of the commands, each once"
-t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 47
+t_case "the tools pages hold the 47 sections of the commands, each once"
+t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 48
 t_eq "$(cat "${TOOLS_PAGES[@]}" | grep '^## ' | grep -v '^## The pages$' \
    | sort | uniq -d | wc -l | tr -d ' ')" 0
 

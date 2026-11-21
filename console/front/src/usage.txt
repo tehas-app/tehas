@@ -1,0 +1,8 @@
+tehas: the tehas command, on a machine with no factory.
+
+This machine runs no factory. A factory's own tehas is in its account, and
+has every command. Here tehas runs the parts of the tehas family:
+
+Usage:
+  tehas <part> [words]             run the program tehas-<part> on PATH with the words
+  tehas help [part]                this text, or the help of one part
