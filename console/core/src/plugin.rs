@@ -186,6 +186,8 @@ pub enum Cap {
     HookAfterWork,
     /// A skill's text in the chats, read from the pinned commit.
     Skill(String),
+    /// Another plugin this one needs, and its skills (the v3 part).
+    Needs(String),
 }
 
 impl Cap {
@@ -198,13 +200,14 @@ impl Cap {
             Cap::Action(id) => format!("action:{id}"),
             Cap::HookAfterWork => "hook:after:work".to_string(),
             Cap::Skill(id) => format!("skill:{id}"),
+            Cap::Needs(name) => format!("needs:{name}"),
         }
     }
 
     /// Whether the capability needs a run, and so an image. A skill is text
-    /// tehas reads from the commit.
+    /// tehas reads from the commit, and a need is a relation between plugins.
     pub fn needs_run(&self) -> bool {
-        !matches!(self, Cap::Skill(_))
+        !matches!(self, Cap::Skill(_) | Cap::Needs(_))
     }
 }
 
@@ -268,6 +271,15 @@ fn cap(word: &str, granted: bool) -> Result<(Cap, Option<u64>), String> {
         } else {
             Err(format!(
                 "{word}: a skill's id is 1 to 16 characters of a-z and -"
+            ))
+        };
+    }
+    if let Some(name) = word.strip_prefix("needs:") {
+        return if is_name(name) {
+            Ok((Cap::Needs(name.to_string()), None))
+        } else {
+            Err(format!(
+                "{word}: a plugin's name is 1 to 12 characters of a-z and 0-9, a letter first"
             ))
         };
     }
