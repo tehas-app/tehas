@@ -15,8 +15,8 @@ answers every request for every plugin name. No other program answers them.
 | `plugins.<domain>` | The sign-in: GitHub's callback, the hand-off, sign-out |
 
 With `TEHAS_EDGE_ONE_LEVEL=on` they are `plugin-<name>-<sub>.<domain>` and
-`plugins-<sub>.<domain>`, as for previews (`host/docs/edge.md`). A plugin name
-that would make the same name as another's under that rule is refused at load.
+`plugins-<sub>.<domain>`, as for previews (`host/docs/edge.md`). Plugin names
+have no `-`, so two plugins never share a name under that rule.
 
 - `view` and `action:` need `TEHAS_DOMAIN` and https in front: the session's
   `__Host-` cookie cannot exist on plain http. Without `TEHAS_DOMAIN`, a
