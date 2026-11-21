@@ -77,6 +77,12 @@ pub struct Writer {
     /// before its unit runs, so they come before the lines of the cycle itself,
     /// which writes to the same log. None keeps them with the rest.
     pub say_now: Option<fn(&str)>,
+    /// The planning sessions this poll ended that leave their issue as it
+    /// was: the demand counts what they held out (`decide::demand_after`). A
+    /// session that replaced or closed its issue is not one.
+    pub plans_ended: Vec<u64>,
+    /// A session ended this poll and asked for the poll after it.
+    pub asked_again: bool,
 }
 
 /// What the settle's read found of an open write that this poll may decide
@@ -244,7 +250,9 @@ impl Writer {
             // it whole, which is what the keep waiting for it is for.
             self.plan_post(n, log);
         } else if let Some(n) = a.get("plan_close").and_then(Value::as_u64) {
-            self.plan_close(n, log);
+            if self.plan_close(n, log) {
+                self.plans_ended.push(n);
+            }
         } else if let Some(n) = a.get("plan_start_drop").and_then(Value::as_u64) {
             self.plan_start_drop(n);
         } else if let Some(n) = a.get("units").and_then(Value::as_u64) {

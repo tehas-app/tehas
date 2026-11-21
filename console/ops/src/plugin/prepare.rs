@@ -718,7 +718,7 @@ pub(super) mod tests {
             "plugin-skills",
             &[
                 ("tehas-plugin.json", m),
-                ("skills/grill.md", "# Grill\n\nAsk why.\n"),
+                ("skills/grill.md", "### Grill\n\nAsk why.\n"),
             ],
         );
         let s = prepare(&mut x, &home, &pin(C), Some(&granted("skill:grill")));

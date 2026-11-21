@@ -1121,12 +1121,9 @@ impl Writer {
         log.push(format!(
             "planning #{n}: no open points, the plan starts on {by}'s tehas:plan"
         ));
-        if !self.plan_wind_up(n, said, false, false, true, log) {
-            return false;
-        }
-        // The poll that starts it, now and not at the next timer.
-        let _ = std::fs::write(self.home.join("state/dispatch.again"), "");
-        true
+        // The poll plan_close asks for is the one that starts it, now and not
+        // at the next timer.
+        self.plan_wind_up(n, said, false, false, true, log)
     }
 
     /// post_question: the turn's text, then its question comment, and the
@@ -1451,6 +1448,7 @@ impl Writer {
             self.say(n, &tehas_core::text::disarm(&mask(said)), log);
             return true;
         }
+        self.plans_ended.push(n);
         self.say(n, &tehas_core::text::disarm(&mask(said)), log);
         log.push(format!("planning #{n} ended"));
         true
@@ -1484,6 +1482,11 @@ impl Writer {
             return false;
         }
         self.plan_files_rm(n);
+        // What the session held, its issue and its room for planning, is free
+        // for the poll after this one, now and not at the next timer: this
+        // poll decided from what it read before the session ended.
+        let _ = std::fs::write(self.home.join("state/dispatch.again"), "");
+        self.asked_again = true;
         true
     }
 }

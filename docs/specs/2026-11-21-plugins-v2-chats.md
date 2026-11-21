@@ -77,8 +77,10 @@ skill beside it is not, so a person weighs the two together.
   `tehas plugin review` shows is the text the grant pins and the text a chat
   gets. What a run writes is never instructions.
 - Each file is UTF-8, at most 2 KiB, with no control character but newline,
-  and no line starting with `<!--`. A file that breaks a rule refuses the
-  plugin, naming the file.
+  no line starting with `<!--`, and no `#` or `##` heading outside a fenced
+  block: those are the hosts' own sections, so a skill's headings start at
+  `###`. A fenced block, such as a template, may hold any line. A file that
+  breaks a rule refuses the plugin, naming the file.
 - `tehas plugin review <name>` prints every skill's full text and its sha256,
   and the grant line to write.
 - `TEHAS_PLUGIN_SKILLS_MAX`, 8192 bytes by default, bounds the granted text of
@@ -137,8 +139,16 @@ holds a plugin tool's answer:
 
 Any turn that holds plugin text, a granted skill or a tool's answer, refuses
 the proposals that write a reason in one press, with no view of the whole
-text: Obeya's hold (`propose_press` with a reason) and the assistant's
-`propose`. The model is told why; the person gets no button.
+text: a hold, in Obeya (`propose_press` with a reason) and in the assistant
+(`propose`). The model is told why; the person gets no button. An answer to
+the question that waits stands, because it writes one of the question's own
+choices word for word: the host takes it only as an exact match of a choice,
+and refuses any other.
+
+A chat once shaped stays shaped. A turn whose skills cannot be read, in a
+chat whose earlier turns were shaped, is shaped too: its proposals carry the
+labels of the chat's earlier shaped turns, and every rule here holds for it.
+The model's history still holds what the plugin shaped.
 
 An answer from such a turn never goes to the ticket's logbook on GitHub,
 where its links would be live and everyone reads it: the press is refused,
@@ -156,7 +166,7 @@ and the chat says why where the button would be.
 | --- | --- |
 | `id` | `a-z` and `-`, 1 to 16 |
 | `about` | One line, 1 to 120 characters |
-| `params` | A JSON schema: an object, every string with a `maxLength`, every array with `maxItems`, no `$ref`, no pattern of more than 200 characters |
+| `params` | A JSON schema of a closed subset (`type`, `properties`, `required`, `additionalProperties`, `items`, `minItems`, `maxItems`, `minLength`, `maxLength`, `enum`, `const`, `minimum`, `maximum`, `title`, `description`): an object at the top, every string with a `maxLength`, every array with `maxItems`, at most 6 deep and 4 KiB. Any other keyword is refused, `pattern` and `$ref` among them |
 | `timeout` | Seconds, 1 to 10 |
 | `chats` | As for skills |
 
@@ -173,7 +183,7 @@ through `incus exec` with no stdin and no way to place a file
 - The arguments are checked against `params` and are at most 2 KiB.
 - A container from the plugin's image, with v1's arguments for a run of kind
   `call`: no `product`, no `model`, no `net`, `/state` read only, no `/out`,
-  `--pids-limit 64`, and `/tmp` a tmpfs as for every run. The arguments are
+  `--pids-limit 64`, and `/tmp` and `/work` each a tmpfs of 16 MiB. The arguments are
   at `/run/call.json`, read only, beside `/run/context.json`. Its argument
   list is `test/fixtures/argv/plugin-call`.
 - It runs attached, with `--log-driver none`, so nothing of it is kept on the
@@ -187,6 +197,10 @@ through `incus exec` with no stdin and no way to place a file
   none of the tool's output. The host says the tool did not answer.
 - A tool's author learns why a call failed from that reason only: stderr is
   gone, by design, so a tool reports what it means in its answer.
+- A call reads `/state` while a refresh may be writing it, since a call
+  never waits for one. tehas never opens `/state`, so a tool that cannot read
+  its own files answers `{"busy": true}`, and the host tells the person "the
+  plugin is busy, try again", never the plugin's own text.
 - Nothing of the call is kept: its run row holds the time, the size and the
   result, and no login.
 - At most 2 calls of a plugin at once, and 1 per person, so a slow tool slows
