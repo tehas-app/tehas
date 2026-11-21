@@ -11,7 +11,7 @@
 //! ended and the directory removed. Nothing of the call is kept but the
 //! row's time, size and result.
 
-use super::exec::{Called, Exec};
+use super::exec::{Called, Cmd, Exec};
 use super::prepare;
 use super::ready::{ready, Ready};
 use super::runs;
@@ -253,7 +253,14 @@ fn run_in(
         }
     }
     let limit = Duration::from_secs(t.timeout);
-    match x.attached(&argv, limit, ANSWER_MAX, Path::new(&run.path("cid"))) {
+    let called = x.attached(&argv, limit, ANSWER_MAX, Path::new(&run.path("cid")));
+    if !matches!(called, Called::Out(_) | Called::Exit(_)) {
+        // A killed client leaves its container running, and the cid file
+        // may not be written yet: its name finds it. One gone is fine.
+        let rm = ["rm", "-f", &run.container()].map(String::from).to_vec();
+        let _ = x.run(&Cmd::new("docker", rm));
+    }
+    match called {
         Called::Out(b) => {
             let v = std::str::from_utf8(&b)
                 .ok()

@@ -12,14 +12,22 @@ fn manifest() -> String {
     include_str!("../../../../api/plugin-manifest.tools.json").replace("\"docs\"", "\"floorplan\"")
 }
 
-/// The fake, and what each attached run found at /run/call.json.
+/// The fake, what each attached run found at /run/call.json, and whether
+/// the slot and the host's lock were held at each `docker rm`.
 struct Peek {
     x: Fake,
     calls: Vec<String>,
+    locks: std::path::PathBuf,
+    held_at_rm: Vec<bool>,
 }
 
 impl Exec for Peek {
     fn run(&mut self, cmd: &Cmd) -> Done {
+        if cmd.line().starts_with("docker rm") {
+            let held = |f: &str| try_lock(&self.locks.join(f)).unwrap().is_none();
+            self.held_at_rm
+                .push(held("slot-0.lock") && held("by-host.lock"));
+        }
         self.x.run(cmd)
     }
 
@@ -69,11 +77,14 @@ fn world(name: &str, answer: Called) -> (TestDir, Peek) {
     );
     assert!(made.is_ok(), "{made:?}");
     x.attach("docker run", answer);
+    let locks = runs::calls(&home, "floorplan");
     (
         home,
         Peek {
             x,
             calls: Vec::new(),
+            locks,
+            held_at_rm: Vec::new(),
         },
     )
 }
@@ -205,6 +216,35 @@ fn an_answer_that_is_not_one_object_over_the_cap_late_or_failed_is_the_tools_fai
         assert_eq!(rows(&home)[0]["result"], result, "{i}");
         assert!(!prepare::dir(&home, "floorplan").join("run-1").exists());
     }
+}
+
+#[test]
+fn a_call_killed_before_docker_wrote_its_cid_removes_its_container_while_it_holds_its_slot() {
+    for (i, answer) in [Called::Killed, Called::Over].into_iter().enumerate() {
+        let (home, mut x) = world(&format!("call-rm-{i}"), answer);
+        ask(&mut x, &home, &q(), &Caller::Host).unwrap_err();
+        let ran: Vec<_> =
+            x.x.ran
+                .iter()
+                .filter(|l| l.starts_with("docker r"))
+                .collect();
+        assert_eq!(ran.len(), 2, "{ran:?}");
+        assert!(ran[0].starts_with("docker run "), "{ran:?}");
+        assert_eq!(ran[1], "docker rm -f tehas-plugin-floorplan-1");
+        assert_eq!(x.held_at_rm, [true]);
+        // Then the slot is free: with slot-1 held, the next call takes
+        // slot-0 and runs.
+        let other = try_lock(&runs::calls(&home, "floorplan").join("slot-1.lock"))
+            .unwrap()
+            .unwrap();
+        x.x.attach("docker run", out("{}"));
+        assert_eq!(ask(&mut x, &home, &q(), &Caller::Host), Ok(json!({})));
+        assert!(x.x.ran_any("--name tehas-plugin-floorplan-2 "));
+        drop(other);
+    }
+    let (home, mut x) = world("call-rm-clean", Called::Exit(2));
+    ask(&mut x, &home, &q(), &Caller::Host).unwrap_err();
+    assert!(!x.x.ran_any("docker rm"));
 }
 
 #[test]
