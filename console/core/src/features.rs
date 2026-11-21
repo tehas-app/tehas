@@ -224,6 +224,15 @@ pub fn template(unit: &str) -> bool {
         .is_some_and(|(stem, _)| stem.ends_with('@'))
 }
 
+/// The units a feature installs that a person switches on, as the MCP
+/// server's: an install never enables one.
+pub const BY_HAND: &[&str] = &["tehas-plugin-calls.service"];
+
+/// Whether `unit` is installed but enabled only by a person.
+pub fn by_hand(unit: &str) -> bool {
+    BY_HAND.contains(&unit)
+}
+
 /// The names of the shipped features: the words they add to `features`.
 pub fn shipped() -> Vec<&'static str> {
     FEATURES
@@ -856,6 +865,16 @@ mod tests {
         for u in ["tehas-plugin.timer", "tehas-cycle.service", "a@b.service"] {
             assert!(!template(u), "{u}");
         }
+    }
+
+    #[test]
+    fn a_unit_switched_on_by_hand_is_one_a_feature_installs() {
+        let all: Vec<&str> = units().collect();
+        for u in BY_HAND {
+            assert!(all.contains(u), "{u}");
+            assert!(by_hand(u) && !template(u), "{u}");
+        }
+        assert!(!by_hand("tehas-plugin.timer"));
     }
 
     #[test]

@@ -213,12 +213,9 @@ fn first_units(get: impl Fn(&str) -> Option<String>, env_file: Option<&str>) -> 
         units.push("tehas-energy.service");
     }
     let featured = features::installs_in(&|name| get(name).unwrap_or_default()).1;
-    units.extend(
-        featured
-            .iter()
-            .copied()
-            .filter(|u| !features::timed(u, &featured) && !features::template(u)),
-    );
+    units.extend(featured.iter().copied().filter(|u| {
+        !features::timed(u, &featured) && !features::template(u) && !features::by_hand(u)
+    }));
     units
 }
 
@@ -422,7 +419,7 @@ mod tests {
         let on = [("TEHAS_PLUGIN", "on"), ("TEHAS_TEST_FEATURES", "plugins")];
         assert_eq!(
             units(&on, None),
-            "tehas-dispatch.timer tehas-dispatch.path tehas-plugin.timer tehas-plugin-calls.service"
+            "tehas-dispatch.timer tehas-dispatch.path tehas-plugin.timer"
         );
     }
 

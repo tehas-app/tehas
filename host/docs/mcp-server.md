@@ -591,9 +591,9 @@ systemctl --user enable --now tehas-plugin-calls.service
 systemctl --user restart tehas-mcp.service
 ```
 
-A first install enables the broker's unit while plugins are on; on a host
-that had plugins before, enable it as above. The restart gives the server the
-broker's socket, which it is given only from its next start after the grant.
+`install.sh` installs the broker's unit while plugins are on and never
+switches it on. The restart gives the server the broker's socket, which it is
+given only from its next start after the grant.
 Without the broker running, the server lists no plugin tool and the journal
 says why.
 

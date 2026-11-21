@@ -3,8 +3,8 @@ Description=Tehas: the broker of plugin tools for the MCP server
 
 [Service]
 NoNewPrivileges=yes
-# Installed only while TEHAS_PLUGIN is on. tehas update starts it while
-# TEHAS_MCP is on and a plugin is granted mcp:, and stops it otherwise. It
+# Installed only while TEHAS_PLUGIN is on, and never switched on by an
+# install: a person enables it to offer plugin tools on the MCP server. It
 # serves ~/tehas/run/plugin-calls/calls.sock, the one socket tehas-mcp is
 # given, and runs each call as tehas plugin call does.
 ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot plugin calls >> %h/tehas/logs/plugins.log 2>&1"
