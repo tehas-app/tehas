@@ -26,6 +26,7 @@
 //!   console tehas github writes
 //!   console tehas outsource invite|list|status|revoke|drain [...] [--json]
 //!   console tehas prototype file ...
+//!   console tehas plugin [--json]
 //!   console tehas|tehasbot mcp serve|key
 //!   console tehasbot health
 //!   console tehasbot status
@@ -196,6 +197,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "api" => api::main(rest),
         "labels" => labels::main(rest),
         "panel" => panel::main(rest),
+        "plugin" => tehas_ops::plugin::main(rest),
         "host-message" => host_message::main(rest),
         "resume" => holds::resume(rest),
         "drain" => holds::drain(rest),
@@ -336,6 +338,7 @@ pub fn check(given: &[String]) -> u8 {
             Err(rc) => Err(rc),
         },
         ["tehas", "panel"] => panel::words(rest).map(|_| ()),
+        ["tehas", "plugin"] => tehas_ops::plugin::words(rest).map(|_| ()),
         ["tehas", "host-message"] => host_message::words(rest).map(|_| ()),
         ["tehas", "resume"] => holds::resume_words(rest),
         ["tehas", "drain"] => holds::drain_words(rest).map(|_| ()),
@@ -455,6 +458,7 @@ pub fn text(command: &str) -> Option<&'static str> {
         "start" => include_str!("usage/start.txt"),
         "dev" => dev::USAGE,
         "panel" => include_str!("usage/panel.txt"),
+        "plugin" => include_str!("usage/plugin.txt"),
         "pause" => include_str!("usage/pause.txt"),
         "plan" => include_str!("usage/plan.txt"),
         "prototype" => include_str!("usage/prototype.txt"),

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/plugin.schema.json",
+  "title": "tehas plugin --json",
+  "description": "What tehas plugin --json prints, version 1: each plugin of TEHAS_PLUGINS, its pin, what is granted at the pin and its state. Plugins are a feature still being built, so this is not contract until the release that ships them, and a later step of the feature adds fields. Every object is closed, so a field tehas adds must be added here too. unbuilt is a plugin that is set and granted and not yet fetched or built; refused says why in refusal. The tests of console/ops/src/plugin.rs hold what the command prints to the samples beside this file, and those of console/core/src/plugin/manifest.rs hold the samples to this schema.",
+  "type": "object",
+  "required": ["api", "plugins"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "plugins": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": ["name", "url", "commit", "grants", "state", "refusal"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-z][a-z0-9]{0,11}$"},
+          "url": {"type": "string", "pattern": "^https://"},
+          "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+          "grants": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^(view|product|model:[1-9][0-9]{0,8}|hook:after:work|action:[a-z-]{1,16})$"}
+          },
+          "state": {"enum": ["unbuilt", "refused"]},
+          "refusal": {"type": ["string", "null"]}
+        }
+      }
+    }
+  }
+}
