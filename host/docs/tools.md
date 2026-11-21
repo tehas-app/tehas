@@ -564,7 +564,7 @@ not pass:
 ```
 test.sh: 431 cases in 96 files, 16 at a time
 test.sh: the slowest files:
-      8.4 s  test/work_test.sh
+      8.4 s  test/work_approval_test.sh
       6.1 s  test/dispatch_queue_test.sh
 test.sh: failed checks (2), not run (0)
     shellcheck
