@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Once;
 use tehas_core::testdir::TestDir;
-use tehas_core::testing::{copy_exe, write_exe};
+use tehas_core::testing::{copy_exe, link_exe, write_exe};
 
 /// The settings of a minimal valid instance (T_MINIMAL).
 #[allow(dead_code)] // each test file uses a part of this module
@@ -557,9 +557,9 @@ impl World {
         fs::create_dir_all(&home).unwrap();
         std::os::unix::fs::symlink(root().join("lib"), tree.join("lib")).unwrap();
         let p = programs();
-        copy_exe(&p.store, t.join("store-bin")).unwrap();
-        copy_exe(&p.attach, t.join("attach-bin")).unwrap();
-        place(&p.console, &t.join("console-bin"));
+        link_exe(&p.store, t.join("store-bin")).unwrap();
+        link_exe(&p.attach, t.join("attach-bin")).unwrap();
+        link_exe(&p.console, t.join("console-bin")).unwrap();
         let ws = home.join("work/widget-7");
         let mut state = ws.clone().into_os_string();
         state.push(".state");
@@ -619,10 +619,11 @@ impl World {
             "TEHAS_WATCH_CLOCK",
             &libexec.join("tehas-cycle").to_string_lossy(),
         );
-        place(
-            Path::new(env!("CARGO_BIN_EXE_tehas-cycle")),
-            &libexec.join("tehas-cycle.real"),
-        );
+        link_exe(
+            env!("CARGO_BIN_EXE_tehas-cycle"),
+            libexec.join("tehas-cycle.real"),
+        )
+        .unwrap();
         // The renewer of the cycle's token, which tehas work starts from its home.
         fs::create_dir_all(w.home.join("libexec")).unwrap();
         write_exe(
