@@ -15,13 +15,14 @@ use crate::host::{Ended, Host};
 use crate::model::{self, Content, Server};
 use crate::upstream;
 use serde_json::{json, Value};
-use std::fs::{self, File, TryLockError};
+use std::fs::{self, File};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tehas_core::file::{read_regular, write_atomic, Temp};
 use tehas_core::grammar::commit_id;
+use tehas_core::lock::try_lock;
 use tehas_core::plugin::manifest::Manifest;
 use tehas_core::plugin::run::{context, Kind, Pr, Run, Trigger};
 use tehas_core::plugin::state::{State, Word};
@@ -158,21 +159,6 @@ fn plugin_of(h: &mut dyn Host, s: &Setup, name: &str, person: bool) -> Result<Pl
         image,
         manifest,
     })
-}
-
-/// A lock taken now, or None when another holds it.
-fn try_lock(path: &Path) -> Result<Option<File>, String> {
-    let f = File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    // A lock just given back can still be held a moment by a child forked
-    // while it was taken, until that child's exec closes it.
-    for _ in 0..10 {
-        match f.try_lock() {
-            Ok(()) => return Ok(Some(f)),
-            Err(TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(50)),
-            Err(TryLockError::Error(e)) => return Err(format!("{}: {e}", path.display())),
-        }
-    }
-    Ok(None)
 }
 
 fn lock_with(path: &Path, shared: bool) -> Result<File, String> {

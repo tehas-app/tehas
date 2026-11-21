@@ -9,6 +9,7 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 use tehas_core::plugin::out;
+use tehas_core::plugin::run::kill_by_cidfile;
 use tehas_ops::plugin::exec::{self, Exec};
 
 /// How a container's `docker run` ended.
@@ -66,19 +67,6 @@ fn said_of(child: &mut Child) -> String {
         let _ = e.by_ref().take(64 << 10).read_to_end(&mut err);
     }
     cut(String::from_utf8_lossy(&err).trim(), SAID_MAX)
-}
-
-fn kill_by_cidfile(cidfile: &Path) {
-    let cid = std::fs::read_to_string(cidfile).unwrap_or_default();
-    let cid = cid.trim();
-    if !cid.is_empty() && cid.bytes().all(|b| b.is_ascii_hexdigit()) {
-        let _ = Command::new("docker")
-            .args(["kill", cid])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    }
 }
 
 /// Waits for `child` at most `limit`. None: it is still running.

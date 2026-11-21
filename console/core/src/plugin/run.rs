@@ -3,12 +3,15 @@
 //! [`context`] into `/run/context.json`
 //! (docs/specs/2026-11-21-plugins-security.md, "The container"). A
 //! capability is given when the manifest asks for it and the grants for the
-//! pin's commit grant it, and not otherwise.
+//! pin's commit grant it, and not otherwise. And the kill of a run's
+//! container past its time, by the id docker wrote in its cid file.
 
 use super::manifest::Manifest;
 use super::{compare, is_name, Cap, Grants, Limits};
 use crate::grammar::{commit_id, is_image};
 use serde_json::{json, Value};
+use std::path::Path;
+use std::process::{Command, Stdio};
 
 /// The container's own uid and gid, which own the image's /work, /out and
 /// /state.
@@ -178,6 +181,26 @@ impl Run<'_> {
     }
 }
 
+/// `docker kill` of the container whose id `cidfile` holds, when it holds
+/// one. Nothing is said: a container already gone is what the kill wants.
+pub fn kill_by_cidfile(cidfile: &Path) {
+    let text = std::fs::read_to_string(cidfile).unwrap_or_default();
+    if let Some(cid) = cid_of(&text) {
+        let _ = Command::new("docker")
+            .args(["kill", cid])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
+/// The id of a cid file: hex digits only, so it is never an option.
+fn cid_of(text: &str) -> Option<&str> {
+    let cid = text.trim();
+    (!cid.is_empty() && cid.bytes().all(|b| b.is_ascii_hexdigit())).then_some(cid)
+}
+
 /// `/run/context.json` of a run, api/plugin-context.schema.json. Nothing of
 /// a person, and nothing of a capability the run is not given.
 pub fn context(run: &Run) -> Result<Value, String> {
@@ -259,6 +282,16 @@ pub(crate) mod tests {
                 head: H.into(),
             }),
         }
+    }
+
+    #[test]
+    fn a_cid_file_is_killed_only_by_its_hex_id() {
+        assert_eq!(cid_of("4f2a9c\n"), Some("4f2a9c"));
+        for bad in ["", " \n", "--all", "4f2a 9c", "4f2a;rm"] {
+            assert_eq!(cid_of(bad), None, "{bad:?}");
+        }
+        // No file: nothing to kill, and nothing is run.
+        kill_by_cidfile(Path::new("/nonexistent/tehas/cid"));
     }
 
     #[test]
