@@ -85,7 +85,7 @@ of its own.
 The endpoint is a setting of the instance, never of the plugin or of tehas:
 
 ```
-TEHAS_PLUGIN_RELAYS="voice:speech=wss://speech.example.ts.net:8998/ws"
+TEHAS_PLUGIN_RELAYS="voice:speech=wss://speech.example.org:8998/ws"
 ```
 
 Each entry: `<plugin>:<id>=<url>`. At most 2 per plugin. The plugin's
