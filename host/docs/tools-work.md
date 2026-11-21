@@ -461,7 +461,7 @@ no link, at most 16 files and 4 MB together, and listed in
 `plugin-files/manifest.json` with each file's size and sha256. A line no such
 record matches gives nothing. Files that are not the ones the record pins,
 by the sha256 of their `sha256sum` lines, stop the start with
-`plugin-files-changed`, and the issue says so. No plugin files records yet:
+`plugin-files-changed`, and the comment on the issue asks a person to file them again from the plugin, since a retry would meet the same files. No plugin files records yet:
 plugins are still being built.
 
 With `TEHAS_WORK_ZIPS=on` a zip the issue links is unpacked into the same
