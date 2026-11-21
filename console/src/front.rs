@@ -129,6 +129,8 @@ fn tehas(words: &[String]) -> Go {
         "github" if words[1..] == ["check"] => Go::Run,
         "github" => Go::Verb,
         "mcp" if word(1) != Some("serve") => Go::Verb,
+        // A plugin author's folder, on any machine: no instance settings.
+        "plugin" if word(1) == Some("check") => Go::Verb,
         c => script("tehas", c).map_or(Go::Run, Go::Script),
     }
 }
@@ -315,6 +317,9 @@ mod tests {
             assert_eq!(t(&[c, "7"]), Go::Run, "{c}");
         }
         assert_eq!(t(&["dev", "--issue", "7"]), Go::Verb);
+        assert_eq!(t(&["plugin", "check", "."]), Go::Verb);
+        assert_eq!(t(&["plugin", "review", "floorplan"]), Go::Run);
+        assert_eq!(t(&["plugin"]), Go::Run);
         for c in ["dispatch", "review", "github-token"] {
             assert_eq!(b(&[c]), Go::Run, "{c}");
         }

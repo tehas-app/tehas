@@ -7,6 +7,7 @@ exits 78.
 Usage: tehas plugin [--json]
        tehas plugin review <name> [<commit>] [--json]
        tehas plugin skills [--chat obeya|wizard|assistant] [--json]
+       tehas plugin check <dir> [--json]
        tehas plugin -h|--help    print this text and exit 0
 
 A plugin is a program from a git repository, pinned by commit. Each one is a
@@ -44,7 +45,14 @@ out, and the reason said, when its grants are not for the pin, its manifest
 is not the one tehas update read, a skill's file breaks its rules, or its
 skills would pass 8192 bytes of skills in all.
 
-Exit: 0 listed, or reviewed and not refused; 1 the fetch or the read
+check reads a plugin's folder on this machine as review reads a commit: the
+manifest, its skills' text and the Dockerfile's rules, each ask known and not
+reserved. It needs no settings, runs no git or docker, reaches no network
+and works with the feature off. It reads only regular files of the folder,
+through no link. The bases' ONBUILD triggers are left to review and
+tehas update, which pull the bases.
+
+Exit: 0 listed, checked or reviewed and not refused; 1 the fetch or the read
 failed; 3 refused, with why; 64 a bad argument or a name TEHAS_PLUGINS does
 not hold; 78 the feature is off, or the instance settings are missing or
 malformed.

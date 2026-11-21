@@ -18,7 +18,7 @@ use tehas_core::plugin::state::{State, Word};
 use tehas_core::plugin::{self, Pin};
 use tehas_core::{exit, features, outln};
 
-const USAGE: &str = "usage: tehas plugin [--json] | tehas plugin review <name> [<commit>] [--json] | tehas plugin skills [--chat obeya|wizard|assistant] [--json]";
+const USAGE: &str = "usage: tehas plugin [--json] | tehas plugin review <name> [<commit>] [--json] | tehas plugin skills [--chat obeya|wizard|assistant] [--json] | tehas plugin check <dir> [--json]";
 
 /// What the arguments ask for.
 #[derive(Debug, PartialEq, Eq)]
@@ -33,6 +33,10 @@ pub enum Words {
     },
     Skills {
         chat: Option<String>,
+        json: bool,
+    },
+    Check {
+        dir: String,
         json: bool,
     },
 }
@@ -73,7 +77,36 @@ pub fn words(given: &[String]) -> Result<Words, u8> {
                 json,
             })
         }
+        [verb, dir] if *verb == "check" && !dir.is_empty() => Ok(Words::Check {
+            dir: dir.to_string(),
+            json,
+        }),
         _ => Err(usage()),
+    }
+}
+
+/// `tehas plugin check <dir>`: no settings, no home, no feature switch, so a
+/// plugin's author runs it anywhere tehas unpacks. 0 kept; 3 refused, a
+/// folder with no manifest that can be read among them.
+fn check_main(dir: &str, json_out: bool) -> u8 {
+    let c = match check::check(std::path::Path::new(dir)) {
+        Ok(c) => c,
+        Err(why) => {
+            eprintln!("tehas plugin check: {why}");
+            return exit::NO;
+        }
+    };
+    if json_out {
+        outln!("{}", c.json());
+    } else {
+        for line in c.text() {
+            outln!("{line}");
+        }
+    }
+    if c.refusals().is_empty() {
+        exit::OK
+    } else {
+        exit::NO
     }
 }
 
@@ -236,11 +269,17 @@ pub fn main(given: &[String]) -> u8 {
         Ok(w) => w,
         Err(rc) => return rc,
     };
+    // No settings and no feature switch: an author's folder on any machine.
+    let asked = match asked {
+        Words::Check { dir, json } => return check_main(&dir, json),
+        other => other,
+    };
     let get = |name: &str| env::var(name).unwrap_or_default();
     let what = match asked {
         Words::List { .. } => "tehas plugin",
         Words::Review { .. } => "tehas plugin review",
         Words::Skills { .. } => "tehas plugin skills",
+        Words::Check { .. } => return exit::USAGE,
     };
     if let Err(why) = features::needs("plugins", what, &get) {
         eprintln!("{what}: {why}");
@@ -265,6 +304,8 @@ pub fn main(given: &[String]) -> u8 {
         Words::Review { name, commit, json } => {
             review_main(&home, &get, &name, commit.as_deref(), json)
         }
+        // Answered above, before the settings.
+        Words::Check { dir, json } => check_main(&dir, json),
         Words::Skills { chat, json } => {
             let l = skills::list(&mut exec::Host, &home, &get, chat.as_deref());
             if json {
@@ -350,6 +391,26 @@ mod tests {
         assert_eq!(words_of(&["review", "floorplan", "0123abc"]), Err(64));
         assert_eq!(words_of(&["review", "floorplan", PIN, "x"]), Err(64));
         assert_eq!(words_of(&["run", "floorplan"]), Err(64));
+    }
+
+    #[test]
+    fn the_check_words_take_one_folder() {
+        assert_eq!(
+            words_of(&["check", "plugin-dir"]),
+            Ok(Words::Check {
+                dir: "plugin-dir".into(),
+                json: false
+            })
+        );
+        assert_eq!(
+            words_of(&["check", ".", "--json"]),
+            Ok(Words::Check {
+                dir: ".".into(),
+                json: true
+            })
+        );
+        assert_eq!(words_of(&["check"]), Err(64));
+        assert_eq!(words_of(&["check", "a", "b"]), Err(64));
     }
 
     #[test]

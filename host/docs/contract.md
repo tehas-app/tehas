@@ -485,7 +485,8 @@ with exit 78 and says `plugins` is still being built.
   are in `api/settings-rules.json`, but they are not contract: a line that
   gives one a value stops every command with exit 78 and names `plugins`.
 - `tehas plugin` and `tehas plugin review` exit 78 and read nothing more,
-  and `tehas update` fetches and builds no plugin. `tehas help plugin` prints
+  and `tehas update` fetches and builds no plugin. `tehas plugin check
+  <dir>` runs: it reads a local folder and no settings. `tehas help plugin` prints
   its text, and the list of `tehas help` does not name it.
 - `api/plugin.schema.json`, `api/plugin-review.schema.json`,
   `api/plugin-manifest.schema.json` and `api/plugin-context.schema.json` and
