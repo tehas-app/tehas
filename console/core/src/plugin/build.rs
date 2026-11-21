@@ -71,8 +71,7 @@ pub fn fetch(repo: &str, url: &str, commit: &str) -> Vec<String> {
 }
 
 /// The build of the context on standard input: the arguments of `timeout`.
-/// BuildKit takes `--memory` and ignores it, so the slice is what bounds the
-/// build's memory.
+/// BuildKit ignores `--memory`, so the slice is what bounds the build.
 pub fn build(name: &str, commit: &str, dockerfile: &str) -> Vec<String> {
     let t = tag(name, commit);
     [
@@ -83,8 +82,6 @@ pub fn build(name: &str, commit: &str, dockerfile: &str) -> Vec<String> {
         "none",
         "--cgroup-parent",
         "tehas.slice",
-        "--memory",
-        "4g",
         "--no-cache",
         "--pull=false",
         "-f",
@@ -131,8 +128,9 @@ mod tests {
     fn the_build_has_no_network_and_no_cache_and_runs_in_the_slice() {
         assert_eq!(
             build("floorplan", C, "docker/Dockerfile").join(" "),
-            format!("1800 docker build --network none --cgroup-parent tehas.slice --memory 4g --no-cache --pull=false -f docker/Dockerfile -t tehas-plugin-floorplan:{C} -")
+            format!("1800 docker build --network none --cgroup-parent tehas.slice --no-cache --pull=false -f docker/Dockerfile -t tehas-plugin-floorplan:{C} -")
         );
+        assert!(!build("floorplan", C, "Dockerfile").contains(&"--memory".to_string()));
     }
 
     #[test]

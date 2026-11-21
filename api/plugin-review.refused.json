@@ -20,12 +20,16 @@
   "bases": [
     {
       "image": "node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "onbuild": ["RUN make"]
+      "onbuild": [
+        "RUN make"
+      ]
     }
   ],
-  "model": [],
+  "model": null,
   "warnings": [],
-  "changes": ["build changed"],
+  "changes": [
+    "build changed"
+  ],
   "refusals": [
     "the base image node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa has ONBUILD triggers, which would run in the build: RUN make"
   ],

@@ -382,6 +382,34 @@ fn refused(commit: &str, r: &Reading, why: Vec<String>) -> State {
     s
 }
 
+/// The refs of `repo.git` but the pin's taken out, so what a review fetched
+/// goes, then `git gc`. Nothing to do when there is no repository yet.
+pub fn prune(x: &mut dyn Exec, home: &Path, pin: &Pin) -> Result<(), String> {
+    let repo = repo(home, &pin.name);
+    if !Path::new(&repo).join("HEAD").is_file() {
+        return Ok(());
+    }
+    let listed = x.run(&git_local(
+        &repo,
+        &["for-each-ref", "--format=%(refname)", "refs/tehas/"],
+    ));
+    if !listed.ok {
+        return Err(format!("the refs could not be listed: {}", listed.err));
+    }
+    let keep = build::keep_ref(&pin.commit);
+    for r in listed.text().lines().filter(|r| *r != keep) {
+        let d = x.run(&git_local(&repo, &["update-ref", "-d", r]));
+        if !d.ok {
+            return Err(format!("{r} could not be removed: {}", d.err));
+        }
+    }
+    let gc = x.run(&git_local(&repo, &["gc", "--prune=now", "--quiet"]));
+    if !gc.ok {
+        return Err(format!("git gc failed: {}", gc.err));
+    }
+    Ok(())
+}
+
 /// A plugin no longer in the settings: its images, its state volume and its
 /// directory. Err: what could not be removed.
 pub fn remove(x: &mut dyn Exec, home: &Path, name: &str) -> Result<(), String> {
@@ -493,7 +521,7 @@ pub(super) mod tests {
         let pipe = x.ran.iter().find(|l| l.contains(" | ")).unwrap();
         assert!(
             pipe.contains(&format!(
-                "archive --format=tar {C} | timeout 1800 docker build --network none --cgroup-parent tehas.slice --memory 4g --no-cache --pull=false -f Dockerfile -t tehas-plugin-floorplan:{C} -"
+                "archive --format=tar {C} | timeout 1800 docker build --network none --cgroup-parent tehas.slice --no-cache --pull=false -f Dockerfile -t tehas-plugin-floorplan:{C} -"
             )),
             "{pipe}"
         );
@@ -692,6 +720,30 @@ pub(super) mod tests {
             s.refusal.as_deref(),
             Some("skill grill: skills/grill.md: not in the commit")
         );
+    }
+
+    #[test]
+    fn the_refs_but_the_pins_are_pruned_then_the_repository_collected() {
+        let (home, mut x) = good("plugin-prune", &[]);
+        let other = "f".repeat(40);
+        x.on(
+            "for-each-ref",
+            ok(&format!("refs/tehas/{C}\nrefs/tehas/{other}\n")),
+        );
+        x.on("update-ref -d", ok(""));
+        x.on("gc --prune=now --quiet", ok(""));
+        prune(&mut x, &home, &pin(C)).unwrap();
+        assert!(x.ran_any(&format!("update-ref -d refs/tehas/{other}")));
+        assert!(!x.ran_any(&format!("update-ref -d refs/tehas/{C}")));
+        let gc = x.ran.last().unwrap();
+        assert!(
+            gc.starts_with("git -C ") && gc.ends_with(" gc --prune=now --quiet"),
+            "{gc}"
+        );
+        let fresh = TestDir::new("plugin-prune-none");
+        let mut y = Fake::new();
+        prune(&mut y, &fresh, &pin(C)).unwrap();
+        assert!(y.ran.is_empty());
     }
 
     #[test]

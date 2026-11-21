@@ -1,6 +1,7 @@
 //! The plugins' part of `tehas update`: with the feature on, each plugin of
 //! TEHAS_PLUGINS fetched, checked and built when its image of the pin is not
-//! there, and what is left of a plugin taken out of the settings removed
+//! there, its repository pruned to the pin's commit, and what is left of a
+//! plugin taken out of the settings removed
 //! (docs/specs/2026-11-21-plugins.md, guarantees 4 and 9). A plugin that is
 //! refused is skipped, never the update; the caller exits 1 at the end.
 //! With the feature off it does nothing.
@@ -43,6 +44,9 @@ pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said
             }
         };
         said.lines.push(line);
+        if let Err(why) = prepare::prune(x, home, pin) {
+            said.lines.push(format!("plugin {}: {why}", pin.name));
+        }
     }
     let Ok(dirs) = fs::read_dir(prepare::root(home)) else {
         return said;
@@ -111,6 +115,12 @@ mod tests {
             ("TEHAS_PLUGINS", format!("floorplan={URL}@{C}")),
             ("TEHAS_PLUGIN_GRANTS_FLOORPLAN", format!("{C} product")),
         ]);
+        x.on(
+            "for-each-ref",
+            ok(&format!("refs/tehas/{C}\nrefs/tehas/{}\n", "f".repeat(40))),
+        );
+        x.on("update-ref -d", ok(""));
+        x.on("gc --prune=now", ok(""));
         assert_eq!(
             step(&mut x, &home, &get),
             Said {
@@ -118,6 +128,8 @@ mod tests {
                 refused: false
             }
         );
+        assert!(x.ran_any(&format!("update-ref -d refs/tehas/{}", "f".repeat(40))));
+        assert!(x.ran_any("gc --prune=now --quiet"));
         let get = on(&[("TEHAS_PLUGINS", format!("floorplan={URL}@{C}"))]);
         let said = step(&mut x, &home, &get);
         assert!(said.refused);
