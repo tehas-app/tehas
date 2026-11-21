@@ -12,6 +12,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
+/// Held while the root is changed: a directory dropped, or a program shared.
+pub(crate) static ROOT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Where `testing::link_exe` keeps the one copy of each program it shares.
+pub(crate) const SHARED: &str = "shared-exe";
+
 /// The root of this process's test directories.
 pub fn root() -> PathBuf {
     std::env::temp_dir().join(format!("tehas-cargo-{}", std::process::id()))
@@ -28,6 +34,7 @@ impl TestDir {
     pub fn new(name: &str) -> TestDir {
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let path = root().join(format!("{name}-{n}"));
+        let _held = ROOT.lock().unwrap_or_else(|e| e.into_inner());
         // Another guard may remove the root between the two creates.
         let mut tries = 0;
         loop {
@@ -65,9 +72,15 @@ impl AsRef<Path> for TestDir {
 
 impl Drop for TestDir {
     fn drop(&mut self) {
+        let _held = ROOT.lock().unwrap_or_else(|e| e.into_inner());
         let _ = fs::remove_dir_all(&self.path);
-        // Fails while another test's directory is still there.
-        let _ = fs::remove_dir(root());
+        // The last directory takes the shared programs with it; while another
+        // test's directory is still there the root stays.
+        let only_shared = fs::read_dir(root())
+            .is_ok_and(|mut d| d.all(|e| e.is_ok_and(|e| e.file_name() == SHARED)));
+        if only_shared {
+            let _ = fs::remove_dir_all(root());
+        }
     }
 }
 

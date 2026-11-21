@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Once;
 use tehas_core::testdir::TestDir;
-use tehas_core::testing::{copy_exe, write_exe};
+use tehas_core::testing::{copy_exe, link_exe, write_exe};
 
 /// The answers of the stub gh, run by the wrapper in `gh_stub`. `$T/fx/...`
 /// are the fixtures; a call reads the words past `$2` through `rest_verb`
@@ -690,8 +690,13 @@ fn which(name: &str) -> String {
         .unwrap_or_else(|| format!("/usr/bin/{name}"))
 }
 
-/// A hard link of a built program, or a copy where the two cannot link.
+/// A built program, as the process's one shared copy.
 fn place(from: &Path, to: &Path) {
+    link_exe(from, to).unwrap();
+}
+
+/// A hard link of a program the world already holds, or a copy.
+fn relink(from: &Path, to: &Path) {
     let _ = fs::remove_file(to);
     if fs::hard_link(from, to).is_err() {
         copy_exe(from, to).unwrap();
@@ -738,8 +743,8 @@ impl World {
         }
         fs::create_dir_all(&home).unwrap();
         let p = programs();
-        copy_exe(&p.store, t.join("store-bin")).unwrap();
-        copy_exe(&p.attach, t.join("attach-bin")).unwrap();
+        link_exe(&p.store, t.join("store-bin")).unwrap();
+        link_exe(&p.attach, t.join("attach-bin")).unwrap();
         let lib = root().join("lib");
         for tree in ["front", "dispatch"] {
             std::os::unix::fs::symlink(&lib, t.join(tree).join("lib")).unwrap();
@@ -890,8 +895,8 @@ impl World {
         for f in ["store-answers", "store-answers.n", "calls/store"] {
             let _ = fs::remove_file(self.t.join(f));
         }
-        place(&self.t.join("store-bin"), &libexec.join("store"));
-        place(&self.t.join("attach-bin"), &libexec.join("attach"));
+        relink(&self.t.join("store-bin"), &libexec.join("store"));
+        relink(&self.t.join("attach-bin"), &libexec.join("attach"));
         let state = self.home.join("state");
         for f in ["tehas.db", "tehas.db-wal", "tehas.db-shm"] {
             let _ = fs::remove_file(state.join(f));

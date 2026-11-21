@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Once;
 use tehas_core::testdir::TestDir;
-use tehas_core::testing::{copy_exe, write_exe};
+use tehas_core::testing::{link_exe, write_exe};
 
 /// The stub gh. A body given on standard input is written down as an argument,
 /// as the cycle's own calls give it. Its fixtures are named beside each arm.
@@ -315,8 +315,8 @@ impl World {
         for d in ["libexec", "logs", "state"] {
             fs::create_dir_all(home.join(d)).unwrap();
         }
-        copy_exe(store_binary(), t.join("store-bin")).unwrap();
-        copy_exe(t.join("store-bin"), home.join("libexec/store")).unwrap();
+        link_exe(store_binary(), t.join("store-bin")).unwrap();
+        link_exe(store_binary(), home.join("libexec/store")).unwrap();
         let w = World {
             t,
             home,
