@@ -173,6 +173,10 @@ struct Run {
 
 /// Where the server finds the shared checkout.
 const CHECKOUT_MOUNT: &str = "/checkout";
+/// Where `tehas-mcp-fetch.socket` listens, under the home, and where the
+/// server finds it: a connection asks for a fetch of the checkout.
+const FETCH_DIR: &str = "run/mcp-fetch";
+const FETCH_MOUNT: &str = "/run/tehas/fetch";
 
 /// Where the broker of plugin calls keeps its socket, under the home.
 const CALLS_DIR: &str = "run/plugin-calls";
@@ -239,9 +243,13 @@ fn run_args(run: &Run) -> Vec<String> {
         args.push("-v".to_string());
         args.push(format!("{home}/{CALLS_DIR}:{CALLS_MOUNT}:ro"));
     }
+    // A unix socket on a read-only mount still takes a connection, and a
+    // connection is the whole request: the server writes nothing to the host.
     if let Some(dir) = &run.checkout {
         args.push("-v".to_string());
         args.push(format!("{dir}:{CHECKOUT_MOUNT}:ro"));
+        args.push("-v".to_string());
+        args.push(format!("{home}/{FETCH_DIR}:{FETCH_MOUNT}:ro"));
     }
     args.extend(
         [
@@ -274,6 +282,8 @@ fn run_args(run: &Run) -> Vec<String> {
     if run.checkout.is_some() {
         args.push("--checkout".to_string());
         args.push(CHECKOUT_MOUNT.to_string());
+        args.push("--checkout-fetch".to_string());
+        args.push(format!("{FETCH_MOUNT}/fetch.sock"));
     }
     if run.outsource {
         args.push("--outsource".to_string());
@@ -322,6 +332,8 @@ fn prepare(home: &str) -> Result<Run, (u8, String)> {
         if !Path::new(dir).is_dir() {
             return Err((78, format!("TEHAS_MCP_CHECKOUT {dir} is no directory")));
         }
+        // Made here, so Docker never makes it as root.
+        snapshot_dir(&Path::new(home).join(FETCH_DIR)).map_err(fail)?;
     }
     let calls = plugin_calls(&setting);
     if calls {
@@ -479,6 +491,20 @@ fn serve() -> u8 {
         }
     };
     remove_container();
+    if run.checkout.is_some() {
+        // The socket that takes the server's requests for a fetch. A host
+        // where it cannot start still serves the checkout as it is, and each
+        // answer's `fetch` says how old it is.
+        let started = Command::new("systemctl")
+            .args(["--user", "start", "tehas-mcp-fetch.socket"])
+            .status()
+            .is_ok_and(|s| s.success());
+        if !started {
+            say(
+                "tehas-mcp-fetch.socket did not start: the checkout is not fetched on a connection",
+            );
+        }
+    }
     let error = Command::new("docker")
         .args(run_args(&run))
         .env("TEHAS_MCP_MASK", &run.sums)
@@ -490,9 +516,9 @@ fn serve() -> u8 {
 /// `serve` or `key`, alone, or 64 with the usage.
 pub fn words(given: &[String]) -> Result<&str, u8> {
     match given {
-        [verb] if verb == "serve" || verb == "key" => Ok(verb),
+        [verb] if verb == "serve" || verb == "key" || verb == "fetch" => Ok(verb),
         _ => {
-            eprintln!("usage: tehasbot mcp serve | tehas mcp key");
+            eprintln!("usage: tehasbot mcp serve | fetch | tehas mcp key");
             Err(64)
         }
     }
@@ -501,6 +527,12 @@ pub fn words(given: &[String]) -> Result<&str, u8> {
 pub fn main(given: &[String]) -> u8 {
     match words(given) {
         Ok("serve") => serve(),
+        Ok("fetch") => {
+            if let Err(rc) = settings::require(&["TEHAS_HOME"]) {
+                return rc;
+            }
+            crate::checkout::main(&setting("TEHAS_HOME"), &setting("TEHAS_MCP_CHECKOUT"))
+        }
         Ok(_) => key(),
         Err(rc) => rc,
     }
@@ -517,6 +549,7 @@ mod tests {
         let w = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(words(&w(&["serve"])), Ok("serve"));
         assert_eq!(words(&w(&["key"])), Ok("key"));
+        assert_eq!(words(&w(&["fetch"])), Ok("fetch"));
         for bad in [
             &[][..],
             &["nope"],
@@ -741,10 +774,18 @@ mod tests {
         let want = fs::read_to_string(file).unwrap_or_else(|e| panic!("{file}: {e}"));
         assert_eq!(got, want, "{file}");
         let mut without = with.clone();
-        for value in ["/srv/checkout/p:/checkout:ro", "/checkout"] {
+        for value in [
+            "/srv/checkout/p:/checkout:ro",
+            "/h/run/mcp-fetch:/run/tehas/fetch:ro",
+            "/checkout",
+            "/run/tehas/fetch/fetch.sock",
+        ] {
             let at = without.iter().position(|w| w == value).unwrap();
             assert!(
-                matches!(without[at - 1].as_str(), "-v" | "--checkout"),
+                matches!(
+                    without[at - 1].as_str(),
+                    "-v" | "--checkout" | "--checkout-fetch"
+                ),
                 "{value}"
             );
             without.drain(at - 1..=at);

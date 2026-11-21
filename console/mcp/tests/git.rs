@@ -1,7 +1,7 @@
 // The shared checkout: factory_git_log, factory_git_show and
 // factory_git_blame over a repository each test makes with git.
 
-use mcp::git::{call_in, open, BLAME, LOG, SHOW};
+use mcp::git::{ask, call_in, fetch_report, open, BLAME, FETCH_FILE, LOG, SHOW};
 use serde_json::{json, Value};
 use std::path::Path;
 use std::process::Command;
@@ -57,7 +57,7 @@ fn fixture(name: &str) -> (TestDir, Vec<String>) {
     (t, vec![c1, c2, c3])
 }
 
-fn ask(dir: &Path, tool: &str, args: Value) -> Result<Value, String> {
+fn ask_tool(dir: &Path, tool: &str, args: Value) -> Result<Value, String> {
     let repo = open(dir).unwrap();
     call_in(&repo, tool, &args)
 }
@@ -74,7 +74,7 @@ fn ids(v: &Value) -> Vec<String> {
 #[test]
 fn the_log_is_newest_first_from_head_and_names_it() {
     let (t, c) = fixture("mcp-git-log");
-    let v = ask(&t, LOG, json!({})).unwrap();
+    let v = ask_tool(&t, LOG, json!({})).unwrap();
     assert_eq!(ids(&v), vec![c[2].clone(), c[1].clone(), c[0].clone()]);
     assert_eq!(v["head"], c[2].as_str());
     assert_eq!(v["more"], false);
@@ -92,44 +92,44 @@ fn the_log_is_newest_first_from_head_and_names_it() {
 #[test]
 fn the_log_of_a_path_holds_only_the_commits_that_changed_it() {
     let (t, c) = fixture("mcp-git-path");
-    let v = ask(&t, LOG, json!({"path": "a.txt"})).unwrap();
+    let v = ask_tool(&t, LOG, json!({"path": "a.txt"})).unwrap();
     assert_eq!(ids(&v), vec![c[2].clone(), c[0].clone()]);
-    let v = ask(&t, LOG, json!({"path": "src/b.txt"})).unwrap();
+    let v = ask_tool(&t, LOG, json!({"path": "src/b.txt"})).unwrap();
     assert_eq!(ids(&v), vec![c[1].clone()]);
-    let v = ask(&t, LOG, json!({"path": "src"})).unwrap();
+    let v = ask_tool(&t, LOG, json!({"path": "src"})).unwrap();
     assert_eq!(ids(&v), vec![c[1].clone()]);
-    let v = ask(&t, LOG, json!({"path": "nothing.txt"})).unwrap();
+    let v = ask_tool(&t, LOG, json!({"path": "nothing.txt"})).unwrap();
     assert_eq!(ids(&v), Vec::<String>::new());
 }
 
 #[test]
 fn grep_finds_the_text_in_a_message_as_given() {
     let (t, c) = fixture("mcp-git-grep");
-    let v = ask(&t, LOG, json!({"grep": "first file"})).unwrap();
+    let v = ask_tool(&t, LOG, json!({"grep": "first file"})).unwrap();
     assert_eq!(ids(&v), vec![c[0].clone()]);
-    let v = ask(&t, LOG, json!({"grep": "FIRST"})).unwrap();
+    let v = ask_tool(&t, LOG, json!({"grep": "FIRST"})).unwrap();
     assert_eq!(ids(&v), Vec::<String>::new());
 }
 
 #[test]
 fn a_page_of_the_log_goes_on_after_its_next() {
     let (t, c) = fixture("mcp-git-page");
-    let v = ask(&t, LOG, json!({"limit": 2})).unwrap();
+    let v = ask_tool(&t, LOG, json!({"limit": 2})).unwrap();
     assert_eq!(ids(&v), vec![c[2].clone(), c[1].clone()]);
     assert_eq!(v["more"], true);
     let next = v["next"].as_str().unwrap().to_string();
-    let v = ask(&t, LOG, json!({"limit": 2, "after": next})).unwrap();
+    let v = ask_tool(&t, LOG, json!({"limit": 2, "after": next})).unwrap();
     assert_eq!(ids(&v), vec![c[0].clone()]);
     assert_eq!(v["more"], false);
     // An abbreviated id is a commit as well.
-    let v = ask(&t, LOG, json!({"after": &c[1][..8]})).unwrap();
+    let v = ask_tool(&t, LOG, json!({"after": &c[1][..8]})).unwrap();
     assert_eq!(ids(&v), vec![c[0].clone()]);
 }
 
 #[test]
 fn show_gives_the_message_the_files_and_the_diff() {
     let (t, c) = fixture("mcp-git-show");
-    let v = ask(&t, SHOW, json!({"commit": c[2]})).unwrap();
+    let v = ask_tool(&t, SHOW, json!({"commit": c[2]})).unwrap();
     assert_eq!(v["subject"], "Change a");
     assert_eq!(v["files"], json!([{"path": "a.txt", "change": "modified"}]));
     assert_eq!(v["cut"], false);
@@ -141,7 +141,7 @@ fn show_gives_the_message_the_files_and_the_diff() {
     for line in ["-two\n", "+TWO\n", "+four\n", " one\n"] {
         assert!(diff.contains(line), "{line:?} in {diff}");
     }
-    let v = ask(&t, SHOW, json!({"commit": c[0]})).unwrap();
+    let v = ask_tool(&t, SHOW, json!({"commit": c[0]})).unwrap();
     assert_eq!(v["files"], json!([{"path": "a.txt", "change": "added"}]));
     assert!(v["diff"]
         .as_str()
@@ -154,7 +154,7 @@ fn a_large_diff_is_cut_and_says_so() {
     let (t, _) = fixture("mcp-git-cut");
     let big: String = (0..20_000).map(|i| format!("line {i}\n")).collect();
     let id = commit(&t, "big.txt", &big, "Big", 4);
-    let v = ask(&t, SHOW, json!({"commit": id})).unwrap();
+    let v = ask_tool(&t, SHOW, json!({"commit": id})).unwrap();
     assert_eq!(v["cut"], true);
     assert!(v["diff"].as_str().unwrap().len() <= 64 * 1024);
 }
@@ -162,7 +162,7 @@ fn a_large_diff_is_cut_and_says_so() {
 #[test]
 fn blame_matches_git_blame_line_by_line() {
     let (t, c) = fixture("mcp-git-blame");
-    let v = ask(&t, BLAME, json!({"path": "a.txt"})).unwrap();
+    let v = ask_tool(&t, BLAME, json!({"path": "a.txt"})).unwrap();
     let porcelain = git(&t, &["blame", "--line-porcelain", "a.txt"], 0);
     let want: Vec<String> = porcelain
         .lines()
@@ -187,7 +187,7 @@ fn blame_matches_git_blame_line_by_line() {
     assert_eq!(v["total"], 4);
     assert_eq!(v["commits"][&c[0]]["subject"], "Make a");
     // A range is the lines asked for, numbered as in the file.
-    let v = ask(&t, BLAME, json!({"path": "a.txt", "start": 2, "end": 3})).unwrap();
+    let v = ask_tool(&t, BLAME, json!({"path": "a.txt", "start": 2, "end": 3})).unwrap();
     let lines: Vec<u64> = v["lines"]
         .as_array()
         .unwrap()
@@ -195,9 +195,9 @@ fn blame_matches_git_blame_line_by_line() {
         .map(|l| l["line"].as_u64().unwrap())
         .collect();
     assert_eq!(lines, vec![2, 3]);
-    assert!(ask(&t, BLAME, json!({"path": "a.txt", "start": 9})).is_err());
-    assert!(ask(&t, BLAME, json!({"path": "a.txt", "start": 3, "end": 2})).is_err());
-    assert!(ask(&t, BLAME, json!({"path": "src"})).is_err());
+    assert!(ask_tool(&t, BLAME, json!({"path": "a.txt", "start": 9})).is_err());
+    assert!(ask_tool(&t, BLAME, json!({"path": "a.txt", "start": 3, "end": 2})).is_err());
+    assert!(ask_tool(&t, BLAME, json!({"path": "src"})).is_err());
 }
 
 #[test]
@@ -211,12 +211,12 @@ fn commit_text_and_code_are_masked() {
         &format!("Leak {token}"),
         4,
     );
-    let v = ask(&t, SHOW, json!({"commit": id})).unwrap();
+    let v = ask_tool(&t, SHOW, json!({"commit": id})).unwrap();
     assert!(!v.to_string().contains(token), "{v}");
     assert!(v["subject"].as_str().unwrap().contains("ghp_***"), "{v}");
-    let v = ask(&t, BLAME, json!({"path": "c.txt"})).unwrap();
+    let v = ask_tool(&t, BLAME, json!({"path": "c.txt"})).unwrap();
     assert!(!v.to_string().contains(token), "{v}");
-    let v = ask(&t, LOG, json!({"limit": 1})).unwrap();
+    let v = ask_tool(&t, LOG, json!({"limit": 1})).unwrap();
     assert!(!v.to_string().contains(token), "{v}");
 }
 
@@ -245,10 +245,10 @@ fn no_program_the_checkout_names_is_run() {
     git(&t, &["show", "--ext-diff", "--textconv", &id], 0);
     assert!(marker.exists(), "the fixture's program does not run");
     std::fs::remove_file(&marker).unwrap();
-    let v = ask(&t, SHOW, json!({"commit": id})).unwrap();
+    let v = ask_tool(&t, SHOW, json!({"commit": id})).unwrap();
     assert!(v["diff"].as_str().unwrap().contains("+changed\n"), "{v}");
-    ask(&t, BLAME, json!({"path": "a.txt"})).unwrap();
-    ask(&t, LOG, json!({"path": "a.txt"})).unwrap();
+    ask_tool(&t, BLAME, json!({"path": "a.txt"})).unwrap();
+    ask_tool(&t, LOG, json!({"path": "a.txt"})).unwrap();
     assert!(
         !marker.exists(),
         "a program of the checkout's config was run"
@@ -275,9 +275,9 @@ fn arguments_are_checked() {
         (BLAME, json!({"path": "a.txt", "start": 0})),
         (BLAME, json!({"path": "missing.txt"})),
     ] {
-        assert!(ask(&t, tool, args.clone()).is_err(), "{tool} {args}");
+        assert!(ask_tool(&t, tool, args.clone()).is_err(), "{tool} {args}");
     }
-    assert!(ask(&t, "factory_git_push", json!({})).is_err());
+    assert!(ask_tool(&t, "factory_git_push", json!({})).is_err());
 }
 
 #[test]
@@ -296,4 +296,59 @@ fn a_shallow_clone_a_directory_and_an_empty_repository_are_refused() {
     let whole = TestDir::new("mcp-git-whole");
     git(&whole, &["clone", "-q", &url, "c"], 0);
     assert!(open(&whole.join("c")).is_ok());
+}
+
+#[test]
+fn a_seen_head_that_moved_is_told_with_the_commits_since() {
+    let (t, c) = fixture("mcp-git-seen");
+    let v = ask_tool(&t, LOG, json!({"limit": 1, "seen": c[2]})).unwrap();
+    assert!(v.get("checkoutUpdated").is_none(), "{v}");
+    let v = ask_tool(&t, BLAME, json!({"path": "a.txt", "seen": &c[0][..8]})).unwrap();
+    assert_eq!(
+        v["checkoutUpdated"],
+        json!({"from": c[0], "to": c[2], "commits": 2})
+    );
+    // A head the clone does not know, as after a rewrite of its history.
+    let v = ask_tool(&t, SHOW, json!({"commit": c[1], "seen": "1234567"})).unwrap();
+    assert_eq!(v["checkoutUpdated"], json!({"from": "1234567", "to": c[2]}));
+    assert!(ask_tool(&t, LOG, json!({"seen": "HEAD"})).is_err());
+}
+
+#[test]
+fn the_report_of_the_fetch_is_copied_by_its_own_keys() {
+    let d = TestDir::new("mcp-git-report");
+    assert_eq!(fetch_report(&d), None);
+    std::fs::write(
+        d.join(FETCH_FILE),
+        r#"{"api":1,"time":"2026-11-21T10:00:00Z","ok":false,"error":"origin said no to ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ","path":"/srv/secret"}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        fetch_report(&d),
+        Some(
+            json!({"time": "2026-11-21T10:00:00Z", "ok": false, "error": "origin said no to ghp_***"})
+        )
+    );
+    for bad in [
+        r#"{"time":"soon","ok":true}"#,
+        r#"{"time":"2026-11-21T10:00:00Z"}"#,
+        "not json",
+    ] {
+        std::fs::write(d.join(FETCH_FILE), bad).unwrap();
+        assert_eq!(fetch_report(&d), None, "{bad}");
+    }
+}
+
+#[test]
+fn a_request_for_a_fetch_is_a_connection_and_nothing_written() {
+    use std::io::Read;
+    let d = TestDir::new("mcp-git-ask");
+    let socket = d.join("fetch.sock");
+    assert!(!ask(&socket), "no socket takes no request");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    assert!(ask(&socket));
+    let (mut conn, _) = listener.accept().unwrap();
+    let mut got = Vec::new();
+    conn.read_to_end(&mut got).unwrap();
+    assert!(got.is_empty(), "{got:?}");
 }
