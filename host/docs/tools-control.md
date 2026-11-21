@@ -346,8 +346,15 @@ the plugin's state to another commit while it ran; a hook's
 container, its `/work` and `/out` and the run's files are removed. The row
 ends `done`, `failed`, `timeout` or `lost`, with the model's tokens. A hook
 waits for a refresh of the same plugin to end, at most one hook of a plugin
-and two in all run at once, and a newer request for the same pull request
-runs after the one that runs.
+and two in all run at once, and a request for the same pull request written
+while one runs, even at the same head, runs after it. A hook takes its
+request before it runs, and reads the plugin's pin, grants and state again
+before each run: a plugin no longer ready at its pin or no longer granted
+`hook:after:work` runs nothing and posts nothing. With `product` granted the
+hook fetches the pull request's head into the mirror as
+`refs/tehas/plugin-pr/<name>/<pr>`, one ref for each plugin, and when that
+head moved since the request it asks GitHub for the head and base together
+and runs with both, or does not run when GitHub gives another head.
 
 A cycle asks for the hooks itself. After its report, a cycle that was not
 stopped by a signal, was not refused at its start and left an open pull
@@ -367,8 +374,8 @@ description is the verdict's summary, cleaned as a question comment is
 (check boxes, `<!--` markers and `@` mentions disarmed, secret-looking text
 masked) and cut at 140 characters. With `view` granted the status links to
 `https://plugin-<name>.<TEHAS_DOMAIN>/_hooks/<pr>`, or the one-level name
-when `TEHAS_EDGE_ONE_LEVEL` is on, where the gate shows the findings,
-which nothing installs yet. A post that fails is tried once more. GitHub
+when `TEHAS_EDGE_ONE_LEVEL` is on, where the gate shows the head the hook
+read and its findings, or that the hook did not finish. A post that fails is tried once more. GitHub
 refuses a status with 403 when the App lacks "Commit statuses: Read and
 write" ([the App's permissions](/github-app)): the refusal is kept in
 `~/tehas/plugins/<name>/status-unwritten`, and `tehas plugin` says "the

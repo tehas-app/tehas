@@ -1227,14 +1227,29 @@ fn a_hooks_findings_are_shown_escaped() {
     let c = sign_in(&f, P, T0);
     let hooks = f.dir.join("plugins/floorplan/hooks");
     std::fs::create_dir_all(&hooks).unwrap();
-    std::fs::write(
-        hooks.join("12.verdict.json"),
-        r#"{"verdict":"note","summary":"<script>alert(1)</script>","findings":[{"file":"a\"b.rs","line":3,"text":"<img src=x onerror=y>"}]}"#,
+    const H: &str = "89abcdef0123456789abcdef0123456789abcdef";
+    let read = tehas_core::plugin::verdict::read(
+        br#"{"verdict":"note","summary":"<script>alert(1)</script>","findings":[{"file":"a\"b.rs","line":3,"text":"<img src=x onerror=y>"}]}"#,
     )
     .unwrap();
+    let end = |pr: u64, result: &str, verdict| tehas_core::plugin::verdict::End {
+        pr,
+        head: H.into(),
+        result: result.into(),
+        verdict,
+    };
+    // The runner's own writer, so the page reads the file as it is written.
+    crate::run::write_end(&f.dir, "floorplan", &end(12, "done", Some(read)));
     let mut r = f.gate.answer(&nav(P, "/_hooks/12", &c), T0);
     assert_eq!(r.status, 200);
     let text = String::from_utf8(r.bytes()).unwrap();
+    assert!(
+        text.contains(
+            "<code title=\"89abcdef0123456789abcdef0123456789abcdef\">89abcdef0123</code>"
+        ),
+        "{text}"
+    );
+    assert!(text.contains("<strong>note</strong>"), "{text}");
     assert!(
         text.contains("&lt;script&gt;alert(1)&lt;/script&gt;"),
         "{text}"
@@ -1244,9 +1259,26 @@ fn a_hooks_findings_are_shown_escaped() {
         "{text}"
     );
     assert!(!text.contains("<img") && !text.contains("<script>alert"));
+    // A hook that did not finish says so, with its head and no verdict.
+    crate::run::write_end(&f.dir, "floorplan", &end(15, "timeout", None));
+    let mut r = f.gate.answer(&nav(P, "/_hooks/15", &c), T0);
+    assert_eq!(r.status, 200);
+    let text = String::from_utf8(r.bytes()).unwrap();
+    assert!(text.contains("did not finish: it ended timeout") && text.contains("89abcdef0123"));
+    assert!(!text.contains("Verdict"), "{text}");
     assert_eq!(f.gate.answer(&nav(P, "/_hooks/13", &c), T0).status, 404);
     std::fs::write(hooks.join("14.verdict.json"), "not json").unwrap();
     assert_eq!(f.gate.answer(&nav(P, "/_hooks/14", &c), T0).status, 404);
+    // The flat verdict of the hook's own file is no end.
+    std::fs::write(
+        hooks.join("16.verdict.json"),
+        r#"{"verdict":"note","summary":"flat","findings":[]}"#,
+    )
+    .unwrap();
+    assert_eq!(f.gate.answer(&nav(P, "/_hooks/16", &c), T0).status, 404);
+    // An end of another pull request in the file is not shown.
+    std::fs::copy(hooks.join("12.verdict.json"), hooks.join("17.verdict.json")).unwrap();
+    assert_eq!(f.gate.answer(&nav(P, "/_hooks/17", &c), T0).status, 404);
 }
 
 #[test]

@@ -16,7 +16,7 @@ use crate::host::{Ended, Host};
 use crate::model::{self, Content, Server};
 use crate::status;
 use crate::upstream;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::fs::{self, File};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -44,12 +44,16 @@ pub const LIMITS: Limits = Limits {
 pub const MODEL_DAY: u64 = 5_000_000;
 /// Hooks of all plugins at once.
 pub const HOOKS_AT_ONCE: usize = 2;
+/// The most hooks one start of a hook's unit runs on its pull request, so a
+/// head GitHub and the fetch disagree on is not asked for without end.
+pub const HOOK_RUNS: usize = 4;
 /// The commits of `/product`'s history.
 const DEPTH: &str = "200";
 /// The ref of a pull request's head in the product's mirror, while a hook
-/// runs on it.
-fn pr_ref(pr: u64) -> String {
-    format!("refs/tehas/plugin-pr/{pr}")
+/// of the plugin runs on it. Each plugin has its own, so one hook's delete
+/// never takes the ref from under another's clone.
+fn pr_ref(name: &str, pr: u64) -> String {
+    format!("refs/tehas/plugin-pr/{name}/{pr}")
 }
 
 /// What a run is given from outside: the home, the settings, the host's
@@ -543,7 +547,7 @@ fn run_in(
     }
     if given.product {
         let from = match &st.pr {
-            Some(pr) => pr_ref(pr.number),
+            Some(pr) => pr_ref(&name, pr.number),
             None => format!("refs/remotes/origin/{}", (s.get)("TEHAS_BRANCH")),
         };
         if let Err(why) = clone_product(h.exec(), s.get, &from, &st.head, &dir.join("product")) {
@@ -687,26 +691,19 @@ fn write_hook_end(s: &Setup, name: &str, pr: &Pr, came: &Came, dir: &Path) {
             .and_then(|b| verdict::read(&b).ok()),
         _ => None,
     };
-    let v = read.map(|v| {
-        json!({
-            "verdict": match v.verdict { verdict::Word::Pass => "pass", verdict::Word::Note => "note" },
-            "summary": v.summary,
-            "findings": v.findings.iter().map(|f| {
-                let mut o = json!({"text": f.text});
-                if let Some(file) = &f.file { o["file"] = json!(file); }
-                if let Some(line) = f.line { o["line"] = json!(line); }
-                o
-            }).collect::<Vec<_>>(),
-        })
-    });
-    let body = json!({
-        "api": 1,
-        "pr": pr.number,
-        "head": pr.head,
-        "result": came.word(),
-        "verdict": v,
-    });
-    let path = runs::verdict(s.home, name, pr.number);
+    let end = verdict::End {
+        pr: pr.number,
+        head: pr.head.clone(),
+        result: came.word().to_string(),
+        verdict: read,
+    };
+    write_end(s.home, name, &end);
+}
+
+/// Writes `hooks/<pr>.verdict.json`, which the gate's page reads.
+pub(crate) fn write_end(home: &Path, name: &str, end: &verdict::End) {
+    let path = runs::verdict(home, name, end.pr);
+    let body = end.json();
     if let Err(e) = write_atomic(&path, format!("{body}\n").as_bytes(), 0o600, &Temp::Pid) {
         say(&format!("plugin {name}: {}: {e}", path.display()));
     }
@@ -848,21 +845,27 @@ fn hook_place(s: &Setup) -> Result<File, String> {
     }
 }
 
+/// The plugin as a hook takes it now: ready at its pin and granted
+/// `hook:after:work` there.
+fn hooked(h: &mut dyn Host, s: &Setup, name: &str) -> Result<Plugin, u8> {
+    let p = plugin_of(h, s, name, false)?;
+    if !p.has(Cap::HookAfterWork) {
+        say(&format!(
+            "plugin {name}: not run: it is not granted hook:after:work"
+        ));
+        return Err(exit::NO);
+    }
+    Ok(p)
+}
+
 fn hook(h: &mut dyn Host, s: &Setup, ask: &Ask) -> u8 {
     let name = &ask.name;
     let Some(pr) = ask.pr else {
         say(&format!("plugin {name}: a hook names its pull request"));
         return exit::USAGE;
     };
-    let p = match plugin_of(h, s, name, false) {
-        Ok(p) => p,
-        Err(rc) => return rc,
-    };
-    if !p.has(Cap::HookAfterWork) {
-        say(&format!(
-            "plugin {name}: not run: it is not granted hook:after:work"
-        ));
-        return exit::NO;
+    if let Err(rc) = hooked(h, s, name) {
+        return rc;
     }
     let _ = fs::create_dir_all(runs::hooks(s.home, name));
     // One unit of a pull request at a time; then one hook of the plugin, a
@@ -893,35 +896,61 @@ fn hook(h: &mut dyn Host, s: &Setup, ask: &Ask) -> u8 {
             }
         }
     }
-    let mut rc = exit::OK;
-    let mut ran: Option<String> = None;
-    // A newer request that came while it ran runs next.
-    while let Some(req) = runs::read_hook(s.home, name, pr) {
-        if ran.as_deref() == Some(req.head.as_str()) {
+    let mut rc = None;
+    let mut times = 0;
+    // Each request is taken before it runs, so one asked while a hook runs,
+    // even at the same head, stays and runs next.
+    loop {
+        if times == HOOK_RUNS {
+            say(&format!(
+                "plugin {name}: #{pr} ran {HOOK_RUNS} times at one start: a request left stays for the next"
+            ));
             break;
         }
-        ran = Some(req.head.clone());
+        let Some(req) = runs::claim_hook(s.home, name, pr) else {
+            break;
+        };
+        times += 1;
+        // The pin, the grants or the state may have moved during the waits
+        // or the last run.
+        let p = match hooked(h, s, name) {
+            Ok(p) => p,
+            Err(no) => {
+                rc = Some(no);
+                break;
+            }
+        };
         let (came, read) = hook_once(h, s, &p, ask, &req);
         status::after(h, s, name, p.has(Cap::View), &req, &read);
-        rc = match came {
+        rc = Some(match came {
             Came::Done => exit::OK,
             _ => exit::FAILED,
-        };
+        });
     }
-    if ran.is_none() {
-        say(&format!("plugin {name}: no request of a hook on #{pr}"));
-        return exit::NO;
-    }
-    let _ = fs::remove_file(runs::hook_request(s.home, name, pr));
+    let _ = fs::remove_file(runs::hook_claimed(s.home, name, pr));
     drop(locks);
-    rc
+    rc.unwrap_or_else(|| {
+        say(&format!("plugin {name}: no request of a hook on #{pr}"));
+        exit::NO
+    })
 }
 
-/// One hook on `req`: what it came to and the head it read.
+/// One hook on `req`: what it came to and the head it read. The ref of the
+/// pull request's head goes after it, whatever it came to.
 fn hook_once(h: &mut dyn Host, s: &Setup, p: &Plugin, ask: &Ask, req: &HookAsk) -> (Came, String) {
+    let ended = hook_at(h, s, p, ask, req);
+    if let (true, Ok((repo, _))) = (p.has(Cap::Product), mirror(s.get)) {
+        let gone = pr_ref(&p.pin.name, req.pr);
+        let _ = git(h.exec(), Git::Local, &repo, &["update-ref", "-d", &gone]);
+    }
+    ended
+}
+
+fn hook_at(h: &mut dyn Host, s: &Setup, p: &Plugin, ask: &Ask, req: &HookAsk) -> (Came, String) {
     let name = &p.pin.name;
     let trigger = ask.trigger.unwrap_or(req.trigger);
     let mut head = req.head.clone();
+    let mut base = req.base.clone();
     // The verdict of an earlier head goes, so a hook that ends with none is
     // not posted with the last one's.
     let _ = fs::remove_file(runs::verdict(s.home, name, req.pr));
@@ -931,23 +960,36 @@ fn hook_once(h: &mut dyn Host, s: &Setup, p: &Plugin, ask: &Ask, req: &HookAsk) 
             Ok(m) => m,
             Err(why) => return (Came::Failed(why), head),
         };
-        let want = format!("+refs/pull/{}/head:{}", req.pr, pr_ref(req.pr));
+        let want = format!("+refs/pull/{}/head:{}", req.pr, pr_ref(name, req.pr));
         let fetched = git(
             h.exec(),
             Git::Fetch,
             &repo,
             &["fetch", "--quiet", "--no-tags", "origin", &want],
         )
-        .and_then(|_| commit_of(h.exec(), &repo, &pr_ref(req.pr)));
+        .and_then(|_| commit_of(h.exec(), &repo, &pr_ref(name, req.pr)));
         match fetched {
+            Ok(c) if c == head => {}
             Ok(c) => {
-                if c != head {
-                    say(&format!(
-                        "plugin {name}: #{} moved to {c} since it was asked for at {head}",
-                        req.pr
-                    ));
-                }
+                say(&format!(
+                    "plugin {name}: #{} moved to {c} since it was asked for at {head}",
+                    req.pr
+                ));
+                // The base of the new head, which the request does not know.
+                let why = match status::pull(h, s, req.pr) {
+                    Ok(Some((at, b))) if at == c => {
+                        base = b;
+                        None
+                    }
+                    Ok(Some((at, _))) => Some(format!("it moved again, to {at}")),
+                    Ok(None) => Some("it is no open pull request of the bot's".into()),
+                    Err(why) => Some(format!("GitHub did not say its base{}", status::said(&why))),
+                };
                 head = c;
+                if let Some(why) = why {
+                    let why = format!("#{} was not run at {head}: {why}", req.pr);
+                    return (Came::Failed(why), head);
+                }
             }
             Err(why) => {
                 let why = format!("the head of #{} was not fetched: {why}", req.pr);
@@ -962,22 +1004,11 @@ fn hook_once(h: &mut dyn Host, s: &Setup, p: &Plugin, ask: &Ask, req: &HookAsk) 
         head: head.clone(),
         pr: Some(Pr {
             number: req.pr,
-            base: req.base.clone(),
+            base,
             head: head.clone(),
         }),
     };
-    let came = one_run(h, s, &st, &by_of(trigger, None));
-    if mirrored {
-        if let Ok((repo, _)) = mirror(s.get) {
-            let _ = git(
-                h.exec(),
-                Git::Local,
-                &repo,
-                &["update-ref", "-d", &pr_ref(req.pr)],
-            );
-        }
-    }
-    (came, head)
+    (one_run(h, s, &st, &by_of(trigger, None)), head)
 }
 
 /// The words of `tehas-plugin run`: `<name> --kind refresh|hook [--pr N]

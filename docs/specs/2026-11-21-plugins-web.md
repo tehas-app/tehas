@@ -86,7 +86,7 @@ A preview, `uat-<pr>.<domain>`, is the same site as a plugin's name, so
 | `/_session` | `GET`: 200 `{"signed": true}` or 401, for a frame to poll |
 | `/_signout` | `POST`, see "The session" |
 | `/_auth/ask`, `/_auth/take` | The plugin name's two steps of the hand-off, see "The sign-in" |
-| anything else | A file of `view/`, `index.html` for a directory, served only when `view` is granted at the pin, the manifest asks for `view`, and the plugin's state is ready at the pin |
+| anything else | A file of `view/`, `index.html` for a directory, served only when `view` is granted at the pin, the manifest asks for `view`, the plugin's state is ready at the pin, and the view was made at the pin: a refresh writes the commit it ran at into `view/_tehas/commit` before it swaps the view in, and the gate reads it on each request. A view from another commit is 404 until a refresh at the pin, and `tehas update` removes it when the pin moves |
 
 Paths starting `/_` are the gate's, whatever `/out` holds. A path is
 normalised (`..`, `%2e`, `//`, encoded slashes) before it is matched, and a
