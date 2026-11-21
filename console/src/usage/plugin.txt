@@ -11,6 +11,7 @@ Usage: tehas plugin [--json]
        tehas plugin hook <name> <pr>
        tehas plugin log <name> [--hook <pr>]
        tehas plugin check <dir> [--json]
+       tehas plugin call <name> <tool> --args <json> [--login <login>] [--json]
        tehas plugin -h|--help    print this text and exit 0
 
 A plugin is a program from a git repository, pinned by commit. Each one is a
@@ -68,6 +69,23 @@ reserved. It needs no settings, runs no git or docker, reaches no network
 and works with the feature off. It reads only regular files of the folder,
 through no link. The bases' ONBUILD triggers are left to review and
 tehas update, which pull the bases.
+
+call runs one call of a tool of a ready plugin, granted tool:<id> at its
+pin, and prints its answer, one JSON object; with --json it prints
+{"api":1,"answer":{...}}. The arguments are checked against the tool's
+params and are at most 2 KiB. The plugin's image runs attached with no
+network, no product and no model, its /state read only and its arguments
+at /run/call.json, killed at the tool's timeout. Its stdout is the answer,
+at most 16 KiB, and its stderr is dropped. At most two calls of a plugin
+run at once, and one of each caller: a call past that is refused as busy.
+A call with --login is for that person: the login must have
+TEHAS_PLUGIN_ACCESS on TEHAS_REPO, checked as the plugins' gate checks it,
+by GitHub user id, on every call. No access, or GitHub not answering, is a
+refusal. One call of each person runs at once. Its run row keeps the time,
+the result and the answer's size, and no login. With --json every outcome but the feature off is one object:
+the answer, or {"api":1,"error":"..."} with why. Exit 0 answered; 1 the
+tool did not answer; 3 refused, busy among them; 64 arguments the tool's
+params refuse.
 
 Exit: 0 listed, asked, printed, checked, or reviewed and not refused; 1 the fetch,
 the read, GitHub or systemd failed; 3 refused, with why: for run and hook,

@@ -24,6 +24,7 @@ use tehas_core::testing::{copy_exe, write_exe};
 /// GH_AUTH is what `gh auth status` exits with.
 const GH: &str = r####"gh_graphql() {
   case "$1" in
+    *closingIssuesReferences*) cat "$T/tickets-page.json" 2>/dev/null || exit 1 ;;
     *subIssues*) [ ! -e "$T/epics-down" ] || exit 1; cat "$T/epics-page.json" ;;
     *"first: 0) { issueCount }"*) [ ! -e "$T/count-down" ] || exit 1
       cat "$T/count.json" ;;
@@ -100,6 +101,7 @@ const RESET: &[&str] = &[
     "control-down",
     "allhands",
     "epics-down",
+    "tickets-page.json",
     "rel.json",
     "home/tehas/live",
     "home/tehas/state",

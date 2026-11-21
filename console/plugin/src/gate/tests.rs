@@ -2,6 +2,7 @@
 //! stubbed.
 
 use super::catalog::Facts;
+use super::github::Permission;
 use super::*;
 use std::collections::HashMap;
 use std::sync::Arc;

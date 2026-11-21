@@ -12,6 +12,7 @@
 mod common;
 mod decisions;
 mod events;
+mod git;
 mod logs;
 mod outcomes;
 mod park;
@@ -19,4 +20,5 @@ mod plugins;
 mod rpc;
 mod serve;
 mod sessions;
+mod tickets;
 mod tools;
