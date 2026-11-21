@@ -9,6 +9,10 @@
 # it was started on, which can be another commit, so tag-release reads the
 # title, not the head.
 #
+# proofs=false skips the Kani proofs job: tag-release asks for that for an
+# alpha or a beta, and such a run gates no other release. Its title ends
+# "without proofs", so tag-release can tell the two runs apart.
+#
 # It runs on [self-hosted, speedlane]: a runner registered with that label and
 # not `tehas`, one job at a time, so no ordinary verify job takes it and a
 # release does not wait behind them (host/docs/operating.md, The speed lane).
@@ -16,7 +20,7 @@
 # runner account's own tehas/pi-rukas tags: the lane's account is not a tehas
 # host's account.
 name: release-gate
-run-name: release-gate ${{ inputs.commit }}
+run-name: release-gate ${{ inputs.commit }}${{ !inputs.proofs && ' without proofs' || '' }}
 on:
   workflow_dispatch:
     inputs:
@@ -24,6 +28,10 @@ on:
         description: The full commit id to gate
         required: true
         type: string
+      proofs:
+        description: Run the Kani proofs; off only for an alpha or a beta
+        type: boolean
+        default: true
 permissions:
   contents: read
 concurrency:
@@ -205,6 +213,7 @@ jobs:
     # [self-hosted, kani]: a runner of its own, since the proofs are long and
     # heavy on memory and should not hold the speed lane. It keeps Kani
     # between runs (host/docs/operating.md, Registering a kani runner).
+    if: inputs.proofs
     runs-on: [self-hosted, kani]
     timeout-minutes: 60
     env:

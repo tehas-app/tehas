@@ -68,7 +68,9 @@
 # none, or only red ones, it starts one with `gh workflow run` and waits for it,
 # looking every TEHAS_GATE_POLL seconds [30], up to --gate-wait minutes [90];
 # a run already going is waited for. A run it waited for that fails, or no
-# green run within the bound, tags nothing. --local-gate runs scripts/verify.sh
+# green run within the bound, tags nothing. An alpha or a beta starts it
+# with proofs=false, without the Kani proofs, and takes a run with or
+# without them; any other release takes only a run with them. --local-gate runs scripts/verify.sh
 # here instead, as before the lane. The gate before a pull request it opens
 # (polyfills, fragments, pins) still runs here; verify.yml gates that pull
 # request too.

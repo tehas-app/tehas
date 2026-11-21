@@ -592,3 +592,11 @@ fn a_tag_pins_the_pi_rukas_the_gate_built_against() {
     assert_eq!(settle(at('a', "x"), Some(None)), Err(unasked.clone()));
     assert_eq!(settle(None, at('a', "x")), Err(unasked));
 }
+
+#[test]
+fn only_an_alpha_or_a_beta_skips_the_proofs() {
+    assert!(!needs_proofs(Some(Pre::Alpha)));
+    assert!(!needs_proofs(Some(Pre::Beta)));
+    assert!(needs_proofs(Some(Pre::Rc)));
+    assert!(needs_proofs(None));
+}

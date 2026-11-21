@@ -735,7 +735,7 @@ pub fn run(a: &Args, root: &Path) -> u8 {
             );
             return 1;
         }
-    } else if a.verify && !ctx.release_gate(&head, a.gate_wait) {
+    } else if a.verify && !ctx.release_gate(&head, a.gate_wait, needs_proofs(a.pre)) {
         return 1;
     }
 
@@ -775,6 +775,12 @@ pub fn run(a: &Args, root: &Path) -> u8 {
     0
 }
 
+/// Whether the release gate must run the Kani proofs: for every release but
+/// an alpha or a beta.
+fn needs_proofs(pre: Option<Pre>) -> bool {
+    !matches!(pre, Some(Pre::Alpha | Pre::Beta))
+}
+
 struct Ctx<'a> {
     root: &'a Path,
     tree: &'a Path,
@@ -803,7 +809,7 @@ impl Ctx<'_> {
 
     /// A green run of the release gate on `commit`, found, or started and
     /// waited for up to `minutes`. A failure is said.
-    fn release_gate(&self, commit: &str, minutes: u64) -> bool {
+    fn release_gate(&self, commit: &str, minutes: u64, proofs: bool) -> bool {
         let gh = || {
             let mut c = self.cmd("gh");
             c.current_dir(self.tree);
@@ -827,7 +833,8 @@ impl Ctx<'_> {
         let start = || {
             runs(
                 gh().args(["workflow", "run", lane::WORKFLOW, "--ref", self.branch])
-                    .args(["-f", &format!("commit={commit}")]),
+                    .args(["-f", &format!("commit={commit}")])
+                    .args(["-f", &format!("proofs={proofs}")]),
                 false,
             )
         };
@@ -848,7 +855,10 @@ impl Ctx<'_> {
         let c = short(commit);
         let say = |m: &str| eprintln!("tag-release: {m}");
         let hint = "tag-release: --local-gate runs the gate here instead";
-        match lane::gate(commit, list, start, wait, say) {
+        if !proofs {
+            say("an alpha or a beta: the release gate runs without the Kani proofs");
+        }
+        match lane::gate(commit, proofs, list, start, wait, say) {
             lane::Outcome::Green(url) => {
                 eprintln!("tag-release: the release gate passed on {c}, {url}; no local gate");
                 true
