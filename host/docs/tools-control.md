@@ -418,7 +418,7 @@ link. The bases' ONBUILD triggers need a pull, so `check` leaves them to
 3 refused, with why, a folder with no manifest among them; 64.
 
 Plugins are still being built in this release, so every subcommand but
-`check` exits 78. See the
+`check` exits 78. [Plugins](/plugins) says how to set one up and run it. See the
 `TEHAS_PLUGIN` rows of
 [the settings table](/tools#instance-settings) and [what the feature leaves
 visible](/contract#plugins).
