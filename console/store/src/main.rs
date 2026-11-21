@@ -84,6 +84,10 @@
 //!   store plugin-runs --plugin <name> [--limit N]
 //!   store order-show | order-set --issues N[,N...] [--only] [--until <unix>]
 //!                [--reason TEXT] | order-clear
+//!   store record-put --plugin <name> --id <id> --kind <kind> --by <account>
+//!   store record-file --plugin <name> --id <id> --issue N --files-sha256 <sha256>
+//!   store record-close --plugin <name> --id <id>
+//!   store records [--plugin <name>] [--issue N] [--open]
 //!   store park <issue> --attempt N --reason <w> [--step <w>] [--pr N]
 //!                [--comment-id <id> --body-sha <sha256>]
 //!   store park-show <issue> | --automatic | --refine

@@ -21,6 +21,7 @@ mod park;
 mod plan;
 mod plugin;
 mod poll;
+mod record;
 mod review_issue;
 mod say;
 mod upkeep;
@@ -50,6 +51,8 @@ mod park_tests;
 mod plan_tests;
 #[cfg(test)]
 mod poll_tests;
+#[cfg(test)]
+mod record_tests;
 #[cfg(test)]
 mod say_tests;
 #[cfg(test)]
