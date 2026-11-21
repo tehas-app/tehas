@@ -51,21 +51,22 @@ industry.
 
 | Capability | What it gives | What a person should weigh |
 | --- | --- | --- |
-| `serve` | The plugin's container runs while it is ready, and the gate sends its views' requests to it | The plugin's code runs all the time, not only in a run, and answers every signed-in person |
+| `serve` | The plugin's container runs while it is ready, and the gate sends its views' requests to it | The plugin's code runs all the time, not only in a run, answers every signed-in person, and learns each one's login |
 
 - The manifest gives `port` (1024 to 65535) and `health` (a path). `serve`
   needs `build`.
 - The container runs as `tehas-plugin-service@<name>.service`, with the
-  arguments of a v1 run and these changes: systemd restarts it, not Docker,
-  and it joins `tehas-plugin-<name>`, an internal Docker network with no
-  gateway that only the gate also joins. `test/fixtures/argv/plugin-service`
-  pins it.
-- The gate proxies the service's view paths to it, adding no header of the
-  person but `X-Tehas-Login`. Every rule of the v1 web part holds: the
-  session, the headers, the request rules and the policy. A server's pages
-  cannot be hashed ahead, so a service's documents get `script-src 'self'`
-  with no inline script, and the gate refuses a page with an inline
-  `<script>`.
+  arguments of a v1 run, `--network none` as always, and one change:
+  systemd restarts it, not Docker. The service listens on a unix socket,
+  `/run/tehas/serve/http.sock`, in a directory bind-mounted from
+  `~/tehas/plugins/<name>/serve/`, as the model's socket is, and the gate
+  connects to that socket. `test/fixtures/argv/plugin-service` pins it.
+- The gate proxies the service's view paths to it. It removes any
+  `X-Tehas-Login` the browser sent and adds its own, and adds no other
+  header of the person. Every rule of the v1 web part holds: the session,
+  the headers, the request rules and the policy. A server's pages cannot be
+  hashed ahead, so a service's documents get `script-src 'self'` with no
+  hashes, which the browser already holds to no inline script.
 - In v2 a service gets no `product`, `model` or `net`: tehas makes those for
   each run, and a service has no run. A later version adds each behind a
   grant of its own and says how it is counted.

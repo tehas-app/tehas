@@ -12,20 +12,26 @@ pub const BYTES_MAX: usize = 65536;
 pub const LABEL_MAX: usize = 24;
 pub const LICENSE_MAX: usize = 64;
 pub const BUILD_MAX: usize = 255;
-/// The most asks: the four plain ones and an action each.
-pub const ASKS_MAX: usize = 4 + ACTIONS_MAX;
+/// The most asks: the plain ones, an action each and a skill each, with room
+/// for the capabilities that follow.
+pub const ASKS_MAX: usize = 32;
 pub const ACTIONS_MAX: usize = 2;
+pub const SKILLS_MAX: usize = 8;
+/// The longest line a chat shows for a skill.
+pub const ABOUT_MAX: usize = 120;
+/// The chat hosts a skill may go to.
+pub const CHATS: [&str; 3] = ["obeya", "wizard", "assistant"];
 pub const TIMEOUT: (u64, u64) = (60, 14400);
 pub const HOOK_TIMEOUT: (u64, u64) = (60, 1800);
 
 /// The fields of version 1, in the order a refusal names them.
-pub const FIELDS: [&str; 12] = [
+pub const FIELDS: [&str; 13] = [
     "plugin", "kind", "name", "label", "license", "build", "asks", "timeout", "ui", "view",
-    "actions", "hooks",
+    "actions", "hooks", "skills",
 ];
-pub const REQUIRED: [&str; 7] = [
-    "plugin", "kind", "name", "label", "build", "asks", "timeout",
-];
+pub const REQUIRED: [&str; 4] = ["plugin", "name", "label", "asks"];
+/// Required of a plugin with an image. One with none is text alone.
+pub const BUILT: [&str; 3] = ["kind", "build", "timeout"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Action {
@@ -33,15 +39,27 @@ pub struct Action {
     pub label: String,
 }
 
+/// A skill: text in the repository for the chats it names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Skill {
+    pub id: String,
+    pub about: String,
+    /// The file in the repository, read at the pinned commit.
+    pub path: String,
+    pub chats: Vec<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Manifest {
     pub name: String,
     pub label: String,
     pub license: Option<String>,
-    pub build: String,
+    /// The Dockerfile. None: no image and no runs.
+    pub build: Option<String>,
     /// The asks as the manifest words them.
     pub asks: Vec<String>,
-    pub timeout: u64,
+    /// A refresh's seconds, with a build.
+    pub timeout: Option<u64>,
     /// `ui: {"kit": 1}`: the gate serves the kit to the view.
     pub kit: bool,
     /// The panel's label, when the manifest has a view.
@@ -49,6 +67,7 @@ pub struct Manifest {
     pub actions: Vec<Action>,
     /// The timeout of the hook at `after:work`, when it has one.
     pub hook: Option<u64>,
+    pub skills: Vec<Skill>,
 }
 
 /// The reasons are collected, so a plugin's author reads them all at once.
@@ -62,6 +81,11 @@ impl Refusals {
 
 /// A label: one line of 1 to 24 characters, no control character.
 fn label(v: &Value, field: &str, out: &mut Refusals) -> Option<String> {
+    line(v, field, LABEL_MAX, out)
+}
+
+/// One line of 1 to `max` characters, no control character.
+fn line(v: &Value, field: &str, max: usize, out: &mut Refusals) -> Option<String> {
     let Some(s) = v.as_str() else {
         out.say(format!("{field}: expected a string"));
         return None;
@@ -73,8 +97,8 @@ fn label(v: &Value, field: &str, out: &mut Refusals) -> Option<String> {
         out.say(format!("{field}: a control character or a line break"));
         return None;
     }
-    if !(1..=LABEL_MAX).contains(&s.chars().count()) {
-        out.say(format!("{field}: expected 1 to {LABEL_MAX} characters"));
+    if !(1..=max).contains(&s.chars().count()) {
+        out.say(format!("{field}: expected 1 to {max} characters"));
         return None;
     }
     Some(s.to_string())
@@ -123,6 +147,14 @@ fn is_build(s: &str) -> bool {
         })
 }
 
+/// A path of [`is_build`]'s shape to a file named `<something>.md`.
+fn is_markdown(s: &str) -> bool {
+    is_build(s)
+        && s.rsplit('/')
+            .next()
+            .is_some_and(|f| f.len() > 3 && f.ends_with(".md"))
+}
+
 /// Read a manifest of the plugin `name`, the name TEHAS_PLUGINS gives it.
 pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
     if bytes.len() > BYTES_MAX {
@@ -145,6 +177,14 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
     }
     for field in REQUIRED.iter().filter(|f| !m.contains_key(**f)) {
         out.say(format!("{field} is missing"));
+    }
+    let built = m.contains_key("build");
+    if built {
+        for field in BUILT.iter().filter(|f| !m.contains_key(**f)) {
+            out.say(format!("{field} is missing"));
+        }
+    } else if m.contains_key("timeout") {
+        out.say("timeout needs a build: a plugin with no build never runs");
     }
     let field = |key: &str| m.get(key);
 
@@ -212,6 +252,9 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
                     Ok(cap) if caps.contains(&cap) => {
                         out.say(format!("asks: {word} is asked twice"))
                     }
+                    Ok(cap) if !built && cap.needs_run() => out.say(format!(
+                        "asks: {word} needs a build: a plugin with no build never runs"
+                    )),
                     Ok(cap) => {
                         caps.push(cap);
                         asks.push(word.to_string());
@@ -344,12 +387,17 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
         }
     }
 
+    let skills = match field("skills") {
+        None => Vec::new(),
+        Some(v) => skills(v, &caps, &mut out),
+    };
+
     if !out.0.is_empty() {
         return Err(out.0);
     }
     // Every required field was read, or a refusal was said.
-    match (got_name, got_label, build, timeout) {
-        (Some(name), Some(label), Some(build), Some(timeout)) => Ok(Manifest {
+    match (got_name, got_label) {
+        (Some(name), Some(label)) => Ok(Manifest {
             name,
             label,
             license,
@@ -360,9 +408,100 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
             view,
             actions,
             hook,
+            skills,
         }),
         _ => Err(vec!["the manifest could not be read".to_string()]),
     }
+}
+
+/// `skills`: at most [`SKILLS_MAX`], each asked as `skill:<id>`, each a
+/// Markdown file of the repository for one or more chat hosts.
+fn skills(v: &Value, caps: &[Cap], out: &mut Refusals) -> Vec<Skill> {
+    let Some(list) = v.as_array() else {
+        out.say("skills: expected a list");
+        return Vec::new();
+    };
+    if list.len() > SKILLS_MAX {
+        out.say(format!("skills: at most {SKILLS_MAX}"));
+    }
+    let mut got: Vec<Skill> = Vec::new();
+    let mut ids: Vec<String> = Vec::new();
+    for (i, v) in list.iter().enumerate() {
+        let at = format!("skills[{i}]");
+        let Some(sk) = v.as_object() else {
+            out.say(format!("{at}: expected an object"));
+            continue;
+        };
+        closed(
+            sk,
+            &["id", "about", "path", "chats"],
+            &format!("{at}."),
+            out,
+        );
+        let mut need = |key: &str| {
+            let v = sk.get(key);
+            if v.is_none() {
+                out.say(format!("{at}.{key} is missing"));
+            }
+            v
+        };
+        let (id, about, path, chats) = (need("id"), need("about"), need("path"), need("chats"));
+        let id = id.and_then(|v| match v.as_str() {
+            Some(id) if is_action_id(id) => Some(id.to_string()),
+            _ => {
+                out.say(format!("{at}.id: expected 1 to 16 characters of a-z and -"));
+                None
+            }
+        });
+        let about = about.and_then(|v| line(v, &format!("{at}.about"), ABOUT_MAX, out));
+        let path = path.and_then(|v| match v.as_str() {
+            Some(p) if is_markdown(p) => Some(p.to_string()),
+            _ => {
+                out.say(format!(
+                    "{at}.path: expected a .md file in the repository, of letters, digits and ._/-, with no .."
+                ));
+                None
+            }
+        });
+        let chats = chats.and_then(|v| {
+            let names: Option<Vec<String>> = v.as_array().and_then(|l| {
+                l.iter()
+                    .map(|c| c.as_str().filter(|c| CHATS.contains(c)).map(String::from))
+                    .collect()
+            });
+            match names {
+                Some(n)
+                    if !n.is_empty() && n.iter().enumerate().all(|(i, c)| !n[..i].contains(c)) =>
+                {
+                    Some(n)
+                }
+                _ => {
+                    out.say(format!(
+                        "{at}.chats: expected one or more of {}, each once",
+                        CHATS.join(", ")
+                    ));
+                    None
+                }
+            }
+        });
+        let Some(id) = id else { continue };
+        if ids.contains(&id) {
+            out.say(format!("{at}: the skill {id} is there twice"));
+        }
+        ids.push(id.clone());
+        if !caps.contains(&Cap::Skill(id.clone())) {
+            out.say(format!("{at}: the skill {id} needs the ask skill:{id}"));
+        }
+        if let (Some(about), Some(path), Some(chats)) = (about, path, chats) {
+            got.push(Skill {
+                id,
+                about,
+                path,
+                chats,
+            });
+        }
+    }
+    got
 }
 
 #[cfg(test)]
@@ -372,6 +511,7 @@ mod tests {
 
     const FULL: &str = include_str!("../../../../api/plugin-manifest.full.json");
     const BARE: &str = include_str!("../../../../api/plugin-manifest.bare.json");
+    const SKILLS: &str = include_str!("../../../../api/plugin-manifest.skills.json");
     const SCHEMA: &str = include_str!("../../../../api/plugin-manifest.schema.json");
 
     fn full() -> Value {
@@ -388,6 +528,16 @@ mod tests {
         v
     }
 
+    fn text_only(edit: impl Fn(&mut Map<String, Value>)) -> Value {
+        let mut v: Value = serde_json::from_str(SKILLS).unwrap();
+        edit(v.as_object_mut().unwrap());
+        v
+    }
+
+    fn refusals_of_specs(v: &Value) -> Vec<String> {
+        read(v.to_string().as_bytes(), "specs").unwrap_err()
+    }
+
     #[test]
     fn the_full_sample_is_read_whole() {
         let m = read(FULL.as_bytes(), "floorplan").unwrap();
@@ -397,7 +547,7 @@ mod tests {
                 name: "floorplan".into(),
                 label: "Floorplan".into(),
                 license: Some("Apache-2.0".into()),
-                build: "Dockerfile".into(),
+                build: Some("Dockerfile".into()),
                 asks: [
                     "view",
                     "product",
@@ -407,7 +557,7 @@ mod tests {
                 ]
                 .map(String::from)
                 .to_vec(),
-                timeout: 3600,
+                timeout: Some(3600),
                 kit: true,
                 view: Some("Floorplan".into()),
                 actions: vec![Action {
@@ -415,6 +565,7 @@ mod tests {
                     label: "Refresh floorplan".into()
                 }],
                 hook: Some(600),
+                skills: vec![],
             }
         );
     }
@@ -429,7 +580,7 @@ mod tests {
         );
         let bare: Map<String, Value> = serde_json::from_str(BARE).unwrap();
         let keys: Vec<&str> = bare.keys().map(String::as_str).collect();
-        let mut want = REQUIRED.to_vec();
+        let mut want = [REQUIRED.as_slice(), BUILT.as_slice()].concat();
         want.sort_unstable();
         assert_eq!(keys, want);
     }
@@ -643,7 +794,6 @@ mod tests {
         for word in [
             "gate:verify",
             "hook:after:merge",
-            "skill:map",
             "tool:grep",
             "net:example.org",
             "factory-read",
@@ -673,21 +823,134 @@ mod tests {
                 "asks: model:5: a manifest asks for model; the tokens are the grant's",
             ]
         );
+        let many: Vec<String> = (0..=ASKS_MAX as u8)
+            .map(|i| {
+                format!(
+                    "skill:{}{}",
+                    (b'a' + i / 26) as char,
+                    (b'a' + i % 26) as char
+                )
+            })
+            .collect();
         let got = refusals(&with(|m| {
-            m.insert(
-                "asks".into(),
-                json!([
-                    "view",
-                    "product",
-                    "model",
-                    "hook:after:work",
-                    "action:a",
-                    "action:b",
-                    "action:refresh"
-                ]),
-            );
+            m.insert("asks".into(), json!(many));
         }));
-        assert_eq!(got, ["asks: at most 6"]);
+        assert_eq!(got[0], "asks: at most 32");
+    }
+
+    #[test]
+    fn a_plugin_with_no_build_is_text_alone() {
+        let m = read(SKILLS.as_bytes(), "specs").unwrap();
+        assert_eq!((m.build, m.timeout, m.view), (None, None, None));
+        assert_eq!(m.asks, ["skill:grill", "skill:spec"]);
+        assert_eq!(
+            m.skills[0],
+            Skill {
+                id: "grill".into(),
+                about: "Interview the person until the ticket has no open decision".into(),
+                path: "skills/grill.md".into(),
+                chats: vec!["obeya".into(), "wizard".into()],
+            }
+        );
+        let kind = text_only(|m| {
+            m.insert("kind".into(), json!("batch"));
+        });
+        assert!(read(kind.to_string().as_bytes(), "specs").is_ok());
+        let got = refusals_of_specs(&text_only(|m| {
+            m.insert("timeout".into(), json!(60));
+            m["asks"].as_array_mut().unwrap().push(json!("product"));
+            m["asks"].as_array_mut().unwrap().push(json!("action:go"));
+        }));
+        assert_eq!(
+            got,
+            [
+                "timeout needs a build: a plugin with no build never runs",
+                "asks: product needs a build: a plugin with no build never runs",
+                "asks: action:go needs a build: a plugin with no build never runs",
+            ]
+        );
+        let got = refusals_of_specs(&text_only(|m| {
+            m.insert("build".into(), json!("Dockerfile"));
+        }));
+        assert_eq!(got, ["kind is missing", "timeout is missing"]);
+    }
+
+    #[test]
+    fn a_skill_is_a_markdown_file_for_named_chats_and_needs_its_ask() {
+        let got = refusals_of_specs(&text_only(|m| {
+            m["skills"][0]["id"] = json!("Grill");
+            m["skills"][1]["about"] = json!("x".repeat(ABOUT_MAX + 1));
+        }));
+        assert_eq!(
+            got,
+            [
+                "skills[0].id: expected 1 to 16 characters of a-z and -",
+                "skills[1].about: expected 1 to 120 characters",
+            ]
+        );
+        for path in [
+            "skills/grill.txt",
+            "../grill.md",
+            ".md",
+            "a/.md",
+            "a..md",
+            "/grill.md",
+        ] {
+            let got = refusals_of_specs(&text_only(|m| {
+                m["skills"][0]["path"] = json!(path);
+            }));
+            assert_eq!(
+                got,
+                ["skills[0].path: expected a .md file in the repository, of letters, digits and ._/-, with no .."],
+                "{path}"
+            );
+        }
+        for chats in [
+            json!([]),
+            json!(["slack"]),
+            json!(["obeya", "obeya"]),
+            json!("obeya"),
+        ] {
+            let got = refusals_of_specs(&text_only(|m| {
+                m["skills"][0]["chats"] = chats.clone();
+            }));
+            assert_eq!(
+                got,
+                ["skills[0].chats: expected one or more of obeya, wizard, assistant, each once"],
+                "{chats}"
+            );
+        }
+        let got = refusals_of_specs(&text_only(|m| {
+            m["asks"] = json!(["skill:grill"]);
+            m["skills"][1]["id"] = json!("grill");
+            m["skills"][0].as_object_mut().unwrap().remove("about");
+            m["skills"][0]
+                .as_object_mut()
+                .unwrap()
+                .insert("x".into(), json!(1));
+        }));
+        assert_eq!(
+            got,
+            [
+                "skills[0].x: no field of manifest version 1",
+                "skills[0].about is missing",
+                "skills[1]: the skill grill is there twice",
+            ]
+        );
+        let got = refusals_of_specs(&text_only(|m| {
+            m["asks"] = json!(["skill:grill"]);
+        }));
+        assert_eq!(got, ["skills[1]: the skill spec needs the ask skill:spec"]);
+        let nine: Vec<Value> = (0..=SKILLS_MAX)
+            .map(|i| json!({"id": format!("s{}", "x".repeat(i)), "about": "A", "path": "a.md", "chats": ["obeya"]}))
+            .collect();
+        let got = refusals_of_specs(&text_only(|m| {
+            m["asks"] = json!((0..=SKILLS_MAX)
+                .map(|i| format!("skill:s{}", "x".repeat(i)))
+                .collect::<Vec<_>>());
+            m["skills"] = json!(nine);
+        }));
+        assert_eq!(got, ["skills: at most 8"]);
     }
 
     #[test]
@@ -856,6 +1119,14 @@ mod tests {
         assert_eq!(p["build"]["maxLength"], BUILD_MAX);
         assert_eq!(p["asks"]["maxItems"], ASKS_MAX);
         assert_eq!(p["actions"]["maxItems"], ACTIONS_MAX);
+        assert_eq!(p["skills"]["maxItems"], SKILLS_MAX);
+        let skill = &p["skills"]["items"]["properties"];
+        assert_eq!(skill["about"]["maxLength"], ABOUT_MAX);
+        assert_eq!(skill["chats"]["items"]["enum"], json!(CHATS));
+        assert_eq!(
+            s["dependentSchemas"]["build"]["required"],
+            json!(BUILT[..1].iter().chain(&BUILT[2..]).collect::<Vec<_>>())
+        );
     }
 
     #[test]
@@ -864,7 +1135,77 @@ mod tests {
         let mut cases: Vec<(String, Value)> = vec![
             ("full".into(), full()),
             ("bare".into(), serde_json::from_str(BARE).unwrap()),
+            ("skills".into(), serde_json::from_str(SKILLS).unwrap()),
         ];
+        let text = |m: &mut Map<String, Value>| {
+            let t: Map<String, Value> = serde_json::from_str(SKILLS).unwrap();
+            *m = t;
+        };
+        let skill_cases: Vec<(&str, Value)> = vec![
+            ("skill path", json!("grill.txt")),
+            ("skill dots", json!("a..md")),
+            ("skill dir", json!("a./b.md")),
+            ("skill stem", json!(".md")),
+        ];
+        for (what, path) in skill_cases {
+            cases.push((
+                what.into(),
+                with(|m| {
+                    text(m);
+                    m["skills"][0]["path"] = path.clone();
+                }),
+            ));
+        }
+        for (what, chats) in [
+            ("no chat", json!([])),
+            ("chat", json!(["slack"])),
+            ("chat twice", json!(["obeya", "obeya"])),
+        ] {
+            cases.push((
+                what.into(),
+                with(|m| {
+                    text(m);
+                    m["skills"][0]["chats"] = chats.clone();
+                }),
+            ));
+        }
+        cases.push((
+            "about".into(),
+            with(|m| {
+                text(m);
+                m["skills"][0]["about"] = json!("x".repeat(121));
+            }),
+        ));
+        cases.push((
+            "text with kind".into(),
+            with(|m| {
+                text(m);
+                m.insert("kind".into(), json!("batch"));
+            }),
+        ));
+        cases.push((
+            "text with timeout".into(),
+            with(|m| {
+                text(m);
+                m.insert("timeout".into(), json!(60));
+            }),
+        ));
+        cases.push((
+            "build without timeout".into(),
+            with(|m| {
+                m.remove("timeout");
+            }),
+        ));
+        cases.push((
+            "build without kind".into(),
+            with(|m| {
+                m.remove("kind");
+            }),
+        ));
+        cases.push(("full with a skill".into(), with(|m| {
+            m["asks"].as_array_mut().unwrap().push(json!("skill:map"));
+            m.insert("skills".into(), json!([{"id": "map", "about": "Read the map", "path": "map.md", "chats": ["assistant"]}]));
+        })));
         let mut case = |what: &str, edit: &dyn Fn(&mut Map<String, Value>)| {
             cases.push((what.to_string(), with(edit)));
         };
