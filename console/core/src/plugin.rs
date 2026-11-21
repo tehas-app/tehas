@@ -9,6 +9,7 @@
 pub mod build;
 pub mod dockerfile;
 pub mod manifest;
+pub mod needs;
 pub mod out;
 pub mod review;
 pub mod run;
