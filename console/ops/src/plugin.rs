@@ -4,6 +4,7 @@
 //! left in `~/tehas/plugins/<name>/state.json`; `tehas plugin review`
 //! fetches a commit and reads it for a person to grant.
 
+pub mod calls;
 mod exec;
 mod prepare;
 mod review;
