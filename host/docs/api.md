@@ -343,6 +343,11 @@ and `state`.
 - **Pause is separate.** A paused factory stays paused under any limit.
 - `set` replaces the whole limit. The same arguments twice leave the same
   limit, and `clear` without a limit is fine.
+- **A raise asks for a poll.** A `set` or `clear` that lets more cycles run
+  than before, while the last poll's demand has an issue waiting, writes
+  `state/dispatch.again` as [`tehas wake`](#tehas-wake) does. The poll that
+  acts on the new limit comes now, not at the next timer. An expired or
+  unreadable limit counts as 0 here, and no limit as no cap.
 
 Exit 0; 64 on a bad argument (a `--until` in the past included), which
 writes nothing; 78 without an instance.

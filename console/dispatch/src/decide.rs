@@ -214,6 +214,10 @@ pub struct Decision {
     /// live/demand.json, without its time: Some(Null) removes it. A dry run
     /// writes none.
     pub demand: Option<Value>,
+    /// The issues the demand left out only for the planning session open on
+    /// each, and when each began to wait: a poll that ends one of those
+    /// sessions counts it again (`demand_after`).
+    pub demand_planning: Vec<(u64, String)>,
     /// The issues whose cycle starts, in order.
     pub picked: Vec<u64>,
     /// Facts the snapshot lacked that this decision needed. When any is
@@ -234,6 +238,37 @@ pub struct Decision {
     /// between issues it read: state/starts.json, without its time. A dry run
     /// writes none.
     pub starts: tehas_core::starts::Record,
+}
+
+/// The demand a poll wrote, with the issues it left out for a planning
+/// session counted once the poll ended that session, as the next poll would
+/// count them. None when it ended none of them: the file stays as it is.
+pub fn demand_after(demand: &Value, planning: &[(u64, String)], ended: &[u64]) -> Option<Value> {
+    let freed: Vec<&str> = planning
+        .iter()
+        .filter(|(n, _)| ended.contains(n))
+        .map(|(_, at)| at.as_str())
+        .collect();
+    if freed.is_empty() {
+        return None;
+    }
+    let mut m = demand.as_object()?.clone();
+    let waiting = m.get("waiting").and_then(Value::as_u64)?;
+    let mut oldest = m
+        .get("oldest")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    for at in &freed {
+        if !at.is_empty() && (oldest.is_empty() || *at < oldest.as_str()) {
+            oldest = at.to_string();
+        }
+    }
+    m.insert("waiting".into(), json!(waiting + freed.len() as u64));
+    if !oldest.is_empty() {
+        m.insert("oldest".into(), json!(oldest));
+    }
+    Some(Value::Object(m))
 }
 
 /// The poll ends here with this exit status.
@@ -673,22 +708,29 @@ impl<'a> Poll<'a> {
     /// report_demand: the open issues that would start with room, and when
     /// the oldest was accepted. A read that fails removes the file.
     fn demand(&mut self) -> Value {
-        let Some(list) = &self.s.ready.0 else {
+        let s = self.s;
+        let Some(list) = &s.ready.0 else {
             return Value::Null;
         };
         let (mut waiting, mut oldest) = (0, String::new());
         let mut counted: Vec<u64> = Vec::new();
         for i in list.iter().filter(|i| !has(&i.labels, "tehas:running")) {
             let Some(n) = i.number else { continue };
-            if n == self.c.control || self.plan_open(n) || self.running(n) {
+            if n == self.c.control || self.running(n) {
                 continue;
             }
+            let planning = self.plan_open(n);
             let ev = match self.s.issues.get(&n).map(|x| &x.events) {
                 Some(Events::Read(v)) => v,
+                _ if planning => continue,
                 _ => return Value::Null,
             };
             let (by, at) = standing_actor(ev, "tehas:ready");
             if !self.c.allowed(&by) && !self.c.is_millwright(&by) && !self.planned(n, &by) {
+                continue;
+            }
+            if planning {
+                self.d.demand_planning.push((n, at));
                 continue;
             }
             counted.push(n);
@@ -716,7 +758,7 @@ impl<'a> Poll<'a> {
             held = self.refresh_held().unwrap_or_default();
             if held.is_empty() {
                 for n in requests {
-                    if self.plan_open(n) || self.running(n) {
+                    if self.running(n) {
                         continue;
                     }
                     let req = self
@@ -730,6 +772,10 @@ impl<'a> Poll<'a> {
                         .and_then(Value::as_str)
                         .unwrap_or("")
                         .to_string();
+                    if self.plan_open(n) {
+                        self.d.demand_planning.push((n, at));
+                        continue;
+                    }
                     waiting += 1;
                     if !at.is_empty() && (oldest.is_empty() || at < oldest) {
                         oldest = at;
@@ -3784,5 +3830,41 @@ mod check_state_tests {
         let a = json!({"check_runs": [{"head_sha": "<b>", "status": "completed",
                                        "conclusion": "success"}]});
         assert_eq!(check_state(&a), None);
+    }
+}
+
+#[cfg(test)]
+mod demand_tests {
+    use super::demand_after;
+    use serde_json::json;
+
+    fn planning() -> Vec<(u64, String)> {
+        vec![
+            (7, "2026-10-17T08:00:00Z".to_string()),
+            (8, "2026-10-17T11:00:00Z".to_string()),
+        ]
+    }
+
+    #[test]
+    fn a_session_this_poll_ended_counts_its_issue_and_its_wait() {
+        let d = json!({"waiting": 1, "oldest": "2026-10-17T10:00:00Z", "labelAlone": [9]});
+        assert_eq!(
+            demand_after(&d, &planning(), &[7]),
+            Some(json!({"waiting": 2, "oldest": "2026-10-17T08:00:00Z", "labelAlone": [9]}))
+        );
+        assert_eq!(
+            demand_after(&json!({"waiting": 0}), &planning(), &[8, 7]),
+            Some(json!({"waiting": 2, "oldest": "2026-10-17T08:00:00Z"}))
+        );
+    }
+
+    #[test]
+    fn no_session_of_a_waiting_issue_ended_leaves_the_demand_as_written() {
+        let d = json!({"waiting": 0});
+        assert_eq!(demand_after(&d, &planning(), &[]), None);
+        assert_eq!(demand_after(&d, &planning(), &[12]), None);
+        assert_eq!(demand_after(&d, &[], &[7]), None);
+        // A demand the poll could not count stays uncounted.
+        assert_eq!(demand_after(&json!(null), &planning(), &[7]), None);
     }
 }
