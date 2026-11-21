@@ -507,6 +507,7 @@ fn run_in(
         head: &st.head,
         model: &model_id,
         pr: st.pr.clone(),
+        tool: None,
     };
     let given = match run.given() {
         Ok(g) => g,
@@ -556,6 +557,7 @@ fn run_in(
     let timeout = match st.kind {
         Kind::Refresh => p.manifest.timeout,
         Kind::Hook => p.manifest.hook,
+        Kind::Call => None,
     };
     let Some(timeout) = timeout else {
         return Came::Failed("the manifest gives the run no timeout".into());
@@ -737,6 +739,8 @@ pub fn run(h: &mut dyn Host, s: &Setup, ask: &Ask) -> u8 {
     match ask.kind {
         Kind::Refresh => refresh(h, s, ask),
         Kind::Hook => hook(h, s, ask),
+        // `words` reads no call: a call is `tehas plugin call`'s, attached.
+        Kind::Call => exit::USAGE,
     }
 }
 

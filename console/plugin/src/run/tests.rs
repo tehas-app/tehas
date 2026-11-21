@@ -330,6 +330,7 @@ fn a_refresh_with_every_grant_runs_its_container_and_swaps_its_view_in() {
         head: H,
         model: "example-model",
         pr: None,
+        tool: None,
     })
     .unwrap();
     assert_eq!(h.argv, [want]);

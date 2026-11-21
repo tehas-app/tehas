@@ -616,19 +616,36 @@ pub fn capabilities(image: &str) -> Vec<String> {
     ])
 }
 
+/// The MiB of a call's /work, a tmpfs, which its memory limit holds beside
+/// what the limits give.
+const CALL_WORK_MIB: u64 = 16;
+
 /// The whole command of a plugin's run, docs/specs/2026-11-21-plugins-security.md
 /// "The container". Nothing else adds an argument. A run starts with nothing:
 /// no network, no capability, no host path but its context, and the product
 /// and the model socket's directory only when they are given
 /// ([`plugin::run::Run::given`]). The image runs by id, its own entrypoint,
 /// and the container stays after it stops so that /out can be read.
+///
+/// A call (docs/specs/2026-11-21-plugins-v2-chats.md, "A call") runs
+/// attached and keeps nothing: `--rm`, no log, no /out, a tmpfs /work, /state
+/// read only, fewer processes, and its arguments at /run/call.json.
 pub fn plugin_run(run: &plugin::run::Run) -> Result<Vec<String>, String> {
     let given = run.given()?;
+    let call = run.kind == plugin::run::Kind::Call;
     let name = &run.manifest.name;
     let id = run.id;
     let uid = plugin::run::UID;
-    let memory = format!("{}g", run.limits.memory);
-    let mut w = words(&["docker", "run", "--init", "--name", &run.container()]);
+    let memory = if call {
+        format!("{}m", u64::from(run.limits.memory) * 1024 + CALL_WORK_MIB)
+    } else {
+        format!("{}g", run.limits.memory)
+    };
+    let mut w = words(&["docker", "run"]);
+    if call {
+        w.push("--rm".to_string());
+    }
+    w.extend(words(&["--init", "--name", &run.container()]));
     w.extend(words(&["--cidfile", &run.path("cid"), NEVER_PULL]));
     w.extend(words(&["--user", &format!("{uid}:{uid}"), "--read-only"]));
     w.extend(words(&[
@@ -647,26 +664,39 @@ pub fn plugin_run(run: &plugin::run::Run) -> Result<Vec<String>, String> {
         "--cpus",
         &run.limits.cpus.to_string(),
         "--pids-limit",
-        "512",
-        "--log-driver",
-        "json-file",
-        "--log-opt",
-        "max-size=10m",
-        "--log-opt",
-        "max-file=1",
-        "--tmpfs",
-        "/tmp:size=256m,noexec,nosuid,nodev",
+        if call { "64" } else { "512" },
     ]));
+    if call {
+        w.extend(words(&["--log-driver", "none"]));
+    } else {
+        w.extend(words(&[
+            "--log-driver",
+            "json-file",
+            "--log-opt",
+            "max-size=10m",
+            "--log-opt",
+            "max-file=1",
+        ]));
+    }
+    w.extend(words(&["--tmpfs", "/tmp:size=256m,noexec,nosuid,nodev"]));
+    if call {
+        w.extend(words(&[
+            "--tmpfs",
+            &format!("/work:size={CALL_WORK_MIB}m,noexec,nosuid,nodev"),
+        ]));
+    }
     let volume =
         |what: &str, dst: &str| format!("type=volume,src=tehas-plugin-{name}-{what},dst={dst}");
-    let mut mounts = vec![
-        volume(&format!("work-{id}"), "/work"),
-        volume(&format!("out-{id}"), "/out"),
-        volume("state", "/state"),
-    ];
-    if run.kind == plugin::run::Kind::Hook {
-        mounts[2].push_str(",readonly");
+    let mut mounts = Vec::new();
+    if !call {
+        mounts.push(volume(&format!("work-{id}"), "/work"));
+        mounts.push(volume(&format!("out-{id}"), "/out"));
     }
+    let mut state = volume("state", "/state");
+    if run.kind != plugin::run::Kind::Refresh {
+        state.push_str(",readonly");
+    }
+    mounts.push(state);
     let bind = |src: &str, dst: &str| format!("type=bind,src={src},dst={dst},readonly");
     if given.product {
         mounts.push(bind(&run.path("product"), "/product"));
@@ -675,6 +705,9 @@ pub fn plugin_run(run: &plugin::run::Run) -> Result<Vec<String>, String> {
         mounts.push(bind(&run.path("model"), "/run/tehas"));
     }
     mounts.push(bind(&run.path("context.json"), "/run/context.json"));
+    if call {
+        mounts.push(bind(&run.path("call.json"), "/run/call.json"));
+    }
     w.extend(pair("--mount", mounts));
     if given.product {
         // /product is the host user's, not the container's: git reads it only
@@ -2019,7 +2052,7 @@ mod tests {
     // again after a change meant to change them, and read the diff:
     //   TEHAS_TEST_ARGV_RECORD=1 cargo test --locked -p tehas-core plugin_argv
     #[test]
-    fn plugin_argv_is_pinned_for_no_grant_each_capability_and_the_reference() {
+    fn plugin_argv_is_pinned_for_no_grant_each_capability_the_reference_and_a_call() {
         use crate::plugin::run::tests::{granted, manifest, run};
         use crate::plugin::run::Kind;
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../test/fixtures/argv");
@@ -2030,7 +2063,7 @@ mod tests {
             "action:refresh",
             "hook:after:work",
         ];
-        let cases: [(&str, &[&str], &str, Kind); 6] = [
+        let cases: [(&str, &[&str], &str, Kind); 7] = [
             ("none", &[], "", Kind::Refresh),
             ("view", &["view"], "view", Kind::Refresh),
             ("product", &["product"], "product", Kind::Refresh),
@@ -2042,6 +2075,13 @@ mod tests {
                 "view product model:2000000 action:refresh hook:after:work",
                 Kind::Refresh,
             ),
+            // Product and model granted, and a call has neither.
+            (
+                "call",
+                &["product", "model", "tool:find-doc"],
+                "product model:2000000 tool:find-doc",
+                Kind::Call,
+            ),
         ];
         let record = env::var_os("TEHAS_TEST_ARGV_RECORD").is_some();
         for (case, asks, grants, kind) in cases {
@@ -2049,6 +2089,9 @@ mod tests {
             let g = granted(grants);
             let w = plugin_run(&run(&m, &g, kind)).unwrap();
             assert_eq!(w[0], "docker");
+            // Only a call is removed when it stops: the others' /out is read
+            // after.
+            assert_eq!(w.iter().any(|a| a == "--rm"), kind == Kind::Call, "{case}");
             let got: String = w[1..].iter().map(|a| format!("{a}\n")).collect();
             let file = format!("{dir}/plugin-{case}");
             if record {
@@ -2097,6 +2140,46 @@ mod tests {
             assert_eq!(state.ends_with(",readonly"), kind == Kind::Hook);
             assert_eq!(w.last().unwrap(), crate::plugin::run::tests::IMAGE);
         }
+    }
+
+    #[test]
+    fn a_plugin_call_keeps_nothing_and_reads_state_only() {
+        use crate::plugin::run::tests::{granted, manifest, run};
+        use crate::plugin::run::Kind;
+        let m = manifest(&["view", "product", "model", "tool:find-doc"]);
+        let g = granted("view product model:5 tool:find-doc");
+        let w = plugin_run(&run(&m, &g, Kind::Call)).unwrap();
+        assert_eq!(&w[..3], ["docker", "run", "--rm"]);
+        let after = |flag: &str| -> Vec<&str> {
+            w.iter()
+                .enumerate()
+                .filter(|(_, a)| *a == flag)
+                .map(|(i, _)| w[i + 1].as_str())
+                .collect()
+        };
+        assert_eq!(after("--network"), ["none"]);
+        assert_eq!(after("--log-driver"), ["none"]);
+        assert!(after("--log-opt").is_empty());
+        assert_eq!(after("--pids-limit"), ["64"]);
+        assert_eq!(after("--memory"), ["2064m"]);
+        assert_eq!(after("--memory-swap"), ["2064m"]);
+        assert_eq!(
+            after("--tmpfs"),
+            [
+                "/tmp:size=256m,noexec,nosuid,nodev",
+                "/work:size=16m,noexec,nosuid,nodev"
+            ]
+        );
+        let d = "/home/tehas/tehas/plugins/demo/run-7";
+        assert_eq!(
+            after("--mount"),
+            [
+                "type=volume,src=tehas-plugin-demo-state,dst=/state,readonly".to_string(),
+                format!("type=bind,src={d}/context.json,dst=/run/context.json,readonly"),
+                format!("type=bind,src={d}/call.json,dst=/run/call.json,readonly"),
+            ]
+        );
+        assert!(!w.iter().any(|a| a == "-e"), "{w:?}");
     }
 
     #[test]
