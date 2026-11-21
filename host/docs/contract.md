@@ -182,6 +182,12 @@ A command tehas adds in 1.x may take a word that is not kept for the family,
 and then wins over a part of that word. A part that wants its word for good
 asks for it to be kept.
 
+`tehas <part>` is an addition beside each part's own command, which keeps
+working through 1.x (v1.2.0 included) as it did before: `industry <words>`
+on the host runs as it always has, and nothing warns that it is old. 2.0 may
+retire the separate commands, leaving `tehas <part>` the one way in, and take
+them out of the code and the docs.
+
 ## Settings and the knob rule
 
 A ruled setting keeps its name and its meaning through 1.x, and a missing or
@@ -478,11 +484,13 @@ with exit 78 and says `plugins` is still being built.
   `TEHAS_PLUGIN_ACCESS`, `TEHAS_PLUGIN_LIMITS` and `TEHAS_PLUGIN_MODEL_DAY`
   are in `api/settings-rules.json`, but they are not contract: a line that
   gives one a value stops every command with exit 78 and names `plugins`.
-- `tehas plugin` exits 78 and reads nothing more. `tehas help plugin` prints
+- `tehas plugin` and `tehas plugin review` exit 78 and read nothing more,
+  and `tehas update` fetches and builds no plugin. `tehas help plugin` prints
   its text, and the list of `tehas help` does not name it.
-- `api/plugin.schema.json`, `api/plugin-manifest.schema.json` and
-  `api/plugin-context.schema.json` and their samples are not contract until
-  the release that ships the feature.
+- `api/plugin.schema.json`, `api/plugin-review.schema.json`,
+  `api/plugin-manifest.schema.json` and `api/plugin-context.schema.json` and
+  their samples are not contract until the release that ships the feature.
+- The state store has the table `plugin_runs` from schema 19, empty.
 - No label, no `--json` field of another command, no MCP tool, no unit, no
   file under `live/`.
 

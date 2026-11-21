@@ -32,7 +32,7 @@ use std::time::Instant;
 /// these -- `meta`, `issues`, `polls`, `poll_cost` and `sweep_log` -- are the
 /// installation's record, the numbers the poll reads from GitHub and its own
 /// log, which a drained factory may still write and the copy's rows replace.
-pub const HISTORY: [&str; 18] = [
+pub const HISTORY: [&str; 19] = [
     "cycles",
     "heartbeats",
     "endings",
@@ -51,6 +51,7 @@ pub const HISTORY: [&str; 18] = [
     "plan_history",
     "actions",
     "journal",
+    "plugin_runs",
 ];
 
 /// The outsource tables that record what contractors did, held to the same
