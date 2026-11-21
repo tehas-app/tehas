@@ -42,7 +42,8 @@ At most 4. Each needs `view:<id>`; v1's `view` grant is a single view at
 ## Widgets
 
 A widget inside the dashboard's own pages would run a plugin's code on the
-dashboard's origin. v2 does not have them.
+dashboard's origin. v2 does not have them. 1.3.0 changes this rule, a security change:
+see "Changes to v2" in `2026-11-21-plugins-design.md`.
 
 ## `kind: "service"`
 
