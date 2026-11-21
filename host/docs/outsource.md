@@ -468,7 +468,7 @@ contractor and the bytes sent. It never has a token or a key.
 
 A contractor runs the same `tehas work` as the factory does, with the same
 container: the same mounts and the same variables, pinned by the same test
-(`test/work_test.sh`). Two things on the host side of the container go to the
+(`console/cycle/tests/work_container.rs`). Two things on the host side of the container go to the
 factory instead, because a contractor holds no token that writes issues and no
 GitHub App key:
 

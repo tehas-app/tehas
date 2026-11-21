@@ -86,7 +86,7 @@ Internal:
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints, and the tests of `console/src/front.rs`, which fail when a public `--json` row of `api/commands.txt` has no schema |
 | MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
 | `tehas update` | From any 0.30.x, 0.31.x or 0.32.x release. A 0.30.x host can name an rc or the release, not an alpha or a beta. From 1.0 on, the release repository and the signing key are built into tehas: the `TEHAS_RELEASE_REPO` line of `host/versions.env` and `host/release/minisign.pub` when the release was built. An instance may name another repository with `TEHAS_RELEASE_REPO` in `instance.env`; the key stays the built-in one | The update's shell tests, and the tests of `console/core/src/release.rs` |
-| Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x; a renamed name is taken under both names through 1.x | `test/work_test.sh` |
+| Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x; a renamed name is taken under both names through 1.x | `console/cycle/tests/work_container.rs` |
 | Host namespace | `/host/` on the factory's origin belongs to the host that fronts the factory's domain: tehas never serves a path under it, and its docs server answers 404 there, which the dashboard reads as no host. The host bridge, `/host/bridge.json`, is `bridge: 1`, by `api/host-bridge.schema.json` and [its rules](/api#the-host-bridge) | `test/host_bridge_test.sh` (the 404 under `/host/`, the schema and its samples), `test/json_contract_test.sh`, `test/host_bridge_test.mjs` (what the dashboard keeps of an answer) and `test/panels_dock_test.mjs` (a menu item opens in the dock, and a page item in a new tab with no dock) |
 
 `api/surface-1.0.txt` lists the names of the frozen surface in one place:
@@ -235,7 +235,7 @@ The `PI_ENSEMBLE_*` names, and what each means, follow pi-rukas while pi-rukas
 is 0.x: a name pi-rukas renames is taken under the new name in the release
 that follows it, the old name stays accepted through 1.x, and the release
 notes say so. The rule itself, which names pass and what
-is mounted, is frozen. `test/work_test.sh` pins the mounts and the variables,
+is mounted, is frozen. `console/cycle/tests/work_container.rs` pins the mounts and the variables,
 and a change to them is a security change.
 
 ## analytics.db
@@ -480,8 +480,9 @@ with exit 78 and says `plugins` is still being built.
   gives one a value stops every command with exit 78 and names `plugins`.
 - `tehas plugin` exits 78 and reads nothing more. `tehas help plugin` prints
   its text, and the list of `tehas help` does not name it.
-- `api/plugin.schema.json` and `api/plugin-manifest.schema.json` and their
-  samples are not contract until the release that ships the feature.
+- `api/plugin.schema.json`, `api/plugin-manifest.schema.json` and
+  `api/plugin-context.schema.json` and their samples are not contract until
+  the release that ships the feature.
 - No label, no `--json` field of another command, no MCP tool, no unit, no
   file under `live/`.
 
