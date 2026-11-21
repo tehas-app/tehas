@@ -1,196 +1,230 @@
-# Spec: plugins, the security model
+# Spec: plugins v1, the security model
 
-**Status**: Draft 2026-11-21. Part of the plugins spec, `2026-11-21-plugins.md`, which holds the terms, the settings and the manifest. The sandbox, the grants, the host's model and the inspection of what crosses. Nothing is built.
+**Status**: Draft 2026-11-21. Part of `2026-11-21-plugins.md`, which holds the
+terms, settings and manifest. Nothing is built.
 
-## The security model
+A plugin is someone else's code, possibly closed, on the factory's host. It
+starts with nothing. A person grants each capability by name, for one commit.
+Everything here is enforced in one place, named in "Enforced in one place",
+and pinned by a test.
 
-A plugin is someone else's code on the factory's host. It starts with
-nothing, and a person grants each thing it may reach, by name, in the
-instance's settings. A grant holds for one plugin; a new pin that asks for
-more stops until a person grants it.
+## Capabilities
 
-### The base, for every plugin
-
-What every run has, with no grant, and nothing more:
-
-- One container, started by `tehas-plugin@<name>.service`, as a user that is
-  not root, with `--read-only`, `--cap-drop ALL`,
-  `--security-opt no-new-privileges`, a `/tmp` on tmpfs, and limits on
-  memory, CPU and processes from the manifest's `limits`, capped by the
-  instance's.
-- `--network none`.
-- `/out`, which it writes, and `/state`, its own files between runs under
-  `~/tehas/plugins/<name>/state`. No other plugin's.
-- The run's time limit, `timeout`.
-
-Its output stays on the host until `view` is granted.
-
-### Capabilities
-
-A manifest's `asks` lists what the plugin wants. Each is off until granted.
-
-| Capability | What it gives | Why a person should think |
+| Capability | What it gives | What a person should weigh |
 | --- | --- | --- |
-| `view` | `/out` is served at `plugin-<name>.<domain>` and its views become menu items | What the plugin writes is shown to everyone the sign-in lets in |
-| `product` | `/product`, read only: a clean checkout of the default branch's head, made for the run and removed after it, with no remote and no credentials | The plugin reads all of the product's code. With `view`, what it writes about it is shown to the people the sign-in lets in |
-| `model:<budget>` | The host's model, through `tehas-proxy` only, with a key made for the run and a token budget. See "The host's model" | Model time the cycles also need, and with `product` the code goes to the model |
-| `hook:<point>` | The plugin runs at a stage of an issue and leaves notes. See "Hooks around the stages" | It reads the cycle's branch, and its notes reach the issue |
-| `gate:<point>` | The same, and a `fail` holds the issue | A plugin can stop the line at that point |
-| `action:<id>` | The view's button `<id>` works: `POST /_actions/<id>` asks for a run | Anyone signed in to the view can press it |
-| `skill:<id>` | Its instructions are offered to the factory's chats | Text someone else wrote steers a chat that reads the person's tickets and memory |
-| `tool:<id>` | The factory's chats may call the tool; each call is a short run of the plugin | The call's arguments can carry what the person said in the chat |
-| `net:<host id>` | The view may fetch from that host through the factory's proxy | What the page sends that host, and what comes back into the page |
-| `factory-read` | `TEHAS_PLUGIN_MCP_URL` and a key of the MCP server that gives the dashboard's tools only, as `TEHAS_MCP_DASHBOARD_KEYS` does, made for the plugin | What the dashboard shows |
-| `factory-sessions` | The same with a full key: sessions and their logs, masked | Agent logs can quote code and issues the dashboard does not show |
+| `view` | `/out` of a good refresh is served behind the sign-in, and a panel in the dock | Everyone the sign-in lets in sees it. A page can still navigate away with data in its address (web part) |
+| `product` | `/product`, read only, in every run: the default branch's head in a refresh, the pull request's head in a hook | The plugin reads all the code. With `view`, what it writes is shown; with `model`, the code goes to the model |
+| `model:<tokens>` | `/run/tehas/model.sock`: chat completions for one model, at most `<tokens>` a run | Model time, and where the model runs: `review` says whether the endpoint is on this host or another |
+| `action:<id>` | The view's button `<id>`: a signed-in person asks for a refresh | A refresh's cost, at most one at a time |
+| `hook:after:work` | A run on each pull request a cycle leaves, reported as a commit status | Its summary, 140 characters, is on the pull request for every reader of the repository; its findings are behind the sign-in |
 
-`kit` is no capability: the kit is tehas's own files, served to any view,
-behind the view's sign-in.
+`kit` is no capability: the kit is tehas's own files, served behind the
+view's sign-in.
 
-What no grant gives, ever: a GitHub token or the App's key, the Docker
-socket, an SSH key or agent, anything from `~/.config/tehas` or `~/tehas`
-beyond the above, the host's network, a write to the product, GitHub, the
-state store or another plugin's files, `--privileged`, a device or a host
-path. A manifest that asks for something not in the table is refused with
-78.
+A grant is for the commit its line names. A new commit grants nothing until
+its line is written again, so a new pin cannot change what an id means and
+keep the old grant.
 
-### Granting
+What no grant gives, in any version: a GitHub token or the App's key, the
+Docker socket, an SSH key or agent, anything of `~/.config/tehas` or `~/tehas`
+beyond the mounts below, the host's network, a write to the product, GitHub,
+the state store or another plugin's files, `--privileged`, a device, a host
+path.
 
-In the instance's `optional.env`, one line per plugin, its name in capitals
-with `-` as `_`:
+## The container
+
+Every run is one container. Its arguments are a pure function of the
+manifest, the grants, the run's kind and the instance's limits, in
+`console/core/src/sandbox.rs` beside the cycle's. Nothing else adds an
+argument.
 
 ```
-TEHAS_PLUGIN_GRANTS_FLOORPLAN="view product model:2m action:refresh hook:after:work skill:map tool:find-part"
+docker run --init --name tehas-plugin-<name>-<run>
+  --cidfile <run dir>/cid --pull=never
+  --user 10001:10001 --read-only
+  --cap-drop ALL --security-opt no-new-privileges
+  --network none
+  --cgroup-parent tehas.slice
+  --memory <m>g --memory-swap <m>g --cpus <n> --pids-limit 512
+  --log-driver json-file --log-opt max-size=10m --log-opt max-file=1
+  --tmpfs /tmp:size=256m,noexec,nosuid,nodev
+  --mount type=volume,src=tehas-plugin-<name>-work-<run>,dst=/work
+  --mount type=volume,src=tehas-plugin-<name>-out-<run>,dst=/out
+  --mount type=volume,src=tehas-plugin-<name>-state,dst=/state[,readonly in a hook]
+  [--mount type=bind,src=<product dir>,dst=/product,readonly]       with product
+  [--mount type=bind,src=<socket dir>,dst=/run/tehas,readonly]      with model
+  --mount type=bind,src=<run dir>/context.json,dst=/run/context.json,readonly
+  <image id>
 ```
 
-- A capability the manifest asks for and the line does not grant: the
-  plugin is refused, 78, unless the manifest marks it `optional`, and then
-  the run goes without it.
-- A grant the manifest does not ask for gives nothing, and `tehas update`
-  says so.
-- No line, no grant. There is no default and no "all".
+- **By image id**, never by tag.
+- **No `--rm`**: tehas reads `/out` from the stopped container, then removes
+  it with `docker rm`, and removes a container left by a run that died on the
+  next tick.
+- **`--network none`**, always. The model is a unix socket, not a network.
+- **No host path but three**, each read only and made for the run: the product
+  export, the socket's directory, the context file.
+- **Disk.** `/work`, `/out` and `/state` are Docker volumes, so the host's
+  files are not reachable through them and the plugin's uid owns them. After
+  each run tehas measures them with `docker system df -v`. A run whose volumes
+  pass `disk` from `TEHAS_PLUGIN_LIMITS` failed, and its `/work` and `/out` are
+  removed; a `/state` over it is emptied and the plugin is refused until a
+  person runs `tehas plugin run`. `/work` and `/out` are removed after every
+  run. `tehas disk` counts the volumes and images; `tehasbot clean` removes
+  what no plugin in the settings owns.
+- **Time.** At `timeout` tehas runs `docker kill` on the id in `cidfile`; a
+  killed client is not enough.
+- **The context**, `/run/context.json`, `api/plugin-context.schema.json`:
+  `kind` (`refresh` or `hook`), `trigger` (`timer`, `host`, `action`,
+  `cycle`), `commit` (the plugin's), `head` (of `/product`), `model`
+  (`{"id", "tokens"}` with `model` granted: the id to send and the run's
+  budget), and in a hook `pr` (`{"number", "base", "head"}`). Nothing of a
+  person.
+- **The image's own directories.** A new Docker volume takes the owner of
+  the image's directory at its mount point. So an image must have `/work`,
+  `/out` and `/state`, owned by 10001; a run whose image lacks them fails
+  with that reason. The reference Dockerfile shows how.
+- **Exit status.** 0 is done; anything else is a failed run, and its last
+  log lines are kept for `tehas plugin log`.
 
-`tehas plugin review <name> [<commit>]` fetches the pin, reads its manifest
-and prints, for a person, what it asks, what is granted, what is new since
-the last pin, and the line to put in the settings. It changes nothing.
-`tehas update` runs the same check, and on a refusal prints the same text
-and exits 78 before it builds anything. So a new pin that asks for more
-never runs on the old grants.
+Test: `test/fixtures/argv/plugin-*` pins the arguments for no grant, for each
+capability alone, and for the reference set, and `test/sandbox_argv_test.sh`
+compares them, as for the cycle's lists. A change there is a security change
+(hard rule 4).
 
-Taking a grant away and running `tehas update` applies to the next run, and
-removes the view and menu items with `view`, the network and the run's key with `model`, the
-MCP key with `factory-read` or `factory-sessions`.
+## The build
 
-### The image
+The image is built at `tehas update`, after the fetch, for each plugin whose
+pin changed or whose image is gone.
 
-The build runs at `tehas update`, which a person starts. It gets the
-network, since an image needs its packages, but no build secret, no SSH
-forwarding and no host path. Every `FROM` names an image by digest
-(`@sha256:`); a `FROM` by tag is refused with 78. The image is tagged
-`tehas-plugin-<name>:<commit>` and only that tag runs.
+- **The fetch.** `git fetch` of the pinned commit into
+  `~/tehas/plugins/<name>/repo.git`, with `-c protocol.allow=never
+  -c protocol.https.allow=always -c http.followRedirects=false`, no
+  submodules, no LFS, as the host's user. A private repository works only if
+  the factory's GitHub App is installed on it, since the host's git helper
+  gives the App's token for github.com.
+- **The context** is `git archive <commit>`, piped to `docker build -`. No
+  `.git`, no file outside the commit.
+- **The Dockerfile's rules**, read by tehas with BuildKit's own grammar
+  (continuations, heredocs, `ARG`) before the build:
+  - every `FROM` names an image by `@sha256:` digest, with no `ARG` in it;
+  - no `# syntax=` line;
+  - `COPY --from` and `RUN --mount=from=` name a stage of the file, never an
+    image;
+  - no `ADD` of a URL or a git address.
+  A Dockerfile that breaks one is refused, naming the line.
+- **The base images** are pulled by digest before the build, with the host's
+  Docker, and the digests are shown by `tehas plugin review`.
+- **The build itself** is `timeout 1800 docker build --network none
+  --cgroup-parent tehas.slice --memory 4g --no-cache --pull=false
+  -t tehas-plugin-<name>:<commit> -`, as the preview build is
+  `--network none`. A plugin that needs packages carries them in its
+  repository.
 
-### Enforced in one place
+So the code that runs is the commit and the named base images, and nothing a
+`RUN` fetched. Two hosts that build one commit get the same source and bases,
+not always the same bytes; `tehas plugin --json` shows the commit, the
+manifest's sha256 and the base digests, and the local image id as a local
+fact.
 
-The container's arguments are a pure function in
-`console/core/src/sandbox.rs` of the manifest and the grants, beside the
-cycle's, and nothing else adds an argument. `test/fixtures/argv/` pins its
-output for no grant, for each capability alone and for Floorplan's set, as
-the cycle's lists are pinned. A change there is a security change, as hard
-rule 4 says for the cycle.
+## Reading `/out` and `/state`
 
-### What is recorded
+Nothing a run left is opened as a path on the host.
 
-Each run is a row in the state store: plugin, commit, the grants it ran
-with, start, end, result. `tehas plugin --json` shows each plugin's asks,
-grants and last run, and `tehas history` lists the runs.
+- **`/out`** is read as a tar stream from `docker cp <container>:/out -`
+  before the container is removed. tehas's reader in Rust takes regular files
+  and directories only: no symlink, hard link, device, fifo or socket, no
+  absolute name or `..`, at most 5000 entries and 256 MiB. Anything else fails
+  the run and leaves the last good view.
+- A good refresh's files are written into a new directory
+  `~/tehas/plugins/<name>/view-<run>/` as the host's user, with names checked
+  again, and swapped into `view/` with one rename. The old one is removed.
+- **A hook's verdict**, `/out/_tehas/verdict.json`, comes through the same
+  reader, at most 64 KiB.
+- **`/state`** stays a volume the host never opens. In a hook it is mounted
+  read only, so a pull request's code cannot plant anything in what the next
+  refresh, or any view, reads.
 
-## The host's model
+## The product
 
-A plugin never holds the factory's model key and never talks to the model
-endpoint itself. With `model` granted, a run is given
-`TEHAS_PLUGIN_MODEL_URL`, an address of `tehas-proxy` on the run's internal
-network, and `TEHAS_PLUGIN_MODEL_KEY`, a key the proxy made for that run and
-forgets when it ends, as it does for an outsourced job. The run's network
-reaches the proxy and nothing else.
+`product` is a git repository made for the run, never the product's mirror
+or a cycle's workspace.
 
-The proxy holds the run to:
+- tehas clones the mirror's commit with `git clone --no-local
+  --no-checkout --depth 200 --single-branch`, with `core.hooksPath=/dev/null`,
+  no filters and no `GIT_*` from the host, removes the remote, and checks out
+  the commit. A hook fetches the pull request's head as GitHub names it into
+  the mirror first, as `tehas-cycle finish` does.
+- It is owned by the host's user and mounted read only. The container is
+  given `GIT_CONFIG_COUNT=1`, `GIT_CONFIG_KEY_0=safe.directory`,
+  `GIT_CONFIG_VALUE_0=/product`, so git in the container reads it.
+- It is removed after the run.
 
-- **One model**, the one the grant names or the product model. Any other
-  model id is refused.
-- **Two routes**, chat completions and the model list. Every other path,
-  among them any admin or embedding route of the endpoint, is refused.
-- **A budget.** The grant gives tokens per run, `model:2m`; the
-  instance gives a day's total for all plugins, `TEHAS_PLUGIN_MODEL_DAY`.
-  A request past either is refused with 429 and the run ends as
-  `budget`. No grant without a number: `model` alone is refused with 78.
-- **The line first.** One request at a time per run, and none while a cycle
-  waits for a slot or the endpoint check holds the queue: a plugin's request
-  then waits, within its run's time limit. A plugin never takes model time a
-  cycle needs.
-- **A size**: the request's body and the answer's `max_tokens` are capped by
-  the instance's `TEHAS_PLUGIN_MODEL_MAX`.
+## The model socket
 
-Each run's requests and tokens are counted and kept with the run's row, and
-`tehas plugin --json` and analytics show them.
+A plugin never holds the model's key, never reaches the endpoint, and has no
+network. With `model:<tokens>` granted, `tehas-plugin` serves a unix socket for
+the run, `/run/tehas/model.sock`, mode 0666 in a directory of 0755 made
+for that run and mounted only into its container, and stops it when the run
+ends. It is a part
+of the `tehas-plugin` program, not of `tehas-proxy`: it shares no token, port
+or route with outsource.
 
-What the model writes is untrusted. It read the product's code and the
-issue, and either may hold text written to steer it. So nothing a model
-wrote is a command to tehas: it can go into the plugin's own view, or into a
-hook's notes as quoted text, and a hook's verdict can hold an issue but never
-let one through (see below).
+What it answers:
 
-## Crossings: where a plugin's data can be inspected
+- `POST /v1/chat/completions` and `GET /v1/models`, which lists one model,
+  the id the context names. Anything else: 404.
+- The body is read whole, at most 1 MiB, and parsed. Only these fields pass:
+  `model`, `messages`, `max_tokens`, `temperature`, `top_p`, `stop`, `tools`,
+  `tool_choice`, `response_format`, `seed`. Any other field: 400.
+- `model` must be the id the context names; it is rewritten to the
+  endpoint's own.
+- A message has `role`, `content`, and for tool turns `tool_calls`,
+  `tool_call_id` and `name`. Its content is text: a string, `null` on an
+  assistant turn that calls tools, or parts of `type: text` only. No image
+  or file part, so the model is never asked to fetch an address.
+- `stream` and `n` other than 1: 400. v1 answers whole.
+- `max_tokens` is required, at most 16384.
+- **The budget is held before the request.** The prompt's bytes divided by 3,
+  plus `max_tokens`, is reserved against the run's `<tokens>` and the day's
+  `TEHAS_PLUGIN_MODEL_DAY` before it is sent. The answer's `usage` then
+  replaces the reserve; an answer without `usage` keeps it. A request that
+  would pass either total is 429 and is not sent.
+- One request at a time per run. A second waits.
+- The request goes to the endpoint and key of `models.json`'s provider, over
+  `http://` or `https://` (through `curl`, as `models.rs` reaches the
+  endpoint), with a 300-second bound. The answer is passed back as JSON, at
+  most 4 MiB.
+- Counts, not bodies, are kept: requests and tokens on the run's row.
 
-Everything a plugin sends or receives passes through tehas at a few known
-places. v1 makes each of them one call to one interface, so that checks can
-be added there later, an LLM prompt detector among them, without a new
-contract and without the plugin's help.
+The cycles call the model directly, so a plugin and a cycle share the
+endpoint's capacity. v1 bounds a plugin by its budget, one request at a time,
+and refreshes that wait for the factory (core, "Runs"). A queue of its own in
+front of the endpoint is v2.
 
-| Crossing | Through | Direction |
+What the model writes is untrusted: it read the code. It reaches only the
+plugin's own `/out` and `/state`, and through a hook, text tehas checks and
+posts as quoted text.
+
+## Granting
+
+- `tehas plugin review <name>` prints, for a person: each ask, what it lets
+  the plugin do, the Dockerfile's base images, whether the model endpoint is
+  on this host, what changed since the pinned commit, and the line to write.
+- `tehas update` checks each plugin: its pin fetched, its manifest read, every
+  ask granted for that commit, nothing reserved asked for, its Dockerfile's
+  rules, its build. A plugin that fails any of them is refused and skipped
+  (core, guarantee 4).
+- A grant the manifest does not ask for gives nothing, and `review` says so.
+- A grant taken away applies at the next `tehas update`.
+
+## Enforced in one place
+
+| Rule | Where | Test |
 | --- | --- | --- |
-| A skill's text into a chat | `tehas plugin skills` | in |
-| A tool's arguments and answer | `tehas plugin call` | out, in |
-| A model request and its answer | `tehas-proxy` | out, in |
-| A view's fetch and its answer | the gate's `/_proxy/` | out, in |
-| A hook's verdict to GitHub | the report | in |
-| A view's pages | the swap after a run | in |
-
-### One interface
-
-In `console/core`, a crossing is handed to `inspect(crossing) -> Verdict`
-before it goes on: the plugin and its pin, the crossing's kind and
-direction, the login if a person is behind it, and the payload. The verdict
-is `allow`, `block` with a reason, or `hold`, which blocks and quarantines
-the plugin. v1's checks are the size limits, the shapes and the secret mask
-this spec already names. A later check is one more step in that function,
-with its tests, at every crossing at once.
-
-Inspectors are tehas's or industry's, never a plugin's: a plugin never sees
-or checks another plugin's traffic.
-
-### Kept for review
-
-Every crossing is a row: time, plugin, pin, kind, direction, login, size,
-the payload's sha256 and the verdict. That is always on, and holds no
-content.
-
-With `TEHAS_PLUGIN_KEEP=<days>`, 1 to 30, the payloads are kept too, masked
-as anything tehas posts is, under `~/tehas/plugins/<name>/crossings/`, and
-removed when the days are up. `tehas plugin crossings <name> --json` reads
-them. That is what a mass review runs over: a detector reads a day of
-crossings, scores each, and marks what it would block.
-
-### What a block does
-
-- **One crossing**: the request is refused, the chat gets "blocked by the
-  factory", the hook's notes are not posted. The reason is logged.
-- **Quarantine**: `tehas plugin hold <name> --reason <text>`, by a person,
-  an inspector or industry. The plugin's runs, calls, hooks, views and menu
-  items stop at once; a gate it held for becomes a `note`. It stays held
-  until a person runs `tehas plugin release <name>`, and its grants stay as
-  they were.
-- **A pin**: a held pin stays held when industry rolls it out again; a new
-  pin starts unheld, and its review shows why the last was held.
-
-Industry can hold a plugin in every factory at once, through the same
-command, and a mass review at industry can cover all its factories'
-crossings.
+| The container's arguments | `sandbox.rs`, a pure function | `test/fixtures/argv/plugin-*` |
+| Settings and grants | `settings/rules.rs` | its tests |
+| The manifest | `console/core/src/plugin/manifest.rs` | its tests and `api/` samples |
+| The Dockerfile's rules | `console/core/src/plugin/dockerfile.rs` | a case per rule |
+| The tar reader | `console/core/src/plugin/out.rs` | a case per kind of entry |
+| The model socket | `console/plugin/src/model.rs` | against a stub endpoint |
