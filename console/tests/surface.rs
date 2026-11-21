@@ -29,7 +29,11 @@ const BUILDING_FIELDS: &[(&str, &str)] = &[("status.contractors", "outsource")];
 
 /// Schemas of api/ that are a building feature's whole, with the feature:
 /// none of their fields is on the surface until it ships.
-const BUILDING_SCHEMAS: &[(&str, &str)] = &[("plugin", "plugins"), ("plugin-manifest", "plugins")];
+const BUILDING_SCHEMAS: &[(&str, &str)] = &[
+    ("plugin", "plugins"),
+    ("plugin-manifest", "plugins"),
+    ("plugin-context", "plugins"),
+];
 
 /// Fields whose own fields may change: one driver's steps and the Protolab.
 /// The field itself is public, what is under it is not.
