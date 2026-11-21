@@ -289,4 +289,20 @@ t_run "$part/install.sh"
 t_eq "$t_rc" 0
 t_eq "$(t_calls cargo)" "build --release --locked --offline --quiet --manifest-path $part/console/Cargo.toml --target-dir $T/target -p tehas-dispatch"
 
+# --check builds nothing, so the console it finds can lack a verb of this tree.
+t_case "a --check whose console cannot read the tree still reports, and says a real run builds the one it needs"
+fresh
+instance
+t_run "$install"
+old=$T/old-console
+printf '#!/usr/bin/env bash\n[ "$1 $2" != "update tree" ] || exit 64\nexec %q "$@"\n' "$T_CONSOLE" >"$old"
+chmod 755 "$old"
+t_run "TEHAS_SETTINGS_CMD='$old' $install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Store:        REFUSED (the console at $old cannot read the commit of "
+t_contains "$t_out" "(status 64); a real run of install.sh builds the one this tree needs"
+t_run "TEHAS_SETTINGS_CMD='$old' $install"
+t_eq "$t_rc" 1
+t_contains "$t_out" "could not read the commit of $fixture (status 64); nothing was installed"
+
 t_done

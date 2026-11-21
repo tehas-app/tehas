@@ -9,14 +9,17 @@
 //! takes both back, so one found here is a leftover of a run a signal took off.
 //! For each it prints `changed sandbox/<name>`, as `update files` names a
 //! change, then `stale: <path>` with --check, else removes it and prints
-//! `removed: <path>`, or nothing for one it could not remove. Exit 0, 64 usage.
+//! `removed: <path>`, or the reason on standard error for one it could not
+//! remove. Exit 0, 64 usage.
 //!
 //! `cycles` removes the marker a cycle used to leave, `state/cycles/<issue>`:
 //! a plain file named by digits alone. The lock, the taken mark and every file
-//! with a suffix stay. It prints `removed: <path>` for each. Exit 0, 64 usage.
+//! with a suffix stay. It prints `removed: <path>` for each, as `leftovers`
+//! does. Exit 0, 64 usage.
 
 use super::{say, tell};
 use std::fs;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 const STAGED: &str = "sandbox-uid.Dockerfile";
@@ -38,40 +41,58 @@ pub fn leftovers_verb(given: &[String]) -> u8 {
 
 fn leftovers(home: &Path, check: bool) -> Vec<String> {
     let mut lines = Vec::new();
-    for path in staged(&home.join("sandbox")) {
+    for path in plain_files(&home.join("sandbox"), staged_name) {
         let name = path.file_name().unwrap_or_default().to_string_lossy();
         lines.push(format!("changed sandbox/{name}"));
         if check {
             lines.push(format!("stale: {}", path.display()));
-        } else if fs::remove_file(&path).is_ok() {
-            lines.push(format!("removed: {}", path.display()));
+        } else if let Some(line) = remove(&path) {
+            lines.push(line);
         }
     }
     lines
 }
 
-/// The staged names in `dir` that are plain files, the copy first.
-fn staged(dir: &Path) -> Vec<PathBuf> {
-    let mut found: Vec<String> = fs::read_dir(dir)
+/// The plain files in `dir` whose names `keep` takes, in byte order.
+fn plain_files(dir: &Path, keep: fn(&[u8]) -> bool) -> Vec<PathBuf> {
+    let mut found: Vec<_> = fs::read_dir(dir)
         .into_iter()
         .flatten()
         .flatten()
         .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
-        .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|name| staged_name(name))
+        .map(|e| e.file_name())
+        .filter(|name| keep(name.as_bytes()))
         .collect();
     found.sort();
     found.into_iter().map(|name| dir.join(name)).collect()
 }
 
-fn staged_name(name: &str) -> bool {
-    match name.strip_prefix(STAGED) {
-        Some("") => true,
+/// `removed: <path>`, or None with the reason on standard error, as `rm -f` says it.
+fn remove(path: &Path) -> Option<String> {
+    match fs::remove_file(path) {
+        Ok(()) => Some(format!("removed: {}", path.display())),
+        Err(e) => {
+            tell(&format!(
+                "console update: cannot remove {}: {e}",
+                path.display()
+            ));
+            None
+        }
+    }
+}
+
+fn staged_name(name: &[u8]) -> bool {
+    match name.strip_prefix(STAGED.as_bytes()) {
+        Some(b"") => true,
         Some(rest) => rest
-            .strip_prefix('.')
-            .is_some_and(|s| s.len() == 6 && s.bytes().all(|b| b.is_ascii_alphanumeric())),
+            .strip_prefix(b".")
+            .is_some_and(|s| s.len() == 6 && s.iter().all(u8::is_ascii_alphanumeric)),
         None => false,
     }
+}
+
+fn marker_name(name: &[u8]) -> bool {
+    !name.is_empty() && name.iter().all(u8::is_ascii_digit)
 }
 
 pub fn cycles_verb(given: &[String]) -> u8 {
@@ -86,21 +107,9 @@ pub fn cycles_verb(given: &[String]) -> u8 {
 }
 
 fn cycles(home: &Path) -> Vec<String> {
-    let dir = home.join("state/cycles");
-    let mut found: Vec<String> = fs::read_dir(&dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
-        .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|name| !name.is_empty() && name.bytes().all(|b| b.is_ascii_digit()))
-        .collect();
-    found.sort();
-    found
-        .into_iter()
-        .map(|name| dir.join(name))
-        .filter(|path| fs::remove_file(path).is_ok())
-        .map(|path| format!("removed: {}", path.display()))
+    plain_files(&home.join("state/cycles"), marker_name)
+        .iter()
+        .filter_map(|path| remove(path))
         .collect()
 }
 
@@ -145,7 +154,7 @@ mod tests {
             sandbox.join("sandbox-uid.Dockerfile"),
             sandbox.join("sandbox-uid.Dockerfile.abcdef"),
         ];
-        assert_eq!(staged(&sandbox), both);
+        assert_eq!(plain_files(&sandbox, staged_name), both);
         let said = |word: &str| {
             vec![
                 "changed sandbox/sandbox-uid.Dockerfile".to_string(),
@@ -156,9 +165,9 @@ mod tests {
         };
         // --check names them and removes nothing.
         assert_eq!(leftovers(&home, true), said("stale"));
-        assert_eq!(staged(&sandbox), both);
+        assert_eq!(plain_files(&sandbox, staged_name), both);
         assert_eq!(leftovers(&home, false), said("removed"));
-        assert!(staged(&sandbox).is_empty());
+        assert!(plain_files(&sandbox, staged_name).is_empty());
         // The shapes that are not a build's two names are left for their owner,
         // as the installed files beside them are.
         assert_eq!(
@@ -222,6 +231,23 @@ mod tests {
                 "notanumber",
             ]
         );
+    }
+
+    #[test]
+    fn a_leftover_that_cannot_be_removed_is_still_named_and_not_said_removed() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = dir("leftovers-kept");
+        let sandbox = d.0.join("sandbox");
+        fs::create_dir_all(&sandbox).unwrap();
+        fs::write(sandbox.join(STAGED), "").unwrap();
+        fs::set_permissions(&sandbox, fs::Permissions::from_mode(0o500)).unwrap();
+        let said = leftovers(&d.0, false);
+        let kept = sandbox.join(STAGED).exists();
+        fs::set_permissions(&sandbox, fs::Permissions::from_mode(0o700)).unwrap();
+        // root removes it anyway.
+        if kept {
+            assert_eq!(said, ["changed sandbox/sandbox-uid.Dockerfile"]);
+        }
     }
 
     #[test]
