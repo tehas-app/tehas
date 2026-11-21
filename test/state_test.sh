@@ -121,7 +121,7 @@ reset
 pack
 t_eq "$t_rc" 0
 t_eq "$(tar -tf "$tar_file" | head -n 1)" tehas-state.json
-t_eq "$(tar -xOf "$tar_file" tehas-state.json)" '{"api":1,"schema":18,"tag":"v0.17.0"}'
+t_eq "$(tar -xOf "$tar_file" tehas-state.json)" '{"api":1,"schema":19,"tag":"v0.17.0"}'
 list=$(names "$tar_file")
 t_contains "$list" "state/ledger.txt"
 t_contains "$list" "repos/product/main.c"
