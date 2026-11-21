@@ -639,7 +639,17 @@ mod tests {
 
     fn pinned() -> Vec<Row> {
         let file = concat!(env!("CARGO_MANIFEST_DIR"), "/../api/commands.txt");
-        let text = fs::read_to_string(file).unwrap();
+        rows_of(&fs::read_to_string(file).unwrap())
+    }
+
+    #[test]
+    fn a_flag_marked_building_is_still_a_flag_of_its_row() {
+        let rows = rows_of("setup --check --app-secret-file:building=setup-app\n");
+        let flags: Vec<&str> = rows[0].flags.iter().map(String::as_str).collect();
+        assert_eq!(flags, ["--app-secret-file", "--check"]);
+    }
+
+    fn rows_of(text: &str) -> Vec<Row> {
         let lines = text
             .lines()
             .filter(|l| !l.is_empty() && !l.starts_with('#'));
@@ -665,7 +675,11 @@ mod tests {
                             assert!(row.internal.insert(f.into()), "{l}");
                         }
                     } else if word.starts_with("--") {
-                        assert!(row.flags.insert(word.into()), "{l}");
+                        // A flag's own building mark is the surface's to read
+                        // (console/tests/surface.rs); the flag is documented
+                        // all the same.
+                        let flag = word.split_once(":building=").map_or(word, |(f, _)| f);
+                        assert!(row.flags.insert(flag.into()), "{l}");
                     } else {
                         panic!("api/commands.txt: {word} in {l:?} is no flag");
                     }
