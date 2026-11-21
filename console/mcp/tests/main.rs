@@ -20,4 +20,5 @@ mod plugins;
 mod rpc;
 mod serve;
 mod sessions;
+mod tickets;
 mod tools;

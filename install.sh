@@ -685,6 +685,8 @@ files=(
   "systemd/tehas-dispatch.timer|$units/tehas-dispatch.timer|644"
   "systemd/tehas-energy.service|$units/tehas-energy.service|644"
   "systemd/tehas-mcp.service|$units/tehas-mcp.service|644"
+  "systemd/tehas-mcp-fetch.socket|$units/tehas-mcp-fetch.socket|644"
+  "systemd/tehas-mcp-fetch@.service|$units/tehas-mcp-fetch@.service|644"
   "systemd/tehas-protolab.service|$units/tehas-protolab.service|644"
   "systemd/tehas-protolab.timer|$units/tehas-protolab.timer|644"
   "systemd/tehas-preview.service|$units/tehas-preview.service|644"

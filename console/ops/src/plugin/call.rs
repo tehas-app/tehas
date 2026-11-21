@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::path::Path;
 use std::time::Duration;
-use tehas_core::access::{Cache, GitHub, Level};
+use tehas_core::access::{GitHub, Level};
 use tehas_core::file::{write_atomic, Temp};
 use tehas_core::lock::try_lock;
 use tehas_core::plugin::manifest::Tool;
@@ -92,20 +92,15 @@ fn is_key_id(s: &str) -> bool {
     s.len() == 8 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-/// The GitHub user id of a login with access, from the cache or GitHub.
-/// GitHub's error is a refusal: a login it could not check gets no answer.
-fn login_access(
-    home: &Path,
-    get: &dyn Fn(&str) -> String,
-    gh: &dyn GitHub,
-    login: &str,
-) -> Result<u64, Failed> {
+/// The GitHub user id of a login with access, asked of GitHub on every
+/// call: a verdict kept for a login could pass for whoever holds that login
+/// next. GitHub's error is a refusal: a login it could not check gets no
+/// answer.
+fn login_access(get: &dyn Fn(&str) -> String, gh: &dyn GitHub, login: &str) -> Result<u64, Failed> {
     let access = Level::of_setting(&get("TEHAS_PLUGIN_ACCESS"))
         .ok_or_else(|| Failed::Refused("TEHAS_PLUGIN_ACCESS is not set".into()))?;
-    let now = u64::try_from(tehas_core::time::now()).unwrap_or(0);
-    match Cache::of_home(home).check(gh, access, login, now) {
-        Ok(Some(id)) => Ok(id),
-        Ok(None) => Err(Failed::Refused(NO_ACCESS.into())),
+    match tehas_core::access::check(gh, access, login, None) {
+        Ok(v) => v.user.ok_or_else(|| Failed::Refused(NO_ACCESS.into())),
         Err(why) => Err(Failed::Refused(format!(
             "GitHub could not say whether the login has access: {why}"
         ))),
@@ -141,7 +136,7 @@ pub fn call(
         .ok_or_else(|| Failed::Refused(format!("no tool {tool} is granted at the pin")))?
         .clone();
     let user = match caller {
-        Caller::Login(login) => Some(login_access(home, get, gh, login)?),
+        Caller::Login(login) => Some(login_access(get, gh, login)?),
         _ => None,
     };
     params::check(args, &t.params).map_err(Failed::Args)?;
