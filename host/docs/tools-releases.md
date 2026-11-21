@@ -281,9 +281,11 @@ prints `kept <package> <version>: <why>`; the pull request below lists those
 lines apart from the moves. When a Solid pin moved, the script runs
 `tools/vendor-solid`, which rebuilds `host/fun/kit/vendor/solid.js`, its
 `LICENSES` and the kit's `MANIFEST`. It does not change `vendor/solid.d.ts`
-or the `library solid` line of `host/fun/pages.max`: when the new bundle
-breaks the gate, the pull request below fails its gate and waits for a
-person. See [Upgrading Solid](/frontend#upgrading-solid).
+or the `library solid` line of `host/fun/pages.max`. When the new bundle
+breaks the gate, the gate the script runs before it pushes fails: the release
+stops with 1, and no branch is pushed and no pull request opened. A person
+then moves Solid by hand, or tags with `--no-pins`. See
+[Upgrading Solid](/frontend#upgrading-solid).
 
 Under 0.x a minor release can break, so "same major" moves vipune from 0.15 to
 0.20. A later major version is never taken. The release's section of
