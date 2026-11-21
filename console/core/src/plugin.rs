@@ -1,9 +1,13 @@
 //! Plugins, a feature still being built (docs/specs/2026-11-21-plugins.md):
 //! programs from pinned git repositories. Here are the grammar of their
 //! settings and the capabilities, which the settings' rules, the manifest's
-//! reader and `tehas plugin` share. Nothing here reads a file or the network.
+//! reader and `tehas plugin` share, and the parts of a run that are rules:
+//! the Dockerfile's and the reader of `/out`. Only that reader writes files;
+//! nothing here reaches the network.
 
+pub mod dockerfile;
 pub mod manifest;
+pub mod out;
 #[cfg(test)]
 mod schema;
 
