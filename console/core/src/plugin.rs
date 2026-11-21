@@ -205,6 +205,8 @@ pub enum Cap {
     Tool(String),
     /// One view of `views`, by its id (the v2 menu part).
     ViewOf(String),
+    /// Its views in the plugins menu in place of a panel (the v2 menu part).
+    Menu,
 }
 
 impl Cap {
@@ -219,6 +221,7 @@ impl Cap {
             Cap::Skill(id) => format!("skill:{id}"),
             Cap::Needs(name) => format!("needs:{name}"),
             Cap::ViewOf(id) => format!("view:{id}"),
+            Cap::Menu => "menu".to_string(),
             Cap::ModelImages => "model:images".to_string(),
             Cap::Tool(id) => format!("tool:{id}"),
         }
@@ -245,6 +248,7 @@ fn reserved(word: &str) -> bool {
 fn cap(word: &str, granted: bool) -> Result<(Cap, Option<u64>), String> {
     let plain = match word {
         "view" => Some(Cap::View),
+        "menu" => Some(Cap::Menu),
         "product" => Some(Cap::Product),
         "hook:after:work" => Some(Cap::HookAfterWork),
         _ => None,
