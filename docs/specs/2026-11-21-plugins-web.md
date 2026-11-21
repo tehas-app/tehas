@@ -26,12 +26,15 @@ have no `-`, so two plugins never share a name under that rule.
 - **The router.** In `host/edge/router.Caddyfile`, `plugin-*` and `plugins*`
   are matched first in `route`, before `@look`, the previews and the
   Protolab, and go only to the gate with `reverse_proxy`. A name of a plugin
-  that is not set is 404, as `@odd` is. The gate down is a page of its own
+  that is not set is 404, "No plugin is set at this address.", as `@odd` is;
+  the gate answers a well-formed name with no plugin set the same way, since
+  the router does not read the settings. The gate down is a page of its own
   text, never the Protolab's or a preview's. `test/edge_test.sh` pins all
   three.
 - The proxy in front, `host/docs/edge.md`'s matcher, lists names by hand: the
   two names are an adopter action, and so is a Cloudflare cache rule that
-  bypasses the cache for both.
+  bypasses the cache for both. `edge.md`'s one-level `Host` rewrite does not
+  apply to plugin names; they have a matcher of their own.
 - The gate checks the whole `Host` against the names its settings make, not
   the first label. Any other `Host`: 404.
 
@@ -40,7 +43,9 @@ have no `-`, so two plugins never share a name under that rule.
 `tehas-plugin-gate`, a Rust program of the workspace, its own unit
 `tehas-plugin-gate.service`, listening on `TEHAS_PLUGIN_GATE_ADDR`: a
 private or loopback address literal with a port, never 8080 or 8081 (the
-dashboard's), by default `127.0.0.1:8095`. It is installed only
+dashboard's), by default `TEHAS_HOST_ADDR:8095`, where the docs server
+binds and the router already reaches it. Never `0.0.0.0` or a public
+address. An IPv6 address is written in brackets, `[<address>]:<port>`. It is installed only
 with the feature on.
 
 Every answer, a file, an error, the sign-in page and a redirect, carries:
@@ -99,7 +104,10 @@ GitHub's web flow, through the factory's GitHub App.
   manifest and keeps the client id and secret beside the key, in
   `~/.config/tehas/github-app.client-id` and `github-app.client-secret`, mode
   600; the gate exits 78 without them or with a wider mode. For an App made before, an adopter action:
-  add the callback and generate a secret, then `tehas setup --app-secret-file`.
+  add the callback and generate a secret, then `tehas setup --app-client-id
+  <id> --app-secret-file <file>`: the two go together, are refused with
+  `--new-app`, and replace a different value only with `--force`. The App
+  manifest names the callback whenever `TEHAS_DOMAIN` is set.
   A factory without the App, or without the secret, cannot grant `view` or
   `action:`: refused at load with 78. No token fallback.
 - **One callback.** GitHub calls back to `plugins.<domain>`. That name hands
@@ -229,8 +237,10 @@ A press is `POST /_actions/<id>` from the view, with the kit's `press()`.
 `tehas update` writes, for each plugin with `view` granted and ready,
 `tehas panel set p-<name> --label <view.label> --url https://plugin-<name>.<domain>/`,
 and clears it when the plugin goes or is refused. Ids starting `p-` are
-reserved: a person's `tehas panel set p-...` is refused with 64. A fifth panel
-refuses the plugin's view, not the update.
+reserved: a person's `tehas panel set p-...` is refused with 64, and
+`tehas panel clear p-...` stays allowed. With the feature off, `p-` panels are
+cleared. A view left out as a fifth panel prints a line; the update does not
+fail.
 
 `live/panels.json` is public, so a plugin's name and label are too. Its view
 is not.
