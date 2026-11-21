@@ -733,6 +733,45 @@ export const mount = view((props, ctx) => {
 <script type="module" src="/fun/tehas-factory-queue.js"></script>
 ```
 
+## Upgrading Solid
+
+The kit's Solid is pinned in `PINS` in `tools/vendor-solid/src/main.rs`: each
+package's version, its npm tarball and its sha512 integrity. It stays on 2.x
+for now.
+
+The release moves it within 2.x. `scripts/tag-release.sh` runs
+`scripts/pins.sh move`, which takes each package to the newest 2.x on npm,
+with the tarball and integrity the registry gives, and runs `tools/vendor-solid`
+to rebuild `vendor/solid.js`, `vendor/LICENSES` and the kit's `MANIFEST`. A
+release that needs a version of another of the four packages that the move
+does not take stays out, and a 3.x is held back
+([Pinned tools move with the release](/tools-releases#pinned-tools-move-with-the-release)).
+The move changes nothing else. When the new bundle breaks the gate, the pins
+pull request fails its gate, and a person makes the steps below in it.
+
+By hand, edit the entry of `PINS`: the version, the `dist.tarball` and the
+`dist.integrity` of `https://registry.npmjs.org/<package>` for that version.
+Then run
+`cargo run --release --locked --manifest-path tools/vendor-solid/Cargo.toml`
+from the root. After a move, either way:
+
+1. Make the names in `vendor/solid.d.ts` match what the new release exports,
+   from the packages' own `.d.ts` files. The ratchet fails when the type file
+   does not name exactly the library's exports.
+2. Check the `library solid` line of `host/fun/pages.max`. A bundle that grows
+   needs a raise, and a raise is a person's call.
+3. Run the browser checks by hand, outside the gate:
+   `node test/browser/kit-check.mjs` and `node test/browser/dashboard-check.mjs`
+   ([Tests](#tests)).
+4. Write the new versions in [Solid 2 in tehas](#solid-2-in-tehas) and in the
+   Solid 2 kit row of [Features](/features).
+
+A program that builds on the kit, an industry among them, gets the new Solid
+when it pins `host/fun/kit/` to the tehas tag that carries it.
+
+A move to Solid 3.x is a person's decision. It can change the names the kit
+exports, and with them `kit <n>`.
+
 ## The plain dashboard
 
 `host/docs/dashboard.frag` is the first page on the kit. Each section is an

@@ -17,6 +17,9 @@ pub trait World {
     /// The newest publish time npm will install, `YYYY-MM-DDTHH:MM:SS`, when
     /// its `min-release-age` holds new releases back.
     fn npm_cutoff(&self) -> Option<String>;
+    /// tools/vendor-solid run in the tree at `root`, which rebuilds the kit's
+    /// Solid from the pins in its main.rs.
+    fn vendor_solid(&self, root: &Path) -> Result<(), String>;
 }
 
 pub enum Source {
@@ -151,6 +154,34 @@ fn strs<'a>(v: &'a Value, field: &str) -> impl Iterator<Item = &'a str> {
         .filter_map(move |e| e[&field].as_str())
 }
 
+/// The npm registry's document of a package.
+pub fn npm_doc(world: &dyn World, package: &str) -> Result<Value, String> {
+    json(
+        world,
+        &format!("https://registry.npmjs.org/{}", package.replace('/', "%2F")),
+    )
+}
+
+/// The release versions of an npm document that npm would install: not
+/// deprecated, and none younger than its `min-release-age`, since npm would
+/// not lock it.
+pub fn npm_versions(doc: &Value, world: &dyn World) -> Vec<Ver> {
+    let cutoff = world.npm_cutoff();
+    let old_enough = |k: &str| match &cutoff {
+        None => true,
+        Some(c) => doc["time"][k]
+            .as_str()
+            .is_some_and(|t| t.get(..19).is_some_and(|t| t <= c.as_str())),
+    };
+    doc["versions"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(k, v)| v.get("deprecated").is_none() && old_enough(k))
+        .filter_map(|(k, _)| Ver::parse(k))
+        .collect()
+}
+
 /// Every release version the tool's source has.
 pub fn versions(tool: &Tool, world: &dyn World) -> Result<Vec<Ver>, String> {
     let mut found: Vec<Ver> = Vec::new();
@@ -185,22 +216,7 @@ pub fn versions(tool: &Tool, world: &dyn World) -> Result<Vec<Ver>, String> {
             );
         }
         Source::Npm(package, _) => {
-            let url = format!("https://registry.npmjs.org/{}", package.replace('/', "%2F"));
-            let all = json(world, &url)?;
-            let listed = all["versions"].as_object().into_iter().flatten();
-            // A version npm would refuse to lock is not one to move to.
-            let cutoff = world.npm_cutoff();
-            let old_enough = |k: &str| match &cutoff {
-                None => true,
-                Some(c) => all["time"][k]
-                    .as_str()
-                    .is_some_and(|t| t.get(..19).is_some_and(|t| t <= c.as_str())),
-            };
-            found.extend(
-                listed
-                    .filter(|(k, v)| v.get("deprecated").is_none() && old_enough(k))
-                    .filter_map(|(k, _)| Ver::parse(k)),
-            );
+            found.extend(npm_versions(&npm_doc(world, package)?, world));
         }
         Source::Caddy => {
             let mut url = Some(
