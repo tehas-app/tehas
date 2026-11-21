@@ -561,4 +561,41 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn the_sandbox_image_installs_the_pinned_tsc_by_its_sum() {
+        let build = fs::read_to_string(root().join("host/sandbox/build.sh")).unwrap();
+        for arg in ["TSC_VERSION", "TSC_SHA256"] {
+            assert!(
+                build.contains(&format!("--build-arg {arg}=\"${arg}\" ")),
+                "build.sh passes {arg}"
+            );
+        }
+        let image = fs::read_to_string(root().join("host/sandbox/Dockerfile")).unwrap();
+        let at = image
+            .find("typescript-linux-x64-${TSC_VERSION}.tgz")
+            .expect("the image fetches the pinned tsc");
+        let step = &image[image[..at].rfind("\nRUN ").unwrap()..];
+        let step = &step[..step[1..].find("\n\n").unwrap()];
+        assert!(
+            step.contains(" --proto '=https' --tlsv1.2 \"https://"),
+            "{step}"
+        );
+        let check = step.find("echo \"${TSC_SHA256}  /tmp/tsc.tgz\" | sha256sum -c -");
+        let unpack = step.find("tar -xzf /tmp/tsc.tgz");
+        assert!(
+            matches!((check, unpack), (Some(c), Some(u)) if c < u),
+            "the image unpacks tsc from a checked tarball: {step}"
+        );
+        // A cycle finds it, at the pinned version.
+        let tools = image
+            .lines()
+            .find(|l| l.starts_with("RUN for tool in "))
+            .unwrap();
+        assert!(tools.contains(" tsc "), "{tools}");
+        assert!(
+            image.contains("if [ \"$(tsc --version)\" != \"Version ${TSC_VERSION}\" ]"),
+            "the image checks the version a cycle finds"
+        );
+    }
 }

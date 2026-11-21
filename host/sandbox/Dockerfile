@@ -8,6 +8,8 @@
 #     host share those layers: the manual says why the split is where it is, in
 #     What two instance users of one host share (host/docs/host.md).
 #   - shellcheck, which gates commonly run (.pi/verify-cmd, .pi/smoke-cmd),
+#   - TypeScript's native tsc at the version versions.env names, which the
+#     kit's type check runs (console/ops/src/update/types.rs),
 #   - Rust at the version versions.env names, with rustfmt and clippy, rather
 #     than whatever stable the upstream image was built with,
 #   - cargo's registry given to that user (the upstream image has a registry
@@ -29,8 +31,8 @@
 # versions.env and the base: upstream's image for the pi-rukas commit
 # versions.env follows. It hands docker a copy of these lines with the uid's
 # argument moved below the boundary, so the file a person edits is this one and
-# the order the build runs is the order written here. shellcheck is pinned by
-# checksum, Playwright by a lockfile beside this file, and codebase-memory-mcp by
+# the order the build runs is the order written here. shellcheck and tsc are
+# pinned by checksum, Playwright by a lockfile beside this file, and codebase-memory-mcp by
 # its installer's checksum plus a version read back from the binary. A step near
 # the end checks that every command a cycle reaches for, and every command tehas
 # gives a container, answers in the image.
@@ -50,6 +52,8 @@ ARG SHELLCHECK_VERSION
 ARG SHELLCHECK_SHA256
 ARG JQ_VERSION
 ARG JQ_SHA256
+ARG TSC_VERSION
+ARG TSC_SHA256
 ARG RUST_VERSION
 ARG PLAYWRIGHT_VERSION
 ARG PLAYWRIGHT_LOCK_SHA256
@@ -146,6 +150,16 @@ RUN curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 --retry-all-errors 
  && install -m 755 /tmp/jq /usr/local/bin/jq \
  && rm -f /tmp/jq \
  && /usr/local/bin/jq --version
+
+# The tarball holds tsc and the lib files it reads beside it, so the whole
+# package is kept under /opt/tsc and tsc is linked onto the PATH.
+RUN curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 --retry-all-errors --retry-connrefused --retry-delay 5 --retry-max-time 300 --proto '=https' --tlsv1.2 "https://registry.npmjs.org/@typescript/typescript-linux-x64/-/typescript-linux-x64-${TSC_VERSION}.tgz" -o /tmp/tsc.tgz \
+ && echo "${TSC_SHA256}  /tmp/tsc.tgz" | sha256sum -c - \
+ && rm -rf /opt/tsc && mkdir -p /opt/tsc \
+ && tar -xzf /tmp/tsc.tgz -C /opt/tsc --strip-components=1 --no-same-owner \
+ && ln -sfn /opt/tsc/lib/tsc /usr/local/bin/tsc \
+ && rm -f /tmp/tsc.tgz \
+ && tsc --version
 
 # vipune sets no onnxruntime thread count, so onnxruntime pins a thread to each
 # host core, and under a cycle's cpuset most of those are not the container's:
@@ -291,13 +305,14 @@ RUN mv /usr/local/bin/vipune /usr/local/lib/tehas/vipune \
 # writes a file to the cache npm names.
 RUN mkdir -p /home/vscode/.npm && chown -R vscode:vscode /home/vscode/.npm
 USER vscode
-RUN for tool in bash cargo curl fd file find gh git jq node npm pi python3 rg shellcheck codebase-memory-mcp /opt/pi-rukas/bin/pi-rukas-headless; do \
+RUN for tool in bash cargo curl fd file find gh git jq node npm pi python3 rg shellcheck tsc codebase-memory-mcp /opt/pi-rukas/bin/pi-rukas-headless; do \
       command -v "$tool" >/dev/null 2>&1 || { echo "sandbox: $tool is not in this image" >&2; exit 1; }; \
     done \
  && python3 -c 'import PIL' \
  && { cache=$(npm config get cache) && probe=$(mktemp -p "$cache") && rm -f "$probe" \
       || { echo "sandbox: the cycle user cannot write npm's cache ${cache:-}" >&2; exit 1; }; } \
  && if [ "$(jq --version)" != "jq-${JQ_VERSION}" ]; then echo "sandbox: a cycle finds $(jq --version), versions.env names jq-${JQ_VERSION}" >&2; exit 1; fi \
+ && if [ "$(tsc --version)" != "Version ${TSC_VERSION}" ]; then echo "sandbox: a cycle finds tsc $(tsc --version), versions.env names ${TSC_VERSION}" >&2; exit 1; fi \
  && case "$(rustc --version)" in "rustc ${RUST_VERSION} "*) ;; *) echo "sandbox: a cycle finds $(rustc --version), versions.env names rustc ${RUST_VERSION}" >&2; exit 1 ;; esac \
  && echo "sandbox: the tools a cycle reaches for are in the image"
 USER root
