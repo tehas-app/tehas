@@ -2019,3 +2019,10 @@ pub fn has(got: &str, want: &str) {
 pub fn lacks(got: &str, want: &str) {
     assert!(!got.contains(want), "{want:?} should not be in:\n{got}");
 }
+
+/// Nothing at `p`, not even a dangling link, as `find p -maxdepth 0` finds
+/// none.
+#[allow(dead_code)] // each test file uses a part of this module
+pub fn absent(p: &Path) -> bool {
+    fs::symlink_metadata(p).is_err()
+}

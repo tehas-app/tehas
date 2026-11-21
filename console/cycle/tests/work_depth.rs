@@ -9,7 +9,7 @@ mod work;
 
 use serde_json::{json, Value};
 use std::fs;
-use work::{body_sha256, epoch, git_out, git_rc, has, World};
+use work::{absent, body_sha256, epoch, git_out, git_rc, has, World};
 
 /// Twenty commits on main and a branch of the product beside it.
 fn twenty(name: &str) -> World {
@@ -94,7 +94,7 @@ fn a_depth_that_is_no_whole_number_stops_the_start_with_78_and_names_it_before_a
             &r.out,
             "TEHAS_CLONE_DEPTH is not valid: expected a whole number of 0 or more",
         );
-        assert!(!w.ws.exists(), "{bad}: the workspace was made");
+        assert!(absent(&w.ws), "{bad}: the workspace was made");
         assert!(w.cycle_args().is_empty(), "{bad}: a container started");
     }
 }

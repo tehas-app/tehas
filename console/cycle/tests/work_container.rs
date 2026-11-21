@@ -16,8 +16,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 use work::{
-    count_of, git_out, has, lacks, security_line, security_of, security_tmpfs, unknown_options,
-    Run, World, DOCKER_OPTS, GONE, HOLD, RUNNER, SECURITY_OPTS, WANT,
+    absent, count_of, git_out, has, lacks, security_line, security_of, security_tmpfs,
+    unknown_options, Run, World, DOCKER_OPTS, GONE, HOLD, RUNNER, SECURITY_OPTS, WANT,
 };
 
 const ALIAS: &str = "PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9";
@@ -112,7 +112,7 @@ fn entries(dir: &Path, dirs_only: bool) -> String {
     let mut v: Vec<String> = fs::read_dir(dir)
         .unwrap()
         .flatten()
-        .filter(|e| !dirs_only || e.path().is_dir())
+        .filter(|e| !dirs_only || e.file_type().is_ok_and(|t| t.is_dir()))
         .map(|e| format!("{} ", e.file_name().to_string_lossy()))
         .collect();
     v.sort();
@@ -292,8 +292,8 @@ fn a_count_of_the_docker_daemon_that_cannot_be_read_keeps_the_hosts() {
 #[test]
 fn the_cid_file_is_gone_when_the_cycle_is_over_and_no_count_of_kills_is_left() {
     let (w, r) = ran("cid-gone");
-    assert!(!w.cid_file.exists());
-    assert!(!w.oom_file.exists());
+    assert!(absent(&w.cid_file));
+    assert!(absent(&w.oom_file));
     lacks(&r.out, "killed");
 }
 
@@ -472,7 +472,7 @@ fn the_status_line_is_read_from_the_consoles_now_file_and_a_stale_one_is_taken_a
         &w.row(&["cycle-show", "7"]).to_string(),
         r#""step":"develop""#,
     );
-    assert!(!w.live.join("console-7.txt.now").exists());
+    assert!(absent(&w.live.join("console-7.txt.now")));
 }
 
 #[test]
@@ -552,13 +552,13 @@ fn the_agents_are_told_the_path_inside_the_container_not_the_hosts() {
 #[test]
 fn nothing_is_made_on_the_host_at_the_path_inside_the_container() {
     let (w, _) = ran("inside-unmade");
-    assert!(!w.inside.exists());
+    assert!(absent(&w.inside));
 }
 
 #[test]
 fn the_cycles_transcripts_directory_is_its_own_and_is_made_for_it() {
     let (w, _) = ran("runs");
-    assert!(w.runs.is_dir());
+    assert!(fs::symlink_metadata(&w.runs).unwrap().is_dir());
 }
 
 #[test]
@@ -952,8 +952,8 @@ fn refused(w: &World, r: &Run) {
     assert_eq!(r.rc, 78, "{}", r.out);
     assert_eq!(docker_runs(w), 0);
     lacks(&w.calls("docker"), "run ");
-    assert!(!w.home.join("work").exists());
-    assert!(!w.home.join("logs").exists());
+    assert!(absent(&w.home.join("work")));
+    assert!(absent(&w.home.join("logs")));
 }
 
 #[test]
@@ -1481,7 +1481,7 @@ fn a_lean_start_on_an_image_with_no_lean_is_78_starts_no_container_and_does_not_
     has(&refused, "the feature leanHandoffHost");
     assert!(w.cycle_args().is_empty());
     assert!(w.preflight_args().is_empty());
-    assert!(!w.ws.exists());
+    assert!(absent(&w.ws));
 }
 
 #[test]
