@@ -956,8 +956,7 @@ The budgets for new work:
   sha256 on every run, and name it. By hand, in `console/`:
   `TEHAS_TSC=/path/to/tsc cargo test --locked -p tehas-ops update::types`.
   `scripts/verify.sh` prints no line for that skip, and a pass it keeps for
-  a tree does not depend on whether a `tsc` was there: name one and set
-  `TEHAS_VERIFY_FRESH=1` to run the check through the gate.
+  a tree is run again once a `tsc` arrives or its version changes.
 - The markup and the CSS of today's pages are pinned as text by
   `test/front_page_test.sh` and `test/theme_test.sh`. A change to a page
   changes them in the same commit.

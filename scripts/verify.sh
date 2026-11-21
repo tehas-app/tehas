@@ -70,9 +70,9 @@ mode=${mode:-plain}
 # the same mode, from the same merge base for --changed, with the same tools.
 # git add -A does not see the names list, which .gitignore keeps out of the
 # tree, nor CI, so both are hashed here: a pass made without the list is not
-# replayed once it is there, nor a plain one under CI. rustfmt and clippy are
-# hashed with the rest of the tools: a pass made on a toolchain without them
-# says nothing about a run that needs them.
+# replayed once it is there, nor a plain one under CI. rustfmt, clippy and
+# the tsc of the kit's type check are hashed with the rest of the tools: a pass
+# made on a toolchain without them says nothing about a run that needs them.
 # The pass is kept in the repository's git directory, so its worktrees share
 # it and hosts do not. A failure is never kept, nor a pass of a tree that
 # changed during the run. TEHAS_VERIFY_FRESH=1 runs every step.
@@ -90,7 +90,7 @@ tree_key() {
     # line is '42' hashes to an object id, which is no 'names 42'.
     echo "names ${CI-}"
     [ -f scripts/check-generic.names ] && git hash-object scripts/check-generic.names
-    for t in bash jq shellcheck cargo rustc node; do
+    for t in bash jq shellcheck cargo rustc node "${TEHAS_TSC:-tsc}"; do
       ! command -v "$t" >/dev/null || "$t" --version 2>&1 | head -n 1
     done
     for t in fmt clippy; do
