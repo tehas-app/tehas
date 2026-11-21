@@ -202,6 +202,22 @@ fn npm(versions: &[&str]) -> serde_json::Value {
     json!({ "versions": map, "time": times })
 }
 
+const TSC_TARBALL: &str =
+    "https://registry.npmjs.org/@typescript/typescript-linux-x64/-/typescript-linux-x64-7.0.3.tgz";
+
+fn sha512(body: &[u8]) -> String {
+    use sha2::{Digest, Sha512};
+    format!("sha512-{}", tehas_core::file::base64(&Sha512::digest(body)))
+}
+
+/// npm's document of the tsc package: 7.0.3's tarball has `integrity`, and a
+/// prerelease and a later major are out beside it.
+fn tsc_doc(integrity: &str) -> serde_json::Value {
+    let mut doc = npm(&["7.0.2", "7.0.3", "7.1.0-dev.20261121.1", "8.0.0"]);
+    doc["versions"]["7.0.3"]["dist"] = json!({ "integrity": integrity });
+    doc
+}
+
 fn crate_versions(versions: &[(&str, bool)]) -> serde_json::Value {
     json!({ "versions": versions.iter().map(|(n, y)| json!({"num": n, "yanked": y})).collect::<Vec<_>>() })
 }
@@ -233,6 +249,8 @@ fn sources() -> Fake {
         .json("https://registry.npmjs.org/ctx7", npm(&["0.8.2"]))
         .json("https://registry.npmjs.org/parallel-web-cli", npm(&["0.9.4"]))
         .json("https://registry.npmjs.org/playwright", npm(&["1.64.1"]))
+        .json("https://registry.npmjs.org/@typescript%2Ftypescript-linux-x64", tsc_doc(&sha512(b"tsc tarball")))
+        .with(TSC_TARBALL, "tsc tarball")
         .json("https://crates.io/api/v1/crates/vipune", crate_versions(&[("0.15.0", false), ("0.20.2", false), ("0.20.3", true)]))
         .with("https://crates.io/api/v1/crates/vipune/0.20.2/download", "crate")
         .json(
@@ -259,7 +277,7 @@ fn tree() -> TestDir {
         "# header\nNODE_VERSION=22.1.0\nGH_VERSION=2.1.0\nBUN_VERSION=1.1.0\nSHELLCHECK_VERSION=0.11.0\nJQ_VERSION=1.8.2\n\
 PI_VERSION=1.4.0\nCTX7_VERSION=0.8.2\nPARALLEL_CLI_VERSION=0.9.4\nPLAYWRIGHT_VERSION=1.64.1\nRUST_VERSION=1.99.1\n\
 RUSTUP_VERSION=1.29.2\nVIPUNE_VERSION=0.15.0\nVIPUNE_MODEL=BAAI/bge-small-en-v1.5\nVIPUNE_MODEL_REVISION={REV}\n\
-OO_VERSION=0.5.0\nCBM_VERSION=0.12.1\nOSV_SCANNER_VERSION=2.7.0\nNODE_SHA256=aa\nSHELLCHECK_SHA256=bb\nVIPUNE_MODEL_SHA256_ONNX=cc\n\
+OO_VERSION=0.5.0\nCBM_VERSION=0.12.1\nOSV_SCANNER_VERSION=2.7.0\nTSC_VERSION=7.0.2\nTSC_SHA256=gg\nNODE_SHA256=aa\nSHELLCHECK_SHA256=bb\nVIPUNE_MODEL_SHA256_ONNX=cc\n\
 VIPUNE_MODEL_SHA256_TOKENIZER=dd\nPI_LOCK_SHA256=ee\nOSV_SCANNER_SHA256=ff\nCADDY_VERSION=2.11.7\nCADDY_DIGEST={DIGEST}\n"
     );
     for (path, text) in [
@@ -329,9 +347,11 @@ fn move_writes_each_version_with_what_moves_with_it() {
             &format!("moved vipune model: {REV} to {NEW_REV}"),
             "moved vipune: 0.15.0 to 0.20.2",
             "moved OSV-Scanner: 2.7.0 to 2.7.1",
+            "moved tsc: 7.0.2 to 7.0.3",
             "moved Caddy: 2.11.7 to 2.11.8",
             "held Node: 22.2.0, 24.0.0 is out",
             "held Pi: 1.5.0, 2.0.0 is out",
+            "held tsc: 7.0.3, 8.0.0 is out",
         ]
     );
     let env = fs::read_to_string(dir.join("host/versions.env")).unwrap();
@@ -348,6 +368,8 @@ fn move_writes_each_version_with_what_moves_with_it() {
         ("GH_VERSION", "2.1.0"),
         ("OSV_SCANNER_VERSION", "2.7.1"),
         ("OSV_SCANNER_SHA256", H1),
+        ("TSC_VERSION", "7.0.3"),
+        ("TSC_SHA256", &sha256(b"tsc tarball")),
         ("CADDY_VERSION", "2.11.8"),
         ("CADDY_DIGEST", NEW_DIGEST),
     ] {
@@ -414,6 +436,20 @@ fn a_move_that_fails_stops_with_its_reason() {
     assert!(
         e.contains("Node 22.2.0:")
             && e.contains("lists no sha256 for node-v22.2.0-linux-x64.tar.xz"),
+        "{e}"
+    );
+
+    // A tsc tarball that is not the one npm's integrity names.
+    let world = Fake {
+        unpacked: vipune_engine(NEW_REV),
+        lock: lock("1.5.0"),
+        ..sources()
+    }
+    .with(TSC_TARBALL, "another tarball");
+    let e = run(&tree(), None, &world).unwrap_err();
+    assert!(
+        e.starts_with("tsc 7.0.3:")
+            && e.contains("is not the tarball the registry's integrity names"),
         "{e}"
     );
 

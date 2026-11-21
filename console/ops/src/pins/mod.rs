@@ -13,7 +13,8 @@
 //! GitHub releases, Docker Hub for Caddy's digest), and moves together with its
 //! checksum, its digest, or its lockfile and `_LOCK_SHA256`, as the header of
 //! versions.env says. vipune's model moves to the revision the new vipune
-//! asks for, with its hashes from Hugging Face. An npm tree is locked again
+//! asks for, with its hashes from Hugging Face. tsc moves with the sha256 of
+//! npm's tarball of it, which must match the registry's sha512 integrity. An npm tree is locked again
 //! with npm, which must be on PATH; a version younger than npm's
 //! `min-release-age` is not taken, since npm would not lock it.
 //!

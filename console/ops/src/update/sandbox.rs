@@ -26,6 +26,7 @@ use std::path::Path;
 const IMAGE_PINS: &[&str] = &[
     "SHELLCHECK_",
     "JQ_",
+    "TSC_",
     "PLAYWRIGHT_",
     "RUST_",
     "RUSTUP_",
@@ -205,6 +206,18 @@ VIPUNE_VERSION=0.20.2\nVIPUNE_MODEL_REVISION=r1\nVIPUNE_MODEL_SHA256_ONNX=cc\n";
         let checkout = format!("{CHECKOUT}RUST_VERSION=1.90.0\n");
         let host = format!("{CHECKOUT}RUST_VERSION=1.91.0\n");
         assert!(owed(Some(&host), &checkout));
+    }
+
+    #[test]
+    fn the_tsc_pins_are_read_by_the_image() {
+        for (from, to) in [
+            ("TSC_VERSION=7.0.2", "TSC_VERSION=7.0.3"),
+            ("TSC_SHA256=aa", "TSC_SHA256=ab"),
+        ] {
+            let checkout = format!("{CHECKOUT}{from}\n");
+            let host = format!("{CHECKOUT}{to}\n");
+            assert!(owed(Some(&host), &checkout), "{from}");
+        }
     }
 
     #[test]

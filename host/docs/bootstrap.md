@@ -272,6 +272,7 @@ group. What a member can and cannot do is on [The host](/host).
 | Node and npm                      | `~/tehas/tools/node`                   | Release archive, checksum     |
 | `gh`                              | `~/tehas/bin/gh`                       | Release archive, checksum     |
 | `jq`                              | `~/tehas/bin/jq`                       | Release binary, checksum      |
+| `tsc`                             | `~/tehas/tools/tsc`, linked as `~/tehas/bin/tsc` | npm's tarball, checksum |
 | Bun                               | `~/.bun/bin`                           | Release archive, checksum     |
 | Pi, `ctx7`, `parallel-cli`        | `~/tehas/tools/npm/<name>`, commands linked into `~/.local/bin` | npm tree, pinned by lockfile  |
 | Rust, then `vipune` and `oo`      | `~/.rustup`, `~/.cargo`                | rustup, then `cargo install`  |
