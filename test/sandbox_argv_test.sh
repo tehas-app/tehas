@@ -15,8 +15,7 @@
 
 goldens=$T_ROOT/test/fixtures/argv
 
-# The product of every command here. On top of work_lib's gate: what the
-# contract asks for, and the files that make --sandbox run all it can.
+# The product: work_lib's gate, what the contract asks, all --sandbox runs.
 mkdir -p "$upstream/.pi"
 echo rules >"$upstream/AGENTS.md"
 echo 'make full' >"$upstream/.pi/verify-cmd-full"
@@ -111,8 +110,7 @@ echo '{"providers":{"test-provider":{"baseUrl":"http://models.test/v1","apiKey":
 # The instance of every case, and the tokens of the host's environment: all a
 # container can be given by name. A container that takes no token shows it too.
 all=("${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_REVIEW=1 TEHAS_WIKI=1)
-# review and wiki are still being built: their containers are pinned as a test
-# turns the features on.
+# review and wiki are still being built: a test turns them on to pin them.
 T_ENV_ALWAYS+=("TEHAS_TEST_FEATURES=review wiki")
 clean() {
   fresh
