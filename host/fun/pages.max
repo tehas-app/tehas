@@ -14,8 +14,11 @@
 # The wiki, asked for by the owner on 2026-11-21 with its link on the
 # dashboard (#2687): page dashboard 90375 54342, page manual 0 49974 for the
 # wiki page's title in the layout, and the new page wiki.
-page business 99086 40524
-page floor 144293 68492
+# Approved by the owner on 2026-11-21 for the plugins menu in panels.js and
+# panels.css, which both pages load: page business 101015 40730 and page
+# floor 146222 68698.
+page business 101015 40730
+page floor 146222 68698
 page dashboard 90375 54342
 page manual 0 49974
 page wiki 48094 51706

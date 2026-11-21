@@ -12,7 +12,7 @@
 //! it runs nothing, and only takes away a plugin's panel left from before.
 
 use super::exec::Exec;
-use super::prepare::{self, prepare_view};
+use super::prepare::{self, prepare_view, Shown};
 use super::runs;
 use crate::panel::{self, Panel};
 use std::fs;
@@ -71,6 +71,7 @@ pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said
     let mut said = Said::default();
     if !tehas_core::features::on_in("plugins", get) {
         docked(home, &[], &mut said);
+        menued(home, &[], &mut said);
         return said;
     }
     let domain = get("TEHAS_DOMAIN");
@@ -104,12 +105,12 @@ pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said
         if let Err(why) = prepare::prune(x, home, pin) {
             said.lines.push(format!("plugin {}: {why}", pin.name));
         }
-        let granted = grants.as_ref().is_some_and(|g| g.caps.contains(&Cap::View));
-        states.push((pin, s, view.filter(|_| granted)));
+        let caps = grants.map(|g| g.caps).unwrap_or_default();
+        states.push((pin, s, view, caps));
     }
     let built: Vec<needs::Plugin> = states
         .iter()
-        .map(|(pin, s, _)| {
+        .map(|(pin, s, _, _)| {
             let state = if s.state == Word::Ready {
                 needs::State::Ready
             } else {
@@ -119,7 +120,8 @@ pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said
         })
         .collect();
     let whys = needs::resolve(&built);
-    for (pin, mut s, view) in states {
+    let mut menu = Vec::new();
+    for (pin, mut s, shown, caps) in states {
         let why = whys
             .iter()
             .find(|(n, _)| *n == pin.name)
@@ -134,12 +136,19 @@ pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said
         }
         // A view docks only for a plugin still ready once its needs are
         // weighed.
-        if let (Word::Ready, Some(label), false) = (s.state, view, domain.is_empty()) {
-            views.push(Panel {
-                id: format!("{}{}", plugin::PANEL_PREFIX, pin.name),
-                label,
-                url: plugin::view_url(&pin.name, &domain, one_level),
-            });
+        if let (Word::Ready, Some(shown), false) = (s.state, shown, domain.is_empty()) {
+            let base = plugin::view_url(&pin.name, &domain, one_level);
+            if caps.contains(&Cap::Menu) {
+                if let Some(entry) = listed(&pin.name, &shown, &caps, &base) {
+                    menu.push(entry);
+                }
+            } else if let (Some(label), true) = (shown.panel, caps.contains(&Cap::View)) {
+                views.push(Panel {
+                    id: format!("{}{}", plugin::PANEL_PREFIX, pin.name),
+                    label,
+                    url: base,
+                });
+            }
         }
         let line = match (s.state, &s.image, &s.refusal) {
             (Word::Ready, Some(id), _) => format!("plugin {}: ready, image {id}", pin.name),
@@ -156,6 +165,7 @@ pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said
         said.lines.push(line);
     }
     docked(home, &views, &mut said);
+    menued(home, &menu, &mut said);
     let Ok(dirs) = fs::read_dir(prepare::root(home)) else {
         return said;
     };
@@ -174,6 +184,56 @@ pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said
         });
     }
     said
+}
+
+/// The menu's entry of a plugin granted `menu`: its name and label, and each
+/// view granted, v1's `view` as the view `view` at its folder `/`. None when
+/// no view is granted.
+fn listed(name: &str, shown: &Shown, caps: &[Cap], base: &str) -> Option<serde_json::Value> {
+    use tehas_core::plugin::manifest::Open;
+    let mut views = Vec::new();
+    if let (Some(label), true) = (&shown.panel, caps.contains(&Cap::View)) {
+        views.push(serde_json::json!({"id": "view", "label": label, "url": base, "open": "dock"}));
+    }
+    for v in &shown.views {
+        if caps.contains(&Cap::ViewOf(v.id.clone())) {
+            let open = match v.open {
+                Open::Dock => "dock",
+                Open::Page => "page",
+            };
+            let url = format!("{}{}", base.trim_end_matches('/'), v.path);
+            views.push(serde_json::json!({"id": v.id, "label": v.label, "url": url, "open": open}));
+        }
+    }
+    (!views.is_empty())
+        .then(|| serde_json::json!({"name": name, "label": shown.label, "views": views}))
+}
+
+/// `live/plugins.json`: each plugin granted `menu` and its granted views, or
+/// no file when there are none. Written whole through a new file and a
+/// rename, so the front pages never read half of it.
+fn menued(home: &Path, menu: &[serde_json::Value], said: &mut Said) {
+    let file = home.join("live/plugins.json");
+    let written = if menu.is_empty() {
+        match fs::remove_file(&file) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        }
+    } else {
+        let text = format!("{}\n", serde_json::json!({"api": 1, "plugins": menu}));
+        let new = home.join("live/plugins.json.new");
+        fs::create_dir_all(home.join("live"))
+            .and_then(|()| fs::write(&new, text))
+            .and_then(|()| {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&new, fs::Permissions::from_mode(0o644))
+            })
+            .and_then(|()| fs::rename(&new, &file))
+    };
+    if let Err(e) = written {
+        said.lines
+            .push(format!("plugins: live/plugins.json was not written: {e}"));
+    }
 }
 
 /// The plugins' panels set to `views`. A view left off is said, and the
@@ -316,6 +376,71 @@ mod tests {
             Ok(text) => panel::parse(&text).unwrap(),
             Err(_) => Vec::new(),
         }
+    }
+
+    fn menu_file(home: &Path) -> Option<serde_json::Value> {
+        fs::read_to_string(home.join("live/plugins.json"))
+            .ok()
+            .map(|t| serde_json::from_str(&t).unwrap())
+    }
+
+    #[test]
+    fn a_plugin_granted_menu_lists_its_granted_views_and_takes_no_panel() {
+        let views = r#""views": [
+            {"id": "map", "label": "Map", "path": "/", "open": "dock"},
+            {"id": "health", "label": "Health", "path": "/health/", "open": "page"},
+            {"id": "debts", "label": "Debts", "path": "/debts/", "open": "page"}]"#;
+        let m = manifest(r#""menu", "view:map", "view:health", "view:debts""#).replace(
+            r#""timeout": 3600}"#,
+            &format!(r#""timeout": 3600, {views}}}"#),
+        );
+        let d = dockerfile();
+        let (home, mut x) = good(
+            "plugin-update-menu",
+            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
+        );
+        x.on("{{.Id}}", ok(&format!("{ID}\n")));
+        x.on("for-each-ref", ok(&format!("refs/tehas/{C}\n")));
+        x.on("gc --prune=now", ok(""));
+        let set = |grants: &str| {
+            on(&[
+                ("TEHAS_PLUGINS", format!("floorplan={URL}@{C}")),
+                ("TEHAS_PLUGIN_GRANTS_FLOORPLAN", format!("{C} {grants}")),
+                ("TEHAS_DOMAIN", "demo.example.org".to_string()),
+                ("TEHAS_EDGE_ONE_LEVEL", "1".to_string()),
+            ])
+        };
+        // The manifest asks for debts too; a grant without it refuses the plugin.
+        let said = step(&mut x, &home, &set("menu view:map view:health view:debts"));
+        assert_eq!(said.lines, [format!("plugin floorplan: ready, image {ID}")]);
+        assert!(
+            panels(&home).is_empty(),
+            "no panel for a plugin in the menu"
+        );
+        let base = "https://plugin-floorplan-demo.example.org";
+        assert_eq!(
+            menu_file(&home).unwrap(),
+            serde_json::json!({"api": 1, "plugins": [{"name": "floorplan", "label": "Floorplan", "views": [
+                {"id": "map", "label": "Map", "url": format!("{base}/"), "open": "dock"},
+                {"id": "health", "label": "Health", "url": format!("{base}/health/"), "open": "page"},
+                {"id": "debts", "label": "Debts", "url": format!("{base}/debts/"), "open": "page"}]}]})
+        );
+        let mode = fs::metadata(home.join("live/plugins.json"))
+            .unwrap()
+            .permissions();
+        assert_eq!(
+            std::os::unix::fs::PermissionsExt::mode(&mode) & 0o777,
+            0o644
+        );
+        // Refused at the pin, or the feature off: the file goes.
+        let said = step(&mut x, &home, &set("menu view:map"));
+        assert!(said.refused);
+        assert_eq!(menu_file(&home), None);
+        step(&mut x, &home, &set("menu view:map view:health view:debts"));
+        assert!(menu_file(&home).is_some());
+        let off = on(&[("TEHAS_PLUGIN", "off".to_string())]);
+        step(&mut x, &home, &off);
+        assert_eq!(menu_file(&home), None);
     }
 
     #[test]
