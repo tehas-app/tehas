@@ -81,6 +81,8 @@ impl Caller {
     }
 }
 
+/// The first 4 bytes of an MCP key's sha256 in hex, as tehas-mcp's access
+/// log prints them.
 fn is_key_id(s: &str) -> bool {
     s.len() == 8 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
@@ -95,6 +97,11 @@ pub fn call(
     args: &Value,
     caller: &Caller,
 ) -> Result<Value, Failed> {
+    if let Caller::Mcp(key) = caller {
+        if !is_key_id(key) {
+            return Err(Failed::Args("the MCP key id is 8 lower-case hex".into()));
+        }
+    }
     let r = ready(x, home, get, plugin).map_err(Failed::Refused)?;
     let cap = Cap::Tool(tool.to_string());
     let t = r
@@ -105,14 +112,8 @@ pub fn call(
         .filter(|_| r.grants.caps.contains(&cap) && r.manifest.asks.contains(&cap.ask()))
         .ok_or_else(|| Failed::Refused(format!("no tool {tool} is granted at the pin")))?
         .clone();
-    match caller {
-        Caller::Login(_) => return Err(Failed::Refused(LOGIN.into())),
-        Caller::Mcp(key) if !is_key_id(key) => {
-            return Err(Failed::Refused(
-                "the key's id is not 8 hex characters".into(),
-            ))
-        }
-        _ => {}
+    if let Caller::Login(_) = caller {
+        return Err(Failed::Refused(LOGIN.into()));
     }
     params::check(args, &t.params).map_err(Failed::Args)?;
     let limits = plugin::limits(&get("TEHAS_PLUGIN_LIMITS"))
