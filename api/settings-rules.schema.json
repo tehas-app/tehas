@@ -17,7 +17,7 @@
         "required": ["name", "rule", "when", "default", "reason"],
         "additionalProperties": false,
         "properties": {
-          "name": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+          "name": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*(<[A-Z]+>)?$"},
           "rule": {"type": "string", "pattern": "^[a-z]+(-[a-z]+)*$"},
           "when": {"enum": ["always", "given", "named", "required"]},
           "default": {"type": ["string", "null"]},

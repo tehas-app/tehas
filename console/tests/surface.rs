@@ -27,6 +27,10 @@ const BASELINE: &str = "api/surface-1.0.txt";
 /// feature ships its row goes and the field joins the surface.
 const BUILDING_FIELDS: &[(&str, &str)] = &[("status.contractors", "outsource")];
 
+/// Schemas of api/ that are a building feature's whole, with the feature:
+/// none of their fields is on the surface until it ships.
+const BUILDING_SCHEMAS: &[(&str, &str)] = &[("plugin", "plugins"), ("plugin-manifest", "plugins")];
+
 /// Fields whose own fields may change: one driver's steps and the Protolab.
 /// The field itself is public, what is under it is not.
 const OPEN_FIELDS: &[&str] = &[
@@ -178,7 +182,12 @@ fn surface() -> BTreeSet<String> {
     settings(&read("api/settings-rules.json"), &mut out);
     labels(&read("host/labels.tsv"), &mut out);
     for (object, schema) in schemas() {
-        fields(&object, &schema, &mut out);
+        let whole = BUILDING_SCHEMAS
+            .iter()
+            .any(|(o, feature)| *o == object && building(feature));
+        if !whole {
+            fields(&object, &schema, &mut out);
+        }
     }
     out
 }
@@ -249,6 +258,16 @@ fn each_building_field_is_of_a_building_feature() {
         assert!(
             building(feature),
             "{field}: {feature} is not building; take the row out of BUILDING_FIELDS"
+        );
+    }
+    for (object, feature) in BUILDING_SCHEMAS {
+        assert!(
+            building(feature),
+            "{object}: {feature} is not building; take the row out of BUILDING_SCHEMAS"
+        );
+        assert!(
+            repo(&format!("api/{object}.schema.json")).is_file(),
+            "no api/{object}.schema.json"
         );
     }
 }
