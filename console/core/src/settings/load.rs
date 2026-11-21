@@ -96,6 +96,7 @@ pub(super) const KEPT: &[&str] = &[
     "TEHAS_MCP",
     "TEHAS_MCP_KEYS",
     "TEHAS_MCP_DASHBOARD_KEYS",
+    "TEHAS_MCP_CHECKOUT",
     "TEHAS_PROC_DIR",
     "TEHAS_SETTINGS_CMD",
     // The tests' answers of the store (store/src/call.rs), which a release

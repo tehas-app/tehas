@@ -167,7 +167,12 @@ struct Run {
     outsource: bool,
     /// A plugin is granted `mcp:`: the server is given the broker's socket.
     plugin_calls: bool,
+    /// TEHAS_MCP_CHECKOUT: the shared clone the git tools read, read only.
+    checkout: Option<String>,
 }
+
+/// Where the server finds the shared checkout.
+const CHECKOUT_MOUNT: &str = "/checkout";
 
 /// Where the broker of plugin calls keeps its socket, under the home.
 const CALLS_DIR: &str = "run/plugin-calls";
@@ -234,6 +239,10 @@ fn run_args(run: &Run) -> Vec<String> {
         args.push("-v".to_string());
         args.push(format!("{home}/{CALLS_DIR}:{CALLS_MOUNT}:ro"));
     }
+    if let Some(dir) = &run.checkout {
+        args.push("-v".to_string());
+        args.push(format!("{dir}:{CHECKOUT_MOUNT}:ro"));
+    }
     args.extend(
         [
             "-e",
@@ -261,6 +270,10 @@ fn run_args(run: &Run) -> Vec<String> {
     if run.plugin_calls {
         args.push("--plugin-calls".to_string());
         args.push(format!("{CALLS_MOUNT}/calls.sock"));
+    }
+    if run.checkout.is_some() {
+        args.push("--checkout".to_string());
+        args.push(CHECKOUT_MOUNT.to_string());
     }
     if run.outsource {
         args.push("--outsource".to_string());
@@ -302,6 +315,14 @@ fn prepare(home: &str) -> Result<Run, (u8, String)> {
         .map_err(|e| fail(format!("could not read /dev/urandom: {e}")))?;
     network().map_err(fail)?;
     snapshot_dir(&Path::new(home).join("mcp")).map_err(fail)?;
+    // The server says whether the path is a whole clone; a path that is no
+    // directory is refused here, before Docker makes an empty one as root.
+    let checkout = Some(setting("TEHAS_MCP_CHECKOUT")).filter(|d| !d.is_empty());
+    if let Some(dir) = &checkout {
+        if !Path::new(dir).is_dir() {
+            return Err((78, format!("TEHAS_MCP_CHECKOUT {dir} is no directory")));
+        }
+    }
     let calls = plugin_calls(&setting);
     if calls {
         // Made here, so Docker never makes it as root.
@@ -331,6 +352,7 @@ fn prepare(home: &str) -> Result<Run, (u8, String)> {
         sums: mask::sums_line(&salt),
         outsource: tehas_core::features::on("outsource"),
         plugin_calls: calls,
+        checkout,
     })
 }
 
@@ -570,6 +592,7 @@ mod tests {
             sums: "salt 9:abcd:sum".to_string(),
             outsource: false,
             plugin_calls: false,
+            checkout: None,
         });
         let mounts: Vec<&String> = args
             .iter()
@@ -659,6 +682,7 @@ mod tests {
                 sums: String::new(),
                 outsource: false,
                 plugin_calls,
+                checkout: None,
             })
         };
         let with = run(true);
@@ -682,6 +706,50 @@ mod tests {
             without.drain(at - 1..=at);
         }
         assert_eq!(without, run(false));
+    }
+
+    // The container's arguments with the shared checkout, against
+    // test/fixtures/argv/mcp-checkout, one word a line. Its mount and its flag
+    // come after those of the plugin calls (#2692), and taking out exactly
+    // the two pairs gives the plain list. To write the file again:
+    //   TEHAS_TEST_ARGV_RECORD=1 cargo test --locked -p tehas-ops mcp_checkout_argv
+    #[test]
+    fn mcp_checkout_argv_is_pinned_and_adds_only_the_checkout() {
+        let run = |checkout: Option<&str>| {
+            run_args(&Run {
+                home: "/h".to_string(),
+                addr: "127.0.0.1".to_string(),
+                user: "1:2".to_string(),
+                digest: "sha256:x".to_string(),
+                version: "v1".to_string(),
+                private: vec![],
+                sums: String::new(),
+                outsource: false,
+                plugin_calls: false,
+                checkout: checkout.map(str::to_string),
+            })
+        };
+        let with = run(Some("/srv/checkout/p"));
+        let got: String = with.iter().map(|a| format!("{a}\n")).collect();
+        let file = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../test/fixtures/argv/mcp-checkout"
+        );
+        if std::env::var_os("TEHAS_TEST_ARGV_RECORD").is_some() {
+            fs::write(file, &got).unwrap();
+        }
+        let want = fs::read_to_string(file).unwrap_or_else(|e| panic!("{file}: {e}"));
+        assert_eq!(got, want, "{file}");
+        let mut without = with.clone();
+        for value in ["/srv/checkout/p:/checkout:ro", "/checkout"] {
+            let at = without.iter().position(|w| w == value).unwrap();
+            assert!(
+                matches!(without[at - 1].as_str(), "-v" | "--checkout"),
+                "{value}"
+            );
+            without.drain(at - 1..=at);
+        }
+        assert_eq!(without, run(None));
     }
 
     /// A home with the binary install.sh puts in libexec/.
@@ -729,6 +797,7 @@ mod tests {
                 sums: String::new(),
                 outsource,
                 plugin_calls: false,
+                checkout: None,
             })
         };
         assert!(!run(false).iter().any(|a| a == "--outsource"));

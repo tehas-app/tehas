@@ -114,6 +114,9 @@ pub enum Rule {
     /// unbounded: a body of one huge line, a body of many short ones.
     MeasureBound,
     ScratchDir,
+    /// The shared checkout the MCP server reads (mcp/src/git.rs): an
+    /// absolute path, as [`Rule::ScratchDir`] is.
+    Checkout,
     /// Names, not paths: the cleaner matches them with find -name.
     CleanDirs,
     Follow,
@@ -198,6 +201,7 @@ impl Rule {
             Rule::PollSecs => "poll-secs",
             Rule::MeasureBound => "measure-bound",
             Rule::ScratchDir => "scratch-dir",
+            Rule::Checkout => "checkout",
             Rule::CleanDirs => "clean-dirs",
             Rule::Follow => "follow",
             Rule::BranchCheck => "branch-check",
@@ -252,6 +256,7 @@ impl Rule {
             Rule::PollSecs => "10",
             Rule::MeasureBound => "0",
             Rule::ScratchDir => "scratch",
+            Rule::Checkout => "checkout",
             Rule::CleanDirs => "a/target",
             Rule::Follow => "main",
             Rule::BranchCheck => "verify&x=1",
@@ -479,6 +484,7 @@ pub const HOST: &[Setting] = &[
     given("TEHAS_MCP", SWITCH),
     given("TEHAS_MCP_KEYS", Rule::McpKeys),
     given("TEHAS_MCP_DASHBOARD_KEYS", Rule::McpKeys),
+    given("TEHAS_MCP_CHECKOUT", Rule::Checkout),
     given("TEHAS_ENERGY", SWITCH),
     given("TEHAS_ENERGY_URL", Rule::Address),
     given_or("TEHAS_UPDATE_LOCK_WAIT", Rule::Seconds(300), "10"),
@@ -622,6 +628,10 @@ fn verdict(rule: Rule, v: &str) -> Result<(), String> {
         }
         Rule::MeasureBound => refuse(leading(v, 8), "expected a whole number of at least 1"),
         Rule::ScratchDir => refuse(is_path(v), "expected an absolute path such as /mnt/scratch"),
+        Rule::Checkout => refuse(
+            is_path(v),
+            "expected the absolute path of a clone such as /srv/checkout/product",
+        ),
         Rule::Path => refuse(is_path(v), "expected an absolute path"),
         Rule::CleanDirs => clean_dirs(v),
         Rule::Follow => follow(v),
@@ -1472,6 +1482,15 @@ mod tests {
         let why = "expected an absolute path such as /mnt/scratch";
         for bad in ["scratch", "/", "/a/", "/a//b", "/a/../b", "/a/b..c", "/a b"] {
             refuses("TEHAS_SCRATCH_DIR", bad, why);
+        }
+    }
+
+    #[test]
+    fn the_checkout_of_the_mcp_server_is_absolute() {
+        takes("TEHAS_MCP_CHECKOUT", "/srv/checkout/product");
+        let why = "expected the absolute path of a clone such as /srv/checkout/product";
+        for bad in ["checkout", "/", "/a/", "/a//b", "/a/../b", "/a b"] {
+            refuses("TEHAS_MCP_CHECKOUT", bad, why);
         }
     }
 

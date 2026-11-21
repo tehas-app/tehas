@@ -8,6 +8,7 @@ pub mod decisions;
 pub mod disk;
 pub mod egress;
 pub mod events;
+pub mod git;
 pub mod http;
 pub mod keys;
 pub mod logs;
