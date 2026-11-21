@@ -5,7 +5,7 @@
 //!                    --how timer|host|action|cycle|chat|mcp --by <who> --head <sha>
 //!   plugin-run-end --run N --result done|failed|timeout|lost [--tokens N]
 //!                  [--size N]
-//!   plugin-runs --plugin <name> [--limit N]
+//!   plugin-runs --plugin <name> [--limit N] [--no-calls]
 //!
 //! `begin` answers the run's id, `end` the row it ended, and `plugin-runs`
 //! the plugin's last runs, newest first. A run ends once. A call
@@ -48,6 +48,9 @@ pub enum Call {
     Runs {
         plugin: String,
         limit: i64,
+        /// Leave out the calls of tools, so a refresh or a hook is found
+        /// however many calls came after it.
+        no_calls: bool,
     },
 }
 
@@ -164,7 +167,11 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
         "plugin-runs" => Args::parse(
             "plugin-runs",
             rest,
-            &[("--plugin", Kind::Value), ("--limit", Kind::Value)],
+            &[
+                ("--plugin", Kind::Value),
+                ("--limit", Kind::Value),
+                ("--no-calls", Kind::Switch),
+            ],
             false,
         )
         .and_then(|a| {
@@ -177,6 +184,7 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
             Ok(Call::Runs {
                 plugin: plugin(&a)?,
                 limit,
+                no_calls: a.has("--no-calls"),
             })
         }),
         _ => return None,
@@ -228,8 +236,12 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
             })?;
             Ok(line("plugin-run-end", &[("run", row.to_string())]))
         }
-        Call::Runs { plugin, limit } => {
-            let rows = verbs::look(home, |c| runs(c, plugin, *limit))?;
+        Call::Runs {
+            plugin,
+            limit,
+            no_calls,
+        } => {
+            let rows = verbs::look(home, |c| runs(c, plugin, *limit, *no_calls))?;
             Ok(line(
                 "plugin-runs",
                 &[("runs", Value::Array(rows).to_string())],
@@ -267,14 +279,15 @@ fn one(c: &Connection, id: i64) -> Result<Value, Fail> {
     .q()
 }
 
-/// The last runs of `plugin`, newest first.
-pub fn runs(c: &Connection, plugin: &str, limit: i64) -> Result<Vec<Value>, Fail> {
+/// The last runs of `plugin`, newest first, with or without its calls.
+pub fn runs(c: &Connection, plugin: &str, limit: i64, no_calls: bool) -> Result<Vec<Value>, Fail> {
     let mut q = c
         .prepare(&format!(
-            "SELECT {COLUMNS} FROM plugin_runs WHERE plugin = ?1 ORDER BY started_at DESC, id DESC LIMIT ?2"
+            "SELECT {COLUMNS} FROM plugin_runs WHERE plugin = ?1 AND NOT (?3 AND kind = 'call')
+             ORDER BY started_at DESC, id DESC LIMIT ?2"
         ))
         .q()?;
-    let rows = q.query_map(params![plugin, limit], json_of).q()?;
+    let rows = q.query_map(params![plugin, limit, no_calls], json_of).q()?;
     rows.collect::<rusqlite::Result<Vec<_>>>().q()
 }
 
@@ -355,7 +368,8 @@ mod tests {
             parse("plugin-runs", &w(&["--plugin", "floorplan"])),
             Some(Ok(Call::Runs {
                 plugin: "floorplan".into(),
-                limit: LIMIT
+                limit: LIMIT,
+                no_calls: false
             }))
         );
         assert!(matches!(
@@ -496,5 +510,29 @@ mod tests {
                 "end": 101, "result": "done", "tokens": 0, "size": 17
             })
         );
+    }
+
+    #[test]
+    fn the_runs_without_calls_find_a_refresh_past_any_number_of_calls() {
+        let home = home("plugin-runs-calls");
+        let mut first = vec!["plugin-run-begin".to_string()];
+        first.extend(begin("timer", "timer"));
+        let refresh = ok_at(&home, 100, &args(&first))["run"].clone();
+        let mut one = vec!["plugin-run-begin".to_string()];
+        one.extend(call("chat", "chat"));
+        for t in 0..LIMIT + 5 {
+            ok_at(&home, 200 + t, &args(&one));
+        }
+        let all = ok_at(&home, 400, &["plugin-runs", "--plugin", "floorplan"]);
+        let all = all["runs"].as_array().unwrap();
+        assert_eq!(all.len() as i64, LIMIT);
+        assert!(all.iter().all(|r| r["kind"] == "call"));
+        let no = ok_at(
+            &home,
+            400,
+            &["plugin-runs", "--plugin", "floorplan", "--no-calls"],
+        );
+        assert_eq!(no["runs"].as_array().unwrap().len(), 1);
+        assert_eq!(no["runs"][0]["id"], refresh);
     }
 }
