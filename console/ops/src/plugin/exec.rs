@@ -1,9 +1,13 @@
-//! The commands a plugin's fetch and build run, behind one seam so the tests
-//! answer for git and docker. [`Host`] runs them; a test's [`Exec`] records
-//! them and says what each answered.
+//! The commands a plugin's fetch and build run, and a call's container,
+//! behind one seam so the tests answer for git and docker. [`Host`] runs
+//! them; a test's [`Exec`] records them and says what each answered.
 
 use std::io::Read;
-use std::process::{Command, Stdio};
+use std::path::Path;
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::time::{Duration, Instant};
+use tehas_core::plugin::run::kill_by_cidfile;
 
 /// How a command's git is given the host's settings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,10 +70,48 @@ impl Done {
     }
 }
 
+/// How an attached run ended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Called {
+    /// It exited 0, and this is all it wrote to stdout.
+    Out(Vec<u8>),
+    /// It wrote more than the most, and was killed.
+    Over,
+    /// It exited other than 0.
+    Exit(i32),
+    /// It ran past its time, and was killed.
+    Killed,
+    /// It could not be run, or docker refused it: why.
+    NotRun(String),
+}
+
 pub trait Exec {
     fn run(&mut self, cmd: &Cmd) -> Done;
     /// `from | to`: ok when both are. `out` is `to`'s; `err` both.
     fn pipe(&mut self, from: &Cmd, to: &Cmd) -> Done;
+    /// `argv` attached, with no stdin and stderr dropped: stdout read up to
+    /// `max` bytes, killed past it or at `limit` by the id docker wrote in
+    /// `cidfile`.
+    fn attached(&mut self, argv: &[String], limit: Duration, max: usize, cidfile: &Path) -> Called;
+}
+
+/// How long a killed container's client is given to end before it is
+/// killed too.
+const GRACE: Duration = Duration::from_secs(2);
+const POLL: Duration = Duration::from_millis(20);
+
+/// The container killed by its cid file, then its client after the grace.
+fn stop(child: &mut Child, cidfile: &Path) {
+    kill_by_cidfile(cidfile);
+    let until = Instant::now() + GRACE;
+    while Instant::now() < until {
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            return;
+        }
+        std::thread::sleep(POLL);
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// The most of standard error kept.
@@ -164,6 +206,72 @@ impl Exec for Host {
             },
         }
     }
+
+    fn attached(&mut self, argv: &[String], limit: Duration, max: usize, cidfile: &Path) -> Called {
+        let Some((program, args)) = argv.split_first() else {
+            return Called::NotRun("no command".into());
+        };
+        let mut child = match Command::new(program)
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => return Called::NotRun(format!("{program}: {e}")),
+        };
+        let until = Instant::now() + limit;
+        let (tx, rx) = mpsc::channel();
+        let stdout = child.stdout.take();
+        // One byte past the most says it is over, and the read stops there.
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(o) = stdout {
+                let _ = o.take(max as u64 + 1).read_to_end(&mut buf);
+            }
+            let _ = tx.send(buf);
+        });
+        let mut out: Option<Vec<u8>> = None;
+        let mut status = None;
+        loop {
+            if out.is_none() {
+                match rx.recv_timeout(POLL) {
+                    Ok(b) => out = Some(b),
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => out = Some(Vec::new()),
+                }
+            } else {
+                std::thread::sleep(POLL);
+            }
+            if out.as_ref().is_some_and(|b| b.len() > max) {
+                stop(&mut child, cidfile);
+                return Called::Over;
+            }
+            if status.is_none() {
+                match child.try_wait() {
+                    Ok(s) => status = s,
+                    Err(e) => {
+                        stop(&mut child, cidfile);
+                        return Called::NotRun(format!("{program}: {e}"));
+                    }
+                }
+            }
+            if let (Some(b), Some(s)) = (&out, status) {
+                return match s.code() {
+                    Some(0) => Called::Out(b.clone()),
+                    // docker run's own failures, before the container ran.
+                    Some(c @ 125..=127) => Called::NotRun(format!("docker run exited {c}")),
+                    Some(c) => Called::Exit(c),
+                    None => Called::NotRun("docker run was ended by a signal".into()),
+                };
+            }
+            if Instant::now() >= until {
+                stop(&mut child, cidfile);
+                return Called::Killed;
+            }
+        }
+    }
 }
 
 #[cfg(any(test, feature = "testing"))]
@@ -178,6 +286,8 @@ pub mod fake {
         /// What a line holds, the answer, and how many more times it gives
         /// it: None, always.
         pub rules: Vec<(String, Done, Option<u32>)>,
+        /// What an attached run's line holds, and how it ended.
+        pub calls: Vec<(String, Called)>,
         pub ran: Vec<String>,
     }
 
@@ -199,10 +309,13 @@ pub mod fake {
 
     impl Fake {
         pub fn new() -> Fake {
-            Fake {
-                rules: Vec::new(),
-                ran: Vec::new(),
-            }
+            Fake::default()
+        }
+
+        /// A rule for an attached run, first in the list.
+        pub fn attach(&mut self, holds: &str, c: Called) -> &mut Fake {
+            self.calls.insert(0, (holds.to_string(), c));
+            self
         }
 
         /// A rule first in the list, so it answers before the ones given
@@ -251,6 +364,22 @@ pub mod fake {
             self.ran.push(line.clone());
             self.answer(&line)
         }
+
+        /// The line is the words, then the limit's seconds and the most.
+        fn attached(
+            &mut self,
+            argv: &[String],
+            limit: Duration,
+            max: usize,
+            _cidfile: &Path,
+        ) -> Called {
+            let line = format!("{} limit={} max={max}", argv.join(" "), limit.as_secs());
+            self.ran.push(line.clone());
+            self.calls
+                .iter()
+                .find(|(h, _)| line.contains(h.as_str()))
+                .map_or(Called::NotRun("no rule".into()), |(_, c)| c.clone())
+        }
     }
 }
 
@@ -286,5 +415,40 @@ mod tests {
         let d = h.pipe(&Cmd::new("false", vec![]), &wc);
         assert!(!d.ok);
         assert!(!h.run(&Cmd::new("/nonexistent/x", vec![])).ok);
+    }
+
+    // The generic attach, with plain processes and no docker: the kill at the
+    // limit falls through to the client's, as a cid file docker never wrote.
+    // Whether stdout streams under `docker run --log-driver none` is for a
+    // host to confirm.
+    #[test]
+    fn the_host_runs_attached_reads_at_most_max_and_kills_at_the_limit() {
+        let mut h = Host;
+        let cid = Path::new("/nonexistent/cid");
+        let sh = |script: &str| vec!["sh".to_string(), "-c".to_string(), script.to_string()];
+        let s = Duration::from_secs(5);
+        assert_eq!(
+            h.attached(&sh(r#"printf '{"a":1}'; echo no >&2"#), s, 16, cid),
+            Called::Out(br#"{"a":1}"#.to_vec())
+        );
+        assert_eq!(
+            h.attached(&sh("printf 0123456789abcdef"), s, 16, cid),
+            Called::Out(b"0123456789abcdef".to_vec())
+        );
+        let started = Instant::now();
+        assert_eq!(
+            h.attached(&sh("printf 0123456789abcdefg; exec sleep 30"), s, 16, cid),
+            Called::Over
+        );
+        assert_eq!(h.attached(&sh("exit 3"), s, 16, cid), Called::Exit(3));
+        assert_eq!(
+            h.attached(&sh("exec sleep 30"), Duration::from_millis(300), 16, cid),
+            Called::Killed
+        );
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(matches!(
+            h.attached(&["/nonexistent/x".to_string()], s, 16, cid),
+            Called::NotRun(_)
+        ));
     }
 }
