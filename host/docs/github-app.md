@@ -316,7 +316,7 @@ applications count for nothing.
 The relay is the one way a cycle's container reaches GitHub's issues with
 more than read access, so it is a host channel and is held to the rule that
 nothing may widen what a container is given (the mounts and variables of
-`tehas work` are pinned by `test/work_test.sh`). The container gets a
+`tehas work` are pinned by `console/cycle/tests/work_container.rs`). The container gets a
 directory to leave requests in. It gets no token for it and no way to ask for
 anything but the three commands. The host reads each request, checks it and
 runs it. It refuses, with the reason written back to the cycle:

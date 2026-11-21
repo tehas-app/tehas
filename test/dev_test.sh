@@ -192,7 +192,7 @@ t_eq "$(session_args | security_line)" "$security_opts "
 t_eq "$(session_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
 FOWNER"
 t_eq "$(session_args | security_of --security-opt)" "no-new-privileges:true"
-# One bounded /tmp, as a cycle's container has: see test/work_test.sh. The
+# One bounded /tmp, as a cycle's container has: see console/cycle/tests/work_container.rs. The
 # mount is named by reading it from the function, not copied here. The whole
 # line is counted beside security_line, so a second mount outside the block it
 # matches fails, and the equals form docker also accepts counts as a mount too.

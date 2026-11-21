@@ -1233,7 +1233,7 @@ same, so that the directory a tool writes the most into is the bounded one;
 the rest of the writable layer stays unbounded. The process table is bounded by
 `--pids-limit`, in the table above.
 
-`test/work_test.sh`, `test/plan_test.sh` and `test/dev_test.sh` pin each of
+`console/cycle/tests/work_container.rs`, `test/plan_test.sh` and `test/dev_test.sh` pin each of
 these words on the `docker run` line of their own container, and
 `test/work_caps_test.sh` pins the function that prints them. Whether a whole
 cycle still builds, tests and drives a headless browser with them is not yet
@@ -2202,7 +2202,7 @@ Two recommendations follow from that table:
 - Apply `tehas:ready` only to an issue whose text you have read. The label is
   the approval of that text.
 
-`test/work_test.sh` in the platform repository pins what the container is
+`console/cycle/tests/work_container.rs` in the platform repository pins what the container is
 given: the mounts, the variables and every other option of both `docker run`
 calls, the security options of [What a container may not
 do](#what-a-container-may-not-do) among them.
