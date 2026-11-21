@@ -1,0 +1,1146 @@
+<title>Page Ticket Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: a start screen (inputs, preview, pipeline, saved prototypes, parts) and a full-screen workspace: narrow chat left, scaled prototype right. Tokens follow the tehas dashboard theme. */
+:root {
+  --field: #f7f8f5;
+  --surface: #ffffff;
+  --text: #20231f;
+  --quiet: #515850;
+  --faint: #858c83;
+  --line: #e2e5dd;
+  --accent: #eaf4ec;
+  --good: #387953;
+  --on-good: #ffffff;
+  --bad: #c45342;
+  --proto: #7566a8;
+  --move: #526a87;
+  --review: #a56b2c;
+  --ship: #5573aa;
+  --stage: #e9ebe6;
+  --font: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  --radius: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --field: #141915; --surface: #1b211c; --text: #e9ebe6; --quiet: #bbc2b8; --faint: #919a90;
+    --line: #394139; --accent: #213829; --good: #77ba8d; --on-good: #141915; --bad: #ea8b78; --proto: #c0b1ea;
+    --move: #a0b6d4; --review: #e4b777; --ship: #a9bce4; --stage: #0f1512; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --field: #141915; --surface: #1b211c; --text: #e9ebe6; --quiet: #bbc2b8; --faint: #919a90;
+  --line: #394139; --accent: #213829; --good: #77ba8d; --on-good: #141915; --bad: #ea8b78; --proto: #c0b1ea;
+  --move: #a0b6d4; --review: #e4b777; --ship: #a9bce4; --stage: #0f1512; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--field); color: var(--text); font: 14px/1.5 var(--font);
+  -webkit-font-smoothing: antialiased;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 24px 48px;
+}
+main { max-width: 1240px; margin: 0 auto; display: grid; gap: 28px; }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 15px; font-weight: 600; }
+h3 { font-size: 14px; font-weight: 600; }
+p { margin: 0; }
+code { font: 12px var(--mono); }
+.lede { color: var(--quiet); max-width: 70ch; }
+.top { display: grid; gap: 6px; }
+.tag { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--good); }
+section { display: grid; gap: 12px; min-width: 0; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; min-width: 0; }
+.note { font-size: 12.5px; color: var(--faint); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+button { font: 500 13px var(--font); color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 6px 12px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--good); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary { background: var(--good); color: var(--on-good); border-color: var(--good); }
+:focus-visible { outline: 2px solid var(--good); outline-offset: 2px; }
+label.field { display: grid; gap: 4px; font-size: 12.5px; color: var(--quiet); }
+input[type="url"], input[type="text"], select, textarea { font: 13px var(--mono); color: var(--text); background: var(--field); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; width: 100%; }
+input[type="range"] { width: 100%; accent-color: var(--good); }
+.check { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--quiet); }
+.status { font-size: 13px; color: var(--quiet); min-height: 1.5em; }
+.status.err { color: var(--bad); }
+
+/* Start */
+.start { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 12px; }
+@media (max-width: 820px) { .start { grid-template-columns: 1fr; } }
+.form { display: grid; gap: 14px; align-content: start; }
+.drop { border: 1.5px dashed var(--line); border-radius: var(--radius); padding: 12px; display: grid; gap: 4px; justify-items: start; cursor: pointer; position: relative; }
+.drop.over { border-color: var(--good); background: var(--accent); }
+.drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.drop:focus-within { outline: 2px solid var(--good); outline-offset: 2px; }
+.src { font: 12px var(--mono); color: var(--quiet); overflow-wrap: anywhere; }
+.or { font-size: 12px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.08em; }
+.preview { display: grid; gap: 10px; grid-template-rows: auto 1fr auto; }
+.thumbs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; min-height: 260px; }
+.thumbs figure { margin: 0; display: grid; grid-template-rows: auto 1fr; gap: 4px; min-width: 0; }
+figcaption { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--quiet); }
+figcaption output { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.stage { background: var(--stage); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; position: relative; display: flex; justify-content: center; align-items: flex-start; min-height: 0; }
+.stage.scroll { overflow-y: auto; }
+.fit { flex: none; position: relative; }
+.sheet { transform-origin: 0 0; position: absolute; left: 0; top: 0; background: #fff; box-shadow: 0 1px 6px rgb(0 0 0 / 0.12); }
+.sheet iframe { display: block; border: 0; background: #fff; }
+.imgbox { display: grid; place-items: center; padding: 8px; }
+.imgbox img, .imgbox canvas { max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 1px 6px rgb(0 0 0 / 0.12); }
+.imgbox .empty { color: var(--faint); font-size: 12.5px; text-align: center; padding: 20px; }
+
+/* Pipeline */
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+.steps li { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; display: grid; gap: 4px; align-content: start; }
+.steps li.merge { border-color: var(--good); background: var(--accent); }
+.steps .n { font: 500 11px var(--mono); color: var(--faint); }
+.steps b { font-weight: 600; }
+.steps span.what { color: var(--quiet); font-size: 12.5px; }
+
+/* Tables */
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 13px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; color: var(--quiet); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* Chips */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 500 11.5px var(--mono); padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.k-missing { color: var(--bad); } .k-extra { color: var(--proto); } .k-changed { color: var(--review); }
+.k-resized { color: var(--ship); } .k-moved { color: var(--move); }
+.k-global { color: var(--proto); } .k-page { color: var(--good); }
+
+/* Workspace */
+dialog.ws { padding: 0; border: 0; margin: 0; width: 100vw; height: 100vh; height: 100dvh; max-width: none; max-height: none; background: var(--field); color: var(--text); }
+dialog.ws::backdrop { background: rgb(0 0 0 / 0.4); }
+.ws-grid { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+.ws-bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 8px 14px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.ws-bar .title { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-bar .route { font: 12px var(--mono); color: var(--faint); }
+.ws-bar .spacer { flex: 1; }
+.ws-bar select { width: auto; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--good); font-weight: 600; }
+.ws-body { display: grid; grid-template-columns: clamp(270px, 26vw, 340px) minmax(0, 1fr); min-height: 0; }
+@media (max-width: 760px) { .ws-body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(0, 46%); } .chat { order: 2; border-right: 0; border-top: 1px solid var(--line); } }
+.chat { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--surface); border-right: 1px solid var(--line); min-height: 0; min-width: 0; }
+.ctx { padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--quiet); display: grid; gap: 3px; }
+.ctx b { color: var(--text); font-weight: 600; }
+.ctx .mono { font-family: var(--mono); font-size: 11.5px; overflow-wrap: anywhere; }
+.msgs { overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.msg { max-width: 92%; padding: 8px 10px; border-radius: 8px; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.msg.me { align-self: flex-end; background: var(--accent); }
+.msg.ai { align-self: flex-start; background: var(--field); border: 1px solid var(--line); }
+.msg.sys { align-self: stretch; max-width: none; background: none; border: 1px dashed var(--line); color: var(--quiet); font-size: 12px; }
+.msg .opts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.msg .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; font-size: 11.5px; color: var(--faint); }
+.compose { border-top: 1px solid var(--line); padding: 10px 12px; display: grid; gap: 6px; }
+.compose textarea { min-height: 64px; max-height: 160px; resize: vertical; font-family: var(--font); font-size: 13px; }
+.compose .row { justify-content: space-between; }
+.right { display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; min-width: 0; }
+.right > .pane { min-height: 0; padding: 12px; display: grid; }
+.right > .pane[hidden] { display: none !important; }
+.pane.proto { grid-template-rows: minmax(0, 1fr) auto; gap: 6px; }
+.pane .foot { font-size: 12px; color: var(--faint); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.pane.cmp { overflow-y: auto; align-content: start; gap: 12px; }
+.views { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.views figure { margin: 0; display: grid; gap: 4px; min-width: 0; }
+.frame { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: #fff; }
+canvas.view { display: block; width: 100%; height: auto; }
+.cmp-set { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; align-items: end; }
+ol.findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+ol.findings li { display: grid; grid-template-columns: 2.4em 5.6em 1fr; gap: 8px; align-items: baseline; padding: 5px 8px; border-radius: 4px; font-size: 13px; }
+ol.findings li:hover, ol.findings li:focus, ol.findings li.on { background: var(--accent); outline: none; }
+ol.findings .id { font: 500 12px var(--mono); color: var(--faint); }
+.pane.hand { overflow-y: auto; align-content: start; gap: 12px; }
+.hand-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.hand-grid textarea { min-height: 340px; font-size: 12px; line-height: 1.5; resize: vertical; }
+.paths { font: 12px/1.7 var(--mono); color: var(--quiet); overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: no-preference) { .msg { animation: in 160ms ease-out; } @keyframes in { from { transform: translateY(4px); } to { transform: none; } } }
+</style>
+
+<main>
+  <header class="top">
+    <span class="tag">Prototype · third plugin · page-ticket</span>
+    <h1>Page Ticket</h1>
+    <p class="lede">Start from an image, a page address, or a page's HTML. The plugin makes one standalone HTML prototype of the page. You change it by chatting with a session that knows the app's source, then hand it off. The prototype and its notes become the spec that the pi-rukas plan builds against. This copy runs on a built-in example app.</p>
+  </header>
+
+  <section aria-labelledby="h-start">
+    <h2 id="h-start">Start</h2>
+    <div class="start">
+      <div class="panel form">
+        <div class="drop" id="drop-img" role="group">
+          <input type="file" id="file-img" accept="image/*" aria-label="Choose an image">
+          <b>Image: how it should look</b>
+          <span class="note">A design, a mock-up or a marked-up screenshot. Optional when you give a page.</span>
+          <span class="src" id="src-img">Example: design for the home page</span>
+        </div>
+        <span class="or">and the page</span>
+        <label class="field">Page address
+          <div class="row" style="flex-wrap:nowrap"><input type="url" id="url" value="https://harbour.example/" placeholder="https://app.example/pricing"><button type="button" id="fetch">Capture</button></div>
+        </label>
+        <p class="note">The plugin opens the address in a headless browser, waits for it to settle and saves the rendered page with its CSS, images and fonts in one file, scripts removed. A page in your browser cannot do that, so here you upload that file or use the example.</p>
+        <div class="drop" id="drop-html" role="group">
+          <input type="file" id="file-html" accept=".html,.htm,text/html" aria-label="Choose an HTML file">
+          <b>Or the page's HTML</b>
+          <span class="note">A standalone HTML file. Scripts and event handlers are removed.</span>
+          <span class="src" id="src-html">Example: harbour-web, home page</span>
+        </div>
+        <div class="row">
+          <button type="button" class="primary" id="open">Open workspace</button>
+          <button type="button" id="draft">Draft HTML from the image</button>
+          <button type="button" id="example">Use example</button>
+        </div>
+        <p class="status" id="status" role="status" aria-live="polite"></p>
+      </div>
+      <div class="panel preview">
+        <div class="row" style="justify-content:space-between"><h3>What the workspace opens with</h3><span class="note" id="pv-note"></span></div>
+        <div class="thumbs">
+          <figure><figcaption><span>Image</span><output id="pv-img-size"></output></figcaption><div class="stage imgbox" id="pv-img"></div></figure>
+          <figure><figcaption><span>Prototype</span><output id="pv-scale"></output></figcaption><div class="stage" id="pv-proto"></div></figure>
+        </div>
+        <p class="note">Both sides are shown whole. The prototype is a real page in a frame, scaled down with CSS.</p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-pipe">
+    <h2 id="h-pipe">How a ticket is made</h2>
+    <ol class="steps">
+      <li><span class="n">1</span><b>Capture</b><span class="what">Headless browser at a fixed viewport saves the page as one standalone HTML file.</span></li>
+      <li class="merge"><span class="n">2</span><b>Prototype</b><span class="what">Captured, uploaded or drafted from an image: from here every input is one HTML file.</span></li>
+      <li><span class="n">3</span><b>Compare</b><span class="what">With an image: both are broken into components, matched, and the differences listed.</span></li>
+      <li><span class="n">4</span><b>Chat</b><span class="what">The session knows the app's source. It edits the prototype and asks whether a shared part changes on all pages.</span></li>
+      <li><span class="n">5</span><b>Hand off</b><span class="what">Prototype and notes saved on the host, a record in the state store, a ticket that links them.</span></li>
+      <li><span class="n">6</span><b>Plan</b><span class="what">A person labels the ticket. pi-rukas plans against the markup and the notes.</span></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="h-saved">
+    <h2 id="h-saved">Saved prototypes</h2>
+    <div class="panel tablewrap">
+      <table>
+        <thead><tr><th>Prototype</th><th>Page</th><th>Versions</th><th>Changes</th><th>On the host</th><th>Ticket</th></tr></thead>
+        <tbody id="saved"></tbody>
+      </table>
+      <p class="note" style="margin-top:8px">Kept in this browser only. In the plugin the files are on the host and each row is a record in <code>state/tehas.db</code>, the store that keeps the order of ready issues.</p>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-parts">
+    <h2 id="h-parts">Plugin parts</h2>
+    <div class="panel tablewrap">
+      <table>
+        <thead><tr><th>Part</th><th>In this prototype</th><th>In the plugin</th><th>Needs from tehas</th></tr></thead>
+        <tbody>
+          <tr><td>Start screen and workspace</td><td>This page and its full-screen dialog</td><td>A plugin view with a full-screen mode</td><td>A view (v1), full-screen views (v3)</td></tr>
+          <tr><td>Capture</td><td>Upload of a saved page</td><td>Headless browser in the plugin's container, fixed viewport, wait rule, assets inlined</td><td>A grant naming the addresses it may open, through the factory proxy</td></tr>
+          <tr><td>Draft from image</td><td>Claude from this page, when allowed</td><td>Host model with vision</td><td>Model through <code>tehas-proxy</code>, with a budget; images allowed</td></tr>
+          <tr><td>Compare</td><td>Components, matching and pixel diff in JavaScript</td><td>The same code in the plugin's container</td><td>Nothing</td></tr>
+          <tr><td>Chat that knows the source</td><td>Example app context, Claude from this page</td><td>A chat session with a read-only checkout of the product, using the skills of the mattpocock plugin</td><td>Chat sessions with the source (v2), a dependency on another plugin (v3)</td></tr>
+          <tr><td>Prototype files</td><td>Browser storage</td><td><code>prototypes/&lt;id&gt;/v&lt;n&gt;.html</code> and <code>notes.md</code> in the plugin's data directory, served by the view</td><td>A data directory per plugin; links from issues that only signed-in readers can open</td></tr>
+          <tr><td>Record</td><td>Browser storage</td><td>A row per prototype in <code>state/tehas.db</code></td><td>Store access for plugins (v3)</td></tr>
+          <tr><td>Ticket</td><td>Text to copy</td><td>An issue that links the prototype and notes</td><td>Issue creation through the factory; a person applies the label</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<dialog class="ws" id="ws" aria-label="Prototype workspace">
+  <div class="ws-grid">
+    <div class="ws-bar">
+      <span class="title" id="ws-title">harbour-web</span>
+      <span class="route" id="ws-route">/</span>
+      <label class="check">Version <select id="ws-ver" aria-label="Version"></select></label>
+      <button type="button" id="ws-undo">Undo</button>
+      <label class="check">Width <select id="ws-width" aria-label="Viewport width"><option value="390">390</option><option value="960">960</option><option value="1280" selected>1280</option></select></label>
+      <span class="spacer"></span>
+      <div class="seg" role="group" aria-label="View">
+        <button type="button" data-pane="proto" aria-pressed="true">Prototype</button>
+        <button type="button" data-pane="cmp" aria-pressed="false">Compare</button>
+        <button type="button" data-pane="hand" aria-pressed="false">Hand off</button>
+      </div>
+      <button type="button" id="ws-close">Close</button>
+    </div>
+    <div class="ws-body">
+      <aside class="chat" aria-label="Chat">
+        <div class="ctx" id="ctx"></div>
+        <div class="msgs" id="msgs" aria-live="polite"></div>
+        <form class="compose" id="compose">
+          <textarea id="say" placeholder="Ask for a change, for example: make the toolbar dark blue" aria-label="Message"></textarea>
+          <div class="row"><span class="note" id="engine"></span><span class="row"><button type="button" id="stop" hidden>Stop</button><button type="submit" class="primary" id="send">Send</button></span></div>
+        </form>
+      </aside>
+      <div class="right">
+        <div class="pane proto" data-pane="proto">
+          <div class="stage" id="ws-stage"></div>
+          <div class="foot"><span id="ws-scale"></span><span class="seg" role="group" aria-label="Fit"><button type="button" data-fit="page" aria-pressed="true">Whole page</button><button type="button" data-fit="width" aria-pressed="false">Fit width</button></span></div>
+        </div>
+        <div class="pane cmp" data-pane="cmp" hidden>
+          <div class="row" style="justify-content:space-between"><h3>Compare the current version with the image</h3><span class="row"><button type="button" id="cmp-run" class="primary">Compare</button><button type="button" id="cmp-send">Send findings to chat</button></span></div>
+          <div class="cmp-set">
+            <label class="field">Gap that joins pieces: <output id="gap-v">8 px</output><input type="range" id="gap" min="0" max="24" step="2" value="8"></label>
+            <label class="field">Colour tolerance: <output id="tol-v">40</output><input type="range" id="tol" min="10" max="120" step="5" value="40"></label>
+            <label class="check"><input type="checkbox" id="all"> Outline every component</label>
+          </div>
+          <p class="status" id="cmp-status"></p>
+          <div class="views">
+            <figure><figcaption><span>Image</span><output id="cap-ref"></output></figcaption><div class="frame"><canvas class="view" id="v-ref" width="4" height="3"></canvas></div></figure>
+            <figure><figcaption><span>Prototype</span><output id="cap-act"></output></figcaption><div class="frame"><canvas class="view" id="v-act" width="4" height="3"></canvas></div></figure>
+            <figure><figcaption><span>Pixels that differ</span><output id="cap-diff"></output></figcaption><div class="frame"><canvas class="view" id="v-diff" width="4" height="3"></canvas></div></figure>
+          </div>
+          <div class="chips" id="counts"></div>
+          <ol class="findings" id="findings"></ol>
+        </div>
+        <div class="pane hand" data-pane="hand" hidden>
+          <div class="row" style="justify-content:space-between"><h3>Hand off to the plan</h3><span class="row"><button type="button" id="save-files">Save files</button><button type="button" class="primary" id="hand-save">Save prototype and draft ticket</button></span></div>
+          <div class="paths" id="paths"></div>
+          <div class="hand-grid">
+            <label class="field">notes.md<textarea id="notes" spellcheck="false"></textarea></label>
+            <label class="field">Ticket<textarea id="ticket" spellcheck="false"></textarea></label>
+          </div>
+          <p class="note">The markup of the last version and the app are the spec. The notes say what changed, why, where in the source, and whether a shared part changes on every page. A person applies the label; the plugin never does.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+(() => {
+  const $ = (s, el = document) => el.querySelector(s);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const mk = (w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
+  const status = (msg, err) => { const s = $("#status"); s.textContent = msg || ""; s.classList.toggle("err", !!err); };
+
+  /* ---------- Example app ---------- */
+  const APP = {
+    name: "harbour-web",
+    commit: "3f2a9c1",
+    route: "/",
+    page: "src/pages/Home.tsx",
+    shared: [
+      { part: "Toolbar", source: "src/components/Toolbar.tsx", used: "every page (14)" },
+      { part: "Button", source: "src/components/Button.tsx", used: "every page with an action (9)" },
+      { part: "Footer", source: "src/components/Footer.tsx", used: "every page (14)" },
+      { part: "Theme colours", source: "src/styles/tokens.css", used: "the whole app" },
+    ],
+    example: true,
+  };
+  const APP_HTML = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Harbour: tide tables</title>
+<style>
+:root { --toolbar-bg: #1f2a24; --toolbar-text: #e9efe9; --primary: #2f7a52; --ink: #16201a; --muted: #4b554e; --card: #f4f6f3; --line: #d5ddd4; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.5 Arial, Helvetica, sans-serif; color: var(--ink); background: #fff; }
+.toolbar { display: flex; align-items: center; gap: 24px; padding: 0 32px; height: 64px; background: var(--toolbar-bg); color: var(--toolbar-text); }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+.logo { width: 28px; height: 28px; border-radius: 6px; background: #7fc29a; }
+.toolbar nav { margin-left: auto; display: flex; gap: 28px; font-size: 15px; }
+.toolbar nav a { color: inherit; text-decoration: none; opacity: 0.85; }
+.signin { border: 1px solid rgba(255,255,255,0.35); color: inherit; background: transparent; padding: 6px 14px; border-radius: 6px; font: inherit; font-size: 14px; }
+.hero { display: grid; grid-template-columns: 1.1fr 1fr; gap: 48px; padding: 56px 48px 40px; align-items: center; }
+h1 { font-size: 40px; line-height: 1.15; margin: 0 0 16px; }
+.hero p { color: var(--muted); font-size: 18px; margin: 0 0 28px; max-width: 34ch; }
+.actions { display: flex; gap: 20px; align-items: center; }
+.btn { background: var(--primary); color: #fff; border: 0; border-radius: 8px; padding: 13px 26px; font: 600 16px Arial, sans-serif; }
+.link { color: var(--primary); font-weight: 600; text-decoration: none; }
+.chart { height: 220px; border-radius: 12px; background: #dfe9f2; display: block; width: 100%; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; padding: 8px 48px 48px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
+.icon { width: 32px; height: 32px; border-radius: 8px; background: var(--primary); margin-bottom: 20px; }
+.card h2 { font-size: 19px; margin: 0 0 8px; }
+.card p { margin: 0; color: var(--muted); font-size: 15px; }
+footer { display: flex; justify-content: space-between; margin: 0 48px; padding: 24px 0 40px; border-top: 1px solid #e2e5dd; color: #858c83; font-size: 13px; }
+@media (max-width: 700px) { .hero, .cards { grid-template-columns: 1fr; padding-left: 20px; padding-right: 20px; } .toolbar nav { display: none; } footer { margin: 0 20px; } h1 { font-size: 32px; } }
+</style></head>
+<body>
+<header class="toolbar" data-component="Toolbar" data-source="src/components/Toolbar.tsx" data-shared="every page">
+  <div class="brand"><span class="logo"></span>Harbour</div>
+  <nav><a href="/pricing">Pricing</a><a href="/docs">Docs</a><a href="/blog">Blog</a></nav>
+  <button class="signin">Sign in</button>
+</header>
+<main data-component="Home" data-source="src/pages/Home.tsx">
+  <section class="hero">
+    <div>
+      <h1>Tide tables for every boat</h1>
+      <p>Harbour turns raw sensor feeds into tide tables your crew can read on deck, offline, in any weather.</p>
+      <div class="actions"><button class="btn" data-component="Button" data-source="src/components/Button.tsx" data-shared="every page with an action">Start a trial</button><a class="link" href="/sample">See a sample</a></div>
+    </div>
+    <svg class="chart" viewBox="0 0 400 220" preserveAspectRatio="none" aria-label="Tide chart">
+      <path d="M20 80 C 90 40, 150 120, 220 80 S 340 40, 380 80" fill="none" stroke="#5d86ad" stroke-width="4"/>
+      <path d="M20 125 C 90 85, 150 165, 220 125 S 340 85, 380 125" fill="none" stroke="#5d86ad" stroke-width="4" opacity="0.7"/>
+      <path d="M20 170 C 90 130, 150 210, 220 170 S 340 130, 380 170" fill="none" stroke="#5d86ad" stroke-width="4" opacity="0.45"/>
+    </svg>
+  </section>
+  <section class="cards">
+    <article class="card"><div class="icon"></div><h2>Live feeds</h2><p>Readings every minute from your own gauges.</p></article>
+    <article class="card"><div class="icon"></div><h2>Alerts</h2><p>A message when the water passes your mark.</p></article>
+  </section>
+</main>
+<footer data-component="Footer" data-source="src/components/Footer.tsx" data-shared="every page"><span>Harbour, Pier 4</span><span>Status</span></footer>
+</body></html>`;
+  // The design the example image is drawn from: what the designer wants.
+  const DESIGN_HTML = APP_HTML
+    .replace('<a href="/blog">Blog</a>', '<a href="/blog">Blog</a><a href="/status">Status</a>')
+    .replace("--primary: #2f7a52;", "--primary: #1f6f8b;")
+    .replace("Tide tables for every boat", "Tide tables your crew can trust")
+    .replace('</p></article>\n  </section>', '</p></article>\n    <article class="card"><div class="icon"></div><h2>Offline</h2><p>Tables saved on deck for a week at sea.</p></article>\n  </section>');
+
+  /* ---------- State ---------- */
+  const S = {
+    vw: 1280,
+    img: null,          // {label, blob, canvas}
+    base: null,         // {label, html, source: "example"|"upload"|"draft"}
+    versions: [],       // [{html, label}]
+    cur: -1,
+    notes: [],          // [{v, scope, note, request}]
+    turns: [],          // sample chat turns, without the rules turn
+    pending: null,      // scripted engine: request waiting for a scope answer
+    findings: null,     // last compare findings summary
+    sample: null,
+    sampleImages: false,
+    downloads: null,
+    busy: null,
+    id: null,
+  };
+
+  /* ---------- Sanitise HTML ---------- */
+  function clean(html) {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll("script, iframe, object, embed, frame, base").forEach((n) => n.remove());
+    doc.querySelectorAll("*").forEach((el) => {
+      for (const a of [...el.attributes]) {
+        if (/^on/i.test(a.name)) el.removeAttribute(a.name);
+        else if (/^(href|src|action|formaction|xlink:href)$/i.test(a.name) && /^\s*javascript:/i.test(a.value)) el.removeAttribute(a.name);
+      }
+    });
+    return "<!doctype html>\n" + doc.documentElement.outerHTML;
+  }
+
+  /* ---------- Fit: a real page in a frame, scaled to fit whole ---------- */
+  function makeFit(host, onScale) {
+    host.innerHTML = '<div class="fit"><div class="sheet"><iframe sandbox="allow-same-origin" title="Prototype" tabindex="-1"></iframe></div></div>';
+    const fit = host.firstChild, sheet = fit.firstChild, frame = sheet.firstChild;
+    const st = { vw: 1280, h: 800, mode: "page" };
+    function layout() {
+      const aw = host.clientWidth - 16, ah = host.clientHeight - 16;
+      if (aw <= 0 || ah <= 0) return;
+      let s = st.mode === "page" ? Math.min(aw / st.vw, ah / st.h) : aw / st.vw;
+      s = Math.min(s, 1);
+      frame.style.width = st.vw + "px"; frame.style.height = st.h + "px";
+      sheet.style.width = st.vw + "px"; sheet.style.height = st.h + "px";
+      sheet.style.transform = `scale(${s})`;
+      fit.style.width = st.vw * s + "px"; fit.style.height = st.h * s + "px";
+      fit.style.margin = "8px auto";
+      host.classList.toggle("scroll", st.mode === "width");
+      if (onScale) onScale(s, st);
+    }
+    frame.addEventListener("load", () => {
+      try {
+        const d = frame.contentDocument;
+        frame.style.height = "1px";
+        st.h = Math.min(8000, Math.max(200, d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0));
+      } catch (e) { st.h = 800; }
+      layout();
+    });
+    new ResizeObserver(layout).observe(host);
+    return {
+      set(html, vw) { st.vw = vw; frame.style.width = vw + "px"; frame.srcdoc = html; },
+      mode(m) { st.mode = m; layout(); },
+      layout,
+    };
+  }
+  const pvFit = makeFit($("#pv-proto"), (s) => ($("#pv-scale").textContent = `${S.vw} px at ${Math.round(s * 100)} %`));
+  const wsFit = makeFit($("#ws-stage"), (s, st) => ($("#ws-scale").textContent = `${st.vw} × ${st.h} px shown at ${Math.round(s * 100)} %`));
+
+  /* ---------- Raster: images and HTML follow one path ---------- */
+  async function htmlCanvas(html, W) {
+    if (!window.html2canvas) throw new Error("The HTML renderer did not load, so pages cannot be compared here.");
+    const frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true"); frame.tabIndex = -1;
+    frame.style.cssText = `position:fixed;left:-20000px;top:0;width:${W}px;height:800px;border:0;pointer-events:none`;
+    document.body.appendChild(frame);
+    try {
+      await new Promise((res) => { frame.onload = res; frame.srcdoc = html; });
+      const d = frame.contentDocument;
+      frame.style.height = "1px";
+      const H = Math.min(4000, Math.max(200, d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0));
+      frame.style.height = H + "px";
+      await new Promise((r) => setTimeout(r, 80));
+      return await html2canvas(d.documentElement, { width: W, height: H, windowWidth: W, windowHeight: H, scale: 1, backgroundColor: "#ffffff", logging: false });
+    } finally { frame.remove(); }
+  }
+  function scaleTo(src, W) {
+    const h = Math.round(src.height * (W / src.width));
+    const c = mk(W, Math.min(4000, h)); c.getContext("2d").drawImage(src, 0, 0, W, h); return c;
+  }
+
+  /* ---------- Components ---------- */
+  const opt = { gap: 8, tol: 40, all: false };
+  function ringBg(px, W, r, inset) {
+    const m = new Map();
+    const x0 = r.x + inset, y0 = r.y + inset, x1 = r.x + r.w - 1 - inset, y1 = r.y + r.h - 1 - inset;
+    const add = (x, y) => {
+      const i = (y * W + x) * 4;
+      const k = ((px[i] >> 4) << 8) | ((px[i + 1] >> 4) << 4) | (px[i + 2] >> 4);
+      let e = m.get(k); if (!e) { e = [0, 0, 0, 0]; m.set(k, e); }
+      e[0]++; e[1] += px[i]; e[2] += px[i + 1]; e[3] += px[i + 2];
+    };
+    for (let x = x0; x <= x1; x++) { add(x, y0); add(x, y1); }
+    for (let y = y0; y <= y1; y++) { add(x0, y); add(x1, y); }
+    let best = null; for (const e of m.values()) if (!best || e[0] > best[0]) best = e;
+    return [best[1] / best[0], best[2] / best[0], best[3] / best[0]];
+  }
+  function dilate(src, gw, gh, k) {
+    if (!k) return src;
+    const a = new Uint8Array(gw * gh), b = new Uint8Array(gw * gh);
+    for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
+      if (!src[y * gw + x]) continue;
+      for (let d = -k; d <= k; d++) { const xx = x + d; if (xx >= 0 && xx < gw) a[y * gw + xx] = 1; }
+    }
+    for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
+      if (!a[y * gw + x]) continue;
+      for (let d = -k; d <= k; d++) { const yy = y + d; if (yy >= 0 && yy < gh) b[yy * gw + x] = 1; }
+    }
+    return b;
+  }
+  function split(px, W, r, depth) {
+    const inset = depth ? 3 : 0;
+    if (r.w <= 2 * inset + 4 || r.h <= 2 * inset + 4) return [];
+    const bg = ringBg(px, W, r, inset), tol = opt.tol;
+    const C = 4, rx = r.x + inset, ry = r.y + inset, rw = r.w - 2 * inset, rh = r.h - 2 * inset;
+    const gw = Math.ceil(rw / C), gh = Math.ceil(rh / C);
+    const far = (i) => Math.abs(px[i] - bg[0]) + Math.abs(px[i + 1] - bg[1]) + Math.abs(px[i + 2] - bg[2]) > tol;
+    const fg = new Uint8Array(gw * gh);
+    for (let y = 0; y < rh; y++) {
+      const row = ((ry + y) * W + rx) * 4, gy = ((y / C) | 0) * gw;
+      for (let x = 0; x < rw; x++) if (far(row + x * 4)) fg[gy + ((x / C) | 0)] = 1;
+    }
+    const dil = dilate(fg, gw, gh, Math.floor(opt.gap / (2 * C) + 0.25));
+    const seen = new Uint8Array(gw * gh), stack = [], out = [];
+    for (let s = 0; s < gw * gh; s++) {
+      if (!dil[s] || seen[s]) continue;
+      const cells = []; seen[s] = 1; stack.push(s);
+      while (stack.length) {
+        const c = stack.pop(), cx = c % gw, cy = (c / gw) | 0;
+        if (fg[c]) cells.push(c);
+        const nb = [cx > 0 ? c - 1 : -1, cx < gw - 1 ? c + 1 : -1, cy > 0 ? c - gw : -1, cy < gh - 1 ? c + gw : -1];
+        for (const n of nb) if (n >= 0 && dil[n] && !seen[n]) { seen[n] = 1; stack.push(n); }
+      }
+      let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+      for (const c of cells) {
+        const cx = c % gw, cy = (c / gw) | 0;
+        for (let yy = 0; yy < C; yy++) {
+          const y = cy * C + yy; if (y >= rh) break;
+          for (let xx = 0; xx < C; xx++) {
+            const x = cx * C + xx; if (x >= rw) break;
+            if (far(((ry + y) * W + rx + x) * 4)) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+          }
+        }
+      }
+      if (x1 < 0) continue;
+      const box = { x: rx + x0, y: ry + y0, w: x1 - x0 + 1, h: y1 - y0 + 1, depth: depth + 1, children: [] };
+      if (box.w < 3 || box.h < 3 || box.w * box.h < 30) continue;
+      if (box.depth < 4 && box.w >= 40 && box.h >= 28 && box.w * box.h < 0.97 * rw * rh) {
+        const kids = split(px, W, box, box.depth);
+        if (kids.length >= 2 || (kids.length === 1 && kids[0].w * kids[0].h < 0.8 * box.w * box.h)) box.children = kids;
+      }
+      out.push(box);
+    }
+    out.sort((a, b) => a.y - b.y || a.x - b.x);
+    return out;
+  }
+  function thumb(px, W, it) {
+    const N = 6, Sm = 4, t = new Float32Array(N * N * 3);
+    for (let gy = 0; gy < N; gy++) for (let gx = 0; gx < N; gx++) {
+      let r = 0, g = 0, b = 0;
+      for (let sy = 0; sy < Sm; sy++) for (let sx = 0; sx < Sm; sx++) {
+        const x = it.x + Math.min(it.w - 1, Math.floor(((gx + (sx + 0.5) / Sm) * it.w) / N));
+        const y = it.y + Math.min(it.h - 1, Math.floor(((gy + (sy + 0.5) / Sm) * it.h) / N));
+        const i = (y * W + x) * 4; r += px[i]; g += px[i + 1]; b += px[i + 2];
+      }
+      const o = (gy * N + gx) * 3, n = Sm * Sm; t[o] = r / n; t[o + 1] = g / n; t[o + 2] = b / n;
+    }
+    return t;
+  }
+  function analyse(canvas) {
+    const w = canvas.width, h = canvas.height;
+    const px = canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, w, h).data;
+    const tops = split(px, w, { x: 0, y: 0, w, h }, 0);
+    const items = [];
+    const walk = (list, parent) => list.forEach((it) => { it.id = items.length; it.parent = parent; items.push(it); it.thumb = thumb(px, w, it); walk(it.children, it); });
+    walk(tops, null);
+    return { tops, items, w, h };
+  }
+
+  /* ---------- Match and classify ---------- */
+  const KINDS = { missing: { label: "Missing", token: "--bad" }, extra: { label: "Extra", token: "--proto" }, changed: { label: "Changed", token: "--review" }, resized: { label: "Resized", token: "--ship" }, moved: { label: "Moved", token: "--move" } };
+  const ORDER = ["missing", "extra", "changed", "resized", "moved"];
+  function tdist(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]); return s / a.length / 255; }
+  function match(A, B, W) {
+    const pairs = [];
+    for (const a of A.items) for (const b of B.items) {
+      const dx = b.x + b.w / 2 - (a.x + a.w / 2), dy = b.y + b.h / 2 - (a.y + a.h / 2);
+      const dpos = Math.hypot(dx, dy) / W; if (dpos > 0.2) continue;
+      const ds = Math.abs(Math.log(b.w / a.w)) + Math.abs(Math.log(b.h / a.h)); if (ds > 1.2) continue;
+      const dc = tdist(a.thumb, b.thumb);
+      const cost = dpos * 3 + ds * 0.6 + dc * 2 + Math.abs(a.depth - b.depth) * 0.3;
+      if (cost < 0.9) pairs.push({ cost, a, b, dc });
+    }
+    pairs.sort((p, q) => p.cost - q.cost);
+    const ma = new Map(), mb = new Map();
+    for (const p of pairs) if (!ma.has(p.a) && !mb.has(p.b)) { ma.set(p.a, p); mb.set(p.b, p); }
+    return { ma, mb, pairs: [...ma.values()] };
+  }
+  function classify(A, B, M) {
+    const kindsOf = new Map();
+    for (const p of M.pairs) {
+      const { a, b } = p, k = [];
+      const edge = (a0, a1, b0, b1) => Math.abs(b0 - a0) > 6 && Math.abs(b1 - a1) > 6;
+      if (edge(a.x, a.x + a.w, b.x, b.x + b.w) || edge(a.y, a.y + a.h, b.y, b.y + b.h)) k.push("moved");
+      if (Math.abs(b.w - a.w) > Math.max(6, 0.1 * a.w) || Math.abs(b.h - a.h) > Math.max(6, 0.1 * a.h)) k.push("resized");
+      if (!a.children.length && p.dc > 0.07) k.push("changed");
+      kindsOf.set(a, k);
+    }
+    const out = [];
+    for (const p of M.pairs) {
+      let k = kindsOf.get(p.a);
+      for (let up = p.a.parent; up; up = up.parent) {
+        const pk = kindsOf.get(up);
+        if (pk && (pk.includes("moved") || pk.includes("resized"))) { k = []; break; }
+      }
+      if (k.length) out.push({ kinds: k, a: p.a, b: p.b });
+    }
+    for (const a of A.items) if (!M.ma.has(a) && (!a.parent || M.ma.has(a.parent))) out.push({ kinds: ["missing"], a, b: null });
+    for (const b of B.items) if (!M.mb.has(b) && (!b.parent || M.mb.has(b.parent))) out.push({ kinds: ["extra"], a: null, b });
+    out.forEach((f) => { f.kinds.sort((x, y) => ORDER.indexOf(x) - ORDER.indexOf(y)); f.kind = f.kinds[0]; const r = f.a || f.b; f.y = r.y; f.x = r.x; });
+    out.sort((p, q) => p.y - q.y || p.x - q.x);
+    out.forEach((f, i) => (f.n = i + 1));
+    return out;
+  }
+  function pixelDiff(A, B) {
+    const w = A.width, h = Math.max(A.height, B.height);
+    const a = A.getContext("2d").getImageData(0, 0, w, A.height).data;
+    const b = B.getContext("2d").getImageData(0, 0, w, B.height).data;
+    const c = mk(w, h), g = c.getContext("2d"), img = g.createImageData(w, h), o = img.data;
+    let changed = 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4, inA = y < A.height, inB = y < B.height;
+      let hit = !(inA && inB), lum = 255;
+      if (inA && inB) {
+        hit = Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > opt.tol;
+        lum = 0.3 * b[i] + 0.59 * b[i + 1] + 0.11 * b[i + 2];
+      }
+      if (hit) { o[i] = 214; o[i + 1] = 72; o[i + 2] = 54; changed++; }
+      else { const v = 255 - (255 - lum) * 0.22; o[i] = o[i + 1] = o[i + 2] = v; }
+      o[i + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    return { canvas: c, share: changed / (w * h) };
+  }
+  const tok = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  let CMP = null, hover = -1;
+  function drawView(el, src, an, findings, which) {
+    el.width = src.width; el.height = src.height;
+    const g = el.getContext("2d");
+    g.drawImage(src, 0, 0);
+    const lw = Math.max(1.5, src.width / 480);
+    if (opt.all) {
+      g.lineWidth = Math.max(1, lw / 1.5); g.globalAlpha = 0.55;
+      for (const it of an.items) { g.strokeStyle = ["#5573aa", "#348260", "#a56b2c", "#7566a8"][(it.depth - 1) % 4]; g.strokeRect(it.x + 0.5, it.y + 0.5, it.w, it.h); }
+      g.globalAlpha = 1;
+    }
+    const fs = Math.max(11, Math.round(src.width / 70));
+    g.font = `600 ${fs}px "IBM Plex Mono", monospace`;
+    for (const f of findings) {
+      const r = which === "ref" ? f.a : f.b;
+      if (!r) continue;
+      const col = tok(KINDS[f.kind].token) || "#c45342", on = hover === f.n;
+      if (on) { g.fillStyle = col; g.globalAlpha = 0.18; g.fillRect(r.x - 3, r.y - 3, r.w + 6, r.h + 6); g.globalAlpha = 1; }
+      g.strokeStyle = col; g.lineWidth = on ? lw * 2 : lw;
+      g.strokeRect(r.x - 3, r.y - 3, r.w + 6, r.h + 6);
+      const label = "F" + f.n, tw = g.measureText(label).width + 8;
+      const ly = r.y - 3 - fs - 4 < 0 ? r.y + r.h + 3 : r.y - 3 - fs - 4;
+      g.fillStyle = col; g.fillRect(r.x - 3, ly, tw, fs + 4);
+      g.fillStyle = "#ffffff"; g.fillText(label, r.x + 1, ly + fs);
+    }
+  }
+  function redrawCmp() {
+    if (!CMP) return;
+    drawView($("#v-ref"), CMP.refC, CMP.A, CMP.findings, "ref");
+    drawView($("#v-act"), CMP.actC, CMP.B, CMP.findings, "act");
+    document.querySelectorAll("#findings li").forEach((li) => li.classList.toggle("on", +li.dataset.n === hover));
+  }
+  function where(r, W, H) {
+    const cy = (r.y + r.h / 2) / H, cx = (r.x + r.w / 2) / W;
+    const v = cy < 0.33 ? "top" : cy > 0.66 ? "bottom" : "middle", h = cx < 0.33 ? "left" : cx > 0.66 ? "right" : "centre";
+    return v === "middle" && h === "centre" ? "in the middle" : `near the ${v} ${h}`;
+  }
+  const dim = (r) => `${r.w}×${r.h} at (${r.x}, ${r.y})`;
+  function sentence(f, W, H) {
+    const r = f.a || f.b, at = where(r, W, H);
+    if (f.kind === "missing") return `A ${dim(f.a)}, ${at}, is in the image but not in the prototype.`;
+    if (f.kind === "extra") return `A ${dim(f.b)}, ${at}, is in the prototype but not in the image.`;
+    const parts = [];
+    if (f.kinds.includes("changed")) parts.push("looks different");
+    if (f.kinds.includes("resized")) parts.push(`is ${f.b.w}×${f.b.h} instead of ${f.a.w}×${f.a.h}`);
+    if (f.kinds.includes("moved")) parts.push(`moved by (${f.b.x - f.a.x}, ${f.b.y - f.a.y}) px`);
+    return `The piece ${dim(f.a)}, ${at}, ${parts.join(" and ")}.`;
+  }
+  async function runCompare() {
+    const st = $("#cmp-status");
+    if (!S.img) { st.textContent = "Add an image on the start screen to compare."; return null; }
+    if (S.cur < 0) return null;
+    st.textContent = "Comparing…";
+    try {
+      const actC = await htmlCanvas(S.versions[S.cur].html, S.vw);
+      const refC = scaleTo(S.img.canvas, S.vw);
+      const A = analyse(refC), B = analyse(actC);
+      const M = match(A, B, S.vw), findings = classify(A, B, M), D = pixelDiff(refC, actC);
+      CMP = { A, B, findings, refC, actC, v: S.cur + 1 };
+      hover = -1;
+      redrawCmp();
+      const dv = $("#v-diff"); dv.width = D.canvas.width; dv.height = D.canvas.height; dv.getContext("2d").drawImage(D.canvas, 0, 0);
+      $("#cap-ref").textContent = `${A.items.length} components`;
+      $("#cap-act").textContent = `${B.items.length} components, v${S.cur + 1}`;
+      $("#cap-diff").textContent = `${(D.share * 100).toFixed(1)} %`;
+      const counts = {}; findings.forEach((f) => (counts[f.kind] = (counts[f.kind] || 0) + 1));
+      $("#counts").innerHTML = findings.length ? ORDER.filter((k) => counts[k]).map((k) => `<span class="chip k-${k}">${counts[k]} ${KINDS[k].label.toLowerCase()}</span>`).join("") : `<span class="chip k-page">no differences</span>`;
+      const ol = $("#findings"); ol.innerHTML = "";
+      for (const f of findings) {
+        const li = document.createElement("li"); li.tabIndex = 0; li.dataset.n = f.n;
+        li.innerHTML = `<span class="id">F${f.n}</span><span class="chip k-${f.kind}">${KINDS[f.kind].label}</span><span></span>`;
+        li.lastChild.textContent = sentence(f, A.w, A.h);
+        const on = () => { hover = f.n; redrawCmp(); }, off = () => { hover = -1; redrawCmp(); };
+        li.addEventListener("mouseenter", on); li.addEventListener("focus", on); li.addEventListener("mouseleave", off); li.addEventListener("blur", off);
+        ol.appendChild(li);
+      }
+      S.findings = findings.map((f) => `F${f.n} ${KINDS[f.kind].label}: ${sentence(f, A.w, A.h)}`);
+      st.textContent = `Version ${S.cur + 1} at ${S.vw} px: ${findings.length} difference${findings.length === 1 ? "" : "s"}. Hover one to see it on both views.`;
+      return findings;
+    } catch (e) { st.textContent = e.message || String(e); return null; }
+  }
+
+  /* ---------- Versions ---------- */
+  function pushVersion(html, label) {
+    S.versions = S.versions.slice(0, S.cur + 1);
+    S.versions.push({ html, label });
+    S.cur = S.versions.length - 1;
+    showVersion();
+  }
+  function showVersion() {
+    const sel = $("#ws-ver");
+    sel.innerHTML = S.versions.map((v, i) => `<option value="${i}"${i === S.cur ? " selected" : ""}>v${i + 1}: ${esc(v.label)}</option>`).join("");
+    $("#ws-undo").disabled = S.cur <= 0;
+    if (S.cur >= 0) { wsFit.set(S.versions[S.cur].html, S.vw); pvFit.set(S.versions[S.cur].html, S.vw); }
+    renderHand();
+  }
+
+  /* ---------- Chat ---------- */
+  function addMsg(kind, text, extra) {
+    const m = document.createElement("div");
+    m.className = "msg " + kind;
+    m.textContent = text;
+    if (extra) m.appendChild(extra);
+    $("#msgs").appendChild(m);
+    m.scrollIntoView({ block: "end" });
+    return m;
+  }
+  function optionButtons(options) {
+    const box = document.createElement("div"); box.className = "opts";
+    for (const o of options) {
+      const b = document.createElement("button"); b.type = "button"; b.textContent = o;
+      b.addEventListener("click", () => { box.querySelectorAll("button").forEach((x) => (x.disabled = true)); send(o); });
+      box.appendChild(b);
+    }
+    return box;
+  }
+  function metaLine(scope, note, failed) {
+    const box = document.createElement("div"); box.className = "meta";
+    if (scope) { const c = document.createElement("span"); c.className = "chip k-" + scope; c.textContent = scope === "global" ? "all pages" : "this page"; box.appendChild(c); }
+    const v = document.createElement("span"); v.textContent = `v${S.cur + 1}`; box.appendChild(v);
+    if (failed) { const f = document.createElement("span"); f.style.color = "var(--bad)"; f.textContent = `${failed} edit${failed === 1 ? "" : "s"} did not apply`; box.appendChild(f); }
+    return box;
+  }
+  function applyEdits(html, edits) {
+    let out = html, failed = 0;
+    for (const e of edits || []) {
+      if (!e || typeof e.find !== "string" || typeof e.replace !== "string" || !e.find) { failed++; continue; }
+      const first = out.indexOf(e.find);
+      if (first < 0 || out.indexOf(e.find, first + 1) >= 0) { failed++; continue; }
+      out = out.slice(0, first) + e.replace + out.slice(first + e.find.length);
+    }
+    return { html: out, failed };
+  }
+  function ctxText() {
+    return JSON.stringify({ app: APP.name, commit: APP.commit, route: APP.route, page_source: APP.page, shared_parts: APP.shared, viewport: S.vw }, null, 1);
+  }
+  const RULES = () => `You change a static HTML prototype of one page of a web app, in a chat with a person. The prototype and a notes file become the spec a builder plans against. You never write the app's source code.
+
+The session knows the app's source. App context:
+${ctxText()}
+Elements carry data-component, data-source and data-shared attributes that map them to the source.
+
+Reply with only one JSON object:
+{"say": string, "ask": null or {"question": string, "options": [string, ...]}, "edits": [{"find": string, "replace": string}], "scope": "global" or "page" or null, "note": string or null}
+
+Rules:
+- "find" is an exact substring of the current HTML that occurs once. Keep edits small. Keep the page standalone: no scripts, no external URLs.
+- A change to a shared part (data-shared, or listed in shared_parts) needs a scope. If the person has not said whether it applies to all pages or only this page, ask exactly that with options ["All pages", "Only this page"] and make no edits.
+- With each change set "scope" and write "note": one line for the builder saying what changes, in which source file, and for which pages.
+- A question about the page gets an answer in "say" with no edits. An unclear request gets one short question.
+- "say" is one or two short sentences.`;
+  async function sendModel(text) {
+    const html = S.versions[S.cur].html;
+    const extra = S.findings ? `\n\nLatest comparison with the person's image:\n${S.findings.join("\n")}` : "";
+    const last = `Current prototype HTML (version ${S.cur + 1}):\n\`\`\`html\n${html}\n\`\`\`${extra}\n\nThe person says: ${text}`;
+    const history = S.turns.slice(-12);
+    const input = [{ role: "user", content: RULES() }, ...history, { role: "user", content: last }];
+    const ctl = new AbortController(); S.busy = ctl;
+    const opts = { signal: ctl.signal, cache: false, modelTier: "default" };
+    if (S.img && S.sampleImages && S.turns.length === 0) opts.images = [S.img.blob];
+    const r = await S.sample.json(input, opts);
+    S.turns.push({ role: "user", content: `The person says: ${text}` });
+    S.turns.push({ role: "assistant", content: JSON.stringify({ say: r && r.say, ask: r && r.ask, scope: r && r.scope, note: r && r.note }) });
+    return r || {};
+  }
+
+  // The scripted engine: used where Claude cannot be asked from this page.
+  const COLOURS = { "dark blue": "#1c2b4a", navy: "#1c2b4a", blue: "#1f4e79", teal: "#1f6f8b", green: "#2f7a52", red: "#b5432f", black: "#111111", grey: "#4a4f4b", gray: "#4a4f4b", purple: "#5b3f8c", orange: "#c46a1f", dark: "#111814" };
+  const colourIn = (t) => { for (const k of Object.keys(COLOURS)) if (t.includes(k)) return [k, COLOURS[k]]; const m = t.match(/#[0-9a-f]{6}\b/); return m ? [m[0], m[0]] : null; };
+  function scripted(text) {
+    const t = text.toLowerCase();
+    const html = S.versions[S.cur].html;
+    let req = t, scope = null;
+    if (S.pending) {
+      if (/\ball\b|global|every/.test(t)) scope = "global";
+      else if (/only|this page|just/.test(t)) scope = "page";
+      if (scope) { req = S.pending; S.pending = null; } else S.pending = null;
+    }
+    const sharedHit = /toolbar|header|nav|menu|button|primary|footer|theme/.test(req);
+    if (sharedHit && !scope && !/all pages|every page|only this page|this page only/.test(req)) {
+      S.pending = req;
+      const part = /footer/.test(req) ? "Footer" : /button|primary|theme/.test(req) ? "Button" : "Toolbar";
+      const src = APP.shared.find((p) => p.part === part);
+      return { say: `The ${part.toLowerCase()} is shared: ${src.source} is used on ${src.used}. Should this change apply to all pages or only this page?`, ask: { question: "Scope", options: ["All pages", "Only this page"] }, edits: [] };
+    }
+    if (!scope && /all pages|every page/.test(req)) scope = "global";
+    if (!scope && /only this page|this page only/.test(req)) scope = "page";
+    const where = scope === "global" ? "on every page" : "on this page only";
+    const c = colourIn(req);
+    if (/toolbar|header|nav|menu/.test(req)) {
+      const link = req.match(/add (?:a |an )?["']?([a-z][a-z ]{1,20}?)["']? (?:link|item)/);
+      if (link) {
+        const name = link[1].replace(/\b\w/g, (m) => m.toUpperCase()).trim();
+        const href = "/" + name.toLowerCase().replace(/\s+/g, "-");
+        const find = html.match(/<nav>[\s\S]*?<\/nav>/);
+        if (find) return { say: `Added ${name} to the toolbar ${where}.`, scope, note: `Toolbar (src/components/Toolbar.tsx): add a "${name}" link to ${href} after the last link, ${where}.`, edits: [{ find: find[0], replace: find[0].replace("</nav>", `<a href="${href}">${name}</a></nav>`) }] };
+      }
+      if (c) {
+        const m = html.match(/--toolbar-bg: #[0-9a-fA-F]{3,6};/);
+        if (m) return { say: `The toolbar is now ${c[0]} ${where}.`, scope, note: `Toolbar (src/components/Toolbar.tsx): background ${c[1]}, ${where}.`, edits: [{ find: m[0], replace: `--toolbar-bg: ${c[1]};` }] };
+      }
+    }
+    if (/button|primary|theme/.test(req) && c) {
+      const m = html.match(/--primary: #[0-9a-fA-F]{3,6};/);
+      if (m) return { say: `Buttons, icons and links now use ${c[0]} ${where}.`, scope, note: `Button and theme colour (src/styles/tokens.css): primary ${c[1]}, ${where}.`, edits: [{ find: m[0], replace: `--primary: ${c[1]};` }] };
+    }
+    const ren = text.match(/["“']([^"”']+)["”']\s+(?:to|into|with)\s+["“']([^"”']+)["”']/);
+    if (ren && html.split(ren[1]).length === 2) return { say: `Changed “${ren[1]}” to “${ren[2]}”.`, scope: "page", note: `Home (src/pages/Home.tsx): text “${ren[1]}” becomes “${ren[2]}”.`, edits: [{ find: ren[1], replace: ren[2] }] };
+    if (/add .*card/.test(req)) {
+      const m = html.match(/<\/p><\/article>\s*<\/section>/);
+      const title = (text.match(/["“']([^"”']+)["”']/) || [, "Offline"])[1];
+      if (m) return { say: `Added a third card, “${title}”.`, scope: "page", note: `Home (src/pages/Home.tsx): a third feature card “${title}” after Alerts, same layout as the others.`, edits: [{ find: m[0], replace: m[0].replace("</section>", `  <article class="card"><div class="icon"></div><h2>${esc(title)}</h2><p>Tables saved on deck for a week at sea.</p></article>\n  </section>`) }] };
+    }
+    if (/differen|findings|compare/.test(req)) return { say: S.findings ? `The last comparison found ${S.findings.length} differences. Ask for one change at a time, for example: add a "Status" link to the toolbar.` : "Open Compare and run it first." };
+    return { say: "This copy cannot ask Claude, so it only understands a few requests: a toolbar or button colour, adding a toolbar link or a card, and changing \"quoted text\" to \"other text\". Open the page in Claude to chat freely." };
+  }
+
+  async function send(text) {
+    text = text.trim();
+    if (!text || S.cur < 0 || S.busyFlag) return;
+    addMsg("me", text);
+    $("#say").value = "";
+    S.busyFlag = true;
+    $("#send").disabled = true;
+    const wait = addMsg("ai", "Thinking…");
+    if (S.sample) $("#stop").hidden = false;
+    let r;
+    try {
+      r = S.sample ? await sendModel(text) : scripted(text);
+    } catch (e) {
+      wait.remove();
+      if (e && e.code === "cancelled") addMsg("sys", "Stopped.");
+      else if (e && e.code === "not_granted") { S.sample = null; setEngine(); addMsg("sys", "Claude is not allowed from this page, so the chat now uses the scripted example engine."); }
+      else addMsg("sys", `The reply could not be used (${(e && (e.code || e.message)) || e}). Try again or say it differently.`);
+      done(); return;
+    }
+    wait.remove();
+    const edits = Array.isArray(r.edits) ? r.edits : [];
+    let failed = 0, changed = false;
+    if (edits.length) {
+      const res = applyEdits(S.versions[S.cur].html, edits);
+      failed = res.failed;
+      if (res.html !== S.versions[S.cur].html) {
+        pushVersion(res.html, (r.note || text).slice(0, 48));
+        changed = true;
+        S.notes.push({ v: S.cur + 1, scope: r.scope || "page", note: r.note || text, request: text });
+        renderHand();
+      }
+    }
+    const extra = document.createDocumentFragment();
+    if (r.ask && Array.isArray(r.ask.options) && r.ask.options.length) extra.appendChild(optionButtons(r.ask.options.slice(0, 4).map(String)));
+    if (changed || failed) extra.appendChild(metaLine(changed ? r.scope : null, r.note, failed));
+    addMsg("ai", String(r.say || (changed ? "Done." : "No change.")), extra);
+    done();
+    function done() { S.busyFlag = false; S.busy = null; $("#send").disabled = false; $("#stop").hidden = true; }
+  }
+
+  function setEngine() {
+    $("#engine").textContent = S.sample ? "Claude, on your account" : "Scripted example engine";
+  }
+
+  /* ---------- Hand off ---------- */
+  const newId = () => "p-" + Date.now().toString(36).slice(-6);
+  function pathsFor(id) {
+    const n = S.versions.length;
+    return { dir: `prototypes/${id}/`, html: `prototypes/${id}/v${S.cur + 1}.html`, notes: `prototypes/${id}/notes.md`, view: `/plugins/page-ticket/${id}`, n };
+  }
+  function renderHand() {
+    if (S.cur < 0) return;
+    const id = S.id || "p-new";
+    const P = pathsFor(id);
+    const date = new Date().toISOString().slice(0, 10);
+    const glob = S.notes.filter((n) => n.scope === "global"), page = S.notes.filter((n) => n.scope !== "global");
+    const line = (n) => `- v${n.v}: ${n.note}`;
+    const notes = [
+      `# Prototype ${id}: ${APP.name} ${APP.route}`,
+      "",
+      `- Page: ${$("#url").value.trim() || "(no address)"}, source ${APP.page}`,
+      `- App: ${APP.name} at ${APP.commit}${APP.example ? " (example)" : ""}`,
+      `- Started from: ${S.base ? S.base.label : "?"}${S.img ? `, compared with image ${S.img.label}` : ""}`,
+      `- Viewport: ${S.vw} px`,
+      `- Spec: ${P.html} (version ${S.cur + 1} of ${S.versions.length}), ${date}`,
+      "",
+      "## Changes on every page",
+      "",
+      ...(glob.length ? glob.map(line) : ["- None."]),
+      "",
+      "## Changes on this page only",
+      "",
+      ...(page.length ? page.map(line) : ["- None."]),
+      "",
+      "## For the plan",
+      "",
+      `Build against the markup in ${P.html}. The markup and the app are the spec; these notes give the intent. A change on every page goes into the shared component named in its line, not into this page. A change on this page only must not change other pages that use the same component.`,
+      ...(S.findings && S.findings.length ? ["", "## Last comparison with the image", "", ...S.findings.map((f) => "- " + f)] : []),
+    ].join("\n");
+    const ticket = [
+      `# ${APP.route === "/" ? "Home page" : APP.route}: build prototype ${id}`,
+      "",
+      `Make ${APP.route} match prototype ${id}, version ${S.cur + 1}.`,
+      "",
+      `- Prototype: ${P.view}/v${S.cur + 1}.html`,
+      `- Notes: ${P.view}/notes.md`,
+      "",
+      `${S.notes.length} change${S.notes.length === 1 ? "" : "s"}: ${glob.length} on every page, ${page.length} on this page only. The notes list each one with its source file.`,
+      "",
+      "## Done when",
+      "",
+      `- The page, captured at ${S.vw} px, shows no differences from the prototype in Page Ticket's compare.`,
+      "- Pages that share a changed component change only where the notes say every page.",
+      "",
+      "Drafted by page-ticket. A person reviews it and applies the label.",
+    ].join("\n");
+    $("#notes").value = notes;
+    $("#ticket").value = ticket;
+    $("#paths").innerHTML = `On the host: <b>${esc(P.dir)}</b> with v1.html … v${S.versions.length}.html and notes.md<br>Served at: ${esc(P.view)} (signed-in readers only)<br>Record: one row in state/tehas.db, linked to the issue once it is filed`;
+  }
+  const SKEY = "page-ticket-saved";
+  const loadSaved = () => { try { return JSON.parse(localStorage.getItem(SKEY) || "[]"); } catch (e) { return []; } };
+  function renderSaved() {
+    const rows = loadSaved();
+    $("#saved").innerHTML = rows.length
+      ? rows.map((r) => `<tr><td class="num">${esc(r.id)}</td><td>${esc(r.page)}</td><td class="num">${r.versions}</td><td>${r.global} every page, ${r.page_only} this page</td><td><code>${esc(r.dir)}</code></td><td>${esc(r.ticket)}</td></tr>`).join("")
+      : `<tr><td colspan="6" class="note">No prototypes saved yet. Open the workspace, make a change and use Hand off.</td></tr>`;
+  }
+  $("#hand-save").addEventListener("click", () => {
+    if (!S.id) S.id = newId();
+    renderHand();
+    const P = pathsFor(S.id), rows = loadSaved().filter((r) => r.id !== S.id);
+    rows.unshift({ id: S.id, page: `${APP.name} ${APP.route}`, versions: S.versions.length, global: S.notes.filter((n) => n.scope === "global").length, page_only: S.notes.filter((n) => n.scope !== "global").length, dir: P.dir, ticket: "Draft, not filed" });
+    try { localStorage.setItem(SKEY, JSON.stringify(rows.slice(0, 20))); } catch (e) { /* storage blocked: the table stays as it was */ }
+    renderSaved();
+    addMsg("sys", `Saved ${S.id} as version ${S.cur + 1}, with notes and a ticket draft. In the plugin the ticket is filed for a person to label.`);
+  });
+  $("#save-files").addEventListener("click", async () => {
+    if (!S.downloads) { addMsg("sys", "Saving files is not available here. Copy the text from the boxes instead."); return; }
+    const id = S.id || "p-new";
+    try {
+      await S.downloads.save({ filename: `${id}-v${S.cur + 1}.html`, data: S.versions[S.cur].html });
+      await S.downloads.save({ filename: `${id}-notes.md`, data: $("#notes").value });
+    } catch (e) { if (e && e.code !== "dismissed" && e.code !== "cancelled") addMsg("sys", `The files were not saved (${e.code || e.message || e}).`); }
+  });
+
+  /* ---------- Workspace ---------- */
+  const ws = $("#ws");
+  function openWorkspace() {
+    if (!S.base) { status("Give a page first: capture an address, upload HTML, draft from the image, or use the example.", true); return; }
+    $("#ws-title").textContent = APP.name + (APP.example ? " (example)" : "");
+    $("#ws-route").textContent = APP.route;
+    $("#ctx").innerHTML = `<span><b>Session knows</b> ${esc(APP.name)} at <span class="mono">${esc(APP.commit)}</span>${APP.example ? " (example)" : ""}</span><span>Page <span class="mono">${esc(APP.page)}</span></span><span>Shared: ${APP.shared.map((p) => esc(p.part)).join(", ")}</span>`;
+    if (!$("#msgs").children.length) {
+      addMsg("ai", `This is ${APP.route} of ${APP.name} as one standalone file, version 1. Tell me what to change.${S.img ? " Your image is loaded: open Compare to list what differs." : ""} When a change touches a shared part, I will ask whether it is for all pages or only this one.`);
+    }
+    if (!ws.open) ws.showModal();
+    requestAnimationFrame(() => { wsFit.layout(); $("#say").focus(); });
+  }
+  $("#open").addEventListener("click", openWorkspace);
+  $("#ws-close").addEventListener("click", () => ws.close());
+  ws.addEventListener("cancel", (e) => { if (S.busyFlag) e.preventDefault(); });
+  $("#compose").addEventListener("submit", (e) => { e.preventDefault(); send($("#say").value); });
+  $("#say").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send($("#say").value); } });
+  $("#stop").addEventListener("click", () => S.busy && S.busy.abort());
+  $("#ws-ver").addEventListener("change", (e) => { S.cur = +e.target.value; showVersion(); addMsg("sys", `Showing version ${S.cur + 1}. A new change starts from here.`); });
+  $("#ws-undo").addEventListener("click", () => { if (S.cur > 0) { S.cur--; S.notes = S.notes.filter((n) => n.v <= S.cur + 1); showVersion(); addMsg("sys", `Back to version ${S.cur + 1}.`); } });
+  $("#ws-width").addEventListener("change", (e) => { S.vw = +e.target.value; showVersion(); });
+  document.querySelectorAll(".ws-bar .seg button").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll(".ws-bar .seg button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    document.querySelectorAll(".right > .pane").forEach((p) => (p.hidden = p.dataset.pane !== b.dataset.pane));
+    if (b.dataset.pane === "proto") requestAnimationFrame(wsFit.layout);
+    if (b.dataset.pane === "cmp" && (!CMP || CMP.v !== S.cur + 1)) runCompare();
+    if (b.dataset.pane === "hand") renderHand();
+  }));
+  document.querySelectorAll("[data-fit]").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll("[data-fit]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    wsFit.mode(b.dataset.fit);
+  }));
+  $("#cmp-run").addEventListener("click", runCompare);
+  $("#cmp-send").addEventListener("click", () => {
+    if (!S.findings) { $("#cmp-status").textContent = "Run Compare first."; return; }
+    addMsg("sys", `Findings from version ${CMP.v} go with your next message:\n${S.findings.join("\n")}`);
+  });
+  $("#gap").addEventListener("input", (e) => { opt.gap = +e.target.value; $("#gap-v").textContent = opt.gap + " px"; });
+  $("#gap").addEventListener("change", runCompare);
+  $("#tol").addEventListener("input", (e) => { opt.tol = +e.target.value; $("#tol-v").textContent = opt.tol; });
+  $("#tol").addEventListener("change", runCompare);
+  $("#all").addEventListener("change", (e) => { opt.all = e.target.checked; redrawCmp(); });
+  try { window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redrawCmp); } catch (e) { /* older browsers */ }
+
+  /* ---------- Start inputs ---------- */
+  function resetSession(base) {
+    S.base = base; S.versions = []; S.cur = -1; S.notes = []; S.turns = []; S.pending = null; S.findings = null; S.id = null; CMP = null;
+    $("#msgs").innerHTML = "";
+    pushVersion(base.html, base.label);
+    $("#pv-note").textContent = base.label;
+  }
+  function showImg() {
+    const box = $("#pv-img");
+    box.innerHTML = "";
+    if (!S.img) { box.innerHTML = '<p class="empty">No image. The workspace opens without Compare.</p>'; $("#pv-img-size").textContent = ""; return; }
+    const c = S.img.canvas, show = mk(c.width, c.height); show.getContext("2d").drawImage(c, 0, 0);
+    box.appendChild(show);
+    $("#pv-img-size").textContent = `${c.width}×${c.height}`;
+  }
+  async function setImage(file) {
+    try {
+      const bmp = await createImageBitmap(file);
+      const c = mk(bmp.width, bmp.height); c.getContext("2d").drawImage(bmp, 0, 0);
+      S.img = { label: file.name, blob: file, canvas: c };
+      $("#src-img").textContent = "Image: " + file.name;
+      showImg(); CMP = null;
+      status(`Image ${file.name} loaded.`);
+    } catch (e) { status(`${file.name} could not be read as an image. Choose a PNG, JPEG or WebP file.`, true); }
+  }
+  async function setHtml(file) {
+    try {
+      const html = clean(await file.text());
+      APP.name = file.name.replace(/\.html?$/i, ""); APP.commit = "unknown"; APP.page = "(not mapped yet)"; APP.example = false; APP.shared = [];
+      resetSession({ label: file.name, html, source: "upload" });
+      $("#src-html").textContent = "HTML: " + file.name;
+      status(`${file.name} loaded, scripts removed. In the plugin the session would map its parts to the app's source.`);
+    } catch (e) { status(`${file.name} could not be read: ${e.message || e}`, true); }
+  }
+  function wireDrop(id, inputId, fn, accept) {
+    const d = $(id), inp = $(inputId);
+    d.addEventListener("click", (e) => { if (e.target !== inp) inp.click(); });
+    inp.addEventListener("change", () => inp.files[0] && fn(inp.files[0]));
+    d.addEventListener("dragover", (e) => { e.preventDefault(); d.classList.add("over"); });
+    d.addEventListener("dragleave", () => d.classList.remove("over"));
+    d.addEventListener("drop", (e) => {
+      e.preventDefault(); d.classList.remove("over");
+      const f = e.dataTransfer.files[0]; if (!f) return;
+      if (!accept(f)) { status(`${f.name} is the wrong kind of file here.`, true); return; }
+      fn(f);
+    });
+  }
+  wireDrop("#drop-img", "#file-img", setImage, (f) => f.type.startsWith("image/"));
+  wireDrop("#drop-html", "#file-html", setHtml, (f) => /\.html?$/i.test(f.name) || f.type === "text/html");
+  $("#fetch").addEventListener("click", () => {
+    status("A page in the browser cannot open other sites. The plugin's headless browser captures the address. Here, upload the saved page as HTML or use the example.");
+  });
+  $("#draft").addEventListener("click", async () => {
+    if (!S.img) { status("Add an image first.", true); return; }
+    if (!S.sample || !S.sampleImages) { status("Drafting from an image needs Claude with images, which this copy cannot reach. In the plugin the host model drafts it.", true); return; }
+    status("Drafting HTML from the image. This can take a minute…");
+    $("#draft").disabled = true;
+    try {
+      const r = await S.sample.json(`Draft one standalone HTML page that reproduces the attached image of a web page as closely as you can, at ${S.vw} px wide. Inline all CSS, no scripts, no external URLs, plain system fonts. Mark obvious shared parts (toolbar, footer, buttons) with data-component and data-shared="every page". Reply with only {"html": "<!doctype html>..."}.`, { images: [S.img.blob], modelTier: "complex", cache: false });
+      if (!r || typeof r.html !== "string" || !/<html|<body|<div/i.test(r.html)) throw new Error("the reply held no page");
+      APP.name = "drafted page"; APP.commit = "unknown"; APP.page = "(not mapped yet)"; APP.example = false; APP.shared = [];
+      resetSession({ label: "Drafted from " + S.img.label, html: clean(r.html), source: "draft" });
+      $("#src-html").textContent = "Drafted from the image";
+      status("Drafted. Open the workspace to change it.");
+    } catch (e) { status(`The draft failed (${(e && (e.code || e.message)) || e}).`, true); }
+    finally { $("#draft").disabled = false; }
+  });
+  async function useExample() {
+    Object.assign(APP, { name: "harbour-web", commit: "3f2a9c1", route: "/", page: "src/pages/Home.tsx", example: true, shared: [
+      { part: "Toolbar", source: "src/components/Toolbar.tsx", used: "every page (14)" },
+      { part: "Button", source: "src/components/Button.tsx", used: "every page with an action (9)" },
+      { part: "Footer", source: "src/components/Footer.tsx", used: "every page (14)" },
+      { part: "Theme colours", source: "src/styles/tokens.css", used: "the whole app" }] });
+    $("#url").value = "https://harbour.example/";
+    $("#src-html").textContent = "Example: harbour-web, home page";
+    resetSession({ label: "Captured https://harbour.example/", html: APP_HTML, source: "example" });
+    try {
+      const c = await htmlCanvas(DESIGN_HTML, 1280);
+      const blob = await new Promise((r) => c.toBlob(r, "image/png"));
+      S.img = { label: "home-design.png", blob, canvas: c };
+      $("#src-img").textContent = "Example: home-design.png";
+    } catch (e) {
+      S.img = null;
+      $("#src-img").textContent = "The example image could not be drawn here.";
+    }
+    showImg();
+    status("Example loaded: the home page as captured, and a design image for it. Open the workspace.");
+  }
+  $("#example").addEventListener("click", useExample);
+
+  /* ---------- Boot ---------- */
+  renderSaved();
+  setEngine();
+  (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(useExample);
+  if (window.claude && window.claude.use) {
+    window.claude.use("sample").then(async (s) => {
+      if (!s) return;
+      S.sample = s;
+      try { const lim = await s.limits(); S.sampleImages = !!(lim && lim.images); } catch (e) { S.sampleImages = false; }
+      setEngine();
+    }).catch(() => {});
+    window.claude.use("downloads").then((d) => { S.downloads = d || null; }).catch(() => {});
+  }
+})();
+</script>
