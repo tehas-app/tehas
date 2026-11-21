@@ -73,6 +73,18 @@ fn client(home: &std::path::Path, name: &str) -> String {
     value.to_string()
 }
 
+/// The line said at the start when the load fell back to the loopback because
+/// `host`, TEHAS_HOST_ADDR, is no address the gate may listen on
+/// (rules::gate_default): the edge router cannot reach the gate there.
+fn fallback(host: &str, addr: &str) -> Option<String> {
+    let loopback = format!("127.0.0.1:{}", rules::GATE_PORT);
+    (addr == loopback && host != "127.0.0.1" && rules::gate_default(host) == loopback).then(|| {
+        format!(
+            "TEHAS_HOST_ADDR is {host}, which the gate cannot listen on; listening on {loopback}, so the edge cannot reach the plugins' views (503)"
+        )
+    })
+}
+
 fn main() {
     if std::env::args().len() > 1 {
         eprintln!("usage: tehas-plugin-gate");
@@ -149,6 +161,33 @@ fn main() {
         eprintln!("tehas-plugin-gate: cannot listen on {addr}: {e}");
         std::process::exit(1);
     });
+    if let Some(why) = fallback(&env("TEHAS_HOST_ADDR"), &addr) {
+        eprintln!("tehas-plugin-gate: {why}");
+    }
     eprintln!("tehas-plugin-gate: listening on {addr}");
     gate::serve(listener, gate, MOST);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fallback;
+
+    #[test]
+    fn the_fallback_to_the_loopback_is_said_with_why() {
+        let line = fallback("0.0.0.0", "127.0.0.1:8095").unwrap();
+        assert_eq!(
+            line,
+            "TEHAS_HOST_ADDR is 0.0.0.0, which the gate cannot listen on; listening on 127.0.0.1:8095, so the edge cannot reach the plugins' views (503)"
+        );
+        assert!(fallback("tehas.example", "127.0.0.1:8095").is_some());
+        // The loopback asked for, or an address the host has: nothing to say.
+        assert_eq!(fallback("127.0.0.1", "127.0.0.1:8095"), None);
+        let private = std::net::Ipv4Addr::new(10, 0, 0, 7);
+        assert_eq!(
+            fallback(&private.to_string(), &format!("{private}:8095")),
+            None
+        );
+        // An address the instance named is its own choice.
+        assert_eq!(fallback("0.0.0.0", &format!("{private}:8095")), None);
+    }
 }

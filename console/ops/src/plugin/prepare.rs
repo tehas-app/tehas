@@ -353,7 +353,9 @@ fn drop_others(x: &mut dyn Exec, name: &str, keep: Option<&str>) {
 
 /// The pin fetched, read, held to its grants and built, as `tehas update`
 /// does it: what it came to, also written to `state.json`. An image of the
-/// commit already built is kept, not built again.
+/// commit already built is kept, not built again. The update takes
+/// [`prepare_view`]; this is the tests' way in.
+#[cfg(test)]
 pub fn prepare(x: &mut dyn Exec, home: &Path, pin: &Pin, grants: Option<&Grants>) -> State {
     prepare_view(x, home, pin, grants).0
 }

@@ -394,7 +394,11 @@ container is the container itself. So the gate listens on the address of
 another (an IPv6 address in brackets, as `[::1]:8095`). The router reaches
 it there with nothing to set. A `TEHAS_HOST_ADDR` the gate may not listen on,
 a host name, `0.0.0.0` or a public address, gives `127.0.0.1:8095`, which
-the router cannot reach: then the plugins' names answer 503.
+the router cannot reach: then the plugins' names answer 503, and the gate
+says so when it starts, in its journal:
+`tehas-plugin-gate: TEHAS_HOST_ADDR is <value>, which the gate cannot listen
+on; listening on 127.0.0.1:8095, so the edge cannot reach the plugins' views
+(503)`.
 
 `router.compose.yaml` passes the address to the router, so restart the router
 after `TEHAS_HOST_ADDR` changes: `. ~/tehas/env.sh` and the `docker compose`
