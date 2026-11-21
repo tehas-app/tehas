@@ -816,7 +816,7 @@ fn open_as(file: &Path, purpose: Purpose, check: bool) -> Result<Connection, DbE
         .parent()
         .and_then(|d| fs::metadata(d).ok())
         .map(|m| m.permissions().mode());
-    let conn = Connection::open_with_flags(
+    let mut conn = Connection::open_with_flags(
         file,
         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
@@ -829,7 +829,7 @@ fn open_as(file: &Path, purpose: Purpose, check: bool) -> Result<Connection, DbE
         )),
         _ => classify(e),
     })?;
-    prepare(&conn, purpose, check)?;
+    prepare(&mut conn, purpose, check)?;
     Ok(conn)
 }
 
@@ -906,12 +906,12 @@ pub fn open_look(file: &Path) -> Result<Connection, DbError> {
 }
 
 fn read_only(file: &Path, purpose: Purpose) -> Result<Connection, DbError> {
-    let conn = Connection::open_with_flags(
+    let mut conn = Connection::open_with_flags(
         file,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .map_err(classify)?;
-    prepare(&conn, purpose, false)?;
+    prepare(&mut conn, purpose, false)?;
     Ok(conn)
 }
 
@@ -956,12 +956,12 @@ pub fn create(file: &Path) -> Result<Connection, DbError> {
                 }
             })?;
     }
-    let conn = Connection::open_with_flags(
+    let mut conn = Connection::open_with_flags(
         file,
         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .map_err(classify)?;
-    prepare(&conn, Purpose::Write, true)?;
+    prepare(&mut conn, Purpose::Write, true)?;
     Ok(conn)
 }
 
@@ -983,7 +983,7 @@ pub fn create(file: &Path) -> Result<Connection, DbError> {
 /// moment SQLite is quiet enough for the hook, and so it opens the file itself and is given this
 /// function rather than a copy of what it says.
 #[cfg(test)]
-pub(crate) fn prepare_of_the_store(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
+pub(crate) fn prepare_of_the_store(conn: &mut Connection, purpose: Purpose) -> Result<(), DbError> {
     prepare(conn, purpose, purpose == Purpose::Write)
 }
 
@@ -993,7 +993,7 @@ thread_local! {
     pub(crate) static QUICK_CHECKS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
-fn prepare(conn: &Connection, purpose: Purpose, check: bool) -> Result<(), DbError> {
+fn prepare(conn: &mut Connection, purpose: Purpose, check: bool) -> Result<(), DbError> {
     conn.busy_handler(Some(handler(purpose)))
         .map_err(classify)?;
     let mode: String = conn
