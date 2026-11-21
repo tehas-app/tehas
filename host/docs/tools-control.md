@@ -293,6 +293,7 @@ tehas plugin review <name> [<commit>] [--json]
 tehas plugin run <name>
 tehas plugin hook <name> <pr>
 tehas plugin log <name> [--hook <pr>]
+tehas plugin check <dir> [--json]
 ```
 
 The plugins of this factory, as its settings set them: each one's pin, what
@@ -354,8 +355,17 @@ the containers, volumes and files a run that died left, and ends its row as
 and its service only while the feature is on, and a first install enables
 the timer.
 
-Plugins are still being built in this release, so every subcommand exits
-78. See the
+`check` reads a plugin's folder on this machine as `review` reads a commit:
+the manifest, its skills' text and the Dockerfile's rules, each ask known and
+not reserved. It needs no instance settings, runs no git or docker and
+reaches no network, so a plugin's author runs it anywhere tehas unpacks, with
+the feature off too. It reads only the folder's regular files, through no
+link. The bases' ONBUILD triggers need a pull, so `check` leaves them to
+`review` and `tehas update` and says so. Exit 0 the folder keeps the rules;
+3 refused, with why, a folder with no manifest among them; 64.
+
+Plugins are still being built in this release, so every subcommand but
+`check` exits 78. See the
 `TEHAS_PLUGIN` rows of
 [the settings table](/tools#instance-settings) and [what the feature leaves
 visible](/contract#plugins).

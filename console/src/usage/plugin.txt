@@ -10,6 +10,7 @@ Usage: tehas plugin [--json]
        tehas plugin run <name>
        tehas plugin hook <name> <pr>
        tehas plugin log <name> [--hook <pr>]
+       tehas plugin check <dir> [--json]
        tehas plugin -h|--help    print this text and exit 0
 
 A plugin is a program from a git repository, pinned by commit. Each one is a
@@ -61,7 +62,14 @@ tehas-plugin-hook@<name>-<pr>.service and waits for nothing.
 log prints the last run's log, at most 1 MiB, as the plugin wrote it: the
 last refresh's, or with --hook the last hook's on that pull request.
 
-Exit: 0 listed, asked, printed, or reviewed and not refused; 1 the fetch,
+check reads a plugin's folder on this machine as review reads a commit: the
+manifest, its skills' text and the Dockerfile's rules, each ask known and not
+reserved. It needs no settings, runs no git or docker, reaches no network
+and works with the feature off. It reads only regular files of the folder,
+through no link. The bases' ONBUILD triggers are left to review and
+tehas update, which pull the bases.
+
+Exit: 0 listed, asked, printed, checked, or reviewed and not refused; 1 the fetch,
 the read, GitHub or systemd failed; 3 refused, with why: for run and hook,
 one is running, the plugin is not ready, or there is no such open bot pull
 request; for log, there is none; 64 a bad argument or a name TEHAS_PLUGINS
