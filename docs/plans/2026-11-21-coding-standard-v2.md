@@ -30,27 +30,22 @@ does neither.
 
 ## Before the fork
 
-1. **Wait for v1.4.0.** The tag is the owner's. This plan stays out of
-   main until then, as a pull request that waits for the tag.
-2. **Land this plan.** Once the tag `v1.4.0` exists:
-   - bring the plan's pull request up to date with main, and let the gate
-     pass;
-   - a person merges it (AGENTS.md rule 9);
-   - nothing else lands between the tag and that merge.
-3. **The owner opens the branch to the gate.** `verify.yml` runs on pull
+1. **Wait for v1.4.0.** The tag is the owner's. This plan is on main
+   already (#2735, merged 2026-11-21), so v1.4.0 carries it.
+2. **The owner opens the branch to the gate.** `verify.yml` runs on pull
    requests into `main` and `release/**` only, and the gate files are
    changed by people (AGENTS.md rule 7). Before the first pull request
    into the branch, the owner either adds `refactor/coding-standard-v2`
    to `verify.yml`'s branches, or names the branch under `release/`.
    Until then, run `scripts/verify.sh` yourself on every pull request
    into the branch, and say so in it.
-4. **The owner stops new work reaching the factory that builds tehas.**
+3. **The owner stops new work reaching the factory that builds tehas.**
    Its queue gets no new tickets while the branch is open.
 
 ## How the work runs
 
-1. **Fork.** Create `refactor/coding-standard-v2` from main at the merge
-   of this plan (v1.4.0 and this file), and push it. Write the fork
+1. **Fork.** Create `refactor/coding-standard-v2` from the commit tagged
+   `v1.4.0`, and push it. Write the fork
    commit in the log at the end of this file.
 2. **Work in pull requests into the branch.** Each step below is one or
    more pull requests whose base is `refactor/coding-standard-v2`, each
@@ -409,4 +404,4 @@ of main, each grade.
 
 | Date | What | Commit or PR |
 | --- | --- | --- |
-| 2026-11-21 | Plan written; the plan waits for v1.4.0 | |
+| 2026-11-21 | Plan written and merged ahead of v1.4.0; the work waits for the tag | #2735 |
