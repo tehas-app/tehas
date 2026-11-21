@@ -6,6 +6,7 @@
 //! `initialize` is answered, then the client's requests carry the header
 //! `MCP-Protocol-Version: 2025-11-25`. No session is kept for either.
 
+use crate::git;
 use crate::keys::{Authenticated, Keys};
 use crate::logs::LogGuard;
 use crate::plugins;
@@ -255,6 +256,20 @@ pub fn answer_in(
                 };
                 return finish(&id, result, modern, &info, None, Some(t.name));
             }
+            if let Some(n) = name.and_then(|n| git::NAMES.into_iter().find(|g| *g == n)) {
+                if git::serves(key.scope(), n) {
+                    let args = params.get("arguments").cloned().unwrap_or(json!({}));
+                    let result = match git::call(n, &args) {
+                        Ok(v) => json!({
+                            "resultType": "complete",
+                            "content": [{"type": "text", "text": v.to_string()}],
+                            "structuredContent": v,
+                        }),
+                        Err(why) => tool_error(&why),
+                    };
+                    return finish(&id, result, modern, &info, None, Some(n.to_string()));
+                }
+            }
             // The line says which tool the request asked for even when the
             // call is refused: the server's own name for one it serves, `?`
             // for a text name it has not, and `-` for a name that is not
@@ -333,9 +348,11 @@ fn finish(
     r
 }
 
-/// The server's tools, then the plugin tools the scope is served.
+/// The server's tools, the checkout's while it has one, then the plugin
+/// tools the scope is served.
 fn with_plugins(own: Value, scope: Scope, broker: Option<&Path>) -> Value {
     let mut all = own.as_array().cloned().unwrap_or_default();
+    all.extend(git::entries(scope));
     all.extend(
         plugins::for_scope(scope, broker)
             .iter()

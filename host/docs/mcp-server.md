@@ -11,7 +11,9 @@ a running cycle's console and the last ten days, as the dashboard shows them,
 one issue's story, and the sessions of the last 30 days and their logs, masked,
 the lines of those logs that hold a string you give, the dispatcher's and
 refresh's events as they are written, why an issue's last stopped run
-stopped, and the dispatcher's last decisions.
+stopped, and the dispatcher's last decisions. With a
+[shared checkout](#the-shared-checkout), it also gives the product's git
+history: its log, a commit and its diff, and who last changed each line.
 See
 [what it shows](#what-it-shows). The server is read only. No tool changes
 anything; pause, limit, drain, labels and retries stay with a person on the
@@ -61,8 +63,11 @@ each given to it read only:
 - `~/tehas/logs/`, where each cycle and planning turn leaves its logs, and
   where the dispatcher and refresh write `dispatch.log` and `refresh.log`.
 
+With `TEHAS_MCP_CHECKOUT` set, it reads a fourth: the
+[shared checkout](#the-shared-checkout), read only.
+
 It reads nothing else on the host and calls nothing: not GitHub, not Docker,
-not git, not a model. Each tool copies only the keys it names from those
+not a model, and no `git` program. It reads the checkout itself. Each tool copies only the keys it names from those
 files. A key the files gain later is not served until a release names it.
 
 On a factory that works on a private repository, a full key gives its holder
@@ -172,7 +177,9 @@ arguments
 (names, not secrets), the salted sums of the host's secret values in
 `TEHAS_MCP_MASK` (not the values) and port 8082 on `TEHAS_HOST_ADDR` (the loopback address
 without it), and nothing else: no Docker socket, no SSH key, no token, nothing from
-`~/.config/tehas` but the keys. It is on a network of its own, `tehas-mcp`,
+`~/.config/tehas` but the keys. With `TEHAS_MCP_CHECKOUT` set, it is also
+given that directory at `/checkout`, read only, and `--checkout /checkout`.
+It is on a network of its own, `tehas-mcp`,
 made without masquerade, so it cannot reach the internet; the host itself is
 still one hop away. The command makes the network, and refuses to start on a
 network of that name that lets the container out. Its image is the Caddy
@@ -192,6 +199,37 @@ The [health file](/tools-health#tehasbot-health) says whether the server answers
 `checks.mcp`: each run of `tehasbot health` sends it a `POST /mcp` with no key
 and expects the 401. A server that is on and does not answer makes `/health`
 `warn`, so a monitor tells a stopped MCP server from a factory that is gone.
+
+## The shared checkout
+
+`TEHAS_MCP_CHECKOUT` names a clone of the product with its whole history, as a
+[host setting](/tools#host-settings) in `~/.config/tehas/env`. Every session
+and every agent on the host reads the same one: there is no clone per session.
+With it set, a full key is served three more tools: `factory_git_log`,
+`factory_git_show` and `factory_git_blame`. A dashboard key is served none of
+them, and without the setting they are not listed.
+
+The server reads the clone with its own git reader, so no program the clone
+names is ever run: no hook, no textconv, no filter, no external diff and no
+fsmonitor, whatever its `.git/config` and `.gitattributes` say. It reads no
+config but the clone's own file, and runs no `git`. A diff is made from the
+files as git stores them.
+
+A path that is no directory stops `tehas mcp` with 78. One that is not a git
+repository with a commit, or is a shallow clone, whose history would stop
+short, stops the server with 78 and one line that names the setting.
+
+Each call opens the clone again, so an answer is of the commit its `HEAD` names
+at that moment. Every answer carries `head`. Something else keeps the clone
+current for now; the server never fetches it.
+
+Commit messages, diffs and lines of code are third-party text, written by
+people and agents. They are masked as a log is, and each answer carries
+`untrusted`, the sentence that says so. An author is named, never an
+address.
+
+On a private repository, a full key gives its holder the repository's code and
+history through these tools. Give one only to someone who may read it.
 
 ## How an agent connects
 
@@ -281,6 +319,9 @@ one; another number is a tool error that says so.
 | `factory_park` | `issue`, an integer from 1 to 999999999 | Why the issue's last stopped work run of the last 30 days stopped: a run whose outcome is `handoff`, `parked`, `failed` or `refused`. `id`, `started`, `ended`, `outcome`, `status`, `exitCode`, `latest` (no later work run of the issue in the window), `latestOutcome` when there is one (the outcome of the issue's newest work run, such as `stopped` for a run interrupted or whose issue closed under it, which is no park), and as the park comment's `tehas:park` marker has them `step`, `kind` (the failure kind), `cap`, `reason` (the park reason), `cause`, `provider` and `sig`, and `forksRefused` and `oomKills` when the container refused a start of a process or had one killed for memory. From the run's `result` log: `result` (`read`, `none`, `gone` or `unreadable`), `errorCode` and `error` when the runner itself stopped, such as a crash, `message`, `causeClass`, `causeReason`, `userAction` and `checks`, the failing check lines, masked, at most 20 of 400 characters each, with `checksCut` when there were more. `days` and `stale` as the session tools. An issue with no stopped run in the window is a tool error that names it |
 | `factory_decisions` | `limit` from 1 to 200, optional (50 without it) | The dispatcher's last decisions, newest last: `decisions`, each with `time`, `decision` (`start`, `skip`, `wait`, `hold`, `drop` or `finish`; a hold is an issue the dispatcher keeps parked without starting it, such as one whose last cycle parked on the same text, or one whose attachment the model cannot read; a drop is a refresh request the dispatcher dropped; a finish is a [finish ask](/api#the-finish-ask) the poll took, opened or refused, with who asked), `issue` as a number and `reason` as the dispatcher logs it, masked and cut to 400 characters; for a start the reason says who started it and how, and for a hold it says why the parked issue does not start. `whole` is true when the read reached the start of the log. They are the last `limit` lines of the log that hold ` start #`, ` skip #`, ` wait #`, ` hold #`, ` drop the refresh of #` or ` finish #` after the time. Only the last 1 MiB of the log is read |
 | `factory_disk` | none | How full this host is and what fills it, as `tehas disk --publish` wrote it: `time` (when the answer was made), `stale` (the reading is more than three hours old, or its time cannot be read), and `filesystems`, one entry per file system the factory cares about - the instance's home, Docker's own directory, `/tmp` and `TEHAS_SCRATCH_DIR` when the instance sets one - each with `paths` (the role of each watched path that stands on it: `home`, `docker`, `tmp` or `scratch`), `mount` (df's name for it, such as `overlay`; left out when df named a device path or another host), `freeBytes` and `totalBytes`. A file system whose figure could not be read has none and carries `why`, with each path in it named by its role: no figure is never published as 0. With `full`, what fills them: `places` (biggest first, each `path`, its path under the instance's home or its name alone when it is outside the home, `bytes` and the `cut` the walk ran out of), `docker` (`state` and `lines`, what `docker system df` said, masked as a log is) and `stoppedContainers`, how many the daemon holds back. The file is written by `tehas disk --publish`, which the cleaner's `tehas-clean.timer` runs every hour after the clean ([`tehas disk`](/tools-status#tehas-disk)), so on a host that runs the timer `time` is under an hour old; a person or a program can ask for a reading at any moment, and `time` says how old the answer is. No file is a tool error that says so, and so is one that is not a whole reading: of another `api`, or with no file system. The server asks the host's disk nothing: no `df`, no `docker`, no walk. See [`tehas disk`](/api#tehas-disk) |
+| `factory_git_log` | all optional: `path` (a path in the repository, relative to its top), `grep` (text the message holds, as given, 1 to 200 characters), `limit` from 1 to 200 (50 without it), `after` (a commit id, from `next`) | Only with a [shared checkout](#the-shared-checkout). The history from `HEAD`, newest first: `commits`, each with `commit`, `parents`, `author` (the name only), `time`, `subject` (cut to 200 characters) and `body` (cut to 4000) when it has one. With `path`, only the commits that changed it; a merge is listed only when it differs from every parent there. `more` is true when there is more, and `next` is the commit to pass as `after`. A walk stops after 20,000 commits, and `next` then says where to go on. `head` and `untrusted` |
+| `factory_git_show` | `commit`, 7 to 40 lowercase hex digits | Only with a shared checkout. One commit: its fields as `factory_git_log` gives them, `files` (each `path` and `change`: `added`, `modified`, `deleted` or `renamed`, at most 500) against its first parent, and `diff`, the unified diff with three lines of context, masked and cut at 64 KiB with `cut: true`. A binary file is `Binary files differ`. An id that names no commit, or more than one, is a tool error; a name such as `HEAD~1` is refused. `head` and `untrusted` |
+| `factory_git_blame` | `path`, and optional `start` and `end` (line numbers from 1) | Only with a shared checkout. Which commit last changed each line of the file at `HEAD`, at most 400 lines from `start`: `lines`, each with `line`, `commit` and `text` (cut to 400 characters), `commits`, each commit once with its `subject`, `author` and `time`, and `total`, the file's lines. A file of more than 2 MiB, a binary file or a path that is no file is a tool error. `head` and `untrusted` |
 | `factory_contractors` | none | Only while [outsource](/outsource) is on: `tehasbot mcp serve` starts the server with `--outsource` then, and without it the tool is not listed and a call of it is an unknown tool. The contractors as `live/contractors.json` has them: `time` (when the factory wrote the list, at a poll), `stale` (more than ten minutes old, or no time that can be read), `counts` (how many contractors are `idle`, `working`, `stopping`, `silent`, `resting`, `draining` and `revoked`, and `outsourced`, how many cycles are on a contractor now) and `contractors`, each with `name`, `status`, `issue` (the issue of the job in its hand), `lastSeenAt`, `jobsDone` and `jobsLost`, and from its last report `image` (the sandbox image's id), `rukas` (the pi-rukas version the image is labelled with), `memMb`, `diskKb` (its free memory and disk) and `reportedAt`, each left out when it did not say. No address and no key. A dashboard key is served it. No file is a tool error that says so |
 
 The links are built from the `repo` the dashboard publishes, and only when it
