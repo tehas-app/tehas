@@ -166,7 +166,7 @@ and the chat says why where the button would be.
 | --- | --- |
 | `id` | `a-z` and `-`, 1 to 16 |
 | `about` | One line, 1 to 120 characters |
-| `params` | A JSON schema: an object, every string with a `maxLength`, every array with `maxItems`, no `$ref`, no pattern of more than 200 characters |
+| `params` | A JSON schema of a closed subset (`type`, `properties`, `required`, `additionalProperties`, `items`, `minItems`, `maxItems`, `minLength`, `maxLength`, `enum`, `const`, `minimum`, `maximum`, `title`, `description`): an object at the top, every string with a `maxLength`, every array with `maxItems`, at most 6 deep and 4 KiB. Any other keyword is refused, `pattern` and `$ref` among them |
 | `timeout` | Seconds, 1 to 10 |
 | `chats` | As for skills |
 
@@ -183,7 +183,7 @@ through `incus exec` with no stdin and no way to place a file
 - The arguments are checked against `params` and are at most 2 KiB.
 - A container from the plugin's image, with v1's arguments for a run of kind
   `call`: no `product`, no `model`, no `net`, `/state` read only, no `/out`,
-  `--pids-limit 64`, and `/tmp` a tmpfs as for every run. The arguments are
+  `--pids-limit 64`, and `/tmp` and `/work` each a tmpfs of 16 MiB. The arguments are
   at `/run/call.json`, read only, beside `/run/context.json`. Its argument
   list is `test/fixtures/argv/plugin-call`.
 - It runs attached, with `--log-driver none`, so nothing of it is kept on the
