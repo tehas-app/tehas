@@ -195,19 +195,18 @@ t_eq "$(runs)" 2
 # them was missing is not replayed where it answers, and a version change
 # counts as another toolchain. The workspace's tests are the step that proves a
 # run happened, so the counts are the runs of cargo, not of the shell suite.
-t_case "a toolchain that gains rustfmt runs the gate again"
+t_case "a toolchain that gains or loses rustfmt or clippy runs the gate again"
 fresh
 t_stub_cargo_versions '-' 'clippy 0.1.79'
 t_eq "$(runs_cargo)" 1
 t_stub_cargo_versions 'rustfmt 1.9.0' 'clippy 0.1.79'
 t_eq "$(runs_cargo)" 2
-
-t_case "a toolchain that gains clippy runs the gate again"
-fresh
-t_stub_cargo_versions 'rustfmt 1.8.0' '-'
-t_eq "$(runs_cargo)" 1
-t_stub_cargo_versions 'rustfmt 1.8.0' 'clippy 0.1.80'
-t_eq "$(runs_cargo)" 2
+t_stub_cargo_versions 'rustfmt 1.9.0' '-'
+t_eq "$(runs_cargo)" 3
+t_stub_cargo_versions 'rustfmt 1.9.0' 'clippy 0.1.80'
+t_eq "$(runs_cargo)" 4
+t_stub_cargo_versions '-' 'clippy 0.1.80'
+t_eq "$(runs_cargo)" 5
 
 t_case "the same toolchain is a kept pass"
 fresh
@@ -218,11 +217,10 @@ t_run "$gate"
 t_eq "$(t_calls cargo | grep -c '^test ')" 0
 t_contains "$t_out" "passed already"
 
-t_case "a version of rustfmt that goes away runs the gate again"
+t_case "a tsc that arrives runs the gate again"
 fresh
-t_stub_cargo_versions 'rustfmt 1.8.0' 'clippy 0.1.79'
 t_eq "$(runs_cargo)" 1
-t_stub_cargo_versions '-' 'clippy 0.1.79'
+t_stub tsc 'echo "Version 7.0.2"'
 t_eq "$(runs_cargo)" 2
 
 t_done
