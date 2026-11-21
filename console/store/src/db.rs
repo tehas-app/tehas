@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 22;
+pub const SCHEMA_VERSION: i64 = 23;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The five tables of section 3.15, the outsource state. Every store of this
@@ -273,6 +273,33 @@ ALTER TABLE plugin_records ADD COLUMN filed_by TEXT;
 /// not pass.
 pub const STEP_22: &str = "
 ALTER TABLE plugin_records ADD COLUMN filed_by_id INTEGER;
+";
+
+/// The step from 22 to 23: a call of a plugin's tool is a run too
+/// (docs/specs/2026-11-21-plugins-v2-chats.md, "A call"). `kind` may say
+/// `call` and `how` `chat`, `mcp` or `host`, and `size` is the bytes of a
+/// call's answer. SQLite cannot change a CHECK in place, so the table is
+/// rebuilt and every row copied, `size` null.
+pub const STEP_23: &str = "
+CREATE TABLE plugin_runs_new (
+  id            INTEGER PRIMARY KEY,
+  plugin        TEXT NOT NULL,
+  plugin_commit TEXT NOT NULL,
+  kind          TEXT NOT NULL CHECK (kind IN ('refresh','hook','call')),
+  how           TEXT NOT NULL CHECK (how IN ('timer','host','action','cycle','chat','mcp')),
+  started_by    TEXT NOT NULL,
+  head          TEXT NOT NULL,
+  started_at    INTEGER NOT NULL,
+  ended_at      INTEGER,
+  result        TEXT CHECK (result IN ('done','failed','timeout','lost')),
+  tokens        INTEGER NOT NULL DEFAULT 0,
+  size          INTEGER
+);
+INSERT INTO plugin_runs_new (id, plugin, plugin_commit, kind, how, started_by, head, started_at, ended_at, result, tokens)
+  SELECT id, plugin, plugin_commit, kind, how, started_by, head, started_at, ended_at, result, tokens FROM plugin_runs;
+DROP TABLE plugin_runs;
+ALTER TABLE plugin_runs_new RENAME TO plugin_runs;
+CREATE INDEX plugin_runs_last ON plugin_runs (plugin, kind, started_at);
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -1200,6 +1227,7 @@ pub fn write_schema(
     tx.execute_batch(STEP_20).map_err(classify)?;
     tx.execute_batch(STEP_21).map_err(classify)?;
     tx.execute_batch(STEP_22).map_err(classify)?;
+    tx.execute_batch(STEP_23).map_err(classify)?;
     let rows = [
         ("schema", SCHEMA_VERSION.to_string()),
         ("created_at", now.to_string()),
@@ -1347,6 +1375,8 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     (21, |c| step(c, 21, STEP_21)),
     // A store at 21 is one this binary wrote before a filer had an id.
     (22, |c| step(c, 22, STEP_22)),
+    // A store at 22 is one this binary wrote before a tool was called.
+    (23, |c| step(c, 23, STEP_23)),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and
