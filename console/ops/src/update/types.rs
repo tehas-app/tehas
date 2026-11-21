@@ -18,9 +18,19 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// The `tsc` the check is written for: the native compiler of the
-/// `typescript` package. CI installs the same version.
-const TSC_VERSION: &str = "7.0.2";
+/// host/versions.env, whose `TSC_VERSION` is the `tsc` the check is written
+/// for: the native compiler of the `typescript` package. CI, the sandbox image
+/// and bootstrap.sh install that version, and `console pins` moves it.
+const VERSIONS: &str = include_str!("../../../../host/versions.env");
+
+/// The pinned version, the last `TSC_VERSION` line of versions.env.
+fn pinned() -> &'static str {
+    VERSIONS
+        .lines()
+        .filter_map(|l| l.strip_prefix("TSC_VERSION="))
+        .next_back()
+        .unwrap_or("")
+}
 
 /// The variable that names the `tsc` to run.
 const TSC_VAR: &str = "TEHAS_TSC";
@@ -124,20 +134,21 @@ fn choose(
     strict: bool,
     version: impl Fn(&Path) -> Result<String, String>,
 ) -> Result<Option<PathBuf>, String> {
+    let want = pinned();
     if let Some(path) = named {
         let v = version(&path).map_err(|e| format!("{TSC_VAR}: {e}"))?;
-        if v != TSC_VERSION {
+        if v != want {
             return Err(format!(
-                "{TSC_VAR} is {}, tsc {v}; the check is written for {TSC_VERSION}",
+                "{TSC_VAR} is {}, tsc {v}; the check is written for {want}",
                 path.display()
             ));
         }
         return Ok(Some(path));
     }
-    let found = on_path.filter(|p| version(p).is_ok_and(|v| v == TSC_VERSION));
+    let found = on_path.filter(|p| version(p).is_ok_and(|v| v == want));
     if found.is_none() && strict {
         return Err(format!(
-            "no tsc {TSC_VERSION}, and CI or TEHAS_TEST_STRICT is set: name it in {TSC_VAR}"
+            "no tsc {want}, and CI or TEHAS_TEST_STRICT is set: name it in {TSC_VAR}"
         ));
     }
     Ok(found)
@@ -244,7 +255,8 @@ fn tsc_or_skip(test: &str) -> Option<PathBuf> {
     let found = find_tsc().unwrap_or_else(|e| panic!("{e}"));
     if found.is_none() {
         let line = format!(
-            "SKIPPED {test}: no tsc {TSC_VERSION}. Name it in {TSC_VAR} or put it on PATH.\n"
+            "SKIPPED {test}: no tsc {}. Name it in {TSC_VAR} or put it on PATH.\n",
+            pinned()
         );
         let _ = std::io::stderr().write_all(line.as_bytes());
     }
@@ -384,7 +396,7 @@ mod tests {
 
     #[test]
     fn a_named_tsc_must_be_the_pinned_version_and_none_fails_only_when_strict() {
-        let pinned = |_: &Path| Ok(TSC_VERSION.to_owned());
+        let pinned = |_: &Path| Ok(super::pinned().to_owned());
         let older = |_: &Path| Ok("5.9.3".to_owned());
         let broken = |_: &Path| Err("no version".to_owned());
         let named = Some(PathBuf::from("/opt/tsc"));
@@ -492,32 +504,59 @@ mod tests {
     }
 
     #[test]
+    fn versions_env_pins_a_version_and_the_sum_of_its_tarball() {
+        let v = pinned();
+        assert_eq!(v.split('.').count(), 3, "TSC_VERSION={v}");
+        assert!(v.split('.').all(|n| n.parse::<u32>().is_ok()), "{v}");
+        let sums: Vec<&str> = VERSIONS
+            .lines()
+            .filter_map(|l| l.strip_prefix("TSC_SHA256="))
+            .collect();
+        assert!(
+            matches!(sums[..], [s] if s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())),
+            "one TSC_SHA256 of 64 hex digits: {sums:?}"
+        );
+    }
+
+    #[test]
     fn ci_installs_the_pinned_tsc_and_names_it() {
         for workflow in WORKFLOWS {
             let text = fs::read_to_string(root().join(workflow)).unwrap();
-            assert!(
-                text.contains(&format!("TSC_VERSION: {TSC_VERSION}\n")),
-                "{workflow} installs another tsc than {TSC_VERSION}"
-            );
-            let at = text.find("TSC_SHA256: ");
-            assert!(at.is_some(), "{workflow} checks its sum");
+            let at = text.find("- name: the type checker the kit passes\n");
+            assert!(at.is_some(), "{workflow} installs tsc");
             // The step, up to the next one.
-            let step = &text[at.unwrap()..];
+            let step = &text[at.unwrap() + 2..];
             let step = &step[..step.find("\n      - name:").unwrap_or(step.len())];
+            // The pin is versions.env's, not one of the workflow's own.
+            assert!(
+                step.contains("\n          . host/versions.env\n"),
+                "{workflow} reads the pin from host/versions.env"
+            );
+            for own in ["TSC_VERSION:", "TSC_SHA256:", "TSC_VERSION=", "TSC_SHA256="] {
+                assert!(!step.contains(own), "{workflow} pins tsc itself: {own}");
+            }
             assert!(
                 step.contains("-o \"$tgz\" --proto '=https' --tlsv1.2 "),
                 "{workflow} fetches it over HTTPS only, TLS 1.2 or later"
             );
+            assert!(
+                step.contains("typescript-linux-x64-$TSC_VERSION.tgz"),
+                "{workflow} fetches the pinned version"
+            );
             // The kept tarball's sum is checked on every run, before tsc is
             // unpacked from it into the job's own temporary directory.
-            let check = step.rfind("sha256sum -c").unwrap_or(usize::MAX);
+            let check = step.rfind("echo \"$TSC_SHA256  $tgz\" | sha256sum -c -");
             let unpack = step.find("tar -xzf \"$tgz\" -C \"$RUNNER_TEMP/tsc\"");
             assert!(
-                unpack.is_some_and(|u| check < u),
+                matches!((check, unpack), (Some(c), Some(u)) if c < u),
                 "{workflow} unpacks tsc each run from a checked tarball"
             );
             assert!(
-                text.contains(&format!("{TSC_VAR}=$bin")),
+                step.contains("test \"$(\"$bin\" --version)\" = \"Version $TSC_VERSION\""),
+                "{workflow} checks the version it unpacked"
+            );
+            assert!(
+                step.contains(&format!("{TSC_VAR}=$bin")),
                 "{workflow} names it in {TSC_VAR}"
             );
         }

@@ -940,7 +940,8 @@ The budgets for new work:
   hashed names a home gets; it also fails when an address under `/fun/` has
   no file.
 - The kit's types are checked by the workspace test `update::types` in
-  `console/ops/src/update/types.rs`. It runs TypeScript's native `tsc` 7.0.2
+  `console/ops/src/update/types.rs`. It runs TypeScript's native `tsc` at
+  `TSC_VERSION` of `host/versions.env` (7.0.2)
   with `--checkJs --strict --noEmit` over the kit's seven modules and
   `test/fixtures/kit-types/uses.js`, which uses the kit as this page says,
   and fails on any error. Each `misuse-*.js` beside it makes one mistake, on
@@ -952,8 +953,8 @@ The budgets for new work:
   used. With neither the test says `SKIPPED` on stderr and passes, except
   when `CI` or `TEHAS_TEST_STRICT` is set to anything, `false` too, where it
   fails, as a missing shellcheck fails the shell tests. The gate's workflows
-  install npm's `@typescript/typescript-linux-x64` 7.0.2, checked by its
-  sha256 on every run, and name it. By hand, in `console/`:
+  install npm's `@typescript/typescript-linux-x64` at that pin, checked by its
+  `TSC_SHA256` on every run, and name it. By hand, in `console/`:
   `TEHAS_TSC=/path/to/tsc cargo test --locked -p tehas-ops update::types`.
   `scripts/verify.sh` prints no line for that skip, and a pass it keeps for
   a tree is run again once a `tsc` arrives or its version changes.
