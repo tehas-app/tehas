@@ -1,6 +1,6 @@
 # Spec: plugins, tools on the MCP server
 
-**Version**: part of the plugin specification 1.3.0, `2026-11-21-plugins-1.0.0.md`.
+**Version**: part of the plugin specification 1.2.0, `2026-11-21-plugins-1.0.0.md`.
 
 **Status**: Draft 2026-11-21. Builds on the v2 chats part,
 `2026-11-21-plugins-v2-chats.md`, and its tools. Nothing here is built, and

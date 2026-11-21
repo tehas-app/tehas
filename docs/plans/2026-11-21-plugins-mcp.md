@@ -1,6 +1,6 @@
 # Plan: plugin tools on the MCP server
 
-The spec is `docs/specs/2026-11-21-plugins-mcp.md`, revision 1.3.0 of the
+The spec is `docs/specs/2026-11-21-plugins-mcp.md`, revision 1.2.0 of the
 plugin specification. This plan says how it is built and in what order.
 
 ## Before it starts
@@ -9,6 +9,7 @@ plugin specification. This plan says how it is built and in what order.
 - v2 Work 4, Tools, has merged: `tool:`, `tehas plugin call`, the call's
   container and `test/fixtures/argv/plugin-call`. pi-rukas-42 owns it. The
   broker reuses that call function, so nothing here starts before it.
+- v2 Work 4 itself waits on the v1 container work, Work 3 (3b is #2674).
 - A tool has answered a chat on a host.
 
 ## Pull requests
