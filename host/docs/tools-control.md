@@ -329,7 +329,8 @@ A run is one container of the plugin's image, started by `tehas-plugin`:
 the arguments of [the security part of the
 spec](https://github.com/tehas-app/tehas/blob/main/docs/specs/2026-11-21-plugins-security.md),
 a row in `plugin_runs`, a clone of the product's mirror at the run's head
-when `product` is granted, the model socket when `model` is, `docker kill` at
+when `product` is granted, the model socket when `model` is (a refresh only:
+a hook gets no model in v1), `docker kill` at
 the manifest's timeout, then `/out` read through the tar reader: a refresh's
 view swapped into `~/tehas/plugins/<name>/view/` with one rename, a hook's
 `/out/_tehas/verdict.json` (`api/plugin-verdict.schema.json`) kept as

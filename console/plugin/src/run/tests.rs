@@ -700,3 +700,49 @@ fn a_view_is_swapped_in_whole() {
     assert_eq!(fs::read_to_string(view.join("b")).unwrap(), "2");
     assert!(!new.exists());
 }
+
+#[test]
+fn images_reach_the_model_only_when_asked_and_granted() {
+    let read = |asks: &str| -> Manifest {
+        tehas_core::plugin::manifest::read(manifest(asks).as_bytes(), "demo").unwrap()
+    };
+    let g = |words: &str| plugin::grants(&format!("{C} {words}")).unwrap();
+    let both = read(r#""model", "model:images""#);
+    assert_eq!(
+        content(&both, &g("model:2000 model:images")),
+        Content::TextAndImages
+    );
+    assert_eq!(content(&both, &g("model:2000")), Content::Text);
+    let text = read(r#""model""#);
+    assert_eq!(content(&text, &g("model:2000 model:images")), Content::Text);
+}
+
+#[test]
+fn a_hook_granted_the_model_gets_no_socket() {
+    let mut h = Fake::new();
+    let w = world(
+        "plugin-run-hook-model",
+        &mut h,
+        "",
+        "model:2000 hook:after:work",
+    );
+    ask_hook_on(&w, &mut h, H);
+    h.tars.insert(
+        "tehas-plugin-demo-7:/out/_tehas".into(),
+        tar(
+            "_tehas",
+            &[("verdict.json", r#"{"verdict": "pass", "summary": "ok"}"#)],
+        ),
+    );
+    let d = prepare::dir(&w.home, "demo").join("run-7");
+    let ctx = std::rc::Rc::new(std::cell::RefCell::new(Value::Null));
+    let seen = ctx.clone();
+    h.on_run = Some(Box::new(move |_| {
+        assert!(!d.join("model").exists(), "no socket's directory");
+        *seen.borrow_mut() =
+            serde_json::from_slice(&fs::read(d.join("context.json")).unwrap()).unwrap();
+    }));
+    assert_eq!(go(&mut h, &w, &hook_ask()), 0);
+    assert_eq!(ctx.borrow().get("model"), None);
+    assert!(!h.argv[0].iter().any(|a| a.contains("dst=/run/tehas")));
+}
