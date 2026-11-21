@@ -358,7 +358,17 @@ mod tests {
         .unwrap();
         assert!(held(&w.home, &w.get()).unwrap().contains("drained"));
         fs::remove_file(w.home.join("state/limit.json")).unwrap();
-        assert_eq!(held(&w.home, &w.get()), None);
+        // The update's lock, given back above, may still be held a moment by
+        // another test's child between its fork and its exec.
+        let mut free = held(&w.home, &w.get());
+        for _ in 0..40 {
+            if free.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            free = held(&w.home, &w.get());
+        }
+        assert_eq!(free, None);
         w.set("TEHAS_PLUGIN", "off");
         h.x.ran.clear();
         assert_eq!(go(&mut h, &w), 0);
@@ -414,8 +424,18 @@ mod tests {
         assert!(!v.exists());
         assert!(runs::hook_request(&w.home, "demo", 42).exists());
         drop(lock);
-        let v = left(&w, H2, VERDICT_DAYS + 1);
-        assert_eq!(go(&mut h, &w), 0);
+        // Another test's child may hold the lock's file a moment between its
+        // fork and its exec, so the tick may see the hook running once more;
+        // each try lays the old verdict down again.
+        let mut v = left(&w, H2, VERDICT_DAYS + 1);
+        for _ in 0..40 {
+            assert_eq!(go(&mut h, &w), 0);
+            if !runs::hook_request(&w.home, "demo", 42).exists() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            v = left(&w, H2, VERDICT_DAYS + 1);
+        }
         assert!(!v.exists());
         assert!(!runs::hook_request(&w.home, "demo", 42).exists());
     }
