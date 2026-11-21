@@ -443,9 +443,10 @@ mod tests {
             ("network create", None),
         ]);
         assert_eq!(
-            install(&mut |args: &[&str]| fake.ask(args), "tehas-previews").as_deref(),
-            Some("The network tehas-previews could not be made; the edge router will not start without it.")
+            install(&mut |args: &[&str]| fake.ask(args), "net").as_deref(),
+            Some("The network net could not be made; the edge router will not start without it.")
         );
+        assert_eq!(fake.calls, [VERSION, INSPECT, CREATE]);
     }
 
     #[test]

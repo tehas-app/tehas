@@ -556,14 +556,21 @@ refuse_home
 # The store's database records which commit of tehas made it, and the pages and
 # the store show the version, both as the console reads them from this tree
 # (console/ops/src/update/tree.rs). Asked before the lock and the first write,
-# so a tree with no commit is refused while nothing has been written.
+# so a tree with no commit is refused while nothing has been written. --check
+# builds nothing, so its console can be older than the tree: it reports that.
 loaded_console=${built_console:-$(_tehas_settings_console)}
-tree=$("$loaded_console" update tree "$root") ||
-  { echo "tehas: the console at $loaded_console could not read the commit of $root; nothing was installed" >&2; exit 1; }
+tree_rc=0
+tree=$("$loaded_console" update tree "$root") || tree_rc=$?
+if [ "$tree_rc" != 0 ] && [ "$check" != 1 ]; then
+  echo "tehas: the console at $loaded_console could not read the commit of $root (status $tree_rc); nothing was installed" >&2
+  exit 1
+fi
 store_commit=$(sed -n 's/^commit //p' <<<"$tree")
 tree_version=$(sed -n 's/^version //p' <<<"$tree")
 store_refusal=""
-if [[ ! $store_commit =~ ^[0-9a-f]{40}$ ]]; then
+if [ "$tree_rc" != 0 ]; then
+  store_refusal="the console at $loaded_console cannot read the commit of $root (status $tree_rc); a real run of install.sh builds the one this tree needs"
+elif [[ ! $store_commit =~ ^[0-9a-f]{40}$ ]]; then
   store_refusal="the commit of $root is not known (no git commit, no COMMIT file with 40 hex digits), and the store records it"
   if [ "$check" != 1 ]; then
     echo "tehas: $store_refusal; nothing was installed" >&2
@@ -1066,7 +1073,10 @@ fi
 # --check, removed by a real run.
 leftovers=()
 [ "$check" != 1 ] || leftovers+=(--check)
-left=$("$loaded_console" update leftovers "${leftovers[@]}" "$TEHAS_HOME") || exit 1
+left_rc=0
+left=$("$loaded_console" update leftovers "${leftovers[@]}" "$TEHAS_HOME") || left_rc=$?
+[ "$left_rc" = 0 ] ||
+  note "note: the console at $loaded_console could not look for what a sandbox build left (status $left_rc)"
 while IFS= read -r line; do
   case $line in
     "") ;;
@@ -1179,7 +1189,8 @@ store_db
 "$loaded_console" update keeps "$TEHAS_HOME" "$TEHAS_WORK_DIR" || exit 1
 
 # The marker a cycle used to leave, state/cycles/<issue>, which nothing reads.
-"$loaded_console" update cycles "$TEHAS_HOME" || exit 1
+"$loaded_console" update cycles "$TEHAS_HOME" ||
+  echo "note: the console at $loaded_console could not take back the markers in $TEHAS_HOME/state/cycles"
 
 # The previews' network keeps a preview from the host: it reaches the router
 # and the other previews and nothing else. The router's compose file names it
@@ -1188,7 +1199,7 @@ store_db
 # the network takes, and what a person is told of one that is not as it should
 # be, is console/ops/src/edge.rs.
 if command -v docker >/dev/null 2>&1; then
-  "$TEHAS_HOME/libexec/console" preview network install tehas-previews 2>/dev/null ||
+  "$TEHAS_HOME/libexec/console" preview network install tehas-previews ||
     note "The network tehas-previews was not made or checked: the console did not answer."
 fi
 
