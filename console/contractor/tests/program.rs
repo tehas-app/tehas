@@ -28,8 +28,19 @@ use tehas_proxy::serve::{self, Serve};
 const CODE: &str = "printed-code-of-box1";
 const CYCLE_TOKEN: &str = "ghs_cycle_token_of_the_factory";
 
+/// A call of the factory's store, on a thread of its own: one that has not
+/// answered within `BOUND` fails the test instead of holding the gate.
 fn call(home: &Path, args: &[&str]) -> Value {
-    let text = store::call(home, args, &mut std::io::empty())
+    let (tx, rx) = mpsc::channel();
+    let home = home.to_path_buf();
+    let asked: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+    std::thread::spawn(move || {
+        let asked: Vec<&str> = asked.iter().map(String::as_str).collect();
+        let _ = tx.send(store::call(&home, &asked, &mut std::io::empty()));
+    });
+    let text = rx
+        .recv_timeout(BOUND)
+        .unwrap_or_else(|e| panic!("{args:?}: no answer within {BOUND:?}: {e}"))
         .unwrap_or_else(|e| panic!("{args:?}: {e:?}"));
     serde_json::from_str(&text).unwrap()
 }
@@ -188,8 +199,14 @@ fn drained(rx: &mpsc::Receiver<Vec<u8>>, until: Instant) -> Vec<u8> {
 /// Run `cmd` to its end, in a process group of its own, for at most `bound`.
 /// When `done` says so, the group is killed and the run counts as ended. A
 /// run that outlives its bound is killed with its group and fails the test,
-/// so a stuck program fails the gate instead of holding it.
-fn bounded(cmd: &mut Command, bound: Duration, mut done: impl FnMut() -> bool) -> Output {
+/// so a stuck program fails the gate instead of holding it. `done` is asked
+/// on a thread of its own, so a check that never answers cannot hold the
+/// bound off.
+fn bounded(
+    cmd: &mut Command,
+    bound: Duration,
+    mut done: impl FnMut() -> bool + Send + 'static,
+) -> Output {
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -204,12 +221,19 @@ fn bounded(cmd: &mut Command, bound: Duration, mut done: impl FnMut() -> bool) -
     };
     let out = drain(child.stdout.take());
     let err = drain(child.stderr.take());
+    let (tx, said) = mpsc::channel();
+    // Ends with the first answer after `bounded` has returned.
+    std::thread::spawn(move || {
+        while tx.send(done()).is_ok() {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    });
     let began = Instant::now();
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() {
             break status;
         }
-        if done() {
+        if said.try_iter().any(|done| done) {
             std::thread::sleep(Duration::from_millis(300));
             break kill(&mut child);
         }
@@ -269,6 +293,29 @@ fn a_run_that_outlives_its_bound_is_killed_with_its_group_and_fails() {
 }
 
 #[test]
+fn a_run_whose_check_never_answers_is_still_killed_at_its_bound_and_fails() {
+    let d = TestDir::new("contractor-stuck-check");
+    let pid = d.path().join("pid");
+    let mut cmd = Command::new("sh");
+    cmd.arg("-c")
+        .arg(format!("echo $$ >{}; exec sleep 30", pid.display()));
+    let began = Instant::now();
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        bounded(&mut cmd, Duration::from_secs(1), || loop {
+            std::thread::park();
+        })
+    }));
+    assert!(failed.is_err(), "a stuck run passed");
+    assert!(began.elapsed() < Duration::from_secs(10));
+    let pid = fs::read_to_string(&pid).unwrap();
+    let since = Instant::now();
+    while !gone(pid.trim()) {
+        assert!(since.elapsed() < Duration::from_secs(5), "{pid} lives");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
 fn a_run_whose_leftover_holds_its_pipes_still_ends() {
     let d = TestDir::new("contractor-leftover");
     let pid = d.path().join("pid");
@@ -296,7 +343,7 @@ fn a_run_its_caller_ends_is_killed_and_returns_what_it_printed() {
             .arg("-c")
             .arg("echo started >&2; exec sleep 30"),
         Duration::from_secs(20),
-        || {
+        move || {
             asked += 1;
             asked > 3
         },
@@ -957,6 +1004,7 @@ echo 0 >"$TEHAS_HOME/state/cycles/7.runner_exit"
             seen = seen.display()
         ),
     );
+    let factory = factory.to_path_buf();
     // A job that does not start never runs the stub, which would drain: the
     // run is ended once the factory has the job back.
     let out = bounded(
@@ -977,7 +1025,7 @@ echo 0 >"$TEHAS_HOME/state/cycles/7.runner_exit"
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_NOSYSTEM", "1"),
         BOUND,
-        || call(factory, &["job-show", "--job", "1"])["state"] == "released",
+        move || call(&factory, &["job-show", "--job", "1"])["state"] == "released",
     );
     (
         out.status.code(),
