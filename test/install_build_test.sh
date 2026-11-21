@@ -108,10 +108,10 @@ t_eq "$t_rc" 0
 # Not a repository of its own: no version, and the pages show none.
 t_eq "$(find "$th/docs" "$th/fun" -name version.txt | wc -l)" 0
 commit() { git -C "$tagged" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m "$1"; }
+# What the version is, from git or a release's VERSION, is the console's
+# (console/ops/src/update/tree.rs): here, that it reaches the pages.
 git init -q -b main "$tagged"
 commit first
-t_run "$tagged/install.sh"
-t_eq "$(cat "$th/docs/version.txt")" "$(git -C "$tagged" rev-parse --short=7 HEAD)"
 git -C "$tagged" tag v9.8.7
 commit second
 t_run "$tagged/install.sh"
