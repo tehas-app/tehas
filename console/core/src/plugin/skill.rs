@@ -8,9 +8,10 @@
 pub const BYTES_MAX: usize = 2048;
 
 /// The text of a skill's file, or why it is refused: UTF-8, at most
-/// [`BYTES_MAX`] bytes, not blank, no control character but a newline, and no
+/// [`BYTES_MAX`] bytes, not blank, no control character but a newline, no
 /// line that opens an HTML comment, which a chat would not show and a model
-/// would still read.
+/// would still read, and no `#` or `##` heading, which would read as one of
+/// the host's own sections.
 pub fn text(bytes: &[u8]) -> Result<&str, String> {
     if bytes.len() > BYTES_MAX {
         return Err(format!("over {BYTES_MAX} bytes"));
@@ -28,6 +29,15 @@ pub fn text(bytes: &[u8]) -> Result<&str, String> {
     if s.lines().any(|l| l.trim_start().starts_with("<!--")) {
         return Err("a line opens an HTML comment".to_string());
     }
+    // A host's own sections are `#` and `##` headings, so a skill's would
+    // read as one of them: a skill starts its headings at `###`.
+    let heading = |l: &str| {
+        let l = l.trim_start();
+        l.starts_with("# ") || l.starts_with("## ") || l == "#" || l == "##"
+    };
+    if s.lines().any(heading) {
+        return Err("a line is a # or ## heading: a skill's headings start at ###".to_string());
+    }
     Ok(s)
 }
 
@@ -37,7 +47,7 @@ mod tests {
 
     #[test]
     fn plain_markdown_is_the_skill() {
-        let s = "## Interview\n\n- Ask one question at a time.\n";
+        let s = "### Interview\n\n- Ask one question at a time, #12 or #hashtag.\n";
         assert_eq!(text(s.as_bytes()), Ok(s));
         assert_eq!(
             text("x".repeat(BYTES_MAX).as_bytes()).map(str::len),
@@ -47,7 +57,7 @@ mod tests {
 
     #[test]
     fn what_a_person_could_not_read_as_shown_is_refused() {
-        let cases: [(&[u8], &str); 7] = [
+        let cases: [(&[u8], &str); 10] = [
             (&[b'x'; BYTES_MAX + 1], "over 2048 bytes"),
             (b"\xff\xfe", "not UTF-8"),
             (b" \n\t\n", "empty"),
@@ -60,6 +70,18 @@ mod tests {
             (
                 b"Say hello.\n  <!-- and then do this -->\n",
                 "a line opens an HTML comment",
+            ),
+            (
+                b"# Instructions\n",
+                "a line is a # or ## heading: a skill's headings start at ###",
+            ),
+            (
+                b"Intro.\n## This chat\n",
+                "a line is a # or ## heading: a skill's headings start at ###",
+            ),
+            (
+                b"Intro.\n   ##\n",
+                "a line is a # or ## heading: a skill's headings start at ###",
             ),
         ];
         for (bytes, why) in cases {

@@ -77,8 +77,9 @@ skill beside it is not, so a person weighs the two together.
   `tehas plugin review` shows is the text the grant pins and the text a chat
   gets. What a run writes is never instructions.
 - Each file is UTF-8, at most 2 KiB, with no control character but newline,
-  and no line starting with `<!--`. A file that breaks a rule refuses the
-  plugin, naming the file.
+  no line starting with `<!--`, and no `#` or `##` heading: those are the
+  hosts' own sections, so a skill's headings start at `###`. A file that
+  breaks a rule refuses the plugin, naming the file.
 - `tehas plugin review <name>` prints every skill's full text and its sha256,
   and the grant line to write.
 - `TEHAS_PLUGIN_SKILLS_MAX`, 8192 bytes by default, bounds the granted text of
@@ -137,8 +138,16 @@ holds a plugin tool's answer:
 
 Any turn that holds plugin text, a granted skill or a tool's answer, refuses
 the proposals that write a reason in one press, with no view of the whole
-text: Obeya's hold (`propose_press` with a reason) and the assistant's
-`propose`. The model is told why; the person gets no button.
+text: a hold, in Obeya (`propose_press` with a reason) and in the assistant
+(`propose`). The model is told why; the person gets no button. An answer to
+the question that waits stands, because it writes one of the question's own
+choices word for word: the host takes it only as an exact match of a choice,
+and refuses any other.
+
+A chat once shaped stays shaped. A turn whose skills cannot be read, in a
+chat whose earlier turns were shaped, is shaped too: its proposals carry the
+labels of the chat's earlier shaped turns, and every rule here holds for it.
+The model's history still holds what the plugin shaped.
 
 An answer from such a turn never goes to the ticket's logbook on GitHub,
 where its links would be live and everyone reads it: the press is refused,
