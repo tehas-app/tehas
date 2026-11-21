@@ -1,6 +1,7 @@
-# The plugins' program (docs/specs/2026-11-21-plugins-security.md): for now
-# the model socket of a run, as a library. Its commands come later. A member
-# of the workspace in ../Cargo.toml.
+# The plugins' programs (docs/specs/2026-11-21-plugins-security.md): the
+# model socket of a run, as a library, and the gate of the views,
+# tehas-plugin-gate (docs/specs/2026-11-21-plugins-web.md). A member of the
+# workspace in ../Cargo.toml.
 [package]
 name = "tehas-plugin"
 version = "0.1.0"
@@ -17,6 +18,12 @@ path = "src/lib.rs"
 name = "tehas-plugin"
 path = "src/main.rs"
 
+[[bin]]
+name = "tehas-plugin-gate"
+path = "src/gate_main.rs"
+
 [dependencies]
 serde_json = "1"
+# The hashes of a page's inline blocks, and of the hand-off's nonce.
+sha2 = "0.10"
 tehas-core = { path = "../core" }

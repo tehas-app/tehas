@@ -3,5 +3,6 @@
 //! rule of it.
 
 pub mod day;
+pub mod gate;
 pub mod model;
 pub mod upstream;
