@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
-use work::{has, World, A, F, PNG, WANT};
+use work::{absent, has, World, A, F, PNG, WANT};
 
 const SPEC: &str = "# Faster search\n\nR1: under 100 ms.\n";
 const TITLE: &str = "Faster search";
@@ -113,7 +113,7 @@ fn with_the_feature_off_a_pinned_spec_is_not_fetched_and_the_cycle_is_given_noth
     let r = w.work7();
     assert_eq!(r.rc, 2, "{}", r.out);
     assert_eq!(w.calls("curl"), "");
-    assert!(!w.imgs.exists());
+    assert!(absent(&w.imgs));
     assert_eq!(sorted(w.after("-v")), sorted(lines(&w.mounts_off())));
     assert_eq!(sorted(names(w.after("-e"))), sorted(lines(WANT)));
 }
@@ -147,7 +147,7 @@ fn with_the_feature_on_a_runner_that_does_not_read_the_spec_starts_nothing_78_na
     has(&r.out, "the feature issueSpec");
     assert_eq!(w.calls("curl"), "");
     assert!(w.cycle_args().is_empty());
-    assert!(!w.imgs.exists());
+    assert!(absent(&w.imgs));
 }
 
 #[test]
@@ -229,7 +229,7 @@ fn with_the_feature_on_a_spec_whose_bytes_changed_since_the_approval_starts_noth
     let r = w.work7();
     assert_eq!(r.rc, 4, "{}", r.out);
     assert_eq!(docker_runs(&w), 0);
-    assert!(!w.imgs.exists());
+    assert!(absent(&w.imgs));
     has(
         &r.out,
         "tehas work: the bytes of its spec are not the ones approved: they have sha256",
@@ -318,5 +318,5 @@ fn with_the_feature_on_a_run_by_hand_is_its_own_approval_and_is_handed_nothing()
     let r = w.work7();
     assert_eq!(r.rc, 2, "{}", r.out);
     assert_eq!(w.calls("curl"), "");
-    assert!(!w.imgs.exists());
+    assert!(absent(&w.imgs));
 }
