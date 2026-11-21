@@ -188,6 +188,8 @@ pub enum Cap {
     Skill(String),
     /// Another plugin this one needs, and its skills (the v3 part).
     Needs(String),
+    /// Image parts in the run's model requests (the v3 part).
+    ModelImages,
 }
 
 impl Cap {
@@ -201,6 +203,7 @@ impl Cap {
             Cap::HookAfterWork => "hook:after:work".to_string(),
             Cap::Skill(id) => format!("skill:{id}"),
             Cap::Needs(name) => format!("needs:{name}"),
+            Cap::ModelImages => "model:images".to_string(),
         }
     }
 
@@ -238,6 +241,9 @@ fn cap(word: &str, granted: bool) -> Result<(Cap, Option<u64>), String> {
         } else {
             Ok((Cap::Model, None))
         };
+    }
+    if word == "model:images" {
+        return Ok((Cap::ModelImages, None));
     }
     if let Some(tokens) = word.strip_prefix("model:") {
         if !granted {
@@ -627,6 +633,17 @@ mod tests {
         for (line, why) in cases {
             assert_eq!(grants(&format!("{C} {line}")).unwrap_err(), why, "{line}");
         }
+    }
+
+    #[test]
+    fn model_images_is_its_own_grant_beside_the_tokens() {
+        let g = grants(&format!("{C} model:2000000 model:images")).unwrap();
+        assert_eq!(g.caps, [Cap::Model, Cap::ModelImages]);
+        assert_eq!(g.tokens, Some(2_000_000));
+        assert_eq!(ask("model:images"), Ok(Cap::ModelImages));
+        assert_eq!(Cap::ModelImages.ask(), "model:images");
+        assert!(Cap::ModelImages.needs_run());
+        assert!(grants(&format!("{C} model:images model:images")).is_err());
     }
 
     #[test]

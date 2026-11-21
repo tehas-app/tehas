@@ -851,3 +851,169 @@ fn a_request_after_the_stop_is_not_sent() {
     assert!(UnixStream::connect(&path).is_err());
     assert!(up.seen().is_empty());
 }
+
+fn b64_encode(bytes: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, &b)| n | (u32::from(b) << (16 - 8 * i)));
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+const JPEG: &[u8] = b"\xff\xd8\xff\xe0\0\x10JFIF\0";
+const WEBP: &[u8] = b"RIFF\x24\0\0\0WEBPVP8 ";
+
+fn image(kind: &str, bytes: &[u8]) -> Value {
+    json!({"type": "image_url", "image_url": {"url": format!("data:{kind};base64,{}", b64_encode(bytes))}})
+}
+
+fn asking(parts: Vec<Value>) -> Vec<u8> {
+    let mut content = vec![json!({"type": "text", "text": "what differs?"})];
+    content.extend(parts);
+    with("messages", json!([{ "role": "user", "content": content }]))
+        .to_string()
+        .into_bytes()
+}
+
+fn checked(body: &[u8], content: Content) -> Result<(), String> {
+    check(body, ID, OWN, content).map(|_| ())
+}
+
+#[test]
+fn base64_reads_back_its_length_and_its_first_bytes() {
+    for bytes in [&b"a"[..], b"ab", b"abc", PNG, WEBP] {
+        let s = b64_encode(bytes);
+        assert_eq!(base64_len(&s), Some(bytes.len()), "{s}");
+        let n = bytes.len().min(12);
+        assert_eq!(base64_head(&s).unwrap()[..n], bytes[..n], "{s}");
+    }
+    for bad in ["", "abc", "ab=c", "a===", "ab!d"] {
+        assert_eq!(base64_len(bad), None, "{bad}");
+    }
+}
+
+#[test]
+fn with_model_images_a_request_carries_png_jpeg_or_webp_in_data_urls() {
+    let parts = vec![
+        image("image/png", PNG),
+        image("image/jpeg", JPEG),
+        image("image/webp", WEBP),
+    ];
+    assert_eq!(
+        checked(&asking(parts.clone()), Content::TextAndImages),
+        Ok(())
+    );
+    let mut detail = image("image/png", PNG);
+    detail["image_url"]["detail"] = json!("low");
+    assert_eq!(
+        checked(&asking(vec![detail]), Content::TextAndImages),
+        Ok(())
+    );
+    // Without the grant the same request is refused, as before.
+    assert_eq!(
+        checked(&asking(parts), Content::Text).unwrap_err(),
+        "content parts must be of type text"
+    );
+}
+
+#[test]
+fn an_image_is_never_an_address_and_is_what_its_type_says() {
+    let url = |u: &str| json!({"type": "image_url", "image_url": {"url": u}});
+    let mut bad_detail = image("image/png", PNG);
+    bad_detail["image_url"]["detail"] = json!("max");
+    let mut extra = image("image/png", PNG);
+    extra["image_url"]["name"] = json!("x");
+    let cases: Vec<(Value, &str)> = vec![
+        (
+            url("https://example.com/a.png"),
+            "an image is a data: URL, never an address",
+        ),
+        (
+            url("http://127.0.0.1/a.png"),
+            "an image is a data: URL, never an address",
+        ),
+        (
+            url("data:image/png,raw"),
+            "an image is base64 in a data: URL",
+        ),
+        (
+            image("image/gif", b"GIF89a"),
+            "an image is image/png, image/jpeg or image/webp",
+        ),
+        (
+            image("image/png", JPEG),
+            "the image's bytes are not image/png",
+        ),
+        (
+            image("image/webp", b"RIFF\0\0\0\0AVI LIST"),
+            "the image's bytes are not image/webp",
+        ),
+        (
+            url("data:image/png;base64,iVBO!"),
+            "an image's data is not base64",
+        ),
+        (bad_detail, "detail must be auto, low or high"),
+        (extra, "the field name is not allowed"),
+        (
+            json!({"type": "file", "file": {}}),
+            "a content part must be text or an image_url",
+        ),
+    ];
+    for (part, why) in cases {
+        assert_eq!(
+            checked(&asking(vec![part.clone()]), Content::TextAndImages).unwrap_err(),
+            why,
+            "{part}"
+        );
+    }
+}
+
+#[test]
+fn images_are_at_most_four_of_four_mib_and_only_they_open_the_larger_body() {
+    let five = vec![image("image/png", PNG); MAX_IMAGES + 1];
+    assert_eq!(
+        checked(&asking(five), Content::TextAndImages).unwrap_err(),
+        format!("at most {MAX_IMAGES} image parts in a request")
+    );
+    let mut big = PNG.to_vec();
+    big.resize(MAX_IMAGE + 1, 0);
+    assert_eq!(
+        checked(
+            &asking(vec![image("image/png", &big)]),
+            Content::TextAndImages
+        )
+        .unwrap_err(),
+        format!("an image is at most {MAX_IMAGE} bytes")
+    );
+    // An image of 3 MiB makes a body over 1 MiB, which the grant allows.
+    let mut large = PNG.to_vec();
+    large.resize(3 << 20, 0);
+    let body = asking(vec![image("image/png", &large)]);
+    assert!(body.len() > MAX_BODY);
+    assert_eq!(checked(&body, Content::TextAndImages), Ok(()));
+    // Text alone over 1 MiB is refused even with the grant.
+    let text = with(
+        "messages",
+        json!([{ "role": "user", "content": "x".repeat(MAX_BODY) }]),
+    )
+    .to_string()
+    .into_bytes();
+    assert_eq!(
+        checked(&text, Content::TextAndImages).unwrap_err(),
+        format!("a request with no image part is at most {MAX_BODY} bytes")
+    );
+    assert_eq!(Content::TextAndImages.max_body(), MAX_BODY_IMAGES);
+    assert_eq!(Content::Text.max_body(), MAX_BODY);
+}
