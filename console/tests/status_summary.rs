@@ -329,6 +329,7 @@ fn status_no_hold_on_refreshes_no_line_and_no_field() {
     lacks(&r.out, "refresh   ");
     let r = w.summary(&["--json"]);
     let d = &json_of(&r)["demand"];
+    assert!(d.is_object(), "{d}");
     assert!(d.get("refreshHold").is_none(), "{d}");
     assert!(d.get("labelAlone").is_none(), "{d}");
 }
