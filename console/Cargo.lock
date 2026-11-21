@@ -643,6 +643,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tehas-plugin"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tehas-core",
+]
+
+[[package]]
 name = "tehas-proxy"
 version = "0.1.0"
 dependencies = [
