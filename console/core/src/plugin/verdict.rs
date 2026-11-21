@@ -3,7 +3,8 @@
 //! reader took it: api/plugin-verdict.schema.json. A verdict that breaks it is
 //! a hook that did not finish.
 
-use serde_json::{Map, Value};
+use crate::grammar::commit_id;
+use serde_json::{json, Map, Value};
 
 /// The most bytes of the file.
 pub const BYTES_MAX: u64 = 64 << 10;
@@ -112,6 +113,81 @@ pub fn read(bytes: &[u8]) -> Result<Verdict, String> {
     })
 }
 
+impl Verdict {
+    pub fn json(&self) -> Value {
+        let word = match self.verdict {
+            Word::Pass => "pass",
+            Word::Note => "note",
+        };
+        let findings: Vec<Value> = self
+            .findings
+            .iter()
+            .map(|f| {
+                let mut o = json!({"text": f.text});
+                if let Some(file) = &f.file {
+                    o["file"] = json!(file);
+                }
+                if let Some(line) = f.line {
+                    o["line"] = json!(line);
+                }
+                o
+            })
+            .collect();
+        json!({"verdict": word, "summary": self.summary, "findings": findings})
+    }
+}
+
+/// `hooks/<pr>.verdict.json`: the end of a hook, which the runner writes and
+/// the gate's page reads. It holds a verdict only when `result` is `done`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct End {
+    pub pr: u64,
+    pub head: String,
+    /// `done`, `failed` or `timeout`.
+    pub result: String,
+    pub verdict: Option<Verdict>,
+}
+
+impl End {
+    pub fn json(&self) -> Value {
+        json!({
+            "api": 1,
+            "pr": self.pr,
+            "head": self.head,
+            "result": self.result,
+            "verdict": self.finished().map(Verdict::json),
+        })
+    }
+
+    /// The file's bytes as an end, or None.
+    pub fn read(bytes: &[u8]) -> Option<End> {
+        let v: Value = serde_json::from_slice(bytes).ok()?;
+        if v.get("api")? != 1 {
+            return None;
+        }
+        let head = v.get("head")?.as_str().filter(|c| commit_id(c))?;
+        let result = v.get("result")?.as_str()?;
+        if !matches!(result, "done" | "failed" | "timeout") {
+            return None;
+        }
+        let verdict = match v.get("verdict")? {
+            Value::Null => None,
+            o => Some(read(o.to_string().as_bytes()).ok()?),
+        };
+        Some(End {
+            pr: v.get("pr")?.as_u64().filter(|n| *n > 0)?,
+            head: head.to_string(),
+            result: result.to_string(),
+            verdict: verdict.filter(|_| result == "done"),
+        })
+    }
+
+    /// The verdict, when the hook finished with one.
+    pub fn finished(&self) -> Option<&Verdict> {
+        self.verdict.as_ref().filter(|_| self.result == "done")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,5 +257,41 @@ mod tests {
         assert!(reads(&up).is_err());
         assert!(read(&vec![b' '; (BYTES_MAX + 1) as usize]).is_err());
         assert_eq!(read(b"{"), Err("not JSON".to_string()));
+    }
+
+    const H: &str = "89abcdef0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn an_end_reads_back_as_it_was_written() {
+        let v = reads(&api("plugin-verdict.note.json")).unwrap();
+        let end = End {
+            pr: 42,
+            head: H.into(),
+            result: "done".into(),
+            verdict: Some(v.clone()),
+        };
+        assert_eq!(
+            End::read(end.json().to_string().as_bytes()),
+            Some(end.clone())
+        );
+        assert_eq!(end.finished(), Some(&v));
+        let failed = End {
+            result: "failed".into(),
+            verdict: None,
+            ..end.clone()
+        };
+        assert_eq!(
+            End::read(failed.json().to_string().as_bytes()),
+            Some(failed.clone())
+        );
+        assert_eq!(failed.finished(), None);
+        for bad in [
+            json!({"api": 1, "pr": 42, "head": "x", "result": "done", "verdict": null}),
+            json!({"api": 1, "pr": 42, "head": H, "result": "lost", "verdict": null}),
+            json!({"api": 1, "pr": 42, "head": H, "result": "done", "verdict": {"verdict": "ok"}}),
+            json!({"verdict": "note", "summary": "flat", "findings": []}),
+        ] {
+            assert_eq!(End::read(bad.to_string().as_bytes()), None, "{bad}");
+        }
     }
 }
