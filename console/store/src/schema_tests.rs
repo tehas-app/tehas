@@ -135,11 +135,16 @@ fn step_sql(to: i64) -> &'static str {
         16 => db::STEP_16,
         17 => db::STEP_17,
         18 => db::STEP_18,
+        19 => db::STEP_19,
         _ => unreachable!("no step to {to}"),
     }
 }
 
 /// Every table but meta, with its rows, in rowid order.
+/// A table a store gains from the step to 19, which older stores lack: it is
+/// left out of the rows a step keeps while it has none.
+const LATER: [&str; 1] = ["plugin_records"];
+
 fn rows(c: &Connection) -> Vec<(String, usize)> {
     tables(c)
         .into_iter()
@@ -148,6 +153,7 @@ fn rows(c: &Connection) -> Vec<(String, usize)> {
             let n = dump(c, &t, &columns(c, &t)).len();
             (t, n)
         })
+        .filter(|(t, n)| !(LATER.contains(&t.as_str()) && *n == 0))
         .collect()
 }
 
@@ -268,14 +274,16 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_18() {
-    assert_eq!(db::SCHEMA_VERSION, 18);
-    let home = home("schema-18");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 18);
+fn init_writes_schema_19() {
+    assert_eq!(db::SCHEMA_VERSION, 19);
+    let home = home("schema-19");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 19);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "18"
+        "19"
     );
+    // Schema 19: a plugin's records, none until a plugin keeps one.
+    assert_eq!(count(&home, "plugin_records"), 0);
     // The five tables of the feature are laid by every init, and stay empty
     // while it is off.
     for t in db::OUTSOURCE_TABLES {
@@ -366,7 +374,7 @@ fn the_fixtures_are_the_stores_of_the_releases() {
 }
 
 #[test]
-fn a_store_of_each_release_1_0_updates_from_comes_to_18_with_every_row() {
+fn a_store_of_each_release_1_0_updates_from_comes_to_19_with_every_row() {
     let made = home("init-shape");
     let b = conn(&made);
     for (version, schema, _) in RELEASES {
@@ -446,7 +454,7 @@ fn a_store_of_each_release_1_0_updates_from_comes_to_18_with_every_row() {
 /// and a stop inside a step leaves it where the step began. Either way the
 /// next migrate goes on from there to the schema init writes, with every row.
 #[test]
-fn a_migrate_stopped_at_any_step_comes_to_18_when_it_runs_again() {
+fn a_migrate_stopped_at_any_step_comes_to_19_when_it_runs_again() {
     let made = home("stopped-shape");
     let b = conn(&made);
     for (version, schema, _) in RELEASES {
@@ -836,7 +844,7 @@ fn the_step_from_17_keeps_the_token_hash_as_the_job_scope() {
         .unwrap();
     let before = rows(&conn(&home));
     migrate(&home).unwrap();
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 18);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
     assert_eq!(rows(&conn(&home)), before);
     assert_eq!(
         count(
@@ -949,7 +957,7 @@ fn a_migrated_store_with_the_feature_off_writes_no_outsource_row() {
 const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 /// The sources of the verbs, without their tests.
-const VERB_SOURCES: [(&str, &str); 21] = [
+const VERB_SOURCES: [(&str, &str); 22] = [
     ("approval.rs", include_str!("approval.rs")),
     ("batch.rs", include_str!("batch.rs")),
     ("call.rs", include_str!("call.rs")),
@@ -967,6 +975,7 @@ const VERB_SOURCES: [(&str, &str); 21] = [
     ("park.rs", include_str!("park.rs")),
     ("plan.rs", include_str!("plan.rs")),
     ("poll.rs", include_str!("poll.rs")),
+    ("record.rs", include_str!("record.rs")),
     ("review_issue.rs", include_str!("review_issue.rs")),
     ("say.rs", include_str!("say.rs")),
     ("upkeep.rs", include_str!("upkeep.rs")),
