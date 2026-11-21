@@ -142,7 +142,7 @@ scripts/verify.sh            # the lint, shellcheck, the shell tests, the worksp
 scripts/verify.sh --full     # plus the workspace's format and lints (rustfmt, clippy); a missing node fails
 ```
 
-The gate needs bash, git, jq, shellcheck and cargo; the full gate also needs
+The gate needs bash, git, jq, shellcheck, curl and cargo; the full gate also needs
 node. It uses no network and no sandbox image, except that cargo fetches the
 workspace's crates the first time. A Rust test makes its scratch
 directories with `tehas_core::testdir::TestDir`, which removes them when the

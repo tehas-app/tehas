@@ -873,6 +873,7 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
             };
             gives::issue_images(f.home, n, f.dir, word, f.record, answer)
                 .and_then(|()| gives::changed(f.home, f.kept, f.dir))
+                .and_then(|()| gives::plugin_files(f.home, n, f.dir, f.record, answer))
         }
     };
     if let Err(why) = ok {

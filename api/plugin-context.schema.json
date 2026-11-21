@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tehas-app/tehas/api/plugin-context.schema.json",
   "title": "/run/context.json",
-  "description": "What a plugin's run is told, in the file /run/context.json of its container, read only. Plugins are a feature still being built, so this is not contract until the release that ships them. It names nothing of a person, and nothing of a capability the run is not given: head with product, model with model, pr in a hook. The writer is console/core/src/plugin/run.rs; its tests hold what it writes to this schema.",
+  "description": "What a plugin's run is told, in the file /run/context.json of its container, read only. Plugins are a feature still being built, so this is not contract until the release that ships them. It names nothing of a person, and nothing of a capability the run is not given: head with product, model with model in a refresh only (a hook has no model in v1), pr in a hook. The writer is console/core/src/plugin/run.rs; its tests hold what it writes to this schema.",
   "type": "object",
   "required": ["kind", "trigger", "commit"],
   "additionalProperties": false,
@@ -34,6 +34,7 @@
     }
   },
   "dependentSchemas": {
-    "pr": {"properties": {"kind": {"const": "hook"}}}
+    "pr": {"properties": {"kind": {"const": "hook"}}},
+    "model": {"properties": {"kind": {"const": "refresh"}}}
   }
 }

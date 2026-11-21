@@ -205,10 +205,20 @@ jobs:
     # [self-hosted, kani]: a runner of its own, since the proofs are long and
     # heavy on memory and should not hold the speed lane. It keeps Kani
     # between runs (host/docs/operating.md, Registering a kani runner).
+    # The harnesses are dealt over SHARDS jobs, one runner each when there
+    # are enough runners; `xtask kani-shard` gives every harness to exactly
+    # one of them. KANI_JOBS harnesses run at once on a runner.
     runs-on: [self-hosted, kani]
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     env:
       COMMIT: ${{ inputs.commit }}
+      SHARD: ${{ matrix.shard }}
+      SHARDS: 3
+      KANI_JOBS: 4
       KANI_VERSION: 0.68.0
       # The sha256 of kani-$KANI_VERSION-x86_64-unknown-linux-gnu.tar.gz, as
       # the release lists it. Change both together.
@@ -245,6 +255,13 @@ jobs:
           # cargo kani takes no --locked; the build still reads Cargo.lock.
           # --all-features: modules such as tehas-core's retry build only with
           # a feature, and a harness not built is a harness not run.
+          # --package=: -p takes several values and would take `list` as one.
           args=(--all-features)
-          for crate in $KANI_CRATES; do args+=(-p "$crate"); done
-          cargo kani "${args[@]}"
+          for crate in $KANI_CRATES; do args+=("--package=$crate"); done
+          cargo kani "${args[@]}" list --format json
+          names=$(cargo run --quiet --locked -p tehas-xtask -- kani-shard kani-list.json "$SHARD" "$SHARDS")
+          printf 'shard %s of %s:\n%s\n' "$SHARD" "$SHARDS" "$names"
+          filters=()
+          while read -r name; do filters+=(--harness "$name"); done <<<"$names"
+          # -j needs terse output.
+          cargo kani "${args[@]}" --exact "${filters[@]}" -j "$KANI_JOBS" --output-format=terse

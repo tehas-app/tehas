@@ -19,7 +19,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use serde_json::Value;
-use tehas_core::features::{Stage, FEATURES};
+use tehas_core::features::{Feature, Stage, FEATURES};
 
 const BASELINE: &str = "api/surface-1.0.txt";
 
@@ -35,6 +35,7 @@ const BUILDING_SCHEMAS: &[(&str, &str)] = &[
     ("plugin-context", "plugins"),
     ("plugin-review", "plugins"),
     ("plugin-skills", "plugins"),
+    ("plugin-verdict", "plugins"),
 ];
 
 /// Fields whose own fields may change: one driver's steps and the Protolab.
@@ -79,8 +80,17 @@ fn rows(text: &str) -> impl Iterator<Item = &str> {
 /// `command <cmd> [<sub>]` and `flag <cmd> [<sub>] <flag>` of the public rows
 /// of api/commands.txt.
 fn commands(text: &str, out: &mut BTreeSet<String>) {
+    commands_of(text, FEATURES, out);
+}
+
+fn commands_of(text: &str, features: &[Feature], out: &mut BTreeSet<String>) {
     for line in rows(text) {
         let words: Vec<&str> = line.split_whitespace().collect();
+        let flags: Vec<(&str, Option<&str>)> = words
+            .iter()
+            .filter(|w| w.starts_with("--"))
+            .map(|w| flag_word(w, features).unwrap_or_else(|e| panic!("{e}")))
+            .collect();
         if words.iter().any(|w| w.starts_with("building=")) {
             continue;
         }
@@ -96,11 +106,31 @@ fn commands(text: &str, out: &mut BTreeSet<String>) {
             .collect();
         let name = name.join(" ");
         out.insert(format!("command {name}"));
-        for flag in words.iter().filter(|w| w.starts_with("--")) {
-            if !internal.contains(flag) {
+        for (flag, building) in flags {
+            if building.is_none() && !internal.contains(&flag) {
                 out.insert(format!("flag {name} {flag}"));
             }
         }
+    }
+}
+
+/// A flag of a row and the feature its mark names: `--flag:building=<feature>`.
+/// A mark of no building feature is an error.
+fn flag_word<'a>(
+    word: &'a str,
+    features: &[Feature],
+) -> Result<(&'a str, Option<&'a str>), String> {
+    let Some((flag, name)) = word.split_once(":building=") else {
+        return Ok((word, None));
+    };
+    match features.iter().find(|f| f.name == name) {
+        Some(f) if f.stage == Stage::Building => Ok((flag, Some(name))),
+        Some(_) => Err(format!(
+            "api/commands.txt: {flag} is marked building={name}, which has shipped"
+        )),
+        None => Err(format!(
+            "api/commands.txt: {flag} is marked building={name}, which is no feature"
+        )),
     }
 }
 
@@ -352,6 +382,60 @@ fn a_heading_names_each_command_it_joins() {
                ### tehas github check and tehas github writes\n\n## After\n\n### tehas nope\n";
     let names: Vec<String> = exit_tables(doc).into_iter().collect();
     assert_eq!(names, ["freeze", "github", "thaw"]);
+}
+
+fn feature(name: &'static str, stage: Stage) -> Feature {
+    Feature {
+        name,
+        stage,
+        setting: "",
+        settings: &[],
+        since: "",
+        programs: &[],
+        units: &[],
+    }
+}
+
+#[test]
+fn a_flag_of_a_building_feature_is_not_public() {
+    let features = [feature("setup-app", Stage::Building)];
+    let mut out = BTreeSet::new();
+    commands_of(
+        "setup --check --app-secret-file:building=setup-app\n",
+        &features,
+        &mut out,
+    );
+    let got: Vec<&str> = out.iter().map(String::as_str).collect();
+    assert_eq!(got, ["command setup", "flag setup --check"]);
+}
+
+#[test]
+fn an_unmarked_new_flag_is_not_in_the_baseline() {
+    let mut out = BTreeSet::new();
+    commands("status --json --no-such-flag\n", &mut out);
+    let listed: BTreeSet<String> = baseline().into_iter().collect();
+    let new: Vec<&String> = out.iter().filter(|n| !listed.contains(*n)).collect();
+    assert_eq!(new, ["flag status --no-such-flag"]);
+}
+
+#[test]
+fn a_flag_marked_with_no_building_feature_is_refused() {
+    let features = [feature("done", Stage::Shipped)];
+    assert_eq!(
+        flag_word("--x:building=done", &features),
+        Err("api/commands.txt: --x is marked building=done, which has shipped".to_string())
+    );
+    assert_eq!(
+        flag_word("--x:building=nope", &features),
+        Err("api/commands.txt: --x is marked building=nope, which is no feature".to_string())
+    );
+    assert_eq!(flag_word("--x", &features), Ok(("--x", None)));
+}
+
+#[test]
+#[should_panic(expected = "which is no feature")]
+fn the_read_refuses_a_flag_of_no_feature() {
+    commands("status --json:building=nope\n", &mut BTreeSet::new());
 }
 
 #[test]

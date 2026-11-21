@@ -317,6 +317,146 @@ pub fn issue_images(
     take(&bin, "issue", &args, &format!("{data}\n"))
 }
 
+/// The word a cycle's start is refused with when a filed file is not what
+/// its record pins: the issue is parked, and a person files again.
+pub const FILES_CHANGED: &str = "plugin-files-changed";
+
+/// What a plugin's record must be for a cycle to take its files: filed in
+/// this issue, by an account that may label, the login holding the id
+/// `state/account-ids` records for it, not closed, and pinning the hash the
+/// line names.
+fn takes(
+    r: &Value,
+    issue: u64,
+    line: &tehas_core::plugin::draft::Files,
+    allowed: &str,
+    ids: &std::collections::BTreeMap<String, u64>,
+) -> bool {
+    let s = |k: &str| r.get(k).and_then(Value::as_str);
+    let by = s("filed_by").unwrap_or("");
+    let id = r.get("filed_by_id").and_then(Value::as_u64);
+    s("plugin") == Some(line.plugin.as_str())
+        && s("id") == Some(line.record.as_str())
+        && r.get("issue").and_then(Value::as_u64) == Some(issue)
+        && s("files_sha256") == Some(line.sha256.as_str())
+        && r.get("closed_at").is_some_and(Value::is_null)
+        && !by.is_empty()
+        && events::allowed_in(allowed, by)
+        && id.is_some()
+        && ids.get(tehas_core::accounts::account(by)).copied() == id
+}
+
+/// A plugin's filed files for the cycle (plugin specification 1.0.0, v3,
+/// "Drafted issues, and the prototype reaching a cycle"): each
+/// `tehas-files:` line of the approved body whose record a person who may
+/// label filed in this issue, copied from `state/plugin-files/` into
+/// `<dir>/plugin-files/<plugin>/<id>/`, with `<dir>/plugin-files/manifest.json`.
+/// The lines are read from `data`, the issue as the start held it to the
+/// approval's body hash, never from a fresh read. A line no such record
+/// matches gives nothing. Err, [`FILES_CHANGED`], when a record's files are
+/// not what its hash pins: no cycle starts on files no one filed.
+pub fn plugin_files(
+    home: &Path,
+    issue: u64,
+    dir: &Path,
+    record: &str,
+    data: &str,
+) -> Result<(), String> {
+    plugin_files_of(
+        home,
+        issue,
+        dir,
+        record,
+        data,
+        &env("TEHAS_ALLOWED_LABELERS"),
+    )
+}
+
+fn plugin_files_of(
+    home: &Path,
+    issue: u64,
+    dir: &Path,
+    record: &str,
+    data: &str,
+    allowed: &str,
+) -> Result<(), String> {
+    if !is_record(record) {
+        return Ok(());
+    }
+    let Some(approval) = record_value(Path::new(record)) else {
+        return Ok(());
+    };
+    let Ok(answer) = serde_json::from_str::<Value>(data) else {
+        return Ok(());
+    };
+    if approval.get("body_sha256").and_then(Value::as_str)
+        != Some(tehas_core::approval::body_sha256(&answer).as_str())
+    {
+        return Ok(());
+    }
+    let body = answer.get("body").and_then(Value::as_str).unwrap_or("");
+    let lines = tehas_core::plugin::draft::files_lines(body);
+    if lines.is_empty() {
+        return Ok(());
+    }
+    let n = issue.to_string();
+    let records = crate::host::store(home, &["records", "--issue", &n])
+        .map_err(|_| "the plugin records of this issue could not be read".to_string())?;
+    let rows = records
+        .get("records")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let ids = tehas_core::accounts::read(home);
+    let mut given = Vec::new();
+    for line in &lines {
+        let Some(r) = rows.iter().find(|r| takes(r, issue, line, allowed, &ids)) else {
+            continue;
+        };
+        let src = home
+            .join("state/plugin-files")
+            .join(&line.plugin)
+            .join(&line.record);
+        let dst = dir
+            .join("plugin-files")
+            .join(&line.plugin)
+            .join(&line.record);
+        let changed = |why: &str| {
+            format!(
+                "{FILES_CHANGED}: the files of {}/{} {why}",
+                line.plugin, line.record
+            )
+        };
+        let files = attach::plugin_files::copy(&src, &dst)
+            .map_err(|why| changed(&format!("could not be taken: {why}")))?;
+        if attach::plugin_files::tree_sha256(&files) != line.sha256 {
+            let _ = fs::remove_dir_all(&dst);
+            return Err(changed("are not the ones filed"));
+        }
+        given.push(json!({
+            "plugin": line.plugin,
+            "id": line.record,
+            "sha256": line.sha256,
+            "filed_by": r.get("filed_by"),
+            "files": files.iter().map(|f| json!({"path": f.path, "bytes": f.bytes, "sha256": f.sha256})).collect::<Vec<_>>(),
+        }));
+    }
+    if given.is_empty() {
+        return Ok(());
+    }
+    let manifest = json!({"version": 1, "records": given});
+    let path = dir.join("plugin-files/manifest.json");
+    fs::write(
+        &path,
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&manifest).unwrap_or_default()
+        ),
+    )
+    .and_then(|()| fs::set_permissions(&path, fs::Permissions::from_mode(0o644)))
+    .map_err(|_| "the manifest of the plugin files could not be written".to_string())
+}
+
 /// The feature whose cycles are handed what was approved.
 pub const SPEC_PIPE: &str = "spec-pipe";
 
@@ -756,6 +896,148 @@ mod tests {
         }
         assert!(!same_account("", ""));
         assert!(!same_account("", "alice"));
+    }
+
+    /// A home with one filed prototype, an approval of a body that names it,
+    /// and a store that answers the record as `row` edits it.
+    struct Filed {
+        d: TestDir,
+        record: String,
+        answer: String,
+    }
+
+    fn filed(name: &str, row: impl Fn(&mut Value)) -> Filed {
+        let d = TestDir::new(&format!("gives-plugin-files-{name}"));
+        let src = d.path().join("state/plugin-files/pageticket/p-1");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("v2.html"), "<p>the prototype</p>").unwrap();
+        fs::write(src.join("notes.md"), "# notes").unwrap();
+        let scratch = d.path().join("scratch");
+        let tree =
+            attach::plugin_files::tree_sha256(&attach::plugin_files::copy(&src, &scratch).unwrap());
+        fs::remove_dir_all(&scratch).unwrap();
+        fs::write(d.path().join("state/account-ids"), "alice 583231\n").unwrap();
+        let body = format!("Make it so.\n\ntehas-files: pageticket/p-1 {tree}\n");
+        let answer = json!({"body": body}).to_string();
+        let record = d.path().join("record.json");
+        let approval = json!({"at": "2026-11-21T00:00:00Z", "by": "alice", "how": "label", "links": [],
+            "body_sha256": tehas_core::approval::body_sha256(&json!({"body": body}))});
+        fs::write(&record, approval.to_string()).unwrap();
+        let mut r = json!({"plugin": "pageticket", "id": "p-1", "kind": "prototype", "issue": 7,
+            "files_sha256": tree, "filed_by": "alice", "filed_by_id": 583231, "closed_at": null});
+        row(&mut r);
+        let store = d.path().join("libexec/store");
+        fs::create_dir_all(store.parent().unwrap()).unwrap();
+        let said = json!({"api": 1, "verb": "records", "ok": true, "records": [r]}).to_string();
+        tehas_core::testing::write_exe(&store, format!("#!/bin/sh\ncat <<'EOF'\n{said}\nEOF\n"))
+            .unwrap();
+        Filed {
+            record: record.to_string_lossy().into_owned(),
+            answer,
+            d,
+        }
+    }
+
+    fn take(f: &Filed) -> Result<(), String> {
+        plugin_files_of(
+            f.d.path(),
+            7,
+            &f.d.path().join("given"),
+            &f.record,
+            &f.answer,
+            "alice bob",
+        )
+    }
+
+    #[test]
+    fn a_prototype_a_person_filed_is_given_beside_the_attachments() {
+        let f = filed("ok", |_| {});
+        assert_eq!(take(&f), Ok(()));
+        let given = f.d.path().join("given/plugin-files");
+        assert_eq!(
+            fs::read_to_string(given.join("pageticket/p-1/v2.html")).unwrap(),
+            "<p>the prototype</p>"
+        );
+        let m: Value =
+            serde_json::from_str(&fs::read_to_string(given.join("manifest.json")).unwrap())
+                .unwrap();
+        assert_eq!(m["version"], 1);
+        assert_eq!(m["records"][0]["plugin"], "pageticket");
+        assert_eq!(m["records"][0]["filed_by"], "alice");
+        assert_eq!(m["records"][0]["files"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn only_a_record_a_labeller_filed_in_this_issue_counts_and_nothing_else_is_given() {
+        type Edit = Box<dyn Fn(&mut Value)>;
+        let cases: Vec<(&str, Edit)> = vec![
+            (
+                "not-allowed",
+                Box::new(|r| r["filed_by"] = json!("mallory")),
+            ),
+            ("other-id", Box::new(|r| r["filed_by_id"] = json!(9))),
+            ("no-id", Box::new(|r| r["filed_by_id"] = Value::Null)),
+            ("unfiled", Box::new(|r| r["filed_by"] = Value::Null)),
+            ("other-issue", Box::new(|r| r["issue"] = json!(8))),
+            (
+                "closed",
+                Box::new(|r| r["closed_at"] = json!(1_792_000_000)),
+            ),
+            (
+                "other-hash",
+                Box::new(|r| r["files_sha256"] = json!("b".repeat(64))),
+            ),
+        ];
+        for (name, edit) in cases {
+            let f = filed(name, edit);
+            assert_eq!(take(&f), Ok(()), "{name}");
+            assert!(!f.d.path().join("given/plugin-files").exists(), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_lines_count_only_in_the_approved_body_and_with_a_record_of_it() {
+        // A line added after the label: the body is not the one approved.
+        let mut f = filed("edited", |_| {});
+        let mut answer: Value = serde_json::from_str(&f.answer).unwrap();
+        answer["body"] = json!(format!("{} ", answer["body"].as_str().unwrap()));
+        f.answer = answer.to_string();
+        assert_eq!(take(&f), Ok(()));
+        assert!(!f.d.path().join("given/plugin-files").exists());
+        // No approval record: a run by hand is given no plugin's files.
+        let mut f = filed("no-record", |_| {});
+        f.record = String::new();
+        assert_eq!(take(&f), Ok(()));
+        assert!(!f.d.path().join("given/plugin-files").exists());
+    }
+
+    #[test]
+    fn files_changed_after_filing_stop_the_start() {
+        let f = filed("changed", |_| {});
+        fs::write(
+            f.d.path().join("state/plugin-files/pageticket/p-1/v2.html"),
+            "<p>other</p>",
+        )
+        .unwrap();
+        let why = take(&f).unwrap_err();
+        assert!(why.starts_with(FILES_CHANGED), "{why}");
+        assert!(
+            !why.contains(&f.d.path().to_string_lossy().into_owned()),
+            "names no host path: {why}"
+        );
+        assert!(!f
+            .d
+            .path()
+            .join("given/plugin-files/pageticket/p-1")
+            .exists());
+        // A link put among them stops it too.
+        let f = filed("linked", |_| {});
+        std::os::unix::fs::symlink(
+            "/etc/passwd",
+            f.d.path().join("state/plugin-files/pageticket/p-1/x"),
+        )
+        .unwrap();
+        assert!(take(&f).unwrap_err().starts_with(FILES_CHANGED));
     }
 
     #[test]

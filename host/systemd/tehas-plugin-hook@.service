@@ -1,0 +1,16 @@
+[Unit]
+Description=Tehas: the hook of a plugin on a pull request, %i as <plugin>-<pull request>
+
+[Service]
+NoNewPrivileges=yes
+Type=exec
+# Installed only while TEHAS_PLUGIN is on. A cycle that leaves a pull request
+# and tehas plugin hook start it, with the request in
+# ~/tehas/plugins/<plugin>/hooks/<pull request>.json. It waits for a refresh
+# of the same plugin and for a place among the two hooks that run at once.
+# The instance is the shell's first argument, not part of its script.
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot plugin run \"$$1\" --kind hook >> %h/tehas/logs/plugins.log 2>&1" tehas-plugin-hook %i
+KillMode=mixed
+TimeoutStopSec=60
+# A hook's timeout is at most 30 minutes; the rest is for its waits.
+RuntimeMaxSec=6h
