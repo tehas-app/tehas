@@ -54,7 +54,7 @@ pub fn list(
         ..Listing::default()
     };
     let mut total = 0;
-    for row in super::rows(get, &|name| prepare::read_state(home, name)) {
+    for row in super::rows(get, &|name| prepare::read_state(home, name), &|_| (None, 0)) {
         if row.state.state != Word::Ready {
             continue;
         }

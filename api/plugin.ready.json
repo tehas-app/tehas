@@ -18,7 +18,16 @@
       "manifest_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "bases": [
         "node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-      ]
+      ],
+      "last_run": {
+        "kind": "refresh",
+        "trigger": "timer",
+        "start": 1763700000,
+        "end": 1763700600,
+        "result": "done",
+        "tokens": 120000
+      },
+      "tokens_today": 120000
     }
   ]
 }

@@ -1,0 +1,10 @@
+[Unit]
+Description=Tehas: the plugins' tick every 10 minutes
+
+[Timer]
+OnBootSec=10min
+# From the last start, so a tick that failed does not stop the next.
+OnUnitActiveSec=10min
+
+[Install]
+WantedBy=timers.target
