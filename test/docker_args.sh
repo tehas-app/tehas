@@ -105,13 +105,3 @@ unknown_options() { # <image> <options that take a value> <options that take non
     /^--add-host=[A-Za-z0-9.-]+:[0-9a-fA-F.:]+$/ { next }
     { print }'
 }
-
-# The security options, in the words the manual's table of
-# "What a container may not do" in host/docs/host.md gives them: one row per
-# option, its value in the second cell. test/work_caps_test.sh compares what
-# the container is given with this, so the table and the container are
-# pinned to the same list and one is not a copy of the other kept by hand.
-security_doc_rows() {
-  printf '%s\n' '--cap-drop|ALL' '--cap-add|CHOWN' '--cap-add|FOWNER' \
-    '--security-opt|no-new-privileges:true' "--tmpfs|${security_tmpfs/size=1024m/size=<half of --memory>m}"
-}
