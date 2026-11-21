@@ -1,4 +1,4 @@
-//! What the tests of the factory's state share, as test/status_lib.sh does:
+//! What the tests of the factory's state share:
 //! `tehasbot status`, `tehasbot health` and `tehas status` through the console,
 //! against a stub gh, the real store and a scratch home.
 //!
