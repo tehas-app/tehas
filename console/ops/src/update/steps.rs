@@ -625,7 +625,11 @@ mod tests {
             }
             .to_string()
         };
-        let all = format!("units {} tehas-plugin.timer", UNITS.join(" "));
+        // The gate is a server of the feature, on as the feature is.
+        let all = format!(
+            "units {} tehas-plugin.timer tehas-plugin-gate.service",
+            UNITS.join(" ")
+        );
         let files = [
             "systemd/tehas-plugin@.service",
             "systemd/tehas-plugin-hook@.service",
