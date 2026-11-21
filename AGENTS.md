@@ -65,7 +65,7 @@ when a person pulls and runs `install.sh` there.
    `lib/config.sh`, `bin/`, `libexec/` and the glue between commands. A shell
    test may call a program of the workspace where the point is the bash
    around it; build it once per run in `test/lib.sh`, not once per case. The
-   gate needs bash, git, jq, shellcheck and cargo: no network, no sandbox
+   gate needs bash, git, jq, shellcheck, curl and cargo: no network, no sandbox
    image, no product checkout. Stub the outside world, with `t_stub` in shell.
 7. **Do not edit your own gates.** `.pi/`, `AGENTS.md`, `scripts/verify.sh` and
    `scripts/check-generic.sh` are changed by people, not by a work cycle. If a
