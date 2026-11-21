@@ -338,7 +338,7 @@ a hook gets no model in v1), `docker kill` at
 the manifest's timeout, then `/out` read through the tar reader: a refresh's
 view swapped into `~/tehas/plugins/<name>/view/` with one rename, a hook's
 `/out/_tehas/verdict.json` (`api/plugin-verdict.schema.json`) kept as
-`hooks/<pr>.verdict.json`. The volumes are measured against `disk`, and the
+`hooks/<pr>.verdict.json` until the tick removes it. The volumes are measured against `disk`, and the
 container, its `/work` and `/out` and the run's files are removed. The row
 ends `done`, `failed`, `timeout` or `lost`, with the model's tokens. A hook
 waits for a refresh of the same plugin to end, at most one hook of a plugin
@@ -379,7 +379,10 @@ another head. It starts nothing while the factory is paused by
 `state/pause.json`, drained, read-only, or while `tehas update` runs, and
 says why in `~/tehas/logs/plugins.log`, where the runs write too. It removes
 the containers, volumes and files a run that died left, and ends its row as
-`lost`. `install.sh` installs `tehas-plugin`, the two templates, the timer
+`lost`. It removes a hook's `hooks/<pr>.verdict.json`, and that pull
+request's request unless its hook runs, when the verdict's head is in the
+default branch of the mirror (merged), or when the verdict is older than 30
+days (closed or left). Each removal is logged with why. `install.sh` installs `tehas-plugin`, the two templates, the timer
 and its service only while the feature is on, and a first install enables
 the timer.
 
