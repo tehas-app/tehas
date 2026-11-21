@@ -5,11 +5,11 @@
 # mcp/, the attachment checker in attach/, the library they share in core/,
 # the dispatcher's decisions in dispatch/, a cycle's report in cycle/, the
 # operations modules in ops/, the model proxy of outsource in proxy/, the
-# contractor program of outsource in contractor/ and the
-# development tasks behind scripts/ in xtask/ as well.
+# contractor program of outsource in contractor/, the plugins' program in
+# plugin/ and the development tasks behind scripts/ in xtask/ as well.
 [workspace]
-members = ["analytics", "attach", "contractor", "core", "cycle", "dispatch", "front", "mcp", "ops", "proxy", "store", "xtask"]
-default-members = [".", "analytics", "attach", "contractor", "core", "cycle", "dispatch", "front", "mcp", "ops", "proxy", "store", "xtask"]
+members = ["analytics", "attach", "contractor", "core", "cycle", "dispatch", "front", "mcp", "ops", "plugin", "proxy", "store", "xtask"]
+default-members = [".", "analytics", "attach", "contractor", "core", "cycle", "dispatch", "front", "mcp", "ops", "plugin", "proxy", "store", "xtask"]
 
 [package]
 name = "console"
