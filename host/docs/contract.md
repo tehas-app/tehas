@@ -481,7 +481,8 @@ with exit 78 and says `plugins` is still being built.
 - `tehas api --json` has `"plugins": false` in `flags`, and no word `plugins`
   in `features`.
 - The settings `TEHAS_PLUGINS`, `TEHAS_PLUGIN_GRANTS_<NAME>`,
-  `TEHAS_PLUGIN_ACCESS`, `TEHAS_PLUGIN_LIMITS` and `TEHAS_PLUGIN_MODEL_DAY`
+  `TEHAS_PLUGIN_ACCESS`, `TEHAS_PLUGIN_LIMITS`, `TEHAS_PLUGIN_MODEL_DAY` and
+  `TEHAS_PLUGIN_GATE_ADDR`
   are in `api/settings-rules.json`, but they are not contract: a line that
   gives one a value stops every command with exit 78 and names `plugins`.
 - `tehas plugin` and `tehas plugin review` exit 78 and read nothing more,

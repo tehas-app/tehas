@@ -164,6 +164,10 @@ pub enum Rule {
     PluginGrants,
     /// `memory=<GiB> cpus=<n> disk=<GiB>`, all three in this order.
     PluginLimits,
+    /// The plugins' gate: [`Rule::ListenAddress`] with a private or loopback
+    /// address literal and a port that is not the dashboard's or the
+    /// router's.
+    GateAddress,
 }
 
 impl Rule {
@@ -217,6 +221,7 @@ impl Rule {
             Rule::Plugins => "plugins",
             Rule::PluginGrants => "plugin-grants",
             Rule::PluginLimits => "plugin-limits",
+            Rule::GateAddress => "gate-address",
         }
     }
 
@@ -271,6 +276,7 @@ impl Rule {
             Rule::Plugins => "floorplan",
             Rule::PluginGrants => "view",
             Rule::PluginLimits => "memory=0",
+            Rule::GateAddress => "0.0.0.0:8095",
         }
     }
 }
@@ -382,6 +388,7 @@ pub const TABLE: &[Setting] = &[
         "memory=2 cpus=2 disk=4",
     ),
     always("TEHAS_PLUGIN_MODEL_DAY", Rule::Count, "5000000"),
+    always("TEHAS_PLUGIN_GATE_ADDR", Rule::GateAddress, "127.0.0.1:8095"),
     always("TEHAS_WORKSTREAMS", Rule::Count, "1"),
     row("TEHAS_MAX_CYCLES", Rule::Cycles, When::Always, None),
     always("TEHAS_HOST_ADDR", Rule::HostAddress, "127.0.0.1"),
@@ -681,6 +688,7 @@ fn verdict(rule: Rule, v: &str) -> Result<(), String> {
             crate::plugin::limits(v).is_some(),
             "expected memory=<GiB> cpus=<n> disk=<GiB>, each a whole number from 1 to 999",
         ),
+        Rule::GateAddress => refuse(gate_address(v), GATE_WHY),
     }
 }
 
@@ -721,6 +729,29 @@ fn listen_address(v: &str) -> bool {
 }
 
 const LISTEN_WHY: &str = "expected an address or host name and a port, as 127.0.0.1:8090";
+
+/// The ports of the dashboard (host/edge/docs.compose.yaml) and the router
+/// (host/edge/router.compose.yaml).
+pub const EDGE_PORTS: [u16; 2] = [8080, 8081];
+
+/// The gate's address: a private or loopback address, never a host name,
+/// which could resolve to a public one, and never every address.
+fn gate_address(v: &str) -> bool {
+    let Some((addr, port)) = v.rsplit_once(':') else {
+        return false;
+    };
+    let private = match addr.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(a)) => {
+            let [a0, a1, ..] = a.octets();
+            a.is_private() || a.is_loopback() || (a0 == 100 && (64..128).contains(&a1))
+        }
+        Ok(std::net::IpAddr::V6(a)) => a.is_loopback() || (a.segments()[0] & 0xfe00) == 0xfc00,
+        Err(_) => false,
+    };
+    listen_address(v) && private && port.parse().is_ok_and(|p| !EDGE_PORTS.contains(&p))
+}
+
+const GATE_WHY: &str = "expected a private address and a port other than the dashboard's 8080 and the router's 8081, as 127.0.0.1:8095";
 
 /// `[1-9][0-9]*`, at most `max` digits.
 fn leading(s: &str, max: usize) -> bool {
@@ -1854,6 +1885,38 @@ mod tests {
             "memory=2 cpus=2 disk=4 ",
         ] {
             refuses("TEHAS_PLUGIN_LIMITS", bad, why);
+        }
+    }
+
+    #[test]
+    fn the_plugins_gate_listens_on_a_private_address_off_the_edges_ports() {
+        for v in [
+            "127.0.0.1:8095",
+            "10.0.0.7:1",
+            "172.16.4.2:9000",
+            "192.168.1.20:65535",
+            "100.64.0.1:8095",
+            "::1:8095",
+            "fd00::7:8095",
+        ] {
+            takes("TEHAS_PLUGIN_GATE_ADDR", v);
+        }
+        for bad in [
+            "0.0.0.0:8095",
+            "192.0.2.7:8095",
+            "8.8.8.8:8095",
+            "fe80::1:8095",
+            "::8095",
+            "localhost:8095",
+            "tehas.example:8095",
+            "127.0.0.1:8080",
+            "10.0.0.7:8081",
+            "127.0.0.1",
+            "127.0.0.1:0",
+            "127.0.0.1:08095",
+            "",
+        ] {
+            refuses("TEHAS_PLUGIN_GATE_ADDR", bad, GATE_WHY);
         }
     }
 
