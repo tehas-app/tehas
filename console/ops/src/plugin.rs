@@ -4,6 +4,7 @@
 //! left in `~/tehas/plugins/<name>/state.json`; `tehas plugin review`
 //! fetches a commit and reads it for a person to grant. `run` and `hook` ask
 //! for a run, which a unit makes (runs.rs); `log` prints the last one's log.
+//! `call` runs one call of a tool, attached (call.rs).
 
 mod ask;
 pub mod call;
@@ -24,10 +25,10 @@ use tehas_core::plugin::state::{State, Word};
 use tehas_core::plugin::{self, Pin};
 use tehas_core::{exit, features, outln};
 
-const USAGE: &str = "usage: tehas plugin [--json] | tehas plugin review <name> [<commit>] [--json] | tehas plugin skills [--chat obeya|wizard|assistant] [--json] | tehas plugin run <name> | tehas plugin hook <name> <pr> | tehas plugin log <name> [--hook <pr>] | tehas plugin check <dir> [--json]";
+const USAGE: &str = "usage: tehas plugin [--json] | tehas plugin review <name> [<commit>] [--json] | tehas plugin skills [--chat obeya|wizard|assistant] [--json] | tehas plugin run <name> | tehas plugin hook <name> <pr> | tehas plugin log <name> [--hook <pr>] | tehas plugin check <dir> [--json] | tehas plugin call <name> <tool> --args <json> [--login <login>] [--json]";
 
 /// What the arguments ask for.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub enum Words {
     List {
         json: bool,
@@ -54,6 +55,13 @@ pub enum Words {
     },
     Check {
         dir: String,
+        json: bool,
+    },
+    Call {
+        name: String,
+        tool: String,
+        args: Value,
+        login: Option<String>,
         json: bool,
     },
 }
@@ -116,6 +124,27 @@ pub fn words(given: &[String]) -> Result<Words, u8> {
             name: name.to_string(),
             hook: None,
         }),
+        [verb, name, tool, flag, args, more @ ..]
+            if *verb == "call" && *flag == "--args" && plugin::is_name(name) =>
+        {
+            let login = match more {
+                [] => None,
+                [f, l] if *f == "--login" && tehas_core::settings::rules::is_login(l) => {
+                    Some(l.to_string())
+                }
+                _ => return Err(usage()),
+            };
+            match serde_json::from_str(args) {
+                Ok(args) => Ok(Words::Call {
+                    name: name.to_string(),
+                    tool: tool.to_string(),
+                    args,
+                    login,
+                    json,
+                }),
+                Err(_) => Err(usage()),
+            }
+        }
         [verb, name, flag, pr]
             if !json && *verb == "log" && *flag == "--hook" && plugin::is_name(name) =>
         {
@@ -395,6 +424,7 @@ pub fn main(given: &[String]) -> u8 {
         Words::Hook { .. } => "tehas plugin hook",
         Words::Log { .. } => "tehas plugin log",
         Words::Check { .. } => return exit::USAGE,
+        Words::Call { .. } => "tehas plugin call",
     };
     if let Err(why) = features::needs("plugins", what, &get) {
         eprintln!("{what}: {why}");
@@ -451,6 +481,57 @@ pub fn main(given: &[String]) -> u8 {
             ask::hook(&mut exec::Host, &mut gh, &home, &get, &name, pr)
         }
         Words::Log { name, hook } => ask::log(&home, &get, &name, hook),
+        Words::Call {
+            name,
+            tool,
+            args,
+            login,
+            json,
+        } => call_main(&home, &get, &name, &tool, &args, login, json),
+    }
+}
+
+fn call_main(
+    home: &Path,
+    get: &dyn Fn(&str) -> String,
+    name: &str,
+    tool: &str,
+    args: &Value,
+    login: Option<String>,
+    json_out: bool,
+) -> u8 {
+    let what = "tehas plugin call";
+    let pins = plugin::pins(&get("TEHAS_PLUGINS")).unwrap_or_default();
+    if !pins.iter().any(|p| p.name == name) {
+        eprintln!("{what}: TEHAS_PLUGINS names no plugin {name}");
+        return exit::USAGE;
+    }
+    let caller = login.map_or(call::Caller::Host, call::Caller::Login);
+    match call::call(&mut exec::Host, home, get, name, tool, args, &caller) {
+        Ok(answer) => {
+            if json_out {
+                outln!(r#"{{"api":1,"answer":{answer}}}"#);
+            } else {
+                outln!("{answer}");
+            }
+            exit::OK
+        }
+        Err(call::Failed::Tool(why)) => {
+            if json_out {
+                outln!(r#"{{"api":1,"error":{}}}"#, Value::String(why));
+            } else {
+                eprintln!("{what}: {name}/{tool}: {why}");
+            }
+            exit::FAILED
+        }
+        Err(call::Failed::Refused(why)) => {
+            eprintln!("{what}: {name}/{tool}: refused: {why}");
+            exit::NO
+        }
+        Err(call::Failed::Args(why)) => {
+            eprintln!("{what}: {name}/{tool}: the arguments: {why}");
+            exit::USAGE
+        }
     }
 }
 
@@ -588,6 +669,59 @@ mod tests {
         );
         assert_eq!(words_of(&["check"]), Err(64));
         assert_eq!(words_of(&["check", "a", "b"]), Err(64));
+    }
+
+    #[test]
+    fn the_words_of_a_call_take_its_arguments_as_json_and_a_login() {
+        let args = r#"{"q": "install"}"#;
+        assert_eq!(
+            words_of(&["call", "floorplan", "find-doc", "--args", args, "--json"]),
+            Ok(Words::Call {
+                name: "floorplan".into(),
+                tool: "find-doc".into(),
+                args: serde_json::json!({"q": "install"}),
+                login: None,
+                json: true
+            })
+        );
+        assert_eq!(
+            words_of(&[
+                "call",
+                "floorplan",
+                "find-doc",
+                "--args",
+                "{}",
+                "--login",
+                "octocat"
+            ]),
+            Ok(Words::Call {
+                name: "floorplan".into(),
+                tool: "find-doc".into(),
+                args: serde_json::json!({}),
+                login: Some("octocat".into()),
+                json: false
+            })
+        );
+        for bad in [
+            &["call", "floorplan", "find-doc"][..],
+            &["call", "floorplan", "find-doc", "--args"],
+            &["call", "floorplan", "find-doc", "--args", "{"],
+            &["call", "floorplan", "find-doc", "--args", "{} {}"],
+            &["call", "Floor", "find-doc", "--args", "{}"],
+            &["call", "floorplan", "find-doc", "--args", "{}", "--login"],
+            &[
+                "call",
+                "floorplan",
+                "find-doc",
+                "--args",
+                "{}",
+                "--login",
+                "-x",
+            ],
+            &["call", "floorplan", "find-doc", "--args", "{}", "--by", "x"],
+        ] {
+            assert_eq!(words_of(bad), Err(64), "{bad:?}");
+        }
     }
 
     #[test]

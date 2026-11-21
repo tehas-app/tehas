@@ -294,6 +294,7 @@ tehas plugin run <name>
 tehas plugin hook <name> <pr>
 tehas plugin log <name> [--hook <pr>]
 tehas plugin check <dir> [--json]
+tehas plugin call <name> <tool> --args <json> [--login <login>] [--json]
 ```
 
 The plugins of this factory, as its settings set them: each one's pin, what
@@ -372,6 +373,22 @@ status could not be written" (`status_unwritten` in `--json`) until a status
 is written. A head that moved while the hook ran gets the status on the
 commit the hook read, then a new request for the new head, which runs next.
 
+`call` runs one call of a tool of a ready plugin, granted `tool:<id>` at
+the pin, and prints its answer, one JSON object, or `{"api":1,"answer":...}`
+with `--json`. The arguments are checked against the tool's `params` and
+are at most 2 KiB. The image runs attached by the arguments of
+`test/fixtures/argv/plugin-call`: no network, no product, no model,
+`/state` read only, the arguments at `/run/call.json`, no log kept, killed
+at the tool's timeout. Its stdout is the answer, at most 16 KiB, and its
+stderr is dropped. At most two calls of a plugin run at once and one of
+each caller; one past that is refused as busy and leaves no row. The row,
+kind `call`, keeps the time, the result and the answer's size, and no
+login, and the run's files are removed. A call with `--login` is refused
+until the gate's access check is in core. `tehas plugin` leaves calls out
+of its last run. Exit 0 answered; 1 the tool did not answer, with why (in
+`--json` as `{"api":1,"error":"..."}`); 3 refused, with why; 64 arguments
+the tool's `params` refuse; 78.
+
 `tehas-plugin.timer` runs `tehasbot plugin tick` every 10 minutes. It reads
 the head the poll fetched into the product's mirror, asks GitHub nothing,
 and asks for a refresh of each ready plugin whose last refresh began at
@@ -379,7 +396,7 @@ another head. It starts nothing while the factory is paused by
 `state/pause.json`, drained, read-only, or while `tehas update` runs, and
 says why in `~/tehas/logs/plugins.log`, where the runs write too. It removes
 the containers, volumes and files a run that died left, and ends its row as
-`lost`. It removes a hook's `hooks/<pr>.verdict.json`, and that pull
+`lost`, but not while a call of the plugin runs. It removes a hook's `hooks/<pr>.verdict.json`, and that pull
 request's request unless its hook runs, when the verdict's head is in the
 default branch of the mirror (merged), or when the verdict is older than 30
 days (closed or left). Each removal is logged with why. `install.sh` installs `tehas-plugin`, the two templates, the timer
