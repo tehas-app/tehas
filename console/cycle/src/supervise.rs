@@ -17,6 +17,8 @@
 //!
 //! The report is `apply`, in this process. It goes by the settings of this
 //! environment and loads none: instance.env may have changed during the cycle.
+//! After it, a cycle that was not stopped and left an open pull request asks
+//! for the plugins' hooks on it (src/hook.rs), and waits for none of them.
 //!
 //! The --work program is the runner seam. tehas work runs the cycle on this
 //! host. A job waiter (`--runner job`) waits on a cycle run on a contractor and
@@ -37,6 +39,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tehas_core::call::{gh_why, run_full, GRACE};
+use tehas_core::plugin::hook::Ending;
 use tehas_core::{cycle_notes, time};
 
 /// What tehasbot cycle gives this.
@@ -487,7 +490,16 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         status_args: g.status_args.clone(),
         runner: g.runner,
     };
-    apply::run(home, &start)
+    let reported = apply::reported(home, &start);
+    let ending = Ending {
+        signalled,
+        refused: reported.refused,
+        pr: reported.pr,
+    };
+    crate::hook::ask(home, g.issue, &ending, &|name: &str| {
+        std::env::var(name).unwrap_or_default()
+    });
+    reported.rc
 }
 
 #[cfg(test)]

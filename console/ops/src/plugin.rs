@@ -171,6 +171,9 @@ pub struct Row {
     pub last: Option<Value>,
     /// The model tokens of its runs that started today, UTC.
     pub tokens_today: u64,
+    /// Why the last hook's commit status could not be written; None when it
+    /// was, or none was tried.
+    pub status_unwritten: Option<String>,
 }
 
 /// What the store's runs of a plugin come to: its last run and today's tokens.
@@ -196,6 +199,7 @@ pub fn rows(
                     grants: Vec::new(),
                     last,
                     tokens_today,
+                    status_unwritten: None,
                 },
                 g => Row {
                     state: state(&pin.name)
@@ -205,6 +209,7 @@ pub fn rows(
                     grants: g.map(|g| g.words).unwrap_or_default(),
                     last,
                     tokens_today,
+                    status_unwritten: None,
                 },
             }
         })
@@ -263,6 +268,7 @@ pub fn json(rows: &[Row]) -> J {
                 ),
                 ("last_run", r.last.as_ref().map_or(J::Null, last_json)),
                 ("tokens_today", J::int(r.tokens_today as i64)),
+                ("status_unwritten", text_or_null(&r.status_unwritten)),
             ])
         })
         .collect();
@@ -294,8 +300,12 @@ pub fn text(rows: &[Row]) -> Vec<String> {
                     l["result"].as_str().unwrap_or("running")
                 ),
             };
+            let unwritten = match &r.status_unwritten {
+                Some(why) => format!("\tthe status could not be written: {why}"),
+                None => String::new(),
+            };
             format!(
-                "{}\t{}@{}\t{state}\tgrants: {grants}\t{last}\ttokens today: {}",
+                "{}\t{}@{}\t{state}\tgrants: {grants}\t{last}\ttokens today: {}{unwritten}",
                 r.pin.name, r.pin.url, r.pin.commit, r.tokens_today
             )
         })
@@ -394,9 +404,12 @@ pub fn main(given: &[String]) -> u8 {
     };
     match asked {
         Words::List { json: json_out } => {
-            let rows = rows(&get, &|name| prepare::read_state(&home, name), &|name| {
+            let mut rows = rows(&get, &|name| prepare::read_state(&home, name), &|name| {
                 store_runs(&home, name)
             });
+            for r in &mut rows {
+                r.status_unwritten = runs::status_unwritten(&home, &r.pin.name);
+            }
             if json_out {
                 outln!("{}", json(&rows).dump());
             } else {
@@ -673,5 +686,19 @@ mod tests {
         let rows = rows(&vars(&[("TEHAS_PLUGINS", &floorplan())]), &none, &never);
         assert_eq!(rows[0].state.state, Word::Unbuilt);
         assert!(rows[0].grants.is_empty());
+    }
+
+    #[test]
+    fn a_status_the_hook_could_not_write_is_said() {
+        let mut rows = rows(&vars(&[("TEHAS_PLUGINS", &floorplan())]), &none, &never);
+        assert_eq!(rows[0].status_unwritten, None);
+        rows[0].status_unwritten = Some("GitHub refused it: HTTP 403".into());
+        let v: Value = serde_json::from_str(&json(&rows).dump()).unwrap();
+        assert_eq!(
+            v["plugins"][0]["status_unwritten"],
+            "GitHub refused it: HTTP 403"
+        );
+        assert!(text(&rows)[0]
+            .ends_with("\tthe status could not be written: GitHub refused it: HTTP 403"));
     }
 }

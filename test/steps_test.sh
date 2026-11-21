@@ -116,7 +116,7 @@ while read -r kind unit; do
     *" $unit "* | *" ${unit%.service}.timer "*) ;;
     *) missing="$missing $unit" ;;
   esac
-done < <(TEHAS_OUTSOURCE=on TEHAS_REVIEW=on TEHAS_PLUGIN=on TEHAS_TEST_FEATURES="outsource review plugins" "$T_CONSOLE" update featured)
+done < <(TEHAS_OUTSOURCE=on TEHAS_REVIEW=on TEHAS_PLUGIN=on TEHAS_WIKI=on TEHAS_TEST_FEATURES="outsource review plugins wiki" "$T_CONSOLE" update featured)
 # The gate itself has to see the table: an empty list would pass it vacuously.
 t_eq "$found" "$(find "$T_ROOT/host/systemd" -type f | wc -l)"
 t_eq "$missing" ""

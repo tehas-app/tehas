@@ -7,16 +7,17 @@
 //! - `refresh.json`: what asked for the next refresh, `{trigger, by}`.
 //! - `head`: the head of the last refresh that began, which the tick reads.
 //! - `last.log`: the last refresh's log, at most 1 MiB.
-//! - `hooks/<pr>.json`: the request of a hook; `hooks/<pr>.verdict.json` the
-//!   verdict read; `hooks/<pr>.log` its log.
+//! - `hooks/<pr>.json`: the request of a hook (`tehas_core::plugin::hook`);
+//!   `hooks/<pr>.verdict.json` the verdict read; `hooks/<pr>.log` its log.
+//! - `status-unwritten`: why the last hook's commit status was not written.
 
 use super::exec::{Cmd, Exec};
 use super::prepare;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use tehas_core::file::{write_atomic, Temp};
-use tehas_core::grammar::commit_id;
 use tehas_core::lock::{probe, Probe};
+use tehas_core::plugin::hook;
 use tehas_core::plugin::run::Trigger;
 
 /// The most bytes of a run's log that are kept.
@@ -50,11 +51,11 @@ pub fn tried(home: &Path, name: &str) -> PathBuf {
 }
 
 pub fn hooks(home: &Path, name: &str) -> PathBuf {
-    prepare::dir(home, name).join("hooks")
+    hook::dir(home, name)
 }
 
 pub fn hook_request(home: &Path, name: &str, pr: u64) -> PathBuf {
-    hooks(home, name).join(format!("{pr}.json"))
+    hook::request(home, name, pr)
 }
 
 pub fn verdict(home: &Path, name: &str, pr: u64) -> PathBuf {
@@ -111,7 +112,7 @@ pub fn read_request(home: &Path, name: &str) -> Option<Asked> {
 pub fn unit(name: &str, pr: Option<u64>) -> String {
     match pr {
         None => format!("tehas-plugin@{name}.service"),
-        Some(pr) => format!("tehas-plugin-hook@{name}-{pr}.service"),
+        Some(pr) => hook::unit(name, pr),
     }
 }
 
@@ -143,76 +144,31 @@ pub fn ask_refresh(x: &mut dyn Exec, home: &Path, name: &str, asked: &Asked) -> 
     start(x, &unit(name, None))
 }
 
-/// The request of a hook: the pull request, its head as GitHub gave it, its
-/// base, the issue, and what asked.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HookAsk {
-    pub pr: u64,
-    pub head: String,
-    pub base: String,
-    pub issue: Option<u64>,
-    pub trigger: Trigger,
-}
-
-impl HookAsk {
-    pub fn json(&self) -> Value {
-        json!({
-            "api": 1,
-            "pr": self.pr,
-            "head": self.head,
-            "base": self.base,
-            "issue": self.issue,
-            "trigger": self.trigger.word(),
-        })
-    }
-
-    pub fn read(text: &[u8]) -> Option<HookAsk> {
-        let v: Value = serde_json::from_slice(text).ok()?;
-        if v.get("api")? != 1 {
-            return None;
-        }
-        let commit = |k: &str| {
-            v.get(k)?
-                .as_str()
-                .filter(|c| commit_id(c))
-                .map(str::to_string)
-        };
-        let issue = match v.get("issue")? {
-            Value::Null => None,
-            n => Some(n.as_u64().filter(|n| *n > 0)?),
-        };
-        let trigger = trigger(v.get("trigger")?.as_str()?)?;
-        if !matches!(trigger, Trigger::Cycle | Trigger::Host) {
-            return None;
-        }
-        Some(HookAsk {
-            pr: v.get("pr")?.as_u64().filter(|n| *n > 0)?,
-            head: commit("head")?,
-            base: commit("base")?,
-            issue,
-            trigger,
-        })
-    }
-}
+pub use tehas_core::plugin::hook::HookAsk;
 
 pub fn read_hook(home: &Path, name: &str, pr: u64) -> Option<HookAsk> {
-    HookAsk::read(&std::fs::read(hook_request(home, name, pr)).ok()?).filter(|h| h.pr == pr)
+    hook::read_request(home, name, pr)
 }
 
 /// Writes the request of a hook, replacing one there, then starts its unit.
 /// A hook running on the same pull request finishes and then runs the newer
 /// request.
 pub fn ask_hook(x: &mut dyn Exec, home: &Path, name: &str, ask: &HookAsk) -> Result<(), String> {
-    let dir = hooks(home, name);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot make {}: {e}", dir.display()))?;
-    write_atomic(
-        &hook_request(home, name, ask.pr),
-        format!("{}\n", ask.json()).as_bytes(),
-        0o600,
-        &Temp::Pid,
-    )
-    .map_err(|e| format!("cannot write the request: {e}"))?;
+    hook::write_request(home, name, ask)?;
     start(x, &unit(name, Some(ask.pr)))
+}
+
+/// `status-unwritten`: why the last commit status of a hook could not be
+/// written, which the runner leaves and takes away.
+pub fn unwritten(home: &Path, name: &str) -> PathBuf {
+    prepare::dir(home, name).join("status-unwritten")
+}
+
+/// The line `status-unwritten` holds, if there is one.
+pub fn status_unwritten(home: &Path, name: &str) -> Option<String> {
+    let text = std::fs::read_to_string(unwritten(home, name)).ok()?;
+    let line = text.lines().next()?.trim();
+    (!line.is_empty()).then(|| line.chars().take(200).collect())
 }
 
 /// The newest run of `runs` (the store's `plugin-runs`, newest first) and the
@@ -310,5 +266,16 @@ mod tests {
         );
         assert_eq!(today, 35);
         assert_eq!(last_and_today(&[], 0), (None, 0));
+    }
+
+    #[test]
+    fn a_status_left_unwritten_is_read_by_its_first_line() {
+        let home = TestDir::new("plugin-runs-unwritten");
+        std::fs::create_dir_all(prepare::dir(&home, "demo")).unwrap();
+        assert_eq!(status_unwritten(&home, "demo"), None);
+        std::fs::write(unwritten(&home, "demo"), "HTTP 403\nmore\n").unwrap();
+        assert_eq!(status_unwritten(&home, "demo"), Some("HTTP 403".into()));
+        std::fs::write(unwritten(&home, "demo"), "\n").unwrap();
+        assert_eq!(status_unwritten(&home, "demo"), None);
     }
 }
