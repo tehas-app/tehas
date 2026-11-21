@@ -167,10 +167,11 @@ done
 # gives of them. A section left in two pages, or dropped with the page it was
 # moved out of, shows here. `## tehas github check` came after the split, when
 # the check of the token got a tehas name of its own, and `## Host settings`
-# when the host's settings got rules beside the instance's, and `## tehas outsource`
-# when outsource got its commands.
-t_case "the tools pages hold the 47 sections of the commands, each once"
-t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 48
+# when the host's settings got rules beside the instance's, `## tehas outsource`
+# when outsource got its commands, `## tehas plugin` with plugins, and
+# `## The commands of other parts` when tehas <part> ran the family's parts.
+t_case "the tools pages hold the 48 sections of the commands, each once"
+t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 49
 t_eq "$(cat "${TOOLS_PAGES[@]}" | grep '^## ' | grep -v '^## The pages$' \
    | sort | uniq -d | wc -l | tr -d ' ')" 0
 
