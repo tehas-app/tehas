@@ -104,6 +104,11 @@
 //! The open epics and their sub-issues, live/epics.json, for tehasbot status,
 //! see src/epics.rs. A run of tehasbot status calls this with a time limit.
 //!
+//!   console tickets <owner/name> <dir>
+//!
+//! The issues and pull requests changed since the last run, one file each, for
+//! the MCP server's ticket tools: see src/tickets.rs.
+//!
 //!   console flags limit show|set|clear|read ...
 //!
 //! The holds under state/ of one instance: the limit tehas limit sets, see
@@ -218,6 +223,7 @@ mod start;
 mod state;
 mod status;
 mod tail;
+mod tickets;
 mod top;
 mod wake;
 mod wiki;
@@ -447,6 +453,7 @@ fn main() -> ExitCode {
             Some("disk") => return ExitCode::from(disk::main(&given[1..])),
             Some("energy") => return ExitCode::from(energy::main(&given[1..])),
             Some("epics") => return ExitCode::from(epics::main(&given[1..])),
+            Some("tickets") => return ExitCode::from(tickets::main(&given[1..])),
             Some("flags") => return ExitCode::from(holds::main(&given[1..])),
             Some("init-product") => return ExitCode::from(product::init(&given[1..])),
             Some("dev") => return ExitCode::from(dev::main(&given[1..])),

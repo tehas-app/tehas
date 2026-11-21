@@ -19,4 +19,5 @@ pub mod plugins;
 pub mod rpc;
 pub mod sessions;
 pub mod snapshot;
+pub mod tickets;
 pub mod tools;

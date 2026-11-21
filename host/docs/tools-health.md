@@ -69,6 +69,12 @@ writes nothing and the file of the run before stays. `unlinked` lists the open
 issues labelled `epic` that have no sub-issues, newest first, by number: the
 label puts no issue on the panel, and `tehasbot health` warns about these.
 
+While `TEHAS_MCP=1`, `tehasbot status` also reads the issues and pull
+requests changed since its last read into `~/tehas/mcp/tickets/`, one file
+each, for the MCP server's [ticket tools](/mcp-server#tickets) (`console
+tickets`, `console/src/tickets.rs`): at most four GitHub searches a poll,
+under the same 60 seconds. A read that fails keeps what it wrote.
+
 `tehasbot status` also records issue events in the factory's analytics,
 `~/tehas/state/analytics.db`, by comparing the snapshot it writes with the one
 it replaces: `awaiting` and `stopped` for an issue new in that list, at the
