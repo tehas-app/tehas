@@ -1,10 +1,9 @@
 //! A tool's `params`: the closed part of JSON schema a tool may use
 //! (docs/specs/2026-11-21-plugins-v2-chats.md, "Tools"). [`rules`] reads a
 //! schema with the manifest, and [`check`] holds a call's arguments to it
-//! with exactly the keywords [`rules`] lets through. Patterns are the regex
-//! crate's, which matches in linear time, compiled under a size limit.
+//! with exactly the keywords [`rules`] lets through. No `pattern`: a call
+//! runs no regular expression of a plugin's.
 
-use regex::{Regex, RegexBuilder};
 use serde_json::{Map, Value};
 
 /// The largest schema, serialized.
@@ -13,12 +12,7 @@ pub const SCHEMA_MAX: usize = 4096;
 pub const ARGS_MAX: usize = 2048;
 /// The deepest a schema nests, the top level being 1.
 pub const DEPTH_MAX: usize = 6;
-/// The longest pattern, in characters.
-pub const PATTERN_MAX: usize = 200;
-/// The most bytes a compiled pattern may take.
-const PATTERN_SIZE: usize = 1 << 18;
-
-const KEYWORDS: [&str; 16] = [
+const KEYWORDS: [&str; 15] = [
     "type",
     "properties",
     "required",
@@ -28,7 +22,6 @@ const KEYWORDS: [&str; 16] = [
     "minItems",
     "maxLength",
     "minLength",
-    "pattern",
     "enum",
     "const",
     "minimum",
@@ -39,10 +32,6 @@ const KEYWORDS: [&str; 16] = [
 const TYPES: [&str; 7] = [
     "object", "string", "integer", "number", "boolean", "array", "null",
 ];
-
-fn pattern(p: &str) -> Option<Regex> {
-    RegexBuilder::new(p).size_limit(PATTERN_SIZE).build().ok()
-}
 
 /// The types a schema admits: all of them when it names none. Err: `type`
 /// is not one of [`TYPES`] or a list of them, each once.
@@ -124,18 +113,6 @@ fn walk(s: &Value, at: &str, depth: usize, out: &mut Vec<String>) {
     for k in ["title", "description"] {
         if m.get(k).is_some_and(|v| !v.is_string()) {
             out.push(format!("{here}.{k}: expected a string"));
-        }
-    }
-    if let Some(p) = m.get("pattern") {
-        match p.as_str() {
-            Some(p) if p.chars().count() > PATTERN_MAX => {
-                out.push(format!("{here}.pattern: over {PATTERN_MAX} characters"))
-            }
-            Some(p) if pattern(p).is_none() => out.push(format!(
-                "{here}.pattern: does not compile within its size limit"
-            )),
-            Some(_) => {}
-            None => out.push(format!("{here}.pattern: expected a string")),
         }
     }
     if m.get("enum").is_some_and(|v| !v.is_array()) {
@@ -247,13 +224,6 @@ fn fits(v: &Value, s: &Value, path: &str) -> Result<(), String> {
         {
             return Err(format!("{at}: over {} characters", s["maxLength"]));
         }
-        if let Some(p) = s.get("pattern").and_then(Value::as_str) {
-            let re =
-                pattern(p).ok_or_else(|| format!("{at}: the schema's pattern does not compile"))?;
-            if !re.is_match(text) {
-                return Err(format!("{at}: does not match the schema's pattern"));
-            }
-        }
     }
     if let Some(list) = v.as_array() {
         let n = list.len() as u64;
@@ -314,7 +284,7 @@ mod tests {
             "title": "Search",
             "description": "What to look for",
             "properties": {
-                "q": {"type": "string", "minLength": 1, "maxLength": 20, "pattern": "^[a-z ]+$"},
+                "q": {"type": "string", "minLength": 1, "maxLength": 20},
                 "tags": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"enum": ["api", "ops"]}},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 10},
                 "score": {"type": ["number", "null"]},
@@ -441,20 +411,9 @@ mod tests {
     }
 
     #[test]
-    fn a_pattern_over_200_characters_or_too_big_to_compile_is_refused() {
-        let with = |p: &str| json!({"type": "object", "properties": {"q": {"type": "string", "maxLength": 9, "pattern": p}}});
-        assert_eq!(rules(&with(&"a".repeat(PATTERN_MAX))), Vec::<String>::new());
-        assert_eq!(
-            rules(&with(&"a".repeat(PATTERN_MAX + 1))),
-            ["properties.q.pattern: over 200 characters"]
-        );
-        for bad in ["(", "(?:[a-z0-9]{1000}){100}"] {
-            assert_eq!(
-                rules(&with(bad)),
-                ["properties.q.pattern: does not compile within its size limit"],
-                "{bad}"
-            );
-        }
+    fn a_pattern_is_refused_when_the_manifest_is_read() {
+        let s = json!({"type": "object", "properties": {"q": {"type": "string", "maxLength": 9, "pattern": "^a"}}});
+        assert_eq!(rules(&s), ["properties.q: pattern is not allowed"]);
     }
 
     #[test]
@@ -505,7 +464,6 @@ mod tests {
             (json!({"q": 1}), "q: expected string"),
             (json!({"q": ""}), "q: under 1 characters"),
             (json!({"q": "x".repeat(21)}), "q: over 20 characters"),
-            (json!({"q": "X"}), "q: does not match the schema's pattern"),
             (json!({"q": "x", "tags": []}), "tags: under 1 items"),
             (
                 json!({"q": "x", "tags": ["api", "api", "ops", "ops"]}),

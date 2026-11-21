@@ -92,7 +92,7 @@
         "properties": {
           "id": {"type": "string", "pattern": "^[a-z-]{1,16}$"},
           "about": {"type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[^\u0000-\u001f\u007f-\u009f\u2028\u2029]*$"},
-          "params": {"description": "The JSON schema of a call's arguments: type object at the top, at most 4 KiB and 6 deep, every string with a maxLength, every array with maxItems, a pattern of at most 200 characters, and only the keywords type, properties, required, additionalProperties (true or false), items (one schema), maxItems, minItems, maxLength, minLength, pattern, enum, const, minimum, maximum, title and description. The reader checks it; this schema does not."},
+          "params": {"description": "The JSON schema of a call's arguments: type object at the top, at most 4 KiB and 6 deep, every string with a maxLength, every array with maxItems, and only the keywords type, properties, required, additionalProperties (true or false), items (one schema), maxItems, minItems, maxLength, minLength, enum, const, minimum, maximum, title and description. The reader checks it; this schema does not."},
           "timeout": {"type": "integer", "minimum": 1, "maximum": 10},
           "chats": {
             "type": "array",

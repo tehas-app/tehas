@@ -628,8 +628,9 @@ const CALL_WORK_MIB: u64 = 16;
 /// and the container stays after it stops so that /out can be read.
 ///
 /// A call (docs/specs/2026-11-21-plugins-v2-chats.md, "A call") runs
-/// attached and keeps nothing: `--rm`, no log, no /out, a tmpfs /work, /state
-/// read only, fewer processes, and its arguments at /run/call.json.
+/// attached and keeps nothing: `--rm`, no log, no /out, a small tmpfs /tmp
+/// and /work, /state read only, fewer processes, and its arguments at
+/// /run/call.json.
 pub fn plugin_run(run: &plugin::run::Run) -> Result<Vec<String>, String> {
     let given = run.given()?;
     let call = run.kind == plugin::run::Kind::Call;
@@ -678,7 +679,11 @@ pub fn plugin_run(run: &plugin::run::Run) -> Result<Vec<String>, String> {
             "max-file=1",
         ]));
     }
-    w.extend(words(&["--tmpfs", "/tmp:size=256m,noexec,nosuid,nodev"]));
+    let tmp = if call { "16m" } else { "256m" };
+    w.extend(words(&[
+        "--tmpfs",
+        &format!("/tmp:size={tmp},noexec,nosuid,nodev"),
+    ]));
     if call {
         w.extend(words(&[
             "--tmpfs",
@@ -2166,7 +2171,7 @@ mod tests {
         assert_eq!(
             after("--tmpfs"),
             [
-                "/tmp:size=256m,noexec,nosuid,nodev",
+                "/tmp:size=16m,noexec,nosuid,nodev",
                 "/work:size=16m,noexec,nosuid,nodev"
             ]
         );

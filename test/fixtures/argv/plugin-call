@@ -28,7 +28,7 @@ tehas.slice
 --log-driver
 none
 --tmpfs
-/tmp:size=256m,noexec,nosuid,nodev
+/tmp:size=16m,noexec,nosuid,nodev
 --tmpfs
 /work:size=16m,noexec,nosuid,nodev
 --mount
