@@ -1520,6 +1520,7 @@ fn pending_with_check_or_to_is_refused_before_the_settings_are_read() {
         &r.out,
         "--pending runs the recorded follow-ups, and does not go with --check",
     );
+    assert_eq!(h.owed_steps(), "sandbox");
     h.instance();
     h.platform(0, "");
     h.record(&["sandbox"]);
