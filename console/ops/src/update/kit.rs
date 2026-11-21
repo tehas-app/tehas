@@ -8,6 +8,8 @@
 //!   file and the kit files that draw (`DRAWS`) import it, by a relative
 //!   address, and only by the names it exports, `export … from` too. `html`
 //!   keeps its name, so the template checks find it.
+//! - The library's types, `fun/kit/vendor/solid.d.ts`, declare a value for
+//!   each name it exports and for no other name.
 //! - No file of `host/fun` names a Solid 1.x API (`OLD`).
 //! - A file that imports the library builds no `html` template by `+`, by a
 //!   call of `html(…)` or with an untagged template literal inside it, and
@@ -21,6 +23,10 @@ use std::path::{Path, PathBuf};
 
 /// The library, relative to `host`.
 pub(super) const LIBRARY: &str = "fun/kit/vendor/solid.js";
+
+/// The library's types, relative to `host`: a checker reads them in place of
+/// the bundle.
+pub(super) const TYPES: &str = "fun/kit/vendor/solid.d.ts";
 
 /// The kit files that draw or hold Solid state, and so may import the library.
 pub(super) const DRAWS: [&str; 4] = [
@@ -142,6 +148,65 @@ pub(super) fn exports(library: &str) -> Vec<String> {
         .map(|n| n.trim().to_string())
         .filter(|n| !n.is_empty())
         .collect()
+}
+
+/// The values a `.d.ts` file declares: its `export function` and
+/// `export const` names, each once, in order.
+fn declared(dts: &str) -> Vec<String> {
+    let mut out: Vec<String> = dts
+        .lines()
+        .filter_map(|l| {
+            l.strip_prefix("export function ")
+                .or_else(|| l.strip_prefix("export const "))
+        })
+        .map(|rest| {
+            rest.chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
+                .collect::<String>()
+        })
+        .filter(|n| !n.is_empty())
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// What is wrong with the types `dts` of the library `library`, one line each.
+pub(super) fn types(library: &str, dts: &str) -> Vec<String> {
+    let exported = exports(library);
+    let declared = declared(dts);
+    let mut wrong = Vec::new();
+    for (n, line) in dts.lines().enumerate() {
+        let rest = line.trim_start();
+        let export = rest
+            .strip_prefix("export")
+            .is_some_and(|r| r.starts_with(|c: char| c.is_whitespace() || c == '{' || c == '*'));
+        let read = [
+            "export type ",
+            "export interface ",
+            "export function ",
+            "export const ",
+        ]
+        .iter()
+        .any(|form| line.starts_with(form));
+        if export && !read {
+            wrong.push(format!(
+                "{TYPES}:{}: an export the check cannot read; start the line with export function, export const, export type or export interface",
+                n + 1
+            ));
+        }
+    }
+    for name in declared.iter().filter(|n| !exported.contains(n)) {
+        wrong.push(format!(
+            "{TYPES}: types {name:?}, which the library does not export"
+        ));
+    }
+    for name in exported.iter().filter(|n| !declared.contains(n)) {
+        wrong.push(format!(
+            "{TYPES}: no type for {name:?}, which the library exports"
+        ));
+    }
+    wrong
 }
 
 /// The names that `import { a, b as c } from "<spec>"` and
@@ -467,6 +532,82 @@ mod tests {
         );
         fs::remove_file(kit.join("MANIFEST")).unwrap();
         assert_eq!(manifest(&kit), ["fun/kit/MANIFEST: missing"]);
+    }
+
+    #[test]
+    fn the_manifest_names_the_type_files() {
+        let d = host("kit-types");
+        let types = "export function createMemo<T>(f: () => T): () => T;\n";
+        d.file("host/fun/kit/vendor/solid.d.ts", types);
+        d.file("host/fun/kit/kit.d.ts", "export type N = number;\n");
+        let kit = d.0.join("host/fun/kit");
+        let solid = fs::read(kit.join("vendor/solid.js")).unwrap();
+        d.file(
+            "host/fun/kit/MANIFEST",
+            &format!(
+                "kit 1\nfile {} 24 kit.d.ts\nfile {} {} vendor/solid.d.ts\nfile {} {} vendor/solid.js\n",
+                hex(b"export type N = number;\n"),
+                hex(types.as_bytes()),
+                types.len(),
+                hex(&solid),
+                solid.len()
+            ),
+        );
+        assert_eq!(manifest(&kit), Vec::<String>::new());
+        assert_eq!(run(&d), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_types_name_the_values_the_library_exports() {
+        let dts = "declare const OWNER: unique symbol;\nexport type Accessor<T> = () => T;\n\
+                   export function createSignal<T>(v: T): T;\nexport function createSignal<T>(): T;\n\
+                   export const For: Component;\nexport function html(s: TemplateStringsArray): any;\n";
+        assert_eq!(declared(dts), ["For", "createSignal", "html"]);
+        let library = "var a;export{a as For,b as html,c as createSignal};";
+        assert_eq!(types(library, dts), Vec::<String>::new());
+        let wrong = types("var a;export{a as For,b as html,c as untrack};", dts);
+        assert_eq!(
+            wrong,
+            [
+                "fun/kit/vendor/solid.d.ts: types \"createSignal\", which the library does not export",
+                "fun/kit/vendor/solid.d.ts: no type for \"untrack\", which the library exports",
+            ]
+        );
+    }
+
+    #[test]
+    fn an_export_in_another_form_is_refused() {
+        let library = "var a;export{a as For};";
+        for form in [
+            "export declare function For(): void;",
+            "export declare const For: any;",
+            "export let For: any;",
+            "export class For {}",
+            "  export function For(): void;",
+            "export { For };",
+            "export * from \"./x\";",
+            "export default For;",
+        ] {
+            let dts = format!("export const For: any;\n{form}\n");
+            assert_eq!(
+                types(library, &dts),
+                [format!("{TYPES}:2: an export the check cannot read; start the line with export function, export const, export type or export interface")],
+                "{form}"
+            );
+        }
+        let dts =
+            "export const For: any;\nexport interface P { a: 1 }\nexport type Q = 1;\nexported;\n";
+        assert_eq!(types(library, dts), Vec::<String>::new());
+    }
+
+    /// The kit's own type file against the kit's own library.
+    #[test]
+    fn the_real_types_name_the_real_library_s_exports() {
+        let host = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../host");
+        let library = fs::read_to_string(host.join(LIBRARY)).unwrap();
+        let dts = fs::read_to_string(host.join(TYPES)).unwrap();
+        assert_eq!(types(&library, &dts), Vec::<String>::new());
+        assert_eq!(declared(&dts).len(), 27);
     }
 
     #[test]

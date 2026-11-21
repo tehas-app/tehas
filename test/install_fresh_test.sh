@@ -197,12 +197,14 @@ t_eq "$(cd "$th/docs" && find . -type f ! -name version.txt | wc -l)" "$(find "$
   t_bad "console update assets could not stage $fixture/host"
 t_eq "$(cd "$th/fun" && find . -type f ! -name version.txt | wc -l)" \
   "$(cd "$T/stage-count/fun" && find . -type f | wc -l)"
-# The checkout's files, each of them still there, and beside them the hashed
-# copies and nothing else. Both halves are read out of the home, where the
-# install put them: only the home proves that both came.
+# The checkout's files, each of them still there but the .d.ts type files,
+# which no page loads, and beside them the hashed copies and nothing else. Both
+# halves are read out of the home, where the install put them: only the home
+# proves that both came.
 t_eq "$(cd "$th/fun" && find . -type f ! -name version.txt -regextype posix-extended \
       ! -regex '.*/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)' | LC_ALL=C sort)" \
-  "$(cd "$fixture/host/fun" && find . -type f | LC_ALL=C sort)"
+  "$(cd "$fixture/host/fun" && find . -type f ! -name '*.d.ts' | LC_ALL=C sort)"
+t_eq "$(cd "$th/fun" && find . -name '*.d.ts')" ""
 # Two pages name some of these files, so the copies are fewer than the tags.
 t_eq "$(cd "$th/fun" && find . -type f -regextype posix-extended \
       -regex '.*/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)' | wc -l)" 29

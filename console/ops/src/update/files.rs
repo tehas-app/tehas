@@ -13,7 +13,8 @@
 //! `<path>.prev`. Each `--sync <name>` then copies every file of the directory
 //! `<name>` stands in for into `$TEHAS_HOME/<name>` as 644 and removes what is
 //! there that the directory no longer has, its subdirectories in the same way
-//! (the kit in `fun/kit/`). The pages that name hashed files
+//! (the kit in `fun/kit/`), but for the `.d.ts` type files, which no page
+//! loads and the sweep takes back. The pages that name hashed files
 //! (src/update/assets.rs) are copied after every other file and the sweep comes
 //! last, so a run that fails partway leaves pages that name files the home has.
 //! A file in these directories is tehas's: one the directory does not have is
@@ -52,6 +53,7 @@ use std::path::{Path, PathBuf};
 
 use tehas_core::file::{write_atomic, Temp};
 
+use super::assets::served;
 use super::{fault, say, steps, tell};
 
 const USAGE: &str = "console update files: usage: [--check | --preflight] [--no-steps <source>]... [--from <dir>] [--sync <name>]... <root> <host> | write <path>";
@@ -312,7 +314,7 @@ impl Copier {
                 self.copy_tree(&src, pages)?;
                 continue;
             }
-            if super::assets::PAGES.contains(&src.as_str()) != pages {
+            if super::assets::PAGES.contains(&src.as_str()) != pages || !served(file) {
                 continue;
             }
             self.put_from(
@@ -361,7 +363,7 @@ impl Copier {
                 && (file.ends_with(".prev")
                     || file == "version.txt"
                     || file == "rukas-version.txt"
-                    || from_dir.join(&file).exists())
+                    || (from_dir.join(&file).exists() && served(&file)))
             {
                 continue;
             }
@@ -790,6 +792,33 @@ mod tests {
         assert_eq!(fs::read_to_string(home.join("old/a.js")).unwrap(), "x\n");
         assert!(home.join("kit/vendor/solid.js").is_file());
         assert!(!c.lines.iter().any(|l| l.contains("old")), "{:?}", c.lines);
+    }
+
+    #[test]
+    fn a_sync_leaves_out_the_type_files_and_sweeps_them_from_the_home() {
+        let d = dir("files-types");
+        d.file("root/host/fun/kit/island.js", "// island\n");
+        d.file("root/host/fun/kit/vendor/solid.d.ts", "export {};\n");
+        let syncs = ["fun".to_string()];
+        let mut c = copier(&d, false);
+        c.run("", &syncs).unwrap();
+        let home = d.0.join("home/fun");
+        assert!(home.join("kit/island.js").is_file());
+        assert!(!home.join("kit/vendor/solid.d.ts").exists());
+
+        // A check from the checkout, with no stage, owes it nothing.
+        let mut c = copier(&d, true);
+        c.run("", &syncs).unwrap();
+        assert_eq!(c.lines, Vec::<String>::new());
+
+        // One a home has from before is tehas's and goes.
+        d.file("home/fun/kit/vendor/solid.d.ts", "export {};\n");
+        let mut c = copier(&d, false);
+        c.run("", &syncs).unwrap();
+        assert!(!home.join("kit/vendor/solid.d.ts").exists());
+        assert!(c
+            .lines
+            .contains(&"changed fun/kit/vendor/solid.d.ts".to_string()));
     }
 
     /// Every file under `dir` with its bytes, at any depth, links not followed.

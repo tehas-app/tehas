@@ -3,7 +3,8 @@
 //!   console update assets <host dir> <stage dir>
 //!
 //! `host/fun` and `host/docs` are copied to `<stage dir>/fun` and
-//! `<stage dir>/docs` as 644. Then each `<script src="/fun/X.js">` and each
+//! `<stage dir>/docs` as 644, but for the `.d.ts` type files, which no page
+//! loads. Then each `<script src="/fun/X.js">` and each
 //! `<link rel="stylesheet" href="/fun/X.css">` of `fun/index.html`,
 //! `fun/business.html` and `docs/dashboard.frag` is named by the bytes it asks
 //! for: `fun/X.<hex>.js` holds a copy of `fun/X.js` and the tag names that
@@ -48,6 +49,23 @@ pub(super) const PAGES: [&str; 3] = ["fun/index.html", "fun/business.html", "doc
 /// Nothing else is given a hashed name: an image, a font or a document keeps
 /// its name and is revalidated, as the theme file does.
 const HASHED: [&str; 2] = ["js", "css"];
+
+/// Whether a file of `host/fun` or `host/docs` goes to a home, by its name or
+/// address. A `.d.ts` file holds types for a checker, which a browser never
+/// loads, so it is not staged, and an address of one in a JSDoc comment names
+/// no file a page loads.
+pub(super) fn served(name: &str) -> bool {
+    !name.ends_with(".d.ts")
+}
+
+/// Whether byte `at` of `text` is inside a `/* */` comment, where JSDoc names
+/// a type file. A `/*` inside a string is taken as a comment's start.
+#[cfg(test)]
+pub(super) fn in_comment(text: &str, at: usize) -> bool {
+    text[..at]
+        .rfind("/*")
+        .is_some_and(|open| !text[open + 2..at].contains("*/"))
+}
 
 /// The name of an asset's copy: `<stem>.<hex>.<extension>`, `<hex>` the first
 /// 12 hex digits of the sha256 of its bytes. The stem is the whole name before
@@ -241,7 +259,8 @@ fn page(stage: &Path, name: &str) -> io::Result<()> {
 }
 
 /// One directory of the host, whole, into the stage as 644. A name that begins
-/// with a dot is no page and no asset, so it is not copied.
+/// with a dot is no page and no asset, so it is not copied, and neither is a
+/// file that is not `served`.
 fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
     let mut entries: Vec<_> = fs::read_dir(from)?
         .filter_map(Result::ok)
@@ -261,6 +280,9 @@ fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
         }
         if source.is_dir() {
             copy_dir(&source, &to.join(&name))?;
+            continue;
+        }
+        if !served(&name) {
             continue;
         }
         let bytes = fs::read(&source)?;
@@ -444,6 +466,42 @@ mod tests {
     }
 
     #[test]
+    fn a_type_file_is_not_staged() {
+        let d = host("assets-types");
+        put(&d, "host/fun/kit/island.js", "export const island = 1;\n");
+        put(&d, "host/fun/kit/kit.d.ts", "export type A = 1;\n");
+        put(&d, "host/fun/kit/vendor/solid.js", "export{a as For};\n");
+        put(
+            &d,
+            "host/fun/kit/vendor/solid.d.ts",
+            "export const For: 1;\n",
+        );
+        assert_eq!(run(&d), 0);
+        assert_eq!(names(&staged(&d, "fun/kit")), ["island.js", "vendor"]);
+        assert_eq!(names(&staged(&d, "fun/kit/vendor")), ["solid.js"]);
+    }
+
+    #[test]
+    fn a_type_address_in_a_module_is_not_read() {
+        let text = "/** @typedef {import(\"./kit.d.ts\").Feed} Feed */\n\
+                    /** @import { Accessor } from \"./vendor/solid.d.ts\" */\n\
+                    import { a } from \"./a.js\";\n";
+        assert_eq!(specifiers(text), vec!["./a.js"]);
+        // In code it is an import, which no staged file answers.
+        let text = "/** a */\nimport \"./kit.d.ts\";\nimport { b } from './b.d.ts';\n";
+        assert_eq!(specifiers(text), vec!["./kit.d.ts", "./b.d.ts"]);
+    }
+
+    #[test]
+    fn a_comment_is_open_from_its_start_to_its_end() {
+        let text = "a /** b */ c /* d";
+        assert!(!in_comment(text, 0));
+        assert!(in_comment(text, 6));
+        assert!(!in_comment(text, 11));
+        assert!(in_comment(text, 16));
+    }
+
+    #[test]
     fn a_file_in_a_subfolder_is_hashed_and_named_in_its_subfolder() {
         let d = host("assets-subfolder");
         put(
@@ -514,10 +572,14 @@ mod tests {
 
     /// The relative addresses a module imports: `from "…"`, `import "…"` and
     /// `import("…")`, in either quote. A line comment is not read: the kit's
-    /// own describe imports that are no file of theirs.
+    /// own describe imports that are no file of theirs. A type file's address
+    /// is read only outside a `/* */` comment.
     fn specifiers(text: &str) -> Vec<&str> {
         let mut out = Vec::new();
-        for line in text.lines() {
+        let mut start = 0;
+        for line in text.split_inclusive('\n') {
+            let offset = start;
+            start += line.len();
             if line.trim_start().starts_with("//") {
                 continue;
             }
@@ -530,7 +592,9 @@ mod tests {
                     };
                     let rest = &rest[1..];
                     let spec = &rest[..rest.find(quote).unwrap_or(rest.len())];
-                    if spec.starts_with("./") || spec.starts_with("../") {
+                    if (spec.starts_with("./") || spec.starts_with("../"))
+                        && (served(spec) || !in_comment(text, offset + at))
+                    {
                         out.push(spec);
                     }
                 }

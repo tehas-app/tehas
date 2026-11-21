@@ -595,6 +595,7 @@ release that ships it:
 | --- | --- |
 | `vendor/solid.js` | Solid 2, one minified ES module made by `tools/vendor-solid`. Do not edit it |
 | `vendor/LICENSES` | The licences of the bundled packages |
+| `vendor/solid.d.ts` | Types for `vendor/solid.js`, written by hand from the packages' own `.d.ts` files, for each name it exports and no other. A checker such as `tsc --checkJs` reads it in place of the bundle. An install never stages it or copies it into a home, and it counts in no page. A pull request's preview copies `host/fun` whole, so the preview serves it |
 | `island.js` | The island base: attributes, the hydrate trigger, the mount and the disposal, the events. No library |
 | `feed.js` | The feed store ([Feeds](#feeds)) |
 | `stream.js` | The stream source ([Streams](#streams)) |
@@ -617,6 +618,12 @@ kit's patterns and the exports of its modules are only added, never renamed or
 removed. A break raises `n`, and the changelog says so under "Adopter action".
 A program that builds on the kit copies `host/fun/kit/` whole at a pinned tehas
 tag, checks each file against the manifest, and does not edit it.
+
+A `.d.ts` file under `host/fun` is for a type checker. An install does not
+copy it into the home, and the sweep removes one there. An address of one in a
+JSDoc comment, such as `import("./vendor/solid.d.ts")`, is no import: the asset
+checks and `pages.max` do not read it. An address of one in code is an import
+of a file no home has, and the checks refuse it.
 
 The kit holds generic parts only. The `tehas-factory-*` islands that read the
 files under `/live/` are not in it.
@@ -821,7 +828,10 @@ the pages against the file with the rest of the workspace's tests. It fails
 when a page, an island or the library is over its line, when one has no line,
 when a line names nothing, when an island's line is over the island budget, on
 a library import outside a `.render.js` file and the kit files that draw, when
-the kit's `MANIFEST` does not match its files, and on the Solid rules of
+the kit's `MANIFEST` does not match its files, when `vendor/solid.d.ts` is
+missing, does not type exactly the names the library exports or exports in a
+form the check does not read, on a `.d.ts` address in code, and on the Solid
+rules of
 [Solid 2 in tehas](#solid-2-in-tehas). A change may lower a line. A change
 that grows a page raises its line in the same change, and that raise is a
 person's call, said in the pull request, as with the bash ceiling.
