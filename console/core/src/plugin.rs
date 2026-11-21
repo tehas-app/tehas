@@ -8,6 +8,7 @@
 
 pub mod build;
 pub mod dockerfile;
+pub mod draft;
 pub mod manifest;
 pub mod needs;
 pub mod out;
