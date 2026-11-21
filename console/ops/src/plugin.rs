@@ -6,6 +6,7 @@
 //! for a run, which a unit makes (runs.rs); `log` prints the last one's log.
 
 mod ask;
+pub mod call;
 mod check;
 pub mod exec;
 pub mod prepare;

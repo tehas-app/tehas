@@ -93,7 +93,8 @@ pub fn sweep(h: &mut dyn Host, s: &Setup) {
     dead.sort();
     dead.dedup();
     for (name, id) in dead {
-        if runs::running(s.home, &name) {
+        // A call's run is not the runner's, and is not held by its lock.
+        if runs::running(s.home, &name) || runs::calling(s.home, &name) {
             continue;
         }
         clean(h.exec(), &name, &format!("tehas-plugin-{name}-{id}"), id);
@@ -240,6 +241,24 @@ mod tests {
                 "plugin-run-end --run 5 --result lost"
             ]
         );
+    }
+
+    #[test]
+    fn a_call_that_runs_is_left_to_end_itself() {
+        let mut h = Fake::new();
+        let w = world("plugin-tick-call", &mut h, "", "");
+        h.x.on("docker ps", ok("tehas-plugin-demo-3\n"));
+        let calls = runs::calls(&w.home, "demo");
+        fs::create_dir_all(&calls).unwrap();
+        let slot = tehas_core::lock::try_lock(&calls.join("slot-1.lock"))
+            .unwrap()
+            .unwrap();
+        go(&mut h, &w);
+        assert!(!h.x.ran_any("docker rm"));
+        assert!(h.calls.is_empty());
+        drop(slot);
+        go(&mut h, &w);
+        assert!(h.x.ran_any("docker rm -f tehas-plugin-demo-3"));
     }
 
     #[test]
