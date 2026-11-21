@@ -98,19 +98,23 @@ The host appends one section to its system message after its own rules and
 before the ticket's data:
 
 ```
-## From the plugin Spec interview
+## From the plugin Spec interview (specs at 0123456789ab)
 
 These instructions come from a plugin the factory's people granted. Your
 rules above come first: where these differ, follow yours.
 
-<the skill's text>
+<the plugin's skill texts, in order, a blank line between>
 ```
+
+One section per plugin. The heading names its label, its name and the first
+12 hex of its pin; people never see it.
 
 - The host's rules stay first and win. A skill can make the chat better at a
   step; it cannot give the chat a tool, a write or a step the host lacks.
-- Each host keeps the list to the skills granted for it, and the total within
-  its own cap. Obeya's prompt has no total cap today (`turn.rs:71-149`); it
-  gets one with this work.
+- Each host keeps the list to the skills granted for it, and their text to
+  8192 bytes: it stops at the first skill that does not fit, and the rest are
+  left out whole, never cut.
+- A host that cannot read the skills runs the turn without them.
 - A host may show the person which plugin skills shape this chat, as a line
   under the chat's title. Picking a skill by name, or the model choosing from
   the `about` lines, is the host's choice.
@@ -131,9 +135,14 @@ holds a plugin tool's answer:
 - Links in the chat's reply in that turn are not live.
 - The press stays the person's, as today. Nothing is written without it.
 
-A turn that holds a plugin tool's answer, as against a granted skill, also
-refuses the proposals that write a reason in one press: Obeya's hold
-(`propose_press` with a reason) and the assistant's `propose` hold.
+Any turn that holds plugin text, a granted skill or a tool's answer, refuses
+the proposals that write a reason in one press, with no view of the whole
+text: Obeya's hold (`propose_press` with a reason) and the assistant's
+`propose`. The model is told why; the person gets no button.
+
+An answer from such a turn never goes to the ticket's logbook on GitHub,
+where its links would be live and everyone reads it: the press is refused,
+and the chat says why where the button would be.
 
 ## Tools
 

@@ -2,7 +2,7 @@
 //! v3 part, "Records"). A plugin asks; tehas checks the grant and writes:
 //!
 //!   record-put --plugin <name> --id <id> --kind <kind> --by <login>
-//!   record-file --plugin <name> --id <id> --issue N --files-sha256 <sha256>
+//!   record-file --plugin <name> --id <id> --issue N --files-sha256 <sha256> --by <login>
 //!   record-close --plugin <name> --id <id>
 //!   records [--plugin <name>] [--issue N] [--open]
 //!
@@ -13,6 +13,10 @@
 //! and the hash of its files together, and closed once; a write that would
 //! change a filed or closed record is 1 `conflict`, and a record that is not
 //! there is 1 `norecord`.
+//!
+//! `--by` of record-file is the person who filed the issue: tehas gives it,
+//! from the gate's signed-in session at the press or a person at the shell,
+//! never from what a plugin asked or a run wrote.
 
 use crate::verbs::{self, line, Args, Fail, Kind, Q};
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -33,6 +37,7 @@ pub enum Call {
         id: String,
         issue: i64,
         sha256: String,
+        by: String,
     },
     Close {
         plugin: String,
@@ -111,6 +116,7 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                 ("--id", Kind::Value),
                 ("--issue", Kind::Value),
                 ("--files-sha256", Kind::Value),
+                ("--by", Kind::Value),
             ],
             false,
         )
@@ -121,11 +127,14 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                 .ok_or_else(|| a.usage("--issue", "is an issue number"))?;
             let sha256 = verbs::sha256(a.need("--files-sha256")?)
                 .ok_or_else(|| a.usage("--files-sha256", "is 64 lowercase hex"))?;
+            let by = verbs::account(a.need("--by")?)
+                .ok_or_else(|| a.usage("--by", "is a GitHub login"))?;
             Ok(Call::File {
                 plugin,
                 id,
                 issue,
                 sha256,
+                by,
             })
         }),
         "record-close" => Args::parse(
@@ -173,7 +182,7 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
 }
 
 const COLUMNS: &str =
-    "plugin, id, kind, issue, files_sha256, created_at, created_by, filed_at, closed_at";
+    "plugin, id, kind, issue, files_sha256, created_at, created_by, filed_at, closed_at, filed_by";
 
 fn row(r: &Row) -> rusqlite::Result<Value> {
     Ok(json!({
@@ -186,6 +195,7 @@ fn row(r: &Row) -> rusqlite::Result<Value> {
         "created_by": r.get::<_, String>(6)?,
         "filed_at": r.get::<_, Option<i64>>(7)?,
         "closed_at": r.get::<_, Option<i64>>(8)?,
+        "filed_by": r.get::<_, Option<String>>(9)?,
     }))
 }
 
@@ -237,6 +247,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
             id,
             issue,
             sha256,
+            by,
         } => {
             let rec = verbs::write(home, |c| {
                 let rec = there(c, plugin, id)?;
@@ -244,15 +255,18 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
                     return Err(conflict(plugin, id, "is closed"));
                 }
                 if !rec["issue"].is_null() {
-                    if rec["issue"] == json!(issue) && rec["files_sha256"] == json!(sha256) {
+                    if rec["issue"] == json!(issue)
+                        && rec["files_sha256"] == json!(sha256)
+                        && rec["filed_by"] == json!(by)
+                    {
                         return Ok(rec);
                     }
                     return Err(conflict(plugin, id, "is filed already"));
                 }
                 c.execute(
-                    "UPDATE plugin_records SET issue = ?3, files_sha256 = ?4, filed_at = ?5
+                    "UPDATE plugin_records SET issue = ?3, files_sha256 = ?4, filed_at = ?5, filed_by = ?6
                      WHERE plugin = ?1 AND id = ?2",
-                    params![plugin, id, issue, sha256, now],
+                    params![plugin, id, issue, sha256, now, by],
                 )
                 .q()?;
                 there(c, plugin, id)
@@ -363,7 +377,9 @@ mod tests {
                     "--issue",
                     "12",
                     "--files-sha256",
-                    &sha
+                    &sha,
+                    "--by",
+                    "octo-cat"
                 ])
             ),
             Some(Ok(Call::File {
@@ -371,6 +387,7 @@ mod tests {
                 id: "p-1".into(),
                 issue: 12,
                 sha256: sha.clone(),
+                by: "octo-cat".into(),
             }))
         );
         assert_eq!(
@@ -419,6 +436,36 @@ mod tests {
                     "0",
                     "--files-sha256",
                     &sha,
+                    "--by",
+                    "octo-cat",
+                ],
+            ),
+            (
+                "record-file",
+                &[
+                    "--plugin",
+                    "p",
+                    "--id",
+                    "x",
+                    "--issue",
+                    "1",
+                    "--files-sha256",
+                    &sha,
+                ],
+            ),
+            (
+                "record-file",
+                &[
+                    "--plugin",
+                    "p",
+                    "--id",
+                    "x",
+                    "--issue",
+                    "1",
+                    "--files-sha256",
+                    &sha,
+                    "--by",
+                    "not a login",
                 ],
             ),
             (
@@ -432,6 +479,8 @@ mod tests {
                     "1",
                     "--files-sha256",
                     "abc",
+                    "--by",
+                    "octo-cat",
                 ],
             ),
             ("record-close", &["--plugin", "p"]),

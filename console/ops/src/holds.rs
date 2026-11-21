@@ -960,13 +960,53 @@ fn api(out: Reading) -> String {
 }
 
 fn set(file: &Path, want: &Wanted) -> u8 {
+    let before = read(file, now());
     match write_limit(file, want) {
         Ok(()) => {
             let out = read(file, now());
+            poll_if_raised(file, &before, &out);
             tehas_core::outln!("{}", out.said());
             0
         }
         Err(rc) => rc,
+    }
+}
+
+/// The cycles a reading lets run at once: no limit lets any number, and one
+/// that expired or cannot be read lets none.
+fn cycles_let(r: &Reading) -> f64 {
+    match r.state() {
+        "none" => f64::INFINITY,
+        "ok" => r
+            .json_of("cycles")
+            .and_then(leading_number)
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0.0),
+        _ => 0.0,
+    }
+}
+
+/// Whether the last poll's demand, as live/demand.json holds it, has an
+/// issue waiting.
+fn demand_waits(text: &str) -> bool {
+    serde_json::from_str::<Value>(text)
+        .ok()
+        .and_then(|v| v.get("waiting").and_then(Value::as_u64))
+        .is_some_and(|n| n > 0)
+}
+
+/// A limit raised while work waits asks for a poll, as `tehas wake` does:
+/// the poll that acts on it comes now, not at the next timer. The ask is
+/// best effort; the timer's poll reads the limit all the same.
+fn poll_if_raised(file: &Path, before: &Reading, after: &Reading) {
+    if cycles_let(after) <= cycles_let(before) {
+        return;
+    }
+    let Some(state) = file.parent() else { return };
+    let Some(home) = state.parent() else { return };
+    let waits = fs::read_to_string(home.join("live/demand.json")).is_ok_and(|t| demand_waits(&t));
+    if waits {
+        let _ = fs::File::create(state.join("dispatch.again"));
     }
 }
 
@@ -1017,13 +1057,16 @@ fn write_limit(file: &Path, want: &Wanted) -> Result<(), u8> {
 }
 
 fn clear(file: &Path) -> u8 {
+    let before = read(file, now());
     if file.symlink_metadata().is_ok() {
         if let Err(e) = fs::remove_file(file) {
             eprintln!("tehas limit: could not remove {}: {e}", file.display());
             return 1;
         }
     }
-    tehas_core::outln!("{}", read(file, now()).said());
+    let out = read(file, now());
+    poll_if_raised(file, &before, &out);
+    tehas_core::outln!("{}", out.said());
     0
 }
 
@@ -1102,6 +1145,70 @@ mod tests {
         let file = written(d);
         let rc = set(&file, &set_args(&args(given)).unwrap());
         (rc, read(&file, NOW).text())
+    }
+
+    /// A home whose last poll left `waiting` issues in its demand.
+    fn demand_of(d: &TestDir, waiting: u64) -> PathBuf {
+        fs::create_dir_all(d.join("live")).unwrap();
+        fs::write(
+            d.join("live/demand.json"),
+            format!("{{\"waiting\":{waiting},\"time\":\"2026-11-21T15:23:01Z\"}}\n"),
+        )
+        .unwrap();
+        d.join("state/dispatch.again")
+    }
+
+    #[test]
+    fn a_limit_raised_from_none_while_work_waits_asks_for_a_poll() {
+        let d = dir("raise-waits");
+        let again = demand_of(&d, 1);
+        set_in(&d, &["--cycles", "0"]);
+        assert!(!again.exists(), "a limit of 0 asked for a poll");
+        set_in(&d, &["--cycles", "1"]);
+        assert!(again.exists(), "the raised limit waits for the timer");
+        // A limit lowered asks for nothing; one raised again does.
+        fs::remove_file(&again).unwrap();
+        set_in(&d, &["--cycles", "3"]);
+        assert!(again.exists());
+        fs::remove_file(&again).unwrap();
+        set_in(&d, &["--cycles", "2"]);
+        assert!(!again.exists());
+        set_in(&d, &["--cycles", "2", "--plan", "off"]);
+        assert!(!again.exists());
+        // A clear lifts every limit.
+        assert_eq!(clear(&written(&d)), 0);
+        assert!(again.exists());
+    }
+
+    #[test]
+    fn a_limit_raised_with_nothing_waiting_asks_for_no_poll() {
+        let d = dir("raise-idle");
+        let again = demand_of(&d, 0);
+        set_in(&d, &["--cycles", "0"]);
+        set_in(&d, &["--cycles", "2"]);
+        assert!(!again.exists());
+        // No demand on record is none waiting.
+        fs::remove_file(d.join("live/demand.json")).unwrap();
+        set_in(&d, &["--cycles", "0"]);
+        set_in(&d, &["--cycles", "2"]);
+        assert!(!again.exists());
+    }
+
+    #[test]
+    fn a_limit_that_expired_or_cannot_be_read_lets_no_cycle_so_a_set_raises_it() {
+        let d = dir("raise-expired");
+        let again = demand_of(&d, 2);
+        let file = written(&d);
+        fs::write(&file, "{\"v\":1,\"cycles\":4,\"plan\":true,\"until\":\"2020-01-01T00:00:00Z\",\"reason\":\"\"}\n").unwrap();
+        set_in(&d, &["--cycles", "1"]);
+        assert!(again.exists());
+        fs::remove_file(&again).unwrap();
+        fs::write(&file, "not a limit").unwrap();
+        set_in(&d, &["--cycles", "1"]);
+        assert!(again.exists());
+        assert!(!demand_waits("{}"));
+        assert!(!demand_waits("not json"));
+        assert!(demand_waits(r#"{"waiting":1}"#));
     }
 
     #[test]
