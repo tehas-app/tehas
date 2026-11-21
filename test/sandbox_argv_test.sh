@@ -1,19 +1,11 @@
 #!/usr/bin/env bash
 # Every docker run tehas makes for a container of its own: the whole argument
-# list, in order, against a golden file in test/fixtures/argv. One file per
-# call, <case>.<n>, one argument per line. These files are what a port of a
-# command to Rust must keep, so a port does not change them.
-#
-# What differs from run to run is made one word: the scratch directory, the uid
-# and gid, a commit, a mktemp suffix (in a path and in a container's name), a
-# run's time stamp and the cycle's deadline. The -e PI_ENSEMBLE_* block comes from
-# the order of the environment, which bash decides, so that block is sorted.
-# Everything else stands in the order it was given. Other docker calls (info,
-# image inspect, rm, stop) start no container and are not recorded.
-#
-# To record the files again, after a change that means to change them, and read
-# the diff before committing it:
-#
+# list, in order, against test/fixtures/argv/<case>.<n>, one argument per line.
+# A port of a command to Rust keeps these files. What differs from run to run
+# (the scratch directory, uid and gid, a commit, a mktemp suffix, a time stamp,
+# the cycle's deadline) is made one word, and the -e PI_ENSEMBLE_* block is
+# sorted. Calls that start no container (info, inspect, rm, stop) are not kept.
+# To record the files again and read the diff before committing it:
 #   TEHAS_TEST_ARGV_RECORD=1 bash test/sandbox_argv_test.sh
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
@@ -97,10 +89,8 @@ case " $* " in
     cat "$T/fx/turn.json"
     exit 11 ;;
   *" lens-review "*) cat "$T/fx/review.json" | tee "${doc:-/dev/null}" ;;
-  *" wiki --raw "*)
-    out=$(printf "%s\n" "$@" | sed -n "s#:/run/tehas/wiki/out\$##p")
-    v=$(jq -r ".commit[0:8]" "$(printf "%s\n" "$@" | sed -n "s#:/run/tehas/wiki/raw:ro\$##p")/head.json")
-    for p in index SCHEMA; do printf -- "---\ntitle: %s\nverified_at: %s\n---\n[s](SCHEMA.md) [l](log.md)\n" $p "$v" >"$out/$p.md"; done
+  *" wiki --raw "*) out=$(printf "%s\n" "$@" | sed -n "s#:/run/tehas/wiki/out\$##p")
+    v=$(jq -r ".commit[0:8]" "${out%/out}/raw/head.json"); printf -- "---\ntitle: T\nverified_at: %s\n---\n[s](SCHEMA.md) [l](log.md)\n" "$v" | tee "$out/index.md" >"$out/SCHEMA.md"
     printf "# Log\n\n## %s\n" "$v" >"$out/log.md" && echo "{}" ;;
   *" index_repository "*)
     echo index >"$written/widget.db"
