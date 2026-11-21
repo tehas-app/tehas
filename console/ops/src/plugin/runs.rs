@@ -8,6 +8,7 @@
 //! - `head`: the head of the last refresh that began, which the tick reads.
 //! - `last.log`: the last refresh's log, at most 1 MiB.
 //! - `hooks/<pr>.json`: the request of a hook (`tehas_core::plugin::hook`);
+//!   `hooks/<pr>.claimed.json` the one a hook took and runs;
 //!   `hooks/<pr>.verdict.json` the verdict read; `hooks/<pr>.log` its log.
 //! - `status-unwritten`: why the last hook's commit status was not written.
 //! - `calls/slot-0.lock` and `calls/slot-1.lock`: one held by each call of a
@@ -163,6 +164,20 @@ pub fn read_hook(home: &Path, name: &str, pr: u64) -> Option<HookAsk> {
     hook::read_request(home, name, pr)
 }
 
+/// `hooks/<pr>.claimed.json`: the request a hook took and runs.
+pub fn hook_claimed(home: &Path, name: &str, pr: u64) -> PathBuf {
+    hooks(home, name).join(format!("{pr}.claimed.json"))
+}
+
+/// Takes the request of the hook on `pr` by one rename, so a request written
+/// after it stays for the next take. None: no request, or one that does not
+/// read.
+pub fn claim_hook(home: &Path, name: &str, pr: u64) -> Option<HookAsk> {
+    let claimed = hook_claimed(home, name, pr);
+    std::fs::rename(hook_request(home, name, pr), &claimed).ok()?;
+    HookAsk::read(&std::fs::read(&claimed).ok()?).filter(|h| h.pr == pr)
+}
+
 /// Writes the request of a hook, replacing one there, then starts its unit.
 /// A hook running on the same pull request finishes and then runs the newer
 /// request.
@@ -261,6 +276,29 @@ mod tests {
         let mut short = ask.json();
         short["head"] = json!("89abcdef");
         assert_eq!(HookAsk::read(short.to_string().as_bytes()), None);
+    }
+
+    #[test]
+    fn a_claim_takes_the_request_and_leaves_a_later_one() {
+        let home = TestDir::new("plugin-runs-claim");
+        let mut x = Fake::new();
+        x.on("systemctl", ok(""));
+        let ask = HookAsk {
+            pr: 42,
+            head: H.into(),
+            base: B.into(),
+            issue: None,
+            trigger: Trigger::Host,
+        };
+        assert_eq!(claim_hook(&home, "demo", 42), None);
+        ask_hook(&mut x, &home, "demo", &ask).unwrap();
+        assert_eq!(claim_hook(&home, "demo", 42), Some(ask.clone()));
+        assert_eq!(read_hook(&home, "demo", 42), None);
+        assert_eq!(claim_hook(&home, "demo", 42), None);
+        // Asked again after the claim: the new request is there to take.
+        ask_hook(&mut x, &home, "demo", &ask).unwrap();
+        assert_eq!(read_hook(&home, "demo", 42), Some(ask.clone()));
+        assert_eq!(claim_hook(&home, "demo", 42), Some(ask));
     }
 
     #[test]

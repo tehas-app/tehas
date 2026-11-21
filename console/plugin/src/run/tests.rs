@@ -555,7 +555,10 @@ fn a_hook_reads_its_pull_request_and_keeps_its_verdict() {
     let mut h = Fake::new();
     let w = world("plugin-run-hook", &mut h, "", "product hook:after:work");
     ask_hook_on(&w, &mut h, H);
-    h.x.on("refs/tehas/plugin-pr/42^{commit}", ok(&format!("{H}\n")));
+    h.x.on(
+        "refs/tehas/plugin-pr/demo/42^{commit}",
+        ok(&format!("{H}\n")),
+    );
     let verdict = r#"{"verdict": "note", "summary": "One new finding.", "findings": [{"file": "a.js", "line": 3, "text": "no sign-in"}]}"#;
     h.tars.insert(
         "tehas-plugin-demo-7:/out/_tehas".into(),
@@ -563,14 +566,14 @@ fn a_hook_reads_its_pull_request_and_keeps_its_verdict() {
     );
     assert_eq!(go(&mut h, &w, &hook_ask()), 0);
     assert!(h.x.ran_any(
-        "git -C /m/product fetch --quiet --no-tags origin +refs/pull/42/head:refs/tehas/plugin-pr/42"
+        "git -C /m/product fetch --quiet --no-tags origin +refs/pull/42/head:refs/tehas/plugin-pr/demo/42"
     ));
     assert!(h
         .x
-        .ran_any("origin +refs/tehas/plugin-pr/42:refs/tehas/head"));
+        .ran_any("origin +refs/tehas/plugin-pr/demo/42:refs/tehas/head"));
     assert!(h
         .x
-        .ran_any("git -C /m/product update-ref -d refs/tehas/plugin-pr/42"));
+        .ran_any("git -C /m/product update-ref -d refs/tehas/plugin-pr/demo/42"));
     assert_eq!(
         h.calls[0],
         format!("plugin-run-begin --plugin demo --commit {C} --kind hook --how cycle --by host --head {H}")
@@ -664,6 +667,147 @@ fn a_hook_with_no_request_or_grant_does_not_run() {
     ask_hook_on(&w, &mut h, H);
     assert_eq!(go(&mut h, &w, &hook_ask()), 3);
     assert!(h.calls.is_empty());
+}
+
+#[test]
+fn a_hook_reads_the_plugin_again_after_its_waits() {
+    let mut h = Fake::new();
+    let w = on_github("plugin-run-hook-revoked", &mut h, "hook:after:work", H);
+    ask_hook_on(&w, &mut h, H);
+    // A refresh holds the lock while the plugin is refused, then lets go.
+    let held = File::create(runs::refresh_lock(&w.home, "demo")).unwrap();
+    held.lock().unwrap();
+    let home = w.home.to_path_buf();
+    let refuse = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        let mut st = prepare::read_state(&home, "demo").unwrap();
+        st.state = Word::Refused;
+        st.refusal = Some("revoked".into());
+        prepare::write_state(&home, "demo", &st).unwrap();
+        drop(held);
+    });
+    assert_eq!(go(&mut h, &w, &hook_ask()), 3);
+    refuse.join().unwrap();
+    assert!(h.argv.is_empty());
+    assert!(h.calls.is_empty());
+    assert!(h.gh.is_empty(), "{:?}", h.gh);
+    assert!(!runs::hook_claimed(&w.home, "demo", 42).exists());
+}
+
+#[test]
+fn a_request_that_came_during_a_hook_is_not_run_once_the_pin_moved() {
+    let mut h = Fake::new();
+    let w = on_github("plugin-run-hook-moved-pin", &mut h, "hook:after:work", H);
+    ask_hook_on(&w, &mut h, H);
+    // During the first run another head is asked for, and tehas update
+    // leaves the plugin built at another commit.
+    let home = w.home.to_path_buf();
+    h.on_run = Some(Box::new(move |_| {
+        let ask = HookAsk {
+            pr: 42,
+            head: H2.into(),
+            base: B.into(),
+            issue: None,
+            trigger: Trigger::Host,
+        };
+        tehas_core::plugin::hook::write_request(&home, "demo", &ask).unwrap();
+        let mut st = prepare::read_state(&home, "demo").unwrap();
+        st.commit = H.into();
+        prepare::write_state(&home, "demo", &st).unwrap();
+    }));
+    assert_eq!(go(&mut h, &w, &hook_ask()), 3);
+    assert_eq!(h.argv.len(), 1);
+    let posts: Vec<&String> = h.gh.iter().filter(|c| c.contains("/statuses/")).collect();
+    assert_eq!(posts.len(), 1);
+    assert!(posts[0].contains(&format!("statuses/{H} ")));
+    assert!(!runs::hook_claimed(&w.home, "demo", 42).exists());
+}
+
+#[test]
+fn a_request_written_while_its_hook_runs_at_the_same_head_runs_after_it() {
+    let mut h = Fake::new();
+    let w = on_github("plugin-run-hook-same", &mut h, "hook:after:work", H);
+    ask_hook_on(&w, &mut h, H);
+    let home = w.home.to_path_buf();
+    let mut first = true;
+    h.on_run = Some(Box::new(move |_| {
+        if first {
+            first = false;
+            let ask = HookAsk {
+                pr: 42,
+                head: H.into(),
+                base: B.into(),
+                issue: None,
+                trigger: Trigger::Host,
+            };
+            tehas_core::plugin::hook::write_request(&home, "demo", &ask).unwrap();
+        }
+    }));
+    assert_eq!(go(&mut h, &w, &hook_ask()), 0);
+    assert_eq!(h.argv.len(), 2);
+    assert!(!runs::hook_request(&w.home, "demo", 42).exists());
+    assert!(!runs::hook_claimed(&w.home, "demo", 42).exists());
+    // One written after the last take stays for the next start.
+    ask_hook_on(&w, &mut h, H);
+    assert_eq!(
+        runs::read_hook(&w.home, "demo", 42).map(|a| a.head),
+        Some(H.to_string())
+    );
+}
+
+#[test]
+fn a_head_fetched_new_runs_with_the_base_github_gives_it() {
+    const B2: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    let mut h = Fake::new();
+    let w = on_github(
+        "plugin-run-hook-base",
+        &mut h,
+        "product hook:after:work",
+        H2,
+    );
+    h.pull.as_mut().unwrap()["base"]["sha"] = json!(B2);
+    ask_hook_on(&w, &mut h, H);
+    h.x.on(
+        "refs/tehas/plugin-pr/demo/42^{commit}",
+        ok(&format!("{H2}\n")),
+    );
+    h.x.on("rev-parse HEAD", ok(&format!("{H2}\n")));
+    let ctx = prepare::dir(&w.home, "demo").join("run-7/context.json");
+    let seen = Arc::new(std::sync::Mutex::new(Value::Null));
+    let s2 = Arc::clone(&seen);
+    h.on_run = Some(Box::new(move |_| {
+        *s2.lock().unwrap() = serde_json::from_slice(&fs::read(&ctx).unwrap()).unwrap();
+    }));
+    assert_eq!(go(&mut h, &w, &hook_ask()), 0);
+    let pr = seen.lock().unwrap()["pr"].clone();
+    assert_eq!(pr, json!({"number": 42, "base": B2, "head": H2}));
+    assert_eq!(h.gh[0], "api repos/acme/widget/pulls/42");
+    assert!(h.calls[0].ends_with(&format!("--head {H2}")));
+    // GitHub's head is not the one fetched: nothing runs.
+    let mut h = Fake::new();
+    let w = on_github(
+        "plugin-run-hook-base-moved",
+        &mut h,
+        "product hook:after:work",
+        B2,
+    );
+    ask_hook_on(&w, &mut h, H);
+    h.x.on(
+        "refs/tehas/plugin-pr/demo/42^{commit}",
+        ok(&format!("{H2}\n")),
+    );
+    // Each try asks for GitHub's head again, until the start's last.
+    assert_eq!(go(&mut h, &w, &hook_ask()), 1);
+    assert!(h.argv.is_empty());
+    let posts = h.gh.iter().filter(|c| c.contains("/statuses/")).count();
+    assert_eq!(posts, HOOK_RUNS);
+    assert!(h
+        .x
+        .ran_any("git -C /m/product update-ref -d refs/tehas/plugin-pr/demo/42"));
+    assert_eq!(
+        runs::read_hook(&w.home, "demo", 42).map(|a| a.head),
+        Some(B2.to_string())
+    );
 }
 
 #[test]
