@@ -337,7 +337,10 @@ a row in `plugin_runs`, a clone of the product's mirror at the run's head
 when `product` is granted, the model socket when `model` is (a refresh only:
 a hook gets no model in v1), `docker kill` at
 the manifest's timeout, then `/out` read through the tar reader: a refresh's
-view swapped into `~/tehas/plugins/<name>/view/` with one rename, a hook's
+view, with `view` or a `view:<id>` of its manifest granted, swapped into
+`~/tehas/plugins/<name>/view/` with one rename, carrying `_tehas/commit`,
+the plugin's commit it ran at, and not swapped in when `tehas update` moved
+the plugin's state to another commit while it ran; a hook's
 `/out/_tehas/verdict.json` (`api/plugin-verdict.schema.json`) kept as
 `hooks/<pr>.verdict.json` until the tick removes it. The volumes are measured against `disk`, and the
 container, its `/work` and `/out` and the run's files are removed. The row
@@ -437,6 +440,13 @@ missing or malformed ends it with 78, and systemd does not start it again;
 any other end is restarted after 5 seconds. A restart signs everyone out.
 The edge router sends the two names to it: see
 [Plugins' views](/edge#plugins-views) for the address the router reaches.
+
+The gate serves a view only when its `_tehas/commit` is the pin, so a view
+made at another commit, under that commit's grants, is 404, and so is one
+from before the record. When `tehas update` finds the plugin's state at
+another commit than the pin, or a view not made at the pin, it removes
+`view/` and the head the last refresh began at, so the next tick refreshes
+the plugin at the pin.
 
 The client comes from `tehas setup --new-app`, which keeps it beside the
 app's key, or, for an app made before, from `tehas setup --app-client-id <id>

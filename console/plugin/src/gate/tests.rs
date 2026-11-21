@@ -105,7 +105,22 @@ fn facts(kit: bool) -> Facts {
 }
 
 fn fixture_with(access: Level, domain: &str, one_level: bool) -> Fix {
-    let dir = TestDir::new("gate");
+    let mut books = HashMap::new();
+    books.insert("floorplan".to_string(), facts(true));
+    books.insert("specs".to_string(), facts(false));
+    fixture_of(access, domain, one_level, TestDir::new("gate"), |_| {
+        Box::new(Books(books))
+    })
+}
+
+/// A gate on `dir`, its catalog made by `catalog` from the home.
+fn fixture_of(
+    access: Level,
+    domain: &str,
+    one_level: bool,
+    dir: TestDir,
+    catalog: impl FnOnce(&std::path::Path) -> Box<dyn Catalog>,
+) -> Fix {
     let view = dir.join("plugins/floorplan/view");
     std::fs::create_dir_all(view.join("sub")).unwrap();
     std::fs::write(view.join("index.html"), "<!doctype html><p>map</p>").unwrap();
@@ -124,9 +139,7 @@ fn fixture_with(access: Level, domain: &str, one_level: bool) -> Fix {
     std::fs::write(kit.join("press.js"), "p()").unwrap();
     std::fs::write(kit.join("vendor/solid.js"), "s()").unwrap();
     std::fs::write(kit.join("island.js"), "not listed").unwrap();
-    let mut books = HashMap::new();
-    books.insert("floorplan".to_string(), facts(true));
-    books.insert("specs".to_string(), facts(false));
+    let catalog = catalog(&dir);
     let hub = Stub::default();
     let runner = Runner::default();
     let gate = Gate::new(
@@ -140,7 +153,7 @@ fn fixture_with(access: Level, domain: &str, one_level: bool) -> Fix {
             web: "https://github.example".into(),
         },
         Box::new(hub.clone()),
-        Box::new(Books(books)),
+        catalog,
         Box::new(runner.clone()),
     );
     Fix {
@@ -1377,4 +1390,86 @@ fn a_path_is_served_only_inside_a_granted_views_folder() {
     assert!(catalog::covered(&inner, &seg("health/x")));
     assert!(!catalog::covered(&inner, &seg("index.html")));
     assert!(!catalog::covered(&[], &seg("index.html")));
+}
+
+/// Commits the manifest in a repository under `home` once for each label,
+/// clones it bare as the plugin's `repo.git`, and gives the commits.
+fn plugin_repo(home: &std::path::Path, labels: &[&str]) -> Vec<String> {
+    let git = |dir: &std::path::Path, args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.org"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        String::from_utf8(out.stdout).unwrap().trim().to_string()
+    };
+    let work = home.join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    git(&work, &["init", "-q"]);
+    let mut commits = Vec::new();
+    for label in labels {
+        let m = format!(
+            r#"{{"plugin": 1, "kind": "batch", "name": "floorplan", "label": "{label}", "build": "Dockerfile", "asks": ["view"], "timeout": 600, "view": {{"label": "Map"}}}}"#
+        );
+        std::fs::write(work.join("tehas-plugin.json"), m).unwrap();
+        git(&work, &["add", "tehas-plugin.json"]);
+        git(&work, &["commit", "-qm", label]);
+        commits.push(git(&work, &["rev-parse", "HEAD"]));
+    }
+    let repo = home.join("plugins/floorplan/repo.git");
+    git(
+        home,
+        &[
+            "clone",
+            "-q",
+            "--bare",
+            work.to_str().unwrap(),
+            repo.to_str().unwrap(),
+        ],
+    );
+    commits
+}
+
+#[test]
+fn a_view_is_served_only_when_it_was_made_at_the_pin() {
+    let dir = TestDir::new("gate-made-at");
+    let at = plugin_repo(&dir, &["Floorplan", "Floorplan 2"]);
+    let (c, d) = (at[0].clone(), at[1].clone());
+    // The pin moved from C to D, which is built, ready and granted.
+    std::fs::create_dir_all(dir.join("plugins/floorplan")).unwrap();
+    std::fs::write(
+        dir.join("plugins/floorplan/state.json"),
+        format!(r#"{{"api":1,"state":"ready","commit":"{d}"}}"#),
+    )
+    .unwrap();
+    let pins = tehas_core::plugin::pins(&format!("floorplan=https://example.test/fp@{d}")).unwrap();
+    let mut grants = HashMap::new();
+    grants.insert(
+        "floorplan".to_string(),
+        tehas_core::plugin::grants(&format!("{d} view")).unwrap(),
+    );
+    let f = fixture_of(Level::Write, DOMAIN, false, dir, |home| {
+        Box::new(catalog::Installed::new(home.to_path_buf(), pins, grants))
+    });
+    let c_cookie = sign_in(&f, P, T0);
+    let stamp = tehas_ops::plugin::runs::view_commit(&f.dir.join("plugins/floorplan/view"));
+    // A view from before the record says no commit.
+    assert_eq!(f.gate.answer(&nav(P, "/", &c_cookie), T0).status, 404);
+    std::fs::create_dir_all(stamp.parent().unwrap()).unwrap();
+    std::fs::write(&stamp, format!("{c}\n")).unwrap();
+    assert_eq!(f.gate.answer(&nav(P, "/", &c_cookie), T0).status, 404);
+    assert_eq!(f.gate.answer(&nav(P, "/app.js", &c_cookie), T0).status, 404);
+    // A refresh at D swaps its view in; state.json is as it was.
+    std::fs::write(&stamp, format!("{d}\n")).unwrap();
+    assert_eq!(f.gate.answer(&nav(P, "/", &c_cookie), T0).status, 200);
+    // The record itself is the gate's path, never served.
+    assert_eq!(
+        f.gate
+            .answer(&nav(P, "/_tehas/commit", &c_cookie), T0)
+            .status,
+        404
+    );
 }
