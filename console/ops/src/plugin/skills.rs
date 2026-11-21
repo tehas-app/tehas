@@ -6,11 +6,12 @@
 
 use super::exec::Exec;
 use super::prepare;
+use super::ready::ready;
 use std::path::Path;
 use tehas_core::jq::{obj, J};
 use tehas_core::plugin::manifest::CHATS;
 use tehas_core::plugin::state::Word;
-use tehas_core::plugin::{self, Cap};
+use tehas_core::plugin::Cap;
 
 /// The most bytes of skill text across all plugins.
 pub const TOTAL_MAX: usize = 8192;
@@ -58,8 +59,8 @@ pub fn list(
         if row.state.state != Word::Ready {
             continue;
         }
-        let name = row.pin.name.clone();
-        match skills_of(x, home, get, &row, chat) {
+        let name = row.pin.name;
+        match skills_of(x, home, get, &name, chat) {
             Ok(entries) => {
                 let bytes: usize = entries.iter().map(|e| e.text.len()).sum();
                 if total + bytes > TOTAL_MAX {
@@ -83,24 +84,11 @@ fn skills_of(
     x: &mut dyn Exec,
     home: &Path,
     get: &dyn Fn(&str) -> String,
-    row: &super::Row,
+    name: &str,
     chat: Option<&str>,
 ) -> Result<Vec<Entry>, String> {
-    let pin = &row.pin;
-    let grants = plugin::grants(&get(&plugin::grants_setting(&pin.name)))
-        .ok()
-        .filter(|g| g.commit == pin.commit)
-        .ok_or("the grants are not for the pin")?;
-    let r = prepare::read(x, home, &pin.name, &pin.commit)?;
-    if r.manifest_sha256_differs(row.state.manifest_sha256.as_deref()) {
-        return Err("the manifest is not the one tehas update read: run tehas update".into());
-    }
-    if !r.refusals.is_empty() {
-        return Err(r.refusals.join("; "));
-    }
-    let Some(m) = r.manifest else {
-        return Err("the manifest could not be read".into());
-    };
+    let r = ready(x, home, get, name)?;
+    let (pin, grants, m) = (&r.pin, &r.grants, &r.manifest);
     let mut entries = Vec::new();
     for s in &m.skills {
         let granted = grants.caps.contains(&Cap::Skill(s.id.clone()));

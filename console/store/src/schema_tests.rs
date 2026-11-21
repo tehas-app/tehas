@@ -117,6 +117,20 @@ fn at_17(name: &str) -> TestDir {
     home
 }
 
+/// A store at 22: the last release's, brought forward to 22 and no further,
+/// as a host that ran plugins before a tool was called holds it.
+fn at_22(name: &str) -> TestDir {
+    let home = release(name, 17);
+    let mut c = conn(&home);
+    for (to, run) in db::STEPS {
+        if (18..=22).contains(to) {
+            run(&mut c).unwrap();
+        }
+    }
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 22);
+    home
+}
+
 /// The columns of a contractor's report, which schema 17 adds.
 const REPORT_COLUMNS: [&str; 5] = [
     "report_image",
@@ -139,6 +153,7 @@ fn step_sql(to: i64) -> &'static str {
         20 => db::STEP_20,
         21 => db::STEP_21,
         22 => db::STEP_22,
+        23 => db::STEP_23,
         _ => unreachable!("no step to {to}"),
     }
 }
@@ -274,13 +289,13 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_22() {
-    assert_eq!(db::SCHEMA_VERSION, 22);
-    let home = home("schema-22");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 22);
+fn init_writes_schema_23() {
+    assert_eq!(db::SCHEMA_VERSION, 23);
+    let home = home("schema-23");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 23);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "22"
+        "23"
     );
     // The five tables of the feature are laid by every init, and stay empty
     // while it is off.
@@ -310,7 +325,7 @@ fn init_writes_schema_22() {
             "{col}"
         );
     }
-    // Schema 19: a run of a plugin.
+    // Schema 19: a run of a plugin. Schema 23: the size of a call's answer.
     assert_eq!(
         columns(&c, "plugin_runs"),
         [
@@ -324,7 +339,8 @@ fn init_writes_schema_22() {
             "started_at",
             "ended_at",
             "result",
-            "tokens"
+            "tokens",
+            "size"
         ]
     );
     assert_eq!(count(&home, "plugin_runs"), 0);
@@ -884,6 +900,54 @@ fn the_step_from_17_keeps_the_token_hash_as_the_job_scope() {
         1
     );
     assert!(!columns(&conn(&home), "jobs").contains(&"token_sha256".to_string()));
+}
+
+/// The step to 23 keeps every run of a plugin, with no size, and a row may
+/// then be a call.
+#[test]
+fn the_step_from_22_keeps_the_plugin_runs_and_takes_a_call() {
+    let home = at_22("step-23-runs");
+    let (c40, h40) = ("0".repeat(40), "1".repeat(40));
+    conn(&home)
+        .execute_batch(&format!(
+            "INSERT INTO plugin_runs (plugin, plugin_commit, kind, how, started_by, head, started_at, ended_at, result, tokens)
+               VALUES ('floorplan', '{c40}', 'refresh', 'timer', 'timer', '{h40}', 100, 160, 'done', 30);
+             INSERT INTO plugin_runs (plugin, plugin_commit, kind, how, started_by, head, started_at)
+               VALUES ('floorplan', '{c40}', 'hook', 'cycle', 'host', '{h40}', 200);"
+        ))
+        .unwrap();
+    let call = format!(
+        "INSERT INTO plugin_runs (plugin, plugin_commit, kind, how, started_by, head, started_at)
+           VALUES ('floorplan', '{c40}', 'call', 'chat', 'chat', '{c40}', 300);"
+    );
+    assert!(conn(&home).execute_batch(&call).is_err());
+    let kept = |home: &Path| {
+        let cols = [
+            "id",
+            "plugin",
+            "plugin_commit",
+            "kind",
+            "how",
+            "started_by",
+            "head",
+            "started_at",
+            "ended_at",
+            "result",
+            "tokens",
+        ]
+        .map(str::to_string);
+        dump(&conn(home), "plugin_runs", &cols)
+    };
+    let before = kept(&home);
+    assert_eq!(before.len(), 2);
+    migrate(&home).unwrap();
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
+    assert_eq!(kept(&home), before);
+    assert_eq!(count(&home, "plugin_runs WHERE size IS NULL"), 2);
+    conn(&home).execute_batch(&call).unwrap();
+    assert_eq!(count(&home, "plugin_runs WHERE kind = 'call'"), 1);
+    let made = crate::verbs_tests::home("step-23-shape");
+    same_shape_as_init(&home, &conn(&made), "22");
 }
 
 #[test]
