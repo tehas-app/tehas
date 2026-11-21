@@ -673,6 +673,67 @@ fn workarounds(vars: &Vars, file: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Each grants line of the family TEHAS_PLUGIN_GRANTS_<NAME> against its
+/// rule. An empty line is not a setting: the name goes.
+fn plugin_grants(vars: &mut Vars, file: &str) -> Result<(), String> {
+    for name in vars.prefixed(crate::plugin::GRANTS) {
+        if !has(vars, &name) {
+            vars.unset(name.as_bytes());
+            continue;
+        }
+        valid(vars, &name, file)?;
+    }
+    Ok(())
+}
+
+/// The plugin settings that mean something only together. Each line has
+/// passed its rule.
+fn plugins_together(vars: &Vars, file: &str) -> Result<(), String> {
+    let pins = crate::plugin::pins(&vars.text("TEHAS_PLUGINS")).unwrap_or_default();
+    let mut web: Option<(String, String)> = None;
+    for name in vars.prefixed(crate::plugin::GRANTS) {
+        let Some(pin) = pins
+            .iter()
+            .find(|p| crate::plugin::grants_setting(&p.name) == name)
+        else {
+            return Err(format!(
+                "{name} names no plugin of TEHAS_PLUGINS: a grants line is TEHAS_PLUGIN_GRANTS_ and the plugin's name in upper case (see {file})"
+            ));
+        };
+        let grants = crate::plugin::grants(&vars.text(&name))
+            .map_err(|why| format!("{name} is not valid: {why} (see {file})"))?;
+        let shown = grants
+            .caps
+            .iter()
+            .find(|c| matches!(c, crate::plugin::Cap::View | crate::plugin::Cap::Action(_)));
+        if let (None, Some(cap)) = (&web, shown) {
+            web = Some((pin.name.clone(), cap.ask()));
+        }
+    }
+    let Some((plugin, cap)) = web else {
+        return Ok(());
+    };
+    let domain = vars.text("TEHAS_DOMAIN");
+    if domain.is_empty() {
+        return Err(format!(
+            "{plugin} is granted {cap} and TEHAS_DOMAIN is not set: a plugin's view and its actions are served only at a name of the domain, behind a sign-in over https (see {file})"
+        ));
+    }
+    if !has(vars, "TEHAS_PLUGIN_ACCESS") {
+        return Err(format!(
+            "{plugin} is granted {cap} and TEHAS_PLUGIN_ACCESS is not set: name the least permission on TEHAS_REPO that lets a person in, read, triage, write, maintain or admin (see {file})"
+        ));
+    }
+    let one_level = vars.text("TEHAS_EDGE_ONE_LEVEL") == "1";
+    let names = crate::plugin::edge_names(&pins, &domain, one_level);
+    if let Some(name) = crate::plugin::twice(&names) {
+        return Err(format!(
+            "two plugins would be served at {name}: rename one in TEHAS_PLUGINS (see {file})"
+        ));
+    }
+    Ok(())
+}
+
 fn number(vars: &Vars, name: &str) -> u64 {
     vars.text(name).parse().unwrap_or(0)
 }
@@ -770,6 +831,7 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
             "TEHAS_EDGE_ONE_LEVEL is on and TEHAS_DOMAIN is not a subdomain such as demo.example.org: its names are already one level deep (see {file})"
         ));
     }
+    plugins_together(vars, file)?;
     if on("TEHAS_PREVIEWS") && !some("TEHAS_DOMAIN") {
         return Err(format!(
             "TEHAS_PREVIEWS is on and TEHAS_DOMAIN is not set: a preview has no address without it (see {file})"
@@ -846,10 +908,14 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     let gave = given(vars);
     // Asked before the defaults fill the feature's settings in; said after the
     // values are checked, so a malformed one is named as such first.
-    let building =
-        features::refuse_building_settings(&|name| has(vars, name), &|name| vars.text(name));
+    let set = |name: &str| match name.strip_suffix(rules::FAMILY) {
+        Some(front) => vars.prefixed(front).iter().any(|n| has(vars, n)),
+        None => has(vars, name),
+    };
+    let building = features::refuse_building_settings(&set, &|name| vars.text(name));
     defaults(vars, host, uid);
     check_values(vars, &gave, &file)?;
+    plugin_grants(vars, &file)?;
     host_values(vars, &text, &file)?;
     switches(vars);
     host_switches(vars);
@@ -1367,6 +1433,136 @@ mod tests {
         assert_eq!(got, Ok(()));
         assert_eq!(vars.text("TEHAS_REVIEW"), "1");
         assert_eq!(vars.text("TEHAS_REVIEW_REPO"), "acme/backlog");
+    }
+
+    const PIN: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    fn plugins_line() -> String {
+        format!("TEHAS_PLUGINS=floorplan=https://github.com/tehas-app/tehas-plugin-floorplan@{PIN}")
+    }
+
+    /// A load with plugins turned on by the test variable.
+    fn plugged(extra: &[&str]) -> (Vars, Result<(), String>) {
+        let mut vars = start(&[(crate::features::TEST_VAR, "plugins")]);
+        let got = load(&mut vars, &mut Fake::with(extra), "1000");
+        (vars, got)
+    }
+    fn plugged_refused(extra: &[&str]) -> String {
+        plugged(extra).1.unwrap_err()
+    }
+
+    #[test]
+    fn plugins_set_on_or_set_up_stop_a_release_load() {
+        assert_eq!(
+            refused(&["TEHAS_PLUGIN=on"]),
+            format!("TEHAS_PLUGIN is on and plugins is still being built in this release: set it to off or take the line out (see {FILE})")
+        );
+        let line = plugins_line();
+        assert_eq!(
+            refused(&[&line]),
+            format!("TEHAS_PLUGINS is set and plugins is still being built in this release: take the line out (see {FILE})")
+        );
+        let grants = format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN={PIN} product");
+        assert_eq!(
+            refused(&[&grants]),
+            format!("TEHAS_PLUGIN_GRANTS_<NAME> is set and plugins is still being built in this release: take the line out (see {FILE})")
+        );
+        assert_eq!(
+            refused(&["TEHAS_PLUGIN_ACCESS=write"]),
+            format!("TEHAS_PLUGIN_ACCESS is set and plugins is still being built in this release: take the line out (see {FILE})")
+        );
+        // Off, with its figures at the defaults, and an empty grants line.
+        let vars = loads(&["TEHAS_PLUGIN=off", "TEHAS_PLUGIN_GRANTS_X="]);
+        assert_eq!(vars.text("TEHAS_PLUGIN"), "0");
+        assert_eq!(vars.text("TEHAS_PLUGIN_LIMITS"), "memory=2 cpus=2 disk=4");
+        assert_eq!(vars.text("TEHAS_PLUGIN_MODEL_DAY"), "5000000");
+        assert!(!vars.is_set("TEHAS_PLUGIN_GRANTS_X"));
+        // A malformed line is named as such before the feature.
+        assert!(refused(&["TEHAS_PLUGIN_GRANTS_X=view"])
+            .starts_with("TEHAS_PLUGIN_GRANTS_X is not valid: expected the plugin's whole commit"));
+        assert!(refused(&["TEHAS_PLUGINS=x"]).starts_with("TEHAS_PLUGINS is not valid"));
+    }
+
+    #[test]
+    fn plugins_load_with_their_lines_where_a_test_turns_them_on() {
+        let line = plugins_line();
+        let grants = format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN={PIN} view product model:2000000 action:refresh hook:after:work");
+        let (vars, got) = plugged(&[
+            "TEHAS_PLUGIN=on",
+            &line,
+            &grants,
+            "TEHAS_PLUGIN_ACCESS=write",
+            "TEHAS_DOMAIN=example.org",
+            "TEHAS_PLUGIN_LIMITS=memory=4 cpus=1 disk=8",
+        ]);
+        assert_eq!(got, Ok(()));
+        assert_eq!(vars.text("TEHAS_PLUGIN"), "1");
+        assert_eq!(vars.text("TEHAS_PLUGIN_LIMITS"), "memory=4 cpus=1 disk=8");
+        // A plugin with no grants line, or grants for another commit, loads:
+        // it is refused at the update, not here.
+        let other = format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN={} product", "f".repeat(40));
+        assert_eq!(plugged(&["TEHAS_PLUGIN=on", &line]).1, Ok(()));
+        assert_eq!(plugged(&["TEHAS_PLUGIN=on", &line, &other]).1, Ok(()));
+    }
+
+    #[test]
+    fn a_grants_line_names_a_plugin_of_the_pins() {
+        let line = plugins_line();
+        let stray = format!("TEHAS_PLUGIN_GRANTS_MAP={PIN} product");
+        let why = format!("TEHAS_PLUGIN_GRANTS_MAP names no plugin of TEHAS_PLUGINS: a grants line is TEHAS_PLUGIN_GRANTS_ and the plugin's name in upper case (see {FILE})");
+        assert_eq!(plugged_refused(&[&line, &stray]), why);
+        let lower = format!("TEHAS_PLUGIN_GRANTS_floorplan={PIN} product");
+        assert!(plugged_refused(&[&line, &lower])
+            .starts_with("TEHAS_PLUGIN_GRANTS_floorplan names no plugin of TEHAS_PLUGINS"));
+    }
+
+    #[test]
+    fn a_plugin_named_with_a_secret_word_stops_the_load() {
+        let line = format!("TEHAS_PLUGINS=token=https://h.example/x@{PIN}");
+        assert_eq!(
+            plugged_refused(&[&line]),
+            format!("TEHAS_PLUGINS is not valid: token is a word tehas-industry takes for a secret in a setting's name, so it would refuse TEHAS_PLUGIN_GRANTS_TOKEN: choose another name (see {FILE})")
+        );
+        let stray = format!("TEHAS_PLUGIN_GRANTS_KEY={PIN} product");
+        assert!(plugged_refused(&[&plugins_line(), &stray])
+            .starts_with("TEHAS_PLUGIN_GRANTS_KEY names no plugin of TEHAS_PLUGINS"));
+    }
+
+    #[test]
+    fn a_grant_of_a_later_tehas_stops_the_load_naming_the_word() {
+        let line = plugins_line();
+        let grants = format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN={PIN} product net:api.example.org");
+        assert_eq!(
+            plugged_refused(&[&line, &grants]),
+            format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN is not valid: net:api.example.org is reserved for plugins v2 (see {FILE})")
+        );
+    }
+
+    #[test]
+    fn a_view_or_an_action_needs_the_domain_and_the_access() {
+        let line = plugins_line();
+        for cap in ["view", "action:refresh"] {
+            let grants = format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN={PIN} product {cap}");
+            assert_eq!(
+                plugged_refused(&[&line, &grants, "TEHAS_PLUGIN_ACCESS=write"]),
+                format!("floorplan is granted {cap} and TEHAS_DOMAIN is not set: a plugin's view and its actions are served only at a name of the domain, behind a sign-in over https (see {FILE})")
+            );
+            assert_eq!(
+                plugged_refused(&[&line, &grants, "TEHAS_DOMAIN=example.org"]),
+                format!("floorplan is granted {cap} and TEHAS_PLUGIN_ACCESS is not set: name the least permission on TEHAS_REPO that lets a person in, read, triage, write, maintain or admin (see {FILE})")
+            );
+            let (_, got) = plugged(&[
+                &line,
+                &grants,
+                "TEHAS_DOMAIN=demo.example.org",
+                "TEHAS_EDGE_ONE_LEVEL=on",
+                "TEHAS_PLUGIN_ACCESS=read",
+            ]);
+            assert_eq!(got, Ok(()));
+        }
+        // Neither is needed by a plugin that shows nothing.
+        let grants = format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN={PIN} product model:10");
+        assert_eq!(plugged(&[&line, &grants]).1, Ok(()));
     }
 
     #[test]
@@ -2295,7 +2491,8 @@ mod tests {
                 let role = ["PI_ENSEMBLE_MODEL_", "PI_ENSEMBLE_PROVIDER_"]
                     .iter()
                     .any(|p| name.strip_prefix(p).is_some_and(|r| ROLES.contains(&r)));
-                !(in_table(name) || role || RULED_ELSEWHERE.contains(&name.as_str()))
+                let family = name.starts_with(crate::plugin::GRANTS);
+                !(in_table(name) || role || family || RULED_ELSEWHERE.contains(&name.as_str()))
             })
             .collect();
         assert!(

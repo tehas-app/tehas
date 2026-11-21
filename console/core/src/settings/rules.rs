@@ -158,6 +158,12 @@ pub enum Rule {
     Address,
     /// Whole seconds from 0 to the bound: 0 refuses at once.
     Seconds(u64),
+    /// `<name>=<url>@<commit>` entries, [`crate::plugin::pins`].
+    Plugins,
+    /// A commit and its grants, [`crate::plugin::grants`].
+    PluginGrants,
+    /// `memory=<GiB> cpus=<n> disk=<GiB>`, all three in this order.
+    PluginLimits,
 }
 
 impl Rule {
@@ -208,6 +214,9 @@ impl Rule {
             Rule::McpKeys => "mcp-keys",
             Rule::Address => "address",
             Rule::Seconds(_) => "seconds",
+            Rule::Plugins => "plugins",
+            Rule::PluginGrants => "plugin-grants",
+            Rule::PluginLimits => "plugin-limits",
         }
     }
 
@@ -259,6 +268,9 @@ impl Rule {
             Rule::McpKeys => "short",
             Rule::Address => "ftp://example.com",
             Rule::Seconds(_) => "-1",
+            Rule::Plugins => "floorplan",
+            Rule::PluginGrants => "view",
+            Rule::PluginLimits => "memory=0",
         }
     }
 }
@@ -351,6 +363,25 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_OUTSOURCE_PROXY_IDLE", Rule::Count, "900"),
     always("TEHAS_SPEC_PIPE", SWITCH, "0"),
     always("TEHAS_REVIEW", SWITCH, "0"),
+    // Plugins. TEHAS_PLUGIN_GRANTS_<NAME> is a family, one per plugin of
+    // TEHAS_PLUGINS: every name with the front plugin::GRANTS takes its rule,
+    // and the load checks what the lines mean together.
+    always("TEHAS_PLUGIN", SWITCH, "0"),
+    given_or("TEHAS_PLUGINS", Rule::Plugins, ""),
+    given("TEHAS_PLUGIN_GRANTS_<NAME>", Rule::PluginGrants),
+    given(
+        "TEHAS_PLUGIN_ACCESS",
+        Rule::OneOf(
+            &["read", "triage", "write", "maintain", "admin"],
+            "expected read, triage, write, maintain or admin",
+        ),
+    ),
+    always(
+        "TEHAS_PLUGIN_LIMITS",
+        Rule::PluginLimits,
+        "memory=2 cpus=2 disk=4",
+    ),
+    always("TEHAS_PLUGIN_MODEL_DAY", Rule::Count, "5000000"),
     always("TEHAS_WORKSTREAMS", Rule::Count, "1"),
     row("TEHAS_MAX_CYCLES", Rule::Cycles, When::Always, None),
     always("TEHAS_HOST_ADDR", Rule::HostAddress, "127.0.0.1"),
@@ -427,6 +458,10 @@ pub const TABLE: &[Setting] = &[
     row("TEHAS_REVIEW_REPO", Rule::Repo, When::Required, Some("")),
 ];
 
+/// What ends the name of a row that stands for a family of settings, such as
+/// `TEHAS_PLUGIN_GRANTS_<NAME>`: every name with the front before it.
+pub const FAMILY: &str = "<NAME>";
+
 /// The front of the names of the model endpoints' tokens, one per provider.
 pub const MODEL_KEY: &str = "TEHAS_MODEL_KEY_";
 
@@ -463,6 +498,9 @@ fn rule_of(name: &str) -> Option<Rule> {
     }
     if name.starts_with(MODEL_KEY) {
         return Some(Rule::Token);
+    }
+    if name.starts_with(crate::plugin::GRANTS) {
+        return Some(Rule::PluginGrants);
     }
     TABLE
         .iter()
@@ -637,6 +675,18 @@ fn verdict(rule: Rule, v: &str) -> Result<(), String> {
             is_count(v) && v.parse::<u64>().is_ok_and(|n| n <= max),
             &format!("expected a whole number of seconds from 0 to {max}"),
         ),
+        Rule::Plugins => crate::plugin::pins(v).map(|_| ()),
+        Rule::PluginGrants => crate::plugin::grants(v).map(|_| ()),
+        Rule::PluginLimits => {
+            let parts: Vec<Option<(&str, &str)>> =
+                v.split(' ').map(|p| p.split_once('=')).collect();
+            let names: Vec<&str> = parts.iter().flatten().map(|(n, _)| *n).collect();
+            refuse(
+                parts.iter().all(|p| p.is_some_and(|(_, n)| leading(n, 3)))
+                    && names == ["memory", "cpus", "disk"],
+                "expected memory=<GiB> cpus=<n> disk=<GiB>, each a whole number from 1 to 999",
+            )
+        }
     }
 }
 
@@ -1023,10 +1073,11 @@ mod tests {
             "TEHAS_PROTOLAB_ZIP_URL",
             "TEHAS_PROTOTYPE_FILE",
             "TEHAS_LEAN",
+            "TEHAS_PLUGIN",
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 22);
+        assert_eq!(switches.len(), 23);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);
@@ -1725,5 +1776,97 @@ mod tests {
         for row in HOST {
             assert!(!TABLE.iter().any(|s| s.name == row.name), "{}", row.name);
         }
+    }
+
+    const PIN: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    #[test]
+    fn the_plugins_are_pins_of_name_url_and_commit() {
+        takes("TEHAS_PLUGINS", "");
+        takes(
+            "TEHAS_PLUGINS",
+            &format!("floorplan=https://github.com/tehas-app/tehas-plugin-floorplan@{PIN}"),
+        );
+        refuses(
+            "TEHAS_PLUGINS",
+            "floorplan",
+            "expected <name>=<url>@<commit> entries separated by single spaces",
+        );
+        refuses(
+            "TEHAS_PLUGINS",
+            &format!("floorplan=http://h.example/x@{PIN}"),
+            "floorplan: expected an https:// address with no user, password, query or fragment",
+        );
+        refuses(
+            "TEHAS_PLUGINS",
+            "floorplan=https://h.example/x@main",
+            "floorplan: expected the whole commit, 40 lower-case hex digits",
+        );
+    }
+
+    #[test]
+    fn every_grants_line_takes_the_rule_of_its_family() {
+        for name in [
+            "TEHAS_PLUGIN_GRANTS_FLOORPLAN",
+            "TEHAS_PLUGIN_GRANTS_<NAME>",
+        ] {
+            takes(name, PIN);
+            takes(
+                name,
+                &format!("{PIN} view product model:2000000 action:refresh hook:after:work"),
+            );
+            refuses(
+                name,
+                &format!("{PIN} gate:verify"),
+                "gate:verify is reserved for plugins v2",
+            );
+            refuses(
+                name,
+                "view",
+                "expected the plugin's whole commit, 40 lower-case hex digits, then its grants separated by single spaces",
+            );
+        }
+    }
+
+    #[test]
+    fn the_plugins_access_is_a_permission_on_the_repository() {
+        for v in ["read", "triage", "write", "maintain", "admin"] {
+            takes("TEHAS_PLUGIN_ACCESS", v);
+        }
+        for v in ["", "Write", "push", "owner"] {
+            refuses(
+                "TEHAS_PLUGIN_ACCESS",
+                v,
+                "expected read, triage, write, maintain or admin",
+            );
+        }
+    }
+
+    #[test]
+    fn the_plugins_limits_name_all_three_in_order() {
+        takes("TEHAS_PLUGIN_LIMITS", "memory=2 cpus=2 disk=4");
+        takes("TEHAS_PLUGIN_LIMITS", "memory=999 cpus=1 disk=100");
+        let why = "expected memory=<GiB> cpus=<n> disk=<GiB>, each a whole number from 1 to 999";
+        for bad in [
+            "",
+            "memory=2",
+            "cpus=2 memory=2 disk=4",
+            "memory=2 cpus=2 disk=4 net=1",
+            "memory=0 cpus=2 disk=4",
+            "memory=02 cpus=2 disk=4",
+            "memory=1000 cpus=2 disk=4",
+            "memory=2g cpus=2 disk=4",
+            "memory=2  cpus=2 disk=4",
+            "memory=2 cpus=2 disk=4 ",
+        ] {
+            refuses("TEHAS_PLUGIN_LIMITS", bad, why);
+        }
+    }
+
+    #[test]
+    fn the_plugins_day_of_tokens_is_a_count() {
+        takes("TEHAS_PLUGIN_MODEL_DAY", "5000000");
+        refuses("TEHAS_PLUGIN_MODEL_DAY", "0", POSITIVE);
+        refuses("TEHAS_PLUGIN_MODEL_DAY", "5m", POSITIVE);
     }
 }

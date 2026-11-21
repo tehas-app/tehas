@@ -24,6 +24,11 @@ regex = { version = "1", optional = true }
 serde_json = "1"
 sha2 = { version = "0.10", optional = true }
 
+[dev-dependencies]
+# The patterns of api/plugin-manifest.schema.json, which the manifest's tests
+# hold the reader to.
+regex = "1"
+
 # Kani proofs sit in #[cfg(kani)] modules; the Kani job of
 # the release gate (.github/workflows/release-gate.yml) runs them.
 [lints.rust]

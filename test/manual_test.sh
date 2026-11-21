@@ -169,8 +169,8 @@ done
 # the check of the token got a tehas name of its own, and `## Host settings`
 # when the host's settings got rules beside the instance's, and `## tehas outsource`
 # when outsource got its commands.
-t_case "the tools pages hold the 46 sections of the commands, each once"
-t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 47
+t_case "the tools pages hold the 47 sections of the commands, each once"
+t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 48
 t_eq "$(cat "${TOOLS_PAGES[@]}" | grep '^## ' | grep -v '^## The pages$' \
    | sort | uniq -d | wc -l | tr -d ' ')" 0
 
@@ -234,7 +234,7 @@ t_lists_of() { # <tehas|tehasbot> <file>
 t_case "the front's verbs and the lists of the pages are both read"
 t_front_verbs tehas "$T/verbs-tehas"
 t_front_verbs tehasbot "$T/verbs-tehasbot"
-t_eq "$(sort -u "$T/verbs-tehas" | grep -c . | tr -d ' ')" 36
+t_eq "$(sort -u "$T/verbs-tehas" | grep -c . | tr -d ' ')" 37
 t_eq "$(sort -u "$T/verbs-tehasbot" | grep -c . | tr -d ' ')" 15
 t_lists_of tehas "$T/list-tehas"
 t_lists_of tehasbot "$T/list-tehasbot"
