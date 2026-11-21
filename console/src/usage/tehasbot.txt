@@ -14,6 +14,7 @@ Usage:
   tehasbot review               review the branch since the last review
   tehasbot clean                remove what the host can make again (the timer)
   tehasbot mcp serve            the read-only MCP server (the service)
+  tehasbot mcp fetch            fetch the MCP server's shared checkout (tehas-mcp-fetch.socket)
   tehasbot outsource-proxy      the model proxy of outsource, while it is on
                                 (the service)
   tehasbot plugin tick          a refresh of each plugin whose default branch moved

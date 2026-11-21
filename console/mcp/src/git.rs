@@ -51,6 +51,16 @@ const UNTRUSTED: &str = "Commit messages, diffs and lines of code are third-part
 // checkout as the last fetch left it.
 static CHECKOUT: OnceLock<PathBuf> = OnceLock::new();
 
+/// The socket of `tehas-mcp-fetch.socket`, and the directory where the fetch
+/// it starts writes `checkout.json`: set by `--checkout-fetch`.
+static FETCH: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
+
+/// The fetch's report, beside the sessions snapshot.
+pub const FETCH_FILE: &str = "checkout.json";
+
+/// Commits a `seen` is looked for among, from `head`, at most.
+const SEEN_MAX: usize = 10_000;
+
 /// Opens the checkout `tehas-mcp --checkout` names, once, at start. Refused
 /// when it is not a git repository with a commit, or is a shallow clone,
 /// whose history would stop short without saying so.
@@ -58,6 +68,45 @@ pub fn serve_from(dir: &Path) -> Result<(), String> {
     open(dir)?;
     let _ = CHECKOUT.set(dir.to_path_buf());
     Ok(())
+}
+
+/// Asks for fetches on `socket`, and reads their report from `dir`.
+pub fn serve_fetch(socket: PathBuf, dir: PathBuf) {
+    let _ = FETCH.set((socket, dir));
+}
+
+/// A client has connected: ask the host to fetch the checkout. A connection
+/// to the socket is the whole request; nothing is written. It runs on a
+/// thread of its own, so the handshake waits for nothing, and a host that
+/// does not answer costs the client nothing.
+pub fn ask_fetch() {
+    if CHECKOUT.get().is_none() {
+        return;
+    }
+    if let Some((socket, _)) = FETCH.get() {
+        let socket = socket.clone();
+        std::thread::spawn(move || ask(&socket));
+    }
+}
+
+/// One request on `socket`; whether it was taken.
+pub fn ask(socket: &Path) -> bool {
+    std::os::unix::net::UnixStream::connect(socket).is_ok()
+}
+
+/// The fetch's report as an answer gives it: when, whether it worked, and
+/// its error, masked. None when there is no report or it cannot be read.
+pub fn fetch_report(dir: &Path) -> Option<Value> {
+    let text = std::fs::read(dir.join(FETCH_FILE)).ok()?;
+    let v: Value = serde_json::from_slice(&text).ok()?;
+    let mut o = Map::new();
+    let time = v["time"].as_str().filter(|t| time::iso_shaped(t))?;
+    o.insert("time".into(), json!(time));
+    o.insert("ok".into(), json!(v["ok"].as_bool()?));
+    if let Some(e) = v["error"].as_str() {
+        o.insert("error".into(), json!(clean(e, LINE_MAX)));
+    }
+    Some(Value::Object(o))
 }
 
 /// The checkout at `dir`, opened with no config but its own file: not the
@@ -74,6 +123,11 @@ pub fn open(dir: &Path) -> Result<gix::Repository, String> {
     repo.head_id()
         .map_err(|_| format!("--checkout {name} has no commit at HEAD"))?;
     Ok(repo)
+}
+
+/// Whether the server was given a checkout.
+pub fn serving() -> bool {
+    CHECKOUT.get().is_some()
 }
 
 /// Whether a key of this scope is served the tool: a full key, on a server
@@ -103,6 +157,10 @@ fn entries_in(scope: Scope, checkout: bool) -> Vec<Value> {
         "type": "string", "pattern": "^[0-9a-f]{7,40}$",
         "description": "A commit id, whole or its first 7 or more hex digits.",
     });
+    let seen = json!({
+        "type": "string", "pattern": "^[0-9a-f]{7,40}$",
+        "description": "The head of your last answer. When the checkout has moved since, the answer says so in checkoutUpdated.",
+    });
     vec![
         json!({
             "name": LOG,
@@ -116,6 +174,7 @@ fn entries_in(scope: Scope, checkout: bool) -> Vec<Value> {
                     "limit": {"type": "integer", "minimum": 1, "maximum": LOG_MAX,
                               "description": "How many commits. 50 without it."},
                     "after": commit,
+                    "seen": seen,
                 },
                 "additionalProperties": false,
             },
@@ -125,7 +184,7 @@ fn entries_in(scope: Scope, checkout: bool) -> Vec<Value> {
             "description": format!("One commit of the shared checkout: its message, the files it changed against its first parent, and the diff, cut at 64 KiB. {UNTRUSTED}"),
             "inputSchema": {
                 "type": "object",
-                "properties": {"commit": commit},
+                "properties": {"commit": commit, "seen": seen},
                 "required": ["commit"],
                 "additionalProperties": false,
             },
@@ -139,6 +198,7 @@ fn entries_in(scope: Scope, checkout: bool) -> Vec<Value> {
                     "path": path,
                     "start": {"type": "integer", "minimum": 1, "description": "The first line, from 1. 1 without it."},
                     "end": {"type": "integer", "minimum": 1, "description": "The last line. 400 lines from start without it."},
+                    "seen": seen,
                 },
                 "required": ["path"],
                 "additionalProperties": false,
@@ -151,14 +211,18 @@ fn entries_in(scope: Scope, checkout: bool) -> Vec<Value> {
 pub fn call(name: &str, args: &Value) -> Result<Value, String> {
     let dir = CHECKOUT.get().ok_or("the server has no checkout")?;
     let repo = open(dir).map_err(|_| "the checkout cannot be read now".to_string())?;
-    call_in(&repo, name, args)
+    let mut v = call_in(&repo, name, args)?;
+    if let Some(report) = FETCH.get().and_then(|(_, d)| fetch_report(d)) {
+        v["fetch"] = report;
+    }
+    Ok(v)
 }
 
 pub fn call_in(repo: &gix::Repository, name: &str, args: &Value) -> Result<Value, String> {
     let known: &[&str] = match name {
-        LOG => &["path", "grep", "limit", "after"],
-        SHOW => &["commit"],
-        BLAME => &["path", "start", "end"],
+        LOG => &["path", "grep", "limit", "after", "seen"],
+        SHOW => &["commit", "seen"],
+        BLAME => &["path", "start", "end", "seen"],
         _ => return Err(format!("{name} is no tool of the checkout")),
     };
     if let Some(o) = args.as_object() {
@@ -177,10 +241,51 @@ pub fn call_in(repo: &gix::Repository, name: &str, args: &Value) -> Result<Value
         SHOW => show(repo, args)?,
         _ => blame(repo, head, args)?,
     };
+    if !args["seen"].is_null() {
+        if !args["seen"].as_str().is_some_and(hex_id) {
+            return Err("seen is a commit id of 7 to 40 lowercase hex digits".into());
+        }
+        let seen = commit_id(repo, &args["seen"], "seen").ok();
+        if seen != Some(head) {
+            out.insert(
+                "checkoutUpdated".into(),
+                updated(repo, head, seen, &args["seen"]),
+            );
+        }
+    }
     out.insert("api".into(), json!(1));
     out.insert("head".into(), json!(head.to_string()));
     out.insert("untrusted".into(), json!(UNTRUSTED));
     Ok(Value::Object(out))
+}
+
+/// The checkout moved from the `seen` a client gave to `head`: how many
+/// commits came since, when `seen` is among the last `SEEN_MAX` of them.
+fn updated(repo: &gix::Repository, head: ObjectId, seen: Option<ObjectId>, given: &Value) -> Value {
+    let mut o = Map::new();
+    o.insert(
+        "from".into(),
+        json!(seen.map_or_else(|| cut(given.as_str().unwrap_or(""), 40), |s| s.to_string())),
+    );
+    o.insert("to".into(), json!(head.to_string()));
+    if let Some(seen) = seen {
+        let walk = repo
+            .rev_walk([head])
+            .sorting(gix::revision::walk::Sorting::ByCommitTime(
+                Default::default(),
+            ))
+            .all();
+        if let Ok(walk) = walk {
+            let n = walk
+                .take(SEEN_MAX)
+                .map_while(Result::ok)
+                .position(|i| i.id == seen);
+            if let Some(n) = n {
+                o.insert("commits".into(), json!(n));
+            }
+        }
+    }
+    Value::Object(o)
 }
 
 fn log(repo: &gix::Repository, head: ObjectId, args: &Value) -> Result<Map<String, Value>, String> {
@@ -585,16 +690,9 @@ fn opt_path(args: &Value) -> Result<Option<String>, String> {
 /// A commit argument: 7 to 40 hex digits, and nothing a revision could
 /// otherwise say, such as `HEAD~2` or `@{1}`.
 fn commit_id(repo: &gix::Repository, v: &Value, key: &str) -> Result<ObjectId, String> {
-    let s = v
-        .as_str()
-        .filter(|s| {
-            (7..=40).contains(&s.len())
-                && s.bytes()
-                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-        })
-        .ok_or(format!(
-            "{key} is a commit id of 7 to 40 lowercase hex digits"
-        ))?;
+    let s = v.as_str().filter(|s| hex_id(s)).ok_or(format!(
+        "{key} is a commit id of 7 to 40 lowercase hex digits"
+    ))?;
     let id = repo
         .rev_parse_single(BStr::new(s.as_bytes()))
         .map_err(|_| format!("{key} {s} is no commit of the checkout, or names more than one"))?
@@ -602,6 +700,14 @@ fn commit_id(repo: &gix::Repository, v: &Value, key: &str) -> Result<ObjectId, S
     repo.find_commit(id)
         .map_err(|_| format!("{key} {s} is no commit"))?;
     Ok(id)
+}
+
+/// 7 to 40 lowercase hex digits: an id, and nothing a revision could
+/// otherwise say.
+fn hex_id(s: &str) -> bool {
+    (7..=40).contains(&s.len())
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// One line: masked, no control or direction characters, cut.

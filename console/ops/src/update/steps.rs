@@ -41,6 +41,7 @@ pub(crate) const UNITS: &[&str] = &[
     "tehas-energy.service",
     "tehas-top.service",
     "tehas-mcp.service",
+    "tehas-mcp-fetch.socket",
     "tehas-preview.timer",
     "tehas-preview-sweep.timer",
     "tehas-protolab.timer",

@@ -2,6 +2,7 @@
 //! ../src declares none of them and takes each from here.
 
 pub mod account;
+pub mod checkout;
 pub mod clean;
 pub mod disk;
 pub mod edge;

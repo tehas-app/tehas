@@ -34,6 +34,7 @@ tehasbot github-token --cycle [--check]  # the cycle's token: the product reposi
 tehasbot github-token --session [--check]  # the same body, for a planning turn or a manual session
 tehasbot github-writes        # tehas github writes, by its old name
 tehasbot mcp serve            # the read-only MCP server; what tehas-mcp.service runs
+tehasbot mcp fetch            # fetch its shared checkout; what tehas-mcp-fetch@.service runs
 tehasbot outsource-proxy      # the model proxy of outsource; what tehas-outsource-proxy.service runs
 tehasbot plugin tick          # a refresh of each plugin whose default branch moved; what tehas-plugin.timer runs
 tehasbot plugin run <name> --kind refresh|hook  # one run of a plugin; what its units run

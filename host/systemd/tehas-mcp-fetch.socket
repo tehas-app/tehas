@@ -1,0 +1,12 @@
+[Unit]
+Description=Tehas: a fetch of the MCP server's shared checkout, asked at a client's handshake
+
+# The MCP server connects here when a client says hello; the connection is
+# the whole request. tehasbot mcp serve starts this socket while
+# TEHAS_MCP_CHECKOUT is set. Each connection starts one tehas-mcp-fetch@
+# service, which does nothing when a fetch ran in the last minute.
+[Socket]
+ListenStream=%h/tehas/run/mcp-fetch/fetch.sock
+SocketMode=0600
+Accept=yes
+MaxConnections=4
