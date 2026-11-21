@@ -23,6 +23,7 @@ the line of this table. Read it before you write the grant.
 | --- | --- |
 | `view` | Its /out is served behind the sign-in, and a panel in the dock: everyone the sign-in lets in sees it |
 | `view:<id>` | One of its views, the part of its /out at that view's path, is served behind the sign-in and opens from the plugins menu: everyone the sign-in lets in sees it |
+| `menu` | Its granted views are listed in the plugins menu of both front pages, by its name and their labels, in place of a panel in the dock: names and labels are public, as live/ is |
 | `product` | Reads all of the product's code, read only, in every run |
 | `model:<tokens>` | Chat completions through a socket, up to the tokens of the grant a run |
 | `model:images` | Images in its model requests, each carried in the request and never fetched: what it sends of the product's pages goes to the model |
