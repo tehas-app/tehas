@@ -40,8 +40,8 @@ printf '#!/usr/bin/env bash\necho "$*" >>"$T/calls/shim"\nGH_TOKEN=ghs_shim exec
 chmod +x "$T/home/tehas/shim/gh"
 
 # The key of git's credential helper for github.com, the one
-# work_caps_test.sh pins on a container's git. A change to its spelling fails
-# there or here, not on a host.
+# console/cycle/tests/work_caps.rs pins on a container's git. A change to its
+# spelling fails there or here, not on a host.
 HK=credential.https://github.com.helper
 
 # gh: the app's bot has the ID 9191, a new issue is number 7, a clone makes

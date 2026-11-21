@@ -1235,7 +1235,7 @@ the rest of the writable layer stays unbounded. The process table is bounded by
 
 `test/work_test.sh`, `test/plan_test.sh` and `test/dev_test.sh` pin each of
 these words on the `docker run` line of their own container, and
-`test/work_caps_test.sh` pins the function that prints them. Whether a whole
+`console/cycle/tests/work_caps.rs` pins the function that prints them. Whether a whole
 cycle still builds, tests and drives a headless browser with them is not yet
 seen on a host: see the sandbox row of the [features page](/features).
 
