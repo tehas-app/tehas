@@ -17,6 +17,7 @@ pub mod run;
 mod schema;
 pub mod skill;
 pub mod state;
+pub mod verdict;
 
 /// The front of the grants settings, one per plugin:
 /// `TEHAS_PLUGIN_GRANTS_<NAME>`, the name in upper case.
