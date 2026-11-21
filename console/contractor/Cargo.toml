@@ -30,4 +30,4 @@ tehas-cycle = { path = "../cycle" }
 # the program against over a real socket.
 store = { path = "../store" }
 tehas-proxy = { path = "../proxy" }
-rusqlite = "0.38"
+rusqlite = "0.41"
