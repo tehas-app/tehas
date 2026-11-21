@@ -370,6 +370,14 @@
       "building": true
     },
     {
+      "name": "TEHAS_PLUGIN_GATE_ADDR",
+      "rule": "gate-address",
+      "when": "always",
+      "default": "127.0.0.1:8095",
+      "reason": "expected a private address and a port other than the dashboard's 8080 and the router's 8081, as 127.0.0.1:8095",
+      "building": true
+    },
+    {
       "name": "TEHAS_WIKI",
       "rule": "one-of",
       "when": "always",

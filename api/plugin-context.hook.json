@@ -3,6 +3,5 @@
   "trigger": "cycle",
   "commit": "0123456789abcdef0123456789abcdef01234567",
   "head": "89abcdef0123456789abcdef0123456789abcdef",
-  "model": {"id": "plugin", "tokens": 2000000},
   "pr": {"number": 42, "base": "fedcba9876543210fedcba9876543210fedcba98", "head": "89abcdef0123456789abcdef0123456789abcdef"}
 }

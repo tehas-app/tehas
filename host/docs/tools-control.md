@@ -290,11 +290,16 @@ being built in this release, so every subcommand exits 78. See
 ```
 tehas plugin [--json]
 tehas plugin review <name> [<commit>] [--json]
+tehas plugin run <name>
+tehas plugin hook <name> <pr>
+tehas plugin log <name> [--hook <pr>]
+tehas plugin check <dir> [--json]
 ```
 
 The plugins of this factory, as its settings set them: each one's pin, what
-is granted at the pin, and its state: `unbuilt`, `building`, `ready` or
-`refused` with why, as the last `tehas update` left it. With the feature on,
+is granted at the pin, its state: `unbuilt`, `building`, `ready` or
+`refused` with why, as the last `tehas update` left it, its last run and the
+model tokens its runs used today, from the state store. With the feature on,
 `tehas update` fetches each pin into `~/tehas/plugins/<name>/repo.git`,
 checks its manifest, skills and Dockerfile, pulls its base images by digest
 and builds its image with no network, then prunes the repository to the pin's
@@ -309,7 +314,58 @@ ONBUILD triggers, where the model runs (the provider of
 the pin and the lines to write. It writes nothing but the fetched objects and
 the base images.
 Exit 0; 1 the fetch or the read failed; 3 refused, with why; 64; 78.
-Plugins are still being built in this release, so both exit 78. See the
+
+`run` asks for a refresh now and `hook` for the plugin's hook on an open pull
+request of the bot's, at its current head. Each writes a request under
+`~/tehas/plugins/<name>/` and starts a unit with `systemctl --user start
+--no-block`, and waits for nothing: `tehas-plugin@<name>.service` for a
+refresh, `tehas-plugin-hook@<name>-<pr>.service` for a hook. Exit 0 asked; 3
+one is running, the plugin is not ready, or there is no such open bot pull
+request; 1 GitHub or systemd failed; 64; 78. A plugin refused because its
+`/state` passed the disk limit runs again only through `run`.
+
+`log` prints the last run's log, at most 1 MiB, as the plugin wrote it: the
+last refresh's, or with `--hook` the last hook's on that pull request.
+Exit 0; 3 none; 64; 78.
+
+A run is one container of the plugin's image, started by `tehas-plugin`:
+the arguments of [the security part of the
+spec](https://github.com/tehas-app/tehas/blob/main/docs/specs/2026-11-21-plugins-security.md),
+a row in `plugin_runs`, a clone of the product's mirror at the run's head
+when `product` is granted, the model socket when `model` is (a refresh only:
+a hook gets no model in v1), `docker kill` at
+the manifest's timeout, then `/out` read through the tar reader: a refresh's
+view swapped into `~/tehas/plugins/<name>/view/` with one rename, a hook's
+`/out/_tehas/verdict.json` (`api/plugin-verdict.schema.json`) kept as
+`hooks/<pr>.verdict.json`. The volumes are measured against `disk`, and the
+container, its `/work` and `/out` and the run's files are removed. The row
+ends `done`, `failed`, `timeout` or `lost`, with the model's tokens. A hook
+waits for a refresh of the same plugin to end, at most one hook of a plugin
+and two in all run at once, and a newer request for the same pull request
+runs after the one that runs.
+
+`tehas-plugin.timer` runs `tehasbot plugin tick` every 10 minutes. It reads
+the head the poll fetched into the product's mirror, asks GitHub nothing,
+and asks for a refresh of each ready plugin whose last refresh began at
+another head. It starts nothing while the factory is paused by
+`state/pause.json`, drained, read-only, or while `tehas update` runs, and
+says why in `~/tehas/logs/plugins.log`, where the runs write too. It removes
+the containers, volumes and files a run that died left, and ends its row as
+`lost`. `install.sh` installs `tehas-plugin`, the two templates, the timer
+and its service only while the feature is on, and a first install enables
+the timer.
+
+`check` reads a plugin's folder on this machine as `review` reads a commit:
+the manifest, its skills' text and the Dockerfile's rules, each ask known and
+not reserved. It needs no instance settings, runs no git or docker and
+reaches no network, so a plugin's author runs it anywhere tehas unpacks, with
+the feature off too. It reads only the folder's regular files, through no
+link. The bases' ONBUILD triggers need a pull, so `check` leaves them to
+`review` and `tehas update` and says so. Exit 0 the folder keeps the rules;
+3 refused, with why, a folder with no manifest among them; 64.
+
+Plugins are still being built in this release, so every subcommand but
+`check` exits 78. See the
 `TEHAS_PLUGIN` rows of
 [the settings table](/tools#instance-settings) and [what the feature leaves
 visible](/contract#plugins).

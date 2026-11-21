@@ -5,7 +5,7 @@
 //! author; the tests below hold the two to each other.
 
 use super::needs::Need;
-use super::{ask, is_action_id, is_name, Cap};
+use super::{ask, is_action_id, is_name, params, Cap};
 use serde_json::{Map, Value};
 
 /// The largest manifest read.
@@ -18,6 +18,7 @@ pub const BUILD_MAX: usize = 255;
 pub const ASKS_MAX: usize = 32;
 pub const ACTIONS_MAX: usize = 2;
 pub const SKILLS_MAX: usize = 8;
+pub const TOOLS_MAX: usize = 8;
 /// The most plugins one plugin needs.
 pub const NEEDS_MAX: usize = 2;
 /// The longest line a chat shows for a skill.
@@ -26,11 +27,12 @@ pub const ABOUT_MAX: usize = 120;
 pub const CHATS: [&str; 4] = ["obeya", "wizard", "assistant", "plugin"];
 pub const TIMEOUT: (u64, u64) = (60, 14400);
 pub const HOOK_TIMEOUT: (u64, u64) = (60, 1800);
+pub const TOOL_TIMEOUT: (u64, u64) = (1, 10);
 
 /// The fields of version 1, in the order a refusal names them.
-pub const FIELDS: [&str; 14] = [
+pub const FIELDS: [&str; 15] = [
     "plugin", "kind", "name", "label", "license", "build", "asks", "timeout", "ui", "view",
-    "actions", "hooks", "skills", "needs",
+    "actions", "hooks", "skills", "tools", "needs",
 ];
 pub const REQUIRED: [&str; 4] = ["plugin", "name", "label", "asks"];
 /// Required of a plugin with an image. One with none is text alone.
@@ -49,6 +51,18 @@ pub struct Skill {
     pub about: String,
     /// The file in the repository, read at the pinned commit.
     pub path: String,
+    pub chats: Vec<String>,
+}
+
+/// A tool: a run of the plugin's image the chats it names may call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Tool {
+    pub id: String,
+    pub about: String,
+    /// The schema of a call's arguments, as [`params::rules`] took it.
+    pub params: Value,
+    /// A call's seconds.
+    pub timeout: u64,
     pub chats: Vec<String>,
 }
 
@@ -71,6 +85,7 @@ pub struct Manifest {
     /// The timeout of the hook at `after:work`, when it has one.
     pub hook: Option<u64>,
     pub skills: Vec<Skill>,
+    pub tools: Vec<Tool>,
     /// The plugins it needs, and what it wants from each.
     pub needs: Vec<Need>,
 }
@@ -396,6 +411,15 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
         None => Vec::new(),
         Some(v) => skills(v, &caps, &mut out),
     };
+    let tools = match field("tools") {
+        None => Vec::new(),
+        Some(v) => {
+            if !built {
+                out.say("tools need a build: a plugin with no build never runs");
+            }
+            tools(v, &caps, &mut out)
+        }
+    };
     let needs = match field("needs") {
         None => Vec::new(),
         Some(v) => needs(v, &caps, name, &mut out),
@@ -418,6 +442,7 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
             actions,
             hook,
             skills,
+            tools,
             needs,
         }),
         _ => Err(vec!["the manifest could not be read".to_string()]),
@@ -473,27 +498,7 @@ fn skills(v: &Value, caps: &[Cap], out: &mut Refusals) -> Vec<Skill> {
                 None
             }
         });
-        let chats = chats.and_then(|v| {
-            let names: Option<Vec<String>> = v.as_array().and_then(|l| {
-                l.iter()
-                    .map(|c| c.as_str().filter(|c| CHATS.contains(c)).map(String::from))
-                    .collect()
-            });
-            match names {
-                Some(n)
-                    if !n.is_empty() && n.iter().enumerate().all(|(i, c)| !n[..i].contains(c)) =>
-                {
-                    Some(n)
-                }
-                _ => {
-                    out.say(format!(
-                        "{at}.chats: expected one or more of {}, each once",
-                        CHATS.join(", ")
-                    ));
-                    None
-                }
-            }
-        });
+        let chats = chats.and_then(|v| chats_of(v, &at, out));
         let Some(id) = id else { continue };
         if ids.contains(&id) {
             out.say(format!("{at}: the skill {id} is there twice"));
@@ -507,6 +512,105 @@ fn skills(v: &Value, caps: &[Cap], out: &mut Refusals) -> Vec<Skill> {
                 id,
                 about,
                 path,
+                chats,
+            });
+        }
+    }
+    got
+}
+
+/// `<at>.chats`: one or more of [`CHATS`], each once.
+fn chats_of(v: &Value, at: &str, out: &mut Refusals) -> Option<Vec<String>> {
+    let names: Option<Vec<String>> = v.as_array().and_then(|l| {
+        l.iter()
+            .map(|c| c.as_str().filter(|c| CHATS.contains(c)).map(String::from))
+            .collect()
+    });
+    match names {
+        Some(n) if !n.is_empty() && n.iter().enumerate().all(|(i, c)| !n[..i].contains(c)) => {
+            Some(n)
+        }
+        _ => {
+            out.say(format!(
+                "{at}.chats: expected one or more of {}, each once",
+                CHATS.join(", ")
+            ));
+            None
+        }
+    }
+}
+
+/// `tools`: at most [`TOOLS_MAX`], each asked as `tool:<id>`, with the
+/// schema of its arguments, its timeout and the chats that may call it.
+fn tools(v: &Value, caps: &[Cap], out: &mut Refusals) -> Vec<Tool> {
+    let Some(list) = v.as_array() else {
+        out.say("tools: expected a list");
+        return Vec::new();
+    };
+    if list.len() > TOOLS_MAX {
+        out.say(format!("tools: at most {TOOLS_MAX}"));
+    }
+    let mut got: Vec<Tool> = Vec::new();
+    let mut ids: Vec<String> = Vec::new();
+    for (i, v) in list.iter().enumerate() {
+        let at = format!("tools[{i}]");
+        let Some(t) = v.as_object() else {
+            out.say(format!("{at}: expected an object"));
+            continue;
+        };
+        closed(
+            t,
+            &["id", "about", "params", "timeout", "chats"],
+            &format!("{at}."),
+            out,
+        );
+        let mut need = |key: &str| {
+            let v = t.get(key);
+            if v.is_none() {
+                out.say(format!("{at}.{key} is missing"));
+            }
+            v
+        };
+        let (id, about, schema, timeout, chats) = (
+            need("id"),
+            need("about"),
+            need("params"),
+            need("timeout"),
+            need("chats"),
+        );
+        let id = id.and_then(|v| match v.as_str() {
+            Some(id) if is_action_id(id) => Some(id.to_string()),
+            _ => {
+                out.say(format!("{at}.id: expected 1 to 16 characters of a-z and -"));
+                None
+            }
+        });
+        let about = about.and_then(|v| line(v, &format!("{at}.about"), ABOUT_MAX, out));
+        let schema = schema.and_then(|v| {
+            let why = params::rules(v);
+            for w in &why {
+                out.say(format!("{at}.params: {w}"));
+            }
+            why.is_empty().then(|| v.clone())
+        });
+        let timeout = timeout.and_then(|v| seconds(v, &format!("{at}.timeout"), TOOL_TIMEOUT, out));
+        let chats = chats.and_then(|v| chats_of(v, &at, out));
+        let Some(id) = id else { continue };
+        if ids.contains(&id) {
+            out.say(format!("{at}: the tool {id} is there twice"));
+        }
+        ids.push(id.clone());
+        if !caps.contains(&Cap::Tool(id.clone())) {
+            out.say(format!("{at}: the tool {id} needs the ask tool:{id}"));
+        }
+        if let (Some(about), Some(params), Some(timeout), Some(chats)) =
+            (about, schema, timeout, chats)
+        {
+            got.push(Tool {
+                id,
+                about,
+                params,
+                timeout,
                 chats,
             });
         }
@@ -599,6 +703,7 @@ mod tests {
     const FULL: &str = include_str!("../../../../api/plugin-manifest.full.json");
     const BARE: &str = include_str!("../../../../api/plugin-manifest.bare.json");
     const SKILLS: &str = include_str!("../../../../api/plugin-manifest.skills.json");
+    const TOOLS: &str = include_str!("../../../../api/plugin-manifest.tools.json");
     const SCHEMA: &str = include_str!("../../../../api/plugin-manifest.schema.json");
 
     fn full() -> Value {
@@ -653,6 +758,7 @@ mod tests {
                 }],
                 hook: Some(600),
                 skills: vec![],
+                tools: vec![],
                 needs: vec![],
             }
         );
@@ -956,7 +1062,6 @@ mod tests {
         for word in [
             "gate:verify",
             "hook:after:merge",
-            "tool:grep",
             "net:example.org",
             "factory-read",
             "factory-sessions",
@@ -1113,6 +1218,120 @@ mod tests {
             m["skills"] = json!(nine);
         }));
         assert_eq!(got, ["skills: at most 8"]);
+    }
+
+    fn tooled(edit: impl Fn(&mut Map<String, Value>)) -> Value {
+        let mut v: Value = serde_json::from_str(TOOLS).unwrap();
+        edit(v.as_object_mut().unwrap());
+        v
+    }
+
+    fn refusals_of_docs(v: &Value) -> Vec<String> {
+        read(v.to_string().as_bytes(), "docs").unwrap_err()
+    }
+
+    #[test]
+    fn a_tool_is_read_with_its_schema_timeout_and_chats() {
+        let m = read(TOOLS.as_bytes(), "docs").unwrap();
+        assert_eq!(m.asks, ["tool:find-doc"]);
+        assert_eq!(
+            m.tools,
+            [Tool {
+                id: "find-doc".into(),
+                about: "Find the product doc that answers a question".into(),
+                params: json!({"type": "object", "properties": {"q": {"type": "string", "maxLength": 200}}, "required": ["q"], "additionalProperties": false}),
+                timeout: 5,
+                chats: vec!["obeya".into()],
+            }]
+        );
+    }
+
+    #[test]
+    fn a_tool_that_breaks_a_rule_is_refused_with_why() {
+        let got = refusals_of_docs(&tooled(|m| {
+            m["tools"][0]["id"] = json!("Find");
+            m["tools"][0]["about"] = json!("a\nb");
+            m["tools"][0]["timeout"] = json!(11);
+            m["tools"][0]["chats"] = json!(["slack"]);
+            m["tools"][0]["x"] = json!(1);
+        }));
+        assert_eq!(
+            got,
+            [
+                "tools[0].x: no field of manifest version 1",
+                "tools[0].id: expected 1 to 16 characters of a-z and -",
+                "tools[0].about: a control character or a line break",
+                "tools[0].timeout: expected whole seconds from 1 to 10",
+                "tools[0].chats: expected one or more of obeya, wizard, assistant, plugin, each once",
+            ]
+        );
+        for t in [0, 11] {
+            let got = refusals_of_docs(&tooled(|m| m["tools"][0]["timeout"] = json!(t)));
+            assert_eq!(
+                got,
+                ["tools[0].timeout: expected whole seconds from 1 to 10"]
+            );
+        }
+        let got = refusals_of_docs(&tooled(|m| {
+            m["tools"][0]["params"]["properties"]["q"] = json!({"type": "string"});
+            m["tools"][0]["params"]["$ref"] = json!("#/x");
+        }));
+        assert_eq!(
+            got,
+            [
+                "tools[0].params: the top level: $ref is not allowed",
+                "tools[0].params: properties.q: a string needs maxLength",
+            ]
+        );
+        let got = refusals_of_docs(&tooled(|m| {
+            m["tools"][0].as_object_mut().unwrap().remove("params");
+        }));
+        assert_eq!(got, ["tools[0].params is missing"]);
+    }
+
+    #[test]
+    fn a_tool_needs_its_ask_a_build_and_an_id_of_its_own() {
+        let got = refusals_of_docs(&tooled(|m| {
+            m["asks"] = json!([]);
+        }));
+        assert_eq!(
+            got,
+            ["tools[0]: the tool find-doc needs the ask tool:find-doc"]
+        );
+        let got = refusals_of_docs(&tooled(|m| {
+            let again = m["tools"][0].clone();
+            m["tools"].as_array_mut().unwrap().push(again);
+        }));
+        assert_eq!(got, ["tools[1]: the tool find-doc is there twice"]);
+        let got = refusals_of_docs(&tooled(|m| {
+            for k in ["build", "kind", "timeout"] {
+                m.remove(k);
+            }
+        }));
+        assert_eq!(
+            got,
+            [
+                "asks: tool:find-doc needs a build: a plugin with no build never runs",
+                "tools need a build: a plugin with no build never runs",
+                "tools[0]: the tool find-doc needs the ask tool:find-doc",
+            ]
+        );
+        let nine: Vec<Value> = (0..=TOOLS_MAX)
+            .map(|i| {
+                let mut t: Value =
+                    serde_json::from_str::<Value>(TOOLS).unwrap()["tools"][0].clone();
+                t["id"] = json!(format!("t{}", "x".repeat(i)));
+                t
+            })
+            .collect();
+        let got = refusals_of_docs(&tooled(|m| {
+            m["asks"] = json!(nine
+                .iter()
+                .map(|t| format!("tool:{}", t["id"].as_str().unwrap()))
+                .collect::<Vec<_>>());
+            m["tools"] = json!(nine);
+        }));
+        assert_eq!(got, ["tools: at most 8"]);
     }
 
     #[test]
@@ -1282,6 +1501,12 @@ mod tests {
         assert_eq!(p["asks"]["maxItems"], ASKS_MAX);
         assert_eq!(p["actions"]["maxItems"], ACTIONS_MAX);
         assert_eq!(p["skills"]["maxItems"], SKILLS_MAX);
+        assert_eq!(p["tools"]["maxItems"], TOOLS_MAX);
+        let tool = &p["tools"]["items"]["properties"];
+        assert_eq!(tool["about"]["maxLength"], ABOUT_MAX);
+        assert_eq!(tool["timeout"]["minimum"], TOOL_TIMEOUT.0);
+        assert_eq!(tool["timeout"]["maximum"], TOOL_TIMEOUT.1);
+        assert_eq!(tool["chats"]["items"]["enum"], json!(CHATS));
         let skill = &p["skills"]["items"]["properties"];
         assert_eq!(skill["about"]["maxLength"], ABOUT_MAX);
         assert_eq!(skill["chats"]["items"]["enum"], json!(CHATS));
@@ -1298,7 +1523,42 @@ mod tests {
             ("full".into(), full()),
             ("bare".into(), serde_json::from_str(BARE).unwrap()),
             ("skills".into(), serde_json::from_str(SKILLS).unwrap()),
+            ("tools".into(), serde_json::from_str(TOOLS).unwrap()),
         ];
+        let tool_cases: Vec<(&str, &str, Value)> = vec![
+            ("tool id", "id", json!("Find")),
+            ("tool about", "about", json!("x".repeat(121))),
+            ("tool timeout 0", "timeout", json!(0)),
+            ("tool timeout 10", "timeout", json!(10)),
+            ("tool timeout 11", "timeout", json!(11)),
+            ("tool no chat", "chats", json!([])),
+            ("tool chat twice", "chats", json!(["obeya", "obeya"])),
+            ("tool field", "x", json!(1)),
+        ];
+        for (what, key, v) in tool_cases {
+            cases.push((
+                what.into(),
+                tooled(|m| {
+                    m["tools"][0][key] = v.clone();
+                }),
+            ));
+        }
+        cases.push((
+            "tools without a build".into(),
+            tooled(|m| {
+                for k in ["build", "kind", "timeout"] {
+                    m.remove(k);
+                }
+                m["asks"] = json!([]);
+            }),
+        ));
+        cases.push((
+            "tool ask".into(),
+            tooled(|m| {
+                m["asks"] = json!(["tool:Find"]);
+                m.remove("tools");
+            }),
+        ));
         for (what, needs) in [
             ("needs", json!([{"name": "specs", "skills": ["grill"]}])),
             ("need name", json!([{"name": "Specs", "skills": ["grill"]}])),

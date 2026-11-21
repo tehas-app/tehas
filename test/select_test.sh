@@ -88,13 +88,7 @@ t_eq "$(real_pick console/mcp/src/tools.rs)" "crate analytics
 crate tehas-mcp"
 
 t_case "the real workspace: a store change selects the crates that run the store"
-t_eq "$(real_pick console/store/src/db.rs)" "crate console
-crate store
-crate tehas-contractor
-crate tehas-cycle
-crate tehas-dispatch
-crate tehas-ops
-crate tehas-proxy"
+t_eq "$(real_pick console/store/src/db.rs)" "$(printf 'crate %s\n' console store tehas-contractor tehas-cycle tehas-dispatch tehas-ops tehas-plugin tehas-proxy)"
 
 t_case "the real workspace: a core change selects the whole workspace"
 t_eq "$(real_pick console/core/src/lib.rs)" "cargo"

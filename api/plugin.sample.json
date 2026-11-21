@@ -16,7 +16,9 @@
       "refusal": null,
       "image": null,
       "manifest_sha256": null,
-      "bases": []
+      "bases": [],
+      "last_run": null,
+      "tokens_today": 0
     }
   ]
 }

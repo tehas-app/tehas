@@ -12,8 +12,8 @@
         "obeya",
         "wizard"
       ],
-      "text": "## Interview until nothing is assumed\n\nAsk one question at a time, with your recommended answer first.\n",
-      "sha256": "13785e6fca06354c240801224f97bd88d49c8b9e438e9246a9e6711ea7715902"
+      "text": "### Interview until nothing is assumed\n\nAsk one question at a time, with your recommended answer first.\n",
+      "sha256": "9009cea8ac887eab0f1630e953195db6303f32eba666634b61a49965e41bd58e"
     },
     {
       "plugin": "specs",
@@ -26,8 +26,8 @@
         "wizard",
         "assistant"
       ],
-      "text": "## Write the ticket as a specification\n\nProblem, solution, who it is for, decisions, out of scope, acceptance criteria.\n",
-      "sha256": "74cfbd391465c2adc84e24a484030376b35c6d7e671035a37264ba42554ae94e"
+      "text": "### Write the ticket as a specification\n\nProblem, solution, who it is for, decisions, out of scope, acceptance criteria.\n",
+      "sha256": "8a59159da96d3587314781bbbab50d8dd7c3c19bff664bcc3468f455bcb58e43"
     }
   ]
 }

@@ -110,13 +110,13 @@ done < <(sed -n 's#^  "systemd/\([^"|]*\).*#\1#p' "$T_ROOT/install.sh")
 # line of the table: a change to its file asks for its restart instead.
 while read -r kind unit; do
   [ "$kind" = unit ] || continue
-  found=$((found + 1))
+  found=$((found + 1)); case "$unit" in *@.*) continue ;; esac
   # A service its timer starts is covered by the timer, as above.
   case " $(steps_for "systemd/$unit") " in
     *" $unit "* | *" ${unit%.service}.timer "*) ;;
     *) missing="$missing $unit" ;;
   esac
-done < <(TEHAS_OUTSOURCE=on TEHAS_REVIEW=on TEHAS_WIKI=on TEHAS_TEST_FEATURES="outsource review wiki" "$T_CONSOLE" update featured)
+done < <(TEHAS_OUTSOURCE=on TEHAS_REVIEW=on TEHAS_PLUGIN=on TEHAS_WIKI=on TEHAS_TEST_FEATURES="outsource review plugins wiki" "$T_CONSOLE" update featured)
 # The gate itself has to see the table: an empty list would pass it vacuously.
 t_eq "$found" "$(find "$T_ROOT/host/systemd" -type f | wc -l)"
 t_eq "$missing" ""

@@ -170,8 +170,25 @@ impl Reading {
 /// commit. Err: the manifest could not be read at all.
 pub fn read(x: &mut dyn Exec, home: &Path, name: &str, commit: &str) -> Result<Reading, String> {
     let repo = repo(home, name);
-    let bytes = blob(x, &repo, commit, MANIFEST, manifest::BYTES_MAX as u64)?
-        .ok_or_else(|| format!("the commit {commit} has no {MANIFEST}"))?;
+    let mut file = |path: &str, max: u64| blob(x, &repo, commit, path, max);
+    reading(
+        &mut file,
+        name,
+        &format!("the commit {commit}"),
+        "the commit",
+    )
+}
+
+/// A file of a plugin by its path, at most `max` bytes: Ok(None) when it is
+/// not there, Err when it is there and cannot be read or is too large.
+pub type File<'a> = dyn FnMut(&str, u64) -> Result<Option<Vec<u8>>, String> + 'a;
+
+/// The manifest, its skills and its Dockerfile, read through `file`, from a
+/// fetched commit or a folder: `whole` names it where the manifest is
+/// missing, `place` where another file is. Err: no manifest.
+pub fn reading(file: &mut File, name: &str, whole: &str, place: &str) -> Result<Reading, String> {
+    let bytes = file(MANIFEST, manifest::BYTES_MAX as u64)?
+        .ok_or_else(|| format!("{whole} has no {MANIFEST}"))?;
     let mut r = Reading {
         raw: serde_json::from_slice(&bytes).unwrap_or(Value::Null),
         sha256: sha256(&bytes),
@@ -188,9 +205,9 @@ pub fn read(x: &mut dyn Exec, home: &Path, name: &str, commit: &str) -> Result<R
         }
     };
     for s in &m.skills {
-        let said = match blob(x, &repo, commit, &s.path, skill::BYTES_MAX as u64) {
+        let said = match file(&s.path, skill::BYTES_MAX as u64) {
             Ok(Some(b)) => skill::text(&b).err(),
-            Ok(None) => Some("not in the commit".to_string()),
+            Ok(None) => Some(format!("not in {place}")),
             Err(why) => Some(why),
         };
         if let Some(why) = said {
@@ -198,12 +215,12 @@ pub fn read(x: &mut dyn Exec, home: &Path, name: &str, commit: &str) -> Result<R
                 .push(format!("skill {}: {}: {why}", s.id, s.path));
         }
     }
-    if let Some(file) = &m.build {
-        match blob(x, &repo, commit, file, DOCKERFILE_MAX) {
+    if let Some(build) = &m.build {
+        match file(build, DOCKERFILE_MAX) {
             Ok(Some(b)) => {
                 let d = dockerfile::read(&b);
                 r.refusals
-                    .extend(d.refusals.into_iter().map(|w| format!("{file}: {w}")));
+                    .extend(d.refusals.into_iter().map(|w| format!("{build}: {w}")));
                 // A name docker would read as a flag.
                 for b in d
                     .bases
@@ -211,11 +228,11 @@ pub fn read(x: &mut dyn Exec, home: &Path, name: &str, commit: &str) -> Result<R
                     .filter(|b| !b.starts_with(|c: char| c.is_ascii_alphanumeric()))
                 {
                     r.refusals
-                        .push(format!("{file}: FROM {b}: not an image's name"));
+                        .push(format!("{build}: FROM {b}: not an image's name"));
                 }
                 r.bases = d.bases;
             }
-            Ok(None) => r.refusals.push(format!("{file}: not in the commit")),
+            Ok(None) => r.refusals.push(format!("{build}: not in {place}")),
             Err(why) => r.refusals.push(why),
         }
     }
@@ -718,7 +735,7 @@ pub(super) mod tests {
             "plugin-skills",
             &[
                 ("tehas-plugin.json", m),
-                ("skills/grill.md", "# Grill\n\nAsk why.\n"),
+                ("skills/grill.md", "### Grill\n\nAsk why.\n"),
             ],
         );
         let s = prepare(&mut x, &home, &pin(C), Some(&granted("skill:grill")));

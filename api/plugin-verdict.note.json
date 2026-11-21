@@ -1,0 +1,7 @@
+{
+  "verdict": "note",
+  "summary": "The change adds an endpoint with no sign-in check.",
+  "findings": [
+    {"file": "server/routes/refund.js", "line": 42, "text": "POST /refund answers without a session"}
+  ]
+}

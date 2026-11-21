@@ -35,6 +35,8 @@ tehasbot github-token --session [--check]  # the same body, for a planning turn 
 tehasbot github-writes        # tehas github writes, by its old name
 tehasbot mcp serve            # the read-only MCP server; what tehas-mcp.service runs
 tehasbot outsource-proxy      # the model proxy of outsource; what tehas-outsource-proxy.service runs
+tehasbot plugin tick          # a refresh of each plugin whose default branch moved; what tehas-plugin.timer runs
+tehasbot plugin run <name> --kind refresh|hook  # one run of a plugin; what its units run
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
@@ -47,7 +49,10 @@ by a person), `tehas-mcp.service` (installed, and enabled by a person; it runs
 [The MCP server](/mcp-server) is how it is switched on),
 `tehas-outsource-proxy.service` (installed only while `TEHAS_OUTSOURCE` is on;
 it runs `tehasbot outsource-proxy`, the model proxy of
-[outsource](/outsource)), and one
+[outsource](/outsource)), the plugins' `tehas-plugin.timer` with
+`tehas-plugin@<name>.service` for a refresh and
+`tehas-plugin-hook@<name>-<pr>.service` for a hook (installed only while
+`TEHAS_PLUGIN` is on, which no release allows yet: [tehas plugin](/tools-control#tehas-plugin)), and one
 `tehas-cycle@<issue>.service` per running
 cycle. A cycle's container is `tehas-work-<issue>`.
 
