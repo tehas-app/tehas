@@ -109,6 +109,17 @@ impl Plugin {
     fn has(&self, cap: Cap) -> bool {
         self.manifest.asks.contains(&cap.ask()) && self.grants.caps.contains(&cap)
     }
+
+    /// Whether a refresh keeps `/out` as the view: `view` or a `view:<id>`
+    /// of its manifest granted, as the gate serves them.
+    fn shows(&self) -> bool {
+        self.has(Cap::View)
+            || self
+                .manifest
+                .views
+                .iter()
+                .any(|v| self.has(Cap::ViewOf(v.id.clone())))
+    }
 }
 
 /// The plugin of `name`, or the exit that says why it may not run.
@@ -591,9 +602,9 @@ fn run_in(
         Ended::NotRun(why) => Came::Failed(why),
     };
     if came == Came::Done {
-        came = match (&st.pr, p.has(Cap::View)) {
+        came = match (&st.pr, p.shows()) {
             (Some(_), _) => keep_verdict(h, &container, dir),
-            (None, true) => keep_view(h, s, &name, &container, id),
+            (None, true) => keep_view(h, s, p, &container, id),
             (None, false) => Came::Done,
         };
     }
@@ -607,9 +618,9 @@ fn run_in(
     came
 }
 
-fn keep_view(h: &mut dyn Host, s: &Setup, name: &str, container: &str, id: u64) -> Came {
-    let dir = prepare::dir(s.home, name);
-    let new = dir.join(format!("view-{id}"));
+fn keep_view(h: &mut dyn Host, s: &Setup, p: &Plugin, container: &str, id: u64) -> Came {
+    let name = &p.pin.name;
+    let new = prepare::dir(s.home, name).join(format!("view-{id}"));
     let limits = out::Limits {
         entries: out::ENTRIES,
         bytes: out::BYTES,
@@ -618,7 +629,27 @@ fn keep_view(h: &mut dyn Host, s: &Setup, name: &str, container: &str, id: u64) 
         let _ = fs::remove_dir_all(&new);
         return Came::Failed(format!("/out was refused, the last good view stays: {why}"));
     }
-    match swap_view(&new, &dir.join("view")) {
+    // The commit goes in with the view's rename, so the gate serves a view
+    // only at the pin it was made at.
+    let stamp = runs::view_commit(&new);
+    let stamped = stamp
+        .parent()
+        .map_or(Ok(()), fs::create_dir_all)
+        .and_then(|()| fs::write(&stamp, format!("{}\n", p.pin.commit)));
+    if let Err(e) = stamped {
+        let _ = fs::remove_dir_all(&new);
+        return Came::Failed(format!("the view's commit could not be kept: {e}"));
+    }
+    // tehas update may have moved the pin while the run ran.
+    let now = prepare::read_state(s.home, name).map(|st| st.commit);
+    if now.as_deref() != Some(p.pin.commit.as_str()) {
+        let _ = fs::remove_dir_all(&new);
+        return Came::Failed(format!(
+            "the plugin's state is no longer at {}: its view is not kept",
+            p.pin.commit
+        ));
+    }
+    match swap_view(&new, &runs::view(s.home, name)) {
         Ok(()) => Came::Done,
         Err(why) => {
             let _ = fs::remove_dir_all(&new);

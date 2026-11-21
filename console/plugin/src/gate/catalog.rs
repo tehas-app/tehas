@@ -13,7 +13,8 @@ use tehas_core::plugin::{self, Cap, Grants, Pin};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Facts {
-    /// `view` granted, and a good refresh's files there to serve.
+    /// `view` granted, and a good refresh's files there to serve, made at
+    /// the pin.
     pub view: bool,
     /// `"ui": {"kit": 1}`.
     pub kit: bool,
@@ -158,15 +159,26 @@ impl Catalog for Installed {
         let state = dir(&self.home, name).join("state.json");
         let time = std::fs::metadata(&state).and_then(|m| m.modified()).ok();
         let mut kept = self.kept.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((t, f)) = kept.get(name) {
-            if *t == time && time.is_some() {
-                return Some(f.clone());
+        let mut f = match kept.get(name) {
+            Some((t, f)) if *t == time && time.is_some() => f.clone(),
+            _ => {
+                let f = self.read(pin);
+                kept.insert(name.to_string(), (time, f.clone()));
+                f
             }
-        }
-        let f = self.read(pin);
-        kept.insert(name.to_string(), (time, f.clone()));
+        };
+        drop(kept);
+        // Read on each request: a refresh swaps a view in without touching
+        // state.json.
+        f.view &= made_at(&self.home, name, &pin.commit);
         Some(f)
     }
+}
+
+/// Whether `view/` says it was made at `commit`, the pin. A view of
+/// another commit ran under that commit's grants.
+pub fn made_at(home: &Path, name: &str, commit: &str) -> bool {
+    tehas_ops::plugin::runs::view_made_at(home, name).as_deref() == Some(commit)
 }
 
 /// The files of the kit's MANIFEST, `kit 1` and then `file <sha256> <size>

@@ -6,6 +6,8 @@
 //!   hook, so a refresh and a hook of one plugin never overlap.
 //! - `refresh.json`: what asked for the next refresh, `{trigger, by}`.
 //! - `head`: the head of the last refresh that began, which the tick reads.
+//! - `view/`: the last good refresh's files, with `view/_tehas/commit` the
+//!   plugin's commit it ran at.
 //! - `last.log`: the last refresh's log, at most 1 MiB.
 //! - `hooks/<pr>.json`: the request of a hook (`tehas_core::plugin::hook`);
 //!   `hooks/<pr>.claimed.json` the one a hook took and runs;
@@ -19,6 +21,7 @@ use super::prepare;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use tehas_core::file::{write_atomic, Temp};
+use tehas_core::grammar::commit_id;
 use tehas_core::lock::{held_in, probe, Probe};
 use tehas_core::plugin::hook;
 use tehas_core::plugin::run::Trigger;
@@ -62,6 +65,43 @@ pub fn request(home: &Path, name: &str) -> PathBuf {
 
 pub fn tried(home: &Path, name: &str) -> PathBuf {
     prepare::dir(home, name).join("head")
+}
+
+/// `view/`: the files of the last good refresh, which the gate serves.
+pub fn view(home: &Path, name: &str) -> PathBuf {
+    prepare::dir(home, name).join("view")
+}
+
+/// `_tehas/commit` in a view: the plugin's commit the refresh that made it
+/// ran at, put in with the view's rename. The gate serves no path of `/_`.
+pub fn view_commit(view: &Path) -> PathBuf {
+    view.join("_tehas").join("commit")
+}
+
+/// The commit `view/` was made at, if it says one.
+pub fn view_made_at(home: &Path, name: &str) -> Option<String> {
+    let text = std::fs::read_to_string(view_commit(&view(home, name))).ok()?;
+    let c = text.trim();
+    commit_id(c).then(|| c.to_string())
+}
+
+/// After `tehas update` read the plugin at `pin`: a view not made at the
+/// pin goes, and with it the head the last refresh began at, so the next
+/// tick refreshes at the pin. `was` is the commit of the state before.
+pub fn forget_view(home: &Path, name: &str, was: Option<&str>, pin: &str) -> std::io::Result<bool> {
+    let view = view(home, name);
+    let there = std::fs::symlink_metadata(&view).is_ok();
+    let stale = was != Some(pin) || (there && view_made_at(home, name).as_deref() != Some(pin));
+    if !stale {
+        return Ok(false);
+    }
+    if there {
+        std::fs::remove_dir_all(&view)?;
+    }
+    match std::fs::remove_file(tried(home, name)) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(there),
+    }
 }
 
 pub fn hooks(home: &Path, name: &str) -> PathBuf {

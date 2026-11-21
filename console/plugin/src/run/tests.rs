@@ -143,8 +143,13 @@ pub fn manifest(asks: &str) -> String {
     } else {
         ""
     };
+    let views = if asks.contains("view:map") {
+        r#", "views": [{"id": "map", "label": "Map", "path": "/", "open": "dock"}]"#
+    } else {
+        ""
+    };
     format!(
-        r#"{{"plugin": 1, "kind": "batch", "name": "demo", "label": "Demo", "build": "Dockerfile", "asks": [{asks}], "timeout": 600{hooks}}}"#
+        r#"{{"plugin": 1, "kind": "batch", "name": "demo", "label": "Demo", "build": "Dockerfile", "asks": [{asks}], "timeout": 600{hooks}{views}}}"#
     )
 }
 
@@ -384,6 +389,7 @@ fn a_refresh_with_every_grant_runs_its_container_and_swaps_its_view_in() {
         "<p>map</p>"
     );
     assert!(!view(&w).join("old.html").exists());
+    assert_eq!(runs::view_made_at(&w.home, "demo").as_deref(), Some(C));
     assert!(!prepare::dir(&w.home, "demo").join("view-7").exists());
     assert!(!dir.exists());
     assert!(h.x.ran_any("docker rm -f tehas-plugin-demo-7"));
@@ -419,6 +425,51 @@ fn a_refresh_the_timer_asked_for_says_so_in_its_row() {
     // No product: no clone; no view: /out is not read.
     assert!(!h.x.ran_any("clone"));
     assert!(!view(&w).exists());
+}
+
+#[test]
+fn a_refresh_whose_pin_moved_while_it_ran_keeps_the_view_it_had() {
+    let mut h = Fake::new();
+    let w = world("plugin-run-pin-moved", &mut h, "", "view");
+    fs::create_dir_all(view(&w)).unwrap();
+    fs::write(view(&w).join("index.html"), "good").unwrap();
+    h.tars.insert(
+        "tehas-plugin-demo-7:/out".into(),
+        tar("out", &[("index.html", "new")]),
+    );
+    // tehas update moves the pin to H while the container runs.
+    let home = w.home.to_path_buf();
+    h.on_run = Some(Box::new(move |_| {
+        let mut st = prepare::read_state(&home, "demo").unwrap();
+        st.commit = H.into();
+        prepare::write_state(&home, "demo", &st).unwrap();
+    }));
+    assert_eq!(go(&mut h, &w, &refresh_ask()), 1);
+    assert_eq!(
+        fs::read_to_string(view(&w).join("index.html")).unwrap(),
+        "good"
+    );
+    assert!(!prepare::dir(&w.home, "demo").join("view-7").exists());
+    assert_eq!(
+        h.calls[1],
+        "plugin-run-end --run 7 --result failed --tokens 0"
+    );
+}
+
+#[test]
+fn a_refresh_granted_only_a_view_of_its_views_keeps_its_out() {
+    let mut h = Fake::new();
+    let w = world("plugin-run-view-of", &mut h, r#""view:map""#, "view:map");
+    h.tars.insert(
+        "tehas-plugin-demo-7:/out".into(),
+        tar("out", &[("index.html", "map")]),
+    );
+    assert_eq!(go(&mut h, &w, &refresh_ask()), 0);
+    assert_eq!(
+        fs::read_to_string(view(&w).join("index.html")).unwrap(),
+        "map"
+    );
+    assert_eq!(runs::view_made_at(&w.home, "demo").as_deref(), Some(C));
 }
 
 #[test]

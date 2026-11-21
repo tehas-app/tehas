@@ -4,6 +4,8 @@
 //! plugin taken out of the settings removed
 //! (docs/specs/2026-11-21-plugins.md, guarantees 4 and 9). A plugin that is
 //! refused is skipped, never the update; the caller exits 1 at the end.
+//! A view not made at the pin goes, with the head its last refresh began at,
+//! so the next tick refreshes the plugin at the pin.
 //! Then the dock: a panel `p-<name>` for each plugin ready with `view`
 //! granted and a view in its manifest, and none for any other
 //! (docs/specs/2026-11-21-plugins-web.md, "The panel"). With the feature off
@@ -11,6 +13,7 @@
 
 use super::exec::Exec;
 use super::prepare::{self, prepare_view, Shown};
+use super::runs;
 use crate::panel::{self, Panel};
 use std::fs;
 use std::path::Path;
@@ -87,7 +90,18 @@ pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said
             continue;
         };
         let grants = plugin::grants(&get(&plugin::grants_setting(&pin.name))).ok();
+        let was = prepare::read_state(home, &pin.name).map(|s| s.commit);
         let (s, view) = prepare_view(x, home, pin, grants.as_ref());
+        match runs::forget_view(home, &pin.name, was.as_deref(), &pin.commit) {
+            Ok(true) => said.lines.push(format!(
+                "plugin {}: its view was made at another commit and is removed until a refresh at the pin",
+                pin.name
+            )),
+            Ok(false) => {}
+            Err(e) => said
+                .lines
+                .push(format!("plugin {}: its old view: {e}", pin.name)),
+        }
         if let Err(why) = prepare::prune(x, home, pin) {
             said.lines.push(format!("plugin {}: {why}", pin.name));
         }
@@ -467,6 +481,63 @@ mod tests {
         ]);
         assert!(step(&mut x, &home, &get).refused);
         assert!(panels(&home).is_empty());
+    }
+
+    #[test]
+    fn a_pin_that_moved_takes_the_old_view_and_the_tried_head_away() {
+        let old = "1".repeat(40);
+        let m = manifest(r#""view""#).replace(
+            r#""timeout": 3600}"#,
+            r#""timeout": 3600, "view": {"label": "Map"}}"#,
+        );
+        let d = dockerfile();
+        let (home, mut x) = good(
+            "plugin-update-moved",
+            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
+        );
+        x.on("{{.Id}}", ok(&format!("{ID}\n")));
+        x.on("for-each-ref", ok(&format!("refs/tehas/{C}\n")));
+        x.on("gc --prune=now", ok(""));
+        let get = on(&[
+            ("TEHAS_PLUGINS", format!("floorplan={URL}@{C}")),
+            ("TEHAS_PLUGIN_GRANTS_FLOORPLAN", format!("{C} view")),
+        ]);
+        // Built, refreshed and tried at the old pin.
+        let made = |at: &str| {
+            let view = runs::view(&home, "floorplan");
+            fs::create_dir_all(view.join("_tehas")).unwrap();
+            fs::write(view.join("index.html"), "<p>map</p>").unwrap();
+            fs::write(runs::view_commit(&view), format!("{at}\n")).unwrap();
+            fs::write(runs::tried(&home, "floorplan"), "head\n").unwrap();
+        };
+        prepare::write_state(
+            &home,
+            "floorplan",
+            &tehas_core::plugin::state::State::new(Word::Ready, &old),
+        )
+        .unwrap();
+        made(&old);
+        let said = step(&mut x, &home, &get);
+        assert_eq!(
+            said.lines,
+            [
+                "plugin floorplan: its view was made at another commit and is removed until a refresh at the pin".to_string(),
+                format!("plugin floorplan: ready, image {ID}"),
+            ]
+        );
+        assert!(!runs::view(&home, "floorplan").exists());
+        assert!(!runs::tried(&home, "floorplan").exists());
+        // A view made at the pin stays, and so does the head it was tried at.
+        made(C);
+        let said = step(&mut x, &home, &get);
+        assert_eq!(said.lines, [format!("plugin floorplan: ready, image {ID}")]);
+        assert_eq!(runs::view_made_at(&home, "floorplan").as_deref(), Some(C));
+        assert!(runs::tried(&home, "floorplan").exists());
+        // A view that says no commit, from before the record, goes too.
+        fs::remove_file(runs::view_commit(&runs::view(&home, "floorplan"))).unwrap();
+        step(&mut x, &home, &get);
+        assert!(!runs::view(&home, "floorplan").exists());
+        assert!(!runs::tried(&home, "floorplan").exists());
     }
 
     #[test]
