@@ -17,6 +17,13 @@
 # TEHAS_HOST_ADDR is the address it binds to, from the instance settings
 # (source env.sh before running docker compose). Without it the server stays on
 # the loopback address, reachable from the host only.
+#
+# TEHAS_PLUGIN_GATE_ADDR is where it sends the plugins' names: the gate, a
+# program of the host. The container reaches the host's own addresses through
+# its default network, but not the host's loopback, which is its own here.
+# The load makes the setting TEHAS_HOST_ADDR's address on port 8095 when the
+# instance names none, so the router reaches the gate where it reaches the
+# host; without env.sh it is worked out here the same way.
 name: tehas-edge
 services:
   router:
@@ -29,6 +36,8 @@ services:
       - "../fun:/srv/fun:ro"
     ports:
       - "${TEHAS_HOST_ADDR:-127.0.0.1}:8081:8081"
+    environment:
+      TEHAS_PLUGIN_GATE_ADDR: "${TEHAS_PLUGIN_GATE_ADDR:-${TEHAS_HOST_ADDR:-127.0.0.1}:8095}"
     networks:
       - default
       - previews

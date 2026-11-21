@@ -499,8 +499,16 @@ with exit 78 and says `plugins` is still being built.
 - The state store has the table `plugin_runs` from schema 19, empty.
 - `tehas-plugin` and its units are not installed, `tehasbot plugin` runs
   nothing, and no plugin container starts.
-- No label, no `--json` field of another command, no MCP tool, no unit, no
-  file under `live/`.
+- The gate's program `tehas-plugin-gate` and its unit
+  `tehas-plugin-gate.service` are installed only while the feature is on, so
+  a release installs neither. The edge router sends the names `plugin-*` and
+  `plugins*` to the gate in every release; with no gate they answer 503.
+- A panel id starting `p-` is a plugin's view, which `tehas panel set`
+  refuses with 64 whether the feature is on or not. The flags
+  `--app-client-id` and `--app-secret-file` of `tehas setup` belong to the
+  feature and are not contract until it ships.
+- No label, no `--json` field of another command, no MCP tool, no file under
+  `live/`.
 
 ### wiki
 

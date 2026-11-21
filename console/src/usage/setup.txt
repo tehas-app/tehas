@@ -13,6 +13,9 @@ Asks for what it is not given, when there is a terminal to ask on:
   --app-name <name>          the new app's name (<repository>-factory)
   --app-id <id>              a GitHub App you have, in place of --new-app:
   --app-key-file <file>      its ID and its private key. Both or neither
+  --app-client-id <id>       for an app made before: its client id and a
+  --app-secret-file <file>   client secret made on its settings page, for
+                             the plugins' sign-in. Both or neither
   --endpoint <url>           the model endpoint, OpenAI-compatible, with its
                              /v1: its models are read from <url>/models
   --model <id>               the model to use; needed when the endpoint
@@ -30,14 +33,18 @@ installation is looked up.
 Then, in this order, stopping at the first step that fails:
   1. checks the endpoint offers the model. With --new-app it makes the app:
      the app's key goes to ~/.config/tehas/github-app.pem, mode 600, and
-     TEHAS_GITHUB_APP_ID to instance.env at once, then it waits up to 10
+     TEHAS_GITHUB_APP_ID to instance.env at once, its client id and secret
+     to github-app.client-id and github-app.client-secret beside the key,
+     mode 600; with TEHAS_DOMAIN in instance.env the app's callback URL is
+     https://plugins.<domain>/_auth/callback. Then it waits up to 10
      minutes for the app to be installed. It checks the app is installed on
      the repository and may write its contents, issues and pull requests,
      names any other repository the instance names that the app does not
      reach, and makes the control issue
   2. writes ~/.config/tehas (or the directory instance-dir names):
      instance.env with the required settings and TEHAS_GITHUB_APP_ID,
-     models.json, the app's key in ~/.config/tehas/github-app.pem and the
+     models.json, the app's key in ~/.config/tehas/github-app.pem, the
+     client of --app-client-id and --app-secret-file beside it and the
      model key in env, mode 600, and the app's login in
      ~/tehas/state/github/login. The later steps run gh through
      ~/tehas/shim/gh
@@ -64,7 +71,8 @@ Usage:
 
 Exit: 0 done; 1 a check or a step failed (78 when the step stopped on its
 settings); 64 an unknown option, --app-id or --app-key-file alone or with
---new-app, or --app-owner or --app-name without it; 78 a setting is missing,
+--new-app, --app-client-id or --app-secret-file alone or with --new-app, or
+--app-owner or --app-name without it; 78 a setting is missing,
 malformed, or differs from the one there without --force, a pasted address
 without this run's state, a key with no app ID (or an app ID with no key) for
 --new-app, a git config file git could not open, or there is

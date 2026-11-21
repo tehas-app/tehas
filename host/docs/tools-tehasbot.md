@@ -38,6 +38,7 @@ tehasbot mcp fetch            # fetch its shared checkout; what tehas-mcp-fetch@
 tehasbot outsource-proxy      # the model proxy of outsource; what tehas-outsource-proxy.service runs
 tehasbot plugin tick          # a refresh of each plugin whose default branch moved; what tehas-plugin.timer runs
 tehasbot plugin run <name> --kind refresh|hook  # one run of a plugin; what its units run
+tehasbot plugin-gate          # the gate of the plugins' views; what tehas-plugin-gate.service runs
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
@@ -52,7 +53,9 @@ by a person), `tehas-mcp.service` (installed, and enabled by a person; it runs
 it runs `tehasbot outsource-proxy`, the model proxy of
 [outsource](/outsource)), the plugins' `tehas-plugin.timer` with
 `tehas-plugin@<name>.service` for a refresh and
-`tehas-plugin-hook@<name>-<pr>.service` for a hook (installed only while
+`tehas-plugin-hook@<name>-<pr>.service` for a hook, and the gate of their
+views, `tehas-plugin-gate.service`, which runs `tehasbot plugin-gate`
+([the plugins' gate](/tools-control#the-gate-of-the-views)); all installed only while
 `TEHAS_PLUGIN` is on, which no release allows yet: [tehas plugin](/tools-control#tehas-plugin)), and one
 `tehas-cycle@<issue>.service` per running
 cycle. A cycle's container is `tehas-work-<issue>`.

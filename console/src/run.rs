@@ -33,6 +33,10 @@
 //! settings: a plugin's run and the plugins' tick, which say themselves
 //! whether the feature is on.
 //!
+//! tehasbot plugin-gate is `tehas-plugin-gate` beside this program, by exec
+//! under the settings: the gate of the plugins' views, which says itself
+//! whether the feature is on.
+//!
 //! tehasbot cycle, tehas work and tehas index are `tehas-cycle` beside this
 //! program, by exec under the settings. It takes the command's lock itself and
 //! hands it down to what it starts (console/cycle/src/lock.rs).
@@ -314,6 +318,9 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
         ["tehasbot", "plugin"] => beside(libexec, "tehas-plugin", "tehasbot plugin", rest),
         ["tehasbot", "outsource-proxy"] if rest.is_empty() => {
             beside(libexec, "tehas-proxy", "tehasbot outsource-proxy", &[])
+        }
+        ["tehasbot", "plugin-gate"] if rest.is_empty() => {
+            beside(libexec, "tehas-plugin-gate", "tehasbot plugin-gate", &[])
         }
         ["tehas", _] => commands::tehas(&words[1..]),
         ["tehasbot", "clean"] => clean_run(rest)?,

@@ -413,7 +413,9 @@ fn the_whole_host_is_matched_against_the_settings_names() {
         "example.org",
         "",
     ] {
-        assert_eq!(f.gate.answer(&nav(host, "/", ""), T0).status, 404, "{host}");
+        let mut r = f.gate.answer(&nav(host, "/", ""), T0);
+        assert_eq!(r.status, 404, "{host}");
+        assert_eq!(String::from_utf8(r.bytes()).unwrap(), NO_PLUGIN, "{host}");
     }
     let none = Request::new("GET", "/", &[("Sec-Fetch-Mode", "navigate")]);
     assert_eq!(f.gate.answer(&none, T0).status, 404);

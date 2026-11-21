@@ -1,0 +1,17 @@
+[Unit]
+Description=Tehas: the gate of the plugins' views, behind a GitHub sign-in
+
+[Service]
+NoNewPrivileges=yes
+MemoryMax=256M
+# Installed only while TEHAS_PLUGIN is on. Off, the gate says so and ends 0,
+# and nothing listens. A setting or a file of the App's client that is missing
+# or malformed ends it with 78, and that is not restarted: the journal says
+# which once. A restart signs everyone out: the sessions are in its memory.
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot plugin-gate"
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=78
+
+[Install]
+WantedBy=default.target

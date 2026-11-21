@@ -27,7 +27,7 @@
 #                               [--store <path>] [--attach <path>]
 #                               [--dispatch <path>] [--cycle <path>]
 #                               [--proxy <path>] [--contractor <path>]
-#                               [--plugin <path>]
+#                               [--plugin <path>] [--plugin-gate <path>]
 #                               [--commit <40 hex>]
 #                               [--rukas-commit <40 hex>]
 #                               [--rukas-digest sha256:<64 hex>]
@@ -64,6 +64,9 @@
 #   --plugin     the built tehas-plugin, copied to libexec/tehas-plugin: the
 #                runner of plugins. install.sh installs it only while
 #                TEHAS_PLUGIN is on
+#   --plugin-gate the built tehas-plugin-gate, copied to
+#                libexec/tehas-plugin-gate: the gate of the plugins' views.
+#                install.sh installs it only while TEHAS_PLUGIN is on
 #   --commit     the commit of tehas the tree is, 40 hex digits, written to
 #                COMMIT. A tree with no git has no other way to say it, and
 #                install.sh refuses a tree whose commit it cannot read
@@ -88,7 +91,7 @@
 # Exit: 0 the tarball and its .sha256 are written, their paths on two lines;
 #       64 a bad argument (the tag is not vX.Y.Z or a prerelease, --arch names neither
 #       architecture, --console is missing, is not a file or is the tree's own
-#       build, --analytics, --mcp, --store, --attach, --dispatch, --cycle, --proxy, --contractor or --plugin names no program,
+#       build, --analytics, --mcp, --store, --attach, --dispatch, --cycle, --proxy, --contractor, --plugin or --plugin-gate names no program,
 #       --rukas-digest is given without --rukas-commit, the tree does not answer to TEHAS_PACK_ROOT, or an
 #       out dir cannot be made or already holds that tarball); 1 the tree is
 #       missing something install.sh reads, one of the programs given is no ELF
