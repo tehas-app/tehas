@@ -38,6 +38,8 @@ fn file(home: &Path, id: &str, issue: &str, sha: &str) -> Result<Value, (u8, Str
             sha,
             "--by",
             "octo-cat",
+            "--by-id",
+            "583231",
         ],
     )
 }
@@ -117,11 +119,14 @@ fn a_record_is_filed_once_with_its_issue_and_files_together() {
             SHA,
             "--by",
             "octo-cat",
+            "--by-id",
+            "583231",
         ],
     )
     .unwrap();
     assert_eq!(v["record"]["issue"], 12);
     assert_eq!(v["record"]["filed_by"], "octo-cat");
+    assert_eq!(v["record"]["filed_by_id"], 583231);
     assert_eq!(v["record"]["files_sha256"], SHA);
     assert_eq!(v["record"]["filed_at"], NOW + 5);
     // The same filing again answers the record; any other is a conflict.
@@ -149,6 +154,8 @@ fn a_record_is_filed_once_with_its_issue_and_files_together() {
             SHA,
             "--by",
             "someone",
+            "--by-id",
+            "9",
         ],
     )
     .unwrap_err();
