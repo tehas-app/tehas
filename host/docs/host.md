@@ -770,7 +770,7 @@ No container is given it. Only one program writes it: the store,
 `~/tehas/libexec/store`, which `install.sh` builds and installs with the
 console, or takes from the release.
 
-What is in it today: the schema, version 18 (`PRAGMA user_version`); `meta`,
+What is in it today: the schema, version 20 (`PRAGMA user_version`); `meta`,
 which says when the database was made, by which version and commit of tehas,
 and for which instance and repository; and the cycles' records: the approval
 each start rests on (the dispatcher's), each cycle's start and end with its
@@ -778,7 +778,10 @@ image, settings, branch, result and progress (`tehasbot cycle`, `tehas work`,
 `tehas stop`), and the last 50 lines of history of each issue; each park and
 its question (`tehasbot cycle`, the dispatcher); and each planning session,
 with its brief, its answers, the issues it filed, its open question and the
-last 50 lines of history of its turns (the dispatcher). What a planning turn
+last 50 lines of history of its turns (the dispatcher); and the records
+plugins keep, such as a prototype and the issue it was filed in (the store's
+`record-put`, `record-file`, `record-close` and `records`; no plugin writes them
+yet). What a planning turn
 carries between turns is a directory beside its workspace,
 `~/tehas/work/<name>-plan-<issue>.keep`. The scripts, `tehas dispatch` and
 `tehasbot cycle` run the store, `~/tehas/libexec/store`. The commands of the
@@ -1562,7 +1565,8 @@ the next container reads the new ceiling for itself. That is on
 ## Sandbox image
 
 `tehas/pi-rukas:uid<uid>`: the lean pi-rukas base below plus shellcheck,
-tehas's jq (ahead of the base image's, the version the host runs), Rust at
+tehas's jq (ahead of the base image's, the version the host runs), `tsc` at
+`TSC_VERSION` (the kit's type check runs it), Rust at
 `RUST_VERSION` with rustfmt and clippy, Playwright's headless Chromium with
 fonts, `file`, and a Python image library. The last two are in the container only: `bootstrap.sh` installs
 neither and its check does not look for them.
@@ -1574,7 +1578,7 @@ cycle's own npm would fail with `EACCES`. Near the end of the build, after every
 step that runs npm as root, `/home/vscode/.npm` is made the cycle user's, and
 the tool check, as that user, writes a file to the cache `npm config get cache`
 names and stops the build when it cannot. The base is pinned by digest in
-`sandbox/Dockerfile`, shellcheck and jq by checksum, codebase-memory-mcp by the
+`sandbox/Dockerfile`, shellcheck, jq and `tsc` by checksum, codebase-memory-mcp by the
 checksum of its installer plus a version read back from the binary
 (`CBM_INSTALLER_SHA256` and `CBM_VERSION`), and Playwright by the npm tree
 beside it (`sandbox/npm/playwright`, whose `package-lock.json` fixes every
@@ -1766,7 +1770,7 @@ share is where the uid enters the build.
 
 It enters late. `sandbox/Dockerfile` does everything the uid does not decide
 first - the base image, the Rust toolchain, cargo's registry, the distribution
-packages, the code indexer, shellcheck, jq and the embedding model - and the
+packages, the code indexer, shellcheck, jq, `tsc` and the embedding model - and the
 file ends where the uid enters: a stage that takes the one above it as its base. `sandbox/build.sh` builds
 from those lines as they stand, with the uid's own argument carried to the stage
 that reads it, so the remap, the read of the model as the cycle's own user, the

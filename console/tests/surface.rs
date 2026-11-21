@@ -33,6 +33,8 @@ const BUILDING_SCHEMAS: &[(&str, &str)] = &[
     ("plugin", "plugins"),
     ("plugin-manifest", "plugins"),
     ("plugin-context", "plugins"),
+    ("plugin-review", "plugins"),
+    ("plugin-skills", "plugins"),
 ];
 
 /// Fields whose own fields may change: one driver's steps and the Protolab.

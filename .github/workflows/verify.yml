@@ -119,18 +119,13 @@ jobs:
           mkdir -p "$dir"
           echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       - name: the type checker the kit passes
-        env:
-          # A new version: the same as TSC_VERSION in
-          # console/ops/src/update/types.rs, and the sha256 of npm's
-          # @typescript/typescript-linux-x64 tarball of it, which holds the
-          # native tsc and the lib files it reads.
-          TSC_VERSION: 7.0.2
-          TSC_SHA256: 7ecad6f67377e831856367ab062ef394f21506a611405bf8ac0ff039348637d3
         run: |
-          # The tarball is kept between runs and checked against its sum on
-          # every run, before tsc is unpacked from it into this job's
-          # temporary directory. Named in TEHAS_TSC, so the kit's type check
-          # must run: under CI a missing or other tsc fails the gate.
+          # TSC_VERSION and TSC_SHA256 of host/versions.env. The tarball is
+          # kept between runs and checked against its sum on every run, before
+          # tsc is unpacked from it into this job's temporary directory. Named
+          # in TEHAS_TSC, so the kit's type check must run: under CI a missing
+          # or other tsc fails the gate.
+          . host/versions.env
           dir=$HOME/.cache/tehas-tsc/$TSC_VERSION
           tgz=$dir/tsc.tgz
           mkdir -p "$dir"

@@ -135,15 +135,19 @@ fn step_sql(to: i64) -> &'static str {
         16 => db::STEP_16,
         17 => db::STEP_17,
         18 => db::STEP_18,
+        19 => db::STEP_19,
+        20 => db::STEP_20,
         _ => unreachable!("no step to {to}"),
     }
 }
 
-/// Every table but meta, with its rows, in rowid order.
+/// Every table but meta, plugin_runs and plugin_records, with its rows, in
+/// rowid order. The two are new at 19 and 20, so no store a step starts from
+/// holds them.
 fn rows(c: &Connection) -> Vec<(String, usize)> {
     tables(c)
         .into_iter()
-        .filter(|t| t != "meta")
+        .filter(|t| t != "meta" && t != "plugin_runs" && t != "plugin_records")
         .map(|t| {
             let n = dump(c, &t, &columns(c, &t)).len();
             (t, n)
@@ -268,13 +272,13 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_18() {
-    assert_eq!(db::SCHEMA_VERSION, 18);
-    let home = home("schema-18");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 18);
+fn init_writes_schema_20() {
+    assert_eq!(db::SCHEMA_VERSION, 20);
+    let home = home("schema-20");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 20);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "18"
+        "20"
     );
     // The five tables of the feature are laid by every init, and stay empty
     // while it is off.
@@ -304,6 +308,26 @@ fn init_writes_schema_18() {
             "{col}"
         );
     }
+    // Schema 19: a run of a plugin.
+    assert_eq!(
+        columns(&c, "plugin_runs"),
+        [
+            "id",
+            "plugin",
+            "plugin_commit",
+            "kind",
+            "how",
+            "started_by",
+            "head",
+            "started_at",
+            "ended_at",
+            "result",
+            "tokens"
+        ]
+    );
+    assert_eq!(count(&home, "plugin_runs"), 0);
+    // Schema 20: a plugin's records, none until a plugin keeps one.
+    assert_eq!(count(&home, "plugin_records"), 0);
     let made = tables(&c);
     for t in DROPPED {
         assert!(!made.contains(&t.to_string()), "{t}");
@@ -836,7 +860,7 @@ fn the_step_from_17_keeps_the_token_hash_as_the_job_scope() {
         .unwrap();
     let before = rows(&conn(&home));
     migrate(&home).unwrap();
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 18);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
     assert_eq!(rows(&conn(&home)), before);
     assert_eq!(
         count(
@@ -949,7 +973,7 @@ fn a_migrated_store_with_the_feature_off_writes_no_outsource_row() {
 const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 /// The sources of the verbs, without their tests.
-const VERB_SOURCES: [(&str, &str); 21] = [
+const VERB_SOURCES: [(&str, &str); 23] = [
     ("approval.rs", include_str!("approval.rs")),
     ("batch.rs", include_str!("batch.rs")),
     ("call.rs", include_str!("call.rs")),
@@ -966,7 +990,9 @@ const VERB_SOURCES: [(&str, &str); 21] = [
     ("outsource.rs", include_str!("outsource.rs")),
     ("park.rs", include_str!("park.rs")),
     ("plan.rs", include_str!("plan.rs")),
+    ("plugin.rs", include_str!("plugin.rs")),
     ("poll.rs", include_str!("poll.rs")),
+    ("record.rs", include_str!("record.rs")),
     ("review_issue.rs", include_str!("review_issue.rs")),
     ("say.rs", include_str!("say.rs")),
     ("upkeep.rs", include_str!("upkeep.rs")),

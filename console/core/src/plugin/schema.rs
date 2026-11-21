@@ -38,6 +38,7 @@ pub fn fits(v: &Value, s: &Value) -> bool {
         "string" => v.is_string(),
         "integer" => v.is_u64() || v.is_i64(),
         "null" => v.is_null(),
+        "boolean" => v.is_boolean(),
         other => panic!("type {other}"),
     };
     let types = match s.get("type") {
@@ -164,15 +165,69 @@ fn the_samples_of_tehas_plugin_fit_its_schema() {
         "https://github.com/tehas-app/tehas/api/plugin.schema.json"
     );
     closed(&s);
-    for name in ["sample", "empty", "refused"] {
+    for name in ["sample", "empty", "refused", "ready"] {
         assert!(fits(&api(&format!("plugin.{name}.json")), &s), "{name}");
     }
+    let mut built = api("plugin.ready.json");
+    built["plugins"][0]["state"] = json!("built");
+    assert!(!fits(&built, &s));
     let mut more = api("plugin.sample.json");
     more["plugins"][0]["label"] = json!("Floorplan");
     assert!(!fits(&more, &s));
     let mut v2 = api("plugin.sample.json");
     v2["plugins"][0]["grants"][0] = json!("gate:verify");
     assert!(!fits(&v2, &s));
+}
+
+#[test]
+fn the_samples_of_tehas_plugin_review_fit_its_schema() {
+    let s = api("plugin-review.schema.json");
+    assert_eq!(
+        s["$id"],
+        "https://github.com/tehas-app/tehas/api/plugin-review.schema.json"
+    );
+    closed(&s);
+    for name in ["sample", "refused"] {
+        assert!(
+            fits(&api(&format!("plugin-review.{name}.json")), &s),
+            "{name}"
+        );
+    }
+    let mut more = api("plugin-review.sample.json");
+    more["asks"][0]["value"] = json!("x");
+    assert!(!fits(&more, &s));
+    let mut yes = api("plugin-review.sample.json");
+    yes["asks"][0]["granted"] = json!("yes");
+    assert!(!fits(&yes, &s));
+}
+
+#[test]
+fn the_samples_of_tehas_plugin_skills_fit_its_schema() {
+    let s = api("plugin-skills.schema.json");
+    assert_eq!(s["$schema"], "https://json-schema.org/draft/2020-12/schema");
+    assert_eq!(
+        s["$id"],
+        "https://github.com/tehas-app/tehas/api/plugin-skills.schema.json"
+    );
+    closed(&s);
+    let sample = api("plugin-skills.sample.json");
+    for name in ["sample", "empty"] {
+        assert!(
+            fits(&api(&format!("plugin-skills.{name}.json")), &s),
+            "{name}"
+        );
+    }
+    let broken: [(&str, Value); 4] = [
+        ("label", json!(null)),
+        ("chats", json!([])),
+        ("sha256", json!("abc")),
+        ("text", json!("x".repeat(2049))),
+    ];
+    for (field, v) in broken {
+        let mut b = sample.clone();
+        b["skills"][0][field] = v;
+        assert!(!fits(&b, &s), "{field}");
+    }
 }
 
 #[test]

@@ -18,9 +18,19 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// The `tsc` the check is written for: the native compiler of the
-/// `typescript` package. CI installs the same version.
-const TSC_VERSION: &str = "7.0.2";
+/// host/versions.env, whose `TSC_VERSION` is the `tsc` the check is written
+/// for: the native compiler of the `typescript` package. CI, the sandbox image
+/// and bootstrap.sh install that version, and `console pins` moves it.
+const VERSIONS: &str = include_str!("../../../../host/versions.env");
+
+/// The pinned version, the last `TSC_VERSION` line of versions.env.
+fn pinned() -> &'static str {
+    VERSIONS
+        .lines()
+        .filter_map(|l| l.strip_prefix("TSC_VERSION="))
+        .next_back()
+        .unwrap_or("")
+}
 
 /// The variable that names the `tsc` to run.
 const TSC_VAR: &str = "TEHAS_TSC";
@@ -115,32 +125,45 @@ fn strict(ci: Option<&str>, asked: Option<&str>) -> bool {
 }
 
 /// Which `tsc` to run. One that is `named` must be the pinned version, or the
-/// check fails: it was named on purpose. One found `on_path` is used only when
-/// it is that version, since another version reads the files differently.
-/// With none, the check is skipped, but when `strict` it fails.
+/// check fails: it was named on purpose. Of those `on_path`, in its order, the
+/// first of that version is used, since another version reads the files
+/// differently. With none, the check is skipped, but when `strict` it fails
+/// and names each one it passed over.
 fn choose(
     named: Option<PathBuf>,
-    on_path: Option<PathBuf>,
+    on_path: &[PathBuf],
     strict: bool,
     version: impl Fn(&Path) -> Result<String, String>,
 ) -> Result<Option<PathBuf>, String> {
+    let want = pinned();
     if let Some(path) = named {
         let v = version(&path).map_err(|e| format!("{TSC_VAR}: {e}"))?;
-        if v != TSC_VERSION {
+        if v != want {
             return Err(format!(
-                "{TSC_VAR} is {}, tsc {v}; the check is written for {TSC_VERSION}",
+                "{TSC_VAR} is {}, tsc {v}; the check is written for {want}",
                 path.display()
             ));
         }
         return Ok(Some(path));
     }
-    let found = on_path.filter(|p| version(p).is_ok_and(|v| v == TSC_VERSION));
-    if found.is_none() && strict {
-        return Err(format!(
-            "no tsc {TSC_VERSION}, and CI or TEHAS_TEST_STRICT is set: name it in {TSC_VAR}"
-        ));
+    let mut passed = Vec::new();
+    for path in on_path {
+        match version(path) {
+            Ok(v) if v == want => return Ok(Some(path.clone())),
+            Ok(v) => passed.push(format!("{} is {v}", path.display())),
+            Err(e) => passed.push(format!("{}: {e}", path.display())),
+        }
     }
-    Ok(found)
+    if !strict {
+        return Ok(None);
+    }
+    let seen = match passed.is_empty() {
+        true => "none on PATH".to_owned(),
+        false => passed.join("; "),
+    };
+    Err(format!(
+        "no tsc {want} ({seen}), and CI or TEHAS_TEST_STRICT is set: name it in {TSC_VAR}"
+    ))
 }
 
 /// The `tsc` to run, from `TEHAS_TSC`, `PATH`, `CI` and `TEHAS_TEST_STRICT`,
@@ -149,16 +172,19 @@ fn find_tsc() -> Result<Option<PathBuf>, String> {
     let named = std::env::var_os(TSC_VAR)
         .filter(|v| !v.is_empty())
         .map(PathBuf::from);
-    let on_path = std::env::var_os("PATH").and_then(|path| {
-        std::env::split_paths(&path)
-            .map(|dir| dir.join("tsc"))
-            .find(|p| p.is_file())
-    });
+    let on_path: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|path| {
+            std::env::split_paths(&path)
+                .map(|dir| dir.join("tsc"))
+                .filter(|p| p.is_file())
+                .collect()
+        })
+        .unwrap_or_default();
     let strict = strict(
         std::env::var("CI").ok().as_deref(),
         std::env::var("TEHAS_TEST_STRICT").ok().as_deref(),
     );
-    choose(named, on_path, strict, version_of)
+    choose(named, &on_path, strict, version_of)
 }
 
 /// Checks `files`, relative to `root`, with the `tsc` at `tsc`. What it
@@ -244,7 +270,8 @@ fn tsc_or_skip(test: &str) -> Option<PathBuf> {
     let found = find_tsc().unwrap_or_else(|e| panic!("{e}"));
     if found.is_none() {
         let line = format!(
-            "SKIPPED {test}: no tsc {TSC_VERSION}. Name it in {TSC_VAR} or put it on PATH.\n"
+            "SKIPPED {test}: no tsc {}. Name it in {TSC_VAR} or put it on PATH.\n",
+            pinned()
         );
         let _ = std::io::stderr().write_all(line.as_bytes());
     }
@@ -384,41 +411,59 @@ mod tests {
 
     #[test]
     fn a_named_tsc_must_be_the_pinned_version_and_none_fails_only_when_strict() {
-        let pinned = |_: &Path| Ok(TSC_VERSION.to_owned());
+        let pinned = |_: &Path| Ok(super::pinned().to_owned());
         let older = |_: &Path| Ok("5.9.3".to_owned());
         let broken = |_: &Path| Err("no version".to_owned());
         let named = Some(PathBuf::from("/opt/tsc"));
-        let on_path = Some(PathBuf::from("/usr/bin/tsc"));
+        let on_path = vec![PathBuf::from("/usr/bin/tsc")];
 
         for ci in [false, true] {
-            assert_eq!(
-                choose(named.clone(), on_path.clone(), ci, pinned).unwrap(),
-                named
-            );
-            let err = choose(named.clone(), on_path.clone(), ci, older).unwrap_err();
+            assert_eq!(choose(named.clone(), &on_path, ci, pinned).unwrap(), named);
+            let err = choose(named.clone(), &on_path, ci, older).unwrap_err();
             assert!(err.contains(TSC_VAR) && err.contains("5.9.3"), "{err}");
-            assert!(choose(named.clone(), None, ci, broken).is_err());
-            assert_eq!(choose(None, on_path.clone(), ci, pinned).unwrap(), on_path);
+            assert!(choose(named.clone(), &[], ci, broken).is_err());
+            assert_eq!(
+                choose(None, &on_path, ci, pinned).unwrap().as_ref(),
+                on_path.first()
+            );
         }
 
         // With no pinned tsc the check is skipped, and when strict it fails.
-        assert_eq!(choose(None, on_path.clone(), false, older).unwrap(), None);
-        assert_eq!(choose(None, on_path.clone(), false, broken).unwrap(), None);
-        assert_eq!(choose(None, None, false, pinned).unwrap(), None);
+        assert_eq!(choose(None, &on_path, false, older).unwrap(), None);
+        assert_eq!(choose(None, &on_path, false, broken).unwrap(), None);
+        assert_eq!(choose(None, &[], false, pinned).unwrap(), None);
         for (on_path, version) in [
             (
                 on_path.clone(),
                 older as fn(&Path) -> Result<String, String>,
             ),
             (on_path, broken),
-            (None, pinned),
+            (vec![], pinned),
         ] {
-            let err = choose(None, on_path, true, version).unwrap_err();
+            let err = choose(None, &on_path, true, version).unwrap_err();
             assert!(
                 err.contains("TEHAS_TEST_STRICT") && err.contains(TSC_VAR),
                 "{err}"
             );
         }
+    }
+
+    #[test]
+    fn the_pinned_tsc_is_found_behind_another_on_path_and_strict_names_those_it_passed() {
+        let global = PathBuf::from("/usr/local/bin/tsc");
+        let home = PathBuf::from("/home/tehas/tehas/bin/tsc");
+        let version = |p: &Path| match p.starts_with("/usr") {
+            true => Ok("5.9.3".to_owned()),
+            false => Ok(super::pinned().to_owned()),
+        };
+        let both = [global.clone(), home.clone()];
+        assert_eq!(choose(None, &both, true, version).unwrap(), Some(home));
+
+        let err = choose(None, &[global], true, version).unwrap_err();
+        assert!(err.contains("/usr/local/bin/tsc is 5.9.3"), "{err}");
+        let broken = |_: &Path| Err("no version".to_owned());
+        let err = choose(None, &both[..1], true, broken).unwrap_err();
+        assert!(err.contains("/usr/local/bin/tsc: no version"), "{err}");
     }
 
     #[test]
@@ -492,34 +537,101 @@ mod tests {
     }
 
     #[test]
+    fn versions_env_pins_a_version_and_the_sum_of_its_tarball() {
+        let v = pinned();
+        assert_eq!(v.split('.').count(), 3, "TSC_VERSION={v}");
+        assert!(v.split('.').all(|n| n.parse::<u32>().is_ok()), "{v}");
+        // 7.0 is the first native tsc, a Go binary; before it tsc runs on node.
+        let major: u32 = v.split('.').next().unwrap().parse().unwrap();
+        assert!(major >= 7, "TSC_VERSION={v} is not the native tsc");
+        let sums: Vec<&str> = VERSIONS
+            .lines()
+            .filter_map(|l| l.strip_prefix("TSC_SHA256="))
+            .collect();
+        assert!(
+            matches!(sums[..], [s] if s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())),
+            "one TSC_SHA256 of 64 hex digits: {sums:?}"
+        );
+    }
+
+    #[test]
     fn ci_installs_the_pinned_tsc_and_names_it() {
         for workflow in WORKFLOWS {
             let text = fs::read_to_string(root().join(workflow)).unwrap();
-            assert!(
-                text.contains(&format!("TSC_VERSION: {TSC_VERSION}\n")),
-                "{workflow} installs another tsc than {TSC_VERSION}"
-            );
-            let at = text.find("TSC_SHA256: ");
-            assert!(at.is_some(), "{workflow} checks its sum");
+            let at = text.find("- name: the type checker the kit passes\n");
+            assert!(at.is_some(), "{workflow} installs tsc");
             // The step, up to the next one.
-            let step = &text[at.unwrap()..];
+            let step = &text[at.unwrap() + 2..];
             let step = &step[..step.find("\n      - name:").unwrap_or(step.len())];
+            // The pin is versions.env's, not one of the workflow's own.
+            assert!(
+                step.contains("\n          . host/versions.env\n"),
+                "{workflow} reads the pin from host/versions.env"
+            );
+            for own in ["TSC_VERSION:", "TSC_SHA256:", "TSC_VERSION=", "TSC_SHA256="] {
+                assert!(!step.contains(own), "{workflow} pins tsc itself: {own}");
+            }
             assert!(
                 step.contains("-o \"$tgz\" --proto '=https' --tlsv1.2 "),
                 "{workflow} fetches it over HTTPS only, TLS 1.2 or later"
             );
+            assert!(
+                step.contains("typescript-linux-x64-$TSC_VERSION.tgz"),
+                "{workflow} fetches the pinned version"
+            );
             // The kept tarball's sum is checked on every run, before tsc is
             // unpacked from it into the job's own temporary directory.
-            let check = step.rfind("sha256sum -c").unwrap_or(usize::MAX);
+            let check = step.rfind("echo \"$TSC_SHA256  $tgz\" | sha256sum -c -");
             let unpack = step.find("tar -xzf \"$tgz\" -C \"$RUNNER_TEMP/tsc\"");
             assert!(
-                unpack.is_some_and(|u| check < u),
+                matches!((check, unpack), (Some(c), Some(u)) if c < u),
                 "{workflow} unpacks tsc each run from a checked tarball"
             );
             assert!(
-                text.contains(&format!("{TSC_VAR}=$bin")),
+                step.contains("test \"$(\"$bin\" --version)\" = \"Version $TSC_VERSION\""),
+                "{workflow} checks the version it unpacked"
+            );
+            assert!(
+                step.contains(&format!("{TSC_VAR}=$bin")),
                 "{workflow} names it in {TSC_VAR}"
             );
         }
+    }
+
+    #[test]
+    fn the_sandbox_image_installs_the_pinned_tsc_by_its_sum() {
+        let build = fs::read_to_string(root().join("host/sandbox/build.sh")).unwrap();
+        for arg in ["TSC_VERSION", "TSC_SHA256"] {
+            assert!(
+                build.contains(&format!("--build-arg {arg}=\"${arg}\" ")),
+                "build.sh passes {arg}"
+            );
+        }
+        let image = fs::read_to_string(root().join("host/sandbox/Dockerfile")).unwrap();
+        let at = image
+            .find("typescript-linux-x64-${TSC_VERSION}.tgz")
+            .expect("the image fetches the pinned tsc");
+        let step = &image[image[..at].rfind("\nRUN ").unwrap()..];
+        let step = &step[..step[1..].find("\n\n").unwrap()];
+        assert!(
+            step.contains(" --proto '=https' --tlsv1.2 \"https://"),
+            "{step}"
+        );
+        let check = step.find("echo \"${TSC_SHA256}  /tmp/tsc.tgz\" | sha256sum -c -");
+        let unpack = step.find("tar -xzf /tmp/tsc.tgz");
+        assert!(
+            matches!((check, unpack), (Some(c), Some(u)) if c < u),
+            "the image unpacks tsc from a checked tarball: {step}"
+        );
+        // A cycle finds it, at the pinned version.
+        let tools = image
+            .lines()
+            .find(|l| l.starts_with("RUN for tool in "))
+            .unwrap();
+        assert!(tools.contains(" tsc "), "{tools}");
+        assert!(
+            image.contains("if [ \"$(tsc --version)\" != \"Version ${TSC_VERSION}\" ]"),
+            "the image checks the version a cycle finds"
+        );
     }
 }

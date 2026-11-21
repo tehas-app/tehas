@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 18;
+pub const SCHEMA_VERSION: i64 = 20;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The five tables of section 3.15, the outsource state. Every store of this
@@ -211,6 +211,51 @@ DROP INDEX jobs_token;
 CREATE INDEX jobs_job_token ON jobs (job_token_sha256);
 ALTER TABLE jobs ADD COLUMN model_token_sha256 TEXT;
 CREATE INDEX jobs_model_token ON jobs (model_token_sha256);
+";
+
+/// The step from 18 to 19: `plugin_runs`, one row per run of a plugin
+/// (docs/specs/2026-11-21-plugins.md, "Runs"). `how` is what started it and
+/// `started_by` who: a login, or `timer` or `host`. `tokens` counts the
+/// model's tokens of the run. A new table, so no row changes, and a plugin
+/// taken out of the settings keeps its rows, as history does.
+pub const STEP_19: &str = "
+CREATE TABLE plugin_runs (
+  id            INTEGER PRIMARY KEY,
+  plugin        TEXT NOT NULL,
+  plugin_commit TEXT NOT NULL,
+  kind          TEXT NOT NULL CHECK (kind IN ('refresh','hook')),
+  how           TEXT NOT NULL CHECK (how IN ('timer','host','action','cycle')),
+  started_by    TEXT NOT NULL,
+  head          TEXT NOT NULL,
+  started_at    INTEGER NOT NULL,
+  ended_at      INTEGER,
+  result        TEXT CHECK (result IN ('done','failed','timeout','lost')),
+  tokens        INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX plugin_runs_last ON plugin_runs (plugin, kind, started_at);
+";
+
+/// The step from 19 to 20: a plugin's records (plugin spec 1.0.0, the v3
+/// part, "Records"). A plugin asks and tehas writes: one row per record the
+/// plugin keeps, such as a prototype, named by plugin and id. `issue` and
+/// `files_sha256` are set together when a person files the issue that links
+/// it, and are fixed from then on. A closed record is history.
+pub const STEP_20: &str = "
+CREATE TABLE plugin_records (
+  plugin TEXT NOT NULL,
+  id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  issue INTEGER CHECK (issue IS NULL OR issue > 0),
+  files_sha256 TEXT,
+  created_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL,
+  filed_at INTEGER,
+  closed_at INTEGER,
+  PRIMARY KEY (plugin, id),
+  CHECK ((issue IS NULL) = (files_sha256 IS NULL)),
+  CHECK ((issue IS NULL) = (filed_at IS NULL))
+);
+CREATE INDEX plugin_records_issue ON plugin_records (issue);
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -498,7 +543,7 @@ pub fn install_test_bounds() -> (Duration, Duration) {
 /// them. Every CREATE INDEX of schema.sql appears here exactly once, which that
 /// test is what checks.
 #[cfg(test)]
-pub const COUNTED_INDEXES: [&str; 21] = [
+pub const COUNTED_INDEXES: [&str; 23] = [
     "issues_checked",
     "cycles_running",
     "heartbeats_at",
@@ -520,13 +565,15 @@ pub const COUNTED_INDEXES: [&str; 21] = [
     "job_history_job",
     "jobs_model_token",
     "jobs_job_token",
+    "plugin_runs_last",
+    "plugin_records_issue",
 ];
 
 /// The tables of schema.sql, each exactly once, which the test
 /// every_counted_table_exists pins, so a table that goes missing from the
 /// schema cannot go missing from the report too. `check` counts these and
 /// [`OUTSOURCE_TABLES`], and `copy` counts and `load` moves both.
-pub const COUNTED_TABLES: [&str; 24] = [
+pub const COUNTED_TABLES: [&str; 26] = [
     "actions",
     "approvals",
     "cycle_history",
@@ -546,6 +593,8 @@ pub const COUNTED_TABLES: [&str; 24] = [
     "planning_answers",
     "planning_filed",
     "planning_notes",
+    "plugin_records",
+    "plugin_runs",
     "poll_cost",
     "polls",
     "questions",
@@ -1130,6 +1179,8 @@ pub fn write_schema(
     tx.execute_batch(OUTSOURCE_SCHEMA).map_err(classify)?;
     tx.execute_batch(STEP_17).map_err(classify)?;
     tx.execute_batch(STEP_18).map_err(classify)?;
+    tx.execute_batch(STEP_19).map_err(classify)?;
+    tx.execute_batch(STEP_20).map_err(classify)?;
     let rows = [
         ("schema", SCHEMA_VERSION.to_string()),
         ("created_at", now.to_string()),
@@ -1269,6 +1320,10 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     // A store at 17 is one this binary wrote before a job's token had a
     // scope.
     (18, |c| step(c, 18, STEP_18)),
+    // A store at 18 is one this binary wrote before a plugin ran.
+    (19, |c| step(c, 19, STEP_19)),
+    // A store at 19 is one this binary wrote before plugins kept records.
+    (20, |c| step(c, 20, STEP_20)),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and

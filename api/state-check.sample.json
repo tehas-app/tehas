@@ -2,7 +2,7 @@
   "api": 1,
   "verb": "check",
   "ok": true,
-  "schema": 18,
+  "schema": 20,
   "integrity": "ok",
   "rows": {
     "actions": 0,
@@ -24,6 +24,8 @@
     "planning_answers": 0,
     "planning_filed": 0,
     "planning_notes": 0,
+    "plugin_records": 0,
+    "plugin_runs": 0,
     "poll_cost": 0,
     "polls": 0,
     "questions": 0,

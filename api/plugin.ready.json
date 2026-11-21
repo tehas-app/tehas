@@ -1,0 +1,24 @@
+{
+  "api": 1,
+  "plugins": [
+    {
+      "name": "floorplan",
+      "url": "https://github.com/tehas-app/tehas-plugin-floorplan",
+      "commit": "0123456789abcdef0123456789abcdef01234567",
+      "grants": [
+        "view",
+        "product",
+        "model:2000000",
+        "action:refresh",
+        "hook:after:work"
+      ],
+      "state": "ready",
+      "refusal": null,
+      "image": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "manifest_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "bases": [
+        "node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ]
+    }
+  ]
+}
