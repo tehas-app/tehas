@@ -11,6 +11,11 @@ t_front "$T/tree"
 check="$T/tree/bin/tehas check-product"
 result=$T/home/tehas/state/check-product.json
 g() { git -c user.name=t -c user.email=t@example.invalid -c init.defaultBranch=main "$@"; }
+# A slice of 8 GiB in its file on 16 CPUs: a container gets 2048m and 15.00.
+slice_state 0.00
+t_stub nproc 'echo 16'
+t_stub systemctl 'printf "%s\n" FragmentPath=/etc/systemd/system/tehas.slice ActiveState=active MemoryMax=8589934592'
+docker_stub() { t_stub docker 'if [ "$1" = info ]; then printf "systemd 2\n16\n"; exit 0; fi'$'\n'"$1"; }
 
 # A product on a scratch origin, with these files committed, and the
 # checkout where the settings expect it. Each argument is path=content.
@@ -29,7 +34,7 @@ product() {
   g clone -q "$T/origin.git" "$T/home/tehas/repos/widget"
   # The origin a settings check expects: a GitHub name, read from the config.
   g -C "$T/home/tehas/repos/widget" config remote.origin.url "https://github.com/acme/widget.git"
-  T_ENV=()
+  T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP")
   t_instance "${T_MINIMAL[@]}"
   printf '%s\n' '{"providers": {"lab": {"models": [{"id": "big"}]}}}' >"$TEHAS_INSTANCE_DIR/models.json"
 }
@@ -111,12 +116,11 @@ t_contains "$t_out" "FAIL  model    .pi/settings.json names lab/small, which $TE
 
 t_case "--sandbox runs setup, the full gate and the smoke in the image, on a clone"
 product "${good[@]}" ".pi/verify-cmd-full=make full" ".pi/smoke-cmd=make smoke" ".pi/worktree-setup=true"
-t_stub docker 'case $1 in image) exit 0 ;; run) w=""; prev=""; for a in "$@"; do [ "$prev" != -w ] || w=$a; prev=$a; done; ls "$w/.pi" >"$T/calls/tree" 2>&1; exit "${RUN_RC:-0}" ;; esac'
+docker_stub 'case $1 in image) exit 0 ;; run) w=""; prev=""; for a in "$@"; do [ "$prev" != -w ] || w=$a; prev=$a; done; ls "$w/.pi" >"$T/calls/tree" 2>&1; exit "${RUN_RC:-0}" ;; esac'
 t_run "$check --sandbox"
 t_eq "$t_rc" 0
 t_contains "$t_out" "ok    sandbox  the gates passed"
 run=$(grep '^run ' "$T/calls/docker")
-t_contains "$run" "--cgroup-parent tehas.slice"
 t_contains "$run" "--user $(id -u):$(id -g)"
 t_contains "$run" "sh .pi/worktree-setup && sh -c \"\$1\" && sh -c \"\$2\" gates make full make smoke"
 t_contains "$(cat "$T/calls/tree")" "verify-cmd-full"
@@ -125,7 +129,7 @@ t_eq "$(jq .sandbox "$result")" true
 
 t_case "--sandbox: the clone is a work branch one empty commit past the default branch, as a cycle's is"
 product "${good[@]}" ".pi/verify-cmd-full=git rev-parse --verify origin/main && git rev-parse --verify origin/HEAD && test \"\$(git merge-base origin/main HEAD)\" != \"\$(git rev-parse HEAD)\" && test -z \"\$(git diff --name-only origin/main)\""
-t_stub docker 'case $1 in image) exit 0 ;; run) w=""; prev=""; for a in "$@"; do [ "$prev" != -w ] || w=$a; prev=$a; done; cd "$w" && bash -c "${@: -4:1}" "${@: -3}" ;; esac'
+docker_stub 'case $1 in image) exit 0 ;; run) w=""; prev=""; for a in "$@"; do [ "$prev" != -w ] || w=$a; prev=$a; done; cd "$w" && bash -c "${@: -4:1}" "${@: -3}" ;; esac'
 t_run "$check --sandbox"
 t_eq "$t_rc" 0
 t_contains "$t_out" "ok    sandbox  the gates passed"
@@ -137,7 +141,7 @@ t_run "$check --sandbox"
 t_eq "$t_rc" 3
 t_contains "$t_out" "FAIL  sandbox  the gates failed"
 t_eq "$(jq .sandbox "$result")" false
-t_stub docker 'exit 1'
+docker_stub 'exit 1'
 t_run "$check --sandbox"
 t_eq "$t_rc" 1
 t_contains "$t_out" "no sandbox image"
@@ -190,34 +194,16 @@ t_contains "${t_out//$T/@T}" "FAIL  origin   @T/home/tehas/repos/widget is a che
 
 t_case "golden: the docker call of --sandbox, one argument a line, and its order"
 product "${good[@]}" ".pi/verify-cmd-full=make full" ".pi/smoke-cmd=make smoke" ".pi/worktree-setup=true"
-t_stub docker 'case $1 in image) printf "%s\n" "$@" >"$T/calls/inspect"; exit 0 ;; run) printf "%s\n" "$@" >"$T/calls/argv"; git -C "${@: -9:1}" log --format="%an %ae %s" -1 >"$T/calls/tip"; git -C "${@: -9:1}/../clone" branch --show-current >>"$T/calls/tip" ;; esac'
+docker_stub 'case $1 in image) printf "%s\n" "$@" >"$T/calls/inspect"; exit 0 ;; run) printf "%s\n" "$@" >"$T/calls/argv"; git -C "${@: -9:1}" log --format="%an %ae %s" -1 >"$T/calls/tip"; git -C "${@: -9:1}/../clone" branch --show-current >>"$T/calls/tip" ;; esac'
 t_run "$check --sandbox"
 t_eq "$t_rc" 0
 t_eq "$(cat "$T/calls/inspect")" "image
 inspect
 tehas/pi-rukas:uid$(id -u)"
-t_eq "$(sed -E "s#$T/home/tehas/tmp/widget/check-product\.[A-Za-z0-9]{6}#@DIR#g; s#^tehas-check-product-[A-Za-z0-9]{6}-#@NAME-#" "$T/calls/argv")" "run
---pull=never
---rm
---name
-@NAME-gates
---cgroup-parent
-tehas.slice
---memory
-4g
---memory-swap
-4g
---user
-$(id -u):$(id -g)
--e
-HOME=/home/vscode
--v
-@DIR:@DIR
--w
-@DIR/tree
---entrypoint
-bash
-tehas/pi-rukas:uid$(id -u)
+t_eq "$(sed -E "s#$T/home/tehas/tmp/widget/check-product\.[A-Za-z0-9]{6}#@DIR#g; s#^tehas-check-product-[A-Za-z0-9]{6}-#@NAME-#" "$T/calls/argv")" "$(printf '%s\n' run --pull=never --rm --name @NAME-gates \
+  --cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 15.00 \
+  --pids-limit 4096 --cpu-shares 1024 --user "$(id -u):$(id -g)" -e HOME=/home/vscode -v @DIR:@DIR \
+  -w @DIR/tree --entrypoint bash "tehas/pi-rukas:uid$(id -u)")
 -c
 sh .pi/worktree-setup && sh -c \"\$1\" && sh -c \"\$2\"
 gates
@@ -228,7 +214,7 @@ tehas/check-product"
 
 t_case "golden: with no setup and no smoke the script is the gate, and the smoke is an empty word"
 product "${good[@]}"
-t_stub docker 'case $1 in image) exit 0 ;; run) printf "%s\n" "${@: -5}" >"$T/calls/argv" ;; esac'
+docker_stub 'case $1 in image) exit 0 ;; run) printf "%s\n" "${@: -5}" >"$T/calls/argv" ;; esac'
 t_run "$check --sandbox"
 t_eq "$t_rc" 0
 t_eq "$(cat "$T/calls/argv"; echo end)" "-c
@@ -242,7 +228,7 @@ t_case "--sandbox: gates that outlive TEHAS_VERIFY_TIMEOUT are killed by name an
 product "${good[@]}"
 t_instance "${T_MINIMAL[@]}" TEHAS_VERIFY_TIMEOUT=1
 printf '%s\n' '{"providers": {"lab": {"models": [{"id": "big"}]}}}' >"$TEHAS_INSTANCE_DIR/models.json"
-t_stub docker 'case $1 in image) exit 0 ;; run) echo $$ >"$T/calls/run.pid"; exec sleep 30 ;; kill) kill "$(cat "$T/calls/run.pid")" ;; esac'
+docker_stub 'case $1 in image) exit 0 ;; run) echo $$ >"$T/calls/run.pid"; exec sleep 30 ;; kill) kill "$(cat "$T/calls/run.pid")" ;; esac'
 SECONDS=0
 t_run "$check --sandbox"
 t_eq "$t_rc" 3
@@ -284,7 +270,7 @@ t_eq "$(t_calls docker)" ""
 
 t_case "--sandbox: a signal during the run takes the clone away"
 product "${good[@]}"
-t_stub docker 'case $1 in image) exit 0 ;; run) : >"$T/calls/started"; exec sleep 5 ;; esac'
+docker_stub 'case $1 in image) exit 0 ;; run) : >"$T/calls/started"; exec sleep 5 ;; esac'
 t_run "$check --sandbox >/dev/null 2>&1 &
 pid=\$!
 n=0
@@ -304,7 +290,7 @@ for c in bash sh git ln dirname mkdir test cat grep rm ls readlink env sed; do
   ln -sf "$(command -v "$c")" "$T/img/$c"
 done
 image_stub() {
-  t_stub docker 'case $1 in image) exit 0 ;; run)
+  docker_stub 'case $1 in image) exit 0 ;; run)
   w=""; c=0; i=0; prev=""
   for a in "$@"; do i=$((i + 1)); [ "$prev" != -w ] || w=$a; [ "$c" != 0 ] || [ "$a" != -c ] || c=$i; prev=$a; done
   printf "%s\n" "$w" >>"$T/calls/where"
@@ -348,7 +334,7 @@ t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 | wc -l)" 0
 t_eq "$(jq .sandbox "$result")" true
 
 t_case "--sandbox: an install that fails is a failure, and no gate runs"
-T_ENV=(BUN_RC=4)
+T_ENV+=(BUN_RC=4)
 rm -f "$T/calls/where"
 t_run "$check --sandbox"
 t_eq "$t_rc" 3
@@ -381,5 +367,13 @@ t_eq "$t_out" "usage: tehas check-product [--sandbox]"
 t_instance PI_ENSEMBLE_SUBAGENT_MODEL=x
 t_run "$check --what"
 t_eq "$t_rc" 64
+
+t_case "--sandbox: a slice that cannot be used is 78, as for tehas work, and nothing is run"
+product "${good[@]}"
+t_stub systemctl 'printf "%s\n" FragmentPath= ActiveState=inactive MemoryMax=infinity'
+t_run "$check --sandbox"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas check-product: no slice file on this host (sudo ./bootstrap.sh slice)"
+t_eq "$(t_calls docker)" ""
 
 t_done
