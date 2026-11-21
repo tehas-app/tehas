@@ -270,6 +270,23 @@ leaves pi-rukas's line alone: the release workflow pins its commit when it
 packs (see above). OSV-Scanner is the one pin `bootstrap.sh` does not install: the gate
 of `verify.yml` downloads it into the runner's own temporary directory.
 
+The kit's Solid moves too: `PINS` in `tools/vendor-solid/src/main.rs`
+(solid-js, @solidjs/signals, @solidjs/web and @solidjs/html), each to the
+newest release of its major on npm, with the tarball and sha512 integrity
+the registry gives for it, under the same `min-release-age`. A release whose
+peer dependencies or dependencies on another of the four are not met by what
+that one moves to is not taken, and neither is a release that a pin which
+stays does not accept. The pin stays at the version it has, and the script
+prints `kept <package> <version>: <why>`; the pull request below lists those
+lines apart from the moves. When a Solid pin moved, the script runs
+`tools/vendor-solid`, which rebuilds `host/fun/kit/vendor/solid.js`, its
+`LICENSES` and the kit's `MANIFEST`. It does not change `vendor/solid.d.ts`
+or the `library solid` line of `host/fun/pages.max`. When the new bundle
+breaks the gate, the gate the script runs before it pushes fails: the release
+stops with 1, and no branch is pushed and no pull request opened. A person
+then moves Solid by hand, or tags with `--no-pins`. See
+[Upgrading Solid](/frontend#upgrading-solid).
+
 Under 0.x a minor release can break, so "same major" moves vipune from 0.15 to
 0.20. A later major version is never taken. The release's section of
 `CHANGELOG.md` names each move under `### Changes` and each major held back

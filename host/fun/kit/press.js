@@ -11,9 +11,23 @@
 // press() resolves { status, ok, data, headers, date } and rejects with a
 // PressError (status, data) for a status that is neither 2xx nor in `accept`.
 import { accepts, bodyOf, dateOf, headersOf, pickHeaders } from "./request.js";
+/** @import { Accept, Headers, Parse } from "./request.js" */
+
+/**
+ * @typedef {{ method?: string, headers?: Headers, body?: unknown, credentials?: RequestCredentials, parse?: Parse,
+ *   accept?: Accept, expose?: string[], signal?: AbortSignal }} PressOptions
+ * @typedef {{ status: number, ok: boolean, data: any, headers: Record<string, string | null>,
+ *   date: number | null }} PressAnswer
+ */
 
 /** A press answered with a status that is neither 2xx nor accepted. */
 export class PressError extends Error {
+  /**
+   * @param {string} src
+   * @param {number} status
+   * @param {string | undefined} statusText
+   * @param {any} data
+   */
   constructor(src, status, statusText, data) {
     super(`${src}: ${status} ${statusText ?? ""}`.trim());
     this.name = "PressError";
@@ -24,7 +38,12 @@ export class PressError extends Error {
 
 // What fetch sends as it is, with its own content type: a form's data among them.
 const NATIVE = ["FormData", "URLSearchParams", "Blob", "ArrayBuffer"];
-const native = (b) => ArrayBuffer.isView(b) || NATIVE.some((n) => globalThis[n] && b instanceof globalThis[n]);
+/**
+ * @param {unknown} b
+ * @returns {b is BodyInit}
+ */
+const native = (b) => ArrayBuffer.isView(b) || NATIVE.some((n) => /** @type {any} */ (globalThis)[n] && b instanceof /** @type {any} */ (globalThis)[n]);
+/** @param {unknown} b */
 const plain = (b) =>
   ["number", "boolean"].includes(typeof b) ||
   (typeof b === "object" && (b === null || Array.isArray(b) || [Object.prototype, null].includes(Object.getPrototypeOf(b))));
@@ -37,13 +56,13 @@ const plain = (b) =>
  * null). A status in `accept` resolves with its value instead
  * of rejecting. `signal` aborts it.
  * @param {string} src
- * @param {{ method?: string, headers?: object | (() => object), body?: any, credentials?: RequestCredentials,
- *   parse?: "json" | "text", accept?: Record<number, any>, expose?: string[], signal?: AbortSignal }} [options]
- * @returns {Promise<{ status: number, ok: boolean, data: any, headers: Record<string, string | null>, date: number | null }>}
+ * @param {PressOptions} [options]
+ * @returns {Promise<PressAnswer>}
  */
 export async function press(src, options = {}) {
   const { method = "POST", body, credentials, signal, expose } = options;
   const headers = { ...headersOf(options.headers) };
+  /** @type {RequestInit} */
   const init = { method, headers, cache: "no-store" };
   if (credentials) init.credentials = credentials;
   if (signal) init.signal = signal;
