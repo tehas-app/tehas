@@ -14,7 +14,9 @@ use tehas_core::plugin::review::{
 };
 use tehas_core::plugin::{ask, Grants, Pin};
 
-/// Where the model of the factory runs, for a plugin that asks for it.
+/// Where a plugin's model runs: the product model's provider, the one the
+/// cycle's main role uses, PI_ENSEMBLE_SUBAGENT_PROVIDER, which every role
+/// takes unless it names its own.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Endpoint {
     pub provider: String,
@@ -35,7 +37,8 @@ pub struct Review {
     /// What changed since the pin; None when the commit is the pin, or the
     /// pin's manifest could not be read.
     pub changes: Option<Vec<String>>,
-    pub model: Vec<Endpoint>,
+    /// With `model` asked.
+    pub model: Option<Endpoint>,
 }
 
 /// The things a review needs of the host, so a test gives its own.
@@ -123,11 +126,10 @@ impl Review {
             .iter()
             .map(|(b, t)| json!({"image": b, "onbuild": t}))
             .collect();
-        let model: Vec<Value> = self
+        let model = self
             .model
-            .iter()
-            .map(|e| json!({"provider": e.provider, "host": e.host, "here": e.here}))
-            .collect();
+            .as_ref()
+            .map(|e| json!({"provider": e.provider, "host": e.host, "here": e.here}));
         let grants_commit = self.grants.as_ref().map(|g| g.commit.clone());
         let lines = self.lines();
         json!({
@@ -214,7 +216,7 @@ impl Review {
                 }
             }
         }
-        for e in &self.model {
+        if let Some(e) = &self.model {
             let host = e.host.as_deref().unwrap_or("no address in models.json");
             let place = if e.here {
                 "on this host"
@@ -243,27 +245,19 @@ impl Review {
     }
 }
 
-/// The endpoints of the models the factory uses, for a plugin that asks
-/// for `model`.
-fn endpoints(g: &Given) -> Vec<Endpoint> {
-    let mut providers: Vec<String> = Vec::new();
-    for (p, _) in tehas_core::models::used_from(g.get) {
-        if !providers.contains(&p) {
-            providers.push(p);
-        }
+/// The setting that names the product model's provider.
+const PROVIDER: &str = "PI_ENSEMBLE_SUBAGENT_PROVIDER";
+
+/// The endpoint of the product model's provider.
+fn endpoint(g: &Given) -> Endpoint {
+    let provider = (g.get)(PROVIDER);
+    let host = url_host(&g.models.url(&provider, "main"));
+    let here = host.as_deref().is_some_and(|h| is_here(h, g.names));
+    Endpoint {
+        provider,
+        host,
+        here,
     }
-    providers
-        .into_iter()
-        .map(|provider| {
-            let host = url_host(&g.models.url(&provider, "main"));
-            let here = host.as_deref().is_some_and(|h| is_here(h, g.names));
-            Endpoint {
-                provider,
-                host,
-                here,
-            }
-        })
-        .collect()
 }
 
 /// Fetch and read `commit` of `pin`, and the pin's own commit to say what
@@ -291,15 +285,11 @@ pub fn review(x: &mut dyn Exec, g: &Given, pin: &Pin, commit: &str) -> Result<Re
         .flatten();
     let grants =
         tehas_core::plugin::grants(&(g.get)(&tehas_core::plugin::grants_setting(&pin.name))).ok();
-    let model = if reading
+    let model = reading
         .manifest
         .as_ref()
         .is_some_and(|m| m.asks.iter().any(|a| a == "model"))
-    {
-        endpoints(g)
-    } else {
-        Vec::new()
-    };
+        .then(|| endpoint(g));
     Ok(Review {
         pin: pin.clone(),
         commit: commit.to_string(),
@@ -360,6 +350,9 @@ mod tests {
             ),
             ("PI_ENSEMBLE_SUBAGENT_PROVIDER", "local"),
             ("PI_ENSEMBLE_SUBAGENT_MODEL", "qwen"),
+            // A role's own provider is not the plugin's.
+            ("PI_ENSEMBLE_PROVIDER_OPS", "far"),
+            ("PI_ENSEMBLE_MODEL_OPS", "big"),
         ]);
         let models = models();
         let names = vec!["tehas-tehas".to_string()];
@@ -380,6 +373,7 @@ mod tests {
             &"  hook:after:work is granted and not asked for: it gives nothing".to_string()
         ));
         assert!(text.contains(&"model: provider local at 127.0.0.1, on this host".to_string()));
+        assert!(!text.iter().any(|l| l.contains("provider far")));
         assert!(text.contains(&format!("  {NODE}")));
         assert!(text.contains(&format!(
             "  TEHAS_PLUGIN_GRANTS_FLOORPLAN=\"{C} view product model:2000000 action:refresh\""
@@ -388,6 +382,50 @@ mod tests {
             .iter()
             .any(|l| l.starts_with("warning: view and product together")));
         assert!(!x.ran_any("docker build"));
+    }
+
+    #[test]
+    fn the_model_is_the_product_models_provider_here_or_elsewhere() {
+        let m = manifest(r#""model""#);
+        let d = dockerfile();
+        let (home, mut x) = good(
+            "review-model",
+            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
+        );
+        let get = vars(&[
+            ("PI_ENSEMBLE_SUBAGENT_PROVIDER", "far"),
+            ("PI_ENSEMBLE_PROVIDER_DEVELOPER", "local"),
+            ("PI_ENSEMBLE_MODEL_DEVELOPER", "qwen"),
+        ]);
+        let models = models();
+        let g = Given {
+            home: &home,
+            get: &get,
+            models: &models,
+            names: &[],
+        };
+        let r = review(&mut x, &g, &pin(C), C).unwrap();
+        assert_eq!(
+            r.model,
+            Some(Endpoint {
+                provider: "far".into(),
+                host: Some("llm.example".into()),
+                here: false
+            })
+        );
+        assert!(r
+            .text()
+            .contains(&"model: provider far at llm.example, on another host".to_string()));
+        let none = manifest(r#""product""#);
+        let (home, mut x) = good(
+            "review-nomodel",
+            &[("tehas-plugin.json", &none), ("Dockerfile", &d)],
+        );
+        let g = Given { home: &home, ..g };
+        assert_eq!(
+            review(&mut x, &g, &pin(C), C).unwrap().json()["model"],
+            Value::Null
+        );
     }
 
     #[test]

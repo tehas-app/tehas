@@ -295,14 +295,17 @@ is granted at the pin, and its state: `unbuilt`, `building`, `ready` or
 `refused` with why, as the last `tehas update` left it. With the feature on,
 `tehas update` fetches each pin into `~/tehas/plugins/<name>/repo.git`,
 checks its manifest, skills and Dockerfile, pulls its base images by digest
-and builds its image with no network. A plugin that breaks a rule is refused
-and left off, and the update exits 1 at the end. A plugin taken out of
-`TEHAS_PLUGINS` loses its images and its directory.
+and builds its image with no network, then prunes the repository to the pin's
+commit. A plugin that breaks a rule is refused and left off, and the update
+exits 1 at the end. A plugin taken out of `TEHAS_PLUGINS` loses its images
+and its directory.
 
 `review` fetches a commit, the pin by default, and prints what it asks, what
 each ask lets it do and whether it is granted, the base images and their
-ONBUILD triggers, where the model runs, what changed since the pin and the
-lines to write. It writes nothing but the fetched objects and the base images.
+ONBUILD triggers, where the model runs (the provider of
+`PI_ENSEMBLE_SUBAGENT_PROVIDER`, on this host or another), what changed since
+the pin and the lines to write. It writes nothing but the fetched objects and
+the base images.
 Exit 0; 1 the fetch or the read failed; 3 refused, with why; 64; 78.
 Plugins are still being built in this release, so both exit 78. See the
 `TEHAS_PLUGIN` rows of

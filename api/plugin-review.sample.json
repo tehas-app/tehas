@@ -30,7 +30,9 @@
       "granted": false
     }
   ],
-  "unasked": ["hook:after:work"],
+  "unasked": [
+    "hook:after:work"
+  ],
   "grants_commit": "0123456789abcdef0123456789abcdef01234567",
   "bases": [
     {
@@ -38,13 +40,11 @@
       "onbuild": []
     }
   ],
-  "model": [
-    {
-      "provider": "local",
-      "host": "127.0.0.1",
-      "here": true
-    }
-  ],
+  "model": {
+    "provider": "local",
+    "host": "127.0.0.1",
+    "here": true
+  },
   "warnings": [
     "view and product together: the view shows what the plugin made of the code, and a page can still navigate away with data in its address"
   ],
