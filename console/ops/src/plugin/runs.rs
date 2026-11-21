@@ -228,10 +228,11 @@ pub fn ask_hook(x: &mut dyn Exec, home: &Path, name: &str, ask: &HookAsk) -> Res
     start(x, &unit(name, Some(ask.pr)))
 }
 
-/// The newest run of `runs` (the store's `plugin-runs`, newest first) and the
-/// tokens of the runs that started at or after `since`.
+/// The newest run of `runs` (the store's `plugin-runs`, newest first) but a
+/// call of a tool, and the tokens of the runs that started at or after
+/// `since`.
 pub fn last_and_today(runs: &[Value], since: i64) -> (Option<Value>, u64) {
-    let last = runs.first().map(|r| {
+    let last = runs.iter().find(|r| r["kind"] != "call").map(|r| {
         json!({
             "kind": r["kind"],
             "trigger": r["trigger"],
@@ -310,6 +311,7 @@ mod tests {
     #[test]
     fn the_last_run_and_the_tokens_of_today() {
         let runs = [
+            json!({"kind": "call", "trigger": "chat", "start": 210, "end": 211, "result": "done", "tokens": 0, "by": "chat"}),
             json!({"kind": "refresh", "trigger": "timer", "start": 200, "end": 260, "result": "done", "tokens": 30, "by": "timer"}),
             json!({"kind": "hook", "trigger": "cycle", "start": 150, "end": null, "result": null, "tokens": 5}),
             json!({"kind": "refresh", "trigger": "host", "start": 50, "end": 60, "result": "failed", "tokens": 100}),
