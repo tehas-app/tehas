@@ -39,17 +39,17 @@ t_case "the Kani bundle is checked against a pinned sha256 before setup"
 t_contains "$job" 'echo "$KANI_BUNDLE_SHA256  $bundle" | sha256sum -c -'
 t_contains "$job" 'cargo kani setup --use-local-bundle "$bundle"'
 
-t_case "the proofs build every feature, so no harness is left out"
+t_case "the proofs build every feature and deal every harness to one shard"
 t_contains "$job" 'args=(--all-features)'
+t_contains "$job" "        shard: [$(seq -s ', ' "$(sed -n 's/^ *SHARDS: //p' <<<"$job")")]"
+t_contains "$job" 'kani-shard kani-list.json "$SHARD" "$SHARDS")'
+t_contains "$job" 'cargo kani "${args[@]}" --exact "${filters[@]}"'
 
 t_case "code under cfg(kani) is found in every form of the attribute"
 mkdir -p "$T/kani"
-n=0
-for attr in '#[cfg(kani)]' '#[cfg(all(kani, test))]' '#[cfg(all(test, kani))]' \
-  '#[cfg(any(kani, test))]' '#[cfg_attr(kani, kani::unwind(8))]' '#![cfg(kani)]'; do
-  n=$((n + 1))
-  printf '%s\nmod proofs {}\n' "$attr" >"$T/kani/found$n.rs"
-done
+attrs=('#[cfg(kani)]' '#[cfg(all(kani, test))]' '#[cfg(all(test, kani))]' \
+  '#[cfg(any(kani, test))]' '#[cfg_attr(kani, kani::unwind(8))]' '#![cfg(kani)]')
+for n in 1 2 3 4 5 6; do printf '%s\nmod proofs {}\n' "${attrs[n - 1]}" >"$T/kani/found$n.rs"; done
 printf '%s\n' '#[cfg(kanim)]' '#[cfg(feature = "makani")]' '// kani' >"$T/kani/none.rs"
 t_eq "$(kani_files "$T/kani" | sed "s|$T/kani/||" | sort | tr '\n' ' ')" \
   "found1.rs found2.rs found3.rs found4.rs found5.rs found6.rs "
