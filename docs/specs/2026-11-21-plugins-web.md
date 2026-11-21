@@ -38,8 +38,9 @@ have no `-`, so two plugins never share a name under that rule.
 ## The gate
 
 `tehas-plugin-gate`, a Rust program of the workspace, its own unit
-`tehas-plugin-gate.service`, listening on the host's private address and a
-port of `TEHAS_PLUGIN_GATE_ADDR`, never the dashboard's. It is installed only
+`tehas-plugin-gate.service`, listening on `TEHAS_PLUGIN_GATE_ADDR`: a
+private or loopback address literal with a port, never 8080 or 8081 (the
+dashboard's), by default `127.0.0.1:8095`. It is installed only
 with the feature on.
 
 Every answer, a file, an error, the sign-in page and a redirect, carries:
@@ -50,9 +51,12 @@ Vary: Cookie
 Cross-Origin-Resource-Policy: same-origin
 X-Content-Type-Options: nosniff
 Referrer-Policy: no-referrer
+Permissions-Policy: camera=(), microphone=(), geolocation=(), usb=(), payment=(), clipboard-read=()
 ```
 
-and never an `Access-Control-*` header. `OPTIONS` is 403 with no session
+and never an `Access-Control-*` header. A request to upgrade the connection
+(`Upgrade:`) is 404 until a revision adds the one WebSocket path (1.1.0's
+relay). `OPTIONS` is 403 with no session
 lookup. A test asserts no answer lacks these.
 
 ### Requests across sites
@@ -61,7 +65,8 @@ A preview, `uat-<pr>.<domain>`, is the same site as a plugin's name, so
 `SameSite` alone does not keep a preview's script out.
 
 - A request that is not a top-level navigation (`Sec-Fetch-Mode` other than
-  `navigate`) needs `Sec-Fetch-Site: same-origin`.
+  `navigate`, or missing) needs `Sec-Fetch-Site: same-origin`. So does every
+  `POST`.
 - Every request but `GET` and `HEAD` needs `Origin` equal to the plugin's own
   name, and a missing `Sec-Fetch-Site` is refused.
 - A navigation from another site gets the page, never runs an action.
@@ -75,7 +80,8 @@ A preview, `uat-<pr>.<domain>`, is the same site as a plugin's name, so
 | `/_hooks/<pr>` | The findings of the plugin's last hook on that pull request, in a page the gate makes, every text escaped: a finding may quote names the model wrote |
 | `/_session` | `GET`: 200 `{"signed": true}` or 401, for a frame to poll |
 | `/_signout` | `POST`, see "The session" |
-| anything else | A file of `view/`, `index.html` for a directory |
+| `/_auth/ask`, `/_auth/take` | The plugin name's two steps of the hand-off, see "The sign-in" |
+| anything else | A file of `view/`, `index.html` for a directory, served only when `view` is granted at the pin, the manifest asks for `view`, and the plugin's state is ready at the pin |
 
 Paths starting `/_` are the gate's, whatever `/out` holds. A path is
 normalised (`..`, `%2e`, `//`, encoded slashes) before it is matched, and a
@@ -90,8 +96,9 @@ GitHub's web flow, through the factory's GitHub App.
 
 - **The App.** It needs a callback URL, `https://plugins.<domain>/_auth/callback`,
   and a client secret. `tehas setup --new-app` sets the callback in its
-  manifest and keeps the client id and secret beside the key in
-  `~/.config/tehas/` (mode 600). For an App made before, an adopter action:
+  manifest and keeps the client id and secret beside the key, in
+  `~/.config/tehas/github-app.client-id` and `github-app.client-secret`, mode
+  600; the gate exits 78 without them or with a wider mode. For an App made before, an adopter action:
   add the callback and generate a secret, then `tehas setup --app-secret-file`.
   A factory without the App, or without the secret, cannot grant `view` or
   `action:`: refused at load with 78. No token fallback.
@@ -100,8 +107,9 @@ GitHub's web flow, through the factory's GitHub App.
   site does (`crates/workshop/src/auth.rs`), with these rules:
   - The plugin name that asks is one of the settings' names, taken from the
     settings, never from `Host` or the address.
-  - The plugin name sets a nonce in a `__Host-` cookie and sends the browser
-    to `plugins.<domain>/_auth/pass?state=<nonce hash>&back=<path>`.
+  - The plugin name's `/_auth/ask` sets a nonce in a `__Host-` cookie and
+    sends the browser to `plugins.<domain>/_auth/pass?state=<nonce hash>&back=<path>`,
+    which returns it with the code to the plugin name's `/_auth/take`.
   - `back` is a path only, normalised, under the plugin name.
   - The code lives 60 seconds, works once, and only for the name and nonce it
     was made for. It is the one value in an address; it opens nothing alone.
@@ -111,14 +119,17 @@ GitHub's web flow, through the factory's GitHub App.
   installation token and reads `user.permissions` (`pull`, `triage`, `push`,
   `maintain`, `admin`); `role_name` is shown in logs only, since a custom role
   has its own name. The person gets in when the permission is at least
-  `TEHAS_PLUGIN_ACCESS`. A 404 is no access. A GitHub error is a refusal, said
-  as such on the page.
+  `TEHAS_PLUGIN_ACCESS`. A 404 is no access. A GitHub error at sign-in is a
+  refusal, said as such on the page. The sign-in page answers 200.
 - **A public repository.** GitHub gives `pull` on a public repository to every
   account. So `tehas update` reads the repository's visibility and refuses
   `TEHAS_PLUGIN_ACCESS=read` or `triage` while it is public, with 78 and the
-  reason.
+  reason. The gate checks the same at every access check, and refuses access
+  while it holds.
 - **Checked again** every 10 minutes for a session, and on every press. A
-  person who lost access is signed out at the next check. People are compared
+  person who lost access is signed out at the next check. A GitHub error on
+  the periodic check answers 503 and keeps the session; on a press it answers
+  403. People are compared
   by user id, since logins are renamed and reused.
 
 ### The session
@@ -129,7 +140,8 @@ GitHub's web flow, through the factory's GitHub App.
 - It ends after 2 hours unused or 12 hours in all. A restart of the gate
   signs everyone out.
 - `POST /_signout`, with the `Origin` rule, ends that person's sessions on
-  every plugin name and `plugins.<domain>`, and clears the cookie.
+  every plugin name and `plugins.<domain>`, clears the cookie, and answers 200
+  `{"signed": false}`.
 
 ### In the dashboard's dock
 
@@ -181,7 +193,7 @@ same-origin-allow-popups`.
 - **A page that names another site** in a `<script src>`, `<link>` or
   `@import` loads nothing from it. The swap logs each such address.
   `<meta http-equiv="refresh">` and inline event handlers (`onclick=`) are
-  refused at the swap, failing the run.
+  refused at the swap, failing the run, and again when served, with 500.
 
 What the policy does not stop: a page can navigate the frame or open a tab
 with data in the address. So `view` with `product` means a plugin's page can
@@ -191,8 +203,10 @@ opens it. `tehas plugin review` says so for that pair.
 ## The kit
 
 With `"ui": {"kit": 1}`, the gate answers `/_kit/<file>` for each file the
-installed tehas's `host/fun/kit/MANIFEST` lists, read from the installed
-`~/tehas/docs/fun/kit/`, behind the same sign-in and with the same headers.
+installed tehas's `host/fun/kit/MANIFEST` lists and install puts there, read
+from `~/tehas/fun/kit/`, behind the same sign-in and with the same headers.
+The `.d.ts` files the MANIFEST lists are for a plugin's author and are not
+installed, so they are 404 at the gate.
 The view follows the island contract of `host/docs/frontend.md`. A tehas whose
 kit is not `kit 1` refuses the plugin at update.
 
@@ -204,7 +218,9 @@ A press is `POST /_actions/<id>` from the view, with the kit's `press()`.
   access checked on that press, and `action:<id>` granted.
 - It asks for a refresh, as `tehas plugin run` does, and records the login.
 - 202 asked; 409 a refresh is running; 429 within 10 minutes of the plugin's
-  last press; 403 not granted or no access; 401 no session.
+  last press, a window the gate keeps in memory, so a restart clears it; 403
+  not granted, no access, or a GitHub error on the check; 503 no runner; 401
+  no session.
 - `GET /_actions` answers `{"api": 1, "actions": ["refresh"]}`, the ids
   granted, so a view shows only those buttons.
 
