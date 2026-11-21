@@ -208,8 +208,8 @@ t_case "every setting of TABLE that is not required has a line in optional.env"
 # The `when` of each row comes from `console settings rules --json`, the file a
 # release carries, so the case reads the loader's own answer rather than a copy
 # of it. The required settings are the ones instance.env holds, retired names
-# (RETIRED in load.rs) are lines a host must take out and not ones to copy, and
-# the PI_ENSEMBLE_* family belongs to pi-rukas, which reads them itself.
+# (RETIRED in load.rs) are lines a host must take out, the PI_ENSEMBLE_* family
+# is pi-rukas's, and a row of a family (<NAME>) has lines of its members.
 if ! t_console; then
   t_skip "no console: $t_console_why"
 else
@@ -223,7 +223,7 @@ else
   for name in $when; do
     has "$name" "$retired" && continue
     has "$name" "$instance_set" && continue
-    case $name in PI_ENSEMBLE_*) continue ;; esac
+    case $name in PI_ENSEMBLE_* | *"<NAME>") continue ;; esac
     has "$name" "$optional_lines" || missing="$missing $name"
   done
   [ -z "$missing" ] || t_bad "no line in instances/example/optional.env for:$missing"

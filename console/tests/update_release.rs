@@ -4,6 +4,7 @@
 //! version ran with, and the last three versions kept. A local release
 //! directory stands in for GitHub: gh and curl answer from it.
 
+#[path = "update/mod.rs"]
 mod common;
 mod releases;
 

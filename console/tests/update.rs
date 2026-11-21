@@ -4,6 +4,7 @@
 //! repositories; the cases with this repository's real install.sh check both
 //! sides of the follow-up protocol against its producer.
 
+#[path = "update/mod.rs"]
 mod common;
 
 use common::*;

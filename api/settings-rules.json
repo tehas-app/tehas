@@ -309,6 +309,67 @@
       "building": true
     },
     {
+      "name": "TEHAS_PLUGIN",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "on",
+        "off",
+        "1",
+        "0"
+      ],
+      "reason": "expected on or off",
+      "building": true
+    },
+    {
+      "name": "TEHAS_PLUGINS",
+      "rule": "plugins",
+      "when": "given",
+      "default": "",
+      "reason": "expected <name>=<url>@<commit> entries separated by single spaces",
+      "building": true
+    },
+    {
+      "name": "TEHAS_PLUGIN_GRANTS_<NAME>",
+      "rule": "plugin-grants",
+      "when": "given",
+      "default": null,
+      "reason": "expected the plugin's whole commit, 40 lower-case hex digits, then its grants separated by single spaces",
+      "building": true
+    },
+    {
+      "name": "TEHAS_PLUGIN_ACCESS",
+      "rule": "one-of",
+      "when": "given",
+      "default": null,
+      "words": [
+        "read",
+        "triage",
+        "write",
+        "maintain",
+        "admin"
+      ],
+      "reason": "expected read, triage, write, maintain or admin",
+      "building": true
+    },
+    {
+      "name": "TEHAS_PLUGIN_LIMITS",
+      "rule": "plugin-limits",
+      "when": "always",
+      "default": "memory=2 cpus=2 disk=4",
+      "reason": "expected memory=<GiB> cpus=<n> disk=<GiB>, each a whole number from 1 to 999",
+      "building": true
+    },
+    {
+      "name": "TEHAS_PLUGIN_MODEL_DAY",
+      "rule": "count",
+      "when": "always",
+      "default": "5000000",
+      "reason": "expected a positive whole number",
+      "building": true
+    },
+    {
       "name": "TEHAS_WORKSTREAMS",
       "rule": "count",
       "when": "always",

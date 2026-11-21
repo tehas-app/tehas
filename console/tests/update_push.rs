@@ -3,6 +3,7 @@
 //! and a factory that stays drained when it cannot. tehasbot and the push
 //! itself are stubs; every other git call runs for real.
 
+#[path = "update/mod.rs"]
 mod common;
 
 use common::{git, has, lacks, which, Host};

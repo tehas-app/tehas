@@ -131,7 +131,7 @@ reset
 installed v0.8.0+cb6912a
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.flags' <<<"$t_out")" '{"outsource":false,"spec-pipe":false,"protolab-zip-url":false,"prototype-file":false,"lean":false,"review":false}'
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"outsource":false,"spec-pipe":false,"protolab-zip-url":false,"prototype-file":false,"lean":false,"review":false,"plugins":false}'
 t_eq "$(jq -r '.features | index("outsource")' <<<"$t_out")" null
 t_eq "$(jq -r '.features | index("spec-pipe")' <<<"$t_out")" null
 t_eq "$(jq -r '.features | index("protolab-zip-url")' <<<"$t_out")" null
@@ -148,7 +148,7 @@ t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on
 T_ENV=(TEHAS_TEST_FEATURES=outsource)
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.flags' <<<"$t_out")" '{"outsource":true,"spec-pipe":false,"protolab-zip-url":false,"prototype-file":false,"lean":false,"review":false}'
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"outsource":true,"spec-pipe":false,"protolab-zip-url":false,"prototype-file":false,"lean":false,"review":false,"plugins":false}'
 t_eq "$(jq -r '.features | index("outsource")' <<<"$t_out")" null
 
 t_case "api: a building feature switched on is refused with 78 and its name"

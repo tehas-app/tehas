@@ -1,6 +1,7 @@
 //! tehas update from the platform checkout: what an update is asked to do,
 //! and the follow-ups it owes.
 
+#[path = "update/mod.rs"]
 mod common;
 
 use common::{git, has, lacks, s, uid, Host, Run};
