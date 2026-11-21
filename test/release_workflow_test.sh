@@ -189,13 +189,13 @@ t_eq "$(cat "$T/sha.in")" "beef  $T/rt/jq/jq"
 t_eq "$(cat "$T/rt/path")" "$T/rt/jq"
 
 t_case "a jq that does not match its hash is not put on the path"
-t_stub sha256sum 'exit 1'
+t_stub sha256sum 'cat >/dev/null; exit 1'
 jqstep ''
 t_eq "$t_rc" 1
 t_eq "$(cat "$T/rt/path" 2>/dev/null)" ""
 
 t_case "a jq of another version stops the job"
-t_stub sha256sum 'exit 0'
+t_stub sha256sum 'cat >/dev/null; exit 0'
 jqstep 'JQ_FAKE=1.7.1'
 t_eq "$t_rc" 1
 
