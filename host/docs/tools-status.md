@@ -187,7 +187,7 @@ and the product checkout; no model, no GitHub call, and it writes nothing.
 `tehas-wiki.timer` asks every night at 03:00. A build of a commit already
 built does nothing; `--full` builds it again and lets every page change.
 
-A build runs pi-rukas's `wiki` verb ([trail-openers/pi-rukas#2456](https://github.com/trail-openers/pi-rukas/issues/2456))
+A build runs pi-rukas's `wiki` verb, from pi-rukas v0.14.99,
 in a container of its own kind: the code at the head of the default branch
 and the raw sources read-only, the pages it writes, no GitHub token, no relay,
 and a CPU weight of 64 against a cycle's 1024. The model has no time limit.
