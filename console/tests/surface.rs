@@ -33,6 +33,7 @@ const BUILDING_SCHEMAS: &[(&str, &str)] = &[
     ("plugin", "plugins"),
     ("plugin-manifest", "plugins"),
     ("plugin-context", "plugins"),
+    ("plugin-review", "plugins"),
     ("plugin-skills", "plugins"),
 ];
 

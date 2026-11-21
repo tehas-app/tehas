@@ -861,13 +861,14 @@ mod tests {
         }
         // Files the docs server serves or the release carries, no command's
         // output, and those of plugins, which is still being built: its
-        // command's, its manifest's and its run's context.
+        // commands', its manifest's and its run's context.
         named.extend([
             "host-bridge",
             "settings-rules",
             "plugin",
             "plugin-manifest",
             "plugin-context",
+            "plugin-review",
             "plugin-skills",
         ]);
         let mut found = Vec::new();

@@ -104,6 +104,23 @@ A later 1.x may add a command of its own whose word a part on someone's
 `PATH` has, unless the word is reserved: the command wins, by rule 1. That
 is why a part reserves its word.
 
+## Old commands in 1.x, and 2.0
+
+Every command that worked before keeps working through 1.x, v1.2.0 included:
+
+- each command of a factory's `tehas`, as rule 1 holds;
+- each part's own command, typed by its own name: `industry <words>` on the
+  host is `industry` as before, beside `tehas industry <words>`;
+- an unknown word, still exit 64.
+
+Nothing in 1.x calls the separate commands old or warns when one is typed.
+
+2.0 may retire them: `tehas <part>` becomes the one way in, and a part's
+own name (`industry`, and each later one) is taken out of the code and the
+docs. Before that a part moves what calls its old name to `tehas-<part>`
+or `tehas <part>`: for industry, its systemd units, its installer and the
+commands its docs show.
+
 ## Left out
 
 - The login wrapper `host/login/tehas`, which other accounts of a factory
