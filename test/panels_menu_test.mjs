@@ -4,6 +4,7 @@
 //   node --test test/panels_menu_test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
 import "../host/fun/panels.js";
 
 const { plugins } = globalThis.TEHAS_PANELS;
@@ -60,4 +61,12 @@ test("at most four views a plugin and eight plugins, each name once", () => {
   assert.equal(plugins(file([plugin("p", [view("a")]), plugin("p", [view("b")])]), ORIGIN).length, 1);
   // An open other than page docks.
   assert.equal(plugins(file([plugin("p", [view("a", { open: "full" })])]), ORIGIN)[0].open, "dock");
+});
+
+test("the committed sample of live/plugins.json makes its items", () => {
+  const sample = JSON.parse(readFileSync(new URL("./fixtures/live/plugins.json", import.meta.url), "utf8"));
+  assert.deepEqual(plugins(sample, ORIGIN).map((i) => [i.id, i.open, i.group]), [
+    ["m-floorplan-map", "dock", "Floorplan"],
+    ["m-floorplan-health", "page", "Floorplan"],
+  ]);
 });

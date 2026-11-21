@@ -5,10 +5,8 @@
 // opens the page in a dock at the side, or a bridge page item in a new tab.
 //
 // view() is the pure step from the file to the items, and merge() adds the
-// bridge's, both tested without a browser (test/panels_view_test.mjs). The
-// plugins menu comes from /live/plugins.json (written by tehas update, see
-// console/ops/src/plugin/update.rs): plugins() makes its items, each plugin's
-// views under its label, after the panels (test/panels_menu_test.mjs). The file is read from the network and its text
+// bridge's, both tested without a browser (test/panels_view_test.mjs).
+// plugins() does the same for /live/plugins.json (test/panels_menu_test.mjs). The file is read from the network and its text
 // is untrusted: a label is set as text, and a URL is parsed again here, so
 // only an http: or https: page on another origin is kept.
 //
@@ -23,6 +21,19 @@
   // As tehas panel folds them: a control character, a line or paragraph separator.
   const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
 
+  // An http: or https: address on another origin, or null.
+  function address(raw, origin) {
+    if (typeof raw !== "string" || raw.length > 512) return null;
+    let url;
+    try {
+      url = new URL(raw);
+    } catch {
+      return null;
+    }
+    if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) return null;
+    return url.origin === origin ? null : url.href;
+  }
+
   // [{ id, label, url }], at most four, or [] when the file is not a list.
   // `origin` is the page's own, which no panel may be on.
   function view(file, origin) {
@@ -34,17 +45,10 @@
       if (p === null || typeof p !== "object" || typeof p.id !== "string" || !ID.test(p.id) || seen.has(p.id)) continue;
       const label = typeof p.label === "string" ? p.label.replace(CONTROL, " ").trim() : "";
       if (!label || [...label].length > 24) continue;
-      if (typeof p.url !== "string" || p.url.length > 512) continue;
-      let url;
-      try {
-        url = new URL(p.url);
-      } catch {
-        continue;
-      }
-      if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) continue;
-      if (url.origin === origin) continue;
+      const url = address(p.url, origin);
+      if (!url) continue;
       seen.add(p.id);
-      items.push({ id: p.id, label, url: url.href });
+      items.push({ id: p.id, label, url });
     }
     return items;
   }
@@ -70,27 +74,13 @@
     return out.slice(0, MAX);
   }
 
-  // A view's address, kept only as an http: or https: page on another origin.
-  function address(raw, origin) {
-    if (typeof raw !== "string" || raw.length > 512) return null;
-    let url;
-    try {
-      url = new URL(raw);
-    } catch {
-      return null;
-    }
-    if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) return null;
-    return url.origin === origin ? null : url.href;
-  }
-
   const NAME = /^[a-z][a-z0-9]{0,11}$/;
   const VIEW = /^[a-z-]{1,16}$/;
   const PLUGINS = 8;
   const text = (s) => (typeof s === "string" ? s.replace(CONTROL, " ").trim() : "");
   const fits = (s) => s && [...s].length <= 24;
 
-  // [{ id, label, url, open, group }] of the plugins menu: each plugin's
-  // views, at most four, under its label, at most eight plugins.
+  // The plugins menu's items: each plugin's views under its label.
   function plugins(file, origin) {
     if (file === null || typeof file !== "object" || !Array.isArray(file.plugins)) return [];
     const items = [];
@@ -187,7 +177,7 @@
   // that went, or now opens as a page, keeps no frame, and a dock showing it
   // closes.
   function draw(items) {
-    for (const old of nav.querySelectorAll(".panel-link, .panel-group")) old.remove();
+    for (const old of [...nav.querySelectorAll(".panel-link"), ...nav.querySelectorAll(".panel-group")]) old.remove();
     const docked = (id) => items.find((i) => i.id === id && i.open !== "page");
     if (shown && docked(shown.item.id)?.url !== shown.item.url) {
       dock.hidden = true;
