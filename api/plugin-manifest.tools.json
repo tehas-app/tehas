@@ -1,0 +1,13 @@
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "docs",
+  "label": "Product docs",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "asks": ["tool:find-doc"],
+  "timeout": 60,
+  "tools": [
+    {"id": "find-doc", "about": "Find the product doc that answers a question", "params": {"type": "object", "properties": {"q": {"type": "string", "maxLength": 200}}, "required": ["q"], "additionalProperties": false}, "timeout": 5, "chats": ["obeya"]}
+  ]
+}

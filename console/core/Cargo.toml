@@ -17,10 +17,13 @@ name = "tehas_core"
 path = "src/lib.rs"
 
 [features]
-mask = ["dep:regex", "dep:sha2"]
+mask = ["dep:sha2", "regex/default"]
 
 [dependencies]
-regex = { version = "1", optional = true }
+# A plugin tool's patterns (src/plugin/params.rs): its syntax and Unicode
+# classes only, so a pattern means the same in every program; the mask adds
+# the rest of the defaults.
+regex = { version = "1", default-features = false, features = ["std", "unicode"] }
 # O_NOFOLLOW, for the reader of a plugin's /out.
 libc = "0.2"
 serde_json = "1"

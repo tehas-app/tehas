@@ -247,6 +247,7 @@ pub(crate) mod tests {
             actions: vec![],
             hook: asks.contains(&"hook:after:work").then_some(300),
             skills: vec![],
+            tools: vec![],
             needs: vec![],
         }
     }
