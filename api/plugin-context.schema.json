@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/plugin-context.schema.json",
+  "title": "/run/context.json",
+  "description": "What a plugin's run is told, in the file /run/context.json of its container, read only. Plugins are a feature still being built, so this is not contract until the release that ships them. It names nothing of a person, and nothing of a capability the run is not given: head with product, model with model, pr in a hook. The writer is console/core/src/plugin/run.rs; its tests hold what it writes to this schema.",
+  "type": "object",
+  "required": ["kind", "trigger", "commit"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {"enum": ["refresh", "hook"], "description": "refresh: the default branch's head, or a run on demand. hook: a run on a pull request a cycle left."},
+    "trigger": {"enum": ["timer", "host", "action", "cycle"], "description": "What started the run: the tick saw the default branch move, a person on the host, a press of the view's button, or a cycle that left a pull request."},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$", "description": "The plugin's own commit, the pin's."},
+    "head": {"type": "string", "pattern": "^[0-9a-f]{40}$", "description": "The commit checked out in /product. Only with product."},
+    "model": {
+      "type": "object",
+      "required": ["id", "tokens"],
+      "additionalProperties": false,
+      "description": "Only with model: the id to send to /run/tehas/model.sock and the run's budget of tokens.",
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "tokens": {"type": "integer", "minimum": 1}
+      }
+    },
+    "pr": {
+      "type": "object",
+      "required": ["number", "base", "head"],
+      "additionalProperties": false,
+      "description": "Only in a hook: the pull request, and the commits of its base and its head.",
+      "properties": {
+        "number": {"type": "integer", "minimum": 1},
+        "base": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "head": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+      }
+    }
+  },
+  "dependentSchemas": {
+    "pr": {"properties": {"kind": {"const": "hook"}}}
+  }
+}
