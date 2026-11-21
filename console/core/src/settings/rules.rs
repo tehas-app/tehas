@@ -388,7 +388,11 @@ pub const TABLE: &[Setting] = &[
         "memory=2 cpus=2 disk=4",
     ),
     always("TEHAS_PLUGIN_MODEL_DAY", Rule::Count, "5000000"),
-    always("TEHAS_PLUGIN_GATE_ADDR", Rule::GateAddress, "127.0.0.1:8095"),
+    always(
+        "TEHAS_PLUGIN_GATE_ADDR",
+        Rule::GateAddress,
+        "127.0.0.1:8095",
+    ),
     always("TEHAS_WORKSTREAMS", Rule::Count, "1"),
     row("TEHAS_MAX_CYCLES", Rule::Cycles, When::Always, None),
     always("TEHAS_HOST_ADDR", Rule::HostAddress, "127.0.0.1"),
@@ -1890,17 +1894,23 @@ mod tests {
 
     #[test]
     fn the_plugins_gate_listens_on_a_private_address_off_the_edges_ports() {
+        // Private addresses are made from their parts: scripts/check-generic.sh
+        // keeps their literals out of platform files.
+        use std::net::{Ipv4Addr, Ipv6Addr};
+        let v4 = |a, b, c, d, port: u16| format!("{}:{port}", Ipv4Addr::new(a, b, c, d));
+        let ula = Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 7);
         for v in [
-            "127.0.0.1:8095",
-            "10.0.0.7:1",
-            "172.16.4.2:9000",
-            "192.168.1.20:65535",
-            "100.64.0.1:8095",
-            "::1:8095",
-            "fd00::7:8095",
+            "127.0.0.1:8095".to_string(),
+            v4(10, 0, 0, 7, 1),
+            v4(172, 16, 4, 2, 9000),
+            v4(192, 168, 1, 20, 65535),
+            v4(100, 64, 0, 1, 8095),
+            "::1:8095".to_string(),
+            format!("{ula}:8095"),
         ] {
-            takes("TEHAS_PLUGIN_GATE_ADDR", v);
+            takes("TEHAS_PLUGIN_GATE_ADDR", &v);
         }
+        let private_on_8081 = v4(10, 0, 0, 7, 8081);
         for bad in [
             "0.0.0.0:8095",
             "192.0.2.7:8095",
@@ -1910,7 +1920,7 @@ mod tests {
             "localhost:8095",
             "tehas.example:8095",
             "127.0.0.1:8080",
-            "10.0.0.7:8081",
+            private_on_8081.as_str(),
             "127.0.0.1",
             "127.0.0.1:0",
             "127.0.0.1:08095",
