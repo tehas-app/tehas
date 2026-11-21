@@ -541,6 +541,9 @@ mod tests {
         let v = pinned();
         assert_eq!(v.split('.').count(), 3, "TSC_VERSION={v}");
         assert!(v.split('.').all(|n| n.parse::<u32>().is_ok()), "{v}");
+        // 7.0 is the first native tsc, a Go binary; before it tsc runs on node.
+        let major: u32 = v.split('.').next().unwrap().parse().unwrap();
+        assert!(major >= 7, "TSC_VERSION={v} is not the native tsc");
         let sums: Vec<&str> = VERSIONS
             .lines()
             .filter_map(|l| l.strip_prefix("TSC_SHA256="))
