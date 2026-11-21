@@ -112,12 +112,7 @@ fn search_of(repo: &str, since: Option<&str>) -> String {
 
 /// One run: up to `PAGES` pages from the cursor, each item written as it
 /// comes, the cursor moved after each page. Returns how many were written.
-pub fn run(
-    repo: &str,
-    dir: &Path,
-    now: &str,
-    ask: &mut Ask,
-) -> Result<usize, String> {
+pub fn run(repo: &str, dir: &Path, now: &str, ask: &mut Ask) -> Result<usize, String> {
     let mut cursor: Value = fs::read(dir.join(CURSOR))
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
