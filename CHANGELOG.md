@@ -19,6 +19,28 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 
 ## Unreleased
 
+## v1.3.0 (2026-11-21)
+
+### Highlights
+
+- **The MCP server answers from the product's history.** With `TEHAS_MCP_CHECKOUT` set to a full clone of the product, a full key gets `factory_git_log`, `factory_git_show` and `factory_git_blame`. The clone is mounted read only and read without running `git`. A client's connection asks the new `tehas-mcp-fetch.socket` for a fetch, at most once a minute and only forward, and the git tools say when the clone moved (#2709, #2715).
+- **The MCP server gives tickets.** While it is on, the status run reads the repository's issues and pull requests into `~/tehas/mcp/tickets/`, and a full key gets `factory_ticket` (body, comments, labels, epic, sub-issues, merge commit) and `factory_tickets`, a search (#2718).
+- **A planning session's end counts at once.** A poll that ends a planning session asks for the next poll at once, so a ready issue no longer waits two timer polls. `tehas limit set` and `tehas limit clear` ask for a poll when they let more cycles run while an issue waits (#2708).
+
+### Changes
+
+- The state store moves to schema 23 at the next `tehas update`, which backs it up first. Schema 22 keeps the GitHub user id of the person who filed a plugin's record; schema 23 lets a plugin's run be a tool call, with the size of its answer. Both serve plugins, which are off in this release.
+- Plugins are still being built and off in every release. New since v1.2.0: the runner and its timer, the gate behind a GitHub sign-in, views and the sandboxed frame for kept files, tools and `tehas plugin call`, and the hook after work with its commit status. `tehas plugin check <dir>` works with the feature off: it checks a plugin's folder on any machine, with no settings (#2633).
+- The product wiki is registered as a feature still being built, `wiki`. A release refuses `TEHAS_WIKI=on` with 78, and `/wiki` answers 404 while it is off (#2687).
+- An alpha or a beta release gate no longer runs the Kani proofs. A release candidate and a release still do, in three shards that run side by side when there are runners for them.
+- `scripts/tag-release.sh --version vX.Y.Z` names the release to tag.
+
+### Adopter action
+
+Run `tehas update`. It migrates the store to schema 23 and installs the MCP fetch units.
+
+To use the MCP server's git tools, keep a full clone of the product on the host, set `TEHAS_MCP_CHECKOUT=<path>` in `~/.config/tehas/env`, and restart `tehas-mcp.service`. A shallow clone is refused.
+
 ## v1.2.0 (2026-11-21)
 
 ### Highlights

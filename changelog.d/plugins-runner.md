@@ -1,3 +1,0 @@
-### Changes
-
-- Plugins, still being built: the runner `tehas-plugin` runs a plugin's container with what its grants give, its product clone and its model socket, kills it at its timeout, reads `/out` into its view or a hook's verdict (`api/plugin-verdict.schema.json`) and records each run in the state store. `tehas plugin run <name>`, `tehas plugin hook <name> <pr>` and `tehas plugin log <name> [--hook <pr>]` ask for a run and print its log, and `tehas plugin --json` gains `last_run` and `tokens_today`. `tehas-plugin.timer` asks for a refresh every 10 minutes when the default branch moved. `install.sh` installs the program and its units only while the feature is on, and every command still exits 78 with it on.
