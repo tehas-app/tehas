@@ -98,7 +98,7 @@ fn facts(kit: bool) -> Facts {
         view: true,
         kit,
         actions: vec!["refresh".to_string()],
-        paths: vec!["/".to_string()],
+        paths: vec![("/".to_string(), true)],
     }
 }
 
@@ -1257,11 +1257,14 @@ fn a_path_is_served_only_inside_a_granted_views_folder() {
             .map(String::from)
             .collect()
     };
-    let v1 = vec!["/".to_string()];
+    let views = |v: &[(&str, bool)]| -> Vec<(String, bool)> {
+        v.iter().map(|(p, g)| (p.to_string(), *g)).collect()
+    };
+    let v1 = views(&[("/", true)]);
     for p in ["", "index.html", "health/", "a/b.js"] {
         assert!(catalog::covered(&v1, &seg(p)), "{p}");
     }
-    let health = vec!["/health/".to_string()];
+    let health = views(&[("/health/", true)]);
     for (p, yes) in [
         ("health", true),
         ("health/index.html", true),
@@ -1273,5 +1276,20 @@ fn a_path_is_served_only_inside_a_granted_views_folder() {
     ] {
         assert_eq!(catalog::covered(&health, &seg(p)), yes, "{p}");
     }
+    // The longest folder decides: / granted and /health/ not leaves
+    // /health/ 404, never served by the grant of /.
+    let both = views(&[("/", true), ("/health/", false)]);
+    for (p, yes) in [
+        ("index.html", true),
+        ("map/x.js", true),
+        ("health", false),
+        ("health/x", false),
+        ("healthy/x", true),
+    ] {
+        assert_eq!(catalog::covered(&both, &seg(p)), yes, "{p}");
+    }
+    let inner = views(&[("/", false), ("/health/", true)]);
+    assert!(catalog::covered(&inner, &seg("health/x")));
+    assert!(!catalog::covered(&inner, &seg("index.html")));
     assert!(!catalog::covered(&[], &seg("index.html")));
 }
