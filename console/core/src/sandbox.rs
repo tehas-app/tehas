@@ -14,6 +14,7 @@
 //! Every list here is docker options, one word each.
 
 use crate::models::{self, ModelFile};
+use crate::plugin;
 use crate::slice::{self, Load, Probe, Usable};
 use std::env;
 use std::fs;
@@ -613,6 +614,77 @@ pub fn capabilities(image: &str) -> Vec<String> {
         RUNNER,
         "--capabilities",
     ])
+}
+
+/// The whole command of a plugin's run, docs/specs/2026-11-21-plugins-security.md
+/// "The container". Nothing else adds an argument. A run starts with nothing:
+/// no network, no capability, no host path but its context, and the product
+/// and the model socket's directory only when they are given
+/// ([`plugin::run::Run::given`]). The image runs by id, its own entrypoint,
+/// and the container stays after it stops so that /out can be read.
+pub fn plugin_run(run: &plugin::run::Run) -> Result<Vec<String>, String> {
+    let given = run.given()?;
+    let name = &run.manifest.name;
+    let id = run.id;
+    let uid = plugin::run::UID;
+    let memory = format!("{}g", run.limits.memory);
+    let mut w = words(&["docker", "run", "--init", "--name", &run.container()]);
+    w.extend(words(&["--cidfile", &run.path("cid"), NEVER_PULL]));
+    w.extend(words(&["--user", &format!("{uid}:{uid}"), "--read-only"]));
+    w.extend(words(&[
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--network",
+        "none",
+        "--cgroup-parent",
+        "tehas.slice",
+        "--memory",
+        &memory,
+        "--memory-swap",
+        &memory,
+        "--cpus",
+        &run.limits.cpus.to_string(),
+        "--pids-limit",
+        "512",
+        "--log-driver",
+        "json-file",
+        "--log-opt",
+        "max-size=10m",
+        "--log-opt",
+        "max-file=1",
+        "--tmpfs",
+        "/tmp:size=256m,noexec,nosuid,nodev",
+    ]));
+    let volume =
+        |what: &str, dst: &str| format!("type=volume,src=tehas-plugin-{name}-{what},dst={dst}");
+    let mut mounts = vec![
+        volume(&format!("work-{id}"), "/work"),
+        volume(&format!("out-{id}"), "/out"),
+        volume("state", "/state"),
+    ];
+    if run.kind == plugin::run::Kind::Hook {
+        mounts[2].push_str(",readonly");
+    }
+    let bind = |src: &str, dst: &str| format!("type=bind,src={src},dst={dst},readonly");
+    if given.product {
+        mounts.push(bind(&run.path("product"), "/product"));
+    }
+    if given.tokens.is_some() {
+        mounts.push(bind(&run.path("model"), "/run/tehas"));
+    }
+    mounts.push(bind(&run.path("context.json"), "/run/context.json"));
+    w.extend(pair("--mount", mounts));
+    if given.product {
+        // /product is the host user's, not the container's: git reads it only
+        // as a safe directory.
+        let mut c = GitConfig::default();
+        c.add("safe.directory", "/product");
+        w.extend(pair("-e", git_config_words(&c)));
+    }
+    w.push(run.image.to_string());
+    Ok(w)
 }
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -1940,5 +2012,101 @@ mod tests {
                     .to_string()
             )
         );
+    }
+
+    // The arguments of a plugin's run, word by word, against
+    // test/fixtures/argv/plugin-<case>, one word a line. To write the files
+    // again after a change meant to change them, and read the diff:
+    //   TEHAS_TEST_ARGV_RECORD=1 cargo test --locked -p tehas-core plugin_argv
+    #[test]
+    fn plugin_argv_is_pinned_for_no_grant_each_capability_and_the_reference() {
+        use crate::plugin::run::tests::{granted, manifest, run};
+        use crate::plugin::run::Kind;
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../test/fixtures/argv");
+        let reference = [
+            "view",
+            "product",
+            "model",
+            "action:refresh",
+            "hook:after:work",
+        ];
+        let cases: [(&str, &[&str], &str, Kind); 6] = [
+            ("none", &[], "", Kind::Refresh),
+            ("view", &["view"], "view", Kind::Refresh),
+            ("product", &["product"], "product", Kind::Refresh),
+            ("model", &["model"], "model:2000000", Kind::Refresh),
+            ("hook", &["hook:after:work"], "hook:after:work", Kind::Hook),
+            (
+                "reference",
+                &reference,
+                "view product model:2000000 action:refresh hook:after:work",
+                Kind::Refresh,
+            ),
+        ];
+        let record = env::var_os("TEHAS_TEST_ARGV_RECORD").is_some();
+        for (case, asks, grants, kind) in cases {
+            let m = manifest(asks);
+            let g = granted(grants);
+            let w = plugin_run(&run(&m, &g, kind)).unwrap();
+            assert_eq!(w[0], "docker");
+            let got: String = w[1..].iter().map(|a| format!("{a}\n")).collect();
+            let file = format!("{dir}/plugin-{case}");
+            if record {
+                fs::write(&file, &got).unwrap();
+            }
+            let want = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{file}: {e}"));
+            assert_eq!(got, want, "{file}");
+        }
+    }
+
+    #[test]
+    fn a_plugin_run_has_no_rm_no_host_path_but_its_own_and_no_network() {
+        use crate::plugin::run::tests::{granted, manifest, run};
+        use crate::plugin::run::Kind;
+        let asks = [
+            "view",
+            "product",
+            "model",
+            "action:refresh",
+            "hook:after:work",
+        ];
+        let m = manifest(&asks);
+        let g = granted("view product model:5 action:refresh hook:after:work");
+        for kind in [Kind::Refresh, Kind::Hook] {
+            let w = plugin_run(&run(&m, &g, kind)).unwrap();
+            assert!(!w.iter().any(|a| a == "--rm" || a == "--privileged"));
+            assert!(!w
+                .iter()
+                .any(|a| a.contains("docker.sock") || a.starts_with("-v")));
+            let net = w.iter().position(|a| a == "--network").unwrap();
+            assert_eq!(w[net + 1], "none");
+            assert_eq!(w.iter().filter(|a| *a == "--network").count(), 1);
+            for (i, a) in w
+                .iter()
+                .enumerate()
+                .filter(|(_, a)| a.contains("type=bind"))
+            {
+                assert_eq!(w[i - 1], "--mount");
+                assert!(a.ends_with(",readonly"), "{a}");
+                assert!(
+                    a.starts_with("type=bind,src=/home/tehas/tehas/plugins/demo/run-7/"),
+                    "{a}"
+                );
+            }
+            let state = w.iter().find(|a| a.contains("dst=/state")).unwrap();
+            assert_eq!(state.ends_with(",readonly"), kind == Kind::Hook);
+            assert_eq!(w.last().unwrap(), crate::plugin::run::tests::IMAGE);
+        }
+    }
+
+    #[test]
+    fn a_plugin_run_that_is_not_granted_has_no_arguments() {
+        use crate::plugin::run::tests::{granted, manifest, run};
+        use crate::plugin::run::Kind;
+        let m = manifest(&["product"]);
+        let g = granted("");
+        assert!(plugin_run(&run(&m, &g, Kind::Refresh)).is_err());
+        let m = manifest(&[]);
+        assert!(plugin_run(&run(&m, &g, Kind::Hook)).is_err());
     }
 }
