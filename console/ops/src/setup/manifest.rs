@@ -9,8 +9,10 @@ use std::path::Path;
 
 /// The app the factory needs: what a cycle and the host write and read, no
 /// workflows, no events and no webhook. Private: one account installs it.
-pub fn json(name: &str, owner_url: &str, redirect: &str) -> String {
-    json!({
+/// With a `callback`, GitHub sends a person who signs in to the plugins'
+/// views back there (docs/specs/2026-11-21-plugins-web.md).
+pub fn json(name: &str, owner_url: &str, redirect: &str, callback: Option<&str>) -> String {
+    let mut manifest = json!({
         "name": name,
         "url": owner_url,
         "redirect_url": redirect,
@@ -26,8 +28,11 @@ pub fn json(name: &str, owner_url: &str, redirect: &str) -> String {
             "checks": "read",
             "statuses": "read"
         }
-    })
-    .to_string()
+    });
+    if let Some(url) = callback {
+        manifest["callback_urls"] = json!([url]);
+    }
+    manifest.to_string()
 }
 
 /// Where GitHub takes a manifest for an organisation's app or a user's.
@@ -138,12 +143,15 @@ pub fn new_state() -> io::Result<String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// What is kept of GitHub's answer to the conversion. The client and webhook
-/// secrets are not kept. No Debug: the key is in it.
+/// What is kept of GitHub's answer to the conversion. The webhook secret is
+/// not kept. No Debug: the key and the client secret are in it.
 pub struct Made {
     pub id: String,
     pub slug: String,
     pub pem: String,
+    /// The client id and secret, for the plugins' sign-in; none when the
+    /// answer has no good pair.
+    pub client: Option<(String, String)>,
 }
 
 pub fn made(answer: &[u8]) -> Option<Made> {
@@ -152,10 +160,23 @@ pub fn made(answer: &[u8]) -> Option<Made> {
     let slug = answer["slug"].as_str()?;
     let good_slug = tehas_core::settings::rules::is_login(slug);
     let pem = answer["pem"].as_str()?;
+    let client = match (
+        answer["client_id"].as_str(),
+        answer["client_secret"].as_str(),
+    ) {
+        (Some(id), Some(secret))
+            if tehas_core::plugin::is_client_value(id)
+                && tehas_core::plugin::is_client_value(secret) =>
+        {
+            Some((id.to_string(), secret.to_string()))
+        }
+        _ => None,
+    };
     (good_slug && pem.starts_with("-----BEGIN")).then(|| Made {
         id,
         slug: slug.to_string(),
         pem: pem.to_string(),
+        client,
     })
 }
 
@@ -197,6 +218,12 @@ pub fn write_key(file: &Path, pem: &str) -> io::Result<()> {
         .open(file)?;
     f.write_all(pem.as_bytes())?;
     f.sync_all()
+}
+
+/// A value of the App's client as its file holds it: one line, mode 600,
+/// never written through a link.
+pub fn write_client(file: &Path, value: &str) -> io::Result<()> {
+    write_page(file, &format!("{value}\n"))
 }
 
 /// The page, mode 600, never written through a link.
@@ -253,6 +280,7 @@ mod tests {
             "widget-factory",
             "https://github.com/acme",
             "https://github.com/acme",
+            None,
         ))
         .unwrap();
         assert_eq!(m["name"], "widget-factory");
@@ -274,6 +302,24 @@ mod tests {
             })
         );
         assert!(m["default_permissions"].get("workflows").is_none());
+        assert!(m.get("callback_urls").is_none());
+    }
+
+    #[test]
+    fn with_a_domain_the_manifest_has_the_sign_ins_callback() {
+        let url = tehas_core::plugin::callback_url("example.org", false);
+        let m: Value = serde_json::from_str(&json(
+            "widget-factory",
+            "https://github.com/acme",
+            "https://github.com/acme",
+            Some(&url),
+        ))
+        .unwrap();
+        assert_eq!(
+            m["callback_urls"],
+            serde_json::json!(["https://plugins.example.org/_auth/callback"])
+        );
+        assert_eq!(m["redirect_url"], "https://github.com/acme");
     }
 
     #[test]
@@ -294,6 +340,7 @@ mod tests {
             "a \"b\" <c> & 'd'",
             "https://github.com/acme",
             "https://github.com/acme",
+            None,
         );
         let action = "https://github.com/organizations/acme/settings/apps/new";
         let html = decoded(&data_link(&manifest, action, "s123"));
@@ -358,6 +405,19 @@ mod tests {
         assert_eq!(m.id, "9");
         assert_eq!(m.slug, "acme-factory");
         assert!(m.pem.starts_with("-----BEGIN"));
+        // A secret without its id is no client.
+        assert!(m.client.is_none());
+        let pem = r#""pem":"-----BEGIN x""#;
+        let both =
+            format!(r#"{{"id":9,"slug":"a",{pem},"client_id":"Iv1.ab","client_secret":"cs"}}"#);
+        assert_eq!(
+            made(both.as_bytes()).unwrap().client,
+            Some(("Iv1.ab".to_string(), "cs".to_string()))
+        );
+        let spaced =
+            format!(r#"{{"id":9,"slug":"a",{pem},"client_id":"Iv1.ab","client_secret":"c s"}}"#);
+        let m = made(spaced.as_bytes()).unwrap();
+        assert!(m.client.is_none(), "the app is kept, its client is not");
         assert!(made(br#"{"id":9,"slug":"acme-factory"}"#).is_none());
         assert!(made(br#"{"id":9,"slug":"a b","pem":"-----BEGIN x"}"#).is_none());
         assert!(made(br#"{"slug":"a","pem":"-----BEGIN x"}"#).is_none());
@@ -380,6 +440,25 @@ mod tests {
         std::os::unix::fs::symlink(d.join("nowhere"), d.join("dangling.pem")).unwrap();
         assert!(key_can_go(&d.join("dangling.pem")).is_err());
         assert_eq!(fs::read_to_string(&f).unwrap(), "-----BEGIN x\n");
+    }
+
+    #[test]
+    fn a_value_of_the_client_is_one_line_600_and_replaced() {
+        let d = tehas_core::testdir::TestDir::new("manifest-client");
+        let f = d.join(tehas_core::plugin::CLIENT_SECRET_FILE);
+        write_client(&f, "old").unwrap();
+        write_client(&f, "new").unwrap();
+        assert_eq!(fs::read_to_string(&f).unwrap(), "new\n");
+        assert_eq!(
+            fs::metadata(&f).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let target = d.join("elsewhere");
+        fs::write(&target, "kept").unwrap();
+        let link = d.join("linked");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(write_client(&link, "x").is_err());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "kept");
     }
 
     #[test]

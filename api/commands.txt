@@ -63,7 +63,7 @@ prototype building=prototype-file
 prototype file --body-file --spec --spec-sha256 --title --zip --zip-sha256 building=prototype-file
 refresh --json --pr
 resume
-setup --app-id --app-key-file --app-name --app-owner --control-issue --endpoint --force --labelers --model --model-key-file --new-app --no-build --provider --repo
+setup --app-client-id --app-id --app-key-file --app-name --app-owner --app-secret-file --control-issue --endpoint --force --labelers --model --model-key-file --new-app --no-build --provider --repo
 start --clear --json
 state
 state check --json

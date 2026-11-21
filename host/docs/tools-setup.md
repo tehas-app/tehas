@@ -29,6 +29,7 @@ exit 78, since the shell that sources the file would read it otherwise.
 | `--app-owner <login>` | The organisation or user that owns the new app. Without it, the repository's owner |
 | `--app-name <name>` | The new app's name, up to 34 characters. Without it, `<repository>-factory` |
 | `--app-id <id>`, `--app-key-file <file>` | A GitHub App you have, in place of `--new-app`: its ID and its private key. Both or neither, and not with `--new-app`, else exit 64 |
+| `--app-client-id <id>`, `--app-secret-file <file>` | For an app made before: its client id and a client secret made on its settings page, for the plugins' sign-in ([A GitHub App](/github-app#the-client-for-the-plugins-sign-in)). The secret is the file's first line, `-` for standard input. Each is one word of printable characters, else exit 78. They are written to `~/.config/tehas/github-app.client-id` and `github-app.client-secret`, mode 600, once every check passed. A value there that differs is replaced only with `--force`. Both or neither, and not with `--new-app`, else exit 64 |
 | `--endpoint <url>` | The OpenAI-compatible model endpoint, with its `/v1`. Its models are read from `<url>/models` |
 | `--model <id>` | The model. Needed when the endpoint offers more than one and there is no terminal to pick on |
 | `--model-key-file <file>` or `-` | The endpoint's key, if it takes one. It goes in `~/.config/tehas/env` as `TEHAS_MODEL_KEY_<PROVIDER>`, and `models.json` names that variable. Curl gets it on standard input. Without the option, setup reads the key already in that file; a key there that holds a `$` or a backtick outside single quotes is refused with a line that names the key and not its value, since setup reads the file and does not run it |
@@ -67,7 +68,15 @@ With `--new-app`, after the endpoint check:
   hour and works once. The answer's key is written to
   `~/.config/tehas/github-app.pem` (a new file, mode 600) and the app's ID to
   `instance.env` as `TEHAS_GITHUB_APP_ID` in the same step, and the page is
-  removed. The key and the app's secrets are never printed.
+  removed. The answer's client id and client secret go to
+  `~/.config/tehas/github-app.client-id` and `github-app.client-secret`,
+  mode 600, for the plugins' sign-in; an answer without them, or a write that
+  fails, is said and does not stop setup. The key and the app's secrets are
+  never printed.
+- With `TEHAS_DOMAIN` in `instance.env`, the manifest names the callback URL
+  of the plugins' sign-in, `https://plugins.<domain>/_auth/callback`
+  (`plugins-<sub>.<domain>` with `TEHAS_EDGE_ONE_LEVEL=on`). Without a
+  domain it names none.
 - It prints the install link `https://github.com/apps/<slug>/installations/new`
   and waits up to 10 minutes, asking `GET /app/installations` every 5 seconds,
   for the app to be installed. Then the run goes on as with `--app-id`.

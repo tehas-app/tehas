@@ -31,7 +31,8 @@ Press **Create GitHub App**. GitHub then opens a page whose address ends in
 `?code=...&state=...`. Paste that address (or the code alone) at setup's
 prompt. Setup turns the code into the app, writes the key to
 `~/.config/tehas/github-app.pem` (mode 600) and the app's ID to `instance.env`
-as `TEHAS_GITHUB_APP_ID`, and prints the install link. Install the app on the
+as `TEHAS_GITHUB_APP_ID`, keeps the app's client id and client secret beside
+the key for the plugins' sign-in, and prints the install link. Install the app on the
 product repository, and on the repository review findings go to if it is
 another one. Setup waits up to 10 minutes for that, then goes on.
 
@@ -47,6 +48,35 @@ To use an app you already have, give its ID and key:
 tehas setup --app-id <App ID> --app-key-file <downloaded>.private-key.pem
 ```
 
+### The client, for the plugins' sign-in
+
+A plugin's view is served only to a person GitHub says has access to the
+repository, who signs in through the app's web flow
+([the gate of the views](/tools-control#the-gate-of-the-views)). That needs
+two things of the app: a callback URL and a client secret. `tehas setup
+--new-app` sets the callback in the manifest when `instance.env` has
+`TEHAS_DOMAIN`, and keeps the client id and secret GitHub returns in
+`~/.config/tehas/github-app.client-id` and `github-app.client-secret`, mode
+600. With `TEHAS_EDGE_ONE_LEVEL=on` the name is `plugins-<sub>.<domain>`.
+
+An app made before has neither. On the app's settings page, **General**:
+
+1. Under **Callback URL**, add `https://plugins.<domain>/_auth/callback` and
+   save.
+2. Note the **Client ID**.
+3. Under **Client secrets**, press **Generate a new client secret** and copy
+   it into a file. GitHub shows it once.
+
+Then, as the tehas user:
+
+```bash
+tehas setup --app-client-id <Client ID> --app-secret-file <file>
+```
+
+Setup checks the rest as on any run, then writes the two files, mode 600.
+Remove the file you copied the secret into. Plugins are still being built in
+this release: nothing reads the two files until the gate runs.
+
 [tehas setup](/tools-setup#tehas-setup) lists every step. Setup ends with
 `tehas github check`.
 
@@ -60,7 +90,8 @@ asks for. In the organisation (or account) that owns the product repository:
 | --- | --- |
 | GitHub App name | `<product>-factory`, for example. Its slug becomes the bot's login, `<slug>[bot]` |
 | Homepage URL | The product repository's URL. Nothing calls it |
-| Callback URL, Setup URL | Empty |
+| Callback URL | `https://plugins.<domain>/_auth/callback`, with the instance's `TEHAS_DOMAIN`, for the plugins' sign-in. Empty without a domain |
+| Setup URL | Empty |
 | Expire user authorization tokens | Leave on. tehas uses installation tokens, which always last one hour |
 | Request user authorization (OAuth) during installation | Off |
 | Enable Device Flow | Off |
