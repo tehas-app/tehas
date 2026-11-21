@@ -103,6 +103,18 @@ The new mount is a security change, and its pull request says so.
 
 ## Built after v2.0.0
 
-The coding standard v2 refactor gives the `$TEHAS_HOME` layout an owner
-(T5). `state/index-mcp` and `run/mcp-code` will be added there, not as new
-string paths. This step is built on main once the refactor branch has merged.
+This step is built on main once the coding standard v2 refactor has merged,
+and it is described in terms of owners, not today's files:
+
+- The `$TEHAS_HOME` paths, the index copy and the code socket's directory,
+  are paths of the `Home` type (T5), never string literals. The socket
+  directory goes beside the fetch and plugin-call sockets under `run/`, one
+  directory per socket, because `live/` is given to more than the MCP
+  container.
+- The publish step belongs to the module that owns the index run. The broker
+  and the query container's arguments belong to the module that owns the MCP
+  server's mounts. Both may move in T6.
+- The server's tools are in the mcp crate, which the plan counts as deep
+  already.
+- The units and the install and update lists follow their owners (T8), under
+  whatever names the 2.0 rename gives them.
