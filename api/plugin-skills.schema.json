@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/plugin-skills.schema.json",
+  "title": "tehas plugin skills --json",
+  "description": "What tehas plugin skills [--chat <host>] --json prints, version 1: the skills of every ready plugin that are granted at its pin, for one chat host or all (docs/specs/2026-11-21-plugins-v2-chats.md, \"In the chat\"). A chat host puts each text in its instructions after its own rules, labelled with the plugin's label, and marks what a turn with it proposed as shaped by that plugin; every entry carries its plugin, pin and label, so a host needs no second lookup. The text is read from the plugin's repository at the pinned commit, never from what a run wrote, and sha256 is of those bytes. A held or refused plugin has no entry. The texts of all entries together are at most TEHAS_PLUGIN_SKILLS_MAX bytes. Plugins are a feature still being built, so this is not contract until the release that ships them. Every object is closed. The tests of console/core/src/plugin/schema.rs hold the sample beside this file to this schema.",
+  "type": "object",
+  "required": ["api", "chat", "skills"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "chat": {"enum": ["obeya", "wizard", "assistant", null]},
+    "skills": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": ["plugin", "label", "commit", "id", "about", "chats", "text", "sha256"],
+        "additionalProperties": false,
+        "properties": {
+          "plugin": {"type": "string", "pattern": "^[a-z][a-z0-9]{0,11}$"},
+          "label": {"type": "string", "minLength": 1, "maxLength": 24},
+          "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+          "id": {"type": "string", "pattern": "^[a-z-]{1,16}$"},
+          "about": {"type": "string", "minLength": 1, "maxLength": 120},
+          "chats": {
+            "type": "array",
+            "uniqueItems": true,
+            "contains": {"enum": ["obeya", "wizard", "assistant"]},
+            "items": {"enum": ["obeya", "wizard", "assistant"]}
+          },
+          "text": {"type": "string", "minLength": 1, "maxLength": 2048},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    }
+  }
+}
