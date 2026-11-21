@@ -258,13 +258,15 @@ Every tool in `host/versions.env` and in the npm trees beside it
 moves the pins before it tags, through `scripts/pins.sh move` (`console pins`):
 each to the newest release of the major version it has, taken from the tool's
 own source: nodejs.org, GitHub releases (gh, bun, shellcheck, jq, Rust,
-codebase-memory-mcp, OSV-Scanner) or tags (rustup), npm, crates.io (vipune, oo)
-and Docker Hub (Caddy). Each version moves with what the header of `versions.env` pairs
+codebase-memory-mcp, OSV-Scanner) or tags (rustup), npm (the npm trees, and
+tsc), crates.io (vipune, oo) and Docker Hub (Caddy). Each version moves with what the header of `versions.env` pairs
 with it: the publisher's checksum or the hash of the download, the lockfile
 of an npm tree (npm locks it again; a version younger than npm's
 `min-release-age` is not taken) and its `_LOCK_SHA256`, Caddy's digest in the
 three files that name it, and vipune's model at the revision the new vipune
-asks for, with its two hashes from Hugging Face. pi, `PI_VERSION` and the tree
+asks for, with its two hashes from Hugging Face. tsc, `TSC_VERSION`, moves with
+the sha256 of npm's tarball of it, which must match the sha512 integrity the
+registry publishes. The kit's type check reads the version from `versions.env`. pi, `PI_VERSION` and the tree
 in `host/npm/pi/`, moves with them, so a release names one pi. The script
 leaves pi-rukas's line alone: the release workflow pins its commit when it
 packs (see above). OSV-Scanner is the one pin `bootstrap.sh` does not install: the gate
