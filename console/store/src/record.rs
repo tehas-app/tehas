@@ -18,6 +18,7 @@ use crate::verbs::{self, line, Args, Fail, Kind, Q};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde_json::{json, Value};
 use std::path::Path;
+use tehas_core::plugin::is_name as plugin_name;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Call {
@@ -42,15 +43,6 @@ pub enum Call {
         issue: Option<i64>,
         open: bool,
     },
-}
-
-/// A plugin's name, as `TEHAS_PLUGINS` takes it: `a-z` and `0-9`, 1 to 12,
-/// a letter first.
-pub fn plugin_name(s: &str) -> bool {
-    (1..=12).contains(&s.len())
-        && s.as_bytes()[0].is_ascii_lowercase()
-        && s.bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
 }
 
 /// A record's id: `a-z`, `0-9` and `-`, 1 to 32, not starting or ending
