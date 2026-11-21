@@ -195,6 +195,9 @@ pub enum Cap {
     ModelImages,
     /// A tool the chats may call, a run of its own each call.
     Tool(String),
+    /// The tool of that id on the MCP server, for full keys
+    /// (docs/specs/2026-11-21-plugins-mcp.md). Needs `tool:<id>`.
+    Mcp(String),
 }
 
 impl Cap {
@@ -210,6 +213,7 @@ impl Cap {
             Cap::Needs(name) => format!("needs:{name}"),
             Cap::ModelImages => "model:images".to_string(),
             Cap::Tool(id) => format!("tool:{id}"),
+            Cap::Mcp(id) => format!("mcp:{id}"),
         }
     }
 
@@ -295,6 +299,15 @@ fn cap(word: &str, granted: bool) -> Result<(Cap, Option<u64>), String> {
             ))
         };
     }
+    if let Some(id) = word.strip_prefix("mcp:") {
+        return if is_action_id(id) {
+            Ok((Cap::Mcp(id.to_string()), None))
+        } else {
+            Err(format!(
+                "{word}: a tool's id is 1 to 16 characters of a-z and -"
+            ))
+        };
+    }
     if let Some(name) = word.strip_prefix("needs:") {
         return if is_name(name) {
             Ok((Cap::Needs(name.to_string()), None))
@@ -354,6 +367,13 @@ pub fn grants(value: &str) -> Result<Grants, String> {
         out.caps.push(cap);
         out.tokens = out.tokens.or(tokens);
         out.words.push(word.to_string());
+    }
+    for cap in &out.caps {
+        if let Cap::Mcp(id) = cap {
+            if !out.caps.contains(&Cap::Tool(id.clone())) {
+                return Err(format!("mcp:{id} needs tool:{id} on the same line"));
+            }
+        }
     }
     Ok(out)
 }
@@ -716,6 +736,38 @@ mod tests {
         let got = compare(&words(&["tool:grep"]), Some(&g), C);
         assert!(got.granted(), "{got:?}");
         assert_eq!(got.unasked, ["tool:find-doc"]);
+    }
+
+    #[test]
+    fn mcp_is_granted_and_asked_by_a_tools_id_and_needs_its_tool() {
+        let g = grants(&format!("{C} tool:find-doc mcp:find-doc")).unwrap();
+        assert_eq!(
+            g.caps,
+            [Cap::Tool("find-doc".into()), Cap::Mcp("find-doc".into())]
+        );
+        // The order on the line does not matter.
+        assert!(grants(&format!("{C} mcp:find-doc tool:find-doc")).is_ok());
+        assert_eq!(
+            grants(&format!("{C} mcp:find-doc")).unwrap_err(),
+            "mcp:find-doc needs tool:find-doc on the same line"
+        );
+        assert_eq!(
+            grants(&format!("{C} tool:grep mcp:find-doc")).unwrap_err(),
+            "mcp:find-doc needs tool:find-doc on the same line"
+        );
+        assert_eq!(ask("mcp:find-doc"), Ok(Cap::Mcp("find-doc".into())));
+        assert_eq!(Cap::Mcp("find-doc".into()).ask(), "mcp:find-doc");
+        assert!(Cap::Mcp("find-doc".into()).needs_run());
+        for bad in ["mcp:", "mcp:Find", "mcp:a_b", "mcp:abcdefghijklmnopq"] {
+            assert_eq!(
+                ask(bad).unwrap_err(),
+                format!("{bad}: a tool's id is 1 to 16 characters of a-z and -")
+            );
+        }
+        let got = compare(&words(&["tool:find-doc", "mcp:find-doc"]), Some(&g), C);
+        assert!(got.granted(), "{got:?}");
+        let chats_only = compare(&words(&["tool:find-doc"]), Some(&g), C);
+        assert_eq!(chats_only.unasked, ["mcp:find-doc"]);
     }
 
     #[test]

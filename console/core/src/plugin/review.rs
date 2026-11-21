@@ -17,7 +17,7 @@ pub struct Row {
 /// release, one manifest"). `tehas plugin review` prints from it, and the
 /// manual's page `host/docs/plugins.md` holds it as [`markdown`] writes it.
 /// A new capability is a new row here.
-pub const TABLE: [Row; 9] = [
+pub const TABLE: [Row; 10] = [
     Row { word: "view", does: "its /out is served behind the sign-in, and a panel in the dock: everyone the sign-in lets in sees it" },
     Row { word: "product", does: "reads all of the product's code, read only, in every run" },
     Row { word: "model:<tokens>", does: "chat completions through a socket, up to the tokens of the grant a run" },
@@ -27,6 +27,7 @@ pub const TABLE: [Row; 9] = [
     Row { word: "skill:<id>", does: "its text from the pinned commit goes into the chats' instructions" },
     Row { word: "needs:<name>", does: "runs only while the named plugin is ready, and its chat gets the skills that plugin grants to a plugin's chat; it grants the other plugin nothing" },
     Row { word: "tool:<id>", does: "the chats it names may call it: each call is a run with the caller's arguments and the plugin's /state read only, and its answer goes to the model" },
+    Row { word: "mcp:<id>", does: "the tool is called on the MCP server by every holder of a full MCP key, outside the sign-in and with no login, and its answer goes to an agent the factory does not run" },
 ];
 
 /// The row of a capability.
@@ -41,6 +42,7 @@ pub fn row(cap: &Cap) -> &'static Row {
         Cap::Skill(_) => 6,
         Cap::Needs(_) => 7,
         Cap::Tool(_) => 8,
+        Cap::Mcp(_) => 9,
     };
     &TABLE[at]
 }
@@ -197,6 +199,7 @@ mod tests {
             Cap::Skill("grill".into()),
             Cap::Needs("specs".into()),
             Cap::Tool("find-doc".into()),
+            Cap::Mcp("find-doc".into()),
         ];
         let words: Vec<&str> = caps.iter().map(|c| row(c).word).collect();
         assert_eq!(words, TABLE.iter().map(|r| r.word).collect::<Vec<_>>());

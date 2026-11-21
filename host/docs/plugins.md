@@ -30,5 +30,6 @@ the line of this table. Read it before you write the grant.
 | `skill:<id>` | Its text from the pinned commit goes into the chats' instructions |
 | `needs:<name>` | Runs only while the named plugin is ready, and its chat gets the skills that plugin grants to a plugin's chat; it grants the other plugin nothing |
 | `tool:<id>` | The chats it names may call it: each call is a run with the caller's arguments and the plugin's /state read only, and its answer goes to the model |
+| `mcp:<id>` | The tool is called on the MCP server by every holder of a full MCP key, outside the sign-in and with no login, and its answer goes to an agent the factory does not run |
 
 A grant of anything not in this table is refused when the settings load.
