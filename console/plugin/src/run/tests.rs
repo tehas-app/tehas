@@ -228,8 +228,15 @@ pub fn world(name: &str, h: &mut Fake, asks: &str, grants: &str) -> World {
         manifest(asks)
     };
     let d = format!("FROM {NODE}\n");
+    h.x.on(
+        &format!("ls-tree -r -z --name-only {C}"),
+        ok("tehas-plugin.json\0Dockerfile\0"),
+    );
     for (path, text) in [("tehas-plugin.json", &m), ("Dockerfile", &d)] {
-        h.x.on(&format!("cat-file -t {C}:{path}"), ok("blob\n"));
+        h.x.on(
+            &format!("ls-tree -z {C} -- {path}"),
+            ok(&format!("100644 blob {}\t{path}\0", "e".repeat(40))),
+        );
         h.x.on(
             &format!("cat-file -s {C}:{path}"),
             ok(&format!("{}\n", text.len())),

@@ -1,8 +1,8 @@
 //! The rules of a plugin's Dockerfile, read before its build
 //! (docs/specs/2026-11-21-plugins-security.md, "The build"): every FROM by
 //! `@sha256:` digest with no ARG in it, no `# syntax=` line, COPY --from and
-//! RUN --mount=from= of a stage of the file only, no ADD of a URL or a git
-//! address. It reads what BuildKit reads: parser directives and the escape
+//! RUN --mount=from= of a stage of the file only, no RUN --mount of a cache,
+//! an SSH agent or a secret, no ADD of a URL or a git address. It reads what BuildKit reads: parser directives and the escape
 //! character, comments, line continuations and heredocs. What it cannot read
 //! as BuildKit would is refused, so a reading that differs fails closed.
 
@@ -357,8 +357,11 @@ fn instruction(ws: &[Word], line: usize, stages: &mut Stages, out: &mut Read) {
                 };
                 for field in value.split(',') {
                     let (k, v) = field.split_once('=').unwrap_or((field, ""));
-                    if k.trim().eq_ignore_ascii_case("from") {
+                    let k = k.trim();
+                    if k.eq_ignore_ascii_case("from") {
                         stage_from(Some(v.trim()), "RUN --mount=from", line, stages, out);
+                    } else if k.eq_ignore_ascii_case("type") {
+                        mount_type(v, line, out);
                     }
                 }
             }
@@ -376,6 +379,22 @@ fn instruction(ws: &[Word], line: usize, stages: &mut Stages, out: &mut Read) {
         }
         _ => {}
     }
+}
+
+/// A cache mount is shared by every build on the daemon and kept past
+/// `--no-cache`, so one plugin's build could feed another's. A plugin's
+/// build is given no SSH agent and no secret.
+fn mount_type(v: &str, line: usize, out: &mut Read) {
+    let t = v
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .to_ascii_lowercase();
+    let why = match t.as_str() {
+        "cache" => "a cache mount, which every build on the host shares",
+        "ssh" | "secret" => "a plugin's build is given none",
+        _ => return,
+    };
+    out.refuse(line, format!("RUN --mount=type={t}: {why}"));
 }
 
 /// `FROM [--platform=<p>] <image> [AS <name>]`.
@@ -439,7 +458,7 @@ mod tests {
         let text = format!(
             "# check=error=true\n\
              FROM --platform=$BUILDPLATFORM {b} AS build\n\
-             RUN --mount=type=cache,target=/c npm ci\n\
+             RUN --mount=type=tmpfs,target=/c npm ci\n\
              from alpine@sha256:{D} as Second\n\
              COPY --from=build /app /app\n\
              COPY --from=0 /a /b\n\
@@ -539,7 +558,7 @@ mod tests {
             "FROM {b} AS a\nFROM {b}\n\
              RUN --mount=type=bind,from=a,target=/a true\n\
              RUN --mount=type=bind,FROM=busybox,target=/b true\n\
-             RUN --network=none --mount=type=cache,target=/c,from=other true\n\
+             RUN --network=none --mount=type=bind,target=/c,from=other true\n\
              run --mount true\n"
         ));
         assert_eq!(
@@ -548,6 +567,28 @@ mod tests {
                 "line 4: RUN --mount=from=busybox: not an earlier stage of this file",
                 "line 5: RUN --mount=from=other: not an earlier stage of this file",
                 "line 6: RUN --mount without its options",
+            ]
+        );
+    }
+
+    #[test]
+    fn run_mount_of_a_cache_an_ssh_agent_or_a_secret_is_refused() {
+        let b = base();
+        let got = refused(&format!(
+            "FROM {b}\n\
+             RUN --mount=type=cache,target=/c npm ci\n\
+             RUN --mount=target=/c,TYPE=\"Cache\" true\n\
+             RUN --mount=type=ssh git fetch\n\
+             RUN --mount=type=secret,id=t cat /run/secrets/t\n\
+             RUN --mount=type=tmpfs,target=/t --mount=target=/b true\n"
+        ));
+        assert_eq!(
+            got,
+            [
+                "line 2: RUN --mount=type=cache: a cache mount, which every build on the host shares",
+                "line 3: RUN --mount=type=cache: a cache mount, which every build on the host shares",
+                "line 4: RUN --mount=type=ssh: a plugin's build is given none",
+                "line 5: RUN --mount=type=secret: a plugin's build is given none",
             ]
         );
     }

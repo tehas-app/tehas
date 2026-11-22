@@ -108,14 +108,24 @@ fn blob(
     path: &str,
     max: u64,
 ) -> Result<Option<Vec<u8>>, String> {
+    // The entry's mode, not `cat-file -t`, which calls a link a blob too.
+    let listed = x.run(&git_local(
+        repo,
+        &["--literal-pathspecs", "ls-tree", "-z", commit, "--", path],
+    ));
+    if !listed.ok {
+        return Err(format!("{path} could not be listed: {}", listed.err));
+    }
+    let entry = listed.out.split(|b| *b == 0).find_map(|e| {
+        let (meta, at) = std::str::from_utf8(e).ok()?.split_once('\t')?;
+        (at == path).then(|| meta.split(' ').next().unwrap_or("").to_string())
+    });
+    match entry.as_deref() {
+        None => return Ok(None),
+        Some("100644" | "100755") => {}
+        Some(_) => return Err(format!("{path} is not a regular file")),
+    }
     let spec = format!("{commit}:{path}");
-    let kind = x.run(&git_local(repo, &["cat-file", "-t", &spec]));
-    if !kind.ok {
-        return Ok(None);
-    }
-    if kind.text() != "blob" {
-        return Err(format!("{path} is not a file"));
-    }
     let size = x.run(&git_local(repo, &["cat-file", "-s", &spec]));
     let n: u64 = size
         .text()
@@ -170,14 +180,50 @@ impl Reading {
 /// commit. Err: the manifest could not be read at all.
 pub fn read(x: &mut dyn Exec, home: &Path, name: &str, commit: &str) -> Result<Reading, String> {
     let repo = repo(home, name);
-    let mut file = |path: &str, max: u64| blob(x, &repo, commit, path, max);
-    reading(
-        &mut file,
-        name,
-        &format!("the commit {commit}"),
-        "the commit",
-    )
+    let mut r = {
+        let mut file = |path: &str, max: u64| blob(x, &repo, commit, path, max);
+        reading(
+            &mut file,
+            name,
+            &format!("the commit {commit}"),
+            "the commit",
+        )?
+    };
+    let listed = x.run(&git_local(
+        &repo,
+        &["ls-tree", "-r", "-z", "--name-only", commit],
+    ));
+    if listed.ok {
+        let paths: Vec<String> = listed
+            .out
+            .split(|b| *b == 0)
+            .map(|p| String::from_utf8_lossy(p).into_owned())
+            .collect();
+        r.refusals.extend(attributes_refusals(&paths));
+    } else {
+        r.refusals.push(format!(
+            "the commit's files could not be listed: {}",
+            listed.err
+        ));
+    }
+    Ok(r)
 }
+
+/// `git archive`, which makes the build's files, applies the commit's own
+/// `.gitattributes` (export-subst, export-ignore, eol), so the files built
+/// would not be the files checked. A plugin holds none.
+pub fn attributes_refusals<S: AsRef<str>>(paths: &[S]) -> Vec<String> {
+    paths
+        .iter()
+        .map(AsRef::as_ref)
+        .filter(|p| p.rsplit('/').next() == Some(ATTRIBUTES))
+        .map(|p| {
+            format!("{p}: a {ATTRIBUTES} file, which would change the files the build is given")
+        })
+        .collect()
+}
+
+const ATTRIBUTES: &str = ".gitattributes";
 
 /// A file of a plugin by its path, at most `max` bytes: Ok(None) when it is
 /// not there, Err when it is there and cannot be read or is too large.
@@ -553,21 +599,32 @@ pub(super) mod tests {
         fs::write(repo.join("HEAD"), "ref: refs/heads/main\n").unwrap();
         let mut x = Fake::new();
         x.on("cat-file -e", ok(""));
-        x.on("cat-file -t", fails("no such path"));
-        for (path, text) in files {
-            x.on(&format!("cat-file -t {C}:{path}"), ok("blob\n"));
-            x.on(
-                &format!("cat-file -s {C}:{path}"),
-                ok(&format!("{}\n", text.len())),
-            );
-            x.on(&format!("cat-file blob {C}:{path}"), ok(text));
-        }
+        x.on("ls-tree", ok(""));
+        commit_files(&mut x, C, files);
         x.on("docker pull", ok("pulled\n"));
         x.on("{{json .Config.OnBuild}}", ok("null\n"));
         x.on("{{.Id}}", fails("No such image"));
         x.on("docker image ls", ok(""));
         x.on("docker build", ok(""));
         (home, x)
+    }
+
+    /// git answering for `files` as the regular files of `commit`, and for
+    /// the listing of its tree as those files.
+    pub fn commit_files(x: &mut Fake, commit: &str, files: &[(&str, &str)]) {
+        for (path, text) in files {
+            x.on(
+                &format!("ls-tree -z {commit} -- {path}"),
+                ok(&format!("100644 blob {}\t{path}\0", "e".repeat(40))),
+            );
+            x.on(
+                &format!("cat-file -s {commit}:{path}"),
+                ok(&format!("{}\n", text.len())),
+            );
+            x.on(&format!("cat-file blob {commit}:{path}"), ok(text));
+        }
+        let names: String = files.iter().map(|(p, _)| format!("{p}\0")).collect();
+        x.on(&format!("ls-tree -r -z --name-only {commit}"), ok(&names));
     }
 
     fn granted(words: &str) -> Grants {
@@ -691,6 +748,109 @@ pub(super) mod tests {
         );
         let s = prepare(&mut x, &home, &pin(C), None);
         assert!(s.refusal.unwrap().starts_with("tehas-plugin.json: "));
+    }
+
+    // git archive would expand `$Format:%B$` into the commit's message, which
+    // could hold any instruction, after the checked Dockerfile passed.
+    #[test]
+    fn a_commit_with_a_gitattributes_file_at_any_depth_is_refused_and_not_built() {
+        let m = manifest(r#""product""#);
+        let d = format!("{}# $Format:%B$\n", dockerfile());
+        for (case, at) in [("top", ".gitattributes"), ("deep", "src/a/.gitattributes")] {
+            let (home, mut x) = good(
+                &format!("plugin-attributes-{case}"),
+                &[
+                    ("tehas-plugin.json", &m),
+                    ("Dockerfile", &d),
+                    (at, "Dockerfile export-subst\n"),
+                ],
+            );
+            let s = prepare(&mut x, &home, &pin(C), Some(&granted("product")));
+            assert_eq!(s.state, Word::Refused);
+            assert_eq!(
+                s.refusal,
+                Some(format!(
+                    "{at}: a .gitattributes file, which would change the files the build is given"
+                ))
+            );
+            assert!(!x.ran_any("docker pull"));
+            assert!(!x.ran_any("archive"));
+            assert!(!x.ran_any("docker build"));
+        }
+        let (home, mut x) = good(
+            "plugin-attributes-unlisted",
+            &[("tehas-plugin.json", &m), ("Dockerfile", &dockerfile())],
+        );
+        x.on("ls-tree -r", fails("fatal: bad tree"));
+        let s = prepare(&mut x, &home, &pin(C), Some(&granted("product")));
+        assert_eq!(
+            s.refusal.as_deref(),
+            Some("the commit's files could not be listed: fatal: bad tree")
+        );
+        assert_eq!(
+            attributes_refusals(&["x.gitattributes", ".gitattributes.d/a", "a/b"]),
+            Vec::<String>::new()
+        );
+    }
+
+    // `cat-file -t` calls a link a blob: its text is the link's target.
+    #[test]
+    fn a_build_or_skill_file_that_is_not_a_regular_file_is_refused() {
+        let m = manifest(r#""product""#);
+        let d = dockerfile();
+        for mode in ["120000", "160000", "040000"] {
+            let (home, mut x) = good(
+                &format!("plugin-link-{mode}"),
+                &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
+            );
+            x.on(
+                &format!("ls-tree -z {C} -- Dockerfile"),
+                ok(&format!("{mode} blob {}\tDockerfile\0", "e".repeat(40))),
+            );
+            let s = prepare(&mut x, &home, &pin(C), Some(&granted("product")));
+            assert_eq!(
+                s.refusal.as_deref(),
+                Some("Dockerfile is not a regular file"),
+                "{mode}"
+            );
+            assert!(!x.ran_any(&format!("cat-file blob {C}:Dockerfile")));
+            assert!(!x.ran_any("docker build"));
+        }
+        let (home, mut x) = good(
+            "plugin-exec",
+            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
+        );
+        x.on(
+            &format!("ls-tree -z {C} -- Dockerfile"),
+            ok(&format!("100755 blob {}\tDockerfile\0", "e".repeat(40))),
+        );
+        x.on("{{.Id}}", ok(&format!("{ID}\n")));
+        let s = prepare(&mut x, &home, &pin(C), Some(&granted("product")));
+        assert_eq!(s.state, Word::Ready, "{s:?}");
+        let sk = r#"{"plugin": 1, "name": "floorplan", "label": "Floorplan", "asks": ["skill:grill"], "skills": [{"id": "grill", "about": "Asks hard questions", "path": "skills/grill.md", "chats": ["obeya"]}]}"#;
+        let (home, mut x) = good(
+            "plugin-skill-link",
+            &[
+                ("tehas-plugin.json", sk),
+                ("skills/grill.md", "### Grill\n"),
+            ],
+        );
+        x.on(
+            &format!("ls-tree -z {C} -- skills/grill.md"),
+            ok(&format!(
+                "120000 blob {}\tskills/grill.md\0",
+                "e".repeat(40)
+            )),
+        );
+        let s = prepare(&mut x, &home, &pin(C), Some(&granted("skill:grill")));
+        assert_eq!(
+            s.refusal.as_deref(),
+            Some("skill grill: skills/grill.md: skills/grill.md is not a regular file")
+        );
+        assert_eq!(
+            skill_text(&mut x, &home, "floorplan", C, "skills/grill.md"),
+            Err("skills/grill.md is not a regular file".to_string())
+        );
     }
 
     #[test]

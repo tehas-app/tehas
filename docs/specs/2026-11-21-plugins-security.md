@@ -112,15 +112,26 @@ pin changed or whose image is gone.
   `refs/tehas/<commit>`; each `tehas update` prunes those that are not the
   pin.
 - **The context** is `git archive <commit>`, piped to `docker build -`. No
-  `.git`, no file outside the commit.
+  `.git`, no file outside the commit. `git archive` applies the commit's
+  own `.gitattributes` (`export-subst`, `export-ignore`, line endings), so
+  the files built would not be the files checked: a commit with a
+  `.gitattributes` file at any depth is refused, and so is a folder that
+  `tehas plugin check` reads.
 - **The Dockerfile's rules**, read by tehas with BuildKit's own grammar
   (continuations, heredocs, `ARG`) before the build:
+  - the Dockerfile, and each skill file, is a regular file of the commit,
+    mode 100644 or 100755; a link is refused, since its text is the path it
+    points at;
   - every `FROM` names an image by `@sha256:` digest, with no `ARG` in it,
     except a `FROM` of an earlier stage and `FROM scratch`; an image name
     starting with `-` is refused;
   - no `# syntax=` line;
   - `COPY --from` and `RUN --mount=from=` name a stage of the file, never an
     image;
+  - no `RUN --mount` of `type=cache`, `type=ssh` or `type=secret`: a cache
+    mount is shared by every build on the host's Docker and kept past
+    `--no-cache`, so one plugin's build could feed another's; a plugin's
+    build is given no SSH agent and no secret;
   - no `ADD` of a URL or a git address.
   A Dockerfile that breaks one is refused, naming the line.
 - **The base images** are pulled by digest before the build, with the host's
