@@ -7,6 +7,7 @@ use common::{count_lines, has, lacks, World};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
+use tehas_core::home::{Home, Live};
 
 const PR9: &str = "https://github.com/acme/widget/pull/9";
 
@@ -75,7 +76,7 @@ fn a_runner_that_started_no_cycle_exit_4_is_parked_without_naming_a_cause_it_can
     lacks(&gh, "could not be given to it");
     has(&r.out, "#7: tehas work refused the start before its runner ran (exit 4): the comment tehas work posted on the issue says why");
     let live: Value =
-        serde_json::from_str(&fs::read_to_string(w.home.join("live/running.json")).unwrap())
+        serde_json::from_str(&fs::read_to_string(Home::new(&w.home).live(Live::Running)).unwrap())
             .unwrap();
     assert_eq!(
         live["last"]["statusText"],

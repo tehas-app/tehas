@@ -405,6 +405,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use tehas_core::driver::Driver;
 use tehas_core::exit::work::{NOT_STARTED, NO_PUSH};
+use tehas_core::home::{Home, State};
 use tehas_core::sandbox::Misshaped;
 use tehas_core::text::disarm;
 use tehas_core::{self, sandbox, slice, time};
@@ -454,7 +455,7 @@ impl Drop for Leftovers {
 /// The state store is installed: the program and its database.
 pub fn store_ready(home: &Path) -> bool {
     let bin = home.join("libexec/store");
-    let db = home.join("state/tehas.db");
+    let db = Home::new(home).state(State::StoreDb);
     !home.as_os_str().is_empty()
         && executable(&bin.to_string_lossy())
         && fs::symlink_metadata(&db).is_ok_and(|m| m.is_file())
@@ -934,10 +935,9 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
 /// removed when the cycle ends. Only this cycle's: an earlier one's would
 /// mislead.
 fn keep_beside(f: &Files) {
-    let stem = f.home.join(format!("state/cycles/{}", f.issue));
     // retry-context.md is written no more: one an earlier release kept goes.
     for name in ["images.md", "comments.json", "retry-context.md"] {
-        let beside = PathBuf::from(format!("{}.{name}", stem.display()));
+        let beside = Home::new(f.home).cycle_note(f.issue, name);
         let _ = fs::remove_file(&beside);
         let from = f.dir.join(name);
         if from.is_file() && fs::copy(&from, &beside).is_err() {
@@ -1085,7 +1085,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     let name = format!("tehas-work-{n}");
     let runs = PathBuf::from(format!("{}/.pi/agent/ensemble-runs/issue-{n}", env("HOME")));
     // The manifest of the last fetch, kept.
-    let kept = home.join(format!("state/cycles/{n}.manifest.json"));
+    let kept = Home::new(home).cycle_note(n, "manifest.json");
     let number = |name: &str, default: u64| env(name).parse().unwrap_or(default);
     let caps_wait = short_wait("TEHAS_CAPS_WAIT", 120);
     let text_wait = short_wait("TEHAS_TEXT_WAIT", 60);
@@ -1111,7 +1111,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         return rc;
     }
     let made = fs::create_dir_all(home.join("logs"))
-        .and_then(|()| fs::create_dir_all(home.join("state/cycles")));
+        .and_then(|()| fs::create_dir_all(Home::new(home).cycles_dir()));
     if made.is_err() {
         eprintln!(
             "tehas work: could not make the logs and state of {}, not starting a cycle",
@@ -1124,7 +1124,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     // when this command ends, and why a start with none stops, which is said
     // below with the issue's text. Read before anything of the cycle is written.
     let attempt = env("TEHAS_CYCLE_ATTEMPT");
-    let prepared = home.join(format!("state/cycles/{n}.prepared"));
+    let prepared = Home::new(home).cycle_note(n, "prepared");
     let mut left = Leftovers(vec![prepared.clone()]);
     let recorded = match start::record(home, n, &attempt, g.driver) {
         Ok(r) => r,
@@ -1160,8 +1160,8 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         record: record.clone(),
         restart: g.restart,
         driver: recorded.driver,
-        lean_note: home.join(format!("state/cycles/{n}.lean-refused")),
-        refused_note: home.join(format!("state/cycles/{n}.refused")),
+        lean_note: Home::new(home).cycle_note(n, "lean-refused"),
+        refused_note: Home::new(home).cycle_note(n, "refused"),
         caps_wait,
         console: console.clone(),
         words,

@@ -8,6 +8,7 @@ mod work;
 
 use serde_json::json;
 use std::fs;
+use tehas_core::home::{Home, State};
 use work::{body_sha256, epoch, git_out, has, lacks, World};
 
 fn world(name: &str) -> World {
@@ -30,7 +31,7 @@ fn caps_fresh(w: &World) {
 /// The approval of a refresh of pull request 50 at `head`, as the dispatcher
 /// records it.
 fn refresh_at(w: &World, head: &str) {
-    fs::create_dir_all(w.home.join("state/cycles")).unwrap();
+    fs::create_dir_all(Home::new(&w.home).cycles_dir()).unwrap();
     w.issue_is("", "NONE", "");
     w.store_db();
     let input = w.path("refresh-input.json");
@@ -87,7 +88,9 @@ fn git_reads(w: &World, rc: i32, said: &str, tree: &str) {
 }
 
 fn no_note(w: &World) {
-    assert!(!w.home.join("state/cycles/7.refresh-conflict").exists());
+    assert!(!Home::new(&w.home)
+        .cycle_note(7, "refresh-conflict")
+        .exists());
 }
 
 #[test]
@@ -238,7 +241,7 @@ fn an_install_whose_preflight_log_cannot_be_opened_says_that_with_the_path_and_i
     lacks(&r.out, "the sandbox cannot push");
     lacks(&r.out, "install failed");
     lacks(&r.out, "(exit 127)");
-    assert!(!w.home.join("state/push-fault.json").exists());
+    assert!(!Home::new(&w.home).state(State::PushFault).exists());
 }
 
 /// An epoch second as a start's log names it: `%y%m%d-%H%M%S` in UTC.

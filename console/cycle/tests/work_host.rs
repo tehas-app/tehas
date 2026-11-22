@@ -9,6 +9,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use tehas_core::home::Home;
 use work::{git_out, has, lacks, root, slice_id, Run, World, RUNNER};
 
 fn kept(w: &World) -> PathBuf {
@@ -18,7 +19,7 @@ fn kept(w: &World) -> PathBuf {
 }
 
 fn lockf(w: &World) -> PathBuf {
-    w.home.join("state/cycles/7.lock")
+    Home::new(&w.home).cycle_note(7, "lock")
 }
 
 /// Every path under `dir`, at any depth; none when it is missing.

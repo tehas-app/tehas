@@ -34,6 +34,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tehas_core::driver::Driver;
 use tehas_core::exit::work::{NOT_STARTED, NO_PUSH};
+use tehas_core::home::{Home, State};
 use tehas_core::install::{self, Step};
 use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths, HANDOFF_SECONDS};
@@ -1244,7 +1245,7 @@ fn refresh_conflict(home: &Path, t: &Tree, state: &Value, tree: &str) -> Option<
         }
         return None;
     }
-    let file = home.join(format!("state/cycles/{}.{}", t.issue, conflict::NOTE));
+    let file = Home::new(home).cycle_note(t.issue, conflict::NOTE);
     if fs::write(&file, conflict::note(pr, &t.branch, &paths)).is_err() {
         eprintln!(
             "tehas work: could not write {}, not starting a cycle",
@@ -1356,7 +1357,7 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
             to_preflight(&preflight, &line);
             say(&format!("tehas work: {line}"));
         }
-        let note = home.join(format!("state/cycles/{}.refused", t.issue));
+        let note = Home::new(home).cycle_note(t.issue, "refused");
         if let Some(rc) = install(&state, &tree, &steps, &preflight, &note) {
             return rc;
         }
@@ -1369,7 +1370,7 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
     say(&format!("tehas work: {retry}"));
     // Asked for only once this cycle can start: a cycle that never began leaves
     // no copy behind. A copy that fails is not worth stopping a cycle for.
-    let index = home.join("state/index");
+    let index = Home::new(home).state(State::CodeIndex);
     if !sandbox::seed(&state_dir, &index.to_string_lossy()) {
         say(&format!(
             "tehas work: the code index could not be copied into {state_dir}/cache, this cycle searches without one"
@@ -1434,7 +1435,7 @@ fn running(home: &Path) -> usize {
     let held = held
         .as_ref()
         .and_then(|v| v.get("held")?.as_array().map(Vec::len));
-    held.unwrap_or_else(|| lock::held_in(&home.join("state/cycles")).len())
+    held.unwrap_or_else(|| lock::held_in(&Home::new(home).cycles_dir()).len())
 }
 
 /// The id of the image, and the pi-rukas commit of its label when it has one.
@@ -1549,8 +1550,7 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
         eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
         return Err(78);
     };
-    let cycles = home.join("state/cycles");
-    let file = |name: &str| cycles.join(format!("{}.{name}", r.issue));
+    let file = |name: &str| Home::new(home).cycle_note(r.issue, name);
     if r.stop.came() {
         return Err(STOPPED);
     }
@@ -2287,7 +2287,7 @@ mod tests {
         // no file is left to make the host look unable to push.
         assert_eq!(preflight_line(nowhere), "");
         let d = tehas_core::testdir::TestDir::new("push-fault-unmade");
-        fs::create_dir_all(d.join("state")).unwrap();
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
         fs::write(d.join(PUSH_FAULT), "a fault of an earlier start\n").unwrap();
         push_fault(d.path(), 7, &preflight_line(nowhere));
         assert_eq!(
@@ -2343,8 +2343,12 @@ mod tests {
         let d = tehas_core::testdir::TestDir::new("push-fault");
         let preflight = d.join("logs/work-7.preflight");
         fs::create_dir_all(d.join("logs")).unwrap();
-        fs::create_dir_all(d.join("state/github")).unwrap();
-        fs::write(d.join("state/github/login"), "acme-app[bot]\n").unwrap();
+        fs::create_dir_all(Home::new(d.path()).token_dir(tehas_core::home::TokenDir::App)).unwrap();
+        fs::write(
+            Home::new(d.path()).state(State::BotLogin),
+            "acme-app[bot]\n",
+        )
+        .unwrap();
         fs::write(
             &preflight,
             "\nremote: Permission to acme/widget denied to acme-app[bot].\n",
@@ -2386,7 +2390,7 @@ mod tests {
             serde_json::from_str(fs::read_to_string(d.join(PUSH_FAULT)).unwrap().trim_end())
                 .unwrap();
         assert_eq!(v["line"], "fatal: could not read from remote repository");
-        assert!(!d.join("state/cycles").exists());
+        assert!(!Home::new(d.path()).cycles_dir().exists());
         std::env::remove_var("TEHAS_REPO");
     }
 

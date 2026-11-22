@@ -19,14 +19,12 @@ use serde_json::Value;
 use std::path::Path;
 use std::time::Duration;
 use tehas_core::call::{run_full, Ran, GRACE};
+use tehas_core::home::Home;
 use tehas_core::jq::J;
 use tehas_core::stamp::{trailer_ok, with_line, with_trailer, Built};
 
 /// One call of git: a fetch or a push is seconds.
 const GIT_BOUND: Duration = Duration::from_secs(120);
-
-/// Where the report keeps the repository it rewrites a branch in.
-pub const SCRATCH: &str = "state/outsource/stamp";
 
 /// Who built the cycle `s`, or None where outsource is off or the store could
 /// not say which job a contractor's cycle was. A cycle run by `tehas work`
@@ -92,7 +90,7 @@ impl Heads {
 }
 
 fn heads_path(home: &Path, issue: u64) -> std::path::PathBuf {
-    home.join(format!("state/cycles/{issue}.{HEADS}"))
+    Home::new(home).cycle_note(issue, HEADS)
 }
 
 /// The heads the supervisor noted as the cycle started, or None when there is
@@ -623,8 +621,8 @@ mod tests {
         assert_eq!(h.at("feature/issue-8"), None);
         let d = TestDir::new("stamp-heads");
         assert!(heads(d.path(), 7).is_none());
-        std::fs::create_dir_all(d.join("state/cycles")).unwrap();
-        std::fs::write(d.join("state/cycles/7.heads"), &text).unwrap();
+        std::fs::create_dir_all(Home::new(d.path()).cycles_dir()).unwrap();
+        std::fs::write(Home::new(d.path()).cycle_note(7, HEADS), &text).unwrap();
         assert_eq!(heads(d.path(), 7).unwrap().at("main"), Some(a.as_str()));
     }
 

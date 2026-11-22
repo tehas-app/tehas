@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tehas_core::home::{Home, State};
 use tehas_core::jq::{obj, J};
 use tehas_core::time::{iso, now};
 
@@ -355,7 +356,7 @@ fn clean(home: &Path, a: &After) {
 /// is not on. systemctl does not get the cycle's lock, fd 9: closing a
 /// descriptor Rust did not open is unsafe, so sh does it.
 fn next_poll(home: &Path) {
-    let again = home.join("state/dispatch.again");
+    let again = Home::new(home).state(State::DispatchAgain);
     if fs::write(&again, "").is_err() {
         log(&format!("WARN: could not write {}", again.display()));
     }

@@ -15,6 +15,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
+use tehas_core::home::{Home, TokenDir};
 use work::{
     absent, count_of, git_out, has, lacks, security_line, security_of, security_tmpfs,
     unknown_options, Run, World, DOCKER_OPTS, GONE, HOLD, RUNNER, SECURITY_OPTS, WANT,
@@ -129,11 +130,11 @@ fn progress_line(w: &World) -> String {
 }
 
 fn cycle_file(w: &World, rel: &str) -> String {
-    out(&fs::read_to_string(w.home.join("state/cycles").join(rel)).unwrap_or_default())
+    out(&fs::read_to_string(Home::new(&w.home).cycles_dir().join(rel)).unwrap_or_default())
 }
 
 fn cycle_exists(w: &World, rel: &str) -> bool {
-    w.home.join("state/cycles").join(rel).exists()
+    Home::new(&w.home).cycles_dir().join(rel).exists()
 }
 
 /// The cycle's words from the image on, each followed by a space.
@@ -177,7 +178,7 @@ fn a_work_directory_tehas_did_not_make_is_left_alone() {
     assert_eq!(r.rc, 78, "{}", r.out);
     has(&r.out, "was not made by tehas");
     assert_eq!(cycle_file(&w, "7.refused"), "tree-not-ours");
-    let _ = fs::remove_file(w.home.join("state/cycles/7.refused"));
+    let _ = fs::remove_file(Home::new(&w.home).cycle_note(7, "refused"));
     assert_eq!(
         fs::read_to_string(w.home.join("work/widget/notes.txt")).unwrap(),
         "keep\n"
@@ -445,7 +446,7 @@ fn the_status_line_is_read_from_the_consoles_now_file_and_a_stale_one_is_taken_a
     w.fs("tree/libexec/console", NOW_CONSOLE);
     fs::set_permissions(&console, fs::Permissions::from_mode(0o755)).unwrap();
     // The file of a cycle before this one, which the start takes away.
-    w.home_file("live/console-7.txt.now", "stale\n");
+    w.home_file(Home::new(&w.home).live_console_now(7), "stale\n");
     w.fs("now.step", "develop");
     w.fs("now.text", "step 3 of the cycle");
     w.clear_calls();
@@ -464,7 +465,7 @@ fn the_status_line_is_read_from_the_consoles_now_file_and_a_stale_one_is_taken_a
         "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>\"$T/calls/console\"\nexit 0\n",
     );
     fs::set_permissions(&console, fs::Permissions::from_mode(0o755)).unwrap();
-    w.home_file("live/console-7.txt.now", "stale\n");
+    w.home_file(Home::new(&w.home).live_console_now(7), "stale\n");
     w.clear_calls();
     w.rm("now.step");
     w.work7();
@@ -705,7 +706,12 @@ fn read_only_the_container_is_told_so_and_its_git_pushes_to_origin_land_in_the_w
     let w = World::new("read-only");
     w.minimal(&[ALIAS, "TEHAS_READ_ONLY=1"]);
     // The mark of a token made on a read-only instance (console/ops/src/github.rs).
-    w.home_file("state/github-cycle/token.read-only", "");
+    w.home_file(
+        Home::new(&w.home)
+            .token_dir(TokenDir::Cycle)
+            .join("token.read-only"),
+        "",
+    );
     w.clear_calls();
     w.work7();
     assert_eq!(
@@ -1054,8 +1060,8 @@ fn a_checkout_of_another_repository_starts_no_container() {
 fn no_token_to_be_had_starts_no_container() {
     let w = World::new("no-token");
     w.clear_calls();
-    let _ = fs::remove_dir_all(w.home.join("state/github"));
-    let _ = fs::remove_dir_all(w.home.join("state/github-cycle"));
+    let _ = fs::remove_dir_all(Home::new(&w.home).token_dir(TokenDir::App));
+    let _ = fs::remove_dir_all(Home::new(&w.home).token_dir(TokenDir::Cycle));
     let key = w.path("no-such-key.pem").to_string_lossy().into_owned();
     w.env("TEHAS_GITHUB_APP_KEY", &key);
     let r = w.work7();
@@ -1103,8 +1109,12 @@ fn with_a_github_app_the_container_is_given_the_apps_narrowed_cycle_token_never_
 fn with_a_github_app_and_no_cycle_token_to_be_had_no_cycle_starts() {
     let w = World::new("no-cycle-token");
     w.clear_calls();
-    let _ = fs::remove_file(w.home.join("state/github-cycle/token"));
-    let _ = fs::remove_file(w.home.join("state/github-cycle/token.expires"));
+    let _ = fs::remove_file(Home::new(&w.home).token_dir(TokenDir::Cycle).join("token"));
+    let _ = fs::remove_file(
+        Home::new(&w.home)
+            .token_dir(TokenDir::Cycle)
+            .join("token.expires"),
+    );
     // No key to make one with: tehasbot github-token --cycle fails.
     let key = w.path("no-such-key.pem").to_string_lossy().into_owned();
     w.env("TEHAS_GITHUB_APP_KEY", &key);
@@ -1217,7 +1227,7 @@ fn logs_that_stand_still_do_not_move_the_stalls_mark_and_the_mark_is_a_clock_rea
 #[test]
 fn the_cycle_clock_saying_stalled_stops_the_cycle_as_stalled() {
     let w = clocked("clock-stalled");
-    let _ = fs::remove_file(w.home.join("state/cycles/7.stalled"));
+    let _ = fs::remove_file(Home::new(&w.home).cycle_note(7, "stalled"));
     w.fs("clock.check", "stalled\n");
     w.container(&format!("{HOLD}; {GONE}"));
     let r = w.work7();
@@ -1255,7 +1265,7 @@ fn a_cycle_clock_that_answers_unknown_stops_nothing_the_cycle_ends_on_its_own() 
 }
 
 fn freeze_left(w: &World, names: &[&str]) -> Vec<String> {
-    fs::read_dir(w.home.join("state/cycles"))
+    fs::read_dir(Home::new(&w.home).cycles_dir())
         .unwrap()
         .flatten()
         .map(|e| e.file_name().to_string_lossy().into_owned())
@@ -1267,7 +1277,7 @@ fn freeze_left(w: &World, names: &[&str]) -> Vec<String> {
 fn a_frozen_cycle_is_paused_is_not_stopped_as_stalled_and_its_freeze_ends_with_it() {
     let w = clocked("frozen");
     w.fs("clock.check", "stalled\n");
-    w.home_file("state/cycles/7.freeze", "{}\n");
+    w.home_file(Home::new(&w.home).cycle_note(7, "freeze"), "{}\n");
     w.container(r#""$nap" 1; says handoff; exit 10"#);
     let r = w.work7();
     assert_eq!(r.rc, 10, "{}", r.out);
@@ -1281,7 +1291,7 @@ fn a_frozen_cycle_is_paused_is_not_stopped_as_stalled_and_its_freeze_ends_with_i
 fn a_thaw_unpauses_the_container_moves_its_start_and_its_clocks_count_again() {
     let w = clocked("thaw");
     w.fs("clock.check", "stalled\n");
-    w.home_file("state/cycles/7.freeze", "{}\n");
+    w.home_file(Home::new(&w.home).cycle_note(7, "freeze"), "{}\n");
     // The container thaws itself a second in, as tehas thaw would, and is
     // then stopped as stalled: the clock's answer counts once it is thawed.
     w.container(&format!(
@@ -1340,8 +1350,8 @@ fn lean_fresh(w: &World) {
     for d in [w.ws.clone(), w.state.clone(), retry.into()] {
         let _ = fs::remove_dir_all(d);
     }
-    let _ = fs::remove_file(w.home.join("state/cycles/7.lean-refused"));
-    let _ = fs::remove_file(w.home.join("state/cycles/7.refused"));
+    let _ = fs::remove_file(Home::new(&w.home).cycle_note(7, "lean-refused"));
+    let _ = fs::remove_file(Home::new(&w.home).cycle_note(7, "refused"));
     fs::create_dir_all(w.fx.join("net")).unwrap();
     w.issue_is("Words only.", "", "");
 }

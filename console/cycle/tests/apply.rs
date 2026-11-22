@@ -8,6 +8,7 @@ use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
+use tehas_core::home::{Home, State};
 use tehas_core::testdir::TestDir;
 
 const STORE: &str = r#"#!/usr/bin/env bash
@@ -67,9 +68,10 @@ fn exe(p: &Path, text: &str) {
 impl Host {
     fn new(name: &str) -> Host {
         let dir = TestDir::new(&format!("apply-{name}"));
-        for d in ["libexec", "bin", "state/cycles", "logs", "work"] {
+        for d in ["libexec", "bin", "logs", "work"] {
             fs::create_dir_all(dir.join(d)).unwrap();
         }
+        fs::create_dir_all(Home::new(dir.path()).cycles_dir()).unwrap();
         exe(&dir.join("libexec/store"), STORE);
         exe(&dir.join("bin/gh"), GH);
         exe(&dir.join("bin/docker"), "#!/bin/sh\nexit 1\n");
@@ -81,10 +83,14 @@ impl Host {
     fn result(&self, status: &str, step: &str, branch: &str, cap: &str) {
         let r = json!({"schemaVersion": 5, "issues": [{"issue": 7, "status": status,
             "failedStep": step, "branch": branch, "cap": cap}]});
-        fs::write(self.dir.join("state/cycles/7.result.json"), r.to_string()).unwrap();
+        fs::write(
+            Home::new(self.dir.path()).cycle_note(7, "result.json"),
+            r.to_string(),
+        )
+        .unwrap();
         // As the progress summary writes it: its review held nothing.
         fs::write(
-            self.dir.join("state/cycles/7.progress.json"),
+            Home::new(self.dir.path()).cycle_note(7, "progress.json"),
             r#"{"roles":[],"reason":"","reviewHeld":false}"#,
         )
         .unwrap();
@@ -331,13 +337,18 @@ fn an_end_the_store_will_not_take_is_exit_70_and_what_follows_still_runs() {
     let said = out(&o);
     assert!(said.contains("ERROR: the end of #7 is not on record (refused: store: refused #7: not now): cycle-end 7 --attempt 1"), "{said}");
     assert_eq!(h.count("store publish"), 1);
-    assert!(h.dir.join("state/dispatch.again").exists());
+    assert!(Home::new(h.dir.path()).state(State::DispatchAgain).exists());
 }
 
 /// The record of a failed end is where a directory is: no write lands on it
 /// and no remove takes it, whoever runs the test.
 fn block_end_fault(h: &Host) {
-    fs::create_dir_all(h.dir.join("state/cycles/7.end-failed.json/x")).unwrap();
+    fs::create_dir_all(
+        Home::new(h.dir.path())
+            .cycle_note(7, "end-failed.json")
+            .join("x"),
+    )
+    .unwrap();
 }
 
 #[test]
@@ -347,7 +358,11 @@ fn a_failed_end_whose_record_cannot_be_written_is_exit_70_and_says_why() {
     let r = json!({"schemaVersion": 5, "issues": [{"issue": 7, "status": "handoff",
         "failedStep": "commit-pr", "branch": "feature/issue-7-a",
         "failure": {"step": "commit-pr", "message": "git push failed: The requested URL returned error: 502"}}]});
-    fs::write(h.dir.join("state/cycles/7.result.json"), r.to_string()).unwrap();
+    fs::write(
+        Home::new(h.dir.path()).cycle_note(7, "result.json"),
+        r.to_string(),
+    )
+    .unwrap();
     block_end_fault(&h);
     let o = h.report(0, false);
     let said = out(&o);
@@ -523,8 +538,8 @@ fn a_merged_cycle_removes_its_workspace_and_its_notes() {
     fs::write(work.join(".tehas-workspaces"), "").unwrap();
     fs::create_dir_all(work.join("widget-7")).unwrap();
     fs::create_dir_all(work.join("widget-7.images")).unwrap();
-    fs::write(h.dir.join("state/cycles/7.oom"), "2\n").unwrap();
-    fs::write(h.dir.join("state/cycles/7.done"), "merged\n").unwrap();
+    fs::write(Home::new(h.dir.path()).cycle_note(7, "oom"), "2\n").unwrap();
+    fs::write(Home::new(h.dir.path()).cycle_note(7, "done"), "merged\n").unwrap();
     let prs: Value = json!([{"url": "https://github.com/a/b/pull/9", "state": "MERGED",
         "body": "Fixes #7", "headRefName": "feature/issue-7-x", "createdAt": CREATED}]);
     fs::write(h.dir.join("prs.json"), prs.to_string()).unwrap();
@@ -532,9 +547,11 @@ fn a_merged_cycle_removes_its_workspace_and_its_notes() {
     assert!(o.status.success(), "{}", out(&o));
     assert!(!work.join("widget-7").exists());
     assert!(!work.join("widget-7.images").exists());
-    assert!(!h.dir.join("state/cycles/7.oom").exists());
-    assert!(!h.dir.join("state/cycles/7.done").exists());
-    assert!(h.dir.join("state/cycles/7.result.json").exists());
+    assert!(!Home::new(h.dir.path()).cycle_note(7, "oom").exists());
+    assert!(!Home::new(h.dir.path()).cycle_note(7, "done").exists());
+    assert!(Home::new(h.dir.path())
+        .cycle_note(7, "result.json")
+        .exists());
     assert!(
         h.at("gh issue comment 7")
             > h.at("gh issue edit 7 --repo a/b --remove-label tehas:running")
@@ -571,7 +588,7 @@ fn a_lean_cycle_keeps_the_driver_record_before_it_clears_the_workspace() {
     )
     .unwrap();
     // The approval of the start bound the lean driver.
-    let kept = h.dir.join("state/cycles/7.lean-state.json");
+    let kept = Home::new(h.dir.path()).cycle_note(7, "lean-state.json");
     assert!(!kept.exists());
     h.approve_lean();
     let o = h.report_with_analytics(10);
@@ -603,7 +620,9 @@ fn a_classic_cycle_keeps_no_lean_record_and_a_lean_one_of_no_file_is_no_warning(
     .unwrap();
     let o = h.report_with_analytics(10);
     assert!(o.status.success(), "{}", out(&o));
-    assert!(!h.dir.join("state/cycles/7.lean-state.json").exists());
+    assert!(!Home::new(h.dir.path())
+        .cycle_note(7, "lean-state.json")
+        .exists());
     assert!(!out(&o).contains("lean record"), "{}", out(&o));
     // Lean, but the driver wrote no record: nothing to keep, and no warning.
     let h = Host::new("lean-no-file");
@@ -614,7 +633,9 @@ fn a_classic_cycle_keeps_no_lean_record_and_a_lean_one_of_no_file_is_no_warning(
     h.approve_lean();
     let o = h.report_with_analytics(10);
     assert!(o.status.success(), "{}", out(&o));
-    assert!(!h.dir.join("state/cycles/7.lean-state.json").exists());
+    assert!(!Home::new(h.dir.path())
+        .cycle_note(7, "lean-state.json")
+        .exists());
     assert!(!out(&o).contains("lean record"), "{}", out(&o));
 }
 
@@ -632,8 +653,8 @@ fn a_lean_run_whose_record_cannot_be_kept_is_one_warning() {
     .unwrap();
     h.approve_lean();
     // The notes directory cannot hold the copy.
-    fs::remove_dir_all(h.dir.join("state/cycles")).unwrap();
-    fs::write(h.dir.join("state/cycles"), "").unwrap();
+    fs::remove_dir_all(Home::new(h.dir.path()).cycles_dir()).unwrap();
+    fs::write(Home::new(h.dir.path()).cycles_dir(), "").unwrap();
     let o = h.report_with_analytics(10);
     assert!(o.status.success(), "{}", out(&o));
     assert!(
@@ -650,7 +671,7 @@ fn a_lean_run_whose_record_cannot_be_kept_is_one_warning() {
 fn a_handoff_on_awaiting_human_merge_waits_for_a_merge() {
     let h = Host::new("awaiting");
     h.result("handoff", "ci", "feature/issue-7-x", "awaiting-human-merge");
-    fs::write(h.dir.join("state/cycles/7.runner_exit"), "10\n").unwrap();
+    fs::write(Home::new(h.dir.path()).cycle_note(7, "runner_exit"), "10\n").unwrap();
     let work = h.dir.join("work");
     fs::write(work.join(".tehas-workspaces"), "").unwrap();
     fs::create_dir_all(work.join("widget-7")).unwrap();
@@ -700,7 +721,7 @@ fn a_handoff_on_lens_fix_reposition_waits_for_a_merge() {
         "feature/issue-7-x",
         "lens-fix-reposition",
     );
-    fs::write(h.dir.join("state/cycles/7.runner_exit"), "10\n").unwrap();
+    fs::write(Home::new(h.dir.path()).cycle_note(7, "runner_exit"), "10\n").unwrap();
     let prs: Value = json!([{"url": "https://github.com/a/b/pull/9", "state": "OPEN",
         "body": "Fixes #7", "headRefName": "feature/issue-7-x", "createdAt": CREATED}]);
     fs::write(h.dir.join("prs.json"), prs.to_string()).unwrap();
@@ -780,7 +801,7 @@ done
     let facts: Value =
         serde_json::from_str(&fs::read_to_string(h.dir.join("facts.json")).unwrap()).unwrap();
     assert_eq!(facts["line"]["step"].as_str(), Some(step.as_str()));
-    assert!(h.dir.join("state/dispatch.again").exists());
+    assert!(Home::new(h.dir.path()).state(State::DispatchAgain).exists());
 }
 
 /// A merged cycle of issue 7 whose pull request #9 GitHub holds, on the
@@ -908,7 +929,7 @@ fn contractors_branch(h: &Host, commits: &[&str], before: usize) -> std::path::P
     for (i, message) in commits.iter().enumerate() {
         if i == before {
             let heads = git(&h.dir, &["ls-remote", "--heads", r]);
-            fs::write(h.dir.join("state/cycles/7.heads"), heads).unwrap();
+            fs::write(Home::new(h.dir.path()).cycle_note(7, "heads"), heads).unwrap();
         }
         fs::write(work.join("a"), format!("{}", i + 2)).unwrap();
         git(&work, &["commit", "--quiet", "-am", message]);
@@ -955,8 +976,11 @@ fn a_contractors_cycle_names_it_and_its_job_and_its_commits_carry_its_trailer() 
         said.contains("1 commit(s) of feature/issue-7-x did not name box-1"),
         "{said}"
     );
-    assert!(!h.dir.join("state/outsource/stamp/7").exists());
-    assert!(!h.dir.join("state/cycles/7.heads").exists());
+    assert!(!Home::new(h.dir.path())
+        .state(State::OutsourceStamp)
+        .join("7")
+        .exists());
+    assert!(!Home::new(h.dir.path()).cycle_note(7, "heads").exists());
     let facts = fs::read_to_string(h.dir.join("facts.log")).unwrap();
     assert!(facts.contains(r#""contractor":"box-1""#), "{facts}");
 }
@@ -984,7 +1008,7 @@ fn with_no_note_of_the_heads_or_read_only_a_contractors_branch_is_left_alone() {
     let h = Host::new("stamp-no-heads");
     pull_in_state(&h, "Fixes #7", "open");
     let remote = contractors_branch(&h, &["Change"], 0);
-    fs::remove_file(h.dir.join("state/cycles/7.heads")).unwrap();
+    fs::remove_file(Home::new(h.dir.path()).cycle_note(7, "heads")).unwrap();
     let head = git(&remote, &["rev-parse", "feature/issue-7-x"]);
     let o = at_github(outsourced(&h, "job"), &remote).output().unwrap();
     assert!(o.status.success(), "{}", out(&o));
@@ -1009,7 +1033,9 @@ fn with_no_note_of_the_heads_or_read_only_a_contractors_branch_is_left_alone() {
         out(&o)
     );
     assert_eq!(git(&remote, &["rev-parse", "feature/issue-7-x"]), head);
-    assert!(!h.dir.join("state/outsource/stamp").exists());
+    assert!(!Home::new(h.dir.path())
+        .state(State::OutsourceStamp)
+        .exists());
 }
 
 #[test]
@@ -1079,7 +1105,9 @@ fn a_merged_contractors_pull_request_is_footed_and_its_branch_left_alone() {
     assert!(o.status.success(), "{}", out(&o));
     let said = out(&o);
     assert!(!said.contains("Built-by"), "{said}");
-    assert!(!h.dir.join("state/outsource/stamp").exists());
+    assert!(!Home::new(h.dir.path())
+        .state(State::OutsourceStamp)
+        .exists());
     let edit = h.at("gh api -X PATCH repos/a/b/issues/9 --input -");
     assert!(h.calls()[edit].contains("Built by contractor: box-1 (job 4)"));
 }

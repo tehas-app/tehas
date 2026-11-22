@@ -9,6 +9,7 @@ mod work;
 
 use serde_json::{json, Value};
 use std::fs;
+use tehas_core::home::Home;
 use work::{absent, body_sha256, epoch, git_out, git_rc, has, World};
 
 /// Twenty commits on main and a branch of the product beside it.
@@ -187,7 +188,7 @@ fn a_conflict_refresh_on_a_branch_that_started_beyond_the_depth_is_judged_and_na
         &r.out,
         "pull request #50 conflicts with origin/main in 1 file(s)",
     );
-    let note = w.home.join("state/cycles/7.refresh-conflict");
+    let note = Home::new(&w.home).cycle_note(7, "refresh-conflict");
     let got: Value = serde_json::from_str(&fs::read_to_string(&note).unwrap()).unwrap();
     assert_eq!(
         got,

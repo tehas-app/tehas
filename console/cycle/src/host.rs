@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 use tehas_core::call;
+use tehas_core::home::Home;
 
 use crate::runner;
 
@@ -199,7 +200,7 @@ pub fn store_try(home: &Path, tries: u32, args: &[&str]) -> Result<Value, Refuse
 /// The facts of the cycle `s`, read from the host under `home`.
 pub fn facts(home: &Path, s: &Start) -> Value {
     let env = |k: &str| std::env::var(k).unwrap_or_default();
-    let cycles = home.join("state/cycles");
+    let cycles = Home::new(home).cycles_dir();
     let issue = s.issue;
     let mut files = Map::new();
     for name in FILES {
@@ -388,8 +389,8 @@ mod tests {
     #[test]
     fn a_cycle_run_elsewhere_has_its_notes_and_no_workspace_here() {
         let d = TestDir::new("host-job-facts");
-        fs::create_dir_all(d.join("state/cycles")).unwrap();
-        fs::write(d.join("state/cycles/7.runner_exit"), "0\n").unwrap();
+        fs::create_dir_all(Home::new(d.path()).cycles_dir()).unwrap();
+        fs::write(Home::new(d.path()).cycle_note(7, "runner_exit"), "0\n").unwrap();
         let f = facts(&d, &start(Runner::Job));
         assert_eq!(f["workdir"], "");
         assert_eq!(f["workspaces_marked"], false);

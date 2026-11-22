@@ -4,6 +4,7 @@
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use tehas_core::home::Home;
 use tehas_core::testdir::TestDir;
 use tehas_core::testing::write_exe;
 
@@ -35,10 +36,12 @@ fn run(h: &Path) -> (String, String) {
 fn the_cycle_runs_from_its_copy_named_for_its_pid() {
     let h = home("copy");
     // A copy of a process that is gone: pid 0 is never a process's.
-    fs::create_dir_all(h.join("run/cycle-3-0")).unwrap();
+    fs::create_dir_all(Home::new(h.path()).code_copies().join("cycle-3-0")).unwrap();
     let (out, err) = run(&h);
     let pid = out.trim().rsplit("pid=").next().unwrap();
-    let dir = h.join(format!("run/cycle-7-{pid}"));
+    let dir = Home::new(h.path())
+        .code_copies()
+        .join(format!("cycle-7-{pid}"));
     assert_eq!(
         out.trim(),
         format!("{}/bin/tehasbot cycle 7 pid={pid}", dir.display())
@@ -47,7 +50,7 @@ fn the_cycle_runs_from_its_copy_named_for_its_pid() {
         err.contains(&format!("tehas-cycle: #7 runs from {}", dir.display())),
         "{err}"
     );
-    assert!(!h.join("run/cycle-3-0").exists());
+    assert!(!Home::new(h.path()).code_copies().join("cycle-3-0").exists());
 }
 
 #[test]
@@ -88,7 +91,9 @@ fn a_planning_turn_runs_its_program_from_its_copy() {
     assert!(out.status.success(), "{out:?}");
     let out = String::from_utf8(out.stdout).unwrap();
     let pid = out.trim().rsplit("pid=").next().unwrap();
-    let dir = h.join(format!("run/plan-7-{pid}"));
+    let dir = Home::new(h.path())
+        .code_copies()
+        .join(format!("plan-7-{pid}"));
     assert_eq!(
         out.trim(),
         format!("{}/bin/tehas plan 7 --out o pid={pid}", dir.display())

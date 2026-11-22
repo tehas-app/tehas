@@ -5,6 +5,7 @@ mod work;
 
 use std::fs;
 use std::path::Path;
+use tehas_core::home::Home;
 use work::{
     count_of, has, lacks, security_of, unknown_options, World, A, DOCKER_OPTS, F, GIF, JPG, PNG,
     RUNNER, WANT, WEBP,
@@ -644,7 +645,7 @@ fn with_descriptions_on_the_directory_holds_exactly_the_images_the_manifest_and_
     );
     assert_eq!(w.manifest(".described"), r#""images.md""#);
     assert_eq!(
-        fs::read(w.home.join("state/cycles/7.images.md")).unwrap(),
+        fs::read(Home::new(&w.home).cycle_note(7, "images.md")).unwrap(),
         md.as_bytes()
     );
     let kept: serde_json::Value =

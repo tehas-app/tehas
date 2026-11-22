@@ -32,8 +32,14 @@ pub enum State {
     CleanLock,
     /// The factory's code index, `index/`.
     CodeIndex,
+    /// The tip the indexer last failed on.
+    CodeIndexFailed,
+    /// Held while the indexer runs.
+    CodeIndexLock,
     /// The commit and indexer image the code index was made from.
     CodeIndexState,
+    /// The memory of the cycles, `memory/cycles`.
+    CycleMemory,
     /// The ask a poll is started on.
     DispatchAgain,
     /// Held while a poll reads.
@@ -60,10 +66,14 @@ pub enum State {
     Outsource,
     /// The proxy's index, bundles and jobs' files for contractors.
     OutsourceDownloads,
+    /// The scratch of the stamp of an outsourced cycle's heads.
+    OutsourceStamp,
     /// The panels `tehas panel` keeps.
     Panels,
     /// The flag `tehas pause` sets.
     Pause,
+    /// The files of the plugins' tickets, kept for the cycles given them.
+    PluginFiles,
     /// When the platform was last fetched.
     PlatformFetch,
     /// The newest release, as last fetched.
@@ -123,7 +133,10 @@ impl State {
             State::CheckProduct => "state/check-product.json",
             State::CleanLock => "state/clean.lock",
             State::CodeIndex => "state/index",
+            State::CodeIndexFailed => "state/index.failed",
+            State::CodeIndexLock => "state/index.lock",
             State::CodeIndexState => "state/index.json",
+            State::CycleMemory => "state/memory/cycles",
             State::DispatchAgain => "state/dispatch.again",
             State::DispatchLock => "state/dispatch.lock",
             State::EgressLock => "state/egress.lock",
@@ -137,8 +150,10 @@ impl State {
             State::McpFetchLock => "state/mcp-fetch.lock",
             State::Outsource => "state/outsource",
             State::OutsourceDownloads => "state/outsource/downloads",
+            State::OutsourceStamp => "state/outsource/stamp",
             State::Panels => "state/panels.json",
             State::Pause => "state/pause.json",
+            State::PluginFiles => "state/plugin-files",
             State::PlatformFetch => "state/platform-fetch",
             State::PlatformNewest => "state/platform-newest",
             State::PublishLock => "state/publish.lock",
@@ -343,10 +358,21 @@ impl Home {
         self.live_dir().join(format!("console-{issue}.txt"))
     }
 
+    /// `live/console-<issue>.txt.now`, what the cycle's console shows now.
+    pub fn live_console_now(&self, issue: u64) -> PathBuf {
+        self.live_dir().join(format!("console-{issue}.txt.now"))
+    }
+
     /// The host side of a socket's directory. The container side is the
     /// mount's, not the home's.
     pub fn socket_dir(&self, s: Socket) -> PathBuf {
         self.root.join(s.relative())
+    }
+
+    /// `run/`, where the cycles' copies of the code are made today, as
+    /// `<kind>-<issue>-<pid>`.
+    pub fn code_copies(&self) -> PathBuf {
+        self.root.join("run")
     }
 }
 
@@ -411,7 +437,10 @@ mod tests {
             (State::CheckProduct, "/h/state/check-product.json"),
             (State::CleanLock, "/h/state/clean.lock"),
             (State::CodeIndex, "/h/state/index"),
+            (State::CodeIndexFailed, "/h/state/index.failed"),
+            (State::CodeIndexLock, "/h/state/index.lock"),
             (State::CodeIndexState, "/h/state/index.json"),
+            (State::CycleMemory, "/h/state/memory/cycles"),
             (State::DispatchAgain, "/h/state/dispatch.again"),
             (State::DispatchLock, "/h/state/dispatch.lock"),
             (State::EgressLock, "/h/state/egress.lock"),
@@ -425,8 +454,10 @@ mod tests {
             (State::McpFetchLock, "/h/state/mcp-fetch.lock"),
             (State::Outsource, "/h/state/outsource"),
             (State::OutsourceDownloads, "/h/state/outsource/downloads"),
+            (State::OutsourceStamp, "/h/state/outsource/stamp"),
             (State::Panels, "/h/state/panels.json"),
             (State::Pause, "/h/state/pause.json"),
+            (State::PluginFiles, "/h/state/plugin-files"),
             (State::PlatformFetch, "/h/state/platform-fetch"),
             (State::PlatformNewest, "/h/state/platform-newest"),
             (State::PublishLock, "/h/state/publish.lock"),
@@ -509,6 +540,7 @@ mod tests {
     #[test]
     fn a_console_is_named_for_its_issue() {
         assert_eq!(at(h().live_console(5)), "/h/live/console-5.txt");
+        assert_eq!(at(h().live_console_now(5)), "/h/live/console-5.txt.now");
     }
 
     #[test]
@@ -518,6 +550,7 @@ mod tests {
             at(h().socket_dir(Socket::PluginCalls)),
             "/h/run/plugin-calls"
         );
+        assert_eq!(at(h().code_copies()), "/h/run");
     }
 
     #[test]

@@ -8,6 +8,7 @@ use common::{count_lines, has, lacks, World};
 use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::path::Path;
+use tehas_core::home::{Home, State};
 use tehas_core::testing::write_exe;
 
 /// What tehas work was called with.
@@ -470,7 +471,7 @@ fn a_store_that_cannot_be_used_or_is_not_installed_stops_the_cycle_at_78_before_
     // A database that is a link or a directory is no store either.
     for link in [true, false] {
         let w = World::new("start-db");
-        let db = w.home.join("state/tehas.db");
+        let db = Home::new(&w.home).state(State::StoreDb);
         let kept = w.t().join("tehas.db.kept");
         fs::rename(&db, &kept).unwrap();
         if link {

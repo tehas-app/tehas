@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tehas_core::home::Home;
 use work::{
     count_of, git_out, has, lacks, security_of, unknown_options, World, A, DOCKER_OPTS, F, GIF,
     MINIMAL, PNG, WANT,
@@ -101,7 +102,7 @@ fn kept_manifests(w: &World) -> usize {
         }
     }
     let mut n = 0;
-    walk(&w.home.join("state/cycles"), &mut n);
+    walk(&Home::new(&w.home).cycles_dir(), &mut n);
     n
 }
 
