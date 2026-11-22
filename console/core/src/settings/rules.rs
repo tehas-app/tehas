@@ -37,7 +37,7 @@ pub const ROLES: [&str; 5] = [
 /// The directory names tehasbot clean removes when the instance names none:
 /// the build output of the toolchains tehas hosts, none of which a product
 /// keeps in source. instances/example and the manual quote them, and
-/// test/config_test.sh pins the copies against this.
+/// test/config_defaults_test.sh pins the copies against this.
 pub const CLEAN_DIRS: &str =
     "target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle";
 
