@@ -37,7 +37,7 @@ pub const PINNED: [&str; 8] = [
 ];
 
 /// Where the pins are kept, under TEHAS_HOME.
-pub const FILE: &str = "state/labels";
+pub const FILE: &str = crate::home::State::LabelPins.relative();
 
 /// Label name to node id.
 pub type Pins = BTreeMap<String, String>;
@@ -166,6 +166,7 @@ pub fn pin_made(home: &Path, seen: &[Seen]) -> (Vec<String>, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::home::Home;
     use crate::testdir::TestDir;
 
     fn seen<'a>(name: &'a str, before: Option<&str>, after: Option<&str>) -> Seen<'a> {
@@ -225,7 +226,7 @@ mod tests {
     #[test]
     fn once_the_file_exists_only_a_label_this_run_made_is_pinned() {
         let d = TestDir::new("pins-made-kept");
-        fs::create_dir_all(d.path().join("state")).unwrap();
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
         fs::write(d.path().join(FILE), "tehas:ready\tLA_r\n").unwrap();
         let (said, whole) = pin_made(
             d.path(),
@@ -263,7 +264,7 @@ mod tests {
     #[test]
     fn a_label_made_with_a_pinned_one_is_pinned() {
         let d = TestDir::new("pins-same-run");
-        fs::create_dir_all(d.path().join("state")).unwrap();
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
         fs::write(d.path().join(FILE), "tehas:ready\tLA_r\n").unwrap();
         let (said, whole) = pin_made(
             d.path(),
@@ -314,7 +315,7 @@ mod tests {
         ];
         for (why, ready, blocked) in cases {
             let d = TestDir::new("pins-not-same-run");
-            fs::create_dir_all(d.path().join("state")).unwrap();
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
             fs::write(d.path().join(FILE), "tehas:ready\tLA_r\n").unwrap();
             let (said, whole) = pin_made(d.path(), &[ready, blocked]);
             assert!(!whole, "{why}");

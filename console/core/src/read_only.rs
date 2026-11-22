@@ -8,6 +8,7 @@
 //! leaves a record of its own here, `state/read-only/<issue>.json`, and the
 //! poll starts nothing more on an issue that has one.
 
+use crate::home::{Home, State};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
@@ -27,12 +28,12 @@ pub fn line(what: &str) -> String {
 
 /// The log of the writes a read-only host did not make.
 pub fn log_path(home: &Path) -> PathBuf {
-    home.join("state/read-only.log")
+    Home::new(home).state(State::ReadOnlyLog)
 }
 
 /// The directory of the local records of starts.
 pub fn records(home: &Path) -> PathBuf {
-    home.join("state/read-only")
+    Home::new(home).state(State::ReadOnly)
 }
 
 fn home() -> Option<PathBuf> {
