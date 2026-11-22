@@ -6,6 +6,7 @@ use std::net::TcpStream;
 use std::path::Path;
 use std::process::{Child, ChildStderr, Command, Stdio};
 use std::time::Duration;
+use tehas_core::home::Home;
 use tehas_core::testdir::TestDir;
 use tehas_core::time::iso;
 
@@ -1029,7 +1030,11 @@ fn served_transcript(name: &str, extra: &[&str]) -> String {
 
 fn served_text(name: &str, text: &str, extra: &[&str], set: Option<(&str, &str)>) -> String {
     let root = TestDir::new(&format!("mcp-serve-{name}"));
-    let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
+    let (live, snap, logs) = (
+        Home::new(&*root).live_dir(),
+        root.join("mcp"),
+        root.join("logs"),
+    );
     for d in [&live, &snap, &logs] {
         std::fs::create_dir_all(d).unwrap();
     }
@@ -1145,7 +1150,11 @@ fn served_park(name: &str, extra: &[&str], issue: u64) -> Value {
 
 fn served_park_of(name: &str, extra: &[&str], issue: u64, result: Option<&str>) -> Value {
     let root = TestDir::new(&format!("mcp-serve-park-{name}"));
-    let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
+    let (live, snap, logs) = (
+        Home::new(&*root).live_dir(),
+        root.join("mcp"),
+        root.join("logs"),
+    );
     for d in [&live, &snap, &logs] {
         std::fs::create_dir_all(d).unwrap();
     }
@@ -1257,7 +1266,11 @@ fn private_needs_a_name() {
 // fixtures/images, each started a minute apart before now.
 fn served_images(tool: &str, args: Value) -> Value {
     let root = TestDir::new(&format!("mcp-serve-images-{tool}"));
-    let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
+    let (live, snap, logs) = (
+        Home::new(&*root).live_dir(),
+        root.join("mcp"),
+        root.join("logs"),
+    );
     for d in [&live, &snap, &logs] {
         std::fs::create_dir_all(d).unwrap();
     }
@@ -1334,7 +1347,11 @@ fn served_sessions_name_their_image_and_failures_split_by_it() {
 #[test]
 fn served_decisions_mask_the_private_names_given() {
     let root = TestDir::new("mcp-serve-decisions");
-    let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
+    let (live, snap, logs) = (
+        Home::new(&*root).live_dir(),
+        root.join("mcp"),
+        root.join("logs"),
+    );
     for d in [&live, &snap, &logs] {
         std::fs::create_dir_all(d).unwrap();
     }
@@ -1383,7 +1400,7 @@ fn served_decisions_mask_the_private_names_given() {
 #[test]
 fn the_contractors_tool_is_served_only_with_outsource_on() {
     let root = TestDir::new("mcp-serve-contractors");
-    let live = root.join("live");
+    let live = Home::new(&*root).live_dir();
     std::fs::create_dir_all(&live).unwrap();
     for e in std::fs::read_dir(fixture("live")).unwrap() {
         let e = e.unwrap();

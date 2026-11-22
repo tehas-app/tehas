@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::Path;
 use tehas_core::file::READ_BOUND_LEN;
+use tehas_core::home::Home;
 use tehas_core::testdir::TestDir;
 use tehas_core::time::{iso, now};
 
@@ -35,7 +36,7 @@ fn write(dir: &Path, by: &str, generated: i64, entries: &[Value]) {
 
 fn dirs(name: &str) -> (TestDir, Dirs) {
     let root = TestDir::new(&format!("mcp-out-{name}"));
-    let live = root.join("live");
+    let live = Home::new(&*root).live_dir();
     let mcp = root.join("mcp");
     std::fs::create_dir_all(&live).unwrap();
     let dir = Dirs {

@@ -24,6 +24,10 @@ pub enum State {
     GithubFailures,
     /// The pins of the state labels to their node ids.
     LabelPins,
+    /// The limit `tehas limit` sets.
+    Limit,
+    /// The flag `tehas pause` sets.
+    Pause,
     /// The record of a sandbox that cannot push.
     PushFault,
     /// The local records of starts a read-only host made.
@@ -32,6 +36,8 @@ pub enum State {
     ReadOnlyLog,
     /// The record of the starts.
     Starts,
+    /// Held while `tehas update` runs.
+    UpdateLock,
 }
 
 impl State {
@@ -43,10 +49,13 @@ impl State {
             State::EgressLock => "state/egress.lock",
             State::GithubFailures => "state/github-failures",
             State::LabelPins => "state/labels",
+            State::Limit => "state/limit.json",
+            State::Pause => "state/pause.json",
             State::PushFault => "state/push-fault.json",
             State::ReadOnly => "state/read-only",
             State::ReadOnlyLog => "state/read-only.log",
             State::Starts => "state/starts.json",
+            State::UpdateLock => "state/update.lock",
         }
     }
 }
@@ -113,6 +122,12 @@ impl Home {
     pub fn token_dir(&self, t: TokenDir) -> PathBuf {
         self.root.join(t.relative())
     }
+
+    /// `live/`, the views the factory publishes, for the mount and the MCP
+    /// server's `live:`.
+    pub fn live_dir(&self) -> PathBuf {
+        self.root.join("live")
+    }
 }
 
 fn from_var(v: Option<OsString>) -> Option<Home> {
@@ -136,6 +151,7 @@ mod tests {
         assert_eq!(h().root(), Path::new("/h"));
         assert_eq!(at(h().state_dir()), "/h/state");
         assert_eq!(at(Home::new("").state_dir()), "state");
+        assert_eq!(at(h().live_dir()), "/h/live");
     }
 
     #[test]
@@ -153,10 +169,13 @@ mod tests {
             (State::EgressLock, "/h/state/egress.lock"),
             (State::GithubFailures, "/h/state/github-failures"),
             (State::LabelPins, "/h/state/labels"),
+            (State::Limit, "/h/state/limit.json"),
+            (State::Pause, "/h/state/pause.json"),
             (State::PushFault, "/h/state/push-fault.json"),
             (State::ReadOnly, "/h/state/read-only"),
             (State::ReadOnlyLog, "/h/state/read-only.log"),
             (State::Starts, "/h/state/starts.json"),
+            (State::UpdateLock, "/h/state/update.lock"),
         ];
         for (s, want) in cases {
             assert_eq!(at(h().state(s)), want, "{s:?}");

@@ -6,6 +6,7 @@ use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use tehas_core::home::Home;
 use tehas_core::question::park_sig;
 use tehas_core::testdir::TestDir;
 use tehas_core::time::{iso, now};
@@ -28,7 +29,11 @@ struct Env {
 impl Env {
     fn new(name: &str, sessions: &[Value]) -> Env {
         let root = TestDir::new(&format!("mcp-park-{name}"));
-        let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
+        let (live, snap, logs) = (
+            Home::new(&*root).live_dir(),
+            root.join("mcp"),
+            root.join("logs"),
+        );
         for d in [&live, &snap, &logs] {
             std::fs::create_dir_all(d).unwrap();
         }

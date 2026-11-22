@@ -56,8 +56,8 @@ pattern = '"(state|live|run)/|join\("(state|live|run)"\)|TEHAS_HOME}?/(state|liv
 files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh", "host/systemd/*", "host/fun/**/*.js"]
 allowed = ["console/core/src/home.rs"]
 comment = "//"
-max = 1336
-why = "T5 gives the layout one owner, Home (console/core/src/home.rs), which writes it and is allowed. The count is what is still written elsewhere, measured at T5's core step: dispatch 341, cycle 278, ops 238, store 145, the console 124, analytics 98, proxy 31, contractor 25, install.sh 21, mcp 16, plugin 8, core 5, the units 5, xtask 1. T5 moves each crate onto Home in turn; dispatch waits for its own slice. Floors: the bash and the units until T8, which asks Home; the shell stubs in contractor's tests until T8; xtask's run dir, which is not the home; and in core, the tests that pin a path's literal against Home and a container's own state dir."
+max = 1312
+why = "T5 gives the layout one owner, Home (console/core/src/home.rs), which writes it and is allowed. The count is what is still written elsewhere, measured at T5's mcp step: dispatch 341, cycle 278, ops 238, store 145, the console 124, analytics 98, proxy 31, contractor 25, install.sh 21, core 5, the units 5, xtask 1. T5 moves each crate onto Home in turn; dispatch waits for its own slice. Floors: the bash and the units until T8, which asks Home; the shell stubs in contractor's tests until T8; xtask's run dir, which is not the home; and in core, the tests that pin a path's literal against Home and a container's own state dir."
 
 [[check]]
 id = "untyped-signatures"
