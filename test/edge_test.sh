@@ -10,7 +10,7 @@ compose=$T_ROOT/host/edge/router.compose.yaml
 t_case "the router's file names no domain and takes numbers only"
 t_eq "$(grep -c -E 'tehas\.app|example\.' "$caddyfile")" 0
 for want in '@preview header_regexp preview Host ^uat-([1-9][0-9]{0,8})\.' '@main header_regexp main Host ^uat-main\.' 'reverse_proxy tehas-preview-main:8080' \
-  '@ticket header_regexp ticket Host ^lab-([1-9][0-9]{0,8})\.' 'reverse_proxy tehas-preview-{re.preview.1}:8080' 'root * /srv/protolab/{re.ticket.1}'; do
+  '@item header_regexp item Host ^item-([1-9][0-9]{0,8})\.' 'reverse_proxy tehas-preview-{re.preview.1}:8080' 'root * /srv/items/{re.item.1}'; do
   t_contains "$(cat "$caddyfile")" "$want"
 done
 t_eq "$(awk '/handle @main \{/ {a = NR} /handle @odd \{/ {b = NR} END {print (a && a < b) ? "before" : "after"}' "$caddyfile")" before
@@ -45,7 +45,7 @@ t_lacks "$(cat "$docs_compose")" "docker.sock"
 
 t_case "the router keeps its protections"
 t_contains "$(cat "$caddyfile")" 'respond @kept 404'
-t_contains "$(cat "$caddyfile")" '@odd header_regexp odd Host ^(uat|lab)-'
+t_contains "$(cat "$caddyfile")" '@odd header_regexp odd Host ^(uat|item)-'
 t_contains "$(cat "$caddyfile")" 'header Content-Security-Policy "sandbox allow-scripts allow-forms allow-modals allow-pointer-lock"'
 t_contains "$(cat "$caddyfile")" "header Content-Security-Policy \"default-src 'none'; style-src 'self'"
 
@@ -138,11 +138,11 @@ t_contains "$sitemap" '{{- if ne (env "TEHAS_SITE_INDEXING") "1" }}{{ httpError 
 t_contains "$(cat "$T_ROOT/console/ops/src/update/files.rs")" 'if same_content(from, &e.to) {'
 t_contains "$(cat "$T_ROOT/host/docs/host.md")" 'file last changed on this host (an update leaves a page with the same bytes as'
 
-t_case "the live list holds the 19 names the dashboard, the console and the server read"
-t_eq "$(printf '%s\n' "$table" | wc -l)" 19
+t_case "the live list holds the 18 names the dashboard, the console and the server read"
+t_eq "$(printf '%s\n' "$table" | wc -l)" 18
 for want in /status.json /running.json /endings.json /epics.json /health.json /health.down \
   /dispatch.json /demand.json /analytics.json /top.json \
-  /panels.json /disk.json /platform.json /rukas.json /previews.json /protolab.json \
+  /panels.json /disk.json /platform.json /rukas.json /previews.json \
   /cycles/*.json /console-*.txt /console-*.txt.now; do
   grep -qxF -- "$want" <<<"$table" || t_bad "the list does not name $want"
 done
@@ -293,8 +293,7 @@ t_eq "$(grep -c -F 'STATES[it.state] || "not serving";' "$T_ROOT/host/fun/factor
 t_case "the pages take an address only with a number of one to nine digits and no leading zero"
 # A dot or a dash after the label: TEHAS_EDGE_ONE_LEVEL names uat-12-demo.example.org.
 t_eq "$(grep -c -F 'const ADDRESS = /^https:\/\/uat-([1-9][0-9]{0,8}|main)[.-][a-z0-9.-]+\/$/;' "$T_ROOT/host/fun/factory/tehas-factory-previews.model.js")" 1
-t_eq "$(grep -c -F '/^https:\/\/lab-[1-9][0-9]{0,8}[.-][a-z0-9.-]+\/$/.test(t.address)' "$T_ROOT/host/fun/game-view.js")" 1
-t_eq "$(grep -c -e 'uat-\[0-9\]+' -e 'lab-\[0-9\]+' "$T_ROOT/host/fun/factory/tehas-factory-previews.model.js" "$T_ROOT/host/fun/game-view.js" | grep -c -v ':0$')" 0
+t_eq "$(grep -c -e 'uat-\[0-9\]+' -e 'item-\[0-9\]+' "$T_ROOT/host/fun/factory/tehas-factory-previews.model.js" "$T_ROOT/host/fun/game-view.js" | grep -c -v ':0$')" 0
 
 # The dashboard's files are compressed on their way out and cached by the
 # browser: the scripts and stylesheets under a name that holds their own bytes,

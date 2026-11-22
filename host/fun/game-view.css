@@ -67,7 +67,6 @@ img { display: block; }
 .door:nth-child(3) { animation-delay: 380ms; }
 .door:nth-child(4) { animation-delay: 420ms; }
 .door:nth-child(5) { animation-delay: 460ms; }
-.door:nth-child(6) { animation-delay: 500ms; }
 
 .is-changed { animation: latch 320ms steps(2, end); }
 
@@ -183,7 +182,6 @@ body[data-factory="live"] .console-state::before {
     "line monitor"
     "doors monitor"
     "board monitor"
-    "lab monitor"
     "console monitor"
     "epics epics"
     "host host"
@@ -493,39 +491,6 @@ body[data-factory="live"] .console-state::before {
 .epic-link { color: var(--text-cool); text-underline-offset: 4px; }
 .epic-empty, .epic-none { padding: 24px 16px; }
 
-/* The Protolab: tickets at the prototype stage, labelled tehas:prototype, beside the lab at work */
-
-.lab {
-  grid-area: lab;
-  margin-top: 72px;
-  scroll-margin-top: calc(var(--header) + 16px);
-  background: var(--surface);
-  border: var(--frame);
-  box-shadow: var(--shadow-sign);
-}
-.lab-head {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0 24px;
-  padding: 12px 16px;
-  background: var(--surface-head);
-  border-bottom: var(--frame);
-}
-.lab-body { display: grid; grid-template-columns: minmax(0, 1fr) 440px; }
-.lab .rows { border-top: 0; }
-.lab .has-link { display: grid; grid-template-columns: minmax(0, 1fr) auto; border-bottom: 1px solid var(--rule); }
-.lab .has-link:last-child { border-bottom: 0; }
-.lab .has-link .row { border-bottom: 0; }
-.lab a.row { text-decoration: none; }
-.row-open { display: grid; place-items: center; min-width: 72px; padding: 0 16px; color: var(--text-cool); text-underline-offset: 4px; }
-.row-open:hover { background: var(--surface-head); color: var(--text); }
-.row-open:focus-visible { outline-offset: -4px; }
-.lab-scene { margin: 0; padding: 16px; background: var(--surface-quiet); }
-.lab-scene img { box-sizing: content-box; width: 400px; height: 280px; border: var(--frame); }
-.lab-scene figcaption { margin-top: 8px; color: var(--text-quiet); }
-
 /* The production console: the running cycle's output, live from the factory */
 
 .console {
@@ -678,13 +643,13 @@ body[data-factory="live"] .console-state::before {
    between the stylesheet and the script. */
 
 @media not all and (min-width: 1440px) {
-  /* The template names every row it draws, PROTOLAB and the console included.
-     A panel that names no area is placed after the named ones, and on a host
-     that shows the host panel every row up to the breakroom is
-     taken: lab and the console would be dropped below the breakroom. */
+  /* The template names every row it draws, the console included. A panel
+     that names no area is placed after the named ones, and on a host that
+     shows the host panel every row up to the breakroom is taken: the console
+     would be dropped below the breakroom. */
   .stage {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "floor" "doors" "desk" "lab" "console" "epics" "host" "break";
+    grid-template-areas: "floor" "doors" "desk" "console" "epics" "host" "break";
   }
   .floor { display: block; grid-area: floor; }
   /* Here the work order is a panel in the column: it scrolls away with the
@@ -704,8 +669,8 @@ body[data-factory="live"] .console-state::before {
 }
 
 @media (max-width: 1279px) {
-  /* One row of links beside the wordmark row: what the manual and Protolab
-     headers, which hold four links, still make. */
+  /* One row of links beside the wordmark row: what the manual's header, which
+     holds four links, still makes. */
   :root { --header: 128px; }
   /* The front page wraps its menu, so its band is the wordmark row plus two
      rows of links. Only this page has .desk. */
@@ -721,7 +686,7 @@ body[data-factory="live"] .console-state::before {
   .floor-head { margin-top: 24px; }
   /* The stack is read as one run of panels here, so the gaps between them close
      to one grid step under the wide stage's. */
-  .board-wrap, .lab, .console, .doors, .epics { margin-top: 40px; }
+  .board-wrap, .console, .doors, .epics { margin-top: 40px; }
 
   /* Four signs no longer fit side by side: each turns sideways, its scene at the
      native 240 by 130 beside the text. */
@@ -738,8 +703,6 @@ body[data-factory="live"] .console-state::before {
 }
 
 @media (max-width: 899px) {
-  .lab-body { grid-template-columns: minmax(0, 1fr); }
-  .lab-scene img { width: calc(100% - 2 * var(--edge)); max-width: 400px; height: auto; aspect-ratio: 400 / 280; }
   .cabinet { grid-template-columns: minmax(0, 1fr); }
   .doors { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -789,6 +752,5 @@ body[data-factory="live"] .console-state::before {
 .rows li:has(> .host-notes) { border-bottom: 1px solid var(--rule); }
 .rows li:has(> .host-notes) .row { border-bottom: 0; }
 .rows li:last-child:has(> .host-notes) { border-bottom: 0; }
-.lab .has-link > .host-notes { grid-column: 1 / -1; }
 .order-title .host-note { color: var(--screen-text); background: none; border-color: var(--screen-quiet); }
 .order-title a.host-note { color: var(--surface); }

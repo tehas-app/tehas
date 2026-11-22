@@ -622,49 +622,6 @@
       "reason": "expected on or off"
     },
     {
-      "name": "TEHAS_PROTOLAB_URL",
-      "rule": "lab-address",
-      "when": "given",
-      "default": null,
-      "reason": "expected an address such as https://lab.example, with no path and no slash at the end"
-    },
-    {
-      "name": "TEHAS_PROTOLAB_ZIP_URL",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "on",
-        "off",
-        "1",
-        "0"
-      ],
-      "reason": "expected on or off",
-      "building": true
-    },
-    {
-      "name": "TEHAS_PROTOLAB_ZIP_HOSTS",
-      "rule": "domains",
-      "when": "given",
-      "default": "",
-      "reason": "expected domains such as files.example.org, in lower case, separated by single spaces",
-      "building": true
-    },
-    {
-      "name": "TEHAS_PROTOTYPE_FILE",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "on",
-        "off",
-        "1",
-        "0"
-      ],
-      "reason": "expected on or off",
-      "building": true
-    },
-    {
       "name": "TEHAS_UPDATE_FROM",
       "rule": "one-of",
       "when": "given",
