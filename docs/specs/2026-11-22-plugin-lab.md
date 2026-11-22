@@ -116,12 +116,14 @@ with the requests for its own files: the gate's cookie is `SameSite=Lax`
 and those requests are cross-site. So the files are served under a token
 instead of the cookie:
 
-- At each run the host makes a token for each page: 32 random bytes,
-  base64url. The gate keeps the tokens of the current run and the one
-  before, so a page open across a run keeps working until the next.
 - A signed-in request for `/_page/<issue>/`, under the gate's usual rules,
-  answers `303` to `/_page/<issue>/<token>/`. Only a signed-in person gets
-  a token.
+  answers `303` to `/_page/<issue>/<token>/`, with a new token: 32 random
+  bytes, base64url, for that issue's tree. Only a signed-in person gets a
+  token.
+- A token ends at the sign-in's 12 hours or at the run after the one that
+  wrote the tree it was made for, whichever comes first. It is not bound to
+  a person, so it must not outlive a sign-in, even when a quiet label means
+  no run comes for weeks. Opening the page again makes a new token.
 - A request under `/_page/<issue>/<token>/` needs no cookie, and the gate
   reads none. It must be a `GET` or `HEAD` of a file in that issue's tree
   with a token that is valid now. Anything else is 404, with no difference
