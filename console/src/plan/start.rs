@@ -559,7 +559,7 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
     // turn will start: a turn that never began leaves no copy behind.
     if !sandbox::seed(
         &container,
-        &Home::new(&home)
+        &Home::of_text(&home)
             .state(State::CodeIndex)
             .display()
             .to_string(),

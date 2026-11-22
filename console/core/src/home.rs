@@ -209,6 +209,12 @@ impl Home {
         Home { root: root.into() }
     }
 
+    /// A home whose paths join as `format!("{home}/state/...")` does: an
+    /// empty home still names `/state/...`, not a path under the cwd.
+    pub fn of_text(home: &str) -> Home {
+        Home::new(format!("{home}/"))
+    }
+
     /// TEHAS_HOME as `var_os` reads it; None when unset or empty.
     pub fn from_env() -> Option<Home> {
         from_var(std::env::var_os("TEHAS_HOME"))
@@ -281,6 +287,24 @@ mod tests {
         assert_eq!(at(h().state_dir()), "/h/state");
         assert_eq!(at(Home::new("").state_dir()), "state");
         assert_eq!(at(h().live_dir()), "/h/live");
+    }
+
+    #[test]
+    fn a_home_of_text_joins_as_text() {
+        assert_eq!(at(Home::of_text("").state_dir()), "/state");
+        assert_eq!(
+            at(Home::of_text("").live(Live::Running)),
+            "/live/running.json"
+        );
+        assert_eq!(
+            at(Home::of_text("/h").state(State::Review)),
+            "/h/state/review.json"
+        );
+        assert_eq!(at(Home::of_text("/h/").state_dir()), "/h//state");
+        assert_eq!(
+            at(Home::of_text("/h").cycle_note(9, "cid")),
+            "/h/state/cycles/9.cid"
+        );
     }
 
     #[test]

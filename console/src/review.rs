@@ -270,7 +270,7 @@ fn review() -> u8 {
     // The runner's one JSON document, beside its NDJSON progress.
     let doc = format!("{home}/logs/review-{stamp}.json");
     let runs = format!("{}/.pi/agent/ensemble-runs/review", var("HOME"));
-    let at = Home::new(&home);
+    let at = Home::of_text(&home);
     let record = at.state(State::Review).display().to_string();
 
     // The committer of the clone: git needs an identity for the branch it checks

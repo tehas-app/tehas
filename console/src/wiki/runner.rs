@@ -243,7 +243,7 @@ pub fn main(given: &[String]) -> u8 {
         Err(why) => return refuse(format!("tehasbot wiki: {why}, not starting")),
     };
     let stop_wait: u64 = var("TEHAS_STOP_WAIT").parse().unwrap_or(60);
-    let at = Home::new(&home);
+    let at = Home::of_text(&home);
     if fs::create_dir_all(at.state_dir())
         .and_then(|()| fs::create_dir_all(format!("{home}/logs")))
         .is_err()
