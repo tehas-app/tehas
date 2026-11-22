@@ -480,7 +480,8 @@ refactor step. The program manager is the session tehas-2d.
    without a JUnit report), #2480 (a killed lean job keeps running),
    #2403 (the lens review is not recorded), #2501 (the rest of #2410)
    and #2511 (a typed setup refusal, for part 4). All are merged and
-   ship in 0.15.0, so the pin is 0.15.0 or later. Each release
+   ship in 0.15.0, so the pin is 0.15.0 or later on the 0.15 line
+   (`PI_RUKAS_FOLLOW=release:0.15`). Each release
    candidate checks this as it checks the pin.
 3. **Ship it.** `lean` in `console/core/src/features.rs` moves to
    shipped, and `host/docs/features.md` marks it proven with the dates
@@ -693,6 +694,10 @@ of main, each grade.
 | 2026-11-22 | T12.1: `tehas answer`, and `--text -` from standard input | #2794, #2808 |
 | 2026-11-22 | T13 part 4: lean's fallback to classic keys on pi-rukas's typed setup refusal (pi-rukas#2511), with a host message | #2798, #2801 |
 | 2026-11-22 | A flaky test fixed: the two writes reports compared without their minute | #2799 |
+<<<<<<< HEAD
 | 2026-11-22 | T14: the Protolab removed as dead code, its file storage and serving kept for plugins (the owner) | #2826 |
 | 2026-11-22 | T15: shell tests to Rust (#2816 to #2824); the migration behind the ports lands after the rest of the refactor, before v2.0.0 (the owner) | #2826 |
 | 2026-11-22 | T13: the pin is pi-rukas 0.15.0; a crash is no setup refusal, and the fallback clears lean's state of the issue | |
+=======
+| 2026-11-22 | T13: the pin is pi-rukas 0.15.0; a crash is no setup refusal, and the fallback clears lean's state of the issue | #2832 |
+>>>>>>> 915ca189 (Log row names its pull request)
