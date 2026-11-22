@@ -226,9 +226,8 @@ Where the file is depends on the instance directory:
 [Commands](/tools). `TEHAS_PREVIEWS=on` without a domain stops every command
 that reads the settings with exit 78.
 
-`TEHAS_DOMAIN` by itself is enough for the Protolab's names: each ticket is
-then at `item-<issue>.tehas.app`, and the Protolab's address becomes
-`https://lab.tehas.app` unless `TEHAS_PROTOLAB_URL` says otherwise.
+`TEHAS_DOMAIN` by itself is enough for the items' names: each item is then
+at `item-<issue>.tehas.app`.
 
 ### 8. Install and start the router
 

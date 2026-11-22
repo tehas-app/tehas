@@ -200,7 +200,6 @@ mod plan;
 mod platform;
 mod preview;
 mod product;
-mod prototype;
 mod publish;
 mod question;
 mod queue;

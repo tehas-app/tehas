@@ -378,7 +378,7 @@ done
 for bad in "TEHAS_WORKSTREAMS=auto" "TEHAS_WORKSTREAMS=0" "TEHAS_MAX_CYCLES=0" "TEHAS_MAX_CYCLES=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_WORK_STALL=0" "TEHAS_WORK_STALL=1h" "TEHAS_HOST_ADDR=not an address" \
   "TEHAS_BRANCH=two words" "TEHAS_SITE_INDEXING=yes" "TEHAS_WORK_IMAGES=yes" "TEHAS_WORK_IMAGES=2" "TEHAS_WORK_ZIPS=yes" "TEHAS_WORK_ZIPS=2" "TEHAS_WORK_DESCRIBE=yes" "TEHAS_WORK_FILES=yes" "TEHAS_WORK_FILES=2" "TEHAS_WORK_COMMENTS=yes" "TEHAS_TOP=yes" "TEHAS_TOP=2" "TEHAS_SITE_ANALYTICS_SRC=http://plain.example/ea.js" \
   "TEHAS_SITE_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_SITE_ANALYTICS_NAME=two words" \
-  "TEHAS_SITE_ANALYTICS_COOKIE=yes" "TEHAS_DESIGN=paper" "TEHAS_DESIGN=Pixel" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
+  "TEHAS_SITE_ANALYTICS_COOKIE=yes" "TEHAS_DESIGN=paper" "TEHAS_DESIGN=Pixel" \
   "TEHAS_PLAN_MAX_TURNS=0" "TEHAS_PLAN_TIMEOUT=1h" "TEHAS_VERIFY_TIMEOUT=30m" "TEHAS_VERIFY_TIMEOUT=0" \
   "TEHAS_CHILD_TIMEOUT=30m" "TEHAS_CHILD_TIMEOUT=0" "TEHAS_CHILD_TIMEOUT=-1" "TEHAS_CHILD_TIMEOUT= \t" \
   "TEHAS_BUILD_TIMEOUT=30m" "TEHAS_BUILD_TIMEOUT=0" \
@@ -1010,18 +1010,10 @@ t_instance "${T_MINIMAL[@]}"
 t_case "the example instance names the minimum the cleaner defaults to"
 t_contains "$(grep '^#TEHAS_CLEAN_MIN_FREE=' "$T_ROOT/instances/example/optional.env")" "=30g"
 
-t_case "without a domain there are no previews and no derived address"
+t_case "without a domain there are no previews"
 t_instance "${T_MINIMAL[@]}"
-t_run "$load && echo \"[\$TEHAS_DOMAIN] \$TEHAS_PREVIEWS [\${TEHAS_PROTOLAB_URL:-}]\""
-t_eq "$t_out" "[] 0 []"
-
-t_case "a domain gives the Protolab its address, and a written one is kept"
-t_instance "${T_MINIMAL[@]}" TEHAS_DOMAIN=example.org
-t_run "$load && echo \"\$TEHAS_PROTOLAB_URL\""
-t_eq "$t_out" "https://lab.example.org"
-t_instance "${T_MINIMAL[@]}" TEHAS_DOMAIN=example.org TEHAS_PROTOLAB_URL=https://proto.example.net
-t_run "$load && echo \"\$TEHAS_PROTOLAB_URL\""
-t_eq "$t_out" "https://proto.example.net"
+t_run "$load && echo \"[\$TEHAS_DOMAIN] \$TEHAS_PREVIEWS\""
+t_eq "$t_out" "[] 0"
 
 t_case "an explicit host address is kept"
 t_instance "${T_MINIMAL[@]}" TEHAS_HOST_ADDR=192.0.2.7
@@ -1550,7 +1542,7 @@ T_ENV=()
 t_instance "${T_MINIMAL[@]}"
 
 t_case "a building feature's own setting stops a command with 78 before it calls GitHub"
-for line in TEHAS_OUTSOURCE_TIMEOUT=1800 TEHAS_OUTSOURCE_REPOS=acme/widget TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org; do
+for line in TEHAS_OUTSOURCE_TIMEOUT=1800 TEHAS_OUTSOURCE_REPOS=acme/widget; do
   t_instance "${T_MINIMAL[@]}" "$line"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
@@ -1699,7 +1691,7 @@ names=(PI_ENSEMBLE_MODEL_ PI_ENSEMBLE_PROVIDER_ PI_ENSEMBLE_SUBAGENT_MODEL PI_EN
   TEHAS_SITE_INDEXING TEHAS_INSTANCE_DIR TEHAS_MAX_AWAITING
   TEHAS_MILLWRIGHT_EPICS TEHAS_MILLWRIGHT_FEED TEHAS_MILLWRIGHT_MAX_FEEDS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
   TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT TEHAS_POLL_BUDGET TEHAS_PREVIEWS TEHAS_PREVIEW_MAX
-  TEHAS_PREVIEW_MIN_FREE TEHAS_PROTOLAB_URL TEHAS_READ_ONLY TEHAS_REFRESH_MAX_PER_PR
+  TEHAS_PREVIEW_MIN_FREE TEHAS_READ_ONLY TEHAS_REFRESH_MAX_PER_PR
   TEHAS_REFRESH_SLOTS TEHAS_RELEASE_REPO TEHAS_REPO TEHAS_RUKAS_WORKAROUNDS
   TEHAS_SCRATCH_DIR TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_FILES TEHAS_SIZE_MAX_LINES TEHAS_SLICE_CONTAINERS
   TEHAS_MAX_CYCLES TEHAS_TOP TEHAS_UPDATE_FROM TEHAS_VERIFY_TIMEOUT TEHAS_WORK_COMMENTS TEHAS_WORK_DESCRIBE
@@ -1708,7 +1700,7 @@ for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "25a5d7285ed660465b9bb1f7085a4509d5a2b307eb183f2699745c39f1bcba8c"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "707a5c7dc759fa0a733624815274507e03a4d2b4157a7997dd8bfe1ec87d6779"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"
@@ -1739,7 +1731,6 @@ TEHAS_MAX_CYCLES=4
 TEHAS_WORKSTREAMS=4|TEHAS_MAX_CYCLES=1
 TEHAS_MAX_AWAITING=3
 TEHAS_DOMAIN=example.org
-TEHAS_DOMAIN=example.org|TEHAS_PROTOLAB_URL=https://p.example
 TEHAS_VERIFY_TIMEOUT=600
 PI_ENSEMBLE_VERIFY_TIMEOUT_MS=1
 PI_ENSEMBLE_MAX_WORKSTREAMS=4
@@ -1808,7 +1799,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "0a2b55935a65911c39262cb4669b23ee771293463c7d39789927dc928bbf0cb0"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "8ba027c753b885e652481a5dbbc316babc272560ead52629d0cd268c9b0b305a"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

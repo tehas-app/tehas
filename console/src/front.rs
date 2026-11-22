@@ -66,7 +66,7 @@ fn script(which: &str, command: &str) -> Option<&'static str> {
 
 /// The verbs of `tehas`. work and index are tehas-cycle's, which takes their
 /// lock (src/run.rs).
-const VERBS: [&str; 37] = [
+const VERBS: [&str; 36] = [
     "work",
     "index",
     "dispatch",
@@ -98,7 +98,6 @@ const VERBS: [&str; 37] = [
     "refresh",
     "github",
     "outsource",
-    "prototype",
     "plugin",
     "wake",
     "blockers",
@@ -819,14 +818,7 @@ mod tests {
             marked.push((r.command.as_str(), name));
         }
         marked.dedup();
-        assert_eq!(
-            marked,
-            [
-                ("outsource", "outsource"),
-                ("plugin", "plugins"),
-                ("prototype", "prototype-file")
-            ]
-        );
+        assert_eq!(marked, [("outsource", "outsource"), ("plugin", "plugins")]);
         for (command, name) in marked {
             for r in pinned.iter().filter(|r| r.command == command) {
                 assert_eq!(r.building.as_deref(), Some(name), "{r:?}");
