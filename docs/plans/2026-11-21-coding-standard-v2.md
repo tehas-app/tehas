@@ -812,4 +812,6 @@ of main, each grade.
 | 2026-11-22 | T16: removed features' settings load, warn once and are dropped (`IGNORED`) | #2846 |
 | 2026-11-22 | Port main @ 40c97b24 (`xtask lean-test` answers lean's runner probe, #2845) | #2848 |
 | 2026-11-22 | T15: the clean shell tests are Rust tests | #2842 |
-| 2026-11-22 | The minimum pi-rukas is v0.15.2, for the roster's exit (found by T13's proof); lean refuses an older image | this pull request |
+| 2026-11-22 | The minimum pi-rukas is v0.15.2, for the roster's exit (found by T13's proof); lean refuses an older image | #2861 |
+| 2026-11-22 | T15: the index and mcp, top, and headless shell tests are Rust tests; the raises they need are recorded in `docs/architecture.md` under "Temporary rises" | #2858, #2859, #2860 |
+| 2026-11-22 | T16: the product wiki leaves core; its renderer and collector stay as crates | #2862 |
