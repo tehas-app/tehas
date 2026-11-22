@@ -681,12 +681,13 @@ fn run_suite(name: &str) {
                 bad.push(format!("report {:?} not {x}", d.report));
             }
         }
-        if e.get("no_demand") == Some(&json!(true)) && d.demand.is_some() {
-            bad.push(format!("demand {:?}", d.demand));
+        let demand = d.demand.as_ref().map(Value::from);
+        if e.get("no_demand") == Some(&json!(true)) && demand.is_some() {
+            bad.push(format!("demand {demand:?}"));
         }
         if let Some(x) = e.get("demand_is") {
-            if d.demand.as_ref() != Some(x) {
-                bad.push(format!("demand {:?} not {x}", d.demand));
+            if demand.as_ref() != Some(x) {
+                bad.push(format!("demand {demand:?} not {x}"));
             }
         }
         for x in e
@@ -709,18 +710,18 @@ fn run_suite(name: &str) {
             .flatten()
         {
             let k = x.as_str().unwrap();
-            if d.demand.as_ref().is_some_and(|v| v.get(k).is_some()) {
-                bad.push(format!("demand {:?} has {k}", d.demand));
+            if demand.as_ref().is_some_and(|v| v.get(k).is_some()) {
+                bad.push(format!("demand {demand:?} has {k}"));
             }
         }
         if let Some(x) = e.get("demand") {
-            let ok = match (x, &d.demand) {
+            let ok = match (x, &demand) {
                 (Value::Null, Some(Value::Null)) => true,
                 (x, Some(r)) if !x.is_null() => within(x, r),
                 _ => false,
             };
             if !ok {
-                bad.push(format!("demand {:?} not {x}", d.demand));
+                bad.push(format!("demand {demand:?} not {x}"));
             }
         }
         // starts: each issue of the record as "<n> start" or "<n> <code>";

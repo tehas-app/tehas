@@ -18,7 +18,7 @@
 
 use crate::apply::start::Host;
 use crate::apply::Writer;
-use crate::decide::{iso, iso_now};
+use crate::decide::{iso, iso_now, PlanStep};
 use crate::read::build::{fill, may_start, snapshot, Sources};
 use crate::read::host::{hostname, push_fault, push_fault_aged_out};
 use crate::read::run::{read_gh_token, Calls, RetryPolicy};
@@ -848,45 +848,44 @@ fn body(
     end.tidy = d.tidy;
     w.host.bot = d.bot.clone();
     demand_health(home, w, &d);
-    // The decision's lines, the actions between them, and the two steps the
-    // bash takes where they fall: a poll an action ends logs nothing after
-    // it, as the bash exits there.
-    let mut next = 0;
-    let mut i = 0;
-    let (mut swept, mut reported) = (false, false);
-    let lines_to = |upto: usize, next: &mut usize| {
-        let upto = upto.min(d.log.len()).max(*next);
-        for l in &d.log[*next..upto] {
-            say(l);
+    // The decision's plan: its lines, its actions and the two steps the bash
+    // takes where they fall. A poll an action ends logs nothing after it, as
+    // the bash exits there.
+    let starts = |a: usize| d.actions[a].get("start").is_some();
+    let mut k = 0;
+    while k < d.plan.len() {
+        let step = d.plan[k];
+        k += 1;
+        let a = match step {
+            PlanStep::Say(l) => {
+                say(&d.log[l]);
+                continue;
+            }
+            PlanStep::SweepLocks => {
+                sweep_locks(w, dry);
+                continue;
+            }
+            PlanStep::Report => {
+                report(home, w, &d, &snap);
+                continue;
+            }
+            PlanStep::Act(a) => a,
+        };
+        // A run of starts is applied as one call; the lines between them are
+        // logged after its output.
+        let mut end = a + 1;
+        let mut held = Vec::new();
+        if starts(a) {
+            while let Some(&next) = d.plan.get(k) {
+                match next {
+                    PlanStep::Say(l) => held.push(l),
+                    PlanStep::Act(b) if b == end && starts(b) => end += 1,
+                    _ => break,
+                }
+                k += 1;
+            }
         }
-        *next = upto;
-    };
-    loop {
-        if let Some((_, l)) = d.swept_at.filter(|(a, _)| *a == i && !swept) {
-            lines_to(l, &mut next);
-            sweep_locks(w, dry);
-            swept = true;
-        }
-        if let Some((_, l)) = d.reported_at.filter(|(a, _)| *a == i && !reported) {
-            lines_to(l, &mut next);
-            report(home, w, &d, &snap);
-            reported = true;
-        }
-        if i >= d.actions.len() {
-            break;
-        }
-        let at = d.actions[i]
-            .get("_line")
-            .and_then(Value::as_u64)
-            .unwrap_or(0) as usize;
-        lines_to(at, &mut next);
-        let run = d.actions[i..]
-            .iter()
-            .take_while(|a| a.get("start").is_some())
-            .count()
-            .max(1);
-        let done = w.apply(&d.actions[i..i + run]);
-        i += run;
+        let done = w.apply(&d.actions[a..end]);
         for l in &done.log {
             say(l);
         }
@@ -898,8 +897,10 @@ fn body(
             demand_again(home, w, &d);
             return rc;
         }
+        for l in held {
+            say(&d.log[l]);
+        }
     }
-    lines_to(d.log.len(), &mut next);
     demand_again(home, w, &d);
     if d.exit == 0 && d.tidy && !dry {
         write_starts(home, &d);
@@ -1170,10 +1171,11 @@ fn auto_finish_step(
 fn demand_health(home: &Path, w: &mut Writer, d: &crate::Decision) {
     if let Some(demand) = &d.demand {
         let file = home.join("live/demand.json");
-        if demand.is_null() {
-            let _ = std::fs::remove_file(&file);
-        } else {
-            write_demand(&file, demand);
+        match demand {
+            crate::decide::Demand::Unread => {
+                let _ = std::fs::remove_file(&file);
+            }
+            crate::decide::Demand::Counted(_) => write_demand(&file, demand),
         }
         // health, whose gh calls are given the poll's token as the poll's own
         // are: TEHAS_HEALTH_CMD is a test's name for it, as TEHAS_STATUS_CMD
@@ -1194,8 +1196,8 @@ fn demand_health(home: &Path, w: &mut Writer, d: &crate::Decision) {
     }
 }
 
-fn write_demand(file: &Path, demand: &Value) {
-    let mut v = demand.clone();
+fn write_demand(file: &Path, demand: &crate::decide::Demand) {
+    let mut v = Value::from(demand);
     v["time"] = json!(iso_now());
     // A unique name, not the fixed `demand.json.new` two polls can
     // share: each writer holds its own file until its rename.

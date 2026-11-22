@@ -215,9 +215,9 @@ pub struct Decision {
     /// and the hold's words are tehas-core's, so the readers of the file name
     /// them by the same type the writer does.
     pub report: Option<Report>,
-    /// live/demand.json, without its time: Some(Null) removes it. A dry run
-    /// writes none.
-    pub demand: Option<Value>,
+    /// live/demand.json, without its time: Some(Unread) removes it. A dry
+    /// run writes none.
+    pub demand: Option<Demand>,
     /// The issues the demand left out only for the planning session open on
     /// each, and when each began to wait: a poll that ends one of those
     /// sessions counts it again (`demand_after`).
@@ -233,21 +233,72 @@ pub struct Decision {
     pub paused: bool,
     /// The bot's login, which the poll's writes name.
     pub bot: String,
-    /// Where the poll sweeps the unused locks (after its clean-up) and
-    /// publishes its report (at rule 3): the action and the line each comes
-    /// before, as the bash does them there.
-    pub swept_at: Option<(usize, usize)>,
-    pub reported_at: Option<(usize, usize)>,
+    /// The poll's steps in order: its lines, its actions, and where it sweeps
+    /// the unused locks (after its clean-up) and publishes its report (at
+    /// rule 3), as the bash does them there.
+    pub plan: Vec<PlanStep>,
     /// What the poll decided of each issue it could start, and the holds
     /// between issues it read: state/starts.json, without its time. A dry run
     /// writes none.
     pub starts: tehas_core::starts::Record,
 }
 
+/// One step of a poll's plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlanStep {
+    /// Log the line at this index of `log`.
+    Say(usize),
+    /// Apply the action at this index of `actions`.
+    Act(usize),
+    SweepLocks,
+    Report,
+}
+
+/// live/demand.json, without its time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Demand {
+    /// A read the count needs failed: the file is removed.
+    Unread,
+    Counted(DemandCount),
+}
+
+/// The open issues that would start with room.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DemandCount {
+    pub waiting: u64,
+    /// When the oldest was accepted.
+    pub oldest: Option<String>,
+    /// Why the image holds every refresh.
+    pub refresh_hold: Option<String>,
+    /// The issues held only by a blocked label (`label_alone`).
+    pub label_alone: Vec<u64>,
+}
+
+/// The file's keys: Null for Unread, and a key left out when it is empty.
+impl From<&Demand> for Value {
+    fn from(d: &Demand) -> Self {
+        let Demand::Counted(c) = d else {
+            return Value::Null;
+        };
+        let mut m = Map::new();
+        m.insert("waiting".into(), json!(c.waiting));
+        if let Some(o) = &c.oldest {
+            m.insert("oldest".into(), json!(o));
+        }
+        if let Some(h) = &c.refresh_hold {
+            m.insert("refreshHold".into(), json!(h));
+        }
+        if !c.label_alone.is_empty() {
+            m.insert("labelAlone".into(), json!(c.label_alone));
+        }
+        Value::Object(m)
+    }
+}
+
 /// The demand a poll wrote, with the issues it left out for a planning
 /// session counted once the poll ended that session, as the next poll would
 /// count them. None when it ended none of them: the file stays as it is.
-pub fn demand_after(demand: &Value, planning: &[(u64, String)], ended: &[u64]) -> Option<Value> {
+pub fn demand_after(demand: &Demand, planning: &[(u64, String)], ended: &[u64]) -> Option<Demand> {
     let freed: Vec<&str> = planning
         .iter()
         .filter(|(n, _)| ended.contains(n))
@@ -256,23 +307,19 @@ pub fn demand_after(demand: &Value, planning: &[(u64, String)], ended: &[u64]) -
     if freed.is_empty() {
         return None;
     }
-    let mut m = demand.as_object()?.clone();
-    let waiting = m.get("waiting").and_then(Value::as_u64)?;
-    let mut oldest = m
-        .get("oldest")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
+    let Demand::Counted(c) = demand else {
+        return None;
+    };
+    let mut c = c.clone();
+    let mut oldest = c.oldest.take().unwrap_or_default();
     for at in &freed {
         if !at.is_empty() && (oldest.is_empty() || *at < oldest.as_str()) {
             oldest = at.to_string();
         }
     }
-    m.insert("waiting".into(), json!(waiting + freed.len() as u64));
-    if !oldest.is_empty() {
-        m.insert("oldest".into(), json!(oldest));
-    }
-    Some(Value::Object(m))
+    c.waiting += freed.len() as u64;
+    c.oldest = (!oldest.is_empty()).then_some(oldest);
+    Some(Demand::Counted(c))
 }
 
 /// The poll ends here with this exit status.
@@ -420,6 +467,7 @@ fn or_unknown(who: &str) -> &str {
 
 impl<'a> Poll<'a> {
     fn log(&mut self, line: impl Into<String>) {
+        self.d.plan.push(PlanStep::Say(self.d.log.len()));
         self.d.log.push(line.into());
     }
 
@@ -452,12 +500,9 @@ impl<'a> Poll<'a> {
         self.unreadable(&format!("comments of #{n}"), call.as_deref())
     }
 
-    /// An action, with its place among the poll's lines: the lines before it
-    /// are logged before it is applied.
-    fn act(&mut self, mut a: Value) {
-        if let Some(o) = a.as_object_mut() {
-            o.insert("_line".into(), json!(self.d.log.len()));
-        }
+    /// An action, in its place among the poll's lines.
+    fn act(&mut self, a: Value) {
+        self.d.plan.push(PlanStep::Act(self.d.actions.len()));
         self.d.actions.push(a);
     }
 
@@ -610,7 +655,7 @@ impl<'a> Poll<'a> {
             None => self.pause_label()?,
         };
         self.clean_up(&bot)?;
-        self.d.swept_at = Some((self.d.actions.len(), self.d.log.len()));
+        self.d.plan.push(PlanStep::SweepLocks);
         // 1b. The pause switches end the poll here.
         if let Some(h) = holds {
             self.d.paused = true;
@@ -705,10 +750,10 @@ impl<'a> Poll<'a> {
 
     /// report_demand: the open issues that would start with room, and when
     /// the oldest was accepted. A read that fails removes the file.
-    fn demand(&mut self) -> Value {
+    fn demand(&mut self) -> Demand {
         let s = self.s;
         let Some(list) = &s.ready.0 else {
-            return Value::Null;
+            return Demand::Unread;
         };
         let (mut waiting, mut oldest) = (0, String::new());
         let mut counted: Vec<u64> = Vec::new();
@@ -721,7 +766,7 @@ impl<'a> Poll<'a> {
             let ev = match self.s.issues.get(&n).map(|x| &x.events) {
                 Some(Events::Read(v)) => v,
                 _ if planning => continue,
-                _ => return Value::Null,
+                _ => return Demand::Unread,
             };
             let (by, at) = standing_actor(ev, "tehas:ready");
             if !self.c.allowed(&by) && !self.c.is_millwright(&by) && !self.planned(n, &by) {
@@ -786,19 +831,12 @@ impl<'a> Poll<'a> {
         } else if !self.s.refresh_held.is_empty() {
             self.act(json!({"refresh_held": ""}));
         }
-        let mut m = Map::new();
-        m.insert("waiting".into(), json!(waiting));
-        if !oldest.is_empty() {
-            m.insert("oldest".into(), json!(oldest));
-        }
-        if !held.is_empty() {
-            m.insert("refreshHold".into(), json!(held));
-        }
-        let alone = self.label_alone();
-        if !alone.is_empty() {
-            m.insert("labelAlone".into(), json!(alone));
-        }
-        Value::Object(m)
+        Demand::Counted(DemandCount {
+            waiting,
+            oldest: (!oldest.is_empty()).then_some(oldest),
+            refresh_hold: (!held.is_empty()).then_some(held),
+            label_alone: self.label_alone(),
+        })
     }
 
     /// The parked issues with a question on record where one allowed account
@@ -1342,7 +1380,7 @@ impl<'a> Poll<'a> {
                 endpoint: (!s.endpoint.is_empty()).then(|| s.endpoint.clone()),
                 held: Vec::new(),
             });
-            self.d.reported_at = Some((self.d.actions.len(), self.d.log.len()));
+            self.d.plan.push(PlanStep::Report);
         }
         Ok(Room {
             want,
@@ -3552,8 +3590,7 @@ mod check_state_tests {
 
 #[cfg(test)]
 mod demand_tests {
-    use super::demand_after;
-    use serde_json::json;
+    use super::{demand_after, Demand, DemandCount};
 
     fn planning() -> Vec<(u64, String)> {
         vec![
@@ -3562,26 +3599,35 @@ mod demand_tests {
         ]
     }
 
+    fn count(waiting: u64, oldest: Option<&str>, label_alone: Vec<u64>) -> Demand {
+        Demand::Counted(DemandCount {
+            waiting,
+            oldest: oldest.map(str::to_string),
+            refresh_hold: None,
+            label_alone,
+        })
+    }
+
     #[test]
     fn a_session_this_poll_ended_counts_its_issue_and_its_wait() {
-        let d = json!({"waiting": 1, "oldest": "2026-10-17T10:00:00Z", "labelAlone": [9]});
+        let d = count(1, Some("2026-10-17T10:00:00Z"), vec![9]);
         assert_eq!(
             demand_after(&d, &planning(), &[7]),
-            Some(json!({"waiting": 2, "oldest": "2026-10-17T08:00:00Z", "labelAlone": [9]}))
+            Some(count(2, Some("2026-10-17T08:00:00Z"), vec![9]))
         );
         assert_eq!(
-            demand_after(&json!({"waiting": 0}), &planning(), &[8, 7]),
-            Some(json!({"waiting": 2, "oldest": "2026-10-17T08:00:00Z"}))
+            demand_after(&count(0, None, vec![]), &planning(), &[8, 7]),
+            Some(count(2, Some("2026-10-17T08:00:00Z"), vec![]))
         );
     }
 
     #[test]
     fn no_session_of_a_waiting_issue_ended_leaves_the_demand_as_written() {
-        let d = json!({"waiting": 0});
+        let d = count(0, None, vec![]);
         assert_eq!(demand_after(&d, &planning(), &[]), None);
         assert_eq!(demand_after(&d, &planning(), &[12]), None);
         assert_eq!(demand_after(&d, &[], &[7]), None);
         // A demand the poll could not count stays uncounted.
-        assert_eq!(demand_after(&json!(null), &planning(), &[7]), None);
+        assert_eq!(demand_after(&Demand::Unread, &planning(), &[7]), None);
     }
 }

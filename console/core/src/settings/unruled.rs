@@ -4,7 +4,7 @@
 //! [`super::rules::HOST`] for the host. The load's `KEPT` list says only which
 //! names survive its sweep of the environment, so each of them is ruled or
 //! listed here too. The test below holds every name the installed source
-//! reads to a rule, to this list, to the load's retired names, or to a row of
+//! reads to a rule, to this list, to the load's retired or ignored names, or to a row of
 //! api/renames-1.0.tsv, so a new knob cannot go in without a rule.
 
 use super::{load, renamed, rules};
@@ -209,6 +209,7 @@ pub fn known(name: &str) -> bool {
     ruled(name)
         || derived
         || load::retired(name)
+        || load::ignored(name)
         || renamed::rows().iter().any(|r| r.old == name)
         || UNRULED.iter().any(|(n, _)| *n == name)
         || FAMILIES.iter().any(|(f, _)| name.starts_with(f))
