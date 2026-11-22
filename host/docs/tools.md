@@ -67,8 +67,8 @@ it, and exit with its status. `tehas status`, `tehas disk`, `tehas top`,
 `tehasbot mcp key` and `tehasbot github-writes` are verbs too.
 The verbs
 that do, `tehas state`, `limit`, `pause`, `analytics`, `stop`, `init-product` and
-`tehas refresh`, `tehas github check`, `tehasbot health`, `clean`, `preview`
-and `protolab` among them, run
+`tehas refresh`, `tehas github check`, `tehasbot health`, `clean` and
+`preview` among them, run
 under `console run`, which checks the arguments, loads the settings, requires
 what the command cannot run without and runs it (`console/src/run.rs`), and so
 do `tehas dispatch`, `plan`, `check-product` and `tehasbot dispatch` and
@@ -151,9 +151,9 @@ settings and `TEHAS_PROTOLAB_ZIP_HOSTS` in this release.
 | `TEHAS_DESIGN`                  | `beesknees26`                            | The look of the whole site and its front page: `beesknees26` (the business page at `/`) or `pixel` (the factory floor at `/`). Any other value is exit 78. See [Designs](/host#designs) |
 | `TEHAS_ANALYTICS`               | `on`                                     | The factory's own analytics, not the visitor analytics above: 365 days of runs, issue events and poll samples in `~/tehas/state/analytics.db`. `off` stops every write and leaves the file as it is. Anything but `on` or `off` stops every command with 78 |
 | `TEHAS_PROTOLAB_URL`            | `https://lab.<domain>`, or port 8081     | Address people reach the Protolab at, when it is published elsewhere, as `https://lab.example`. The dashboard links to it. Without it: `https://lab.<domain>` when `TEHAS_DOMAIN` is set, else port 8081 of the dashboard's host |
-| `TEHAS_PROTOLAB_ZIP_URL`        | `off`                                    | `on` lets a ticket at the prototype stage name a zip by address and sha256, `Zip: <address> sha256:<hex>`, from a host of `TEHAS_PROTOLAB_ZIP_HOSTS` ([a zip by address](/tools-protolab#a-zip-by-address)). Anything but `on`, `off`, `1` or `0` stops every command with 78. Still being built in this release, so `on` stops every command with 78 too, naming `protolab-zip-url` |
+| `TEHAS_PROTOLAB_ZIP_URL`        | `off`                                    | `on` lets a ticket at the prototype stage name a zip by address and sha256, `Zip: <address> sha256:<hex>`, from a host of `TEHAS_PROTOLAB_ZIP_HOSTS`. Anything but `on`, `off`, `1` or `0` stops every command with 78. Still being built in this release, so `on` stops every command with 78 too, naming `protolab-zip-url` |
 | `TEHAS_PROTOLAB_ZIP_HOSTS`      | empty                                    | Optional. The hosts such a zip may come from, lower-case domains separated by single spaces, as `files.example.org`. A host must match exactly: no subdomain, no port. Empty: no host. Anything else stops every command with 78 |
-| `TEHAS_PROTOTYPE_FILE`          | `off`                                    | `on` turns on [`tehas prototype file`](/tools-protolab#tehas-prototype-file), which opens a ticket for the Protolab with the caller's own gh login. Anything but `on`, `off`, `1` or `0` stops every command with 78. Still being built in this release, so `on` stops every command with 78 too, naming `prototype-file` |
+| `TEHAS_PROTOTYPE_FILE`          | `off`                                    | `on` turns on `tehas prototype file`, which opens a ticket for the Protolab with the caller's own gh login. Anything but `on`, `off`, `1` or `0` stops every command with 78. Still being built in this release, so `on` stops every command with 78 too, naming `prototype-file` |
 | `TEHAS_DOMAIN`                  | none                                     | The domain the edge's names are made under, as `tehas.app`: `uat-<pr>.` for a preview, `item-<issue>.` for a ticket of the Protolab, `lab.` for its list |
 | `TEHAS_EDGE_ONE_LEVEL`          | `off`                                    | `on` names the edge one level under `TEHAS_DOMAIN`'s parent, for a domain that is itself a subdomain: with `demo.example.org`, `uat-<pr>-demo.example.org`, `item-<issue>-demo.example.org` and `lab-demo.example.org`. The notice, the dashboard and the Protolab say these names; the proxy maps each onto the router's `<label>.<domain>`. See [Previews and the Protolab on the internet](/edge#a-domain-that-is-itself-a-subdomain). Refused unless `TEHAS_DOMAIN` has three labels or more |
 | `TEHAS_PREVIEWS`                | `off`                                    | `on` builds a preview of every open pull request whose branch is in the product repository and that an owner, member or collaborator opened. Needs `TEHAS_DOMAIN` |
@@ -698,7 +698,6 @@ hand)` and `## scripts/test.sh` stay here.
 | [tehas status, api, disk, top and analytics](/tools-status) | What the factory is doing, what it speaks to a program, how full the host is, and its runs. |
 | [tehasbot and tehasbot cycle](/tools-tehasbot) | The command the units run, and one cycle for one issue with its report. |
 | [The console, health and top](/tools-health) | The files that feed the dashboard, and what watches the host's health, its models and its load. |
-| [The Protolab](/tools-protolab) | The page of a prototype. |
 | [The GitHub commands](/tools-github) | Asking for refreshes, the App's tokens, and the writes of the last day. |
 | [tehasbot clean and tehasbot preview](/tools-clean) | What the cleaner removes and when, and the preview of every pull request. |
 | [tehas update, install.sh and bootstrap.sh](/tools-update) | Bringing a host up to date, installing one, and preparing a fresh one. |

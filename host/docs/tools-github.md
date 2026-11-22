@@ -229,3 +229,21 @@ github-writes` is the same command under its old name, kept through 1.x.
 
 Exit 0 the writes were printed; 1 neither `TEHAS_HOME` nor `HOME` is set; 64
 an argument it does not know.
+
+### tehas prototype file
+
+```
+tehas prototype file --title TEXT [--body-file FILE|-] [--zip ADDRESS --zip-sha256 HEX] [--spec LINK --spec-sha256 HEX]
+```
+
+Still being built: a release refuses `TEHAS_PROTOTYPE_FILE=on` with exit 78,
+lists `prototype-file` in `flags` as `false`, and the command exits 78 and
+files nothing. With the feature on, it opens an issue in `TEHAS_REPO` with the
+title, the text, a `Zip:` line and a `Spec:` line, and puts `tehas:prototype`
+on it, with the caller's own gh login. It belongs to the Protolab, which is
+parked.
+
+Exit: 0 filed and marked; 1 gh could not say who is signed in, or a call of
+GitHub failed; 3 the login may not file one, and nothing is filed; 64 a bad
+argument; 78 the feature is off, a zip outside GitHub with `protolab-zip-url`
+off, or the settings are missing or malformed.

@@ -375,13 +375,13 @@ mkdir -p "$home/.config/tehas" && echo TEHAS_ENERGY=on >"$home/.config/tehas/env
 t_run "$install"
 t_eq "$t_rc" 0
 t_eq "$(sed -n 2p "$T/calls/systemctl")" \
-  "--user enable --now tehas-dispatch.timer tehas-dispatch.path tehas-protolab.timer tehas-preview.timer tehas-preview-sweep.timer"
+  "--user enable --now tehas-dispatch.timer tehas-dispatch.path tehas-preview.timer tehas-preview-sweep.timer"
 
-t_case "a domain without previews enables the Protolab and not the previews"
+t_case "a domain without previews enables no timer of its own"
 fresh
 instance TEHAS_DOMAIN=widget.test
 t_run "$install"
-t_eq "$(sed -n 2p "$T/calls/systemctl")" "--user enable --now tehas-dispatch.timer tehas-dispatch.path tehas-protolab.timer"
+t_eq "$(sed -n 2p "$T/calls/systemctl")" "--user enable --now tehas-dispatch.timer tehas-dispatch.path"
 
 t_case "labels that cannot be made leave the first install owed, and the next run does it"
 fresh

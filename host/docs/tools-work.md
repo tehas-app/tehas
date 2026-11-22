@@ -436,8 +436,8 @@ holds the text files the issue links. This widens what a cycle is given, and
 it is off unless the instance sets it. The rules of which links and whose
 approval are those of the images. A file is taken by its name's extension,
 md, txt, csv, json, yaml, yml, log, html, css or js, and then checked: valid
-UTF-8 and no NUL byte, else it is left out with the reason. html is text here;
-rendering it is the [Protolab](/tools-protolab#tehasbot-protolab)'s job. svg, pdf and
+UTF-8 and no NUL byte, else it is left out with the reason. html is text here,
+never rendered. svg, pdf and
 archives are left out, unless the instance takes archives: see below. At most
 16 files, 1 MB each and 4 MB together, apart
 from the images' limits. They are named `file-1.md`, `file-2.csv` and so on,

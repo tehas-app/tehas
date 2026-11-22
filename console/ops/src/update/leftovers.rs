@@ -16,6 +16,10 @@
 //! a plain file named by digits alone. The lock, the taken mark and every file
 //! with a suffix stay. It prints `removed: <path>` for each, as `leftovers`
 //! does. Exit 0, 64 usage.
+//!
+//! [`parked`] removes the directories of the home that a parked feature kept:
+//! `protolab/`, the Protolab's pages (docs/specs/parked-protolab.md). A real
+//! `tehas update` runs it (src/update/finish.rs).
 
 use super::{say, tell};
 use std::fs;
@@ -114,6 +118,29 @@ fn cycles(home: &Path) -> Vec<String> {
         .collect()
 }
 
+/// The home's directories of features this version parked.
+const PARKED: &[&str] = &["protolab"];
+
+/// Removes each directory of [`PARKED`] the home holds: `removed: <path>` for
+/// each, or the reason on standard error. A symbolic link there is left alone.
+pub(super) fn parked(home: &Path) -> Vec<String> {
+    let mut lines = Vec::new();
+    for name in PARKED {
+        let path = home.join(name);
+        if !fs::symlink_metadata(&path).is_ok_and(|m| m.is_dir()) {
+            continue;
+        }
+        match fs::remove_dir_all(&path) {
+            Ok(()) => lines.push(format!("removed: {}", path.display())),
+            Err(e) => tell(&format!(
+                "console update: cannot remove {}: {e}",
+                path.display()
+            )),
+        }
+    }
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::testing::dir;
@@ -183,6 +210,29 @@ mod tests {
             ]
         );
         assert!(outside.exists());
+    }
+
+    #[test]
+    fn the_protolabs_directory_is_removed_with_what_it_holds_and_a_link_is_left() {
+        let d = dir("parked");
+        let home = d.0.join("home");
+        let pages = home.join("protolab/7");
+        fs::create_dir_all(&pages).unwrap();
+        fs::write(pages.join("index.html"), "<p>7</p>\n").unwrap();
+        assert_eq!(
+            parked(&home),
+            [format!("removed: {}", home.join("protolab").display())]
+        );
+        assert!(!home.join("protolab").exists());
+        assert!(parked(&home).is_empty());
+        // A link of that name may point anywhere: neither it nor its target goes.
+        let outside = d.0.join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("keep"), "x\n").unwrap();
+        symlink(&outside, home.join("protolab")).unwrap();
+        assert!(parked(&home).is_empty());
+        assert!(outside.join("keep").exists());
+        assert!(fs::symlink_metadata(home.join("protolab")).is_ok());
     }
 
     #[test]

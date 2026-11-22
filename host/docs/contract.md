@@ -411,9 +411,6 @@ exit 78 and says `protolab-zip-url` is still being built.
 - A `Zip:` line in a ticket is text on the Protolab page, as it always was.
 - No command, no label, no `--json` field, no MCP tool.
 
-[A zip by address](/tools-protolab#a-zip-by-address) says what the feature
-does once it ships.
-
 ### prototype-file
 
 Building, planned for 1.1. Off by default; `TEHAS_PROTOTYPE_FILE=on` stops every command with
@@ -424,9 +421,6 @@ exit 78 and says `prototype-file` is still being built.
 - `tehas prototype file` exits 78 and files nothing. `tehas help prototype`
   prints its text, and the list of `tehas help` does not name it.
 - No label, no `--json` field, no MCP tool.
-
-[`tehas prototype file`](/tools-protolab#tehas-prototype-file) says what the
-feature does once it ships.
 
 ### lean
 

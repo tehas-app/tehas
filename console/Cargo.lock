@@ -160,7 +160,6 @@ dependencies = [
  "tehas-core",
  "tehas-cycle",
  "tehas-dispatch",
- "tehas-items",
  "tehas-ops",
 ]
 

@@ -323,10 +323,8 @@ GraphQL carry the id of their label:
   comment or on the label alone. A refused pin never lets an issue start
   sooner.
 
-`tehas labels` pins `tehas:prototype` the same way, and the
-[Protolab](/tools-protolab#tehasbot-protolab) publishes no ticket while the
-label under that name is not the pinned one. The dispatcher does not act on
-it.
+`tehas labels` pins `tehas:prototype` the same way. The dispatcher does not
+act on it.
 
 A label renamed into a granting name, for example a person's `bug` renamed to
 `tehas:ready`, therefore grants nothing: its old applications carry the id of

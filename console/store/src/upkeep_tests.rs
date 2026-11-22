@@ -892,8 +892,8 @@ fn log_len(name: &str, lines: usize) -> u64 {
 // The logs of the timers that run every few minutes or every hour are cut too,
 // or they grow for as long as the host runs.
 #[test]
-fn the_logs_of_the_previews_the_protolab_and_the_cleaner_are_long_lived() {
-    for name in ["logs/preview.log", "logs/protolab.log", "logs/clean.log"] {
+fn the_logs_of_the_previews_and_the_cleaner_are_long_lived() {
+    for name in ["logs/preview.log", "logs/clean.log"] {
         assert!(LONG_LIVED.contains(&name), "{name}");
     }
 }

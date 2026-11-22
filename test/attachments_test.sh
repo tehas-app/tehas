@@ -302,7 +302,7 @@ t_eq "$t_rc $t_out" "1 L3"
 # --- An archive the issue links ----------------------------------------------
 # A zip is taken by its first bytes, not its name. The fixtures are written by
 # hand and committed under test/fixtures/work-zips, so these cases ask no zip
-# tool, as the Protolab's do.
+# tool.
 zips=$T_ROOT/test/fixtures/work-zips
 # A zip the test writes: x.png of png bytes and x.html of the same bytes, so the
 # two say what an entry of an archive says and nothing else does. It is written
@@ -310,8 +310,7 @@ zips=$T_ROOT/test/fixtures/work-zips
 # and are not touched by these cases. The bytes of an entry are those of the png
 # every other link of these cases is answered with, so the one printf serves for
 # all three. The name is one no other case of this file uses. python3 writes
-# it, as test/fixtures/protolab/make-zips.sh writes the archives zip cannot, so
-# these cases still ask no zip tool.
+# it, so these cases still ask no zip tool.
 fakezip=$T/pngbytes.zip
 fake_archive() { # the two entries, one of png bytes and one of the same bytes named .html
   rm -f "$fakezip"

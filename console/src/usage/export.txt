@@ -3,8 +3,7 @@ masked, and change nothing in the factory.
 
 It writes <dir>/export.json, {"version": 1}, the layout of the directory.
 For every cycle tehas history would list, it writes <dir>/cycles/<cursor>/
-with the cycle's result, its logs, its agents' transcripts and its ticket
-page:
+with the cycle's result, its logs and its agents' transcripts:
 
   result.json        state/cycles/<issue>.result.json and .progress.json, as
                      the cycle left them
@@ -14,7 +13,6 @@ page:
                      and the dispatcher's log of the cycle
   transcripts/       the agents' transcripts of that cycle, under the name the
                      console found them by
-  item/              the ticket's page and its files, when the ticket has one
   plan.json          the planning session on the state store, for a kind:
                      plan line, as plan-show gives it
 
@@ -22,13 +20,11 @@ The copying is the console's (console/src/export.rs).
 Every file goes through its mask, with the same names of the host it is given
 when a cycle runs (the host aliases, the model hosts, the bot's email): a
 token, a key, a password or a private address that reached a log does not
-reach the copy. Only a file of a ticket page that is not UTF-8 is copied as
-it is: an image or a video holds nothing to hide and a mask would only corrupt
-it. A log is masked whatever bytes it holds. The mask catches accidents; it
+reach the copy. A file is masked whatever bytes it holds. The mask catches accidents; it
 cannot stop what no pattern knows, so an export is still a copy of what a
 cycle wrote.
 
-A cycle with no logs, no transcripts or no ticket page is not an error:
+A cycle with no logs or no transcripts is not an error:
 those directories are simply not there. tehasbot clean removes logs
 after seven days, and a planning turn has no result file at all.
 

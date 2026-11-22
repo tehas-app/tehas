@@ -427,9 +427,7 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
             "PI_ENSEMBLE_SUBAGENT_MODEL",
             "PI_ENSEMBLE_SUBAGENT_PROVIDER",
         ],
-        ["tehasbot", "protolab"] | ["tehas", "prototype"] => {
-            &["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"]
-        }
+        ["tehas", "prototype"] => &["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"],
         _ => &[],
     }
 }
@@ -683,7 +681,6 @@ mod tests {
             &["tehasbot", "preview", ""],
             &["tehasbot", "preview", "--sweep"],
             &["tehasbot", "preview", "--sweep", "kept"],
-            &["tehasbot", "protolab", "ignored"],
             &["tehasbot", "refresh", "--help"],
         ] {
             assert_eq!(says(good), 0, "{good:?}");
@@ -776,10 +773,6 @@ mod tests {
                 "{all}"
             );
         }
-        assert_eq!(
-            required(&words(&["tehasbot", "protolab"])),
-            ["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"]
-        );
     }
 
     #[test]

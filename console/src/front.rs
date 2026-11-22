@@ -139,7 +139,7 @@ fn tehasbot(words: &[String]) -> Go {
     match words.first().map(String::as_str) {
         None | Some("help" | "-h" | "--help") => Go::Usage,
         Some(
-            "health" | "status" | "top" | "refresh" | "clean" | "preview" | "protolab" | "dispatch"
+            "health" | "status" | "top" | "refresh" | "clean" | "preview" | "dispatch"
             | "github-token" | "cycle" | "outsource-proxy" | "plugin" | "plugin-gate",
         ) => Go::Run,
         Some("mcp") if words.get(1).map(String::as_str) == Some("serve") => Go::Run,
@@ -426,7 +426,6 @@ mod tests {
             "refresh",
             "clean",
             "preview",
-            "protolab",
             "dispatch",
             "github-token",
             "cycle",
@@ -439,6 +438,8 @@ mod tests {
         assert_eq!(b(&["review"]), Go::Unknown("review".into()));
         assert_eq!(t(&["wiki"]), Go::Unknown("wiki".into()));
         assert_eq!(b(&["wiki"]), Go::Unknown("wiki".into()));
+        // The Protolab is parked (docs/specs/parked-protolab.md), and so is its command.
+        assert_eq!(b(&["protolab"]), Go::Unknown("protolab".into()));
         assert_eq!(b(&["mcp", "serve"]), Go::Run);
         assert_eq!(b(&["outsource-proxy"]), Go::Run);
         assert_eq!(b(&["plugin", "tick"]), Go::Run);

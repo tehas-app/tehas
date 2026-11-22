@@ -13,7 +13,7 @@ looks the same before and after.
 
 What is true today: the pages are static HTML and Caddy templates in
 `host/fun/` and `host/docs/`, with plain scripts and ES modules, no build step.
-The Protolab's pages are written by `tehasbot protolab` and hold no script. The
+The pages of an item, which the edge router serves, hold no script. The
 kit in `host/fun/kit/` holds Solid 2 and the island base. The plain dashboard
 is on it: its sections are the islands of `host/fun/factory/`
 ([The plain dashboard](#the-plain-dashboard)). The business page and the

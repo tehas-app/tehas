@@ -1949,7 +1949,7 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
 - the logs of cycles, planning turns, index runs and reviews in
   `~/tehas/logs` older than 7 days, and the analyst logs an earlier version
   left. The long-lived logs stay: `dispatch.log`, `refresh.log`,
-  `review-timer.log`, `preview.log`, `protolab.log`, `clean.log` and
+  `review-timer.log`, `preview.log`, `clean.log` and
   `~/tehas/state/github-writes.log`. Each one past 64 MiB is copied to a single
   `.1` and emptied.
 - the state store's upkeep: a copy a day (see below), and rows past 90 days

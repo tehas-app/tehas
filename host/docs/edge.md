@@ -255,12 +255,11 @@ outside, `uat-1.tehas.app` now answers 404 where it answered 502.
 ### 9. Start the timers
 
 ```
-systemctl --user enable --now tehas-protolab.timer tehas-preview.timer tehas-preview-sweep.timer
+systemctl --user enable --now tehas-preview.timer tehas-preview-sweep.timer
 ```
 
 | Timer | Every | What it does |
 | --- | --- | --- |
-| `tehas-protolab.timer` | 5 minutes | Builds the Protolab's pages |
 | `tehas-preview.timer` | 5 minutes | Builds a preview for a new commit, removes the previews of merged and closed pull requests |
 | `tehas-preview-sweep.timer` | 3 hours | Checks the host for anything a closed pull request left, and removes it |
 

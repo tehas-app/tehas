@@ -38,7 +38,7 @@ commands=(
   "$tehas state pack -" "$tehas limit" "$tehas pause" "$tehas resume" "$tehas api" "$tehas labels"
   "$tehas analytics report" "$tehas drain" "$tehas history" "$tehas stop 7" "$tehas mcp serve"
   "$tehas dispatch" "$tehas check-product" "$tehas init-product"
-  "$bot health" "$bot status" "$bot top" "$bot mcp serve" "$bot dispatch" "$bot protolab"
+  "$bot health" "$bot status" "$bot top" "$bot mcp serve" "$bot dispatch"
   "$bot preview" "$bot refresh --pr 50" "$bot clean" "$bot github-token"
 )
 for command in "${commands[@]}"; do
@@ -74,7 +74,7 @@ needs=(
   "TEHAS_REPO|$tehas api" "TEHAS_REPO|$tehas labels" "TEHAS_REPO|$tehas history"
   "TEHAS_REPO|$tehas resume" "TEHAS_REPO|$bot status" "TEHAS_REPO|$tehas dispatch"
   "TEHAS_REPO|$bot dispatch" "TEHAS_REPO|$tehas check-product" "TEHAS_REPO|$tehas init-product"
-  "TEHAS_REPO|$bot protolab" "TEHAS_REPO|$bot preview" "TEHAS_REPO|$bot clean"
+  "TEHAS_REPO|$bot preview" "TEHAS_REPO|$bot clean"
 )
 for row in "${needs[@]}"; do
   command=${row#*|}
@@ -259,13 +259,12 @@ say=${t_out##*$'\n'}
 t_eq "$(t_calls console)" "front $tree/libexec ${say% *} ${say#* } tehas limit set --reason a b
 front $tree/libexec ${say% *} ${say#* } tehasbot clean --dry-run"
 
-t_case "the pages and the previews are written by a umask their server can read"
+t_case "the previews are written by a umask their server can read"
 reset
 recording "$T/other"
 T_ENV=(TEHAS_CONSOLE="$T/other")
-t_run "umask 077; $bot preview; $bot protolab; $bot clean"
+t_run "umask 077; $bot preview; $bot clean"
 t_eq "$(cat "$T/calls/umask")" "0022
-0022
 0077"
 
 t_case "a reader that left before the text is 141, as for every command, and says nothing"
