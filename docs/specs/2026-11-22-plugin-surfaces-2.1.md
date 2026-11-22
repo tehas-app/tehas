@@ -147,7 +147,8 @@ view cannot frame another site: its policy is `frame-src 'self'`.
 
 So this is not `view` with a wider `frame-src`. The plugin's pages never
 hold the outside frame, and tehas sets the sandbox. A plugin that only
-shows pages needs no build and no run.
+shows pages needs no build and no run: `frame` needs no build, and `menu`
+with `frame` needs none either (1.6.0, the rule in the v2 menu part).
 
 What reaches the container: nothing. Guarantee 7 says a view loads nothing
 from another site. That stays true of the plugin's pages; the outside page
@@ -175,6 +176,9 @@ reads every commit since its last run.
   `{"from": null, "paths": null}`: every path at the head is new to the
   plugin. Otherwise `from` is the last good run's head and `paths` the
   paths changed since.
+- In a hook on a pull request the range is the pull request's, from the
+  merge base to its head (1.6.0, `2026-11-22-plugins-1.6.md`). The rules
+  above are for a refresh.
 - A path the host's secret check refuses is left out whole from
   `/run/history/`, as the wiki spec's guarantees say. The clone at
   `/product` still holds those paths' blobs, as the depth-200 clone does
@@ -366,7 +370,8 @@ Outside pages in the dock. No build, no run.
 {"plugin": 1, "name": "panels", "label": "Panels", "asks": ["menu", "frame"]}
 ```
 
-It has no build, so it needs no `kind`, `build` or `timeout` (1.0.1).
+It has no build, so it needs no `kind`, `build` or `timeout` (1.0.1). It
+asks `menu` with `frame`, which needs no build (1.6.0).
 
 ```
 TEHAS_PLUGIN_GRANTS_PANELS="<commit> menu frame:support=https://chat.example/tehas"

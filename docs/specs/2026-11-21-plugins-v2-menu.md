@@ -15,10 +15,26 @@ list of their own.
   labels are, as in v1. The views are not.
 - Both front pages read it and show a **Plugins** section in the menu, below
   the person's panels. A view with `open: dock` opens in the dock; with
-  `open: page` it opens in a new tab.
+  `open: page` it opens in a new tab; with `open: full` (v3) it opens over
+  the whole page.
 - A plugin with `menu` granted takes no `p-` panel. A plugin without it keeps
   v1's panel, so a v1 grant line means what it meant.
 - `tehas panel` and the host bridge's `menu` stay as they are.
+
+**`menu` and a build** (1.6.0). `menu` starts no run. It needs a build only
+through what it lists:
+
+- A manifest with a build may ask `menu`.
+- A manifest with no build may ask `menu` only when it also asks `frame`
+  (1.5.0). It has no `view` and no `views`, since those need a build, so
+  its items are the granted `/_outside/<id>` pages and nothing else.
+- A manifest with no build that asks `menu` and not `frame` is refused,
+  with "asks: menu needs a build or frame: a plugin with neither has
+  nothing to list".
+- `frame` itself needs no build: the gate makes `/_outside/<id>`.
+
+Until 1.6.0 the reader refused every `menu` with no build, and with it the
+`panels` plugin of 1.5.0.
 
 ## More than one view
 
@@ -34,7 +50,7 @@ list of their own.
 | `id` | `a-z` and `-`, 1 to 16, unique |
 | `label` | 1 to 24 characters |
 | `path` | A directory of the view, starting and ending with `/`, each view its own; a path may be inside another view's |
-| `open` | `dock` or `page` |
+| `open` | Required. `dock` or `page`; `full` is v3's |
 
 At most 4. Each needs `view:<id>`; v1's `view` grant is a single view at
 `/`. A request belongs to the view with the longest path that holds it. If
