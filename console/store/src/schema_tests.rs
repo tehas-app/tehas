@@ -15,7 +15,7 @@ use std::path::Path;
 /// The store each tagged release 1.0 updates from makes, by the schema it is
 /// at: v0.30.0 wrote 12, v0.30.1 13, v0.30.2 to v0.30.6 14 with one
 /// schema.sql, v0.31.0 16 and v0.32.0 17.
-const RELEASES: [(&str, i64, &str); 5] = [
+const RELEASES: [(&str, i64, &str); 6] = [
     (
         "v0.30.0",
         12,
@@ -40,6 +40,11 @@ const RELEASES: [(&str, i64, &str); 5] = [
         "v0.32.0",
         17,
         include_str!("../tests/fixtures/store-v0.32.0.sql"),
+    ),
+    (
+        "v1.4.0",
+        23,
+        include_str!("../tests/fixtures/store-v1.4.0.sql"),
     ),
 ];
 
@@ -1002,8 +1007,28 @@ fn the_step_from_23_adds_the_answers_and_an_answer_goes_with_its_question() {
     c.execute("DELETE FROM questions WHERE id = ?1", [id])
         .unwrap();
     assert_eq!(count(&home, "answers"), 0);
+    // And a cycle's start may say `answer`, every cycle kept.
+    c.execute("UPDATE cycles SET how = 'answer'", []).unwrap();
+    assert_eq!(
+        count(&home, "cycles WHERE how = 'answer'"),
+        count(&home, "cycles")
+    );
     let made = crate::verbs_tests::home("step-24-shape");
     same_shape_as_init(&home, &conn(&made), "23");
+}
+
+/// The CHECK of `answers.choice` is the words of the choices, which the
+/// command, the verb and the dispatcher read in tehas_core::question.
+#[test]
+fn the_answers_take_the_words_of_the_choices() {
+    let home = home("answers-check");
+    let words: Vec<String> = tehas_core::question::CHOICES
+        .iter()
+        .map(|c| format!("'{}'", c.word()))
+        .collect();
+    let want = format!("CHECK (choice IN ({}))", words.join(","));
+    let got = checks(&conn(&home), "answers");
+    assert!(got.contains(&want), "{got:?} does not hold {want}");
 }
 
 #[test]

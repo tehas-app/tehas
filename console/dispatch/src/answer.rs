@@ -60,19 +60,19 @@ impl Answer {
         by: &str,
         at: i64,
     ) -> Option<Answer> {
-        let choice = match choice {
-            "retry" => Choice::Retry,
-            "retry-text" => Choice::RetryText,
-            "park" => Choice::Park,
-            "option" | "update" => Choice::Option(option.filter(|k| *k >= 1)?),
-            "end" => Choice::End,
-            "text" => Choice::Text(text?.to_string()),
-            _ => return None,
-        };
-        let parks = matches!(choice, Choice::Retry | Choice::RetryText | Choice::Park);
-        if !matches!(kind, "park" | "plan") || parks != (kind == "park") || by.is_empty() {
+        use tehas_core::question::Choice as Word;
+        let word = Word::of(choice)?;
+        if word.kind().name() != kind || by.is_empty() {
             return None;
         }
+        let choice = match word {
+            Word::Retry => Choice::Retry,
+            Word::RetryText => Choice::RetryText,
+            Word::Park => Choice::Park,
+            Word::Option | Word::Update => Choice::Option(option.filter(|k| *k >= 1)?),
+            Word::End => Choice::End,
+            Word::Text => Choice::Text(text?.to_string()),
+        };
         Some(Answer {
             question,
             kind: kind.to_string(),
@@ -102,8 +102,9 @@ pub enum Overlay {
     None,
     /// The answer is now the read's one tick, or its reply.
     Given,
-    /// A reply of the person's came after it: the reply stands.
-    Later,
+    /// A person's tick or reply came after it, by the account named: that
+    /// stands, and the caller takes the answer away.
+    Later(String),
     /// The question offers no such choice, or the account may no longer
     /// answer: why. The caller takes the answer away.
     Refused(String),
@@ -130,9 +131,19 @@ pub fn overlay(ans: &mut Value, a: Option<&Answer>, allowed: impl Fn(&str) -> bo
             a.by
         ));
     }
-    let reply_at = ans["reply"]["at"].as_str().unwrap_or("");
-    if a.kind == "plan" && !reply_at.is_empty() && reply_at > a.at.as_str() {
-        return Overlay::Later;
+    // A tick whose saver could not be told this poll waits, as the rules
+    // wait for it: the answer is read again with it on the next poll.
+    if matches!(ans["tick"]["status"].as_str(), Some("unread" | "held")) {
+        return Overlay::None;
+    }
+    // A person's tick or reply after the answer is the newer word.
+    let after = |at: &Value| at.as_str().is_some_and(|t| t > a.at.as_str());
+    if matches!(ans["tick"]["status"].as_str(), Some("one" | "fixer")) && after(&ans["tick"]["at"])
+    {
+        return Overlay::Later(ans["tick"]["by"].as_str().unwrap_or("").to_string());
+    }
+    if a.kind == "plan" && after(&ans["reply"]["at"]) {
+        return Overlay::Later(ans["reply"]["by"].as_str().unwrap_or("").to_string());
     }
     let boxes = ans["boxes"].as_u64().unwrap_or(0);
     // The index of the first box whose label is one of `labels`.
@@ -289,8 +300,34 @@ mod tests {
         assert_eq!(ans["reply"]["id"], Value::Null);
         let later = json!({"by": "bob", "text": "newer", "at": "2026-01-01T03:00:00Z", "id": 6});
         let mut ans = plan!(later.clone());
-        assert_eq!(overlay(&mut ans, Some(&a), anyone), Overlay::Later);
+        assert_eq!(
+            overlay(&mut ans, Some(&a), anyone),
+            Overlay::Later("bob".into())
+        );
         assert_eq!(ans["reply"], later);
+    }
+
+    #[test]
+    fn a_tick_after_the_answer_stands_and_one_before_it_does_not() {
+        let a = answer("park", Choice::Retry);
+        let mut ans = park!();
+        ans["tick"] =
+            json!({"status": "one", "by": "bob", "index": 2, "at": "2026-01-01T03:00:00Z"});
+        let before = ans.clone();
+        assert_eq!(
+            overlay(&mut ans, Some(&a), anyone),
+            Overlay::Later("bob".into())
+        );
+        assert_eq!(ans, before);
+        ans["tick"]["at"] = json!("2026-01-01T01:00:00Z");
+        assert_eq!(overlay(&mut ans, Some(&a), anyone), Overlay::Given);
+        assert_eq!(ans["tick"]["by"], "alice");
+        // A tick whose saver could not be told waits with the answer.
+        let mut ans = park!();
+        ans["tick"] = json!({"status": "unread", "by": "bob"});
+        let before = ans.clone();
+        assert_eq!(overlay(&mut ans, Some(&a), anyone), Overlay::None);
+        assert_eq!(ans, before);
     }
 
     #[test]

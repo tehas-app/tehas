@@ -610,18 +610,20 @@ issue, with who gave it, when, and how (`answer`). Nothing happens at once.
 The next poll acts on it as on the same box ticked by that account, under the
 rules every answer passes: a retry waits for room, and starts only while the
 issue is still stopped, its text unchanged and no pull request closes it. A
-reply on the issue from an allowed account that came after an answer in words
-is the one the planning turn takes. An answer the poll cannot take (a retry
+box ticked or a reply from an allowed account after the answer is the newer
+word: it stands, and the answer is taken away. A box ticked before it is
+unticked once the answer is acted on. An answer the poll cannot take (a retry
 the stop does not offer, an account no longer allowed, an issue no longer
-stopped) is taken away, and the poll says why on the issue. Running it
-again before the poll replaces the answer that waits. Once the question is
-answered or a new one is asked, an answer to the old one does nothing.
+stopped) is taken away, the poll says why on the issue, and a box ticked on
+the question is read as it would be without it. Running it again before the
+poll replaces the answer that waits. Once the question is answered or a new
+one is asked, an answer to the old one does nothing. A retry answered lifts a
+park's hold as a ticked Retry does, also once `tehas:question` is off.
 
-The cycle a retry starts is recorded as a retry of the stop's question
-(`"how": "retry-tick"` in [`tehas history`](#tehas-history) until the ticks
-are retired), started by `--by`, and its start comment says it was authorised
-by that account's answer. A planning turn records the account as the one who
-answered it.
+The cycle a retry starts is recorded with `"how": "answer"` in
+[`tehas history`](#tehas-history), started by `--by`, and its start comment
+says it was authorised by that account's answer. A planning turn records the
+account as the one who answered it.
 
 | Field | Meaning |
 | --- | --- |
@@ -898,7 +900,7 @@ schema names it, under `runs` for a field of a line.
 | `runs.repeat` | The parks in a row that stopped exactly as this one did, this one not counted, so 1 on the first repeat. On the park of a run of parks only. A field of a work line |
 | `runs.pr` | The pull request, as an address of the repository the instance names. A field of a work line that had one |
 | `runs.by` | Who asked for it. Left out for a cycle run by hand, which names no account |
-| `runs.how` | How it was asked for: `label`, `refresh`, `retry-tick`, `outage-retry`, `millwright`, `host` ([`tehas start`](#tehas-start)) or `hand` |
+| `runs.how` | How it was asked for: `label`, `refresh`, `retry-tick`, `outage-retry`, `millwright`, `host` ([`tehas start`](#tehas-start)), `answer` ([`tehas answer`](#tehas-answer)) or `hand` |
 | `runs.label` | The label that started the turn's session, `tehas:plan` or `tehas:refine`. A field of a plan line |
 | `runs.auto` | `true` for a refine the factory started on its own when a cycle parked as underspecified or too-large. Left out otherwise. A field of a plan line |
 | `runs.filed` | The issues the turn filed, when it filed any. A field of a plan line |

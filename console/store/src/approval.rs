@@ -102,21 +102,26 @@ pub fn lifted_note(v: &Value) -> bool {
 /// login gave it, and its row says `host` for the account too.
 pub const HOST: &str = "host";
 
+/// The how of a retry an answer of `tehas answer` asked for (#2782): the
+/// account the answer was given for, and the question's comment.
+pub const ANSWER: &str = "answer";
+
 /// The kinds of approval a person gave, which a fixer or refresh start rests on.
 /// The host's approval is one of them.
-const BASES: &str = "('label', 'retry-tick', 'outage-retry', 'host')";
+const BASES: &str = "('label', 'retry-tick', 'outage-retry', 'host', 'answer')";
 
 /// The hows of this release: what `approval-record` takes, in the order a
 /// refusal prints them (the case in `verbs_tests.rs` pins that string), with
 /// `fixer` as the alias `Args::word` takes beside the word it stands for.
 /// `fixer` is the old name of `millwright` and has no row of its own.
-const CURRENT_HOWS: [(&str, &str); 6] = [
+const CURRENT_HOWS: [(&str, &str); 7] = [
     (MILLWRIGHT, FIXER),
     ("label", "label"),
     ("refresh", "refresh"),
     ("retry-tick", "retry-tick"),
     ("outage-retry", "outage-retry"),
     (HOST, HOST),
+    (ANSWER, ANSWER),
 ];
 
 /// Whether `how` names the millwright's start, in either spelling.

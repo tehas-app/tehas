@@ -3367,7 +3367,10 @@ pub(crate) fn fixer_base(record: &Value) -> Option<Value> {
             .all(|b| b.is_ascii_digit() || matches!(b, b'T' | b':' | b'.' | b'Z' | b'-'))
         && !by.is_empty()
         && by.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        && matches!(how, "label" | "retry-tick" | "outage-retry" | HOST)
+        && matches!(
+            how,
+            "label" | "retry-tick" | "outage-retry" | HOST | "answer"
+        )
         && sum.len() == 64
         && sum.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
     ok.then(|| json!({"at": at, "by": by, "how": how, "body_sha256": sum}))

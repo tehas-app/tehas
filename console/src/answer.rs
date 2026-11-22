@@ -21,6 +21,7 @@ use crate::store;
 use serde_json::json;
 use std::env;
 use std::path::PathBuf;
+use tehas_core::question::{Choice as Word, MAX_OPTIONS};
 use tehas_core::{exit, time};
 
 const USAGE: &str = "usage: tehas answer <issue> <choice> | --text <file> --by <login> [--json]";
@@ -68,24 +69,26 @@ fn bad(why: &str) -> u8 {
     exit::USAGE
 }
 
-/// The choice a word names, or None.
+/// The choice a word names, or None: a word of `tehas_core::question::Choice`
+/// but `option` and `text`, which are `option:<k>` and `--text` here. `<k>` is
+/// 1 to the options a question lists, with no leading zero.
 fn choice(word: &str) -> Option<Choice> {
-    Some(match word {
-        "retry" => Choice::Retry,
-        "retry-text" => Choice::RetryText,
-        "park" => Choice::Park,
-        "update" => Choice::Update,
-        "end" => Choice::End,
-        w => {
-            let k = w.strip_prefix("option:")?;
-            if !(1..=2).contains(&k.len())
-                || k.starts_with('0')
-                || !k.bytes().all(|b| b.is_ascii_digit())
-            {
-                return None;
-            }
-            Choice::Option(k.parse().ok().filter(|k| *k <= 20)?)
+    if let Some(k) = word.strip_prefix("option:") {
+        if k.starts_with('0') || !k.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
         }
+        let k: u64 = k.parse().ok()?;
+        return (1..=MAX_OPTIONS as u64)
+            .contains(&k)
+            .then_some(Choice::Option(k));
+    }
+    Some(match Word::of(word)? {
+        Word::Retry => Choice::Retry,
+        Word::RetryText => Choice::RetryText,
+        Word::Park => Choice::Park,
+        Word::Update => Choice::Update,
+        Word::End => Choice::End,
+        Word::Option | Word::Text => return None,
     })
 }
 
@@ -174,21 +177,22 @@ pub fn main(given: &[String]) -> u8 {
     }
     let n = a.issue.to_string();
     let (word, option, file) = match &a.choice {
-        Choice::Retry => ("retry", None, None),
-        Choice::RetryText => ("retry-text", None, None),
-        Choice::Park => ("park", None, None),
-        Choice::Option(k) => ("option", Some(k.to_string()), None),
-        Choice::Update => ("update", None, None),
-        Choice::End => ("end", None, None),
+        Choice::Retry => (Word::Retry, None, None),
+        Choice::RetryText => (Word::RetryText, None, None),
+        Choice::Park => (Word::Park, None, None),
+        Choice::Option(k) => (Word::Option, Some(k.to_string()), None),
+        Choice::Update => (Word::Update, None, None),
+        Choice::End => (Word::End, None, None),
         Choice::Text(f) => {
             // The store reads an absolute path; a relative one is the caller's.
             let f = match std::path::absolute(f) {
                 Ok(f) => f.to_string_lossy().into_owned(),
                 Err(e) => return bad(&format!("--text {}: {e}", f.display())),
             };
-            ("text", None, Some(f))
+            (Word::Text, None, Some(f))
         }
     };
+    let word = word.word();
     let mut args = vec!["answer-record", &n, "--by", &a.by, "--choice", word];
     if let Some(k) = &option {
         args.extend(["--option", k]);
@@ -224,8 +228,8 @@ pub fn main(given: &[String]) -> u8 {
             })
         );
     } else {
-        let what = match r["option"].as_u64() {
-            Some(k) if word == "option" => format!("option {k}"),
+        let what = match a.choice {
+            Choice::Option(k) => format!("option {k}"),
             _ => word.to_string(),
         };
         let again = if v["replaced"] == json!(true) {

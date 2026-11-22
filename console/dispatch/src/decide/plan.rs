@@ -42,6 +42,7 @@ use crate::settings::Settings;
 use crate::snapshot::PlanList;
 use crate::text;
 use serde_json::{json, Value};
+use tehas_core::question::BOX_END;
 
 /// The largest issue number and the latest cycle start (epoch seconds) a
 /// park owed a refine is read with.
@@ -170,7 +171,7 @@ impl Poll<'_> {
         let why = if ans["tick"]["status"] == "fixer"
             && ans["tick"]["index"].as_u64().map(|i| i + 1) == Some(boxes)
         {
-            "it ticked End this planning session, which only a person may".to_string()
+            format!("it ticked {BOX_END}, which only a person may")
         } else {
             fixer_answer_why(self.c, view)
         };
@@ -324,7 +325,7 @@ impl Poll<'_> {
             if tick == "one" {
                 let i = index.unwrap_or(u64::MAX);
                 let choice = if i.checked_add(1) == Some(boxes) {
-                    "End this planning session".to_string()
+                    BOX_END.to_string()
                 } else {
                     Some(option(i))
                         .filter(|c| !c.is_empty())

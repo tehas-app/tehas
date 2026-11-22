@@ -709,18 +709,22 @@ fn issue(v: &Value) -> Issue {
                 Ok(q.clone())
             }
         }),
-        answer: v.pointer("/question/answer").and_then(|a| {
-            let s = |k: &str| a.get(k).and_then(Value::as_str);
-            crate::answer::Answer::new(
-                a.get("question")?.as_u64()?,
-                s("kind")?,
-                s("choice")?,
-                a.get("option").and_then(Value::as_u64),
-                s("text"),
-                s("by")?,
-                a.get("at")?.as_i64()?,
-            )
-        }),
+        // The question read's, or the park's for a park whose hold may lift.
+        answer: ["/question/answer", "/park/answer"]
+            .iter()
+            .find_map(|p| v.pointer(p).filter(|a| a.is_object()))
+            .and_then(|a| {
+                let s = |k: &str| a.get(k).and_then(Value::as_str);
+                crate::answer::Answer::new(
+                    a.get("question")?.as_u64()?,
+                    s("kind")?,
+                    s("choice")?,
+                    a.get("option").and_then(Value::as_u64),
+                    s("text"),
+                    s("by")?,
+                    a.get("at")?.as_i64()?,
+                )
+            }),
         view: v.get("view").cloned(),
         history: v.get("history").map(|h| match h {
             h if failed(h) => Err(()),

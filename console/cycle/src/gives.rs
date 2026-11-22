@@ -553,8 +553,12 @@ pub fn comments_given(record: &str) -> bool {
 /// Whether the record is a comments retry's: a retry tick that gives comments.
 pub fn comments_retry(record: &str) -> bool {
     comments_given(record)
-        && record_value(Path::new(record))
-            .is_some_and(|r| r.get("how").and_then(Value::as_str) == Some("retry-tick"))
+        && record_value(Path::new(record)).is_some_and(|r| {
+            matches!(
+                r.get("how").and_then(Value::as_str),
+                Some("retry-tick" | "answer")
+            )
+        })
 }
 
 /// <dir> remade with the record's comments.json and a manifest that lists no
@@ -813,7 +817,10 @@ fn base(r: &Value, allowed: &str) -> Option<Value> {
     }) && shaped(base, "by", |s| {
         s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
     }) && shaped(base, "how", |s| {
-        matches!(s, "label" | "retry-tick" | "outage-retry" | "host")
+        matches!(
+            s,
+            "label" | "retry-tick" | "outage-retry" | "host" | "answer"
+        )
     }) && shaped(base, "body_sha256", |s| {
         s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
     });

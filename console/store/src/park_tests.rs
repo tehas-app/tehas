@@ -106,7 +106,7 @@ fn park_records_the_park_and_its_question() {
         v["park"],
         json!({"issue":10,"attempt":1,"at":NOW,"reason":"provider-outage","step":"review","pr":12,
                "retries":0,"started_at":NOW,"started_by":"alice","automatic":true,"question":5001,
-               "told_at":null,"body_sha256":SHA,"park_reason":null,"refine":false,"cap":null})
+               "told_at":null,"body_sha256":SHA,"park_reason":null,"refine":false,"cap":null,"answer":null})
     );
     assert_eq!(
         one::<String>(

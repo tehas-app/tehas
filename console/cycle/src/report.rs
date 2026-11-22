@@ -79,7 +79,10 @@ pub fn comments_said(f: &Facts) -> String {
         .and_then(|a| a.get("current"))
         .is_some_and(|c| {
             c.get("used_by").and_then(Value::as_u64) == Some(f.attempt)
-                && c.get("how").and_then(Value::as_str) == Some("retry-tick")
+                && matches!(
+                    c.get("how").and_then(Value::as_str),
+                    Some("retry-tick" | "answer")
+                )
                 && c.pointer("/input/retry_context")
                     .and_then(Value::as_array)
                     .is_some_and(|a| !a.is_empty())

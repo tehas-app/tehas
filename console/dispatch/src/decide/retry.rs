@@ -227,22 +227,38 @@ impl Poll<'_> {
     }
 
     pub(super) fn untick(&mut self, n: u64, ans: &Value, note: Option<&str>) {
-        // An answer of `tehas answer` has no box: it is taken away instead.
+        let body = ans["body"].as_str().unwrap_or("");
+        let unticked = questions::untick(body);
+        // An answer of `tehas answer` is taken away, and a box ticked beside
+        // it is unticked too, with the note.
         if ans["tick"]["how"] == json!("answer") {
-            let mut a = json!({
-                "answer_drop": n, "id": ans["comment"],
-                "fail": format!("WARN: could not take away the answer to the question on #{n}"),
-            });
-            if let Some(note) = note {
-                a["say"] = json!(note);
+            let question = ans["comment"].as_u64().unwrap_or(0);
+            let boxed = unticked != body.trim_end_matches('\n');
+            self.drop_answer(n, question, if boxed { None } else { note });
+            if !boxed {
+                return;
             }
-            self.act(a);
-            return;
         }
         let mut a = json!({
             "untick": n, "comment": ans["comment"],
-            "body": questions::untick(ans["body"].as_str().unwrap_or("")),
+            "body": unticked,
             "fail": format!("WARN: could not untick the question on #{n}"),
+        });
+        if let Some(note) = note {
+            a["say"] = json!(note);
+        }
+        self.act(a);
+    }
+
+    /// The answer `tehas answer` gave to question `question` taken away, as a
+    /// box is unticked, with its note. A dry run takes nothing away.
+    pub(super) fn drop_answer(&mut self, n: u64, question: u64, note: Option<&str>) {
+        if self.dry {
+            return;
+        }
+        let mut a = json!({
+            "answer_drop": n, "id": question,
+            "fail": format!("WARN: could not take away the answer to the question on #{n}"),
         });
         if let Some(note) = note {
             a["say"] = json!(note);
@@ -346,16 +362,25 @@ impl Poll<'_> {
             };
             // An answer `tehas answer` gave reads as the box it stands for.
             // One the question does not offer is taken away, and said.
+            // One a person's later tick or reply stands over is taken away
+            // without a word. Either way the tick of the comment is read as
+            // it is.
             let given = self.s.issues.get(&n).and_then(|i| i.answer.clone());
             let allowed = |by: &str| self.c.allowed(by);
-            if let Overlay::Refused(why) = answer::overlay(&mut ans, given.as_ref(), allowed) {
-                self.log(format!("skip #{n}: {why}"));
-                if !self.dry {
-                    let note = format!("The answer given for this question was not taken: {why}. Nothing was done.");
-                    ans["tick"]["how"] = json!("answer");
-                    self.untick(n, &ans, Some(&note));
+            match (answer::overlay(&mut ans, given.as_ref(), allowed), &given) {
+                (Overlay::Refused(why), Some(a)) => {
+                    self.log(format!("skip #{n}: {why}"));
+                    let note = format!("The answer given for this question was not taken: {why}.");
+                    self.drop_answer(n, a.question, Some(&note));
                 }
-                continue;
+                (Overlay::Later(who), Some(a)) => {
+                    self.log(format!(
+                        "skip #{n}: the answer of {} is no answer: {who} answered the question after it",
+                        a.by
+                    ));
+                    self.drop_answer(n, a.question, None);
+                }
+                _ => {}
             }
             if ans["asked"] != json!(true) {
                 if let Some(by) = ans["written_by"].as_str() {
@@ -576,7 +601,7 @@ impl Poll<'_> {
                     .into(),
                     how: if answered { "answer" } else { "retry tick" }.into(),
                     given_at: at,
-                    given_how: "retry-tick".into(),
+                    given_how: if answered { "answer" } else { "retry-tick" }.into(),
                     remove,
                     fixer: None,
                     park_lifted: None,

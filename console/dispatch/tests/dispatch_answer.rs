@@ -58,7 +58,7 @@ fn an_answered_retry_starts_a_cycle_as_a_tick_does_and_counts_once() {
     // The start is the retry of the question, by the account of the answer.
     assert_eq!(
         w.at_mark("[.by, .how, .comment_id] | tostring"),
-        r#"["alice","retry-tick",4001]"#
+        r#"["alice","answer",4001]"#
     );
     assert_eq!(w.park_q(7), "none");
     w.clear_calls();
@@ -172,4 +172,48 @@ fn an_answer_in_words_is_the_reply_the_turn_is_given() {
         turn_text(&w),
         "The operator replied on the issue:\n\nSplit it in two."
     );
+}
+
+#[test]
+fn a_persons_tick_after_the_answer_stands_and_the_answer_goes() {
+    let w = World::new("answer-later-tick");
+    // The answer is given before the tick of the fixture (01:00).
+    w.parked("failed", "alice");
+    w.store_at(
+        1767225600,
+        &["answer-record", "7", "--by", "alice", "--choice", "park"],
+    );
+    w.comments(7, &park_body(&["x", " "]), "alice", json!([]));
+    let r = w.poll();
+    has(
+        &r.out,
+        "the answer of alice is no answer: alice answered the question after it",
+    );
+    assert_eq!(started(&w), "7");
+    assert_eq!(waiting(&w), "none");
+}
+
+#[test]
+fn a_box_ticked_before_the_answer_is_unticked_with_it() {
+    let w = World::new("answer-earlier-tick");
+    w.parked("failed", "alice");
+    // The fixture's tick (01:00) is before an answer given now.
+    w.comments(7, &park_body(&[" ", "x"]), "alice", json!([]));
+    answered(&w, "alice", &["retry"]);
+    w.poll();
+    assert_eq!(started(&w), "7");
+    has(&w.gh(), "PATCH");
+    assert_eq!(waiting(&w), "none");
+}
+
+#[test]
+fn a_refused_answer_leaves_a_valid_tick_to_count() {
+    let w = World::new("answer-refused-tick");
+    w.parked("failed", "alice");
+    w.comments(7, &park_body(&["x", " "]), "alice", json!([]));
+    answered(&w, "alice", &["retry-text"]);
+    let r = w.poll();
+    has(&r.out, "which its question does not offer");
+    assert_eq!(started(&w), "7");
+    has(&r.out, "start #7 (retry ticked by alice)");
 }

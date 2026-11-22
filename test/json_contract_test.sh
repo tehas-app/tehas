@@ -342,19 +342,6 @@ surfaces=(
   'bound	approval.bodySha256	.approval.bodySha256 = ("a" * 64)	.approval.bodySha256 = ("A" * 64)	does not match'
   'required	["api","issue","approval","cleared"]'
 
-  # The answer of `tehas answer <issue> <choice> --by <login> --json`: a retry
-  # of a stop, and an option of a planning question given in place of the
-  # answer before it. The surface has no state.
-  'surface	answer'
-  'sample	sample'
-  'sample	option'
-  'check	del(.replaced) | .zz = 1 | .issue = "12"	.: replaced is missing'
-  'check	del(.replaced) | .zz = 1 | .issue = "12"	.zz: not in the schema'
-  'check	del(.replaced) | .zz = 1 | .issue = "12"	.issue: string, not integer'
-  'check	.answer.zz = 1	.answer.zz: not in the schema'
-  'bound	answer.option	.answer.option = 20	.answer.option = 21	over 20'
-  'required	["api","issue","question","answer","replaced"]'
-
   # The answer of `tehas state check --json`: the store's own answer to its
   # check, of a new store. A store that fails its check prints no object, so
   # there is one sample.
@@ -812,28 +799,6 @@ start_reading() { # <name>
   t_run "$start_env '$T_CONSOLE' tehas start 12 $clear --json | jq ."
 }
 
-# <name>: the store that answer sample is a reading of: #12 stopped with its
-# question 4001 on record, or in planning with its question 4002 and two
-# options, answered once before. The clock is the start samples'.
-answer_env="TEHAS_ALLOWED_LABELERS=alice $start_env"
-answer_world() { # <name>
-  t_store_home "$T/home/tehas"
-  if [ "$1" = sample ]; then
-    t_ended "$T/home/tehas" 12 alice
-    t_park "$T/home/tehas" 12 failed 4001
-    return 0
-  fi
-  t_plan "$T/home/tehas" 12 '{"turns": 1, "comment": 4002, "options": ["Adopt all", "Update this issue"]}'
-  t_run "$answer_env '$T_CONSOLE' tehas answer 12 end --by alice >/dev/null 2>&1" ||
-    t_bad "answering #12 failed: $t_out"
-}
-
-answer_reading() { # <name>
-  local choice=retry
-  [ "$1" = sample ] || choice=option:2
-  t_run "$answer_env '$T_CONSOLE' tehas answer 12 $choice --by alice --json | jq ."
-}
-
 # The directory of the export samples, and the name `to` is given in them: the
 # scratch tree of a run is named anew each run, so the sample names it /tmp.
 export_dir=$T/archive
@@ -909,11 +874,6 @@ printed() { # <surface> <name>
     start)
       start_world "$name"
       start_reading "$name"
-      printf '%s\n' "$t_out"
-      ;;
-    answer)
-      answer_world "$name"
-      answer_reading "$name"
       printf '%s\n' "$t_out"
       ;;
     state-check)
@@ -1494,6 +1454,7 @@ pinned=(
   'blockers	console/src/blockers.rs'
   'settings-rules	test/settings_rules_test.sh	own'
   'host-bridge	test/host_bridge_test.sh	open'
+  'answer	console/tests/answer.rs	'
 )
 
 t_case "every schema in api/ is a surface of the table or pinned by its own test"

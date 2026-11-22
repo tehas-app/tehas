@@ -66,6 +66,9 @@ fn a_park_question_takes_a_retry_and_question_known_gives_it() {
     );
     assert_eq!(v["replaced"], false);
     assert_eq!(known(&home, 40, 41), v["answer"].to_string());
+    // park-show gives it with the park, for a poll that reads no question.
+    let park = ok(&home, &["park-show", "40"]);
+    assert_eq!(park["park"]["answer"], v["answer"]);
     // A second answer takes the place of the first.
     let v = call(&home, &answer("40", &["--choice", "park"])).unwrap();
     assert_eq!(v["replaced"], true);

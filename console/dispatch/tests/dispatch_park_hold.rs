@@ -813,6 +813,24 @@ fn a_retry_ticked_in_the_park_comment_lifts_the_hold_once_the_question_label_is_
 }
 
 #[test]
+fn a_retry_answered_through_tehas_answer_lifts_the_hold_as_a_tick_does() {
+    let w = World::new("hold-answered-lift");
+    parked_words(&w);
+    no_question(&w);
+    w.comments(7, &park_body(&[" ", " ", " "]), "", json!([]));
+    w.store_ok(&[
+        "answer-record",
+        "7",
+        "--by",
+        "alice",
+        "--choice",
+        "retry-text",
+    ]);
+    let r = lifts(&w);
+    has(&r.out, "lifted on the Retry alice ticked");
+}
+
+#[test]
 fn a_retry_ticked_by_an_account_that_may_not_authorise_work_lifts_nothing() {
     let w = World::new("hold-ticked-stranger");
     parked_words(&w);

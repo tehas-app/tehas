@@ -4,7 +4,7 @@
 -- later version comes last in its table, where ALTER TABLE puts it, so a store
 -- migrated from an older version (db::migrate) and one init made hold the
 -- same columns. SQLite cannot change a CHECK in place, so cycles is
--- written as db::STEP_14 rebuilds it and actions as db::STEP_16 does. The
+-- written as db::STEP_24 rebuilds it and actions as db::STEP_16 does. The
 -- oldest store db::migrate takes is the one v0.30.0 wrote, schema 12 (db::OLDEST):
 -- sections 3.10 to 3.12 were gone by then. Schema 13 adds the
 -- started_* columns of approvals (db::STEP_13). Schema 14 lets cycles.how say
@@ -24,7 +24,8 @@
 -- model_token_sha256 is the token of the container's models.json. Schema 19
 -- adds plugin_runs, one row per run of a plugin (db::STEP_19, run after
 -- STEP_18). Schema 24 adds answers, an answer `tehas answer` gave to the
--- question on record of an issue (db::STEP_24, run after STEP_23).
+-- question on record of an issue (db::STEP_24_INIT, run after STEP_23), and
+-- cycles.how takes 'answer', which db::STEP_24 rebuilds cycles for.
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
@@ -79,7 +80,7 @@ CREATE TABLE cycles (
   attempt        INTEGER NOT NULL DEFAULT 1,
   started_at     INTEGER NOT NULL,
   started_by     TEXT,
-  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host')),
+  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host','answer')),
   requeued       INTEGER NOT NULL DEFAULT 0,
   rukas_commit   TEXT,
   image          TEXT,

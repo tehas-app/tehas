@@ -150,7 +150,7 @@ fn chose_update(keep: &str, answer: &str) -> bool {
     captured(&format!("{keep}/exit")) == "12"
         && answer
             .split(|b| *b == b'\n')
-            .any(|line| line.ends_with(b" chose: Update this issue"))
+            .any(|line| line.ends_with(format!(" chose: {}", tehas_core::plan::UPDATE).as_bytes()))
 }
 
 /// The issue's {title, body}, as gh issue view gives them.

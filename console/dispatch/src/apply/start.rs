@@ -1142,7 +1142,7 @@ impl Writer {
         // The tick of the comments retry is its own opt-in: what allowed
         // accounts wrote up to it goes on the record whatever
         // TEHAS_WORK_COMMENTS says.
-        if given == "retry-tick" && !alone {
+        if matches!(given.as_str(), "retry-tick" | "answer") && !alone {
             let list = match list.take() {
                 Some(l) => l,
                 None => match self.comments(n) {

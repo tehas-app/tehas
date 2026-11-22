@@ -532,7 +532,7 @@ impl Writer {
                     self.say(n, say, log);
                 }
             }
-            Err(_) => log.push(fail.to_string()),
+            Err(f) => log.push(format!("{fail} ({})", word(&f))),
         }
     }
 

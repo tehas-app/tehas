@@ -302,11 +302,13 @@ ALTER TABLE plugin_runs_new RENAME TO plugin_runs;
 CREATE INDEX plugin_runs_last ON plugin_runs (plugin, kind, started_at);
 ";
 
-/// The step from 23 to 24: an answer given through `tehas answer` (#2782),
+/// The table schema 24 adds: an answer given through `tehas answer` (#2782),
 /// one row per question, which goes with its question. `choice` is a word of
-/// the question's kind, `option_key` the number of a planning option, `text` a
-/// reply in words. The how of every row is `answer`, so it is not kept.
-pub const STEP_24: &str = "
+/// `tehas_core::question::ANSWERS` (a test holds the CHECK to that list),
+/// `option_key` the number of a planning option, `text` a reply in words.
+macro_rules! answers_table {
+    () => {
+        "
 CREATE TABLE answers (
   question   INTEGER PRIMARY KEY REFERENCES questions (id) ON DELETE CASCADE,
   issue      INTEGER NOT NULL,
@@ -316,7 +318,49 @@ CREATE TABLE answers (
   option_key INTEGER,
   text       TEXT
 );
-";
+"
+    };
+}
+
+/// What init lays for schema 24 after schema.sql, whose `cycles` already
+/// takes `answer`.
+pub const STEP_24_INIT: &str = answers_table!();
+
+/// The step from 23 to 24: the answers, and `cycles.how` takes `answer`, a
+/// retry an answer of `tehas answer` asked for. SQLite cannot change a CHECK in
+/// place, so `cycles` is rebuilt as `STEP_14` rebuilt it, with foreign keys off
+/// (`step_24`), and every row is copied.
+pub const STEP_24: &str = concat!(
+    "
+CREATE TABLE cycles_new (
+  issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
+  attempt        INTEGER NOT NULL DEFAULT 1,
+  started_at     INTEGER NOT NULL,
+  started_by     TEXT,
+  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host','answer')),
+  requeued       INTEGER NOT NULL DEFAULT 0,
+  rukas_commit   TEXT,
+  image          TEXT,
+  branch         TEXT,
+  end_reason     TEXT CHECK (end_reason IN ('closed','merged','handoff','parked','failed','stopped','timeout','killed','lost','interrupted','stalled','unknown')),
+  ended_at       INTEGER,
+  oom_kills      INTEGER,
+  forks_refused  INTEGER,
+  stalled_seconds INTEGER,
+  timed_out      INTEGER NOT NULL DEFAULT 0,
+  runner_exit    INTEGER,
+  watched        INTEGER NOT NULL DEFAULT 0,
+  host_saw       TEXT CHECK (host_saw IN ('killed')),
+  stop_asked_at  INTEGER,
+  stop_said_times INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO cycles_new SELECT * FROM cycles;
+DROP TABLE cycles;
+ALTER TABLE cycles_new RENAME TO cycles;
+CREATE INDEX cycles_running ON cycles (ended_at, started_at);
+",
+    answers_table!()
+);
 
 /// How long SQLite waits for a lock another connection holds before giving
 /// up, as the spec's section 4 states it. A database still busy then is exit
@@ -1245,7 +1289,7 @@ pub fn write_schema(
     tx.execute_batch(STEP_21).map_err(classify)?;
     tx.execute_batch(STEP_22).map_err(classify)?;
     tx.execute_batch(STEP_23).map_err(classify)?;
-    tx.execute_batch(STEP_24).map_err(classify)?;
+    tx.execute_batch(STEP_24_INIT).map_err(classify)?;
     let rows = [
         ("schema", SCHEMA_VERSION.to_string()),
         ("created_at", now.to_string()),
@@ -1397,7 +1441,7 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     (23, |c| step(c, 23, STEP_23)),
     // A store at 23 is one this binary wrote before a question took an answer
     // of a program.
-    (24, |c| step(c, 24, STEP_24)),
+    (24, step_24),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and
@@ -1453,6 +1497,17 @@ fn step_14(conn: &mut Connection) -> Result<(), DbError> {
     conn.pragma_update(None, "foreign_keys", "OFF")
         .map_err(classify)?;
     let stepped = step(conn, 14, STEP_14);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(classify)?;
+    stepped?;
+    conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The step to 24, run as `step_14` runs its rebuild of `cycles`.
+fn step_24(conn: &mut Connection) -> Result<(), DbError> {
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(classify)?;
+    let stepped = step(conn, 24, STEP_24);
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(classify)?;
     stepped?;

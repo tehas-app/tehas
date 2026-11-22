@@ -19,29 +19,11 @@
 use crate::verbs::{self, j, line, obj, refuse, row_json, Args, Fail, Kind, Q};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
+use tehas_core::plan::UPDATE;
+use tehas_core::question::{Choice, Kind as Asked, CHOICES};
 
-/// The choices of a park's question.
-const PARK: [&str; 3] = ["retry", "retry-text", "park"];
-/// The choices of a planning question.
-const PLAN: [&str; 4] = ["option", "update", "end", "text"];
-
-/// The words `--choice` takes, each its own spelling.
-const CHOICES: [(&str, &str); 7] = [
-    ("retry", "retry"),
-    ("retry-text", "retry-text"),
-    ("park", "park"),
-    ("option", "option"),
-    ("update", "update"),
-    ("end", "end"),
-    ("text", "text"),
-];
-
-/// The label of the planner's option that makes the plan the issue's text.
-pub const UPDATE: &str = "Update this issue";
-
-/// The options a planning question lists, as tehas_core::question::MAX_OPTIONS
-/// cuts them: an option past it is in no comment.
-const MAX_OPTIONS: i64 = 20;
+/// The options a planning question lists: an option past it is in no comment.
+const MAX_OPTIONS: i64 = tehas_core::question::MAX_OPTIONS as i64;
 
 /// The longest reply in words: the bound of a planning answer's text.
 const TEXT_BOUND: u64 = tehas_core::file::READ_BOUND;
@@ -51,7 +33,7 @@ pub enum Call {
     Record {
         issue: i64,
         by: String,
-        choice: &'static str,
+        choice: Choice,
         option: Option<i64>,
         text: Option<PathBuf>,
     },
@@ -90,22 +72,32 @@ fn record_args(rest: &[String]) -> Result<Call, String> {
     )?;
     let issue = a.issue()?;
     let by = a.strict_need("--by", "an account", verbs::account)?;
-    a.need("--choice")?;
-    let choice = a.word("--choice", &CHOICES)?.expect("--choice was given");
+    let given = a.need("--choice")?;
+    let Some(chosen) = Choice::of(given) else {
+        let words: Vec<&str> = CHOICES.iter().map(|c| c.word()).collect();
+        return Err(a.usage(
+            "--choice",
+            &format!(
+                "is not one of {}: {}",
+                words.join(", "),
+                verbs::shown(given)
+            ),
+        ));
+    };
     let option = a.strict("--option", "a number of 1 to 20", |v| {
         verbs::number(v).filter(|n| (1..=MAX_OPTIONS).contains(n))
     })?;
     let text = a.path("--text-file")?;
-    if (choice == "option") != option.is_some() {
+    if (chosen == Choice::Option) != option.is_some() {
         return Err(a.usage("--option", "is given exactly with --choice option"));
     }
-    if (choice == "text") != text.is_some() {
+    if (chosen == Choice::Text) != text.is_some() {
         return Err(a.usage("--text-file", "is given exactly with --choice text"));
     }
     Ok(Call::Record {
         issue,
         by,
-        choice,
+        choice: chosen,
         option,
         text,
     })
@@ -119,7 +111,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
             choice,
             option,
             text,
-        } => record(home, *issue, by, choice, *option, text.as_deref(), now),
+        } => record(home, *issue, by, *choice, *option, text.as_deref(), now),
         Call::Drop { issue, id } => drop(home, *issue, *id),
     }
 }
@@ -181,7 +173,7 @@ fn record(
     home: &Path,
     issue: i64,
     by: &str,
-    choice: &str,
+    choice: Choice,
     option: Option<i64>,
     text: Option<&Path>,
     now: i64,
@@ -197,7 +189,7 @@ fn record(
         None => None,
     };
     verbs::write(home, |c| {
-        let (id, key) = if PARK.contains(&choice) {
+        let (id, key) = if choice.kind() == Asked::Park {
             let Some(id) = crate::park::question_on_record(c, issue)? else {
                 return Err(refuse(
                     "unasked",
@@ -207,7 +199,6 @@ fn record(
             };
             (id, None)
         } else {
-            debug_assert!(PLAN.contains(&choice));
             let Some((id, json)) = plan_question(c, issue)? else {
                 return Err(refuse(
                     "unasked",
@@ -218,15 +209,15 @@ fn record(
             let labels = options(issue, json.as_deref())?;
             let offered = (labels.len() as i64).min(MAX_OPTIONS);
             let key = match (choice, option) {
-                ("option", Some(k)) if k <= offered => Some(k),
-                ("option", Some(k)) => {
+                (Choice::Option, Some(k)) if k <= offered => Some(k),
+                (Choice::Option, Some(k)) => {
                     return Err(refuse(
                         "unoffered",
                         issue,
                         &format!("the question offers {offered} options, not {k}"),
                     ))
                 }
-                ("update", _) => match labels
+                (Choice::Update, _) => match labels
                     .iter()
                     .take(offered as usize)
                     .position(|l| l == UPDATE)
@@ -257,7 +248,7 @@ fn record(
              ON CONFLICT (question) DO UPDATE SET at = excluded.at,
                by_account = excluded.by_account, choice = excluded.choice,
                option_key = excluded.option_key, text = excluded.text",
-            params![id, issue, now, by, choice, key, text],
+            params![id, issue, now, by, choice.word(), key, text],
         )
         .q()?;
         Ok(line(
