@@ -112,6 +112,8 @@
 //! Exit of `choose`: 0 the choice was printed, whatever it is; 2 usage.
 
 mod build;
+#[cfg(test)]
+mod choose_tests;
 mod list;
 mod run;
 mod sweep;
