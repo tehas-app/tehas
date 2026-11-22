@@ -160,7 +160,7 @@ Counts T15's ports raised. "Max before" is the max just before that pull request
 | label-words | 1866 | 1867 | #2879 | a park marker that store_paths gives its patterns as a line they must not take | T7 |
 | home-layout | 491 | 513 | #2879 | the sample lines store_paths gives its patterns: shell text naming the old files under state/, data the check reads | T7 |
 
-Lowered since by removals, not by these rows' causes: github-rest 870 to 863 (#2862, the product wiki); github-rest by 15, gh-argv by 8, home-layout by 10, raw-statuses by 4, untyped-signatures by 87, untyped-fields by 4 and tests-stub-gh by 8 (outsource, which 2.0 dropped). The rises above stay to be removed by T4 and T7.
+Lowered since by removals, not by these rows' causes: github-rest 870 to 863 (#2862, the product wiki); github-rest by 15, gh-argv by 8, home-layout by 6, raw-statuses by 4, untyped-signatures by 87, untyped-fields by 4 and tests-stub-gh by 8 (outsource, which 2.0 dropped). The rises above stay to be removed by T4 and T7.
 
 ### Fork values
 
