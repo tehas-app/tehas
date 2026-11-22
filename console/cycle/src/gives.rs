@@ -277,7 +277,7 @@ pub fn issue_images(
         return gives_nothing(issue, dir, record, data);
     };
     let (issue_str, repo, dir_str) = (issue.to_string(), env("TEHAS_REPO"), dir.to_string_lossy());
-    let (allowed, millwright) = (env("TEHAS_ALLOWED_LABELERS"), env("TEHAS_MILLWRIGHT_LOGIN"));
+    let millwright = env("TEHAS_MILLWRIGHT_LOGIN");
     let args: Vec<&str> = [
         issue_str.as_str(),
         dir_str.as_ref(),
@@ -287,8 +287,6 @@ pub fn issue_images(
         record,
         "--repo",
         &repo,
-        "--allowed",
-        &allowed,
         "--millwright",
         &millwright,
     ]

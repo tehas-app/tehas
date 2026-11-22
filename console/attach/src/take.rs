@@ -47,8 +47,6 @@ const NOT_WRITTEN: &str = "the issue's images could not be written";
 
 const NOT_OPENED: &str = "The issue was not opened by an owner, member or collaborator, and its label was not applied by an allowed account.";
 const NOT_REPLY: &str = "The reply was not written by an allowed account.";
-const NOT_COMMENT: &str =
-    "The comment was not written by an allowed account, or the start was not approved by one.";
 
 /// What the instance gives a cycle. An archive holds anything, so it is taken
 /// only where images or files are.
@@ -125,11 +123,6 @@ pub fn link_ext(link: &str) -> Option<String> {
 
 fn last_part(link: &str) -> &str {
     link.rsplit('/').next().unwrap_or(link)
-}
-
-/// `$1` in a list of logins parted by single spaces, whole logins only.
-pub fn allowed_login(allowed: &str, login: &str) -> bool {
-    !login.is_empty() && format!(" {allowed} ").contains(&format!(" {login} "))
 }
 
 /// Why a file attach wrote is still not given: an svg, a nested archive, a
@@ -324,7 +317,6 @@ pub struct Take<'a> {
     pub wants: Wants,
     pub approved: bool,
     pub who: &'a str,
-    pub allowed: &'a str,
     pub n: Counts,
     pub images: Vec<Ordered>,
     pub files: Vec<Ordered>,
@@ -343,16 +335,13 @@ impl Take<'_> {
 
     /// Why a link is not taken on its author's word and the approval's. A reply
     /// was taken as the answer only from an allowed account, and the caller says
-    /// so. A comment's author must be allowed now: the record says who they
-    /// were, not that they still may.
+    /// so.
     fn refused(&self, l: &Linked) -> Option<&'static str> {
         if l.source == "body" {
             let member = matches!(self.who, "OWNER" | "MEMBER" | "COLLABORATOR");
             (!self.approved && !member).then_some(NOT_OPENED)
-        } else if l.source.starts_with("answer:") {
-            (!self.approved).then_some(NOT_REPLY)
         } else {
-            (!self.approved || !allowed_login(self.allowed, &l.by)).then_some(NOT_COMMENT)
+            (!self.approved).then_some(NOT_REPLY)
         }
     }
 
@@ -756,7 +745,6 @@ pub struct IssueRun<'a> {
     pub approved: &'a str,
     pub record: &'a str,
     pub wants: Wants,
-    pub allowed: &'a str,
     pub millwright: &'a str,
     /// The answer the caller already read for the issue; empty when it read none.
     pub data: &'a str,
@@ -804,7 +792,6 @@ pub fn issue(run: &IssueRun, net: &dyn Net) -> Result<(), String> {
         let source = |link| Linked {
             source: "body".to_string(),
             link,
-            by: String::new(),
         };
         let body = answer["body"].as_str().unwrap_or_default();
         let links = link::links(body).into_iter().map(source).collect();
@@ -835,7 +822,6 @@ pub fn issue(run: &IssueRun, net: &dyn Net) -> Result<(), String> {
         wants: run.wants,
         approved: run.approved == "approved",
         who: answer["author_association"].as_str().unwrap_or_default(),
-        allowed: run.allowed,
         n: Counts::default(),
         images: Vec::new(),
         files: Vec::new(),
@@ -1029,7 +1015,6 @@ pub fn answer(run: &AnswerRun, net: &dyn Net) -> Result<(String, String), String
         .map(|link| Linked {
             source: source.clone(),
             link,
-            by: String::new(),
         })
         .collect();
 
@@ -1039,7 +1024,6 @@ pub fn answer(run: &AnswerRun, net: &dyn Net) -> Result<(String, String), String
         wants: run.wants,
         approved: true,
         who: "",
-        allowed: "",
         n,
         images: Ordered::items(kept.get("images"))
             .iter()

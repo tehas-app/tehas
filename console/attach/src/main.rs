@@ -38,8 +38,7 @@
 //!     it, or null when there is nothing to say.
 //!
 //!   attach issue <issue> <dir> --approved WORD --record PATH --repo R
-//!       --allowed LOGINS --millwright LOGIN
-//!       --images 0|1 --files 0|1 --zips 0|1 --attach PATH
+//!       --millwright LOGIN --images 0|1 --files 0|1 --zips 0|1 --attach PATH
 //!     Remake <dir> from what the issue links, with a manifest.json. The issue
 //!     as JSON on standard input, or nothing to read it with gh. --approved is
 //!     the word `approved`, or the links of an outsider's issue are left out.
@@ -77,7 +76,7 @@ fn usage(why: &str) -> ! {
     eprintln!("       attach comments <issue> <dir> --record PATH --repo R --millwright LOGIN");
     eprintln!("       attach changed <kept manifest> <manifest>");
     eprintln!("       attach left-out <issue> <file> <record> --images 0|1 --files 0|1");
-    eprintln!("       attach issue <issue> <dir> --approved WORD --record PATH --repo R --allowed LOGINS --millwright LOGIN --images 0|1 --files 0|1 --zips 0|1 --attach PATH");
+    eprintln!("       attach issue <issue> <dir> --approved WORD --record PATH --repo R --millwright LOGIN --images 0|1 --files 0|1 --zips 0|1 --attach PATH");
     eprintln!("       attach answer <dir> <reply file> <comment id> --images 0|1 --files 0|1 --zips 0|1 --attach PATH");
     exit(64);
 }
@@ -234,22 +233,20 @@ fn left_out_verb(args: &[String]) {
 }
 
 fn issue_verb(args: &[String]) {
-    let (pos, [approved, record, repo, allowed, millwright, images, files, zips, program]) =
-        flagged(
-            "issue",
-            args,
-            [
-                "--approved",
-                "--record",
-                "--repo",
-                "--allowed",
-                "--millwright",
-                "--images",
-                "--files",
-                "--zips",
-                "--attach",
-            ],
-        );
+    let (pos, [approved, record, repo, millwright, images, files, zips, program]) = flagged(
+        "issue",
+        args,
+        [
+            "--approved",
+            "--record",
+            "--repo",
+            "--millwright",
+            "--images",
+            "--files",
+            "--zips",
+            "--attach",
+        ],
+    );
     let [issue, dir] = pos.as_slice() else {
         usage("issue <issue> <dir> and its flags")
     };
@@ -265,7 +262,6 @@ fn issue_verb(args: &[String]) {
         approved,
         record,
         wants: take::Wants::of(images, files, zips),
-        allowed,
         millwright,
         data: &String::from_utf8_lossy(&data),
     };

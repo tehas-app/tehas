@@ -536,11 +536,10 @@ fn not_given(images: &str, files: &str) -> Option<(&'static str, &'static str)> 
     }
 }
 
-/// A link, where it came from, and for a comment who wrote it.
+/// A link and where it came from.
 pub struct Linked {
     pub source: String,
     pub link: String,
-    pub by: String,
 }
 
 /// The record's links of the shape tehas takes, whatever the record holds, once
@@ -553,7 +552,6 @@ pub fn record_links(record: &Value) -> Vec<Linked> {
                 out.push(Linked {
                     source: "body".to_string(),
                     link: link.to_string(),
-                    by: String::new(),
                 });
             }
         }
