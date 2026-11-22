@@ -118,27 +118,7 @@ pub fn push_fault(home: &Path) -> Value {
     }
 }
 
-/// The fault's line as the poll says it: git's words when the file has them,
-/// the one line of the host's own for a fault that says nothing.
-pub fn push_fault_line(fault: &Value) -> String {
-    let line = match fault {
-        Value::Object(_) => fault.get("line").and_then(Value::as_str).unwrap_or(""),
-        _ => "",
-    };
-    if line.is_empty() {
-        "the sandbox cannot push to origin".into()
-    } else {
-        line.to_string()
-    }
-}
-
-/// Whether a push fault holds the poll's starts: any fault on record. Past
-/// [`PUSH_FAULT_HOLD`] the poll has asked the sandbox before the rules read
-/// the record, so what stands is a push still refused. A fault with no
-/// readable time holds too: nothing about the host has been proven.
-pub fn push_fault_holds(fault: &Value) -> bool {
-    !matches!(fault, Value::Null)
-}
+pub use crate::snapshot::{push_fault_holds, push_fault_line};
 
 /// Whether the poll asks the sandbox again: a fault on record, dated, and at
 /// least [`PUSH_FAULT_HOLD`] old.

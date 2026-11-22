@@ -3,11 +3,12 @@
 //! so the two can be compared line by line.
 
 use crate::place::{place, Need, Outsourcing, Place};
-use crate::read::host;
 use crate::settings::{account, Settings};
 use crate::slice::{self, gib};
+#[cfg(test)]
+use crate::snapshot::check_state;
 use crate::snapshot::{
-    HostStart, Issues, LimitState, Listed, OrderState, PauseFlag, Snapshot, Until,
+    Check, HostStart, Issues, LimitState, Listed, OrderState, PauseFlag, Snapshot, Until,
 };
 use crate::text;
 use serde_json::{json, Map, Value};
@@ -1421,22 +1422,12 @@ impl<'a> Poll<'a> {
             self.push_hold.clear();
             return false;
         };
-        if !host::push_fault_holds(fault) {
-            self.push_hold.clear();
-            return false;
-        }
-        let line = host::push_fault_line(fault);
-        let login = fault
-            .get("login")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let who = if login.is_empty() {
+        let who = if fault.login.is_empty() {
             String::new()
         } else {
-            format!(" ({login})")
+            format!(" ({})", fault.login)
         };
-        self.push_hold = format!("holding: the sandbox cannot push: {line}{who}");
+        self.push_hold = format!("holding: the sandbox cannot push: {}{who}", fault.line);
         true
     }
 
@@ -1450,32 +1441,27 @@ impl<'a> Poll<'a> {
         if c.branch_check.is_empty() {
             return None;
         }
-        let answer = match &self.s.checks {
-            Some(a) => a.clone(),
+        let state = match &self.s.checks {
+            Some(check) => check.clone(),
             None => {
                 self.need("checks");
                 return None;
             }
         };
-        let state = answer.as_ref().and_then(check_state);
-        // None stands for the answer the poll could not read: the arm below
-        // that holds nothing, so it is named here rather than left to a
-        // catch-all.
-        let state = state.or(Some(Check::Unreadable));
         let (name, branch) = (&c.branch_check, &c.branch);
         // Exhaustive: a new state is a compile error here, never a fall
         // through to the arm that starts cycles.
         let (red, note) = match state {
-            Some(Check::Red(sha)) => (
+            Check::Red(sha) => (
                 Some((Why::Red, format!("holding: {branch} is red at {sha}"))),
                 String::new(),
             ),
-            Some(Check::Done(_)) => (None, String::new()),
-            Some(Check::Pending(sha)) => (
+            Check::Done(_) => (None, String::new()),
+            Check::Pending(sha) => (
                 None,
                 format!("the check {name} on {branch} at {sha} has not finished: cycles start"),
             ),
-            Some(Check::None) => (
+            Check::None => (
                 None,
                 format!("{branch} has no check named {name} on its head commit: cycles start"),
             ),
@@ -1484,7 +1470,7 @@ impl<'a> Poll<'a> {
             // note of the same words goes to state/branch-check, where the
             // manual sends a person for the branch's condition. The name is
             // quoted: an instance may set one with spaces in it.
-            Some(Check::Unknown(sha)) => {
+            Check::Unknown(sha) => {
                 let said = format!(
                     "the check {name:?} on {branch} at {sha} finished without saying it passed: cycles start"
                 );
@@ -1493,7 +1479,7 @@ impl<'a> Poll<'a> {
                 // the check that answers it. The hold itself is the same hold.
                 (Some((Why::UnknownGate, format!("holding: {said}"))), said)
             }
-            Some(Check::Unreadable) | None => (
+            Check::Unreadable => (
                 None,
                 format!("the check {name} on {branch} could not be read: cycles start"),
             ),
@@ -1509,78 +1495,6 @@ impl<'a> Poll<'a> {
             self.act(json!({"branch_note": note}));
         }
         red
-    }
-}
-
-/// What the poll reads of a check's runs on the branch's head. The words are
-/// the set the store pins in console/store/src/schema.sql
-/// (`red`|`done`|`pending`|`none`|`unreadable`), so this enum is the contract
-/// in both places.
-#[derive(Debug, PartialEq, Eq)]
-enum Check {
-    /// A run says it failed, timed out or could not start.
-    Red(String),
-    /// Every run says it passed.
-    Done(String),
-    /// A run has not finished.
-    Pending(String),
-    /// The branch's head has no run of that check at all.
-    None,
-    /// Every run finished and none says it passed: the poll cannot tell what
-    /// ended the gate, so nothing starts on it unsaid. Its sha is the head the
-    /// hold names.
-    Unknown(String),
-    /// The answer is no answer: no list of runs, or a head sha that is not one.
-    Unreadable,
-}
-
-/// The state of a branch's check runs, as the bash dispatcher read them. Of the
-/// conclusions GitHub answers, these three pass: `success`, `neutral` and
-/// `skipped`; these three are red: `failure`, `timed_out` and
-/// `startup_failure`. Every other conclusion, and a finished run that names
-/// none, is unknown: the gate holds. A conclusion GitHub adds later is a
-/// deliberate edit to one of the three lists beside this function, never a
-/// run that reads as green.
-fn check_state(a: &Value) -> Option<Check> {
-    let runs = a.get("check_runs")?.as_array()?;
-    if runs.is_empty() {
-        return Some(Check::None);
-    }
-    let sha_ok = |r: &Value| {
-        r.get("head_sha")
-            .and_then(Value::as_str)
-            .is_some_and(tehas_core::grammar::commit_id)
-    };
-    if !runs.iter().all(sha_ok) {
-        return None;
-    }
-    let sha = &runs[0]["head_sha"].as_str()?[..12];
-    // One walk of the runs: which of the four readings hold.
-    let mut any_red = false;
-    let mut all_done = true;
-    let mut all_passed = true;
-    for r in runs {
-        let finished = r.get("status").and_then(Value::as_str) == Some("completed");
-        let conclusion = r.get("conclusion").and_then(Value::as_str);
-        all_done &= finished;
-        if finished
-            && matches!(
-                conclusion,
-                Some("failure" | "timed_out" | "startup_failure")
-            )
-        {
-            any_red = true;
-        }
-        all_passed &= finished && matches!(conclusion, Some("success" | "neutral" | "skipped"));
-    }
-    if any_red {
-        Some(Check::Red(sha.into()))
-    } else if all_passed {
-        Some(Check::Done(sha.into()))
-    } else if all_done {
-        Some(Check::Unknown(sha.into()))
-    } else {
-        Some(Check::Pending(sha.into()))
     }
 }
 

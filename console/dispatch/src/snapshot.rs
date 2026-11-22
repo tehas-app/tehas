@@ -130,6 +130,109 @@ impl StoreErr {
     }
 }
 
+/// What the poll reads of a check's runs on the branch's head. The words are
+/// the set the store pins in console/store/src/schema.sql
+/// (`red`|`done`|`pending`|`none`|`unreadable`), so this enum is the contract
+/// in both places.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Check {
+    /// A run says it failed, timed out or could not start.
+    Red(String),
+    /// Every run says it passed.
+    Done(String),
+    /// A run has not finished.
+    Pending(String),
+    /// The branch's head has no run of that check at all.
+    None,
+    /// Every run finished and none says it passed: the poll cannot tell what
+    /// ended the gate, so nothing starts on it unsaid. Its sha is the head the
+    /// hold names.
+    Unknown(String),
+    /// The answer is no answer: no list of runs, or a head sha that is not one.
+    Unreadable,
+}
+
+/// The state of a branch's check runs, as the bash dispatcher read them. Of the
+/// conclusions GitHub answers, these three pass: `success`, `neutral` and
+/// `skipped`; these three are red: `failure`, `timed_out` and
+/// `startup_failure`. Every other conclusion, and a finished run that names
+/// none, is unknown: the gate holds. A conclusion GitHub adds later is a
+/// deliberate edit to one of the three lists beside this function, never a
+/// run that reads as green.
+pub(crate) fn check_state(a: &Value) -> Option<Check> {
+    let runs = a.get("check_runs")?.as_array()?;
+    if runs.is_empty() {
+        return Some(Check::None);
+    }
+    let sha_ok = |r: &Value| {
+        r.get("head_sha")
+            .and_then(Value::as_str)
+            .is_some_and(tehas_core::grammar::commit_id)
+    };
+    if !runs.iter().all(sha_ok) {
+        return None;
+    }
+    let sha = &runs[0]["head_sha"].as_str()?[..12];
+    // One walk of the runs: which of the four readings hold.
+    let mut any_red = false;
+    let mut all_done = true;
+    let mut all_passed = true;
+    for r in runs {
+        let finished = r.get("status").and_then(Value::as_str) == Some("completed");
+        let conclusion = r.get("conclusion").and_then(Value::as_str);
+        all_done &= finished;
+        if finished
+            && matches!(
+                conclusion,
+                Some("failure" | "timed_out" | "startup_failure")
+            )
+        {
+            any_red = true;
+        }
+        all_passed &= finished && matches!(conclusion, Some("success" | "neutral" | "skipped"));
+    }
+    if any_red {
+        Some(Check::Red(sha.into()))
+    } else if all_passed {
+        Some(Check::Done(sha.into()))
+    } else if all_done {
+        Some(Check::Unknown(sha.into()))
+    } else {
+        Some(Check::Pending(sha.into()))
+    }
+}
+
+/// A sandbox that cannot push, as `state/push-fault.json` has it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PushFault {
+    /// What the hold says of it: [`push_fault_line`].
+    pub line: String,
+    /// The account it is on record for; empty when the record names none.
+    pub login: String,
+}
+
+/// The fault's line as the poll says it: git's words when the file has them,
+/// the one line of the host's own for a fault that says nothing.
+pub fn push_fault_line(fault: &Value) -> String {
+    let line = match fault {
+        Value::Object(_) => fault.get("line").and_then(Value::as_str).unwrap_or(""),
+        _ => "",
+    };
+    if line.is_empty() {
+        "the sandbox cannot push to origin".into()
+    } else {
+        line.to_string()
+    }
+}
+
+/// Whether a push fault holds the poll's starts: any fault on record. Past
+/// `PUSH_FAULT_HOLD` of read::host the poll has asked the sandbox before the rules read
+/// the record, so what stands is a push still refused. A fault with no
+/// readable time holds too: nothing about the host has been proven.
+pub fn push_fault_holds(fault: &Value) -> bool {
+    !matches!(fault, Value::Null)
+}
+
 /// What a poll asks before it starts an issue that links an attachment, with
 /// TEHAS_WORK_IMAGES=1.
 #[derive(Clone, Debug, Default)]
@@ -274,16 +377,16 @@ pub struct Snapshot {
     pub endpoint_log: Vec<String>,
     /// The free kilobytes of the disk, Some(None) when they cannot be read.
     pub disk_kb: Option<Option<u64>>,
-    /// The check runs of TEHAS_BRANCH_CHECK on the branch's head, Some(None)
-    /// when the call failed.
-    pub checks: Option<Option<Value>>,
+    /// The state of TEHAS_BRANCH_CHECK's runs on the branch's head;
+    /// Unreadable when the call failed.
+    pub checks: Option<Check>,
     /// What state/branch-check says the last poll logged.
     pub branch_note: String,
     /// The fault of a sandbox that cannot push, `state/push-fault.json`: None
-    /// when there is none, Some("unreadable") for one that cannot be read, and
-    /// Some({at, login, line}) for the fault on record. Read by the same poll
-    /// that writes it (Part 1 of this issue's series).
-    pub push_fault: Option<Value>,
+    /// when there is none. One that cannot be read has the host's own line
+    /// and no login. Read by the same poll that writes it (Part 1 of this
+    /// issue's series).
+    pub push_fault: Option<PushFault>,
     /// The why of the last live/dispatch.json.
     pub last_why: String,
     /// The issues with a refresh request (state/refresh/<n>.json), lowest
@@ -715,11 +818,23 @@ impl Snapshot {
                 })
                 .unwrap_or_default(),
             disk_kb: v.get("disk_kb").map(Value::as_u64),
-            checks: v.get("checks").map(opt),
+            checks: v.get("checks").map(|c| {
+                opt(c)
+                    .as_ref()
+                    .and_then(check_state)
+                    .unwrap_or(Check::Unreadable)
+            }),
             branch_note: s("branch_note"),
             push_fault: match v.get("push_fault") {
                 None | Some(Value::Null) => None,
-                Some(f) => Some(f.clone()),
+                Some(f) => Some(PushFault {
+                    line: push_fault_line(f),
+                    login: f
+                        .get("login")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                }),
             },
             last_why: s("last_why"),
             refresh_requests: v
