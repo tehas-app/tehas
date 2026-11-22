@@ -154,8 +154,21 @@ fn cargo_test(root: &Path, t: &Target) -> Command {
     c
 }
 
-/// `lean-test`: run the one file. Its status is cargo's.
+/// The empty file lean hands `verify.test` once before a run, to ask whether
+/// the runner starts at all. Exit 0 answers yes.
+pub const PROBE: &str = ".lean-runner-probe.test";
+
+/// Whether `file` is lean's runner probe, in any directory.
+pub fn is_probe(file: &str) -> bool {
+    Path::new(file).file_name().and_then(|n| n.to_str()) == Some(PROBE)
+}
+
+/// `lean-test`: run the one file. Its status is cargo's. Lean's probe gets 0:
+/// the workspace's targets were read, so the runner started.
 pub fn run_test(root: &Path, all: &[Target], file: &str) -> u8 {
+    if is_probe(file) {
+        return 0;
+    }
     let t = match target(all, file) {
         Ok(t) => t,
         Err(e) => {
@@ -252,6 +265,21 @@ mod tests {
             target(&all, "console/dispatch/tests/poll.rs").unwrap(),
             &all[1]
         );
+    }
+
+    #[test]
+    fn lean_s_runner_probe_passes_in_any_directory() {
+        for f in [".lean-runner-probe.test", "console/.lean-runner-probe.test"] {
+            assert!(is_probe(f), "{f}");
+            assert_eq!(run_test(Path::new("/nonexistent"), &all(), f), 0, "{f}");
+        }
+        for f in [
+            "console/tests/surface.rs",
+            "lean-runner-probe.test",
+            "x.lean-runner-probe.test",
+        ] {
+            assert!(!is_probe(f), "{f}");
+        }
     }
 
     #[test]
