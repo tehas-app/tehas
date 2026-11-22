@@ -340,12 +340,14 @@ that breaks a rule gives nothing. The manifest names the plugin under
 gave. A copy whose sha256 differs from the manifest stops the cycle before
 the container starts, as it does for filed files.
 
-**A slow hook.** The manifest's hook `timeout` is 30 to 300 seconds for
-this point. At most 2 plugins hold the grant, run one after the other in
+**A slow hook.** Each listener has its own limit, the manifest's hook
+`timeout`, 30 to 300 seconds, as #2878 gives every gate listener; `tehas
+plugin review` shows the sum over the plugins that hold the grant. At most 2 plugins hold the grant, run one after the other in
 the order of `TEHAS_PLUGINS`. A third grant stops `lib/config.sh` with exit
 78 when the settings load, so `tehas update` and every command refuse
 before anything runs. `TEHAS_PLUGINS` naming a plugin twice is refused the
-same way, as it is today. So a start waits at most 10 minutes. The wait
+same way, as it is today. So a start waits at most the sum of two
+limits, 10 minutes. The wait
 is before the runner starts. The hook's container counts in the room the
 cycle was admitted with.
 
