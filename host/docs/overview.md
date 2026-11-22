@@ -77,7 +77,6 @@ the factory works the same without it.
 | -------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
 | [viiwork](https://github.com/janit/viiwork) | A flexible meshed inference platform for both home and enterprise grade hardware. One possible model backend, the one the example instance uses. tehas does not require it | Use any other OpenAI-compatible endpoint               |
 | Work by hand         | `tehas dev`, for a person with an account on the host; one step as root lets the account in. See [Operating](/operating) | Work arrives as issues only |
-| Protolab             | Only if you label issues `tehas:prototype`. The dispatcher never acts on that label              | The Protolab is empty                                  |
 | Previews             | `TEHAS_PREVIEWS=on` with `TEHAS_DOMAIN`, and a `preview/Dockerfile` in the product. See [Previews](/edge) | A pull request is read on GitHub only          |
 | Search indexing      | `TEHAS_SITE_INDEXING=on`, for an instance published on the internet                                    | Every page says noindex                                |
 | Visitor analytics    | `TEHAS_SITE_ANALYTICS_SRC` and `TEHAS_SITE_ANALYTICS_NAME`, for an instance that wants to count visits     | No script is loaded                                    |

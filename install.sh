@@ -24,8 +24,7 @@
 #                           plain run builds it again, and a release replaces it
 #
 # What is installed: the commands and units (issue to pull request), the
-# sandbox files, the docs server, the edge router, the Protolab and the
-# manual, plus Pi's model list and settings, made from
+# sandbox files, the docs server, the edge router and the manual, plus Pi's model list and settings, made from
 # the instance's models.json and settings.json (see section 2).
 #
 # It copies files, and compiles seven: the console of a running cycle, the
@@ -413,8 +412,8 @@ home_marker=.tehas-home
 # code (tehas-cycle run). docs and fun are not among them: a home that has
 # them without the marker is not known to be tehas's, and this run would remove
 # the pages of someone else from them.
-home_dirs=(bin libexec lib live logs mcp platform preview protolab repos sandbox
-  state tmp tools work target .cargo versions current run)
+home_dirs=(bin libexec lib live logs mcp platform preview items repos
+  sandbox state tmp tools work target .cargo versions current run)
 
 home_refusal() { # the reason $TEHAS_HOME is not provably tehas's, or nothing
   local path=${TEHAS_HOME:-} entry part rest
@@ -685,8 +684,6 @@ files=(
   "systemd/tehas-mcp.service|$units/tehas-mcp.service|644"
   "systemd/tehas-mcp-fetch.socket|$units/tehas-mcp-fetch.socket|644"
   "systemd/tehas-mcp-fetch@.service|$units/tehas-mcp-fetch@.service|644"
-  "systemd/tehas-protolab.service|$units/tehas-protolab.service|644"
-  "systemd/tehas-protolab.timer|$units/tehas-protolab.timer|644"
   "systemd/tehas-preview.service|$units/tehas-preview.service|644"
   "systemd/tehas-preview.timer|$units/tehas-preview.timer|644"
   "systemd/tehas-preview-sweep.service|$units/tehas-preview-sweep.service|644"
@@ -984,12 +981,13 @@ fi
 had_versions=0
 [ -f "$TEHAS_HOME/versions.env" ] && had_versions=1
 # The home's own directories are made here, before the first copy: the servers
-# mount live/ and protolab/, preview/ is where `tehasbot preview` keeps each pull
-# request, and an empty home has none of them yet. Making them here rather than
-# after the copies is what lets the marker go into a home that is not yet there.
+# mount live/ and items/, which Docker would otherwise make as root, preview/ is
+# where `tehasbot preview` keeps each pull request, and an empty home has none
+# of them yet. Making them here rather than after the copies is what lets the
+# marker go into a home that is not yet there.
 # --check changes nothing, so it makes neither.
 if [ "$check" != 1 ]; then
-  mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
+  mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/items" \
     "$TEHAS_HOME/preview"
   # A home with no env.sh has never been installed.
   [ -f "$TEHAS_HOME/env.sh" ] || : >"$first_owed"
@@ -1106,14 +1104,14 @@ done <<<"$retired"
 # The units of features this version does not have: the timed refresh scan
 # (refreshes are asked for one pull request at a time), the improvement loop,
 # the review loop, the product wiki and the energy sampler, which left core in
-# 2.0. Found here; in step 5 each timer and path unit, or a service none
-# starts, is stopped and disabled and its files go.
+# 2.0, and the Protolab, removed in 2.0. Found here; in step 5 each timer and
+# path unit, or a service none starts, is stopped and disabled and its files go.
 old_units=()
 scan_units=$units
 for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-improve.service \
   tehas-review.timer tehas-review.service \
   tehas-wiki-status.timer tehas-wiki-status.service tehas-wiki.timer tehas-wiki.path tehas-wiki.service \
-  tehas-energy.service; do
+  tehas-energy.service tehas-protolab.timer tehas-protolab.service; do
   [ -e "$scan_units/$unit" ] || [ -L "$scan_units/$unit" ] || continue
   old_units+=("$unit")
   [ "$check" = 0 ] || note "stale: $scan_units/$unit"

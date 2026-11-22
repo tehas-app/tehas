@@ -98,9 +98,6 @@
   --stage-ship: #357;
   --stage-ship-soft: #bce;
 
-  /* A prototype keeps a page's white ground: it is the prototype's own. */
-  --prototype-ground: #fff;
-
   /* Canvas colours. A canvas cannot read var(), so theme.js reads these. */
   --band-1: #ea3;
   --band-2: #4a9;

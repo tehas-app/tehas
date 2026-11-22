@@ -559,7 +559,7 @@ production host.
 
 2. Put the variable in the units' environment. The settings load refuses it
    in `instance.env` and `~/.config/tehas/env`. systemd gives every user unit,
-   the dispatcher, each cycle, the Protolab and the console they run, the
+   the dispatcher, each cycle and the console they run, the
    variables of `~/.config/environment.d/`:
 
    ```

@@ -18,7 +18,7 @@ and pinned by a test.
 | `product` | `/product`, read only, in every run: the default branch's head in a refresh, the pull request's head in a hook | The plugin reads all the code. With `view`, what it writes is shown; with `model`, the code goes to the model |
 | `model:<tokens>` | `/run/tehas/model.sock`: chat completions for one model, at most `<tokens>` a run | Model time, and where the model runs: `review` says whether the endpoint is on this host or another |
 | `action:<id>` | The view's button `<id>`: a signed-in person asks for a refresh | A refresh's cost, at most one at a time |
-| `hook:after:work` | A run on each pull request a cycle leaves, reported as a commit status | Its summary, 140 characters, is on the pull request for every reader of the repository; its findings are behind the sign-in |
+| `hook:after:change.offered` | A run on each pull request a cycle leaves, reported as a commit status | Its summary, 140 characters, is on the pull request for every reader of the repository; its findings are behind the sign-in |
 
 `kit` is no capability: the kit is tehas's own files, served behind the
 view's sign-in.
@@ -82,7 +82,9 @@ docker run --init --name tehas-plugin-<name>-<run>
   `product`), `model`
   (`{"id", "tokens"}` with `model` granted: the id to send and the run's
   budget), and in a hook `pr` (`{"number", "base", "head"}`, base and head
-  as commits). Nothing of a person.
+  as commits). From 1.6.0 a hook's context also holds `at`, the event's
+  name, and `issue`, the cycle's issue number, and `model` is allowed in a
+  hook at either event. Nothing of a person.
 - **The image's own directories.** A new Docker volume takes the owner of
   the image's directory at its mount point. So an image must have `/work`,
   `/out` and `/state`, owned by 10001; a run whose image lacks them fails
@@ -165,7 +167,9 @@ Nothing a run left is opened as a path on the host.
   `~/tehas/plugins/<name>/view-<run>/` as the host's user, with names checked
   again, and swapped into `view/` with one rename. The old one is removed.
 - **A hook's verdict**, `/out/_tehas/verdict.json`, comes through the same
-  reader, at most 64 KiB.
+  reader, at most 64 KiB. So do, from 1.6.0, its counts,
+  `/out/_tehas/counts.json`, at most 4 KiB, and its report,
+  `/out/_tehas/report.md`, at most 256 KiB.
 - **`/state`** stays a volume the host never opens. In a hook it is mounted
   read only, so a pull request's code cannot plant anything in what the next
   refresh, or any view, reads.
@@ -231,6 +235,10 @@ What it answers:
   `http://` or `https://` (through `curl`, as `models.rs` reaches the
   endpoint), with a 300-second bound. The answer is passed back as JSON, at
   most 4 MiB.
+- From 1.6.0 every answer carries `Tehas-Tokens-Left: <n>`: the lesser of
+  what the run's grant and the day's budget have left, after this answer.
+  `GET /v1/models` carries it too and spends nothing
+  (`2026-11-22-plugins-1.6.md`).
 - Counts, not bodies, are kept. The socket gives them to the runner when it
   stops, and the runner writes them to the run's row (`plugin_runs.tokens`).
   The day's total is `~/tehas/plugins/model-day`, owned by the host's user.
