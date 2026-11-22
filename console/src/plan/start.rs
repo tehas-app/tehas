@@ -13,6 +13,7 @@ use std::fs;
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use tehas_core::home::{Home, State};
 use tehas_core::sandbox::{self, Identity, Kind, Misshaped, Paths};
 use tehas_core::text::disarm;
 use tehas_core::{call, models};
@@ -556,7 +557,13 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
 
     // The turn's own copy of the host's code index, asked for only once this
     // turn will start: a turn that never began leaves no copy behind.
-    if !sandbox::seed(&container, &format!("{home}/state/index")) {
+    if !sandbox::seed(
+        &container,
+        &Home::new(&home)
+            .state(State::CodeIndex)
+            .display()
+            .to_string(),
+    ) {
         tehas_core::outln!("tehas plan: the code index could not be copied into {container}/cache, this turn searches without one");
     }
     // The mounts name directories that only exist now.

@@ -10,6 +10,7 @@ use std::env;
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
+use tehas_core::home::{Home, State};
 
 const USAGE: &str = "usage: tehas wake [--json]";
 
@@ -27,7 +28,7 @@ pub fn words(given: &[String]) -> Result<bool, u8> {
 
 /// Writes the file a poll is started on, and names it.
 pub fn ask(home: &Path) -> Result<PathBuf, (PathBuf, io::Error)> {
-    let again = home.join("state/dispatch.again");
+    let again = Home::new(home).state(State::DispatchAgain);
     match File::create(&again) {
         Ok(_) => Ok(again),
         Err(e) => Err((again, e)),
@@ -83,7 +84,7 @@ mod tests {
     #[test]
     fn the_ask_writes_the_file_the_path_unit_starts_a_poll_on() {
         let home = std::env::temp_dir().join(format!("tehas-wake-{}", std::process::id()));
-        std::fs::create_dir_all(home.join("state")).unwrap();
+        std::fs::create_dir_all(Home::new(&home).state_dir()).unwrap();
         let again = ask(&home).unwrap();
         assert_eq!(again, home.join("state/dispatch.again"));
         assert!(again.is_file());

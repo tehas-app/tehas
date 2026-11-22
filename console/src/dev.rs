@@ -28,6 +28,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use tehas_core::home::{Home, Live};
 use tehas_core::lock;
 use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths, Taken};
@@ -291,10 +292,11 @@ fn running_said(view: &str) -> Option<String> {
 // What the room looks like now, with the cycles that hold a lock. The session's
 // own memory comes off it once its container runs.
 fn room_said(home: &str, usable: &slice::Usable, load: &Load) -> String {
-    let issues = lock::held_in(&Path::new(home).join("state/cycles"));
+    let cycles = Home::new(home).cycles_dir();
+    let issues = lock::held_in(&cycles);
     let cids: Vec<String> = issues
         .iter()
-        .map(|n| format!("{home}/state/cycles/{n}.cid"))
+        .map(|n| cycles.join(format!("{n}.cid")).display().to_string())
         .collect();
     let reading = Reading::of_room(slice::root(), &cids);
     let room = slice::room(&reading, usable, &load.reserve, issues.len() as u64);
@@ -652,7 +654,7 @@ fn session(given: &Words, taken: &Taken) -> u8 {
     };
 
     tehas_core::outln!("tehas dev: {tree}, commits as {}", who.said);
-    let view = fs::read_to_string(format!("{home}/live/running.json")).unwrap_or_default();
+    let view = fs::read_to_string(Home::new(&home).live(Live::Running)).unwrap_or_default();
     if let Some(said) = running_said(&view) {
         tehas_core::outln!("tehas dev: {said}");
     }

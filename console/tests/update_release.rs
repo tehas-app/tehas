@@ -14,6 +14,7 @@ use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::process::Command;
+use tehas_core::home::{Home, State};
 
 /// install.sh of a release: it records its tag and arguments; INSTALL_RC
 /// fails it after the switch, INSTALL_SAYS is what it says then.
@@ -89,7 +90,11 @@ fn host_at_for(h: &Host, tag: &str, machine: &str) {
         ),
     );
     symlink(format!("versions/{tag}"), th.join("current")).unwrap();
-    fs::write(th.join("state/release-history"), format!("{tag}\n")).unwrap();
+    fs::write(
+        Home::new(th).state(State::ReleaseHistory),
+        format!("{tag}\n"),
+    )
+    .unwrap();
 }
 
 fn host_at(h: &Host, tag: &str) {
@@ -466,7 +471,7 @@ fn an_install_sh_that_fails_after_the_switch_moves_current_and_the_image_tag_bac
     );
     assert_eq!(current(&h), "versions/v1.2.0");
     assert_eq!(
-        fs::read_to_string(h.home.join("state/release-history"))
+        fs::read_to_string(Home::new(&h.home).state(State::ReleaseHistory))
             .unwrap()
             .lines()
             .last(),
@@ -592,7 +597,7 @@ fn to_on_a_host_that_updates_from_its_checkout_is_refused() {
 #[test]
 fn a_hold_stops_a_plain_update_but_not_to() {
     let h = at_v1();
-    fs::write(h.home.join("state/update-hold"), "").unwrap();
+    fs::write(Home::new(&h.home).state(State::UpdateHold), "").unwrap();
     let r = h.update(&[]);
     assert_eq!(r.rc, 1, "{}", r.out);
     has(&r.out, "update-hold exists");

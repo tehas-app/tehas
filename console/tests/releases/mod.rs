@@ -10,6 +10,7 @@ use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tehas_core::home::{Home, State};
 use tehas_core::testing::write_exe;
 
 /// gh answering from `$T/releases`; GH_AUTH is the status of `auth status`.
@@ -158,7 +159,7 @@ pub fn unpublish(h: &Host, tag: &str) {
 
 /// The tokens and login of the app, as t_instance makes them (t_app_world).
 pub fn app_world(h: &Host) {
-    let state = h.home.join("state");
+    let state = Home::new(&h.home).state_dir();
     let until = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -180,7 +181,7 @@ pub fn app_world(h: &Host) {
 /// (t_instance).
 pub fn instance(h: &mut Host, lines: &[&str]) {
     h.instance_with(lines);
-    if !h.home.join("state/github/login").exists() {
+    if !Home::new(&h.home).state(State::BotLogin).exists() {
         app_world(h);
     }
 }
@@ -211,7 +212,11 @@ pub fn old_home(h: &Host, fixture: &Path, version: &str) {
     )
     .unwrap();
     symlink(format!("versions/{version}"), th.join("current")).unwrap();
-    fs::write(th.join("state/release-history"), format!("{version}\n")).unwrap();
+    fs::write(
+        Home::new(th).state(State::ReleaseHistory),
+        format!("{version}\n"),
+    )
+    .unwrap();
 }
 
 /// Where current points.

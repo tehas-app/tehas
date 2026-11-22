@@ -5,6 +5,7 @@
 mod common;
 
 use common::*;
+use tehas_core::home::Live;
 
 /// The answers of gh for these cases: the search and the shipped work from
 /// the fixtures, nothing else open, the epics read empty.
@@ -277,7 +278,7 @@ fn a_snapshot_before_more_than_an_hour_old_counts_as_none() {
 #[test]
 fn a_snapshot_before_that_is_not_one_counts_as_none() {
     let e = Ev::new("not-one");
-    e.w.home_file("live/status.json", "not json\n");
+    e.w.home_file(e.w.at().live(Live::Status), "not json\n");
     e.issues(&[e.issue(3, "tehas:awaiting-merge")]);
     let r = e.w.status();
     assert_eq!(r.rc, 0, "{}", r.out);

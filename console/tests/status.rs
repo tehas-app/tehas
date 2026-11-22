@@ -8,7 +8,9 @@ use common::*;
 use serde_json::{json, Value};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
+use tehas_core::home::{Live, State};
 use tehas_core::time::{iso, now};
 
 /// jq -r `filter` of `input`, its standard output without the last newline.
@@ -136,13 +138,12 @@ fn pause_events(w: &World, event: &str, login: &str) {
 }
 
 /// A lock file under the state, held until the File is dropped.
-fn hold(w: &World, rel: &str) -> File {
-    let p = w.home.join("state").join(rel);
+fn hold(p: &Path) -> File {
     fs::create_dir_all(p.parent().unwrap()).unwrap();
     let f = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&p)
+        .open(p)
         .unwrap();
     f.try_lock().unwrap();
     f
@@ -219,7 +220,7 @@ fn turn(w: &World, n: u64, before: u32, ago: i64) -> File {
         store_must(w, &["plan-end", &n_s, "--posted"]);
         answer(before + 1, Some(now() - ago));
     }
-    hold(w, &format!("plan-{n}.json.lock"))
+    hold(&w.at().plan_file(n, ".lock"))
 }
 
 /// A cycle of issue `n` that ended as `status`, started and ended so many
@@ -335,7 +336,7 @@ fn an_open_issue_labelled_epic_with_no_sub_issues_is_listed_apart_and_the_health
 #[test]
 fn a_read_of_the_epics_that_fails_leaves_the_file_as_it_was_and_the_snapshot_is_still_written() {
     let w = World::new("epics-down");
-    w.home_file("live/epics.json", "{\"epics\":\"before\"}\n");
+    w.home_file(w.at().live(Live::Epics), "{\"epics\":\"before\"}\n");
     w.touch("epics-down");
     let r = w.status();
     ok(&r);
@@ -650,7 +651,10 @@ fn without_the_list_of_every_issue_the_snapshot_is_written_with_no_words() {
 fn every_issue_is_read_for_the_words_at_most_once_an_hour_the_words_before_kept_between_reads() {
     let w = World::new("buzzwords-hourly");
     let an_hour_ago = || {
-        w.home_file("state/buzzwords.at", &format!("{}\n", now() - 3600));
+        w.home_file(
+            w.at().state(State::Buzzwords),
+            &format!("{}\n", now() - 3600),
+        );
     };
     w.fx(
         "all.json",
@@ -1048,7 +1052,7 @@ fn a_list_of_issues_that_cannot_be_read_keeps_the_lists_of_work_and_says_why() {
     // What was read is fresh: the pause on the control issue.
     assert_eq!(sr(&w, ".paused"), "true");
     let failures: Vec<String> = w
-        .read_home("state/github-failures")
+        .read_home(w.at().state(State::GithubFailures))
         .lines()
         .map(|l| l.split('\t').nth(1).unwrap_or(l).to_string())
         .collect();
@@ -1086,7 +1090,7 @@ fn a_read_on_a_bad_minute_is_tried_once_more_and_the_snapshot_is_whole() {
     assert_eq!(gh_count(&w, "--limit 200"), 2);
     assert_eq!(sc(&w, ".stale"), "null");
     lacks(&r.out, "WARN status");
-    assert!(!w.home.join("state/github-failures").exists());
+    assert!(!w.at().state(State::GithubFailures).exists());
 }
 
 #[test]
@@ -1096,7 +1100,7 @@ fn with_github_down_the_lists_are_kept_and_health_names_the_failed_calls() {
     let lists_before = lists(&w);
     // And when the word list was read, so this run asks for it too.
     fs::remove_file(w.live_file("health.json")).unwrap();
-    fs::remove_file(w.home.join("state/buzzwords.at")).unwrap();
+    fs::remove_file(w.at().state(State::Buzzwords)).unwrap();
     w.touch("gh-down");
     let r = status_and_summary(&w);
     ok(&r);
@@ -1257,15 +1261,14 @@ fn summary_the_last_tehas_check_product_when_one_ran() {
     lacks(&status_and_summary(&w).out, "product");
     let at = iso(now() - 300);
     w.home_file(
-        "state/check-product.json",
+        w.at().state(State::CheckProduct),
         &format!(r#"{{"v":1,"at":"{at}","ok":true,"failures":[],"sandbox":null}}"#),
     );
     has(
         &w.summary(&[]).out,
         "product   keeps the contract, checked 5 min ago",
     );
-    w.home_file(
-        "state/check-product.json",
+    w.home_file(w.at().state(State::CheckProduct),
         &format!(
             r#"{{"v":1,"at":"{at}","ok":false,"failures":["no AGENTS.md","no gate"],"sandbox":null}}"#
         ),
@@ -1314,7 +1317,7 @@ fn summary_a_paused_factory_says_so_exit_0() {
 fn status_writes_the_pause_switch_the_flag_with_its_time_and_reason_never_who_wrote_it() {
     let w = World::new("pause-flag");
     w.home_file(
-        "state/pause.json",
+        w.at().state(State::Pause),
         "{\"by\":\"boss\",\"at\":\"2026-10-15T10:00:00Z\",\"reason\":\"waiting for the gate\"}\n",
     );
     let r = status_and_summary(&w);
@@ -1449,7 +1452,7 @@ fn labels_that_cannot_be_read_take_the_pause_from_its_events_then_from_the_file_
 #[test]
 fn a_flag_that_cannot_be_read_still_holds_the_factory_paused() {
     let w = World::new("pause-bad-flag");
-    w.home_file("state/pause.json", "not a flag\n");
+    w.home_file(w.at().state(State::Pause), "not a flag\n");
     let r = status_and_summary(&w);
     assert_eq!(sr(&w, ".paused"), "true");
     assert_eq!(sc(&w, ".pause.flag"), r#"{"at":null,"reason":null}"#);
@@ -1508,8 +1511,8 @@ fn summary_a_turn_whose_lock_is_free_or_that_left_its_status_is_not_shown_as_run
     drop(turn(&w, 7, 1, 720));
     lacks(&status_and_summary(&w).out, "plan      ");
     assert_eq!(jq(".planning", &w.summary(&["--json"]).out), "[]");
-    let lock = hold(&w, "plan-7.json.lock");
-    w.home_file("state/plan-7.json.rc", "0\n");
+    let lock = hold(&w.at().plan_file(7, ".lock"));
+    w.home_file(w.at().plan_file(7, ".rc"), "0\n");
     lacks(&status_and_summary(&w).out, "plan      ");
     drop(lock);
     // A session that runs no turn on record, whatever holds the lock.
@@ -1525,8 +1528,8 @@ fn summary_a_turn_whose_lock_is_free_or_that_left_its_status_is_not_shown_as_run
         "--session",
         "abc",
     ]);
-    let _ = fs::remove_file(w.home.join("state/plan-7.json.rc"));
-    let lock = hold(&w, "plan-7.json.lock");
+    let _ = fs::remove_file(w.at().plan_file(7, ".rc"));
+    let lock = hold(&w.at().plan_file(7, ".lock"));
     lacks(&status_and_summary(&w).out, "plan      ");
     drop(lock);
 }
@@ -1636,7 +1639,7 @@ fn a_cycle_that_stopped_writing_is_lost_and_the_factory_says_so() {
 fn a_cycle_that_stopped_writing_while_its_lock_is_held_stays_running_a_free_lock_is_lost() {
     let w = World::new("lost-locked");
     w.one(9, true, "running", "develop", Some(900), Some(300));
-    let lock = hold(&w, "cycles/9.lock");
+    let lock = hold(&w.at().cycle_note(9, "lock"));
     let r = status_then_summary(&w);
     ok(&r);
     has(&r.out, "factory   pass: Working on #9.");

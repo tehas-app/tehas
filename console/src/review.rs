@@ -26,6 +26,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use tehas_core::home::{Home, State};
 use tehas_core::models::{self, host_path};
 use tehas_core::sandbox::{self, Identity, Kind, Paths};
 use tehas_core::secret::secret_name;
@@ -269,7 +270,8 @@ fn review() -> u8 {
     // The runner's one JSON document, beside its NDJSON progress.
     let doc = format!("{home}/logs/review-{stamp}.json");
     let runs = format!("{}/.pi/agent/ensemble-runs/review", var("HOME"));
-    let record = format!("{home}/state/review.json");
+    let at = Home::new(&home);
+    let record = at.state(State::Review).display().to_string();
 
     // The committer of the clone: git needs an identity for the branch it checks
     // out, and the container is handed one. The bot's is the tehas user's own,
@@ -341,12 +343,12 @@ fn review() -> u8 {
 
     // One review at a time: the container, the workspace and the record are one
     // per host; the home's directories are made only now.
-    if fs::create_dir_all(format!("{home}/state")).is_err() {
+    if fs::create_dir_all(at.state_dir()).is_err() {
         return refuse(format!(
             "tehas review: could not make the directories under {home}, nothing was reviewed"
         ));
     }
-    let lock_file = format!("{home}/state/review.lock");
+    let lock_file = at.state(State::ReviewLock).display().to_string();
     let Ok(lock) = fs::File::create(&lock_file) else {
         return refuse(format!(
             "tehas review: could not open {lock_file}, nothing was reviewed"
@@ -404,7 +406,7 @@ fn review() -> u8 {
 
     // The run's own copy of the host's code index, and a word when it is not of
     // this commit, since the search then falls back to reading files.
-    let indexed = fs::read_to_string(format!("{home}/state/index.json"))
+    let indexed = fs::read_to_string(at.state(State::CodeIndexState))
         .ok()
         .and_then(|t| serde_json::from_str::<Value>(&t).ok())
         .and_then(|v| v.get("commit")?.as_str().map(str::to_string));
@@ -414,7 +416,10 @@ fn review() -> u8 {
             short(&head)
         ));
     }
-    if !sandbox::seed(&container, &format!("{home}/state/index")) {
+    if !sandbox::seed(
+        &container,
+        &at.state(State::CodeIndex).display().to_string(),
+    ) {
         say(&format!(
             "the code index could not be copied into {container}/cache, this run searches without one"
         ));

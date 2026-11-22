@@ -43,6 +43,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use tehas_core::file::{write_atomic, Temp};
+use tehas_core::home::{Home, Live};
 use tehas_core::models::{auth, host_path, ModelFile};
 use tehas_core::time;
 
@@ -87,8 +88,9 @@ fn to_mark(now: i64) -> u64 {
 }
 
 fn sample(home: &Path) -> u8 {
-    let live = home.join("live");
-    let file = live.join("energy.json");
+    let at = Home::new(home);
+    let live = at.live_dir();
+    let file = at.live(Live::Energy);
     if tehas_core::settings::rules::switch(&env("TEHAS_ENERGY")) == Some(false) {
         let _ = std::fs::create_dir_all(&live);
         let _ = std::fs::remove_file(&file);

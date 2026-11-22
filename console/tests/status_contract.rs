@@ -22,6 +22,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Once;
+use tehas_core::home::Live;
 use tehas_core::testdir::TestDir;
 
 /// 2026-10-17T14:00:20Z: forty seconds after the time in the health files.
@@ -234,7 +235,7 @@ fn tehas_status_json_gives_a_preview_s_address_only_while_it_serves() {
     // A preview whose build failed keeps the address it served at before. The
     // address is where a person tries the change, so a stale one is not given.
     w.home_file(
-        "live/previews.json",
+        w.at().live(Live::Previews),
         r#"{"generatedAt":"2026-10-17T13:58:00Z","previews":[
  {"number":31,"state":"serving","address":"https://uat-31.example.org/"},
  {"number":26,"state":"build-failed","address":"https://uat-26.example.org/"},

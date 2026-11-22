@@ -16,22 +16,36 @@ pub struct Home {
 pub enum State {
     /// The ids of the accounts the lists name.
     AccountIds,
+    /// Who set all-hands without being allowed to, and when.
+    AllHandsIgnored,
     /// The analytics program's database.
     AnalyticsDb,
+    /// The store's backups.
+    Backups,
     /// The login of the app the factory acts as.
     BotLogin,
+    /// When the word list was last read.
+    Buzzwords,
+    /// The last result of `tehas check-product`.
+    CheckProduct,
     /// The factory's code index, `index/`.
     CodeIndex,
     /// The commit and indexer image the code index was made from.
     CodeIndexState,
+    /// The ask a poll is started on.
+    DispatchAgain,
     /// Held while one start makes the egress proxy.
     EgressLock,
+    /// The mark of a host's first install.
+    FirstInstall,
     /// The recent failures of GitHub calls.
     GithubFailures,
-    /// The pins of the state labels to their node ids.
-    LabelPins,
+    /// The log of the writes made to GitHub.
+    GithubWrites,
     /// The images a contractor runs, kept by the proxy.
     Images,
+    /// The pins of the state labels to their node ids.
+    LabelPins,
     /// The limit `tehas limit` sets.
     Limit,
     /// A contractor's files of the job it runs.
@@ -40,22 +54,42 @@ pub enum State {
     OutsourceDownloads,
     /// The flag `tehas pause` sets.
     Pause,
+    /// When the platform was last fetched.
+    PlatformFetch,
+    /// The newest release, as last fetched.
+    PlatformNewest,
     /// The record of a sandbox that cannot push.
     PushFault,
-    /// The ledger of the refinements of issues.
-    Refined,
     /// The local records of starts a read-only host made.
     ReadOnly,
     /// The writes a read-only host did not make.
     ReadOnlyLog,
+    /// The ledger of the refinements of issues.
+    Refined,
+    /// The releases the host has run.
+    ReleaseHistory,
+    /// The record of the last `tehas review`.
+    Review,
+    /// Held while `tehas review` runs.
+    ReviewLock,
+    /// The pi-rukas commit last asked of upstream.
+    RukasTarget,
     /// The ledger of the sizes of the issues started.
     Sizes,
     /// The record of the starts.
     Starts,
     /// The state store.
     StoreDb,
+    /// The hold that stops an update.
+    UpdateHold,
     /// Held while `tehas update` runs.
     UpdateLock,
+    /// The follow-ups of an update not yet done.
+    UpdatePending,
+    /// The ask a wiki build is started on.
+    WikiAsk,
+    /// Held while a wiki build runs.
+    WikiLock,
 }
 
 impl State {
@@ -63,26 +97,43 @@ impl State {
     pub const fn relative(self) -> &'static str {
         match self {
             State::AccountIds => "state/account-ids",
+            State::AllHandsIgnored => "state/all-hands.ignored",
             State::AnalyticsDb => "state/analytics.db",
+            State::Backups => "state/backup",
             State::BotLogin => "state/github/login",
+            State::Buzzwords => "state/buzzwords.at",
+            State::CheckProduct => "state/check-product.json",
             State::CodeIndex => "state/index",
             State::CodeIndexState => "state/index.json",
+            State::DispatchAgain => "state/dispatch.again",
             State::EgressLock => "state/egress.lock",
+            State::FirstInstall => "state/first-install",
             State::GithubFailures => "state/github-failures",
-            State::LabelPins => "state/labels",
+            State::GithubWrites => "state/github-writes.log",
             State::Images => "state/images",
+            State::LabelPins => "state/labels",
             State::Limit => "state/limit.json",
             State::Outsource => "state/outsource",
             State::OutsourceDownloads => "state/outsource/downloads",
             State::Pause => "state/pause.json",
+            State::PlatformFetch => "state/platform-fetch",
+            State::PlatformNewest => "state/platform-newest",
             State::PushFault => "state/push-fault.json",
-            State::Refined => "state/refined.jsonl",
             State::ReadOnly => "state/read-only",
             State::ReadOnlyLog => "state/read-only.log",
+            State::Refined => "state/refined.jsonl",
+            State::ReleaseHistory => "state/release-history",
+            State::Review => "state/review.json",
+            State::ReviewLock => "state/review.lock",
+            State::RukasTarget => "state/rukas-target",
             State::Sizes => "state/sizes.jsonl",
             State::Starts => "state/starts.json",
             State::StoreDb => "state/tehas.db",
+            State::UpdateHold => "state/update-hold",
             State::UpdateLock => "state/update.lock",
+            State::UpdatePending => "state/update-pending",
+            State::WikiAsk => "state/wiki.ask",
+            State::WikiLock => "state/wiki.lock",
         }
     }
 }
@@ -114,20 +165,41 @@ impl TokenDir {
 /// A view the factory publishes under `live/`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Live {
+    /// The contractors of outsource.
+    Contractors,
     /// The dispatcher's last decision.
     Dispatch,
     /// The power the hosts draw.
     Energy,
+    /// The epics and their issues.
+    Epics,
+    /// The checks of the host's health.
+    Health,
+    /// The previews and the disk they use.
+    Previews,
+    /// The cycles running now.
+    Running,
     /// The queue and the cycles of the product.
     Status,
+    /// The host's load, as `tehas top` publishes it.
+    Top,
+    /// The product wiki's state.
+    Wiki,
 }
 
 impl Live {
     const fn name(self) -> &'static str {
         match self {
+            Live::Contractors => "contractors.json",
             Live::Dispatch => "dispatch.json",
             Live::Energy => "energy.json",
+            Live::Epics => "epics.json",
+            Live::Health => "health.json",
+            Live::Previews => "previews.json",
+            Live::Running => "running.json",
             Live::Status => "status.json",
+            Live::Top => "top.json",
+            Live::Wiki => "wiki.json",
         }
     }
 }
@@ -222,26 +294,43 @@ mod tests {
     fn each_state_name_is_its_file() {
         let cases = [
             (State::AccountIds, "/h/state/account-ids"),
+            (State::AllHandsIgnored, "/h/state/all-hands.ignored"),
             (State::AnalyticsDb, "/h/state/analytics.db"),
+            (State::Backups, "/h/state/backup"),
             (State::BotLogin, "/h/state/github/login"),
+            (State::Buzzwords, "/h/state/buzzwords.at"),
+            (State::CheckProduct, "/h/state/check-product.json"),
             (State::CodeIndex, "/h/state/index"),
             (State::CodeIndexState, "/h/state/index.json"),
+            (State::DispatchAgain, "/h/state/dispatch.again"),
             (State::EgressLock, "/h/state/egress.lock"),
+            (State::FirstInstall, "/h/state/first-install"),
             (State::GithubFailures, "/h/state/github-failures"),
-            (State::LabelPins, "/h/state/labels"),
+            (State::GithubWrites, "/h/state/github-writes.log"),
             (State::Images, "/h/state/images"),
+            (State::LabelPins, "/h/state/labels"),
             (State::Limit, "/h/state/limit.json"),
             (State::Outsource, "/h/state/outsource"),
             (State::OutsourceDownloads, "/h/state/outsource/downloads"),
             (State::Pause, "/h/state/pause.json"),
+            (State::PlatformFetch, "/h/state/platform-fetch"),
+            (State::PlatformNewest, "/h/state/platform-newest"),
             (State::PushFault, "/h/state/push-fault.json"),
-            (State::Refined, "/h/state/refined.jsonl"),
             (State::ReadOnly, "/h/state/read-only"),
             (State::ReadOnlyLog, "/h/state/read-only.log"),
+            (State::Refined, "/h/state/refined.jsonl"),
+            (State::ReleaseHistory, "/h/state/release-history"),
+            (State::Review, "/h/state/review.json"),
+            (State::ReviewLock, "/h/state/review.lock"),
+            (State::RukasTarget, "/h/state/rukas-target"),
             (State::Sizes, "/h/state/sizes.jsonl"),
             (State::Starts, "/h/state/starts.json"),
             (State::StoreDb, "/h/state/tehas.db"),
+            (State::UpdateHold, "/h/state/update-hold"),
             (State::UpdateLock, "/h/state/update.lock"),
+            (State::UpdatePending, "/h/state/update-pending"),
+            (State::WikiAsk, "/h/state/wiki.ask"),
+            (State::WikiLock, "/h/state/wiki.lock"),
         ];
         for (s, want) in cases {
             assert_eq!(at(h().state(s)), want, "{s:?}");
@@ -267,9 +356,16 @@ mod tests {
     #[test]
     fn each_live_view_is_its_file() {
         let cases = [
+            (Live::Contractors, "/h/live/contractors.json"),
             (Live::Dispatch, "/h/live/dispatch.json"),
             (Live::Energy, "/h/live/energy.json"),
+            (Live::Epics, "/h/live/epics.json"),
+            (Live::Health, "/h/live/health.json"),
+            (Live::Previews, "/h/live/previews.json"),
+            (Live::Running, "/h/live/running.json"),
             (Live::Status, "/h/live/status.json"),
+            (Live::Top, "/h/live/top.json"),
+            (Live::Wiki, "/h/live/wiki.json"),
         ];
         for (l, want) in cases {
             assert_eq!(at(h().live(l)), want, "{l:?}");

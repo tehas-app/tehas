@@ -7,6 +7,7 @@ mod common;
 
 use common::*;
 use serde_json::json;
+use tehas_core::home::Live;
 
 fn key(digit: u8) -> String {
     format!("{:064}", digit)
@@ -64,7 +65,7 @@ fn off_status_writes_no_contractors_file_and_takes_a_stray_one_away() {
     let r = w.status();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert!(!w.live_file("contractors.json").exists());
-    w.fx("home/tehas/live/contractors.json", r#"{"contractors":[]}"#);
+    w.home_file(w.at().live(Live::Contractors), r#"{"contractors":[]}"#);
     let r = w.status();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert!(!w.live_file("contractors.json").exists());
@@ -95,7 +96,7 @@ fn on_in_a_test_build_status_writes_the_contractors_with_no_key() {
         json!([n["working"], n["idle"], n["outsourced"]]),
         json!([1, 1, 1])
     );
-    let text = w.read_home("live/contractors.json");
+    let text = w.read_home(w.at().live(Live::Contractors));
     lacks(&text, &key(7));
     assert!(
         stamp_shaped(c["contractors"][0]["lastSeenAt"].as_str().unwrap_or("")),

@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fmt::Write as _;
 use std::path::PathBuf;
+use tehas_core::home::{Home, State};
 use tehas_core::time;
 
 const DAY: i64 = 86_400;
@@ -120,7 +121,7 @@ fn log_path() -> Option<PathBuf> {
     set("TEHAS_GITHUB_WRITES_LOG").or_else(|| {
         set("TEHAS_HOME")
             .or_else(|| set("HOME").map(|h| h.join("tehas")))
-            .map(|h| h.join("state/github-writes.log"))
+            .map(|h| Home::new(h).state(State::GithubWrites))
     })
 }
 
