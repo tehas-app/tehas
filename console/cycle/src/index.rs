@@ -50,7 +50,7 @@
 //! dispatcher's lock, so a run waits for that lock, up to a minute, before it
 //! looks at the cycles, and lets it go again. A poll is never held by a run.
 //!
-//! What the container is given is pinned by test/index_test.sh: the clone, the
+//! What the container is given is pinned by tests/index_runs.rs: the clone, the
 //! host's index directory, which is the only thing it may write, and nothing
 //! else. No network, no token, no settings. It runs in tehas.slice with a
 //! cycle's limits, so the dispatcher counts its memory with the cycles'. Without

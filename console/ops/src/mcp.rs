@@ -7,7 +7,7 @@
 //!
 //! serve runs under `console run`; key needs no settings. The
 //! container is a security boundary: its arguments are pinned by
-//! test/mcp_test.sh, and keys reach it by name, never in an argument.
+//! console/tests/mcp.rs, and keys reach it by name, never in an argument.
 //!
 //! Exit: see console/src/usage/mcp.txt.
 
