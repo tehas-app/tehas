@@ -198,3 +198,38 @@ checkout() {
     "$fixture/libexec" "$part/"
   t_console_source "$part" "$fixture"
 }
+
+# install_list_report: the names of a home that the files= list above does not
+# name, and the names it promises that the home lacks, one line each, with the
+# direction in each line. Each side is a newline separated set of names in any
+# order; a side that names nothing is refused, as a mistake of the caller.
+install_list_report() { # <names the list promises> <names the home holds>
+  local expected installed one
+  if [ "$#" != 2 ]; then
+    printf 'install_list_report wants two arguments, got %s\n' "$#" >&2
+    return 2
+  fi
+  expected=$1
+  installed=$2
+  # A name that is nothing but blank is refused too.
+  if [ -z "${expected//[$' \t\r\n']}" ] || [ -z "${installed//[$' \t\r\n']}" ]; then
+    echo 'install_list_report: a side names no file at all' >&2
+    return 2
+  fi
+  # comm's complaint about order would be lost, read as an empty report.
+  expected=$(printf '%s\n' "$expected" | LC_ALL=C sort)
+  installed=$(printf '%s\n' "$installed" | LC_ALL=C sort)
+  if ! LC_ALL=C sort -c <<<"$expected" ||
+    ! LC_ALL=C sort -c <<<"$installed"; then
+    echo 'install_list_report: a side does not sort' >&2
+    return 2
+  fi
+  expected=$expected$'\n'
+  installed=$installed$'\n'
+  while read -r one; do
+    printf 'new installed file %s: add it to the files= list of install.sh and of test/install_lib.sh, or stop shipping it\n' "$one"
+  done < <(comm -13 <(printf '%s' "$expected") <(printf '%s' "$installed"))
+  while read -r one; do
+    printf 'missing installed file %s: install.sh does not copy it into the home\n' "$one"
+  done < <(comm -23 <(printf '%s' "$expected") <(printf '%s' "$installed"))
+}

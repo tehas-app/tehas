@@ -33,8 +33,9 @@
 //!     approval, or null, also when a manifest cannot be read.
 //!   attach left-out <issue> <file> <record> --images 0|1 --files 0|1
 //!     What a cycle given nothing was not given, into <file> whole or not at
-//!     all. --images and --files are the instance's settings. Answers "gap":
-//!     the line that says it, or null when there is nothing to say.
+//!     all. --images and --files are the instance's settings; a cycle, which
+//!     gives no files, leaves --files out. Answers "gap": the line that says
+//!     it, or null when there is nothing to say.
 //!
 //!   attach issue <issue> <dir> --approved WORD --record PATH --repo R
 //!       --comments 0|1 --allowed LOGINS --millwright LOGIN

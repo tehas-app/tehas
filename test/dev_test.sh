@@ -690,16 +690,6 @@ for who in alice mallory; do
   t_eq "$who $(jq -c '.images | length' "$imgs/manifest.json")" "$who $([ "$who" = alice ] && echo 1 || echo 0)"
 done
 
-t_case "with files alone --issue gives the text files and the same one mount"
-attach_on
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_FILES=1
-net "https://github.com/user-attachments/files/31/spec.md" '# Spec\n'
-issue_is "[spec.md](https://github.com/user-attachments/files/31/spec.md)"
-t_run "$dev_cmd --issue 7"
-t_eq "$t_rc" 0
-t_eq "$(cd "$imgs" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./file-1.md ./manifest.json "
-t_eq "$(after -v | grep -c -x "$imgs:$imgs:ro")" 1
-
 t_case "an image that cannot be fetched starts no session: exit 4"
 attach_on
 issue_is "Look ![shot]($A/9999)"
@@ -709,7 +699,7 @@ t_eq "$(containers)" 0
 t_contains "$t_out" "tehas dev: $A/9999 could not be fetched, not starting a session"
 t_eq "$([ -e "$imgs" ] && echo left)" ""
 
-t_case "--issue on an instance that gives no images or files starts nothing: exit 78"
+t_case "--issue on an instance that gives no images starts nothing: exit 78"
 attach_on
 t_instance "${T_MINIMAL[@]}"
 t_run "$dev_cmd --issue 7"

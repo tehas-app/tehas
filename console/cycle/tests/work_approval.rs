@@ -868,91 +868,13 @@ fn env_names(w: &World) -> Vec<String> {
 
 /// The text-only tick of a retry, with one comment.
 fn one_comment_retry(v: &mut Value) {
-    v["how"] = json!("retry-tick");
+    v["how"] = json!("reply");
     v["retry_context"] = json!([{"source": "issue-comment", "id": 1, "by": "alice",
         "at": "2026-01-01T00:20:00Z", "url": "u", "text": "x"}]);
 }
 
 #[test]
-fn with_comments_on_the_record_s_comment_links_are_fetched_after_the_body_s_and_each_entry_says_where_it_was_written(
-) {
-    let w = world("comments-on");
-    w.images_on(&["TEHAS_WORK_COMMENTS=1"]);
-    w.net(&format!("{A}/1111"), PNG);
-    w.net(&format!("{A}/2222"), JPG);
-    w.net(&format!("{A}/3333"), GIF);
-    w.issue_is(&format!("![a]({A}/1111)"), "NONE", "");
-    w.record_is("alice", &format!("![a]({A}/1111)"), &[&format!("{A}/1111")]);
-    with_comments(
-        &w,
-        &[
-            ("comment:51", &format!("{A}/2222"), "alice"),
-            ("comment:52", &format!("{A}/1111"), "alice"),
-            ("comment:52", &format!("{A}/3333"), "alice"),
-        ],
-    );
-    let r = w.work7();
-    assert_eq!(r.rc, 2, "{}", r.out);
-    assert_eq!(
-        w.manifest(".images | map([.file, .link, .source])"),
-        format!("[[\"image-1.png\",\"{A}/1111\",\"body\"],[\"image-2.jpg\",\"{A}/2222\",\"comment:51\"],[\"image-3.gif\",\"{A}/3333\",\"comment:52\"]]")
-    );
-    has(
-        &gh(&w),
-        "Tehas gave this cycle 3 images from the issue and its comments.",
-    );
-    has(
-        &gh(&w),
-        &format!("- {A}/2222 (comment 51): image-2.jpg, sha256"),
-    );
-}
-
-#[test]
-fn the_limits_count_the_body_and_the_comments_together() {
-    let w = world("comments-limits");
-    w.images_on(&["TEHAS_WORK_COMMENTS=1"]);
-    let mut body = String::new();
-    let mut links = vec![];
-    for i in 1..=8 {
-        w.net(&format!("{A}/000{i}"), PNG);
-        body.push_str(&format!(" ![i]({A}/000{i})"));
-        links.push(format!("{A}/000{i}"));
-    }
-    w.net(&format!("{A}/0009"), PNG);
-    w.issue_is(&body, "NONE", "");
-    let links: Vec<&str> = links.iter().map(String::as_str).collect();
-    w.record_is("alice", &body, &links);
-    with_comments(&w, &[("comment:51", &format!("{A}/0009"), "alice")]);
-    w.work7();
-    assert_eq!(
-        w.manifest("[(.images | length), (.leftOut | map([.link, .reason, .source]))]"),
-        format!("[8,[[\"{A}/0009\",\"More than 8 images.\",\"comment:51\"]]]")
-    );
-}
-
-#[test]
-fn a_comment_whose_author_is_no_longer_allowed_is_left_out_and_said_so() {
-    let w = world("comments-outsider");
-    w.images_on(&["TEHAS_WORK_COMMENTS=1"]);
-    w.net(&format!("{A}/2222"), JPG);
-    w.issue_is("Words.", "NONE", "");
-    w.record_is("alice", "Words.", &[]);
-    with_comments(&w, &[("comment:51", &format!("{A}/2222"), "mallory")]);
-    let r = w.work7();
-    assert_eq!(r.rc, 2, "{}", r.out);
-    assert_eq!(curl(&w), "");
-    assert_eq!(
-        w.manifest(".leftOut | map([.link, .source])"),
-        format!("[[\"{A}/2222\",\"comment:51\"]]")
-    );
-    has(
-        &gh(&w),
-        &format!("- {A}/2222 (comment 51): The comment was not written by an allowed account"),
-    );
-}
-
-#[test]
-fn with_comments_off_the_record_s_comment_links_are_not_fetched() {
+fn a_record_s_comment_links_are_not_fetched() {
     let w = world("comments-off");
     w.images_on(&[]);
     w.net(&format!("{A}/2222"), JPG);
@@ -965,35 +887,16 @@ fn with_comments_off_the_record_s_comment_links_are_not_fetched() {
     assert_eq!(w.manifest("[.images, .leftOut]"), "[[],[]]");
 }
 
-#[test]
-fn a_comment_link_of_another_source_or_shape_in_the_record_is_not_fetched() {
-    let w = world("comments-shape");
-    w.images_on(&["TEHAS_WORK_COMMENTS=1"]);
-    w.net(&format!("{A}/2222"), JPG);
-    w.issue_is("Words.", "NONE", "");
-    w.record_is("alice", "Words.", &[]);
-    with_comments(
-        &w,
-        &[
-            ("body:1", &format!("{A}/2222"), "alice"),
-            ("comment:x", &format!("{A}/2222"), "alice"),
-            ("comment:51", "https://example.com/x.png", "alice"),
-        ],
-    );
-    let r = w.work7();
-    assert_eq!(r.rc, 2, "{}", r.out);
-    assert_eq!(curl(&w), "");
-}
-
-/// A comments retry with a link of a pull request's comment, started.
+/// A comments retry with a link of a pull request's comment, started. The
+/// link is not fetched: only the comments' words reach the cycle.
 fn comments_retry(w: &World) -> work::Run {
-    w.images_on(&["TEHAS_WORK_COMMENTS=1"]);
+    w.images_on(&[]);
     w.net(&format!("{A}/7171"), PNG);
     w.issue_is("Words.", "NONE", "");
     w.record_is("alice", "Words.", &[]);
     with_comments(w, &[("pr-comment:71", &format!("{A}/7171"), "alice")]);
     w.record_edit(|v| {
-        v["how"] = json!("retry-tick");
+        v["how"] = json!("reply");
         v["at"] = json!("2026-01-01T00:30:00Z");
         v["retry_context"] = json!([
             {"source": "pr-comment", "id": 71, "pr": 30, "by": "alice", "at": "2026-01-01T00:20:00Z",
@@ -1012,9 +915,10 @@ fn a_comments_retry_s_comments_are_written_to_comments_json_and_named_in_the_man
     let w = world("comments-retry");
     let r = comments_retry(&w);
     assert_eq!(r.rc, 2, "{}", r.out);
+    assert_eq!(curl(&w), "");
     assert_eq!(
         w.manifest("[(.images | map([.file, .source])), .comments.file, .retryContext]"),
-        r#"[[["image-1.png","pr-comment:71"]],"comments.json",null]"#
+        r#"[[],"comments.json",null]"#
     );
     let file = w.imgs.join("comments.json");
     let bytes = fs::read(&file).unwrap();
@@ -1047,7 +951,7 @@ fn the_comments_are_kept_beside_the_manifest() {
 #[test]
 fn a_cycle_without_comments_leaves_none_of_an_earlier_cycle_s_beside_the_manifest() {
     let w = world("comments-none");
-    w.images_on(&["TEHAS_WORK_COMMENTS=1"]);
+    w.images_on(&[]);
     let cycles = Home::new(&w.home).cycles_dir();
     fs::create_dir_all(&cycles).unwrap();
     for f in ["7.comments.json", "7.retry-context.md", "7.images.md"] {
@@ -1070,7 +974,7 @@ fn comments_past_64_kb_drop_the_oldest_and_say_how_many() {
     w.record_is("alice", "Words.", &[]);
     let text = "a".repeat(6000);
     w.record_edit(|v| {
-        v["how"] = json!("retry-tick");
+        v["how"] = json!("reply");
         v["retry_context"] = (0..30)
             .map(|i| {
                 json!({"source": "issue-comment", "id": i, "by": "alice",
@@ -1105,7 +1009,7 @@ fn the_text_only_tick_and_a_start_that_is_no_retry_are_given_no_comments() {
     w.images_on(&[]);
     w.issue_is("Words.", "NONE", "");
     w.record_is("alice", "Words.", &[]);
-    w.record_edit(|v| v["how"] = json!("retry-tick"));
+    w.record_edit(|v| v["how"] = json!("reply"));
     w.work7();
     assert!(!w.imgs.join("comments.json").exists());
 }
@@ -1131,7 +1035,7 @@ fn tree_of(dir: &Path) -> Vec<String> {
 }
 
 #[test]
-fn with_images_and_files_off_a_retry_s_comments_are_mounted_with_the_manifest_alone() {
+fn with_images_off_a_retry_s_comments_are_mounted_with_the_manifest_alone() {
     let w = world("comments-images-off");
     w.images_off();
     w.issue_is("Words.", "NONE", "");
@@ -1142,7 +1046,7 @@ fn with_images_and_files_off_a_retry_s_comments_are_mounted_with_the_manifest_al
     assert_eq!(tree_of(&w.imgs), ["./comments.json", "./manifest.json"]);
     assert_eq!(
         w.manifest("[.images, .leftOut, .issue, .approval.how, .comments.file]"),
-        r#"[[],[],7,"retry-tick","comments.json"]"#
+        r#"[[],[],7,"reply","comments.json"]"#
     );
     assert_eq!(mounts(&w), mounts_with_images(&w));
     assert_eq!(env_names(&w), env_with_images());
@@ -1245,10 +1149,9 @@ fn the_fixer_s_note_reaches_the_retry_without_comments_on_and_nothing_else_of_th
 // The polls write millwright:<id>. A record of before the rename says
 // fixer:<id>.
 #[test]
-fn the_note_the_dispatcher_records_under_the_millwright_s_source_reaches_a_cycle_given_files_alone()
-{
+fn the_note_the_dispatcher_records_under_the_millwright_s_source_reaches_a_cycle_given_no_images() {
     let w = world("fixer-millwright");
-    w.images_on(&["TEHAS_WORK_IMAGES=0", "TEHAS_WORK_FILES=1"]);
+    w.images_off();
     w.issue_is("Words.", "NONE", "");
     w.record_is("alice", "Words.", &[]);
     fixer_record(&w, "alice");
@@ -1320,17 +1223,6 @@ fn a_refresh_s_task_reaches_comments_json_as_tehas_wrote_it_and_only_a_refresh_s
     });
     w.work7();
     assert_eq!(w.manifest(".comments"), "null");
-}
-
-#[test]
-fn comments_add_no_mount_and_no_variable() {
-    let w = world("comments-mounts");
-    w.images_on(&["TEHAS_WORK_COMMENTS=1"]);
-    w.issue_is("Words.", "NONE", "");
-    w.record_is("alice", "Words.", &[]);
-    w.work7();
-    assert_eq!(mounts(&w), mounts_with_images(&w));
-    assert_eq!(env_names(&w), env_with_images());
 }
 
 // --- Under tehasbot cycle ----------------------------------------------------

@@ -41,7 +41,7 @@ fn pin_spec(w: &World) {
 /// the handoff.
 fn spec_case(w: &World, more: &[&str]) {
     w.images_off();
-    let mut all = vec!["TEHAS_WORK_IMAGES=0", "TEHAS_WORK_FILES=0"];
+    let mut all = vec!["TEHAS_WORK_IMAGES=0"];
     all.extend_from_slice(more);
     w.minimal(&all);
     w.net(&link(), SPEC);

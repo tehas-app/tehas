@@ -270,7 +270,7 @@ impl Writer {
     }
 
     /// A label change on an issue, journaled; false when it did not land.
-    fn edit_labels(&mut self, n: u64, flags: &[(&str, &str)]) -> bool {
+    pub(crate) fn edit_labels(&mut self, n: u64, flags: &[(&str, &str)]) -> bool {
         let mut args: Vec<String> = vec![
             "issue".into(),
             "edit".into(),
@@ -1164,23 +1164,7 @@ impl Writer {
             out.clone()
         };
         let body = q_render(n, turn, &rest, line);
-        let args = vec![
-            "api".into(),
-            "-X".into(),
-            "POST".into(),
-            format!("repos/{}/issues/{n}/comments", self.repo),
-            "--input".into(),
-            "-".into(),
-            "--jq".into(),
-            ".id".into(),
-        ];
-        let input = json!({"body": body}).to_string();
-        let Wrote::Done(said) = self.write(n, "comment-post", args, Some(&input), None) else {
-            return None;
-        };
-        // gh prints the id alone, as --jq .id has it.
-        let id = said.trim().parse::<u64>().ok()?;
-        Some(id.to_string())
+        self.question_post(n, &body).map(|id| id.to_string())
     }
 
     /// The outcome without its text, so a poll that posts the question again

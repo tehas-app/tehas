@@ -5,13 +5,10 @@ mod work;
 
 use std::fs;
 use std::path::Path;
-use tehas_core::home::Home;
 use work::{
     count_of, has, lacks, security_of, unknown_options, World, A, DOCKER_OPTS, F, GIF, JPG, PNG,
     RUNNER, WANT, WEBP,
 };
-
-const CHAT: &str = "https://models.test/v1/chat/completions";
 
 fn world(name: &str) -> World {
     let w = World::new(name);
@@ -114,21 +111,6 @@ fn no_unknown_options(w: &World) {
         Vec::<String>::new()
     );
     assert_eq!(count_of(&w.cycle_args(), "--tmpfs"), 1);
-}
-
-/// The lines of a file as `tr -d '\r' | LC_ALL=C sort | uniq -c` counts them,
-/// each `<count> <line>|`.
-fn uniq_counted(text: &str) -> String {
-    let mut v: Vec<String> = text.lines().map(|l| l.replace('\r', "")).collect();
-    v.sort();
-    let mut out = String::new();
-    let mut i = 0;
-    while i < v.len() {
-        let n = v[i..].iter().take_while(|l| **l == v[i]).count();
-        out.push_str(&format!("{n} {}|", v[i]));
-        i += n;
-    }
-    out
 }
 
 #[test]
@@ -582,156 +564,21 @@ fn a_path_of_the_instances_own_for_the_variable_is_replaced_not_added_to() {
     lacks(&all_docker_args(&w), "/elsewhere");
 }
 
-// --- The images described ----------------------------------------------------
+// --- No image is described ---------------------------------------------------
 
-fn describe_on(w: &World) {
+#[test]
+fn an_instance_that_still_sets_describe_loads_and_nothing_is_described() {
+    let w = world("images-alone");
     w.images_on(&["TEHAS_WORK_DESCRIBE=1"]);
     w.fs(
         "home/.pi/agent/models.json",
         "{\"providers\": {\"test-provider\": {\"baseUrl\": \"https://models.test/v1\"}}}\n",
     );
-}
-
-/// Two images and a model that describes each.
-fn two_described(w: &World) {
-    w.net(&format!("{A}/1111"), PNG);
-    w.net(&format!("{A}/2222"), JPG);
-    w.net(
-        CHAT,
-        r#"{"choices": [{"message": {"content": "A chart with three bars."}}]}"#,
-    );
-    w.issue_is(&format!("![a]({A}/1111) ![b]({A}/2222)"), "", "");
-}
-
-fn described(name: &str) -> World {
-    let w = world(name);
-    describe_on(&w);
-    two_described(&w);
-    let r = w.work7();
-    assert_eq!(r.rc, 2, "{}", r.out);
-    w
-}
-
-#[test]
-fn a_description_setting_without_images_starts_nothing_exit_78() {
-    let w = world("images-describe-alone");
-    w.images_on(&[]);
-    w.minimal(&["TEHAS_WORK_DESCRIBE=1"]);
-    let r = w.work7();
-    assert_eq!(r.rc, 78, "{}", r.out);
-    has(
-        &r.out,
-        "TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off",
-    );
-    assert_eq!(
-        format!("{}{}{}", w.gh(), w.calls("curl"), w.calls("docker")),
-        ""
-    );
-}
-
-#[test]
-fn with_descriptions_on_the_directory_holds_exactly_the_images_the_manifest_and_images_md() {
-    let w = described("images-described");
-    assert_eq!(
-        found(&w.imgs),
-        "./image-1.png ./image-2.jpg ./images.md ./manifest.json "
-    );
-    let md = fs::read_to_string(w.imgs.join("images.md")).unwrap();
-    assert_eq!(
-        md.lines()
-            .filter(|l| *l == "> A chart with three bars.")
-            .count(),
-        2
-    );
-    assert_eq!(w.manifest(".described"), r#""images.md""#);
-    assert_eq!(
-        fs::read(Home::new(&w.home).cycle_note(7, "images.md")).unwrap(),
-        md.as_bytes()
-    );
-    let kept: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(&w.kept).unwrap()).unwrap();
-    assert_eq!(kept["described"], "images.md");
-}
-
-#[test]
-fn with_descriptions_on_the_container_gets_the_same_mounts_and_variables_as_with_images_alone() {
-    let w = described("images-described-mounts");
-    assert_eq!(sorted(w.after("-v")), mounts(&w, &[images_mount(&w)]));
-    assert_eq!(
-        sorted(names(w.after("-e"))),
-        want(&["PI_ENSEMBLE_EXTRA_IMAGE_DIRS"])
-    );
-    no_unknown_options(&w);
-}
-
-#[test]
-fn the_model_is_asked_once_per_image_with_no_token_but_with_the_issues_number() {
-    let w = described("images-described-asked");
-    let curl = w.calls("curl");
-    assert_eq!(curl.lines().filter(|l| l.contains(CHAT)).count(), 2);
-    let headers = w.calls("curl-headers");
-    let chat_headers: String = headers
-        .lines()
-        .filter(|l| l.contains(CHAT))
-        .collect::<Vec<_>>()
-        .join("\n");
-    lacks(&chat_headers, "Authorization");
-    // The issue's number goes in the config a model request hands curl on a
-    // file descriptor, never on the command line.
-    assert_eq!(curl.lines().filter(|l| l.contains("-K /proc/")).count(), 2);
-    let config = w.calls("curl-config");
-    assert_eq!(uniq_counted(&config), "2 header = \"X-Tehas-Issue: 7\"|");
-    lacks(&curl, "X-Tehas-Issue");
-    lacks(&config, "Authorization");
-}
-
-#[test]
-fn with_descriptions_on_the_token_goes_in_the_config_beside_the_issue_and_neither_is_on_a_command_line(
-) {
-    let w = world("images-described-token");
-    describe_on(&w);
-    w.fs(
-        "home/.pi/agent/models.json",
-        "{\"providers\":{\"test-provider\":{\"baseUrl\":\"https://models.test/v1\",\"apiKey\":\"$TEHAS_MODEL_KEY_MAIN\"}}}\n",
-    );
-    two_described(&w);
-    // The model's own key beside what a start is given.
-    w.env("TEHAS_MODEL_KEY_MAIN", "main-secret");
-    let r = w.work7();
-    assert_eq!(r.rc, 2, "{}", r.out);
-    assert_eq!(
-        uniq_counted(&w.calls("curl-config")),
-        "2 header = \"Authorization: Bearer main-secret\"|2 header = \"X-Tehas-Issue: 7\"|"
-    );
-    lacks(&w.calls("curl"), "X-Tehas-Issue");
-    lacks(&w.calls("curl"), "main-secret");
-}
-
-#[test]
-fn a_model_that_does_not_answer_is_said_in_the_file_and_the_cycle_starts() {
-    let w = world("images-model-silent");
-    describe_on(&w);
     w.net(&format!("{A}/1111"), PNG);
     w.issue_is(&format!("![a]({A}/1111)"), "", "");
     let r = w.work7();
     assert_eq!(r.rc, 2, "{}", r.out);
-    has(
-        &fs::read_to_string(w.imgs.join("images.md")).unwrap(),
-        "> not described: the request to the model failed (curl 22)",
-    );
-    has(
-        &cycle_line(&w),
-        &format!("{RUNNER} work 7 --timeout 360 --json"),
-    );
-}
-
-#[test]
-fn with_images_alone_nothing_is_described() {
-    let w = world("images-alone");
-    w.images_on(&[]);
-    w.net(&format!("{A}/1111"), PNG);
-    w.issue_is(&format!("![a]({A}/1111)"), "", "");
-    w.work7();
+    has(&r.out, "TEHAS_WORK_DESCRIBE is no longer read");
     assert!(!w.imgs.join("images.md").exists());
     lacks(&w.calls("curl"), "chat/completions");
     assert_eq!(w.manifest(".described"), "null");

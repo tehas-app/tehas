@@ -27,7 +27,7 @@ Exit status: 0 the turn ended with something to say or ask, or it filed,
              2 the runner failed, ran out of time, refused the turn, said
                and asked nothing, its session is gone, or its outcome could
                not be written down,
-             4 the instance gives images or files and one could not be
+             4 the instance gives images and one could not be
                fetched, for a first turn or from a reply; said on the issue,
                nothing ran,
             64 a usage error, no bot token or no git identity; nothing ran,

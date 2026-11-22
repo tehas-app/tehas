@@ -1844,11 +1844,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tehas-describe"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "tehas-dispatch"
 version = "0.1.0"
 dependencies = [
  "attach",
  "regex",
+ "rusqlite",
  "serde_json",
  "sha2 0.10.9",
  "tehas-core",

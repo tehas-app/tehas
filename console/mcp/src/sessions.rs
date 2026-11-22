@@ -24,10 +24,9 @@ pub const KINDS: [&str; 2] = ["work", "plan"];
 // schema enum and its filter both read this list, and nothing else in the
 // crate names it; the test of the filter reads it here, so it pins the tool to
 // what it says rather than to a list written twice.
-pub const HOWS: [&str; 10] = [
+pub const HOWS: [&str; 9] = [
     "label",
     "refresh",
-    "retry-tick",
     "outage-retry",
     "millwright",
     "host",

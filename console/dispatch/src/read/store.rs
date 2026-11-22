@@ -588,6 +588,7 @@ pub fn question(asked: &Asked, n: u64) -> Value {
     }
     let mut kind = String::new();
     let mut answer = Value::Null;
+    let mut reask = false;
     if !qid.is_empty() {
         match asked.know(n) {
             v if v.get("failed") == Some(&json!(true)) => return v,
@@ -598,11 +599,12 @@ pub fn question(asked: &Asked, n: u64) -> Value {
                     .unwrap_or("")
                     .to_string();
                 answer = v.get("answer").cloned().unwrap_or(Value::Null);
+                reask = v.get("reask") == Some(&json!(true));
             }
             _ => qid.clear(),
         }
     }
-    json!({"plan": plan, "id": qid, "kind": kind, "reason": reason, "answer": answer})
+    json!({"plan": plan, "id": qid, "kind": kind, "reason": reason, "answer": answer, "reask": reask})
 }
 
 #[cfg(test)]
@@ -620,13 +622,7 @@ mod approval_shape_tests {
     /// with none, as every record before the driver is, names none.
     #[test]
     fn the_driver_of_a_start_is_read_off_its_own_record() {
-        for how in [
-            "label",
-            "retry-tick",
-            "outage-retry",
-            "millwright",
-            "refresh",
-        ] {
+        for how in ["label", "reply", "outage-retry", "millwright", "refresh"] {
             assert_eq!(shaped(how, json!({"driver": "lean"}))["driver"], "lean");
             assert_eq!(shaped(how, json!({})).get("driver"), None);
             assert_eq!(shaped(how, Value::Null).get("driver"), None);
