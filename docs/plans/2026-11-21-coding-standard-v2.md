@@ -479,8 +479,9 @@ refactor step. The program manager is the session tehas-2d.
    #2493: #2494 (several test directories), #2495 (no project-test check
    without a JUnit report), #2480 (a killed lean job keeps running),
    #2403 (the lens review is not recorded), #2501 (the rest of #2410)
-   and #2511 (a typed setup refusal, for part 4). They come in 0.15.x. Each release candidate checks this as it
-   checks the pin.
+   and #2511 (a typed setup refusal, for part 4). All are merged and
+   ship in 0.15.0, so the pin is 0.15.0 or later. Each release
+   candidate checks this as it checks the pin.
 3. **Ship it.** `lean` in `console/core/src/features.rs` moves to
    shipped, and `host/docs/features.md` marks it proven with the dates
    and issues of the proof.
@@ -498,7 +499,11 @@ refactor step. The program manager is the session tehas-2d.
    with the reason, and `approval.driver` records classic with the
    reason. A `tehas:lean` label or an explicit
    `TEHAS_DRIVER=lean` parks as today, and any other lean failure falls
-   back to nothing. tehas reads no `.pi/work.json` itself: lean's refusal
+   back to nothing. A transient git failure reading the setup is
+   `crashed`, not `setup`, so it does not fall back. Lean's setup record
+   is final, so the fallback removes `.pi/lean-state/<issue>.json` in
+   the checkout, and a later lean start, after the product sets its
+   roster, starts fresh. tehas reads no `.pi/work.json` itself: lean's refusal
    is the one rule. #2511 blocks this part only. If it is not in by the
    trio's readiness review, 2.0.0 ships lean available but not the
    default, and the owner decides.
@@ -690,3 +695,4 @@ of main, each grade.
 | 2026-11-22 | A flaky test fixed: the two writes reports compared without their minute | #2799 |
 | 2026-11-22 | T14: the Protolab removed as dead code, its file storage and serving kept for plugins (the owner) | #2826 |
 | 2026-11-22 | T15: shell tests to Rust (#2816 to #2824); the migration behind the ports lands after the rest of the refactor, before v2.0.0 (the owner) | #2826 |
+| 2026-11-22 | T13: the pin is pi-rukas 0.15.0; a crash is no setup refusal, and the fallback clears lean's state of the issue | |
