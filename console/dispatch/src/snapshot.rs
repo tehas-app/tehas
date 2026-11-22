@@ -325,6 +325,69 @@ pub struct HostStart {
     pub labels: Vec<String>,
 }
 
+/// An issue of a list the poll reads strictly: a number that is not a whole
+/// number in the JSON is None, and the decision says what that costs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Asked {
+    pub number: Option<u64>,
+    pub labels: Vec<String>,
+}
+
+/// The issues to plan or refine: a list, or an answer that is not one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PlanList {
+    Read(Vec<Asked>),
+    Unreadable,
+}
+
+/// The issues marked tehas:running, as gh issue list answered.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Marked {
+    /// The call failed.
+    Failed,
+    /// No list, or an issue in it without a whole number.
+    Unreadable,
+    /// In the order GitHub gave them.
+    Listed(Vec<MarkedIssue>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MarkedIssue {
+    pub number: u64,
+    pub closed: bool,
+}
+
+/// A pull request of the bot's. A field GitHub did not give as text is empty.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BotPr {
+    pub url: String,
+    pub state: String,
+    /// The branch it is from.
+    pub head: String,
+    pub created: String,
+}
+
+impl BotPr {
+    /// A pull request of issue `n`'s own branch, `feature/issue-<n>` or
+    /// `feature/issue-<n>-*`. Its body does not count: any cycle can write
+    /// `Fixes #<n>` in a pull request of its own.
+    pub fn own_branch(&self, n: u64) -> bool {
+        let branch = format!("feature/issue-{n}");
+        self.head == branch || self.head.starts_with(&format!("{branch}-"))
+    }
+}
+
+/// [`BotPr::own_branch`] of a pull request as GitHub gave it.
+#[cfg(test)]
+pub(crate) fn own_branch(pr: &Value, n: u64) -> bool {
+    let s = Snapshot::parse(&serde_json::json!({ "bot_prs": [pr] }));
+    s.bot_prs
+        .flatten()
+        .unwrap_or_default()
+        .first()
+        .is_some_and(|p| p.own_branch(n))
+}
+
 #[derive(Clone, Debug)]
 pub struct Snapshot {
     /// nameWithOwner, None when `gh repo view` failed.
@@ -346,8 +409,8 @@ pub struct Snapshot {
     /// (rc).
     pub sessions: Vec<Session>,
     /// gh issue list --label tehas:plan and --label tehas:refine.
-    pub plans: Option<Value>,
-    pub refines: Option<Value>,
+    pub plans: Option<PlanList>,
+    pub refines: Option<PlanList>,
     /// lib/refine-brief.md is there and not empty.
     pub refine_brief: bool,
     /// park-show --refine's parks, owed a refine.
@@ -405,8 +468,8 @@ pub struct Snapshot {
     /// With TEHAS_MILLWRIGHT_FEED: the running cycles a fed start began, None
     /// when that could not be read.
     pub fed: Option<u64>,
-    /// gh issue list --label tehas:question.
-    pub asking: Option<Value>,
+    /// gh issue list --label tehas:question; Some(None) when it gave no list.
+    pub asking: Option<Option<Vec<Asked>>>,
     /// park-show --automatic's parks, owed a retry after an outage.
     pub owed: Option<Result<Vec<Value>, StoreErr>>,
     pub images: Option<Images>,
@@ -423,16 +486,18 @@ pub struct Snapshot {
     /// The running cycles' records, by issue, from the entries of `running`;
     /// Err when the store could not list them (`cycles_failed`).
     pub cycles: Result<BTreeMap<u64, Cycle>, StoreErr>,
-    /// gh pr list --author <bot>: asked when a cycle runs.
-    pub bot_prs: Option<Value>,
+    /// gh pr list --author <bot>: asked when a cycle runs. Some(None) when
+    /// it gave no list; an entry that is no object is left out.
+    pub bot_prs: Option<Option<Vec<BotPr>>>,
     /// gh issue list --label tehas:running, as it answered.
-    pub marked: Option<Value>,
+    pub marked: Option<Marked>,
     /// The open issues labelled tehas:planning.
     pub planning: Option<Vec<u64>>,
     /// The issues with a refresh in their history.
     pub refresh_history: Option<Result<Vec<u64>, StoreErr>>,
-    /// gh pr list --label tehas:refreshing, as it answered.
-    pub refreshing: Option<Value>,
+    /// gh pr list --label tehas:refreshing: the numbers of those that carry
+    /// it, Some(None) when it gave no list.
+    pub refreshing: Option<Option<Vec<u64>>>,
     /// The open pull requests whose body names each open issue with a closing
     /// keyword, by issue: `pulls_name` of the snapshot, from the page's own
     /// read of the bodies. GitHub links a closing keyword only for a pull
@@ -642,6 +707,55 @@ impl Snapshot {
     pub fn parse(v: &Value) -> Snapshot {
         let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
         let control = v.get("control").cloned().unwrap_or(Value::Null);
+        let asked = |i: &Value| Asked {
+            number: i.get("number").and_then(Value::as_u64),
+            labels: names(i.get("labels")),
+        };
+        let plan_list = |l: &Value| match l.as_array() {
+            Some(a) => PlanList::Read(a.iter().map(asked).collect()),
+            None => PlanList::Unreadable,
+        };
+        let marked = |m: &Value| {
+            if m.get("failed") == Some(&Value::Bool(true)) {
+                return Marked::Failed;
+            }
+            let Some(a) = m.as_array() else {
+                return Marked::Unreadable;
+            };
+            let list: Option<Vec<MarkedIssue>> = a
+                .iter()
+                .map(|i| {
+                    Some(MarkedIssue {
+                        number: i.get("number").and_then(Value::as_u64)?,
+                        closed: i.get("state").and_then(Value::as_str) == Some("CLOSED"),
+                    })
+                })
+                .collect();
+            list.map_or(Marked::Unreadable, Marked::Listed)
+        };
+        // The pull requests that carry tehas:refreshing and a whole number,
+        // in the order given.
+        let refreshing = |r: &Value| {
+            r.as_array().map(|a| {
+                a.iter()
+                    .filter(|p| {
+                        names(p.get("labels"))
+                            .iter()
+                            .any(|l| l == "tehas:refreshing")
+                    })
+                    .filter_map(|p| p.get("number").and_then(Value::as_u64))
+                    .collect()
+            })
+        };
+        let bot_pr = |p: &Value| {
+            let s = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+            BotPr {
+                url: s("url"),
+                state: s("state"),
+                head: s("headRefName"),
+                created: s("createdAt"),
+            }
+        };
         Snapshot {
             repo: v.get("repo").and_then(Value::as_str).map(str::to_string),
             pause_flag: v.get("pause_flag").filter(|f| !f.is_null()).map(|f| {
@@ -693,8 +807,8 @@ impl Snapshot {
                         .collect()
                 })
                 .unwrap_or_default(),
-            plans: v.get("plans").cloned(),
-            refines: v.get("refines").cloned(),
+            plans: v.get("plans").map(plan_list),
+            refines: v.get("refines").map(plan_list),
             refine_brief: v.get("refine_brief").and_then(Value::as_bool) != Some(false),
             refines_owed: v.get("refines_owed").map(|o| {
                 if failed(o) {
@@ -864,7 +978,9 @@ impl Snapshot {
                 })
                 .unwrap_or_default(),
             fed: v.get("fed").and_then(Value::as_u64),
-            asking: v.get("asking").cloned(),
+            asking: v
+                .get("asking")
+                .map(|a| a.as_array().map(|a| a.iter().map(asked).collect())),
             owed: v.get("owed").map(|o| {
                 if failed(o) {
                     Err(StoreErr::parse(o))
@@ -888,8 +1004,11 @@ impl Snapshot {
                 Some(e) => Err(StoreErr::parse(e)),
                 None => cycles(v.get("running")),
             },
-            bot_prs: v.get("bot_prs").cloned(),
-            marked: v.get("marked").cloned(),
+            bot_prs: v.get("bot_prs").map(|b| {
+                b.as_array()
+                    .map(|a| a.iter().filter(|p| p.is_object()).map(bot_pr).collect())
+            }),
+            marked: v.get("marked").map(marked),
             planning: v
                 .get("planning")
                 .and_then(Value::as_array)
@@ -901,7 +1020,7 @@ impl Snapshot {
                     .map(|a| a.iter().filter_map(number).collect())
                     .unwrap_or_default()),
             }),
-            refreshing: v.get("refreshing").cloned(),
+            refreshing: v.get("refreshing").map(refreshing),
             pulls_name: v
                 .get("pulls_name")
                 .and_then(Value::as_object)

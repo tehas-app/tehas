@@ -39,6 +39,7 @@ fn fixer_answer_why(c: &Settings, view: &Value) -> String {
 }
 use super::{has, or_unknown, End, Poll, Room, Step};
 use crate::settings::Settings;
+use crate::snapshot::PlanList;
 use crate::text;
 use serde_json::{json, Value};
 
@@ -412,13 +413,13 @@ impl Poll<'_> {
         let mut lists = Vec::new();
         let mut unreadable = false;
         for l in [self.s.plans.clone(), self.s.refines.clone()] {
-            let Some(l) = l else {
-                self.need("plans");
-                return Ok(());
-            };
-            match l.as_array() {
-                Some(a) => lists.extend(a.clone()),
-                None => unreadable = true,
+            match l {
+                None => {
+                    self.need("plans");
+                    return Ok(());
+                }
+                Some(PlanList::Read(a)) => lists.extend(a),
+                Some(PlanList::Unreadable) => unreadable = true,
             }
         }
         if unreadable {
@@ -430,22 +431,14 @@ impl Poll<'_> {
         }
         let mut entries: Vec<(u64, &'static str)> = Vec::new();
         for i in &lists {
-            let names: Vec<String> = i
-                .get("labels")
-                .and_then(Value::as_array)
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
-                        .collect()
-                })
-                .unwrap_or_default();
-            if has(&names, "tehas:planning") || has(&names, "tehas:running") {
+            let names = &i.labels;
+            if has(names, "tehas:planning") || has(names, "tehas:running") {
                 continue;
             }
-            let Some(n) = i.get("number").and_then(Value::as_u64) else {
+            let Some(n) = i.number else {
                 return Err(self.fail("ERROR: unreadable list of issues to plan", 1));
             };
-            let label = if has(&names, "tehas:plan") {
+            let label = if has(names, "tehas:plan") {
                 "tehas:plan"
             } else {
                 "tehas:refine"
