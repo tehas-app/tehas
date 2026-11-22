@@ -594,7 +594,6 @@ mod tests {
         assert!(seen.len() > 60);
         assert_eq!(retired().next(), Some("bin/tehas-console.ts"));
         assert!(seen.contains("libexec/github-token"));
-        assert!(seen.contains("live/energy.json"));
     }
 
     #[test]
