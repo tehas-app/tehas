@@ -380,6 +380,34 @@ fn the_millwright_is_marked_by_its_flag_and_notes_are_written_as_one_kind() {
     );
 }
 
+/// Moved from test/store_approval_test.sh: plan-show, as a reader gets it,
+/// marks a millwright's answer under `millwright` alone.
+#[test]
+fn plan_show_marks_a_millwright_answer_under_its_one_key() {
+    let home = home("plan-show-millwright");
+    begin(&home, 8);
+    finished(&home, 8, 1);
+    let text = brief(&home, "# The brief\n");
+    ok(
+        &home,
+        &[
+            "plan-answer",
+            "8",
+            "--turn",
+            "2",
+            "--by",
+            "tehas-fixer",
+            "--millwright",
+            "--text-file",
+            &text,
+        ],
+    );
+    let v = ok(&home, &["plan-show", "8"]);
+    let answer = &v["planning"]["answers"][0];
+    assert_eq!(answer["millwright"], true);
+    assert_eq!(answer.get("fixer"), None);
+}
+
 #[test]
 fn a_refused_note_is_written_as_one_kind_whichever_way_it_is_spelled() {
     let noted = home("plan-millwright-note");
