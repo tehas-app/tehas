@@ -1170,10 +1170,11 @@ fn auto_finish_step(
 fn demand_health(home: &Path, w: &mut Writer, d: &crate::Decision) {
     if let Some(demand) = &d.demand {
         let file = home.join("live/demand.json");
-        if demand.is_null() {
-            let _ = std::fs::remove_file(&file);
-        } else {
-            write_demand(&file, demand);
+        match demand {
+            crate::decide::Demand::Unread => {
+                let _ = std::fs::remove_file(&file);
+            }
+            crate::decide::Demand::Counted(_) => write_demand(&file, demand),
         }
         // health, whose gh calls are given the poll's token as the poll's own
         // are: TEHAS_HEALTH_CMD is a test's name for it, as TEHAS_STATUS_CMD
@@ -1194,8 +1195,8 @@ fn demand_health(home: &Path, w: &mut Writer, d: &crate::Decision) {
     }
 }
 
-fn write_demand(file: &Path, demand: &Value) {
-    let mut v = demand.clone();
+fn write_demand(file: &Path, demand: &crate::decide::Demand) {
+    let mut v = Value::from(demand);
     v["time"] = json!(iso_now());
     // A unique name, not the fixed `demand.json.new` two polls can
     // share: each writer holds its own file until its rename.
