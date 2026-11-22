@@ -75,13 +75,28 @@ a checkout of the 2.0 release:
 cargo xtask config-check --settings ~/tehas-instance
 ```
 
-It prints one line for each setting 2.0 drops, `dropped <NAME>: <reason>`,
-and one for each it refuses, `fail <NAME>: <why>`, then `pass` or `fail`. It
-exits 0 on a pass and 78 on a fail, and 78 before it reads anything when
-`--settings` is missing or names no directory. The check reads only the
-instance directory: no GitHub, Docker or git, nothing of the host's home and
-no writes. Take the dropped lines out when it suits you; fix the refused ones
-before you update.
+It runs the checks `tehas update` runs on the settings before it installs:
+the load, the settings every instance sets itself, and the models
+`models.json` lists. It prints one line for each setting 2.0 drops,
+`dropped <NAME>: <reason>`, as the load's own warning names it, and one for
+each finding, `fail <NAME>: <why>`, then `pass` or `fail`. It exits 0 on a
+pass and 78 on a fail, and 78 before it reads anything when `--settings` is
+missing or names no directory. It reads only the instance directory: no
+GitHub, Docker or git, and no writes.
+
+A pass does not promise the update goes through:
+
+- the credential file is not read. A `GH_TOKEN` line, or a setting
+  `api/renames-1.0.tsv` lists, in `~/.config/tehas/env` still stops 2.0;
+- who owns the files is not judged. The update refuses settings another
+  account can write;
+- a finding can hide what comes after it. The load stops at its first
+  refusal, which can come before it warns of dropped settings, and the
+  required settings and models are checked only after a load that passes.
+  Run the check again after each fix, until it passes.
+
+Take the dropped lines out when it suits you; fix the refused ones before you
+update.
 
 ### From v0.30.x, v0.31.x or v0.32.x
 

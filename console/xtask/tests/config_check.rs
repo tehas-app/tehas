@@ -44,13 +44,18 @@ struct Run {
     err: String,
 }
 
-/// The task with `args`, from a home that holds a credential file setting a
-/// retired name, so a check that read this machine would fail.
+/// The task with `args`, from a home whose credential file holds a token and a
+/// renamed setting, either of which stops a load that reads it: a check that
+/// read this machine's home would fail.
 fn check(args: &[&str]) -> Run {
     static CALLS: AtomicUsize = AtomicUsize::new(0);
     let home = scratch(&format!("home-{}", CALLS.fetch_add(1, Ordering::Relaxed)));
     fs::create_dir_all(home.join(".config/tehas")).unwrap();
-    fs::write(home.join(".config/tehas/env"), "TEHAS_FIXER_LOGIN=bob\n").unwrap();
+    fs::write(
+        home.join(".config/tehas/env"),
+        "GH_TOKEN=x\nTEHAS_EASY_MERGE=1\n",
+    )
+    .unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_xtask"))
         .arg("config-check")
         .args(args)
@@ -115,38 +120,105 @@ fn every_ignored_setting_is_dropped_with_the_loads_reason_and_the_instance_passe
 }
 
 #[test]
-fn a_retired_a_renamed_and_a_malformed_setting_each_fail_and_the_check_fails() {
+fn a_retired_and_a_renamed_setting_each_fail_and_hide_what_the_load_does_after() {
     let dir = instance(
         "refused",
         &[
             "TEHAS_ENERGY=on".into(),
             "TEHAS_FIXER_LOGIN=bob".into(),
             "TEHAS_EASY_MERGE=1".into(),
-            "TEHAS_MAX_CYCLES=two".into(),
         ],
     );
     let r = check(&["--settings", &dir.to_string_lossy()]);
     assert_eq!(r.rc, 78, "{}{}", r.out, r.err);
     let got = lines(&r);
-    assert_eq!(
-        got[0],
-        format!(
-            "dropped TEHAS_ENERGY: {}",
-            ignored_why("TEHAS_ENERGY").unwrap()
-        )
-    );
-    for (line, name) in
-        got[1..4]
-            .iter()
-            .zip(["TEHAS_FIXER_LOGIN", "TEHAS_EASY_MERGE", "TEHAS_MAX_CYCLES"])
-    {
+    assert_eq!(got.len(), 3, "{}", r.out);
+    for (line, name) in got.iter().zip(["TEHAS_FIXER_LOGIN", "TEHAS_EASY_MERGE"]) {
         assert!(
-            line.starts_with(&format!("fail {name}: {name} ")),
+            line.starts_with(&format!("fail {name}: {name} is no longer read: ")),
             "{line}\n{}",
             r.out
         );
     }
-    assert_eq!(got[4..], ["fail"]);
+    // The load stops before it warns of TEHAS_ENERGY: run again once fixed.
+    assert_eq!(got[2], "fail");
+}
+
+#[test]
+fn a_required_setting_with_a_bad_value_fails() {
+    let dir = instance("bad-required", &["TEHAS_CONTROL_ISSUE=abc".into()]);
+    let r = check(&["--settings", &dir.to_string_lossy()]);
+    assert_eq!(r.rc, 78, "{}{}", r.out, r.err);
+    let got = lines(&r);
+    assert_eq!(got.len(), 2, "{}", r.out);
+    assert!(
+        got[0].starts_with(
+            "fail TEHAS_CONTROL_ISSUE: TEHAS_CONTROL_ISSUE is not valid: expected a positive whole number (see "
+        ),
+        "{}",
+        r.out
+    );
+    assert_eq!(got[1], "fail");
+}
+
+#[test]
+fn a_required_setting_that_is_not_set_fails() {
+    let dir = instance("no-repo", &[]);
+    let file = dir.join("instance.env");
+    let text = fs::read_to_string(&file).unwrap();
+    let kept: String = text
+        .lines()
+        .filter(|l| !l.starts_with("TEHAS_REPO="))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    assert_ne!(kept, text);
+    fs::write(&file, kept).unwrap();
+    let r = check(&["--settings", &dir.to_string_lossy()]);
+    assert_eq!(r.rc, 78, "{}{}", r.out, r.err);
+    let got = lines(&r);
+    assert!(
+        got[0].starts_with("fail TEHAS_REPO: TEHAS_REPO is not set (see "),
+        "{}",
+        r.out
+    );
+    assert_eq!(got[1..], ["fail"]);
+}
+
+#[test]
+fn a_model_that_models_json_does_not_list_fails() {
+    let dir = instance(
+        "model",
+        &["PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST=unlisted-model".into()],
+    );
+    let r = check(&["--settings", &dir.to_string_lossy()]);
+    assert_eq!(r.rc, 78, "{}{}", r.out, r.err);
+    assert_eq!(
+        lines(&r),
+        [
+            "fail models.json: models.json does not list model unlisted-model under provider local",
+            "fail"
+        ]
+    );
+}
+
+#[test]
+fn what_the_shell_sets_is_what_is_dropped_not_what_a_line_looks_like() {
+    let dir = instance(
+        "shell",
+        &[
+            "declare -x TEHAS_WIKI=1".into(),
+            "if false; then TEHAS_ENERGY=on; fi".into(),
+        ],
+    );
+    let r = check(&["--settings", &dir.to_string_lossy()]);
+    assert_eq!(r.rc, 0, "{}{}", r.out, r.err);
+    assert_eq!(
+        lines(&r),
+        [
+            format!("dropped TEHAS_WIKI: {}", ignored_why("TEHAS_WIKI").unwrap()),
+            "pass".to_string()
+        ]
+    );
 }
 
 #[test]

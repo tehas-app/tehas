@@ -335,13 +335,15 @@ fn rewrites() -> &'static [(&'static str, &'static str)] {
 }
 
 /// `cargo xtask config-check`: the settings of the instance directory `dir`
-/// held against this version's load, with nothing of the host read. One line
-/// for each setting the load changes or drops, one for each it refuses, then
-/// `pass` or `fail`; true on a pass.
+/// held against this version, as `tehas update` holds them before it installs
+/// (update::findings::settings_findings), with no file's owner judged and
+/// nothing of this machine's home read. One line for each setting the load
+/// drops, as its own warning names it, one for each finding, then `pass` or
+/// `fail`; true on a pass. A finding can hide the stages after it, so a fail
+/// is run again once it is put right.
 pub fn config_check(dir: &str, bash: &str) -> (Vec<String>, bool) {
     // The load takes an absolute path only.
     let dir = fs::canonicalize(dir).map_or_else(|_| dir.to_string(), |d| d.display().to_string());
-    let dir = dir.as_str();
     let text = fs::read(format!("{dir}/instance.env")).unwrap_or_default();
     let names = load::names_in(&text);
     let mut out = Vec::new();
@@ -350,51 +352,38 @@ pub fn config_check(dir: &str, bash: &str) -> (Vec<String>, bool) {
             out.push(format!("changed {old} -> {new}"));
         }
     }
-    for name in &names {
-        if let Some(why) = load::ignored_why(name) {
-            out.push(format!("dropped {name}: {why}"));
-        }
-    }
     // A home that does not exist, so no credential file and no other file of
     // this machine takes part.
-    let home = "/nonexistent";
-    let mut vars = Vars::new([
-        (b"HOME".to_vec(), home.as_bytes().to_vec()),
+    let vars = Vars::new([
+        (b"HOME".to_vec(), b"/nonexistent".to_vec()),
         (b"TEHAS_INSTANCE_DIR".to_vec(), dir.as_bytes().to_vec()),
     ]);
-    let mut warned = Vec::new();
     let uid = sandbox::user();
-    let uid = uid.split(':').next().unwrap_or_default();
-    let refusals = match load_keeping_warnings(&mut vars, uid, bash, &mut warned) {
-        Ok(()) => Vec::new(),
-        Err(line) => refused(
-            format!("tehas: {line}"),
-            dir,
-            &format!("{home}/.config/tehas"),
-        ),
-    };
-    for line in &refusals {
+    let uid = uid.split(':').next().unwrap_or_default().to_string();
+    let mut warned = Vec::new();
+    let found = crate::update::findings::settings_findings(vars, |vars| {
+        load_keeping_warnings(vars, &uid, bash, &mut warned)
+            .map_err(|line| format!("tehas: {line}"))
+    });
+    for line in &warned {
+        let name = line.split(' ').next().unwrap_or_default();
+        match load::ignored_why(name) {
+            Some(why) => out.push(format!("dropped {name}: {why}")),
+            None => out.push(format!("warning: {line}")),
+        }
+    }
+    for line in &found {
         let why = line.strip_prefix("tehas: ").unwrap_or(line);
         out.push(format!("fail {}: {why}", named(why, &names)));
     }
-    // The load stops at its first refusal: every other value the file gives
-    // that its rule refuses is named too, so one run lists them all.
-    if !refusals.is_empty() {
-        for (name, why) in load::bad(&vars) {
-            let line = format!("fail {name}: {name} is not valid: {why}");
-            if names.contains(&name) && !out.iter().any(|l| l.starts_with(&format!("fail {name}:")))
-            {
-                out.push(line);
-            }
-        }
-    }
-    let pass = refusals.is_empty();
+    let pass = found.is_empty();
     out.push(if pass { "pass" } else { "fail" }.to_string());
     (out, pass)
 }
 
 /// The setting a refusal is about: the first word of it that the instance
-/// sets, else its first word that is a setting's name, else the file.
+/// sets, else its first word that is a setting's name, else the file it is
+/// about: models.json when it names that file, else instance.env.
 fn named(why: &str, names: &[String]) -> String {
     let words: Vec<&str> = why
         .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
@@ -408,7 +397,17 @@ fn named(why: &str, names: &[String]) -> String {
                 .iter()
                 .find(|w| w.starts_with("TEHAS_") || w.starts_with("PI_ENSEMBLE_"))
         })
-        .map_or_else(|| "instance.env".to_string(), |w| w.to_string())
+        .map_or_else(
+            || {
+                if why.contains("models.json") {
+                    "models.json"
+                } else {
+                    "instance.env"
+                }
+                .to_string()
+            },
+            |w| w.to_string(),
+        )
 }
 
 fn why(name: &str, value: &str) -> Option<String> {
