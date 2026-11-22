@@ -478,8 +478,8 @@ what it holds is this command's own), and keeps a manifest at
 `~/tehas/state/cycles/<issue>.manifest.json` with no image, that approval, and
 each link left out with that reason. The links are the approved text's: the
 line counts what the record lists, not what the issue links, and it says which
-approval it did count. A record written while
-the instance took links from comments keeps them, each with its own `source`.
+approval it did count. The comment links an approval recorded before 2.0
+are ignored.
 At most 100 links are listed and `leftOutMore` counts the rest, 0 when there
 are none, so the file stays small. An
 issue the dispatcher never started has no approval record, and then nothing of
