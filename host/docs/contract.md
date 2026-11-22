@@ -358,7 +358,7 @@ What each registered feature leaves visible while its flag is off:
 
 ### outsource
 
-Building, planned for 1.1. Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
+Building, planned for 2.1. Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
 78 and says `outsource` is still being built.
 
 - `tehas api --json` has `"outsource": false` in `flags`, and no word

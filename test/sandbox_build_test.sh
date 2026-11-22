@@ -73,7 +73,7 @@ t_stub git 'if [ "$1" = -C ]; then
 fi
 [ -e "$T/fx/head" ] || exit 2
 case "$*" in
-  *--tags*) printf "%s\trefs/tags/v0.12.9\n%s\trefs/tags/v0.12.80\n" "$(printf "c%.0s" {1..40})" "$(cat "$T/fx/head")" ;;
+  *--tags*) printf "%s\trefs/tags/v0.15.9\n%s\trefs/tags/v0.15.80\n" "$(printf "c%.0s" {1..40})" "$(cat "$T/fx/head")" ;;
   *) printf "%s\trefs/heads/main\n" "$(cat "$T/fx/head")" ;;
 esac'
 t_stub docker 'case "$1" in
@@ -189,7 +189,7 @@ t_contains "$(t_calls docker)" "--build-arg=OO_VERSION=$(sed -n 's/^OO_VERSION=/
 t_lacks "$(t_calls docker | sed 's/ --pull=never / /')" "pull"
 t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_IMAGE=$base --build-arg PI_RUKAS_COMMIT=$head"
 t_contains "$(t_calls docker)" "tag tehas/pi-rukas:"
-t_contains "$t_out" "with pi-rukas $head (release v0.12.80), issue images: 1, also tagged tehas/pi-rukas:uid$uid"
+t_contains "$t_out" "with pi-rukas $head (release v0.15.80), issue images: 1, also tagged tehas/pi-rukas:uid$uid"
 # A plain build does not ask what the current image is on.
 t_lacks "$(t_calls docker)" "image inspect"
 # A clone that already holds the commit is not fetched.
@@ -397,7 +397,7 @@ reset
 echo "$head" >"$fx/label"
 t_run "$build --if-moved"
 t_eq "$t_rc" 0
-t_contains "$t_out" "tehas/pi-rukas:uid$uid is on $head, release v0.12.80"
+t_contains "$t_out" "tehas/pi-rukas:uid$uid is on $head, release v0.15.80"
 t_lacks "$(t_calls docker)" "build"
 
 t_case "with --if-moved an image on another commit is rebuilt"
@@ -412,7 +412,7 @@ reset
 echo "$old" >"$fx/label"
 t_run "$build --check"
 t_eq "$t_rc" 3
-t_contains "$t_out" "is on $old, release v0.12.80 is $head"
+t_contains "$t_out" "is on $old, release v0.15.80 is $head"
 t_eq "$(t_calls docker | grep -c -e '^build' -e '^pull')" 0
 
 t_case "--check of an image with no label says so"
@@ -444,7 +444,7 @@ reset
 rm -f "$fx/head"
 t_run "$build"
 t_eq "$t_rc" 1
-t_contains "$t_out" "no pi-rukas commit for PI_RUKAS_FOLLOW=release:0 in https://github.com/Up-Owner/pi-rukas.git"
+t_contains "$t_out" "no pi-rukas commit for PI_RUKAS_FOLLOW=release:0.15 in https://github.com/Up-Owner/pi-rukas.git"
 t_eq "$(t_calls docker)" ""
 
 t_case "branch:<name> builds on the head of that branch"
@@ -889,7 +889,7 @@ printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$layer_file"
 "$home/libexec/console" sandbox layer "$layer_file" >"$fx/layer-label"
 t_run "$build --if-moved"
 t_eq "$t_rc" 0
-t_contains "$t_out" "is on $head, release v0.12.80"
+t_contains "$t_out" "is on $head, release v0.15.80"
 t_lacks "$(t_calls docker)" "build"
 
 t_case "with --if-moved a changed sandbox.Dockerfile is rebuilt and the layer labelled with its sum (#2496)"
