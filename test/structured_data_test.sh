@@ -54,7 +54,7 @@ for front in index.html business.html; do
   t_contains "$text" '"keywords": "Lean Software Factory,'
   t_contains "$text" '"license": "https://www.apache.org/licenses/LICENSE-2.0",'
   # The front pages read versions from the factory's health, not version.txt
-  # (test/install_build_test.sh), so the block names none.
+  # (test/install_build_tree_test.sh), so the block names none.
   t_lacks "$text" 'softwareVersion'
   t_contains "$text" '"author": {"@type": "Organization", "name": "tehas-app", "url": "https://github.com/tehas-app"},'
   t_contains "$text" '"isBasedOn": {"@type": "SoftwareSourceCode", "codeRepository": "https://github.com/tehas-app/tehas",'
