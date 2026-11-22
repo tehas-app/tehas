@@ -1,7 +1,7 @@
 # Features that could leave core
 
-**Status**: proposals for the owner, 2026-11-22. Nothing here is decided
-unless its row says so.
+**Status**: decided by the owner, 2026-11-22. Every row is approved, and
+T16 of `docs/plans/2026-11-21-coding-standard-v2.md` carries them out.
 
 tehas 2.0.0 removes the Protolab (T14 of
 `docs/plans/2026-11-21-coding-standard-v2.md`), and its job moves to the lab
@@ -16,17 +16,17 @@ of its own. "Drop" means it goes in 2.0.
 | Feature | Evidence | Proposal | Decided |
 | --- | --- | --- | --- |
 | Protolab | Envisioned, never pulled through | Drop; its job goes to the lab plugin | Owner, 2026-11-22 |
-| All hands label | Never on a host. It only shows in status | Drop | |
-| Spec mark (`Spec:` lines) | Tests only. Its one filer was `tehas prototype file`; the page ticket hands files through records instead | Drop | |
-| Panels (outside pages in the dock) | A development machine only | Plugin: a view in a frame | |
-| Business page | A development machine only | Plugin, over the live feeds | |
-| Energy use | Tested with fake files | Plugin: a panel and a timed fetch. Check the host's private settings first | |
-| Host panel (`TEHAS_TOP`) | Tests only | Plugin. `tehas top` stays as an operator command | |
-| Review loop (`tehasbot review`) | Never on a host | Plugin: a timed run with the model that files an issue. Needs `issue:draft` and a timed run | |
-| Product wiki | Being built, step 2 in review | Plugin: a timed run with the model over the checkout, and a served page | |
-| Describe, text files, zips and comments for a cycle | No host has run them. Images stay in core | Plugin: a hook before a cycle starts that adds files. Needs a `before:work` hook | |
-| Outsource, with the model proxy and the contractor | Being built. A release refuses it | Owner's call. About 20k lines across 11 crates, too deep for a plugin | |
-| Millwright's grant | Never on a host | Owner's call. It is an authorisation path, so it stays in core or goes | |
+| All hands label | Never on a host. It only shows in status | Drop || Drop in 2.0: Owner, 2026-11-22 |
+| Spec mark (`Spec:` lines) | Tests only. Its one filer was `tehas prototype file`; the page ticket hands files through records instead | Drop || Drop in 2.0: Owner, 2026-11-22 |
+| Panels (outside pages in the dock) | A development machine only | Plugin: a view in a frame || Plugin in 2.1: Owner, 2026-11-22 |
+| Business page | A development machine only | Plugin, over the live feeds || Plugin in 2.1: Owner, 2026-11-22 |
+| Energy use | Tested with fake files | Plugin: a panel and a timed fetch. Check the host's private settings first || Plugin in 2.1: Owner, 2026-11-22 |
+| Host panel (`TEHAS_TOP`) | Tests only | Plugin. `tehas top` stays as an operator command || Plugin in 2.1; `tehas top` stays: Owner, 2026-11-22 |
+| Review loop (`tehasbot review`) | Never on a host | Plugin: a timed run with the model that files an issue. Needs `issue:draft` and a timed run || Plugin in 2.1: Owner, 2026-11-22 |
+| Product wiki | Being built, step 2 in review | Plugin: a timed run with the model over the checkout, and a served page || Plugin in 2.1: Owner, 2026-11-22 |
+| Describe, text files, zips and comments for a cycle | No host has run them. Images stay in core | Plugin: a hook before a cycle starts that adds files. Needs a `before:work` hook || Plugin in 2.1; images stay: Owner, 2026-11-22 |
+| Outsource, with the model proxy and the contractor | Being built. A release refuses it | Owner's call. About 20k lines across 11 crates, too deep for a plugin || Drop in 2.0: Owner, 2026-11-22 |
+| Millwright's grant | Never on a host | Owner's call. It is an authorisation path, so it stays in core or goes || Drop in 2.0: Owner, 2026-11-22 |
 
 Kept in core, though not proven on a host: refreshes, read-only instances,
 the egress limit, the lean driver, analytics and the operator commands.

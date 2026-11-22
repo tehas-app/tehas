@@ -433,7 +433,12 @@ owner, 2026-11-22). Names use the ports' words (`ticket.approved`,
   `postMessage` to plugin frames from an allowed list. The kit owns these
   names; the other repositories of the trio follow them.
 
-T9 lists the event names and schemas in the 2.0 contract.
+T9 lists the event names and schemas in the 2.0 contract. Its plugin
+API section lists every event a plugin can see under exactly the name
+2.1 grants: the ports' word for the event (`cycle.after-work`), granted
+as `hook:<when>:<event>`. The 1.x hook names, `hook:after:work` among
+them, are dropped with no alias (the plugins lead, through the trio's
+program manager, 2026-11-22).
 
 Done when the dispatcher and its events are in, each event has its
 schema in `api/`, and the contract lists them.
@@ -619,8 +624,30 @@ trio are supported, so 2.0 carries no backwards compatibility.
   repository, are run through it by a person before the trio is tagged.
 - **T9 has no renames table.** The changes of 2.0 are listed once, in
   "Changed in 2.0", with no old name kept beside a new one.
-- **Open:** whether `TEHAS_DRIVER=classic`, and T13's fallback to it, is
-  such a lever. It stays as planned until the owner answers.
+- **Classic stays.** `TEHAS_DRIVER=classic` and T13's fallback to it are
+  a supported 2.0 driver, not a lever (the owner, 2026-11-22).
+- **The unused features** of `docs/plans/2026-11-22-unused-features.md`,
+  every row approved by the owner, 2026-11-22, one step per kind:
+  - dropped in 2.0: the All hands label, the Spec marks, Outsource with
+    the model proxy and the contractor, and the millwright's grant;
+  - out of core in 2.0, as plugins in 2.1 with their plumbing kept:
+    Panels, the Business page, Energy use, the Host panel (`tehas top`
+    stays), the Review loop, the Product wiki, and a cycle's describe,
+    text files, zips and comments (images stay).
+  What the consumer's production pages use stays in core, since the
+  owner dropped only what was never on a host (the trio's program
+  manager, 2026-11-22):
+  - the dock. Panels and the host bridge's menu share one mechanism,
+    the dock of `host/fun/panels.js`. The dock and the bridge's
+    `open: dock` items stay in core, moved to `host/fun/dock.js`; the
+    Panels plugin takes only `tehas panel` and `live/panels.json`;
+  - the business page's 17 rules that other pages share move to
+    `host/fun/pages.css`, the one owner of them; the Business page takes
+    only its own rules to the plugin.
+  Outsource leaving 2.0 supersedes any plan of the manual for it in 2.1:
+  T16 corrects the manual's words where they say so.
+  Each has its line in T9's "Changed in 2.0", its settings handled by the
+  configuration migration, and `cargo xtask config-check` covers them.
 
 An inventory comes first, then one pull request per kind of thing
 removed, each green alone, each lowering the counts and ceilings it
@@ -639,6 +666,9 @@ real instance's configuration loads on 2.0 after `tehas update`.
   lists every change and its readers.
 - The `api/` files for 2.0.
 - A changelog fragment with an adopter action.
+- With the millwright's grant gone, the one way a program starts work for
+  a person is `tehas start`, called for a signed-in person; the contract
+  names it as that entry.
 
 Done when the 2.0 contract is written, and each change has its row and
 its note to adopters.
@@ -758,3 +788,8 @@ of main, each grade.
 | 2026-11-22 | T13: the pin is pi-rukas 0.15.0; a crash is no setup refusal, and the fallback clears lean's state of the issue | #2832 |
 | 2026-11-22 | T14: the stage stays as Idea, an open ticket not in line; the Protolab parked, with a record (the owner) | #2835 |
 | 2026-11-22 | T16: clean house, no backwards compatibility, the store keeps only the 1.4.x migration, no renames table in T9 (the owner) | #2837 |
+| 2026-11-22 | T3.6 to T3.12: issue view, park and question records, the work record, the edit record, comments, the answer and park note, the approval record, the slice read, typed and ported onto `tehas answer` | #2810, #2811, #2812, #2814, #2815, #2825, #2831, #2833 |
+| 2026-11-22 | T12.1c and T12.1d: the feature word `answer`, and `tehas question` | #2813, #2830 |
+| 2026-11-22 | T4: the ports spec, read and accepted in writing by the consumer that runs many factories | #2828 |
+| 2026-11-22 | Port main @ abc4afca (a checkout follows pi-rukas's 0.15 line, #2834) | #2836 |
+| 2026-11-22 | T16: every row of the unused features approved; classic stays a driver; T10's rename to tehas-factory confirmed (the owner) | this pull request |
