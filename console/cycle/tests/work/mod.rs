@@ -612,7 +612,7 @@ impl World {
             instance_on: Cell::new(false),
             record: RefCell::new(Value::Null),
         };
-        for name in ["docker", "gh", "systemctl", "curl", "ssh"] {
+        for name in tehas_core::testing::DENIED {
             write_exe(
                 w.t.join("deny").join(name),
                 format!(

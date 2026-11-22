@@ -237,7 +237,7 @@ impl World {
             env: RefCell::new(vec![]),
             always: RefCell::new(vec![]),
         };
-        for name in ["docker", "gh", "systemctl", "curl", "ssh"] {
+        for name in tehas_core::testing::DENIED {
             write_exe(
                 w.t.join("deny").join(name),
                 format!(

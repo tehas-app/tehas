@@ -86,7 +86,7 @@ impl Host {
         .unwrap();
         let bin = dir.join("bin");
         fs::create_dir_all(&bin).unwrap();
-        for tool in ["gh", "docker", "git", "curl"] {
+        for tool in tehas_core::testing::UNREACHED.into_iter().chain(["curl"]) {
             let stub = bin.join(tool);
             tehas_core::testing::write_exe(
                 &stub,
