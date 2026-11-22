@@ -14,6 +14,7 @@ use std::io::Read;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use tehas_core::home::{Home, State};
 
 use crate::live;
 
@@ -753,7 +754,7 @@ impl DbError {
 /// The path of the store: `$TEHAS_HOME/state/tehas.db`. Never under `live/`
 /// and never under `state/index`, which `guard` refuses.
 pub fn path(home: &Path) -> PathBuf {
-    home.join("state").join("tehas.db")
+    Home::new(home).state(State::StoreDb)
 }
 
 /// What the caller said about the installation, for the rows of `meta` that a
@@ -1682,7 +1683,7 @@ fn make_copy(conn: &Connection, copy: &Path, what: &str) -> Result<Copied, DbErr
 /// there, and kept 0700 when it is, so the copies `install.sh` asks for stay
 /// out of the way of the files beside the store without leaving its directory.
 pub fn backup_dir(home: &Path, dir: &Path) -> Result<PathBuf, DbError> {
-    let own = home.join("state").join("backup");
+    let own = Home::new(home).state(State::Backups);
     if dir == own {
         match fs::symlink_metadata(dir) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -1700,12 +1701,12 @@ pub fn backup_dir(home: &Path, dir: &Path) -> Result<PathBuf, DbError> {
     let home = home
         .canonicalize()
         .map_err(|e| DbError::Unreadable(format!("the home {}: {e}", home.display())))?;
-    let own = home.join("state").join("backup");
+    let own = Home::new(&home).state(State::Backups);
     if state == own {
         set_mode(&state, 0o700)?;
         return Ok(state);
     }
-    if state != home.join("state") {
+    if state != Home::new(&home).state_dir() {
         return Err(DbError::Unreadable(format!(
             "the backup goes in the state/ or state/backup/ of the store's home, not {}",
             state.display()

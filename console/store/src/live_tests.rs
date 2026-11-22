@@ -5,6 +5,7 @@ use crate::verbs_tests::*;
 use serde_json::Value;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
+use tehas_core::home::{Home, Live, State};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/live")
@@ -37,13 +38,13 @@ fn end_at(home: &Path, at: i64, issue: i64, attempt: i64, status: &str, step: Op
 }
 
 fn read(home: &Path, name: &str) -> String {
-    fs::read_to_string(home.join("live").join(name)).unwrap()
+    fs::read_to_string(Home::new(home).live_dir().join(name)).unwrap()
 }
 
 /// The names under `live/<dir>`, temp files and all: what a publish left
 /// behind is part of what its tests judge.
 fn left(home: &Path, dir: &str) -> Vec<String> {
-    let mut v: Vec<String> = fs::read_dir(home.join("live").join(dir))
+    let mut v: Vec<String> = fs::read_dir(Home::new(home).live_dir().join(dir))
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
@@ -106,7 +107,7 @@ fn fixture_home() -> (TestDir, Vec<Held>) {
 #[test]
 fn publish_writes_the_views_tehas_live_assemble_wrote() {
     let (home, _locks) = fixture_home();
-    let cycles = home.join("live/cycles");
+    let cycles = Home::new(home.path()).live_dir().join("cycles");
     fs::create_dir_all(&cycles).unwrap();
     // A view of an earlier cycle, and a file that is no cycle's.
     fs::write(cycles.join("44.json"), "{}\n").unwrap();
@@ -191,7 +192,7 @@ fn a_quiet_cycle_whose_lock_file_is_gone_is_not_lost() {
     let (lock, _) = start_by(&home, 22, "alice", "label", 1000);
     beat(&home, 1010, 22, true, "running", "build", "Building");
     let later = 1010 + LOST_AFTER + 60;
-    let cycles = home.join("state").join("cycles");
+    let cycles = Home::new(home.path()).cycles_dir();
     fs::remove_file(cycles.join("22.lock")).unwrap();
     publish(&home, later, &[]).unwrap();
     let v: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
@@ -377,7 +378,7 @@ fn an_empty_store_publishes_empty_views() {
         serde_json::json!(["endings.json", "running.json"])
     );
     assert_eq!(v["down"], Value::Null);
-    assert!(!home.join("live/health.json").exists());
+    assert!(!Home::new(home.path()).live(Live::Health).exists());
 }
 
 #[test]
@@ -401,11 +402,17 @@ fn health_down_goes_with_the_report_that_failed() {
     assert_eq!(v["down"], true);
     assert_eq!(read(&home, "health.json"), "{\n  \"status\": \"fail\"\n}\n");
     assert_eq!(read(&home, "dispatch.json"), "{\"why\":\"idle\"}\n");
-    assert!(home.join("live/health.down").exists());
+    assert!(Home::new(home.path())
+        .live_dir()
+        .join("health.down")
+        .exists());
     let v = publish(&home, NOW, &["--health", fine.to_str().unwrap()]).unwrap();
     assert_eq!(v["down"], false);
     assert_eq!(read(&home, "health.json"), "{\"status\":\"ok\"}\n");
-    assert!(!home.join("live/health.down").exists());
+    assert!(!Home::new(home.path())
+        .live_dir()
+        .join("health.down")
+        .exists());
     // The dispatch report is left as it was.
     assert_eq!(read(&home, "dispatch.json"), "{\"why\":\"idle\"}\n");
 }
@@ -425,7 +432,10 @@ fn a_failed_report_that_cannot_be_written_leaves_no_marker() {
     assert_eq!(code, 1);
     assert_eq!(line, "write live/health.json: no space left on device");
     assert_eq!(read(&home, "health.json"), "{\"status\":\"ok\"}\n");
-    assert!(!home.join("live/health.down").exists());
+    assert!(!Home::new(home.path())
+        .live_dir()
+        .join("health.down")
+        .exists());
 }
 
 /// A marker made by an earlier "fail" report stays when the next "fail"
@@ -438,7 +448,10 @@ fn a_failed_report_that_cannot_be_written_keeps_an_earlier_marker() {
     publish(&home, NOW, &["--health", fail.to_str().unwrap()]).unwrap();
     fail_writes(Some(3));
     publish(&home, NOW, &["--health", fail.to_str().unwrap()]).unwrap_err();
-    assert!(home.join("live/health.down").exists());
+    assert!(Home::new(home.path())
+        .live_dir()
+        .join("health.down")
+        .exists());
 }
 
 /// A marker that cannot be removed is named as a removal, not a write.
@@ -448,7 +461,7 @@ fn a_marker_that_cannot_be_removed_is_named_as_a_removal() {
     let files = scratch("publish-health-stuck-files");
     let fine = write_file(&files, "ok.json", b"{\"status\":\"ok\"}\n");
     // A directory where the marker is: unlink refuses it, as root too.
-    fs::create_dir_all(home.join("live/health.down/x")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).live_dir().join("health.down/x")).unwrap();
     let (code, line) = publish(&home, NOW, &["--health", fine.to_str().unwrap()]).unwrap_err();
     assert_eq!(code, 1);
     assert!(line.starts_with("remove live/health.down: "), "{line}");
@@ -471,7 +484,7 @@ fn a_report_that_is_not_an_object_writes_nothing() {
     let p = write_file(&files, "list2.json", b"[]");
     let (code, _) = publish(&home, NOW, &["--dispatch", p.to_str().unwrap()]).unwrap_err();
     assert_eq!(code, 1);
-    assert!(!home.join("live/running.json").exists());
+    assert!(!Home::new(home.path()).live(Live::Running).exists());
 }
 
 #[test]
@@ -480,18 +493,18 @@ fn a_held_publish_lock_is_busy() {
     // the holder, so this thread asks for the short pair.
     short_bounds();
     let home = home("publish-busy");
-    let f = File::create(home.join("state/publish.lock")).unwrap();
+    let f = File::create(Home::new(home.path()).state(State::PublishLock)).unwrap();
     f.lock().unwrap();
     let (code, line) = publish(&home, NOW, &[]).unwrap_err();
     assert_eq!(code, 1);
     assert!(line.starts_with("busy"), "{line}");
-    assert!(!home.join("live/running.json").exists());
+    assert!(!Home::new(home.path()).live(Live::Running).exists());
 }
 
 #[test]
 fn a_rename_that_fails_fails_the_call_and_leaves_no_temp_file() {
     let home = home("publish-rename");
-    fs::create_dir_all(home.join("live/running.json/x")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).live_dir().join("running.json/x")).unwrap();
     let (code, line) = publish(&home, NOW, &[]).unwrap_err();
     assert_eq!(code, 1);
     assert!(line.starts_with("write live/running.json"), "{line}");
@@ -521,9 +534,15 @@ fn ends_of_a_finished_cycle_are_gone_when_a_write_fails() {
     let (_held, _) = start_by(&home, 62, "alice", "label", 1_000_200);
     beat(&home, 1_000_250, 62, true, "running", "build", "");
     // The views a running cycle's publish left behind.
-    fs::create_dir_all(home.join("live/cycles")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).live_dir().join("cycles")).unwrap();
     for n in ["60", "62", "99"] {
-        fs::write(home.join(format!("live/cycles/{n}.json")), "{}\n").unwrap();
+        fs::write(
+            Home::new(home.path())
+                .live_dir()
+                .join(format!("cycles/{n}.json")),
+            "{}\n",
+        )
+        .unwrap();
     }
     // The first write of the call is the report given with --dispatch, and it
     // does not happen, so the call stops there. Were the removals still after
@@ -549,7 +568,10 @@ fn ends_of_a_finished_cycle_are_gone_when_a_write_fails() {
     assert_eq!(left(&home, "cycles"), vec!["62.json".to_string()]);
     assert!(read(&home, "cycles/62.json").starts_with("{}"));
     for name in ["dispatch.json", "endings.json", "running.json"] {
-        assert!(!home.join("live").join(name).exists(), "{name}");
+        assert!(
+            !Home::new(home.path()).live_dir().join(name).exists(),
+            "{name}"
+        );
     }
     // No temp of any write is left in live/ or in live/cycles/.
     assert!(left(&home, "").iter().all(|n| !n.starts_with('.')));
@@ -577,9 +599,15 @@ fn partial_home(name: &str) -> (TestDir, Held) {
     drop(lock);
     let (held, _) = start_by(&home, 62, "alice", "label", 1_000_200);
     beat(&home, 1_000_250, 62, true, "running", "build", "");
-    fs::create_dir_all(home.join("live/cycles")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).live_dir().join("cycles")).unwrap();
     for n in ["60", "62", "99"] {
-        fs::write(home.join(format!("live/cycles/{n}.json")), "{}\n").unwrap();
+        fs::write(
+            Home::new(home.path())
+                .live_dir()
+                .join(format!("cycles/{n}.json")),
+            "{}\n",
+        )
+        .unwrap();
     }
     (home, held)
 }
@@ -604,7 +632,10 @@ fn a_publish_whose_second_write_fails_keeps_the_first_and_the_removals() {
     assert_eq!(left(&home, "cycles"), vec!["62.json".to_string()]);
     assert_eq!(read(&home, "cycles/62.json"), "{}\n");
     for name in ["endings.json", "running.json"] {
-        assert!(!home.join("live").join(name).exists(), "{name}");
+        assert!(
+            !Home::new(home.path()).live_dir().join(name).exists(),
+            "{name}"
+        );
     }
     assert!(left(&home, "").iter().all(|n| !n.starts_with('.')));
     assert!(left(&home, "cycles").iter().all(|n| !n.starts_with('.')));
@@ -616,8 +647,8 @@ fn a_publish_whose_second_write_fails_keeps_the_first_and_the_removals() {
 fn a_removal_that_fails_fails_the_call_before_any_write() {
     let (home, _held) = partial_home("publish-remove-fails");
     // A directory where a view is: unlink refuses it, as root too.
-    fs::remove_file(home.join("live/cycles/99.json")).unwrap();
-    fs::create_dir_all(home.join("live/cycles/99.json/x")).unwrap();
+    fs::remove_file(Home::new(home.path()).live_dir().join("cycles/99.json")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).live_dir().join("cycles/99.json/x")).unwrap();
     let files = scratch("publish-remove-fails-files");
     let dispatch = write_file(&files, "dispatch.json", b"{\"why\":\"idle\"}\n");
     fail_writes(Some(1));
@@ -630,10 +661,13 @@ fn a_removal_that_fails_fails_the_call_before_any_write() {
     assert_eq!(code, 1);
     assert!(line.starts_with("remove live/cycles/99.json: "), "{line}");
     for name in ["dispatch.json", "endings.json", "running.json"] {
-        assert!(!home.join("live").join(name).exists(), "{name}");
+        assert!(
+            !Home::new(home.path()).live_dir().join(name).exists(),
+            "{name}"
+        );
     }
     assert_eq!(read(&home, "cycles/62.json"), "{}\n");
-    fs::remove_dir_all(home.join("live/cycles/99.json")).unwrap();
+    fs::remove_dir_all(Home::new(home.path()).live_dir().join("cycles/99.json")).unwrap();
     let v = publish(
         &home,
         1_000_400,

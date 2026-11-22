@@ -5,6 +5,7 @@ use crate::verbs_tests::*;
 use crate::{db, execute, Settings, Verb};
 use std::fs;
 use std::path::Path;
+use tehas_core::home::{Home, State};
 
 fn settings() -> Settings {
     Settings {
@@ -81,7 +82,7 @@ fn init_says_it_made_the_database() {
 #[test]
 fn migrate_says_its_schema_and_backup() {
     let h = home("say-migrate");
-    let backup = h.join("state/backup");
+    let backup = Home::new(h.path()).state(State::Backups);
     let said = run(
         &h,
         Verb::Migrate {
@@ -119,7 +120,7 @@ fn migrate_says_its_schema_and_backup() {
 fn an_answer_with_no_schema_or_backup_says_so() {
     let h = scratch("say-shown");
     let verb = Verb::Migrate {
-        backup: h.join("state/backup"),
+        backup: Home::new(h.path()).state(State::Backups),
         settings: settings(),
         outsource: false,
     };

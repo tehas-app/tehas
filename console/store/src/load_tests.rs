@@ -7,6 +7,7 @@ use rusqlite::Connection;
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
+use tehas_core::home::Home;
 
 /// A copy of a store with a cycle that ended and one that runs no more.
 fn a_copy(name: &str) -> (TestDir, PathBuf) {
@@ -26,7 +27,7 @@ fn load(home: &Path, from: &Path) -> Result<Value, (u8, String)> {
 
 /// The store's own file, byte for byte, and no file left beside it.
 fn store(home: &Path) -> (Vec<u8>, Vec<String>) {
-    let mut beside: Vec<String> = fs::read_dir(home.join("state"))
+    let mut beside: Vec<String> = fs::read_dir(Home::new(home).state_dir())
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .filter(|n| n.contains("load"))
@@ -186,7 +187,7 @@ fn an_unreadable_copy_leaves_the_store_untouched() {
     assert!(refused(&gone).starts_with("no-copy: "));
     let text = write_file(&from, "text.db", b"not a store");
     assert!(refused(&text).starts_with("bad-copy: "));
-    assert!(refused(&from.join("state")).starts_with("bad-copy: "));
+    assert!(refused(&Home::new(from.path()).state_dir()).starts_with("bad-copy: "));
     // A copy cut short, and one with a page of its rows overwritten.
     let bytes = fs::read(&copy).unwrap();
     let short = write_file(&from, "short.db", &bytes[..bytes.len() / 2]);

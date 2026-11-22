@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
+use tehas_core::home::{Home, State};
 
 const STORE: &str = env!("CARGO_BIN_EXE_store");
 const WRITERS: u32 = 8;
@@ -176,7 +177,7 @@ fn said(out: &Output) -> String {
 }
 
 fn db(home: &Path) -> PathBuf {
-    home.join("state").join("tehas.db")
+    Home::new(home).state(State::StoreDb)
 }
 
 /// The rows of `sweep_log` by issue and `what`, read by this process. The

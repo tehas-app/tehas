@@ -39,6 +39,7 @@ use std::fs::{self, File, TryLockError};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
+use tehas_core::home::{Home, State};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Call {
@@ -216,7 +217,7 @@ fn copy(home: &Path, to: &str) -> Result<String, Fail> {
         ));
     }
     // Caddy serves live/: a copy there would be the store on the web.
-    let live = home.join("live");
+    let live = Home::new(home).live_dir();
     let served = |d: &Path| {
         d.canonicalize()
             .is_ok_and(|d| live.canonicalize().is_ok_and(|l| d.starts_with(l)))
@@ -245,7 +246,7 @@ fn copy(home: &Path, to: &str) -> Result<String, Fail> {
 }
 
 fn backup(home: &Path, show: bool, now: i64) -> Result<String, Fail> {
-    let dir = home.join("state").join("backup");
+    let dir = Home::new(home).state(State::Backups);
     // The store is checked as every verb checks it, before anything is made.
     verbs::look(home, |_| Ok(()))?;
     if show {
@@ -265,7 +266,7 @@ fn backup(home: &Path, show: bool, now: i64) -> Result<String, Fail> {
 /// Today's copy when there is none, and the old ones removed: whether it was
 /// made, what was removed and the newest.
 fn make_backup(home: &Path, now: i64) -> Result<(bool, Vec<String>, String), Fail> {
-    let dir = db::backup_dir(home, &home.join("state").join("backup")).map_err(crate::line)?;
+    let dir = db::backup_dir(home, &Home::new(home).state(State::Backups)).map_err(crate::line)?;
     let copy = dir.join(format!("tehas-{}.db", date(now)));
     let made = !copy.exists();
     if made {
@@ -585,7 +586,7 @@ pub const LONG_LIVED: [&str; 7] = [
     "logs/preview.log",
     "logs/protolab.log",
     "logs/clean.log",
-    "state/github-writes.log",
+    State::GithubWrites.relative(),
 ];
 
 /// Whether one long-lived log is due to be cut: a plain file over `cap`, so

@@ -6,6 +6,7 @@ use crate::verbs::{j, obj};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use tehas_core::home::Home;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Lock {
@@ -61,11 +62,11 @@ impl Lock {
 }
 
 pub fn dir(home: &Path) -> PathBuf {
-    home.join("state").join("cycles")
+    Home::new(home).cycles_dir()
 }
 
 pub fn path(home: &Path, issue: i64) -> PathBuf {
-    dir(home).join(format!("{issue}.lock"))
+    Home::new(home).cycle_note(issue, "lock")
 }
 
 /// `open_row`: the issue has a cycle row with no `ended_at`. Without a lock

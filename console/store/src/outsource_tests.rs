@@ -7,6 +7,7 @@ use crate::db;
 use crate::verbs_tests::*;
 use serde_json::Value;
 use std::path::Path;
+use tehas_core::home::{Home, State};
 
 const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const KEY_B: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
@@ -96,7 +97,7 @@ fn migrate_at(home: &Path, outsource: bool, now: i64) -> Value {
     crate::execute(
         home,
         &crate::Verb::Migrate {
-            backup: home.join("state").join("backup"),
+            backup: Home::new(home).state(State::Backups),
             settings: settings(),
             outsource,
         },

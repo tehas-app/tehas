@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
+use tehas_core::home::Home;
 
 /// Two threads to a store: with more, one mostly keeps a connection open, and
 /// the close that deadlocked was of the last one.
@@ -24,7 +25,7 @@ fn call(home: &Path, args: &[&str]) -> Result<String, (u8, String)> {
 fn home(n: usize) -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("store-threads-{n}"));
     let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(dir.join("state")).unwrap();
+    std::fs::create_dir_all(Home::new(&dir).state_dir()).unwrap();
     call(
         &dir,
         &[

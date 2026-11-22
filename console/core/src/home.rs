@@ -54,6 +54,8 @@ pub enum State {
     OutsourceDownloads,
     /// The flag `tehas pause` sets.
     Pause,
+    /// Held while the store publishes the live views.
+    PublishLock,
     /// When the platform was last fetched.
     PlatformFetch,
     /// The newest release, as last fetched.
@@ -70,6 +72,8 @@ pub enum State {
     ReleaseHistory,
     /// The record of the last `tehas review`.
     Review,
+    /// The body of a review's filing, while gh is given it.
+    ReviewBody,
     /// Held while `tehas review` runs.
     ReviewLock,
     /// The pi-rukas commit last asked of upstream.
@@ -116,6 +120,7 @@ impl State {
             State::Outsource => "state/outsource",
             State::OutsourceDownloads => "state/outsource/downloads",
             State::Pause => "state/pause.json",
+            State::PublishLock => "state/publish.lock",
             State::PlatformFetch => "state/platform-fetch",
             State::PlatformNewest => "state/platform-newest",
             State::PushFault => "state/push-fault.json",
@@ -124,6 +129,7 @@ impl State {
             State::Refined => "state/refined.jsonl",
             State::ReleaseHistory => "state/release-history",
             State::Review => "state/review.json",
+            State::ReviewBody => "state/review.body",
             State::ReviewLock => "state/review.lock",
             State::RukasTarget => "state/rukas-target",
             State::Sizes => "state/sizes.jsonl",
@@ -169,6 +175,8 @@ pub enum Live {
     Contractors,
     /// The dispatcher's last decision.
     Dispatch,
+    /// The ten last ends of cycles.
+    Endings,
     /// The power the hosts draw.
     Energy,
     /// The epics and their issues.
@@ -188,10 +196,12 @@ pub enum Live {
 }
 
 impl Live {
-    const fn name(self) -> &'static str {
+    /// The file's name in `live/`, for a writer that joins it to the directory.
+    pub const fn name(self) -> &'static str {
         match self {
             Live::Contractors => "contractors.json",
             Live::Dispatch => "dispatch.json",
+            Live::Endings => "endings.json",
             Live::Energy => "energy.json",
             Live::Epics => "epics.json",
             Live::Health => "health.json",
@@ -241,7 +251,8 @@ impl Home {
     }
 
     /// `state/cycles/<issue>.<note>`.
-    pub fn cycle_note(&self, issue: u64, note: &str) -> PathBuf {
+    pub fn cycle_note(&self, issue: impl Into<i128>, note: &str) -> PathBuf {
+        let issue = issue.into();
         self.cycles_dir().join(format!("{issue}.{note}"))
     }
 
@@ -337,6 +348,7 @@ mod tests {
             (State::Outsource, "/h/state/outsource"),
             (State::OutsourceDownloads, "/h/state/outsource/downloads"),
             (State::Pause, "/h/state/pause.json"),
+            (State::PublishLock, "/h/state/publish.lock"),
             (State::PlatformFetch, "/h/state/platform-fetch"),
             (State::PlatformNewest, "/h/state/platform-newest"),
             (State::PushFault, "/h/state/push-fault.json"),
@@ -345,6 +357,7 @@ mod tests {
             (State::Refined, "/h/state/refined.jsonl"),
             (State::ReleaseHistory, "/h/state/release-history"),
             (State::Review, "/h/state/review.json"),
+            (State::ReviewBody, "/h/state/review.body"),
             (State::ReviewLock, "/h/state/review.lock"),
             (State::RukasTarget, "/h/state/rukas-target"),
             (State::Sizes, "/h/state/sizes.jsonl"),
@@ -369,6 +382,10 @@ mod tests {
             at(h().cycle_note(7, "end-failed.json")),
             "/h/state/cycles/7.end-failed.json"
         );
+        assert_eq!(
+            at(h().cycle_note(-1_i64, "lock")),
+            "/h/state/cycles/-1.lock"
+        );
     }
 
     #[test]
@@ -382,6 +399,7 @@ mod tests {
         let cases = [
             (Live::Contractors, "/h/live/contractors.json"),
             (Live::Dispatch, "/h/live/dispatch.json"),
+            (Live::Endings, "/h/live/endings.json"),
             (Live::Energy, "/h/live/energy.json"),
             (Live::Epics, "/h/live/epics.json"),
             (Live::Health, "/h/live/health.json"),

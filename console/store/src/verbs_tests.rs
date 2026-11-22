@@ -10,6 +10,7 @@ use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
+use tehas_core::home::Home;
 pub use tehas_core::testdir::TestDir;
 
 pub const NOW: i64 = 1_792_000_000;
@@ -148,7 +149,7 @@ impl Drop for Held {
 
 /// The cycle lock of an issue, held by this process until the guard is dropped.
 pub fn hold(home: &Path, issue: i64) -> Held {
-    let dir = home.join("state").join("cycles");
+    let dir = Home::new(home).cycles_dir();
     fs::create_dir_all(&dir).unwrap();
     let f = OpenOptions::new()
         .create(true)
@@ -378,7 +379,7 @@ fn the_main_parse_takes_record_verbs_and_refuses_their_usage_errors() {
     // A usage error opens nothing: no store is made where there was none.
     let empty = scratch("usage-opens-nothing");
     assert!(verbs::parse(&strings(&["park", "1"])).unwrap().is_err());
-    assert!(!empty.join("state").exists());
+    assert!(!Home::new(empty.path()).state_dir().exists());
 }
 
 #[test]
@@ -558,15 +559,15 @@ fn every_verb_says_78_and_its_word_when_the_store_cannot_be_used() {
     let input = input.to_str().unwrap();
     let missing = scratch("78-missing");
     let corrupt = scratch("78-corrupt");
-    fs::create_dir_all(corrupt.join("state")).unwrap();
+    fs::create_dir_all(Home::new(corrupt.path()).state_dir()).unwrap();
     fs::write(db::path(&corrupt), vec![b'x'; 8192]).unwrap();
     // A file a touch made, never migrated.
     let touched = scratch("78-touched");
-    fs::create_dir_all(touched.join("state")).unwrap();
+    fs::create_dir_all(Home::new(touched.path()).state_dir()).unwrap();
     fs::write(db::path(&touched), b"").unwrap();
     // An SQLite file with no schema.
     let bare = scratch("78-bare");
-    fs::create_dir_all(bare.join("state")).unwrap();
+    fs::create_dir_all(Home::new(bare.path()).state_dir()).unwrap();
     {
         let c = Connection::open(db::path(&bare)).unwrap();
         c.execute_batch("PRAGMA journal_mode = WAL; CREATE TABLE t (a); DROP TABLE t;")

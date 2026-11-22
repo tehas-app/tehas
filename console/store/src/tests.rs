@@ -12,6 +12,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tehas_core::home::{Home, State};
 use tehas_core::testdir::TestDir;
 
 fn scratch(name: &str) -> TestDir {
@@ -62,7 +63,7 @@ fn init_makes_a_0600_file_in_a_0700_state_with_its_side_files() {
     assert_eq!(mode(&file), 0o600);
     // state/ is 0700 whatever the umask of the caller was: the store made the
     // directory itself and set the mode on it.
-    assert_eq!(mode(&home.join("state")), 0o700);
+    assert_eq!(mode(&Home::new(home.path()).state_dir()), 0o700);
     // The two siblings SQLite makes beside the file are the store's data until
     // the next checkpoint, so they carry the file's mode too. A database with
     // no rows to checkpoint has no -wal and no -shm at all once its last
@@ -133,14 +134,19 @@ fn init_refuses_an_existing_file_and_writes_nothing() {
     );
     assert_eq!(fs::read(&file).unwrap(), before);
     // Nothing was added beside it either.
-    assert_eq!(fs::read_dir(home.join("state")).unwrap().count(), 1);
+    assert_eq!(
+        fs::read_dir(Home::new(home.path()).state_dir())
+            .unwrap()
+            .count(),
+        1
+    );
 }
 
 #[test]
 fn force_replaces_an_empty_file_and_refuses_one_with_rows() {
     let home = scratch("force");
     let file = db::path(&home);
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     // An empty file is the store's to fill.
     fs::write(&file, b"").unwrap();
     fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
@@ -170,7 +176,7 @@ fn force_replaces_an_empty_file_and_refuses_one_with_rows() {
 fn force_refuses_a_file_that_is_not_a_database_and_keeps_it() {
     let home = scratch("force-garbage");
     let file = db::path(&home);
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     let garbage = b"not a database, and long enough to be read as a header. ".repeat(20);
     fs::write(&file, &garbage).unwrap();
     let (code, err) = init(&home, true).unwrap_err();
@@ -178,9 +184,20 @@ fn force_refuses_a_file_that_is_not_a_database_and_keeps_it() {
     assert!(err.starts_with("corrupt "), "{err}");
     // ADR 0003: the damaged file stays exactly where a person can read it.
     assert_eq!(fs::read(&file).unwrap(), garbage);
-    assert!(!home.join("state/tehas.db.broken").exists());
-    assert!(!home.join("state/tehas.db.schema-1").exists());
-    assert_eq!(fs::read_dir(home.join("state")).unwrap().count(), 1);
+    assert!(!Home::new(home.path())
+        .state_dir()
+        .join("tehas.db.broken")
+        .exists());
+    assert!(!Home::new(home.path())
+        .state_dir()
+        .join("tehas.db.schema-1")
+        .exists());
+    assert_eq!(
+        fs::read_dir(Home::new(home.path()).state_dir())
+            .unwrap()
+            .count(),
+        1
+    );
 }
 
 #[test]
@@ -189,7 +206,7 @@ fn a_link_at_the_path_is_refused_and_its_target_untouched() {
     let elsewhere = scratch("link-target");
     let real = elsewhere.join("elsewhere.db");
     fs::write(&real, b"somebody else's file").unwrap();
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     std::os::unix::fs::symlink(&real, db::path(&home)).unwrap();
     for force in [false, true] {
         let (code, err) = init(&home, force).unwrap_err();
@@ -204,7 +221,7 @@ fn a_link_at_the_path_is_refused_and_its_target_untouched() {
     // A link for state/ itself moves the store outside the home.
     let moved = scratch("link-dir");
     let elsewhere = scratch("link-dir-target");
-    std::os::unix::fs::symlink(&elsewhere, moved.join("state")).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, Home::new(moved.path()).state_dir()).unwrap();
     let (code, err) = init(&moved, true).unwrap_err();
     assert_eq!(code, 78);
     assert!(err.starts_with("unreadable "), "{err}");
@@ -224,24 +241,30 @@ fn guard_path(home: &Path, rel: &str, said: &str) {
 #[test]
 fn a_path_under_live_or_state_index_is_refused() {
     let served = scratch("under-live");
-    fs::create_dir_all(served.join("live")).unwrap();
+    fs::create_dir_all(Home::new(served.path()).live_dir()).unwrap();
     guard_path(
         &served,
         "live",
         "the path is under live/, which Caddy serves",
     );
     let indexed = scratch("under-index");
-    fs::create_dir_all(indexed.join("state/index")).unwrap();
+    fs::create_dir_all(Home::new(indexed.path()).state(State::CodeIndex)).unwrap();
     guard_path(
         &indexed,
-        "state/index",
+        State::CodeIndex.relative(),
         "the path is under state/index, which the indexing container writes",
     );
     // A directory that merely has the name is not the tree the rule is about.
     let named = scratch("named-live");
-    fs::create_dir_all(named.join("state/livelier")).unwrap();
+    fs::create_dir_all(Home::new(named.path()).state_dir().join("livelier")).unwrap();
     assert_eq!(
-        db::open(&named.join("state/livelier/tehas.db"), db::Purpose::Read).unwrap_err(),
+        db::open(
+            &Home::new(named.path())
+                .state_dir()
+                .join("livelier/tehas.db"),
+            db::Purpose::Read
+        )
+        .unwrap_err(),
         db::DbError::Missing
     );
 }
@@ -256,7 +279,7 @@ fn each_of_the_four_classes_exits_78_with_its_word() {
 
     // corrupt: a file whose bytes are not a database.
     let home = scratch("corrupt");
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     fs::write(
         db::path(&home),
         b"not a database, and long enough to be read as a header. ".repeat(20),
@@ -295,7 +318,7 @@ fn each_of_the_four_classes_exits_78_with_its_word() {
 
     // unreadable: a directory where the file should be.
     let home = scratch("directory");
-    fs::create_dir_all(home.join("state/tehas.db")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state(State::StoreDb)).unwrap();
     let (code, err) = check(&home).unwrap_err();
     assert_eq!(code, 78);
     assert!(err.starts_with("unreadable the database"), "{err}");
@@ -516,7 +539,7 @@ fn check_names_a_failed_integrity_check_corrupt_and_exits_78_without_moving_the_
     // with a log are allowed beside it, and no third -- a `.broken` of the
     // analytics program's habit would be one, and so is any copy of the file
     // under another name.
-    let mut kept = fs::read_dir(home.join("state"))
+    let mut kept = fs::read_dir(Home::new(home.path()).state_dir())
         .unwrap()
         .map(|e| e.unwrap().file_name())
         .collect::<Vec<_>>();
@@ -1378,7 +1401,7 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
     // What the file holds once its log is in it: the bytes the verb is not
     // allowed to change, taken now and asked of again after every call below.
     let before = fs::read(&file).unwrap();
-    let state = home.join("state");
+    let state = Home::new(home.path()).state_dir();
 
     // The copy itself: beside the file it came from, at the store's mode, and a
     // database a reader can open.
@@ -1511,7 +1534,7 @@ fn migrate_writes_into_state_backup_made_0700_and_refuses_a_link_there() {
     // the store.
     let home = scratch("migrate-backup-dir");
     init(&home, false).unwrap();
-    let own = home.join("state").join("backup");
+    let own = Home::new(home.path()).state(State::Backups);
     let line = migrate(&home, &own).unwrap();
     let copy = PathBuf::from(
         serde_json::from_str::<serde_json::Value>(&line).unwrap()["backup"]
@@ -1531,8 +1554,8 @@ fn migrate_writes_into_state_backup_made_0700_and_refuses_a_link_there() {
     let home = scratch("migrate-backup-link");
     init(&home, false).unwrap();
     let elsewhere = scratch("migrate-backup-elsewhere");
-    std::os::unix::fs::symlink(&elsewhere, home.join("state").join("backup")).unwrap();
-    let (code, err) = migrate(&home, &home.join("state").join("backup")).unwrap_err();
+    std::os::unix::fs::symlink(&elsewhere, Home::new(home.path()).state(State::Backups)).unwrap();
+    let (code, err) = migrate(&home, &Home::new(home.path()).state(State::Backups)).unwrap_err();
     assert_eq!(code, 78, "{err}");
     assert!(err.starts_with("unreadable "), "{err}");
     assert!(fs::read_dir(&elsewhere).unwrap().next().is_none());
@@ -1547,7 +1570,7 @@ fn migrate_names_its_backup_in_json_whatever_its_path_holds() {
     let home = odd.join("ho\u{1b}me \"x\" \u{e4}");
     fs::create_dir(&home).unwrap();
     init(&home, false).unwrap();
-    let state = home.join("state");
+    let state = Home::new(&home).state_dir();
     let line = migrate(&home, &state).unwrap();
     let value: serde_json::Value = serde_json::from_str(&line).expect(&line);
     let copy = PathBuf::from(value["backup"].as_str().unwrap());
@@ -1564,7 +1587,7 @@ fn migrate_takes_a_backup_dir_in_a_home_reached_through_a_link() {
     let home = linked.join("tehas");
     std::os::unix::fs::symlink(&real, &home).unwrap();
     init(&home, false).unwrap();
-    let own = home.join("state").join("backup");
+    let own = Home::new(&home).state(State::Backups);
     let line = migrate(&home, &own).unwrap();
     let copy = PathBuf::from(
         serde_json::from_str::<serde_json::Value>(&line).unwrap()["backup"]
@@ -1572,8 +1595,8 @@ fn migrate_takes_a_backup_dir_in_a_home_reached_through_a_link() {
             .unwrap(),
     );
     assert_eq!(copy.parent().unwrap(), real.join("state").join("backup"));
-    assert_eq!(mode(&real.join("state").join("backup")), 0o700);
-    migrate_at(&home, &home.join("state"), 1_792_000_060).unwrap();
+    assert_eq!(mode(&Home::new(real.path()).state(State::Backups)), 0o700);
+    migrate_at(&home, &Home::new(&home).state_dir(), 1_792_000_060).unwrap();
 }
 
 #[test]
@@ -1585,11 +1608,15 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     // on the directory, which is the state `install.sh` and `libexec/update`
     // leave behind and the reason a migration settles both modes on the way in.
     let home = scratch("migrate-zero");
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     fs::write(db::path(&home), b"").unwrap();
     fs::set_permissions(db::path(&home), fs::Permissions::from_mode(0o644)).unwrap();
-    fs::set_permissions(home.join("state"), fs::Permissions::from_mode(0o755)).unwrap(); // a directory
-    let line = migrate(&home, &home.join("state")).unwrap();
+    fs::set_permissions(
+        Home::new(home.path()).state_dir(),
+        fs::Permissions::from_mode(0o755),
+    )
+    .unwrap(); // a directory
+    let line = migrate(&home, &Home::new(home.path()).state_dir()).unwrap();
     let value: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(value["from"], 0, "{line}");
     assert_eq!(value["to"], db::SCHEMA_VERSION, "{line}");
@@ -1632,7 +1659,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     // holds a connection open to ask is `the_wal_and_shm_siblings_take_the_file_s_mode`.
     drop(conn);
     assert_eq!(mode(&file), 0o600, "the migrated file");
-    assert_eq!(mode(&home.join("state")), 0o700, "state/");
+    assert_eq!(mode(&Home::new(home.path()).state_dir()), 0o700, "state/");
     // Every table of the schema is there, so the migrated file is one the other
     // verbs read. The count is what the schema holds, counted from the schema
     // the store was given rather than from a number written here: the schema of
@@ -1668,7 +1695,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     // under the version it came with, which is its twin. The reported name is
     // the one a person reaches for, so it is the one taken first: a verb that
     // could not write it has run nothing.
-    let state = home.join("state");
+    let state = Home::new(home.path()).state_dir();
     let copies: Vec<String> = fs::read_dir(&state)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -1738,9 +1765,9 @@ fn a_reported_copy_that_cannot_be_written_leaves_the_step_unrun() {
     // Every name of `tehas-<schema>-<now>` held by a file the verb did not make is the
     // copy it cannot write, and the verb must then change nothing at all.
     let home = scratch("migrate-after");
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     fs::write(db::path(&home), b"").unwrap();
-    let state = home.join("state");
+    let state = Home::new(home.path()).state_dir();
     for n in 0..db::BACKUP_NAMES {
         fs::write(
             db::backup_name_at(&state, db::SCHEMA_VERSION, 1_792_000_000, n),
@@ -1782,7 +1809,7 @@ fn a_reported_copy_that_cannot_be_written_leaves_the_step_unrun() {
 fn migrate_reports_the_three_fields_and_a_store_at_the_written_schema_stays_there() {
     let home = scratch("migrate-json");
     init(&home, false).unwrap();
-    let state = home.join("state");
+    let state = Home::new(home.path()).state_dir();
     let line = migrate(&home, &state).unwrap();
     // One object, one line, valid JSON, and the fields the verb states: api
     // first as every answer of tehas writes it, then the verb and its ok, then
@@ -1860,7 +1887,7 @@ fn migrate_refuses_a_schema_it_has_no_step_for_and_a_future_one() {
     let home = scratch("migrate-unknown");
     init(&home, false).unwrap();
     let file = db::path(&home);
-    let state = home.join("state");
+    let state = Home::new(home.path()).state_dir();
     {
         let conn = Connection::open(&file).unwrap();
         conn.pragma_update(None, "user_version", db::SCHEMA_VERSION + 1)
@@ -1939,7 +1966,7 @@ fn migrate_refuses_a_schema_it_has_no_step_for_and_a_future_one() {
     }
     checkpoint(&file);
     let before = fs::read(&file).unwrap();
-    let (code, err) = migrate(&home, &home.join("state")).unwrap_err();
+    let (code, err) = migrate(&home, &Home::new(home.path()).state_dir()).unwrap_err();
     assert_eq!(code, 78, "{err}");
     assert!(err.starts_with("corrupt "), "{err}");
     assert_eq!(fs::read(&file).unwrap(), before);
@@ -1955,7 +1982,7 @@ fn migrate_waits_on_a_lock_the_way_a_write_verb_does() {
     // race and must report it: `busy` is exit 1, and no copy was made.
     let home = scratch("migrate-busy");
     init(&home, false).unwrap();
-    let state = home.join("state");
+    let state = Home::new(home.path()).state_dir();
     let mut holder = Connection::open(db::path(&home)).unwrap();
     holder.pragma_update(None, "busy_timeout", 0).unwrap();
     let tx = holder
@@ -2085,7 +2112,7 @@ fn an_unknown_verb_or_argument_is_64() {
         );
     }
     // Nothing was written by a call that stopped at its arguments.
-    assert!(!home.join("state").exists());
+    assert!(!Home::new(home.path()).state_dir().exists());
 }
 
 /// The arguments of init, with these settings.
@@ -2229,7 +2256,7 @@ fn an_open_refuses_a_file_that_is_not_a_database_at_all() {
     // `corrupt`: a file that is not a database is refused before any verb reads
     // a byte of it, and is left where it is.
     let home = scratch("not-a-database");
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     let file = db::path(&home);
     fs::write(&file, b"#!/bin/sh\necho not a database\n".repeat(60)).unwrap();
     for purpose in [db::Purpose::Read, db::Purpose::Write] {
@@ -2685,7 +2712,10 @@ fn review_issue_writes_nothing_to_the_home() {
     let before: Vec<String> = names(&home);
     review_issue(&home, "review-kept", "{\"findings\":[]}").unwrap();
     assert_eq!(names(&home), before, "the verb wrote into the home");
-    assert!(!home.join("state").exists(), "no database was opened");
+    assert!(
+        !Home::new(home.path()).state_dir().exists(),
+        "no database was opened"
+    );
 }
 
 fn names(home: &Path) -> Vec<String> {
@@ -2725,7 +2755,7 @@ fn filing(name: &str, document: &str, private: &[&str]) -> Filing {
     let home = scratch(&format!("file-{name}-home"));
     // A home of the store's own shape, so the verb's own guard on TEHAS_HOME is
     // met as it is on a host: the filing writes its body under state/.
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     fs::write(home.join(".tehas-home"), "tehas\n").unwrap();
     let dir = scratch(&format!("file-{name}-doc"));
     let doc = dir.join("review-2026-10-28.json");
@@ -3135,14 +3165,19 @@ fn review_file_writes_nothing_else_to_the_home() {
     let dir = scratch("file-quiet");
     let gh = stub_gh(&dir);
     let f = filing("quiet", REVIEW_DOC, &[]);
-    let before: Vec<String> = names(&f.home.join("state"));
+    let before: Vec<String> = names(&Home::new(f.home.path()).state_dir());
     filed(&f, &gh);
     // The body the calls were made with is gone, and nothing else was written:
     // the filing opens no database and keeps no record of its own.
-    assert_eq!(names(&f.home.join("state")), before, "{:?}", before);
+    assert_eq!(
+        names(&Home::new(f.home.path()).state_dir()),
+        before,
+        "{:?}",
+        before
+    );
     assert!(!review_issue::body_file(&f.home).exists());
     assert!(
-        !f.home.join("state").join("tehas.db").exists(),
+        !Home::new(f.home.path()).state(State::StoreDb).exists(),
         "the filing opened the database"
     );
 }

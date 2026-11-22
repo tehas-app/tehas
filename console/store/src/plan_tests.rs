@@ -5,6 +5,7 @@ use crate::verbs_tests::*;
 use serde_json::{json, Value};
 use std::fs::File;
 use std::path::Path;
+use tehas_core::home::Home;
 
 fn brief(home: &Path, text: &str) -> String {
     write_file(home, "brief.md", text.as_bytes())
@@ -537,7 +538,7 @@ fn plan_answer_states_its_preconditions_and_arguments() {
 fn a_finished_turn_records_its_session_options_filed_and_outcome_file() {
     let home = home("plan-end");
     begin(&home, 23);
-    let out = home.join("state").join("plan-23.json.out");
+    let out = Home::new(home.path()).state_dir().join("plan-23.json.out");
     let v = turn_end(
         &home,
         23,

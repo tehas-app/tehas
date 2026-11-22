@@ -39,6 +39,7 @@ use std::io::{ErrorKind, Write};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use tehas_core::home::{Home, Live, State};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Call {
@@ -520,7 +521,7 @@ fn remove_failed(name: &str, e: std::io::Error) -> Fail {
 /// state/publish.lock, held until the returned file is dropped. None when
 /// there is no state/: the store is missing too, and the read says so.
 fn take_lock(home: &Path) -> Result<Option<File>, Fail> {
-    let path = home.join("state").join("publish.lock");
+    let path = Home::new(home).state(State::PublishLock);
     let f = match OpenOptions::new()
         .read(true)
         .write(true)
@@ -531,7 +532,7 @@ fn take_lock(home: &Path) -> Result<Option<File>, Fail> {
     {
         Ok(f) => f,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err((1, format!("lock state/publish.lock: {e}"))),
+        Err(e) => return Err((1, format!("lock {}: {e}", State::PublishLock.relative()))),
     };
     let start = Instant::now();
     // Read on every pass of the retry loop: the bound publish waits is the one
@@ -545,10 +546,13 @@ fn take_lock(home: &Path) -> Result<Option<File>, Fail> {
                 std::thread::sleep(Duration::from_millis(10));
             }
             Err(TryLockError::WouldBlock) => {
-                return Err((1, "busy: state/publish.lock is held".to_string()))
+                return Err((
+                    1,
+                    format!("busy: {} is held", State::PublishLock.relative()),
+                ))
             }
             Err(TryLockError::Error(e)) => {
-                return Err((1, format!("lock state/publish.lock: {e}")))
+                return Err((1, format!("lock {}: {e}", State::PublishLock.relative())))
             }
         }
     }
@@ -593,7 +597,7 @@ fn publish(
         .transpose()?;
     let _lock = take_lock(home)?;
     let got = verbs::look(home, |c| read(home, c, now))?;
-    let live = home.join("live");
+    let live = Home::new(home).live_dir();
     mkdir(&live)?;
     mkdir(&live.join("cycles"))?;
     let mut n = 0;
@@ -609,8 +613,8 @@ fn publish(
         .collect();
     let removed = prune_cycles(&live, &keep)?;
     if let Some((bytes, _)) = &dispatch {
-        put(&live, "dispatch.json", bytes, &mut n)?;
-        written.push(j("dispatch.json"));
+        put(&live, Live::Dispatch.name(), bytes, &mut n)?;
+        written.push(j(Live::Dispatch.name()));
     }
     for v in got.running.iter().chain(got.last.iter()) {
         let name = format!("cycles/{}.json", v.issue);
@@ -620,11 +624,11 @@ fn publish(
     let endings: Vec<String> = got.endings.iter().map(Ending::json).collect();
     put(
         &live,
-        "endings.json",
+        Live::Endings.name(),
         format!("{}\n", list(&endings)).as_bytes(),
         &mut n,
     )?;
-    written.push(j("endings.json"));
+    written.push(j(Live::Endings.name()));
     let cycles: Vec<String> = got.running.iter().map(|v| obj(&v.pairs())).collect();
     let last = got
         .last
@@ -633,11 +637,11 @@ fn publish(
     let view = obj(&[("cycles", list(&cycles)), ("last", last)]);
     put(
         &live,
-        "running.json",
+        Live::Running.name(),
         format!("{view}\n").as_bytes(),
         &mut n,
     )?;
-    written.push(j("running.json"));
+    written.push(j(Live::Running.name()));
     let mut down = Value::Null;
     if let Some((bytes, fail)) = &health {
         let marker = live.join("health.down");
@@ -647,13 +651,13 @@ fn publish(
         if *fail {
             File::create(&marker).map_err(|e| write_failed("health.down", e))?;
         }
-        if let Err(e) = put(&live, "health.json", bytes, &mut n) {
+        if let Err(e) = put(&live, Live::Health.name(), bytes, &mut n) {
             if made {
                 let _ = fs::remove_file(&marker);
             }
             return Err(e);
         }
-        written.push(j("health.json"));
+        written.push(j(Live::Health.name()));
         if !*fail {
             match fs::remove_file(&marker) {
                 Ok(()) => {}
