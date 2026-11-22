@@ -159,7 +159,7 @@ fn a_park_offers_the_comments_retry_only_when_the_image_gives_the_comments() {
         (Some("off"), false),
         (None, false),
     ] {
-        let f = comments_facts(mode, "retry-tick", None);
+        let f = comments_facts(mode, "reply", None);
         assert_eq!(comments_box(&f), offered, "{mode:?}");
         let park = Park {
             comments: comments_box(&f),
@@ -180,23 +180,21 @@ fn the_end_comment_says_how_many_comments_the_runner_read() {
     use tehas_cycle::report::comments_said;
     let read = json!({"schemaVersion": 5, "comments": {"read": true, "count": 3, "bytes": 900, "dropped": 1}});
     assert_eq!(
-        comments_said(&comments_facts(Some("native"), "retry-tick", Some(read))),
+        comments_said(&comments_facts(Some("native"), "reply", Some(read))),
         " The cycle was given 3 comments of the issue and its pull requests, 1 older ones left out for room."
     );
     let unread =
         json!({"schemaVersion": 5, "comments": {"read": false, "reason": "sha256 mismatch"}});
     assert_eq!(
-        comments_said(&comments_facts(Some("native"), "retry-tick", Some(unread))),
+        comments_said(&comments_facts(Some("native"), "reply", Some(unread))),
         " The cycle's runner did not read the comments it was given: sha256 mismatch."
     );
     assert_eq!(
-        comments_said(&comments_facts(Some("polyfill"), "retry-tick", None)),
+        comments_said(&comments_facts(Some("polyfill"), "reply", None)),
         " The comments of the issue and its pull requests were given to the cycle's agents."
     );
-    assert!(
-        comments_said(&comments_facts(Some("off"), "retry-tick", None))
-            .contains("does not read comments")
-    );
+    assert!(comments_said(&comments_facts(Some("off"), "reply", None))
+        .contains("does not read comments"));
     // Only a comments retry says anything.
     assert_eq!(
         comments_said(&comments_facts(Some("native"), "label", None)),
