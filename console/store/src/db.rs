@@ -22,7 +22,7 @@ use crate::live;
 pub const SCHEMA_VERSION: i64 = 28;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
-/// The five tables schemas 15 to 26 held for outsource, which 2.0 dropped:
+/// The five tables schemas 15 to 27 held for outsource, which 2.0 dropped:
 /// the step to 15 lays them, the steps to 17 and 18 add to them, and
 /// [`DROP_OUTSOURCE`] drops them.
 #[cfg(test)]

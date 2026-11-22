@@ -1483,13 +1483,11 @@ t_case "the example instance documents the budget the health check warns at"
 t_contains "$(grep ^#TEHAS_POLL_BUDGET= "$T_ROOT/instances/example/optional.env")" "=cpu=5,wall=30,writes=0"
 
 t_case "a building feature's own setting stops a command with 78 before it calls GitHub"
-for line in TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org; do
-  t_instance "${T_MINIMAL[@]}" "$line"
-  t_run "$load; echo rc=\$?"
-  t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "tehas: ${line%%=*} is set and"
-  t_contains "$t_out" "is still being built in this release: take the line out"
-done
+t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "tehas: TEHAS_PROTOLAB_ZIP_HOSTS is set and"
+t_contains "$t_out" "is still being built in this release: take the line out"
 t_instance "${T_MINIMAL[@]}"
 
 # The two bounds of the measure tehas work makes of an approved body. Each is

@@ -968,8 +968,17 @@ pub fn reported(home: &Path, s: &Start) -> Reported {
 
 #[cfg(test)]
 mod tests {
-    use super::{approved_lean, author_of, carries_handoff, pr_list};
+    use super::{approved_lean, author_of, carries_handoff, pr_list, pull_number};
     use serde_json::json;
+
+    #[test]
+    fn the_number_of_a_pull_request_is_read_off_its_url() {
+        assert_eq!(pull_number("https://github.com/a/b/pull/12"), Some(12));
+        assert_eq!(pull_number("https://github.com/a/b/pull/12/"), Some(12));
+        assert_eq!(pull_number("https://github.com/a/b/issues/12"), None);
+        assert_eq!(pull_number("https://github.com/a/b/pull/012"), None);
+        assert_eq!(pull_number(""), None);
+    }
 
     #[test]
     fn a_handoff_counts_only_by_its_marker_on_the_first_line() {

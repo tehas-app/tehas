@@ -1165,12 +1165,6 @@ mod tests {
     fn refused(extra: &[&str]) -> String {
         run(&mut Fake::with(extra)).1.unwrap_err()
     }
-    /// A load of `extra` and its answer.
-    fn tested(extra: &[&str]) -> (Vars, Result<(), String>) {
-        let mut vars = start(&[]);
-        let got = load(&mut vars, &mut Fake::with(extra), "1000");
-        (vars, got)
-    }
 
     #[test]
     fn the_checkout_is_checked_as_the_instance_gave_it_and_not_as_derived() {
@@ -2009,7 +2003,10 @@ mod tests {
 
     #[test]
     fn what_a_load_requires_later_does_not_refuse_it() {
-        let (vars, got) = tested(&["TEHAS_REPO=widget", "TEHAS_ALLOWED_LABELERS=alice "]);
+        let (vars, got) = run(&mut Fake::with(&[
+            "TEHAS_REPO=widget",
+            "TEHAS_ALLOWED_LABELERS=alice ",
+        ]));
         assert_eq!(got, Ok(()));
         let found: Vec<(String, String)> = bad(&vars);
         let names: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
@@ -2084,7 +2081,7 @@ mod tests {
                 "TEHAS_EDGE_ONE_LEVEL is on and TEHAS_DOMAIN is not a subdomain",
             ),
         ] {
-            let got = tested(lines).1.unwrap_err();
+            let got = refused(lines);
             assert!(got.starts_with(want), "{got}");
             assert!(got.ends_with(&format!("(see {FILE})")), "{got}");
         }

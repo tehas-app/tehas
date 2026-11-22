@@ -813,7 +813,7 @@ JSON answer:
   the step to 16
   lets the action journal keep a write as `unknown` and writes `millwright`
   in every row that still said `fixer`, and the step to 28 drops the five
-  tables schemas 15 to 26 held for outsource, which 2.0 dropped and no
+  tables schemas 15 to 27 held for outsource, which 2.0 dropped and no
   release wrote a row of. Every other step keeps every row.
 - A store older than that, from a release before v0.30, is refused and left
   as it was, with no backup written: `store: unreadable ... is at schema <n>,

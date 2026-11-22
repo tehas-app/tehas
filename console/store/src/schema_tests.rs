@@ -174,7 +174,7 @@ fn rows(c: &Connection) -> Vec<(String, usize)> {
         .collect()
 }
 
-/// The rows of every table but the outsource ones, which a store of 15 to 26
+/// The rows of every table but the outsource ones, which a store of 15 to 27
 /// has and no other does.
 fn host_rows(c: &Connection) -> Vec<(String, usize)> {
     rows(c)

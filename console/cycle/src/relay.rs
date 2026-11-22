@@ -317,7 +317,7 @@ pub fn serve(dir: &Path, repo: &str, issue: u64, stop: &AtomicBool) {
 pub fn serve_via(dir: &Path, repo: &str, issue: u64, stop: &AtomicBool, via: &Via) {
     let mut scope = Scope::new(issue);
     while !stop.load(Ordering::SeqCst) {
-        pass(dir, repo, via, &mut scope);
+        pass(dir, repo, via, &mut scope, stop);
         let until = Instant::now() + POLL;
         while Instant::now() < until && !stop.load(Ordering::SeqCst) {
             std::thread::sleep(Duration::from_millis(50));
@@ -347,12 +347,16 @@ fn requests(dir: &Path) -> Vec<String> {
 }
 
 /// One reading of the directory: every complete request answered, and
-/// answers no one read removed.
-fn pass(dir: &Path, repo: &str, via: &Via, scope: &mut Scope) {
+/// answers no one read removed. Once `stop` is set no further request is
+/// run: the end answers what is left.
+fn pass(dir: &Path, repo: &str, via: &Via, scope: &mut Scope, stop: &AtomicBool) {
     let Some(top) = open_dir(dir) else {
         return;
     };
     for pid in requests(dir) {
+        if stop.load(Ordering::SeqCst) {
+            return;
+        }
         if let Some(taken) = take(dir, &top, &pid) {
             write_request(dir, &top, &pid, taken, repo, via, scope);
         }
@@ -447,6 +451,11 @@ fn take(dir: &Path, top: &OwnedFd, pid: &str) -> Option<Taken> {
         b.map(|b| String::from_utf8(b).map_err(|_| no("takes a body of UTF-8 text")))
             .transpose()
     });
+    // A request that names a kind is no issue write, whatever else it holds.
+    let args = match regular(&req, "kind", 0) {
+        Ok(None) => args,
+        _ => Err(no("takes issue writes only")),
+    };
     drop(req);
     if std::fs::remove_dir_all(dir.join(&name)).is_err() {
         // Not run: it could be taken again.
@@ -1183,6 +1192,29 @@ mod tests {
             read(d.join("gh.log")),
             "issue|comment|3|--body-file=-|--repo=acme/widget|token=ghs_full,ghs_full\nhi"
         );
+    }
+
+    #[test]
+    fn a_request_that_names_a_kind_is_refused_and_runs_nothing() {
+        let d = TestDir::new("relay-kind");
+        let (relay, stop, t) = served(&d);
+        let args = ["issue", "comment", "3", "--body", "hi"];
+        for (pid, kind) in [("6", "vipune\n"), ("7", "")] {
+            let req = relay.join(format!("req.{pid}"));
+            fs::create_dir(&req).unwrap();
+            fs::write(req.join("args"), args.join("\0") + "\0").unwrap();
+            fs::write(req.join("kind"), kind).unwrap();
+            fs::write(req.join("ready"), "").unwrap();
+            assert!(wait_done(&relay, pid));
+            assert_eq!(read(relay.join(format!("res.{pid}/rc"))), "1\n");
+            assert!(
+                read(relay.join(format!("res.{pid}/err"))).contains("takes issue writes only"),
+                "{pid}"
+            );
+        }
+        stop.store(true, Ordering::SeqCst);
+        t.join().unwrap();
+        assert!(!d.join("gh.log").exists());
     }
 
     #[test]
