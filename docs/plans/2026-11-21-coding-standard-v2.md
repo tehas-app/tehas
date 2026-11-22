@@ -634,6 +634,16 @@ trio are supported, so 2.0 carries no backwards compatibility.
     Panels, the Business page, Energy use, the Host panel (`tehas top`
     stays), the Review loop, the Product wiki, and a cycle's describe,
     text files, zips and comments (images stay).
+  What the consumer's production pages use stays in core, since the
+  owner dropped only what was never on a host (the trio's program
+  manager, 2026-11-22):
+  - the dock. Panels and the host bridge's menu share one mechanism,
+    the dock of `host/fun/panels.js`. The dock and the bridge's
+    `open: dock` items stay in core, moved to `host/fun/dock.js`; the
+    Panels plugin takes only `tehas panel` and `live/panels.json`;
+  - the business page's 17 rules that other pages share move to
+    `host/fun/pages.css`, the one owner of them; the Business page takes
+    only its own rules to the plugin.
   Outsource leaving 2.0 supersedes any plan of the manual for it in 2.1:
   T16 corrects the manual's words where they say so.
   Each has its line in T9's "Changed in 2.0", its settings handled by the
@@ -656,6 +666,9 @@ real instance's configuration loads on 2.0 after `tehas update`.
   lists every change and its readers.
 - The `api/` files for 2.0.
 - A changelog fragment with an adopter action.
+- With the millwright's grant gone, the one way a program starts work for
+  a person is `tehas start`, called for a signed-in person; the contract
+  names it as that entry.
 
 Done when the 2.0 contract is written, and each change has its row and
 its note to adopters.
