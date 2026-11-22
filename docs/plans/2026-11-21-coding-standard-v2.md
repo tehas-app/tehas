@@ -560,22 +560,28 @@ Removed:
 - the Protolab pass and its pages (`console/src/protolab.rs`, `tehasbot
   protolab`), its timer units, `live/protolab.json` and the `protolab/`
   directory of the home; `tehas update` stops and removes the old units
-  and the directory (`retired.list`);
-- `prototype-file` (`tehas prototype file`, `console/src/prototype.rs`,
-  `TEHAS_PROTOTYPE_FILE`, `TEHAS_PROTOLAB_URL`);
+  (`retired.list`) and the directory (`RETIRED_DIRS`, a list other
+  retired folders join);
+- `prototype-file` (`tehas prototype file`, `console/src/prototype.rs`)
+  and the four settings `TEHAS_PROTOLAB_URL`, `TEHAS_PROTOLAB_ZIP_URL`,
+  `TEHAS_PROTOLAB_ZIP_HOSTS` and `TEHAS_PROTOTYPE_FILE`, which load, warn
+  once and are dropped (`IGNORED`);
 - the `tehas:prototype` label (`host/labels.tsv`, the label pins, the
   dispatcher's flow) and the `prototype` kind (`TEHAS_ISSUE_TYPES`
-  keeps `improvement`). This part waits for T3, which owns the
-  dispatcher's files until it is done;
-- `host/docs/tools-protolab.md`, the rows of `features.md`, and the
-  `prototypes` field of `tehas status --json` with its schemas.
+  keeps `improvement`), with the `prototypes` field of `tehas status
+  --json` and its schemas. A separate T16 commit removes these;
+- `host/docs/tools-protolab.md` and the rows of `features.md`;
+- on the front pages, the Protolab's door, panel and link. The stage
+  stays, as Idea (below).
 
 Kept, under neutral names:
 
 - `console/attach`: fetch, limits, sniff, zip unpack and manifest, which
   cycles already use;
 - the safe store of a ticket's files and the page writer of
-  `console/src/protolab/build.rs`, moved to a module of their own;
+  `console/src/protolab/build.rs`, as the crate `console/items`, and the
+  reading of marked issues as the issue feed,
+  `console/core/src/issue_feed.rs`;
 - the edge's static serving: a directory per item, sandboxed HTML, the
   no-script policy on the generated page, the per-item host name and
   its port, with their tests;
