@@ -34,14 +34,14 @@ coding standard v2 in the tehas system are tagged together: tehas 2.0.0
 and the 2.0.0 and 1.0.0 of the two repositories that read it. For tehas:
 
 1. **2.0.0 carries everything.** Coding standard v2, the adapters and the
-   adapter API (T4), and the rename (T10).
+   adapter API (T4), events (T11), and the rename (T10).
 2. **The branch stays unmerged until the trio is tagged.** Main stays the
    stable line and ships 1.4.x patches; each is ported into the branch.
-   Release candidates `2.0.0-rc.N` are tagged from the branch. The merge
-   into main and the final tag wait for the trio, and the final tag for
-   the owner.
-3. **One set of ports, defined here.** The tracker and code host ports of
-   T4 are the shared set: a consumer that runs many factories adopts the
+   Nothing is tagged from the branch, release candidates included, until
+   the owner says so (2026-11-22). The merge into main and the final tag
+   wait for the trio and the owner.
+3. **One set of ports, defined here.** The ports of T4 are the shared
+   set: a consumer that runs many factories adopts the
    same ports instead of writing its own. Its needs (the operations, the
    shapes, the failures, the actors) are read before T4 drafts, and
    neither side merges its ports before the other has read them.
@@ -63,8 +63,12 @@ and the 2.0.0 and 1.0.0 of the two repositories that read it. For tehas:
 
 ### The adapters
 
-- The ports of T4 are that abstraction: the ticket tracker and the code
-  host are separate ports, since they can sit in different systems.
+- The ports of T4 are that abstraction, three of them (the owner,
+  2026-11-22): tickets, blueprints and the code host. Tickets and
+  blueprints are kept apart in the API: they are subtly different.
+- **Allowed setups.** A code host (GitHub, GitLab or Bitbucket) always.
+  Tickets come from that code host or from Jira. Never Jira alone, so
+  blueprints always come from the code host.
 - **The contract names the act, not the label.** Approve, block, plan,
   refine are tracker terms; labels are the GitHub adapter's answer.
 - **The account behind a change.** Authorisation stays who applied the
@@ -118,8 +122,8 @@ changes and holds the factory that builds tehas to no new work.
    - When the trio is tagged, one pull request from
      `refactor/coding-standard-v2` into `main`, merged with **a merge
      commit**, not squashed, so the steps stay in main's history.
-   - Release candidates `2.0.0-rc.N` are tagged from the branch by the
-     session doing this work. The final v2.0.0 is the owner's.
+   - Tags, release candidates included, wait for the owner's word. pi-rukas
+     v0.14.100 is pinned before any tag.
 6. **A merge train of two lanes.** At most two pull requests into the
    branch are in flight at once. Each is brought up to the branch's tip,
    passes the gate and the architecture test, and is squash-merged; the
@@ -259,7 +263,7 @@ parsing.
 
 ## The steps
 
-In this order. T3 to T7 may overlap where a type and its port go
+In this order, T11 before T9 and T10 last. T3 to T7 may overlap where a type and its port go
 together. Each "Done when" is checked before the next step leans on it.
 
 ### T0. The test, the rules, the map
@@ -318,13 +322,27 @@ This is the precondition for the ports.
 Done when `decide` and `Snapshot` carry no `Value`, and the dispatcher's
 tests pass unchanged.
 
-### T4. Two ports in tehas's terms
+### T4. Three ports in tehas's terms
 
-- **A ticket tracker port:** tickets, states, the account behind a change
-  and its history, comments, blockers, milestones. It grows from `Forge`.
-- **A code host port:** pull requests, branches, checks, releases, tokens.
+- **A tickets port:** the work level. Epics, stories, approval, priority,
+  release targets, the account behind a change and its history. It grows
+  from `Forge`.
+- **A blueprints port:** the issues a cycle works from. The technical
+  design, the plan, the technical discussion, blockers.
+- **A code host port:** changes, branches, checks, merges, tags, releases,
+  tokens.
 
-GitHub is their one adapter, and it owns every `gh` argument, path,
+To settle in the spec:
+
+- whether a cycle takes one blueprint, or a ticket directly when it has
+  none;
+- the links from a ticket to its blueprints to their changes, which
+  tehas keeps, since no supplier does;
+- identity mapped across suppliers;
+- approval named as an act (on Jira, a transition), with authorisation
+  still the account behind it (AGENTS.md rule 5).
+
+GitHub is their one adapter, answering all three, and it owns every `gh` argument, path,
 document and field, the paging, the retries and the time limits. An
 outage or a rate limit is handled there, and reported once. The security
 shims stay where they are unless the owner agrees to merge them.
@@ -333,7 +351,7 @@ They are the adapter API of "The adapters" above, and the shared set a
 consumer that runs many factories adopts: read its needs before the
 drafts, and answer its open questions in the spec.
 
-Design both ports twice: two independent drafts each, read by fresh
+Design each port twice: two independent drafts each, read by fresh
 reviewers against R1, R2, R4, R6 and R7, and against how little of the
 rest changes. Write the choice in a spec under `docs/specs/`, and update
 `host/docs/forge.md`. Move one crate at a time.
@@ -378,6 +396,32 @@ for names it needs, rather than writing them again. `scripts/bash-lines.max`
 holds the ceiling as before.
 
 Done when the checks that read bash hold at 0 or at written floors.
+
+### T11. Events
+
+Events ship in 2.0.0, in the manner of Symfony's EventDispatcher (the
+owner, 2026-11-22). Names use the ports' words (`ticket.approved`,
+`change.merged`, `cycle.after-work`), never a supplier's.
+
+- **In Rust:** a small in-process dispatcher of our own: typed events,
+  ordered listeners, an event that can be stopped.
+- **For plugins:** events as JSON, with schemas in `api/`, of two kinds.
+  A notify event comes after the fact, as `hook:after:work` does today.
+  A gate event waits for an answer, with a time limit and a policy a
+  person picks. Each event a plugin listens to is a grant,
+  `hook:<when>:<event>`, written for the plugin's commit, listed by
+  `tehas plugin review`, and checked again on every install, enable and
+  pin move. Plugins stay off in 2.0.0: the contract specifies this, and
+  the in-process side ships.
+- **In the front end:** the kit's pages use `EventTarget` and
+  `CustomEvent` named `tehas:<event>`, with server events over SSE and
+  `postMessage` to plugin frames from an allowed list. The kit owns these
+  names; the other repositories of the trio follow them.
+
+T9 lists the event names and schemas in the 2.0 contract.
+
+Done when the dispatcher and its events are in, each event has its
+schema in `api/`, and the contract lists them.
 
 ### T9. The contract for 2.0
 
@@ -460,7 +504,7 @@ All of these, in the last pull request into the branch:
 - `.tehas/coding-standard` says `v2`, and the architecture test passes
   without `--force`, against the base;
 - `scripts/verify.sh --full` passes, and the 2.0 contract is written;
-- T10 is done, and the trio's gate holds.
+- T10 and T11 are done, and the trio's gate holds.
 
 Then, when the trio is tagged, the pull request into main (with a merge
 commit), and the owner's release of v2.0.0.
@@ -483,4 +527,4 @@ of main, each grade.
 | 2026-11-21 | The owner approves the branch in `verify.yml`, the architecture test as a gate job, and no new work for the factory that builds tehas | |
 | 2026-11-22 | Forked `refactor/coding-standard-v2` from v1.4.0 | a0aa16a5 |
 | 2026-11-22 | The gate runs on the branch | #2775 |
-| 2026-11-22 | The trio, the adapters, the rename (T10), the pi-rukas pin and the merge train added to this plan | this pull request |
+| 2026-11-22 | The trio, the adapters, three ports, events (T11), the rename (T10), the pi-rukas pin, no tags from the branch and the merge train added to this plan | this pull request |
