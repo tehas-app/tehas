@@ -8,7 +8,7 @@ use crate::slice::{self, gib};
 #[cfg(test)]
 use crate::snapshot::check_state;
 use crate::snapshot::{
-    Check, HostStart, Issues, LimitState, Listed, OrderState, PauseFlag, Snapshot, Until,
+    Check, HostStart, Issues, LimitState, Listed, OrderState, PauseFlag, PlanStart, Snapshot, Until,
 };
 use crate::text;
 use serde_json::{json, Map, Value};
@@ -31,7 +31,7 @@ mod starts;
 pub(crate) use clean::{iso, quiet_due, quiet_why, Due, QUIET_ASKS};
 pub(crate) use flow::in_flow;
 pub(crate) use plan::shape;
-pub(crate) use retry::{hex40, refresh_why};
+pub(crate) use retry::refresh_why;
 
 /// The time now as log() writes it.
 pub fn iso_now() -> String {
@@ -758,17 +758,13 @@ impl<'a> Poll<'a> {
                     if self.running(n) {
                         continue;
                     }
-                    let req = self
+                    let at = self
                         .s
                         .issues
                         .get(&n)
-                        .and_then(|i| i.request.clone())
-                        .unwrap_or(Value::Null);
-                    let at = req
-                        .get("at")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string();
+                        .and_then(|i| i.request.as_ref())
+                        .map(|r| r.at.clone())
+                        .unwrap_or_default();
                     if self.plan_open(n) {
                         self.d.demand_planning.push((n, at));
                         continue;
@@ -1947,8 +1943,11 @@ impl<'a> Poll<'a> {
         if !self.planned(n, &who) {
             return Ok(Planned::No);
         }
-        let record = self.s.issues[&n].plan_start.clone().unwrap_or(Value::Null);
-        let by = record.get("by").and_then(Value::as_str).unwrap_or("");
+        let (by, sum) = match self.s.issues[&n].plan_start.clone() {
+            Some(PlanStart::Record { by, sum }) => (by, sum),
+            _ => (String::new(), None),
+        };
+        let by = by.as_str();
         let c = self.c;
         let credit = plan_credit(&ev, by, &|l| c.allowed(l), &|l| c.is_millwright(l));
         let Some(since) = credit else {
@@ -1966,7 +1965,7 @@ impl<'a> Poll<'a> {
             return Ok(self.plan_taken_off(n, "its text was changed since the plan was written"));
         }
         // The time cannot see a change made before the label went on.
-        if record.get("sum").and_then(Value::as_str) != Some(&text::plan_sum(&self.text(n))) {
+        if sum.as_deref() != Some(text::plan_sum(&self.text(n)).as_str()) {
             return Ok(self.plan_refused(n, "its title or text is not the plan tehas wrote"));
         }
         Ok(Planned::Go(by.to_string(), at))

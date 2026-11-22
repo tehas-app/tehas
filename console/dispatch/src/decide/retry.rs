@@ -9,6 +9,7 @@ use super::{
 };
 use crate::answer::{self, Overlay};
 use crate::questions;
+use crate::snapshot::{CycleRow, PullNode, PullRead};
 use crate::text;
 use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
@@ -25,11 +26,6 @@ fn labels(v: &Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
-}
-
-pub(crate) fn hex40(v: Option<&Value>) -> bool {
-    v.and_then(Value::as_str)
-        .is_some_and(tehas_core::grammar::commit_id)
 }
 
 /// Why the labels `have` of an issue keep its refresh from starting, None
@@ -54,70 +50,33 @@ fn refresh_labels_why(have: &[String]) -> Option<String> {
 
 /// tehas_refresh_rule's refresh_why: what keeps a pull request from being
 /// refreshed, empty when nothing does. The bot's are those of `bot`.
-pub(crate) fn refresh_why(pr: &Value, bot: &str, repo: &str, control: u64) -> String {
-    let names = |v: &Value| -> Vec<String> {
-        v.pointer("/labels/nodes")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
-    let s = |v: &Value, p: &str| {
-        v.pointer(p)
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string()
-    };
-    let Some(num) = pr.get("number").and_then(Value::as_u64) else {
+pub(crate) fn refresh_why(pr: &PullRead, bot: &str, repo: &str, control: u64) -> String {
+    let Some(num) = pr.number else {
         return "it cannot be read".into();
     };
-    let closing = pr
-        .pointer("/closingIssuesReferences/nodes")
-        .and_then(Value::as_array);
-    if !tehas_core::accounts::factorys(&s(pr, "/author/login"), bot) {
+    if !tehas_core::accounts::factorys(&pr.author, bot) {
         "it is not the bot's".into()
-    } else if pr.get("isCrossRepository") != Some(&json!(false))
-        || !s(pr, "/headRepository/nameWithOwner").eq_ignore_ascii_case(repo)
-    {
+    } else if pr.cross_repository != Some(false) || !pr.head_repository.eq_ignore_ascii_case(repo) {
         format!("its branch is not in {repo}")
-    } else if !matches!(pr.get("isDraft"), Some(&json!(true)) | Some(&json!(false))) {
+    } else if pr.draft.is_none() {
         "its draft state cannot be read".into()
-    } else if pr
-        .pointer("/closingIssuesReferences/totalCount")
-        .and_then(Value::as_f64)
-        .unwrap_or(0.0)
-        != 1.0
-        || closing.map_or(0, Vec::len) != 1
-    {
+    } else if pr.closing_count != 1.0 || pr.closing.len() != 1 {
         "it does not close exactly one issue".into()
     } else {
-        let i = &closing.unwrap()[0];
-        let Some(n) = i.get("number").and_then(Value::as_u64) else {
+        let i = &pr.closing[0];
+        let Some(n) = i.number else {
             return "the issue it closes cannot be read".into();
         };
-        let l = names(i);
-        let open: Vec<Option<u64>> = i
-            .pointer("/closedByPullRequestsReferences/nodes")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter(|p| p.get("state").and_then(Value::as_str) == Some("OPEN"))
-                    .map(|p| p.get("number").and_then(Value::as_u64))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let l = &i.labels;
         if n == control {
             "it closes the control issue".into()
-        } else if i.get("state").and_then(Value::as_str) != Some("OPEN") {
+        } else if i.state != "OPEN" {
             format!("#{n} is not open")
-        } else if !has(&l, "tehas:awaiting-merge") && !has(&l, "needs-human-attention") {
+        } else if !has(l, "tehas:awaiting-merge") && !has(l, "needs-human-attention") {
             format!("#{n} carries neither tehas:awaiting-merge nor needs-human-attention")
-        } else if has(&l, "tehas:running") {
+        } else if has(l, "tehas:running") {
             format!("#{n} carries tehas:running")
-        } else if open != [Some(num)] {
+        } else if i.open_prs != [Some(num)] {
             format!("it is not the one open pull request that closes #{n}")
         } else {
             String::new()
@@ -147,7 +106,7 @@ fn is_instant(s: &str) -> bool {
 /// the poll say so instead of reading as a park it dated. A `parked` that is
 /// not JSON true is no park; the store answers that column as a bool or NULL,
 /// and the importer takes only a boolean for it.
-fn parked(history: &[Value], at: &str) -> (bool, bool) {
+fn parked_rows(history: &[CycleRow], at: &str) -> (bool, bool) {
     // No instant on the record is no date to measure a park from; the rule of
     // the approval itself has already said what to do with such a record.
     if at.is_empty() {
@@ -162,24 +121,15 @@ fn parked(history: &[Value], at: &str) -> (bool, bool) {
     let mut held = false;
     let mut unread = false;
     for h in history {
-        if h.get("how").and_then(Value::as_str) != Some("refresh")
-            || h.get("parked") != Some(&json!(true))
-        {
+        if !h.refresh || !h.parked {
             continue;
         }
-        match h.get("started") {
-            Some(v) => match v.as_u64().filter(|s| *s <= MAX_START) {
-                // A park from the approval's second on holds the refresh.
-                Some(started) => held |= iso(started).as_str() >= at,
-                // A start that is not a count of seconds this rule can date,
-                // or one past the last date it can write: held as the row with
-                // no start is, and named as one the store did not give.
-                None => {
-                    held = true;
-                    unread = true;
-                }
-            },
-            // No key at all: no start on record.
+        match h.started.filter(|s| *s <= MAX_START) {
+            // A park from the approval's second on holds the refresh.
+            Some(started) => held |= iso(started).as_str() >= at,
+            // No start on record, one that is not a count of seconds this rule
+            // can date, or one past the last date it can write: held, and
+            // named as one the store did not give.
             None => {
                 held = true;
                 unread = true;
@@ -187,6 +137,16 @@ fn parked(history: &[Value], at: &str) -> (bool, bool) {
         }
     }
     (held, unread)
+}
+
+/// [`parked_rows`] of cycle_history rows as the store gives them.
+#[cfg(test)]
+fn parked(history: &[Value], at: &str) -> (bool, bool) {
+    let s = crate::snapshot::Snapshot::parse(&json!({"issues": {"1": {"history": history}}}));
+    match &s.issues[&1].history {
+        Some(Ok(rows)) => parked_rows(rows, at),
+        _ => unreachable!("an array of rows is a history"),
+    }
 }
 
 /// The refreshes a record counts on that approval.
@@ -779,37 +739,23 @@ impl Poll<'_> {
     /// for from starting: "wait" while GitHub has not said whether it
     /// conflicts, "busy" while it carries tehas:refreshing, empty when
     /// nothing does, and otherwise why the request goes.
-    fn refresh_pull_why(&self, n: u64, node: &Value, req: &Value, bot: &str) -> String {
-        let number = node
-            .get("number")
-            .map(|x| x.to_string())
-            .unwrap_or("null".into());
+    fn refresh_pull_why(&self, n: u64, node: &PullRead, head_sha: &str, bot: &str) -> String {
+        let number = &node.number_said;
         let rule = refresh_why(node, bot, &self.c.repo, self.c.control);
-        let st = |k: &str| node.get(k).and_then(Value::as_str).unwrap_or("");
-        if st("state") != "OPEN" {
+        let merge = node.merge.as_deref().unwrap_or("");
+        if node.state != "OPEN" {
             format!("pull request #{number} is not open")
         } else if !rule.is_empty() {
             format!("pull request #{number}: {rule}")
-        } else if node
-            .pointer("/closingIssuesReferences/nodes/0/number")
-            .and_then(Value::as_u64)
-            != Some(n)
-        {
+        } else if node.closing.first().and_then(|i| i.number) != Some(n) {
             format!("pull request #{number} does not close #{n}")
-        } else if node.get("headRefOid") != req.get("head_sha") {
+        } else if node.head_oid.as_deref() != Some(head_sha) {
             format!("pull request #{number} moved since the request")
-        } else if st("mergeable") == "UNKNOWN" {
+        } else if merge == "UNKNOWN" {
             "wait".into()
-        } else if st("mergeable") != "CONFLICTING" {
+        } else if merge != "CONFLICTING" {
             format!("pull request #{number} no longer conflicts")
-        } else if node
-            .pointer("/labels/nodes")
-            .and_then(Value::as_array)
-            .is_some_and(|a| {
-                a.iter()
-                    .any(|l| l.get("name").and_then(Value::as_str) == Some("tehas:refreshing"))
-            })
-        {
+        } else if has(&node.labels, "tehas:refreshing") {
             "busy".into()
         } else {
             String::new()
@@ -857,13 +803,10 @@ impl Poll<'_> {
             self.need("request");
             return Ok(None);
         };
-        if !(req.get("pr").is_some_and(Value::is_number)
-            && hex40(req.get("head_sha"))
-            && hex40(req.get("base_sha")))
-        {
+        let Some(req) = req.target else {
             return self.refresh_drop(n, "its request cannot be read");
-        }
-        let pr = req["pr"].as_u64().unwrap_or(0);
+        };
+        let pr = req.pr;
         if self.running(n) {
             return self.refresh_drop(n, "a cycle runs on it");
         }
@@ -912,19 +855,20 @@ impl Poll<'_> {
         if text::body_sha256(&self.text(n)) != rests["body_sha256"].as_str().unwrap_or("") {
             return self.refresh_drop(n, &format!("its text is not the text {by} approved"));
         }
-        let Some(node) = self.s.pulls.get(&pr).cloned() else {
-            self.need("pull");
-            return Ok(None);
+        let node = match self.s.pulls.get(&pr).cloned() {
+            None => {
+                self.need("pull");
+                return Ok(None);
+            }
+            Some(PullNode::Failed { line }) => {
+                return Err(self.unreadable(&format!("pull request #{pr}"), line.as_deref()));
+            }
+            Some(PullNode::Unreadable) => {
+                return self.refresh_drop(n, &format!("pull request #{pr} cannot be read"));
+            }
+            Some(PullNode::Read(node)) => node,
         };
-        if node.get("failed") == Some(&json!(true)) {
-            let call = crate::snapshot::failed_line(Some(&node));
-            return Err(self.unreadable(&format!("pull request #{pr}"), call.as_deref()));
-        }
-        if !node.is_object() {
-            return self.refresh_drop(n, &format!("pull request #{pr} cannot be read"));
-        }
-        let why = self.refresh_pull_why(n, &node, &req, bot);
-        let st = |k: &str| node.get(k).and_then(Value::as_str).unwrap_or("");
+        let why = self.refresh_pull_why(n, &node, &req.head_sha, bot);
         match why.as_str() {
             "" => {}
             "wait" => {
@@ -967,7 +911,7 @@ impl Poll<'_> {
         };
         // The last of the holds: a refresh that parked since the approval is
         // not offered again. One whose history cannot be read waits, above.
-        let (parked, unread) = parked(&history, &at);
+        let (parked, unread) = parked_rows(&history, &at);
         if parked {
             let why = if unread {
                 format!("a refresh of it since {by} approved it parked, its start unread, so it is held")
@@ -987,13 +931,11 @@ impl Poll<'_> {
             d => d,
         };
         let branch: String = node
-            .get("baseRefName")
-            .and_then(Value::as_str)
-            .unwrap_or("")
+            .base_ref
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | '-'))
             .collect();
-        let url = Some(st("url"))
+        let url = Some(node.url.as_str())
             .filter(|u| {
                 u.starts_with("https://")
                     && u[8..].bytes().all(|b| {
@@ -1013,7 +955,7 @@ impl Poll<'_> {
         extra.insert("refresh_url".into(), json!(url));
         extra.insert(
             "refresh_of".into(),
-            json!({"pr": pr, "head_sha": req["head_sha"], "base_sha": req["base_sha"],
+            json!({"pr": pr, "head_sha": req.head_sha, "base_sha": req.base_sha,
                 "branch": if branch.is_empty() { self.c.branch.clone() } else { branch }}),
         );
         driver.bind(&mut extra, &mut remove, &have);
