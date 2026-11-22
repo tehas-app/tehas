@@ -58,7 +58,9 @@ and the 2.0.0 and 1.0.0 of the two repositories that read it. For tehas:
    features.
 6. **pi-rukas v0.14.101 or later.** 2.0.0 pins pi-rukas v0.14.101 at the
    least, for a fix tehas wants (the owner, 2026-11-22), and at the trio's
-   readiness review the newest pi-rukas release is the one pinned. A tag
+   readiness review the newest pi-rukas release on the 0.15 line is the one
+   pinned (`PI_RUKAS_FOLLOW=release:0.15`): pi-rukas 0.16, which moves it
+   to npm, is not for this trio. A tag
    names the pi-rukas commit it pins (`scripts/tag-release.sh`).
 
 ### The adapters
@@ -799,5 +801,6 @@ of main, each grade.
 | 2026-11-22 | T12.1c and T12.1d: the feature word `answer`, and `tehas question` | #2813, #2830 |
 | 2026-11-22 | T4: the ports spec, read and accepted in writing by the consumer that runs many factories | #2828 |
 | 2026-11-22 | Port main @ abc4afca (a checkout follows pi-rukas's 0.15 line, #2834) | #2836 |
-| 2026-11-22 | T16: every row of the unused features approved; classic stays a driver; T10's rename to tehas-factory confirmed (the owner) | this pull request |
+| 2026-11-22 | T16: every row of the unused features approved; classic stays a driver; T10's rename to tehas-factory confirmed (the owner) | #2838 |
 | 2026-11-22 | T13: lean by default covers issues with a spec block; spec-less issues stay classic in 2.0, the rest is #2839 for 2.1 (work-a7) | #2840 |
+| 2026-11-22 | The pin: the newest pi-rukas on the 0.15 line at readiness, not 0.16 (the trio's program manager) | this pull request |
