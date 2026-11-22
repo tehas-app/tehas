@@ -21,6 +21,7 @@ use super::{say, tell};
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use tehas_core::home::Home;
 
 const STAGED: &str = "sandbox-uid.Dockerfile";
 
@@ -107,7 +108,7 @@ pub fn cycles_verb(given: &[String]) -> u8 {
 }
 
 fn cycles(home: &Path) -> Vec<String> {
-    plain_files(&home.join("state/cycles"), marker_name)
+    plain_files(&Home::new(home).cycles_dir(), marker_name)
         .iter()
         .filter_map(|path| remove(path))
         .collect()
@@ -194,7 +195,7 @@ mod tests {
     #[test]
     fn the_marker_a_cycle_used_to_leave_is_removed_and_its_neighbours_stay() {
         let d = dir("cycles");
-        let markers = d.0.join("state/cycles");
+        let markers = Home::new(d.0.path()).cycles_dir();
         fs::create_dir_all(&markers).unwrap();
         for n in ["5", "23", "25", "26"] {
             fs::write(markers.join(n), "").unwrap();

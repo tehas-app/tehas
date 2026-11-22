@@ -249,6 +249,7 @@ pub fn main(given: &[String]) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_core::home::{Home, TokenDir};
 
     fn logins(l: &[&str]) -> Vec<String> {
         l.iter().map(|s| s.to_string()).collect()
@@ -330,7 +331,7 @@ mod tests {
     fn a_carry_beside_the_login_is_false_only_when_it_could_not_be_written() {
         let home = std::env::temp_dir().join(format!("tehas-ids-beside-{}", std::process::id()));
         let _ = fs::remove_dir_all(&home);
-        let dir = home.join("state/github");
+        let dir = Home::new(&home).token_dir(TokenDir::App);
         fs::create_dir_all(&dir).unwrap();
         write(&home, &accounts::parse("acme-old 4242\n").unwrap()).unwrap();
         assert!(carry_beside(&dir, "acme-old[bot]", "acme-new[bot]"));

@@ -95,6 +95,7 @@ use std::time::{Duration, Instant};
 use tehas_core::events::{pause_holds, UNKNOWN_ACTOR};
 use tehas_core::file::Temp;
 use tehas_core::forge::{Bounded, Forge, GitHub};
+use tehas_core::home::{Home, Live, State};
 use tehas_core::limit::{self as limit_file, leading_number};
 pub use tehas_core::limit::{epoch, oneline, REASON};
 use tehas_core::lock::{self, Probe};
@@ -307,7 +308,7 @@ fn limit(given: &[String]) -> u8 {
         Some((verb, rest)) => (verb.as_str(), rest),
         None => return usage("show, set, clear or read is wanted"),
     };
-    let file = here.join("state/limit.json");
+    let file = Home::new(&here).state(State::Limit);
     match verb {
         // --json prints the object tehas limit --json promises, api first;
         // read prints the same reading without it, which is what tehas status
@@ -389,7 +390,7 @@ fn pause(given: &[String]) -> u8 {
         Some((verb, rest)) => (verb.as_str(), rest),
         None => return usage("set or clear is wanted"),
     };
-    let file = here.join("state/pause.json");
+    let file = Home::new(&here).state(State::Pause);
     match verb {
         "set" => match pause_args(rest) {
             Ok(reason) => pause_set(&file, &reason),
@@ -747,8 +748,8 @@ pub fn drain(given: &[String]) -> u8 {
         eprintln!("console flags: neither TEHAS_HOME nor HOME is set");
         return 64;
     };
-    let state = here.join("state");
-    let file = state.join("limit.json");
+    let here = Home::new(here);
+    let file = here.state(State::Limit);
     let words = ["--cycles", "0", "--plan", "off", "--reason", "draining"].map(String::from);
     let Ok(want) = set_args(&words) else {
         return 64;
@@ -758,12 +759,12 @@ pub fn drain(given: &[String]) -> u8 {
     }
     let said = read(&file, now()).said();
     let passed = poll_passed(
-        &state.join("dispatch.lock"),
+        &here.state(State::DispatchLock),
         asked.wait.unwrap_or(POLL_WAIT),
     );
     let deadline = Instant::now() + Duration::from_secs(asked.wait.unwrap_or(0));
     let running = loop {
-        let running = cycles_running(&state.join("cycles"));
+        let running = cycles_running(&here.cycles_dir());
         if !passed || running.is_empty() || Instant::now() >= deadline {
             break running;
         }
@@ -783,7 +784,7 @@ pub fn drain(given: &[String]) -> u8 {
 
 /// The name the commands which honour a limit read it by: what `tehas drain`
 /// writes and what every reader of the drained state opens.
-pub const LIMIT_FILE: &str = "state/limit.json";
+pub const LIMIT_FILE: &str = State::Limit.relative();
 
 /// Whether the limit in force holds every start, as `tehas drain` set it: no
 /// cycle at once and planning off.
@@ -1002,11 +1003,13 @@ fn poll_if_raised(file: &Path, before: &Reading, after: &Reading) {
     if cycles_let(after) <= cycles_let(before) {
         return;
     }
-    let Some(state) = file.parent() else { return };
-    let Some(home) = state.parent() else { return };
-    let waits = fs::read_to_string(home.join("live/demand.json")).is_ok_and(|t| demand_waits(&t));
+    let Some(home) = file.parent().and_then(Path::parent) else {
+        return;
+    };
+    let home = Home::new(home);
+    let waits = fs::read_to_string(home.live(Live::Demand)).is_ok_and(|t| demand_waits(&t));
     if waits {
-        let _ = fs::File::create(state.join("dispatch.again"));
+        let _ = fs::File::create(home.state(State::DispatchAgain));
     }
 }
 
@@ -1095,8 +1098,8 @@ mod tests {
 
     // The file of a home, with its state/ directory made.
     fn written(d: &TestDir) -> PathBuf {
-        fs::create_dir_all(d.join("state")).unwrap();
-        d.join("state/limit.json")
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
+        Home::new(d.path()).state(State::Limit)
     }
 
     fn args(given: &[&str]) -> Vec<String> {
@@ -1149,13 +1152,13 @@ mod tests {
 
     /// A home whose last poll left `waiting` issues in its demand.
     fn demand_of(d: &TestDir, waiting: u64) -> PathBuf {
-        fs::create_dir_all(d.join("live")).unwrap();
+        fs::create_dir_all(Home::new(d.path()).live_dir()).unwrap();
         fs::write(
-            d.join("live/demand.json"),
+            Home::new(d.path()).live(Live::Demand),
             format!("{{\"waiting\":{waiting},\"time\":\"2026-11-21T15:23:01Z\"}}\n"),
         )
         .unwrap();
-        d.join("state/dispatch.again")
+        Home::new(d.path()).state(State::DispatchAgain)
     }
 
     #[test]
@@ -1188,7 +1191,7 @@ mod tests {
         set_in(&d, &["--cycles", "2"]);
         assert!(!again.exists());
         // No demand on record is none waiting.
-        fs::remove_file(d.join("live/demand.json")).unwrap();
+        fs::remove_file(Home::new(d.path()).live(Live::Demand)).unwrap();
         set_in(&d, &["--cycles", "0"]);
         set_in(&d, &["--cycles", "2"]);
         assert!(!again.exists());
@@ -1373,7 +1376,7 @@ mod tests {
             assert!(set_args(&bad).is_err(), "{bad:?} was taken");
         }
         // A refused set never reaches the file, so nothing of it is written.
-        assert!(!d.join("state").exists());
+        assert!(!Home::new(d.path()).state_dir().exists());
     }
 
     #[test]
@@ -1449,15 +1452,12 @@ mod tests {
     fn no_file_is_none_and_a_directory_is_unreadable() {
         let d = dir("none");
         assert_eq!(
-            read(&d.join("state/limit.json"), NOW).text(),
+            read(&Home::new(d.path()).state(State::Limit), NOW).text(),
             r#"{"state":"none"}"#
         );
-        let state = d.join("state");
-        fs::create_dir_all(state.join("limit.json")).unwrap();
-        assert_eq!(
-            read(&state.join("limit.json"), NOW).text(),
-            r#"{"state":"unreadable"}"#
-        );
+        let file = Home::new(d.path()).state(State::Limit);
+        fs::create_dir_all(&file).unwrap();
+        assert_eq!(read(&file, NOW).text(), r#"{"state":"unreadable"}"#);
     }
 
     #[test]
@@ -1554,7 +1554,7 @@ mod tests {
     #[test]
     fn what_a_reader_is_given_at_a_moment_of_its_own() {
         let d = dir("reader");
-        let file = d.join("state/limit.json");
+        let file = Home::new(d.path()).state(State::Limit);
         assert_eq!(read(&file, NOW).text(), r#"{"state":"none"}"#);
         set_in(
             &d,
@@ -1655,8 +1655,8 @@ mod tests {
     #[test]
     fn set_refuses_a_directory_in_its_way() {
         let d = dir("dirblock");
-        fs::create_dir_all(d.join("state/limit.json")).unwrap();
-        let file = d.join("state/limit.json");
+        fs::create_dir_all(Home::new(d.path()).state(State::Limit)).unwrap();
+        let file = Home::new(d.path()).state(State::Limit);
         assert_eq!(set(&file, &set_args(&args(&["--cycles", "1"])).unwrap()), 1);
     }
 
@@ -2002,8 +2002,8 @@ mod tests {
     }
 
     fn pause_file(d: &TestDir) -> PathBuf {
-        fs::create_dir_all(d.join("state")).unwrap();
-        d.join("state/pause.json")
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
+        Home::new(d.path()).state(State::Pause)
     }
 
     #[test]
@@ -2095,7 +2095,7 @@ mod tests {
     #[test]
     fn no_flag_is_none() {
         let d = dir("pause-none");
-        let file = d.join("state/pause.json");
+        let file = Home::new(d.path()).state(State::Pause);
         assert_eq!(read_pause(&file).text(), r#"{"state":"none"}"#);
         assert_eq!(read_pause(&file).said(), "pause     none");
     }
@@ -2205,7 +2205,7 @@ mod tests {
         // A directory in the way is reported and nothing is written: the one
         // case where the command names the file rather than the flag in it.
         let d = dir("pause-dir");
-        let file = d.join("state/pause.json");
+        let file = Home::new(d.path()).state(State::Pause);
         fs::create_dir_all(&file).unwrap();
         assert_eq!(pause_set(&file, "x"), 1);
         assert!(file.is_dir());
@@ -2259,10 +2259,18 @@ mod tests {
         let file = pause_file(&d);
         assert_eq!(pause_set(&file, "x"), 0);
         fs::write(file.with_extension("json.new"), "half a flag").unwrap();
-        fs::set_permissions(d.join("state"), fs::Permissions::from_mode(0o500)).unwrap();
+        fs::set_permissions(
+            Home::new(d.path()).state_dir(),
+            fs::Permissions::from_mode(0o500),
+        )
+        .unwrap();
         assert_eq!(pause_clear(&file, account::uid()), 1);
         // The state directory, given back its mode.
-        fs::set_permissions(d.join("state"), fs::Permissions::from_mode(0o700)).unwrap();
+        fs::set_permissions(
+            Home::new(d.path()).state_dir(),
+            fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
         assert!(file.exists() || file.with_extension("json.new").exists());
     }
 
@@ -2354,27 +2362,30 @@ mod tests {
     #[test]
     fn only_a_regular_file_of_this_run_is_ours_to_remove() {
         let home = dir("owned-regular");
-        fs::create_dir_all(home.join("state")).unwrap();
-        let mine = home.join("state/pause.json");
+        fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
+        let mine = Home::new(home.path()).state(State::Pause);
         fs::write(&mine, "{}").unwrap();
         assert!(owned_regular(&mine, account::uid()));
         // A directory is no flag to take off, a link is not ours whoever
         // owns what it points at, and an absent name is nothing to remove.
-        assert!(!owned_regular(&home.join("state"), account::uid()));
-        symlink(&mine, home.join("state/link.json")).unwrap();
         assert!(!owned_regular(
-            &home.join("state/link.json"),
+            &Home::new(home.path()).state_dir(),
+            account::uid()
+        ));
+        symlink(&mine, Home::new(home.path()).state_dir().join("link.json")).unwrap();
+        assert!(!owned_regular(
+            &Home::new(home.path()).state_dir().join("link.json"),
             account::uid()
         ));
         assert!(!owned_regular(
-            &home.join("state/gone.json"),
+            &Home::new(home.path()).state_dir().join("gone.json"),
             account::uid()
         ));
         // A file of another account is not ours to remove. The file is made
         // here, so the case does not lean on what the host happens to hold.
         // Only a run under uid 0 can hand a file to another account, and the
         // rest are told the case was skipped instead of left to pass unseen.
-        let other = home.join("state/other.json");
+        let other = Home::new(home.path()).state_dir().join("other.json");
         fs::write(&other, "x").unwrap();
         if account::uid() == Some(0) {
             let said = std::process::Command::new("chown")

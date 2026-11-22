@@ -11,6 +11,7 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, sleep};
 use std::time::Duration;
+use tehas_core::home::{Home, State};
 
 /// What a call that did not answer said: the status
 /// (1 refused, busy or timeout; 64 usage; 78 unusable), the store's word or
@@ -28,7 +29,7 @@ pub struct Refusal {
 /// cannot forget one; a stat that errors is answered as a binary that is not
 /// there, as the shell's `[ -f ]` and `[ -x ]` answered it.
 pub fn ready(home: &Path) -> bool {
-    let db = home.join("state").join("tehas.db");
+    let db = Home::new(home).state(State::StoreDb);
     installed(home)
         && fs::symlink_metadata(&db).is_ok_and(|m| m.is_file() && !m.file_type().is_symlink())
 }

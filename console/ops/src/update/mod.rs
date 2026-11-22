@@ -101,6 +101,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tehas_core::home::{Home, State};
 
 /// What `console update api` answers. `run` passes this plan and these
 /// arguments to `finish`; a console that answers anything
@@ -466,7 +467,7 @@ fn pass(host: &Host, asked: &Asked) -> u8 {
         tell("tehas update: --to installs a release, and this host updates from its platform checkout (TEHAS_UPDATE_FROM=git); nothing was changed");
         return 64;
     }
-    let hold = host.home.join("state/update-hold");
+    let hold = Home::new(&host.home).state(State::UpdateHold);
     if hold.exists() && asked.to.is_none() {
         if asked.mode == Mode::Update {
             tell(&format!(
@@ -626,7 +627,7 @@ pub(crate) mod testing {
     }
 
     impl Dir {
-        pub fn file(&self, name: &str, text: &str) -> PathBuf {
+        pub fn file(&self, name: impl AsRef<Path>, text: &str) -> PathBuf {
             let path: PathBuf = self.0.join(name);
             fs::create_dir_all(path.parent().unwrap_or(Path::new("/"))).unwrap();
             fs::write(&path, text).unwrap();
@@ -738,7 +739,7 @@ mod tests {
     fn a_hold_stops_a_plain_update_and_neither_to_nor_pending_nor_check() {
         use std::os::unix::fs::symlink;
         let d = dir("gate-hold");
-        d.file("state/update-hold", "");
+        d.file(Home::new(d.0.path()).state(State::UpdateHold), "");
         d.file("versions/v1.0.0/VERSION", "v1.0.0\n");
         symlink("versions/v1.0.0", d.0.join("current")).unwrap();
         let h = home(&d);
@@ -792,7 +793,10 @@ mod tests {
     #[test]
     fn the_record_is_read_into_what_is_owed_and_what_no_step_knows() {
         let d = dir("leftover-lines");
-        d.file("state/update-pending", "sandbox\nrenew-dashboard --now\n");
+        d.file(
+            Home::new(d.0.path()).state(State::UpdatePending),
+            "sandbox\nrenew-dashboard --now\n",
+        );
         let h = home(&d);
         let mut plan = Plan {
             mode: Mode::Pending,
@@ -806,7 +810,7 @@ mod tests {
     #[test]
     fn a_record_that_cannot_be_read_stops_the_run() {
         let d = dir("leftover-unreadable");
-        fs::create_dir_all(d.0.join("state/update-pending")).unwrap();
+        fs::create_dir_all(Home::new(d.0.path()).state(State::UpdatePending)).unwrap();
         let h = home(&d);
         assert_eq!(leftover(&h, &mut Plan::default()), 1);
     }

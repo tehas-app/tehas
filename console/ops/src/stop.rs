@@ -27,6 +27,7 @@ use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use tehas_core::cycle_notes;
+use tehas_core::home::Home;
 use tehas_core::lock::{probe, Probe};
 use tehas_core::settings::rules::is_repo;
 
@@ -195,8 +196,13 @@ struct Names {
 }
 
 impl Names {
+    /// The home joined as text, as the paths this names always were.
+    fn layout(&self) -> Home {
+        Home::of_text(&self.home)
+    }
+
     fn state(&self) -> String {
-        format!("{}/state/cycles", self.home)
+        self.layout().cycles_dir().display().to_string()
     }
 
     fn note(&self, end: &str) -> String {
@@ -224,7 +230,10 @@ impl Names {
         let mut out: Vec<String> = cycle_notes::stopped()
             .map(|name| self.note(&format!(".{name}")))
             .collect();
-        out.push(format!("{}/live/console-{}.txt", self.home, self.n));
+        // The number passed `is_issue`: ten digits at most, so it parses.
+        if let Ok(n) = self.n.parse::<u64>() {
+            out.push(self.layout().live_console(n).display().to_string());
+        }
         out.push(format!(
             "{}/.pi/agent/ensemble-runs/issue-{}",
             self.user_home, self.n

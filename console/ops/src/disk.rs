@@ -67,6 +67,7 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 use tehas_core::disk::figure;
 use tehas_core::file::Temp;
+use tehas_core::home::{Home, Live};
 use tehas_core::time;
 
 pub mod cycles;
@@ -225,7 +226,7 @@ pub fn main(given: &[String]) -> u8 {
     // figure a person sees beside it is the same one.
     if opts.publish {
         let file = published(&host, &opts);
-        if let Err(e) = put(&home.join("live/disk.json"), &file) {
+        if let Err(e) = put(&Home::new(&home).live(Live::Disk), &file) {
             eprintln!("console disk: live/disk.json not written: {e}");
             return 1;
         }
@@ -1116,6 +1117,7 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::{symlink, PermissionsExt};
     use std::path::Path;
+    use tehas_core::home::{Home, Live};
     use tehas_core::testdir::TestDir;
 
     /// A scratch home of this case's own. Nothing here writes outside it, and
@@ -1499,20 +1501,30 @@ mod tests {
     #[test]
     fn the_published_file_is_put_whole_and_a_failed_run_leaves_the_last_one() {
         let d = dir("publish");
-        let out = d.join("live/disk.json");
+        let out = Home::new(d.path()).live(Live::Disk);
         put(&out, &json!({"api": 1})).unwrap();
         assert_eq!(fs::read_to_string(&out).unwrap(), "{\"api\":1}\n");
         // A second run replaces it, and leaves no side file behind.
         put(&out, &json!({"api": 1, "x": 2})).unwrap();
         assert_eq!(fs::read_to_string(&out).unwrap(), "{\"api\":1,\"x\":2}\n");
-        assert_eq!(fs::read_dir(d.join("live")).unwrap().count(), 1);
+        assert_eq!(
+            fs::read_dir(Home::new(d.path()).live_dir())
+                .unwrap()
+                .count(),
+            1
+        );
         // An answer too big for the file is refused before anything is put,
         // and the file a reader may open at any moment is still the whole of
         // the last answer.
         let big = json!({"blob": "x".repeat(PUBLISH_BOUND as usize + 10)});
         assert!(put(&out, &big).is_err());
         assert_eq!(fs::read_to_string(&out).unwrap(), "{\"api\":1,\"x\":2}\n");
-        assert_eq!(fs::read_dir(d.join("live")).unwrap().count(), 1);
+        assert_eq!(
+            fs::read_dir(Home::new(d.path()).live_dir())
+                .unwrap()
+                .count(),
+            1
+        );
         // A name that holds a directory is no file: the run says so, and the
         // tree beside it is left as it was.
         let as_dir = d.join("as-dir");

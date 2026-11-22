@@ -13,6 +13,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tehas_core::home::{Home, State};
 use tehas_core::time::{from_iso, iso, now};
 
 const USAGE: &str = "usage: tehas host-message [list] [--json] | set <id> --level info|warn|alert --text TEXT [--link URL] | clear <id>";
@@ -194,8 +195,8 @@ pub fn with(mut messages: Vec<Message>, message: Message) -> Result<Vec<Message>
 
 /// The list is kept, or the file goes when it is empty.
 fn store(home: &Path, messages: &[Message]) -> Result<(), String> {
-    let state = home.join("state");
-    let file = state.join("host-messages.json");
+    let state = Home::new(home).state_dir();
+    let file = Home::new(home).state(State::HostMessages);
     let said = |f: &Path, e: std::io::Error| format!("{} not written: {e}", f.display());
     if messages.is_empty() {
         return match fs::remove_file(&file) {
@@ -247,7 +248,7 @@ pub fn main(given: &[String]) -> u8 {
 }
 
 pub fn run(home: &Path, asked: Asked, now: i64) -> u8 {
-    let file = home.join("state/host-messages.json");
+    let file = Home::new(home).state(State::HostMessages);
     if let Asked::List { json } = asked {
         return match read(&file) {
             Ok(messages) => {
@@ -434,7 +435,7 @@ mod tests {
         assert_eq!(set(&d, "a", "old"), 0);
         assert_eq!(set(&d, "b", "other"), 0);
         assert_eq!(run(&d, Asked::Set(message("a", "new")), 1_789_000_060), 0);
-        let file = d.join("state/host-messages.json");
+        let file = Home::new(d.path()).state(State::HostMessages);
         let list = parse(&fs::read_to_string(&file).unwrap()).unwrap();
         assert_eq!(list.len(), 2);
         assert_eq!((list[0].id.as_str(), list[0].text.as_str()), ("a", "new"));
@@ -451,7 +452,7 @@ mod tests {
         for i in 0..20 {
             assert_eq!(set(&d, &format!("m{i}"), "x"), 0);
         }
-        let file = d.join("state/host-messages.json");
+        let file = Home::new(d.path()).state(State::HostMessages);
         let before = fs::read_to_string(&file).unwrap();
         assert_eq!(set(&d, "m20", "x"), 64);
         assert_eq!(fs::read_to_string(&file).unwrap(), before);
@@ -461,7 +462,7 @@ mod tests {
     #[test]
     fn clear_of_the_last_removes_the_file() {
         let d = TestDir::new("host-message");
-        let file = d.join("state/host-messages.json");
+        let file = Home::new(d.path()).state(State::HostMessages);
         assert_eq!(set(&d, "a", "x"), 0);
         assert_eq!(run(&d, Asked::Clear("zz".into()), 0), 0);
         assert!(file.exists());
@@ -473,12 +474,12 @@ mod tests {
     #[test]
     fn a_file_that_is_no_list_is_kept_and_said() {
         let d = TestDir::new("host-message");
-        fs::create_dir_all(d.join("state")).unwrap();
-        fs::write(d.join("state/host-messages.json"), "nope").unwrap();
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
+        fs::write(Home::new(d.path()).state(State::HostMessages), "nope").unwrap();
         assert_eq!(set(&d, "a", "x"), 1);
         assert_eq!(run(&d, Asked::List { json: true }, 0), 1);
         assert_eq!(
-            fs::read_to_string(d.join("state/host-messages.json")).unwrap(),
+            fs::read_to_string(Home::new(d.path()).state(State::HostMessages)).unwrap(),
             "nope"
         );
     }

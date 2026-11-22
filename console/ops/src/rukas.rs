@@ -56,6 +56,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 use tehas_core::call;
 use tehas_core::file::{write_atomic, Temp};
+use tehas_core::home::{Home, Live, State};
 use tehas_core::jq::{obj, J};
 use tehas_core::rukas;
 use tehas_core::time;
@@ -147,7 +148,7 @@ pub fn write(home: &Path, live: &Path) {
             .map(|d| Path::new(&d).join("sandbox.Dockerfile")),
     };
     let file = read(home, &given, &mut Real, time::now());
-    let to = live.join("rukas.json");
+    let to = live.join(Live::Rukas.name());
     match file {
         Some(f) => put(&to, &f),
         None => {
@@ -293,7 +294,7 @@ fn target(
     out: &mut dyn Outside,
     now: i64,
 ) -> Option<(String, String)> {
-    let file = home.join("state/rukas-target");
+    let file = Home::new(home).state(State::RukasTarget);
     let kept = fs::read_to_string(&file)
         .ok()
         .and_then(|t| J::parse(&t))
@@ -358,7 +359,7 @@ fn image_version(
     out: &mut dyn Outside,
     now: i64,
 ) -> Option<String> {
-    let file = home.join("state/rukas-image");
+    let file = Home::new(home).state(State::RukasImage);
     let kept = fs::read_to_string(&file)
         .ok()
         .and_then(|t| J::parse(&t))

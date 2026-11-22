@@ -31,6 +31,7 @@ use std::fs;
 use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use tehas_core::file::Temp;
+use tehas_core::home::{Home, State};
 
 /// The units install.sh names when a unit file changed: the timers and services
 /// tehas runs, not only the changed one, since an update restarts the ones that
@@ -231,7 +232,7 @@ pub(crate) fn sorted(lines: &[String]) -> Vec<String> {
 /// changed is spent by the run that made the copies, so without this file a run
 /// that stopped partway would leave the host half updated with nothing owed.
 pub(crate) fn record_file(home: &Path) -> PathBuf {
-    home.join("state/update-pending")
+    Home::new(home).state(State::UpdatePending)
 }
 
 /// The lines of the record, without blank ones. No record is an empty answer. A
@@ -906,14 +907,24 @@ mod tests {
         );
         assert_eq!(read_record(&d.0).unwrap(), owed);
         write_record(&d.0, &[]).unwrap();
-        assert_eq!(fs::read_dir(d.0.join("state")).unwrap().count(), 0);
+        assert_eq!(
+            fs::read_dir(Home::new(d.0.path()).state_dir())
+                .unwrap()
+                .count(),
+            0
+        );
     }
 
     #[test]
     fn a_record_that_cannot_be_cleared_is_a_failure_and_stays() {
         let d = dir("record-stuck");
         assert!(write_record(&d.0, &[]).is_ok());
-        d.file("state/update-pending/held", "sandbox\n");
+        d.file(
+            Home::new(d.0.path())
+                .state(State::UpdatePending)
+                .join("held"),
+            "sandbox\n",
+        );
         assert!(write_record(&d.0, &[]).is_err());
         assert!(record_file(&d.0).exists());
     }
@@ -921,7 +932,10 @@ mod tests {
     #[test]
     fn a_line_is_read_without_a_closing_newline_and_blank_ones_are_not() {
         let d = dir("record-newline");
-        d.file("state/update-pending", "sandbox\n\nlabels");
+        d.file(
+            Home::new(d.0.path()).state(State::UpdatePending),
+            "sandbox\n\nlabels",
+        );
         assert_eq!(read_record(&d.0).unwrap(), lines(&["sandbox", "labels"]));
     }
 
@@ -931,7 +945,7 @@ mod tests {
         let mut old: Vec<&str> = UNITS.to_vec();
         old.insert(1, "tehas-refresh.timer");
         d.file(
-            "state/update-pending",
+            Home::new(d.0.path()).state(State::UpdatePending),
             &format!(
                 "units {}\nunits tehas-refresh.timer\nlabels\n",
                 old.join(" ")
@@ -962,7 +976,12 @@ mod tests {
         let d = dir("record-whole");
         write_record(&d.0, &lines(&["sandbox"])).unwrap();
         write_record(&d.0, &lines(&["labels"])).unwrap();
-        assert_eq!(fs::read_dir(d.0.join("state")).unwrap().count(), 1);
+        assert_eq!(
+            fs::read_dir(Home::new(d.0.path()).state_dir())
+                .unwrap()
+                .count(),
+            1
+        );
         assert_eq!(fs::read_to_string(record_file(&d.0)).unwrap(), "labels\n");
     }
 }

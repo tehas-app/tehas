@@ -34,6 +34,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 use tehas_core::file::{write_atomic, Temp};
+use tehas_core::home::Home;
 #[cfg(test)]
 use tehas_core::hostnet::version;
 pub use tehas_core::hostnet::words;
@@ -43,7 +44,7 @@ use tehas_core::hostnet::{docker_fault, net_create, net_fault};
 /// wait, another holder is an answer at once. None when it is held or cannot
 /// be opened. The file closes on exec, so a child cannot keep the lock.
 pub fn lock(home: &Path, name: &str, wait: Option<Duration>) -> Option<File> {
-    let state = home.join("state");
+    let state = Home::new(home).state_dir();
     fs::create_dir_all(&state).ok()?;
     let file = File::create(state.join(format!("{name}.lock"))).ok()?;
     let deadline = Instant::now() + wait.unwrap_or_default();
@@ -518,7 +519,10 @@ mod tests {
     fn a_lock_is_held_by_one_at_a_time() {
         let home = scratch("lock");
         let held = lock(&home, "demo", None).expect("the first takes it");
-        assert!(home.join("state/demo.lock").exists());
+        assert!(Home::new(home.path())
+            .state_dir()
+            .join("demo.lock")
+            .exists());
         assert!(lock(&home, "demo", None).is_none());
         assert!(lock(&home, "demo", Some(Duration::from_millis(150))).is_none());
         drop(held);
