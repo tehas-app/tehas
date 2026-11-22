@@ -8,22 +8,23 @@ from, and it is kept current as the steps land. The rules are in
 `docs/architecture-review.md`, and the checks in `architecture.toml`.
 
 Counts are at the fork, v1.4.0 (a0aa16a5), from `python3 -I
-scripts/architecture.py --force`. They are grep counts: approximate, and
-they include `#[cfg(test)]` modules inside source files, which the test
-cannot leave out. Tests in files of their own are left out.
+scripts/architecture.py --force`. They are grep counts and approximate.
+Tests count, in files of their own and in `#[cfg(test)]` modules alike,
+so a test that moves does not lower a count it did not fix.
 
 ## Knowledge map
 
 | Knowledge | Check | Owner today | Known elsewhere (count) | Owner under v2 |
 | --- | --- | --- | --- | --- |
-| GitHub's REST paths, GraphQL, the API host | `github-rest` | the forge, for labels only (`console/core/src/forge.rs`, `forge/`) | 162: dispatch 57, the console 45, ops 22, cycle 14, core 13, the front pages 4, attach, mcp, plugin 2 each, plugin-gate 1 | the GitHub adapter of the three ports (T4) |
-| Running `gh` | `gh-argv` | the forge's `GhRunner` | 153: dispatch 39, the console 34, ops 32, cycle 22, core 13, store, xtask 4 each, attach, mcp, the sandbox build, `lib/`, `scripts/` 1 each | the GitHub adapter; the security shims a written floor if they stay |
-| State labels and markers (`tehas:...`) | `label-words` | none; `host/labels.tsv` is the list | 886: dispatch 405, core 164, ops 132, the console 81, cycle 48, the front pages 30, mcp 18, store 6 | one module in core, checked against `host/labels.tsv` (T2) |
-| The `$TEHAS_HOME` layout: `state/`, `live/`, `run/` | `home-layout` | none | 512: ops 232, dispatch 91, cycle 60, the console 39, core 23, `install.sh` 21, store 20, plugin 8, proxy 7, analytics 6, contractor 5 | `Home` (T5); bash asks it (T8) |
+| GitHub's REST paths, GraphQL, the API host | `github-rest` | the forge, for labels only (`console/core/src/forge.rs`, `forge/`) | 846, with GitHub's JSON fields and `--json`/`--jq`: the console 240, dispatch 225, ops 98, cycle 93, the front pages 69, mcp 38, store 37, core 21, analytics 8, xtask 6 | the GitHub adapter of the three ports (T4) |
+| Running `gh` | `gh-argv` | the forge's `GhRunner` | 408: dispatch 207, cycle 67, the console 62, ops 34, core 13, store 11, mcp, xtask 4 each | the GitHub adapter; the security shims a written floor if they stay |
+| State labels and markers (`tehas:...`) | `label-words` | none; `host/labels.tsv` is the list | 1878, with `needs-human-attention` and `epic`: dispatch 1010, cycle 228, core 189, the console 184, ops 137, store 70, the front pages 34, mcp 21 | one module in core, checked against `host/labels.tsv` (T2) |
+| The `$TEHAS_HOME` layout: `state/`, `live/`, `run/` | `home-layout` | none | 1356: dispatch 341, cycle 278, ops 238, store 145, the console 124, analytics 98, proxy 31, contractor, core 25 each, `install.sh` 21, mcp 16, the units 5 | `Home` (T5); bash asks it (T8) |
 | The store's verbs and answers | review | the store (`console/store/src/verbs.rs`) | callers pass verb strings to `call` and read `Value` | a typed store client (T5) |
-| `serde_json::Value` in signatures | `untyped-signatures` | none | 1044: dispatch 270, mcp 170, the console 138, core 126, cycle 125, ops 78, attach 35, analytics 34, plugin 21, store 20, proxy 16, contractor 11 | parsed at the edge (T3, T4, T5, T7) |
-| `Value` in public fields | `untyped-fields` | none | 56: dispatch 37, cycle 6, ops 4, core 3, contractor, the console 2 each, attach, proxy 1 each | types of ours (T3, T7) |
+| `serde_json::Value` in signatures | `untyped-signatures` | none | 1421: dispatch 369, mcp 251, cycle 181, the console 162, core 128, ops 89, store 77, analytics 45, attach 42, plugin 33, proxy 28, contractor 16 | parsed at the edge (T3, T4, T5, T7) |
+| `Value` in public fields, enum variants, tuple fields | `untyped-fields` | none | 66: dispatch 38, cycle 7, ops 5, attach, contractor, core, the console 3 each | types of ours (T3, T7) |
 | Settings and their names | review | core's settings (`console/core/src/settings/`), `lib/config.sh` for bash | the contract's settings list | unchanged |
+| GitHub's HTTP statuses | `raw-statuses` | none outside the forge | 259: core 92, dispatch 51, the console 46, ops 31, cycle 26, plugin 6 | the adapter, as the ports' named outcomes (T4) |
 | The cycle's container: mounts, environment | `test/fixtures/argv/` | `console/core/src/sandbox.rs` | pinned by `test/work_test.sh`, `test/sandbox_argv_test.sh` | unchanged (AGENTS.md rule 4) |
 
 ## Outside systems
@@ -43,24 +44,35 @@ cannot leave out. Tests in files of their own are left out.
 
 The traits that stand between the code and an outside system today.
 
-| Trait | File | Abstracts | In our terms |
-| --- | --- | --- | --- |
-| `Forge` | `console/core/src/forge.rs` | labels: what an issue carries, the newest event, who applied it, add, remove | yes |
-| `GhRunner` | `console/core/src/forge.rs` | running `gh` for the forge | no: argv |
-| `GitHub` | `console/core/src/access.rs` | a collaborator's permission | partly |
-| `Net` | `console/attach/src/take.rs` | fetching an issue's files | yes |
-| `Run` | `console/cycle/src/relay.rs` | the relay's `gh` calls | no: argv |
-| `Vipune` | `console/cycle/src/memory.rs` | the memory store | yes |
-| `Hands` | `console/dispatch/src/finish.rs`, `auto_finish.rs` | the finish's effects | partly |
-| `Factory`, `Backing`, `Records`, `Reader`, `Sink`, `Downloads` | `console/proxy/src/` | the model proxy's channel, jobs and records | yes |
-| `Work`, `World` | `console/contractor/src/job.rs` | the contractor's jobs | yes |
-| `Host`, `Catalog`, `Refresh`, `Day` | `console/plugin/src/` | the plugin runner | yes |
-| `Exec` | `console/ops/src/plugin/exec.rs` | running a plugin | partly |
-| `Outside`, `Shell` | `console/ops/src/rukas.rs`, `update/` | the update's outside world | partly |
+| Trait | File | Abstracts | In our terms | Fake |
+| --- | --- | --- | --- | --- |
+| `Forge` | `console/core/src/forge.rs` | labels: what an issue carries, the newest event, who applied it, add, remove | yes | none: its tests stub `GhRunner` |
+| `GhRunner` | `console/core/src/forge.rs` | running `gh` for the forge | no: argv | stubbed `gh` runner in tests |
+| `GitHub` | `console/core/src/access.rs` | a collaborator's permission | partly | in `access.rs` tests |
+| `Net` | `console/attach/src/take.rs` | fetching an issue's files | yes | in attach's tests |
+| `Run` | `console/cycle/src/relay.rs` | the relay's `gh` calls | no: argv | in relay tests |
+| `Vipune` | `console/cycle/src/memory.rs` | the memory store | yes | in cycle's tests |
+| `Hands` | `console/dispatch/src/finish.rs`, `auto_finish.rs` | the finish's effects | partly | in dispatch's tests |
+| `Factory`, `Backing`, `Records`, `Reader`, `Sink`, `Downloads` | `console/proxy/src/` | the model proxy's channel, jobs and records | yes | in proxy's tests, except `Downloads` (none) |
+| `Work`, `World` | `console/contractor/src/job.rs` | the contractor's jobs | yes | in the crate's tests |
+| `Host`, `Catalog`, `Refresh`, `Day` | `console/plugin/src/` | the plugin runner | yes | in the crate's tests |
+| `Exec` | `console/ops/src/plugin/exec.rs` | running a plugin | partly | in the crate's tests |
+| `Outside`, `Shell` | `console/ops/src/rukas.rs`, `update/` | the update's outside world | partly | in the crate's tests |
 
 v2 adds three ports, with GitHub as their one adapter (T4): **tickets**
 (the work level), **blueprints** (the issues a cycle works from) and the
 **code host** (changes, checks, merges, tags, releases). Each gets a fake.
+
+## Checks of the core (R3, R8)
+
+The core today is the dispatcher's `decide` and the modules it decides
+from: `decide.rs`, `decide/`, `place.rs`, `snapshot.rs`, `text.rs`,
+`settings.rs`, `questions.rs`, `starts.rs`. `core-effects` holds it at 0:
+no file, network, process, environment or clock. `core-inward` counts 3
+uses of the shell in `decide.rs` (the push fault's hold from
+`read::host`, `call::trim`, `apply::start::change_note`), which T3 moves.
+tehas-core is not the core: it holds the forge, the sandbox and the
+process runner. T6 settles where the core ends.
 
 ## Write guards
 
@@ -120,13 +132,19 @@ the old term and removed at T9, and agreed with the owner first.
 
 | Part | Where frozen | Expected to change in 2.0 |
 | --- | --- | --- |
-| Commands and flags | `api/commands.txt`, `surface-1.0.txt` | `tehas github check` and `tehas github writes` name a supplier; to be named for the ports |
-| Exit statuses | contract, "Exit statuses" | no |
-| Settings | contract, "Settings and the knob rule"; `api/settings-rules.json` | settings that choose the adapters; the release repository at the rename (T10) |
-| Labels | `host/labels.tsv` | the contract names the act (approve, block, plan, refine); labels become the GitHub adapter's answer |
-| The factory API | `api/api.schema.json`, `status.schema.json` and the other schemas | fields that name GitHub's shapes, where the ports rename them |
+| Commands and flags | `api/commands.txt`, `surface-1.0.txt`; frozen since v1.0.0-beta.1 | `tehas github check` and `tehas github writes` name a supplier; to be named for the ports |
+| Exit statuses | contract, "Exit statuses"; since v1.0.0-beta.1 | no |
+| Settings | contract, "Settings and the knob rule"; `api/settings-rules.json`; since v1.0.0-beta.1 | settings that choose the adapters; the release repository at the rename (T10) |
+| Labels | `host/labels.tsv`; since v1.0.0-beta.1 | the contract names the act (approve, block, plan, refine); labels become the GitHub adapter's answer |
+| The factory API | `api/api.schema.json`, `status.schema.json` and the other schemas; since v1.0.0-beta.1, each later name added in the release `tehas api` lists it under | fields that name GitHub's shapes, where the ports rename them |
 | The plugin API | `api/plugin-*.schema.json`, the grants; not frozen until the feature ships | written into the 2.0 contract as it stands; events (`hook:<when>:<event>`) added (T11) |
 | Events | none yet | new: the event names and schemas (T11) |
+
+## Departures and floors
+
+None yet. A count that stays above 0 at the end of the work is written
+here with its reason, as a floor; a departure from a should rule (R5)
+likewise.
 
 ## Grades
 
