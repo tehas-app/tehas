@@ -164,8 +164,24 @@ pub fn log(home: &Path, get: &dyn Fn(&str) -> String, name: &str, pr: Option<u64
         return exit::NO;
     };
     // A reader that has gone is no failure of this command.
-    let _ = std::io::stdout().write_all(&bytes);
+    let _ = std::io::stdout().write_all(shown(&bytes).as_bytes());
     exit::OK
+}
+
+/// A container's output as text a terminal only shows: each control
+/// character but newline and tab, and each byte that is not UTF-8, is
+/// U+FFFD, so no escape sequence reaches the terminal.
+fn shown(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes)
+        .chars()
+        .map(|c| {
+            if c.is_control() && c != '\n' && c != '\t' {
+                '\u{FFFD}'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -305,5 +321,14 @@ mod tests {
         assert_eq!(log(&home, &vars(&[]), "floorplan", None), 0);
         assert_eq!(log(&home, &vars(&[]), "floorplan", Some(42)), 3);
         assert_eq!(log(&home, &vars(&[]), "other", None), 64);
+    }
+
+    #[test]
+    fn a_log_shows_no_control_character_but_newline_and_tab() {
+        let raw = b"a\tb\n\x1b]52;c;aGk=\x07\x1b]0;title\x07\r\x7f\xc2\x9b2J\xff\xc3\xa4\n";
+        assert_eq!(
+            shown(raw),
+            "a\tb\n\u{FFFD}]52;c;aGk=\u{FFFD}\u{FFFD}]0;title\u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}2J\u{FFFD}\u{e4}\n"
+        );
     }
 }

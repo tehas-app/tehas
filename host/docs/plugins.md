@@ -195,7 +195,10 @@ and has at least `TEHAS_PLUGIN_ACCESS` on `TEHAS_REPO`. The sign-in goes
 through the factory's GitHub App at `plugins.<domain>`. The gate checks the
 person's permission again every 10 minutes and on every press, by user id,
 and keeps no GitHub token. A session ends after 2 hours unused or 12 in all,
-and a restart of the gate signs everyone out.
+and a restart of the gate signs everyone out. The gate reads its settings
+when it starts, so `tehas update` restarts a running gate: a changed
+`TEHAS_PLUGIN_ACCESS`, pin or grant applies, and everyone signed in signs in
+again.
 
 Every page gets a policy that lets it load only the view's own files and the
 inline blocks tehas saw when the view was swapped in. A page that names
@@ -231,7 +234,9 @@ A refresh makes the view. A hook reports on a pull request.
   waits for none. A hook holds no slot, lock or label. By hand: `tehas plugin
   hook <name> <pr>`.
 - **What it said.** `tehas plugin log <name>` prints the last refresh's log,
-  and `--hook <pr>` the last hook's on that pull request.
+  and `--hook <pr>` the last hook's on that pull request. Each control
+  character but newline and tab is printed as U+FFFD, so a plugin's output
+  sends no escape sequence to your terminal.
 
 The runs, the tick and why it did nothing are logged in
 `~/tehas/logs/plugins.log`. [tehas plugin](/tools-control#tehas-plugin) has
