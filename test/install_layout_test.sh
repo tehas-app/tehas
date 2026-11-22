@@ -145,6 +145,17 @@ t_contains "$t_out" "removed: $units/tehas-energy.service"
 t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-energy.service
 --user daemon-reload"
 
+t_case "the model proxy of outsource, a service with no timer, is stopped and removed"
+echo "[Service]" >"$units/tehas-outsource-proxy.service"
+t_run "$install --check"
+t_contains "$t_out" "stale: $units/tehas-outsource-proxy.service"
+rm -f "$T/calls/systemctl"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $units/tehas-outsource-proxy.service"
+t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-outsource-proxy.service
+--user daemon-reload"
+
 t_case "the wiki's units go, its service only once systemd lets go of its path unit"
 for u in tehas-wiki-status.timer tehas-wiki-status.service tehas-wiki.timer tehas-wiki.path tehas-wiki.service; do echo "[Unit]" >"$units/$u"; done
 t_stub systemctl '[ "$4" != tehas-wiki.path ]'

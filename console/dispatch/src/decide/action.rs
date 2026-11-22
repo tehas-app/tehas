@@ -264,7 +264,6 @@ pub struct SpecPin {
 pub struct StartExtra {
     /// Only a lean start names its driver.
     pub driver: Option<Driver>,
-    pub contractor: Option<String>,
     pub approved_label: Option<String>,
     pub retry: Option<RetryTick>,
     pub refresh: Option<RefreshOf>,
@@ -514,9 +513,6 @@ impl From<&CycleStart> for Value {
         if let Some(d) = x.driver {
             put("driver", json!(d.word()));
         }
-        if let Some(c) = &x.contractor {
-            put("contractor", json!(c));
-        }
         if let Some(l) = &x.approved_label {
             put("approved_label", json!(l));
         }
@@ -590,7 +586,6 @@ mod tests {
             }),
             extra: StartExtra {
                 driver: Some(Driver::Lean),
-                contractor: Some("c".into()),
                 approved_label: Some("tehas:plan".into()),
                 retry: Some(RetryTick {
                     comment: Some(Given::Number(5.into())),

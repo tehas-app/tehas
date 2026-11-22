@@ -1,13 +1,7 @@
--- 3.15 outsource: laid in every store by init and by the step to 15, as
--- schema 15 wrote it. The columns of schema 17 are db::STEP_17's. Rows
--- are written only where the instance has TEHAS_OUTSOURCE=1, which the store
--- keeps as the meta row outsource = 1 (db::has_outsource). Times are UTC
--- Unix seconds, as everywhere here. The table of record is jobs, whose one
--- row is one cycle the factory gave to a contractor; every change of its
--- state leaves a row of job_history beside it, so a restart replays what
--- happened and a person can read a job's whole life. The factory never holds
--- a private key: a contractor gives its public key when it joins, and the
--- registered keys are the allowlist.
+-- The step to schema 15, as it was written: the five tables of outsource,
+-- which 2.0 dropped. A store older than 15 still passes through it on the way
+-- to 27, whose step drops them again (db::STEP_27). Nothing reads or writes a
+-- row of them.
 
 -- The contractors that may work for this factory. A key is what the joining
 -- host holds; the list is the allowlist, so there is no allowlist setting.

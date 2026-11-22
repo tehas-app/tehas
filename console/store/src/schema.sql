@@ -8,27 +8,18 @@
 -- oldest store db::migrate takes is the one v0.30.0 wrote, schema 12 (db::OLDEST):
 -- sections 3.10 to 3.12 were gone by then. Schema 13 adds the
 -- started_* columns of approvals (db::STEP_13). Schema 14 lets cycles.how say
--- 'host', a start `tehas start` approved (db::STEP_14). Schema 15 adds the
--- five outsource tables of section 3.15, in outsource.sql (db::step_15). Every
--- store holds them; only a factory with TEHAS_OUTSOURCE=1 writes a row of
--- them. No secret is in them: an invite code is kept only as the sha256 of
--- what was printed, and a contractor gives only its public key, so there is
--- no private key of any kind in the file. Schema 16 lets actions.state say
--- 'unknown', a write GitHub may have taken, and writes 'millwright' in every
--- row that still said 'fixer' (db::STEP_16). Schema 17 adds to the outsource
--- tables (db::STEP_17, which init runs after outsource.sql): jobs.token_sha256,
--- the sha256 of a job's token and never the token, and the report_* columns of
--- contractors, what a contractor last said it has. Schema 18 gives a job's
--- token two scopes (db::STEP_18, run after STEP_17): jobs.token_sha256 becomes
--- job_token_sha256, the contractor program's token for the job channel, and
--- model_token_sha256 is the token of the container's models.json. Schema 19
--- adds plugin_runs, one row per run of a plugin (db::STEP_19, run after
--- STEP_18). Schema 24 adds answers, an answer `tehas answer` gave to the
+-- 'host', a start `tehas start` approved (db::STEP_14). Schemas 15, 17 and 18
+-- held the five tables of outsource (db::STEP_15, STEP_17, STEP_18), which
+-- schema 27 drops (db::STEP_27): init lays none of them. Schema 16 lets
+-- actions.state say 'unknown', a write GitHub may have taken, and writes
+-- 'millwright' in every row that still said 'fixer' (db::STEP_16). Schema 19
+-- adds plugin_runs, one row per run of a plugin (db::STEP_19). Schema 24 adds answers, an answer `tehas answer` gave to the
 -- question on record of an issue (db::STEP_24_INIT, run after STEP_23), and
 -- cycles.how takes 'answer', which db::STEP_24 rebuilds cycles for.
 -- Schema 25 adds questions.offers, the choices a park's question offers
 -- (db::STEP_25). Schema 26: cycles.how takes 'reply', a retry a person's reply
--- asked for, which db::STEP_26 rebuilds cycles for.
+-- asked for, which db::STEP_26 rebuilds cycles for. Schema 27 drops the
+-- outsource tables.
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named

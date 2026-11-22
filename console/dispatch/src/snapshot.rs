@@ -1444,8 +1444,6 @@ pub struct Snapshot {
     /// numbers would hold an issue back on nothing.
     pub pulls_name: BTreeMap<u64, Vec<u64>>,
     pub leftovers: Option<Vec<Leftover>>,
-    /// What the outsource feature reads, present only while it is on.
-    pub outsource: Option<crate::place::Outsourcing>,
 }
 
 fn failed(v: &Value) -> bool {
@@ -2174,7 +2172,6 @@ impl Snapshot {
                         .collect()
                 })
                 .unwrap_or_default(),
-            outsource: v.get("outsource").map(crate::place::Outsourcing::parse),
         }
     }
 }

@@ -74,10 +74,6 @@ pub(super) const KEPT: &[&str] = &[
     "TEHAS_CYCLE_STOP_GH_WAIT",
     "TEHAS_CYCLE_FROM",
     "TEHAS_CYCLE_ATTEMPT",
-    // The contractor program a cycle on a contractor relays through
-    // (cycle/src/work.rs), named by that program and read only with outsource
-    // on.
-    "TEHAS_CONTRACTOR",
     "TEHAS_TIDY_CMD",
     "TEHAS_FINISH_CMD",
     "TEHAS_PUSH_PROBE_CMD",
@@ -148,6 +144,16 @@ pub(super) const IGNORED: &[(&str, &str)] = &[
         "TEHAS_WIKI",
         "the product wiki left core in 2.0 and returns as a plugin",
     ),
+    ("TEHAS_OUTSOURCE", "outsource was dropped in 2.0"),
+    ("TEHAS_OUTSOURCE_TIMEOUT", "outsource was dropped in 2.0"),
+    ("TEHAS_OUTSOURCE_GRACE", "outsource was dropped in 2.0"),
+    ("TEHAS_OUTSOURCE_RETRIES", "outsource was dropped in 2.0"),
+    ("TEHAS_OUTSOURCE_REST", "outsource was dropped in 2.0"),
+    ("TEHAS_OUTSOURCE_REPOS", "outsource was dropped in 2.0"),
+    ("TEHAS_OUTSOURCE_CONTRACTORS", "outsource was dropped in 2.0"),
+    ("TEHAS_OUTSOURCE_JOIN_TTL", "outsource was dropped in 2.0"),
+    ("TEHAS_OUTSOURCE_PROXY_ADDR", "outsource was dropped in 2.0"),
+    ("TEHAS_OUTSOURCE_PROXY_IDLE", "outsource was dropped in 2.0"),
 ];
 
 /// Whether `name` is one the load warns of and drops (`IGNORED`).
@@ -875,19 +881,6 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
             "TEHAS_PREVIEWS is on and TEHAS_DOMAIN is not set: a preview has no address without it (see {file})"
         ));
     }
-    // The model proxy of outsource (#2273) is the one place a contractor's
-    // cycle waits on the factory. Its idle bound must outlast the check-in
-    // timeout, or a job is lost while its stream is still alive. With outsource
-    // off nothing listens, so the bound is not checked.
-    let (check_in, idle) = (
-        number(vars, "TEHAS_OUTSOURCE_TIMEOUT"),
-        number(vars, "TEHAS_OUTSOURCE_PROXY_IDLE"),
-    );
-    if features::on_in("outsource", &|name| vars.text(name)) && idle <= check_in {
-        return Err(format!(
-            "TEHAS_OUTSOURCE_PROXY_IDLE ({idle}) is not longer than TEHAS_OUTSOURCE_TIMEOUT ({check_in}): a model stream would be cut off before the job that waits on it is lost (see {file})"
-        ));
-    }
     Ok(())
 }
 
@@ -1174,10 +1167,10 @@ mod tests {
     fn refused(extra: &[&str]) -> String {
         run(&mut Fake::with(extra)).1.unwrap_err()
     }
-    /// A load whose environment names outsource and review in the test
-    /// variable, as a test of a building feature starts a program.
+    /// A load whose environment names review in the test variable, as a test
+    /// of a building feature starts a program.
     fn tested(extra: &[&str]) -> (Vars, Result<(), String>) {
-        let mut vars = start(&[(crate::features::TEST_VAR, "outsource review")]);
+        let mut vars = start(&[(crate::features::TEST_VAR, "review")]);
         let got = load(&mut vars, &mut Fake::with(extra), "1000");
         (vars, got)
     }
@@ -1285,90 +1278,19 @@ mod tests {
     }
 
     #[test]
-    fn the_model_proxy_listens_on_its_address_with_a_longer_idle_bound() {
-        let vars = loads(&[]);
-        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_ADDR"), "127.0.0.1:8090");
-        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_IDLE"), "900");
-        let (vars, got) = tested(&[
-            "TEHAS_OUTSOURCE=1",
-            "TEHAS_OUTSOURCE_PROXY_ADDR=192.0.2.7:8091",
-            "TEHAS_OUTSOURCE_TIMEOUT=1800",
-            "TEHAS_OUTSOURCE_PROXY_IDLE=7200",
-        ]);
-        assert_eq!(got, Ok(()));
-        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_ADDR"), "192.0.2.7:8091");
-        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_IDLE"), "7200");
-        // With outsource off nothing listens, and the bound is not checked.
-        let (vars, got) = tested(&["TEHAS_OUTSOURCE_TIMEOUT=1800"]);
-        assert_eq!(got, Ok(()));
-        assert_eq!(vars.text("TEHAS_OUTSOURCE_TIMEOUT"), "1800");
-    }
-
-    #[test]
     fn a_building_features_own_setting_stops_the_load() {
-        for (line, feature) in [
-            ("TEHAS_OUTSOURCE_TIMEOUT=1800", "outsource"),
-            ("TEHAS_OUTSOURCE_REPOS=acme/widget", "outsource"),
-            (
-                "TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org",
-                "protolab-zip-url",
-            ),
-        ] {
+        for (line, feature) in [(
+            "TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org",
+            "protolab-zip-url",
+        )] {
             let name = line.split('=').next().unwrap();
             assert_eq!(
                 refused(&[line]),
                 format!("{name} is set and {feature} is still being built in this release: take the line out (see {FILE})")
             );
         }
-        // An empty line sets nothing, and a malformed value is named as such.
-        loads(&["TEHAS_OUTSOURCE_REPOS=", "TEHAS_PROTOLAB_ZIP_HOSTS="]);
-        assert!(refused(&["TEHAS_OUTSOURCE_TIMEOUT=soon"])
-            .starts_with("TEHAS_OUTSOURCE_TIMEOUT is not valid"));
-    }
-
-    #[test]
-    fn outsource_is_off_with_its_figures_at_the_defaults_and_writes_nothing() {
-        let vars = loads(&[]);
-        for (name, value) in [
-            ("TEHAS_OUTSOURCE", "0"),
-            ("TEHAS_OUTSOURCE_TIMEOUT", "600"),
-            ("TEHAS_OUTSOURCE_GRACE", "120"),
-            ("TEHAS_OUTSOURCE_RETRIES", "2"),
-            ("TEHAS_OUTSOURCE_REST", "1800"),
-            ("TEHAS_OUTSOURCE_REPOS", ""),
-            ("TEHAS_OUTSOURCE_CONTRACTORS", ""),
-            ("TEHAS_OUTSOURCE_JOIN_TTL", "3600"),
-        ] {
-            assert_eq!(vars.text(name), value, "{name}");
-        }
-        // A line left empty takes the default, as every Always setting does.
-        let vars = loads(&["TEHAS_OUTSOURCE=", "TEHAS_OUTSOURCE_REPOS="]);
-        assert_eq!(vars.text("TEHAS_OUTSOURCE"), "0");
-        assert_eq!(vars.text("TEHAS_OUTSOURCE_REPOS"), "");
-        let (vars, got) = tested(&[
-            "TEHAS_OUTSOURCE=1",
-            "TEHAS_OUTSOURCE_REPOS=acme/widget other/widget",
-        ]);
-        assert_eq!(got, Ok(()));
-        assert_eq!(vars.text("TEHAS_OUTSOURCE"), "1");
-        assert_eq!(
-            vars.text("TEHAS_OUTSOURCE_REPOS"),
-            "acme/widget other/widget"
-        );
-    }
-
-    #[test]
-    fn a_building_feature_set_on_stops_the_load() {
-        for value in ["1", "on"] {
-            let got = refused(&[&format!("TEHAS_OUTSOURCE={value}")]);
-            assert_eq!(
-                got,
-                format!("TEHAS_OUTSOURCE is on and outsource is still being built in this release: set it to off or take the line out (see {FILE})")
-            );
-        }
-        for value in ["0", "off", ""] {
-            loads(&[&format!("TEHAS_OUTSOURCE={value}")]);
-        }
+        // An empty line sets nothing.
+        loads(&["TEHAS_PROTOLAB_ZIP_HOSTS="]);
     }
 
     #[test]
@@ -1600,14 +1522,14 @@ mod tests {
 
     #[test]
     fn a_file_that_sets_the_test_variable_stops_the_load() {
-        let got = refused(&["TEHAS_OUTSOURCE=on", "TEHAS_TEST_FEATURES=outsource"]);
+        let got = refused(&["TEHAS_SPEC_PIPE=on", "TEHAS_TEST_FEATURES=spec-pipe"]);
         assert_eq!(
             got,
             format!("{FILE} sets TEHAS_TEST_FEATURES: it is for the tests only, take the line out")
         );
         let mut host = Fake::with(&[]).file(
             "/h/.config/tehas/env",
-            "export TEHAS_TEST_FEATURES=outsource\n",
+            "export TEHAS_TEST_FEATURES=spec-pipe\n",
         );
         let got = load(&mut start(&[]), &mut host, "1000").unwrap_err();
         assert_eq!(
@@ -1618,11 +1540,11 @@ mod tests {
 
     #[test]
     fn the_test_variable_comes_from_the_environment_and_turns_it_on() {
-        let mut vars = start(&[(crate::features::TEST_VAR, "outsource")]);
-        let mut host = Fake::with(&["TEHAS_OUTSOURCE=on"]);
+        let mut vars = start(&[(crate::features::TEST_VAR, "spec-pipe")]);
+        let mut host = Fake::with(&["TEHAS_SPEC_PIPE=on"]);
         assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
-        assert_eq!(vars.text("TEHAS_OUTSOURCE"), "1");
-        assert_eq!(vars.text(crate::features::TEST_VAR), "outsource");
+        assert_eq!(vars.text("TEHAS_SPEC_PIPE"), "1");
+        assert_eq!(vars.text(crate::features::TEST_VAR), "spec-pipe");
     }
 
     #[test]
@@ -1693,34 +1615,51 @@ mod tests {
     }
 
     #[test]
-    fn a_malformed_outsource_setting_stops_the_load_before_any_write() {
-        for (name, value) in [
-            ("TEHAS_OUTSOURCE", "yes"),
-            ("TEHAS_OUTSOURCE_TIMEOUT", "0"),
-            ("TEHAS_OUTSOURCE_GRACE", "2m"),
-            ("TEHAS_OUTSOURCE_RETRIES", "-1"),
-            ("TEHAS_OUTSOURCE_REST", "two"),
-            ("TEHAS_OUTSOURCE_REPOS", "acme"),
-            ("TEHAS_OUTSOURCE_CONTRACTORS", "box1  box2"),
-            ("TEHAS_OUTSOURCE_JOIN_TTL", "0"),
+    fn the_outsource_settings_of_a_1_4_instance_load_and_are_not_read() {
+        // Outsource was dropped in 2.0: any value, on included, from the
+        // instance or the environment, loads, and nothing reads it.
+        for name in [
+            "TEHAS_OUTSOURCE",
+            "TEHAS_OUTSOURCE_TIMEOUT",
+            "TEHAS_OUTSOURCE_GRACE",
+            "TEHAS_OUTSOURCE_RETRIES",
+            "TEHAS_OUTSOURCE_REST",
+            "TEHAS_OUTSOURCE_REPOS",
+            "TEHAS_OUTSOURCE_CONTRACTORS",
+            "TEHAS_OUTSOURCE_JOIN_TTL",
+            "TEHAS_OUTSOURCE_PROXY_ADDR",
+            "TEHAS_OUTSOURCE_PROXY_IDLE",
         ] {
-            let why = run(&mut Fake::with(&[&format!("{name}={value}")]))
-                .1
-                .unwrap_err();
-            assert_eq!(
-                why,
-                format!(
-                    "{name} is not valid: {} (see {FILE})",
-                    reason_of(name, value)
-                )
-            );
+            for value in ["on", "off", "0", "600", "acme/widget", "127.0.0.1:8090", ""] {
+                let mut vars = start(&[(name, value)]);
+                assert_eq!(
+                    load(&mut vars, &mut Fake::with(&[]), "1000"),
+                    Ok(()),
+                    "{name}={value}"
+                );
+                assert!(!vars.is_set(name), "{name}={value}");
+                let mut host = Fake::with(&[&format!("{name}={value}")]);
+                let mut vars = start(&[]);
+                assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()), "{name}={value}");
+                assert!(!vars.is_set(name), "{name}={value}");
+                assert_eq!(
+                    host.warned,
+                    [format!(
+                        "{name} is no longer read: outsource was dropped in 2.0; remove it from the instance"
+                    )],
+                    "{name}={value}"
+                );
+            }
         }
-    }
-
-    /// The reason the rule of `name` gives `value`, read off the rule itself so
-    /// the test above names no copy of it.
-    fn reason_of(name: &str, value: &str) -> String {
-        rules::check(name, value).unwrap_err()
+        // All of them in one instance: one warning each, and the load holds.
+        let mut host = Fake::with(&[
+            "TEHAS_OUTSOURCE=off",
+            "TEHAS_OUTSOURCE_REPOS=",
+            "TEHAS_OUTSOURCE_PROXY_IDLE=60",
+            "TEHAS_OUTSOURCE_TIMEOUT=61",
+        ]);
+        assert_eq!(load(&mut start(&[]), &mut host, "1000"), Ok(()));
+        assert_eq!(host.warned.len(), 4);
     }
 
     #[test]
@@ -2167,18 +2106,6 @@ mod tests {
             (
                 &["TEHAS_DOMAIN=example.org", "TEHAS_EDGE_ONE_LEVEL=1"][..],
                 "TEHAS_EDGE_ONE_LEVEL is on and TEHAS_DOMAIN is not a subdomain",
-            ),
-            (
-                &["TEHAS_OUTSOURCE=1", "TEHAS_OUTSOURCE_PROXY_IDLE=600"][..],
-                "TEHAS_OUTSOURCE_PROXY_IDLE (600) is not longer than TEHAS_OUTSOURCE_TIMEOUT (600)",
-            ),
-            (
-                &[
-                    "TEHAS_OUTSOURCE=1",
-                    "TEHAS_OUTSOURCE_PROXY_IDLE=60",
-                    "TEHAS_OUTSOURCE_TIMEOUT=61",
-                ][..],
-                "TEHAS_OUTSOURCE_PROXY_IDLE (60) is not longer than TEHAS_OUTSOURCE_TIMEOUT (61)",
             ),
         ] {
             let got = tested(lines).1.unwrap_err();

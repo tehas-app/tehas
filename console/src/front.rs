@@ -97,7 +97,6 @@ const VERBS: [&str; 37] = [
     "init-product",
     "refresh",
     "github",
-    "outsource",
     "prototype",
     "plugin",
     "wake",
@@ -140,7 +139,7 @@ fn tehasbot(words: &[String]) -> Go {
         None | Some("help" | "-h" | "--help") => Go::Usage,
         Some(
             "health" | "status" | "top" | "refresh" | "clean" | "preview" | "protolab" | "dispatch"
-            | "review" | "github-token" | "cycle" | "outsource-proxy" | "plugin" | "plugin-gate",
+            | "review" | "github-token" | "cycle" | "plugin" | "plugin-gate",
         ) => Go::Run,
         Some("mcp") if words.get(1).map(String::as_str) == Some("serve") => Go::Run,
         Some("mcp" | "github-writes") => Go::Verb,
@@ -440,12 +439,13 @@ mod tests {
         assert_eq!(t(&["wiki"]), Go::Unknown("wiki".into()));
         assert_eq!(b(&["wiki"]), Go::Unknown("wiki".into()));
         assert_eq!(b(&["mcp", "serve"]), Go::Run);
-        assert_eq!(b(&["outsource-proxy"]), Go::Run);
         assert_eq!(b(&["plugin", "tick"]), Go::Run);
         assert_eq!(b(&["plugin-gate"]), Go::Run);
         assert_eq!(t(&["plugin-gate"]), Go::Unknown("plugin-gate".into()));
+        // Outsource was dropped in 2.0.
+        assert_eq!(t(&["outsource"]), Go::Unknown("outsource".into()));
         assert_eq!(
-            t(&["outsource-proxy"]),
+            b(&["outsource-proxy"]),
             Go::Unknown("outsource-proxy".into())
         );
         assert_eq!(b(&["mcp", "key"]), Go::Verb);
@@ -821,7 +821,6 @@ mod tests {
         assert_eq!(
             marked,
             [
-                ("outsource", "outsource"),
                 ("plugin", "plugins"),
                 ("prototype", "prototype-file")
             ]

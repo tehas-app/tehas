@@ -137,21 +137,12 @@ fn at_22(name: &str) -> TestDir {
     home
 }
 
-/// The columns of a contractor's report, which schema 17 adds.
-const REPORT_COLUMNS: [&str; 5] = [
-    "report_image",
-    "report_rukas",
-    "report_mem_mb",
-    "report_disk_kb",
-    "report_at",
-];
-
 /// The SQL of the step to `to`, as one transaction runs it.
 fn step_sql(to: i64) -> &'static str {
     match to {
         13 => db::STEP_13,
         14 => db::STEP_14,
-        15 => db::OUTSOURCE_SCHEMA,
+        15 => db::STEP_15,
         16 => db::STEP_16,
         17 => db::STEP_17,
         18 => db::STEP_18,
@@ -163,6 +154,7 @@ fn step_sql(to: i64) -> &'static str {
         24 => db::STEP_24,
         25 => db::STEP_25,
         26 => db::STEP_26,
+        27 => db::STEP_27,
         _ => unreachable!("no step to {to}"),
     }
 }
@@ -181,12 +173,12 @@ fn rows(c: &Connection) -> Vec<(String, usize)> {
         .collect()
 }
 
-/// The rows of every table but the outsource ones, which a store of 15 or
-/// later has and an older one does not.
+/// The rows of every table but the outsource ones, which a store of 15 to 26
+/// has and no other does.
 fn host_rows(c: &Connection) -> Vec<(String, usize)> {
     rows(c)
         .into_iter()
-        .filter(|(t, _)| !db::OUTSOURCE_TABLES.contains(&t.as_str()))
+        .filter(|(t, _)| !db::DROPPED_TABLES.contains(&t.as_str()))
         .collect()
 }
 
@@ -225,18 +217,17 @@ fn checks(c: &Connection, table: &str) -> Vec<String> {
 }
 
 fn migrate(home: &Path) -> Result<String, (u8, String)> {
-    migrate_with(home, false, NOW)
+    migrate_at(home, NOW)
 }
 
-/// `store migrate` with or without `--outsource`, at `now`: two migrations of
-/// one store in one second would name the same copy.
-fn migrate_with(home: &Path, outsource: bool, now: i64) -> Result<String, (u8, String)> {
+/// `store migrate` at `now`: two migrations of one store in one second would
+/// name the same copy.
+fn migrate_at(home: &Path, now: i64) -> Result<String, (u8, String)> {
     execute(
         home,
         &Verb::Migrate {
             backup: Home::new(home).state(State::Backups),
             settings: settings(),
-            outsource,
         },
         now,
     )
@@ -298,21 +289,19 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_26() {
-    assert_eq!(db::SCHEMA_VERSION, 26);
-    let home = home("schema-26");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 26);
+fn init_writes_schema_27() {
+    assert_eq!(db::SCHEMA_VERSION, 27);
+    let home = home("schema-27");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 27);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "26"
+        "27"
     );
     // Schema 25: the choices a park's question offers.
     assert!(columns(&conn(&home), "questions").contains(&"offers".to_string()));
-    // The five tables of the feature are laid by every init, and stay empty
-    // while it is off.
-    for t in db::OUTSOURCE_TABLES {
-        assert!(tables(&conn(&home)).iter().any(|n| n == t), "{t}");
-        assert_eq!(count(&home, t), 0, "{t}");
+    // Schema 27: outsource was dropped, and init lays none of its tables.
+    for t in db::DROPPED_TABLES {
+        assert!(!tables(&conn(&home)).iter().any(|n| n == t), "{t}");
     }
     assert_eq!(count(&home, "meta WHERE key = 'outsource'"), 0);
     assert_eq!(count(&home, "planning_notes"), 0);
@@ -322,19 +311,6 @@ fn init_writes_schema_26() {
     assert!(!columns(&c, "planning_answers").contains(&"fixer".to_string()));
     for t in ["planning", "plan_history"] {
         assert!(columns(&c, t).contains(&"auto".to_string()), "{t}");
-    }
-    // Schema 17: a contractor keeps its last report. Schema 18: a job keeps
-    // the hash of its token of each scope.
-    let jobs = columns(&c, "jobs");
-    for col in ["model_token_sha256", "job_token_sha256"] {
-        assert!(jobs.contains(&col.to_string()), "{col}");
-    }
-    assert!(!jobs.contains(&"token_sha256".to_string()));
-    for col in REPORT_COLUMNS {
-        assert!(
-            columns(&c, "contractors").contains(&col.to_string()),
-            "{col}"
-        );
     }
     // Schema 19: a run of a plugin. Schema 23: the size of a call's answer.
     assert_eq!(
@@ -428,7 +404,7 @@ fn the_fixtures_are_the_stores_of_the_releases() {
         );
         // A row in every table a host writes, so a step is seen to keep each.
         for (t, n) in rows(&conn(&home)) {
-            if !db::OUTSOURCE_TABLES.contains(&t.as_str()) {
+            if !db::DROPPED_TABLES.contains(&t.as_str()) {
                 assert!(n > 0, "{version} has no row in {t}");
             }
         }
@@ -455,11 +431,14 @@ fn a_store_of_each_release_1_0_updates_from_comes_to_18_with_every_row() {
             db::SCHEMA_VERSION.to_string()
         );
         assert_eq!(count(&home, "meta"), meta, "{version}");
-        // Every row kept; the outsource tables are new and empty.
+        // Every row kept; the outsource tables are gone.
         let after = host_rows(&conn(&home));
         assert_eq!(after, before, "{version}");
-        for t in db::OUTSOURCE_TABLES {
-            assert_eq!(count(&home, t), 0, "{t} of {version}");
+        for t in db::DROPPED_TABLES {
+            assert!(
+                !tables(&conn(&home)).iter().any(|n| n == t),
+                "{t} of {version}"
+            );
         }
         assert_eq!(count(&home, "meta WHERE key = 'outsource'"), 0);
         same_shape_as_init(&home, &b, version);
@@ -559,6 +538,40 @@ fn a_migrate_stopped_at_any_step_comes_to_18_when_it_runs_again() {
     }
 }
 
+/// The step to 27 drops the five outsource tables with whatever rows a
+/// development store held, and the feature's row of meta, and keeps the rest.
+#[test]
+fn the_step_from_26_drops_the_outsource_tables_and_keeps_every_other_row() {
+    let made = home("step-27-init");
+    let home = release("step-27-drops", 23);
+    let key = "0".repeat(64);
+    conn(&home)
+        .execute_batch(&format!(
+            "INSERT OR IGNORE INTO issues (issue, kind, kind_at, checked_at) VALUES (7, 'issue', 1, 1);
+             INSERT INTO contractors (name, public_key, added_at) VALUES ('box1', '{key}', 100);
+             INSERT INTO jobs (issue, contractor, attempt, state, offered_at, expires_at, updated_at)
+               VALUES (7, 'box1', 1, 'offered', 100, 200, 100);
+             INSERT INTO job_history (job, at, to_state, said_by) VALUES (1, 100, 'offered', 'factory');
+             INSERT INTO issue_attempts (issue, given) VALUES (7, 1);
+             INSERT INTO meta (key, value) VALUES ('outsource', '1');"
+        ))
+        .unwrap();
+    let before = host_rows(&conn(&home));
+    let meta = count(&home, "meta");
+    migrate(&home).unwrap();
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
+    for t in db::DROPPED_TABLES {
+        assert!(!tables(&conn(&home)).iter().any(|n| n == t), "{t}");
+    }
+    assert_eq!(count(&home, "meta WHERE key = 'outsource'"), 0);
+    assert_eq!(count(&home, "meta"), meta - 1);
+    assert_eq!(host_rows(&conn(&home)), before);
+    same_shape_as_init(&home, &conn(&made), "23");
+    // The backup taken before the step still holds them.
+    let v: serde_json::Value = serde_json::from_str(&migrate_at(&home, NOW + 1).unwrap()).unwrap();
+    assert_eq!(v["from"], db::SCHEMA_VERSION);
+}
+
 #[test]
 fn a_step_that_fails_leaves_the_store_where_it_was_with_its_rows() {
     // A table of the step's own name already there: the step to 15 fails, and
@@ -579,7 +592,7 @@ fn a_step_that_fails_leaves_the_store_where_it_was_with_its_rows() {
     conn(&home)
         .execute_batch("DROP TABLE contractors;")
         .unwrap();
-    migrate_with(&home, false, NOW + 1).unwrap();
+    migrate_at(&home, NOW + 1).unwrap();
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
 }
 
@@ -680,7 +693,6 @@ fn the_dry_run_of_migrate_takes_a_backup_directory_and_no_other_word() {
         None
     );
     assert_eq!(p(&["migrate", "--dry-run", "--dry-run"]), None);
-    assert_eq!(p(&["migrate", "--dry-run", "--outsource"]), None);
 }
 
 fn rehearse(home: &Path, backup: &Path) -> Result<String, (u8, String)> {
@@ -843,90 +855,6 @@ fn the_step_from_15_names_the_millwright_in_every_old_row() {
     );
 }
 
-/// The step to 17 keeps every outsource row and adds its columns empty: a job
-/// given out before it has no token's hash, a contractor no report.
-#[test]
-fn the_step_from_16_keeps_the_outsource_rows_and_adds_its_columns_empty() {
-    let home = at_16("step-17-rows");
-    conn(&home)
-        .execute_batch(&format!(
-            "INSERT OR IGNORE INTO issues (issue, kind, kind_at, checked_at) VALUES (7, 'issue', 1, 1);
-             INSERT INTO contractors (name, public_key, added_at, last_seen_at) VALUES ('box1', '{KEY}', 100, 200);
-             INSERT INTO jobs (issue, contractor, attempt, state, offered_at, expires_at, updated_at)
-               VALUES (7, 'box1', 1, 'running', 100, 4000, 100);
-             INSERT INTO job_history (job, at, to_state, said_by) VALUES (1, 100, 'offered', 'factory');
-             INSERT INTO issue_attempts (issue, given) VALUES (7, 1);"
-        ))
-        .unwrap();
-    assert!(conn(&home)
-        .execute_batch("UPDATE jobs SET token_sha256 = 'x'")
-        .is_err());
-    let before = rows(&conn(&home));
-    migrate(&home).unwrap();
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
-    assert_eq!(rows(&conn(&home)), before);
-    assert_eq!(
-        count(
-            &home,
-            "jobs WHERE model_token_sha256 IS NULL AND job_token_sha256 IS NULL"
-        ),
-        1
-    );
-    for col in REPORT_COLUMNS {
-        assert_eq!(
-            count(&home, &format!("contractors WHERE {col} IS NULL")),
-            1,
-            "{col}"
-        );
-    }
-    assert_eq!(
-        one::<i64>(
-            &home,
-            "SELECT last_seen_at FROM contractors WHERE name = 'box1'"
-        ),
-        200
-    );
-}
-
-/// The step to 18 keeps a job's token hash as the hash of its job scope and
-/// adds the model scope empty.
-#[test]
-fn the_step_from_17_keeps_the_token_hash_as_the_job_scope() {
-    let home = at_17("step-18-rows");
-    let sha = "1".repeat(64);
-    conn(&home)
-        .execute_batch(&format!(
-            "INSERT OR IGNORE INTO issues (issue, kind, kind_at, checked_at) VALUES (7, 'issue', 1, 1);
-             INSERT INTO contractors (name, public_key, added_at) VALUES ('box1', '{KEY}', 100);
-             INSERT INTO jobs (issue, contractor, attempt, state, offered_at, expires_at, updated_at, token_sha256)
-               VALUES (7, 'box1', 1, 'running', 100, 4000, 100, '{sha}');
-             INSERT INTO jobs (issue, contractor, attempt, state, offered_at, expires_at, updated_at)
-               VALUES (7, 'box1', 2, 'offered', 100, 4000, 100);"
-        ))
-        .unwrap();
-    let before = rows(&conn(&home));
-    migrate(&home).unwrap();
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
-    assert_eq!(rows(&conn(&home)), before);
-    assert_eq!(
-        count(
-            &home,
-            &format!(
-                "jobs WHERE id = 1 AND job_token_sha256 = '{sha}' AND model_token_sha256 IS NULL"
-            )
-        ),
-        1
-    );
-    assert_eq!(
-        count(
-            &home,
-            "jobs WHERE id = 2 AND model_token_sha256 IS NULL AND job_token_sha256 IS NULL"
-        ),
-        1
-    );
-    assert!(!columns(&conn(&home), "jobs").contains(&"token_sha256".to_string()));
-}
-
 /// The step to 23 keeps every run of a plugin, with no size, and a row may
 /// then be a call.
 #[test]
@@ -988,10 +916,10 @@ fn the_step_from_23_adds_the_answers_and_an_answer_goes_with_its_question() {
     }
     drop(c);
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 23);
-    let before = rows(&conn(&home));
+    let before = host_rows(&conn(&home));
     migrate(&home).unwrap();
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
-    assert_eq!(rows(&conn(&home)), before);
+    assert_eq!(host_rows(&conn(&home)), before);
     assert_eq!(count(&home, "answers"), 0);
     let c = conn(&home);
     c.execute_batch("PRAGMA foreign_keys = ON").unwrap();
@@ -1035,10 +963,10 @@ fn the_step_from_24_adds_the_offers_of_a_question_and_keeps_every_row() {
     }
     drop(c);
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 24);
-    let before = rows(&conn(&home));
+    let before = host_rows(&conn(&home));
     migrate(&home).unwrap();
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
-    assert_eq!(rows(&conn(&home)), before);
+    assert_eq!(host_rows(&conn(&home)), before);
     assert_eq!(count(&home, "questions WHERE offers IS NOT NULL"), 0);
     let made = crate::verbs_tests::home("step-25-shape");
     same_shape_as_init(&home, &conn(&made), "24");
@@ -1058,10 +986,10 @@ fn the_step_from_25_lets_a_cycle_say_reply_and_keeps_every_row() {
     assert!(c.execute("UPDATE cycles SET how = 'reply'", []).is_err());
     drop(c);
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 25);
-    let before = rows(&conn(&home));
+    let before = host_rows(&conn(&home));
     migrate(&home).unwrap();
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
-    assert_eq!(rows(&conn(&home)), before);
+    assert_eq!(host_rows(&conn(&home)), before);
     let c = conn(&home);
     c.execute("UPDATE cycles SET how = 'reply'", []).unwrap();
     assert_eq!(
@@ -1149,36 +1077,8 @@ fn load_brings_a_copy_of_a_0_30_store_forward_as_migrate_does() {
     }
 }
 
-#[test]
-fn a_store_of_14_migrated_with_the_feature_on_takes_its_writes() {
-    let home = release("release-14-on", 14);
-    let cycles = count(&home, "cycles");
-    migrate_with(&home, true, NOW).unwrap();
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
-    assert_eq!(
-        count(&home, "meta WHERE key = 'outsource' AND value = '1'"),
-        1
-    );
-    let args = ["contractor-add", "--name", "box1", "--key", KEY];
-    call_word_at(&home, NOW, &args, "added").unwrap();
-    assert_eq!(count(&home, "contractors"), 1);
-    assert_eq!(count(&home, "cycles"), cycles);
-}
-
-#[test]
-fn a_migrated_store_with_the_feature_off_writes_no_outsource_row() {
-    let home = release("release-14-off", 14);
-    migrate(&home).unwrap();
-    let args = ["contractor-add", "--name", "box1", "--key", KEY];
-    call_word_at(&home, NOW, &args, "refused").unwrap();
-    assert_eq!(count(&home, "contractors"), 0);
-}
-
-/// A public key as a contractor gives it.
-const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-
 /// The sources of the verbs, without their tests.
-const VERB_SOURCES: [(&str, &str); 24] = [
+const VERB_SOURCES: [(&str, &str); 23] = [
     ("answer.rs", include_str!("answer.rs")),
     ("approval.rs", include_str!("approval.rs")),
     ("batch.rs", include_str!("batch.rs")),
@@ -1193,7 +1093,6 @@ const VERB_SOURCES: [(&str, &str); 24] = [
     ("lock.rs", include_str!("lock.rs")),
     ("main.rs", include_str!("main.rs")),
     ("order.rs", include_str!("order.rs")),
-    ("outsource.rs", include_str!("outsource.rs")),
     ("park.rs", include_str!("park.rs")),
     ("plan.rs", include_str!("plan.rs")),
     ("plugin.rs", include_str!("plugin.rs")),
@@ -1277,7 +1176,7 @@ const DROPPED: [&str; 18] = [
 fn the_dropped_tables_stay_dropped_after_a_migrate() {
     let home = release("dropped-stay", 12);
     migrate(&home).unwrap();
-    migrate_with(&home, false, NOW + 1).unwrap();
+    migrate_at(&home, NOW + 1).unwrap();
     let left = tables(&conn(&home));
     for t in DROPPED {
         assert!(!left.contains(&t.to_string()), "{t}");

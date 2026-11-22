@@ -1,6 +1,5 @@
-//! The store called in one process from many threads at once, as the proxy's
-//! listener calls it. SQLite 3.51.0 and 3.51.1 could deadlock there: a thread
-//! closing the last connection of a WAL database held the file's lock mutex
+//! The store called in one process from many threads at once. SQLite 3.51.0
+//! and 3.51.1 could deadlock there: a thread closing the last connection of a WAL database held the file's lock mutex
 //! and asked for the VFS mutex, while a thread opening the same file held the
 //! VFS mutex and asked for the lock mutex. Every later call of the process
 //! then waited on the VFS mutex for ever.
@@ -38,7 +37,6 @@ fn home(n: usize) -> PathBuf {
             "example",
             "--repo",
             "example-owner/example-product",
-            "--outsource",
         ],
     )
     .unwrap();
@@ -58,12 +56,10 @@ fn threads_that_open_and_close_one_store_at_once_never_deadlock() {
                 let end = Instant::now() + LOAD;
                 let mut calls = 0u64;
                 while Instant::now() < end {
-                    let name = format!("box{calls}");
-                    let key = format!("{calls:064x}");
                     let args: &[&str] = if writes {
-                        &["contractor-add", "--name", &name, "--key", &key]
+                        &["poll-begin"]
                     } else {
-                        &["contractor-list"]
+                        &["locks-held"]
                     };
                     call(&home, args).unwrap_or_else(|e| panic!("{args:?}: {e:?}"));
                     calls += 1;

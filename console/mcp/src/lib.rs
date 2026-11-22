@@ -3,7 +3,6 @@
 //! and refresh's own logs among them.
 
 pub mod conform;
-pub mod contractors;
 pub mod decisions;
 pub mod disk;
 pub mod egress;

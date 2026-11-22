@@ -10,7 +10,6 @@ use crate::after::{self, log};
 use crate::facts::Facts;
 use crate::host::{self, Start};
 use crate::report::{report, Action, Ask, Park, Report};
-use crate::stamp::{stamped, Pull, Trailers};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::Write;
@@ -19,10 +18,9 @@ use std::path::Path;
 use std::time::Duration;
 use tehas_core::call::{run_full, store_try, GH_BOUND, GRACE};
 use tehas_core::end_fault;
-use tehas_core::home::{Home, State};
+use tehas_core::home::Home;
 use tehas_core::journal::{Journal, Wrote};
 use tehas_core::question::is_handoff_marker;
-use tehas_core::stamp::Built;
 
 mod reread;
 use reread::Seen;
@@ -220,11 +218,6 @@ struct Writer<'a> {
     handoff_failed: Option<String>,
     /// The comment with the handoff may have been posted: no read could tell.
     handoff_maybe: bool,
-    /// Who built the cycle, where outsource is on: the line below each
-    /// comment and the pull request's body.
-    stamp: Option<Built>,
-    /// The branch heads on GitHub as a contractor's cycle started.
-    heads: Option<crate::stamp::Heads>,
 }
 
 impl Writer<'_> {
@@ -442,7 +435,6 @@ impl Writer<'_> {
         // says so in a comment, and asks nothing.
         if on_record && p.asks() {
             let (_, body) = p.question(n, self.stuck);
-            let body = stamped(&body, self.stamp.as_ref());
             match self.post_question(&body) {
                 Posted::Id(id) => {
                     let offers = tehas_core::question::park_offers(!p.no_retry, p.comments)
@@ -460,7 +452,7 @@ impl Writer<'_> {
             }
         }
         let said = p.comment(self.stuck, on_record);
-        self.comment(&stamped(&said, self.stamp.as_ref()));
+        self.comment(&said);
     }
 
     /// The question's id, or whether it may have been posted.
@@ -572,94 +564,6 @@ impl Writer<'_> {
         self.handed(posted, body);
         if posted == Some(false) {
             log(&format!("WARN: comment on {pr} failed"));
-        }
-    }
-
-    /// The stamp on the cycle's pull request: a contractor's commits checked
-    /// for their trailer first while it is open, then the line as the last of
-    /// its body. After a stop the branch is left as it is: a fetch and a push
-    /// do not fit in the time a stop leaves.
-    fn stamp_pull(&mut self, url: &str, built: &Built, signalled: bool) {
-        let Some(n) = crate::stamp::pull_number(url) else {
-            return;
-        };
-        let args = vec!["api".to_string(), format!("repos/{}/pulls/{n}", self.repo)];
-        let read = run_full("gh", &args, None, self.gh.bound, self.gh.grace, &[]);
-        let pull = read
-            .ok()
-            .then(|| serde_json::from_str::<Value>(&read.out).ok())
-            .flatten()
-            .and_then(|v| Pull::of(&v, &self.repo));
-        let Some(pull) = pull else {
-            log(&format!(
-                "WARN: pull request #{n} could not be read: it carries no stamp"
-            ));
-            return;
-        };
-        if let (Some(name), false) = (built.contractor(), signalled) {
-            self.trailers(&pull, name);
-        }
-        let Some(body) = pull.footed(built) else {
-            return;
-        };
-        let args = vec![
-            "api".into(),
-            "-X".into(),
-            "PATCH".into(),
-            format!("repos/{}/issues/{n}", self.repo),
-            "--input".into(),
-            "-".into(),
-        ];
-        let input = json!({"body": body}).to_string();
-        if !matches!(
-            self.write(n, "issue-edit", args, Some(&input), None),
-            Wrote::Done(_)
-        ) {
-            log(&format!(
-                "WARN: could not write the stamp in the body of pull request #{n}"
-            ));
-        }
-    }
-
-    /// A contractor's commits on the pull request's branch, each made to name
-    /// it in its `Built-by:` trailer.
-    fn trailers(&self, pull: &Pull, name: &str) {
-        // A merged or closed pull request's branch is history: left as it is.
-        if !pull.open {
-            return;
-        }
-        if !pull.own {
-            log(&format!(
-                "WARN: pull request #{} is from another repository: its trailers are not checked",
-                pull.number
-            ));
-            return;
-        }
-        let Some(heads) = &self.heads else {
-            log(&format!(
-                "WARN: the Built-by: trailers of {} were not checked: the branch heads as the cycle started were not noted",
-                pull.head
-            ));
-            return;
-        };
-        if tehas_core::read_only::refuse(&format!("push the Built-by: rewrite of {}", pull.head)) {
-            return;
-        }
-        let scratch = Home::new(self.home)
-            .state(State::OutsourceStamp)
-            .join(self.issue.to_string());
-        let remote = format!("https://github.com/{}.git", self.repo);
-        let from = heads.at(&pull.head);
-        match crate::stamp::fix_trailers(&scratch, &remote, &pull.base, &pull.head, from, name) {
-            Ok(Trailers::Kept) => {}
-            Ok(Trailers::Rewritten(k)) => log(&format!(
-                "#{}: {k} commit(s) of {} did not name {name} in Built-by: and were written again",
-                self.issue, pull.head
-            )),
-            Err(why) => log(&format!(
-                "WARN: the Built-by: trailers of {} were not checked: {why}",
-                pull.head
-            )),
         }
     }
 
@@ -941,6 +845,15 @@ pub struct Reported {
     pub refused: bool,
 }
 
+/// The number of a pull request's URL, `.../pull/<n>`.
+fn pull_number(url: &str) -> Option<u64> {
+    let (rest, n) = url.trim_end_matches('/').rsplit_once('/')?;
+    if !rest.ends_with("/pull") || n.is_empty() || n.starts_with('0') || n.len() > 10 {
+        return None;
+    }
+    n.parse().ok()
+}
+
 /// [`run`], and what the hooks need of the report.
 pub fn reported(home: &Path, s: &Start) -> Reported {
     let issue = s.issue;
@@ -950,10 +863,8 @@ pub fn reported(home: &Path, s: &Start) -> Reported {
     // The driver's record goes with the run before the workspace is cleared of
     // what only its container wrote: the record is the only account of the
     // driver's own steps, and nothing else reads it later.
-    if s.runner.on_host() {
-        keep_lean_state(home, &workdir, issue, approved_lean(&facts_json));
-        clear_workspace(&workdir);
-    }
+    keep_lean_state(home, &workdir, issue, approved_lean(&facts_json));
+    clear_workspace(&workdir);
     let facts = match Facts::from_json(&facts_json) {
         Ok(f) => f,
         Err(e) => {
@@ -965,12 +876,6 @@ pub fn reported(home: &Path, s: &Start) -> Reported {
             };
         }
     };
-    let built = crate::stamp::built(home, s);
-    // The note goes with the cycle's other notes before the actions run.
-    let heads = built
-        .as_ref()
-        .and_then(Built::contractor)
-        .and_then(|_| crate::stamp::heads(home, issue));
     let gh = Gh::of(s.signalled);
     let mut ask = Tried {
         repo: facts.repo.clone(),
@@ -998,8 +903,6 @@ pub fn reported(home: &Path, s: &Start) -> Reported {
         last_failed: String::new(),
         handoff_failed: None,
         handoff_maybe: false,
-        stamp: built.clone(),
-        heads,
     };
     for a in &mut r.actions {
         match a {
@@ -1010,7 +913,7 @@ pub fn reported(home: &Path, s: &Start) -> Reported {
             }
             Action::Comment { ok, stuck } => {
                 let said = if w.stuck { stuck.clone() } else { ok.clone() };
-                w.comment(&stamped(&said, w.stamp.as_ref()));
+                w.comment(&said);
             }
             Action::Park(p) => w.park(p, &facts, &mut ask),
             Action::PrComment { pr, body } => w.pr_comment(pr, body),
@@ -1029,12 +932,6 @@ pub fn reported(home: &Path, s: &Start) -> Reported {
                 }
             }
             Action::RefreshOff { pr } => w.refresh_off(pr),
-        }
-    }
-    if let Some(b) = &built {
-        if !r.after.ended.pr.is_empty() {
-            let pr = r.after.ended.pr.clone();
-            w.stamp_pull(&pr, b, s.signalled);
         }
     }
     log(&r.done);
@@ -1061,15 +958,10 @@ pub fn reported(home: &Path, s: &Start) -> Reported {
     a.status_cmd = s.status_cmd.clone();
     a.status_args = s.status_args.clone();
     a.workdir = workdir;
-    a.contractor = built
-        .as_ref()
-        .and_then(Built::contractor)
-        .unwrap_or_default()
-        .to_string();
     after::after(home, &a);
     Reported {
         rc: if on_record && fault_kept { 0 } else { 70 },
-        pr: crate::stamp::pull_number(&r.after.ended.pr),
+        pr: pull_number(&r.after.ended.pr),
         refused: !r.refused_why.is_empty(),
     }
 }

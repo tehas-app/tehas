@@ -25,10 +25,6 @@
 //! agent runs here on a timer with no person in front of it: a weekly run says 78
 //! for an instance that could not review rather than exiting 0 on it.
 //!
-//! tehasbot outsource-proxy is `tehas-proxy` beside this program, by exec
-//! under the settings: the model proxy of outsource, which says itself
-//! whether the feature is on.
-//!
 //! tehasbot plugin is `tehas-plugin` beside this program, by exec under the
 //! settings: a plugin's run and the plugins' tick, which say themselves
 //! whether the feature is on.
@@ -316,9 +312,6 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
         }
         ["tehasbot", "cycle"] => cycle_run(libexec, rest.first().ok_or(64u8)?),
         ["tehasbot", "plugin"] => beside(libexec, "tehas-plugin", "tehasbot plugin", rest),
-        ["tehasbot", "outsource-proxy"] if rest.is_empty() => {
-            beside(libexec, "tehas-proxy", "tehasbot outsource-proxy", &[])
-        }
         ["tehasbot", "plugin-gate"] if rest.is_empty() => {
             beside(libexec, "tehas-plugin-gate", "tehasbot plugin-gate", &[])
         }

@@ -128,14 +128,6 @@ pub const UNRULED: &[(&str, &str)] = &[
         "TEHAS_CYCLE_ATTEMPT",
         "handed by tehasbot cycle to tehas work",
     ),
-    (
-        "TEHAS_CONTRACTOR",
-        "handed by the contractor program to the cycle it runs",
-    ),
-    (
-        "TEHAS_CONTRACTOR_GIT",
-        "a test's clone source for tehas-contractor",
-    ),
     ("TEHAS_TIDY_CMD", "a test's tidy"),
     ("TEHAS_FINISH_CMD", "a test's finish"),
     ("TEHAS_DISPATCH_CMD", "a test's dispatcher"),

@@ -19,14 +19,14 @@ use tehas_core::home::{Home, State};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 26;
+pub const SCHEMA_VERSION: i64 = 27;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
-/// The five tables of section 3.15, the outsource state. Every store of this
-/// schema holds them: `write_schema` and `step_15` lay them whether or not the
-/// instance outsources. What the feature decides is whether a verb writes a
-/// row of them; see [`has_outsource`].
-pub const OUTSOURCE_TABLES: [&str; 5] = [
+/// The five tables schemas 15 to 26 held for outsource, which 2.0 dropped:
+/// the step to 15 lays them, the steps to 17 and 18 add to them, and the step
+/// to 27 drops them.
+#[cfg(test)]
+pub const DROPPED_TABLES: [&str; 5] = [
     "contractors",
     "join_codes",
     "jobs",
@@ -34,57 +34,8 @@ pub const OUTSOURCE_TABLES: [&str; 5] = [
     "issue_attempts",
 ];
 
-/// The DDL of the five outsource tables, kept in `outsource.sql` beside
-/// schema.sql. It is the DDL of the step to 15 as well, so `init` and
-/// `migrate` lay the same tables. The columns schemas 17 and 18 add to them
-/// are [`STEP_17`]'s and [`STEP_18`]'s, which `init` runs after it.
-pub const OUTSOURCE_SCHEMA: &str = include_str!("outsource.sql");
-
-/// The key of `meta` whose value `1` says the instance outsources.
-const OUTSOURCE_KEY: &str = "outsource";
-
-/// Whether the instance has the feature on, as the last `init` or `migrate`
-/// was told by `--outsource`. The store reads no setting of a host
-/// (src/main.rs), so the command that loaded the instance's settings passes the
-/// word down and the store keeps it in `meta`. A store with no such row has the
-/// feature off, which is the safe answer: its verbs write nothing.
-pub fn has_outsource(conn: &Connection) -> Result<bool, DbError> {
-    let n: i64 = conn
-        .query_row(
-            "SELECT count(*) FROM meta WHERE key = ?1 AND value = '1'",
-            [OUTSOURCE_KEY],
-            |r| r.get(0),
-        )
-        .map_err(classify)?;
-    Ok(n == 1)
-}
-
-/// [`has_outsource`] on a connection whose write lock is held and whose
-/// transaction has begun, so the answer is the one the write of the same
-/// transaction sees.
-pub fn has_outsource_held(conn: &Connection) -> Result<bool, DbError> {
-    has_outsource(conn)
-}
-
-/// Writes the feature as the caller said it: the row of `meta` when on, no row
-/// when off. Turning it off keeps every row of the five tables; the verbs stop
-/// writing them until a later call says on again.
-pub fn set_outsource(conn: &mut Connection, on: bool) -> Result<(), DbError> {
-    let tx = conn
-        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-        .map_err(classify)?;
-    if on {
-        tx.execute(
-            "INSERT INTO meta (key, value) VALUES (?1, '1') \
-             ON CONFLICT (key) DO UPDATE SET value = '1'",
-            [OUTSOURCE_KEY],
-        )
-    } else {
-        tx.execute("DELETE FROM meta WHERE key = ?1", [OUTSOURCE_KEY])
-    }
-    .map_err(classify)?;
-    tx.commit().map_err(classify)
-}
+/// The DDL of the step to 15, as schema 15 wrote it.
+pub const STEP_15: &str = include_str!("step_15.sql");
 
 /// The step from 12 to 13: what a start was, kept on the approval it ran on (#1751).
 /// The keeping after a start deletes the approvals of the starts the base no longer
@@ -139,13 +90,6 @@ ALTER TABLE cycles_new RENAME TO cycles;
 CREATE INDEX cycles_running ON cycles (ended_at, started_at);
 ";
 
-/// The step from 14 to 15: the five outsource tables of section 3.15. It
-/// creates them on every store, empty; whether a verb writes them is the
-/// feature's, which the step does not decide. Nothing is rebuilt, so no row can
-/// be lost.
-fn step_15(c: &mut Connection) -> Result<(), DbError> {
-    step(c, 15, OUTSOURCE_SCHEMA)
-}
 
 /// The step from 15 to 16: an action may be `unknown`, a write GitHub may have
 /// taken that a read has still to settle (#1754). `actions` is rebuilt as
@@ -388,6 +332,19 @@ pub const STEP_24: &str = concat!(
 /// reply asked for, so `answer` stays the how of `tehas answer` alone (#2782).
 /// Run as the step to 24 is, with foreign keys off (`step_26`).
 pub const STEP_26: &str = cycles_with_hows!("'label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host','answer','reply'");
+
+/// The step from 26 to 27: outsource was dropped in 2.0, and its five tables
+/// and its row of `meta` go with it. No release could turn the feature on, so
+/// the tables are empty on a host; the backup `migrate` takes first holds what
+/// a development store had. The children go before their parents.
+pub const STEP_27: &str = "
+DROP TABLE job_history;
+DROP TABLE issue_attempts;
+DROP TABLE jobs;
+DROP TABLE join_codes;
+DROP TABLE contractors;
+DELETE FROM meta WHERE key = 'outsource';
+";
 
 /// How long SQLite waits for a lock another connection holds before giving
 /// up, as the spec's section 4 states it. A database still busy then is exit
@@ -674,7 +631,7 @@ pub fn install_test_bounds() -> (Duration, Duration) {
 /// them. Every CREATE INDEX of schema.sql appears here exactly once, which that
 /// test is what checks.
 #[cfg(test)]
-pub const COUNTED_INDEXES: [&str; 23] = [
+pub const COUNTED_INDEXES: [&str; 16] = [
     "issues_checked",
     "cycles_running",
     "heartbeats_at",
@@ -689,21 +646,14 @@ pub const COUNTED_INDEXES: [&str; 23] = [
     "poll_cost_at",
     "actions_open",
     "journal_action",
-    "join_codes_code",
-    "jobs_issue",
-    "jobs_open",
-    "jobs_check_in",
-    "job_history_job",
-    "jobs_model_token",
-    "jobs_job_token",
     "plugin_runs_last",
     "plugin_records_issue",
 ];
 
 /// The tables of schema.sql, each exactly once, which the test
 /// every_counted_table_exists pins, so a table that goes missing from the
-/// schema cannot go missing from the report too. `check` counts these and
-/// [`OUTSOURCE_TABLES`], and `copy` counts and `load` moves both.
+/// schema cannot go missing from the report too. `check` and `copy` count
+/// these, and `load` moves them.
 pub const COUNTED_TABLES: [&str; 27] = [
     "actions",
     "answers",
@@ -1308,9 +1258,6 @@ pub fn write_schema(
         ));
     }
     tx.execute_batch(SCHEMA).map_err(classify)?;
-    tx.execute_batch(OUTSOURCE_SCHEMA).map_err(classify)?;
-    tx.execute_batch(STEP_17).map_err(classify)?;
-    tx.execute_batch(STEP_18).map_err(classify)?;
     tx.execute_batch(STEP_19).map_err(classify)?;
     tx.execute_batch(STEP_20).map_err(classify)?;
     tx.execute_batch(STEP_21).map_err(classify)?;
@@ -1447,7 +1394,7 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     // v0.30.1 wrote 13.
     (14, step_14),
     // v0.30.2 to v0.30.6 wrote 14.
-    (15, step_15),
+    (15, |c| step(c, 15, STEP_15)),
     // A store at 15 is one this binary wrote before an action could be
     // unknown.
     (16, step_16),
@@ -1476,6 +1423,8 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     // A store at 25 is one this binary wrote before a reply's retry had a how
     // of its own.
     (26, step_26),
+    // A store at 26 is one this binary wrote while outsource was being built.
+    (27, |c| step(c, 27, STEP_27)),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and
@@ -1676,10 +1625,7 @@ fn make_copy(conn: &Connection, copy: &Path, what: &str) -> Result<Copied, DbErr
         let wal = c.query_row("PRAGMA journal_mode = WAL", [], |r| r.get::<_, String>(0))?;
         let schema = c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?;
         let mut rows = 0;
-        for table in COUNTED_TABLES
-            .iter()
-            .chain(&OUTSOURCE_TABLES)
-            .filter(|t| **t != "meta")
+        for table in COUNTED_TABLES.iter().filter(|t| **t != "meta")
         {
             let there: bool = c.query_row(
                 "SELECT count(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?1",
@@ -1806,8 +1752,8 @@ pub fn check(conn: &Connection) -> Result<Report, DbError> {
         [only] if only == "ok" => "ok".to_string(),
         others => others.join("; "),
     };
-    let mut counts = Vec::with_capacity(COUNTED_TABLES.len() + OUTSOURCE_TABLES.len());
-    for table in COUNTED_TABLES.iter().chain(&OUTSOURCE_TABLES).copied() {
+    let mut counts = Vec::with_capacity(COUNTED_TABLES.len());
+    for table in COUNTED_TABLES.iter().copied() {
         // A store not yet migrated lacks the tables of the later versions; it
         // is reported as it is. At the version this binary writes, a missing
         // table is the error the count below gives.

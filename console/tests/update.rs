@@ -1165,7 +1165,7 @@ fn an_owed_units_line_from_before_a_unit_was_retired_restarts_the_current_units_
 ) {
     let h = host("retired", 1, "echo \"tehas is up to date\"");
     // What the version before wrote, the retired timers among them.
-    h.record(&["units tehas-dispatch.timer tehas-refresh.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-review.timer tehas-wiki-status.timer tehas-wiki.path tehas-clean.timer"]);
+    h.record(&["units tehas-dispatch.timer tehas-refresh.timer tehas-energy.service tehas-outsource-proxy.service tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-review.timer tehas-wiki-status.timer tehas-wiki.path tehas-clean.timer"]);
     let r = h.update(&[]);
     assert_eq!(r.rc, 0, "{}", r.out);
     has(
@@ -1175,6 +1175,7 @@ fn an_owed_units_line_from_before_a_unit_was_retired_restarts_the_current_units_
     lacks(&r.out, "tehas-refresh.timer");
     lacks(&r.out, "tehas-improve.timer");
     lacks(&r.out, "tehas-energy.service");
+    lacks(&r.out, "tehas-outsource-proxy.service");
     lacks(&r.out, "tehas-wiki");
     assert_eq!(h.owed_steps(), "");
 }

@@ -93,3 +93,10 @@ edge/protolab.compose.yaml
 # The energy file of energy use, which left core in 2.0: nothing writes or
 # reads it, and the docs server would serve the last one for ever.
 live/energy.json
+# What outsource installed while a test turned it on: its two programs, their
+# stamps, and the file of its contractors. Outsource was dropped in 2.0.
+libexec/tehas-proxy
+libexec/tehas-proxy.stamp
+libexec/tehas-contractor
+libexec/tehas-contractor.stamp
+live/contractors.json

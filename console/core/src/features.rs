@@ -39,25 +39,6 @@ pub struct Feature {
 
 pub const FEATURES: &[Feature] = &[
     Feature {
-        name: "outsource",
-        stage: Stage::Building,
-        setting: "TEHAS_OUTSOURCE",
-        settings: &[
-            "TEHAS_OUTSOURCE_TIMEOUT",
-            "TEHAS_OUTSOURCE_GRACE",
-            "TEHAS_OUTSOURCE_RETRIES",
-            "TEHAS_OUTSOURCE_REST",
-            "TEHAS_OUTSOURCE_REPOS",
-            "TEHAS_OUTSOURCE_CONTRACTORS",
-            "TEHAS_OUTSOURCE_JOIN_TTL",
-            "TEHAS_OUTSOURCE_PROXY_ADDR",
-            "TEHAS_OUTSOURCE_PROXY_IDLE",
-        ],
-        since: "v1.0.0-alpha.2",
-        programs: &["tehas-proxy", "tehas-contractor"],
-        units: &["tehas-outsource-proxy.service"],
-    },
-    Feature {
         name: "spec-pipe",
         stage: Stage::Building,
         setting: "TEHAS_SPEC_PIPE",
@@ -423,8 +404,8 @@ mod tests {
             None
         );
         assert_eq!(
-            test_features_in(&vars(&[(TEST_VAR, "lean nothing outsource")]), true, false),
-            tested(true, false, true, &["outsource", "lean"])
+            test_features_in(&vars(&[(TEST_VAR, "plugins nothing lean")]), true, false),
+            tested(true, false, true, &["lean", "plugins"])
         );
         // A release does not read it, and says what it names all the same.
         assert_eq!(
@@ -444,8 +425,8 @@ mod tests {
             tested(true, true, false, &[])
         );
         assert_eq!(
-            test_features_in(&vars(&[(TEST_VAR, "outsource")]), true, true),
-            tested(true, true, true, &["outsource"])
+            test_features_in(&vars(&[(TEST_VAR, "plugins")]), true, true),
+            tested(true, true, true, &["plugins"])
         );
     }
 
@@ -476,12 +457,12 @@ mod tests {
 
     #[test]
     fn a_lab_build_reads_the_test_variable_and_a_release_does_not() {
-        let get = vars(&[(TEST_VAR, "outsource")]);
-        let outsource = find("outsource").unwrap();
-        assert!(usable_in(outsource, &get, reads(false, Some("on"))));
-        assert!(usable_in(outsource, &get, reads(true, None)));
-        assert!(!usable_in(outsource, &get, reads(false, Some("off"))));
-        assert!(!usable_in(outsource, &get, reads(false, None)));
+        let get = vars(&[(TEST_VAR, "plugins")]);
+        let plugins = find("plugins").unwrap();
+        assert!(usable_in(plugins, &get, reads(false, Some("on"))));
+        assert!(usable_in(plugins, &get, reads(true, None)));
+        assert!(!usable_in(plugins, &get, reads(false, Some("off"))));
+        assert!(!usable_in(plugins, &get, reads(false, None)));
     }
 
     #[test]
@@ -517,8 +498,8 @@ mod tests {
     #[test]
     fn a_building_setting_is_a_building_features_switch_or_own_setting() {
         for name in [
-            "TEHAS_OUTSOURCE",
-            "TEHAS_OUTSOURCE_REPOS",
+            "TEHAS_PLUGIN",
+            "TEHAS_PLUGINS",
             "TEHAS_PROTOLAB_ZIP_HOSTS",
             "TEHAS_LEAN",
             "TEHAS_REVIEW",
@@ -529,12 +510,6 @@ mod tests {
         for name in ["TEHAS_REPO", "TEHAS_DRIVER", "TEHAS_NOPE"] {
             assert!(!building_setting(name), "{name}");
         }
-    }
-
-    #[test]
-    fn outsource_is_building() {
-        assert_eq!(find("outsource").map(|f| f.stage), Some(Stage::Building));
-        assert!(!shipped().contains(&"outsource"));
     }
 
     #[test]
@@ -682,8 +657,8 @@ mod tests {
         assert!(!timed("tehas-review.timer", &units));
         assert!(!timed("tehas-review.service", &["tehas-review.service"]));
         assert!(!timed(
-            "tehas-outsource-proxy.service",
-            &["tehas-outsource-proxy.service"]
+            "tehas-plugin-gate.service",
+            &["tehas-plugin-gate.service"]
         ));
     }
 
@@ -727,27 +702,27 @@ mod tests {
     #[test]
     fn a_building_feature_is_off_whatever_its_switch_says() {
         for value in ["on", "1", "off", "0", ""] {
-            let get = vars(&[("TEHAS_OUTSOURCE", value)]);
-            assert!(!on_in("outsource", &get), "{value}");
+            let get = vars(&[("TEHAS_PLUGIN", value)]);
+            assert!(!on_in("plugins", &get), "{value}");
         }
     }
 
     #[test]
     fn the_test_variable_lets_a_building_feature_follow_its_switch() {
         for (value, want) in [("on", true), ("1", true), ("off", false), ("0", false)] {
-            let get = vars(&[("TEHAS_OUTSOURCE", value), (TEST_VAR, "other outsource")]);
-            assert_eq!(on_in("outsource", &get), want, "{value}");
+            let get = vars(&[("TEHAS_PLUGIN", value), (TEST_VAR, "other plugins")]);
+            assert_eq!(on_in("plugins", &get), want, "{value}");
         }
-        let get = vars(&[("TEHAS_OUTSOURCE", "on"), (TEST_VAR, "outsourcer")]);
-        assert!(!on_in("outsource", &get));
+        let get = vars(&[("TEHAS_PLUGIN", "on"), (TEST_VAR, "pluginsx")]);
+        assert!(!on_in("plugins", &get));
     }
 
     #[test]
     fn a_release_build_ignores_the_test_variable() {
-        let outsource = find("outsource").unwrap();
-        let get = vars(&[("TEHAS_OUTSOURCE", "on"), (TEST_VAR, "outsource")]);
-        assert!(!usable_in(outsource, &get, false));
-        assert!(usable_in(outsource, &get, true));
+        let plugins = find("plugins").unwrap();
+        let get = vars(&[("TEHAS_PLUGIN", "on"), (TEST_VAR, "plugins")]);
+        assert!(!usable_in(plugins, &get, false));
+        assert!(usable_in(plugins, &get, true));
     }
 
     #[test]
@@ -759,19 +734,16 @@ mod tests {
     #[test]
     fn the_load_refuses_a_building_feature_set_on() {
         for value in ["on", "1"] {
-            let got = refuse_building(&vars(&[("TEHAS_OUTSOURCE", value)]));
+            let got = refuse_building(&vars(&[("TEHAS_PLUGIN", value)]));
             assert_eq!(
                 got,
-                Err("TEHAS_OUTSOURCE is on and outsource is still being built in this release: set it to off or take the line out".to_string())
+                Err("TEHAS_PLUGIN is on and plugins is still being built in this release: set it to off or take the line out".to_string())
             );
         }
         for value in ["off", "0", ""] {
-            assert_eq!(
-                refuse_building(&vars(&[("TEHAS_OUTSOURCE", value)])),
-                Ok(())
-            );
+            assert_eq!(refuse_building(&vars(&[("TEHAS_PLUGIN", value)])), Ok(()));
         }
-        let tested = vars(&[("TEHAS_OUTSOURCE", "on"), (TEST_VAR, "outsource")]);
+        let tested = vars(&[("TEHAS_PLUGIN", "on"), (TEST_VAR, "plugins")]);
         assert_eq!(refuse_building(&tested), Ok(()));
     }
 
@@ -779,8 +751,8 @@ mod tests {
     fn the_load_refuses_a_building_features_own_setting() {
         let set = |names: &'static [&'static str]| move |name: &str| names.contains(&name);
         assert_eq!(
-            refuse_building_settings(&set(&["TEHAS_OUTSOURCE_REPOS"]), &vars(&[])),
-            Err("TEHAS_OUTSOURCE_REPOS is set and outsource is still being built in this release: take the line out".to_string())
+            refuse_building_settings(&set(&["TEHAS_PLUGINS"]), &vars(&[])),
+            Err("TEHAS_PLUGINS is set and plugins is still being built in this release: take the line out".to_string())
         );
         assert_eq!(
             refuse_building_settings(&set(&["TEHAS_PROTOLAB_ZIP_HOSTS"]), &vars(&[])),
@@ -788,8 +760,8 @@ mod tests {
         );
         assert_eq!(refuse_building_settings(&set(&[]), &vars(&[])), Ok(()));
         // A test that can turn the feature on may set its settings with it off.
-        let tested = vars(&[(TEST_VAR, "outsource protolab-zip-url")]);
-        let both = set(&["TEHAS_OUTSOURCE_TIMEOUT", "TEHAS_PROTOLAB_ZIP_HOSTS"]);
+        let tested = vars(&[(TEST_VAR, "plugins protolab-zip-url")]);
+        let both = set(&["TEHAS_PLUGIN_ACCESS", "TEHAS_PROTOLAB_ZIP_HOSTS"]);
         assert_eq!(refuse_building_settings(&both, &tested), Ok(()));
     }
 
@@ -817,25 +789,16 @@ mod tests {
     }
 
     #[test]
-    fn outsource_installs_its_proxy_its_unit_and_the_contractor_only_while_on() {
+    fn a_feature_installs_nothing_while_it_is_off() {
         let none: (Vec<&str>, Vec<&str>) = (vec![], vec![]);
         assert_eq!(installs_in(&vars(&[])), none);
         // A building feature set on without the test variable is off.
-        assert_eq!(installs_in(&vars(&[("TEHAS_OUTSOURCE", "on")])), none);
-        let off = vars(&[("TEHAS_OUTSOURCE", "off"), (TEST_VAR, "outsource")]);
+        assert_eq!(installs_in(&vars(&[("TEHAS_PLUGIN", "on")])), none);
+        let off = vars(&[("TEHAS_PLUGIN", "off"), (TEST_VAR, "plugins")]);
         assert_eq!(installs_in(&off), none);
-        let on = vars(&[("TEHAS_OUTSOURCE", "on"), (TEST_VAR, "outsource")]);
-        assert_eq!(
-            installs_in(&on),
-            (
-                vec!["tehas-proxy", "tehas-contractor"],
-                vec!["tehas-outsource-proxy.service"]
-            )
-        );
         assert_eq!(
             units().collect::<Vec<_>>(),
             [
-                "tehas-outsource-proxy.service",
                 "tehas-review.service",
                 "tehas-review.timer",
                 "tehas-plugin@.service",
