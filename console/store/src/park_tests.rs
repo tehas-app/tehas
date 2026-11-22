@@ -629,7 +629,7 @@ fn question_known_is_true_only_for_the_question_on_record() {
     );
     assert_eq!(
         known(&home, 40, 41),
-        json!({"api":1,"verb":"question-known","ok":true,"known":true,"kind":"park","recorded":true,"answered":false,"answer":null})
+        json!({"api":1,"verb":"question-known","ok":true,"known":true,"kind":"park","recorded":true,"answered":false,"reask":false,"answer":null})
     );
     planned(&home, 42);
     ok(
