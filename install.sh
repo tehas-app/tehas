@@ -413,8 +413,8 @@ home_marker=.tehas-home
 # code (tehas-cycle run). docs and fun are not among them: a home that has
 # them without the marker is not known to be tehas's, and this run would remove
 # the pages of someone else from them.
-home_dirs=(bin libexec lib live logs mcp platform preview protolab repos sandbox
-  state tmp tools work target .cargo versions current run)
+home_dirs=(bin libexec lib live logs mcp platform preview protolab items repos
+  sandbox state tmp tools work target .cargo versions current run)
 
 home_refusal() { # the reason $TEHAS_HOME is not provably tehas's, or nothing
   local path=${TEHAS_HOME:-} entry part rest
@@ -984,13 +984,14 @@ fi
 had_versions=0
 [ -f "$TEHAS_HOME/versions.env" ] && had_versions=1
 # The home's own directories are made here, before the first copy: the servers
-# mount live/ and protolab/, preview/ is where `tehasbot preview` keeps each pull
-# request, and an empty home has none of them yet. Making them here rather than
-# after the copies is what lets the marker go into a home that is not yet there.
+# mount live/ and items/, which Docker would otherwise make as root, preview/ is
+# where `tehasbot preview` keeps each pull request, and an empty home has none
+# of them yet. Making them here rather than after the copies is what lets the
+# marker go into a home that is not yet there.
 # --check changes nothing, so it makes neither.
 if [ "$check" != 1 ]; then
   mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
-    "$TEHAS_HOME/preview"
+    "$TEHAS_HOME/items" "$TEHAS_HOME/preview"
   # A home with no env.sh has never been installed.
   [ -f "$TEHAS_HOME/env.sh" ] || : >"$first_owed"
   if ! bashrc_ok; then

@@ -14,7 +14,7 @@ instance, written so that another instance can follow it.
 | --- | --- |
 | `uat-<pr>.tehas.app` | The preview of that pull request |
 | `uat-main.tehas.app` | The preview of the default branch's head |
-| `lab-<issue>.tehas.app` | That ticket's page in the Protolab |
+| `item-<issue>.tehas.app` | That ticket's page in the Protolab |
 | `lab.tehas.app` | The Protolab's list |
 
 How far this is proven:
@@ -74,7 +74,7 @@ level by joining the label with a dash:
 | --- | --- |
 | `uat-<pr>-demo.example.org` | The preview of that pull request |
 | `uat-main-demo.example.org` | The preview of the default branch's head |
-| `lab-<issue>-demo.example.org` | That ticket's page in the Protolab |
+| `item-<issue>-demo.example.org` | That ticket's page in the Protolab |
 | `lab-demo.example.org` | The Protolab's list |
 
 These are the names the pull request's notice, the dashboard's Previews and
@@ -190,7 +190,7 @@ in the file do not matter; the last line has to be `Valid configuration`.
 | --- | --- | --- |
 | `tehas.app` | 200 | The dashboard is as before |
 | `www.tehas.app` | 301 | So is its redirect |
-| `lab.tehas.app`, `lab-1.tehas.app`, `uat-1.tehas.app` | 502 | The certificate and the site work. Nothing listens on port 8081 of the host yet |
+| `lab.tehas.app`, `item-1.tehas.app`, `uat-1.tehas.app` | 502 | The certificate and the site work. Nothing listens on port 8081 of the host yet |
 | `nothing.tehas.app`, `uat-x.tehas.app` | 404 | Other names are refused |
 | any of them | 521 | Caddy on the proxy is not running. See the box above |
 | any of them | 525 | The certificate is not in place, or the encryption mode is not Full |
@@ -227,7 +227,7 @@ Where the file is depends on the instance directory:
 that reads the settings with exit 78.
 
 `TEHAS_DOMAIN` by itself is enough for the Protolab's names: each ticket is
-then at `lab-<issue>.tehas.app`, and the Protolab's address becomes
+then at `item-<issue>.tehas.app`, and the Protolab's address becomes
 `https://lab.tehas.app` unless `TEHAS_PROTOLAB_URL` says otherwise.
 
 ### 8. Install and start the router

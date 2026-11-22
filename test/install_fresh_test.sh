@@ -94,7 +94,7 @@ t_eq "$([ -e "$th/state/first-install" ] && echo owed)" ""
 # It makes the previews' network where there is none, and asks nothing else.
 t_eq "$(t_calls docker)" "$net_inspect"
 t_lacks "$t_out" "tehas-previews"
-t_eq "$([ -d "$th/preview" ] && echo there)" "there"
+t_eq "$([ -d "$th/preview" ] && [ -d "$th/items" ] && echo there)" "there"
 # A host gets its tools from bootstrap.sh before its first install.
 t_lacks "$t_out" "bootstrap.sh user"
 # The run that makes the home leaves the mark that says it is tehas's.

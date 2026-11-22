@@ -10,7 +10,7 @@ compose=$T_ROOT/host/edge/router.compose.yaml
 t_case "the router's file names no domain and takes numbers only"
 t_eq "$(grep -c -E 'tehas\.app|example\.' "$caddyfile")" 0
 for want in '@preview header_regexp preview Host ^uat-([1-9][0-9]{0,8})\.' '@main header_regexp main Host ^uat-main\.' 'reverse_proxy tehas-preview-main:8080' \
-  '@ticket header_regexp ticket Host ^lab-([1-9][0-9]{0,8})\.' 'reverse_proxy tehas-preview-{re.preview.1}:8080' 'root * /srv/protolab/{re.ticket.1}'; do
+  '@item header_regexp item Host ^item-([1-9][0-9]{0,8})\.' 'reverse_proxy tehas-preview-{re.preview.1}:8080' 'root * /srv/items/{re.item.1}'; do
   t_contains "$(cat "$caddyfile")" "$want"
 done
 t_eq "$(awk '/handle @main \{/ {a = NR} /handle @odd \{/ {b = NR} END {print (a && a < b) ? "before" : "after"}' "$caddyfile")" before
@@ -45,7 +45,7 @@ t_lacks "$(cat "$docs_compose")" "docker.sock"
 
 t_case "the router keeps its protections"
 t_contains "$(cat "$caddyfile")" 'respond @kept 404'
-t_contains "$(cat "$caddyfile")" '@odd header_regexp odd Host ^(uat|lab)-'
+t_contains "$(cat "$caddyfile")" '@odd header_regexp odd Host ^(uat|item)-'
 t_contains "$(cat "$caddyfile")" 'header Content-Security-Policy "sandbox allow-scripts allow-forms allow-modals allow-pointer-lock"'
 t_contains "$(cat "$caddyfile")" "header Content-Security-Policy \"default-src 'none'; style-src 'self'"
 

@@ -87,7 +87,7 @@ pub enum Rule {
     HostAddress,
     /// The dashboard puts a ticket's number straight after it.
     LabAddress,
-    /// A name is made by putting uat-<n>. or lab-<n>. in front of it.
+    /// A name is made by putting uat-<n>. or item-<n>. in front of it.
     Domain,
     PreviewMax,
     FreeDisk,

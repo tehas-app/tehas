@@ -160,6 +160,7 @@ dependencies = [
  "tehas-core",
  "tehas-cycle",
  "tehas-dispatch",
+ "tehas-items",
  "tehas-ops",
 ]
 
@@ -1823,6 +1824,7 @@ dependencies = [
 name = "tehas-core"
 version = "0.1.0"
 dependencies = [
+ "attach",
  "libc",
  "regex",
  "serde_json",
@@ -1857,6 +1859,15 @@ dependencies = [
 name = "tehas-front"
 version = "0.1.0"
 dependencies = [
+ "tehas-core",
+]
+
+[[package]]
+name = "tehas-items"
+version = "0.1.0"
+dependencies = [
+ "attach",
+ "serde_json",
  "tehas-core",
 ]
 

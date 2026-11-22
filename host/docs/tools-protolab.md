@@ -13,7 +13,7 @@ systemctl --user enable --now tehas-protolab.timer
 . ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d
 ```
 
-Builds the Protolab in `~/tehas/protolab`: a page for every open issue
+Builds the Protolab in `~/tehas/items`: a page for every open issue
 labelled `tehas:prototype` by an account in `TEHAS_ALLOWED_LABELERS`, with the
 files attached to it, and the list
 `~/tehas/live/protolab.json` that the dashboard and `prototypes` of
@@ -34,16 +34,16 @@ every page once more.
 
 A host updated from the version whose command built the pages in bash: a pass
 of the old command that is running when the new console lands logs that its
-tickets could not be read, leaves `protolab/index.html` empty and exits 1. The
+tickets could not be read, leaves `items/index.html` empty and exits 1. The
 next pass of the timer writes the page again, within five minutes.
 
 The container is the edge router, on port 8081. It answers for the Protolab
 and for the [previews](/tools-clean#tehasbot-preview), and picks by the name it is asked
-for: `lab-<issue>.` is that ticket's page, `uat-<pr>.` is the preview of that
+for: `item-<issue>.` is that ticket's page, `uat-<pr>.` is the preview of that
 pull request, and any other name is the Protolab by path, the list at `/` and
 a ticket at `/<issue>/`. It reads its mounts, has a read-only root and no way
 to write to the host. With `TEHAS_DOMAIN` set, the list links each ticket at
-`lab-<issue>.<domain>`, so every ticket is an origin of its own to a browser.
+`item-<issue>.<domain>`, so every ticket is an origin of its own to a browser.
 [The host](/host) has the table of what it answers.
 
 A ticket is at the prototype stage only while its most recent `tehas:prototype`

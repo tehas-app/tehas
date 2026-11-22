@@ -18,7 +18,7 @@ cp "$T_CONSOLE" "$T_CONSOLE_DIR/console"
 
 protolab="$T_ROOT/bin/tehasbot protolab"
 fx=$T/fx
-site=$T/home/tehas/protolab
+site=$T/home/tehas/items
 live=$T/home/tehas/live
 
 t_protolab() { t_run "TEHAS_CONSOLE=$T_CONSOLE_DIR/console $protolab"; }
@@ -572,10 +572,10 @@ reset
 t_instance "${T_MINIMAL[@]}" TEHAS_DOMAIN=example.org
 issues "$(issue 7 'Map' 'no files')"
 t_protolab
-t_contains "$(cat "$site/index.html")" 'href="https://lab-7.example.org/"'
+t_contains "$(cat "$site/index.html")" 'href="https://item-7.example.org/"'
 t_lacks "$(cat "$site/index.html")" 'href="/7/"'
 t_contains "$(cat "$site/7/index.html")" '<a href="https://lab.example.org/">ALL PROTOTYPES</a>'
-t_eq "$(jq -r '.tickets[0].address' "$live/protolab.json")" "https://lab-7.example.org/"
+t_eq "$(jq -r '.tickets[0].address' "$live/protolab.json")" "https://item-7.example.org/"
 t_eq "$(jq -r '.url' "$live/protolab.json")" "https://lab.example.org"
 
 t_case "a domain that changes rebuilds a ticket that did not"
@@ -977,7 +977,7 @@ rm -rf "$bare" "$T/calls/gh"
 mkdir -p "$bare/cwd"
 t_run "cd \"$bare/cwd\" && \"$T_CONSOLE\" protolab run"
 t_eq "$t_rc" 0
-t_eq "$([ -d "$bare/home/protolab" ] && echo there)" there
+t_eq "$([ -d "$bare/home/items" ] && echo there)" there
 T_ENV=("${keep_t_env[@]}")
 
 t_case "a console with other bytes builds every page again"

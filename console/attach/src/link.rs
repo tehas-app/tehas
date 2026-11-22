@@ -1,5 +1,5 @@
 //! The one link rule: which addresses tehas ever fetches for an issue. The
-//! attachment checker, the dispatcher and the Protolab all read links by it.
+//! attachment checker, the dispatcher and the issue feed all read links by it.
 
 use regex::Regex;
 use std::sync::LazyLock;
@@ -52,8 +52,8 @@ pub fn sends_token(link: &str, token: &str) -> bool {
 
 /// Whether `link` is an address outside GitHub's storage that tehas may fetch
 /// with a sha256 beside it: https, a host that is one of `hosts` (domains one
-/// space apart, as TEHAS_PROTOLAB_ZIP_HOSTS holds them) exactly, with no port
-/// and no account, and a path of plain characters. As in [`LINK_RULE`], no
+/// space apart) exactly, with no port and no account, and a path of plain
+/// characters. As in [`LINK_RULE`], no
 /// part of the path is `.` or `..` or holds an escaped `.`, `/` or `\`. No
 /// fragment. An empty `hosts` allows nothing.
 pub fn is_external(link: &str, hosts: &str) -> bool {
@@ -224,5 +224,139 @@ mod tests {
         walk(&root, &mut found);
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(found[0].ends_with("attach/src/link.rs"), "{found:?}");
+    }
+
+    /// The links of `text` as jq reads them with the rule of
+    /// console/attach/src/link.rs. The rule is read from that file when the
+    /// test runs, so this compares two readings and not two copies of one. With
+    /// no jq on the host there is nothing to compare, and the Rust side is
+    /// pinned by every other case of links here.
+    fn links_of_the_rule(text: &str) -> Vec<String> {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/link.rs");
+        let source = fs::read_to_string(path).expect("console/attach/src/link.rs is there");
+        let rule = source
+            .lines()
+            .find_map(|line| line.strip_prefix("pub const LINK_RULE: &str = r\""))
+            .and_then(|tail| tail.strip_suffix("\";"))
+            .expect("the rule of the links is in console/attach/src/link.rs");
+        let program = format!("def links: [scan({})];", serde_json::Value::from(rule));
+        let Ok(answered) = std::process::Command::new("jq")
+            .args(["-Rs", "--arg", "t", text])
+            .arg(format!("{program} $t | links"))
+            .output()
+        else {
+            return Vec::new();
+        };
+        assert!(
+            answered.status.success(),
+            "jq: {}",
+            String::from_utf8_lossy(&answered.stderr)
+        );
+        serde_json::from_slice(&answered.stdout).expect("jq answers a list of links")
+    }
+
+    #[test]
+    fn only_githubs_own_storage_is_a_link_and_nothing_else() {
+        let text = format!(
+            "{} {} {} {} {} {}",
+            "https://github.com/user-attachments/assets/11111111-2222-3333-4444-555555555555",
+            "https://github.com/user-attachments/files/21/proto.html",
+            "https://github.com/acme/widget/files/22/style.css",
+            "https://acme.github.io/widget/files/23/elsewhere.css",
+            "https://user-images.githubusercontent.com/12345/98765-abcd-ef01-2345-6789abcdef01",
+            "https://example.com/not-ours.png",
+        );
+        assert_eq!(
+            links(&text),
+            [
+                "https://github.com/user-attachments/assets/11111111-2222-3333-4444-555555555555",
+                "https://github.com/user-attachments/files/21/proto.html",
+                "https://github.com/acme/widget/files/22/style.css",
+                "https://user-images.githubusercontent.com/12345/98765-abcd-ef01-2345-6789abcdef01",
+            ]
+        );
+        for nothing in [
+            "https://github.com/",
+            "https://github.com/a/b/other/1/x.html",
+            "https://github.com/a/b/files/x/y.html",
+            "https://github.com/a/b",
+            "https://githubuser-attachments/assets/1",
+            "https://example.com/assets/1",
+            "https://github.com/a/b/files/1a/x.html",
+        ] {
+            let none: Vec<String> = Vec::new();
+            assert_eq!(links(nothing), none, "{nothing}");
+        }
+    }
+
+    #[test]
+    fn a_name_of_two_parts_may_hold_dots_hyphens_and_underscores() {
+        assert_eq!(
+            links("https://github.com/ac-me.my_org/w-id.get/files/7/x.js"),
+            ["https://github.com/ac-me.my_org/w-id.get/files/7/x.js"]
+        );
+    }
+
+    #[test]
+    fn a_link_ends_before_a_part_that_would_leave_the_folder() {
+        let cases = [
+            "https://github.com/o/r/files/1/../../raw/main/a.json",
+            "https://github.com/o/r/files/1/./a.json",
+            "https://github.com/o/r/files/1/%2e%2e/raw/a.json",
+            "https://github.com/o/r/files/1/.%2E/raw/a.json",
+            "https://github.com/o/r/files/1/..?x=1",
+            "https://github.com/o/../files/1/a.json",
+            "https://github.com/user-attachments/files/../../o/r/raw/a.json",
+            "https://user-images.githubusercontent.com/../x.png",
+            "https://github.com/user-attachments/files/1/../../o/r/raw/a.json",
+            "https://github.com/o/r/files/1/a/../../../raw/a.json",
+            "https://github.com/o/r/files/1/a%2f..%2fb.json",
+            "https://github.com/o/r/files/1/a%5C..%5cb.json",
+            "https://github.com/o/r/files/1/.hidden.json",
+            "https://github.com/o/r/files/1/a..b/...c.json",
+            "https://github.com/o.r/r.s/files/1/a%20b.json?x=../y",
+        ];
+        let text = cases.join(" ");
+        let found = links(&text);
+        assert_eq!(
+            found,
+            [
+                "https://github.com/user-attachments/files/1",
+                "https://github.com/o/r/files/1/a",
+                "https://github.com/o/r/files/1/.hidden.json",
+                "https://github.com/o/r/files/1/a..b/...c.json",
+                "https://github.com/o.r/r.s/files/1/a%20b.json?x=../y",
+            ]
+        );
+        for link in &cases[..12] {
+            assert!(!is_link(link), "{link}");
+        }
+        // jq's scan lists a link each time it is found.
+        let mut said = links_of_the_rule(&text);
+        said.dedup();
+        assert!(said.is_empty() || said == found, "{said:?}");
+    }
+
+    #[test]
+    fn a_link_ends_where_the_address_does() {
+        // The bytes of the link end where a URL's do: ',' and ' ' and ')'
+        // stand outside it, a fragment is no part of the address.
+        assert_eq!(
+            links("x https://github.com/user-attachments/files/1/a.png?foo=bar&x=1,baz, https://github.com/a/b/files/2/c.js#frag y"),
+            [
+                "https://github.com/user-attachments/files/1/a.png?foo=bar&x=1",
+                "https://github.com/a/b/files/2/c.js",
+            ]
+        );
+        // The same cut with jq's own reading of the rule, so the two cannot
+        // drift: the line is taken from the file every time this test runs.
+        let cases = "x https://github.com/user-attachments/files/1/a.png?foo=bar&x=1,baz, https://github.com/a/b/files/2/c.js#frag y";
+        let said = links_of_the_rule(cases);
+        assert_eq!(said, links(cases));
+        // Markdown's bracket is no URL character, and a link may stand alone.
+        assert_eq!(
+            links("![shot](https://github.com/user-attachments/files/2/a.png)"),
+            ["https://github.com/user-attachments/files/2/a.png"]
+        );
     }
 }

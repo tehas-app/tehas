@@ -9,9 +9,9 @@
 //!      any other kind is left out, and so is an encrypted file
 //!   2. no path that starts with /, has a .. part, has a backslash, or is more
 //!      than six levels deep
-//!   3. each part of the path cleaned as protolab cleans a name; a part that
-//!      ends up empty leaves the entry out
-//!   4. only the types protolab hosts, and md
+//!   3. each part of the path cleaned as the item store cleans a name; a part
+//!      that ends up empty leaves the entry out
+//!   4. only the types the item store keeps, and md
 //!   5. at most --max-files files
 //!   6. at most --max-bytes in all, counted on what is inflated and not on
 //!      what the archive says, a damaged entry's bytes included; after the
@@ -37,8 +37,8 @@ const OUTSIDE: &str = "A path outside the archive.";
 const UNUSABLE: &str = "A name the lab cannot use.";
 const FULL: &str = "Over the 10 MB limit of a ticket.";
 
-/// The kind protolab hosts a file of this extension as; None for one it does
-/// not. The same table as `kind_of` in console/src/protolab/build.rs, and md.
+/// The kind the item store keeps a file of this extension as; None for one it
+/// does not. The same table as `kind_of` in console/items/src/store.rs, and md.
 pub fn kind(ext: &str) -> Option<&'static str> {
     match ext {
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "avif" => Some("image"),
@@ -49,8 +49,8 @@ pub fn kind(ext: &str) -> Option<&'static str> {
     }
 }
 
-/// One part of a path as protolab cleans a name: every byte but A-Z a-z 0-9
-/// . _ - made '-', leading dots and dashes dropped, at most 80 bytes.
+/// One part of a path as the item store cleans a name: every byte but A-Z
+/// a-z 0-9 . _ - made '-', leading dots and dashes dropped, at most 80 bytes.
 pub fn clean_part(part: &[u8]) -> String {
     clean_bytes(part).into_iter().map(char::from).collect()
 }
