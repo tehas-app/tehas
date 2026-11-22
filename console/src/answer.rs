@@ -3,7 +3,12 @@
 //! (#2782). console/src/usage/answer.txt is the text a person reads.
 //!
 //!   tehas answer <issue> <choice> --by <login> [--json]
-//!   tehas answer <issue> --text <file> --by <login> [--json]
+//!   tehas answer <issue> --text <file>|- --by <login> [--json]
+//!
+//! `--text -` reads the reply from standard input, for a caller that may not
+//! write a file on the host, such as an industry: the words never go in the
+//! arguments. It is held to the bound of a file, 1 MiB, and empty or larger
+//! input stops with 64.
 //!
 //! The answer is a row of the state store, bound to the question on record of
 //! the issue (store answer-record). The next poll acts on it as on the box of
@@ -20,7 +25,11 @@
 use crate::store;
 use serde_json::json;
 use std::env;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Read, Write};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
+use tehas_core::file::READ_BOUND;
 use tehas_core::question::{Choice as Word, MAX_OPTIONS};
 use tehas_core::{exit, time};
 
@@ -42,6 +51,8 @@ pub enum Choice {
     End,
     /// A planning question's: a reply in words, from this file.
     Text(PathBuf),
+    /// The same, from standard input (`--text -`).
+    TextIn,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -128,6 +139,7 @@ pub fn words(given: &[String]) -> Result<Asked, u8> {
     };
     let choice = match (chose, text) {
         (Some(c), None) => c,
+        (None, Some(f)) if f.as_os_str() == "-" => Choice::TextIn,
         (None, Some(f)) => Choice::Text(f),
         (Some(_), Some(_)) => return Err(bad("a choice or --text, not both")),
         (None, None) => return Err(bad("it needs a choice or --text")),
@@ -149,6 +161,52 @@ fn home() -> Option<PathBuf> {
         _ => None,
     };
     from("TEHAS_HOME").or_else(|| from("HOME"))
+}
+
+/// The reply in words read from `input`: at most `READ_BOUND` bytes of UTF-8
+/// with something in them, or the line that says why not.
+fn reply_of(input: impl Read) -> Result<String, String> {
+    let mut bytes = Vec::new();
+    input
+        .take(READ_BOUND + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("--text -: standard input could not be read: {e}"))?;
+    if bytes.len() as u64 > READ_BOUND {
+        return Err("--text -: the reply is over 1 MiB".into());
+    }
+    let text =
+        String::from_utf8(bytes).map_err(|_| "--text -: the reply is not UTF-8".to_string())?;
+    if text.trim().is_empty() {
+        return Err("--text -: the reply holds no words".into());
+    }
+    Ok(text)
+}
+
+/// A file of mode 0600 under the temporary directory that holds the reply
+/// while the store reads it, removed when dropped.
+struct Held(PathBuf);
+
+impl Held {
+    fn write(text: &str) -> io::Result<Held> {
+        let stamp = time::now_ms();
+        let path = std::path::absolute(
+            env::temp_dir().join(format!("tehas-answer.{}.{stamp:x}", std::process::id())),
+        )?;
+        let mut f = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)?;
+        let held = Held(path);
+        f.write_all(text.as_bytes())?;
+        Ok(held)
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
 }
 
 pub fn main(given: &[String]) -> u8 {
@@ -176,6 +234,24 @@ pub fn main(given: &[String]) -> u8 {
         return exit::FAILED;
     }
     let n = a.issue.to_string();
+    // The reply read from standard input, in a file of this account's only
+    // while the store reads it.
+    let held = match &a.choice {
+        Choice::TextIn => {
+            let reply = match reply_of(io::stdin().lock()) {
+                Ok(r) => r,
+                Err(why) => return bad(&why),
+            };
+            match Held::write(&reply) {
+                Ok(h) => Some(h),
+                Err(e) => {
+                    eprintln!("tehas answer: the reply could not be kept for the store: {e}; nothing was recorded");
+                    return exit::FAILED;
+                }
+            }
+        }
+        _ => None,
+    };
     let (word, option, file) = match &a.choice {
         Choice::Retry => (Word::Retry, None, None),
         Choice::RetryText => (Word::RetryText, None, None),
@@ -183,6 +259,11 @@ pub fn main(given: &[String]) -> u8 {
         Choice::Option(k) => (Word::Option, Some(k.to_string()), None),
         Choice::Update => (Word::Update, None, None),
         Choice::End => (Word::End, None, None),
+        Choice::TextIn => (
+            Word::Text,
+            None,
+            held.as_ref().map(|h| h.0.to_string_lossy().into_owned()),
+        ),
         Choice::Text(f) => {
             // The store reads an absolute path; a relative one is the caller's.
             let f = match std::path::absolute(f) {
@@ -252,6 +333,40 @@ pub fn main(given: &[String]) -> u8 {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_reply_from_standard_input_is_bound_and_has_words() {
+        assert_eq!(reply_of("Split it.\n".as_bytes()), Ok("Split it.\n".into()));
+        let most = "a".repeat(READ_BOUND as usize);
+        assert_eq!(reply_of(most.as_bytes()).map(|t| t.len()), Ok(most.len()));
+        let over = "a".repeat(READ_BOUND as usize + 1);
+        assert!(reply_of(over.as_bytes())
+            .unwrap_err()
+            .contains("over 1 MiB"));
+        for empty in ["", " \n\t"] {
+            assert!(
+                reply_of(empty.as_bytes()).unwrap_err().contains("no words"),
+                "{empty:?}"
+            );
+        }
+        assert!(reply_of(&[0xff, 0xfe][..])
+            .unwrap_err()
+            .contains("not UTF-8"));
+    }
+
+    #[test]
+    fn the_held_reply_is_this_accounts_alone_and_goes_when_dropped() {
+        use std::os::unix::fs::PermissionsExt;
+        let h = Held::write("Split it.").unwrap();
+        let path = h.0.clone();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "Split it.");
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        drop(h);
+        assert!(!path.exists());
+    }
+
     fn w(a: &[&str]) -> Vec<String> {
         a.iter().map(|s| s.to_string()).collect()
     }
@@ -274,6 +389,10 @@ mod tests {
         assert_eq!(
             words(&w(&["7", "--text", "reply.md", "--by", "bob"])).map(|a| a.choice),
             Ok(Choice::Text("reply.md".into()))
+        );
+        assert_eq!(
+            words(&w(&["7", "--text", "-", "--by", "bob"])).map(|a| a.choice),
+            Ok(Choice::TextIn)
         );
         for (word, c) in [
             ("retry-text", Choice::RetryText),

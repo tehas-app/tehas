@@ -20,6 +20,7 @@ with nothing to answer.
 Usage:
   tehas answer <issue> <choice> --by <login>        answer with a choice
   tehas answer <issue> --text <file> --by <login>   answer a planning question in words
+  tehas answer <issue> --text - --by <login>        the same, the words read from standard input
   tehas answer ... --json                           answer with what was recorded
 
   <choice>  for a stopped ticket:
@@ -30,7 +31,10 @@ Usage:
               option:<k>     the option numbered <k>, from 1, as the question lists it
               update         the option "Update this issue"
               end            end the planning session
-  --text    a reply in words to a planning question, read from <file>
+  --text    a reply in words to a planning question, read from <file>, or
+            from standard input with `-`, for a caller that may not write a
+            file on the host. Either is at most 1 MiB, and stdin with no
+            words is a bad argument
 
 Each command prints one line:
 

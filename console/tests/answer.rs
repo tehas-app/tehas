@@ -193,6 +193,35 @@ fn a_planning_question_takes_an_option_update_end_or_words() {
 }
 
 #[test]
+fn a_reply_in_words_can_come_on_standard_input_and_leaves_no_file() {
+    let w = World::new("answer-stdin");
+    planning(&w);
+    let r = w.sh(
+        "printf 'Split it in two.\\n' | \"$T_ROOT/bin/tehas\" answer 12 --text - --by alice 2>&1",
+    );
+    assert_eq!(r.rc, 0, "{}", r.out);
+    let known = w.store_ok(&["question-known", "12", "--id", "4002"]);
+    assert_eq!(known["answer"]["choice"], "text");
+    assert_eq!(known["answer"]["text"], "Split it in two.\n");
+    let left: Vec<_> = fs::read_dir(w.t().join("tmp"))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("tehas-answer."))
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+    // Empty input, or a choice beside it, is a bad argument and records nothing.
+    w.reset();
+    planning(&w);
+    for snippet in [
+        "printf '  \\n' | \"$T_ROOT/bin/tehas\" answer 12 --text - --by alice",
+        "printf 'x' | \"$T_ROOT/bin/tehas\" answer 12 end --text - --by alice",
+    ] {
+        assert_eq!(w.sh(snippet).rc, 64, "{snippet}");
+    }
+    assert_eq!(waiting(&w, "4002"), "none");
+}
+
+#[test]
 fn an_account_that_may_not_authorise_work_is_refused_with_78() {
     let w = World::new("answer-stranger");
     stopped(&w);

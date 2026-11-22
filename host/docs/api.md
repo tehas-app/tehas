@@ -578,7 +578,7 @@ without an instance.
 
 ```
 tehas answer <issue> <choice> --by <login> [--json]
-tehas answer <issue> --text <file> --by <login> [--json]
+tehas answer <issue> --text <file>|- --by <login> [--json]
 ```
 
 ```json
@@ -604,6 +604,7 @@ other stops with exit 78 and records nothing. The choices:
 | `update` | a planning question | The option "Update this issue" |
 | `end` | a planning question | Ends the planning session |
 | `--text <file>` | a planning question | A reply in words, read from the file |
+| `--text -` | a planning question | The same, read from standard input, for a program that may not write a file on the host (an industry reaches a factory only through its commands). The words never go in the arguments. At most 1 MiB, as a file; empty input or more stops with 64 |
 
 The answer is a row of the state store bound to the question on record of the
 issue, with who gave it, when, and how (`answer`). Nothing happens at once.
