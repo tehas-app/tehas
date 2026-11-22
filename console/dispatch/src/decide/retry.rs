@@ -835,7 +835,7 @@ impl Poll<'_> {
                 &format!("its title or text was changed since {by} approved it"),
             );
         }
-        if text::body_sha256(&self.text(n)) != rests["body_sha256"].as_str().unwrap_or("") {
+        if text::body_sum(self.text(n).body_text()) != rests["body_sha256"].as_str().unwrap_or("") {
             return self.refresh_drop(n, &format!("its text is not the text {by} approved"));
         }
         let node = match self.s.pulls.get(&pr).cloned() {
