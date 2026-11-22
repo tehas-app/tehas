@@ -4,13 +4,14 @@
 # analytics program in analytics/, the store in store/, the MCP server in
 # mcp/, the attachment checker in attach/, the library they share in core/,
 # the dispatcher's decisions in dispatch/, a cycle's report in cycle/, the
-# operations modules in ops/, the model proxy of outsource in proxy/, the
+# operations modules in ops/, the mesh read of the 2.1 `feed:mesh` in
+# mesh-feed/, the model proxy of outsource in proxy/, the
 # contractor program of outsource in contractor/, the plugins' program in
 # plugin/, the plugins' gate in plugin-gate/ and the development tasks
 # behind scripts/ in xtask/ as well.
 [workspace]
-members = ["analytics", "attach", "contractor", "core", "cycle", "dispatch", "front", "mcp", "ops", "plugin", "plugin-gate", "proxy", "store", "xtask"]
-default-members = [".", "analytics", "attach", "contractor", "core", "cycle", "dispatch", "front", "mcp", "ops", "plugin", "plugin-gate", "proxy", "store", "xtask"]
+members = ["analytics", "attach", "contractor", "core", "cycle", "dispatch", "front", "mcp", "mesh-feed", "ops", "plugin", "plugin-gate", "proxy", "store", "xtask"]
+default-members = [".", "analytics", "attach", "contractor", "core", "cycle", "dispatch", "front", "mcp", "mesh-feed", "ops", "plugin", "plugin-gate", "proxy", "store", "xtask"]
 
 [package]
 name = "console"
