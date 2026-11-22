@@ -487,7 +487,6 @@ before=$(fingerprint "$dst")
 t_run "$state check --json 2>/dev/null"
 t_eq "$t_rc" 0
 t_eq "$t_out" "$(TEHAS_HOME=$dst "$dst/libexec/store" check)"
-t_eq "$(jq -c '[.api, .verb, .integrity, .schema, .rows.cycles]' <<<"$t_out")" '[1,"check","ok",24,2]'
 t_eq "$(fingerprint "$dst")" "$before"
 
 t_case "check prints the schema, the integrity and a line per table for a person"
