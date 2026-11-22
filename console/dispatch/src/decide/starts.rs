@@ -88,11 +88,7 @@ impl Poll<'_> {
     fn edges(&self, issues: &[u64]) -> Vec<Edge> {
         let mut out = Vec::new();
         for &n in issues {
-            let open = self
-                .work(n)
-                .pointer("/issue_dependencies_summary/blocked_by")
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
+            let open = self.work(n).map_or(0, |w| w.blocked_by);
             if open > 0 {
                 out.push(Edge::Link { issue: n, open });
             }

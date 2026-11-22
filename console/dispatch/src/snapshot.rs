@@ -27,7 +27,7 @@ pub struct Issue {
     /// title. None when the call failed.
     pub edit: Option<Map<String, Value>>,
     /// `gh api repos/<repo>/issues/<n>`, or None when the call failed.
-    pub work: Option<Value>,
+    pub work: Option<Work>,
     /// The pull requests that close it; None when the call failed or the
     /// answer cannot be read.
     pub prs: Option<Vec<ClosingPr>>,
@@ -127,6 +127,74 @@ pub struct ViewRead {
     pub labels: Vec<String>,
     pub title: Option<String>,
     pub body: Option<String>,
+}
+
+/// The REST answer for one issue. Unreadable is an answer that is no
+/// object: null, a list or a text.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Work {
+    Unreadable,
+    Issue(Box<WorkIssue>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WorkIssue {
+    /// The state as GitHub wrote it; None when it is not text.
+    pub state: Option<String>,
+    /// pull_request is there and not null.
+    pub is_pull: bool,
+    pub title: Option<String>,
+    pub body: Text,
+    pub labels: Labels,
+    pub sub_issues: Option<SubIssues>,
+    /// parent as a u64.
+    pub parent: Option<u64>,
+    /// issue_dependencies_summary.blocked_by; 0 when missing or no u64.
+    pub blocked_by: u64,
+    /// Every text of the answer, in the order its keys sort, for
+    /// text::promise_of.
+    pub strings: Vec<String>,
+}
+
+/// A text field: missing or null is None, anything but text Unreadable.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Text {
+    None,
+    Some(String),
+    Unreadable,
+}
+
+/// The labels of an answer. Names skips an entry with no text name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Labels {
+    Absent,
+    Null,
+    Names(Vec<String>),
+    Unreadable,
+}
+
+impl Labels {
+    /// The names, or none when it is no list.
+    pub fn names(&self) -> &[String] {
+        match self {
+            Labels::Names(n) => n,
+            _ => &[],
+        }
+    }
+}
+
+/// sub_issues_summary's counts.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubIssues {
+    pub total: Count,
+    pub completed: Count,
+}
+
+/// A JSON number read both ways: as f64 and as u64.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Count {
+    pub f: Option<f64>,
+    pub u: Option<u64>,
 }
 
 /// The park on record of an issue's last cycle.
@@ -950,7 +1018,43 @@ fn issue(v: &Value) -> Issue {
             .filter(|e| !failed(e))
             .and_then(Value::as_object)
             .cloned(),
-        work: v.get("work").and_then(opt),
+        work: v.get("work").filter(|w| !failed(w)).map(|w| {
+            let Value::Object(o) = w else {
+                return Work::Unreadable;
+            };
+            let count = |s: &Value, k: &str| Count {
+                f: s.get(k).and_then(Value::as_f64),
+                u: s.get(k).and_then(Value::as_u64),
+            };
+            let mut strings = Vec::new();
+            crate::text::strings(w, &mut strings);
+            Work::Issue(Box::new(WorkIssue {
+                state: o.get("state").and_then(Value::as_str).map(str::to_string),
+                is_pull: !o.get("pull_request").unwrap_or(&Value::Null).is_null(),
+                title: o.get("title").and_then(Value::as_str).map(str::to_string),
+                body: match o.get("body") {
+                    None | Some(Value::Null) => Text::None,
+                    Some(Value::String(b)) => Text::Some(b.clone()),
+                    Some(_) => Text::Unreadable,
+                },
+                labels: match o.get("labels") {
+                    None => Labels::Absent,
+                    Some(Value::Null) => Labels::Null,
+                    Some(Value::Array(_)) => Labels::Names(names(o.get("labels"))),
+                    Some(_) => Labels::Unreadable,
+                },
+                sub_issues: o.get("sub_issues_summary").map(|s| SubIssues {
+                    total: count(s, "total"),
+                    completed: count(s, "completed"),
+                }),
+                parent: o.get("parent").and_then(Value::as_u64),
+                blocked_by: w
+                    .pointer("/issue_dependencies_summary/blocked_by")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0),
+                strings: strings.into_iter().map(str::to_string).collect(),
+            }))
+        }),
         prs: v
             .get("prs")
             .filter(|p| !failed(p))
