@@ -6188,6 +6188,30 @@ fn out_writes_the_file_and_its_stamp_the_first_time() {
     );
 }
 
+/// A run whose old how an open rewrites changes no count and no end, and the
+/// published sessions still follow it: the next call writes the file again
+/// in the new word, for each old word.
+#[test]
+fn out_after_a_rewrite_of_old_hows_writes_the_sessions_again() {
+    let now = 1_792_000_000i64 - 1_792_000_000i64.rem_euclid(86_400) + 43_200;
+    for (old, new) in db::OLD_HOWS {
+        let (home, dir) = home_of_one_ended_run(&format!("out-rewrite-{old}"), now);
+        let before = written(&dir, "sessions");
+        let conn = Connection::open(db::path(&home)).unwrap();
+        conn.execute("UPDATE runs SET how = ?1", [old]).unwrap();
+        drop(conn);
+        execute(&home, &sessions_cmd(&home), now + 60).unwrap();
+        let after = written(&dir, "sessions");
+        assert_ne!(after.1, before.1, "{old}: the line did not move");
+        let body = String::from_utf8(after.0).unwrap();
+        assert!(body.contains(&format!("\"how\":\"{new}\"")), "{old}: {body}");
+        assert!(!body.contains(&format!("\"{old}\"")), "{old}: {body}");
+        // Nothing more to rewrite: the next call writes nothing.
+        execute(&home, &sessions_cmd(&home), now + 120).unwrap();
+        assert_eq!(written(&dir, "sessions").1, after.1, "{old}");
+    }
+}
+
 #[test]
 fn out_of_two_calls_with_no_change_touches_nothing() {
     let (home, dir) = home_of_one_ended_run("out-unchanged", 1_792_000_000);
