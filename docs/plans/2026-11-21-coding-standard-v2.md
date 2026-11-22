@@ -34,7 +34,8 @@ coding standard v2 in the tehas system are tagged together: tehas 2.0.0
 and the 2.0.0 and 1.0.0 of the two repositories that read it. For tehas:
 
 1. **2.0.0 carries everything.** Coding standard v2, the adapters and the
-   adapter API (T4), events (T11), and the rename (T10).
+   adapter API (T4), events (T11), answers in words (T12), and the rename
+   (T10).
 2. **The branch stays unmerged until the trio is tagged.** Main stays the
    stable line and ships 1.4.x patches; each is ported into the branch.
    Nothing is tagged from the branch, release candidates included, until
@@ -55,11 +56,10 @@ and the 2.0.0 and 1.0.0 of the two repositories that read it. For tehas:
    refuses it today, and finishing it is 2.1 work. The refactor moves
    the plugin code with its behaviour kept, and builds no new plugin
    features.
-6. **pi-rukas v0.14.100.** 2.0.0 pins pi-rukas v0.14.100 (the owner,
-   2026-11-21). It is not released yet. Each release candidate's tag
-   names the pi-rukas commit it pins (`scripts/tag-release.sh`); from the
-   first candidate after v0.14.100 is out, that is its commit. If it is
-   not out by the final, the owner decides.
+6. **pi-rukas v0.14.101 or later.** 2.0.0 pins pi-rukas v0.14.101 at the
+   least, for a fix tehas wants (the owner, 2026-11-22), and at the trio's
+   readiness review the newest pi-rukas release is the one pinned. A tag
+   names the pi-rukas commit it pins (`scripts/tag-release.sh`).
 
 ### The adapters
 
@@ -263,7 +263,7 @@ parsing.
 
 ## The steps
 
-In this order, T11 before T9 and T10 last. T3 to T7 may overlap where a type and its port go
+In this order, T11 and T12 before T9 and T10 last. T3 to T7 may overlap where a type and its port go
 together. Each "Done when" is checked before the next step leans on it.
 
 ### T0. The test, the rules, the map
@@ -317,7 +317,12 @@ Done when `label-words` is 0, and `host/labels.tsv` is read in one place.
 - The order is an explicit plan, not `_line`.
 - `decide` stays pure and stops knowing GitHub.
 
-This is the precondition for the ports.
+This is the precondition for the ports. It runs as fifteen small pull
+requests, field by field, from the host's scalars to `enum Action` (T3.1
+to T3.15). Each parses at `Snapshot::parse`, keeps every case the old
+reading had (null, missing, failed, a wrong type), and lowers each `max`
+it moves. The helpers that still take `Value` move out of `decide/` to
+the parsing edge, and `decide` calls the typed rule.
 
 Done when `decide` and `Snapshot` carry no `Value`, and the dispatcher's
 tests pass unchanged.
@@ -423,6 +428,30 @@ T9 lists the event names and schemas in the 2.0 contract.
 Done when the dispatcher and its events are in, each event has its
 schema in `api/`, and the contract lists them.
 
+### T12. Answers in words
+
+The tick boxes are retired (#2782, the owner, 2026-11-22): a stop or a
+planning question is asked in words, and no tick changes anything. In
+the issue's order, expand then contract:
+
+1. **A verb for programs.** `tehas answer <issue> <choice> [--text FILE]
+   --by <login> --json`, with its schema in `api/`. For a stopped ticket:
+   `retry`, `retry-text`, `park`. For a planning question: `option:<k>`,
+   `update`, `end`, or `--text`. `--by` is trusted as the host's caller,
+   as `tehas start` is; it must be an account allowed to authorise work,
+   or the command stops with exit 78. The history records who, when and
+   how (`answer`).
+2. **The consumers move to it.** Then the comments lose their boxes:
+   options are plain lines that say what each leads to, and a stop with
+   nothing to decide asks nothing.
+3. **Nothing reads a tick.** A tick on an old comment does nothing;
+   `retry-tick` stays readable in history. A person answers by a reply
+   from an allowed account or by approving again.
+
+T9 lists it in "Changed in 2.0" with its readers.
+
+Done when #2782's "Done when" holds.
+
 ### T9. The contract for 2.0
 
 - `host/docs/contract.md` for 2.x, with a section "Changed in 2.0" that
@@ -504,7 +533,7 @@ All of these, in the last pull request into the branch:
 - `.tehas/coding-standard` says `v2`, and the architecture test passes
   without `--force`, against the base;
 - `scripts/verify.sh --full` passes, and the 2.0 contract is written;
-- T10 and T11 are done, and the trio's gate holds.
+- T10, T11 and T12 are done, and the trio's gate holds.
 
 Then, when the trio is tagged, the pull request into main (with a merge
 commit), and the owner's release of v2.0.0.
@@ -530,4 +559,6 @@ of main, each grade.
 | 2026-11-22 | The trio, the adapters, three ports, events (T11), the rename (T10), the pi-rukas pin, no tags from the branch and the merge train added to this plan | #2776 |
 | 2026-11-22 | T0: the shared architecture test (sha256 211f1167 and b66f64af), `architecture.toml` at the fork's counts, the rubric, the review questions and the knowledge map; the baseline grade (the overseer's three fresh graders: R1 to R7 partial, R8 and R9 mostly, below adopting until the test runs in CI) | #2778 |
 | 2026-11-22 | T0: checks for R3, R6, R7 and R8; tests counted; the checks as wide as their rules | #2780 |
-| 2026-11-22 | T3 begins: the closing pull requests of an issue typed (`ClosingPr`) | T3 pull request |
+| 2026-11-22 | T3 begins: the closing pull requests of an issue typed (`ClosingPr`) | #2781 |
+| 2026-11-22 | The architecture test runs in CI on the branch; the AGENTS.md section merged by the owner | #2777, #2779 |
+| 2026-11-22 | T12 (answers in words, #2782) and the pi-rukas pin (v0.14.101 or later) added to this plan; T3 planned as fifteen slices | this pull request |
