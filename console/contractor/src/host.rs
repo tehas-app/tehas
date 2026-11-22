@@ -52,6 +52,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 use serde_json::{json, Value};
+use tehas_core::home::{Home, State, TokenDir};
 
 use crate::egress::Local;
 use crate::http::{self, As, Reply};
@@ -72,8 +73,11 @@ pub struct Paths {
 }
 
 impl Paths {
+    fn layout(&self) -> Home {
+        Home::new(&self.home)
+    }
     pub fn outsource(&self) -> PathBuf {
-        self.home.join("state/outsource")
+        self.layout().state(State::Outsource)
     }
     pub fn job_file(&self) -> PathBuf {
         self.outsource().join("job.json")
@@ -85,7 +89,7 @@ impl Paths {
         self.outsource().join("drain")
     }
     pub fn token_dir(&self) -> PathBuf {
-        self.home.join("state/github-cycle")
+        self.layout().token_dir(TokenDir::Cycle)
     }
     pub fn models(&self) -> PathBuf {
         self.user_home.join(".pi/agent/models.json")
@@ -98,7 +102,7 @@ impl Paths {
         self.outsource().join("salvage")
     }
     pub fn cycles(&self) -> PathBuf {
-        self.home.join("state/cycles")
+        self.layout().cycles_dir()
     }
     /// Where the cycle keeps its agents' runs, `ensemble-runs/issue-<n>`.
     pub fn runs(&self) -> PathBuf {
@@ -108,7 +112,7 @@ impl Paths {
         self.outsource().join("downloads")
     }
     pub fn index(&self) -> PathBuf {
-        self.home.join("state/index")
+        self.layout().state(State::CodeIndex)
     }
     /// Where an image download is kept until it is loaded, so a broken one
     /// resumes.
@@ -141,7 +145,10 @@ pub fn foreign(paths: &Paths) -> Option<String> {
     let there = |p: &Path| fs::symlink_metadata(p).is_ok();
     let config = paths.user_home.join(".config/tehas");
     let factory = [
-        (paths.home.join("state/tehas.db"), "a factory's state store"),
+        (
+            paths.layout().state(State::StoreDb),
+            "a factory's state store",
+        ),
         (paths.home.join("settings"), "a factory's settings checkout"),
         (config.join("instance-dir"), "a factory's instance pointer"),
         (

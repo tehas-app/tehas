@@ -13,6 +13,7 @@ use std::thread;
 use std::time::Duration;
 
 use serde_json::{json, Value};
+use tehas_core::home::{Home, State};
 use tehas_core::testdir::TestDir;
 use tehas_cycle::relay::Scope;
 use tehas_proxy::channel::{key_hash, Asked, Call, Channel, Factory};
@@ -176,7 +177,7 @@ fn case_with(
 ) -> Case {
     let home = TestDir::new(name);
     let h = home.path();
-    fs::create_dir_all(h.join("state")).unwrap();
+    fs::create_dir_all(Home::new(h).state_dir()).unwrap();
     call(
         h,
         &[
@@ -192,7 +193,7 @@ fn case_with(
             "--outsource",
         ],
     );
-    let c = rusqlite::Connection::open(h.join("state/tehas.db")).unwrap();
+    let c = rusqlite::Connection::open(Home::new(h).state(State::StoreDb)).unwrap();
     for issue in [7, 8] {
         c.execute(
             "INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (?1, 'issue', 1, 1)",
@@ -343,7 +344,7 @@ fn the_image_goes_to_a_contractor_s_key_whole_or_by_range_and_is_saved_once() {
     assert_eq!(get(c.at, &path, &by_key("not-the-key")).status, 401);
     assert_eq!(get(c.at, &path, &by_token(&c.job_token)).status, 401);
     assert_eq!(get(c.at, &path, &by_token(&c.model)).status, 401);
-    assert!(!c.home.path().join("state/images").exists());
+    assert!(!Home::new(c.home.path()).state(State::Images).exists());
     // Four at once: one save, the same bytes to each.
     let at = c.at;
     let threads: Vec<_> = (0..4)
@@ -363,10 +364,9 @@ fn the_image_goes_to_a_contractor_s_key_whole_or_by_range_and_is_saved_once() {
     }
     let saves = fs::read_to_string(c.home.path().join("tools/saves")).unwrap();
     assert_eq!(saves.lines().count(), 1, "{saves}");
-    let file = c
-        .home
-        .path()
-        .join(format!("state/images/{}.tar", "a".repeat(64)));
+    let file = Home::new(c.home.path())
+        .state(State::Images)
+        .join(format!("{}.tar", "a".repeat(64)));
     let got = get(c.at, &path, &by_key(KEY));
     assert_eq!(got.field("x-tehas-sha256"), Some(sha256_of(&file).unwrap()));
     // A range resumes a broken download.
@@ -431,10 +431,9 @@ fn a_save_that_hangs_is_killed_and_gives_its_place_back() {
         );
         assert!(began.elapsed() < Duration::from_secs(20));
     }
-    assert!(!c
-        .home
-        .path()
-        .join(format!("state/images/{}.tar", "a".repeat(64)))
+    assert!(!Home::new(c.home.path())
+        .state(State::Images)
+        .join(format!("{}.tar", "a".repeat(64)))
         .exists());
     fs::remove_file(c.home.path().join("tools/hang")).unwrap();
     let got = get(c.at, &path, &by_key(KEY));
@@ -446,7 +445,7 @@ fn a_save_that_hangs_is_killed_and_gives_its_place_back() {
 fn the_image_before_the_current_one_stays_and_older_ones_go() {
     let c = case("download-image-previous", false, fetched);
     let tools = c.home.path().join("tools");
-    let images = c.home.path().join("state/images");
+    let images = Home::new(c.home.path()).state(State::Images);
     for (n, ch) in ['a', 'b', 'c'].into_iter().enumerate() {
         fs::write(tools.join("id"), format!("{}\n", id(ch))).unwrap();
         let got = get(c.at, &format!("image?id={}", id(ch)), &by_key(KEY));
@@ -515,7 +514,7 @@ fn a_job_s_bundle_is_its_tip_for_its_job_token_alone() {
         "2"
     );
     // Made once per tip.
-    let kept = c.home.path().join("state/outsource/downloads");
+    let kept = Home::new(c.home.path()).state(State::OutsourceDownloads);
     let made = |dir: &Path| {
         fs::read_dir(dir)
             .unwrap()
@@ -543,14 +542,14 @@ fn the_index_is_served_for_the_current_image_and_never_for_another() {
     // No index built: none to give, which a contractor runs without.
     let none = get(c.at, "index", &by_token(&c.job_token));
     assert_eq!((none.status, none.refused().as_str()), (404, "no index"));
-    let index = h.join("state/index");
+    let index = Home::new(h).state(State::CodeIndex);
     fs::create_dir_all(index.join("logs")).unwrap();
     fs::write(index.join("widget.db"), "an index\n").unwrap();
     fs::write(index.join("logs/run.log"), "a log\n").unwrap();
     fs::write(index.join("widget.db.stage.1"), "half\n").unwrap();
     let record = |image: &str| {
         fs::write(
-            h.join("state/index.json"),
+            Home::new(h).state(State::CodeIndexState),
             json!({ "commit": "c0ffee", "branch": "main", "indexer_image": image }).to_string(),
         )
         .unwrap()
@@ -596,10 +595,9 @@ fn a_job_s_files_are_its_own_issue_s_and_go_with_the_job() {
     let names = tar_names(&got.body, c.home.path());
     assert!(names.contains(&"manifest.json".to_string()), "{names:?}");
     assert!(names.contains(&"file-1.md".to_string()), "{names:?}");
-    let dir = c
-        .home
-        .path()
-        .join(format!("state/outsource/downloads/job-{}", c.job));
+    let dir = Home::new(c.home.path())
+        .state(State::OutsourceDownloads)
+        .join(format!("job-{}", c.job));
     assert!(dir.is_dir());
     let stopped = c.chan.answer(&Asked {
         call: Call::Stopped,
@@ -632,7 +630,7 @@ fn without_downloads_every_download_is_404_and_hello_names_no_image() {
         body: b"",
     });
     assert!(hello.body.get("image").is_none(), "{hello:?}");
-    assert!(!c.home.path().join("state/images").exists());
+    assert!(!Home::new(c.home.path()).state(State::Images).exists());
     // With them, hello names the image a contractor must run.
     let d = case("download-hello", false, fetched);
     let hello = d.chan.answer(&Asked {
@@ -652,7 +650,9 @@ fn the_files_of_a_job_lost_to_a_silence_go_when_the_next_job_s_are_made() {
         get(c.at, "attachments", &by_token(&c.job_token)).status,
         200
     );
-    let lost = h.join(format!("state/outsource/downloads/job-{}", c.job));
+    let lost = Home::new(h)
+        .state(State::OutsourceDownloads)
+        .join(format!("job-{}", c.job));
     assert!(lost.is_dir());
     // Lost to a silence: no finish, no stopped, no revoke ever comes.
     call(
@@ -679,8 +679,9 @@ fn the_files_of_a_job_lost_to_a_silence_go_when_the_next_job_s_are_made() {
     assert_eq!(got.status, 200, "{}", got.head);
     assert_eq!(got.field("x-tehas-issue").as_deref(), Some("8"));
     assert!(!lost.exists(), "a lost job's files outlived it");
-    assert!(h
-        .join(format!("state/outsource/downloads/job-{job}"))
+    assert!(Home::new(h)
+        .state(State::OutsourceDownloads)
+        .join(format!("job-{job}"))
         .is_dir());
 }
 

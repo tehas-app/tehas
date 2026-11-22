@@ -18,14 +18,24 @@ pub enum State {
     AccountIds,
     /// The login of the app the factory acts as.
     BotLogin,
+    /// The factory's code index, `index/`.
+    CodeIndex,
+    /// The commit and indexer image the code index was made from.
+    CodeIndexState,
     /// Held while one start makes the egress proxy.
     EgressLock,
     /// The recent failures of GitHub calls.
     GithubFailures,
     /// The pins of the state labels to their node ids.
     LabelPins,
+    /// The images a contractor runs, kept by the proxy.
+    Images,
     /// The limit `tehas limit` sets.
     Limit,
+    /// A contractor's files of the job it runs.
+    Outsource,
+    /// The proxy's index, bundles and jobs' files for contractors.
+    OutsourceDownloads,
     /// The flag `tehas pause` sets.
     Pause,
     /// The record of a sandbox that cannot push.
@@ -36,6 +46,8 @@ pub enum State {
     ReadOnlyLog,
     /// The record of the starts.
     Starts,
+    /// The state store.
+    StoreDb,
     /// Held while `tehas update` runs.
     UpdateLock,
 }
@@ -46,15 +58,21 @@ impl State {
         match self {
             State::AccountIds => "state/account-ids",
             State::BotLogin => "state/github/login",
+            State::CodeIndex => "state/index",
+            State::CodeIndexState => "state/index.json",
             State::EgressLock => "state/egress.lock",
             State::GithubFailures => "state/github-failures",
             State::LabelPins => "state/labels",
+            State::Images => "state/images",
             State::Limit => "state/limit.json",
+            State::Outsource => "state/outsource",
+            State::OutsourceDownloads => "state/outsource/downloads",
             State::Pause => "state/pause.json",
             State::PushFault => "state/push-fault.json",
             State::ReadOnly => "state/read-only",
             State::ReadOnlyLog => "state/read-only.log",
             State::Starts => "state/starts.json",
+            State::StoreDb => "state/tehas.db",
             State::UpdateLock => "state/update.lock",
         }
     }
@@ -166,15 +184,21 @@ mod tests {
         let cases = [
             (State::AccountIds, "/h/state/account-ids"),
             (State::BotLogin, "/h/state/github/login"),
+            (State::CodeIndex, "/h/state/index"),
+            (State::CodeIndexState, "/h/state/index.json"),
             (State::EgressLock, "/h/state/egress.lock"),
             (State::GithubFailures, "/h/state/github-failures"),
             (State::LabelPins, "/h/state/labels"),
+            (State::Images, "/h/state/images"),
             (State::Limit, "/h/state/limit.json"),
+            (State::Outsource, "/h/state/outsource"),
+            (State::OutsourceDownloads, "/h/state/outsource/downloads"),
             (State::Pause, "/h/state/pause.json"),
             (State::PushFault, "/h/state/push-fault.json"),
             (State::ReadOnly, "/h/state/read-only"),
             (State::ReadOnlyLog, "/h/state/read-only.log"),
             (State::Starts, "/h/state/starts.json"),
+            (State::StoreDb, "/h/state/tehas.db"),
             (State::UpdateLock, "/h/state/update.lock"),
         ];
         for (s, want) in cases {

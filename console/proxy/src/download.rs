@@ -28,6 +28,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use sha2::{Digest, Sha256};
+use tehas_core::home::{Home, State};
 
 /// One file to serve and the fields that say what it is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -219,14 +220,18 @@ fn held<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl OfHome {
+    fn layout(&self) -> Home {
+        Home::new(&self.home)
+    }
+
     /// Where the images are kept: `state/images`, made on the first request.
     pub fn images(&self) -> PathBuf {
-        self.home.join("state/images")
+        self.layout().state(State::Images)
     }
 
     /// Where the index, the bundles and the jobs' files are kept.
     pub fn kept(&self) -> PathBuf {
-        self.home.join("state/outsource/downloads")
+        self.layout().state(State::OutsourceDownloads)
     }
 
     fn pack_word(&self) -> &'static str {
@@ -417,11 +422,12 @@ impl Downloads for OfHome {
     }
 
     fn index(&self) -> Result<Pack, Miss> {
-        let dir = self.home.join("state/index");
-        let record: serde_json::Value = fs::read_to_string(self.home.join("state/index.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .ok_or_else(|| Miss::new(404, "no index"))?;
+        let dir = self.layout().state(State::CodeIndex);
+        let record: serde_json::Value =
+            fs::read_to_string(self.layout().state(State::CodeIndexState))
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .ok_or_else(|| Miss::new(404, "no index"))?;
         let commit = record["commit"].as_str().unwrap_or_default();
         let built = record["indexer_image"].as_str().unwrap_or_default();
         let has_db = fs::read_dir(&dir).is_ok_and(|d| {

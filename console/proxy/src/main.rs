@@ -56,6 +56,7 @@ use std::path::PathBuf;
 use std::thread::Builder;
 use std::time::Duration;
 
+use tehas_core::home::{Home, State};
 use tehas_core::models::{self, ModelFile};
 use tehas_core::{out, outln};
 use tehas_proxy::forward::Upstream;
@@ -92,7 +93,7 @@ fn home() -> PathBuf {
 /// Where the proxy keeps its own things in the state: the socket of its control
 /// line, and the directory a job's token is written into.
 fn outsource() -> PathBuf {
-    home().join("state").join("outsource")
+    Home::new(home()).state(State::Outsource)
 }
 
 /// The control socket: this user's own, in the state directory, and the only
