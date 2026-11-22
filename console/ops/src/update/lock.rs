@@ -16,6 +16,7 @@ use std::os::fd::AsRawFd;
 use std::path::Path;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use tehas_core::home::{Home, State};
 
 /// The descriptor the lock is held on, at least.
 const FD: i32 = 7;
@@ -28,8 +29,8 @@ impl Held {
     /// The lock under `home`, waited for up to `wait` seconds. Err is the status:
     /// 1, with the line said.
     pub fn take(home: &Path, wait: u64) -> Result<Held, u8> {
-        let file = home.join("state/update.lock");
-        let opened = fs::create_dir_all(home.join("state"))
+        let file = Home::new(home).state(State::UpdateLock);
+        let opened = fs::create_dir_all(Home::new(home).state_dir())
             .and_then(|()| OpenOptions::new().create(true).append(true).open(&file))
             .and_then(|f| fcntl_dupfd_cloexec(&f, FD).map_err(io::Error::from))
             .map(File::from);
@@ -119,7 +120,7 @@ mod tests {
     #[test]
     fn a_home_where_no_state_can_be_made_is_refused() {
         let d = dir("lock-no-state");
-        fs::write(d.0.join("state"), "").unwrap();
+        fs::write(Home::new(d.0.path()).state_dir(), "").unwrap();
         assert_eq!(Held::take(&d.0, 0).err(), Some(1));
     }
 }

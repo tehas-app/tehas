@@ -17,6 +17,7 @@ use super::runs;
 use crate::panel::{self, Panel};
 use std::fs;
 use std::path::Path;
+use tehas_core::home::{Home, Live};
 use tehas_core::plugin::state::Word;
 use tehas_core::plugin::{self, is_name, needs, Cap, Pin};
 use tehas_core::settings::rules::switch;
@@ -232,7 +233,7 @@ fn listed(name: &str, shown: &Shown, caps: &[Cap], base: &str) -> Option<serde_j
 /// no file when there are none. Written whole through a new file and a
 /// rename, so the front pages never read half of it.
 fn menued(home: &Path, menu: &[serde_json::Value], said: &mut Said) {
-    let file = home.join("live/plugins.json");
+    let file = Home::new(home).live(Live::Plugins);
     let written = if menu.is_empty() {
         match fs::remove_file(&file) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
@@ -240,8 +241,8 @@ fn menued(home: &Path, menu: &[serde_json::Value], said: &mut Said) {
         }
     } else {
         let text = format!("{}\n", serde_json::json!({"api": 1, "plugins": menu}));
-        let new = home.join("live/plugins.json.new");
-        fs::create_dir_all(home.join("live"))
+        let new = file.with_file_name(format!("{}.new", Live::Plugins.name()));
+        fs::create_dir_all(Home::new(home).live_dir())
             .and_then(|()| fs::write(&new, text))
             .and_then(|()| {
                 use std::os::unix::fs::PermissionsExt;
@@ -278,6 +279,7 @@ mod tests {
     use super::super::prepare::tests::{dockerfile, good, manifest, C, ID, URL};
     use super::*;
     use std::collections::BTreeMap;
+    use tehas_core::home::State;
     use tehas_core::testdir::TestDir;
 
     fn vars(pairs: &[(&str, String)]) -> impl Fn(&str) -> String {
@@ -417,14 +419,14 @@ mod tests {
     }
 
     fn panels(home: &Path) -> Vec<Panel> {
-        match fs::read_to_string(home.join("state/panels.json")) {
+        match fs::read_to_string(Home::new(home).state(State::Panels)) {
             Ok(text) => panel::parse(&text).unwrap(),
             Err(_) => Vec::new(),
         }
     }
 
     fn menu_file(home: &Path) -> Option<serde_json::Value> {
-        fs::read_to_string(home.join("live/plugins.json"))
+        fs::read_to_string(Home::new(home).live(Live::Plugins))
             .ok()
             .map(|t| serde_json::from_str(&t).unwrap())
     }
@@ -471,7 +473,7 @@ mod tests {
                 {"id": "health", "label": "Health", "url": format!("{base}/health/"), "open": "page"},
                 {"id": "debts", "label": "Debts", "url": format!("{base}/debts/"), "open": "page"}]}]})
         );
-        let mode = fs::metadata(home.join("live/plugins.json"))
+        let mode = fs::metadata(Home::new(home.path()).live(Live::Plugins))
             .unwrap()
             .permissions();
         assert_eq!(

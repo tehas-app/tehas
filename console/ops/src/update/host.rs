@@ -44,6 +44,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tehas_core::features;
+use tehas_core::home::Home;
 use tehas_core::settings::rules::switch;
 
 pub fn keeps_verb(given: &[String]) -> u8 {
@@ -89,7 +90,7 @@ fn kept(state: &Path) -> Vec<String> {
 }
 
 fn keeps(home: &Path, work: &str, lines: &mut Vec<Line>) -> u8 {
-    let state = home.join("state");
+    let state = Home::new(home).state_dir();
     for n in kept(&state) {
         let keep = state.join(format!("plan-{n}.json.keep"));
         let to = PathBuf::from(format!("{work}-plan-{n}.keep"));
@@ -306,7 +307,7 @@ mod tests {
             fs::read_to_string(format!("{to}/plan-sessions/one")).unwrap(),
             "kept"
         );
-        assert!(!home.join("state/plan-8.json.keep").exists());
+        assert!(!Home::new(&home).plan_file(8, ".keep").exists());
         assert_eq!(
             lines,
             [Line::Out(format!(
@@ -329,7 +330,7 @@ mod tests {
         holder.lock().unwrap();
         let mut lines = Vec::new();
         assert_eq!(keeps(&home, &work, &mut lines), 0);
-        let state = home.join("state");
+        let state = Home::new(&home).state_dir();
         assert_eq!(
             lines,
             [
@@ -373,7 +374,7 @@ mod tests {
         let mut lines = Vec::new();
         assert_eq!(keeps(&home, &work, &mut lines), 1);
         assert!(matches!(&lines[..], [Line::Err(l)] if l.starts_with("tehas: could not move ")));
-        assert!(home.join("state/plan-2.json.keep/a").exists());
+        assert!(Home::new(&home).plan_file(2, ".keep").join("a").exists());
     }
 
     fn units(set: &[(&str, &str)], env_file: Option<&str>) -> String {

@@ -59,6 +59,7 @@ enum Fail {
     /// The status, with what there was to say said.
     Stop(u8),
 }
+use tehas_core::home::{Home, TokenDir};
 use Fail::{Bad, Die, Stop};
 
 mod manifest;
@@ -1087,7 +1088,7 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
     set(&inst, "PI_ENSEMBLE_SUBAGENT_PROVIDER", &g.provider, false)?;
     set(&inst, "PI_ENSEMBLE_SUBAGENT_MODEL", &g.model, false)?;
     let _ = fs::set_permissions(&inst, fs::Permissions::from_mode(0o600));
-    let lookups = tehas_home.join("state/github");
+    let lookups = Home::new(&tehas_home).token_dir(TokenDir::App);
     let mut stale: &[&str] = if kept_id == app.id {
         &[]
     } else {

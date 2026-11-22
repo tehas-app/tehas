@@ -44,6 +44,7 @@ use serde_json::Value;
 
 use super::push::{self, Proof};
 use super::{code, output, say, tell};
+use tehas_core::home::{Home, Live, State};
 
 const RETIRED: &str = include_str!("retired.list");
 
@@ -289,7 +290,7 @@ enum Sandbox {
 /// label of the image now, asked only when the health says behind: an image
 /// the health did not read is not called behind on its word.
 fn behind(home: &Path, label: impl FnOnce() -> Option<String>) -> Option<Sandbox> {
-    let health = json(&home.join("live/health.json"))?;
+    let health = json(&Home::new(home).live(Live::Health))?;
     let rukas = health.get("checks")?.get("rukas")?;
     if rukas.get("behind") != Some(&Value::Bool(true)) {
         return None;
@@ -387,7 +388,7 @@ pub(crate) fn report(a: &Asked, o: &mut impl Outside) -> (Vec<String>, bool) {
     }
 
     // The product is not this host's install: it does not count as found.
-    let checked = a.home.join("state/check-product.json");
+    let checked = Home::new(&a.home).state(State::CheckProduct);
     if fs::File::open(&checked).is_ok() {
         match product(&checked) {
             Some(said) => lines.extend(said),
@@ -413,7 +414,7 @@ pub(crate) fn report(a: &Asked, o: &mut impl Outside) -> (Vec<String>, bool) {
     } else {
         lines.push("Shell:        OK".into());
     }
-    if a.home.join("state/first-install").is_file() {
+    if Home::new(&a.home).state(State::FirstInstall).is_file() {
         lines
             .push("First install: NOT DONE (labels and core units; ./install.sh does them)".into());
         found = true;
@@ -440,7 +441,7 @@ pub(crate) fn report(a: &Asked, o: &mut impl Outside) -> (Vec<String>, bool) {
 
     // A follow-up an earlier run never finished is still owed, and a record
     // this account cannot read is no answer of "nothing owed".
-    let owed = a.home.join("state/update-pending");
+    let owed = Home::new(&a.home).state(State::UpdatePending);
     if owed.exists() {
         let (rc, said) = match &a.steps {
             Some(steps) => o.output(steps, &["update", "steps", "owed"]),

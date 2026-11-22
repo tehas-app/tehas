@@ -15,6 +15,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tehas_core::home::{Home, Live, State};
 
 const USAGE: &str = "usage: tehas panel [--json] | set <id> --label TEXT --url URL | clear <id>";
 const MAX: usize = 4;
@@ -257,9 +258,10 @@ fn gone(file: &Path) -> std::io::Result<()> {
 
 /// The list is kept and published, or both files go when it is empty.
 fn store(home: &Path, panels: &[Panel]) -> Result<(), String> {
-    let (state, live) = (home.join("state"), home.join("live"));
-    let kept = state.join("panels.json");
-    let shown = live.join("panels.json");
+    let home = Home::new(home);
+    let (state, live) = (home.state_dir(), home.live_dir());
+    let kept = home.state(State::Panels);
+    let shown = home.live(Live::Panels);
     let said = |f: &Path, e: std::io::Error| format!("{} not written: {e}", f.display());
     if panels.is_empty() {
         gone(&shown).map_err(|e| said(&shown, e))?;
@@ -279,7 +281,7 @@ fn store(home: &Path, panels: &[Panel]) -> Result<(), String> {
 /// are. Nothing is written when nothing changes, and with no view to set and
 /// none there the lock is not taken.
 pub fn set_views(home: &Path, views: &[Panel]) -> Result<Vec<(String, String)>, String> {
-    let file = home.join("state/panels.json");
+    let file = Home::new(home).state(State::Panels);
     if views.is_empty() && !read(&file)?.iter().any(|p| is_view(&p.id)) {
         return Ok(Vec::new());
     }
@@ -348,7 +350,7 @@ pub fn main(given: &[String]) -> u8 {
 }
 
 pub fn run(home: &Path, domain: &str, asked: Asked) -> u8 {
-    let file = home.join("state/panels.json");
+    let file = Home::new(home).state(State::Panels);
     if let Asked::Show { json } = asked {
         return match read(&file) {
             Ok(panels) => {
@@ -577,8 +579,8 @@ mod tests {
         let d = TestDir::new("panel");
         let set = |id: &str| run(&d, "example.org", Asked::Set(panel(id)));
         assert_eq!(set("a"), 0);
-        let kept = d.join("state/panels.json");
-        let shown = d.join("live/panels.json");
+        let kept = Home::new(d.path()).state(State::Panels);
+        let shown = Home::new(d.path()).live(Live::Panels);
         assert_eq!(
             fs::read_to_string(&kept).unwrap(),
             fs::read_to_string(&shown).unwrap()
@@ -603,7 +605,7 @@ mod tests {
         let mut p = panel("a");
         p.url = "https://example.org/x".into();
         assert_eq!(run(&d, "example.org", Asked::Set(p)), 64);
-        assert!(!d.join("state/panels.json").exists());
+        assert!(!Home::new(d.path()).state(State::Panels).exists());
     }
 
     fn view(name: &str) -> Panel {
@@ -615,7 +617,7 @@ mod tests {
     }
 
     fn ids(home: &Path) -> Vec<String> {
-        read(&home.join("state/panels.json"))
+        read(&Home::new(home).state(State::Panels))
             .unwrap()
             .into_iter()
             .map(|p| p.id)
@@ -631,7 +633,7 @@ mod tests {
             Ok(vec![])
         );
         assert_eq!(ids(&d), ["support", "p-floorplan", "p-specs"]);
-        let shown = fs::read_to_string(d.join("live/panels.json")).unwrap();
+        let shown = fs::read_to_string(Home::new(d.path()).live(Live::Panels)).unwrap();
         assert!(
             shown.contains("https://plugin-floorplan.example.org/"),
             "{shown}"
@@ -641,7 +643,10 @@ mod tests {
         relabelled.label = "Map".into();
         assert_eq!(set_views(&d, &[relabelled, view("specs")]), Ok(vec![]));
         assert_eq!(ids(&d), ["support", "p-floorplan", "p-specs"]);
-        assert_eq!(read(&d.join("state/panels.json")).unwrap()[1].label, "Map");
+        assert_eq!(
+            read(&Home::new(d.path()).state(State::Panels)).unwrap()[1].label,
+            "Map"
+        );
         // A plugin that goes, or is refused, takes its panel with it.
         assert_eq!(set_views(&d, &[view("specs")]), Ok(vec![]));
         assert_eq!(ids(&d), ["support", "p-specs"]);
@@ -671,18 +676,18 @@ mod tests {
     fn with_no_view_and_none_there_nothing_is_touched() {
         let d = TestDir::new("panel-views-none");
         assert_eq!(set_views(&d, &[]), Ok(vec![]));
-        assert!(!d.join("state").exists());
+        assert!(!Home::new(d.path()).state_dir().exists());
     }
 
     #[test]
     fn a_file_that_is_no_list_is_kept_and_said() {
         let d = TestDir::new("panel");
-        fs::create_dir_all(d.join("state")).unwrap();
-        fs::write(d.join("state/panels.json"), "nope").unwrap();
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
+        fs::write(Home::new(d.path()).state(State::Panels), "nope").unwrap();
         assert_eq!(run(&d, "", Asked::Set(panel("a"))), 1);
         assert_eq!(run(&d, "", Asked::Show { json: true }), 1);
         assert_eq!(
-            fs::read_to_string(d.join("state/panels.json")).unwrap(),
+            fs::read_to_string(Home::new(d.path()).state(State::Panels)).unwrap(),
             "nope"
         );
     }

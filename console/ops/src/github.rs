@@ -50,6 +50,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::AtomicBool;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use tehas_core::home::{Home, TokenDir};
 use tehas_core::{read_only, settings, time};
 use tehas_cycle::renew;
 
@@ -728,16 +729,18 @@ pub fn words(given: &[String]) -> Result<Ask, u8> {
 
 const NEEDS: [&str; 3] = ["TEHAS_HOME", "TEHAS_GITHUB_APP_ID", "TEHAS_REPO"];
 
-/// Where a planning turn's or a dev session's narrowed token is kept.
-const SESSION_DIR: &str = "state/github-session";
-
 fn kept_in(cycle: bool) -> PathBuf {
-    let dir = if cycle {
-        "state/github-cycle"
+    token_dir(if cycle {
+        TokenDir::Cycle
     } else {
-        "state/github"
-    };
-    home_dir(dir)
+        TokenDir::App
+    })
+}
+
+/// The kept token's directory; `TokenDir::Session` holds a planning turn's or
+/// a dev session's narrowed token.
+fn token_dir(t: TokenDir) -> PathBuf {
+    Home::new(PathBuf::from(env::var_os("TEHAS_HOME").unwrap_or_default())).token_dir(t)
 }
 
 fn home_dir(dir: &str) -> PathBuf {
@@ -773,7 +776,7 @@ pub fn session_token_env() -> Result<String, u8> {
     };
     token(
         &App::loaded(),
-        &home_dir(SESSION_DIR),
+        &token_dir(TokenDir::Session),
         &kept_in(false),
         &repo,
         Some(&body),
@@ -827,7 +830,7 @@ pub fn main(given: &[String]) -> u8 {
         None
     };
     let dir = if ask.session {
-        home_dir(SESSION_DIR)
+        token_dir(TokenDir::Session)
     } else {
         kept_in(ask.cycle)
     };
@@ -1147,7 +1150,7 @@ mod tests {
     fn a_cycles_token_is_kept_apart_from_the_apps() {
         assert!(kept_in(true).ends_with("state/github-cycle"));
         assert!(kept_in(false).ends_with("state/github"));
-        assert!(home_dir(SESSION_DIR).ends_with("state/github-session"));
+        assert!(token_dir(TokenDir::Session).ends_with("state/github-session"));
     }
 
     // A turn or a session that runs past one renewal period reads a token
@@ -1158,7 +1161,7 @@ mod tests {
     fn a_session_past_one_renewal_period_reads_a_fresh_token() {
         static STOP: AtomicBool = AtomicBool::new(false);
         let d = dir("session-renew");
-        let kept = d.path().join("state/github-session");
+        let kept = Home::new(d.path()).token_dir(TokenDir::Session);
         fs::create_dir_all(&kept).unwrap();
         fs::write(kept.join("token"), "ghs_first\n").unwrap();
         let cmd = d.path().join("tehasbot");
@@ -1559,7 +1562,7 @@ mod tests {
     fn a_renamed_app_keeps_its_user_id_and_tries_again_until_it_is_written() {
         let d = dir("renamed-id");
         let app = app_of(&d);
-        let lookup = d.join("state/github");
+        let lookup = Home::new(d.path()).token_dir(TokenDir::App);
         fs::create_dir_all(&lookup).unwrap();
         fs::write(lookup.join("login"), "acme-old[bot]\n").unwrap();
         let ids = d.join(tehas_core::accounts::FILE);

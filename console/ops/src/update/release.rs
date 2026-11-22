@@ -26,6 +26,7 @@ use std::io::ErrorKind;
 use std::os::unix::fs as unix_fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use tehas_core::home::{Home, State};
 use tehas_core::{release, version};
 
 /// Seconds for each call out: a remote that stops answering fails the update.
@@ -737,7 +738,7 @@ fn unknown_keys(tree: &Path, env_file: &Path) -> (Vec<String>, Vec<String>) {
 /// history is what prune reads: the versions in the order they were switched to.
 fn switch(host: &Host, tag: &str) -> bool {
     // The history goes first, so a failed append leaves `current` where it was.
-    let state = host.home.join("state");
+    let state = Home::new(&host.home).state_dir();
     if fs::create_dir_all(&state).is_err() {
         return false;
     }
@@ -745,7 +746,7 @@ fn switch(host: &Host, tag: &str) -> bool {
     if fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(state.join("release-history"))
+        .open(Home::new(&host.home).state(State::ReleaseHistory))
         .and_then(|mut f| writeln!(f, "{tag}"))
         .is_err()
     {
@@ -785,7 +786,7 @@ fn same_file(a: &Path, b: &Path) -> bool {
 /// The version current names and the two switched to before it stay, with the
 /// sandbox image each was tagged with. Anything older goes.
 fn prune(host: &Host) {
-    let history = fs::read(host.home.join("state/release-history")).unwrap_or_default();
+    let history = fs::read(Home::new(&host.home).state(State::ReleaseHistory)).unwrap_or_default();
     let history = String::from_utf8_lossy(&history);
     let keep = last_three(&history);
     let versions = host.home.join("versions");
@@ -1589,14 +1590,14 @@ mod tests {
     // built into tehas and 1 for any other.
     fn signed(d: &super::super::testing::Dir, rc: u8) -> (String, PathBuf) {
         let t = "tehas-v1.2.0-linux-x86_64.tar.gz".to_string();
-        d.file(&format!("dl/{t}"), "a release\n");
+        d.file(format!("dl/{t}"), "a release\n");
         let (_, sum) = output(
             Command::new("sha256sum")
                 .arg(&t)
                 .current_dir(d.0.join("dl")),
         );
-        d.file(&format!("dl/{t}.sha256"), &format!("{sum}\n"));
-        d.file(&format!("dl/{t}.minisig"), "signed\n");
+        d.file(format!("dl/{t}.sha256"), &format!("{sum}\n"));
+        d.file(format!("dl/{t}.minisig"), "signed\n");
         d.file("home/release/minisign.pub", "a key a release left\n");
         d.file("built-in.pub", release::KEY);
         let stub = d.0.join("minisign");
@@ -1633,7 +1634,7 @@ mod tests {
     fn a_sum_that_does_not_match_stops_before_the_signature() {
         let d = dir("verify-bad-sum");
         let (t, stub) = signed(&d, 0);
-        d.file(&format!("dl/{t}"), "tampered\n");
+        d.file(format!("dl/{t}"), "tampered\n");
         assert!(!verify_with(&d.0.join("dl"), &t, stub.to_str().unwrap()));
     }
 
@@ -1668,10 +1669,13 @@ mod tests {
     fn prune_removes_what_is_not_kept_and_never_current() {
         let d = dir("prune");
         for v in ["v1.0.0", "v1.1.0", "v1.2.0", "v1.3.0", "v1.4.0", "vault"] {
-            d.file(&format!("versions/{v}/VERSION"), v);
+            d.file(format!("versions/{v}/VERSION"), v);
         }
         d.file("versions/.unpack-abc/x", "");
-        d.file("state/release-history", "v1.0.0\nv1.1.0\nv1.2.0\nv1.3.0\n");
+        d.file(
+            Home::new(d.0.path()).state(State::ReleaseHistory),
+            "v1.0.0\nv1.1.0\nv1.2.0\nv1.3.0\n",
+        );
         unix_fs::symlink("versions/v1.0.0", d.0.join("current")).unwrap();
         prune(&host(&d.0));
         let mut left: Vec<String> = fs::read_dir(d.0.join("versions"))
@@ -1693,7 +1697,10 @@ mod tests {
         d.file("versions/v1.0.0/VERSION", "v1.0.0");
         d.file("versions/v1.0.0/stuck/file", "");
         d.file("versions/v1.1.0/VERSION", "v1.1.0");
-        d.file("state/release-history", "v1.1.0\n");
+        d.file(
+            Home::new(d.0.path()).state(State::ReleaseHistory),
+            "v1.1.0\n",
+        );
         unix_fs::symlink("versions/v1.1.0", d.0.join("current")).unwrap();
         let stuck = d.0.join("versions/v1.0.0/stuck");
         fs::set_permissions(&stuck, fs::Permissions::from_mode(0o500)).unwrap();
@@ -1732,7 +1739,7 @@ mod tests {
         );
         assert!(!d.0.join("current.new").exists());
         assert_eq!(
-            fs::read_to_string(d.0.join("state/release-history")).unwrap(),
+            fs::read_to_string(Home::new(d.0.path()).state(State::ReleaseHistory)).unwrap(),
             "v1.1.0\n"
         );
     }
@@ -1744,7 +1751,7 @@ mod tests {
         d.file("versions/v1.0.0/VERSION", "v1.0.0\n");
         d.file("versions/v1.1.0/VERSION", "v1.1.0\n");
         unix_fs::symlink("versions/v1.0.0", d.0.join("current")).unwrap();
-        fs::create_dir_all(d.0.join("state/release-history")).unwrap();
+        fs::create_dir_all(Home::new(d.0.path()).state(State::ReleaseHistory)).unwrap();
         assert!(!switch(&h, "v1.1.0"));
         assert_eq!(
             fs::read_link(d.0.join("current")).unwrap(),

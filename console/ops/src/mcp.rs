@@ -20,6 +20,7 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
+use tehas_core::home::{Home, Socket};
 use tehas_core::mask;
 use tehas_core::models;
 use tehas_core::settings;
@@ -173,14 +174,11 @@ struct Run {
 
 /// Where the server finds the shared checkout.
 const CHECKOUT_MOUNT: &str = "/checkout";
-/// Where `tehas-mcp-fetch.socket` listens, under the home, and where the
-/// server finds it: a connection asks for a fetch of the checkout.
-const FETCH_DIR: &str = "run/mcp-fetch";
+/// Where the server finds `Socket::McpFetch`: a connection asks for a fetch
+/// of the checkout.
 const FETCH_MOUNT: &str = "/run/tehas/fetch";
 
-/// Where the broker of plugin calls keeps its socket, under the home.
-const CALLS_DIR: &str = "run/plugin-calls";
-/// Where the server finds it.
+/// Where the server finds `Socket::PluginCalls`, the broker of plugin calls.
 const CALLS_MOUNT: &str = "/run/tehas/calls";
 
 /// Whether the server is given the broker's socket: plugins are on and a
@@ -206,6 +204,8 @@ fn plugin_calls(get: &dyn Fn(&str) -> String) -> bool {
 /// caller on the internet can reach.
 fn run_args(run: &Run) -> Vec<String> {
     let home = &run.home;
+    // Joined as text, as the mounts always were.
+    let layout = Home::of_text(home);
     let mut args: Vec<String> = [
         "run",
         "--rm",
@@ -228,7 +228,7 @@ fn run_args(run: &Run) -> Vec<String> {
         "-p",
         &format!("{}:{PORT}:{PORT}", run.addr),
         "-v",
-        &format!("{home}/live:/live:ro"),
+        &format!("{}:/live:ro", layout.live_dir().display()),
         "-v",
         &format!("{home}/mcp:/sessions:ro"),
         "-v",
@@ -241,7 +241,10 @@ fn run_args(run: &Run) -> Vec<String> {
     // A unix socket on a read-only mount still takes a connection.
     if run.plugin_calls {
         args.push("-v".to_string());
-        args.push(format!("{home}/{CALLS_DIR}:{CALLS_MOUNT}:ro"));
+        args.push(format!(
+            "{}:{CALLS_MOUNT}:ro",
+            layout.socket_dir(Socket::PluginCalls).display()
+        ));
     }
     // A unix socket on a read-only mount still takes a connection, and a
     // connection is the whole request: the server writes nothing to the host.
@@ -249,7 +252,10 @@ fn run_args(run: &Run) -> Vec<String> {
         args.push("-v".to_string());
         args.push(format!("{dir}:{CHECKOUT_MOUNT}:ro"));
         args.push("-v".to_string());
-        args.push(format!("{home}/{FETCH_DIR}:{FETCH_MOUNT}:ro"));
+        args.push(format!(
+            "{}:{FETCH_MOUNT}:ro",
+            layout.socket_dir(Socket::McpFetch).display()
+        ));
     }
     args.extend(
         [
@@ -333,12 +339,12 @@ fn prepare(home: &str) -> Result<Run, (u8, String)> {
             return Err((78, format!("TEHAS_MCP_CHECKOUT {dir} is no directory")));
         }
         // Made here, so Docker never makes it as root.
-        snapshot_dir(&Path::new(home).join(FETCH_DIR)).map_err(fail)?;
+        snapshot_dir(&Home::new(home).socket_dir(Socket::McpFetch)).map_err(fail)?;
     }
     let calls = plugin_calls(&setting);
     if calls {
         // Made here, so Docker never makes it as root.
-        snapshot_dir(&Path::new(home).join(CALLS_DIR)).map_err(fail)?;
+        snapshot_dir(&Home::new(home).socket_dir(Socket::PluginCalls)).map_err(fail)?;
     }
     // Standard error stays the command's, as git's complaint about a broken
     // configuration says more than an empty name.
