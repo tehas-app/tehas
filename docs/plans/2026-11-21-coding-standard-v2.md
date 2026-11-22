@@ -527,4 +527,5 @@ of main, each grade.
 | 2026-11-21 | The owner approves the branch in `verify.yml`, the architecture test as a gate job, and no new work for the factory that builds tehas | |
 | 2026-11-22 | Forked `refactor/coding-standard-v2` from v1.4.0 | a0aa16a5 |
 | 2026-11-22 | The gate runs on the branch | #2775 |
-| 2026-11-22 | The trio, the adapters, three ports, events (T11), the rename (T10), the pi-rukas pin, no tags from the branch and the merge train added to this plan | this pull request |
+| 2026-11-22 | The trio, the adapters, three ports, events (T11), the rename (T10), the pi-rukas pin, no tags from the branch and the merge train added to this plan | #2776 |
+| 2026-11-22 | T0: the shared architecture test (sha256 211f1167 and b66f64af), `architecture.toml` at the fork's counts, the rubric, the review questions and the knowledge map; the baseline grade waits | T0 pull request |

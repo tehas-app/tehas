@@ -1,0 +1,5 @@
+# The coding standard this repository follows: v1 or v2.
+# v1: the code as it is, before its first refactoring runs.
+# v2: the rules of docs/architecture-rubric.md;
+#     scripts/architecture.py enforces architecture.toml only at v2.
+v1
