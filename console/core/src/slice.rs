@@ -19,6 +19,7 @@ const GIB: u64 = 1_073_741_824;
 #[derive(Clone, Debug, Default)]
 pub struct Reading {
     /// `systemctl show tehas.slice`: FragmentPath, ActiveState, MemoryMax.
+    /// [`Probed::of`] types it.
     pub show: Option<Map<String, Value>>,
     /// `docker info`: "<driver> <version>", then on a line of its own the
     /// CPUs the Docker daemon counts, which a command that starts a container
@@ -38,6 +39,44 @@ pub struct Reading {
     pub pressure: Option<String>,
     /// The container id each running cycle's cid file holds.
     pub cids: Vec<String>,
+}
+
+/// What `usable` reads of `systemctl show tehas.slice`. A field the answer
+/// left out, or gave as no string, is empty.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Show {
+    pub fragment_path: String,
+    pub active_state: String,
+    pub memory_max: String,
+}
+
+/// A reading with systemctl's answer typed, as the dispatcher's snapshot
+/// holds it. `reading.show` is None: `show` is the answer, None when there
+/// was none.
+#[derive(Clone, Debug, Default)]
+pub struct Probed {
+    pub show: Option<Show>,
+    pub reading: Reading,
+}
+
+impl Probed {
+    /// The reading with its answer typed: an empty answer is none.
+    pub fn of(mut reading: Reading) -> Probed {
+        let show = reading.show.take().filter(|m| !m.is_empty()).map(|m| {
+            let field = |k: &str| m.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+            Show {
+                fragment_path: field("FragmentPath"),
+                active_state: field("ActiveState"),
+                memory_max: field("MemoryMax"),
+            }
+        });
+        Probed { show, reading }
+    }
+
+    /// `usable` of this reading, from its typed answer.
+    pub fn usable(&self, reserve: &str, containers: &str) -> Result<Usable, String> {
+        checked(self.show.as_ref(), &self.reading, reserve, containers)
+    }
 }
 
 /// The host calls `usable` makes. It stops at the first check that fails, so
@@ -346,20 +385,29 @@ pub fn bytes(s: &str) -> Option<u64> {
 
 /// The slice, or the line a person can act on.
 pub fn usable(r: &impl Probe, reserve: &str, containers: &str) -> Result<Usable, String> {
-    let Some(show) = r.show().filter(|m| !m.is_empty()) else {
+    let show = Probed::of(Reading {
+        show: r.show(),
+        ..Reading::default()
+    })
+    .show;
+    checked(show.as_ref(), r, reserve, containers)
+}
+
+/// `usable` past the call to systemctl, whose answer is `show`.
+fn checked(
+    show: Option<&Show>,
+    r: &impl Probe,
+    reserve: &str,
+    containers: &str,
+) -> Result<Usable, String> {
+    let Some(show) = show else {
         return Err("systemctl gave no answer".into());
     };
-    let field = |k: &str| {
-        show.get(k)
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string()
-    };
     // A slice that is only a name has no file and no limit. It is never used.
-    if field("FragmentPath").is_empty() {
+    if show.fragment_path.is_empty() {
         return Err("no slice file on this host (sudo ./bootstrap.sh slice)".into());
     }
-    let Some(max) = num(&field("MemoryMax")) else {
+    let Some(max) = num(&show.memory_max) else {
         return Err("tehas.slice has no memory limit (sudo ./bootstrap.sh slice)".into());
     };
     let docker = r.docker().unwrap_or_default();
@@ -420,7 +468,7 @@ pub fn usable(r: &impl Probe, reserve: &str, containers: &str) -> Result<Usable,
         .filter(|n| *n > 0);
     Ok(Usable {
         max,
-        active: field("ActiveState"),
+        active: show.active_state.clone(),
         ceiling_mb: ceiling,
         cpus: counted.map_or(nproc, |n| n.min(nproc)),
         nproc,

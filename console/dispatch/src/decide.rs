@@ -1066,11 +1066,11 @@ impl<'a> Poll<'a> {
         // answers with it later: the slice's text decides it, and only the
         // arms of `slice::room` name it.
         let mut slice_word = None;
-        match slice::usable(&s.slice, &c.reserve, &c.slice_containers) {
+        match s.slice.usable(&c.reserve, &c.slice_containers) {
             Ok(u) => {
                 ceiling_mb = u.ceiling_mb;
                 self.cycle_mb = u.ceiling_mb;
-                let r = slice::room(&s.slice, &u, &c.reserve, count as u64);
+                let r = slice::room(&s.slice.reading, &u, &c.reserve, count as u64);
                 room_mem = r.room;
                 committed = r.committed;
                 slice_max = r.max;
