@@ -1,0 +1,17 @@
+# The product wiki's collector of raw sources, kept from core when the wiki
+# left it in 2.0: the head, the log, the tags, what changed and the changelog
+# of a checkout. The `history:` grant of the plugins in 2.1 is built on it. A
+# library member of the workspace in ../Cargo.toml.
+[package]
+name = "tehas-wiki-collect"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+
+[dependencies]
+serde_json = "1"
+tehas-wiki-render = { path = "../wiki-render" }
+
+[dev-dependencies]
+tehas-core = { path = "../core" }

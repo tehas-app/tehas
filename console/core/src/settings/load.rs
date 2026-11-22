@@ -134,7 +134,10 @@ pub(super) fn retired(name: &str) -> bool {
 /// The names of features 2.0 took out, each with why. Unlike `RETIRED`, a
 /// line of one loads: a 1.4.x instance must never fail to load (the owner,
 /// 2026-11-22). The load warns once and drops the name, so nothing reads it.
-pub(super) const IGNORED: &[(&str, &str)] = &[];
+pub(super) const IGNORED: &[(&str, &str)] = &[(
+    "TEHAS_WIKI",
+    "the product wiki left core in 2.0 and returns as a plugin",
+)];
 
 /// Whether `name` is one the load warns of and drops (`IGNORED`).
 pub(super) fn ignored(name: &str) -> bool {
@@ -2573,6 +2576,18 @@ mod tests {
         let mut vars = start(&[]);
         let mut host = Fake::with(&["TEHAS_GONE=on"]);
         assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+    }
+
+    #[test]
+    fn a_line_of_the_product_wiki_loads_warns_and_is_not_read() {
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&["TEHAS_WIKI=on"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(
+            host.warned,
+            ["TEHAS_WIKI is no longer read: the product wiki left core in 2.0 and returns as a plugin; remove it from the instance"]
+        );
+        assert!(!vars.is_set("TEHAS_WIKI"));
     }
 
     #[test]

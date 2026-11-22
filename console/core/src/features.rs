@@ -128,22 +128,6 @@ pub const FEATURES: &[Feature] = &[
             "tehas-plugin-gate.service",
         ],
     },
-    // docs/specs/2026-11-21-wiki.md.
-    Feature {
-        name: "wiki",
-        stage: Stage::Building,
-        setting: "TEHAS_WIKI",
-        settings: &[],
-        since: "v1.3.0",
-        programs: &[],
-        units: &[
-            "tehas-wiki-status.service",
-            "tehas-wiki-status.timer",
-            "tehas-wiki.service",
-            "tehas-wiki.timer",
-            "tehas-wiki.path",
-        ],
-    },
 ];
 
 /// The internal variable that lets a test turn building features on: their
@@ -858,12 +842,7 @@ mod tests {
                 "tehas-plugin-hook@.service",
                 "tehas-plugin.service",
                 "tehas-plugin.timer",
-                "tehas-plugin-gate.service",
-                "tehas-wiki-status.service",
-                "tehas-wiki-status.timer",
-                "tehas-wiki.service",
-                "tehas-wiki.timer",
-                "tehas-wiki.path"
+                "tehas-plugin-gate.service"
             ]
         );
     }

@@ -3,9 +3,8 @@
 //! `current` pointed at it and the builds past retention removed. A build
 //! that fails its checks changes nothing that is served.
 
-use super::check::{self, Pages};
-use super::collect::Head;
-use super::render;
+use crate::check::{self, Pages};
+use crate::{build_of, is_id, render, Head};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::fs;
@@ -18,9 +17,9 @@ pub const KEEP: usize = 10;
 
 /// The layout and stylesheet of every page, and the schema a first build
 /// starts from.
-pub const LAYOUT: &str = include_str!("../../../host/wiki/layout.html");
-pub const CSS: &str = include_str!("../../../host/wiki/wiki.css");
-pub const SCHEMA: &str = include_str!("../../../host/wiki/SCHEMA.md");
+pub const LAYOUT: &str = include_str!("../assets/layout.html");
+pub const CSS: &str = include_str!("../assets/wiki.css");
+pub const SCHEMA: &str = include_str!("../assets/SCHEMA.md");
 
 /// The pages under `dir`, by their paths. A link, a file that is not a page's
 /// Markdown, or a directory deeper than a page may be, is a reason the build
@@ -212,12 +211,12 @@ pub fn put(wiki: &Path, stage: &Path, id: &str) -> io::Result<()> {
     let mut builds = Vec::new();
     for e in fs::read_dir(wiki)?.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
-        if !super::is_id(&name) {
+        if !is_id(&name) {
             continue;
         }
         let rec = fs::read_to_string(e.path().join("build.json"))
             .ok()
-            .and_then(|t| super::build_of(&t))
+            .and_then(|t| build_of(&t))
             .unwrap_or(Value::Null);
         let s = |k: &str| rec[k].as_str().unwrap_or("").to_string();
         builds.push((name, s("builtAt"), s("describe")));

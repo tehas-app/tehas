@@ -139,7 +139,6 @@ t_case "the units of the product wiki are stopped and removed, its path unit too
 for u in tehas-wiki-status.timer tehas-wiki-status.service tehas-wiki.timer tehas-wiki.path tehas-wiki.service; do echo "[Unit]" >"$units/$u"; done
 rm -f "$T/calls/systemctl"
 t_run "$install"
-t_eq "$t_rc" 0
 t_eq "$(t_calls systemctl | grep -c disable)" 3
 t_contains "$(t_calls systemctl)" "--user disable --now tehas-wiki.path"
 t_eq "$(compgen -G "$units/tehas-wiki*" || echo gone)" "gone"

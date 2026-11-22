@@ -8,7 +8,6 @@
   <a id="all" class="muted" href="#">all issues on GitHub</a>
 </div>
 </tehas-factory-state>
-<tehas-factory-wikilink data-tehas-island="contents" src="/live/wiki.json"><a id="wiki" class="muted" hidden>wiki</a></tehas-factory-wikilink>
 
 <tehas-factory-console data-tehas-island="contents" src="/live/running.json" status="/live/status.json">
 <section class="now" id="now" hidden></section>
@@ -47,4 +46,3 @@
 <script type="module" src="/fun/factory/tehas-factory-days.js"></script>
 <script type="module" src="/fun/factory/tehas-factory-previews.js"></script>
 <script type="module" src="/fun/factory/tehas-factory-host.js"></script>
-<script type="module" src="/fun/factory/tehas-factory-wikilink.js"></script>
