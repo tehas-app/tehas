@@ -26,6 +26,8 @@
 -- STEP_18). Schema 24 adds answers, an answer `tehas answer` gave to the
 -- question on record of an issue (db::STEP_24_INIT, run after STEP_23), and
 -- cycles.how takes 'answer', which db::STEP_24 rebuilds cycles for.
+-- Schema 25 adds questions.offers, the choices a park's question offers
+-- (db::STEP_25).
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named

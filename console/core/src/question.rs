@@ -83,6 +83,81 @@ impl Choice {
     }
 }
 
+/// The choices a park's question offers, in the order it lists them: the
+/// comments retry when the image gives a cycle the comments and a retry is
+/// offered at all, the text-only retry when one is, and leaving it parked.
+/// A develop timeout that repeats on the same text offers no retry.
+pub fn park_offers(retry: bool, comments: bool) -> Vec<Choice> {
+    let mut offers = Vec::new();
+    if retry && comments {
+        offers.push(Choice::Retry);
+    }
+    if retry {
+        offers.push(Choice::RetryText);
+    }
+    offers.push(Choice::Park);
+    offers
+}
+
+/// The words a person sees for a choice of a park's question; empty for a
+/// choice of a planning question.
+pub fn park_label(c: Choice) -> &'static str {
+    match c {
+        Choice::Retry => BOX_COMMENTS,
+        Choice::RetryText => BOX_ALONE,
+        Choice::Park => BOX_PARKED,
+        _ => "",
+    }
+}
+
+/// One choice a waiting question offers: the words a person sees, the
+/// choice, and the number of a planning option.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Offered {
+    pub label: String,
+    pub choice: Choice,
+    pub option: Option<u64>,
+}
+
+/// The choices of a planning question whose turn offered `options`, in the
+/// order its comment lists them: each option up to [`MAX_OPTIONS`] (the
+/// planner's [`crate::plan::UPDATE`] as `update`), then the end of the session.
+pub fn plan_choices(options: &[String]) -> Vec<Offered> {
+    let mut out: Vec<Offered> = options
+        .iter()
+        .take(MAX_OPTIONS)
+        .enumerate()
+        .map(|(i, label)| Offered {
+            label: label.clone(),
+            choice: if label == crate::plan::UPDATE {
+                Choice::Update
+            } else {
+                Choice::Option
+            },
+            option: Some(i as u64 + 1),
+        })
+        .collect();
+    out.push(Offered {
+        label: BOX_END.to_string(),
+        choice: Choice::End,
+        option: None,
+    });
+    out
+}
+
+/// The choices of a park's question that offers `offers`, with their words.
+pub fn park_choices(offers: &[Choice]) -> Vec<Offered> {
+    offers
+        .iter()
+        .filter(|c| c.kind() == Kind::Park)
+        .map(|c| Offered {
+            label: park_label(*c).to_string(),
+            choice: *c,
+            option: None,
+        })
+        .collect()
+}
+
 /// What the retries are given, said under the boxes.
 pub const SAY_COMMENTS: &str = "Both retries start over in a new workspace. \"All its comments\" means what\nallowed accounts wrote on this issue and on its pull requests up to your\ntick. \"Issue text only\" means the title and body, nothing else.";
 pub const SAY_ALONE: &str = "The retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.";
@@ -286,13 +361,10 @@ pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> S
             // and no box offers comments the image would not give the cycle.
             let retry = out.get("retry") != Some(&Value::Bool(false));
             let comments = out.get("comments") == Some(&Value::Bool(true));
-            if retry && comments {
-                b += &format!("{}\n", box_line(BOX_COMMENTS, false));
+            for c in park_offers(retry, comments) {
+                b += &format!("{}\n", box_line(park_label(c), false));
             }
-            if retry {
-                b += &format!("{}\n", box_line(BOX_ALONE, false));
-            }
-            b += &format!("{}\n\n", box_line(BOX_PARKED, false));
+            b += "\n";
             match (retry, comments) {
                 (true, true) => b += &format!("{SAY_COMMENTS}\n"),
                 (true, false) => b += &format!("{SAY_ALONE}\n"),

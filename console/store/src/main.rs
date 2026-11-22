@@ -94,6 +94,7 @@
 //!   store park-retry <issue>
 //!   store park-told <issue>
 //!   store question-asked <issue> --id <id> --kind park|plan [--attempt N] [--body-sha <sha256>]
+//!                [--offers <choice>,...]   (a park's: retry, retry-text, park)
 //!   store question-known <issue> --id <id>
 //!   store question-answered <issue> --id <id> --by <account> | --withdraw
 //!   store answer-record <issue> --by <account> --choice <choice> [--option N]
@@ -101,6 +102,7 @@
 //!                (park: retry, retry-text, park; plan: option with --option,
 //!                update, end, text with --text-file)
 //!   store answer-drop <issue> --id <id>
+//!   store question-show <issue>
 //!   store approval-record <issue> --at <unix> --by <account> --how <how> ...
 //!                [--input-file <file>] | --undo --at <unix>
 //!                (the hows are label, refresh, retry-tick, outage-retry, answer,

@@ -1,0 +1,36 @@
+tehas question <issue>: the question an issue waits on, and its choices.
+
+A program on the host that answers for a person, such as an industry, reads
+here which question a stopped ticket or a planning session waits on, and
+the choices it offers, to show them and to answer one with tehas answer.
+It reads the state store (state/tehas.db) and nothing else, and changes
+nothing.
+
+A planning question offers its options, numbered from 1 as its comment
+lists them, and the end of the session. A stop offers the choices it was
+asked with: a retry with the issue and its comments, a retry with the
+issue text only, or leaving it stopped. A stop asked before the store kept
+its choices lists all three, and the poll refuses an answer its comment
+does not offer. A reply in words, tehas answer --text, is not listed: a
+planning question always takes one.
+
+Usage:
+  tehas question <issue>          the question and its choices, one per line
+  tehas question <issue> --json   the same as one object
+
+Each choice is the word tehas answer takes (retry, retry-text, park,
+option:<k>, update, end) and the words a person sees for it:
+
+  #12 waits on its park question, asked at 2026-10-17T14:00:20Z:
+    retry-text   Retry with the issue text only
+    park         Leave it parked
+
+With --json, {"api": 1, "issue": 12, "question": {"id": 4001, "kind":
+"park", "asked_at": "...", "choices": [{"label": "...", "choice":
+"retry-text"}, ...]}}.
+
+Exit: 0 a question waits; 1 the state store refused or is not installed; 3
+no question waits on the issue; 64 a bad argument; 78 the instance settings
+are missing or malformed.
+
+Instance settings (lib/config.sh): TEHAS_REPO.

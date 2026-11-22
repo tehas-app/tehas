@@ -35,7 +35,8 @@
     "wake",
     "start-reasons",
     "blockers",
-    "answer"
+    "answer",
+    "question"
   ],
   "flags": {
     "outsource": false,

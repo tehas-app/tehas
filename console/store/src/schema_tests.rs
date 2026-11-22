@@ -161,6 +161,7 @@ fn step_sql(to: i64) -> &'static str {
         22 => db::STEP_22,
         23 => db::STEP_23,
         24 => db::STEP_24,
+        25 => db::STEP_25,
         _ => unreachable!("no step to {to}"),
     }
 }
@@ -296,14 +297,16 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_24() {
-    assert_eq!(db::SCHEMA_VERSION, 24);
-    let home = home("schema-24");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 24);
+fn init_writes_schema_25() {
+    assert_eq!(db::SCHEMA_VERSION, 25);
+    let home = home("schema-25");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 25);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "24"
+        "25"
     );
+    // Schema 25: the choices a park's question offers.
+    assert!(columns(&conn(&home), "questions").contains(&"offers".to_string()));
     // The five tables of the feature are laid by every init, and stay empty
     // while it is off.
     for t in db::OUTSOURCE_TABLES {
@@ -1016,6 +1019,28 @@ fn the_step_from_23_adds_the_answers_and_an_answer_goes_with_its_question() {
     );
     let made = crate::verbs_tests::home("step-24-shape");
     same_shape_as_init(&home, &conn(&made), "23");
+}
+
+/// The step to 25 keeps every question and gives none the choices it
+/// offered: they were not kept before.
+#[test]
+fn the_step_from_24_adds_the_offers_of_a_question_and_keeps_every_row() {
+    let home = at_22("step-25-offers");
+    let mut c = conn(&home);
+    for (to, run) in db::STEPS {
+        if (23..=24).contains(to) {
+            run(&mut c).unwrap();
+        }
+    }
+    drop(c);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 24);
+    let before = rows(&conn(&home));
+    migrate(&home).unwrap();
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
+    assert_eq!(rows(&conn(&home)), before);
+    assert_eq!(count(&home, "questions WHERE offers IS NOT NULL"), 0);
+    let made = crate::verbs_tests::home("step-25-shape");
+    same_shape_as_init(&home, &conn(&made), "24");
 }
 
 /// The CHECK of `answers.choice` is the words of the choices, which the

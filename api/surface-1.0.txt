@@ -616,3 +616,14 @@ field answer.question
 field answer.question.id
 field answer.question.kind
 field answer.replaced
+command question
+flag question --json
+field question.api
+field question.issue
+field question.question
+field question.question.asked_at
+field question.question.choices
+field question.question.choices[].choice
+field question.question.choices[].label
+field question.question.id
+field question.question.kind

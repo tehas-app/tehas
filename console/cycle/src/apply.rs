@@ -443,7 +443,12 @@ impl Writer<'_> {
             let body = stamped(&body, self.stamp.as_ref());
             match self.post_question(&body) {
                 Posted::Id(id) => {
-                    self.asked(&id, &body);
+                    let offers = tehas_core::question::park_offers(!p.no_retry, p.comments)
+                        .iter()
+                        .map(|c| c.word())
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    self.asked(&id, &body, &offers);
                     return;
                 }
                 // The question may be there: a plain comment would say the
@@ -501,7 +506,7 @@ impl Writer<'_> {
     /// On record before the label shows it: a tick counts only in the
     /// question on record. The poll reads questions only on issues with the
     /// label, so without it the boxes do nothing: say so.
-    fn asked(&mut self, id: &str, body: &str) {
+    fn asked(&mut self, id: &str, body: &str, offers: &str) {
         let (home, n) = (self.home, self.issue.to_string());
         let sum = crate::last_attempt::sha(body);
         let asked = [
@@ -513,6 +518,8 @@ impl Writer<'_> {
             "park",
             "--body-sha",
             &sum,
+            "--offers",
+            offers,
         ];
         if let Err(e) = host::store_try(home, 3, &asked) {
             log(&format!(

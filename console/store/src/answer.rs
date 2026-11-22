@@ -41,6 +41,10 @@ pub enum Call {
         issue: i64,
         id: i64,
     },
+    /// `question-show <issue>`: the question that waits for an answer.
+    Show {
+        issue: i64,
+    },
 }
 
 pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
@@ -54,6 +58,8 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                 })
             })
         }
+        "question-show" => Args::parse("question-show", rest, &[], true)
+            .and_then(|a| Ok(Call::Show { issue: a.issue()? })),
         _ => return None,
     })
 }
@@ -113,6 +119,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
             text,
         } => record(home, *issue, by, *choice, *option, text.as_deref(), now),
         Call::Drop { issue, id } => drop(home, *issue, *id),
+        Call::Show { issue } => verbs::look(home, |c| show(c, *issue)),
     }
 }
 
@@ -154,6 +161,42 @@ fn plan_question(c: &Connection, issue: i64) -> Result<Option<(i64, Option<Strin
     )
     .optional()
     .q()
+}
+
+/// `question-show <issue>`: the question that waits for an answer, a
+/// planning session's open question or else the park question on record,
+/// with when it was asked, the choices a park's question offers (null for a
+/// question asked before they were kept) and a planning question's options.
+/// `question` is null when none waits.
+fn show(c: &Connection, issue: i64) -> Result<String, Fail> {
+    let (id, kind, options) = match plan_question(c, issue)? {
+        Some((id, json)) => (id, "plan", Some(options(issue, json.as_deref())?)),
+        None => match crate::park::question_on_record(c, issue)? {
+            Some(id) => (id, "park", None),
+            None => return Ok(line("question-show", &[("question", "null".into())])),
+        },
+    };
+    let (posted, offers): (i64, Option<String>) = c
+        .query_row(
+            "SELECT posted_at, offers FROM questions WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .q()?;
+    let offers = offers.map(|o| o.split(',').map(str::to_string).collect::<Vec<_>>());
+    Ok(line(
+        "question-show",
+        &[(
+            "question",
+            obj(&[
+                ("id", j(id)),
+                ("kind", j(kind)),
+                ("posted_at", j(posted)),
+                ("offers", j(offers)),
+                ("options", j(options)),
+            ]),
+        )],
+    ))
 }
 
 /// The labels of the options on record, a JSON list of text as `plan-end`
