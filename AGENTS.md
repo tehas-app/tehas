@@ -116,6 +116,43 @@ when a person pulls and runs `install.sh` there.
   `host/docs/features.md` says how far each feature is proven; do not mark
   something proven that you have not seen work.
 
+## Coding standard
+
+`.tehas/coding-standard` says which standard this repository follows. It
+says `v1` until the refactoring on `refactor/coding-standard-v2` is done
+(`docs/plans/2026-11-21-coding-standard-v2.md`); then `v2`, the rules of
+`docs/architecture-rubric.md`. v2 is about where knowledge lives, not the
+code style, which stays as "Style" says. The rules in short:
+
+- R1 one owner for each piece of knowledge: a supplier's paths, fields and
+  documents, a file's layout, a set of state words;
+- R2 outside systems behind ports in tehas's terms, the adapter alone
+  knowing the supplier;
+- R3 a pure core, effects at the edge;
+- R4 typed seams, no `serde_json::Value` across one;
+- R5 deep modules, grouped by what they know;
+- R6 failures, retries, time limits and paging in the adapter;
+- R7 tests at the interface, on the ports' fakes;
+- R8 dependencies point inward;
+- R9 expand, then contract;
+- R10 small steps that keep behaviour.
+
+The rules bind the bash as much as the Rust: a name owned by one module
+is owned there for both.
+
+The architecture test, `python3 -I scripts/architecture.py`, holds the
+counts in `architecture.toml`, with its own tests in
+`scripts/architecture_test.py`. The script is the same file in every
+tehas repository: a change to it is made in all of them together, never in
+this copy alone. A count may not rise, the pull request that lowers one
+lowers its `max`, and a `max` above 0 says `why`. At `v1` it is skipped;
+on a pull request into the branch run it with
+`--force --base origin/refactor/coding-standard-v2`. The map of who knows
+what, the contract and the grades are in `docs/architecture.md`. Review
+every pull request into the branch, and every one from `v2` on, against
+the questions in `docs/architecture-review.md`, and answer them in the
+pull request.
+
 ## Verify
 
 ```
