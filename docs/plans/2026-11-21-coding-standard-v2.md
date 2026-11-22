@@ -673,6 +673,10 @@ trio are supported, so 2.0 carries no backwards compatibility.
   T16 corrects the manual's words where they say so.
   Each has its line in T9's "Changed in 2.0", its settings handled by the
   configuration migration, and `cargo xtask config-check` covers them.
+  A store table or column that exists only for a removed feature goes
+  through a state-store step with a migration test, not left unread.
+  Steps land in number order: 28 the fixer-to-millwright rename, 29
+  Outsource's tables, 30 the `comment_links` column that #2875 leaves.
 
 An inventory comes first, then one pull request per kind of thing
 removed, each green alone, each lowering the counts and ceilings it
