@@ -24,7 +24,7 @@ pattern = 'api\.github\.com|\bgraphql\b|\brepos/(\{|\$|:owner)|"/?(user|users|or
 files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh", "host/systemd/*", "host/fun/**/*.js"]
 allowed = ["console/core/src/forge.rs", "console/core/src/forge/**"]
 comment = "//"
-max = 863
+max = 861
 why = "Re-measured at T0's follow-up, with tests in files counted and GitHub's JSON fields, --json and --jq added: the console 240, dispatch 225, ops 98, cycle 93, the front pages 69, mcp 38, store 37, core 21 outside the forge, analytics 8, xtask 6, the sandbox 4, the rest 1 or 2. 219 are in test files. Some field names (createdAt, updatedAt) are also tehas's own JSON keys where it copied GitHub's: T4 and T7 rename or own them. T4 moves the rest behind the three ports. T15's ports of the top and host bridge shell tests add 20: tehas's own --json flag and tehas's JSON keys copied from GitHub's names (updatedAt, closedAt), false positives that T4/T7 remove by narrowing the check to the adapter's paths or renaming the keys. T15's port of the headless runner's shell tests adds 10: pi-rukas's runner flag --json, written as the tests pass it, a false positive that T4/T7 remove by narrowing the check to the adapter's paths."
 
 [[check]]
@@ -35,7 +35,7 @@ pattern = '"gh"|\bgh (api|pr|issue|repo|release|run|label|auth|search|workflow|s
 files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh", "host/systemd/*"]
 allowed = ["console/core/src/forge.rs", "console/core/src/forge/**"]
 comment = "//"
-max = 409
+max = 404
 why = "Re-measured at T0's follow-up, with tests in files counted: dispatch 207, cycle 67, the console 62, ops 34, core 13, store 11, mcp and xtask 4 each, the rest 1 or 2. 255 are in test files, which T1 moves onto the ports' fakes. The security shims that decide whether a gh call writes are among the rest: whether they stay separate is the owner's (T4), and those that stay become a written floor. T15's port of the top snapshot shell tests adds 1: the short name \"gh\" of a process in a fixture of /proc, a false positive that T4/T7 remove by narrowing the check to the adapter's paths."
 
 [[check]]
@@ -45,7 +45,7 @@ what = "the state labels and markers (tehas:...) are written only in the one mod
 pattern = 'tehas:[a-z]|\bneeds-human-attention\b|"epic"'
 files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh", "host/systemd/*", "host/fun/**/*.js"]
 comment = "//"
-max = 1876
+max = 1874
 why = "Re-measured at T0's follow-up, with tests in files counted and needs-human-attention and epic added: dispatch 1010, cycle 228, core 189, the console 184, ops 137, store 70, the front pages 34, mcp 21, analytics 4, plugin 1. 930 are in test files. T2 gives the state words one owner in core, checked against host/labels.tsv."
 
 [[check]]
@@ -69,7 +69,7 @@ end = '\{|;\s*$'
 pattern = '\bValue\b'
 files = ["console/**/*.rs"]
 comment = "//"
-max = 1389
+max = 1388
 why = "Re-measured at T0's follow-up, with tests in files counted: dispatch 366, mcp 251, cycle 181, the console 162, core 128, ops 89, store 77, analytics 45, attach 42, plugin 33, proxy 28, contractor 16. 377 are in test files. T3 types the dispatcher's core, T4 the ports, T5 the store client; T7 moves the rest or writes a floor for an adapter's own parsing."
 
 [[check]]
@@ -142,5 +142,5 @@ pattern = 't_stub gh\b|"gh"|\bgh (api|pr|issue|repo|release|run|label|search)\b'
 files = ["test/**/*.sh", "console/**/tests/**", "console/**/tests.rs", "console/**/*_tests.rs"]
 allowed = ["console/core/src/forge/**"]
 comment = "#"
-max = 419
+max = 414
 why = "The map at T0: dispatch's tests 191, the shell tests of test/ 123 (84 of them t_stub gh), cycle 45, the console 31, store 17, core, mcp 4 each, ops 2, analytics, attach 1 each. T1 moves each crate's tests onto the ports' fakes, with the same answers, before its calls move; the forge's own pins stay. T15's port of the top snapshot shell tests moves 1 from test/ into Rust, so the count holds: the short name \"gh\" of a process in a fixture of /proc, a false positive that T4/T7 remove by narrowing the check to the adapter's paths."

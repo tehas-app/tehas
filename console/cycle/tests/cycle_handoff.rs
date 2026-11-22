@@ -103,7 +103,7 @@ fn a_cycle_that_never_ran_is_reported_from_the_approval_record_and_the_record_go
     lacks(&gh, "last step");
     lacks(&gh, "min,");
     lacks(&gh, "total, all dispatches");
-    has(&gh, "- [ ] Retry with the issue text only");
+    has(&gh, "- retry-text: Retry with the issue text only");
     // The approval goes with the report: no later start, the fixer's or a
     // refresh, rests on an approval that started nothing.
     let a = w.row(&["approval-current", "7"]);
@@ -223,7 +223,7 @@ fn a_handoff_with_its_pull_request_open_on_another_cap_is_parked_and_names_the_c
         &gh,
         "Read the pull request before you retry: https://github.com/acme/widget/pull/9",
     );
-    has(&gh, "- [ ] Retry with the issue text only");
+    has(&gh, "- retry-text: Retry with the issue text only");
     let p = w.park();
     assert_eq!(
         json!([p["reason"], p["pr"]]),
@@ -315,7 +315,10 @@ fn a_park_carries_pi_rukass_handoff_under_its_marker_cleaned_like_any_agents_wor
     has(body, "<\\!-- tehas:question kind=park issue=7 turn=1 -->");
     lacks(body, "@someone");
     assert_eq!(count_in(body, "pi-rukas:handoff"), 1);
-    assert_eq!(count_lines(body, "- [ ] Retry with the issue text only"), 1);
+    assert_eq!(
+        count_lines(body, "- retry-text: Retry with the issue text only"),
+        1
+    );
     let ticked = regex::Regex::new(r"(?m)^- \[.\] Retry from a clean start").unwrap();
     assert_eq!(ticked.find_iter(body).count(), 0);
 }
@@ -336,7 +339,7 @@ fn a_park_s_handoff_names_no_work_command_a_host_cannot_run() {
     let body = &gh[at..];
     lacks(body, "/work 7");
     lacks(body, "--allow-protected");
-    has(body, "Make the change to `.pi/verify-cmd` yourself, since a cycle may not change a protected path, then tick a retry box on this comment once it is right.");
+    has(body, "Make the change to `.pi/verify-cmd` yourself, since a cycle may not change a protected path, then reply `retry-text` to this comment once it is right.");
 }
 
 #[test]

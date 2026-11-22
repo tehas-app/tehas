@@ -298,7 +298,7 @@ fn a_question_whose_label_fails_is_taken_off_the_record_and_says_so() {
     h.report(20, false);
     assert!(h.at("store question-asked") < h.at("store question-answered 7 --id 4002 --withdraw"));
     let last = h.at("gh issue comment 7");
-    assert!(h.calls()[last].contains("The boxes above cannot be used"));
+    assert!(h.calls()[last].contains("A reply to the choices above does nothing"));
 }
 
 #[test]

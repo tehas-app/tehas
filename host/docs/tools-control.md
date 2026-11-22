@@ -22,7 +22,7 @@ dispatcher reads it on every poll: room for new cycles is the smaller of
 `--cycles` and `TEHAS_MAX_CYCLES`, less the cycles running, and its
 hold is `limit`. With `--plan off` no new planning session starts; an answer to a planning
 question still runs. One that expired or cannot be read holds every start, answers and
-retry ticks included, while the poll goes on cleaning up. A `set` or `clear`
+answered retries included, while the poll goes on cleaning up. A `set` or `clear`
 that lets more cycles run while the last poll's demand has an issue waiting
 asks for a poll, as `tehas wake` does. See
 [Limit and drain](/operating#limit-and-drain) and
@@ -145,8 +145,8 @@ tehas pause --reason "waiting for the gate"   # and say why
 
 Writes the pause flag, `~/tehas/state/pause.json`, holding who set it, when and
 why, in a file with mode 600. While it is there the dispatcher starts nothing:
-no cycle, no planning turn, no answer to a planning question, no retry by a
-tick. A cycle already running finishes, and the poll still stops one whose issue
+no cycle, no planning turn, no answer to a planning question, no retry by an
+answer. A cycle already running finishes, and the poll still stops one whose issue
 is closed or whose pull request is merged or closed, and still clears an issue
 marked `tehas:running` with no cycle behind it. The flag is read without asking
 GitHub anything, so a host can be paused when GitHub cannot be reached. Pausing a
@@ -222,7 +222,7 @@ installed changes nothing, exit 78.
 
 The park of issue 12, on the state store, then asks for nothing more, before
 the lock file goes: its question is taken off the record (`took the park
-question of #12 off the record`), so a box ticked in it starts nothing, and its
+question of #12 off the record`), so an answer to it starts nothing, and its
 one retry is spent (`spent the retry of the park of #12`), so the dispatcher
 does not start the issue again on its own after a provider outage. A park that
 still has a question or an unspent retry counts as something to stop. A park

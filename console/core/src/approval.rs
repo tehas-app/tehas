@@ -56,7 +56,16 @@ fn record_ok(r: &Value) -> bool {
         && text("by").is_some_and(|s| all_of(s, |b| b.is_ascii_alphanumeric() || b == b'-'))
         && matches!(
             text("how"),
-            Some("label" | "retry-tick" | "outage-retry" | "fixer" | "refresh" | "host" | "answer")
+            Some(
+                "label"
+                    | "retry-tick"
+                    | "outage-retry"
+                    | "fixer"
+                    | "refresh"
+                    | "host"
+                    | "answer"
+                    | "reply"
+            )
         )
         && matches!(
             r.get("comment_links"),

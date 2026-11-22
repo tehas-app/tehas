@@ -392,7 +392,8 @@ fn a_plan_label_from_an_allowed_account_starts_a_session_from_the_issue_s_text()
         "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:plan",
     );
     has(&gh, "authorized by @alice's `tehas:plan` label");
-    has(&gh, "- [ ] Adopt all");
+    has(&gh, "1. Adopt all");
+    lacks(&gh, "- [ ]");
     has(&gh, "<!-- tehas:question kind=plan issue=7 turn=1 -->");
     has(
         &gh,
@@ -453,9 +454,8 @@ fn a_ticked_retry_of_a_parked_issue_starts_its_cycle_whatever_planning_label_it_
         &gh,
         "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question",
     );
-    // The tick is undone with the start, so it cannot fire again later.
-    has(&gh, "api -X PATCH repos/acme/widget/issues/comments/4001");
-    has(&gh, "- [ ] Retry from a clean start");
+    // Nothing edits the question: the start took it off the record.
+    lacks(&gh, "api -X PATCH");
     // The ask for a session waits for the poll after the cycle: its label stays.
     lacks(&gh, "--remove-label tehas:refine");
 }

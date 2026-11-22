@@ -373,10 +373,10 @@ impl Writer {
                 .and_then(Value::as_str)
                 .filter(|x| !x.is_empty())
             {
-                Some(auto) => format!("Tehas planning session started on `{host}` at {when} UTC to refine this issue: its cycle parked as `{auto}`, and the start of that cycle by @{by} authorizes one refine. Each turn ends in a comment here. Answer by ticking a box or by replying. To stop it, take `tehas:question` off while a question waits, or close the issue."),
+                Some(auto) => format!("Tehas planning session started on `{host}` at {when} UTC to refine this issue: its cycle parked as `{auto}`, and the start of that cycle by @{by} authorizes one refine. Each turn ends in a comment here. Answer by replying in a comment. To stop it, take `tehas:question` off while a question waits, or close the issue."),
                 None => match a.get("epic").and_then(Value::as_u64) {
-                    Some(e) => format!("Tehas planning session started on `{host}` at {when} UTC (authorized by @{by}'s `tehas:ready` label on epic #{e}, which the millwright carried to this sub-issue with `{label}`). Each turn ends in a comment here. Answer by ticking a box or by replying."),
-                    None => format!("Tehas planning session started on `{host}` at {when} UTC (authorized by @{by}'s `{label}` label). Each turn ends in a comment here. Answer by ticking a box or by replying."),
+                    Some(e) => format!("Tehas planning session started on `{host}` at {when} UTC (authorized by @{by}'s `tehas:ready` label on epic #{e}, which the millwright carried to this sub-issue with `{label}`). Each turn ends in a comment here. Answer by replying in a comment."),
+                    None => format!("Tehas planning session started on `{host}` at {when} UTC (authorized by @{by}'s `{label}` label). Each turn ends in a comment here. Answer by replying in a comment."),
                 },
             };
             self.say(n, &said, log);

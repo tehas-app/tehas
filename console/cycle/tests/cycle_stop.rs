@@ -438,7 +438,7 @@ fn the_question_label_is_tried_three_times() {
         .filter(|l| *l == "issue edit 7 --repo acme/widget --add-label tehas:question")
         .count();
     assert_eq!(tries, 3);
-    has(&gh, "The boxes above cannot be used");
+    has(&gh, "A reply to the choices above does nothing");
 }
 
 #[test]

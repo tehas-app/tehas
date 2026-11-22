@@ -27,7 +27,8 @@
 -- question on record of an issue (db::STEP_24_INIT, run after STEP_23), and
 -- cycles.how takes 'answer', which db::STEP_24 rebuilds cycles for.
 -- Schema 25 adds questions.offers, the choices a park's question offers
--- (db::STEP_25).
+-- (db::STEP_25). Schema 26: cycles.how takes 'reply', a retry a person's reply
+-- asked for, which db::STEP_26 rebuilds cycles for.
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
@@ -82,7 +83,7 @@ CREATE TABLE cycles (
   attempt        INTEGER NOT NULL DEFAULT 1,
   started_at     INTEGER NOT NULL,
   started_by     TEXT,
-  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host','answer')),
+  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host','answer','reply')),
   requeued       INTEGER NOT NULL DEFAULT 0,
   rukas_commit   TEXT,
   image          TEXT,

@@ -35,7 +35,7 @@ fn fixer_answer_why(c: &Settings, view: &Value) -> String {
     fixer_why(c, crate::snapshot::plan_view(view).as_ref())
 }
 use super::{has, or_unknown, Action, End, NoteKind, Poll, Room, Spend, Step, Turn};
-use crate::questions::{Asked, Status};
+use crate::questions::Asked;
 use crate::settings::Settings;
 #[cfg(test)]
 use crate::snapshot::shape;
@@ -44,7 +44,6 @@ use crate::text;
 use serde_json::json;
 #[cfg(test)]
 use serde_json::Value;
-use tehas_core::question::BOX_END;
 
 /// The largest issue number and the latest cycle start (epoch seconds) a
 /// park owed a refine is read with.
@@ -126,25 +125,11 @@ impl Poll<'_> {
         });
     }
 
-    /// fixer_answer_ok: whether the fixer's tick or reply may run the turn.
-    fn fixer_answer_ok(&mut self, n: u64, view: &PlanView, ans: &Asked, said: &str) -> bool {
-        let why = if ans.tick.status == Status::Fixer
-            && ans.tick.index.map(|i| i + 1) == Some(ans.boxes)
-        {
-            format!("it ticked {BOX_END}, which only a person may")
-        } else {
-            fixer_why(self.c, Some(view))
-        };
+    /// fixer_answer_ok: whether the fixer's reply may run the turn.
+    fn fixer_answer_ok(&mut self, n: u64, view: &PlanView, ans: &Asked) -> bool {
+        let why = fixer_why(self.c, Some(view));
         if why.is_empty() {
             return true;
-        }
-        if said == "tick" {
-            self.log(format!("skip #{n}: the fixer's answer runs no turn: {why}"));
-            if !self.dry {
-                let note = format!("The fixer's tick was not taken as an answer: {why}. It was unticked. A person answers this question.");
-                self.untick(n, ans, Some(&note));
-            }
-            return false;
         }
         let Some(id) = digits(ans.fixer_reply.as_ref().and_then(|f| f.id.as_ref())) else {
             return false;
@@ -162,26 +147,6 @@ impl Poll<'_> {
             });
         }
         false
-    }
-
-    /// fixer_held: a tick the fixer saved after someone else edited the
-    /// question is neither used nor undone. Said once a question.
-    fn fixer_held(&mut self, n: u64, view: &PlanView, ans: &Asked) {
-        let Some(id) = digits(ans.comment.as_ref()) else {
-            return;
-        };
-        if listed(&view.held, &id) {
-            return;
-        }
-        self.log(format!("skip #{n}: the fixer saved the question after another account did, so who ticked it is not known"));
-        if !self.dry {
-            self.act(Action::PlanNote {
-                issue: n,
-                kind: NoteKind::Held,
-                id,
-                say: "Tehas did not take the box ticked in this question as an answer: the fixer saved the comment after another account did, and GitHub does not say who ticked it. A person ticks the box again or replies.".into(),
-            });
-        }
     }
 
     /// The answer to a planning question: the next turn runs with it, and
@@ -210,23 +175,8 @@ impl Poll<'_> {
             by = r.map(|r| r.by.clone()).unwrap_or_default();
             reply_id = digits(r.and_then(|r| r.id.as_ref())).unwrap_or_default();
         } else if tick == "one" {
-        } else if tick == "held" {
-            if let PlanRow::Open(p) = row {
-                self.fixer_held(n, &p.view, ans);
-            }
-            return Ok(());
-        } else if tick == "unread" {
-            // The question's edit history could not be read this poll: who
-            // saved it is not known, so nothing is said or done, and the next
-            // poll reads it again.
-            self.log(format!(
-                "skip #{n}: the edit history of its question could not be read; it waits for the next poll"
-            ));
-            return Ok(());
         } else if ans.fixer_reply.is_some() {
             fixer_said = "reply";
-        } else if tick == "fixer" {
-            fixer_said = "tick";
         } else {
             return Ok(());
         }
@@ -256,7 +206,7 @@ impl Poll<'_> {
                 ));
                 return Ok(());
             };
-            if !self.fixer_answer_ok(n, &p.view, ans, fixer_said) {
+            if !self.fixer_answer_ok(n, &p.view, ans) {
                 return Ok(());
             }
             speaker = "The fixer";
@@ -271,7 +221,14 @@ impl Poll<'_> {
             }
         }
         let boxes = ans.boxes as u64;
-        let index = ans.tick.index.map(|i| i as u64);
+        let mut index = ans.tick.index.map(|i| i as u64);
+        // The fixer's reply that names a choice makes it, as a person's does.
+        if fixer_said == "reply" {
+            if let Some(i) = crate::questions::choice_of(&reply, "plan", &ans.labels) {
+                index = Some(i as u64);
+                reply.clear();
+            }
+        }
         // As `$(jq -r ...)` leaves it: no final newlines.
         let option = |i: u64| {
             open.and_then(|p| p.options.get(i as usize))
@@ -279,20 +236,7 @@ impl Poll<'_> {
                 .unwrap_or_default()
         };
         let text = if !reply.is_empty() {
-            let mut text = format!("{speaker} replied on the issue:\n\n{reply}");
-            if tick == "one" {
-                let i = index.unwrap_or(u64::MAX);
-                let choice = if i.checked_add(1) == Some(boxes) {
-                    BOX_END.to_string()
-                } else {
-                    Some(option(i))
-                        .filter(|c| !c.is_empty())
-                        .unwrap_or_else(|| "a box that matches no option on record".into())
-                };
-                let ticker = ans.tick.by.as_str();
-                text = format!("{text}\n\nA box was also ticked, by {ticker}: {choice}");
-            }
-            text
+            format!("{speaker} replied on the issue:\n\n{reply}")
         } else {
             let i = index.unwrap_or(u64::MAX);
             if i.checked_add(1) == Some(boxes) {
@@ -308,7 +252,7 @@ impl Poll<'_> {
             let choice = option(i);
             if choice.is_empty() {
                 self.log(format!(
-                    "skip #{n}: the ticked box matches no option on record"
+                    "skip #{n}: the choice made matches no option on record"
                 ));
                 return Ok(());
             }
@@ -605,7 +549,7 @@ impl Poll<'_> {
             self.mesh_ok()?;
             if self.park_ticked.contains(&n) {
                 self.log(format!(
-                    "skip #{n}: not refined: a box of its park question is ticked"
+                    "skip #{n}: not refined: a choice was made on its park question"
                 ));
                 continue;
             }

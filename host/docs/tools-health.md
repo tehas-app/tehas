@@ -414,8 +414,8 @@ then says `The sandbox cannot push: <line> (<login>).`
 
 `checks.demand` is what the dispatcher's last poll wrote to
 `live/demand.json`: `{time, waiting, oldest}`, the issues that would start if
-there were room (a Retry ticked on a park among them) and when the oldest was
-labelled or ticked. An issue held only by a planning session is left out,
+there were room (a retry answered on a park among them) and when the oldest was
+labelled or answered. An issue held only by a planning session is left out,
 and a poll that ends that session writes the file again at its end with the
 issue counted. It is `null` when no poll
 wrote it in the last ten minutes. `checks.slice` also carries `free`, the free

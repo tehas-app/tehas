@@ -87,7 +87,7 @@ fn with_no_pull_request_on_the_branch_the_cycle_is_parked_as_any_other_that_left
     let gh = w.gh();
     has(&gh, &pr_list());
     has(&gh, "Tehas cycle stopped without a pull request");
-    has(&gh, "- [ ] Retry with the issue text only");
+    has(&gh, "- retry-text: Retry with the issue text only");
     has(
         &gh,
         "--remove-label tehas:running --add-label needs-human-attention",

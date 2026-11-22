@@ -49,8 +49,8 @@ const MIN_WORDS: usize = 6;
 const MAX_SUFFIX: usize = 13;
 /// What a turn is asked to plan when the brief holds no title at all.
 const NO_TITLE: &str = "the work in .tehas/brief.md";
-const DRAFTED: &str = "Tick Update this issue to make the plan, proposals included, this issue's text, or reply to change it.";
-const DRAFTED_REFINE: &str = "Tick Update this issue to make the plan, proposals included, this issue's text, File as a new issue to file it as its own issue, or reply to change it.";
+const DRAFTED: &str = "Reply `1` (Update this issue) to make the plan, proposals included, this issue's text, or reply in your own words to change it.";
+const DRAFTED_REFINE: &str = "Reply `1` (Update this issue) to make the plan, proposals included, this issue's text, `2` (File as a new issue) to file it as its own issue, or reply in your own words to change it.";
 /// What a drafted plan the check refuses is asked, around the rule it failed.
 const WITHHELD: &str = "Tehas does not offer this plan as the text of an issue";
 const WITHHELD_NEXT: &str =

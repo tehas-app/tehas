@@ -27,12 +27,13 @@ pub fn code_of(text: &str) -> &'static str {
         ("is open and closes it", code::OPEN_PR),
         ("an epic is never started", code::EPIC),
         ("TEHAS_SIZE_MAX_FILES", code::TOO_LARGE),
-        // Rule 4: a tick on the bot's question, and the question itself.
+        // Rule 4: an answer to the bot's question, and the question itself.
         (
-            "a box was ticked in a question this host has no record of",
+            "a choice was made in a question this host has no record of",
             code::QUESTION,
         ),
-        ("are no answer", code::QUESTION),
+        ("is no answer", code::QUESTION),
+        ("matches no option on record", code::QUESTION),
         ("its question is not among", code::QUESTION),
         ("its question was written by", code::QUESTION),
         ("the question on record does not belong", code::QUESTION),
@@ -41,7 +42,7 @@ pub fn code_of(text: &str) -> &'static str {
             code::DRIVER,
         ),
         (
-            "a retry was ticked but the issue is not parked",
+            "a retry was answered but the issue is not parked",
             code::PARKED,
         ),
         (

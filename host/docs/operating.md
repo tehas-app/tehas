@@ -109,8 +109,8 @@ issue text.
 | The issue's title and body                  | Read | Read, at the start | The title |
 | Comments on the issue                       | Not given, except on a retry with comments (below) | Replies by an allowed account to its question, as answers | Not shown |
 | A png, jpg, webp or gif linked in the body  | Fetched and mounted with `TEHAS_WORK_IMAGES=on`; shown to explore and plan when the sandbox image says its pi-rukas reads them | The same | Shown |
-| The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=on`, when an allowed account wrote it before the label or the retry tick and nobody edited it since | When a reply to its question links it | Shown |
-| The text of comments, on a retry with comments | `comments.json` beside the images, when `Retry with the issue and all its comments` was ticked: what allowed accounts that may write said on the issue and its pull requests up to the tick. Read by the sandbox image's pi-rukas or its polyfill | Not given | Not shown |
+| The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=on`, when an allowed account wrote it before the label or the retry's answer and nobody edited it since | When a reply to its question links it | Shown |
+| The text of comments, on a retry with comments | `comments.json` beside the images, when `retry` (`Retry with the issue and all its comments`) was answered: what allowed accounts that may write said on the issue and its pull requests up to the answer. Read by the sandbox image's pi-rukas or its polyfill | Not given | Not shown |
 | The spec an issue's `Spec:` line names, and the approved title and body | With `TEHAS_SPEC_PIPE=on`, still being built: the spec, held to the sha256 its approval pinned, and `approved.json`, beside the images and named in the manifest. A spec needs a sandbox image whose pi-rukas lists `issueSpec` | Not given | Not shown |
 | md, txt, csv, json, yaml, log, html, css or js linked in the body | Fetched and mounted with `TEHAS_WORK_FILES=on`; pi-rukas does not read them yet | The same | html, css, js, json and txt shown, html in a frame |
 | svg, avif, a video                          | Not given | Not given | Shown |
@@ -263,8 +263,8 @@ compute on the issue.
   label's name and both ids. See [label pins](/github-app#label-pins).
 - An allowed account is its login and its GitHub user id, as `install.sh`
   and `tehas update` recorded them. A label from the login with another id,
-  after the login changed hands, counts as nobody's; so do a tick, an answer
-  and a comment. See [Accounts by user id](/tools-update#accounts-by-user-id).
+  after the login changed hands, counts as nobody's; so do an answer and a
+  comment. See [Accounts by user id](/tools-update#accounts-by-user-id).
 - To start it ahead of other ready issues, put it first in the start order:
   `tehas order set --issues N`. The order only sorts; the issue still needs
   its `tehas:ready`. See [tehas order](/api#tehas-order).
@@ -291,7 +291,7 @@ factory label is not counted in line or as being worked on.
 The control issue, the one `TEHAS_CONTROL_ISSUE` names and the one that carries
 `tehas:pause`, is never worked on. It holds the pause switch and no outcome, so
 a cycle on it would spend a slot and model time on the switch itself. Whoever
-applies `tehas:ready` or `tehas:plan` to it, and whoever ticks a retry box on
+applies `tehas:ready` or `tehas:plan` to it, and whoever answers `retry` to
 its question, starts nothing: no cycle, no planning turn, no retry. The poll
 changes no label of it, and says so once, in one line of `logs/dispatch.log`
 as it says a label from an account that is not allowed: `skip #N: the control
@@ -333,11 +333,11 @@ Blocked by #12 and #34.
 
 Up to 20 numbers, separated by commas and no spaces. The newest such comment among the last 100 counts; one by anyone else is ignored. Only comments are read: a marker in the issue's body names nothing. When the label counts and no such comment is there, the issue is held by the label alone: it names no blockers and never starts until an allowed labeller or the millwright comments a marker, or a person takes `tehas:blocked` off. The log says so at every poll, and [tehas status](/tools-status#tehas-status) lists such issues on a `blocked` line and in `demand.labelAlone`. The issue also waits, and the log says why, when the newest one does not hold a marker that reads, when it was last edited by another account, or when GitHub does not give the state of a number it names. Once every blocker is closed the issue starts, and the start takes `tehas:blocked` off with `tehas:ready`. The label stays on until that start, so an issue whose blockers have closed while it waits for a slot or another hold still carries `tehas:blocked`: the hold is over, and the label is what asks for the start. When an allowed labeller's `tehas:blocked` clears and the issue does not start in that poll, the dispatcher says so once in a comment that holds `<!-- tehas:hold-cleared -->`. Only the bot's own such comment counts as said. A newer marker comment is a new hold, and its clearing is said again. A blocker that is closed already holds nothing: name one that is still open, or reopen it. To start a blocked issue anyway, swap `tehas:blocked` for `tehas:ready`. To stop it starting, take the label off.
 
-An epic is never started: an issue with open sub-issues is a plan broken into issues, not a change one cycle can make, and a cycle on it spends a slot and its tokens before it parks as too large. When `tehas:ready` is applied to such an issue, the dispatcher takes the label off, says so in one comment and starts nothing; a retry ticked on one starts nothing and the log says why. The count comes from the issue GitHub already answers for, so a GitHub without sub-issues is unaffected. Read the plan and apply `tehas:ready` to one of its sub-issues instead; a sub-issue with no open sub-issues of its own is started as any other issue. A `tehas:plan` session on an epic is allowed: planning an epic is what it is for. With `TEHAS_MILLWRIGHT_EPICS=on` and a millwright, your `tehas:ready` on an epic is not lost: it approves the epic's open sub-issues for [the millwright](#the-millwrights-grant), which plans each one that needs it and applies `tehas:ready` to it, and the comment says so. Close the epic, or put `needs-human-attention` on it, to take that back. Tehas's own removal of the label keeps the approval; a removal by anyone else ends it.
+An epic is never started: an issue with open sub-issues is a plan broken into issues, not a change one cycle can make, and a cycle on it spends a slot and its tokens before it parks as too large. When `tehas:ready` is applied to such an issue, the dispatcher takes the label off, says so in one comment and starts nothing; a retry answered on one starts nothing and the log says why. The count comes from the issue GitHub already answers for, so a GitHub without sub-issues is unaffected. Read the plan and apply `tehas:ready` to one of its sub-issues instead; a sub-issue with no open sub-issues of its own is started as any other issue. A `tehas:plan` session on an epic is allowed: planning an epic is what it is for. With `TEHAS_MILLWRIGHT_EPICS=on` and a millwright, your `tehas:ready` on an epic is not lost: it approves the epic's open sub-issues for [the millwright](#the-millwrights-grant), which plans each one that needs it and applies `tehas:ready` to it, and the comment says so. Close the epic, or put `needs-human-attention` on it, to take that back. Tehas's own removal of the label keeps the approval; a removal by anyone else ends it.
 
 An open issue whose title starts with an epic marker gets the `epic` label at the next poll, so the board says what it is. The marker is the word `epic` in any case at the very start of the title, or after one opening bracket, followed by `:`, a closing bracket or a space: `EPIC: Billing rework`, `Epic: ...`, `(Epic) ...` and `[EPIC] ...` match; `feat: WS-A child of epic 412: ...`, `Epicenter map` and `epics view polish` do not, so a part that names its epic is never labelled as one. tehas only adds the label. Take it off an issue and tehas leaves it off: the poll reads the issue's label events, and a removal by any account but the bot's is final. The control issue is never labelled, and a paused poll labels nothing. The label is for people: what makes an epic for the dispatcher and the epics panel is still GitHub's sub-issue links, so a labelled issue with no sub-issues is started as any other issue and is not on the panel. `tehasbot health` warns about such an issue, the common miss when a plan's parts were filed and never linked: open the epic and add its parts as sub-issues. Run `tehas labels` once after an update so the label exists.
 
-With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names more files than that number is not started either. The dispatcher reads the count off the approved text itself: a path is what stands between two ticks and holds a `/` or ends in `.sh`, `.rs`, `.md`, `.json`, `.toml` or `.yml`, and one path counts once however often it is written. Such an issue is a stack of changes wearing the shape of one issue, and a cycle on it spends its explore and its plan before it parks. The dispatcher takes `tehas:ready` off, puts `needs-human-attention` on, and says the count, the setting and the way out in one comment: narrow the issue to the part one cycle can make, or split it into issues of that size, then apply `tehas:ready` to one of them. The hold belongs to `tehas:ready` alone, so it holds nothing else back: a ticked retry, a refresh of the bot's own pull request and a `tehas:plan` session start as they did. Unset, the dispatcher never asks, and a wide issue starts as any other.
+With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names more files than that number is not started either. The dispatcher reads the count off the approved text itself: a path is what stands between two ticks and holds a `/` or ends in `.sh`, `.rs`, `.md`, `.json`, `.toml` or `.yml`, and one path counts once however often it is written. Such an issue is a stack of changes wearing the shape of one issue, and a cycle on it spends its explore and its plan before it parks. The dispatcher takes `tehas:ready` off, puts `needs-human-attention` on, and says the count, the setting and the way out in one comment: narrow the issue to the part one cycle can make, or split it into issues of that size, then apply `tehas:ready` to one of them. The hold belongs to `tehas:ready` alone, so it holds nothing else back: an answered retry, a refresh of the bot's own pull request and a `tehas:plan` session start as they did. Unset, the dispatcher never asks, and a wide issue starts as any other.
 
 | Label on the issue      | Meaning                           | Your move                                |
 | ----------------------- | --------------------------------- | ---------------------------------------- |
@@ -351,7 +351,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:planning`        | A planning turn is running        | Wait                                     |
 | `tehas:replaced`        | Closed: a refine filed the issue that replaces it | Work on the issue named in `Replaced by` |
 | `tehas:refined`         | A refine filed its first part; later parts remain | Apply `tehas:refine` for the next part, or close it |
-| `tehas:question`        | The factory asked something       | Tick a box; in a planning session you may reply instead |
+| `tehas:question`        | The factory asked something       | Reply in a comment with one of the choices it lists, or in a planning session in your own words |
 | `tehas:improvement`     | Filed by the factory, a proposal  | Read it; apply `tehas:ready` if it should be built |
 | `tehas:millwright-escalated` | The millwright left it to a person | Read the millwright's note; decide, or take the label off to hand it back |
 | `tehas:lean`            | The lean driver is chosen for it. See [Choosing the driver](#choosing-the-driver) | Take it off to run the issue on classic |
@@ -512,17 +512,18 @@ lean without the label ([tehas work](/tools-work#tehas-work)).
 - The same holds when another account takes an allowed account's `tehas:lean`
   off: the choice stands and nothing starts. An allowed account applies the
   label again, and for classic takes it off itself.
-- The start binds the choice in its approval record. A retry (a ticked box, the
+- The start binds the choice in its approval record. A retry (an answer, the
   retry after a provider outage, the millwright's `tehas:ready` or a refresh)
   runs the driver of the start it follows, so a label added since changes
   nothing until a person applies `tehas:ready` again. A person's `tehas:ready`
-  that a park holds counts too: the ticked box then reads the label.
+  that a park holds counts too: the answer then reads the label.
 - With the label off, the next start is classic, retry or not.
 - The park of a refused lean start asks for the label to come off first. A
-  Retry ticked there while `tehas:lean` is on starts nothing: the poll logs
-  that it waits for the label, and the tick stays. Once the label is off, that
-  tick starts the cycle on classic. Under `TEHAS_DRIVER=lean` the park asks for
-  `tehas:classic` instead: the tick waits until an allowed account applied it,
+  retry answered there while `tehas:lean` is on starts nothing: the poll logs
+  that it waits for the label, and the answer stands. Once the label is off,
+  that answer starts the cycle on classic. Under `TEHAS_DRIVER=lean` the park
+  asks for `tehas:classic` instead: the answer waits until an allowed account
+  applied it,
   then starts the cycle on classic.
 - A lean start takes `needs-human-attention` off with its other labels. A
   classic start leaves it to the cycle's `--restart`; `work-lean` takes no
@@ -796,44 +797,58 @@ pi-rukas a deadline the handoff's 8 minutes before the end of
 `TEHAS_WORK_TIMEOUT`: after it, the cycle starts no new step and hands off with its branch and pull request, instead of being stopped in the
 middle of one.
 
-To try again after fixing the cause (often: make the issue clearer), tick a
-retry box in the bot's comment. Tick `Leave it parked` to take the question
-away and keep the issue as it is. Both retries start over in a new workspace.
+To try again after fixing the cause (often: make the issue clearer), answer
+the bot's comment. It lists its choices as plain lines, each with its word and
+what it leads to, and asks nothing else: reply in a comment with the word of
+one, from an account that may authorise work. `park` (`Leave it parked`)
+takes the question away and keeps the issue as it is. Both retries start over
+in a new workspace. A program on the host answers the same way with
+`tehas answer` ([the factory API](/api#tehas-answer)).
 
-- `Retry with the issue and all its comments` gives the cycle what allowed
-  accounts wrote on the issue and on the bot's pull requests for it up to the
-  tick: issue comments, pull request comments, review bodies and inline review
-  comments. A comment counts when its author is in `TEHAS_ALLOWED_LABELERS`
-  and may write to the repository at the tick (write, maintain or admin, asked
-  of GitHub once per author), and nobody edited it after the tick. The bot's
-  own comments are left out. An author whose permission cannot be read is left
-  out with a warning in the log, and the start comment names them. The
-  dispatcher records the comments at the tick; `tehas work` writes them to
-  `comments.json` beside the images, each cut at 4,000 characters and the
-  whole at 64 KB with the oldest dropped and counted, and mounts that
-  directory even when the instance gives a cycle no images or files. It needs
-  no setting: the tick is the opt-in. With `TEHAS_WORK_COMMENTS=on` the images
-  and files those comments link come too, by the usual rules.
-- `Retry with the issue text only` gives the cycle the title and body, nothing
+- `retry` (`Retry with the issue and all its comments`) gives the cycle what
+  allowed accounts wrote on the issue and on the bot's pull requests for it up
+  to the answer: issue comments, pull request comments, review bodies and
+  inline review comments. A comment counts when its author is in
+  `TEHAS_ALLOWED_LABELERS` and may write to the repository at the answer
+  (write, maintain or admin, asked of GitHub once per author), and nobody
+  edited it after the answer. The bot's own comments are left out. An author
+  whose permission cannot be read is left out with a warning in the log, and
+  the start comment names them. The dispatcher records the comments at the
+  answer; `tehas work` writes them to `comments.json` beside the images, each
+  cut at 4,000 characters and the whole at 64 KB with the oldest dropped and
+  counted, and mounts that directory even when the instance gives a cycle no
+  images or files. It needs no setting: the answer is the opt-in. With
+  `TEHAS_WORK_COMMENTS=on` the images and files those comments link come too,
+  by the usual rules.
+- `retry-text` (`Retry with the issue text only`) gives the cycle the title and body, nothing
   else: its approval names no comment of the issue or of the pull request, so
   the cycle is given the approved body and the links of that body alone. Neither
   poll reads the issue's comments or its pull request for such a start.
 
-The comments box is offered only when the sandbox image gives a cycle the
+The comments retry is offered only when the sandbox image gives a cycle the
 comments: its pi-rukas lists `issueComments` in `--capabilities`
 (trail-openers/pi-rukas#2020), or its `tehas.rukas.polyfills` label carries
 `issue-comments@<version>` (tehas-app/tehas-polyfill). Otherwise the comment
-offers the text-only retry and `Leave it parked`. On the polyfill alone a
-comments retry runs with `PI_ENSEMBLE_REPEAT_PARK=0` where the image takes it,
-since the polyfill's comments do not reach the repeat-park guard, and the end
-comment says the comments were given to the cycle's agents. With the native
-reader it says how many the runner read, or that it did not and why. A
-comment posted before this release has the old boxes, `Retry from a clean
-start` and `Retry from the issue alone`: they still count, as the comments
-retry and the text-only retry. A label works as well: apply `tehas:ready`.
-`needs-human-attention` does not have to be removed first. A cycle started
-that way takes `tehas:question` off the issue, and the old boxes no longer do
-anything.
+offers the text-only retry and `park`.
+
+The newest reply of an allowed account that names a choice is the answer. It
+stands until the poll acts on it, or until a newer reply names a choice: a
+later comment in other words, of a person or of the bot, takes nothing away. A
+reply that names a choice the comment does not offer (`retry` where only
+`retry-text` is listed) starts nothing, and an older reply's choice does not
+act in its place: the bot answers once that the choice is not offered, and
+neither reply is read again. Reply again with a choice the comment lists. On the polyfill alone a comments retry
+runs with `PI_ENSEMBLE_REPEAT_PARK=0` where the image takes it, since the
+polyfill's comments do not reach the repeat-park guard, and the end comment
+says the comments were given to the cycle's agents. With the native reader it
+says how many the runner read, or that it did not and why. A comment posted
+before 2.0 has boxes instead of lines: a box ticked in it does nothing, and
+nothing is said of it. A label works as well once the body has changed: apply
+`tehas:ready`. While the text is the one the cycle parked on and the question
+is on record, the label is held until a reply answers a retry, as said
+below. `needs-human-attention` does not have to be removed first. A
+cycle started that way takes `tehas:question` off the issue, and the question
+no longer takes an answer.
 
 A cycle that parks at `child-timeout:develop`, its developer stopped at its
 time bound, first writes a note into the issue's body, because a cycle reads
@@ -850,10 +865,12 @@ warning in the log, and the park is posted as before.
 
 When the note is there and the rest of the body has not changed since it was
 written, a second develop timeout does not write it again, and its park
-comment has no retry box at all, only `Leave it parked`: the
-same text would run into the same bound. The comment says to split the issue
-with `tehas:plan`, or make the body smaller and apply `tehas:ready`. A
-`tehas:ready` on the unchanged text is held as below, the millwright's too.
+comment offers no retry and asks nothing, since leaving it parked is all that
+is left to choose: the same text would run into the same bound. The comment
+says to split the issue with `tehas:plan`, or make the body smaller and apply
+`tehas:ready`. A `tehas:ready` on the unchanged text is held, the millwright's
+too, with one comment that says so; `tehas status` names the hold with "edit
+the body, or split the issue with `tehas:plan`".
 The note and the check need `libexec/tehas-cycle`; without it the park is
 posted as before.
 
@@ -863,15 +880,15 @@ hash of the body that cycle's approval bound, as the state store keeps it for
 the park, with the issue's text now, and when they are equal and the park was
 not a provider outage it starts no cycle, leaves the park and the labels as
 they are, and says so in the poll's log. Once per park it also posts one
-comment: edit the body, or tick a retry box. The tick is the
-park's own ask and is never held, so a retry on the same text starts as it
-did, and so does a start after any change to the body. A retry ticked by an
-allowed account also lifts the hold of a new `tehas:ready`, so taking
-`tehas:question` off by hand after the tick does not lose it; the log then
-says `lifted on the Retry <account> ticked`. A park with no question on record
-(taken off by a start that did not happen, for one) has no box a tick could
-start, so it holds nothing either: the log says `lifted as its park has no
-question on record to tick`. A park of a provider
+comment: edit the body, or reply to the park comment with the word of one of its retries. The answer is
+the park's own ask and is never held, so a retry on the same text starts as it
+did, and so does a start after any change to the body. A retry answered by an
+allowed account, by a reply or through `tehas answer`, also lifts the hold of a
+new `tehas:ready`, so taking `tehas:question` off by hand after the answer
+does not lose it; the log then says `lifted on the retry <account> answered`.
+A park with no question on record (taken off by a start that did not happen,
+for one) has no question to answer, so it holds nothing either: the log says
+`lifted as its park has no question on record to answer`. A park of a provider
 outage is held by its own rule instead, and a park of a cycle started by hand,
 which no approval bound to a body, holds nothing. A park that cannot be read
 holds the issue for that poll.
@@ -895,22 +912,25 @@ carries the comment under `park_lifted`, beside the `retry_context` the cycle is
 given; `rests_on` still names the person's approval the refresh reads. The hold
 and its comment are unchanged for anyone else's label.
 
-An issue closed since its cycle stopped is not work. Neither the tick nor a new
+An issue closed since its cycle stopped is not work. Neither an answer nor a new
 `tehas:ready` starts anything on it, and the poll's log says so.
 
 A cycle that a provider outage parked says so in its comment: `parked by a
 provider outage`, with the cap. Only the cycle's own result names the outage,
-so the park is recorded under its cap like any other and waits for a tick or a
-label: tick the retry box once the model endpoint answers. A park an earlier
+so the park is recorded under its cap like any other and waits for an answer or
+a label: reply with the retry the park comment offers once the model endpoint
+answers. A park an earlier
 version recorded as `provider-outage` still owes its one retry: once the model
 endpoint answers, the dispatcher starts the issue again on its own and says so
 on the issue, on the word of whoever started the cycle that parked. `tehas
 stop` on the issue gives up that one retry.
 
-When the bot cannot post the boxes, it posts a plain comment that gives the
-label to apply. When the boxes are posted and the label `tehas:question` cannot be
-added, a second comment says that the boxes cannot be used, tells you to run
-`tehas labels` on the host, and names the label.
+When the bot cannot post the question, it posts a plain comment that gives the
+label to apply. When the question is posted and the label `tehas:question`
+cannot be added, a second comment says that a reply to it does nothing, tells
+you to run `tehas labels` on the host, and names the label. A park the factory
+takes up again on its own has nothing for a person to decide: its comment says
+so and asks no question.
 
 A cycle that was killed outright cannot report, for example when the host
 lost power. The next poll finds its issue: open, marked `tehas:running`, and
@@ -920,25 +940,23 @@ a pull request the cycle may have opened, then apply `tehas:ready` to retry.
 The poll starts nothing for it by itself. A closed issue in that state only
 loses `tehas:running`.
 
-A tick counts only from an allowed labeller, and only while the issue is
+An answer counts only from an allowed labeller, and only while the issue is
 parked and open: it carries `needs-human-attention` and neither
 `tehas:running` nor `tehas:awaiting-merge`. It is used once. The poll first
-marks the issue `tehas:running`; if GitHub refuses that, the tick stays and
+marks the issue `tehas:running`; if GitHub refuses that, the answer stands and
 the next poll tries again. Once the issue is marked the question is no longer
-on record, so the same tick cannot start a second cycle, and the bot unticks
-the box to show it was taken. A box ticked by anyone
-else, or more than one box, is unticked and the bot says so in a comment.
-A retry ticked on an issue that is not parked is unticked too, and the bot
-says that nothing was started.
+on record, so the same answer cannot start a second cycle. A reply from anyone
+else, or one in words that name no choice, is no answer. A retry answered on
+an issue that is not parked starts nothing, and the bot says so once.
 A paused factory, one with every slot taken, or one at the cap of
-`TEHAS_MAX_AWAITING`, holds the retry back as it holds any cycle. The tick
-stays and is used when there is room.
+`TEHAS_MAX_AWAITING`, holds the retry back as it holds any cycle. The answer
+stands and is used when there is room.
 
-The host keeps the id of the question it posted when the cycle stopped. A
-tick counts only in that comment; a box in any other comment does nothing.
-On an issue for which the host has no question on record, a box ticked in a
-comment of the bot that looks like a question is unticked, and the bot says
-that the question is not one the factory is waiting on and names the label.
+The host keeps the id of the question it posted when the cycle stopped. An
+answer counts only to that comment. On an issue for which the host has no
+question on record, an answer to a comment of the bot that looks like a
+question starts nothing, and the bot says that the question is not one the
+factory is waiting on and names the label.
 
 The next cycle starts in a fresh workspace, with `--restart` when the issue
 carries `needs-human-attention`. That flag is the answer the label asks for:
@@ -968,11 +986,11 @@ again on a later poll. Only the names of that one issue go, and the dated
 directories of `~/.pi/agent/ensemble-runs` are the runner's, not tehas's, so the
 sweep leaves them for a person.
 
-A label or a tick approves the text of the issue as it was at that moment. If
-someone other than an allowed labeller changes the title or the body
+A label or an answer approves the text of the issue as it was at that moment.
+If someone other than an allowed labeller changes the title or the body
 afterwards, the issue is skipped and the dispatcher's log says who changed it.
 Read the new text. Then approve it again: for the label, remove `tehas:ready`
-and apply it again; for a retry tick, untick the box and tick it again.
+and apply it again; for a retry, answer `retry` again.
 
 ### Finishing a stopped cycle
 
@@ -1110,23 +1128,30 @@ dispatcher's log says so.
 3. The bot comments that the session has started. Each turn ends in a comment
    with what the planner found. A turn is one run of pi-rukas's headless
    planner and can take many minutes. When it needs a decision, the comment
-   ends in a question with one checkbox per choice, a last box `End this
-   planning session`, and the label `tehas:question` is on the issue. When
-   the agent offers more than 20 choices, the first 20 get a box and a line
-   says how many were left out; reply to name another one. The
-   last box and the label come after every turn, whether or not the agent
-   asked something, and a reply or the last box works either way. When the
-   agent asks more than one question in a turn, the comment lists them all,
-   numbered, with their choices as text and no box for them: answer them in
-   a reply.
+   ends in a question that lists its choices as numbered lines, the last one
+   `End this planning session`, and the label `tehas:question` is on the
+   issue. When
+   the agent offers more than 20 choices, the first 20 are listed and a line
+   says how many were left out; reply to name another one. The end of the
+   session and the label come after every turn, whether or not the agent
+   asked something. When the agent asks more than one question in a turn, the
+   comment lists them all, numbered, with their choices as text: answer them
+   in a reply.
    A turn that ends on an issue a person closed in the meantime is dropped: the
    poll reads the state before it posts, and a closed issue gets nothing of the
    turn, its session closes, and one line in the log says
    `planning #N dropped: the issue is closed`. A state the poll cannot read
    holds the post to the next poll rather than close the session on no answer.
-4. Answer by ticking one box, or by replying in a comment when none of the
-   boxes fits. If you do both, the reply counts, and the agent is told
-   which box was ticked as well. The next poll that is free
+4. Answer by replying in a comment: the number of one of the choices the
+   comment lists (or its words), or your own words when none fits. A bare
+   number names one of the planner's own choices: a question with none takes
+   it as your words. The session ends only on the word `end`, the words `End
+   this planning session`, or `option:<k>` with the number it is listed
+   under. A program
+   on the host answers the same way with `tehas answer`, and reads the
+   choices with `tehas question` ([the factory API](/api#tehas-answer)). The
+   newest answer counts. A box ticked in a comment of before 2.0 is no
+   answer, and nothing is said of it. The next poll that is free
    continues the session with your answer, and the issue carries
    `tehas:planning` while the turn runs. The turn runs as its own unit,
    `tehas-plan-<issue>.service`, and the polls go on meanwhile: cycles start
@@ -1143,8 +1168,9 @@ dispatcher's log says so.
    [A plan with no open points](#a-plan-with-no-open-points), is shown to you
    before anything is written: one
    comment holds its title and spec and lists its open points with the
-   planner's proposals, and the comment after it holds the question and the
-   boxes, among them **Update this issue**. Reply to change the plan, and
+   planner's proposals, and the comment after it holds the question and its
+   choices, among them **Update this issue**. Reply with its number to take
+   it, or in your own words to change the plan, and
    the next turn drafts it again. Every turn of a session works on the
    commit the session started on.
    - **Update this issue** makes the plan, exactly as shown, proposals
@@ -1161,14 +1187,14 @@ dispatcher's log says so.
      session files once.
    - A plan the checks of the issue's text refuse is not offered at all: the
      comment still shows it, and the question names the rule it failed and
-     lists its open points, with no box but **End this planning session**.
+     lists its open points, with no choice but **End this planning session**.
      Besides the checks under [A plan with no open points](#a-plan-with-no-open-points),
      a plan is refused whose text has lines that end in `[context param]`,
      the request or the briefs echoed back, or whose Acceptance criteria are
      pi-rukas's placeholder for none ("derive the testable outcomes from the
      investigation findings"). Reply to change the plan, or end the session.
 
-   After either box nothing is started on its own: read the plan and apply
+   After either choice nothing is started on its own: read the plan and apply
    `tehas:ready` to the issue you want built. The label approves the text as
    it is when you apply it. A `tehas:ready` from any account outside the list,
    the bot's included, is taken off.
@@ -1176,7 +1202,7 @@ dispatcher's log says so.
 ### A plan with no open points
 
 A `tehas:plan` session from an allowed person that drafts a plan with no open
-points needs no tick. The bot makes the plan the issue's title and text, as
+points needs no answer. The bot makes the plan the issue's title and text, as
 **Update this issue** does, ends the session and starts a cycle. The cycle is
 credited to you: your `tehas:plan` approved this build, so apply it only to
 what you would apply `tehas:ready` to. The plan is not shown first, and no
@@ -1219,14 +1245,13 @@ turn. If it is gone, for example after the host was rebuilt, the session cannot
 go on: the bot ends it and says so. Apply `tehas:plan` again to start a new session.
 
 Only answers from allowed labellers count, and the millwright's within its grant
-(see [The millwright's grant](#the-millwrights-grant)). A box ticked by anyone else, or
-more than one box, is unticked and the bot says so. A reply counts only if its
-author is an allowed account and, when it was edited, its last editor is too.
-Replies from others are ignored. Only the question the session is waiting on
-counts, which is the one whose id the host has on record. Any other comment
-with boxes, older or newer, does nothing. An answer runs a turn only while
+(see [The millwright's grant](#the-millwrights-grant)). A reply counts only if
+its author is an allowed account and, when it was edited, its last editor is
+too. Replies from others are ignored. Only the question the session is waiting
+on counts, which is the one whose id the host has on record. Any other
+question, older or newer, takes no answer. An answer runs a turn only while
 GitHub says the issue is open: on an issue closed since the turn that asked,
-a box and a reply do nothing.
+a reply does nothing.
 
 Where the instance gives a cycle the images an issue links
 (`TEHAS_WORK_IMAGES=on`), a planning session is given them too, by the same
@@ -1246,14 +1271,13 @@ masked there, as on the dashboard, and the mask catches accidents only. The
 issues the agent files are written directly and are not masked: they are
 public as written. Do not put anything in the issue that should not be public.
 
-If you tick a box in a planning question and nothing happens, the labels may
-be missing from the repository. The bot finds its questions by
-`tehas:question`, so without that label the boxes are posted and ticking them
-does nothing. Run `tehas labels` on the host, as described in
-[Commands](/tools).
+If you answer a planning question and nothing happens, the labels may be
+missing from the repository. The bot finds its questions by `tehas:question`,
+so without that label the question is posted and a reply to it does nothing.
+Run `tehas labels` on the host, as described in [Commands](/tools).
 
 While a question waits, the factory works on other issues. A session ends
-when you tick the last box, when an answer arrives after
+when you answer `End this planning session`, when an answer arrives after
 `TEHAS_PLAN_MAX_TURNS` turns (20 unless the instance says otherwise) have
 run, or when the issue is closed or loses `tehas:question`. The first two
 remove the factory's labels from the issue, `needs-human-attention` included,
@@ -1402,7 +1426,7 @@ A cycle that parks at explore as `intent-park` with the reason
 `underspecified` or `too-large` is not yet one cycle's work. The next poll
 refines it once without a label, on the strength of the `tehas:ready` (or the
 retry) that started the cycle, and says so in the session's first comment. It
-does not wait for a free cycle slot. A box of the park ticked first wins, even
+does not wait for a free cycle slot. An answer to the park given first wins, even
 one the factory holds for a free slot. It does not refine when:
 
 - the factory is paused (it does once the factory is resumed),
@@ -1450,7 +1474,7 @@ pause, so it holds. To resume from away, an allowed account applies
 label events starts nothing.
 
 While either switch is set the poll starts nothing: no cycle, no planning turn,
-no answer to a planning question, no retry by a tick. A cycle already running
+no answer to a planning question, no retry by an answer. A cycle already running
 finishes, and the poll still gives up work that is finished: it stops a cycle
 whose issue is closed or whose pull request is merged or closed, stops one nobody
 has heard from, and clears an issue marked `tehas:running` with no cycle behind
@@ -1686,7 +1710,7 @@ recording, and both commands then say so and exit 78.
   `hold #N: its text says <the words> and links no attachment, so the cycle
   would be given none`; the issue keeps every label it has and gets no comment,
   because what is left to do is the owner's: attach the file, or write out what
-  it shows. A planning turn is not held by it, and neither is a retry tick or a
+  it shows. A planning turn is not held by it, and neither is an answered retry or a
   refresh held by anything else about it.
 - No cycle while the code index is rebuilt. On a host where no cycle runs and
   the branch has moved, the poll that would start cycles starts the index run
@@ -1699,7 +1723,7 @@ recording, and both commands then say so and exit 78.
   does: the container goes, the lock is released and `tehas:running` comes
   off. The log says `stop #N: <reason>`. A merged one is reported as merged,
   one whose issue was closed only loses `tehas:running`, and one whose pull
-  request was closed is parked without the retry boxes. What the cycle had not
+  request was closed is parked without the retry choices. What the cycle had not
   pushed is nowhere else, so a cycle stopped this way keeps its workspace, and
   its comment names the workspace it left (`~/tehas/work/tehas-<issue>`) when
   there is one, and says the cycle left none when there is not. tehas removes a
@@ -2152,23 +2176,19 @@ api`](/api#tehas-api) lists only the new names: `millwright-grant` and
   no images or files. The park's hold is lifted by the `action=change` one of
   them alone, and only where the instance gives a cycle images or files, as
   [parking](#5-when-a-cycle-stops) says.
-- **It may answer a planning question**, by a tick or a reply, only when
-  no person has answered the same question: a person's tick or reply wins,
+- **It may answer a planning question**, by a marked reply, only when
+  no person has answered the same question: a person's reply wins,
   whichever came first. And only in a session an allowed account's
   `tehas:plan` started, fewer than `TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS` times in
   the session (3 unless the instance says otherwise), and never for two
   turns in a row, so a person sees every second question at most. It may
-  not tick `End this planning session`. Its reply starts with the line
+  not end the session. Its reply starts with the line
   `<!-- tehas:millwright issue=<n> action=answer -->`, and the agent is told
   the answer is the millwright's. A comment of its account that does not
   start with that line is no reply at all, and nothing is said of it: the
-  millwright is the bot, so the host's own notes are its comments too. A tick
-  that breaks a rule above is unticked and the bot says why; a marked reply
-  that breaks one is ignored and the bot says why once. GitHub says who last saved a comment, not who
-  ticked a box, so a tick the millwright saved after another account edited the
-  question is held: it is neither used nor unticked, and the bot asks a
-  person, once, to tick again or reply. To overrule it, reply or tick before the next
-  poll, or reply to the next question. The session on the state store
+  millwright is the bot, so the host's own notes are its comments too. A
+  marked reply that breaks a rule above is ignored and the bot says why once.
+  To overrule it, reply before the next poll, or reply to the next question. The session on the state store
   (`plan-show`) keeps who started it and who answered each turn, and
   whether the millwright did.
 - **It may ask for a finish** of a stopped cycle with a marked comment and
@@ -2195,7 +2215,7 @@ api`](/api#tehas-api) lists only the new names: `millwright-grant` and
 - **A park that repeats the park before it says so.** A cycle that parks the
   way the issue's previous end parked, on the same step, cap, park reason,
   failure kind and failure cause, is one of a run of parks. Its comment carries
-  the host's line above the boxes, which names the place in the run, the step
+  the host's line above the choices, which names the place in the run, the step
   and the cap, and says that a retry on the same text will likely stop the same
   way. `tehas history` says the same of a line: `repeat` in `--json` and
   `repeat <n>` in the plain listing, on the park of a run only, and counted

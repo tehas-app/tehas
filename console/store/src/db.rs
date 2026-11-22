@@ -19,7 +19,7 @@ use tehas_core::home::{Home, State};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 25;
+pub const SCHEMA_VERSION: i64 = 26;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The five tables of section 3.15, the outsource state. Every store of this
@@ -334,18 +334,20 @@ pub const STEP_25: &str = "
 ALTER TABLE questions ADD COLUMN offers TEXT;
 ";
 
-/// The step from 23 to 24: the answers, and `cycles.how` takes `answer`, a
-/// retry an answer of `tehas answer` asked for. SQLite cannot change a CHECK in
-/// place, so `cycles` is rebuilt as `STEP_14` rebuilt it, with foreign keys off
-/// (`step_24`), and every row is copied.
-pub const STEP_24: &str = concat!(
-    "
+/// The rebuild of `cycles` with `cycles.how` taking the words `$hows`, every
+/// row copied: SQLite cannot change a CHECK in place.
+macro_rules! cycles_with_hows {
+    ($hows:literal) => {
+        concat!(
+            "
 CREATE TABLE cycles_new (
   issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
   attempt        INTEGER NOT NULL DEFAULT 1,
   started_at     INTEGER NOT NULL,
   started_by     TEXT,
-  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host','answer')),
+  how            TEXT NOT NULL CHECK (how IN (",
+        $hows,
+        ")),
   requeued       INTEGER NOT NULL DEFAULT 0,
   rukas_commit   TEXT,
   image          TEXT,
@@ -366,9 +368,26 @@ INSERT INTO cycles_new SELECT * FROM cycles;
 DROP TABLE cycles;
 ALTER TABLE cycles_new RENAME TO cycles;
 CREATE INDEX cycles_running ON cycles (ended_at, started_at);
-",
+"
+        )
+    };
+}
+
+/// The step from 23 to 24: the answers, and `cycles.how` takes `answer`, a
+/// retry an answer of `tehas answer` asked for. SQLite cannot change a CHECK in
+/// place, so `cycles` is rebuilt as `STEP_14` rebuilt it, with foreign keys off
+/// (`step_24`), and every row is copied.
+pub const STEP_24: &str = concat!(
+    cycles_with_hows!(
+        "'label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host','answer'"
+    ),
     answers_table!()
 );
+
+/// The step from 25 to 26: `cycles.how` takes `reply`, a retry a person's
+/// reply asked for, so `answer` stays the how of `tehas answer` alone (#2782).
+/// Run as the step to 24 is, with foreign keys off (`step_26`).
+pub const STEP_26: &str = cycles_with_hows!("'label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host','answer','reply'");
 
 /// How long SQLite waits for a lock another connection holds before giving
 /// up, as the spec's section 4 states it. A database still busy then is exit
@@ -1454,6 +1473,9 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     // A store at 24 is one this binary wrote before a question kept its
     // choices.
     (25, |c| step(c, 25, STEP_25)),
+    // A store at 25 is one this binary wrote before a reply's retry had a how
+    // of its own.
+    (26, step_26),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and
@@ -1520,6 +1542,17 @@ fn step_24(conn: &mut Connection) -> Result<(), DbError> {
     conn.pragma_update(None, "foreign_keys", "OFF")
         .map_err(classify)?;
     let stepped = step(conn, 24, STEP_24);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(classify)?;
+    stepped?;
+    conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The step to 26, run as `step_14` runs its rebuild of `cycles`.
+fn step_26(conn: &mut Connection) -> Result<(), DbError> {
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(classify)?;
+    let stepped = step(conn, 26, STEP_26);
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(classify)?;
     stepped?;

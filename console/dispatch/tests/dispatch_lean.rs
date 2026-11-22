@@ -71,7 +71,7 @@ fn a_retry_tick_on_the_park_of_a_refused_lean_start_waits_while_tehas_lean_is_on
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "");
-    has(&r.out, "wait #7: a retry was ticked on the park of a lean start this tehas cannot run; take tehas:lean off first");
+    has(&r.out, "wait #7: a retry was answered on the park of a lean start this tehas cannot run; take tehas:lean off first");
     lacks(&w.gh(), "api -X PATCH");
     lacks(&w.gh(), "issue comment 7");
 }

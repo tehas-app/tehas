@@ -278,7 +278,7 @@ in-house unless all of these hold:
 
 Of the contractors that fit, the one with the most memory wins, then the one
 with the most disk. One contractor takes one start a poll. A read that fails
-keeps the start in-house. A retry tick, an outage retry and a refresh always
+keeps the start in-house. An answered retry, an outage retry and a refresh always
 run in-house. An outsourced cycle counts against `TEHAS_MAX_CYCLES` as a local
 one does. The start's line in `dispatch.log` ends `outsourced to <contractor>`
 or `in-house: <why>`.
