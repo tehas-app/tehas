@@ -55,58 +55,6 @@
       "reason": "expected on or off"
     },
     {
-      "name": "TEHAS_WORK_DESCRIBE",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "on",
-        "off",
-        "1",
-        "0"
-      ],
-      "reason": "expected on or off"
-    },
-    {
-      "name": "TEHAS_WORK_FILES",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "on",
-        "off",
-        "1",
-        "0"
-      ],
-      "reason": "expected on or off"
-    },
-    {
-      "name": "TEHAS_WORK_COMMENTS",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "on",
-        "off",
-        "1",
-        "0"
-      ],
-      "reason": "expected on or off"
-    },
-    {
-      "name": "TEHAS_WORK_ZIPS",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "on",
-        "off",
-        "1",
-        "0"
-      ],
-      "reason": "expected on or off"
-    },
-    {
       "name": "TEHAS_ANALYTICS",
       "rule": "one-of",
       "when": "always",

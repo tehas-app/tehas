@@ -177,7 +177,6 @@ fn world() -> World {
         store_retry: Duration::from_secs(1),
         host: start::Host {
             name: "tehas-tehas".into(),
-            comments: false,
             allowed: vec!["alice".into()],
             millwright: "mill-bot".into(),
             refused_labels: Vec::new(),
@@ -1733,22 +1732,31 @@ fn a_start_takes_its_park_question_off_and_spends_the_retry_after_the_mark() {
 }
 
 #[test]
-fn the_approval_names_the_comments_an_allowed_account_wrote_before_it() {
+fn the_approval_names_no_link_of_a_comment_and_reads_no_comment() {
     let mut t = world();
-    t.w.host.comments = true;
     let comments = r#"[{"id": 1, "body": "see https://github.com/user-attachments/assets/2", "user": {"login": "alice"},
-        "created_at": "2026-10-26T09:00:00Z", "updated_at": "2026-10-26T09:00:00Z"},
-      {"id": 2, "body": "https://github.com/user-attachments/assets/3", "user": {"login": "mallory"},
-        "created_at": "2026-10-26T09:00:00Z", "updated_at": "2026-10-26T09:00:00Z"},
-      {"id": 3, "body": "later https://github.com/user-attachments/assets/4", "user": {"login": "alice"},
-        "created_at": "2026-10-26T11:00:00Z", "updated_at": "2026-10-26T11:00:00Z"}]"#;
+        "created_at": "2026-10-26T09:00:00Z", "updated_at": "2026-10-26T09:00:00Z"}]"#;
     fs::write(t.dir.join("comments"), comments).unwrap();
     t.apply(json!([start_of(7, "label")]));
     let input: Value =
         serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
+    assert!(input.get("comment_links").is_none(), "{input}");
+    assert!(!t.calls().iter().any(|c| c.contains("issues/7/comments")));
+}
+
+#[test]
+fn the_links_of_comments_are_each_link_once_with_where_it_came_from() {
+    let list = json!([
+        {"id": 1, "body": "https://github.com/user-attachments/assets/2 and https://github.com/user-attachments/assets/2",
+            "user": {"login": "alice"}},
+        {"id": 2, "body": "https://github.com/user-attachments/assets/3", "user": {"login": "bob"}}
+    ]);
     assert_eq!(
-        input["comment_links"],
-        json!([{"link": "https://github.com/user-attachments/assets/2", "source": "comment:1", "by": "alice"}])
+        crate::apply::start::comment_links(list.as_array().unwrap(), "comment"),
+        [
+            json!({"link": "https://github.com/user-attachments/assets/2", "source": "comment:1", "by": "alice"}),
+            json!({"link": "https://github.com/user-attachments/assets/3", "source": "comment:2", "by": "bob"}),
+        ]
     );
 }
 
@@ -2010,7 +2018,7 @@ fn a_comments_retry_records_the_text_of_the_issue_and_its_pull_requests() {
         .to_string(),
     )
     .unwrap();
-    // TEHAS_WORK_COMMENTS is off: the tick is the opt-in.
+    // The tick is the opt-in.
     t.apply(json!([comments_retry()]));
     assert!(!t.calls().iter().any(|c| c.contains("issues/31/comments")));
     let input = input_of(&t);
@@ -2035,7 +2043,7 @@ fn a_comments_retry_records_the_text_of_the_issue_and_its_pull_requests() {
     );
     assert_eq!(ctx[5]["text"].as_str().unwrap().len(), 4000);
     assert_eq!(ctx[5]["pr"], 32);
-    // Links are fetched only with TEHAS_WORK_COMMENTS.
+    // No record names the links of comments.
     assert!(input.get("comment_links").is_none());
     // A list that cannot be read starts nothing.
     for fail in ["pr list", "pulls/30/reviews", "pulls/30/comments"] {
@@ -2055,9 +2063,8 @@ fn a_comments_retry_records_the_text_of_the_issue_and_its_pull_requests() {
 }
 
 #[test]
-fn a_comments_retry_with_comments_on_names_the_links_of_its_pull_request_too() {
+fn a_comments_retry_names_no_link_of_its_pull_request() {
     let mut t = world();
-    t.w.host.comments = true;
     fs::write(
         t.dir.join("prs"),
         r#"[{"number": 30, "headRefName": "feature/issue-7-x", "body": ""}]"#,
@@ -2075,10 +2082,13 @@ fn a_comments_retry_with_comments_on_names_the_links_of_its_pull_request_too() {
     )
     .unwrap();
     t.apply(json!([comments_retry()]));
-    assert_eq!(
-        input_of(&t)["comment_links"],
-        json!([{"link": "https://github.com/user-attachments/assets/9", "source": "pr-comment:3", "by": "alice"}])
-    );
+    let input = input_of(&t);
+    assert!(input.get("comment_links").is_none(), "{input}");
+    assert!(input["retry_context"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|c| c["id"] == 3 && c["source"] == "pr-comment"));
 }
 
 #[test]
@@ -2207,13 +2217,11 @@ fn a_comments_retry_over_the_record_bound_keeps_the_newest() {
 }
 
 /// The tick of `Retry with the issue text only`: the start names no comment
-/// of the issue or of its pull request, so with the host reading comments it
-/// asks for neither and its record holds neither. Were the guard dropped, this start
+/// of the issue or of its pull request, so it asks for neither and its record holds neither. Were the guard dropped, this start
 /// would read both, and these are the two calls that say it did.
 #[test]
 fn a_start_of_the_issue_alone_reads_no_comment_of_the_issue_or_its_pull_request() {
     let mut t = world();
-    t.w.host.comments = true;
     // Both reads would answer if they were asked for: the issue's comments
     // link one file, the pull request's would go into retry_context.
     fs::write(
@@ -2250,7 +2258,6 @@ fn a_start_of_the_issue_alone_reads_no_comment_of_the_issue_or_its_pull_request(
     // A tick of the comments retry under the same host asks for both, so the two
     // cases above really are the guard and not a world that reads nothing.
     let mut t = world();
-    t.w.host.comments = true;
     fs::write(
         t.dir.join("comments"),
         r#"[{"id": 1, "body": "see https://github.com/user-attachments/assets/2", "user": {"login": "alice"},
@@ -2270,7 +2277,6 @@ fn a_start_of_the_issue_alone_reads_no_comment_of_the_issue_or_its_pull_request(
     assert!(w.iter().any(|c| c.contains("issues/7/comments")));
     let input: Value =
         serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
-    assert!(input.get("comment_links").is_some());
     assert!(input.get("retry_context").is_some());
 }
 
@@ -2280,7 +2286,6 @@ fn a_start_of_the_issue_alone_reads_no_comment_of_the_issue_or_its_pull_request(
 fn a_start_whose_issue_alone_is_not_a_bool_is_said_and_reads_its_comments() {
     for v in [json!("true"), json!(1), json!("yes")] {
         let mut t = world();
-        t.w.host.comments = true;
         fs::write(
             t.dir.join("comments"),
             r#"[{"id": 1, "body": "see https://github.com/user-attachments/assets/2", "user": {"login": "alice"},

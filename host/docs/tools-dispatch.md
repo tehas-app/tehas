@@ -490,21 +490,18 @@ A value that is no whole number of at least 1, has more than 9 digits, or is a
 timeout over 7200 ends the poll with
 `ERROR: TEHAS_PLAN_TIMEOUT is not valid: expected a positive whole number` (or
 `... (7201) is more than 7200 ...`) and exit 78. An answer that names no title records no
-`title_sha256`, and `tehas work` then checks the body alone. With `TEHAS_WORK_COMMENTS=on` the poll also lists the
-issue's comments and adds `comment_links`: the links of each comment an
-allowed account wrote whose `created_at` and `updated_at` are at or before
-`at`, in the order written, each as `{link, source, by}` with `source`
-`comment:<id>`. [tehas work](/tools-work#tehas-work) fetches those links and no others.
+`title_sha256`, and `tehas work` then checks the body alone. The record names
+no link of a comment: [tehas work](/tools-work#tehas-work) fetches the body's
+links and no others.
 An approval the store does not take starts nothing: `ERROR: could not write
 the approval record of #N (<the store's word>), not starting a cycle`, exit 1,
 and no label changes.
 Comments that cannot be read are logged as `ERROR: the comments of #N could
-not be read` and stop the start the same way. On a retry tick, with the
-setting on, the poll also lists the bot's pull requests that name the issue,
-as `tehasbot cycle` finds a cycle's, and their comments: those an allowed
+not be read` and stop the start the same way. On a retry tick the poll lists
+the issue's comments and the bot's pull requests that name the issue, as
+`tehasbot cycle` finds a cycle's, and their comments: those an allowed
 account wrote between the park question and the tick and nobody edited after
-the tick. Their links join `comment_links` with `source` `pr-comment:<id>`,
-and their text, the first 20 cut at 4000 characters each, goes to
+the tick. Their text, the first 20 cut at 4000 characters each, goes to
 `retry_context` as `{source, by, at, text}`. Pull requests or comments that
 cannot be read stop the retry: `ERROR: the comments on the pull request of
 #N could not be read`, exit 1, and the tick stays. Only conversation comments

@@ -29,9 +29,6 @@ const FROM_POLL: (&str, &str) = ("TEHAS_FROM_POLL", "1");
 pub struct Host {
     /// hostname, for the comments.
     pub name: String,
-    /// TEHAS_WORK_COMMENTS is 1: the approval names the comments' links. The
-    /// text of the comments a comments retry is given does not depend on it.
-    pub comments: bool,
     /// TEHAS_ALLOWED_LABELERS.
     pub allowed: Vec<String>,
     /// TEHAS_MILLWRIGHT_LOGIN, as `settings::account` has it.
@@ -241,8 +238,9 @@ pub(crate) fn window(
     Some(out)
 }
 
-/// The links of the comments, each link once, with where it came from.
-fn comment_links(comments: &[Value], source: &str) -> Vec<Value> {
+/// The links of the comments, each link once, with where it came from. No
+/// record names them in 2.0: the given plugin of 2.1 takes them.
+pub fn comment_links(comments: &[Value], source: &str) -> Vec<Value> {
     let mut out: Vec<Value> = Vec::new();
     for c in comments {
         let body = c.get("body").and_then(Value::as_str).unwrap_or("");
@@ -1060,40 +1058,13 @@ impl Writer {
             );
         }
         let mut retry = Value::Null;
-        let mut from: Vec<Value> = Vec::new();
         let alone = issue_alone(a, log, n);
-        // The comment policy of the links, derived once: the host fetches what
-        // comments link, and the tick of the issue text only asks for none of
-        // them, so its record reads as the one of an instance with comments off.
-        let comments = self.host.comments && !alone;
-        let mut list = None;
-        if comments {
-            let Some(l) = self.comments(n) else {
-                log.push(format!("ERROR: the comments of #{n} could not be read"));
-                return Err(none());
-            };
-            let allowed = self.host.allowed.clone();
-            let who = |l: &str| allowed.iter().any(|x| x == l);
-            let Some(w) = window(&l, "", &given_at, &who) else {
-                log.push(format!("ERROR: the comments of #{n} could not be read"));
-                return Err(none());
-            };
-            from = comment_links(&w, "comment");
-            list = Some(l);
-        }
         // The tick of the comments retry is its own opt-in: what allowed
-        // accounts wrote up to it goes on the record whatever
-        // TEHAS_WORK_COMMENTS says.
+        // accounts wrote up to it goes on the record.
         if matches!(given.as_str(), "retry-tick" | "answer") && !alone {
-            let list = match list.take() {
-                Some(l) => l,
-                None => match self.comments(n) {
-                    Some(l) => l,
-                    None => {
-                        log.push(format!("ERROR: the comments of #{n} could not be read"));
-                        return Err(none());
-                    }
-                },
+            let Some(list) = self.comments(n) else {
+                log.push(format!("ERROR: the comments of #{n} could not be read"));
+                return Err(none());
             };
             let Some(r) = self.retry_comments(n, &list, &given_at, log) else {
                 log.push(format!(
@@ -1133,16 +1104,6 @@ impl Writer {
                 retry = json!({"links": [], "context": [{"source": "refresh", "by": "tehas", "at": iso(tehas_core::time::now() as u64),
                     "text": format!("This pull request conflicts with `{b}`. Merge `{b}` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate in `.pi/verify-cmd`, and push to the same branch. Do no other work.")}]});
             }
-        }
-        if comments {
-            from.extend(
-                retry
-                    .get("links")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default(),
-            );
-            input.insert("comment_links".into(), Value::Array(from));
         }
         if retry
             .get("context")
@@ -1290,7 +1251,8 @@ impl Writer {
     /// review comments - written at or before the tick `at` and not edited
     /// after it, by an account of TEHAS_ALLOWED_LABELERS that may write to the
     /// repository at the tick. The bot's own comments are left out. `links`
-    /// are those of the pull requests' conversation comments; `left_out` the
+    /// are those of the pull requests' conversation comments, which no record
+    /// names in 2.0; `left_out` the
     /// authors whose permission could not be read, said in the log here. None
     /// when a list could not be read.
     fn retry_comments(

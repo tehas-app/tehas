@@ -514,9 +514,14 @@ fn record_ok(r: &Value) -> bool {
 }
 
 /// The reason of a link and the settings' own words, or nothing for a cycle
-/// that is given attachments by tehas_issue_images.
+/// that is given attachments by tehas_issue_images. No `files` is a caller
+/// that gives no files, as a cycle of 2.0.
 fn not_given(images: &str, files: &str) -> Option<(&'static str, &'static str)> {
     match (images, files) {
+        ("0", "") => Some((
+            "This instance gives a cycle no images (TEHAS_WORK_IMAGES=0).",
+            "TEHAS_WORK_IMAGES=0",
+        )),
         ("0", "0") => Some((
             "This instance gives a cycle no images and no files (TEHAS_WORK_IMAGES=0, TEHAS_WORK_FILES=0).",
             "TEHAS_WORK_IMAGES=0, TEHAS_WORK_FILES=0",
