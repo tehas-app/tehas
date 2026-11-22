@@ -455,7 +455,8 @@ them, are dropped with no alias (the plugins lead, through the trio's
 program manager, 2026-11-22).
 
 Done when the dispatcher and its events are in, each event has its
-schema in `api/`, and the contract lists them.
+schema in `api/`, and the contract lists them. The spec is
+`docs/specs/2026-11-22-events.md`.
 
 ### T12. Answers in words
 
