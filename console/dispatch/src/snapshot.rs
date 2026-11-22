@@ -144,13 +144,90 @@ pub struct Images {
     pub answers: bool,
 }
 
+/// tehas pause's flag, when one is there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PauseFlag {
+    /// The flag holds an `at` and a `reason`, both text.
+    Held { at: String },
+    /// The flag is there and cannot be read as one.
+    Unreadable,
+}
+
+/// The limit as `flags limit read` reads it. An absent limit is the default.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Limit {
+    pub state: LimitState,
+    /// The cycles it allows at once; 0 when it gives no whole number.
+    pub cycles: i64,
+    /// The plan is off: `false`, or the text of it.
+    pub plan_off: bool,
+    pub until: Until,
+    pub reason: String,
+}
+
+/// A state the dispatcher does not know reads as `None`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LimitState {
+    #[default]
+    None,
+    Ok,
+    Expired,
+    /// The state is missing or not text.
+    Unreadable,
+}
+
+/// When a limit ends.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Until {
+    /// Missing or null.
+    #[default]
+    Unset,
+    At(String),
+    /// Something that is neither text nor null.
+    Other,
+}
+
+/// The start order as `tehas order` reads it, read leniently: an unknown
+/// state is `Other`, an issue that is not a number is dropped.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StartOrder {
+    pub state: OrderState,
+    /// Its issues, in its order.
+    pub issues: Vec<u64>,
+    /// It holds every other ready issue.
+    pub only: bool,
+    pub until: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OrderState {
+    Ok,
+    Expired,
+    Unreadable,
+    /// none, missing, or a state the dispatcher does not know.
+    #[default]
+    Other,
+}
+
+/// An approval `tehas start` recorded that no cycle has used yet.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HostStart {
+    pub issue: Option<u64>,
+    /// When it was given, in seconds.
+    pub at: Option<u64>,
+    pub body_sha256: Option<String>,
+    /// None binds no title.
+    pub title_sha256: Option<String>,
+    /// The issue's labels.
+    pub labels: Vec<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Snapshot {
     /// nameWithOwner, None when `gh repo view` failed.
     pub repo: Option<String>,
-    /// tehas pause's flag: None when there is none, Some(Null) when it is
-    /// there and cannot be read.
-    pub pause_flag: Option<Value>,
+    /// tehas pause's flag: None when there is none.
+    pub pause_flag: Option<PauseFlag>,
     /// The control issue's labels, None when the call failed.
     pub control_labels: Option<Vec<String>>,
     pub control_events: Option<Events>,
@@ -181,14 +258,13 @@ pub struct Snapshot {
     pub blocked: Issues,
     pub awaiting: Option<Issues>,
     /// The limit as `flags limit read` reads it.
-    pub limit: Value,
-    /// The start order as `tehas order` reads it (tehas_core::order).
-    pub order: Value,
+    pub limit: Limit,
+    /// The start order as `tehas order` reads it.
+    pub order: StartOrder,
     /// The open issues `tehas start` approved that no cycle has used yet, as
-    /// `store approval-hosts` lists them with each issue's labels: {issue,
-    /// at, body_sha256, title_sha256, labels}. None when the list could not
-    /// be read.
-    pub host_starts: Option<Vec<Value>>,
+    /// `store approval-hosts` lists them with each issue's labels. None when
+    /// the list could not be read.
+    pub host_starts: Option<Vec<HostStart>>,
     pub slice: Reading,
     /// What the model endpoints answered: the hold, when both failed, and
     /// which endpoint the subagent provider is on.
@@ -465,11 +541,13 @@ impl Snapshot {
         let control = v.get("control").cloned().unwrap_or(Value::Null);
         Snapshot {
             repo: v.get("repo").and_then(Value::as_str).map(str::to_string),
-            pause_flag: match v.get("pause_flag") {
-                None | Some(Value::Null) => None,
-                Some(Value::String(t)) if t == "unreadable" => Some(Value::Null),
-                Some(f) => Some(f.clone()),
-            },
+            pause_flag: v.get("pause_flag").filter(|f| !f.is_null()).map(|f| {
+                let text = |k: &str| f.get(k).and_then(Value::as_str);
+                match (text("at"), text("reason")) {
+                    (Some(at), Some(_)) => PauseFlag::Held { at: at.into() },
+                    _ => PauseFlag::Unreadable,
+                }
+            }),
             control_labels: control
                 .get("labels")
                 .filter(|l| !failed(l))
@@ -544,15 +622,72 @@ impl Snapshot {
             awaiting: v.get("awaiting").map(|a| issues(Some(a))),
             limit: v
                 .get("limit")
-                .cloned()
-                .unwrap_or_else(|| serde_json::json!({"state": "none"})),
+                .map(|l| Limit {
+                    state: match l.get("state").and_then(Value::as_str) {
+                        None => LimitState::Unreadable,
+                        Some("ok") => LimitState::Ok,
+                        Some("expired") => LimitState::Expired,
+                        Some("unreadable") => LimitState::Unreadable,
+                        Some(_) => LimitState::None,
+                    },
+                    cycles: l.get("cycles").and_then(Value::as_i64).unwrap_or(0),
+                    plan_off: matches!(l.get("plan"), Some(Value::Bool(false)))
+                        || l.get("plan").and_then(Value::as_str) == Some("false"),
+                    until: match l.get("until") {
+                        None | Some(Value::Null) => Until::Unset,
+                        Some(Value::String(t)) => Until::At(t.clone()),
+                        Some(_) => Until::Other,
+                    },
+                    reason: l
+                        .get("reason")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                })
+                .unwrap_or_default(),
             order: v
                 .get("order")
-                .cloned()
-                .unwrap_or_else(|| serde_json::json!({"state": "none"})),
+                .map(|o| StartOrder {
+                    state: match o.get("state").and_then(Value::as_str) {
+                        Some("ok") => OrderState::Ok,
+                        Some("expired") => OrderState::Expired,
+                        Some("unreadable") => OrderState::Unreadable,
+                        _ => OrderState::Other,
+                    },
+                    issues: o
+                        .get("issues")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_u64)
+                        .collect(),
+                    only: o.get("only").and_then(Value::as_bool) == Some(true),
+                    until: o.get("until").and_then(Value::as_str).map(str::to_string),
+                })
+                .unwrap_or_default(),
             host_starts: match v.get("host_starts") {
                 None => Some(Vec::new()),
-                Some(Value::Array(a)) => Some(a.clone()),
+                Some(Value::Array(a)) => Some(
+                    a.iter()
+                        .map(|h| {
+                            let text =
+                                |k: &str| h.get(k).and_then(Value::as_str).map(str::to_string);
+                            HostStart {
+                                issue: h.get("issue").and_then(Value::as_u64),
+                                at: h.get("at").and_then(Value::as_u64),
+                                body_sha256: text("body_sha256"),
+                                title_sha256: text("title_sha256"),
+                                labels: h
+                                    .get("labels")
+                                    .and_then(Value::as_array)
+                                    .into_iter()
+                                    .flatten()
+                                    .filter_map(|l| l.get("name")?.as_str().map(str::to_string))
+                                    .collect(),
+                            }
+                        })
+                        .collect(),
+                ),
                 Some(_) => None,
             },
             slice: reading(v.get("slice").unwrap_or(&Value::Null)),
