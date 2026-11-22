@@ -571,16 +571,14 @@ fn tehas_and_tehasbot_hand_the_front_their_libexec_the_uid_and_the_bash_and_ever
 }
 
 #[test]
-fn the_pages_and_the_previews_are_written_by_a_umask_their_server_can_read() {
+fn the_previews_are_written_by_a_umask_their_server_can_read() {
     let h = Host::new("umask");
     let other = h.t.join("other");
     h.recording(&other);
     h.set_env(&[("TEHAS_CONSOLE", &other.to_string_lossy())]);
     let bot = h.bot();
-    h.sh(&format!(
-        "umask 077; {bot} preview; {bot} protolab; {bot} clean"
-    ));
-    assert_eq!(h.calls("umask").trim_end_matches('\n'), "0022\n0022\n0077");
+    h.sh(&format!("umask 077; {bot} preview; {bot} clean"));
+    assert_eq!(h.calls("umask").trim_end_matches('\n'), "0022\n0077");
 }
 
 #[test]
@@ -638,7 +636,6 @@ cases!(with_no_instance_env {
     tehasbot_top_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot top";
     tehasbot_mcp_serve_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot mcp serve";
     tehasbot_dispatch_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot dispatch";
-    tehasbot_protolab_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot protolab";
     tehasbot_preview_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot preview";
     tehasbot_refresh_pr_50_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot refresh --pr 50";
     tehasbot_clean_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot clean";
@@ -665,7 +662,6 @@ cases!(with_a_setting_no_rule_allows {
     tehasbot_top_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot top";
     tehasbot_mcp_serve_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot mcp serve";
     tehasbot_dispatch_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot dispatch";
-    tehasbot_protolab_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot protolab";
     tehasbot_preview_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot preview";
     tehasbot_refresh_pr_50_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot refresh --pr 50";
     tehasbot_clean_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot clean";
@@ -692,7 +688,6 @@ cases!(with_an_instance_file_that_ends_its_shell {
     tehasbot_top_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot top";
     tehasbot_mcp_serve_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot mcp serve";
     tehasbot_dispatch_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot dispatch";
-    tehasbot_protolab_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot protolab";
     tehasbot_preview_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot preview";
     tehasbot_refresh_pr_50_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot refresh --pr 50";
     tehasbot_clean_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot clean";
@@ -709,7 +704,6 @@ cases!(with_no_tehas_repo {
     tehasbot_dispatch_with_no_tehas_repo_is_78_and_calls_and_writes_nothing: "tehasbot dispatch";
     tehas_check_product_with_no_tehas_repo_is_78_and_calls_and_writes_nothing: "tehas check-product";
     tehas_init_product_with_no_tehas_repo_is_78_and_calls_and_writes_nothing: "tehas init-product";
-    tehasbot_protolab_with_no_tehas_repo_is_78_and_calls_and_writes_nothing: "tehasbot protolab";
     tehasbot_preview_with_no_tehas_repo_is_78_and_calls_and_writes_nothing: "tehasbot preview";
     tehasbot_clean_with_no_tehas_repo_is_78_and_calls_and_writes_nothing: "tehasbot clean";
 });

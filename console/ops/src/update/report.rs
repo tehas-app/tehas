@@ -594,6 +594,15 @@ mod tests {
         assert!(seen.len() > 60);
         assert_eq!(retired().next(), Some("bin/tehas-console.ts"));
         assert!(seen.contains("libexec/github-token"));
+        // The Protolab's list and log, which nothing writes or rotates now.
+        let list = Home::new(Path::new("")).live_dir().join("protolab.json");
+        for parked in [
+            list.to_str().unwrap(),
+            "logs/protolab.log",
+            "logs/protolab.log.1",
+        ] {
+            assert!(seen.contains(parked), "{parked} is not retired");
+        }
     }
 
     #[test]

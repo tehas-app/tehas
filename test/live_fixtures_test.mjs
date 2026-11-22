@@ -14,7 +14,7 @@ import "../host/fun/epics-view.js";
 import "../host/fun/panels.js";
 import "../host/fun/versions.js";
 import { analyticsView } from "../host/fun/analytics-data.js";
-import { boardRows, consoleView, labBase, lineView } from "../host/fun/business-view.js";
+import { boardRows, consoleView, lineView } from "../host/fun/business-view.js";
 import { normalize } from "../host/fun/game-data.js";
 import { layout as hostLayout } from "../host/fun/host-data.js";
 import { consoleModel } from "../host/fun/factory/tehas-factory-console.model.js";
@@ -56,15 +56,12 @@ test("the samples are written at one time and name no real repository", () => {
   }
 });
 
-test("status.json and protolab.json draw the business page's line", () => {
-  const v = lineView({ status: read("status.json"), lab: read("protolab.json"), nowMs: NOW });
+test("status.json draws the business page's line", () => {
+  const v = lineView({ status: read("status.json"), nowMs: NOW });
   assert.equal(v.source, "live");
   assert.equal(v.repo, "https://github.com/acme/widget");
-  assert.equal(v.lab, "https://lab.example.org");
-  assert.equal(labBase(read("protolab.json"), null), "https://lab.example.org");
   assert.deepEqual(v.stages.map((s) => [s.key, s.count]),
-    [["proto", 1], ["line", 2], ["plan", 1], ["build", 1], ["review", 1], ["stop", 1], ["ship", 28]]);
-  assert.deepEqual(v.stages[0].items[0].url, "https://lab-45.example.org/");
+    [["line", 2], ["plan", 1], ["build", 1], ["review", 1], ["stop", 1], ["ship", 28]]);
   assert.deepEqual(boardRows(v).map((r) => r.number), [42, 43, 41, 39, 37]);
 });
 

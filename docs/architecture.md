@@ -90,19 +90,22 @@ From `cargo metadata`. Tests' own dependencies are in the last column.
 
 | Crate | Depends on | Its tests also use |
 | --- | --- | --- |
-| tehas-core | nothing of the workspace | |
+| tehas-core | nothing of the workspace | attach |
 | store, attach, tehas-front, tehas-mcp, tehas-xtask | tehas-core | |
 | analytics | tehas-core | tehas-mcp |
 | tehas-cycle | attach, tehas-core | |
+| tehas-items | attach, tehas-core | |
 | tehas-dispatch | attach, tehas-core | |
 | tehas-ops | store, tehas-core, tehas-cycle | tehas-dispatch |
 | tehas-proxy | store, tehas-core, tehas-cycle | |
 | tehas-contractor | tehas-core, tehas-cycle | store, tehas-proxy |
 | tehas-plugin | tehas-core, tehas-ops | |
 | tehas-plugin-gate | tehas-core, tehas-plugin | |
-| console | attach, store, tehas-core, tehas-cycle, tehas-ops | tehas-dispatch |
+| console | attach, store, tehas-core, tehas-cycle, tehas-items, tehas-ops | tehas-dispatch |
 
 core depends on nothing, so the graph points inward at the root (R8).
+Its tests read links by attach's rule, which the issue feed takes as a
+parameter.
 The direction is not checked in CI yet. core itself mixes the pure
 rules with effects (`sandbox.rs`, `access.rs`, `call.rs`, `retry.rs`):
 T6 settles where the core ends.
@@ -153,7 +156,7 @@ its reason, as a floor; a departure from a should rule (R5) likewise.
 
 Empty since #2890. A T15 pull request that raises a count narrows the check in the same pull request: a test file whose every match is the check's data or tehas's own words goes in the check's `allowed`, by name and with what it covers, or a list copied in many tests gets one owner. A real finding goes to the step that fixes it in the plan.
 
-#2890 cleared the rows of #2859, #2860, #2866 and #2879 that way. Allowed by name: console/tests/store_paths.rs for label-words and home-layout (the store lint's patterns and sample lines), console/tests/host_bridge.rs for raw-statuses (the docs server's 404), and console/cycle/tests/headless_caps.rs, top_snapshot.rs, top_view.rs and top_frame.rs for github-rest (the runner's and tehas top's --json, tehas's running.json). The list of tools every test stubs to fail has one owner, console/core/src/testing.rs, allowed in gh-argv, in place of eight copies of the deny list and three lists of tools stubbed to fail; that took out 10 in gh-argv and tests-stub-gh, 5 of them older than T15. Its findings moved: two github-rest lines to T4's Done, one untyped-signatures line to T7's, and the /proc fixture to the floor above. Counts at #2890: github-rest 825, gh-argv 395, tests-stub-gh 403, home-layout 491, label-words 1866, raw-statuses 259.
+#2890 cleared the rows of #2859, #2860, #2866 and #2879 that way. Allowed by name: console/tests/store_paths.rs for label-words and home-layout (the store lint's patterns and sample lines), console/tests/host_bridge.rs for raw-statuses (the docs server's 404), and console/cycle/tests/headless_caps.rs, top_snapshot.rs, top_view.rs and top_frame.rs for github-rest (the runner's and tehas top's --json, tehas's running.json). The list of tools every test stubs to fail has one owner, console/core/src/testing.rs, allowed in gh-argv, in place of eight copies of the deny list and three lists of tools stubbed to fail; that took out 10 in gh-argv and tests-stub-gh, 5 of them older than T15. Its findings moved: two github-rest lines to T4's Done, one untyped-signatures line to T7's, and the /proc fixture to the floor above. Counts at #2890: github-rest 819, gh-argv 386, tests-stub-gh 401, home-layout 491, label-words 1855, raw-statuses 259.
 
 ### Fork values
 
@@ -172,7 +175,7 @@ Each check's count at the fork (v1.4.0, a0aa16a5), as `architecture.toml` measur
 | raw-statuses | 259 |
 | tests-stub-gh | 419 |
 
-Above its fork value today: none. Below it: github-rest (825, 21 below), gh-argv (395, 13 below), tests-stub-gh (403, 16 below), label-words, home-layout and untyped-signatures. raw-statuses is at it (259).
+Above its fork value today: none. Below it: github-rest (819, 27 below), gh-argv (386, 22 below), tests-stub-gh (401, 18 below), label-words, home-layout and untyped-signatures. raw-statuses is at it (259).
 
 ## Grades
 

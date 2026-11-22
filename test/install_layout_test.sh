@@ -118,21 +118,24 @@ t_stub systemctl
 t_run "$install"
 t_contains "$t_out" "removed: $units/tehas-refresh.timer"
 
-t_case "the units of the improvement loop are named, then stopped and removed"
-echo "[Timer]" >"$units/tehas-improve.timer"
-echo "[Service]" >"$units/tehas-improve.service"
-t_run "$install --check"
-t_eq "$t_rc" 1
-t_contains "$t_out" "stale: $units/tehas-improve.timer"
-t_contains "$t_out" "stale: $units/tehas-improve.service"
-rm -f "$T/calls/systemctl"
-t_run "$install"
-t_eq "$t_rc" 0
-t_contains "$t_out" "removed: $units/tehas-improve.timer"
-t_contains "$t_out" "removed: $units/tehas-improve.service"
-t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-improve.timer
+# The improvement loop, and the Protolab, parked (docs/specs/parked-protolab.md).
+for old in improve protolab; do
+  t_case "the units of tehas-$old are named, then stopped and removed"
+  echo "[Timer]" >"$units/tehas-$old.timer"
+  echo "[Service]" >"$units/tehas-$old.service"
+  t_run "$install --check"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "stale: $units/tehas-$old.timer"
+  t_contains "$t_out" "stale: $units/tehas-$old.service"
+  rm -f "$T/calls/systemctl"
+  t_run "$install"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "removed: $units/tehas-$old.timer"
+  t_contains "$t_out" "removed: $units/tehas-$old.service"
+  t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-$old.timer
 --user daemon-reload"
-t_eq "$([ -e "$units/tehas-improve.timer" ] || [ -e "$units/tehas-improve.service" ] || echo gone)" "gone"
+  t_eq "$([ -e "$units/tehas-$old.timer" ] || [ -e "$units/tehas-$old.service" ] || echo gone)" "gone"
+done
 
 t_case "the units of the review loop are named, then stopped and removed"
 echo "[Timer]" >"$units/tehas-review.timer"

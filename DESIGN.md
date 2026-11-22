@@ -100,9 +100,9 @@ in line, building, review, shipped. Each station is a signboard with a small
 animated scene of the work done there.
 
 The first screen is the whole status at a glance: the four stations side by
-side, six doors beneath them in three columns and two rows, and the work order
-monitor on the right. The doors lead to everything else, and four of them
-carry a count (open, stopped, not on the line, prototypes); the console door
+side, five doors beneath them in three columns and two rows, and the work order
+monitor on the right. The doors lead to everything else, and three of them
+carry a count (open, stopped, not on the line); the console door
 turns Brass while a cycle is running. The issue board, the break
 room and the data source follow below.
 
@@ -168,8 +168,8 @@ the business page's mode button (`--modes` names the sets a theme has). The
 business page takes its colours from the theme (`--text-faint` is the third
 text level, `--bar-*` the top bar, `--stage-*` the stages), and its sizes and
 corners too: the drawing's sizes raised to `--type-small` and `--type-big`,
-corners in multiples of `--radius`. The manual, the plain dashboard and the
-Protolab still draw their header and footer from `game-view.css`, which is the
+corners in multiples of `--radius`. The manual and the plain dashboard still
+draw their header and footer from `game-view.css`, which is the
 floor's drawing of a page; redrawing that chrome from the business drawing is
 the open follow-up.
 
@@ -355,49 +355,16 @@ latches in Brass for a beat instead, wherever it stands.
 - **Tools:** a labelled search field and stage select, 48px tall with a 4px
   outline, and a clear button that appears only when something is narrowed.
 
-### Protolab
-A panel in the board's style: tickets at the prototype stage (open, labelled
-`tehas:prototype`) on the left and the lab scene on a Bone Shade ground on the
-right. With the live queue a row opens the ticket's Protolab page and says how
-many files it holds, with a "GITHUB" link beside it; from an export or the
-sample a row selects the ticket and has an "OPEN" link when the data has one. The lab is not a stage, so its rows still
-show each ticket's stage. The scene is a 20 second loop: an idea, a sketch, the
-notebook handed over, read and set down. It carries no verdict.
-
-### Protolab Page
-The Protolab's own site wears the header and footer of the factory floor; its
-wordmark reads PROTOLAB. The front page is the Protolab panel alone. A
-ticket's page is two objects on the field:
-
-- **The ticket:** a Bone sign with a Steel head, "PROTOTYPE" and the number in
-  Rust, both in display type. Under it the title in display type (body size
-  on a phone), who opened it and when it changed, and one Brass button to the
-  issue.
-- **The box:** a Bone Shade panel with a Steel head, "ASSETS", the count and
-  how much of the 10 megabytes is used, as a figure and as ten blocks, Slate
-  for each started tenth. Everything attached to the ticket is inside it.
-- **A file in its frame:** a 4px Outline frame with a card shadow, the picture
-  or video on CRT Black, a Bone plate under it with the name, the type and
-  size in Slate, and a Verdigris "OPEN". Frames stand two abreast when there
-  is room. An HTML prototype takes the whole row at 560px and keeps a page's
-  white ground, the one colour here that is not the system's, because it is
-  the prototype's own.
-- **Lists:** the files an HTML page uses, and what was left out with the
-  reason, as Bone lists with a Steel head and Hairline rules.
-
-Nothing on these pages moves, and they carry no script.
-
 ### Header
 A Steel band that stays at the top of the window: the factory sprite and
 wordmark, the data source tag (Brass for sample data or a stale queue, Bone
 for a loaded export, absent while the page shows the fresh live queue), the
 section menu ending in an underlined link to the project on GitHub, over a
-Brass stripe. The floor shows the animated factory sprite; the manual and the
-Protolab show the logo.
+Brass stripe. The floor shows the animated factory sprite; the manual shows the logo.
 Below 1280px the
 menu takes a row of its own: on the factory floor its links wrap into as many
-rows as they need, where the manual and Protolab headers, which hold four
-links, keep one row that scrolls sideways; on phones the wordmark gives way
+rows as they need, where the manual's header, which holds four
+links, keeps one row that scrolls sideways; on phones the wordmark gives way
 to the sprite alone. Everything that sticks or scrolls to an anchor clears the
 header's height, so the clearance a page uses is the band that page really
 makes: `--header` in game-view.css, per width band, and taller on the factory

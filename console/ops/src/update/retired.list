@@ -93,3 +93,8 @@ edge/protolab.compose.yaml
 # The energy file of energy use, which left core in 2.0: nothing writes or
 # reads it, and the docs server would serve the last one for ever.
 live/energy.json
+# The Protolab's list of its pages and its log, parked in 2.0: nothing writes,
+# reads or rotates them any more.
+live/protolab.json
+logs/protolab.log
+logs/protolab.log.1

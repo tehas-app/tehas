@@ -25,7 +25,6 @@
 //!   console tehas dev-login "Name <email>" [-- <pi arguments>]
 //!   console tehas github writes
 //!   console tehas outsource invite|list|status|revoke|drain [...] [--json]
-//!   console tehas prototype file ...
 //!   console tehas plugin [--json]
 //!   console tehas|tehasbot mcp serve|key
 //!   console tehasbot health
@@ -214,7 +213,6 @@ pub fn tehas(given: &[String]) -> u8 {
         "mcp" => mcp::main(rest),
         "github" => github_verb(rest),
         "outsource" => crate::outsource::main(rest),
-        "prototype" => crate::prototype::main(rest),
         "wake" => wake::main(rest),
         _ => {
             eprintln!("console tehas: no such command: {command}");
@@ -427,9 +425,6 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
             "PI_ENSEMBLE_SUBAGENT_MODEL",
             "PI_ENSEMBLE_SUBAGENT_PROVIDER",
         ],
-        ["tehasbot", "protolab"] | ["tehas", "prototype"] => {
-            &["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"]
-        }
         _ => &[],
     }
 }
@@ -468,7 +463,6 @@ pub fn text(command: &str) -> Option<&'static str> {
         "plugin" => include_str!("usage/plugin.txt"),
         "pause" => include_str!("usage/pause.txt"),
         "plan" => include_str!("usage/plan.txt"),
-        "prototype" => include_str!("usage/prototype.txt"),
         // The dispatcher's own text, which `tehasbot refresh --help` prints.
         "refresh" => include_str!("../dispatch/src/usage/refresh.txt"),
         "resume" => include_str!("usage/resume.txt"),
@@ -683,7 +677,6 @@ mod tests {
             &["tehasbot", "preview", ""],
             &["tehasbot", "preview", "--sweep"],
             &["tehasbot", "preview", "--sweep", "kept"],
-            &["tehasbot", "protolab", "ignored"],
             &["tehasbot", "refresh", "--help"],
         ] {
             assert_eq!(says(good), 0, "{good:?}");
@@ -776,10 +769,6 @@ mod tests {
                 "{all}"
             );
         }
-        assert_eq!(
-            required(&words(&["tehasbot", "protolab"])),
-            ["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"]
-        );
     }
 
     #[test]
