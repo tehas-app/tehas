@@ -624,11 +624,14 @@ trio are supported, so 2.0 carries no backwards compatibility.
 
 An inventory comes first, then one pull request per kind of thing
 removed, each green alone, each lowering the counts and ceilings it
-lowers.
+lowers. A pull request that drops or renames a setting, an environment
+variable or a key carries its rewrite in `tehas update` and a test of
+that rewrite.
 
 Done when the inventory's items are gone or parked, and a final grep for
 the 1.x names, the v0.30 paths and the retired settings finds only the
-parked records and the history in `docs/` and `CHANGELOG.md`.
+parked records and the history in `docs/` and `CHANGELOG.md`, and every
+real instance's configuration loads on 2.0 after `tehas update`.
 
 ### T9. The contract for 2.0
 
