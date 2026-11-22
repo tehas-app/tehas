@@ -112,7 +112,7 @@ for unit in "$units"/*.service; do
 done
 
 t_case "the services that never end have a memory ceiling"
-for name in mcp top energy; do
+for name in mcp top; do
   t_eq "$name:$(sed -n 's/^MemoryMax=//p' "$units/tehas-$name.service")" "$name:256M"
 done
 

@@ -731,13 +731,6 @@
       "building": true
     },
     {
-      "name": "TEHAS_ENERGY_SOURCE_URL",
-      "rule": "site-address",
-      "when": "given",
-      "default": null,
-      "reason": "expected an https address such as https://example.com/mesh"
-    },
-    {
       "name": "TEHAS_UPDATE_FROM",
       "rule": "one-of",
       "when": "given",
@@ -952,26 +945,6 @@
       "when": "given",
       "default": null,
       "reason": "expected the absolute path of a clone such as /srv/checkout/product"
-    },
-    {
-      "name": "TEHAS_ENERGY",
-      "rule": "one-of",
-      "when": "given",
-      "default": null,
-      "words": [
-        "on",
-        "off",
-        "1",
-        "0"
-      ],
-      "reason": "expected on or off"
-    },
-    {
-      "name": "TEHAS_ENERGY_URL",
-      "rule": "address",
-      "when": "given",
-      "default": null,
-      "reason": "expected an http or https address such as http://models.example:8080/v1/cluster"
     },
     {
       "name": "TEHAS_UPDATE_LOCK_WAIT",

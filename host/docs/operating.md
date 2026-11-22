@@ -307,7 +307,7 @@ Unless `TEHAS_ANALYTICS=off`, the plain dashboard also has a section **Last 10
 days**, from `live/analytics.json` (see [tehasbot status](/tools-health#tehasbot-status-and-the-console)):
 a row of figures (shipped, with a bar a day; planned, with its trend; runs by
 how they ended; first-pass yield; lead time; cycle time; machine time; tokens;
-availability; and energy per shipped issue where the mesh reports it), a chart
+and availability), a chart
 of shipped issues and failed runs per day with the cycle-minutes as a line, the
 five most common stop reasons, the share of runs that got through each step,
 and one row per tehas and pi-rukas version pair. Every figure says its count as
@@ -316,26 +316,6 @@ count only. The section is hidden where there is no file, and the page reads it
 at most once a minute. What the file means is worked out by one module,
 `host/fun/analytics-data.js`; the plain dashboard's island,
 `host/fun/factory/tehas-factory-days`, draws it.
-
-Optional, and only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh with
-`tehas-energy.service` enabled: the factory floor also has a section
-**Energy use**: what the machines serving the factory draw now, their kWh over
-24 hours and 30 days, the last 30 minutes as a chart, and the factory's models
-with their busy slots. The figures are the mesh's own and are good to about
-15%. Only machines that are online and serve a model the factory uses are
-counted; other machines of the mesh and other models are left out. A counted
-machine's draw is all of it, including any other model it serves.
-While the section is there, the panel that opens the first screen carries a
-live meter: the draw now, and the tokens the mesh produced for the factory's
-models in the last minute. The tokens are the mesh's count for those models, so
-other users of the same models are in it. On a wide screen, 1440px and up, it
-is a card of its own beside that panel, over the column the work order monitor
-stands in; below 1440px it stands at the right end of the panel, over its title
-and the lines under it, and below 900px it lies across the foot of that panel
-instead. It leads to Energy use.
-With any other backend the section and the meter are simply not there, and
-nothing else changes. To turn them off on a viiwork mesh, see
-[the energy sampler](/tools).
 
 The dispatcher takes the ready issues of the start order first, in the order given, then [refreshes](#refreshes) of its own pull requests, then the other ready issues, lowest number first. With no order, ready issues start lowest number first. A person sets the order with `tehas order set --issues 12,8`, and it lasts until it is cleared unless `--for` or `--until` gives it an expiry; a program that runs the factory may set it on every poll instead. With `--only`, a ready issue the order does not name waits, and the log says `wait #N: not in the start order (--only)`; refreshes do not wait. An order that expired or cannot be read is no order, and the log says so. The order only sorts: an issue starts only on a `tehas:ready` or `tehas:blocked` from an allowed account, and every hold below applies as without it. [tehas status](/tools-status#tehas-status) prints an `order` line while one is set. See [tehas order](/api#tehas-order). The dispatcher takes issues as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for one higher in the order. The dashboard lists the queue by issue number, not the order the dispatcher will work it in.
 
@@ -2085,13 +2065,13 @@ migration, `tehas-<schema>-<time>.db`, are kept beside them and never removed.
 
 ```
 tehas drain --wait 3600         # start nothing, wait for the running cycles
-systemctl --user stop 'tehas-*.timer' 'tehas-*.path' tehas-energy.service tehas-mcp.service
+systemctl --user stop 'tehas-*.timer' 'tehas-*.path' tehas-mcp.service
 systemctl --user list-units 'tehas-*' --state=active   # wait until no service is listed
 cd ~/tehas/state
 mv tehas.db tehas.db.broken; rm -f tehas.db-wal tehas.db-shm
 cp backup/tehas-<YYYYMMDD>.db tehas.db && chmod 600 tehas.db
 tehas state check
-systemctl --user start tehas-energy.service tehas-mcp.service
+systemctl --user start tehas-mcp.service
 systemctl --user start $(systemctl --user list-unit-files 'tehas-*.timer' 'tehas-*.path' --state=enabled --no-legend | cut -d' ' -f1)
 tehas limit clear
 ```
@@ -2795,9 +2775,8 @@ your own git configuration. An administrator lets an account in once, with
   approve.
 - **The factory beside you.** Nothing is paused. A session and a cycle share
   the model endpoint, and the command tells you when a cycle is running. Apply
-  `tehas:pause` first if you want the models to yourself. The energy section
-  and the token meter count a session, because they measure the models; the
-  factory floor does not show it.
+  `tehas:pause` first if you want the models to yourself. The factory floor
+  does not show a session.
 - **Outside the queue.** No labels and no bot comments. The dispatcher does
   not know the session exists.
 

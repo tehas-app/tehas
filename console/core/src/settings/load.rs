@@ -90,9 +90,6 @@ pub(super) const KEPT: &[&str] = &[
     "TEHAS_GITHUB_API",
     "TEHAS_GITHUB_APP_KEY",
     "TEHAS_GITHUB_RENEW_EVERY",
-    "TEHAS_ENERGY",
-    "TEHAS_ENERGY_URL",
-    "TEHAS_ENERGY_SOURCE_URL",
     "TEHAS_MANAGER_VERSION",
     "TEHAS_MCP",
     "TEHAS_MCP_KEYS",
@@ -134,10 +131,24 @@ pub(super) fn retired(name: &str) -> bool {
 /// The names of features 2.0 took out, each with why. Unlike `RETIRED`, a
 /// line of one loads: a 1.4.x instance must never fail to load (the owner,
 /// 2026-11-22). The load warns once and drops the name, so nothing reads it.
-pub(super) const IGNORED: &[(&str, &str)] = &[(
-    "TEHAS_WIKI",
-    "the product wiki left core in 2.0 and returns as a plugin",
-)];
+pub(super) const IGNORED: &[(&str, &str)] = &[
+    (
+        "TEHAS_ENERGY",
+        "energy use left core in 2.0 and returns as a plugin",
+    ),
+    (
+        "TEHAS_ENERGY_URL",
+        "energy use left core in 2.0 and returns as a plugin",
+    ),
+    (
+        "TEHAS_ENERGY_SOURCE_URL",
+        "energy use left core in 2.0 and returns as a plugin",
+    ),
+    (
+        "TEHAS_WIKI",
+        "the product wiki left core in 2.0 and returns as a plugin",
+    ),
+];
 
 /// Whether `name` is one the load warns of and drops (`IGNORED`).
 pub(super) fn ignored(name: &str) -> bool {
@@ -675,18 +686,13 @@ fn host_values(vars: &Vars, text: &[u8], file: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The two switches of the host, checked already, in the words their readers
-/// compare with. TEHAS_ENERGY: `off` takes the energy section away, `on` asks
-/// for it, and unset or empty leaves it to the sampler; tehasbot energy and
-/// the first install read `on` and `off`. TEHAS_MCP: the MCP server reads `1`
-/// and `0`.
+/// The switch of the host, checked already, in the words its reader compares
+/// with: the MCP server reads TEHAS_MCP as `1` or `0`.
 fn host_switches(vars: &mut Vars) {
-    for (name, words) in [("TEHAS_ENERGY", ("on", "off")), ("TEHAS_MCP", ("1", "0"))] {
-        if let Some(on) = rules::switch(&vars.text(name)) {
-            let word = if on { words.0 } else { words.1 };
-            if vars.text(name) != word {
-                vars.set(name, word);
-            }
+    if let Some(on) = rules::switch(&vars.text("TEHAS_MCP")) {
+        let word = if on { "1" } else { "0" };
+        if vars.text("TEHAS_MCP") != word {
+            vars.set("TEHAS_MCP", word);
         }
     }
 }
@@ -1204,11 +1210,6 @@ mod tests {
             ),
             ("TEHAS_MCP", "yes", "expected on or off"),
             (
-                "TEHAS_ENERGY_URL",
-                "gateway.lan/v1",
-                "expected an http or https address such as http://models.example:8080/v1/cluster",
-            ),
-            (
                 "TEHAS_MODEL_KEY_MAIN",
                 "sk-one two",
                 "expected one word of printable characters, with no quote, backslash, $ or backtick",
@@ -1232,7 +1233,6 @@ mod tests {
             ("TEHAS_MCP", "on"),
             ("TEHAS_MCP_KEYS", key),
             ("TEHAS_MODEL_KEY_MAIN", "sk-abc+/="),
-            ("TEHAS_ENERGY_URL", "http://gateway.lan:8080/v1/cluster"),
         ]);
         assert_eq!(load(&mut vars, &mut Fake::with(&[]), "1000"), Ok(()));
         assert_eq!(vars.text("TEHAS_MCP"), "1");
@@ -1656,41 +1656,40 @@ mod tests {
     }
 
     #[test]
-    fn the_energy_switch_takes_the_switch_words_from_the_host_file() {
-        for (value, want) in [
-            ("on", "on"),
-            ("1", "on"),
-            ("off", "off"),
-            ("0", "off"),
-            ("", ""),
+    fn the_energy_settings_of_a_1_4_host_load_and_are_not_read() {
+        // Energy use left core in 2.0: any value, from the host or the
+        // instance, loads, and nothing reads it.
+        for name in [
+            "TEHAS_ENERGY",
+            "TEHAS_ENERGY_URL",
+            "TEHAS_ENERGY_SOURCE_URL",
         ] {
-            let mut vars = start(&[("TEHAS_ENERGY", value)]);
+            for value in ["on", "off", "viiwork", "gateway.lan/v1", ""] {
+                let mut vars = start(&[(name, value)]);
+                assert_eq!(
+                    load(&mut vars, &mut Fake::with(&[]), "1000"),
+                    Ok(()),
+                    "{name}={value}"
+                );
+                assert!(!vars.is_set(name), "{name}={value}");
+            }
+            let mut host = Fake::with(&[]).file("/h/.config/tehas/env", &format!("{name}=solar\n"));
+            assert_eq!(load(&mut start(&[]), &mut host, "1000"), Ok(()), "{name}");
+            let mut host = Fake::with(&[&format!("{name}=solar")]);
+            let mut vars = start(&[]);
+            assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()), "{name}");
+            assert!(!vars.is_set(name), "{name}");
             assert_eq!(
-                load(&mut vars, &mut Fake::with(&[]), "1000"),
-                Ok(()),
-                "{value}"
+                host.warned,
+                [format!(
+                    "{name} is no longer read: energy use left core in 2.0 and returns as a plugin; remove it from the instance"
+                )]
             );
-            assert_eq!(vars.text("TEHAS_ENERGY"), want, "{value}");
         }
-        let mut vars = start(&[]);
-        assert_eq!(load(&mut vars, &mut Fake::with(&[]), "1000"), Ok(()));
-        assert!(!vars.is_set("TEHAS_ENERGY"));
-        let mut vars = start(&[("TEHAS_ENERGY", "viiwork")]);
         assert_eq!(
-            load(&mut vars, &mut Fake::with(&[]), "1000"),
-            Err(
-                "TEHAS_ENERGY is not valid: expected on or off (see /h/.config/tehas/env)"
-                    .to_string()
-            )
+            refused(&["TEHAS_MCP=yes"]),
+            format!("TEHAS_MCP is not valid: expected on or off (see {FILE})")
         );
-        // instance.env that sets it is the file named.
-        for line in ["TEHAS_ENERGY=solar", "TEHAS_MCP=yes"] {
-            let name = line.split('=').next().unwrap();
-            assert_eq!(
-                refused(&[line]),
-                format!("{name} is not valid: expected on or off (see {FILE})")
-            );
-        }
     }
 
     #[test]

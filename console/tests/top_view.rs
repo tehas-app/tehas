@@ -98,7 +98,6 @@ fn a_console_name_that_is_not_a_plain_file_name_reads_nothing() {
 fn a_frame_costs_no_jq_process_whatever_it_holds() {
     let w = view_host("no-jq");
     files0(&w);
-    energy(&w, 20);
     let jq = w.sh("command -v jq");
     assert_eq!(jq.rc, 0, "no jq: {}", jq.out);
     w.stub("jq", &format!("exec {} \"$@\"", jq.out));
@@ -121,7 +120,6 @@ fn a_frame_costs_no_jq_process_whatever_it_holds() {
 fn standard_output_that_is_not_a_terminal_gets_no_escape_codes() {
     let w = view_host("no-escapes");
     files0(&w);
-    energy(&w, 20);
     let r = top(&w, "--once");
     assert_eq!(control_bytes(&r.out), 0);
     let r = top(&w, "");
@@ -240,7 +238,6 @@ fn a_reader_that_goes_away_is_exit_141_with_nothing_on_standard_error() {
 fn a_run_changes_nothing_under_tehas_home() {
     let w = view_host("changes-nothing");
     files0(&w);
-    energy(&w, 20);
     let before = live_files(&w);
     w.env("COLUMNS", "80");
     w.env("LINES", "20");
@@ -256,7 +253,6 @@ fn a_run_changes_nothing_under_tehas_home() {
         after.keys().map(String::as_str).collect::<Vec<_>>(),
         [
             "console-12.txt",
-            "energy.json",
             "health.json",
             "running.json",
             "status.json"
@@ -279,7 +275,6 @@ fn the_frame_comes_from_the_snapshot_alone_a_snapshot_with_nothing_in_it() {
         "cycle     no cycle written yet",
         "host      no reading of /proc",
         "units     systemctl --user gave no answer",
-        "energy    no sample",
         "console   no console file",
     ] {
         has(&r.out, line);

@@ -1,9 +1,9 @@
 One screen that shows what the factory is doing, and redraws it.
 
 It reads what the factory already writes under $TEHAS_HOME/live/ - the health
-file, the queue snapshot, the cycles, the energy sample and the console of a
-cycle - and asks systemctl --user about its units. It writes nothing, calls
-no GitHub, no model and no Docker, and loads no instance settings. What it
+file, the queue snapshot, the cycles and the console of a cycle - and asks
+systemctl --user about its units. It writes nothing, calls no GitHub, no model
+and no Docker, and loads no instance settings. What it
 shows is as old as those files, and every section that has an age prints it.
 
 The snapshot and the frame are drawn apart from each other: the console builds

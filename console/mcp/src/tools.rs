@@ -648,17 +648,6 @@ fn stats_schema() -> Value {
             ),
         ),
         (
-            "energy",
-            obj(
-                vec![
-                    ("n", given("How many it counts.")),
-                    ("kwh", given("Kilowatt hours.")),
-                    ("perShipped", given("Kilowatt hours per shipped run.")),
-                ],
-                "Energy.",
-            ),
-        ),
-        (
             "tokens",
             obj(
                 vec![
@@ -966,7 +955,7 @@ fn build_entries() -> Value {
         },
         {
             "name": "factory_stats",
-            "description": "The last ten days as the dashboard reports them: runs by outcome, cycle and lead time, first pass yield, handoff rate, availability, machine time, tokens, energy, stop reasons, versions, the refine figures and the daily rows.",
+            "description": "The last ten days as the dashboard reports them: runs by outcome, cycle and lead time, first pass yield, handoff rate, availability, machine time, tokens, stop reasons, versions, the refine figures and the daily rows.",
             "inputSchema": none,
             "outputSchema": stats_schema(),
         },
@@ -1333,7 +1322,6 @@ pub fn spec_of(name: &str) -> Option<Value> {
                 ("handoffRate", vec!["n", "share"]),
                 ("availability", vec!["n", "seconds", "share"]),
                 ("machineTime", vec!["n", "seconds", "perShipped"]),
-                ("energy", vec!["n", "kwh", "perShipped"]),
                 (
                     "tokens",
                     vec!["n", "input", "output", "cacheRead", "total", "perShipped"],

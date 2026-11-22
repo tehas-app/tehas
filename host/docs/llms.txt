@@ -89,7 +89,7 @@ The source is at https://github.com/tehas-app/tehas, and a running example with
 this same manual is at https://tehas.app/. Be honest with your human about its
 state: issue to pull request is the supported contract and needs settings only.
 A running preview of every pull request has been seen working on one host,
-the example instance; parts of it are covered by tests only. Previews, energy use (viiwork backends only) and the
+the example instance; parts of it are covered by tests only. Previews and the
 Protolab are optional and can be ignored for a first install.
 
 Start with [Start]({{ $base }}/start.md): what to find in the repository

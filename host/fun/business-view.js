@@ -1,15 +1,14 @@
 // The business page (host/fun/business.html), the front page unless TEHAS_DESIGN=pixel:
-// the live strip, the production line, the last ten days, the issue board and
+// the production line, the last ten days, the issue board and
 // the console of the running cycles, from the files the dispatcher writes under
 // /live/. See host/docs/host.md, "Layouts".
 //
-// lineView(), liveView(), consoleView() and boardRows() turn files into what
+// lineView(), consoleView() and boardRows() turn files into what
 // is drawn and have no side effects, so they are tested without a browser
 // (test/business_view_test.mjs). The rest fetches and draws, and runs only on
 // a page that has the line.
 
 import { analyticsView, dueToRead as dueAnalytics } from "./analytics-data.js";
-import { layout as energyLayout, PERIOD as ENERGY_PERIOD } from "./energy-view.js";
 import { stageOf as labelStage } from "./stages.js";
 
 // The stage names of the table come from the labels tehas writes; the columns
@@ -137,33 +136,6 @@ export function boardRows(view) {
     .flatMap((s) => s.items.map((t) => ({ ...t, stage: s.key, stageLabel: s.label })));
 }
 
-// energy: /live/energy.json or null. The power of the last 30 minutes from the
-// energy view's own columns, and the tokens a minute between samples.
-export function liveView(energy, nowMs = Date.now()) {
-  if (!energy || typeof energy !== "object" || !Array.isArray(energy.hosts)) return { present: false };
-  const v = energyLayout(energy, nowMs);
-  const power = v.columns.map((parts) => (parts && parts.length ? parts[parts.length - 1].to : null));
-  const samples = list(energy.samples)
-    .filter((s) => s && Number.isFinite(s.t) && s.k && typeof s.k === "object" && s.t * 1000 > nowMs - 30 * 60 * 1000)
-    .sort((a, b) => a.t - b.t);
-  const sum = (k) => Object.values(k).reduce((a, n) => a + (Number.isFinite(n) && n >= 0 ? n : 0), 0);
-  const tokens = [];
-  for (let i = 1; i < samples.length; i++) {
-    const dt = samples[i].t - samples[i - 1].t, dk = sum(samples[i].k) - sum(samples[i - 1].k);
-    if (dt > 0 && dk >= 0) tokens.push(Math.round(dk / dt * 60));
-  }
-  return {
-    present: true,
-    stale: v.state === "stale",
-    watts: v.watts,
-    tokens: v.meter.tokens, // null where the mesh counts no tokens
-    kwh24: v.kwh24,
-    kwh30: v.kwh30,
-    power,
-    tokenRates: v.meter.tokens == null ? [] : tokens,
-  };
-}
-
 // v: what TEHAS_CONSOLE_TABS.view() returns for /live/running.json. titles:
 // issue number to title, from status.json. The selected cycle's lines and the
 // console file to tail, a name under /live/ or null.
@@ -204,7 +176,7 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
     return e;
   };
   const still = matchMedia("(prefers-reduced-motion: reduce)");
-  const data = { status: null, lab: null, analytics: null, analyticsAt: 0, energy: null, serverAt: 0, localAt: 0 };
+  const data = { status: null, lab: null, analytics: null, analyticsAt: 0, serverAt: 0, localAt: 0 };
 
   // The host bridge (host-bridge.js), when a host answers: a ticket of the
   // repository links to the host's page, in the same tab, and its notes are
@@ -228,45 +200,6 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
       if (Number.isFinite(date)) { data.serverAt = date; data.localAt = performance.now(); }
       return await r.json();
     } catch { return null; }
-  }
-
-  // ---- Bars: one rect per value, scaled to the tallest, drawn at the
-  // element's real width so its text stays the page's size.
-  function bars(svg, values, { height = 56, labels = null, cls = "bar" } = {}) {
-    const W = Math.round(svg.getBoundingClientRect().width) || 600;
-    const H = height + (labels ? 16 : 0);
-    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-    svg.replaceChildren();
-    const max = Math.max(1, ...values.map((v) => v || 0));
-    const step = W / Math.max(1, values.length), w = Math.max(1, step - 2);
-    svgEl("line", { class: "base", x1: 0, x2: W, y1: height + 0.5, y2: height + 0.5 }, svg);
-    values.forEach((v, i) => {
-      if (!v) return;
-      const h = Math.max(1, v / max * (height - 4));
-      svgEl("rect", { class: cls, x: i * step + 1, y: height - h, width: w, height: h }, svg);
-    });
-    if (labels) labels.forEach(([text, at, anchor]) =>
-      (svgEl("text", { x: at * W, y: H - 3, "text-anchor": anchor }, svg).textContent = text));
-  }
-
-  // ---- The live strip.
-  function renderLive() {
-    const v = liveView(data.energy, now());
-    $("live").hidden = $("meter").hidden = $("nav-power").hidden = !v.present;
-    if (!v.present) return;
-    $("live").classList.toggle("is-stale", v.stale);
-    $("live-tag").textContent = v.stale ? "Stale" : "Live";
-    $("meter-w").textContent = v.watts + " W";
-    $("meter").setAttribute("aria-label", v.watts === "--" ? "No power reading. Opens the live figures." : `Drawing ${v.watts} watts. Opens the live figures.`);
-    $("live-w").textContent = v.watts;
-    $("live-24").textContent = v.kwh24;
-    $("live-30").textContent = v.kwh30;
-    $("live-tokens-box").hidden = $("live-tokens-chart").hidden = v.tokens == null;
-    $("live").classList.toggle("no-tokens", v.tokens == null);
-    if (v.tokens != null) $("live-tokens").textContent = v.tokens;
-    const ends = [["30 min ago", 0, "start"], ["now", 1, "end"]];
-    bars($("live-power"), v.power, { height: 44, labels: ends });
-    if (v.tokens != null) bars($("live-token-bars"), v.tokenRates, { height: 44, labels: ends, cls: "bar is-alt" });
   }
 
   // ---- The line. A card flips to the next ticket of its stage; the wave
@@ -525,8 +458,8 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
   markNav();
 
   // ---- Polling, as the factory floor does: the queue and the running cycles
-  // every ten seconds, the console every two, the power every period, the
-  // Protolab and the report once a minute.
+  // every ten seconds, the console every two, the Protolab and the report
+  // once a minute.
   const lift = () => document.querySelector(".topbar").classList.toggle("is-scrolled", scrollY > 4);
   addEventListener("scroll", lift, { passive: true });
   lift();
@@ -536,7 +469,6 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
     renderLine();
     renderConsole();
   }
-  async function power() { if (!document.hidden) { data.energy = await read("/live/energy.json"); renderLive(); } }
   async function lab() { if (!document.hidden) { data.lab = await read("/live/protolab.json"); renderLine(); } }
   async function report() {
     if (!dueAnalytics({ hidden: document.hidden, readAt: data.analyticsAt })) return;
@@ -545,13 +477,12 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
     renderPeriod();
   }
   globalThis.TEHAS_HOST_BRIDGE?.onChange(() => { $("line").dataset.signature = ""; renderLine(); });
-  queue(); power(); lab(); report();
+  queue(); lab(); report();
   setInterval(queue, 10000);
   setInterval(tail, 2000);
-  setInterval(power, ENERGY_PERIOD * 1000);
   setInterval(lab, 60000);
   setInterval(report, 15000);
   setInterval(wave, FLIP_EVERY * 1000);
-  addEventListener("resize", () => { renderLive(); renderPeriod(); });
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { queue(); power(); } });
+  addEventListener("resize", renderPeriod);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) queue(); });
 }

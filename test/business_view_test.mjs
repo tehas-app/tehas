@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import "../host/fun/console-tabs.js";
-import { STAGES, STALE_QUEUE, lineView, boardRows, liveView, labBase, consoleView } from "../host/fun/business-view.js";
+import { STAGES, STALE_QUEUE, lineView, boardRows, labBase, consoleView } from "../host/fun/business-view.js";
 
 const NOW = Date.parse("2026-10-20T12:00:00Z");
 const at = (secondsAgo) => new Date(NOW - secondsAgo * 1000).toISOString();
@@ -190,38 +190,6 @@ test("the sample stages a ticket labelled for planning in planning", () => {
 test("the board lists the open tickets on the line, in the line's order", () => {
   const rows = boardRows(lineView({ status: status(), nowMs: NOW }));
   assert.deepEqual(rows.map((r) => [r.number, r.stage]), [[13, "line"], [14, "line"], [23, "build"], [18, "review"], [2, "stop"]]);
-});
-
-const energy = (extra = {}) => ({
-  generatedAt: at(4), hosts: [{ name: "gpu-1", watts: 180 }], totals: { watts: 180, kWh24h: 2.05, kWh30d: 29.82, reporting: 1 },
-  samples: [0, 1, 2].map((i) => ({ t: (NOW - (30 - i * 15) * 1000) / 1000, w: { "gpu-1": 150 + i * 10 }, k: { "gpu-1": 1000 + i * 3000 } })),
-  ...extra,
-});
-
-test("the live strip has the power now, the day and month, and the token rate", () => {
-  const v = liveView(energy(), NOW);
-  assert.equal(v.present, true);
-  assert.equal(v.stale, false);
-  assert.equal(v.watts, "180");
-  assert.equal(v.kwh30, "29.8");
-  assert.equal(v.power.length, 120);
-  assert.deepEqual(v.tokenRates, [12000, 12000]); // 3000 tokens in 15 s
-});
-
-test("without a file there is no strip; a stale one shows no reading", () => {
-  assert.deepEqual(liveView(null, NOW), { present: false });
-  assert.deepEqual(liveView({ totals: {} }, NOW), { present: false });
-  const v = liveView(energy({ generatedAt: at(120) }), NOW);
-  assert.equal(v.stale, true);
-  assert.equal(v.watts, "--");
-});
-
-test("a mesh that counts no tokens gives no token figure", () => {
-  const plain = energy();
-  for (const s of plain.samples) delete s.k;
-  const v = liveView(plain, NOW);
-  assert.equal(v.tokens, null);
-  assert.deepEqual(v.tokenRates, []);
 });
 
 const { view: tabsView } = globalThis.TEHAS_CONSOLE_TABS;

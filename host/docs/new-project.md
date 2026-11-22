@@ -458,14 +458,6 @@ checkout cannot be moved - it is at a release tag, or its remote does not answer
 `tehas update --pending` runs the follow-ups `install.sh` recorded and no git
 command; see [tehas update](/tools-update#tehas-update).
 
-## Optional parts
-
-`tehas-energy.service` is optional: set `TEHAS_ENERGY=on` only when your model
-endpoint is a [viiwork](https://github.com/janit/viiwork) mesh. It is a switch,
-`on` or `off`, and any other value stops every command with 78. With any other
-endpoint leave it unset: an update restarts a unit only where it already runs.
-See [the energy sampler](/tools).
-
 ## Aside: the tehas-tehas instance
 
 The instance that works on tehas itself has a few extras. Its settings are in
@@ -501,7 +493,7 @@ TEHAS_SITE_ANALYTICS_COOKIE=on
 - Its endpoint is a [viiwork](https://github.com/janit/viiwork) mesh, a meshed
   inference platform for home and enterprise hardware, reached as `gb1` on the
   private network. That is not required: any OpenAI-compatible endpoint that
-  serves your model works, and only the energy sampler depends on viiwork.
+  serves your model works.
 - It was installed before releases, from a platform checkout at
   `~/tehas/platform`, so `tehas update` pulls that checkout until it is moved
   to releases.

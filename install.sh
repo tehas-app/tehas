@@ -683,7 +683,6 @@ files=(
   "systemd/tehas-dispatch.service|$units/tehas-dispatch.service|644"
   "systemd/tehas-dispatch.path|$units/tehas-dispatch.path|644"
   "systemd/tehas-dispatch.timer|$units/tehas-dispatch.timer|644"
-  "systemd/tehas-energy.service|$units/tehas-energy.service|644"
   "systemd/tehas-mcp.service|$units/tehas-mcp.service|644"
   "systemd/tehas-mcp-fetch.socket|$units/tehas-mcp-fetch.socket|644"
   "systemd/tehas-mcp-fetch@.service|$units/tehas-mcp-fetch@.service|644"
@@ -1108,12 +1107,14 @@ done <<<"$retired"
 
 # The units of features this version does not have: the timed refresh scan
 # (refreshes are asked for one pull request at a time), the improvement loop
-# and the product wiki, which left core in 2.0. Found here; in step 5 each
-# timer and path unit is stopped and disabled and its files go.
+# the product wiki and the energy sampler, which left core in 2.0. Found here;
+# in step 5 each timer and path unit, or a service none starts, is stopped and
+# disabled and its files go.
 old_units=()
 scan_units=$units
 for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-improve.service \
-  tehas-wiki-status.timer tehas-wiki-status.service tehas-wiki.timer tehas-wiki.path tehas-wiki.service; do
+  tehas-wiki-status.timer tehas-wiki-status.service tehas-wiki.timer tehas-wiki.path tehas-wiki.service \
+  tehas-energy.service; do
   [ -e "$scan_units/$unit" ] || [ -L "$scan_units/$unit" ] || continue
   old_units+=("$unit")
   [ "$check" = 0 ] || note "stale: $scan_units/$unit"
@@ -1236,9 +1237,7 @@ first_index() {
 first_install() {
   [ -f "$first_owed" ] || return 0
   local units=() why="" line
-  # A first install runs before any shell has read env.sh, so the console reads
-  # TEHAS_ENERGY from the host's private file too.
-  line=$(export "${!TEHAS_@}"; "$loaded_console" update units "$HOME/.config/tehas/env") || line=""
+  line=$(export "${!TEHAS_@}"; "$loaded_console" update units) || line=""
   read -ra units <<<"$line"
   if [ "${#units[@]}" = 0 ]; then
     why="the console at $loaded_console did not name the units"
@@ -1283,15 +1282,17 @@ report_login() {
 }
 
 # A trigger is stopped before its files go, so systemd holds no timer or path
-# unit whose file is gone. A unit systemd cannot let go of is left, and the
-# next run tries again. Triggers come first in the list, so a service follows
-# its own: the path unit while one is left, else the timer.
+# unit whose file is gone, and so is a service none starts. A unit systemd
+# cannot let go of is left, and the next run tries again. Triggers come first
+# in the list, so a service follows its own: the path unit while one is left,
+# else the timer.
 if [ "${#old_units[@]}" -gt 0 ]; then
   gone=0
   for unit in "${old_units[@]}"; do
     timer=${unit%.*}.timer
     [ "${unit##*.}" != path ] || timer=$unit
     [ "${unit##*.}" != service ] || [ ! -e "$scan_units/${unit%.*}.path" ] || timer=${unit%.*}.path
+    case " ${old_units[*]} " in *" $timer "*) ;; *) timer=$unit ;; esac
     if [ -e "$scan_units/$timer" ] && ! systemctl --user disable --now "$timer" >/dev/null 2>&1; then
       [ "$unit" != "$timer" ] ||
         echo "later: ./install.sh again   (systemctl --user disable --now $timer failed, so its units were left)"

@@ -1873,6 +1873,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tehas-mesh-feed"
+version = "0.1.0"
+dependencies = [
+ "tehas-core",
+]
+
+[[package]]
 name = "tehas-ops"
 version = "0.1.0"
 dependencies = [

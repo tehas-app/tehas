@@ -148,7 +148,6 @@ settings and `TEHAS_PROTOLAB_ZIP_HOSTS` in this release.
 | `TEHAS_SITE_ANALYTICS_SRC`, `_NAME`  | empty                                    | Optional. The https address of a visitor analytics script and the site name it reports under. Both set: every page loads it |
 | `TEHAS_TOP`                     | `off`                                    | `on` lets [`tehasbot top`](/tools-health#tehasbot-top) publish the host snapshot to `~/tehas/live/top.json`, which the Host panel of the factory floor and the plain dashboard read. With `0` the command removes the file and writes nothing. It governs the published file only: `tehas top` in a terminal always works, and the unit, installed on every instance, starts only when you enable it |
 | `TEHAS_SITE_ANALYTICS_COOKIE`        | `off`                                    | `on` adds `data-cookie="true"` to that script tag                |
-| `TEHAS_ENERGY_SOURCE_URL`       | empty                                    | Optional. The address the `DATA SOURCE: <name>` line at the end of the energy page links. Empty: the page shows the name as plain text. An `https://` address, else every command stops with 78 (see [`tehasbot energy`](/tools-health#tehasbot-energy)) |
 | `TEHAS_DESIGN`                  | `beesknees26`                            | The look of the whole site and its front page: `beesknees26` (the business page at `/`) or `pixel` (the factory floor at `/`). Any other value is exit 78. See [Designs](/host#designs) |
 | `TEHAS_ANALYTICS`               | `on`                                     | The factory's own analytics, not the visitor analytics above: 365 days of runs, issue events and poll samples in `~/tehas/state/analytics.db`. `off` stops every write and leaves the file as it is. Anything but `on` or `off` stops every command with 78 |
 | `TEHAS_PROTOLAB_URL`            | `https://lab.<domain>`, or port 8081     | Address people reach the Protolab at, when it is published elsewhere, as `https://lab.example`. The dashboard links to it. Without it: `https://lab.<domain>` when `TEHAS_DOMAIN` is set, else port 8081 of the dashboard's host |
@@ -351,8 +350,6 @@ command with 78 and a line that names it and not its value.
 | `TEHAS_MCP` | unset, off | Whether the [MCP server](/mcp-server) runs: `on` or `off` (`1` or `0`) |
 | `TEHAS_MCP_KEYS`, `TEHAS_MCP_DASHBOARD_KEYS` | unset | The MCP server's keys, separated by white space, each at least 32 characters of `A-Za-z0-9_-`. A refusal names a key by its place. Only in `~/.config/tehas/env` |
 | `TEHAS_MCP_CHECKOUT` | unset | The shared clone of the product, with its whole history, that the [MCP server](/mcp-server#the-shared-checkout) reads for its git tools, read only. Unset, the server has no git tools. An absolute path of letters, digits and `._-` between slashes with no `..`, else every command stops with 78; a path that is no directory stops `tehas mcp` with 78, and a shallow clone or no git repository stops the server with 78 |
-| `TEHAS_ENERGY` | unset | The energy section: `off` takes it away, `on` asks for it, unset leaves it to the sampler |
-| `TEHAS_ENERGY_URL` | unset | The cluster address the energy sampler asks, with no token, in place of the model endpoint's. An `http://` or `https://` address |
 | `TEHAS_UPDATE_LOCK_WAIT` | `10` | Seconds `tehas update` and `install.sh` wait for another update's lock. A whole number from 0, refuse at once, to 300. From the environment of that run only: `tehas update` and `install.sh` check it themselves and stop with 78 on any other value |
 
 ## The gates (run by the cycle, usable by hand)
@@ -703,7 +700,7 @@ hand)` and `## scripts/test.sh` stay here.
 | [The commands that hold work back](/tools-control) | An outside cap, a drain, the records of what ended, and stopping a cycle by hand. |
 | [tehas status, api, disk, top and analytics](/tools-status) | What the factory is doing, what it speaks to a program, how full the host is, and its runs. |
 | [tehasbot and tehasbot cycle](/tools-tehasbot) | The command the units run, and one cycle for one issue with its report. |
-| [The console, health, energy and top](/tools-health) | The files that feed the dashboard, and what watches the host's health, its models and its load. |
+| [The console, health and top](/tools-health) | The files that feed the dashboard, and what watches the host's health, its models and its load. |
 | [The Protolab](/tools-protolab) | The page of a prototype. |
 | [The GitHub commands](/tools-github) | Asking for refreshes, the App's tokens, and the writes of the last day. |
 | [tehasbot clean and tehasbot preview](/tools-clean) | What the cleaner removes and when, and the preview of every pull request. |

@@ -37,8 +37,8 @@
 //!     row.
 //!   analytics sample
 //!     Records one sample of the factory: the issues in line, running,
-//!     awaiting a merge and stopped, the cycles allowed, the pause, the hold
-//!     and the mesh's draw, from the live files the poll wrote (sample.rs
+//!     awaiting a merge and stopped, the cycles allowed, the pause and the
+//!     hold, from the live files the poll wrote (sample.rs
 //!     lists them). The dispatcher calls it once a poll.
 //!   analytics prune
 //!     Deletes what is older than 365 days, then runs PRAGMA optimize. run,

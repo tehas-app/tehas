@@ -21,7 +21,6 @@ tehasbot dispatch             # one poll; what tehas-dispatch.timer runs
 tehasbot cycle <issue>        # one cycle and its report; what tehas-cycle@<issue>.service runs
 tehasbot status               # write the queue snapshot
 tehasbot health               # write the health file
-tehasbot energy [--every]     # sample the model mesh; what tehas-energy.service runs
 tehasbot top [--every]        # publish the snapshot of tehas top; what tehas-top.service runs
 tehasbot protolab             # build the Protolab; what tehas-protolab.timer runs
 tehasbot preview              # keep the previews; what tehas-preview.timer runs
@@ -42,7 +41,7 @@ tehasbot plugin-gate          # the gate of the plugins' views; what tehas-plugi
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
-as a cycle ends), `tehas-energy.service`, `tehas-top.service`,
+as a cycle ends), `tehas-top.service`,
 `tehas-protolab.timer`, the previews' `tehas-preview.timer` and
 `tehas-preview-sweep.timer`, the review loop's `tehas-review.timer` (weekly; installed only while
 review is on, which no release allows yet: [the review loop](/operating#the-review-loop)), the cleaner's `tehas-clean.timer` (installed, and enabled

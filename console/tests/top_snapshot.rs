@@ -152,13 +152,12 @@ fn raw_of_each(text: &str, key: &str) -> Vec<String> {
 fn json_gives_one_object_generatedat_and_one_key_per_section() {
     let w = host("one-object");
     files0(&w);
-    energy(&w, 20);
     let r = top(&w, "--json");
     assert_eq!(r.rc, 0, "{}", r.out);
     let v = json_of(&r);
     assert!(v["generatedAt"].is_string());
-    assert_eq!(v.as_object().unwrap().len(), 9);
-    for key in ["factory", "queue", "cycle", "host", "energy", "console"] {
+    assert_eq!(v.as_object().unwrap().len(), 8);
+    for key in ["factory", "queue", "cycle", "host", "console"] {
         assert!(v[key].is_object(), "{key}: {}", v[key]);
     }
     assert!(v["units"].is_array());
@@ -191,17 +190,17 @@ fn the_snapshot_reads_the_live_files_and_asks_systemd_nothing_else() {
 fn a_source_that_is_not_there_is_null_and_the_others_are_still_there() {
     let w = host("one-missing");
     files0(&w);
-    for f in ["energy.json", "console-12.txt", "running.json"] {
+    for f in ["console-12.txt", "running.json"] {
         let _ = fs::remove_file(w.live_file(f));
     }
     let r = top(&w, "--json");
     assert_eq!(r.rc, 0, "{}", r.out);
     let v = json_of(&r);
-    let nulls: Vec<bool> = ["factory", "queue", "cycle", "units", "energy", "console"]
+    let nulls: Vec<bool> = ["factory", "queue", "cycle", "units", "console"]
         .iter()
         .map(|k| v[k].is_null())
         .collect();
-    assert_eq!(nulls, [false, false, true, false, true, true]);
+    assert_eq!(nulls, [false, false, true, false, true]);
 }
 
 #[test]
@@ -210,7 +209,7 @@ fn every_source_missing_is_null_for_its_key_and_json_still_exits_0() {
     let r = top(&w, "--json");
     assert_eq!(r.rc, 0, "{}", r.out);
     let v = json_of(&r);
-    for k in ["factory", "queue", "cycle", "energy", "console"] {
+    for k in ["factory", "queue", "cycle", "console"] {
         assert!(v[k].is_null(), "{k}: {}", v[k]);
     }
 }
@@ -278,7 +277,7 @@ fn a_host_that_cannot_be_read_is_a_null_section_and_one_line() {
     assert_eq!(r.rc, 0, "{}", r.out);
     let v = json_of(&r);
     assert!(v["host"].is_null());
-    assert_eq!(v.as_object().unwrap().len(), 9);
+    assert_eq!(v.as_object().unwrap().len(), 8);
     assert!(v["reading"].is_null());
     let r = top(&w, "--once");
     assert_eq!(r.rc, 0, "{}", r.out);

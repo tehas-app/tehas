@@ -211,8 +211,6 @@ pub enum Live {
     Dispatch,
     /// The ten last ends of cycles.
     Endings,
-    /// The power the hosts draw.
-    Energy,
     /// The epics and their issues.
     Epics,
     /// The checks of the host's health.
@@ -244,7 +242,6 @@ impl Live {
             Live::Disk => "disk.json",
             Live::Dispatch => "dispatch.json",
             Live::Endings => "endings.json",
-            Live::Energy => "energy.json",
             Live::Epics => "epics.json",
             Live::Health => "health.json",
             Live::Panels => "panels.json",
@@ -503,7 +500,6 @@ mod tests {
             (Live::Disk, "/h/live/disk.json"),
             (Live::Dispatch, "/h/live/dispatch.json"),
             (Live::Endings, "/h/live/endings.json"),
-            (Live::Energy, "/h/live/energy.json"),
             (Live::Epics, "/h/live/epics.json"),
             (Live::Health, "/h/live/health.json"),
             (Live::Panels, "/h/live/panels.json"),

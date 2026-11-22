@@ -233,13 +233,13 @@ tehas top --every 10     # redraw every 10 seconds
 
 One screen for a person, in the manner of `top`: is the factory taking work,
 what is in the queue and which issues are behind the counts, what the cycles are
-doing, which units run, what the model mesh draws, and the tail of a cycle's
+doing, which units run, and the tail of a cycle's
 console. It draws again every 2 seconds unless `--every` says otherwise; `q` or
 Ctrl-C ends it and leaves the terminal as it was. Without a terminal on standard
 output, and with `--once`, it prints one frame as plain text: no escape codes.
 
 It reads what the factory already writes under `~/tehas/live/` - the [health
-file](/tools-health#tehasbot-health), the queue snapshot, the cycles, the energy sample and
+file](/tools-health#tehasbot-health), the queue snapshot, the cycles and
 the console of a cycle - asks `systemctl --user` about its units, and reads the
 host's own numbers from `/proc`, through the console beside the commands
 (`~/tehas/libexec/console top`, which also puts the snapshot together;
@@ -251,7 +251,7 @@ minutes is not believed, the same rule `tehas status` uses.
 
 The frame is drawn from one snapshot and from nothing else. `--json` prints that
 snapshot: `generatedAt`, one key per section (`factory`, `queue`, `cycle`,
-`host`, `units`, `energy`, `console`) and `reading`, the raw reading of `/proc`
+`host`, `units`, `console`) and `reading`, the raw reading of `/proc`
 the host section was computed from. A section whose source is missing,
 unreadable or too old to believe is `null`; the frame says so in one line and
 draws the rest. The factory line and the queue counts are the ones `tehas status`

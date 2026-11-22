@@ -104,7 +104,7 @@ t_anchors() {
 # and pass.
 t_case "the anchor rule finds the headings of a tools page"
 t_anchors "$docs/tools-health.md" "$T/anchors"
-t_eq "$(grep -c . "$T/anchors")" 5
+t_eq "$(grep -c . "$T/anchors")" 4
 t_anchors "$docs/tools-tehasbot.md" "$T/anchors"
 grep -qxF -- the-pull-request-of-a-stopped-cycle "$T/anchors" \
   || t_bad "the bold lead-in of the finish section is no anchor"
@@ -171,7 +171,7 @@ done
 # when outsource got its commands, `## tehas plugin` with plugins and `## The
 # commands of other parts` with the parts.
 t_case "the tools pages hold the 48 sections of the commands, each once"
-t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 49
+t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 48
 t_eq "$(cat "${TOOLS_PAGES[@]}" | grep '^## ' | grep -v '^## The pages$' \
    | sort | uniq -d | wc -l | tr -d ' ')" 0
 
@@ -236,7 +236,7 @@ t_case "the front's verbs and the lists of the pages are both read"
 t_front_verbs tehas "$T/verbs-tehas"
 t_front_verbs tehasbot "$T/verbs-tehasbot"
 t_eq "$(sort -u "$T/verbs-tehas" | grep -c . | tr -d ' ')" 39
-t_eq "$(sort -u "$T/verbs-tehasbot" | grep -c . | tr -d ' ')" 17
+t_eq "$(sort -u "$T/verbs-tehasbot" | grep -c . | tr -d ' ')" 16
 t_lists_of tehas "$T/list-tehas"
 t_lists_of tehasbot "$T/list-tehasbot"
 [ "$(grep -c . "$T/list-tehas" | tr -d ' ')" -ge 25 ] ||
