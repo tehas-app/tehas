@@ -404,17 +404,17 @@ fn comments_7(w: &World) -> usize {
 /// person may.
 #[test]
 fn a_marked_reply_of_the_fixer_s_that_names_an_option_chooses_it() {
-    for (said, chose) in [("1", true), ("Change some", true), ("end", false)] {
+    for (said, chose) in [
+        ("1", Some("Adopt all")),
+        ("Change some", Some("Change some")),
+        ("end", None),
+    ] {
         let w = planning_world(json!([{"turn": 2, "by": "tehas-bot", "fixer": true},
             {"turn": 3, "by": "alice", "fixer": false}]));
         w.comments(7, &unticked(), "", freply(&marked(said), 4003));
         let r = w.poll();
-        if chose {
-            assert!(
-                answer(&w).starts_with("The fixer chose: "),
-                "{said}: {}",
-                answer(&w)
-            );
+        if let Some(option) = chose {
+            assert_eq!(answer(&w), format!("The fixer chose: {option}"), "{said}");
             has(
                 &r.out,
                 "planning #7 continues (answer from tehas-bot, the fixer)",

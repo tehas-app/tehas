@@ -849,7 +849,15 @@ The comments retry is offered only when the sandbox image gives a cycle the
 comments: its pi-rukas lists `issueComments` in `--capabilities`
 (trail-openers/pi-rukas#2020), or its `tehas.rukas.polyfills` label carries
 `issue-comments@<version>` (tehas-app/tehas-polyfill). Otherwise the comment
-offers the text-only retry and `park`. On the polyfill alone a comments retry
+offers the text-only retry and `park`.
+
+The newest reply of an allowed account that names a choice is the answer. It
+stands until the poll acts on it, or until a newer reply names a choice: a
+later comment in other words, of a person or of the bot, takes nothing away. A
+reply that names a choice the comment does not offer (`retry` where only
+`retry-text` is listed) starts nothing, and an older reply's choice does not
+act in its place: the bot answers once that the choice is not offered, and
+neither reply is read again. Reply again with a choice the comment lists. On the polyfill alone a comments retry
 runs with `PI_ENSEMBLE_REPEAT_PARK=0` where the image takes it, since the
 polyfill's comments do not reach the repeat-park guard, and the end comment
 says the comments were given to the cycle's agents. With the native reader it
@@ -930,7 +938,8 @@ An issue closed since its cycle stopped is not work. Neither an answer nor a new
 A cycle that a provider outage parked says so in its comment: `parked by a
 provider outage`, with the cap. Only the cycle's own result names the outage,
 so the park is recorded under its cap like any other and waits for an answer or
-a label: reply `retry` once the model endpoint answers. A park an earlier
+a label: reply with the retry the park comment offers once the model endpoint
+answers. A park an earlier
 version recorded as `provider-outage` still owes its one retry: once the model
 endpoint answers, the dispatcher starts the issue again on its own and says so
 on the issue, on the word of whoever started the cycle that parked. `tehas

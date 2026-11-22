@@ -414,7 +414,7 @@ pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> S
                     format!("{}. {label}: {desc}\n", k + 1)
                 };
             }
-            b += &format!("{}. {BOX_END}: {LEADS_END}\n\n", n + 1);
+            b += &format!("{}. {BOX_END}: {LEADS_END}.\n\n", n + 1);
             b += &format!("{ONLY_ALLOWED}\n");
             "plan"
         }
@@ -483,7 +483,7 @@ mod tests {
             "question": {"question": "Which?", "options": [{"label": "Update this issue"}]}});
         assert_eq!(
             q_render(Kind::Plan, 7, 2, &out, ""),
-            format!("Which?\n\n{ASK_PLAN}\n\n1. Update this issue\n2. End this planning session: the session ends, and nothing more is planned\n\n{ONLY_ALLOWED}\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->")
+            format!("Which?\n\n{ASK_PLAN}\n\n1. Update this issue\n2. End this planning session: the session ends, and nothing more is planned.\n\n{ONLY_ALLOWED}\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->")
         );
         // A turn with nothing but text: the choices open the comment.
         let out = json!({"text": "Which branch?", "question": null});
@@ -699,7 +699,7 @@ mod tests {
         assert!(!body.contains("Two ways."));
         assert_eq!(
             body,
-            format!("Adopt?\n\n{ASK_PLAN}\n\n1. Adopt all: Apply all five\n2. Change some\n3. End this planning session: the session ends, and nothing more is planned\n\n{ONLY_ALLOWED}\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->")
+            format!("Adopt?\n\n{ASK_PLAN}\n\n1. Adopt all: Apply all five\n2. Change some\n3. End this planning session: the session ends, and nothing more is planned.\n\n{ONLY_ALLOWED}\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->")
         );
     }
     #[test]

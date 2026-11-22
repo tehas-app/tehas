@@ -362,6 +362,15 @@ impl Poll<'_> {
                 self.plan_answer(n, &ans, &tick, &q.plan, room)?;
                 continue;
             }
+            if kind == "park" && tick == "unoffered" {
+                self.log(format!(
+                    "skip #{n}: {by} answered a choice its question does not offer"
+                ));
+                if !self.dry {
+                    self.decline(n, &ans, Some("The reply names a choice this question does not offer, so nothing was started. Reply with the word of one of the choices it lists."));
+                }
+                continue;
+            }
             if kind != "park" || tick != "one" {
                 continue;
             }

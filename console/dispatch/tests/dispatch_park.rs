@@ -390,3 +390,57 @@ fn a_dry_run_of_leave_it_parked_changes_nothing() {
     lacks(&w.gh(), "issue edit");
     assert_eq!(w.park_q(7), "4001");
 }
+
+/// One comment after the question, as GitHub's GraphQL gives it.
+fn later_comment(id: u64, by: &str, body: &str, at: &str) -> serde_json::Value {
+    json!({"databaseId": id, "author": {"login": by, "databaseId": common::uid(by)}, "body": body, "createdAt": at,
+        "lastEditedAt": null, "editor": null, "userContentEdits": {"totalCount": 0, "nodes": []}})
+}
+
+/// A newer reply that names a choice the stop does not offer (`retry`, where
+/// only the text-only retry is offered) is declined with the note and acts
+/// on nothing; the older reply's choice does not act in its place. Once the
+/// note follows them, neither is read again.
+#[test]
+fn a_reply_naming_a_choice_the_stop_does_not_offer_is_declined_and_nothing_starts() {
+    let w = World::new("park-unoffered");
+    w.parked("failed", "alice");
+    let body = tehas_core::question::q_render(
+        tehas_core::question::Kind::Park,
+        7,
+        1,
+        &json!({"text": "Tehas cycle stopped.", "comments": false}),
+        "",
+    );
+    let replies = vec![
+        later_comment(4002, "alice", "retry-text", "2026-01-01T01:00:00Z"),
+        later_comment(4003, "alice", "retry", "2026-01-01T02:00:00Z"),
+    ];
+    w.comments(7, &body, "", json!(replies));
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(started(&w), "");
+    has(
+        &r.out,
+        "skip #7: alice answered a choice its question does not offer",
+    );
+    let note = "The reply names a choice this question does not offer, so nothing was started.";
+    has(&w.gh(), note);
+    has(&w.gh(), "<!-- tehas:declined question=4001 -->");
+    assert_eq!(w.park_q(7), "4001");
+    // The next poll finds the note after both replies: nothing is said again.
+    let mut replies = replies;
+    replies.push(later_comment(
+        4004,
+        "tehas-bot",
+        &format!("{note}\n\n<!-- tehas:declined question=4001 -->"),
+        "2026-01-01T03:00:00Z",
+    ));
+    w.comments(7, &body, "", json!(replies));
+    w.clear_calls();
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(started(&w), "");
+    lacks(&w.gh(), "issue comment 7");
+    lacks(&r.out, "does not offer");
+}

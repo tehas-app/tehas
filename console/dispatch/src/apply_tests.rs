@@ -2720,7 +2720,7 @@ fn a_planning_question_is_rendered_as_the_bash_renders_it() {
         "marker": "<!-- pi-rukas:handoff issue=7 cap=plan -->"});
     assert_eq!(
         q_render(7, 2, &out, "Filed in this turn: #9"),
-        format!("Which?\n\nFiled in this turn: #9\n\n{ASK_PLAN}\n\n1. A first: the first\n2. B\n3. End this planning session: the session ends, and nothing more is planned\n\n{ONLY_ALLOWED}\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->")
+        format!("Which?\n\nFiled in this turn: #9\n\n{ASK_PLAN}\n\n1. A first: the first\n2. B\n3. End this planning session: the session ends, and nothing more is planned.\n\n{ONLY_ALLOWED}\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->")
     );
     let many: Vec<Value> = (0..22).map(|i| json!({"label": format!("o{i}")})).collect();
     let r = q_render(

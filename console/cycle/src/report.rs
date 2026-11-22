@@ -202,11 +202,10 @@ impl Park {
     }
 
     /// Whether the park asks a person anything: not when it has nothing to
-    /// decide. That is a park that offers no retry, whose only choice would be
-    /// to leave it parked, and one the factory takes up again on its own
-    /// (`auto`). Its comment says what happens instead.
+    /// decide, a park that offers no retry, whose only choice would be to
+    /// leave it parked. Its comment says what happens instead.
     pub fn asks(&self) -> bool {
-        self.auto.is_empty() && !self.no_retry
+        !self.no_retry
     }
 
     /// The question of a park on record: the text the question file holds,

@@ -19,7 +19,7 @@ What goes is only what says a cycle runs, is owed, or is parked:
                  never finished
   state/cycles/<issue>.stopped .stopped.new, left by an earlier stop
   the issue's current park on the state store asks for nothing more: its
-                 question is taken off the record (its boxes start nothing)
+                 question is taken off the record (a reply to it starts nothing)
                  and its one retry is spent, so the dispatcher does not start
                  the issue again on its own after a provider outage
   live/console-<issue>.txt

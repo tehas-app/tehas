@@ -60,7 +60,7 @@ pub fn answer(
     let t = &q.tick;
     let tick = match t.status {
         Status::None => json!({"status": "none"}),
-        Status::One => {
+        Status::One | Status::Unoffered => {
             json!({"status": t.status.word(), "by": t.by, "index": t.index, "at": t.at})
         }
     };
@@ -163,6 +163,9 @@ impl Tick {
 pub enum Status {
     None,
     One,
+    /// A stop's newest choosing reply names a choice its question does not
+    /// offer: it is declined, and acts on nothing.
+    Unoffered,
 }
 
 impl Status {
@@ -171,6 +174,7 @@ impl Status {
         match self {
             Status::None => "none",
             Status::One => "one",
+            Status::Unoffered => "unoffered",
         }
     }
 }
@@ -289,9 +293,18 @@ pub fn answer_of(
             .enumerate()
             .rev()
             .filter(|(_, x)| allowed(x))
-            .find_map(|(i, r)| Some((i, choice_of(r.body_text()?, kind, &labels)?)))
+            .find_map(|(i, r)| Some((i, park_named(r.body_text()?, &labels)?)))
             .filter(|(i, _)| !declined(*i))
-            .map(|(i, index)| chose(i, index))
+            .map(|(i, named)| match named {
+                Some(index) => chose(i, index),
+                // The newest choice names one not offered: the older replies
+                // do not act in its place.
+                None => Tick {
+                    status: Status::Unoffered,
+                    index: None,
+                    ..chose(i, 0)
+                },
+            })
     } else {
         reply_at.and_then(|i| {
             let text = after[i].body_text()?;
@@ -388,6 +401,21 @@ pub fn choice_of(text: &str, kind: &str, labels: &[String]) -> Option<usize> {
         Choice::Park => l == BOX_PARKED,
         _ => false,
     })
+}
+
+/// What a stop's reply names: Some(Some(index)) a choice its question
+/// offers, Some(None) a stop's choice it does not offer, None no choice.
+fn park_named(text: &str, labels: &[String]) -> Option<Option<usize>> {
+    if let Some(i) = choice_of(text, "park", labels) {
+        return Some(Some(i));
+    }
+    use tehas_core::question::{park_label, Choice, CHOICES};
+    let lower = text.trim().trim_end_matches('.').trim().to_lowercase();
+    let named = Choice::of(&lower).is_some()
+        || CHOICES
+            .iter()
+            .any(|c| !park_label(*c).is_empty() && park_label(*c).to_lowercase() == lower);
+    named.then_some(None)
 }
 
 /// The marker of the note that declines a reply's choice to the question
@@ -850,6 +878,27 @@ mod tests {
             json!([reply!(7, "mallory", "1", "2026-01-01T04:00:00Z")]),
         ));
         assert_eq!(a.tick.status, Status::None);
+    }
+
+    /// A newer reply in words replaces an earlier choice another person made:
+    /// the answer is the words, and no choice stands beside them. The end
+    /// chosen before a reply in words goes the same way.
+    #[test]
+    fn a_newer_reply_in_words_replaces_an_earlier_choice() {
+        for (chose, words) in [("1", "actually, wait"), ("end", "one more thing")] {
+            let a = typed!(asked(
+                BODY,
+                "",
+                json!([
+                    reply!(7, "alice", chose, "2026-01-01T01:00:00Z"),
+                    reply!(8, "bob", words, "2026-01-01T02:00:00Z")
+                ]),
+            ));
+            assert_eq!(a.tick, Tick::none(), "{chose}");
+            let r = a.reply.expect("the words are the answer");
+            assert_eq!(r.by, "bob");
+            assert_eq!(r.text.as_ref().and_then(Given::text), Some(words));
+        }
     }
 
     /// A planning question with no options of its own takes a bare number as
