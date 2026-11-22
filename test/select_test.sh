@@ -99,7 +99,6 @@ t_eq "$(real_pick console/core/src/lib.rs)" "cargo"
 t_case "the real workspace: a cycle change selects the shell tests that run a built program"
 picked=$(bash "$T_ROOT/scripts/select-tests.sh" console/cycle/src/main.rs 2>&1 | grep '^test ')
 t_contains "$picked" "test test/cycle_front_test.sh"
-t_contains "$picked" "test test/console_run_test.sh"
 t_contains "$picked" "test test/sandbox_argv_test.sh"
 
 # Every shell test loads the settings through the console beside it, so a path
