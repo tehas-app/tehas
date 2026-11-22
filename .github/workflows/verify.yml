@@ -1,8 +1,10 @@
-# The gate, run on every pull request into main or a release/ branch and on
-# every push to them: the lint, shellcheck, the shell tests and the console's
-# tests. A release/vX.Y.Z branch is where the next minor release is made while
-# main takes patch releases (host/docs/tools-releases.md, Branches), so it is
-# gated as main is. A pull request onto any other branch, such as a release
+# The gate, run on every pull request into main, a release/ branch or
+# refactor/coding-standard-v2 and on every push to them: the lint, shellcheck,
+# the shell tests and the console's tests. A release/vX.Y.Z branch is where the
+# next minor release is made while main takes patch releases
+# (host/docs/tools-releases.md, Branches), so it is gated as main is.
+# refactor/coding-standard-v2 is where 2.0 is made
+# (docs/plans/2026-11-21-coding-standard-v2.md), gated the same way. A pull request onto any other branch, such as a release
 # train, runs none of it: its author quotes scripts/verify.sh --changed, and the
 # train's own pull request is the gate for the whole batch. It makes scripts/verify.sh something a
 # ruleset can require, and the check of the repository's lockfiles against
@@ -17,9 +19,9 @@
 name: verify
 on:
   pull_request:
-    branches: [main, 'release/**']
+    branches: [main, 'release/**', refactor/coding-standard-v2]
   push:
-    branches: [main, 'release/**']
+    branches: [main, 'release/**', refactor/coding-standard-v2]
 permissions:
   contents: read
 # A new push to a pull request cancels the run it supersedes. Runs on main are
