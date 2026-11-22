@@ -472,22 +472,33 @@ refactor step. The program manager is the session tehas-2d.
    issues only (the owner, 2026-11-22). Read the analytics report by driver and the pull
    requests.
 2. **pi-rukas.** The pin carries the fixes of trail-openers/pi-rukas
-   #2410 (a lean patch can break the project's existing tests), #2480
-   (a killed lean job keeps running) and #2403 (the lens review is not
-   recorded). Each release candidate checks this as it checks the pin.
+   #2493: #2494 (several test directories), #2495 (no project-test check
+   without a JUnit report), #2480 (a killed lean job keeps running),
+   #2403 (the lens review is not recorded) and #2501 (the rest of
+   #2410). They come in 0.15.x. Each release candidate checks this as it
+   checks the pin.
 3. **Ship it.** `lean` in `console/core/src/features.rs` moves to
    shipped, and `host/docs/features.md` marks it proven with the dates
    and issues of the proof.
 4. **The default.** With no `TEHAS_DRIVER`, a start runs lean. An issue
    with no `pi-spec v1` block runs classic, as under `TEHAS_DRIVER=lean`
    today. `TEHAS_DRIVER=classic` and `tehas:classic` keep classic.
+   When lean is only the default and refuses the repository's setup at
+   `ready` (runner exit 11, before any model runs), the same cycle runs
+   classic. The issue gets one comment with lean's reason and a link to
+   the settings in `host/docs/new-project.md`, and `approval.driver`
+   records classic with the reason. A `tehas:lean` label or an explicit
+   `TEHAS_DRIVER=lean` parks as today, and any other lean failure falls
+   back to nothing. tehas reads no `.pi/work.json` itself: lean's refusal
+   is the one rule.
 5. **The contract.** T9 lists the new default in "Changed in 2.0", with
    its readers, and the changelog's adopter action: write `pi-spec v1`
    blocks and `.pi/work.json`, or set `TEHAS_DRIVER=classic`.
 
 Done when the proof is in `features.md`, the pinned pi-rukas has the
-three fixes, and a start with no driver setting runs lean in the
-dispatcher's tests.
+fixes of trail-openers/pi-rukas#2493, and the dispatcher's and the
+cycle's tests show a start with no driver setting running lean, and
+falling back to classic on lean's setup refusal.
 
 ### T9. The contract for 2.0
 
@@ -602,3 +613,4 @@ of main, each grade.
 | 2026-11-22 | T12 (answers in words, #2782) and the pi-rukas pin (v0.14.101 or later) added to this plan; T3 planned as fifteen slices | #2783 |
 | 2026-11-22 | T13: lean is the default driver in 2.0.0 (the owner) | #2784 |
 | 2026-11-22 | The ending: squash merges only, so the branch lands by a merge commit the owner allows or a fast-forward | this pull request |
+| 2026-11-22 | T13: the fallback to classic on lean's setup refusal; the pi-rukas blockers as #2493 lists them | T13 fallback pull request |
