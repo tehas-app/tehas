@@ -1087,6 +1087,24 @@ fn a_page_with_an_inline_handler_or_a_meta_refresh_is_refused() {
             "{doc}"
         );
     }
+    // A comment ends where a browser ends it, so it hides nothing.
+    for doc in [
+        "<!--><meta http-equiv=\"refresh\" content=\"0;url=https://x\"><!-- -->",
+        "<!---><meta http-equiv=refresh content=0>",
+        "<!-- a --!><meta http-equiv=refresh content=0><!-- -->",
+    ] {
+        assert_eq!(
+            csp::blocks(doc.as_bytes()),
+            Err(csp::Refused::Refresh),
+            "{doc}"
+        );
+    }
+    for doc in [
+        "<!-- <meta http-equiv=refresh content=0> -->",
+        "<!----><p>a</p><!-- --> <!-- <a onclick=x> --!>",
+    ] {
+        assert!(csp::blocks(doc.as_bytes()).is_ok(), "{doc}");
+    }
     // Text that only looks like an attribute.
     assert!(csp::blocks(b"<p>onclick=go()</p><script>a.onclick=1</script>").is_ok());
     let f = fixture();

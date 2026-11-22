@@ -136,6 +136,25 @@ fn tag(doc: &[u8], at: usize) -> (Vec<u8>, Vec<Attr>, usize) {
     }
 }
 
+/// Where a comment whose text starts at `from` ends, as the HTML parser
+/// ends it: `<!-->` and `<!--->` at once, else after the first `-->` or
+/// `--!>`, else at the end of the document.
+fn comment_end(doc: &[u8], from: usize) -> usize {
+    let rest = &doc[from..];
+    if rest.starts_with(b">") {
+        return from + 1;
+    }
+    if rest.starts_with(b"->") {
+        return from + 2;
+    }
+    let close = find(doc, b"-->", from).map(|e| e + 3);
+    let bang = find(doc, b"--!>", from).map(|e| e + 4);
+    match (close, bang) {
+        (Some(a), Some(b)) => a.min(b),
+        (a, b) => a.or(b).unwrap_or(doc.len()),
+    }
+}
+
 /// The document's inline blocks, or why it is refused. A tag is read as a
 /// browser's tokenizer reads it, near enough to find every attribute name:
 /// comments are skipped, and a `<script>` or `<style>` element's text runs to
@@ -146,7 +165,7 @@ pub fn blocks(doc: &[u8]) -> Result<Blocks, Refused> {
     let mut i = 0;
     while let Some(lt) = find(doc, b"<", i) {
         if doc[lt..].starts_with(b"<!--") {
-            i = find(doc, b"-->", lt + 4).map_or(doc.len(), |e| e + 3);
+            i = comment_end(doc, lt + 4);
             continue;
         }
         let next = doc.get(lt + 1).copied().unwrap_or(b' ');
