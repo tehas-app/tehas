@@ -3,7 +3,7 @@
 //! and security words are the documented ones is decided in Rust:
 //! tehas_core::slice::limits makes them and misshaped in
 //! console/cycle/src/work.rs refuses a list that is not it, both tested beside
-//! themselves. The words are pinned by test/slice_test.sh, the readers of
+//! themselves. The words are pinned by console/tests/slice.rs, the readers of
 //! work/mod.rs and the goldens of test/sandbox_argv_test.sh, and read off the
 //! docker line here. The mounts and variables are compared whole, sorted, as
 //! AGENTS.md rule 4 asks.
