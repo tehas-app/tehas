@@ -39,7 +39,7 @@ commands=(
   "$tehas analytics report" "$tehas drain" "$tehas history" "$tehas stop 7" "$tehas mcp serve"
   "$tehas dispatch" "$tehas check-product" "$tehas init-product"
   "$bot health" "$bot status" "$bot top" "$bot mcp serve" "$bot dispatch" "$bot protolab"
-  "$bot preview" "$bot refresh --pr 50" "$bot review" "$bot clean" "$bot github-token"
+  "$bot preview" "$bot refresh --pr 50" "$bot clean" "$bot github-token"
 )
 for command in "${commands[@]}"; do
   name=${command#"$tree"/bin/}
@@ -74,7 +74,7 @@ needs=(
   "TEHAS_REPO|$tehas api" "TEHAS_REPO|$tehas labels" "TEHAS_REPO|$tehas history"
   "TEHAS_REPO|$tehas resume" "TEHAS_REPO|$bot status" "TEHAS_REPO|$tehas dispatch"
   "TEHAS_REPO|$bot dispatch" "TEHAS_REPO|$tehas check-product" "TEHAS_REPO|$tehas init-product"
-  "TEHAS_REPO|$bot protolab" "TEHAS_REPO|$bot preview" "TEHAS_REPO|$bot review" "TEHAS_REPO|$bot clean"
+  "TEHAS_REPO|$bot protolab" "TEHAS_REPO|$bot preview" "TEHAS_REPO|$bot clean"
 )
 for row in "${needs[@]}"; do
   command=${row#*|}
@@ -174,17 +174,6 @@ t_eq "$t_rc" 64
 t_lacks "$t_out" "settings were read"
 untouched
 
-t_case "the review's gate sits below the settings it needs"
-reset
-t_run "$bot review"
-t_eq "$t_rc" 0
-t_eq "$t_out" ""
-untouched
-t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
-t_run "$bot review"
-t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_REPO is not set (see "
-
 t_case "an instance with previews off is 78 and says so"
 reset
 t_run "$bot preview"
@@ -198,7 +187,7 @@ reset
 t_instance 'echo "settings were read" >&2; exit 9'
 for bad in "$tehas limit show" "$tehas pause a b" "$tehas stop" "$tehas check-product --what" "$tehas init-product --what" \
   "$tehas dispatch --dryrun" "$bot dispatch --dry-run --help" "$bot preview --what" "$bot clean --what" \
-  "$bot github-token --print" "$bot review --what" "$bot refresh --what"; do
+  "$bot github-token --print" "$bot refresh --what"; do
   t_run "$bad"
   t_eq "$t_rc" 64
   t_lacks "$t_out" "settings were read"
@@ -208,7 +197,7 @@ untouched
 t_case "a check that was the whole answer ends 0, and neither the settings nor the verb are reached"
 reset
 t_instance 'echo "settings were read" >&2; exit 9'
-for help in "$tehas stop 5 --help" "$bot dispatch --help" "$bot clean -h" "$bot review --help" "$bot refresh --help"; do
+for help in "$tehas stop 5 --help" "$bot dispatch --help" "$bot clean -h" "$bot refresh --help"; do
   t_run "$help"
   t_eq "$t_rc" 0
   t_lacks "$t_out" "settings were read"

@@ -138,8 +138,7 @@ CREATE TABLE samples (
   planning INTEGER,
   cycle_limit INTEGER,
   paused INTEGER,
-  held TEXT,
-  watts REAL
+  held TEXT
 );
 
 -- schema 2: run_gate_runs, and gate_runs and gate_ms on runs. A database of
@@ -152,6 +151,8 @@ CREATE TABLE samples (
 -- tool_errors on run_roles. v0.30.0 wrote 4 already, so a database of schema 2
 -- or 3 is moved aside whole under its version too, as schema 1 is. Within 4,
 -- v1.0.0 adds contractor_id on runs (db::ADDED).
+-- schema 5: watts on samples goes; energy use left core in 2.0. db::open
+-- migrates a database of schema 4 in place, the only version it migrates.
 
 -- schema, retention_days and created. Nothing about the host.
 CREATE TABLE meta (

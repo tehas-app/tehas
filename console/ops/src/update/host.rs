@@ -422,7 +422,7 @@ mod tests {
                     .unwrap_or_default()
             }
         };
-        let idle = ["idle tehas-review.timer", "idle tehas-plugin.timer"];
+        let idle = ["idle tehas-plugin.timer"];
         assert_eq!(featured(&get(&[])), idle);
         assert_eq!(featured(&get(&[("TEHAS_OUTSOURCE", "on")])), idle);
         assert_eq!(
@@ -434,20 +434,23 @@ mod tests {
                 "program tehas-proxy",
                 "program tehas-contractor",
                 "unit tehas-outsource-proxy.service",
-                "idle tehas-review.timer",
                 "idle tehas-plugin.timer"
             ]
         );
         // On, the timer is installed and no longer idle.
         assert_eq!(
             featured(&get(&[
-                ("TEHAS_REVIEW", "on"),
-                ("TEHAS_TEST_FEATURES", "review")
+                ("TEHAS_PLUGIN", "on"),
+                ("TEHAS_TEST_FEATURES", "plugins")
             ])),
             [
-                "unit tehas-review.service",
-                "unit tehas-review.timer",
-                "idle tehas-plugin.timer"
+                "program tehas-plugin",
+                "program tehas-plugin-gate",
+                "unit tehas-plugin@.service",
+                "unit tehas-plugin-hook@.service",
+                "unit tehas-plugin.service",
+                "unit tehas-plugin.timer",
+                "unit tehas-plugin-gate.service"
             ]
         );
         assert_eq!(featured_verb(&["x".to_string()]), 64);
@@ -475,15 +478,6 @@ mod tests {
             let units = first_units(|name| Some(get(name)));
             assert_eq!(units, ["tehas-dispatch.timer", "tehas-dispatch.path"]);
         }
-    }
-
-    #[test]
-    fn a_first_install_enables_the_review_timer_only_while_review_is_on_and_never_its_service() {
-        let base = "tehas-dispatch.timer tehas-dispatch.path";
-        assert_eq!(units(&[("TEHAS_REVIEW", "on")]), base);
-        let tested = |v| [("TEHAS_REVIEW", v), ("TEHAS_TEST_FEATURES", "review")];
-        assert_eq!(units(&tested("off")), base);
-        assert_eq!(units(&tested("on")), format!("{base} tehas-review.timer"));
     }
 
     #[test]

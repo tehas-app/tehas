@@ -23,7 +23,6 @@ mod plan;
 mod plugin;
 mod poll;
 mod record;
-mod review_issue;
 mod say;
 mod upkeep;
 mod verbs;
@@ -92,43 +91,13 @@ use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: store init [--force] [--outsource] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json|--say] | migrate --backup <dir> [--outsource] [--json|--say] | migrate --dry-run [--backup <dir>] [--json] | check [--json] | review-issue <path> <branch> <commit> | review-file --repo <owner/name> --doc <path> --branch <b> --commit <sha> [--ask <line>] [--private <name>]... [--gh <program>] | batch | cycle-start | cycle-image | cycle-end | cycle-show | settings-view | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | answer-record | answer-drop | question-show | approval-record | approval-current | approval-view | plan-begin | plan-answer | plan-end | plan-note | plan-show | plan-view | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin | contractor-add | contractor-list | contractor-seen | contractor-rest | contractor-drain | contractor-revoke | invite-new | invite-list | invite-use | invite-expire | job-offer | job-check-in | job-finish | job-release | job-lose | job-stop | job-show | jobs-sweep | job-attempts | contractor-auth | job-offered | job-stamp | job-token | job-by-token";
+const USAGE: &str = "usage: store init [--force] [--outsource] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json|--say] | migrate --backup <dir> [--outsource] [--json|--say] | migrate --dry-run [--backup <dir>] [--json] | check [--json] | batch | cycle-start | cycle-image | cycle-end | cycle-show | settings-view | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | answer-record | answer-drop | question-show | approval-record | approval-current | approval-view | plan-begin | plan-answer | plan-end | plan-note | plan-show | plan-view | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin | contractor-add | contractor-list | contractor-seen | contractor-rest | contractor-drain | contractor-revoke | invite-new | invite-list | invite-use | invite-expire | job-offer | job-check-in | job-finish | job-release | job-lose | job-stop | job-show | jobs-sweep | job-attempts | contractor-auth | job-offered | job-stamp | job-token | job-by-token";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
 const MAX_PLAIN: usize = 64;
 const MAX_REPO: usize = 200;
 const MAX_COMMIT: usize = 40;
-
-/// What the review verb was given: the document of one run, and the two names
-/// the title of the issue is built from. `<branch>` and `<commit>` are refused
-/// by `parse` when they are outside their grammar, so a call that stops at its
-/// arguments never reads the file.
-#[derive(Debug, PartialEq, Eq)]
-pub struct ReviewIssue {
-    pub path: PathBuf,
-    pub branch: String,
-    pub commit: String,
-}
-
-/// What the filing verb was given: the document of one run, the repository the
-/// instance named, the two names of the title, the command's own last line of
-/// the body, and the host's names for the masking. Every one of them is
-/// refused by `parse` when it is outside the grammar its setting has, so a
-/// filing that stops at its arguments asks GitHub nothing.
-#[derive(Debug, PartialEq, Eq)]
-pub struct ReviewFile {
-    pub repo: String,
-    pub doc: PathBuf,
-    pub branch: String,
-    pub commit: String,
-    pub ask: String,
-    pub private: Vec<String>,
-    /// The program that speaks to GitHub, named by `--gh`. A command that
-    /// files names none and gets `gh`, the factory's own shim on the path of a
-    /// host (host/shim/gh), which gives the call the App's token.
-    pub gh: PathBuf,
-}
 
 /// What a call to the command asked for. `--json` is accepted on every verb
 /// and is what the verbs print anyway: one object on stdout, `"api": 1` first,
@@ -161,8 +130,6 @@ pub enum Verb {
     Check,
     #[cfg(debug_assertions)]
     TestWrite(exercise::Write),
-    ReviewIssue(ReviewIssue),
-    ReviewFile(ReviewFile),
     /// The calls of one `store batch`, already read from standard input and
     /// judged by `batch::parse`: built by `batch::Request::of` and by nothing
     /// else, so a caller of `execute` cannot name a verb the batch would run.
@@ -186,126 +153,6 @@ fn parse(args: &[String]) -> Option<Verb> {
         [verb, rest @ ..] if verb == "check" => {
             flags(rest, &["--json"])?;
             Some(Verb::Check)
-        }
-        // The review issue of one run's document. The two names are checked
-        // here and not in the verb, so a call that stops at its arguments is
-        // the usage error it is: nothing was read and nothing was written.
-        // A review's branch is the branch of the default checkout, not of an
-        // issue, so the name is held to the generic arm of the grammar of a
-        // branch: word characters and `/`, at most 80 of them, and the first
-        // one alphanumeric. `feature/issue-<n>` is a name of that shape, and
-        // belongs to no issue here.
-        [verb, path, branch, commit] if verb == "review-issue" => {
-            let generic = |b: &str| {
-                let bytes = b.as_bytes();
-                !bytes.is_empty()
-                    && bytes.len() <= 80
-                    && bytes[0].is_ascii_alphanumeric()
-                    && bytes.iter().all(|&c| verbs::word_char(c) || c == b'/')
-            };
-            if !generic(branch) {
-                return None;
-            }
-            Some(Verb::ReviewIssue(ReviewIssue {
-                path: PathBuf::from(path),
-                branch: branch.to_string(),
-                commit: verbs::commit(commit)?,
-            }))
-        }
-        // The filing of one run's document: the render above, and the calls of
-        // GitHub that go with it. Its arguments are checked here, as the
-        // render's are, so a filing that stops at them has asked GitHub
-        // nothing. `--repo` is the shape lib/config.sh holds TEHAS_REVIEW_REPO
-        // to; the store reads no settings of a host itself. `--ask` is the
-        // command's own line of the body: one line, of no control characters,
-        // and of the same reach as the other text the verb takes -- it goes to
-        // GitHub as it stands, after the masking of the findings, and a name
-        // of the host's own is refused rather than posted.
-        [verb, rest @ ..] if verb == "review-file" => {
-            let generic = |b: &str| {
-                let bytes = b.as_bytes();
-                !bytes.is_empty()
-                    && bytes.len() <= 80
-                    && bytes[0].is_ascii_alphanumeric()
-                    && bytes.iter().all(|&c| verbs::word_char(c) || c == b'/')
-            };
-            let one_line = |s: &str| {
-                !s.is_empty() && s.len() <= 512 && !s.bytes().any(|b| b.is_ascii_control())
-            };
-            let mut repo: Option<String> = None;
-            let mut doc: Option<String> = None;
-            let mut branch: Option<String> = None;
-            let mut commit: Option<String> = None;
-            let mut ask: Option<String> = None;
-            let mut gh: Option<String> = None;
-            let mut private: Vec<String> = Vec::new();
-            let mut seen: Vec<&str> = Vec::new();
-            let mut i = 0;
-            while i < rest.len() {
-                // The flag and its value as one pair, or nothing to say the
-                // flag was there with no value after it, which is a call that
-                // names a line the command did not write.
-                let pair = |flag: &str, i: usize| -> Option<(String, usize)> {
-                    if rest[i] != flag {
-                        return None;
-                    }
-                    let v = rest.get(i + 1)?.clone();
-                    Some((v, i + 2))
-                };
-                match rest[i].as_str() {
-                    "--json" if !seen.contains(&"--json") => {
-                        seen.push("--json");
-                        i += 1;
-                    }
-                    "--private" => {
-                        let (v, at) = pair("--private", i)?;
-                        if !one_line(&v) {
-                            return None;
-                        }
-                        private.push(v);
-                        i = at;
-                    }
-                    flag if flag.starts_with("--") => {
-                        let slot = match flag {
-                            "--repo" => &mut repo,
-                            "--doc" => &mut doc,
-                            "--branch" => &mut branch,
-                            "--commit" => &mut commit,
-                            "--ask" => &mut ask,
-                            "--gh" => &mut gh,
-                            _ => return None,
-                        };
-                        // A flag of the verb, twice, is two answers and no
-                        // filing: the value of the second is not the line the
-                        // command wrote.
-                        if slot.is_some() || seen.contains(&flag) {
-                            return None;
-                        }
-                        seen.push(flag);
-                        let (v, at) = pair(flag, i)?;
-                        *slot = Some(v);
-                        i = at;
-                    }
-                    _ => return None,
-                }
-            }
-            let repo = repo?;
-            if !repo_within(&repo, 100) {
-                return None;
-            }
-            let branch = branch?;
-            if !generic(&branch) {
-                return None;
-            }
-            Some(Verb::ReviewFile(ReviewFile {
-                repo,
-                doc: PathBuf::from(doc?),
-                branch,
-                commit: verbs::commit(&commit?)?,
-                ask: ask?,
-                private,
-                gh: PathBuf::from(gh.unwrap_or_else(|| "gh".to_string())),
-            }))
         }
         [verb, rest @ ..] if verb == "migrate" && rest.iter().any(|a| a == "--dry-run") => {
             let mut backup: Option<PathBuf> = None;
@@ -605,29 +452,6 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
         }
         #[cfg(debug_assertions)]
         Verb::TestWrite(w) => exercise::write(&file, w, now),
-        Verb::ReviewIssue(r) => review_issue::run(&r.path, &r.branch, &r.commit),
-        // The names of the host go to the mask once, before the first call of
-        // it, as the console's `review run` sets them before it masks the two
-        // files of its one run (console/src/review.rs). The mask keeps them for
-        // the process, so a program sets them once: one review files one issue.
-        Verb::ReviewFile(r) => {
-            let ask = review_issue::Ask {
-                repo: r.repo.clone(),
-                doc: r.doc.clone(),
-                branch: r.branch.clone(),
-                commit: r.commit.clone(),
-                ask: r.ask.clone(),
-                private: r.private.clone(),
-                gh: r.gh.clone(),
-            };
-            // The names of the host go to the mask once, before the first call
-            // of it, as the console's `review run` sets them before it masks
-            // the two files of its one run (console/src/review.rs).
-            if !ask.private_names().is_empty() {
-                let _ = tehas_core::mask::set_private(ask.private_names());
-            }
-            review_issue::file(&ask, home)
-        }
         Verb::Batch(asked) => batch::run(home, asked),
         Verb::Record(call) => verbs::run(home, call, now),
     }

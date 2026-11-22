@@ -1,4 +1,4 @@
-user_version 4
+user_version 5
 
 -- index issue_events_at
 CREATE INDEX issue_events_at ON issue_events (at);
@@ -126,8 +126,7 @@ CREATE TABLE samples (
   planning INTEGER,
   cycle_limit INTEGER,
   paused INTEGER,
-  held TEXT,
-  watts REAL
+  held TEXT
 );
 
 -- view v_daily

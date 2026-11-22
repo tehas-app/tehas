@@ -1,12 +1,14 @@
 //! The review issue's title and body, from the document of one review run.
 //!
-//! A review of the default branch answers with one JSON document holding the
-//! findings of the six lenses, one object each, and the command that ran it
-//! keeps that document as the log of the run. The findings are filed as one
-//! issue, so a person reads them before any is acted on. What that issue says
-//! is this rule: which findings are listed, in what order, and how much of
-//! each is shown. It is a function of the document alone, so one log always
+//! A lens review of the default branch answers with one JSON document holding
+//! the findings of the six lenses, one object each. The findings are filed as
+//! one issue, so a person reads them before any is acted on. What that issue
+//! says is this rule: which findings are listed, in what order, and how much
+//! of each is shown. It is a function of the document alone, so one log always
 //! renders one issue, and the rule is tested without a review having run.
+//!
+//! The review loop left core in 2.0. This crate is what it kept: the review
+//! plugin of 2.1 vendors it.
 //!
 //! Three severities are listed one to a line and the rest are counted,
 //! because an issue of a hundred lines is not read. Of a listed finding the
@@ -505,8 +507,8 @@ mod tests {
     fn a_token_shaped_title_reaches_the_body_as_the_document_writes_it() {
         // The renderer is pure: it puts the words on one line and cuts them,
         // and masks nothing. Hiding a host's own names and a token a finding
-        // quoted is the work of the half that files the issue, which takes
-        // these two values through the masked path the console already has.
+        // quoted is the work of the half that files the issue, which masks
+        // these two values.
         // What the renderer guarantees is that such a title reaches the body
         // as one line and no longer than any other title, so the masked text
         // of the filing half cannot run over into another line.
