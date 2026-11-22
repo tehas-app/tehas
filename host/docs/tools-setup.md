@@ -166,7 +166,7 @@ console and no checkout to build one from.
 tehas labels        # one line per label
 ```
 
-Creates the twenty-two labels tehas uses in the product repository: `tehas:ready`,
+Creates the twenty-one labels tehas uses in the product repository: `tehas:ready`,
 `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:refine`, `tehas:planning`,
 `tehas:replaced` and `tehas:refined` (an issue a [refine](/operating#refining-a-request)

@@ -4,4 +4,4 @@
 
 ### Adopter action
 
-Nothing to do. A `tehas:all-hands` label left on a control issue does nothing; delete it on GitHub if you like. A program that read `allHands` or checked `features` for `all-hands` finds them gone.
+Nothing to do. A `tehas:all-hands` label left on a control issue does nothing; delete it on GitHub if you like. `~/tehas/state/all-hands.ignored` is left on the host where an earlier version wrote it; remove it when you like. A program that read `allHands` or checked `features` for `all-hands` finds them gone.
