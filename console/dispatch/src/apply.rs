@@ -133,6 +133,7 @@ struct Reask<'a> {
     old_body: &'a str,
     body: Option<&'a str>,
     offers: &'a str,
+    unlabel: Option<&'a str>,
 }
 
 /// state/refresh/<n>.said: what says that an issue's hold was told.
@@ -235,6 +236,7 @@ impl Writer {
                 old_body: text(a, "old_body"),
                 body: a.get("body").and_then(Value::as_str),
                 offers: text(a, "offers"),
+                unlabel: a.get("unlabel").and_then(Value::as_str),
             };
             self.reask(n, &r, log);
         } else if let Some(pr) = a.get("pr").and_then(Value::as_u64) {
@@ -619,8 +621,12 @@ impl Writer {
             return;
         }
         // A stop closed with nothing to ask no longer waits on a question.
-        if r.body.is_none() && !self.edit_labels(n, &[("--remove-label", "tehas:question")]) {
-            log.push(format!("WARN: tehas:question could not be taken off #{n}"));
+        if let Some(label) = r.unlabel {
+            if !self.edit_labels(n, &[("--remove-label", label)]) {
+                log.push(format!(
+                    "WARN: the question's label could not be taken off #{n}"
+                ));
+            }
         }
         let line = tehas_core::question::superseded(new);
         if !r.old_body.trim_end().ends_with(&line) {

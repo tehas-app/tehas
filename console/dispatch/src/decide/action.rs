@@ -42,6 +42,8 @@ pub enum Action {
     /// superseded, and taken off the record.
     Reask {
         issue: u64,
+        /// The label taken off once the old question is off the record.
+        unlabel: Option<String>,
         kind: String,
         old: String,
         old_body: String,
@@ -379,6 +381,7 @@ impl From<&Action> for Value {
             }
             Action::Reask {
                 issue,
+                unlabel,
                 kind,
                 old,
                 old_body,
@@ -391,6 +394,7 @@ impl From<&Action> for Value {
                 put("old_body", json!(old_body));
                 put("body", json!(body));
                 put("offers", json!(offers));
+                put("unlabel", json!(unlabel));
             }
             Action::Unmark { pr, log } => {
                 put("pr", json!(pr));

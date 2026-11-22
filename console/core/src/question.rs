@@ -595,7 +595,7 @@ mod tests {
         // The phrases of before 2.0 that asked for a tick ask for a reply of
         // a choice the comment offers.
         for (said, says, label) in [
-            ("To run it on classic instead, take `tehas:lean` off this issue, then tick a box.", "To run it on classic instead, take `tehas:lean` off this issue, then reply with one of the choices.", OLD_BOX_CLEAN),
+            ("To run it on classic instead, take the label off this issue, then tick a box.", "To run it on classic instead, take the label off this issue, then reply with one of the choices.", OLD_BOX_CLEAN),
             ("Make the change yourself, then tick a retry box on this comment.", "Make the change yourself, then reply `retry` to this comment.", OLD_BOX_CLEAN),
             ("Tick a retry box on this comment once it is right.", "Reply `retry-text` to this comment once it is right.", BOX_ALONE),
         ] {

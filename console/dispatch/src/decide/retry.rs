@@ -143,6 +143,8 @@ fn parked(history: &[Value], at: &str) -> (bool, bool) {
     }
 }
 
+/// The label of an issue that waits on its question.
+const ASKS: [&str; 1] = ["tehas:question"];
 impl Poll<'_> {
     /// control_ask: the control issue is never worked on; said once a poll.
     pub(super) fn control_ask(&mut self, n: u64, what: &str) -> bool {
@@ -207,7 +209,10 @@ impl Poll<'_> {
             return;
         }
         let offers: Vec<&str> = r.offers.iter().map(|c| c.word()).collect();
+        // A stop closed with nothing to ask waits on no question any more.
+        let unlabel = r.body.is_none().then(|| ASKS[0].to_string());
         self.act(Action::Reask {
+            unlabel,
             issue: n,
             kind: ans.kind.clone(),
             old: Given::said(ans.comment.as_ref()),
@@ -433,11 +438,7 @@ impl Poll<'_> {
             let retry = ans.ticked_label().and_then(tehas_core::question::retry_of);
             let Some(with_comments) = retry else {
                 if !self.dry {
-                    let mut l = LabelChange::new(
-                        n,
-                        &["tehas:question"],
-                        Self::label_fail(n, &["tehas:question"], &[]),
-                    );
+                    let mut l = LabelChange::new(n, &ASKS, Self::label_fail(n, &ASKS, &[]));
                     l.answered = Some((qid.clone(), by.clone()));
                     self.act(Action::Label(l));
                 }
