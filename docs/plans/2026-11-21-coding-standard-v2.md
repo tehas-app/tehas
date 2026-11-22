@@ -119,9 +119,15 @@ changes and holds the factory that builds tehas to no new work.
 5. **Finish.**
    - The last pull request into the branch writes `v2` in
      `.tehas/coding-standard` (see "Done").
-   - When the trio is tagged, one pull request from
-     `refactor/coding-standard-v2` into `main`, merged with **a merge
-     commit**, not squashed, so the steps stay in main's history.
+   - When the trio is tagged, the last "Port main" brings main into the
+     branch, and one pull request from `refactor/coding-standard-v2` into
+     `main` lands the branch so the steps stay in main's history. The
+     repository allows squash merges only (checked 2026-11-22), and main
+     has no active ruleset. Two ways, the owner's to choose then: the
+     owner allows merge commits for that one pull request, or main is
+     fast-forwarded to the branch's tip with a plain push (no force), which
+     marks the pull request merged. The session doing this work does not
+     push to main itself.
    - Tags, release candidates included, wait for the owner's word. pi-rukas
      v0.14.100 is pinned before any tag.
 6. **A merge train of two lanes.** At most two pull requests into the
@@ -566,8 +572,9 @@ All of these, in the last pull request into the branch:
 - `scripts/verify.sh --full` passes, and the 2.0 contract is written;
 - T10, T11, T12 and T13 are done, and the trio's gate holds.
 
-Then, when the trio is tagged, the pull request into main (with a merge
-commit), and the owner's release of v2.0.0.
+Then, when the trio is tagged, the pull request into main (a merge
+commit or a fast-forward, as "Finish" says), and the owner's release of
+v2.0.0.
 
 ## Open, for the owner
 
@@ -592,5 +599,6 @@ of main, each grade.
 | 2026-11-22 | T0: checks for R3, R6, R7 and R8; tests counted; the checks as wide as their rules | #2780 |
 | 2026-11-22 | T3 begins: the closing pull requests of an issue typed (`ClosingPr`) | #2781 |
 | 2026-11-22 | The architecture test runs in CI on the branch; the AGENTS.md section merged by the owner | #2777, #2779 |
-| 2026-11-22 | T12 (answers in words, #2782) and the pi-rukas pin (v0.14.101 or later) added to this plan; T3 planned as fifteen slices | this pull request |
+| 2026-11-22 | T12 (answers in words, #2782) and the pi-rukas pin (v0.14.101 or later) added to this plan; T3 planned as fifteen slices | #2783 |
 | 2026-11-22 | T13: lean is the default driver in 2.0.0 (the owner) | #2784 |
+| 2026-11-22 | The ending: squash merges only, so the branch lands by a merge commit the owner allows or a fast-forward | this pull request |
