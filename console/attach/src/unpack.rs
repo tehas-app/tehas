@@ -34,7 +34,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 const OUTSIDE: &str = "A path outside the archive.";
-const UNUSABLE: &str = "A name the lab cannot use.";
+const UNUSABLE: &str = "A name the host cannot use.";
 const FULL: &str = "Over the 10 MB limit of a ticket.";
 
 /// The kind the item store keeps a file of this extension as; None for one it
@@ -268,7 +268,7 @@ pub fn unpack(
             .map(|(_, e)| e.to_ascii_lowercase())
             .unwrap_or_default();
         let Some(kind) = kind(&ext) else {
-            out.push(skip(&name, "Not a type the lab hosts."));
+            out.push(skip(&name, "Not a type the host serves."));
             continue;
         };
         if files <= 0 {

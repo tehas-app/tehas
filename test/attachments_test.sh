@@ -514,7 +514,7 @@ t_eq "$(jq -c '[.leftOut[] | [.path, .reason]]' "$zipdir/manifest.json")" \
   "[[\"e.txt\",\"Over the 1 MB limit of a file.\"]]"
 t_eq "$(find "$zipdir" -name '.unzip-*' -o -name '.part' | wc -l)" 0
 
-t_case "the kinds an archive's files are unpacked as are those the lab hosts, and md"
+t_case "the kinds an archive's files are unpacked as are those the host serves, and md"
 exts=(png jpg jpeg gif webp svg avif mp4 webm mov html htm css js mjs json txt md zip pdf csv yaml)
 python3 -I - "$T/kinds.zip" "${exts[@]}" <<'PY2'
 import sys, zipfile

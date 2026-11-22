@@ -35,11 +35,11 @@ use tehas_core::jq::{obj, J};
 pub const LIMIT: i64 = 10 * 1024 * 1024;
 const MAX_FILES: i64 = 40;
 const OVER: &str = "Over the 10 MB limit of a ticket.";
-const NOT_HOSTED: &str = "Not a type the lab hosts.";
-const RETRY: &str = "Could not be fetched. The lab tries again.";
+const NOT_HOSTED: &str = "Not a type the host serves.";
+const RETRY: &str = "Could not be fetched. It is tried again.";
 const REFUSED: &str = "GitHub did not hand it out.";
 const REFUSED_NO_TOKEN: &str =
-    "GitHub did not hand it out. The lab holds no GitHub credential, so it asked as nobody.";
+    "GitHub did not hand it out. The host holds no GitHub credential, so it asked as nobody.";
 const NOT_A_MARK: &str =
     "Not a zip and its sha256: the line is Zip:, the address and sha256: with 64 lower-case hex digits.";
 const NOT_ALLOWED: &str = "Not from a host the instance allows.";
@@ -486,7 +486,7 @@ fn unpack(store: &Store, dir: &Path, name: &str, left: i64, held: &mut Held) {
             let _ = fs::remove_dir_all(&folder);
             let reason = match failed {
                 Unpacked::NoHost => "This host cannot unpack a zip.",
-                _ => "Not a zip the lab can read.",
+                _ => "Not a zip the host can read.",
             };
             held.skip(name, reason);
             return;

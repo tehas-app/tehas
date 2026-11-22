@@ -182,7 +182,7 @@ t_contains "$page" "<span>style.css</span>"
 t_contains "$page" "4 FILES, 32 B OF 10 MB"
 
 t_case "a type the lab does not host and a link from outside are left out, and said"
-t_contains "$page" "<span>all.tar</span><span class=\"asset-fact\">Not a type the lab hosts.</span>"
+t_contains "$page" "<span>all.tar</span><span class=\"asset-fact\">Not a type the host serves.</span>"
 t_contains "$page" "1 link from outside the allowed accounts"
 t_lacks "$(t_calls curl)" "all.tar"
 t_lacks "$(t_calls curl)" "stranger.html"
@@ -527,7 +527,7 @@ key=$(printf %s "$url" | tr -c "A-Za-z0-9" _)
 cp "$T/fx/net/$key" "$out"'
 issues "$(issue 12 'Slow' "$F/81/slow.html")"
 t_protolab
-t_contains "$(cat "$site/12/index.html")" "Could not be fetched. The lab tries again."
+t_contains "$(cat "$site/12/index.html")" "Could not be fetched. It is tried again."
 t_eq "$([ -e "$site/12/.stamp" ] && echo stamped)" ""
 rm -f "$fx"/net/*.rc
 t_protolab
@@ -602,7 +602,7 @@ uses=${uses%%</ul>*}
 t_contains "$uses" "<span>good/app.js</span>"
 t_contains "$uses" 'href="files/good/data/sample.json"'
 t_contains "$uses" "<span>good/prototype.md</span>"
-t_contains "$page" "$(left_out good/notes.pdf 'Not a type the lab hosts.')"
+t_contains "$page" "$(left_out good/notes.pdf 'Not a type the host serves.')"
 t_eq "$(find "$site" -name '*.zip' -o -name '.part' | wc -l)" 0
 t_eq "$(stat -c %a "$site/40/files/good/data/sample.json")" 644
 t_eq "$(cat "$site/40/files/good/data/sample.json")" '{"name": "sample"}'
@@ -654,7 +654,7 @@ net "$F/7/fake.zip" "not a zip at all"
 issues "$(issue 45 'Fake' "[fake.zip]($F/7/fake.zip)")"
 t_protolab
 t_eq "$t_rc" 0
-t_contains "$(cat "$site/45/index.html")" "$(left_out fake.zip 'Not a zip the lab can read.')"
+t_contains "$(cat "$site/45/index.html")" "$(left_out fake.zip 'Not a zip the host can read.')"
 t_eq "$(cd "$site/45" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" \
   "./.meta.json ./.stamp ./files ./index.html "
 
@@ -702,7 +702,7 @@ t_contains "$page" "$(left_out edge/a-b.txt 'A second file of that name.')"
 t_eq "$(cat "$site/49/files/edge/a-b.txt")" "first"
 
 t_case "a file of a zip standing where another needs a folder leaves that one out"
-t_contains "$page" "$(left_out edge/d.txt/inner.txt 'A name the lab cannot use.')"
+t_contains "$page" "$(left_out edge/d.txt/inner.txt 'A name the host cannot use.')"
 
 t_case "a damaged file in a zip is left out and nothing of it kept"
 t_contains "$page" "$(left_out edge/bad.txt 'Could not be unpacked.')"
@@ -736,7 +736,7 @@ head -c "$(($(stat -c %s "$zips/good.zip") - 10))" "$zips/good.zip" >"$T/cut.zip
 net_file "$F/16/good.zip" "$T/cut.zip"
 issues "$(issue 52 'Cut short' "[good.zip]($F/16/good.zip)")"
 t_protolab
-t_contains "$(cat "$site/52/index.html")" "$(left_out good.zip 'Not a zip the lab can read.')"
+t_contains "$(cat "$site/52/index.html")" "$(left_out good.zip 'Not a zip the host can read.')"
 t_eq "$(find "$site/52/files" -type f | wc -l)" 0
 
 t_case "without the attachment checker a zip is left out with the host's reason"
@@ -873,7 +873,7 @@ zip_url
 printf 7 >"$fx/net/$(printf %s "$X/good.zip" | tr -c 'A-Za-z0-9' _).rc"
 issues "$(issue 89 'Later' "Zip: $X/good.zip sha256:$good_sum")"
 t_protolab
-t_contains "$(cat "$site/89/index.html")" "$(left_out good.zip 'Could not be fetched. The lab tries again.')"
+t_contains "$(cat "$site/89/index.html")" "$(left_out good.zip 'Could not be fetched. It is tried again.')"
 rm "$fx/net/$(printf %s "$X/good.zip" | tr -c 'A-Za-z0-9' _).rc"
 net_file "$X/good.zip" "$zips/good.zip"
 t_protolab
@@ -1090,7 +1090,7 @@ t_eq "$(cat "$site/66/.meta.json")" '{
   "skipped": [
     {
       "name": "b.tar",
-      "reason": "Not a type the lab hosts."
+      "reason": "Not a type the host serves."
     }
   ],
   "outside": 0,

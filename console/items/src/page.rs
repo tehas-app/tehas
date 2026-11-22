@@ -113,7 +113,7 @@ pub fn meter(bytes: i64, limit: i64) -> String {
             }
         })
         .collect();
-    format!("<span class=\"lab-meter\" aria-hidden=\"true\">{blocks}</span>")
+    format!("<span class=\"item-meter\" aria-hidden=\"true\">{blocks}</span>")
 }
 
 pub fn text_of(row: &Value, key: &str) -> String {
@@ -145,7 +145,7 @@ fn asset(name: &str, kind: &str, bytes: i64) -> String {
             h(&Value::from(name))
         ),
         _ => format!(
-            "<div class=\"asset-view\"><iframe src=\"{href}\" title=\"HTML prototype {}\" sandbox=\"allow-scripts allow-forms allow-modals allow-pointer-lock\" loading=\"lazy\"></iframe></div>",
+            "<div class=\"asset-view\"><iframe src=\"{href}\" title=\"HTML file {}\" sandbox=\"allow-scripts allow-forms allow-modals allow-pointer-lock\" loading=\"lazy\"></iframe></div>",
             h(&Value::from(name))
         ),
     };
@@ -234,20 +234,20 @@ pub fn item(
     };
     let (shown, parts, bytes) = tally(files);
     let mut out = format!(
-        "    <section class=\"lab-ticket\" aria-labelledby=\"ticket-title\">\n      <p class=\"lab-box-head\"><span>{head}</span><b>#{number}</b></p>\n      <div class=\"lab-ticket-body\">\n        <h1 id=\"ticket-title\">{}</h1>\n        <dl class=\"lab-facts\">\n          <div><dt>OPENED BY</dt><dd>{opened}</dd></div>\n          <div><dt>CHANGED</dt><dd>{}</dd></div>\n        </dl>\n",
+        "    <section class=\"item-ticket\" aria-labelledby=\"ticket-title\">\n      <p class=\"item-box-head\"><span>{head}</span><b>#{number}</b></p>\n      <div class=\"item-ticket-body\">\n        <h1 id=\"ticket-title\">{}</h1>\n        <dl class=\"item-facts\">\n          <div><dt>OPENED BY</dt><dd>{opened}</dd></div>\n          <div><dt>CHANGED</dt><dd>{}</dd></div>\n        </dl>\n",
         h(&Value::from(title.as_str())),
         day(&text_of(row, "updatedAt")),
     );
     out.push_str(&button);
     out.push_str(&format!(
-        "      </div>\n    </section>\n    <section class=\"lab-box\" id=\"assets\" aria-labelledby=\"assets-title\">\n      <div class=\"lab-box-head\"><h2 id=\"assets-title\">ASSETS</h2><p>{}, {} OF {} {}</p></div>\n      <div class=\"lab-box-body\">\n",
+        "      </div>\n    </section>\n    <section class=\"item-box\" id=\"assets\" aria-labelledby=\"assets-title\">\n      <div class=\"item-box-head\"><h2 id=\"assets-title\">ASSETS</h2><p>{}, {} OF {} {}</p></div>\n      <div class=\"item-box-body\">\n",
         plural(files.len() as i64, "FILE", "FILES"),
         size(bytes).to_ascii_uppercase(),
         size(limit).to_ascii_uppercase(),
         meter(bytes, limit),
     ));
     if files.is_empty() {
-        out.push_str("        <p class=\"lab-note\">No image, video or HTML file is attached to this ticket. Attach one to the issue on GitHub and it is here within a few minutes.</p>\n");
+        out.push_str("        <p class=\"item-note\">No image, video or HTML file is attached to this ticket. Attach one to the issue on GitHub and it is here within a few minutes.</p>\n");
     }
     for file in &shown {
         out.push_str(&asset(
@@ -258,7 +258,7 @@ pub fn item(
     }
     if !parts.is_empty() {
         out.push_str(
-            "        <div class=\"lab-list\"><h3>FILES THE HTML USES</h3>\n        <ul>\n",
+            "        <div class=\"item-list\"><h3>FILES THE HTML USES</h3>\n        <ul>\n",
         );
         for part in &parts {
             out.push_str(&part_line(part));
@@ -266,7 +266,7 @@ pub fn item(
         out.push_str("        </ul></div>\n");
     }
     if !skipped.is_empty() || outside > 0 {
-        out.push_str("        <div class=\"lab-list\"><h3>LEFT OUT</h3>\n        <ul>\n");
+        out.push_str("        <div class=\"item-list\"><h3>LEFT OUT</h3>\n        <ul>\n");
         for miss in skipped {
             out.push_str(&skipped_line(miss));
         }
@@ -397,7 +397,7 @@ mod tests {
     fn an_items_page_holds_its_title_its_link_and_its_files() {
         let files = serde_json::from_str::<Value>(FILES).unwrap();
         let skipped = serde_json::from_str::<Value>(
-            r#"[{"name":"all.tar","reason":"Not a type the lab hosts."}]"#,
+            r#"[{"name":"all.tar","reason":"Not a type the host serves."}]"#,
         )
         .unwrap();
         let page = item(
@@ -421,7 +421,7 @@ mod tests {
         assert!(page.contains("<span>style.css</span>"));
         assert!(page.contains("4 FILES, 32 B OF 10 MB"));
         assert!(page.contains(
-            "<span>all.tar</span><span class=\"asset-fact\">Not a type the lab hosts.</span>"
+            "<span>all.tar</span><span class=\"asset-fact\">Not a type the host serves.</span>"
         ));
         assert!(page.contains("1 link from outside the allowed accounts</span>"));
         assert!(page.contains("<figcaption><span class=\"asset-name\">image-1.png</span>"));

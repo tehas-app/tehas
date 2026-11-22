@@ -82,13 +82,13 @@ test("a repository name that is not owner/name gives no links", () => {
 
 test("prototypes come from the Protolab's list, at its own address or under the lab", () => {
   const lab = { url: "https://lab.example.org", tickets: [
-    { number: 21, title: "Visual diff", address: "https://lab-21.example.org/" },
+    { number: 21, title: "Visual diff", address: "https://item-21.example.org/" },
     { number: 22, title: "Replay" },
     { number: 0, title: "Not a ticket" },
   ] };
   const v = lineView({ status: status(), lab, nowMs: NOW });
   const proto = v.stages.find((s) => s.key === "proto");
-  assert.deepEqual(proto.items.map((t) => [t.number, t.url]), [[21, "https://lab-21.example.org/"], [22, "https://lab.example.org/22/"]]);
+  assert.deepEqual(proto.items.map((t) => [t.number, t.url]), [[21, "https://item-21.example.org/"], [22, "https://lab.example.org/22/"]]);
   assert.deepEqual(proto.more, { text: "All 2 in Protolab", href: "https://lab.example.org" });
   assert.equal(v.lab, "https://lab.example.org");
 });

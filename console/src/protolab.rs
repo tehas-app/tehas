@@ -304,7 +304,7 @@ mod tests {
         let page = ticket_page(
             &ticket(),
             &files(),
-            &lines("{\"name\":\"all.tar\",\"reason\":\"Not a type the lab hosts.\"}\n"),
+            &lines("{\"name\":\"all.tar\",\"reason\":\"Not a type the host serves.\"}\n"),
             1,
             "/",
             "",
@@ -327,7 +327,7 @@ mod tests {
         assert!(page.contains("<span>style.css</span>"));
         assert!(page.contains("4 FILES, 32 B OF 10 MB"));
         assert!(page.contains(
-            "<span>all.tar</span><span class=\"asset-fact\">Not a type the lab hosts.</span>"
+            "<span>all.tar</span><span class=\"asset-fact\">Not a type the host serves.</span>"
         ));
         assert!(page.contains("1 link from outside the allowed accounts</span>"));
         assert!(page.contains("<figcaption><span class=\"asset-name\">image-1.png</span>"));

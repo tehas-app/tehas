@@ -16,9 +16,9 @@
 .lab-stage a.row { text-decoration: none; }
 
 /* A ticket: a Bone sign with a Steel head, as on the board. */
-.lab-ticket, .lab-box { border: var(--frame); box-shadow: var(--shadow-sign); }
-.lab-ticket { background: var(--surface); }
-.lab-box-head {
+.item-ticket, .item-box { border: var(--frame); box-shadow: var(--shadow-sign); }
+.item-ticket { background: var(--surface); }
+.item-box-head {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
@@ -28,29 +28,29 @@
   background: var(--surface-head);
   border-bottom: var(--frame);
 }
-.lab-ticket .lab-box-head { font-size: 32px; line-height: 32px; }
-.lab-ticket .lab-box-head b { font-weight: 400; color: var(--text-warm); }
-.lab-ticket-body { display: grid; gap: 16px; justify-items: start; padding: 24px 16px; }
-.lab-ticket-body h1 { max-width: 40ch; overflow-wrap: anywhere; }
-.lab-facts { display: flex; flex-wrap: wrap; gap: 0 32px; }
-.lab-facts div { display: flex; gap: 16px; }
-.lab-facts dt { color: var(--text-quiet); }
-.lab-facts dd { overflow-wrap: anywhere; }
+.item-ticket .item-box-head { font-size: 32px; line-height: 32px; }
+.item-ticket .item-box-head b { font-weight: 400; color: var(--text-warm); }
+.item-ticket-body { display: grid; gap: 16px; justify-items: start; padding: 24px 16px; }
+.item-ticket-body h1 { max-width: 40ch; overflow-wrap: anywhere; }
+.item-facts { display: flex; flex-wrap: wrap; gap: 0 32px; }
+.item-facts div { display: flex; gap: 16px; }
+.item-facts dt { color: var(--text-quiet); }
+.item-facts dd { overflow-wrap: anywhere; }
 
 /* The box: everything attached to the ticket, on a Bone Shade ground. */
-.lab-box { margin-top: 40px; background: var(--surface-quiet); scroll-margin-top: calc(var(--header) + 16px); }
-.lab-box-head p { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
-.lab-meter { display: inline-flex; gap: 4px; }
-.lab-meter i { width: 8px; height: 16px; background: var(--surface); box-shadow: 0 0 0 1px var(--text-quiet) inset; }
-.lab-meter i.on { background: var(--text-quiet); }
-.lab-box-body {
+.item-box { margin-top: 40px; background: var(--surface-quiet); scroll-margin-top: calc(var(--header) + 16px); }
+.item-box-head p { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.item-meter { display: inline-flex; gap: 4px; }
+.item-meter i { width: 8px; height: 16px; background: var(--surface); box-shadow: 0 0 0 1px var(--text-quiet) inset; }
+.item-meter i.on { background: var(--text-quiet); }
+.item-box-body {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 448px), 1fr));
   align-items: start;
   gap: 24px;
   padding: 24px;
 }
-.lab-note { grid-column: 1 / -1; max-width: 65ch; }
+.item-note { grid-column: 1 / -1; max-width: 65ch; }
 
 /* One file in its frame: the picture on CRT Black, a Bone plate under it. */
 .asset { min-width: 0; margin: 0; background: var(--surface); border: var(--frame); box-shadow: var(--shadow-card); }
@@ -60,7 +60,7 @@
 /* A prototype is a page: it gets the row to itself and a page's white ground. */
 .asset-app { grid-column: 1 / -1; }
 .asset-app iframe { display: block; width: 100%; height: 560px; border: 0; background: var(--prototype-ground); }
-.asset figcaption, .lab-list li {
+.asset figcaption, .item-list li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
@@ -68,9 +68,9 @@
   min-height: 48px;
   padding: 0 0 0 16px;
 }
-.asset-name, .lab-list li span:first-child { padding: 12px 0; overflow-wrap: anywhere; }
+.asset-name, .item-list li span:first-child { padding: 12px 0; overflow-wrap: anywhere; }
 .asset-fact { color: var(--text-quiet); }
-.asset figcaption a, .lab-list a {
+.asset figcaption a, .item-list a {
   display: grid;
   place-items: center;
   align-self: stretch;
@@ -79,24 +79,24 @@
   color: var(--text-cool);
   text-underline-offset: 4px;
 }
-.asset figcaption a:hover, .lab-list a:hover { background: var(--surface-head); color: var(--text); }
-.asset figcaption a:focus-visible, .lab-list a:focus-visible { outline-offset: -4px; }
+.asset figcaption a:hover, .item-list a:hover { background: var(--surface-head); color: var(--text); }
+.asset figcaption a:focus-visible, .item-list a:focus-visible { outline-offset: -4px; }
 
 /* What is not a picture: the files an HTML page uses, and what was left out. */
-.lab-list { grid-column: 1 / -1; background: var(--surface); border: var(--frame); }
-.lab-list h3 { padding: 8px 16px; background: var(--surface-head); border-bottom: var(--frame); }
-.lab-list li { border-bottom: 1px solid var(--rule); }
-.lab-list li:last-child { border-bottom: 0; }
+.item-list { grid-column: 1 / -1; background: var(--surface); border: var(--frame); }
+.item-list h3 { padding: 8px 16px; background: var(--surface-head); border-bottom: var(--frame); }
+.item-list li { border-bottom: 1px solid var(--rule); }
+.item-list li:last-child { border-bottom: 0; }
 /* A reason is a sentence and has no link after it. */
-.lab-list li > .asset-fact:last-child { grid-column: 2 / -1; padding: 12px 16px 12px 0; text-align: right; }
+.item-list li > .asset-fact:last-child { grid-column: 2 / -1; padding: 12px 16px 12px 0; text-align: right; }
 
 @media (max-width: 699px) {
   .lab-stage { padding: 24px 16px 0; }
-  .lab-ticket-body h1 { font-size: 16px; line-height: 24px; }
-  .lab-box-body { gap: 16px; padding: 16px; }
+  .item-ticket-body h1 { font-size: 16px; line-height: 24px; }
+  .item-box-body { gap: 16px; padding: 16px; }
   .asset-app iframe { height: 480px; }
-  .asset figcaption, .lab-list li { grid-template-columns: minmax(0, 1fr) auto; }
-  .asset-name, .lab-list li span:first-child { grid-column: 1 / -1; padding-bottom: 0; }
+  .asset figcaption, .item-list li { grid-template-columns: minmax(0, 1fr) auto; }
+  .asset-name, .item-list li span:first-child { grid-column: 1 / -1; padding-bottom: 0; }
   .asset-fact { padding: 12px 0; }
-  .lab-list li > .asset-fact:last-child { grid-column: 1 / -1; padding: 0 16px 12px 0; text-align: left; }
+  .item-list li > .asset-fact:last-child { grid-column: 1 / -1; padding: 0 16px 12px 0; text-align: left; }
 }

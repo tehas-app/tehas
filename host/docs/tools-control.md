@@ -97,7 +97,7 @@ what a cycle wrote. An export is never written under the factory's home, not
 even through a link. The dispatcher's sweep removes
 `~/.pi/agent/ensemble-runs/issue-<issue>` with the issue's workspace, so an
 export of an issue the sweep has taken has no transcripts: its records, logs and
-Protolab page are still copied. See
+ticket page are still copied. See
 [the factory API](/api#tehas-export).
 
 ## tehas state

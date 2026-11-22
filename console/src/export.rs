@@ -3,7 +3,7 @@
 //! copied and every exit status. It runs under `console run`.
 //!
 //! Every file goes through the mask, with the names of `mask::host_names`. A
-//! file of a Protolab page that is not UTF-8 is an image, a video or the like,
+//! file of a ticket page that is not UTF-8 is an image, a video or the like,
 //! which the mask would only corrupt: it is copied as it is. Anything else is
 //! masked whatever bytes it holds. A link is not followed and a file over
 //! 32 MiB is left out.
@@ -498,7 +498,7 @@ impl Export {
                 ok &= copy_in(&f, &out.join("transcripts"), &name, false);
             }
         }
-        let page = self.home.join("protolab").join(&issue);
+        let page = self.home.join("items").join(&issue);
         if page.is_dir() && !page.is_symlink() {
             let mut found = Vec::new();
             tree(&page, &mut found);
@@ -508,9 +508,7 @@ impl Export {
                     continue;
                 }
                 let rel = f.strip_prefix(&page).unwrap_or(&f);
-                let dir = out
-                    .join("protolab")
-                    .join(rel.parent().unwrap_or(Path::new("")));
+                let dir = out.join("item").join(rel.parent().unwrap_or(Path::new("")));
                 ok &= copy_in(&f, &dir, &name, true);
             }
         }

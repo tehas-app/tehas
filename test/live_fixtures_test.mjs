@@ -64,7 +64,7 @@ test("status.json and protolab.json draw the business page's line", () => {
   assert.equal(labBase(read("protolab.json"), null), "https://lab.example.org");
   assert.deepEqual(v.stages.map((s) => [s.key, s.count]),
     [["proto", 1], ["line", 2], ["plan", 1], ["build", 1], ["review", 1], ["stop", 1], ["ship", 28]]);
-  assert.deepEqual(v.stages[0].items[0].url, "https://lab-45.example.org/");
+  assert.deepEqual(v.stages[0].items[0].url, "https://item-45.example.org/");
   assert.deepEqual(boardRows(v).map((r) => r.number), [42, 43, 41, 39, 37]);
 });
 
