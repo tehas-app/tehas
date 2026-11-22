@@ -8,6 +8,7 @@ use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
 use tehas_core::file::READ_BOUND_LEN;
+use tehas_core::home::Home;
 use tehas_core::testdir::TestDir;
 use tehas_core::time::{iso, now};
 
@@ -31,7 +32,7 @@ impl Env {
         running: Option<&[Value]>,
     ) -> Env {
         let root = TestDir::new(&format!("mcp-sess-{name}"));
-        let (live, snap) = (root.join("live"), root.join("mcp"));
+        let (live, snap) = (Home::new(&*root).live_dir(), root.join("mcp"));
         std::fs::create_dir_all(&live).unwrap();
         std::fs::create_dir_all(&snap).unwrap();
         if let Some(r) = repo {
@@ -1063,7 +1064,7 @@ fn an_issue_with_only_runs() {
 #[test]
 fn an_issue_being_planned() {
     let root = TestDir::new("mcp-plan");
-    let (live, snap) = (root.join("live"), root.join("mcp"));
+    let (live, snap) = (Home::new(&*root).live_dir(), root.join("mcp"));
     std::fs::create_dir_all(&live).unwrap();
     std::fs::create_dir_all(&snap).unwrap();
     std::fs::write(

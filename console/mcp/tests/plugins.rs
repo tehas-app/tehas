@@ -9,6 +9,7 @@ use std::io::{Read, Write};
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+use tehas_core::home::Home;
 use tehas_core::testdir::TestDir;
 
 const FULL: &str = "abcdefghijklmnopqrstuvwxyz012345";
@@ -21,7 +22,7 @@ fn keys() -> Keys {
 fn dirs() -> Dirs {
     let f = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     Dirs {
-        live: f.join("live"),
+        live: Home::new(&f).live_dir(),
         sessions: f.join("sessions"),
         logs: f.join("logs"),
     }

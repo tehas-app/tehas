@@ -7,6 +7,7 @@ use mcp::tools::Dirs;
 use mcp::tools::Scope;
 use serde_json::{json, Value};
 use std::path::Path;
+use tehas_core::home::Home;
 
 const K1: &str = "abcdefghijklmnopqrstuvwxyz012345";
 const MODERN: &str = "2026-07-28";
@@ -14,7 +15,7 @@ const MODERN: &str = "2026-07-28";
 fn dirs() -> Dirs {
     let f = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     Dirs {
-        live: f.join("live"),
+        live: Home::new(&f).live_dir(),
         sessions: f.join("sessions"),
         logs: f.join("logs"),
     }

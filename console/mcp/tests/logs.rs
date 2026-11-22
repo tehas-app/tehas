@@ -10,6 +10,7 @@ use mcp::tools::{call, Dirs, Output, ToolError};
 use serde_json::{json, Value};
 use std::io::Read;
 use std::sync::{Mutex, MutexGuard};
+use tehas_core::home::Home;
 use tehas_core::testdir::TestDir;
 use tehas_core::time::{iso, now};
 
@@ -52,7 +53,11 @@ impl Env {
     // still lists the words, so a test can plant a name.
     fn new(name: &str, kind: &str, issue: i64, logs: &[(&str, &str, &[u8])]) -> Env {
         let root = TestDir::new(&format!("mcp-logs-{name}"));
-        let (live, snap, dir) = (root.join("live"), root.join("mcp"), root.join("logs"));
+        let (live, snap, dir) = (
+            Home::new(&*root).live_dir(),
+            root.join("mcp"),
+            root.join("logs"),
+        );
         for d in [&live, &snap, &dir] {
             std::fs::create_dir_all(d).unwrap();
         }
@@ -140,7 +145,11 @@ impl Search {
 
     fn built(name: &str, served: &[Value], logs: &[(&str, &[u8])]) -> Search {
         let root = TestDir::new(&format!("mcp-search-{name}"));
-        let (live, snap, dir) = (root.join("live"), root.join("mcp"), root.join("logs"));
+        let (live, snap, dir) = (
+            Home::new(&*root).live_dir(),
+            root.join("mcp"),
+            root.join("logs"),
+        );
         for d in [&live, &snap, &dir] {
             std::fs::create_dir_all(d).unwrap();
         }

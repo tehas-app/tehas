@@ -122,6 +122,12 @@ impl Home {
     pub fn token_dir(&self, t: TokenDir) -> PathBuf {
         self.root.join(t.relative())
     }
+
+    /// `live/`, the views the factory publishes, for the mount and the MCP
+    /// server's `live:`.
+    pub fn live_dir(&self) -> PathBuf {
+        self.root.join("live")
+    }
 }
 
 fn from_var(v: Option<OsString>) -> Option<Home> {
@@ -145,6 +151,7 @@ mod tests {
         assert_eq!(h().root(), Path::new("/h"));
         assert_eq!(at(h().state_dir()), "/h/state");
         assert_eq!(at(Home::new("").state_dir()), "state");
+        assert_eq!(at(h().live_dir()), "/h/live");
     }
 
     #[test]
