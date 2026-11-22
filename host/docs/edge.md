@@ -1,21 +1,20 @@
 ---
-title: Previews and the Protolab on the internet
-description: "How a tehas host publishes a preview of every pull request and the Protolab's tickets under names of their own: the domain, the certificate, the proxy and the edge router."
+title: Previews on the internet
+description: "How a tehas host publishes a preview of every pull request, and an item's page, under names of their own: the domain, the certificate, the proxy and the edge router."
 ---
 
-# Previews and the Protolab on the internet
+# Previews on the internet
 
 A host can publish two things under names of their own: a running preview of
-every open pull request, and the Protolab's page for every ticket at the
-prototype stage. This page is how that was set up for the tehas-tehas
+every open pull request, and the page of an item under `~/tehas/items`, which
+nothing in this version writes. This page is how that was set up for the tehas-tehas
 instance, written so that another instance can follow it.
 
 | Name | What answers |
 | --- | --- |
 | `uat-<pr>.tehas.app` | The preview of that pull request |
 | `uat-main.tehas.app` | The preview of the default branch's head |
-| `lab-<issue>.tehas.app` | That ticket's page in the Protolab |
-| `lab.tehas.app` | The Protolab's list |
+| `item-<issue>.tehas.app` | That item's page |
 
 How far this is proven:
 
@@ -74,16 +73,15 @@ level by joining the label with a dash:
 | --- | --- |
 | `uat-<pr>-demo.example.org` | The preview of that pull request |
 | `uat-main-demo.example.org` | The preview of the default branch's head |
-| `lab-<issue>-demo.example.org` | That ticket's page in the Protolab |
-| `lab-demo.example.org` | The Protolab's list |
+| `item-<issue>-demo.example.org` | That item's page |
 
-These are the names the pull request's notice, the dashboard's Previews and
-the Protolab's links say. The router still picks by `<label>.<domain>`, so the
+These are the names the pull request's notice and the dashboard's Previews
+say. The router still picks by `<label>.<domain>`, so the
 proxy sends each name on with that `Host`. In a Caddy that already serves
 `*.example.org`:
 
 ```
-@demo header_regexp demo Host ^(uat-[0-9]+|uat-main|lab|lab-[0-9]+)-demo\.example\.org$
+@demo header_regexp demo Host ^(uat-[0-9]+|uat-main|item-[0-9]+)-demo\.example\.org$
 handle @demo {
     reverse_proxy <host>:8081 {
         header_up Host {re.demo.1}.demo.example.org
@@ -98,7 +96,7 @@ one level deep already.
 
 Cloudflare speaks HTTPS to the proxy in front of the host. A Caddy that gets a
 certificate per site has none for a name it has no site for, and Cloudflare
-then answers 525. That is what `lab.tehas.app` said before this was set up.
+then answers 525. That is what these names said before this was set up.
 
 The answer is one certificate for `*.tehas.app` on the proxy. A Cloudflare
 origin certificate is free, lasts for years and needs no renewal job. It is
@@ -157,7 +155,7 @@ address in place of `<address>`:
 ```
 *.tehas.app {
     tls /etc/caddy/certs/origin.pem /etc/caddy/certs/origin.key
-    @edge header_regexp Host ^(lab|lab-[0-9]+|uat-[0-9]+|uat-main)\.tehas\.app$
+    @edge header_regexp Host ^(item-[0-9]+|uat-[0-9]+|uat-main)\.tehas\.app$
     handle @edge {
         reverse_proxy <address>:8081
     }
@@ -167,7 +165,7 @@ address in place of `<address>`:
 }
 ```
 
-Caddy takes a wildcard as a whole label only, so `lab-*` cannot be a site
+Caddy takes a wildcard as a whole label only, so `item-*` cannot be a site
 address; the matcher picks the names. The sites `tehas.app` and
 `www.tehas.app` are more specific and are not touched. The Host header is
 passed on as it is, which is what the router picks by.
@@ -190,13 +188,13 @@ in the file do not matter; the last line has to be `Valid configuration`.
 | --- | --- | --- |
 | `tehas.app` | 200 | The dashboard is as before |
 | `www.tehas.app` | 301 | So is its redirect |
-| `lab.tehas.app`, `lab-1.tehas.app`, `uat-1.tehas.app` | 502 | The certificate and the site work. Nothing listens on port 8081 of the host yet |
+| `item-1.tehas.app`, `uat-1.tehas.app` | 502 | The certificate and the site work. Nothing listens on port 8081 of the host yet |
 | `nothing.tehas.app`, `uat-x.tehas.app` | 404 | Other names are refused |
 | any of them | 521 | Caddy on the proxy is not running. See the box above |
 | any of them | 525 | The certificate is not in place, or the encryption mode is not Full |
 
 ```
-for h in tehas.app lab.tehas.app uat-1.tehas.app nothing.tehas.app; do
+for h in tehas.app item-1.tehas.app uat-1.tehas.app nothing.tehas.app; do
   printf '%-20s ' "$h"; curl -s -o /dev/null -w '%{http_code}\n' "https://$h"
 done
 ```
@@ -226,9 +224,8 @@ Where the file is depends on the instance directory:
 [Commands](/tools). `TEHAS_PREVIEWS=on` without a domain stops every command
 that reads the settings with exit 78.
 
-`TEHAS_DOMAIN` by itself is enough for the Protolab's names: each ticket is
-then at `lab-<issue>.tehas.app`, and the Protolab's address becomes
-`https://lab.tehas.app` unless `TEHAS_PROTOLAB_URL` says otherwise.
+`TEHAS_DOMAIN` by itself is enough for the items' names: each item is then
+at `item-<issue>.tehas.app`.
 
 ### 8. Install and start the router
 
@@ -255,12 +252,11 @@ outside, `uat-1.tehas.app` now answers 404 where it answered 502.
 ### 9. Start the timers
 
 ```
-systemctl --user enable --now tehas-protolab.timer tehas-preview.timer tehas-preview-sweep.timer
+systemctl --user enable --now tehas-preview.timer tehas-preview-sweep.timer
 ```
 
 | Timer | Every | What it does |
 | --- | --- | --- |
-| `tehas-protolab.timer` | 5 minutes | Builds the Protolab's pages |
 | `tehas-preview.timer` | 5 minutes | Builds a preview for a new commit, removes the previews of merged and closed pull requests |
 | `tehas-preview-sweep.timer` | 3 hours | Checks the host for anything a closed pull request left, and removes it |
 
@@ -382,7 +378,7 @@ with the `Host` as it came: the gate checks the whole name against its
 settings. A name that starts `plugin` and is no plugin's name answers 404 with
 "No plugin is set at this address.", and so does the gate for a plugin that
 is not set. When the gate does not answer, the name answers 503 with "The
-plugins' gate is not answering.", never a preview's or the Protolab's page.
+plugins' gate is not answering.", never a preview's or an item's page.
 
 ### The gate's address
 
@@ -410,7 +406,7 @@ reach port 8095.
 The proxy's matcher of step 4 names each kind of name by hand. Add the two:
 
 ```
-@edge header_regexp Host ^(lab|lab-[0-9]+|uat-[0-9]+|uat-main|plugin-[a-z][a-z0-9]*|plugins)\.tehas\.app$
+@edge header_regexp Host ^(item-[0-9]+|uat-[0-9]+|uat-main|plugin-[a-z][a-z0-9]*|plugins)\.tehas\.app$
 ```
 
 With `TEHAS_EDGE_ONE_LEVEL=on`, send the plugins' names on with their `Host`

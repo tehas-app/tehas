@@ -3,7 +3,7 @@
 //! api/status.quiet.json, api/status.readonly.json, api/status.pushfault.json,
 //! api/status.outsourced.json and api/status.lab.json (TEHAS_TEST_FEATURES set
 //! on a lab build), are what console status json (console/src/status.rs) makes
-//! of the health files in test/fixtures/status-json/, with the Protolab's list
+//! of the health files in test/fixtures/status-json/, with the previews' list
 //! beside one of them and the contractors of outsource beside another, at a
 //! fixed time. Only the outsourced sample has `contractors`. A program that
 //! reads the object copies the samples into its own tests, so a change here is
@@ -204,7 +204,7 @@ fn tehas_status_json_prints_what_the_sample_holds_but_for_the_clock() {
             w.live_file("health.json"),
         )
         .unwrap();
-        for beside in ["protolab", "previews", "contractors"] {
+        for beside in ["previews", "contractors"] {
             let to = w.live_file(&format!("{beside}.json"));
             let _ = fs::remove_file(&to);
             let from = fixtures().join(format!("{name}.{beside}.json"));
@@ -392,14 +392,6 @@ fn the_schema_says_running_and_room_count_a_cycle_outsourced_to_a_contractor() {
     has(
         &schema_description("room"),
         "outsourced to a contractor takes a place",
-    );
-}
-
-#[test]
-fn the_schema_says_the_fields_of_prototypes_may_change() {
-    has(
-        &schema_description("prototypes"),
-        "may change in a minor release",
     );
 }
 

@@ -8,7 +8,6 @@
 //! `host/env.sh` puts that shim first anyway.
 
 use std::env;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::Duration;
 
@@ -45,12 +44,7 @@ pub fn repo() -> Option<String> {
     }
 }
 
-/// Whether `file` is something that may be run: a regular file with a bit for
-/// someone to execute it. The same test `clean`'s `which` and the dispatcher's
-/// readers make of a program.
-pub fn runnable(path: &Path) -> bool {
-    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-}
+pub use tehas_core::file::runnable;
 
 /// Where `program` may be run, as `command -v` answers: the first directory of
 /// `path` that holds it, or None.
@@ -79,6 +73,7 @@ pub fn gh_program(home: Option<&str>, path: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn a_program_must_be_a_file_of_path_that_may_be_run() {

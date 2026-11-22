@@ -97,15 +97,6 @@
       "behind": true
     }
   },
-  "prototypes": [
-    {
-      "issue": 21,
-      "builtAt": "2026-10-17T09:12:00Z"
-    },
-    {
-      "issue": 20
-    }
-  ],
   "previews": [
     {
       "number": 31,

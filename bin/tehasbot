@@ -7,6 +7,6 @@ libexec=$(cd "$(dirname "${BASH_SOURCE[0]}")/../libexec" && pwd) ||
   { echo "tehasbot: no libexec directory beside $(dirname "${BASH_SOURCE[0]}")" >&2; exit 1; }
 console=${TEHAS_CONSOLE:-$libexec/console}
 [ -x "$console" ] || { echo "tehasbot: no console at $console: run install.sh" >&2; exit 78; }
-# The pages and the previews are served by another user. Safe Rust sets no umask.
-case ${1-} in preview | protolab) umask 022 ;; esac
+# The previews are served by another user. Safe Rust sets no umask.
+case ${1-} in preview) umask 022 ;; esac
 exec "$console" front "$libexec" "$EUID" "$BASH" tehasbot "$@"

@@ -47,7 +47,7 @@ t_eq "$([ -e "$th/state/first-install" ] && echo owed)" ""
 # It makes the previews' network where there is none, and asks nothing else.
 t_eq "$(t_calls docker)" "$net_inspect"
 t_lacks "$t_out" "tehas-previews"
-t_eq "$([ -d "$th/preview" ] && echo there)" "there"
+t_eq "$([ -d "$th/preview" ] && [ -d "$th/items" ] && echo there)" "there"
 # A host gets its tools from bootstrap.sh before its first install.
 t_lacks "$t_out" "bootstrap.sh user"
 # The run that makes the home leaves the mark that says it is tehas's.
@@ -128,13 +128,13 @@ mkdir -p "$home/.config/tehas" && echo TEHAS_ENERGY=on >"$home/.config/tehas/env
 t_run "$install"
 t_eq "$t_rc" 0
 t_eq "$(sed -n 2p "$T/calls/systemctl")" \
-  "--user enable --now tehas-dispatch.timer tehas-dispatch.path tehas-protolab.timer tehas-preview.timer tehas-preview-sweep.timer"
+  "--user enable --now tehas-dispatch.timer tehas-dispatch.path tehas-preview.timer tehas-preview-sweep.timer"
 
-t_case "a domain without previews enables the Protolab and not the previews"
+t_case "a domain without previews enables no timer of its own"
 fresh
 instance TEHAS_DOMAIN=widget.test
 t_run "$install"
-t_eq "$(sed -n 2p "$T/calls/systemctl")" "--user enable --now tehas-dispatch.timer tehas-dispatch.path tehas-protolab.timer"
+t_eq "$(sed -n 2p "$T/calls/systemctl")" "--user enable --now tehas-dispatch.timer tehas-dispatch.path"
 
 # The round trip of install_list_report (test/install_lib.sh): a home with one
 # file too many, and a home that lacks a file the list promises.

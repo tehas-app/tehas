@@ -152,7 +152,7 @@ poll holds that token in memory: it is never logged, never written to a file,
 and never put in the poll's record. git's github.com credential helper is
 pointed at the same shim, as environment-level config (no file is written), and
 a `GH_TOKEN` in `~/.config/tehas/env` is refused (exit 78), so nothing acts as
-the user it belongs to. The dispatcher, the refresh and the Protolab take the
+the user it belongs to. The dispatcher and the refresh take the
 bot's login from `~/tehas/state/github/login`: an installation token cannot ask
 GitHub who it is.
 
@@ -229,3 +229,4 @@ github-writes` is the same command under its old name, kept through 1.x.
 
 Exit 0 the writes were printed; 1 neither `TEHAS_HOME` nor `HOME` is set; 64
 an argument it does not know.
+

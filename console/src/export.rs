@@ -2,11 +2,9 @@
 //! directory of its own. Its text is src/usage/export.txt, which says what is
 //! copied and every exit status. It runs under `console run`.
 //!
-//! Every file goes through the mask, with the names of `mask::host_names`. A
-//! file of a Protolab page that is not UTF-8 is an image, a video or the like,
-//! which the mask would only corrupt: it is copied as it is. Anything else is
-//! masked whatever bytes it holds. A link is not followed and a file over
-//! 32 MiB is left out.
+//! Every file goes through the mask, with the names of `mask::host_names`,
+//! whatever bytes it holds. A link is not followed and a file over 32 MiB is
+//! left out.
 
 use crate::history::{self, Cursor, Query};
 use crate::jq::J;
@@ -319,12 +317,10 @@ fn plain_file(p: &Path) -> bool {
     fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_file())
 }
 
-/// The bytes as they go into the archive: masked, unless `raw_ok` and they
-/// are not text.
-fn masked(bytes: Vec<u8>, raw_ok: bool) -> Vec<u8> {
+/// The bytes as they go into the archive: masked.
+fn masked(bytes: Vec<u8>) -> Vec<u8> {
     match String::from_utf8(bytes) {
         Ok(text) => mask::mask(&text).into_bytes(),
-        Err(e) if raw_ok => e.into_bytes(),
         Err(e) => mask::mask(&String::from_utf8_lossy(e.as_bytes())).into_bytes(),
     }
 }
@@ -348,7 +344,7 @@ fn put(dir: &Path, name: &str, bytes: &[u8]) -> bool {
 
 /// One file into <dir>/<name>. A file that is not there, is a link or is over
 /// 32 MiB is no error and is not copied.
-fn copy_in(from: &Path, dir: &Path, name: &str, raw_ok: bool) -> bool {
+fn copy_in(from: &Path, dir: &Path, name: &str) -> bool {
     let Ok(meta) = fs::symlink_metadata(from) else {
         return true;
     };
@@ -356,7 +352,7 @@ fn copy_in(from: &Path, dir: &Path, name: &str, raw_ok: bool) -> bool {
         return true;
     }
     match fs::read(from) {
-        Ok(bytes) => put(dir, name, &masked(bytes, raw_ok)),
+        Ok(bytes) => put(dir, name, &masked(bytes)),
         Err(_) => false,
     }
 }
@@ -377,21 +373,6 @@ fn files_of(dir: &Path) -> Vec<PathBuf> {
         .collect();
     found.sort();
     found
-}
-
-/// Every plain file under a directory, as find -type f finds them: links are
-/// neither followed nor taken.
-fn tree(dir: &Path, found: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
-        let Ok(kind) = entry.file_type() else {
-            continue;
-        };
-        if kind.is_dir() {
-            tree(&entry.path(), found);
-        } else if kind.is_file() {
-            found.push(entry.path());
-        }
-    }
 }
 
 /// Seconds since 1970 of a time as the history writes it; 0 when it is not.
@@ -478,7 +459,7 @@ impl Export {
                     "dispatch-work.log",
                 ),
             ] {
-                ok &= copy_in(&file, &into, name, false);
+                ok &= copy_in(&file, &into, name);
             }
             // The runner's progress and its side streams, whatever stamp each
             // carries: a cycle started twice has more than one.
@@ -490,28 +471,12 @@ impl Export {
                         .iter()
                         .any(|end| name.ends_with(end))
                 {
-                    ok &= copy_in(&f, &into, &name, false);
+                    ok &= copy_in(&f, &into, &name);
                 }
             }
             for f in files_of(&self.runs.join(format!("issue-{issue}"))) {
                 let name = f.file_name().unwrap_or_default().to_string_lossy();
-                ok &= copy_in(&f, &out.join("transcripts"), &name, false);
-            }
-        }
-        let page = self.home.join("protolab").join(&issue);
-        if page.is_dir() && !page.is_symlink() {
-            let mut found = Vec::new();
-            tree(&page, &mut found);
-            for f in found {
-                let name = f.file_name().unwrap_or_default().to_string_lossy();
-                if name == ".stamp" {
-                    continue;
-                }
-                let rel = f.strip_prefix(&page).unwrap_or(&f);
-                let dir = out
-                    .join("protolab")
-                    .join(rel.parent().unwrap_or(Path::new("")));
-                ok &= copy_in(&f, &dir, &name, true);
+                ok &= copy_in(&f, &out.join("transcripts"), &name);
             }
         }
         if ok {
@@ -544,7 +509,7 @@ impl Export {
             return Some(true);
         }
         let text = serde_json::to_string_pretty(session).unwrap_or_default() + "\n";
-        Some(put(out, "plan.json", &masked(text.into_bytes(), false)))
+        Some(put(out, "plan.json", &masked(text.into_bytes())))
     }
 }
 
@@ -779,15 +744,13 @@ mod tests {
     }
 
     #[test]
-    fn text_is_masked_and_only_a_page_file_that_is_not_text_is_kept_as_it_is() {
+    fn text_and_bytes_that_are_not_text_are_both_masked() {
         let token = "ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
         let text = format!("a \0 stray {token}\n").into_bytes();
-        assert_eq!(masked(text.clone(), false), b"a \0 stray ghp_***\n");
-        assert_eq!(masked(text, true), b"a \0 stray ghp_***\n");
+        assert_eq!(masked(text), b"a \0 stray ghp_***\n");
         let mut image = vec![0x89, b'P', b'N', b'G', 0xff, 0xfe];
         image.extend_from_slice(token.as_bytes());
-        assert_eq!(masked(image.clone(), true), image);
-        let log = masked(image, false);
+        let log = masked(image);
         assert!(String::from_utf8(log).unwrap().ends_with("ghp_***"));
     }
 

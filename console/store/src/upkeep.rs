@@ -27,7 +27,7 @@
 //!   upkeep [--dry-run]
 //!                     what tehasbot clean asks once an hour: the logs of
 //!                     cycles, planning turns, index runs and reviews
-//!                     older than 7 days, the seven long-lived logs rolled past
+//!                     older than 7 days, the six long-lived logs rolled past
 //!                     64 MiB, then backup and prune --days 90. A dry run
 //!                     names the logs and touches nothing
 
@@ -568,23 +568,22 @@ const LOG_DAYS: i64 = 7;
 const PRUNE_DAYS: i64 = 90;
 
 /// The size one long-lived log may reach before upkeep rolls it: one figure for
-/// the seven, no setting for it, and nothing fsynced. The cap is a function
+/// the six, no setting for it, and nothing fsynced. The cap is a function
 /// argument all the way to `upkeep`, and the parse of the verb gives this, so a
 /// test proves the same rule on a log it can write instead of 64 MiB.
 pub const LOG_CAP: u64 = 64 * 1024 * 1024;
 
 /// The long-lived logs the units and the shim append to, by the fixed names of
 /// the tools that read them: the dispatcher's, the refresh's, the review
-/// timer's, the previews', the protolab's and the cleaner's in `logs/`, and the
+/// timer's, the previews' and the cleaner's in `logs/`, and the
 /// `gh` shim's record of every GitHub write in `state/`. The names are written
 /// out, never found by a pattern, and a rotated `.1` is never a candidate for
 /// another cut.
-pub const LONG_LIVED: [&str; 7] = [
+pub const LONG_LIVED: [&str; 6] = [
     "logs/dispatch.log",
     "logs/review-timer.log",
     "logs/refresh.log",
     "logs/preview.log",
-    "logs/protolab.log",
     "logs/clean.log",
     State::GithubWrites.relative(),
 ];

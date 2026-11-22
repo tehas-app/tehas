@@ -41,8 +41,6 @@
   "flags": {
     "outsource": false,
     "spec-pipe": false,
-    "protolab-zip-url": false,
-    "prototype-file": false,
     "lean": false,
     "plugins": false
   },
