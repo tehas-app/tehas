@@ -79,8 +79,8 @@ what = "no serde_json::Value in a public field, an enum variant or a tuple field
 pattern = '^\s*pub(\([^)]*\))?\s+[a-z_][a-z0-9_]*\s*:.*\bValue\b|^\s*[A-Z][A-Za-z0-9]*\s*\([^()]*\bValue\b[^()]*\),?\s*$|^\s*(pub(\([^)]*\))?\s+)?struct\s+\w+\s*(<[^>]*>)?\s*\(.*\bValue\b'
 files = ["console/**/*.rs"]
 comment = "//"
-max = 61
-why = "Re-measured at T0's follow-up, with enum variants and tuple fields added: dispatch 33 (Snapshot and its rows, after T3 typed the closing pull requests, the pause flag, the limit, the start order and the host's approvals), cycle 7, ops 5, attach, contractor, core and the console 3 each, mcp, plugin, proxy and store 1 each. T3 types Snapshot; T7 the rest, or a written floor."
+max = 59
+why = "Re-measured at T0's follow-up, with enum variants and tuple fields added: dispatch 31 (Snapshot and its rows, after T3 typed the closing pull requests, the pause flag, the limit, the start order, the host's approvals, the branch check and the push fault), cycle 7, ops 5, attach, contractor, core and the console 3 each, mcp, plugin, proxy and store 1 each. T3 types Snapshot; T7 the rest, or a written floor."
 
 [[report]]
 id = "public-items"
@@ -114,8 +114,8 @@ what = "the core uses nothing of the shell or the adapters"
 pattern = '\b(crate::(read|apply|poll|finish|auto_finish|refresh|pins|usage)|tehas_core::(forge|sandbox|call|retry|access|journal|lock|file|disk|install|tunnel|github_fails|release|rukas))\b'
 files = ["console/dispatch/src/decide.rs", "console/dispatch/src/decide/**", "console/dispatch/src/place.rs", "console/dispatch/src/snapshot.rs", "console/dispatch/src/text.rs", "console/dispatch/src/settings.rs", "console/dispatch/src/questions.rs", "console/dispatch/src/starts.rs"]
 comment = "//"
-max = 3
-why = "The map at T0: decide.rs reads three things of the shell, the push fault's hold from read::host (decide.rs:6), call::trim (decide.rs:438) and apply::start::change_note (decide.rs:2705). T3 moves them into the core or passes their answers in the snapshot."
+max = 2
+why = "The map at T0 had three; T3 moved the push fault's hold into snapshot.rs. decide.rs reads two things of the shell, call::trim and apply::start::change_note. T3 moves them into the core or passes their answers in the snapshot."
 
 # R6: a supplier's failure reaches a caller as a named outcome, not a raw
 # HTTP status the caller must read.
