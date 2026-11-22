@@ -269,7 +269,11 @@ parsing.
 
 ## The steps
 
-In this order, T11, T12, T13 and T14 before T9 and T10 last. T3 to T7 may overlap where a type and its port go
+In this order, T11, T12, T13 and T14 before T9 and T10 last. The owner,
+2026-11-22: the migration of GitHub and its peers behind the ports (the
+moves of T4, with T1's fakes and the tests of T15 that stub `gh`) is
+designed now, in `docs/specs/2026-11-22-ports.md`, and lands after the
+rest of the refactor, still before v2.0.0. T3 to T7 may overlap where a type and its port go
 together. Each "Done when" is checked before the next step leans on it.
 
 ### T0. The test, the rules, the map
@@ -548,6 +552,20 @@ names, for the plugin work in 2.1.
 Done when nothing names the Protolab, the kept plumbing has its tests
 under its new names, and `tehas update` removes the old units.
 
+### T15. Shell tests to Rust
+
+The shell tests that test a Rust program from outside move to Rust
+(#2816 to #2822, under #2597), keeping each case's behaviour. Each
+issue names the files it needs and when they are free: now, after T3, or
+after T4 when its cases stub `gh` (those move onto the ports' fakes with
+T1). `test/sandbox_argv_test.sh` and `test/fixtures/argv/` stay shell,
+as T4's floor. #2823 shortens the shell run, at any time; #2824 trims
+the shell that stays, last. Each port lowers `scripts/test-lines.max`
+to its new count.
+
+Done when no shell test tests a Rust program's behaviour that a Rust
+test can, and `test-lines.max` is at its new count.
+
 ### T9. The contract for 2.0
 
 - `host/docs/contract.md` for 2.x, with a section "Changed in 2.0" that
@@ -629,7 +647,7 @@ All of these, in the last pull request into the branch:
 - `.tehas/coding-standard` says `v2`, and the architecture test passes
   without `--force`, against the base;
 - `scripts/verify.sh --full` passes, and the 2.0 contract is written;
-- T10, T11, T12, T13 and T14 are done, and the trio's gate holds.
+- T10 to T15 are done, and the trio's gate holds.
 
 Then, when the trio is tagged, the pull request into main (a merge
 commit or a fast-forward, as "Finish" says), and the owner's release of
@@ -670,4 +688,5 @@ of main, each grade.
 | 2026-11-22 | T12.1: `tehas answer`, and `--text -` from standard input | #2794, #2808 |
 | 2026-11-22 | T13 part 4: lean's fallback to classic keys on pi-rukas's typed setup refusal (pi-rukas#2511), with a host message | #2798, #2801 |
 | 2026-11-22 | A flaky test fixed: the two writes reports compared without their minute | #2799 |
-| 2026-11-22 | T14: the Protolab removed as dead code, its file storage and serving kept for plugins (the owner) | this pull request |
+| 2026-11-22 | T14: the Protolab removed as dead code, its file storage and serving kept for plugins (the owner) | #2826 |
+| 2026-11-22 | T15: shell tests to Rust (#2816 to #2824); the migration behind the ports lands after the rest of the refactor, before v2.0.0 (the owner) | #2826 |
