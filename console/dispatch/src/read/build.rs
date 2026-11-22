@@ -1005,7 +1005,7 @@ mod tests {
             "owed": [{"issue": 8}], "refines_owed": [], "asking": [{"number": 11}]});
         assert_eq!(edit_wanted(&s, &q, &[3, 4]), [3, 6, 7, 8, 9, 11]);
     }
-    use crate::snapshot::Snapshot;
+    use crate::snapshot::{ClosingPr, Snapshot};
 
     /// What separates two calls in a stub's record: a word of nothing that no
     /// argument of a real gh or store call contains, named once so that neither
@@ -2783,6 +2783,10 @@ esac"#,
         nodes[1]["closedByPullRequestsReferences"]["nodes"] = json!([fork]);
         let (snap, _, _, _) = poll(&w, &[]);
         let parsed = Snapshot::parse(&snap);
+        let own = ClosingPr {
+            url: own["url"].as_str().unwrap().to_string(),
+            open: true,
+        };
         assert_eq!(parsed.issues[&21].prs, Some(vec![own]));
         assert_eq!(parsed.issues[&22].prs, Some(vec![]));
     }

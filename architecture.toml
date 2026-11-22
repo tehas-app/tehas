@@ -78,8 +78,8 @@ what = "no serde_json::Value in a public field, an enum variant or a tuple field
 pattern = '^\s*pub(\([^)]*\))?\s+[a-z_][a-z0-9_]*\s*:.*\bValue\b|^\s*[A-Z][A-Za-z0-9]*\s*\([^()]*\bValue\b[^()]*\),?\s*$|^\s*(pub(\([^)]*\))?\s+)?struct\s+\w+\s*(<[^>]*>)?\s*\(.*\bValue\b'
 files = ["console/**/*.rs"]
 comment = "//"
-max = 66
-why = "Re-measured at T0's follow-up, with enum variants and tuple fields added: dispatch 38 (Snapshot and its rows), cycle 7, ops 5, attach, contractor, core and the console 3 each, mcp, plugin, proxy and store 1 each. T3 types Snapshot; T7 the rest, or a written floor."
+max = 65
+why = "Re-measured at T0's follow-up, with enum variants and tuple fields added: dispatch 38 (Snapshot and its rows; 37 after T3 typed the closing pull requests), cycle 7, ops 5, attach, contractor, core and the console 3 each, mcp, plugin, proxy and store 1 each. T3 types Snapshot; T7 the rest, or a written floor."
 
 [[report]]
 id = "public-items"
