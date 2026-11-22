@@ -1594,8 +1594,8 @@ cycle holds, and writes nothing, so it is safe to run while the factory works.
 tehas export --after 1760700000-12-41 ~/archive
 ```
 
-Copies the result, the logs, the agents' transcripts and the Protolab page of
-every cycle since that cursor into `~/archive`, one directory each. Every text
+Copies the result, the logs and the agents' transcripts of every cycle since
+that cursor into `~/archive`, one directory each. Every
 file goes through the console's mask, so a token or a private address that
 reached a log does not reach the copy. An export is never written under
 `~/tehas`, not even through a link, and the mask catches accidents rather than

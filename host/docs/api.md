@@ -990,8 +990,7 @@ the directory.
 
 The copy a person reads afterwards. For every line `tehas history` gives after
 `CURSOR`, it writes `<dir>/cycles/<cursor>/`: the cycle's `result.json`, its
-`logs/`, its agents' `transcripts/`, its ticket page under `item/`, and
-`history.json`, the line as `tehas history` publishes it. A planning turn brings
+`logs/`, its agents' `transcripts/`, and `history.json`, the line as `tehas history` publishes it. A planning turn brings
 `plan.json` and no cycle files: the session as the state store has it now
 (`plan-show`), with `issue`, `session`, `turns`, `options`, `pending`,
 `pending_outcome`, `failed`, `running`, `started_at`, `comment_id`, `lost`,
@@ -1009,9 +1008,8 @@ error: those files are simply not there.
 The console does the copying, and every file goes through its mask, the one
 masker tehas has, with the same names of the host a cycle is given (the host
 aliases, the model hosts and the bot's email), so a token or a private address
-that reached a log does not reach the copy. Only a file of a Protolab page that
-is not UTF-8, such as an image, is copied as it is; a log is masked whatever
-bytes it holds. A file over 32 MiB is left out: an export is for reading. The mask catches accidents;
+that reached a log does not reach the copy. A file is masked whatever bytes it
+holds. A file over 32 MiB is left out: an export is for reading. The mask catches accidents;
 it cannot stop what no pattern knows, so an export is still a copy of what a
 cycle wrote.
 
