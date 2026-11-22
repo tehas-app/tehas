@@ -17,9 +17,6 @@
 //!   `auto`: the dispatcher writes the count it decided by into free), or
 //!   count plus limitRoom where the limit of tehas limit is lower.
 //!
-//! The samples table keeps its watts column, which energy use filled until it
-//! left core in 2.0: a new row leaves it NULL.
-//!
 //! A file that is missing, a link, not JSON, or too old by its own time
 //! gives NULL columns, and so does a field of the wrong type. Too old is ten
 //! minutes, and for dispatch.json two and a half: a poll runs every two
