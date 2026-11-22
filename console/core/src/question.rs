@@ -498,7 +498,7 @@ mod tests {
         assert_eq!(
             q_render(Kind::Park, 7, 1, &out, ""),
             format!(
-                "<!-- pi-rukas:handoff issue=7 cap=x -->\nTehas cycle stopped.\n\n{ASK_PARK}\n\n- retry: Retry with the issue and all its comments. A new cycle starts over in a new workspace, given what allowed accounts wrote on this issue and on its pull requests\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else\n- park: Leave it parked. Nothing more happens until someone answers\n\n{ONLY_ALLOWED}\n\n{park}\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+                "<!-- pi-rukas:handoff issue=7 cap=x -->\nTehas cycle stopped.\n\n{ASK_PARK}\n\n- retry: Retry with the issue and all its comments. A new cycle starts over in a new workspace, given what allowed accounts wrote on this issue and on its pull requests.\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\n{ONLY_ALLOWED}\n\n{park}\n<!-- tehas:question kind=park issue=7 turn=1 -->"
             )
         );
     }

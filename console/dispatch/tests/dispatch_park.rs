@@ -59,7 +59,7 @@ fn a_retry_ticked_by_an_allowed_account_starts_a_cycle() {
     );
     // The cycle's --restart takes it off, through pi-rukas.
     lacks(&w.gh(), "--remove-label needs-human-attention");
-    has(&w.gh(), "authorized by @alice's answer");
+    has(&w.gh(), "authorized by @alice's reply");
     has(&r.out, "start #7 (retry answered by alice)");
 }
 
@@ -255,7 +255,7 @@ fn the_issue_alone_reply_by_an_allowed_account_starts_a_cycle_with_how_reply() {
         &w.gh(),
         "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question",
     );
-    has(&w.gh(), "authorized by @alice's answer");
+    has(&w.gh(), "authorized by @alice's reply");
     has(&r.out, "start #7 (retry answered by alice)");
     assert_eq!(w.park_q(7), "none");
 }

@@ -864,10 +864,11 @@ fn a_park_that_offered_no_retry_holds_a_new_tehas_ready_until_the_body_changes()
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(started(&w), "");
     has(&r.out, "hold #7: its last cycle parked on child-timeout:develop twice on the same text, and the body has not changed since");
-    has(&w.gh(), "issue comment 7 --repo acme/widget --body Not started: the last cycle ran out of time in develop twice on this text, so it offers no retry. Edit the body, or split the issue with `tehas:plan`.");
+    let edit = tehas_core::hold::HELD_PARKED_EDIT;
+    has(&w.gh(), &format!("issue comment 7 --repo acme/widget --body Not started: the last cycle ran out of time in develop twice on this text, so it offers no retry: {edit}."));
     assert_eq!(
         w.dispatch_state()["held"],
-        json!([{"clear": "edit the body, or split the issue with `tehas:plan`", "issue": 7,
+        json!([{"clear": edit, "issue": 7,
             "text": "its last cycle parked on `child-timeout:develop` and the body has not changed since",
             "why": "parked"}])
     );
@@ -881,10 +882,10 @@ fn a_park_that_offered_no_retry_holds_a_new_tehas_ready_until_the_body_changes()
 /// The same park once the body changed: the label starts the cycle.
 fn parked_body_changed(w: &World) {
     issue_body(w, "Smaller words.");
-    w.fx_json(
+    let work = fs::read_to_string(w.fx.join("work-7.json")).unwrap();
+    w.fx(
         "work-7.json",
-        &json!({"number": 7, "state": "open", "body": "Smaller words.",
-            "labels": [{"name": "needs-human-attention"}, {"name": "tehas:ready"}]}),
+        &work.replace("\"Words.\"", "\"Smaller words.\""),
     );
     w.clear_calls();
     let r = w.poll();

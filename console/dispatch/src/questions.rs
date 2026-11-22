@@ -985,8 +985,8 @@ mod tests {
         // standing.
         for (by, later) in [
             (BOT, format!("{MARK}\nTry a smaller change.")),
-            (BOT, "Tehas took `tehas:ready` off this issue. It was applied by `mallory`, an account that may not authorise work in this factory, so nothing was started and the issue is not queued.".to_string()),
-            (BOT, "Every issue the `tehas:blocked` marker names is closed, so the hold has cleared.\n\n<!-- tehas:hold-cleared -->".to_string()),
+            (BOT, "Tehas took the label off this issue. It was applied by `mallory`, an account that may not authorise work in this factory, so nothing was started and the issue is not queued.".to_string()),
+            (BOT, "Every issue the blocked marker names is closed, so the hold has cleared.".to_string()),
             (BOT, format!("Retry was asked for on another question.\n\n{}", declined_marker("4"))),
             ("bob", "I see this on main too".to_string()),
         ] {

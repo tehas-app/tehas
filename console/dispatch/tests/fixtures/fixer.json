@@ -1395,7 +1395,7 @@
      {
       "plan_turn": 7,
       "kind": "next",
-      "answer": "The fixer replied on the issue:\n\nAdopt all.",
+      "answer": "The fixer chose: Adopt all",
       "by": "tehas-fixer",
       "reply": "4003"
      }

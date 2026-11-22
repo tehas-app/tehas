@@ -916,7 +916,13 @@ fn when_the_question_label_cannot_be_added_the_person_is_told_the_boxes_do_not_w
     let r = w.run7();
     let gh = w.gh();
     has(&gh, "- retry-text: Retry with the issue text only");
-    has(&gh, "issue comment 7 --repo acme/widget --body A reply to the choices above does nothing: the label `tehas:question` could not be added (run `tehas labels` on the host). To retry, apply `tehas:ready`.");
+    has(
+        &gh,
+        &format!(
+            "issue comment 7 --repo acme/widget --body {}",
+            tehas_cycle::apply::BOXES
+        ),
+    );
     has(
         &r.out,
         "WARN: label change on #7 failed: --add-label tehas:question",
@@ -1342,13 +1348,14 @@ fn a_second_develop_timeout_on_the_same_text_writes_nothing_asks_nothing_and_nam
     lacks(&gh, "Retry with the issue text only");
     lacks(&gh, "- park: Leave it parked");
     lacks(&gh, "Reply in a comment");
-    lacks(&gh, "tehas:question");
-    lacks(&gh, "To retry, apply `tehas:ready`");
+    // Neither the question's marker nor its label.
+    lacks(&gh, ":question");
+    lacks(&gh, "To retry, apply");
     has(
         &gh,
         "ran out of time in develop twice on the same text: split it with `tehas:plan`",
     );
-    has(&gh, "<!-- tehas:park issue=7 step=develop");
+    has(&gh, "park issue=7 step=develop");
     assert_eq!(park_q(&w), "none");
     assert_eq!(w.park()["reason"], "child-timeout:develop");
 }

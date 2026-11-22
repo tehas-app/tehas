@@ -1012,7 +1012,7 @@
     "actions": [
      {
       "issue": 7,
-      "say": "Retry was asked for and nothing was started: https://github.com/acme/widget/pull/90 is open and closes this issue. Merge or close that pull request, then answer retry again."
+      "say": "Retry was asked for and nothing was started: https://github.com/acme/widget/pull/90 is open and closes this issue. Merge or close that pull request, then answer retry again.\n\n<!-- tehas:declined question=4001 -->"
      }
     ],
     "no_actions": [
@@ -1127,7 +1127,7 @@
     "actions": [
      {
       "issue": 7,
-      "say": "Retry was asked for and nothing was started: https://github.com/acme/widget/pull/90 is open and closes this issue. Merge or close that pull request, then answer retry again."
+      "say": "Retry was asked for and nothing was started: https://github.com/acme/widget/pull/90 is open and closes this issue. Merge or close that pull request, then answer retry again.\n\n<!-- tehas:declined question=4001 -->"
      }
     ],
     "no_actions": [
@@ -1827,7 +1827,7 @@
     "actions": [
      {
       "issue": 7,
-      "say": "Retry was asked for, but this issue is not parked, so nothing was started."
+      "say": "Retry was asked for, but this issue is not parked, so nothing was started.\n\n<!-- tehas:declined question=4001 -->"
      }
     ],
     "no_actions": [
@@ -1873,7 +1873,7 @@
     "actions": [
      {
       "issue": 7,
-      "say": "Retry was asked for, but this issue is not parked, so nothing was started."
+      "say": "Retry was asked for, but this issue is not parked, so nothing was started.\n\n<!-- tehas:declined question=4001 -->"
      }
     ],
     "no_actions": [
@@ -1919,7 +1919,7 @@
     "actions": [
      {
       "issue": 7,
-      "say": "Retry was asked for, but this issue is not parked, so nothing was started."
+      "say": "Retry was asked for, but this issue is not parked, so nothing was started.\n\n<!-- tehas:declined question=4001 -->"
      }
     ],
     "no_actions": [
@@ -2086,7 +2086,7 @@
     "actions": [
      {
       "issue": 9,
-      "say": "This question is not one the factory is waiting on. To retry, apply `tehas:ready`."
+      "say": "This question is not one the factory is waiting on. To retry, apply `tehas:ready`.\n\n<!-- tehas:declined question=4001 -->"
      }
     ],
     "no_actions": [
@@ -2202,7 +2202,7 @@
     "actions": [
      {
       "issue": 7,
-      "say": "This question is not one the factory is waiting on. To retry, apply `tehas:ready`."
+      "say": "This question is not one the factory is waiting on. To retry, apply `tehas:ready`.\n\n<!-- tehas:declined question=4001 -->"
      }
     ],
     "exit": 0

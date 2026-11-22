@@ -15,7 +15,7 @@ use std::fs;
 use tehas_cycle::report::{last_attempts, report, Action, Given};
 use tehas_cycle::Facts;
 
-const BOXES: &str = "A reply to the choices above does nothing: the label `tehas:question` could not be added (run `tehas labels` on the host). To retry, apply `tehas:ready`.";
+use tehas_cycle::apply::BOXES;
 
 /// The writes of a report under what the bash met: its label changes, each
 /// counted once however often it was tried, its park on record or not, and
