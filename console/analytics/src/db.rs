@@ -6,6 +6,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tehas_core::file::side_file;
+use tehas_core::home::{Home, State};
 
 /// PRAGMA user_version of the schema in schema.sql. v0.30.0 wrote 4 already,
 /// so a database of any other schema is moved aside whole under its version.
@@ -31,7 +32,7 @@ pub const EVENTS: [&str; 7] = [
 ];
 
 pub fn path(home: &Path) -> PathBuf {
-    home.join("state").join("analytics.db")
+    Home::new(home).state(State::AnalyticsDb)
 }
 
 /// Opens the database, making it when there is none. A file that is not a

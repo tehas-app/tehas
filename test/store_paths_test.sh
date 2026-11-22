@@ -101,7 +101,7 @@ carrier "$n"'\.status\b' 'status_file=$TEHAS_HOME/state/cycles/$issue.status' \
   '' \
   "work tells the cycle the runner's status word"
 carrier '\.oom\b' 'oom_file=${cycles:?}/${issue:?}.oom' \
-  "$an/main.rs $an/run.rs $an/tests.rs" \
+  "$an/main.rs $an/run.rs" \
   "work counts the container's kills for memory for the cycle"
 carrier '\.forks\b' 'forks_file=$TEHAS_HOME/state/cycles/$issue.forks' \
   "$an/main.rs $an/run.rs" \
@@ -119,7 +119,7 @@ carrier '\.result\.json\b' 'result=$TEHAS_HOME/state/cycles/$issue.result.json' 
   "console/src/export.rs $an/run.rs $an/tests.rs console/core/src/snapshot.rs" \
   "the container's result, kept to the next start for tehas export"
 carrier '\.progress\.json\b' 'progress=$TEHAS_HOME/state/cycles/$issue.progress.json' \
-  "console/src/export.rs $an/run.rs $an/tests.rs" \
+  "console/src/export.rs $an/run.rs" \
   "the summary of the container's output, kept to the next start for tehas export"
 carrier "$n"'\.done\b' 'echo "$done_why" >"$TEHAS_HOME/state/cycles/$n.done"' \
   '' \
@@ -146,10 +146,10 @@ carrier '\$\{?st\}?\.lock\b|\.json\.lock\b' '[ -f "$st.lock" ]' \
   'console/ops/src/health.rs' \
   "the lock a planning turn holds while it runs; nothing moves its .keep while it is held"
 carrier '\$\{?st\}?\.out\b|\.json\.out\b' 'what=$(cat "$st.out")' \
-  "$an/plan.rs $an/tests.rs" \
+  "$an/plan.rs" \
   "a planning container's output"
 carrier 'refined\.jsonl\b' 'ledger=$TEHAS_HOME/state/refined.jsonl' \
-  "$an/main.rs $an/report.rs $an/sessions.rs $an/tests.rs" \
+  "$an/main.rs $an/report.rs $an/sessions.rs" \
   "the ledger of refined issues, which the store does not hold"
 
 t_case "no code names the old file of a record on the store"

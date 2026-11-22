@@ -16,6 +16,8 @@ pub struct Home {
 pub enum State {
     /// The ids of the accounts the lists name.
     AccountIds,
+    /// The analytics program's database.
+    AnalyticsDb,
     /// The login of the app the factory acts as.
     BotLogin,
     /// The factory's code index, `index/`.
@@ -40,10 +42,14 @@ pub enum State {
     Pause,
     /// The record of a sandbox that cannot push.
     PushFault,
+    /// The ledger of the refinements of issues.
+    Refined,
     /// The local records of starts a read-only host made.
     ReadOnly,
     /// The writes a read-only host did not make.
     ReadOnlyLog,
+    /// The ledger of the sizes of the issues started.
+    Sizes,
     /// The record of the starts.
     Starts,
     /// The state store.
@@ -57,6 +63,7 @@ impl State {
     pub const fn relative(self) -> &'static str {
         match self {
             State::AccountIds => "state/account-ids",
+            State::AnalyticsDb => "state/analytics.db",
             State::BotLogin => "state/github/login",
             State::CodeIndex => "state/index",
             State::CodeIndexState => "state/index.json",
@@ -69,8 +76,10 @@ impl State {
             State::OutsourceDownloads => "state/outsource/downloads",
             State::Pause => "state/pause.json",
             State::PushFault => "state/push-fault.json",
+            State::Refined => "state/refined.jsonl",
             State::ReadOnly => "state/read-only",
             State::ReadOnlyLog => "state/read-only.log",
+            State::Sizes => "state/sizes.jsonl",
             State::Starts => "state/starts.json",
             State::StoreDb => "state/tehas.db",
             State::UpdateLock => "state/update.lock",
@@ -98,6 +107,27 @@ impl TokenDir {
             TokenDir::App => "state/github",
             TokenDir::Cycle => "state/github-cycle",
             TokenDir::Session => "state/github-session",
+        }
+    }
+}
+
+/// A view the factory publishes under `live/`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Live {
+    /// The dispatcher's last decision.
+    Dispatch,
+    /// The power the hosts draw.
+    Energy,
+    /// The queue and the cycles of the product.
+    Status,
+}
+
+impl Live {
+    const fn name(self) -> &'static str {
+        match self {
+            Live::Dispatch => "dispatch.json",
+            Live::Energy => "energy.json",
+            Live::Status => "status.json",
         }
     }
 }
@@ -137,6 +167,11 @@ impl Home {
         self.cycles_dir().join(format!("{issue}.{note}"))
     }
 
+    /// `state/plan-<issue>.json<end>`, with `end` such as `""` or `".out"`.
+    pub fn plan_file(&self, issue: u64, end: &str) -> PathBuf {
+        self.state_dir().join(format!("plan-{issue}.json{end}"))
+    }
+
     pub fn token_dir(&self, t: TokenDir) -> PathBuf {
         self.root.join(t.relative())
     }
@@ -145,6 +180,10 @@ impl Home {
     /// server's `live:`.
     pub fn live_dir(&self) -> PathBuf {
         self.root.join("live")
+    }
+
+    pub fn live(&self, l: Live) -> PathBuf {
+        self.live_dir().join(l.name())
     }
 }
 
@@ -183,6 +222,7 @@ mod tests {
     fn each_state_name_is_its_file() {
         let cases = [
             (State::AccountIds, "/h/state/account-ids"),
+            (State::AnalyticsDb, "/h/state/analytics.db"),
             (State::BotLogin, "/h/state/github/login"),
             (State::CodeIndex, "/h/state/index"),
             (State::CodeIndexState, "/h/state/index.json"),
@@ -195,8 +235,10 @@ mod tests {
             (State::OutsourceDownloads, "/h/state/outsource/downloads"),
             (State::Pause, "/h/state/pause.json"),
             (State::PushFault, "/h/state/push-fault.json"),
+            (State::Refined, "/h/state/refined.jsonl"),
             (State::ReadOnly, "/h/state/read-only"),
             (State::ReadOnlyLog, "/h/state/read-only.log"),
+            (State::Sizes, "/h/state/sizes.jsonl"),
             (State::Starts, "/h/state/starts.json"),
             (State::StoreDb, "/h/state/tehas.db"),
             (State::UpdateLock, "/h/state/update.lock"),
@@ -214,6 +256,24 @@ mod tests {
             at(h().cycle_note(7, "end-failed.json")),
             "/h/state/cycles/7.end-failed.json"
         );
+    }
+
+    #[test]
+    fn a_plan_file_is_named_for_its_issue() {
+        assert_eq!(at(h().plan_file(7, "")), "/h/state/plan-7.json");
+        assert_eq!(at(h().plan_file(7, ".out")), "/h/state/plan-7.json.out");
+    }
+
+    #[test]
+    fn each_live_view_is_its_file() {
+        let cases = [
+            (Live::Dispatch, "/h/live/dispatch.json"),
+            (Live::Energy, "/h/live/energy.json"),
+            (Live::Status, "/h/live/status.json"),
+        ];
+        for (l, want) in cases {
+            assert_eq!(at(h().live(l)), want, "{l:?}");
+        }
     }
 
     #[test]

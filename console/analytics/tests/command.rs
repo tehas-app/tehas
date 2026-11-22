@@ -11,6 +11,7 @@ use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tehas_core::home::{Home, Live};
 
 const ANALYTICS: &str = env!("CARGO_BIN_EXE_analytics");
 
@@ -20,7 +21,7 @@ const ANALYTICS: &str = env!("CARGO_BIN_EXE_analytics");
 fn schema_version() -> i64 {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("command-schema");
     let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(dir.join("state")).unwrap();
+    fs::create_dir_all(Home::new(&dir).state_dir()).unwrap();
     let copy = dir.join("copy.db");
     let out = Command::new(ANALYTICS)
         .args(["copy", "--to", copy.to_str().unwrap(), "--json"])
@@ -69,7 +70,8 @@ impl Host {
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("command-{name}"));
         let _ = fs::remove_dir_all(&dir);
         let home = dir.join("tehas");
-        for sub in ["state/cycles", "logs", "docs", "libexec"] {
+        fs::create_dir_all(Home::new(&home).cycles_dir()).unwrap();
+        for sub in ["logs", "docs", "libexec"] {
             fs::create_dir_all(home.join(sub)).unwrap();
         }
         symlink(ANALYTICS, home.join("libexec/analytics")).unwrap();
@@ -112,6 +114,14 @@ impl Host {
 
     fn put(&self, name: &str, text: &str) {
         fs::write(self.home.join(name), text).unwrap();
+    }
+
+    fn put_at(&self, p: PathBuf, text: &str) {
+        fs::write(p, text).unwrap();
+    }
+
+    fn layout(&self) -> Home {
+        Home::new(&self.home)
     }
 
     // The person's command, with the environment a login gives it and no other.
@@ -171,14 +181,17 @@ impl Host {
                 connect ECONNREFUSED models.example:8000; git@host.tld:org/repo; token=ghp_abcdefghijklmnopqrstuvwxyz123456; \
                 Incorrect API key provided: sk-abc123def456ghi789jkl0; dial fe80::1%eth0 and 2001:db8::7",
                 ip([10, 0, 0, 7]), ip([203, 0, 113, 9]))});
-        self.put("state/cycles/7.result.json", &result.to_string());
+        self.put_at(
+            self.layout().cycle_note(7, "result.json"),
+            &result.to_string(),
+        );
         fs::copy(
             fixture.join("progress.jsonl"),
             self.home.join("logs/work-7-261015-183834.jsonl"),
         )
         .unwrap();
-        self.put(
-            "state/cycles/7.progress.json",
+        self.put_at(
+            self.layout().cycle_note(7, "progress.json"),
             &json!({"roles": [{"role": "ops", "dispatches": 1, "turns": 3, "input": 100,
                                "output": 10, "cacheRead": 5},
                               {"role": "explore", "dispatches": 1, "turns": 2, "input": 50,
@@ -191,19 +204,19 @@ impl Host {
             "Everything up-to-date\n",
         );
         // The live files of a poll that was held.
-        fs::create_dir_all(self.home.join("live")).unwrap();
-        self.put(
-            "live/status.json",
+        fs::create_dir_all(self.layout().live_dir()).unwrap();
+        self.put_at(
+            self.layout().live(Live::Status),
             &json!({"generatedAt": iso(now), "paused": false, "queued": [{"number": 8}],
                     "running": [], "awaiting": [], "stopped": [], "planning": 0})
             .to_string(),
         );
-        self.put(
-            "live/dispatch.json",
+        self.put_at(
+            self.layout().live(Live::Dispatch),
             &json!({"time": iso(now), "why": "resources", "count": 0, "free": 2}).to_string(),
         );
-        self.put(
-            "live/energy.json",
+        self.put_at(
+            self.layout().live(Live::Energy),
             &json!({"generatedAt": iso(now), "totals": {"watts": 250.0}}).to_string(),
         );
         self.put("docs/version.txt", "v0.7.22+1234abc\n");
@@ -422,7 +435,7 @@ fn the_copy_prints_the_object_its_schema_and_samples_describe() {
 
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("command-copy-schema-new");
     let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(dir.join("state")).unwrap();
+    fs::create_dir_all(Home::new(&dir).state_dir()).unwrap();
     let copy = dir.join("copy.db");
     let new = Command::new(ANALYTICS)
         .args(["copy", "--to", copy.to_str().unwrap(), "--json"])

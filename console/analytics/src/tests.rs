@@ -9,13 +9,14 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use tehas_core::home::{Home, Live, State};
 use tehas_core::testdir::TestDir;
 
 const DAY: i64 = 86_400;
 
 fn scratch(name: &str) -> TestDir {
     let dir = TestDir::new(&format!("analytics-{name}"));
-    fs::create_dir_all(dir.join("state/cycles")).unwrap();
+    fs::create_dir_all(h(&dir).cycles_dir()).unwrap();
     fs::create_dir_all(dir.join("logs")).unwrap();
     fs::create_dir_all(dir.join("docs")).unwrap();
     fs::create_dir_all(dir.join("tmp")).unwrap();
@@ -39,6 +40,14 @@ fn iso(t: i64) -> String {
 // An address written out here, so no private one stands in the source.
 fn ip(octets: [u8; 4]) -> String {
     octets.map(|o| o.to_string()).join(".")
+}
+
+fn h(home: &Path) -> Home {
+    Home::new(home)
+}
+
+fn put_at(p: PathBuf, text: &str) {
+    fs::write(p, text).unwrap();
 }
 
 fn put(home: &Path, name: &str, text: &str) {
@@ -133,7 +142,7 @@ fn cycle(home: &Path, name: &str, started: i64, line: Value) {
     let dir = fixture(name);
     fs::copy(
         dir.join("result.json"),
-        home.join("state/cycles/7.result.json"),
+        h(home).cycle_note(7, "result.json"),
     )
     .unwrap();
     fs::copy(
@@ -146,9 +155,8 @@ fn cycle(home: &Path, name: &str, started: i64, line: Value) {
         "logs/work-7-261015-183834.jsonl.preflight",
         "Everything up-to-date\nprovider retry: 3 tries\n",
     );
-    put(
-        home,
-        "state/cycles/7.progress.json",
+    put_at(
+        h(home).cycle_note(7, "progress.json"),
         r#"{"roles":[],"reason":"","failure":null,"reviewHeld":false,"from":{"roles":"progress","failure":"progress"}}"#,
     );
     fact(
@@ -350,7 +358,7 @@ fn cache_write_cost_and_role_usage_are_kept() {
         json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff",
                "parked": true}),
     );
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     r["issues"][0]["usage"] = json!({"input": 1000, "output": 200, "cacheRead": 5000,
         "cacheWrite": 300, "cost": 0.25, "turns": 9, "dispatches": 3,
@@ -414,7 +422,7 @@ fn a_schema_5_result_is_read() {
         json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff",
                "parked": true}),
     );
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     r["schemaVersion"] = json!(5);
     r["issues"][0]["usage"]["input"] = json!(1234);
@@ -436,7 +444,7 @@ fn tool_counts_and_the_driver_that_ran_are_kept_and_absent_ones_stay_null() {
     let facts = json!({"at": iso(started + 30), "started": started, "rc": 10,
                        "status": "handoff", "parked": true});
     cycle(&home, "headless-316134e", started, facts.clone());
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     r["schemaVersion"] = json!(5);
     r["issues"][0]["driver"] = json!("lean");
@@ -466,7 +474,7 @@ fn tool_counts_and_the_driver_that_ran_are_kept_and_absent_ones_stay_null() {
     // know, leaves the columns empty: no count, not none.
     let home = scratch("tool-counts-absent");
     cycle(&home, "headless-316134e", started, facts);
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     r["issues"][0]["driver"] = json!("other");
     fs::write(&path, r.to_string()).unwrap();
@@ -492,13 +500,12 @@ fn roles_come_from_the_progress_and_steps_from_the_stream_when_the_result_has_no
         started,
         json!({"at": iso(ended), "started": started, "rc": 10, "status": "unknown", "parked": true}),
     );
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     r["issues"][0].as_object_mut().unwrap().remove("steps");
     fs::write(&path, r.to_string()).unwrap();
-    put(
-        &home,
-        "state/cycles/7.progress.json",
+    put_at(
+        h(&home).cycle_note(7, "progress.json"),
         r#"{"roles":[{"role":"ops","dispatches":2,"turns":3,"input":10,"output":20,"cacheRead":30}],"reason":"","failure":null,"reviewHeld":true}"#,
     );
     let conn = record(&home, 7, ended);
@@ -541,10 +548,9 @@ fn a_run_with_no_result_is_stored_with_tehas_s_status_and_times() {
             ],
         );
         // What tehas-cycle passes on. The files it removed are not read.
-        put(&home, "state/cycles/12.oom", "9\n");
-        put(
-            &home,
-            "state/cycles/12.image",
+        put_at(h(&home).cycle_note(12, "oom"), "9\n");
+        put_at(
+            h(&home).cycle_note(12, "image"),
             &format!("sha256:{} 1111111\n", "e".repeat(64)),
         );
         let given = Given {
@@ -801,7 +807,7 @@ fn the_steps_after_the_gate_bound_are_still_read() {
                "pr": "https://github.com/o/r/pull/3"}),
     );
     // The result names no steps, so the run's steps come from the stream.
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     r["issues"][0].as_object_mut().unwrap().remove("steps");
     fs::write(&path, r.to_string()).unwrap();
@@ -1013,7 +1019,7 @@ fn a_failure_cause_is_masked_and_cut() {
         json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff",
                "parked": true}),
     );
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     let long = "x".repeat(400);
     r["issues"][0]["failure"] = json!({"kind": "provider", "step": "implement",
@@ -1043,7 +1049,7 @@ fn the_history_s_cause_is_taken_before_the_result_s() {
         json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff",
                "failure_kind": "provider", "failure_cause": "ECONNREFUSED"}),
     );
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     r["issues"][0]["failure"] = json!({"kind": "provider", "cause": "a long raw text"});
     fs::write(&path, r.to_string()).unwrap();
@@ -1171,29 +1177,25 @@ fn the_run_takes_its_history_approval_settings_and_commit_from_the_facts_alone()
     let home = scratch("factsonly");
     let started = 1_792_000_000;
     // The files these facts once came from, saying otherwise: none is read.
-    put(
-        &home,
-        "state/cycles/7.history.jsonl",
+    put_at(
+        h(&home).cycle_note(7, "history.jsonl"),
         &format!(
             "{}\n",
             json!({"at": iso(started + 9), "started": started - 5000, "rc": 1, "status": "failed"})
         ),
     );
-    put(
-        &home,
-        "state/cycles/7.approved.json",
+    put_at(
+        h(&home).cycle_note(7, "approved.json"),
         &json!({"at": iso(started - 9000), "how": "fixer"}).to_string(),
     );
-    put(
-        &home,
-        "state/cycles/7.settings",
+    put_at(
+        h(&home).cycle_note(7, "settings"),
         &json!({"container": {"PI_ENSEMBLE_SUBAGENT_MODEL": "file-model"}, "concurrentCycles": 9})
             .to_string(),
     );
-    put(&home, "state/cycles/7.rukas", "fedcba9\n");
-    put(
-        &home,
-        "state/cycles/7.progress.json",
+    put_at(h(&home).cycle_note(7, "rukas"), "fedcba9\n");
+    put_at(
+        h(&home).cycle_note(7, "progress.json"),
         r#"{"roles":[{"role":"ops","dispatches":1}],"reviewHeld":false}"#,
     );
     history(
@@ -1353,7 +1355,7 @@ fn a_database_another_program_made_meanwhile_is_not_moved_aside() {
         one::<String>(&late, "SELECT value FROM meta WHERE key = 'created'"),
         "1792000000"
     );
-    assert!(!home.join("state/analytics.db.broken").exists());
+    assert!(!h(&home).state_dir().join("analytics.db.broken").exists());
 }
 
 #[test]
@@ -1379,7 +1381,7 @@ fn programs_that_open_a_new_database_at_once_all_get_it() {
                 "a valid database was moved aside"
             );
         }
-        assert!(!home.join("state/analytics.db.broken").exists());
+        assert!(!h(&home).state_dir().join("analytics.db.broken").exists());
         let conn = Connection::open(&file).unwrap();
         assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 8);
         assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM meta"), 3);
@@ -1402,18 +1404,18 @@ fn a_database_that_cannot_be_written_is_an_error_and_stays() {
         70
     );
     assert!(fs::read(&file).unwrap() == before);
-    assert!(!home.join("state/analytics.db.broken").exists());
+    assert!(!h(&home).state_dir().join("analytics.db.broken").exists());
     // A directory it may not write in, with the database in it.
     let home = scratch("readonly-dir");
     let file = db::path(&home);
     execute(&home, &Cmd::Event(1, "ready".into(), None), now).unwrap();
-    let state = home.join("state");
+    let state = h(&home).state_dir();
     fs::set_permissions(&state, fs::Permissions::from_mode(0o500)).unwrap();
     let err = execute(&home, &Cmd::Event(2, "ready".into(), None), now);
     fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap(); // a directory
     assert_eq!(err.unwrap_err().0, 70);
     assert!(file.is_file());
-    assert!(!home.join("state/analytics.db.broken").exists());
+    assert!(!h(&home).state_dir().join("analytics.db.broken").exists());
 }
 
 #[test]
@@ -1493,7 +1495,7 @@ fn a_broken_file_is_moved_aside_and_a_new_database_made() {
         }
         let before = fs::read(&file).unwrap();
         execute(&home, &Cmd::Event(1, "ready".into(), None), 1_792_000_000).unwrap();
-        let aside = fs::read(home.join("state/analytics.db.broken")).unwrap();
+        let aside = fs::read(h(&home).state_dir().join("analytics.db.broken")).unwrap();
         assert!(
             aside == before,
             "{name}: the file moved aside is not the one found"
@@ -1527,8 +1529,8 @@ fn a_database_of_another_schema_is_kept_aside_under_its_version() {
         std::mem::forget(c);
     }
     execute(&home, &Cmd::Event(1, "ready".into(), None), 1_792_000_000).unwrap();
-    assert!(!home.join("state/analytics.db.broken").exists());
-    let kept = Connection::open(home.join("state/analytics.db.schema-99")).unwrap();
+    assert!(!h(&home).state_dir().join("analytics.db.broken").exists());
+    let kept = Connection::open(h(&home).state_dir().join("analytics.db.schema-99")).unwrap();
     assert_eq!(one::<i64>(&kept, "PRAGMA user_version"), 99);
     assert_eq!(one::<i64>(&kept, "SELECT x FROM runs"), 42);
     let conn = Connection::open(&file).unwrap();
@@ -1597,7 +1599,11 @@ fn a_database_of_schema_1_to_3_is_kept_aside() {
         let (conn, moved) = db::open(&file, 1_792_000_000).unwrap();
         assert_eq!(
             moved,
-            Some(home.join(format!("state/analytics.db.schema-{v}"))),
+            Some(
+                h(&home)
+                    .state_dir()
+                    .join(format!("analytics.db.schema-{v}"))
+            ),
             "schema {v} has no migration"
         );
         assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
@@ -1643,7 +1649,7 @@ fn a_run_stores_the_driver_its_approval_bound_and_nothing_else() {
 #[test]
 fn prune_deletes_a_kept_schema_365_days_after_its_last_write() {
     let home = scratch("aside");
-    let state = home.join("state");
+    let state = h(&home).state_dir();
     let now = 1_792_000_000;
     let at = |secs: i64| std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs as u64);
     for (name, written) in [
@@ -1685,7 +1691,7 @@ fn prune_deletes_a_kept_schema_365_days_after_its_last_write() {
 #[test]
 fn prune_aside_returns_the_expired_files_it_could_not_delete() {
     let home = scratch("aside-stuck");
-    let state = home.join("state");
+    let state = h(&home).state_dir();
     fs::create_dir_all(&state).unwrap();
     let now = 1_792_000_000;
     let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs((now - 366 * 86_400) as u64);
@@ -1747,7 +1753,7 @@ fn export_writes_a_copy_that_opens_with_the_same_version_mode_0600_and_nothing_p
         json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff",
                "parked": true, "pr": "https://github.com/o/r/pull/3"}),
     );
-    let path = home.join("state/cycles/7.result.json");
+    let path = h(&home).cycle_note(7, "result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     r["issues"][0]["failure"] = json!({"kind": "provider",
         "cause": format!("GET https://user:hunter2@models.example/v1 from {} and {} with Bearer abcdefghijklmnopqrstuvwxyz; \
@@ -2100,7 +2106,7 @@ fn run_reads_nothing_through_a_link() {
         started,
         json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff"}),
     );
-    let result = home.join("state/cycles/7.result.json");
+    let result = h(&home).cycle_note(7, "result.json");
     let moved = home.join("result.json");
     fs::rename(&result, &moved).unwrap();
     std::os::unix::fs::symlink(&moved, &result).unwrap();
@@ -2123,9 +2129,8 @@ fn a_kept_lean_record_gives_a_lean_run_its_steps() {
         json!({"at": iso(started + 30), "started": started, "rc": 0, "status": "merged"}),
     );
     let steps = |home: &Path, v: Value| {
-        put(
-            home,
-            "state/cycles/7.lean-state.json",
+        put_at(
+            h(home).cycle_note(7, "lean-state.json"),
             &json!({"schema": 1, "issue": 7, "steps": v}).to_string(),
         );
     };
@@ -2175,11 +2180,11 @@ fn a_kept_lean_record_gives_a_lean_run_its_steps() {
         r#"{"steps": 1}"#,
         "{not json",
     ] {
-        put(&home, "state/cycles/7.lean-state.json", body);
+        put_at(h(&home).cycle_note(7, "lean-state.json"), body);
         let r = run::read(&home, 7, &given(&home, 7)).unwrap();
         assert_eq!(names(&r), stream, "{body}");
     }
-    fs::remove_file(home.join("state/cycles/7.lean-state.json")).unwrap();
+    fs::remove_file(h(&home).cycle_note(7, "lean-state.json")).unwrap();
     let r = run::read(&home, 7, &given(&home, 7)).unwrap();
     assert_eq!(names(&r), stream);
 }
@@ -2187,11 +2192,10 @@ fn a_kept_lean_record_gives_a_lean_run_its_steps() {
 // The live files of one poll, as tehasbot status, tehas-dispatch and
 // console energy write them, at `at`.
 fn live(home: &Path, at: i64, why: &str, limit_room: Option<i64>) {
-    fs::create_dir_all(home.join("live")).unwrap();
+    fs::create_dir_all(h(home).live_dir()).unwrap();
     let issue = |n: i64| json!({"number": n, "title": "t", "url": "u"});
-    put(
-        home,
-        "live/status.json",
+    put_at(
+        h(home).live(Live::Status),
         &json!({"generatedAt": iso(at), "repo": "acme/widget", "paused": true,
                 "running": [issue(1), issue(2)], "queued": [issue(3), issue(4), issue(5)],
                 "awaiting": [issue(6)], "stopped": [], "planning": 2, "completed": [issue(9)]})
@@ -2203,10 +2207,9 @@ fn live(home: &Path, at: i64, why: &str, limit_room: Option<i64>) {
     if let Some(r) = limit_room {
         d["limitRoom"] = json!(r);
     }
-    put(home, "live/dispatch.json", &d.to_string());
-    put(
-        home,
-        "live/energy.json",
+    put_at(h(home).live(Live::Dispatch), &d.to_string());
+    put_at(
+        h(home).live(Live::Energy),
         &json!({"generatedAt": iso(at), "totals": {"watts": 412.5, "hosts": 2}}).to_string(),
     );
 }
@@ -2265,7 +2268,7 @@ fn a_sample_reads_the_report_the_dispatcher_writes() {
     };
     let mut v = r.to_value();
     v[tehas_core::hold::KEY_TIME] = json!(iso(now - 20));
-    put(&home, "live/dispatch.json", &v.to_string());
+    put_at(h(&home).live(Live::Dispatch), &v.to_string());
     execute(&home, &Cmd::Sample, now).unwrap();
     // The limit of tehas limit is the lower ceiling: count plus limitRoom,
     // three, though count plus free would give seven.
@@ -2292,9 +2295,8 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     live(&home, now - 30, "count", None);
     // A poll runs every two minutes: a dispatch.json older than that is an
     // earlier poll's, though status.json still counts.
-    put(
-        &home,
-        "live/dispatch.json",
+    put_at(
+        h(&home).live(Live::Dispatch),
         &json!({"time": iso(now - 200), "why": "count", "count": 1, "free": 0}).to_string(),
     );
     execute(&home, &Cmd::Sample, now + 1).unwrap();
@@ -2302,9 +2304,9 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
 
     let home = scratch("sample-links");
     live(&home, now - 30, "count", None);
-    for name in ["status.json", "dispatch.json", "energy.json"] {
-        let p = home.join("live").join(name);
-        let moved = home.join(name);
+    for view in [Live::Status, Live::Dispatch, Live::Energy] {
+        let p = h(&home).live(view);
+        let moved = home.join(p.file_name().unwrap());
         fs::rename(&p, &moved).unwrap();
         std::os::unix::fs::symlink(&moved, &p).unwrap();
     }
@@ -2312,16 +2314,14 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     assert_eq!(sample_row(&home), nothing(now));
 
     let home = scratch("sample-bad");
-    fs::create_dir_all(home.join("live")).unwrap();
-    put(&home, "live/status.json", "not json");
-    put(
-        &home,
-        "live/dispatch.json",
+    fs::create_dir_all(h(&home).live_dir()).unwrap();
+    put_at(h(&home).live(Live::Status), "not json");
+    put_at(
+        h(&home).live(Live::Dispatch),
         &json!({"time": "yesterday", "why": "count", "count": 1, "free": 0}).to_string(),
     );
-    put(
-        &home,
-        "live/energy.json",
+    put_at(
+        h(&home).live(Live::Energy),
         &json!({"generatedAt": iso(now), "totals": {"watts": null}}).to_string(),
     );
     execute(&home, &Cmd::Sample, now).unwrap();
@@ -2329,17 +2329,15 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
 
     // Fields of the wrong type, and a hold that is not one word.
     let home = scratch("sample-types");
-    fs::create_dir_all(home.join("live")).unwrap();
-    put(
-        &home,
-        "live/status.json",
+    fs::create_dir_all(h(&home).live_dir()).unwrap();
+    put_at(
+        h(&home).live(Live::Status),
         &json!({"generatedAt": iso(now), "paused": "no", "queued": 3, "running": [], "awaiting": {}, "stopped": null,
                 "planning": "2"})
             .to_string(),
     );
-    put(
-        &home,
-        "live/dispatch.json",
+    put_at(
+        h(&home).live(Live::Dispatch),
         &json!({"time": iso(now), "why": "holding: <b>", "count": "2", "free": 1}).to_string(),
     );
     execute(&home, &Cmd::Sample, now).unwrap();
@@ -2356,8 +2354,8 @@ fn the_sampler_reads_the_lists_by_the_names_status_json_writes() {
     for (i, name) in queue_lists::LISTS.iter().enumerate() {
         st[*name] = json!(vec![json!({"number": 1}); i + 1]);
     }
-    fs::create_dir_all(home.join("live")).unwrap();
-    put(&home, "live/status.json", &st.to_string());
+    fs::create_dir_all(h(&home).live_dir()).unwrap();
+    put_at(h(&home).live(Live::Status), &st.to_string());
     let s = crate::sample::read(&home, now);
     let at = |k: &str| queue_lists::LISTS.iter().position(|n| *n == k).unwrap() as i64 + 1;
     assert_eq!(s.in_line, Some(at(QUEUED)));
@@ -2377,9 +2375,9 @@ fn planning_is_the_count_status_json_gives_and_null_without_one() {
         if let Some(p) = planning {
             s["planning"] = p;
         }
-        put(&home, "live/status.json", &s.to_string());
+        put_at(h(&home).live(Live::Status), &s.to_string());
     };
-    fs::create_dir_all(home.join("live")).unwrap();
+    fs::create_dir_all(h(&home).live_dir()).unwrap();
     for (at, planning) in [
         (now, Some(json!(0))),
         (now + 1, Some(json!(4))),
@@ -2606,7 +2604,7 @@ fn an_event_far_in_the_past_is_stored_as_given() {
 fn turn(home: &Path, record: Value, out: Option<Value>) {
     fs::write(facts_path(home, 7), record.to_string()).unwrap();
     if let Some(o) = out {
-        put(home, "state/plan-7.json.out", &o.to_string());
+        put_at(h(home).plan_file(7, ".out"), &o.to_string());
     }
     put(home, "docs/version.txt", "v0.7.22+1234abc\n");
 }
@@ -2869,9 +2867,9 @@ fn the_refine_figures_follow_the_refined_issues_and_compare_them_with_the_rest()
     ev(20, "merged", day0 + 9000);
     ev(21, "ready", day0 + 4000);
     ev(21, "started", day0 + 4100);
-    std::fs::create_dir_all(home.join("state")).unwrap();
+    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
     std::fs::write(
-        home.join("state").join("refined.jsonl"),
+        h(&home).state(State::Refined),
         format!(
             "{}\n{}\nnot json\n{}\n",
             json!({"at": iso(day0 + 900), "source": 1, "filed": 10, "url": "u"}),
@@ -2944,9 +2942,8 @@ fn the_size_figures_follow_the_measured_starts_of_the_window() {
     // file: issue 1's later measure stands first here and still answers.
     let mut wide = json!({"at": iso(day0 + 6100), "issue": 12, "files": 3});
     wide["filler"] = json!("x".repeat(100_000));
-    put(
-        &home,
-        "state/sizes.jsonl",
+    put_at(
+        h(&home).state(State::Sizes),
         &ledger(&[
             json!({"at": iso(day0 + 1000), "issue": 1, "files": 2, "tests": 1,
                   "deliverables": 1, "done_when": 2}),
@@ -3061,10 +3058,9 @@ fn the_report_command_adds_the_refine_and_size_figures() {
         rusqlite::params![day0 + 1000, 1, day0 + 4600],
     )
     .unwrap();
-    std::fs::create_dir_all(home.join("state")).unwrap();
-    put(
-        &home,
-        "state/sizes.jsonl",
+    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
+    put_at(
+        h(&home).state(State::Sizes),
         &ledger(&[json!({"at": iso(day0 + 1000), "issue": 1, "files": 2})]),
     );
     let got = crate::report::complete(&conn, &home, to).unwrap();
@@ -3084,8 +3080,8 @@ fn the_report_command_adds_the_refine_and_size_figures() {
     // A ledger that is a link is read no more than a ledger that is no file:
     // the figures are four buckets of nothing.
     let moved = home.join("elsewhere.jsonl");
-    fs::rename(home.join("state").join("sizes.jsonl"), &moved).unwrap();
-    std::os::unix::fs::symlink(&moved, home.join("state").join("sizes.jsonl")).unwrap();
+    fs::rename(h(&home).state(State::Sizes), &moved).unwrap();
+    std::os::unix::fs::symlink(&moved, h(&home).state(State::Sizes)).unwrap();
     assert!(crate::report::read_sizes(&home).is_empty());
     let got = crate::report::complete(&conn, &home, to).unwrap();
     assert_eq!(got["sizes"], empty_buckets());
@@ -3104,7 +3100,7 @@ fn a_ship_whose_merge_precedes_its_ready_contributes_no_lead() {
     let day0 = 1_792_022_400;
     let to = day0 + 9 * DAY + 43_200;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    std::fs::create_dir_all(home.join("state")).unwrap();
+    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
     conn.execute(
         "INSERT OR IGNORE INTO issue_events (at, issue, event) VALUES (?1, ?2, ?3)",
         rusqlite::params![day0 + 2000, 1, "ready"],
@@ -3115,9 +3111,8 @@ fn a_ship_whose_merge_precedes_its_ready_contributes_no_lead() {
         rusqlite::params![day0 + 1000, 1, "merged"],
     )
     .unwrap();
-    put(
-        &home,
-        "state/sizes.jsonl",
+    put_at(
+        h(&home).state(State::Sizes),
         &ledger(&[json!({"at": iso(day0 + 900), "issue": 1, "files": 2})]),
     );
     let got = crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap();
@@ -3136,10 +3131,9 @@ fn the_size_figures_hold_no_keys_but_their_own() {
     let day0 = 1_792_022_400;
     let to = day0 + 9 * DAY + 43_200;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    std::fs::create_dir_all(home.join("state")).unwrap();
-    put(
-        &home,
-        "state/sizes.jsonl",
+    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
+    put_at(
+        h(&home).state(State::Sizes),
         &ledger(&[
             json!({"at": iso(day0 + 1000), "issue": 1, "files": 2, "tests": 1,
                    "deliverables": 3, "done_when": 4, "title": "what the issue asked for"}),
@@ -3168,12 +3162,12 @@ fn a_ledger_past_the_whole_file_bound_is_no_ledger_at_all() {
     let day0 = 1_792_022_400;
     let to = day0 + 9 * DAY + 43_200;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    std::fs::create_dir_all(home.join("state")).unwrap();
+    std::fs::create_dir_all(h(&home).state_dir()).unwrap();
     // The 500 lines the writers keep: read whole, and of one issue each.
     let starts: Vec<Value> = (1..=500)
         .map(|i| json!({"at": iso(day0 + 1000 + i), "issue": i, "files": 2}))
         .collect();
-    put(&home, "state/sizes.jsonl", &ledger(&starts));
+    put_at(h(&home).state(State::Sizes), &ledger(&starts));
     assert_eq!(crate::report::read_sizes(&home).len(), 500);
     // A line one byte short of the width bound is a record; one at it is a
     // paste. Both sit beside a good line, so the wide one costs only itself.
@@ -3200,18 +3194,16 @@ fn a_ledger_past_the_whole_file_bound_is_no_ledger_at_all() {
             .len(),
         51
     );
-    put(
-        &home,
-        "state/sizes.jsonl",
+    put_at(
+        h(&home).state(State::Sizes),
         &ledger(&[
             json!({"at": at.clone(), "issue": 900, "files": 2}),
             wide_of(901, 99_999),
         ]),
     );
     assert_eq!(crate::report::read_sizes(&home).len(), 2);
-    put(
-        &home,
-        "state/sizes.jsonl",
+    put_at(
+        h(&home).state(State::Sizes),
         &ledger(&[
             json!({"at": at.clone(), "issue": 900, "files": 2}),
             wide_of(902, 100_000),
@@ -3224,7 +3216,7 @@ fn a_ledger_past_the_whole_file_bound_is_no_ledger_at_all() {
     let mut big = ledger(&starts);
     big.push_str(&"y".repeat(one_mib - big.len() + 1));
     assert_eq!(big.len(), one_mib + 1);
-    put(&home, "state/sizes.jsonl", &big);
+    put_at(h(&home).state(State::Sizes), &big);
     assert!(crate::report::read_sizes(&home).is_empty());
     assert_eq!(
         crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap(),
@@ -3232,13 +3224,12 @@ fn a_ledger_past_the_whole_file_bound_is_no_ledger_at_all() {
     );
     // The last byte within the bound is read: the same file one byte shorter
     // answers for all 500 starts.
-    put(&home, "state/sizes.jsonl", &big[..one_mib]);
+    put_at(h(&home).state(State::Sizes), &big[..one_mib]);
     assert_eq!(crate::report::read_sizes(&home).len(), 500);
     // A `files` count of more than the nine digits the setting may hold is no
     // measure, whatever bucket it would have fallen in.
-    put(
-        &home,
-        "state/sizes.jsonl",
+    put_at(
+        h(&home).state(State::Sizes),
         &ledger(&[
             json!({"at": iso(day0 + 1000), "issue": 903, "files": 999_999_999}),
             json!({"at": iso(day0 + 1000), "issue": 904, "files": 1_000_000_000}),
@@ -3254,17 +3245,19 @@ fn a_ledger_past_the_whole_file_bound_is_no_ledger_at_all() {
     );
     // A stamp of an eleven-digit year is refused at the parse, so neither
     // ledger can panic the report with one.
-    for name in ["sizes.jsonl", "refined.jsonl"] {
-        put(
-            &home,
-            &format!("state/{name}"),
+    for ledger_of in [State::Sizes, State::Refined] {
+        put_at(
+            h(&home).state(ledger_of),
             &ledger(&[
                 json!({"at": "71167994112-01-01T00:00:00Z", "issue": 1, "files": 2,
                             "source": 1, "filed": 1, "url": "https://x/y/issues/1"}),
             ]),
         );
-        assert!(crate::report::read_sizes(&home).is_empty(), "{name}");
-        assert!(crate::report::read_refined(&home).is_empty(), "{name}");
+        assert!(crate::report::read_sizes(&home).is_empty(), "{ledger_of:?}");
+        assert!(
+            crate::report::read_refined(&home).is_empty(),
+            "{ledger_of:?}"
+        );
     }
 }
 
@@ -3341,7 +3334,7 @@ fn the_size_figures_of_a_full_ledger_come_in_inside_the_time_limit() {
     let starts: Vec<Value> = (0..400)
         .map(|i| json!({"at": iso(to - 3600), "issue": i, "files": i % 7}))
         .collect();
-    put(&home, "state/sizes.jsonl", &ledger(&starts));
+    put_at(h(&home).state(State::Sizes), &ledger(&starts));
     let t = std::time::Instant::now();
     assert_eq!(execute(&home, &Cmd::Report, to), Ok(()));
     let took = t.elapsed();
@@ -3373,7 +3366,7 @@ fn a_planning_turn_not_in_flight_records_nothing() {
     // The record on disk is not read, and facts through a link are not either.
     let in_flight =
         json!({"session": "s", "turns": 0, "running": true, "startedAt": iso(now - 60)});
-    put(&home, "state/plan-7.json", &in_flight.to_string());
+    put_at(h(&home).plan_file(7, ""), &in_flight.to_string());
     let target = home.join("tmp/elsewhere.json");
     fs::write(&target, in_flight.to_string()).unwrap();
     fs::remove_file(facts_path(&home, 7)).unwrap();
@@ -5112,7 +5105,7 @@ fn plan_sessions_carry_filed() {
         line(started - 1, 5, 15),
     ]
     .join("\n");
-    put(&home, "state/refined.jsonl", &ledger);
+    put_at(h(&home).state(State::Refined), &ledger);
     let session = &sessions_output(&home, now)[1];
     assert_eq!(session["how"], "refine");
     assert_eq!(
@@ -5122,7 +5115,7 @@ fn plan_sessions_carry_filed() {
             {"issue": 13, "url": "https://example.com/i/13"},
         ])
     );
-    fs::remove_file(home.join("state/refined.jsonl")).unwrap();
+    fs::remove_file(h(&home).state(State::Refined)).unwrap();
     assert!(sessions_output(&home, now)[1].get("filed").is_none());
 }
 

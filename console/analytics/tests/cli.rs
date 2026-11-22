@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::process::Command;
+use tehas_core::home::{Home, State};
 
 const ANALYTICS: &str = env!("CARGO_BIN_EXE_analytics");
 
@@ -53,7 +54,7 @@ fn a_wrong_argument_is_a_usage_error() {
         assert_eq!(code, 64, "{args:?}");
         assert!(err.starts_with("usage: analytics"), "{args:?}");
     }
-    assert!(!home.join("state").exists());
+    assert!(!Home::new(&home).state_dir().exists());
 }
 
 #[test]
@@ -64,7 +65,7 @@ fn an_event_makes_the_database_and_a_run_without_history_is_65() {
         status(Some(h), &["event", "3", "ready"]),
         (0, String::new())
     );
-    assert!(home.join("state/analytics.db").is_file());
+    assert!(Home::new(&home).state(State::AnalyticsDb).is_file());
     let facts = home.join("facts.json");
     std::fs::write(&facts, r#"{"line":null,"attempt":0}"#).unwrap();
     let f = facts.to_str().unwrap();
