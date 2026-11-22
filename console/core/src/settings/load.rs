@@ -8,10 +8,6 @@
 //!   instance.env that sets a token is refused: it is in a repository.
 //! - PI_RUKAS_FOLLOW may be set in instance.env, over the line of versions.env.
 //! - Loading runs no git command, makes no network call and writes nothing.
-//! - TEHAS_REVIEW is the switch of review, a feature still being built: on
-//!   stops the load, and so does a TEHAS_REVIEW_REPO line (features.rs). Off,
-//!   tehasbot review exits at once and calls nothing. TEHAS_REVIEW_REPO is
-//!   never TEHAS_REPO: a person triages findings before they are tickets.
 //! - TEHAS_GITHUB_APP_ID names the GitHub App the factory acts as, and is the
 //!   only setting that does; the load refuses without it. The app's login is
 //!   not a setting: state/github/login holds it, one line, `<slug>[bot]`, and
@@ -132,6 +128,14 @@ pub(super) fn retired(name: &str) -> bool {
 /// line of one loads: a 1.4.x instance must never fail to load (the owner,
 /// 2026-11-22). The load warns once and drops the name, so nothing reads it.
 pub(super) const IGNORED: &[(&str, &str)] = &[
+    (
+        "TEHAS_REVIEW",
+        "the review loop left core in 2.0 and returns as a plugin",
+    ),
+    (
+        "TEHAS_REVIEW_REPO",
+        "the review loop left core in 2.0 and returns as a plugin",
+    ),
     (
         "TEHAS_ENERGY",
         "energy use left core in 2.0 and returns as a plugin",
@@ -792,15 +796,6 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
             "TEHAS_SITE_ANALYTICS_NAME is not set and TEHAS_SITE_ANALYTICS_SRC is (see {file})"
         ));
     }
-    // A model's findings go to a repository of their own, where a person
-    // triages them into tickets of the product: filing them in the product is
-    // the one setting that cannot be allowed.
-    let repo = vars.text("TEHAS_REPO");
-    if !repo.is_empty() && vars.text("TEHAS_REVIEW_REPO").to_lowercase() == repo.to_lowercase() {
-        return Err(format!(
-            "the review files in {repo}, the product repository: a model writes its findings, so they go to a repository of their own where a person triages them (see {file})"
-        ));
-    }
     if on("TEHAS_WORK_DESCRIBE") && !on("TEHAS_WORK_IMAGES") {
         return Err(format!(
             "TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off: there are no images to describe (see {file})"
@@ -1174,10 +1169,10 @@ mod tests {
     fn refused(extra: &[&str]) -> String {
         run(&mut Fake::with(extra)).1.unwrap_err()
     }
-    /// A load whose environment names outsource and review in the test
+    /// A load whose environment names outsource in the test
     /// variable, as a test of a building feature starts a program.
     fn tested(extra: &[&str]) -> (Vars, Result<(), String>) {
-        let mut vars = start(&[(crate::features::TEST_VAR, "outsource review")]);
+        let mut vars = start(&[(crate::features::TEST_VAR, "outsource")]);
         let got = load(&mut vars, &mut Fake::with(extra), "1000");
         (vars, got)
     }
@@ -1448,24 +1443,21 @@ mod tests {
     }
 
     #[test]
-    fn the_review_switch_set_on_and_a_review_repo_stop_the_load() {
-        assert_eq!(
-            refused(&["TEHAS_REVIEW=on"]),
-            format!("TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out (see {FILE})")
-        );
-        assert_eq!(
-            refused(&["TEHAS_REVIEW=1", "TEHAS_REVIEW_REPO=acme/backlog"]),
-            format!("TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out (see {FILE})")
-        );
-        assert_eq!(
-            refused(&["TEHAS_REVIEW_REPO=acme/backlog"]),
-            format!("TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out (see {FILE})")
-        );
-        assert_eq!(loads(&["TEHAS_REVIEW=off"]).text("TEHAS_REVIEW"), "0");
-        let (vars, got) = tested(&["TEHAS_REVIEW=on", "TEHAS_REVIEW_REPO=acme/backlog"]);
-        assert_eq!(got, Ok(()));
-        assert_eq!(vars.text("TEHAS_REVIEW"), "1");
-        assert_eq!(vars.text("TEHAS_REVIEW_REPO"), "acme/backlog");
+    fn the_review_loops_settings_load_with_a_warning_and_are_dropped() {
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&["TEHAS_REVIEW=on", "TEHAS_REVIEW_REPO=acme/backlog"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert!(!vars.is_set("TEHAS_REVIEW"));
+        assert!(!vars.is_set("TEHAS_REVIEW_REPO"));
+        for name in ["TEHAS_REVIEW", "TEHAS_REVIEW_REPO"] {
+            assert!(
+                host.warned.iter().any(|w| w.starts_with(&format!(
+                    "{name} is no longer read: the review loop left core in 2.0"
+                ))),
+                "{:?}",
+                host.warned
+            );
+        }
     }
 
     const PIN: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -1645,7 +1637,6 @@ mod tests {
         assert_eq!(vars.text("TEHAS_ANALYTICS"), "off");
         assert_eq!(loads(&["TEHAS_ANALYTICS=1"]).text("TEHAS_ANALYTICS"), "on");
         assert_eq!(loads(&[]).text("TEHAS_ANALYTICS"), "on");
-        assert_eq!(loads(&[]).text("TEHAS_REVIEW"), "0");
         // The rules between switches read the value after it is brought to form.
         let got = refused(&["TEHAS_WORK_DESCRIBE=on", "TEHAS_WORK_IMAGES=off"]);
         assert!(
@@ -2083,18 +2074,11 @@ mod tests {
 
     #[test]
     fn what_a_load_requires_later_does_not_refuse_it() {
-        let (vars, got) = tested(&[
-            "TEHAS_REPO=widget",
-            "TEHAS_ALLOWED_LABELERS=alice ",
-            "TEHAS_REVIEW_REPO=acme",
-        ]);
+        let (vars, got) = tested(&["TEHAS_REPO=widget", "TEHAS_ALLOWED_LABELERS=alice "]);
         assert_eq!(got, Ok(()));
         let found: Vec<(String, String)> = bad(&vars);
         let names: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
-        assert_eq!(
-            names,
-            ["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS", "TEHAS_REVIEW_REPO"]
-        );
+        assert_eq!(names, ["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"]);
         assert_eq!(found[0].1, "expected owner/name");
     }
 
@@ -2123,10 +2107,6 @@ mod tests {
             (
                 &["TEHAS_SITE_ANALYTICS_SRC=https://a.example/x.js"][..],
                 "TEHAS_SITE_ANALYTICS_NAME is not set and TEHAS_SITE_ANALYTICS_SRC is",
-            ),
-            (
-                &["TEHAS_REVIEW_REPO=Acme/Widget"][..],
-                "the review files in acme/widget, the product repository",
             ),
             (
                 &["TEHAS_WORK_DESCRIBE=1"][..],

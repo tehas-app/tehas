@@ -61,6 +61,7 @@ const SERVERS: &[(&str, &str)] = &[
 pub(crate) const RETIRED_UNITS: &[&str] = &[
     "tehas-refresh.timer",
     "tehas-improve.timer",
+    "tehas-review.timer",
     "tehas-energy.service",
     "tehas-wiki-status.service",
     "tehas-wiki-status.timer",
@@ -582,39 +583,6 @@ mod tests {
     }
 
     #[test]
-    fn the_review_timer_stands_for_its_service_in_the_units_step() {
-        let on = |name: &str| {
-            match name {
-                "TEHAS_REVIEW" => "on",
-                "TEHAS_TEST_FEATURES" => "review",
-                _ => "",
-            }
-            .to_string()
-        };
-        let all = format!("units {}", UNITS.join(" "));
-        assert!(!UNITS.contains(&"tehas-review.timer"));
-        assert_eq!(asked(&["env.sh"]), [all.as_str()]);
-        let with_timer = format!("{all} tehas-review.timer");
-        assert_eq!(
-            steps_for_in(&lines(&["env.sh"]), &on),
-            [with_timer.as_str()]
-        );
-        assert_eq!(
-            steps_for_in(
-                &lines(&["systemd/tehas-review.service", "systemd/tehas-review.timer"]),
-                &on
-            ),
-            [with_timer.as_str()]
-        );
-        // Off, a change to either file restarts the timer where it runs.
-        for file in ["systemd/tehas-review.service", "systemd/tehas-review.timer"] {
-            assert_eq!(asked(&[file]), [with_timer.as_str()], "{file}");
-        }
-        // A line an older version recorded with the timer still runs.
-        assert!(valid(&with_timer));
-    }
-
-    #[test]
     fn the_plugins_timer_is_restarted_and_no_template_is_named() {
         let on = |name: &str| {
             match name {
@@ -956,6 +924,10 @@ mod tests {
         assert_eq!(current("units tehas-refresh.timer"), None);
         assert_eq!(current("units tehas-improve.timer"), None);
         assert_eq!(current("units tehas-energy.service"), None);
+        assert_eq!(
+            current("units tehas-review.timer tehas-clean.timer").as_deref(),
+            Some("units tehas-clean.timer")
+        );
         assert_eq!(
             current("units tehas-improve.timer tehas-clean.timer").as_deref(),
             Some("units tehas-clean.timer")

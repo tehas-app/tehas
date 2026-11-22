@@ -1863,7 +1863,7 @@ What changes:
 - **improvement**: the dispatcher holds an issue of the type exactly as it
   holds one labelled `tehas:improvement`: the millwright does not start it.
   The label still holds where a person left it, so turning the setting on lets
-  nothing start that was held. The review still files under the label.
+  nothing start that was held.
 - **prototype**: the Protolab lists the open issues of the type, and a ticket
   counts when an account in `TEHAS_ALLOWED_LABELERS` made the newest change to
   its type, the change that set it. A type set by anyone else, or a change the
@@ -1876,52 +1876,6 @@ and the log names the type and the repository. A repository of a personal
 account has no issue types, so the setting is not for it. To go back to the
 labels, remove the setting; issues keep their types, and a person relabels
 the ones that should still carry the label.
-
-## The review loop
-
-Still being built in this release, and never seen working on a host. A
-release refuses `TEHAS_REVIEW=on` and a `TEHAS_REVIEW_REPO` line with exit 78
-and names `review`; `install.sh` does not install `tehas-review.service` or
-`tehas-review.timer`, and `tehasbot review` exits 0 at once. A host that set
-either line under an earlier release takes it out before it updates. What
-the feature leaves visible meanwhile is in
-[the contract](/contract#review). The rest of this section says what it is
-meant to do once a release ships it.
-
-Once a week, on Monday morning, a model reads what the default branch gained
-since the commit the last review read and reports what it would change. It is
-the same six lens reviewers a cycle's own review runs, in one headless turn over
-a clone made for the run, with no token: the run writes nothing to the tracker
-but its findings.
-
-- **Where the findings go** is `TEHAS_REVIEW_REPO`, a repository of their own:
-  one issue per run, labelled `tehas:improvement` and never `tehas:ready`, so a
-  finding starts no cycle until a person says so. Loading refuses the product
-  repository, `TEHAS_REPO`: a model writes these from what it read, and a person
-  triages them into tickets first. While one of those issues is still open, a
-  later run's findings are a comment on it rather than a second issue.
-- **What it reads** is the whole range since the last review, kept in
-  `~/tehas/state/review.json`. With no record it starts at the commit 7 days
-  back. A run that failed records nothing, so the next one reads the same
-  commits again: the point is the range, not the schedule.
-- **What it costs** is one container in `tehas.slice`, bounded by
-  `TEHAS_PLAN_TIMEOUT` like a planning turn, and the model requests one headless
-  review turn takes. Nothing about a cycle changes, and no issue of the product
-  is written by it.
-
-Once shipped, the two lines `TEHAS_REVIEW=on` and `TEHAS_REVIEW_REPO` turn it
-on. `install.sh` then installs the units; a first install enables the timer,
-and on a host installed before, a person does with
-`systemctl --user enable --now tehas-review.timer`.
-`~/tehas/logs/review-timer.log` says what the runs did and
-`~/tehas/logs/review-<time>.json` holds one run's document. See
-[tehasbot review](/tools-plan#tehasbot-review) for the container, the record
-and the exits.
-
-A host that has `tehas-review.timer` from an earlier release keeps the unit
-files, for the release that ships the feature. While review is off,
-`install.sh` and `tehas update` stop and disable the timer if it is enabled,
-and say so on a `systemd:` line; `--check` names it as drift.
 
 ## The cleaner
 

@@ -60,10 +60,8 @@
 //! The lines and the object of tehas status, see src/status.rs.
 //!
 //!   console dev table
-//!   console review main|table
 //!
-//! The row of the table of runs of a manual session, see src/dev.rs, and what
-//! tehasbot review decides and how it runs its container, see src/review.rs.
+//! The row of the table of runs of a manual session, see src/dev.rs.
 //!
 //!   console clean run ...
 //!
@@ -453,7 +451,6 @@ fn main() -> ExitCode {
             Some("dev") => return ExitCode::from(dev::main(&given[1..])),
             Some("rukas") => return ExitCode::from(rukas::main(&given[1..])),
             Some("sandbox") => return ExitCode::from(sandbox::main(&given[1..])),
-            Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("settings") => return ExitCode::from(settings::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),

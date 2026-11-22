@@ -380,6 +380,15 @@ Done when `github-rest` is 0 and `gh-argv` is at 0 or at its written
 floor, and a fake code host that times out or rate-limits leaves the
 dispatcher and a cycle running, with one report.
 
+T4's Done also clears every row of "Temporary rises" in
+`docs/architecture.md` that is still there when it ends, whatever step
+the row names. At #2866 they are: `github-rest` (#2859 and #2860),
+`gh-argv` (#2859 and #2866), `raw-statuses` (#2859), `tests-stub-gh`
+(#2866) and `untyped-signatures` (#2866). A row added later joins the
+list in the same pull request. A T15 port is kept rise-neutral where it
+can be: what it adds to a count it takes out elsewhere in the same pull
+request.
+
 ### T5. Deep homes for files
 
 - A `Home` type owns the `state/`, `live/` and `run/` paths. `run/` holds

@@ -1239,7 +1239,7 @@ fn a_migrated_store_with_the_feature_off_writes_no_outsource_row() {
 const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 /// The sources of the verbs, without their tests.
-const VERB_SOURCES: [(&str, &str); 24] = [
+const VERB_SOURCES: [(&str, &str); 23] = [
     ("answer.rs", include_str!("answer.rs")),
     ("approval.rs", include_str!("approval.rs")),
     ("batch.rs", include_str!("batch.rs")),
@@ -1260,7 +1260,6 @@ const VERB_SOURCES: [(&str, &str); 24] = [
     ("plugin.rs", include_str!("plugin.rs")),
     ("poll.rs", include_str!("poll.rs")),
     ("record.rs", include_str!("record.rs")),
-    ("review_issue.rs", include_str!("review_issue.rs")),
     ("say.rs", include_str!("say.rs")),
     ("upkeep.rs", include_str!("upkeep.rs")),
     ("verbs.rs", include_str!("verbs.rs")),

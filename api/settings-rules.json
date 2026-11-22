@@ -295,20 +295,6 @@
       "building": true
     },
     {
-      "name": "TEHAS_REVIEW",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "on",
-        "off",
-        "1",
-        "0"
-      ],
-      "reason": "expected on or off",
-      "building": true
-    },
-    {
       "name": "TEHAS_PLUGIN",
       "rule": "one-of",
       "when": "always",
@@ -880,14 +866,6 @@
       "when": "required",
       "default": null,
       "reason": "expected one word"
-    },
-    {
-      "name": "TEHAS_REVIEW_REPO",
-      "rule": "repo",
-      "when": "required",
-      "default": "",
-      "reason": "expected owner/name",
-      "building": true
     }
   ],
   "host": [

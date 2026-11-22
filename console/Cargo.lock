@@ -1927,6 +1927,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tehas-review-render"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "tehas-wiki-collect"
 version = "0.1.0"
 dependencies = [

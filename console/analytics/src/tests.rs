@@ -1583,10 +1583,10 @@ fn a_write_lock_held_past_the_busy_timeout_is_waited_out() {
 }
 
 /// v0.30.0 wrote schema 4 already, so a database of an older schema is no
-/// 0.30 host's: it is kept aside under its version, as any other is.
+/// 0.30 host's: it is kept aside under its version, as a newer one is.
 #[test]
-fn a_database_of_schema_1_to_3_is_kept_aside() {
-    for v in 1..=3 {
+fn a_database_of_schema_1_to_3_or_6_is_kept_aside() {
+    for v in [1, 2, 3, 6] {
         let home = scratch(&format!("schema-{v}"));
         let file = db::path(&home);
         {
@@ -2208,10 +2208,6 @@ fn live(home: &Path, at: i64, why: &str, limit_room: Option<i64>) {
         d["limitRoom"] = json!(r);
     }
     put_at(h(home).live(Live::Dispatch), &d.to_string());
-    put_at(
-        h(home).live_dir().join("energy.json"),
-        &json!({"generatedAt": iso(at), "totals": {"watts": 412.5, "hosts": 2}}).to_string(),
-    );
 }
 
 fn sample_row(home: &Path) -> String {
@@ -2221,7 +2217,7 @@ fn sample_row(home: &Path) -> String {
         "SELECT group_concat(row, ' | ') FROM (SELECT at || ' ' || coalesce(in_line, '-') || ' ' ||
            coalesce(running, '-') || ' ' || coalesce(awaiting, '-') || ' ' || coalesce(stopped, '-') || ' ' ||
            coalesce(planning, '-') || ' ' || coalesce(cycle_limit, '-') || ' ' || coalesce(paused, '-') || ' ' ||
-           coalesce('[' || held || ']', '-') || ' ' || coalesce(watts, '-') AS row FROM samples ORDER BY at)",
+           coalesce('[' || held || ']', '-') AS row FROM samples ORDER BY at)",
     )
 }
 
@@ -2232,15 +2228,12 @@ fn a_sample_reads_the_live_files_of_the_poll() {
     live(&home, now - 30, "awaiting", None);
     execute(&home, &Cmd::Sample, now).unwrap();
     // Five slots: two running and three free.
-    assert_eq!(
-        sample_row(&home),
-        format!("{now} 3 2 1 0 2 5 1 [awaiting] -")
-    );
+    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 2 5 1 [awaiting]"));
 
     // The limit of tehas limit allows fewer; nothing holds.
     live(&home, now + 90, "", Some(1));
     execute(&home, &Cmd::Sample, now + 100).unwrap();
-    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 3 1 [] -", now + 100)));
+    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 3 1 []", now + 100)));
 }
 
 #[test]
@@ -2272,13 +2265,13 @@ fn a_sample_reads_the_report_the_dispatcher_writes() {
     execute(&home, &Cmd::Sample, now).unwrap();
     // The limit of tehas limit is the lower ceiling: count plus limitRoom,
     // three, though count plus free would give seven.
-    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 2 3 1 [limit] -"));
+    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 2 3 1 [limit]"));
 }
 
 #[test]
 fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     let now = 1_792_000_000;
-    let nothing = |at: i64| format!("{at} - - - - - - - - -");
+    let nothing = |at: i64| format!("{at} - - - - - - - -");
 
     let home = scratch("sample-none");
     execute(&home, &Cmd::Sample, now).unwrap();
@@ -2297,7 +2290,7 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
         &json!({"time": iso(now - 200), "why": "count", "count": 1, "free": 0}).to_string(),
     );
     execute(&home, &Cmd::Sample, now + 1).unwrap();
-    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 - 1 - -", now + 1)));
+    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 - 1 -", now + 1)));
 
     let home = scratch("sample-links");
     live(&home, now - 30, "count", None);
@@ -2334,7 +2327,7 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
         &json!({"time": iso(now), "why": "holding: <b>", "count": "2", "free": 1}).to_string(),
     );
     execute(&home, &Cmd::Sample, now).unwrap();
-    assert_eq!(sample_row(&home), format!("{now} - 0 - - - - - - -"));
+    assert_eq!(sample_row(&home), format!("{now} - 0 - - - - - -"));
 }
 
 // The sampler finds each list under the name the writer gives it.
@@ -2401,7 +2394,7 @@ fn a_sample_prunes_too_and_two_in_one_second_keep_the_last() {
     execute(&home, &Cmd::Sample, now).unwrap();
     live(&home, now, "", None);
     execute(&home, &Cmd::Sample, now).unwrap();
-    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 2 5 1 [] -"));
+    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 2 5 1 []"));
     let conn = Connection::open(db::path(&home)).unwrap();
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 0);
 }
@@ -3748,26 +3741,19 @@ fn report_data(conn: &Connection, day0: i64, to: i64) {
     db::event(conn, 7, "merged", day0 + 2 * DAY).unwrap();
     db::event(conn, 3, "stopped", day0 + DAY + 400).unwrap();
     #[allow(clippy::type_complexity)]
-    let samples: [(
-        i64,
-        Option<i64>,
-        Option<i64>,
-        Option<i64>,
-        Option<&str>,
-        Option<f64>,
-    ); 6] = [
-        (day0 - 60, Some(9), Some(9), Some(0), Some(""), Some(999.0)),
-        (day0 + DAY, Some(1), Some(0), Some(0), Some(""), Some(100.0)),
-        (to - 1800, Some(2), Some(1), Some(0), Some(""), Some(100.0)),
-        (to - 1200, Some(3), None, Some(1), None, Some(200.0)),
-        (to - 600, Some(4), Some(2), Some(0), Some("resources"), None),
-        (to - 300, Some(5), Some(1), Some(0), Some(""), Some(100.0)),
+    let samples: [(i64, Option<i64>, Option<i64>, Option<i64>, Option<&str>); 6] = [
+        (day0 - 60, Some(9), Some(9), Some(0), Some("")),
+        (day0 + DAY, Some(1), Some(0), Some(0), Some("")),
+        (to - 1800, Some(2), Some(1), Some(0), Some("")),
+        (to - 1200, Some(3), None, Some(1), None),
+        (to - 600, Some(4), Some(2), Some(0), Some("resources")),
+        (to - 300, Some(5), Some(1), Some(0), Some("")),
     ];
-    for (at, in_line, planning, paused, held, watts) in samples {
+    for (at, in_line, planning, paused, held) in samples {
         conn.execute(
-            "INSERT INTO samples (at, in_line, planning, paused, held, watts)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            rusqlite::params![at, in_line, planning, paused, held, watts],
+            "INSERT INTO samples (at, in_line, planning, paused, held)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![at, in_line, planning, paused, held],
         )
         .unwrap();
     }
@@ -4520,8 +4506,8 @@ fn ten_days_of_data_report_well_inside_the_time_limit() {
     // A sample every two minutes, and a run every fifteen with three steps.
     for i in 0..7200 {
         tx.execute(
-            "INSERT INTO samples (at, in_line, planning, paused, held, watts)
-             VALUES (?1, 3, 1, 0, '', 250.0)",
+            "INSERT INTO samples (at, in_line, planning, paused, held)
+             VALUES (?1, 3, 1, 0, '')",
             [to - 10 * DAY + i * 120],
         )
         .unwrap();
@@ -4824,22 +4810,6 @@ fn a_wrong_typed_samples_cell_no_longer_ends_the_published_report() {
         .unwrap();
     let old_way = q.query_row(params![to - 300], |r| r.get::<_, Option<i64>>(0));
     assert!(old_way.is_err(), "a REAL is not a count read the old way");
-}
-
-// The watts of a 1.4 database are not read: energy use left core in 2.0, and
-// a cell of any type there ends no report and gives it no energy.
-#[test]
-fn the_watts_column_is_not_read() {
-    let home = scratch("report-sample-watts");
-    let to = 1_792_022_400 + 10 * DAY;
-    let (conn, _) = db::open(&db::path(&home), to).unwrap();
-    conn.execute(
-        "INSERT INTO samples (at, paused, held, watts) VALUES (?1, 0, '', 'lots')",
-        params![to - 300],
-    )
-    .unwrap();
-    let report = crate::report::build(&conn, to).unwrap();
-    assert!(report.get("energy").is_none());
 }
 
 fn add_run(conn: &Connection, id: &str, issue: i64, started: i64) {
@@ -6582,42 +6552,189 @@ fn columns(conn: &Connection, table: &str) -> Vec<String> {
     names.map(Result::unwrap).collect()
 }
 
-#[test]
-fn a_schema_4_file_of_0_30_opens_in_place_and_gains_the_contractor_column() {
-    let home = scratch("schema-4-v0.30");
-    let file = db::path(&home);
-    {
-        let old = Connection::open(&file).unwrap();
-        old.execute_batch(include_str!("../tests/fixtures/schema-4-v0.30.6.sql"))
-            .unwrap();
-        old.execute_batch(
-            "INSERT INTO meta (key, value) VALUES ('schema', '4'), ('retention_days', '365'),
-               ('created', '100');
-             INSERT INTO runs (id, kind, issue, started, outcome)
-               VALUES ('work-7-100', 'work', 7, 100, 'pr');
-             PRAGMA user_version = 4;",
+/// The tables' columns, the foreign keys, and the SQL of every index and view:
+/// what makes two files the same schema whatever ALTER TABLE left in the
+/// text of their tables.
+fn shape(conn: &Connection) -> Vec<String> {
+    let mut q = conn
+        .prepare(
+            "SELECT type, name, coalesce(sql, '') FROM sqlite_master
+             WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name",
         )
         .unwrap();
-        assert!(!columns(&old, "runs").contains(&"contractor_id".to_string()));
+    let rows: Vec<(String, String, String)> = q
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    let mut out = Vec::new();
+    for (kind, name, sql) in rows {
+        if kind != "table" {
+            out.push(format!("{kind} {name}: {sql}"));
+            continue;
+        }
+        for pragma in ["table_info", "foreign_key_list"] {
+            let mut q = conn
+                .prepare(&format!("SELECT * FROM pragma_{pragma}('{name}')"))
+                .unwrap();
+            let n = q.column_count();
+            let cells = q
+                .query_map([], |r| {
+                    (0..n)
+                        .map(|i| {
+                            r.get::<_, rusqlite::types::Value>(i)
+                                .map(|v| format!("{v:?}"))
+                        })
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                })
+                .unwrap();
+            for c in cells {
+                out.push(format!("{kind} {name} {pragma}: {}", c.unwrap().join(" ")));
+            }
+        }
     }
-    let (conn, moved) = db::open(&file, 200).unwrap();
-    assert_eq!(moved, None, "a file of schema 4 is not moved aside");
-    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 4);
-    assert_eq!(
-        one::<String>(
-            &conn,
-            "SELECT id || ' ' || outcome || ' ' || coalesce(contractor_id, 'null') FROM runs"
-        ),
-        "work-7-100 pr null"
-    );
-    let fresh = scratch("schema-4-fresh");
+    out
+}
+
+/// A file of schema 4 as `fixture` wrote it, with rows in runs, run_roles
+/// and samples, watts among them.
+fn schema_4_file(file: &Path, fixture: &str) {
+    let old = Connection::open(file).unwrap();
+    old.execute_batch(fixture).unwrap();
+    old.execute_batch(
+        "INSERT INTO meta (key, value) VALUES ('schema', '4'), ('retention_days', '365'),
+           ('created', '100');
+         INSERT INTO runs (id, kind, issue, started, outcome)
+           VALUES ('work-7-100', 'work', 7, 100, 'pr');
+         INSERT INTO run_roles (run_id, role, model, input) VALUES ('work-7-100', 'worker', 'm', 12);
+         INSERT INTO samples (at, in_line, running, awaiting, stopped, planning, cycle_limit,
+           paused, held, watts) VALUES (150, 1, 2, 3, 4, 5, 6, 0, 'limit', 412.5),
+           (160, NULL, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL);
+         PRAGMA user_version = 4;",
+    )
+    .unwrap();
+    assert!(columns(&old, "samples").contains(&"watts".to_string()));
+}
+
+const SCHEMA_4: [(&str, &str); 2] = [
+    (
+        "v1.4.0",
+        include_str!("../tests/fixtures/schema-4-v1.4.0.sql"),
+    ),
+    (
+        "v0.30.6",
+        include_str!("../tests/fixtures/schema-4-v0.30.6.sql"),
+    ),
+];
+
+#[test]
+fn a_new_database_is_schema_5_with_no_watts() {
+    let home = scratch("schema-5-new");
+    let (conn, _) = db::open(&db::path(&home), 0).unwrap();
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 5);
+    assert!(!columns(&conn, "samples").contains(&"watts".to_string()));
+    assert!(columns(&conn, "runs").contains(&"contractor_id".to_string()));
+}
+
+#[test]
+fn a_schema_4_file_of_either_age_migrates_in_place_to_the_shape_of_a_new_one() {
+    let fresh = scratch("schema-5-fresh");
     let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
-    assert_eq!(columns(&conn, "runs"), columns(&made, "runs"));
-    drop(conn);
-    // A second open finds the column there and changes nothing.
-    let (again, moved) = db::open(&file, 300).unwrap();
-    assert_eq!(moved, None);
-    assert_eq!(columns(&again, "runs"), columns(&made, "runs"));
+    for (age, fixture) in SCHEMA_4 {
+        let home = scratch(&format!("schema-4-{age}"));
+        let file = db::path(&home);
+        schema_4_file(&file, fixture);
+        let (conn, moved) = db::open(&file, 200).unwrap();
+        assert_eq!(moved, None, "{age}: a file of schema 4 is not moved aside");
+        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 5, "{age}");
+        assert_eq!(shape(&conn), shape(&made), "{age}");
+        assert_eq!(
+            one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
+            "5",
+            "{age}"
+        );
+        assert_eq!(
+            one::<String>(
+                &conn,
+                "SELECT group_concat(row, ' | ') FROM (SELECT at || ' ' || coalesce(in_line, '-')
+                   || ' ' || coalesce(running, '-') || ' ' || coalesce(awaiting, '-') || ' ' ||
+                   coalesce(stopped, '-') || ' ' || coalesce(planning, '-') || ' ' ||
+                   coalesce(cycle_limit, '-') || ' ' || paused || ' ' || coalesce(held, '-') AS row
+                   FROM samples ORDER BY at)"
+            ),
+            "150 1 2 3 4 5 6 0 limit | 160 - - - - - - 1 -",
+            "{age}"
+        );
+        assert_eq!(
+            one::<String>(
+                &conn,
+                "SELECT r.id || ' ' || r.outcome || ' ' || coalesce(r.contractor_id, 'null') || ' '
+                   || o.model || ' ' || o.input FROM runs r JOIN run_roles o ON o.run_id = r.id"
+            ),
+            "work-7-100 pr null m 12",
+            "{age}"
+        );
+        assert_eq!(
+            one::<i64>(&conn, "SELECT count(*) FROM pragma_foreign_key_check"),
+            0,
+            "{age}"
+        );
+        drop(conn);
+        // Opened again it is a 5 already: nothing is written.
+        let before = fs::read(&file).unwrap();
+        let (again, moved) = db::open(&file, 300).unwrap();
+        assert_eq!(moved, None, "{age}");
+        assert_eq!(shape(&again), shape(&made), "{age}");
+        drop(again);
+        assert!(
+            fs::read(&file).unwrap() == before,
+            "{age}: a second open wrote"
+        );
+    }
+}
+
+#[test]
+fn a_schema_4_file_another_program_migrated_meanwhile_is_not_migrated_again() {
+    let home = scratch("schema-4-race");
+    let file = db::path(&home);
+    schema_4_file(&file, SCHEMA_4[0].1);
+    // Both read user_version 4; the other migrated before this one took the
+    // write lock.
+    let mut late = Connection::open(&file).unwrap();
+    db::open(&file, 200).unwrap();
+    assert!(db::settle(&mut late, 4, 300).is_ok());
+    assert_eq!(one::<i64>(&late, "PRAGMA user_version"), 5);
+    assert!(!columns(&late, "samples").contains(&"watts".to_string()));
+    assert_eq!(one::<i64>(&late, "SELECT count(*) FROM samples"), 2);
+}
+
+#[test]
+fn programs_that_open_a_schema_4_file_at_once_all_get_it_migrated() {
+    for round in 0..10 {
+        let home = scratch(&format!("schema-4-concurrent-{round}"));
+        let file = db::path(&home);
+        schema_4_file(&file, SCHEMA_4[round % 2].1);
+        let openers: Vec<_> = (0..8)
+            .map(|i| {
+                let file = file.clone();
+                std::thread::spawn(move || {
+                    let (conn, moved) = db::open(&file, 1_792_000_000).unwrap();
+                    db::event(&conn, i, "ready", 1_792_000_000).unwrap();
+                    moved
+                })
+            })
+            .collect();
+        for o in openers {
+            assert!(
+                o.join().unwrap().is_none(),
+                "a schema 4 file was moved aside"
+            );
+        }
+        let conn = Connection::open(&file).unwrap();
+        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 5);
+        assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 8);
+        assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM samples"), 2);
+    }
 }
 
 #[test]

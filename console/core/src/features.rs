@@ -93,17 +93,6 @@ pub const FEATURES: &[Feature] = &[
         programs: &[],
         units: &[],
     },
-    // Shipped as a setting before the registry, never seen on a host: its
-    // names stay on api/surface-1.0.txt (console/tests/surface.rs).
-    Feature {
-        name: "review",
-        stage: Stage::Building,
-        setting: "TEHAS_REVIEW",
-        settings: &["TEHAS_REVIEW_REPO"],
-        since: "v1.0.0-rc.1",
-        programs: &[],
-        units: &["tehas-review.service", "tehas-review.timer"],
-    },
     // docs/specs/2026-11-21-plugins.md: the runner's program and units, and
     // the gate's.
     Feature {
@@ -521,8 +510,6 @@ mod tests {
             "TEHAS_OUTSOURCE_REPOS",
             "TEHAS_PROTOLAB_ZIP_HOSTS",
             "TEHAS_LEAN",
-            "TEHAS_REVIEW",
-            "TEHAS_REVIEW_REPO",
         ] {
             assert!(building_setting(name), "{name}");
         }
@@ -593,37 +580,6 @@ mod tests {
     }
 
     #[test]
-    fn review_is_building_and_follows_its_switch_only_in_a_test() {
-        let name = "review";
-        assert_eq!(find(name).map(|f| f.stage), Some(Stage::Building));
-        assert!(!shipped().contains(&name));
-        assert!(!on_in(name, &vars(&[("TEHAS_REVIEW", "on")])));
-        assert!(flags().contains(&(name, false)));
-        let tested = vars(&[("TEHAS_REVIEW", "1"), (TEST_VAR, name)]);
-        assert!(on_in(name, &tested));
-        assert_eq!(
-            refuse_building(&vars(&[("TEHAS_REVIEW", "on")])),
-            Err("TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out".to_string())
-        );
-        let set = |n: &str| n == "TEHAS_REVIEW_REPO";
-        assert_eq!(
-            refuse_building_settings(&set, &vars(&[])),
-            Err("TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out".to_string())
-        );
-    }
-
-    #[test]
-    fn review_installs_its_timer_and_service_only_while_on() {
-        let none: (Vec<&str>, Vec<&str>) = (vec![], vec![]);
-        assert_eq!(installs_in(&vars(&[("TEHAS_REVIEW", "on")])), none);
-        let on = vars(&[("TEHAS_REVIEW", "on"), (TEST_VAR, "review")]);
-        assert_eq!(
-            installs_in(&on),
-            (vec![], vec!["tehas-review.service", "tehas-review.timer"])
-        );
-    }
-
-    #[test]
     fn plugins_is_building_and_follows_its_switch_only_in_a_test() {
         let name = "plugins";
         assert_eq!(find(name).map(|f| f.stage), Some(Stage::Building));
@@ -677,10 +633,10 @@ mod tests {
 
     #[test]
     fn a_service_its_timer_starts_is_timed() {
-        let units = ["tehas-review.service", "tehas-review.timer"];
-        assert!(timed("tehas-review.service", &units));
-        assert!(!timed("tehas-review.timer", &units));
-        assert!(!timed("tehas-review.service", &["tehas-review.service"]));
+        let units = ["tehas-wiki.service", "tehas-wiki.timer"];
+        assert!(timed("tehas-wiki.service", &units));
+        assert!(!timed("tehas-wiki.timer", &units));
+        assert!(!timed("tehas-wiki.service", &["tehas-wiki.service"]));
         assert!(!timed(
             "tehas-outsource-proxy.service",
             &["tehas-outsource-proxy.service"]
@@ -689,16 +645,16 @@ mod tests {
 
     #[test]
     fn every_line_of_a_building_feature_in_a_file_is_found() {
-        let text = b"TEHAS_REPO=acme/widget\nexport TEHAS_REVIEW=on\nTEHAS_REVIEW_REPO='acme/backlog'\nTEHAS_LEAN=off\nTEHAS_SPEC_PIPE=\n";
+        let text = b"TEHAS_REPO=acme/widget\nexport TEHAS_PLUGIN=on\nTEHAS_PLUGINS='floorplan'\nTEHAS_LEAN=off\nTEHAS_SPEC_PIPE=\n";
         assert_eq!(
             found_in_with(text, "/i/instance.env", &vars(&[])),
             [
-                "TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out (see /i/instance.env)",
-                "TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out (see /i/instance.env)",
+                "TEHAS_PLUGIN is on and plugins is still being built in this release: set it to off or take the line out (see /i/instance.env)",
+                "TEHAS_PLUGINS is set and plugins is still being built in this release: take the line out (see /i/instance.env)",
             ]
         );
-        assert!(found_in_with(text, "/i/instance.env", &vars(&[(TEST_VAR, "review")])).is_empty());
-        assert!(found_in_with(b"TEHAS_REVIEW=0\n", "f", &vars(&[])).is_empty());
+        assert!(found_in_with(text, "/i/instance.env", &vars(&[(TEST_VAR, "plugins")])).is_empty());
+        assert!(found_in_with(b"TEHAS_PLUGIN=0\n", "f", &vars(&[])).is_empty());
     }
 
     #[test]
@@ -836,8 +792,6 @@ mod tests {
             units().collect::<Vec<_>>(),
             [
                 "tehas-outsource-proxy.service",
-                "tehas-review.service",
-                "tehas-review.timer",
                 "tehas-plugin@.service",
                 "tehas-plugin-hook@.service",
                 "tehas-plugin.service",
