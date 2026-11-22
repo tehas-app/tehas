@@ -487,11 +487,7 @@ mod tests {
 
     #[test]
     fn a_building_setting_is_a_building_features_switch_or_own_setting() {
-        for name in [
-            "TEHAS_OUTSOURCE",
-            "TEHAS_OUTSOURCE_REPOS",
-            "TEHAS_LEAN",
-        ] {
+        for name in ["TEHAS_OUTSOURCE", "TEHAS_OUTSOURCE_REPOS", "TEHAS_LEAN"] {
             assert!(building_setting(name), "{name}");
         }
         for name in ["TEHAS_REPO", "TEHAS_DRIVER", "TEHAS_NOPE"] {
@@ -691,14 +687,10 @@ mod tests {
             refuse_building_settings(&set(&["TEHAS_OUTSOURCE_REPOS"]), &vars(&[])),
             Err("TEHAS_OUTSOURCE_REPOS is set and outsource is still being built in this release: take the line out".to_string())
         );
-        assert_eq!(
-            refuse_building_settings(&set(&["TEHAS_REVIEW_REPO"]), &vars(&[])),
-            Err("TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out".to_string())
-        );
         assert_eq!(refuse_building_settings(&set(&[]), &vars(&[])), Ok(()));
         // A test that can turn the feature on may set its settings with it off.
-        let tested = vars(&[(TEST_VAR, "outsource review")]);
-        let both = set(&["TEHAS_OUTSOURCE_TIMEOUT", "TEHAS_REVIEW_REPO"]);
+        let tested = vars(&[(TEST_VAR, "outsource")]);
+        let both = set(&["TEHAS_OUTSOURCE_TIMEOUT", "TEHAS_OUTSOURCE_REPOS"]);
         assert_eq!(refuse_building_settings(&both, &tested), Ok(()));
     }
 
