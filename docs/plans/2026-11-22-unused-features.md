@@ -1,0 +1,36 @@
+# Features that could leave core
+
+**Status**: proposals for the owner, 2026-11-22. Nothing here is decided
+unless its row says so.
+
+tehas 2.0.0 removes the Protolab (T14 of
+`docs/plans/2026-11-21-coding-standard-v2.md`), and its job moves to the lab
+plugin (`docs/specs/2026-11-22-plugin-lab.md`). The rows below are the other
+features that meet the same test: built, off on every factory, never or
+barely seen on a host (`host/docs/features.md`).
+
+"Plugin" means it moves to a plugin after 2.0, with its plumbing kept. A
+plugin that needs a surface the specification lacks comes with a revision
+of its own. "Drop" means it goes in 2.0.
+
+| Feature | Evidence | Proposal | Decided |
+| --- | --- | --- | --- |
+| Protolab | Envisioned, never pulled through | Drop; its job goes to the lab plugin | Owner, 2026-11-22 |
+| All hands label | Never on a host. It only shows in status | Drop | |
+| Spec mark (`Spec:` lines) | Tests only. Its one filer was `tehas prototype file`; the page ticket hands files through records instead | Drop | |
+| Panels (outside pages in the dock) | A development machine only | Plugin: a view in a frame | |
+| Business page | A development machine only | Plugin, over the live feeds | |
+| Energy use | Tested with fake files | Plugin: a panel and a timed fetch. Check the host's private settings first | |
+| Host panel (`TEHAS_TOP`) | Tests only | Plugin. `tehas top` stays as an operator command | |
+| Review loop (`tehasbot review`) | Never on a host | Plugin: a timed run with the model that files an issue. Needs `issue:draft` and a timed run | |
+| Product wiki | Being built, step 2 in review | Plugin: a timed run with the model over the checkout, and a served page | |
+| Describe, text files, zips and comments for a cycle | No host has run them. Images stay in core | Plugin: a hook before a cycle starts that adds files. Needs a `before:work` hook | |
+| Outsource, with the model proxy and the contractor | Being built. A release refuses it | Owner's call. About 20k lines across 11 crates, too deep for a plugin | |
+| Millwright's grant | Never on a host | Owner's call. It is an authorisation path, so it stays in core or goes | |
+
+Kept in core, though not proven on a host: refreshes, read-only instances,
+the egress limit, the lean driver, analytics and the operator commands.
+They are part of the loop, the sandbox or how a person runs a factory.
+
+A drop in 2.0 is a step on the v2 branch and a line in T9's "Changed in
+2.0", with its readers named.

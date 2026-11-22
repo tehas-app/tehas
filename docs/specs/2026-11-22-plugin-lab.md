@@ -1,7 +1,7 @@
-# The lab plugin, and moving unused features out of core
+# The lab plugin
 
-**Status**: draft, 2026-11-22. A plugin specification revision; its number
-is given when it merges, in `2026-11-21-plugins-1.0.0.md`. Built after
+**Version**: plugin specification revision 1.4.0, 2026-11-22 (the number is
+fixed when it merges, in `2026-11-21-plugins-1.0.0.md`). Built after
 tehas 2.0.0, with the rest of plugins (2.1). Nothing here is built.
 
 ## Why
@@ -12,9 +12,9 @@ envisioned and never pulled through, no factory uses it, and a view of this
 kind belongs in a plugin. The owner asked to keep its plumbing for file
 storage and serving, so that a plugin can do the same job.
 
-This file says what that plugin does, what the platform must add for it, and
-which plumbing T14 keeps for those additions. The last part lists other
-features that could leave core in the same way.
+This file says what that plugin does, what the platform adds for it, and
+which plumbing T14 keeps for those additions. Other features that could
+leave core are listed in `docs/plans/2026-11-22-unused-features.md`.
 
 ## What the lab does
 
@@ -33,13 +33,14 @@ It is the Protolab's job, with three differences:
 | Its label | `tehas:prototype`, a core label | `lab`, declared by the plugin |
 
 The lab is the opposite flow from the page ticket. The page ticket makes an
-issue from a page. The lab makes a page from an issue. They share the
-frame, the records and the kept file trees.
+issue from a page. The lab makes a page from an issue. They share the gate
+and the keep rule.
 
 ## What the platform adds
 
-Each addition is a grant. `tehas plugin review` lists it, and a person
-approves it. Nothing on this list is given by default.
+Each addition is an ask in the manifest and a grant in the instance.
+`tehas plugin review` lists it, and a person writes the grant. Nothing on
+this list is given by default.
 
 ### 1. Plugin labels
 
@@ -49,10 +50,15 @@ The manifest may declare labels:
 "labels": [{"name": "lab", "color": "5319e7", "description": "Show this issue's prototype in the lab"}]
 ```
 
-`tehas labels` creates them and pins them as it pins its own. A label name
-is the plugin's name, or starts with it followed by `:`. A plugin cannot
-declare a `tehas:` label. The dispatcher lists plugin labels as not in the
-flow, so a plugin label never starts or holds a cycle.
+- A label name is the plugin's name, or the plugin's name followed by `:`
+  and `a-z` and `-`. A name starting `tehas:` is refused.
+- `tehas labels` creates a declared label and pins it in `state/labels`, as
+  it pins its own. If the product already has a label of that name that
+  `tehas labels` did not make, it refuses with exit 78 and takes nothing
+  over. A person renames or removes that label first.
+- The dispatcher needs no change. It acts only on the labels it names
+  (`label_pins::GRANTING`, `decide/flow.rs`), so a plugin label never
+  starts or holds a cycle.
 
 ### 2. `issues:<label>`: an issue feed
 
@@ -65,10 +71,11 @@ GitHub.
   one. Hard rule 5 is kept on the host, by the code that does it for the
   dispatcher.
 - For each issue it writes the number, the title, the URL, who applied the
-  label and when, and the texts that give files to `/run/issues.json`. Those
-  texts are the body and comments written by an allowed account that nobody
-  off the list edited last, without quoted lines. A title changed since by
-  someone off the list is held back, as the Protolab holds it.
+  label and when, and the texts that give files to `/run/issues.json`,
+  checked against `api/plugin-issues.schema.json`. Those texts are the body
+  and comments written by an allowed account that nobody off the list
+  edited last, without quoted lines. A title changed since by someone off
+  the list is held back, as the Protolab holds it.
 - The tick refreshes a plugin with this grant when the feed's hash changed
   since its last run, as well as when the default branch moved. That is one
   GitHub read a tick for each such plugin, through the forge port's runner
@@ -91,52 +98,90 @@ since the last run is taken from the host's cache, not fetched again. The
 run gets no token and no network.
 
 Zip by address (a `Zip: <address> sha256:<hex>` line on a host of the
-plugin's list) comes later as `files:<MiB>:<host>...`. Its rule is kept as
-library code in T14.
+plugin's list) comes later as an ask of its own. Its rule is kept as library
+code in T14.
 
-### 4. `pages`: kept trees, served as sandboxed pages
+### 4. `pages`: attached files, served as sandboxed pages
 
-The plugin writes `/out/pages/<issue>/`. The gate serves it at
-`plugin-<name>.<domain>/_page/<issue>/...` with the policy the Protolab's
-pages have today:
+The plugin writes `/out/pages/<issue>/`. The trees count against `keep:`.
 
-- `sandbox allow-scripts allow-forms`, without `allow-same-origin`, so a
-  page runs in an opaque origin and cannot read the gate's cookie or another
-  page
-- `default-src 'self'` within that page's tree, with `connect-src 'none'`
-- for the page that the lab generates around the files, no script and
-  nothing from elsewhere
+**Why not `/_keep`.** `/_keep` serves kept files in the plugin's own
+origin, for the plugin's own view. The lab's pages hold HTML and scripts
+that a person attached and the plugin did not write. They must not run in
+the plugin's origin, where they could read the plugin's view and act as the
+person. So they run sandboxed, in an opaque origin.
 
-The trees count against `keep:`. The v3 frame (`/_frame`) stays as it is,
-for a plugin's own view. `/_page` is for files a person attached, shown
-whole.
+**The page token.** A sandboxed page in an opaque origin sends no cookie
+with the requests for its own files: the gate's cookie is `SameSite=Lax`
+and those requests are cross-site. So the files are served under a token
+instead of the cookie:
 
-A host name for each page (`lab-<n>.<domain>` today) is not part of this.
-An opaque origin already keeps pages apart. The edge's matcher for such
-names is kept in T14 in case a later page type needs real origins.
+- At each run the host makes a token for each page: 32 random bytes,
+  base64url. The gate keeps the tokens of the current run and the one
+  before, so a page open across a run keeps working until the next.
+- A signed-in request for `/_page/<issue>/`, under the gate's usual rules,
+  answers `303` to `/_page/<issue>/<token>/`. Only a signed-in person gets
+  a token.
+- A request under `/_page/<issue>/<token>/` needs no cookie, and the gate
+  reads none. It must be a `GET` or `HEAD` of a file in that issue's tree
+  with a token that is valid now. Anything else is 404, with no difference
+  between a wrong token and a missing file.
+- The web part's `Sec-Fetch` rules apply to `/_page/<issue>/` as written.
+  Under a token, a page's own requests are `cross-site`, so any
+  `Sec-Fetch-Site` is taken and the token is the proof. A missing
+  `Sec-Fetch-Site` is refused. `Sec-Fetch-Dest: document` is refused, so a
+  page opens only in a frame, and the frame's ancestor is fixed by the
+  policy below.
+
+**The policy** on every answer under `/_page`:
+
+- `Content-Security-Policy: sandbox allow-scripts; default-src 'self';
+  connect-src 'none'; form-action 'none'; frame-ancestors <the plugin's
+  origin>`. No `allow-same-origin`, `allow-forms`, `allow-popups`,
+  `allow-top-navigation` or `allow-modals`.
+- `Referrer-Policy: no-referrer`, so the token does not leave in a
+  `Referer`.
+- The page the lab writes around the files has no script and nothing from
+  elsewhere: `script-src 'none'` on top of the above.
+
+The v3 frame (`/_frame`) and `/_keep` stay as they are. A host name for each
+page (`lab-<n>.<domain>` today) is not part of this: an opaque origin keeps
+pages apart already. The edge's matcher for such names is kept in T14 in
+case a later page type needs real origins.
 
 ### 5. `list`: a list on the dashboard
 
-A plugin with this grant writes `/out/_tehas/list.json`, checked against
-`api/plugin-list.schema.json`: up to 200 items, each an issue number, a
-title, a page path and a time. The host copies it to
-`live/plugin-<name>.json`.
+The dashboard carries no plugin text. A plugin with this ask writes
+`/out/_tehas/list.json`, checked against `api/plugin-list.schema.json`: up
+to 200 items, each an issue number and a page path. The path must be
+`/_page/<issue>/` for that issue and nothing else.
 
-`tehas status --json` gets `plugins.<name>.list`, in place of today's
-`prototypes`. The game view and the business view read the lists of the
-plugins listed in `live/plugins.json`, not a fixed file.
+The host builds `live/plugin-<name>.json` itself. It takes each item's
+title and URL from its own feed (the held title), and drops an item whose
+issue is not in the feed. `tehas status --json` gets `plugins.<name>.list`,
+in place of the `prototypes` that 2.0 removes. The game view and the
+business view read the lists of the plugins in `live/plugins.json`, not a
+fixed file.
 
 ## The lab plugin
 
 Repository `tehas-app/tehas-plugin-lab`, Apache-2.0.
+
+The manifest asks, with no values:
 
 ```json
 {
   "plugin": 1,
   "name": "lab",
   "labels": [{"name": "lab", "color": "5319e7", "description": "Show this issue's prototype in the lab"}],
-  "grants": ["view", "menu", "issues:lab", "files:10", "pages", "list", "keep:200"]
+  "asks": ["view", "menu", "issues", "files", "pages", "list", "keep"]
 }
+```
+
+The instance grants, with the values:
+
+```
+TEHAS_PLUGIN_GRANTS_LAB="<commit> view menu issues:lab files:10 pages list keep:200"
 ```
 
 On a run it:
@@ -148,51 +193,62 @@ On a run it:
 3. removes the tree of an issue that is no longer in the feed
 4. writes the view (the list of pages) and `/out/_tehas/list.json`
 
-It needs no model and no `product`. Its tests cover the page writer and
-the list against fixed feeds.
+It needs no model and no `product`. Its tests cover the page writer and the
+list against fixed feeds.
 
 ## What T14 keeps, and where it goes
 
-Sent to the v2 session so that T14 names these for the additions above.
+Agreed with the v2 session.
 
 | Kept in T14 | Used by |
 | --- | --- |
 | `console/attach`, all of it | `files:` (3) |
-| The host-side reading of labelled issues, the applier check, the title hold, and which texts give files (from `console/src/protolab.rs`) | `issues:` (2). Name it for the feed, not the Protolab |
-| The page writer and its escaping (`console/src/protolab/build.rs`) | The lab plugin's own writer (step 2 of the run). Copy it into the plugin at 2.1, or keep it as a small crate the plugin vendors |
-| The edge's sandboxed static serving and its CSP | `pages` (4), moved into the gate |
+| The host-side reading of labelled issues, the applier check, the title hold, and which texts give files, as "the issue feed" | `issues:` (2) |
+| The page writer and its escaping, as a small crate of its own | The lab's writer (step 2 of the run). It vendors the crate |
+| The edge's sandboxed static serving and its policy, under neutral names | `pages` (4), moved into the gate |
 | The edge's per-item host matcher | Nothing yet; kept for later |
-| The zip-by-address rule (hosts, redirects, sha256) | `files:` with hosts, later |
+| The zip-by-address rule (hosts, redirects, sha256) | A later ask for zips by address |
 
-## Other features that could leave core
+## Changes to 1.0.0
 
-The same test: built, off on every factory, never or barely seen on a host.
-The owner decides each row. "Plugin" means it moves to a plugin after 2.0,
-with its plumbing kept. "Drop" means it goes in 2.0.
-
-| Feature | Evidence | Proposal |
+| Where | Change | Why |
 | --- | --- | --- |
-| All hands label | Never on a host. It only shows in status | Drop |
-| Spec mark (`Spec:` lines) | Tests only. Its one filer was `tehas prototype file`; the page ticket hands files through records instead | Drop |
-| Panels (outside pages in the dock) | A development machine only | Plugin: it is a view in a frame |
-| Business page | A development machine only | Plugin, over the live feeds |
-| Energy use | Tested with fake files | Plugin: a panel and a timed fetch. Check the host's private settings first |
-| Host panel (`TEHAS_TOP`) | Tests only | Plugin. `tehas top` stays as an operator command |
-| Review loop (`tehasbot review`) | Never on a host | Plugin: a timed run with the model that files an issue. Needs `issue:draft` |
-| Product wiki | Being built, step 2 in review | Plugin: a timed run with the model over the checkout, and a served page |
-| Describe, text files, zips and comments for a cycle | No host has run them. Images stay in core | Plugin: a hook before a cycle starts that adds files. Needs a `before:work` hook |
-| Outsource, with the model proxy and the contractor | Being built. A release refuses it | Owner's call. It is about 20k lines across 11 crates, too deep for a plugin |
-| Millwright's grant | Never on a host | Owner's call. It is an authorisation path, so it stays in core or goes |
+| v1, guarantee 8 (writes only through tehas) | Kept, and its pair for reads: under `issues:`, tehas reads issues for a plugin and hands them over. The plugin still never reaches GitHub | The applier check stays on the host |
+| v1, guarantee 9 (removable) | Page trees are kept files, and go with the plugin under the v3 keep rule. So do its labels' pins; the labels stay on GitHub for a person to remove | Nothing outlives the plugin on the host |
+| v1, the manifest | `labels`, and the asks `issues`, `files`, `pages`, `list` | |
+| Security part, the container | Two read-only mounts: `/run/issues.json` under `issues:`, `/given/` under `files:`. Pinned in `sandbox.rs` and the `test/fixtures/argv/plugin-*` lists | A security change |
+| Web part, the gate | `/_page/<issue>/` and `/_page/<issue>/<token>/` beside `/_frame` and `/_keep`, with their policy and `Sec-Fetch` rules above | Attached pages run in an opaque origin |
+| v2 menu part | The dashboard shows a plugin's list from the host's own feed; the plugin gives only numbers and paths | No plugin text on the dashboard's origin |
+| `tehas labels` | Creates and pins declared labels; exit 78 on a name it did not make | A plugin takes over no existing label |
+| `tehas status --json` | `plugins.<name>.list` | It replaces `prototypes` |
+| Settings | None new. A grant is a `TEHAS_PLUGIN_GRANTS_<NAME>` line | |
 
-Kept in core, though not proven on a host: refreshes, read-only instances,
-the egress limit, the lean driver, analytics and the operator commands.
-They are part of the loop, the sandbox or how a person runs a factory.
+## Work
 
-## Open
+After plugins are on in a release (2.1). Each is a pull request; a security
+change says so.
+
+1. **Manifest and labels.** `labels`, the four asks refused by name until
+   each is enforced, `tehas labels` for declared labels and its refusal.
+2. **The issue feed.** `issues:`, the host read, `/run/issues.json` and its
+   schema, the tick's refresh on a changed feed. Security change: a new
+   mount, `sandbox.rs` and the argument lists.
+3. **The attachments.** `files:`, the fetch through `console/attach`, the
+   cache, `/given/`. Security change: a new mount.
+4. **Pages.** `pages`, `/_page` and its token, its policy and `Sec-Fetch`
+   rules in the gate. Security change.
+5. **The list.** `list`, its schema, `live/plugin-<name>.json`, status, the
+   game and business views.
+6. **The plugin.** `tehas-app/tehas-plugin-lab`: the writer, the view, its
+   tests.
+7. **The manual.** `host/docs/plugins.md`, `api.md`, `features.md` as
+   building, the changelog fragment.
+
+## Open points
 
 - Whether the lab's pages may be public, as the Protolab's were. This spec
   says no: every plugin page is behind the sign-in. A public page would be
-  a grant of its own, reviewed on its own.
-- The lab could move a ticket's files to a cycle, as the page ticket does.
+  an ask of its own, reviewed on its own.
+- The lab could hand a ticket's files to a cycle, as the page ticket does.
   This spec leaves that out, because images and files already reach a cycle
   from the issue text.
