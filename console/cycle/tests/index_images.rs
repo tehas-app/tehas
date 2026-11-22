@@ -275,8 +275,8 @@ fn what_a_killed_run_left_set_aside_goes_back_where_the_next_run_can_use_it() {
     has(
         &r.out,
         &format!(
-            "a run that was killed left index data set aside: 1 file(s) put back in {}, 0 removed",
-            h.indexdir().display()
+            "a run that was killed left index data set aside: 1 file(s) put back in {}/state/index, 0 removed",
+            h.th.display()
         ),
     );
     has(&r.out, "1 file(s) it wrote are set aside");
@@ -298,8 +298,8 @@ fn what_a_killed_run_left_set_aside_is_removed_when_the_index_holds_a_database()
     has(
         &r.out,
         &format!(
-            "a run that was killed left index data set aside: 0 file(s) put back in {}, 1 removed",
-            h.indexdir().display()
+            "a run that was killed left index data set aside: 0 file(s) put back in {}/state/index, 1 removed",
+            h.th.display()
         ),
     );
     assert_eq!(h.index_names(), "logs widget.db ");

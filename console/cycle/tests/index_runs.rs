@@ -202,7 +202,7 @@ fn the_tree_that_is_indexed_is_a_clone_at_the_branchs_tip_read_only() {
     got.sort();
     let mut want = vec![
         format!("{}:{}:ro", h.noted("indexed.dir"), h.ws.display()),
-        format!("{}:{CACHE}", h.indexdir().display()),
+        format!("{}/state/index:{CACHE}", h.th.display()),
     ];
     want.sort();
     assert_eq!(got, want);
@@ -524,8 +524,8 @@ fn a_run_removes_what_an_earlier_one_left_in_the_index_directory() {
     has(
         &r.out,
         &format!(
-            "removed 3 file(s) an earlier run left in {}",
-            h.indexdir().display()
+            "removed 3 file(s) an earlier run left in {}/state/index",
+            h.th.display()
         ),
     );
     let dirs: Vec<String> = std::fs::read_dir(h.indexdir())

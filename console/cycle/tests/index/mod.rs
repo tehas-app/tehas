@@ -162,7 +162,8 @@ pub struct Run {
 #[allow(dead_code)] // each test file uses a part of this module
 pub struct Host {
     t: TestDir,
-    th: PathBuf,
+    /// `~/tehas`.
+    pub th: PathBuf,
     bash: String,
     console: PathBuf,
     /// The product repository.

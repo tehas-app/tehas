@@ -534,14 +534,12 @@ fn on_it_runs_the_binary_in_a_locked_down_container_with_live_mcp_and_logs_read_
     let r = h.serve();
     rc(&r, 0);
     let th = h.th.display();
-    let live = Home::new(&h.th).live_dir();
     let want = format!(
         "network inspect --format {{{{index .Options \"com.docker.network.bridge.enable_ip_masquerade\"}}}} tehas-mcp
 rm -f tehas-mcp
-run --rm --init --name tehas-mcp --user {}:{} --network tehas-mcp --read-only --cap-drop ALL --security-opt no-new-privileges:true --memory 256m --pids-limit 64 -p 192.0.2.9:8082:8082 -v {}:/live:ro -v {th}/mcp:/sessions:ro -v {th}/logs:/logs:ro -v {th}/libexec/tehas-mcp:/tehas-mcp:ro -e TEHAS_MCP_KEYS -e TEHAS_MCP_DASHBOARD_KEYS -e TEHAS_MCP_MASK --entrypoint /tehas-mcp caddy@{} --live /live --sessions /sessions --logs /logs --listen 0.0.0.0:8082 --server-version v0.7.30+abc1234 --private gpu1 --private 192.0.2.10 --private models.lan --private bot@example.com",
+run --rm --init --name tehas-mcp --user {}:{} --network tehas-mcp --read-only --cap-drop ALL --security-opt no-new-privileges:true --memory 256m --pids-limit 64 -p 192.0.2.9:8082:8082 -v {th}/live:/live:ro -v {th}/mcp:/sessions:ro -v {th}/logs:/logs:ro -v {th}/libexec/tehas-mcp:/tehas-mcp:ro -e TEHAS_MCP_KEYS -e TEHAS_MCP_DASHBOARD_KEYS -e TEHAS_MCP_MASK --entrypoint /tehas-mcp caddy@{} --live /live --sessions /sessions --logs /logs --listen 0.0.0.0:8082 --server-version v0.7.30+abc1234 --private gpu1 --private 192.0.2.10 --private models.lan --private bot@example.com",
         id("-u"),
         id("-g"),
-        live.display(),
         digest()
     );
     assert_eq!(h.docker(), want);
