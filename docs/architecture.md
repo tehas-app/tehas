@@ -148,7 +148,7 @@ likewise.
 
 ### Temporary rises
 
-Counts T15's ports raised above their fork value. Each goes back down in the step named; the trio's gate fails any count left above its fork value at the end.
+Counts T15's ports raised above their fork value. The fork's github-rest was 846; today's max is in `architecture.toml` (863 after later removals lowered it), and the rows below record each raise. Each goes back down in the step named; the trio's gate fails any count left above its fork value at the end.
 
 | Check | Max before | Max after | Pull request | Why (false positives) | Removed by |
 | --- | --- | --- | --- | --- | --- |
@@ -156,6 +156,8 @@ Counts T15's ports raised above their fork value. Each goes back down in the ste
 | gh-argv | 408 | 409 | #2859 | a fixture's process named gh | T4 |
 | raw-statuses | 259 | 260 | #2859 | a fixture's 404 from the docs server | T4/T7 |
 | github-rest | 860 | 870 | #2860 | pi-rukas's runner flag --json, written as the tests pass it | T4/T7: the check narrows to the adapter's paths |
+
+Lowered since by removals, not by these rows' causes: github-rest 870 to 863 (#2862, the product wiki). The rises above stay to be removed by T4 and T7.
 
 ## Grades
 
