@@ -13,11 +13,6 @@ use std::fs;
 use std::time::Instant;
 use top::*;
 
-/// The short name of the process whose command line holds a token.
-fn tokened() -> &'static str {
-    PROCS[3].split(' ').nth(1).unwrap()
-}
-
 /// The rows of a process set: pids from `first` to `last`, each named after
 /// itself, each next one having used `step` ticks more than the last, from
 /// `base` for the first.
@@ -95,7 +90,7 @@ fn json_gives_one_object_generatedat_and_one_key_per_section() {
     let w = host("one-object");
     files0(&w);
     energy(&w, 20);
-    let r = snapshot(&w);
+    let r = top(&w, "--json");
     assert_eq!(r.rc, 0, "{}", r.out);
     let v = json_of(&r);
     assert!(v["generatedAt"].is_string());
@@ -114,7 +109,7 @@ fn json_gives_one_object_generatedat_and_one_key_per_section() {
 fn the_snapshot_reads_the_live_files_and_asks_systemd_nothing_else() {
     let w = host("asks-systemd");
     files0(&w);
-    let r = snapshot(&w);
+    let r = top(&w, "--json");
     assert_eq!(r.rc, 0, "{}", r.out);
     let calls = w.calls("systemctl");
     has(
@@ -136,7 +131,7 @@ fn a_source_that_is_not_there_is_null_and_the_others_are_still_there() {
     for f in ["energy.json", "console-12.txt", "running.json"] {
         let _ = fs::remove_file(w.live_file(f));
     }
-    let r = snapshot(&w);
+    let r = top(&w, "--json");
     assert_eq!(r.rc, 0, "{}", r.out);
     let v = json_of(&r);
     let nulls: Vec<bool> = ["factory", "queue", "cycle", "units", "energy", "console"]
@@ -149,7 +144,7 @@ fn a_source_that_is_not_there_is_null_and_the_others_are_still_there() {
 #[test]
 fn every_source_missing_is_null_for_its_key_and_json_still_exits_0() {
     let w = host("all-missing");
-    let r = snapshot(&w);
+    let r = top(&w, "--json");
     assert_eq!(r.rc, 0, "{}", r.out);
     let v = json_of(&r);
     for k in ["factory", "queue", "cycle", "energy", "console"] {
@@ -161,11 +156,11 @@ fn every_source_missing_is_null_for_its_key_and_json_still_exits_0() {
 fn a_snapshot_fed_to_the_renderer_gives_the_same_frame_as_once() {
     let w = host("renderer");
     files0(&w);
-    let r = snapshot(&w);
+    let r = top(&w, "--json");
     assert_eq!(r.rc, 0, "{}", r.out);
     let r = w.sh(&format!(
         r#"{} | "$TEHAS_CONSOLE" top frame 80 24 >"$T/by-snapshot"; {} >"$T/by-files""#,
-        snapshot_cmd(),
+        top_cmd("--json"),
         top_cmd("--once")
     ));
     assert_eq!(r.rc, 0, "{}", r.out);
@@ -182,7 +177,7 @@ fn a_snapshot_fed_to_the_renderer_gives_the_same_frame_as_once() {
 fn the_host_section_names_cpus_load_cpu_use_memory_and_the_processes() {
     let w = host("host-section");
     files0(&w);
-    let r = snapshot(&w);
+    let r = top(&w, "--json");
     assert_eq!(r.rc, 0, "{}", r.out);
     let v = json_of(&r);
     let h = &v["host"];
@@ -216,7 +211,7 @@ fn a_host_that_cannot_be_read_is_a_null_section_and_one_line() {
     let w = host("no-proc");
     files0(&w);
     proc_env(&w, &w.t().join("no-such-tree"));
-    let r = snapshot(&w);
+    let r = top(&w, "--json");
     assert_eq!(r.rc, 0, "{}", r.out);
     let v = json_of(&r);
     assert!(v["host"].is_null());
@@ -236,7 +231,7 @@ fn a_host_with_no_console_has_no_snapshot_and_says_to_install() {
     files0(&w);
     let r = w.sh(&format!(
         r#"TEHAS_CONSOLE="$T/no-console" {}"#,
-        snapshot_cmd()
+        top_cmd("--json")
     ));
     assert_eq!(r.rc, 78, "{}", r.out);
     has(
@@ -252,15 +247,15 @@ fn a_host_with_no_console_has_no_snapshot_and_says_to_install() {
 fn a_process_is_named_by_its_short_name_never_by_its_command_line() {
     let w = host("short-name");
     files0(&w);
-    let r = snapshot(&w);
+    let r = top(&w, "--json");
     assert_eq!(r.rc, 0, "{}", r.out);
     lacks(&r.out, "SecretTokenInACommandLine");
     lacks(&r.out, "--repo");
-    has(&r.out, &format!(r#""name":"{}""#, tokened()));
+    has(&r.out, r#""name":"gh""#);
     let r = top(&w, "--once");
     assert_eq!(r.rc, 0, "{}", r.out);
     lacks(&r.out, "SecretTokenInACommandLine");
-    has(&r.out, &format!("  400  {}", tokened()));
+    has(&r.out, "  400  gh");
 }
 
 // The name is what lies between the first ( and the last ) of the stat file,
@@ -290,7 +285,7 @@ fn a_short_name_holding_brackets_or_quotes_is_still_one_name() {
     )
     .unwrap();
     proc_env(&w, &proc3);
-    let r = snapshot(&w);
+    let r = top(&w, "--json");
     assert_eq!(r.rc, 0, "{}", r.out);
     let v = json_of(&r);
     let pids: Vec<String> = v["host"]["processes"]
@@ -319,7 +314,7 @@ fn a_tree_with_no_load_averages_and_no_memory_gives_one_line_of_question_marks()
     fs::remove_file(proc4.join("loadavg")).unwrap();
     fs::remove_file(proc4.join("meminfo")).unwrap();
     proc_env(&w, &proc4);
-    let v = json_of(&snapshot(&w));
+    let v = json_of(&top(&w, "--json"));
     for k in ["load", "memory", "cpuPercent"] {
         assert!(v["host"][k].is_null(), "{k}: {}", v["host"][k]);
     }
@@ -332,7 +327,7 @@ fn a_tree_with_no_load_averages_and_no_memory_gives_one_line_of_question_marks()
 fn the_snapshot_carries_the_reading_its_host_section_was_computed_from() {
     let w = host("carries-reading");
     files0(&w);
-    let r = snapshot(&w);
+    let r = top(&w, "--json");
     assert_eq!(r.rc, 0, "{}", r.out);
     let v = json_of(&r);
     assert!(v["reading"].is_object());
@@ -342,7 +337,7 @@ fn the_snapshot_carries_the_reading_its_host_section_was_computed_from() {
     // A tree that cannot be read gives no reading either: the next call has
     // nothing to compare against and takes a pair.
     proc_env(&w, &w.t().join("no-such-tree"));
-    assert!(json_of(&snapshot(&w))["reading"].is_null());
+    assert!(json_of(&top(&w, "--json"))["reading"].is_null());
 }
 
 #[test]

@@ -121,10 +121,7 @@ pub fn proc_files(dir: &Path, clock: u64, cpu: &str, rows: &[impl AsRef<str>]) {
 pub fn files(w: &World, title: &str) {
     let t = now();
     let at = w.at();
-    // The shell's fixture gave each issue GitHub's times, and the cycle the
-    // time of its heartbeat. No case reads them: top draws a running cycle
-    // from its start, and an issue from its number and title.
-    let item = |n: u64, title: &str| json!({"number": n, "title": title, "url": "u"});
+    let item = |n: u64, title: &str| json!({"number": n, "title": title, "url": "u", "updatedAt": "x", "closedAt": null});
     let status = json!({
         "generatedAt": iso(t - 210), "repo": "acme/widget", "paused": false,
         "running": [item(12, title)],
@@ -135,8 +132,8 @@ pub fn files(w: &World, title: &str) {
     });
     fs::write(at.live(Live::Status), status.to_string()).unwrap();
     let running = json!({"cycles": [{"issue": 12, "running": true, "status": "running",
-        "step": "develop", "console": "console-12.txt", "startedAt": t - 630}],
-        "last": null});
+        "step": "develop", "console": "console-12.txt", "startedAt": t - 630,
+        "updatedAt": t - 10}], "last": null});
     fs::write(at.live(Live::Running), running.to_string()).unwrap();
     let health = json!({"status": "pass", "time": iso(t - 210), "output": "Working on #12.",
         "checks": {"queue": {"time": iso(t - 210), "paused": false, "inLine": 1,
@@ -169,16 +166,6 @@ pub fn top_cmd(words: &str) -> String {
 /// `tehas top` with these words.
 pub fn top(w: &World, words: &str) -> Run {
     w.sh(&top_cmd(words))
-}
-
-/// `tehas top --json`, as a shell snippet.
-pub fn snapshot_cmd() -> String {
-    format!("{} top --json", root().join("bin/tehas").display())
-}
-
-/// `tehas top --json`.
-pub fn snapshot(w: &World) -> Run {
-    w.sh(&snapshot_cmd())
 }
 
 /// Bytes that are not printing characters, tab and newline excepted.

@@ -15,9 +15,6 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use tehas_core::testdir::TestDir;
 
-/// What the docs server answers for a path the host owns.
-const NOT_FOUND: u16 = 404;
-
 fn text(rel: &str) -> String {
     let p = root().join(rel);
     fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()))
@@ -352,7 +349,7 @@ fn the_docs_server_answers_404_for_any_path_under_host_even_where_a_file_stands(
         "/host/.x",
         "/Host/bridge.json",
     ];
-    let want: String = paths.iter().map(|p| format!("{p} {NOT_FOUND} ")).collect();
+    let want: String = paths.iter().map(|p| format!("{p} 404 ")).collect();
     let caddyfile = text("host/edge/docs.Caddyfile");
     let log = t.join("caddy.log");
     let (mut codes, mut page, mut up) = (String::new(), String::new(), false);
@@ -417,8 +414,7 @@ fn the_docs_server_answers_404_for_any_path_under_host_even_where_a_file_stands(
     assert_eq!(codes, want);
     // The manual's page "The host" is /host, outside the host's namespace.
     assert_ne!(
-        page,
-        NOT_FOUND.to_string(),
+        page, "404",
         "the docs server answered 404 for /host, the manual's page"
     );
 }

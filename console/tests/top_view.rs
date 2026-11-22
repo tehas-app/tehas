@@ -138,7 +138,7 @@ fn systemd_that_gives_no_answer_is_a_null_section_and_one_line() {
         r#"echo "Failed to connect to bus: No such file or directory" >&2; exit 1"#,
     );
     files0(&w);
-    assert!(json_of(&snapshot(&w))["units"].is_null());
+    assert!(json_of(&top(&w, "--json"))["units"].is_null());
     let r = top(&w, "--once");
     assert_eq!(r.rc, 0, "{}", r.out);
     has(&r.out, "units     systemctl --user gave no answer");
@@ -150,7 +150,7 @@ fn systemd_with_no_tehas_units_is_an_empty_section_and_one_line() {
     let w = view_host("no-units");
     w.stub("systemctl", "exit 0");
     files0(&w);
-    assert_eq!(json_of(&snapshot(&w))["units"].to_string(), "[]");
+    assert_eq!(json_of(&top(&w, "--json"))["units"].to_string(), "[]");
     let r = top(&w, "--once");
     has(&r.out, "units     no tehas units");
 }
@@ -227,7 +227,7 @@ fn no_live_directory_at_all_is_exit_1() {
 fn a_reader_that_goes_away_is_exit_141_with_nothing_on_standard_error() {
     let w = view_host("reader-gone");
     files0(&w);
-    for cmd in [top_cmd("--once"), snapshot_cmd()] {
+    for cmd in [top_cmd("--once"), top_cmd("--json")] {
         let r = w.sh(&format!(
             r#"{{ command -p sleep 0.3; {cmd} 2>"$T/err"; }} | true; exit ${{PIPESTATUS[0]}}"#
         ));
@@ -247,7 +247,7 @@ fn a_run_changes_nothing_under_tehas_home() {
     let r = w.sh(&format!(
         "{} && {} >/dev/null",
         top_cmd("--once"),
-        snapshot_cmd()
+        top_cmd("--json")
     ));
     assert_eq!(r.rc, 0, "{}", r.out);
     let after = live_files(&w);
