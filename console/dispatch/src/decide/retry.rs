@@ -9,7 +9,7 @@ use super::{
 };
 use crate::answer::{self, Overlay};
 use crate::questions;
-use crate::snapshot::{CycleRow, PullNode, PullRead};
+use crate::snapshot::{CycleRow, PullNode, PullRead, View};
 use crate::text;
 use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
@@ -293,16 +293,8 @@ impl Poll<'_> {
                     ))
                 }
             };
-            let mut qkind = q
-                .get("kind")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            let mut qid = match q.get("id") {
-                Some(Value::String(s)) => s.clone(),
-                Some(Value::Number(x)) => x.to_string(),
-                _ => String::new(),
-            };
+            let mut qkind = q.kind.clone();
+            let mut qid = q.id.clone();
             if qkind != "park" && qkind != "plan" {
                 qid.clear();
                 qkind.clear();
@@ -394,8 +386,7 @@ impl Poll<'_> {
                 if fresh.contains(&n) && !in_flight {
                     continue;
                 }
-                let row = q.get("plan").cloned().unwrap_or(Value::Null);
-                self.plan_answer(n, &ans, &tick, &row, room)?;
+                self.plan_answer(n, &ans, &tick, &q.plan, room)?;
                 continue;
             }
             if kind != "park" || tick != "one" {
@@ -453,8 +444,7 @@ impl Poll<'_> {
             // the label is off, or under a lean default once `tehas:classic`
             // is on. That label is then a person's new choice, read as one
             // and not against the record of the refused lean start.
-            let lean_refused =
-                q.get("reason").and_then(Value::as_str) == Some(tehas_core::question::LEAN_REFUSED);
+            let lean_refused = q.reason.as_deref() == Some(tehas_core::question::LEAN_REFUSED);
             if lean_refused && (self.c.driver_default == Driver::Lean) && !has(&have, CLASSIC) {
                 self.log(format!("wait #{n}: a retry was ticked on the park of a lean start this tehas cannot run; apply {CLASSIC} first, and the tick then starts it on classic"));
                 continue;
@@ -638,14 +628,15 @@ impl Poll<'_> {
             if self.running(n) {
                 continue;
             }
-            let Some(view) = self.s.issues.get(&n).and_then(|i| i.view.clone()) else {
-                self.need("view");
-                continue;
+            let view = match self.s.issues.get(&n).and_then(|i| i.view.clone()) {
+                None => {
+                    self.need("view");
+                    continue;
+                }
+                Some(View::Failed) => return Err(self.fail("ERROR: gh issue view failed", 1)),
+                Some(View::Read(v)) => v,
             };
-            if view.get("failed") == Some(&json!(true)) {
-                return Err(self.fail("ERROR: gh issue view failed", 1));
-            }
-            let have = labels(&view);
+            let have = view.labels;
             if has(&have, "tehas:ready") {
                 continue;
             }
@@ -657,7 +648,7 @@ impl Poll<'_> {
                 continue;
             }
             let held = matches!(driver, Choice::Stranger(_))
-                || view.get("state").and_then(Value::as_str) != Some("OPEN")
+                || view.state.as_deref() != Some("OPEN")
                 || !has(&have, "needs-human-attention")
                 || has(&have, "tehas:running")
                 || self.plan_open(n)

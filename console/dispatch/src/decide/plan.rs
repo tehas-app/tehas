@@ -6,26 +6,18 @@
 use super::clean::iso;
 
 /// Why the fixer may not answer this session's question, empty when it may.
-fn fixer_answer_why(c: &Settings, view: &Value) -> String {
+fn fixer_why(c: &Settings, view: Option<&PlanView>) -> String {
     if c.millwright.is_empty() {
         return "there is no fixer".into();
     }
-    if !view.is_object() {
+    let Some(view) = view else {
         return "the session has no record on this host".into();
-    }
-    let by = view.get("by").and_then(Value::as_str).unwrap_or("");
+    };
+    let by = view.by.as_str();
     if by.is_empty() || !c.allowed(by) {
         return "no person's tehas:plan started this session, as far as its record says".into();
     }
-    let answers = match view.get("answers") {
-        None | Some(Value::Null) => Some(Vec::new()),
-        Some(Value::Array(a)) => a
-            .iter()
-            .map(|x| x.get("fixer").and_then(Value::as_bool))
-            .collect::<Option<Vec<bool>>>(),
-        Some(_) => None,
-    };
-    let Some(answers) = answers else {
+    let Some(answers) = &view.fixers else {
         return "its record does not say who answered its turns".into();
     };
     let had = answers.iter().filter(|f| **f).count();
@@ -37,9 +29,16 @@ fn fixer_answer_why(c: &Settings, view: &Value) -> String {
     }
     String::new()
 }
+/// fixer_why of a session in `shape`'s JSON.
+#[cfg(test)]
+fn fixer_answer_why(c: &Settings, view: &Value) -> String {
+    fixer_why(c, crate::snapshot::plan_view(view).as_ref())
+}
 use super::{has, or_unknown, End, Poll, Room, Step};
 use crate::settings::Settings;
-use crate::snapshot::PlanList;
+#[cfg(test)]
+use crate::snapshot::shape;
+use crate::snapshot::{PlanList, PlanRow, PlanView, View};
 use crate::text;
 use serde_json::{json, Value};
 use tehas_core::question::BOX_END;
@@ -59,55 +58,11 @@ fn digits(v: &Value) -> Option<String> {
         .then_some(s)
 }
 
-/// The shape of `store plan-view`: the session as plan_view gives it, from plan-show's
-/// `.planning`: the refused replies of both names and the held ticks from
-/// the notes, and an answer's millwright as fixer.
-pub(crate) fn shape(row: &Value) -> Value {
-    if !row.is_object() {
-        return Value::Null;
-    }
-    let notes = |k: &str| {
-        row.pointer(&format!("/notes/{k}"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
-    };
-    let mut refused = notes("millwright_refused");
-    refused.extend(notes("fixer_refused"));
-    let answers: Vec<Value> = row
-        .get("answers")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|a| match a.get("millwright") {
-            Some(Value::Bool(m)) => json!({"turn": a.get("turn"), "by": a.get("by"), "fixer": m}),
-            _ => a,
-        })
-        .collect();
-    let mut v = json!({"answers": answers});
-    for k in ["by", "label"] {
-        if let Some(x) = row.get(k).filter(|x| !x.is_null()) {
-            v[k] = x.clone();
-        }
-    }
-    if !refused.is_empty() {
-        v["fixer_refused"] = json!(refused);
-    }
-    let held = notes("held");
-    if !held.is_empty() {
-        v["held"] = json!(held);
-    }
-    v
-}
-
 /// Whether a list of the record holds the id, a number as jq's index finds
-/// it.
-fn listed(v: &Value, key: &str, id: &str) -> bool {
-    v.get(key).and_then(Value::as_array).is_some_and(|a| {
-        a.iter()
-            .any(|x| x.as_u64().is_some_and(|v| v.to_string() == id))
-    })
+/// it. A list that is not one holds every id.
+fn listed(ids: &Option<Vec<u64>>, id: &str) -> bool {
+    ids.as_ref()
+        .is_none_or(|a| a.iter().any(|v| v.to_string() == id))
 }
 
 impl Poll<'_> {
@@ -166,14 +121,14 @@ impl Poll<'_> {
     }
 
     /// fixer_answer_ok: whether the fixer's tick or reply may run the turn.
-    fn fixer_answer_ok(&mut self, n: u64, view: &Value, ans: &Value, said: &str) -> bool {
+    fn fixer_answer_ok(&mut self, n: u64, view: &PlanView, ans: &Value, said: &str) -> bool {
         let boxes = ans["boxes"].as_u64().unwrap_or(0);
         let why = if ans["tick"]["status"] == "fixer"
             && ans["tick"]["index"].as_u64().map(|i| i + 1) == Some(boxes)
         {
             format!("it ticked {BOX_END}, which only a person may")
         } else {
-            fixer_answer_why(self.c, view)
+            fixer_why(self.c, Some(view))
         };
         if why.is_empty() {
             return true;
@@ -189,11 +144,7 @@ impl Poll<'_> {
         let Some(id) = digits(&ans["fixer_reply"]["id"]) else {
             return false;
         };
-        if view
-            .get("fixer_refused")
-            .is_some_and(|v| !v.is_array() && !v.is_null())
-            || listed(view, "fixer_refused", &id)
-        {
+        if listed(&view.refused, &id) {
             return false;
         }
         self.log(format!("skip #{n}: the fixer's answer runs no turn: {why}"));
@@ -206,15 +157,11 @@ impl Poll<'_> {
 
     /// fixer_held: a tick the fixer saved after someone else edited the
     /// question is neither used nor undone. Said once a question.
-    fn fixer_held(&mut self, n: u64, view: &Value, ans: &Value) {
+    fn fixer_held(&mut self, n: u64, view: &PlanView, ans: &Value) {
         let Some(id) = digits(&ans["comment"]) else {
             return;
         };
-        if view
-            .get("held")
-            .is_some_and(|v| !v.is_array() && !v.is_null())
-            || listed(view, "held", &id)
-        {
+        if listed(&view.held, &id) {
             return;
         }
         self.log(format!("skip #{n}: the fixer saved the question after another account did, so who ticked it is not known"));
@@ -231,7 +178,7 @@ impl Poll<'_> {
         n: u64,
         ans: &Value,
         tick: &str,
-        row: &Value,
+        row: &PlanRow,
         room: &Room,
     ) -> Step {
         let mut by = ans["tick"]["by"].as_str().unwrap_or("").to_string();
@@ -247,8 +194,8 @@ impl Poll<'_> {
             reply_id = digits(&ans["reply"]["id"]).unwrap_or_default();
         } else if tick == "one" {
         } else if tick == "held" {
-            if row.is_object() {
-                self.fixer_held(n, &shape(row), ans);
+            if let PlanRow::Open(p) = row {
+                self.fixer_held(n, &p.view, ans);
             }
             return Ok(());
         } else if tick == "unread" {
@@ -266,17 +213,17 @@ impl Poll<'_> {
         } else {
             return Ok(());
         }
-        if row.is_null() {
+        if *row == PlanRow::None {
             if !self.dry {
                 self.plan_end(n, "The record of this planning session is gone from the host, so it cannot continue. Apply `tehas:plan` to start a new one.");
             }
             return Ok(());
         }
-        let wanted = match row.get("comment_id") {
-            None | Some(Value::Null) => String::new(),
-            Some(Value::String(s)) => s.clone(),
-            Some(v) => v.to_string(),
+        let open = match row {
+            PlanRow::Open(p) => Some(&**p),
+            _ => None,
         };
+        let wanted = open.map_or("", |p| p.comment_id.as_str());
         let answered = match &ans["comment"] {
             Value::String(s) => s.clone(),
             v => v.to_string(),
@@ -289,13 +236,13 @@ impl Poll<'_> {
         }
         let mut speaker = "The operator";
         if !fixer_said.is_empty() {
-            if !row.is_object() {
+            let Some(p) = open else {
                 self.log(format!(
                     "skip #{n}: its planning session on record could not be read"
                 ));
                 return Ok(());
-            }
-            if !self.fixer_answer_ok(n, &shape(row), ans, fixer_said) {
+            };
+            if !self.fixer_answer_ok(n, &p.view, ans, fixer_said) {
                 return Ok(());
             }
             speaker = "The fixer";
@@ -313,12 +260,9 @@ impl Poll<'_> {
         let index = ans["tick"]["index"].as_u64();
         // As `$(jq -r ...)` leaves it: no final newlines.
         let option = |i: u64| {
-            row.get("options")
-                .and_then(|o| o.get(i as usize))
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .trim_end_matches('\n')
-                .to_string()
+            open.and_then(|p| p.options.get(i as usize))
+                .cloned()
+                .unwrap_or_default()
         };
         let text = if !reply.is_empty() {
             let mut text = format!("{speaker} replied on the issue:\n\n{reply}");
@@ -389,17 +333,11 @@ impl Poll<'_> {
 
     /// The title and body of the view the poll read, which a first turn's
     /// brief is written from.
-    fn brief_text(&self, n: u64) -> (Value, Value) {
-        let v = self
-            .s
-            .issues
-            .get(&n)
-            .and_then(|i| i.view.clone())
-            .unwrap_or(Value::Null);
-        (
-            v.get("title").cloned().unwrap_or(Value::Null),
-            v.get("body").cloned().unwrap_or(Value::Null),
-        )
+    fn brief_text(&self, n: u64) -> (Option<String>, Option<String>) {
+        match self.s.issues.get(&n).and_then(|i| i.view.clone()) {
+            Some(View::Read(v)) => (v.title, v.body),
+            _ => (None, None),
+        }
     }
 
     fn refine_path(&self) -> String {
@@ -478,10 +416,10 @@ impl Poll<'_> {
                     self.need("view");
                     return Ok(());
                 }
-                Some(v) if v.get("failed") == Some(&json!(true)) => {
+                Some(View::Failed) => {
                     return Err(self.fail("ERROR: gh issue view failed", 1));
                 }
-                Some(_) => {}
+                Some(View::Read(_)) => {}
             }
             let mut on_epic = String::new();
             let mut epic = None;
@@ -666,24 +604,17 @@ impl Poll<'_> {
             ) {
                 why = "it is the control issue".into();
             } else {
-                let Some(view) = self.s.issues.get(&n).and_then(|i| i.view.clone()) else {
-                    self.need("view");
-                    return Ok(());
+                let view = match self.s.issues.get(&n).and_then(|i| i.view.clone()) {
+                    None => {
+                        self.need("view");
+                        return Ok(());
+                    }
+                    Some(View::Failed) => {
+                        return Err(self.fail("ERROR: gh issue view failed", 1));
+                    }
+                    Some(View::Read(v)) => v,
                 };
-                if view.get("failed") == Some(&json!(true)) {
-                    return Err(self.fail("ERROR: gh issue view failed", 1));
-                }
-                let have: Vec<String> = view
-                    .get("labels")
-                    .and_then(Value::as_array)
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|l| {
-                                l.get("name").and_then(Value::as_str).map(str::to_string)
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let have = &view.labels;
                 for l in [
                     "tehas:ready",
                     "tehas:running",
@@ -693,19 +624,19 @@ impl Poll<'_> {
                     "tehas:refined",
                     "tehas:replaced",
                 ] {
-                    if has(&have, l) {
+                    if has(have, l) {
                         why = format!("it carries {l}");
                     }
                 }
-                if !(has(&have, "needs-human-attention") && has(&have, "tehas:question")) {
+                if !(has(have, "needs-human-attention") && has(have, "tehas:question")) {
                     why = "it is no longer parked".into();
                 }
                 if qid == "-" {
                     why = "its park question was answered".into();
                 }
                 let line = view
-                    .get("body")
-                    .and_then(Value::as_str)
+                    .body
+                    .as_deref()
                     .unwrap_or("")
                     .split('\n')
                     .next()
@@ -721,12 +652,12 @@ impl Poll<'_> {
                 if !self.c.allowed(&by) {
                     why = format!("its cycle was not started by an account that may label ({by})");
                 }
-                if sum != "-" && sum != text::body_sha256(&view) {
+                if sum != "-" && sum != text::body_sha256(&json!({"body": view.body})) {
                     why = "its text changed since its cycle began".into();
                 }
                 // Last: a closed issue is not in the page, so nothing else of
                 // it is known.
-                if view.get("state").and_then(Value::as_str) != Some("OPEN") {
+                if view.state.as_deref() != Some("OPEN") {
                     why = "it is closed".into();
                 }
                 if why.is_empty()
