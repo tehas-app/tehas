@@ -76,8 +76,7 @@ pub fn fingerprint(conn: &Connection, now: i64) -> rusqlite::Result<Option<Strin
         .optional()?;
     let (y, m, d) = civil_from_days(now.div_euclid(86_400));
     let words = rewritten.map_or(String::new(), |n| format!(";rewritten={n}"));
-    Ok((live == 0)
-        .then(|| format!("runs={rows};ended={ended};day={y:04}-{m:02}-{d:02}{words}")))
+    Ok((live == 0).then(|| format!("runs={rows};ended={ended};day={y:04}-{m:02}-{d:02}{words}")))
 }
 
 /// True when `dir` already holds the file `name` as the fingerprint describes

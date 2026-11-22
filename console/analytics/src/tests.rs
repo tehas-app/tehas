@@ -6204,7 +6204,10 @@ fn out_after_a_rewrite_of_old_hows_writes_the_sessions_again() {
         let after = written(&dir, "sessions");
         assert_ne!(after.1, before.1, "{old}: the line did not move");
         let body = String::from_utf8(after.0).unwrap();
-        assert!(body.contains(&format!("\"how\":\"{new}\"")), "{old}: {body}");
+        assert!(
+            body.contains(&format!("\"how\":\"{new}\"")),
+            "{old}: {body}"
+        );
         assert!(!body.contains(&format!("\"{old}\"")), "{old}: {body}");
         // Nothing more to rewrite: the next call writes nothing.
         execute(&home, &sessions_cmd(&home), now + 120).unwrap();
