@@ -28,9 +28,9 @@ pub struct Issue {
     pub edit: Option<Map<String, Value>>,
     /// `gh api repos/<repo>/issues/<n>`, or None when the call failed.
     pub work: Option<Value>,
-    /// The pull requests that close it, {url, state}; None when the call
-    /// failed or the answer cannot be read.
-    pub prs: Option<Vec<Value>>,
+    /// The pull requests that close it; None when the call failed or the
+    /// answer cannot be read.
+    pub prs: Option<Vec<ClosingPr>>,
     /// The issue's last 100 comments, for tehas:blocked and a park's lift; None
     /// when the call failed or was not asked.
     pub comments: Option<Value>,
@@ -63,6 +63,14 @@ pub struct Issue {
     /// state/plan-start/<n>.json: what lets the bot's tehas:ready start this
     /// one issue. Null when it is there and cannot be read.
     pub plan_start: Option<Value>,
+}
+
+/// A pull request that closes an issue. A url GitHub did not give is
+/// empty, and no address.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClosingPr {
+    pub url: String,
+    pub open: bool,
 }
 
 /// A running cycle as cycle-show --running has it. 0 is none on record.
@@ -367,7 +375,18 @@ fn issue(v: &Value) -> Issue {
             .get("prs")
             .filter(|p| !failed(p))
             .and_then(Value::as_array)
-            .cloned(),
+            .map(|a| {
+                a.iter()
+                    .map(|p| ClosingPr {
+                        url: p
+                            .get("url")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                        open: p.get("state").and_then(Value::as_str) == Some("OPEN"),
+                    })
+                    .collect()
+            }),
         comments: v.get("comments").and_then(opt),
         comments_failed: failed_line(v.get("comments")),
         blockers: v

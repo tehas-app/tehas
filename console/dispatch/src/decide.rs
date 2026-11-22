@@ -2275,10 +2275,9 @@ impl<'a> Poll<'a> {
         };
         Ok(prs
             .iter()
-            .find(|p| p.get("state").and_then(Value::as_str) == Some("OPEN"))
-            .and_then(|p| p.get("url").and_then(Value::as_str))
-            .filter(|u| !u.is_empty())
-            .map(str::to_string))
+            .find(|p| p.open)
+            .map(|p| p.url.clone())
+            .filter(|u| !u.is_empty()))
     }
 
     /// The address of an open pull request that names the issue with a closing

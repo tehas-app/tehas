@@ -528,4 +528,6 @@ of main, each grade.
 | 2026-11-22 | Forked `refactor/coding-standard-v2` from v1.4.0 | a0aa16a5 |
 | 2026-11-22 | The gate runs on the branch | #2775 |
 | 2026-11-22 | The trio, the adapters, three ports, events (T11), the rename (T10), the pi-rukas pin, no tags from the branch and the merge train added to this plan | #2776 |
-| 2026-11-22 | T0: the shared architecture test (sha256 211f1167 and b66f64af), `architecture.toml` at the fork's counts, the rubric, the review questions and the knowledge map; the baseline grade waits | T0 pull request |
+| 2026-11-22 | T0: the shared architecture test (sha256 211f1167 and b66f64af), `architecture.toml` at the fork's counts, the rubric, the review questions and the knowledge map; the baseline grade (the overseer's three fresh graders: R1 to R7 partial, R8 and R9 mostly, below adopting until the test runs in CI) | #2778 |
+| 2026-11-22 | T0: checks for R3, R6, R7 and R8; tests counted; the checks as wide as their rules | #2780 |
+| 2026-11-22 | T3 begins: the closing pull requests of an issue typed (`ClosingPr`) | T3 pull request |
