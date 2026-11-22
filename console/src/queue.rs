@@ -1588,7 +1588,7 @@ mod tests {
     #[test]
     fn all_hands_holds_only_by_an_allowed_account() {
         let dir = temp("hands");
-        let f = Home::new(dir.to_path_buf()).state(State::AllHandsIgnored);
+        let f = dir.join("state/ignored");
         let on = Some("tehas:all-hands");
         assert_eq!(switches(on, &hands("alice"), &f).0.all_hands, Some(true));
         assert_eq!(switches(on, &hands("mallory"), &f).0.all_hands, Some(false));
