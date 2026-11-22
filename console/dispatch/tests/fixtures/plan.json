@@ -192,11 +192,7 @@
       "refine": true
      }
     ],
-    "no_actions": [
-     {
-      "untick": 7
-     }
-    ]
+    "no_actions": []
    }
   },
   {
@@ -591,10 +587,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "retry-tick"
-     },
-     {
-      "untick": 7
+      "given": "reply"
      }
     ],
     "no_actions": [

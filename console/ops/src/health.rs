@@ -2747,7 +2747,7 @@ mod tests {
                     why: hold::HELD_PARKED,
                     text: "its last cycle parked on `gate` and the body has not changed since"
                         .into(),
-                    clear: "edit the body, or tick Retry in the park comment".into(),
+                    clear: "edit the body, or reply to the park comment with the word of one of its retries".into(),
                 })
                 .collect(),
             ..hold::Report::default()
@@ -2774,12 +2774,12 @@ mod tests {
             said(&r),
             (
                 "warn".into(),
-                "#7 is held: its last cycle parked on `gate` and the body has not changed since. Edit the body, or tick Retry in the park comment.".into()
+                "#7 is held: its last cycle parked on `gate` and the body has not changed since. Edit the body, or reply to the park comment with the word of one of its retries.".into()
             )
         );
         assert_eq!(
             r.at(&["checks", "slice", "held"]).dump(),
-            r#"[{"issue":7,"why":"parked","text":"its last cycle parked on `gate` and the body has not changed since","clear":"edit the body, or tick Retry in the park comment"}]"#
+            r#"[{"issue":7,"why":"parked","text":"its last cycle parked on `gate` and the body has not changed since","clear":"edit the body, or reply to the park comment with the word of one of its retries"}]"#
         );
     }
 

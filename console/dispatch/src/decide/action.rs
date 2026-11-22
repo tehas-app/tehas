@@ -28,13 +28,6 @@ pub enum Action {
         issue: u64,
         say: String,
     },
-    Untick {
-        issue: u64,
-        comment: CommentRef,
-        body: String,
-        fail: String,
-        say: Option<String>,
-    },
     /// The answer `tehas answer` gave to the question `id` is taken away.
     AnswerDrop {
         issue: u64,
@@ -171,14 +164,12 @@ impl LabelChange {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoteKind {
     MillwrightRefused,
-    Held,
 }
 
 impl NoteKind {
     pub fn word(self) -> &'static str {
         match self {
             NoteKind::MillwrightRefused => "millwright-refused",
-            NoteKind::Held => "held",
         }
     }
 }
@@ -359,21 +350,6 @@ impl From<&Action> for Value {
             Action::Say { issue, say } => {
                 put("issue", json!(issue));
                 put("say", json!(say));
-            }
-            Action::Untick {
-                issue,
-                comment,
-                body,
-                fail,
-                say,
-            } => {
-                put("untick", json!(issue));
-                put("comment", Given::json(comment.as_ref()));
-                put("body", json!(body));
-                put("fail", json!(fail));
-                if let Some(s) = say {
-                    put("say", json!(s));
-                }
             }
             Action::AnswerDrop {
                 issue,

@@ -188,7 +188,7 @@ line. `install.sh` does the same before its first copy. The pair of a login
 taken off the list stays, so the login, listed again, must still be the same
 account.
 
-From then on a label, a retry tick, an answer to a planning question and a
+From then on a label, an answer to a question and a
 comment count only when the account that made them carries the recorded id
 (`user.id`, `actor.id`, or GraphQL's `databaseId`). An account with the
 login and another id, or with no id at all, does not count: the dispatcher

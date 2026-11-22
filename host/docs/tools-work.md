@@ -518,15 +518,15 @@ the body only. The setting adds no mount and no variable, and it needs
 When the record has a `retry_context`, `tehas work` writes it to
 `comments.json` in the same directory and names it in the manifest as
 `"comments": {"file", "bytes", "sha256"}`, in the format of
-trail-openers/pi-rukas#2020: `version`, `issue`, `until` (the tick), and
+trail-openers/pi-rukas#2020: `version`, `issue`, `until` (the answer), and
 `items`, oldest first, each with `source` (`issue-comment`, `pr-comment`,
 `review`, `review-comment`, `fixer` or `refresh`), `id`, `by`, `at`, `url`
 and `text`, and `pr`, `path` and `line` where they apply. It holds the
 comments of a comments retry (what allowed accounts that may write said on
-the issue and its pull requests up to the tick), the millwright's note of its
+the issue and its pull requests up to the answer), the millwright's note of its
 start, or a refresh's task. Each item is cut at 4,000 characters and the blob
 at 64 KB, the oldest dropped and counted in `dropped`. It is not fetched
-again: the dispatcher recorded it at the tick. With `TEHAS_WORK_IMAGES=off`
+again: the dispatcher recorded it at the answer. With `TEHAS_WORK_IMAGES=off`
 and `TEHAS_WORK_FILES=off` the directory is still mounted and named in
 `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` for it, and holds the manifest and
 `comments.json` alone. `state/cycles/<issue>.comments` says whether the image

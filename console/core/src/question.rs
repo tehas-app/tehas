@@ -158,9 +158,63 @@ pub fn park_choices(offers: &[Choice]) -> Vec<Offered> {
         .collect()
 }
 
-/// What the retries are given, said under the boxes.
-pub const SAY_COMMENTS: &str = "Both retries start over in a new workspace. \"All its comments\" means what\nallowed accounts wrote on this issue and on its pull requests up to your\ntick. \"Issue text only\" means the title and body, nothing else.";
-pub const SAY_ALONE: &str = "The retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.";
+/// The line that asks a planning question's choices, and a park's. The
+/// choices follow it, one to a line, and [`listed`] reads them back from
+/// after its last one: the host writes it after the agent's words.
+pub const ASK_PLAN: &str =
+    "Reply in a comment with the number of one of these, or answer in your own words:";
+pub const ASK_PARK: &str = "Reply in a comment with the word of one of these:";
+
+/// The line that ends the choices of every question.
+pub const ONLY_ALLOWED: &str = "Only an answer from an account that may authorise work counts.";
+
+/// What the end of a planning session leads to.
+pub const LEADS_END: &str = "the session ends, and nothing more is planned";
+
+/// What a park's choice leads to, said after its words.
+pub fn leads_to(c: Choice) -> &'static str {
+    match c {
+        Choice::Retry => "A new cycle starts over in a new workspace, given what allowed accounts wrote on this issue and on its pull requests",
+        Choice::RetryText => "A new cycle starts over in a new workspace, given the title and body and nothing else",
+        Choice::Park => "Nothing more happens until someone answers",
+        _ => "",
+    }
+}
+
+/// The labels of the choices a question's comment lists, in its order: the
+/// lines after the last of its asking lines, up to the line that ends them.
+/// A planning option's label is its line's words before the first ": ", the
+/// end of the session [`BOX_END`]; a park's choice is the label of its word.
+/// None for a comment that lists none, as a comment of before 2.0 does.
+pub fn listed(body: &str) -> Option<Vec<String>> {
+    let lines: Vec<&str> = body.lines().collect();
+    let at = lines
+        .iter()
+        .rposition(|l| *l == ASK_PLAN || *l == ASK_PARK)?;
+    let plan = lines[at] == ASK_PLAN;
+    let mut out = Vec::new();
+    for l in lines[at + 1..].iter().copied() {
+        if l == ONLY_ALLOWED {
+            return Some(out);
+        }
+        if l.is_empty() {
+            continue;
+        }
+        let label = if plan {
+            let rest = l.split_once(". ").map(|(_, r)| r)?;
+            if rest.starts_with(BOX_END) {
+                BOX_END.to_string()
+            } else {
+                rest.split_once(": ").map_or(rest, |(l, _)| l).to_string()
+            }
+        } else {
+            let word = l.strip_prefix("- ")?.split_once(':')?.0;
+            park_label(Choice::of(word)?).to_string()
+        };
+        out.push(label);
+    }
+    None
+}
 
 /// Which retry a ticked label asks for: Some(true) the comments retry, Some(false)
 /// the text-only one, None no retry. The labels of before #1492 count as theirs.
@@ -228,8 +282,9 @@ pub fn park_sig(step: &str, cap: &str, park_reason: &str, kind: &str, cause: &st
         .collect()
 }
 
-/// The line `q_render` prints for a box, and the line a fixture writes for a
-/// ticked one. Both polls take the text after the box as it stands, so the
+/// The line a comment of before 2.0 held for a box, ticked or not: what the
+/// readers of an old comment and their test fixtures write. Nothing the
+/// factory writes now holds one. Both polls take the text after the box as it stands, so the
 /// label of the answer parser and this line are the same text.
 pub fn box_line(label: &str, ticked: bool) -> String {
     format!("- [{}] {}", if ticked { "x" } else { " " }, label)
@@ -343,34 +398,36 @@ pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> S
             .replace_all(t, " ")
             .into_owned()
     };
-    for o in &options[..n] {
-        b += &format!("- [ ] {}\n", q_clean(&one_line(o.get("label")), 300));
-        let desc = q_clean(&one_line(o.get("description")), 600);
-        if !desc.is_empty() {
-            b += &format!("  {desc}\n");
-        }
-    }
     let name = match kind {
         Kind::Plan => {
-            b += &format!("{}\n\n", box_line(BOX_END, false));
-            b += "Tick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n";
+            b += &format!("{ASK_PLAN}\n\n");
+            for (k, o) in options[..n].iter().enumerate() {
+                let mut label = q_clean(&one_line(o.get("label")), 300);
+                // An agent's option never reads as the end of the session.
+                if label.to_lowercase().starts_with(&BOX_END.to_lowercase()) {
+                    label = format!("Option {}, {label}", k + 1);
+                }
+                let desc = q_clean(&one_line(o.get("description")), 600);
+                b += &if desc.is_empty() {
+                    format!("{}. {label}\n", k + 1)
+                } else {
+                    format!("{}. {label}: {desc}\n", k + 1)
+                };
+            }
+            b += &format!("{}. {BOX_END}: {LEADS_END}.\n\n", n + 1);
+            b += &format!("{ONLY_ALLOWED}\n");
             "plan"
         }
         Kind::Park => {
             // A develop timeout that repeats on the same text offers no retry,
-            // and no box offers comments the image would not give the cycle.
+            // and no choice offers comments the image would not give the cycle.
             let retry = out.get("retry") != Some(&Value::Bool(false));
             let comments = out.get("comments") == Some(&Value::Bool(true));
+            b += &format!("{ASK_PARK}\n\n");
             for c in park_offers(retry, comments) {
-                b += &format!("{}\n", box_line(park_label(c), false));
+                b += &format!("- {}: {}. {}.\n", c.word(), park_label(c), leads_to(c));
             }
-            b += "\n";
-            match (retry, comments) {
-                (true, true) => b += &format!("{SAY_COMMENTS}\n"),
-                (true, false) => b += &format!("{SAY_ALONE}\n"),
-                _ => {}
-            }
-            b += "Tick one box. Only a tick from an account that may authorise work counts.\n";
+            b += &format!("\n{ONLY_ALLOWED}\n");
             "park"
         }
     };
@@ -426,15 +483,14 @@ mod tests {
             "question": {"question": "Which?", "options": [{"label": "Update this issue"}]}});
         assert_eq!(
             q_render(Kind::Plan, 7, 2, &out, ""),
-            "Which?\n\n- [ ] Update this issue\n- [ ] End this planning session\n\nTick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->"
+            format!("Which?\n\n{ASK_PLAN}\n\n1. Update this issue\n2. End this planning session: the session ends, and nothing more is planned.\n\n{ONLY_ALLOWED}\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->")
         );
-        // A turn with nothing but text: the boxes open the comment.
+        // A turn with nothing but text: the choices open the comment.
         let out = json!({"text": "Which branch?", "question": null});
-        assert!(q_render(Kind::Plan, 7, 1, &out, "").starts_with("- [ ] End this planning session"));
+        assert!(q_render(Kind::Plan, 7, 1, &out, "").starts_with(ASK_PLAN));
     }
-
     #[test]
-    fn a_park_question_has_the_retry_boxes_and_both_markers() {
+    fn a_park_question_lists_its_choices_in_words_and_both_markers() {
         let sig = "a".repeat(64);
         let park = format!("<!-- tehas:park issue=7 step=review kind= provider=0 sig={sig} -->");
         let out = json!({"text": "Tehas cycle stopped.", "question": null,
@@ -442,19 +498,14 @@ mod tests {
         assert_eq!(
             q_render(Kind::Park, 7, 1, &out, ""),
             format!(
-                "<!-- pi-rukas:handoff issue=7 cap=x -->\nTehas cycle stopped.\n\n- [ ] Retry with the issue and all its comments\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nBoth retries start over in a new workspace. \"All its comments\" means what\nallowed accounts wrote on this issue and on its pull requests up to your\ntick. \"Issue text only\" means the title and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n{park}\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+                "<!-- pi-rukas:handoff issue=7 cap=x -->\nTehas cycle stopped.\n\n{ASK_PARK}\n\n- retry: Retry with the issue and all its comments. A new cycle starts over in a new workspace, given what allowed accounts wrote on this issue and on its pull requests.\n- retry-text: Retry with the issue text only. A new cycle starts over in a new workspace, given the title and body and nothing else.\n- park: Leave it parked. Nothing more happens until someone answers.\n\n{ONLY_ALLOWED}\n\n{park}\n<!-- tehas:question kind=park issue=7 turn=1 -->"
             )
         );
     }
-
     #[test]
-    fn the_retry_boxes_are_the_lines_the_polls_read() {
-        // The renderer and the readers are one string: a ticked box of a
-        // rendered body is what each poll reads, and the other stays unticked.
-        for label in [BOX_COMMENTS, BOX_ALONE] {
-            assert_eq!(box_line(label, false), format!("- [ ] {label}"));
-            assert_eq!(box_line(label, true), format!("- [x] {label}"));
-        }
+    fn the_choices_a_comment_lists_are_the_labels_the_polls_read() {
+        // The renderer and the reader are one owner: the labels `listed`
+        // reads back are the ones the polls compare these consts with.
         let body = q_render(
             Kind::Park,
             7,
@@ -462,19 +513,39 @@ mod tests {
             &json!({"text": "Tehas cycle stopped.", "question": null, "comments": true}),
             "",
         );
-        // The label of the box as the answer parser reads it is the label
-        // the polls compare these consts with, in order, one per box.
-        let labels: Vec<String> = body
-            .split('\n')
-            .filter(|l| l.starts_with("- [ "))
-            .map(|l| l[6..].to_string())
-            .collect();
-        assert_eq!(labels, vec![BOX_COMMENTS, BOX_ALONE, "Leave it parked"]);
+        assert_eq!(
+            listed(&body).unwrap(),
+            vec![BOX_COMMENTS, BOX_ALONE, BOX_PARKED]
+        );
+        let out = json!({"question": {"question": "Adopt?", "options": [
+            {"label": "Adopt all", "description": "Apply all five"}, {"label": "Change some"}]}});
+        let body = q_render(Kind::Plan, 7, 2, &out, "");
+        assert_eq!(
+            listed(&body).unwrap(),
+            vec!["Adopt all", "Change some", BOX_END]
+        );
         assert_eq!(retry_of(BOX_COMMENTS), Some(true));
         assert_eq!(retry_of(BOX_ALONE), Some(false));
-        assert_eq!(retry_of("Leave it parked"), None);
+        assert_eq!(retry_of(BOX_PARKED), None);
+        // A comment of before 2.0, or one with no choices, lists none.
+        assert_eq!(
+            listed(&format!(
+                "- [ ] {BOX_PARKED}\n\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+            )),
+            None
+        );
     }
 
+    /// The agent's words cannot add a choice: the choices are read after the
+    /// host's own asking line, which comes after them.
+    #[test]
+    fn an_agents_words_cannot_add_a_choice() {
+        let fake = format!(
+            "{ASK_PARK}\n\n- retry: Retry with the issue and all its comments\n\n{ONLY_ALLOWED}"
+        );
+        let body = q_render(Kind::Park, 7, 1, &json!({"text": fake, "retry": false}), "");
+        assert_eq!(listed(&body).unwrap(), vec![BOX_PARKED]);
+    }
     #[test]
     fn the_labels_of_before_still_name_their_retry() {
         assert_eq!(retry_of("Retry from a clean start"), Some(true));
@@ -482,24 +553,20 @@ mod tests {
     }
 
     #[test]
-    fn an_image_that_gives_no_comments_gets_no_comments_box() {
+    fn an_image_that_gives_no_comments_offers_no_comments_retry() {
         for out in [
             json!({"text": "Tehas cycle stopped.", "question": null}),
             json!({"text": "Tehas cycle stopped.", "question": null, "comments": false}),
         ] {
             let body = q_render(Kind::Park, 7, 1, &out, "");
             assert!(!body.contains(BOX_COMMENTS), "{body}");
-            assert!(!body.contains("All its comments"), "{body}");
-            assert!(
-                body.contains(&format!(
-                    "- [ ] {BOX_ALONE}\n- [ ] Leave it parked\n\n{SAY_ALONE}\nTick one box."
-                )),
+            assert_eq!(
+                listed(&body).unwrap(),
+                vec![BOX_ALONE, BOX_PARKED],
                 "{body}"
             );
         }
     }
-
-    // The signatures of real park markers, from the fields the run recorded.
     #[test]
     fn a_park_signature_is_the_hash_of_its_fields() {
         assert_eq!(
@@ -619,8 +686,8 @@ mod tests {
         out
     }
 
-    fn boxes(body: &str) -> Vec<&str> {
-        body.lines().filter(|l| l.starts_with("- [ ] ")).collect()
+    fn boxes(body: &str) -> Vec<String> {
+        listed(body).unwrap()
     }
 
     #[test]
@@ -632,10 +699,9 @@ mod tests {
         assert!(!body.contains("Two ways."));
         assert_eq!(
             body,
-            "Adopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\nTick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->"
+            format!("Adopt?\n\n{ASK_PLAN}\n\n1. Adopt all: Apply all five\n2. Change some\n3. End this planning session: the session ends, and nothing more is planned.\n\n{ONLY_ALLOWED}\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->")
         );
     }
-
     #[test]
     fn a_turn_without_the_question_tool_still_offers_the_way_out() {
         let out = json!({"text": "Which branch should this target?", "question": null});
@@ -647,14 +713,7 @@ mod tests {
     #[test]
     fn a_parked_cycle_offers_the_two_retries_and_leave_in_that_order() {
         let body = q_render(Kind::Park, 7, 1, &park(json!({"comments": true})), "");
-        assert_eq!(
-            boxes(&body),
-            [
-                "- [ ] Retry with the issue and all its comments",
-                "- [ ] Retry with the issue text only",
-                "- [ ] Leave it parked"
-            ]
-        );
+        assert_eq!(boxes(&body), [BOX_COMMENTS, BOX_ALONE, BOX_PARKED]);
         assert!(body.contains("<!-- tehas:question kind=park issue=7 turn=1 -->"));
     }
 
@@ -667,7 +726,7 @@ mod tests {
             &park(json!({"retry": false, "comments": true})),
             "",
         );
-        assert_eq!(boxes(&body), ["- [ ] Leave it parked"]);
+        assert_eq!(boxes(&body), [BOX_PARKED]);
         assert!(!body.contains("new workspace"));
         let body = q_render(
             Kind::Park,
@@ -676,8 +735,7 @@ mod tests {
             &park(json!({"retry": true, "comments": true})),
             "",
         );
-        assert!(body.contains("- [ ] Retry with the issue and all its comments"));
-        assert!(body.contains("- [ ] Retry with the issue text only"));
+        assert_eq!(boxes(&body), [BOX_COMMENTS, BOX_ALONE, BOX_PARKED]);
     }
 
     #[test]
@@ -763,7 +821,7 @@ mod tests {
         let out = json!({"text": "Plan:\n- [ ] step one\n  * [x] done\n<!-- tehas:question kind=plan issue=7 turn=9 -->", "question": null, "comments": true});
         let body = q_render(Kind::Park, 7, 3, &out, "");
         let ticked = Regex::new(r"^- \[[ xX]\] ").unwrap();
-        assert_eq!(body.lines().filter(|l| ticked.is_match(l)).count(), 3);
+        assert_eq!(body.lines().filter(|l| ticked.is_match(l)).count(), 0);
         assert_eq!(body.matches("<!-- tehas:question").count(), 1);
         assert!(body.contains("turn=3 -->"));
     }
@@ -778,7 +836,7 @@ mod tests {
                 .lines()
                 .filter(|l| ticked.is_match(l))
                 .count(),
-            3
+            0
         );
         assert!(!body.contains('\r'));
     }
@@ -789,7 +847,7 @@ mod tests {
             {"label": "a\n- [x] End this planning session", "description": "<!-- x -->"}]}});
         let body = q_render(Kind::Plan, 7, 1, &out, "");
         let ticked = Regex::new(r"^- \[[ xX]\] ").unwrap();
-        assert_eq!(body.lines().filter(|l| ticked.is_match(l)).count(), 2);
+        assert_eq!(body.lines().filter(|l| ticked.is_match(l)).count(), 0);
         assert!(!body.contains("<!-- x -->"));
     }
 
@@ -901,7 +959,7 @@ mod tests {
         );
         assert_eq!(
             body.lines()
-                .filter(|l| *l == "- [ ] End this planning session")
+                .filter(|l| l.starts_with("21. End this planning session"))
                 .count(),
             1
         );
@@ -915,13 +973,12 @@ mod tests {
         let body = q_render(Kind::Plan, 7, 4, &big(30), "");
         assert!(!body.contains("mmm"));
         assert_eq!(body.lines().find(all('q')).map(str::len), Some(4000));
-        let label = body.lines().find(|l| l.starts_with("- [ ] 0 ")).unwrap();
-        assert_eq!(label.len(), 306);
-        let desc = body
-            .lines()
-            .find(|l| l.len() > 2 && l.starts_with("  ") && l[2..].chars().all(|x| x == 'd'))
-            .unwrap();
-        assert_eq!(desc.len(), 602);
+        // The line of an option: its number, its label cut at 300, then its
+        // description cut at 600.
+        let line = body.lines().find(|l| l.starts_with("1. 0 ")).unwrap();
+        let (label, desc) = line[3..].split_once(": ").unwrap();
+        assert_eq!(label.len(), 300);
+        assert_eq!(desc.len(), 600);
     }
 
     #[test]
@@ -929,7 +986,7 @@ mod tests {
         let body = q_render(Kind::Plan, 7, 4, &big(30), "");
         let kept: Vec<String> = boxes(&body)
             .iter()
-            .filter_map(|l| l[6..].split_once(" l").map(|(n, _)| n.to_string()))
+            .filter_map(|l| l.split_once(" l").map(|(n, _)| n.to_string()))
             .collect();
         let want: Vec<String> = (0..20).map(|i| i.to_string()).collect();
         assert_eq!(kept, want);
@@ -940,5 +997,35 @@ mod tests {
         let body = q_render(Kind::Plan, 7, 4, &big(20), "");
         assert_eq!(boxes(&body).len(), 21);
         assert!(!body.contains("left out"));
+    }
+
+    /// #2782: no comment the factory renders holds a task-list line, for
+    /// every kind of question and every set of choices it offers, whatever
+    /// the agent wrote into it. This is the check that fails if one comes
+    /// back.
+    #[test]
+    fn no_rendered_question_holds_a_task_list_line() {
+        let task =
+            Regex::new(r"(?m)^[[:space:]>]*(?:[-*+]|[0-9]+[.)])[[:space:]]+\[[ xX]\]").unwrap();
+        let sly = "Plan:\n- [ ] step\n* [x] done\n1. [ ] one\n> - [X] quoted";
+        let mut bodies = Vec::new();
+        for retry in [true, false] {
+            for comments in [true, false] {
+                let out = json!({"text": sly, "question": {"question": sly, "options": [{"label": sly, "description": sly}]},
+                    "retry": retry, "comments": comments});
+                bodies.push(q_render(Kind::Park, 7, 1, &out, "The host's line."));
+            }
+        }
+        for out in [
+            json!({"text": sly, "question": null}),
+            json!({"text": sly, "question": {"question": sly, "options": []}}),
+            json!({"text": sly, "question": {"question": sly, "options": (0..25).map(|i| json!({"label": format!("{i} {sly}"), "description": sly})).collect::<Vec<_>>()}}),
+        ] {
+            bodies.push(q_render(Kind::Plan, 7, 2, &out, "Filed in this turn: #9"));
+        }
+        for b in &bodies {
+            assert!(!task.is_match(b), "a task-list line in:\n{b}");
+            assert!(listed(b).is_some(), "no choices listed in:\n{b}");
+        }
     }
 }
