@@ -80,7 +80,7 @@ fn item(e: &Value, how: &str, issue: u64, repo: &str, millwright: &str) -> Optio
             if !mine {
                 return None;
             }
-        } else if !matches!(how, "retry-tick" | "answer" | "reply") {
+        } else if !matches!(how, "answer" | "reply") {
             return None;
         }
         m.insert(
@@ -105,7 +105,7 @@ fn item(e: &Value, how: &str, issue: u64, repo: &str, millwright: &str) -> Optio
         "pr-comment" | "review" | "review-comment" => true,
         _ => return None,
     };
-    if !matches!(how, "retry-tick" | "answer" | "reply") {
+    if !matches!(how, "answer" | "reply") {
         return None;
     }
     let id = e.get("id").filter(|i| i.is_u64())?;
@@ -220,7 +220,7 @@ mod tests {
         let mut talk = said("pr-comment", 124, "2026-11-03T09:01:00Z", "talk\r\nmore");
         talk["pr"] = json!(57);
         let b = of(
-            "retry-tick",
+            "reply",
             json!([
                 inline,
                 said("issue-comment", 123, "2026-11-03T09:00:00Z", "one"),
@@ -271,7 +271,7 @@ mod tests {
             json!({"source": "other", "id": 1, "by": "alice", "at": "2026", "url": "u", "text": "x"}),
             no_pr,
         ] {
-            assert_eq!(of("retry-tick", json!([bad])), None, "{bad}");
+            assert_eq!(of("reply", json!([bad])), None, "{bad}");
         }
     }
 
@@ -290,7 +290,7 @@ mod tests {
                 "url": "https://github.com/acme/widget/issues/42#issuecomment-2", "text": "n2"})
             ]
         );
-        assert_eq!(of("retry-tick", json!([note(2, "mw")])), None);
+        assert_eq!(of("reply", json!([note(2, "mw")])), None);
     }
 
     #[test]
@@ -305,7 +305,7 @@ mod tests {
     #[test]
     fn a_record_of_before_names_its_pull_request_comments_by_source() {
         let old = json!({"source": "pr-comment:7", "by": "alice", "at": "2026-11-03T09:00:00Z", "text": "x"});
-        let b = of("retry-tick", json!([old])).unwrap();
+        let b = of("reply", json!([old])).unwrap();
         assert_eq!(items(&b)[0]["source"], "pr-comment");
         assert_eq!(items(&b)[0]["id"], 7);
     }
@@ -323,7 +323,7 @@ mod tests {
                 )
             })
             .collect();
-        let b = of("retry-tick", json!(ctx)).unwrap();
+        let b = of("reply", json!(ctx)).unwrap();
         assert!(b.bytes <= BLOB_MAX);
         let v: Value = serde_json::from_str(&b.text).unwrap();
         let got = items(&b);
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn a_record_that_gives_nothing_has_no_blob() {
-        assert_eq!(of("retry-tick", json!([])), None);
-        assert_eq!(of("retry-tick", Value::Null), None);
+        assert_eq!(of("reply", json!([])), None);
+        assert_eq!(of("reply", Value::Null), None);
     }
 }

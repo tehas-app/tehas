@@ -828,7 +828,7 @@ fn a_start_of_how_label_never_passes_continue_pr_also_when_the_image_takes_it() 
 
 #[test]
 fn a_start_of_how_retry_tick_never_passes_continue_pr_also_when_the_image_takes_it() {
-    never_continues("retry-tick");
+    never_continues("reply");
 }
 
 #[test]

@@ -25,6 +25,10 @@ serde_json = "1"
 sha2 = "0.10"
 tehas-core = { path = "../core", features = ["mask"] }
 
+[dev-dependencies]
+# The migration test builds a store of v1.4.0 from its SQL, as a release made it.
+rusqlite = { version = "0.41", features = ["bundled"] }
+
 # Kani proofs sit in #[cfg(kani)] modules; the Kani job of
 # the release gate (.github/workflows/release-gate.yml) runs them.
 [lints.rust]
