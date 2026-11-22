@@ -861,4 +861,4 @@ of main, each grade.
 | 2026-11-23 | T14: the Protolab is parked, and the first stage is Idea | #2877 |
 | 2026-11-23 | The events spec for T11 | #2878 |
 | 2026-11-23 | Port main @ 9a83945c (`.gitignore` ignores lean's roster report, #2884) | 6625b5f2 |
-| 2026-11-23 | The minimum pi-rukas is v0.15.6, so a stale roster report cannot pass a verify tier | this |
+| 2026-11-23 | The minimum pi-rukas is v0.15.6, so a stale roster report cannot pass a verify tier | #2891 |
