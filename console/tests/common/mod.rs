@@ -471,6 +471,7 @@ impl World {
             "#!{}\nprintf '%s\\n' \"$*\" >>\"$T/calls/analytics\"\n{body}\n",
             self.bash
         );
+        fs::create_dir_all(self.home.join("libexec")).unwrap();
         write_exe(self.home.join("libexec/analytics"), text).unwrap();
     }
 

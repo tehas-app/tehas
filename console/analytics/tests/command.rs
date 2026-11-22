@@ -2,7 +2,7 @@
 //! fetches holds no token, no URL with a host and no address, and the command
 //! calls nothing outside the host. The real bin/tehas runs it. The console this
 //! crate cannot build stands in for the load of the settings and for its verb,
-//! which test/analytics_cmd_test.sh runs.
+//! which console/tests/analytics_cmd.rs runs.
 
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
