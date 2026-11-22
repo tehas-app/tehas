@@ -15,7 +15,7 @@ units() { "$T_CONSOLE" update steps units; }
 t_case "the changed sources ask for the steps, systemd first"
 t_eq "$(steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
   edge/docs.compose.yaml edge/router.compose.yaml libexec/dispatch)" \
-  "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer
+  "units tehas-dispatch.timer tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer
 sandbox
 docs --force-recreate
 edge --force-recreate"
@@ -44,13 +44,11 @@ done
 
 t_case "the versions the sandbox image pins ask for the build"
 t_eq "$(steps_for versions.env)" "sandbox"
-# The sampler of the layout before bin/tehas: retiring it asks for the restart.
-t_contains "$(steps_for bin/tehas-energy)" "units tehas-dispatch.timer tehas-energy.service"
-t_contains "$(steps_for libexec/energy)" "units tehas-dispatch.timer tehas-energy.service"
+# The publisher of the layout before bin/tehas: retiring it asks for the restart.
 t_contains "$(steps_for libexec/top-publish)" "tehas-top.service"
 
 t_case "a new env.sh restarts the running services, which keep the environment of their start"
-t_contains "$(steps_for env.sh)" "units tehas-dispatch.timer tehas-energy.service"
+t_contains "$(steps_for env.sh)" "units tehas-dispatch.timer tehas-top.service"
 
 t_case "a change that needs no follow-up asks for none"
 t_eq "$(steps_for libexec/dispatch docs/host.md lib/config.sh)" ""
@@ -64,7 +62,7 @@ t_eq "$(steps_for labels.tsv libexec/dispatch)" "labels"
 t_eq "$(steps_for labels.tsv-test old-labels.tsv lib/labels.sh libexec/console libexec/labels)" ""
 t_eq "$(steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
   edge/docs.compose.yaml edge/router.compose.yaml labels.tsv)" \
-  "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer
+  "units tehas-dispatch.timer tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer
 sandbox
 docs --force-recreate
 edge --force-recreate

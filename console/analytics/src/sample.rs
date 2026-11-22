@@ -16,8 +16,9 @@
 //!   or the count the poll derived from the host when that setting is
 //!   `auto`: the dispatcher writes the count it decided by into free), or
 //!   count plus limitRoom where the limit of tehas limit is lower.
-//! - live/energy.json (console energy): {generatedAt, totals: {watts}}.
-//!   watts is the mesh's draw, where it reports one.
+//!
+//! The samples table keeps its watts column, which energy use filled until it
+//! left core in 2.0: a new row leaves it NULL.
 //!
 //! A file that is missing, a link, not JSON, or too old by its own time
 //! gives NULL columns, and so does a field of the wrong type. Too old is ten
@@ -46,7 +47,6 @@ pub struct Sample {
     pub cycle_limit: Option<i64>,
     pub paused: Option<bool>,
     pub held: Option<String>,
-    pub watts: Option<f64>,
 }
 
 pub fn read(home: &Path, now: i64) -> Sample {
@@ -92,13 +92,6 @@ pub fn read(home: &Path, now: i64) -> Sample {
             s.cycle_limit = Some(limit.max(0));
         }
     }
-    if let Some(e) = fresh(Live::Energy, "generatedAt", STALE) {
-        s.watts = e
-            .get("totals")
-            .and_then(|t| t.get("watts"))
-            .and_then(Value::as_f64)
-            .filter(|w| *w >= 0.0);
-    }
     s
 }
 
@@ -106,8 +99,8 @@ pub fn read(home: &Path, now: i64) -> Sample {
 pub fn insert(conn: &Connection, at: i64, s: &Sample) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT OR REPLACE INTO samples
-           (at, in_line, running, awaiting, stopped, planning, cycle_limit, paused, held, watts)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+           (at, in_line, running, awaiting, stopped, planning, cycle_limit, paused, held)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             at,
             s.in_line,
@@ -117,8 +110,7 @@ pub fn insert(conn: &Connection, at: i64, s: &Sample) -> rusqlite::Result<()> {
             s.planning,
             s.cycle_limit,
             s.paused,
-            s.held,
-            s.watts
+            s.held
         ],
     )?;
     Ok(())

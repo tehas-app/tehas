@@ -5,7 +5,6 @@ Usage:
   tehasbot cycle <issue>        one cycle and its report (tehas-cycle@<issue>.service)
   tehasbot status               write the queue snapshot, live/status.json
   tehasbot health               write the health file, live/health.json
-  tehasbot energy [--every]     sample the model mesh's power (the service)
   tehasbot top [--every]        publish the host section for the dashboard
                                 (the service)
   tehasbot protolab             build the Protolab pages (the timer)

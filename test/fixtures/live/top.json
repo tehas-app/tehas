@@ -17,6 +17,5 @@
   "units": [
     { "id": "tehas-dispatch.timer", "activeState": "active", "unitFileState": "enabled", "next": "12:02:00" },
     { "id": "tehas-cycle@41.service", "activeState": "active", "unitFileState": "", "next": "" }
-  ],
-  "energy": null
+  ]
 }

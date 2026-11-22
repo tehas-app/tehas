@@ -53,8 +53,7 @@ pub const REPORT_VERSION: i64 = 1;
 pub const DAYS: i64 = 10;
 const DAY: i64 = 86_400;
 /// The longest stretch one sample stands for. A longer gap between samples
-/// is a dispatcher that was not polling: it is not counted as available,
-/// nor as one long draw of the sample's watts.
+/// is a dispatcher that was not polling: it is not counted as available.
 pub const SAMPLE_SPAN: i64 = 600;
 /// A version pair with fewer work runs shows its count only, and one with fewer
 /// that reported usage no median of tokens.
@@ -362,9 +361,6 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
     if let Some(g) = gate(&runs) {
         report.insert(GATE.into(), g);
     }
-    if let Some(e) = energy(&samples, to, n_shipped) {
-        report.insert(ENERGY.into(), e);
-    }
     report.insert("daily".into(), daily(&runs, &shipped, from));
     report.insert("stopReasons".into(), stop_reasons(&runs));
     report.insert("stations".into(), stations(conn, &runs, from, to)?);
@@ -380,22 +376,20 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
 /// without a producer, fails a test rather than going unprinted. The rows that
 /// stand whatever the report holds -- `Shipped`, `Runs`, the times -- come from
 /// `build`, which always publishes them, and are not listed here. Each of the
-/// five holds an object of its own when it holds anything at all, and prints no
-/// row when it does not: `planned` and `energy` with a sample that counted
-/// them, `refine` and `sizes` with the ledgers beside the database, in
-/// `complete`, and `gate` with a run that recorded the gate.
-pub const SECTIONS: [(&str, &str); 5] = [
+/// four holds an object of its own when it holds anything at all, and prints no
+/// row when it does not: `planned` with a sample that counted it, `refine` and
+/// `sizes` with the ledgers beside the database, in `complete`, and `gate` with
+/// a run that recorded the gate.
+pub const SECTIONS: [(&str, &str); 4] = [
     (PLANNED, "Planned"),
-    (ENERGY, "Energy"),
     (REFINE, "Refine"),
     (SIZES, "Size"),
     (GATE, "Gate"),
 ];
 
-/// The keys of the five sections of `SECTIONS`, named once so `text` and the
+/// The keys of the four sections of `SECTIONS`, named once so `text` and the
 /// report's own writers cannot spell them apart.
 const PLANNED: &str = "planned";
-const ENERGY: &str = "energy";
 pub(crate) const REFINE: &str = "refine";
 pub(crate) const SIZES: &str = "sizes";
 /// `gate` is the section of a run that recorded the gate: absent with no such
@@ -873,12 +867,11 @@ struct Sample {
     at: i64,
     planned: Option<(i64, Option<i64>)>,
     available: bool,
-    watts: Option<f64>,
 }
 
 fn samples(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Sample>> {
     let mut q = conn.prepare(
-        "SELECT at, in_line, planning, paused, held, watts, running FROM samples
+        "SELECT at, in_line, planning, paused, held, running FROM samples
          WHERE at >= ?1 AND at <= ?2 ORDER BY at",
     )?;
     let rows = q.query_map(params![from, to], |r| {
@@ -886,7 +879,7 @@ fn samples(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Sample
         let planning = integer(r, 2);
         let paused = integer(r, 3);
         let held = word(r, 4);
-        let running = integer(r, 6);
+        let running = integer(r, 5);
         Ok(Sample {
             at: r.get(0)?,
             planned: in_line.map(|n| (n, planning)),
@@ -894,7 +887,6 @@ fn samples(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Sample
             // start or cycles were running: full slots are not down time.
             available: paused == Some(0)
                 && (held.as_deref().unwrap_or("").is_empty() || running.is_some_and(|n| n > 0)),
-            watts: r.get(5)?,
         })
     })?;
     rows.collect()
@@ -957,27 +949,6 @@ fn availability(samples: &[Sample], to: i64) -> Value {
             (span > 0).then(|| json!(round3((up as f64 / span as f64).min(1.0)))),
         ),
     ])
-}
-
-// kWh over the window: each sample's watts for the time it stands for.
-// Left out where no sample has watts.
-fn energy(samples: &[Sample], to: i64, shipped: usize) -> Option<Value> {
-    let n = samples.iter().filter(|s| s.watts.is_some()).count();
-    if n == 0 {
-        return None;
-    }
-    let joules: f64 = spans(samples, to)
-        .filter_map(|(s, d)| s.watts.map(|w| w * d as f64))
-        .sum();
-    let kwh = joules / 3_600_000.0;
-    Some(obj(vec![
-        ("n", Some(json!(n))),
-        ("kwh", Some(json!(round3(kwh)))),
-        (
-            "perShipped",
-            (shipped > 0).then(|| json!(round3(kwh / shipped as f64))),
-        ),
-    ]))
 }
 
 fn daily(runs: &[WorkRun], shipped: &[Shipped], from: i64) -> Value {
@@ -1521,20 +1492,6 @@ pub fn text(report: &Value) -> String {
         },
         n("availability"),
     );
-    let energy = &report[ENERGY];
-    if energy.is_object() {
-        let kwh = |v: &Value| v.as_f64().map_or("-".to_string(), |k| format!("{k} kWh"));
-        row(
-            label(ENERGY),
-            format!(
-                "{}{}",
-                kwh(&energy["kwh"]),
-                per(&energy["perShipped"], &kwh)
-            ),
-            n(ENERGY),
-        );
-    }
-
     lines.push(String::new());
     lines.push(format!(
         "{:<12}{:>8}{:>6}{:>8}{:>9}",

@@ -1,160 +1,52 @@
-//! tehasbot energy: the dashboard's energy file, $TEHAS_HOME/live/energy.json.
+//! The mesh read of the 2.1 `feed:mesh`: one sample of what a viiwork model
+//! mesh draws, cut to the fields a view may show.
 //!
-//! One sample of what the model mesh draws, for the Energy use section of the
-//! game view. It works only when the model backend is a viiwork mesh: it asks
-//! the mesh for its cluster snapshot (GET /v1/cluster) and keeps only the
-//! machines that are alive and serve a model the factory uses, and only those
-//! models. Per machine, the draw now, the kWh of the last 24 hours and 30 days
-//! and host RAM; per model, the slots, how many are busy and what serves it;
-//! and the mesh's draw over the last 30 minutes, one sample per 15 seconds,
-//! with the machines' running token counts where the mesh reports one.
+//! The host asks the mesh for its cluster snapshot (GET /v1/cluster) and keeps
+//! only the machines that are alive and serve a model the factory uses, and
+//! only those models. Per machine, the draw now, the kWh of the last 24 hours
+//! and 30 days and host RAM; per model, the slots, how many are busy and what
+//! serves it; and the mesh's draw over the last 30 minutes, one sample per 15
+//! seconds, with the machines' running token counts where the mesh reports
+//! one.
 //!
-//! The dashboard can be on the internet, and so can this file, so what is
-//! copied is a list: `snapshot` names every field. An engine version is copied
-//! only when it is a plain version. Addresses, node ids and GPUs are not.
+//! The feed can be on the internet, so what is copied is a list: [`snapshot`]
+//! names every field. An engine version is copied only when it is a plain
+//! version. Addresses, node ids and GPUs are not.
 //!
-//! The mesh is the one the factory's subagent provider is on. The dispatcher
-//! writes the word main or backup in live/dispatch.json; the sampler asks only
-//! that endpoint, with its token. With no word there it asks main and then
-//! backup, so an update of the dispatcher never blanks the floor.
-//! TEHAS_ENERGY_URL names a cluster URL instead, asked with no token.
-//! TEHAS_ENERGY_SOURCE_URL is the address the dashboard links under DATA
-//! SOURCE; with none set the file names no address and the page shows no link.
-//! TEHAS_ENERGY=off removes the file.
+//! The mesh is the one the factory's subagent provider is on, asked with that
+//! endpoint's token, the endpoint the dispatcher settled on first. A cluster
+//! URL given instead is asked with no token.
 //!
-//!   one answers with a cluster snapshot        the file is rewritten
-//!   else one gives no answer, a timeout, a     the file is left as it is
+//!   one answers with a cluster snapshot        the feed is rewritten
+//!   else one gives no answer, a timeout, a     the feed is left as it is
 //!   server error (5xx) or a busy answer
 //!   (408, 429)
-//!   any other answers                          the file is removed: not viiwork
+//!   any other answers                          the feed is removed: not viiwork
 //!
-//! Loads no settings: what it needs is in the unit's environment.
-//!
-//! Usage: console energy               one sample
-//!        console energy --every       one sample at every 15-second mark, for ever
-//!
-//! Prints nothing. Exit: 0 unless the file cannot be written; 64 usage; 78
-//! there is no subagent provider to ask, which also ends --every.
+//! Until 2.0 this was `tehasbot energy`, which wrote live/energy.json. The unit
+//! that samples and writes the feed comes with the feed in 2.1.
 
-use crate::jq::{obj, J};
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::time::Duration;
-use tehas_core::file::{write_atomic, Temp};
-use tehas_core::home::{Home, Live};
-use tehas_core::models::{auth, host_path, ModelFile};
+use tehas_core::jq::{obj, J};
+use tehas_core::models::{auth, ModelFile};
 use tehas_core::time;
 
-const PERIOD: i64 = 15;
-const WINDOW: f64 = 1800.0;
-
-fn env(name: &str) -> String {
-    std::env::var(name).unwrap_or_default()
-}
-
-pub fn main(given: &[String]) -> u8 {
-    let home = match env("TEHAS_HOME") {
-        h if h.is_empty() => format!("{}/tehas", env("HOME")),
-        h => h,
-    };
-    match given.first().map(String::as_str) {
-        None | Some("") => sample(Path::new(&home)),
-        Some("--every") => every(&home),
-        _ => {
-            eprintln!("usage: tehasbot energy [--every]");
-            64
-        }
-    }
-}
-
-// A child per mark, by the path of the installed console, so an update reaches
-// the loop: the unit is not restarted on a console change, and current_exe
-// reads "(deleted)" once an install has replaced the file.
-fn every(home: &str) -> u8 {
-    let console = format!("{home}/libexec/console");
-    loop {
-        let done = Command::new(&console).arg("energy").status();
-        if done.is_ok_and(|s| s.code() == Some(78)) {
-            return 78;
-        }
-        std::thread::sleep(Duration::from_secs(to_mark(time::now())));
-    }
-}
-
-fn to_mark(now: i64) -> u64 {
-    (PERIOD - now.rem_euclid(PERIOD)) as u64
-}
-
-fn sample(home: &Path) -> u8 {
-    let at = Home::new(home);
-    let live = at.live_dir();
-    let file = at.live(Live::Energy);
-    if tehas_core::settings::rules::switch(&env("TEHAS_ENERGY")) == Some(false) {
-        let _ = std::fs::create_dir_all(&live);
-        let _ = std::fs::remove_file(&file);
-        return 0;
-    }
-    let asks = match asks(&live) {
-        Ok(asks) => asks,
-        Err(word) => {
-            eprintln!("tehas: energy: {word}");
-            return 78;
-        }
-    };
-    let _ = std::fs::create_dir_all(&live);
-    if asks.is_empty() {
-        let _ = std::fs::remove_file(&file);
-        return 0;
-    }
-    // Read once, before the asks, so one sample gives one file whatever the
-    // environment holds while the mesh is asked.
-    let source = source_url();
-    let mut later = false;
-    let mut body = None;
-    for (url, key) in &asks {
-        match ask(url, key) {
-            Answer::Later => later = true,
-            Answer::Other => {}
-            Answer::Snapshot(j) => {
-                body = Some(j);
-                break;
-            }
-        }
-    }
-    let Some(body) = body else {
-        if !later {
-            let _ = std::fs::remove_file(&file);
-        }
-        return 0;
-    };
-    let prev = read_lossy(&file)
-        .and_then(|t| J::parse_first(&t))
-        .unwrap_or(J::Null);
-    let Some(now) = clock() else { return 1 };
-    write(
-        &file,
-        &snapshot(&body, &prev, &now, &factory_models(), source.as_deref()),
-    )
-}
-
-// TEHAS_ENERGY_NOW holds the sample's time for a test. What is no number
-// stops the sample before the file is touched.
-fn clock() -> Option<J> {
-    match env("TEHAS_ENERGY_NOW") {
-        n if n.is_empty() => Some(J::num(time::now() as f64)),
-        n => J::parse(&n).filter(|j| matches!(j, J::Num(_))),
-    }
-}
+/// Seconds between samples.
+pub const PERIOD: i64 = 15;
+/// Seconds of draw a sample keeps.
+pub const WINDOW: f64 = 1800.0;
 
 fn read_lossy(path: &Path) -> Option<String> {
     let bytes = std::fs::read(path).ok()?;
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// The one word the last poll settled on; anything else is no word at all.
-fn settled(live: &Path) -> Option<&'static str> {
+/// The one word the last poll settled on, from live/dispatch.json; anything
+/// else is no word at all.
+pub fn settled(live: &Path) -> Option<&'static str> {
     let text = read_lossy(&live.join("dispatch.json"))?;
     match J::parse(&text)?.get("endpoint").as_str()? {
         "main" => Some("main"),
@@ -164,50 +56,72 @@ fn settled(live: &Path) -> Option<&'static str> {
 }
 
 /// `<base>/v1/cluster` of an endpoint's base url.
-fn cluster_url(base: &str) -> String {
+pub fn cluster_url(base: &str) -> String {
     let base = base.strip_suffix('/').unwrap_or(base);
     format!("{}/v1/cluster", base.strip_suffix("/v1").unwrap_or(base))
 }
 
-/// Who to ask, each url with its key. A sampler with no url and no provider
-/// has no setting to ask by, and names no product in place of one.
-fn asks(live: &Path) -> Result<Vec<(String, String)>, String> {
-    let url = env("TEHAS_ENERGY_URL");
+/// Who to ask, each url with its key. A cluster URL is asked alone and with
+/// no key. Else the provider's endpoints in `models`, the settled `word` alone
+/// when there is one. With neither there is nothing to ask by, and no product
+/// is named in place of one.
+pub fn asks(
+    url: &str,
+    provider: &str,
+    models: &ModelFile,
+    word: Option<&'static str>,
+) -> Result<Vec<(String, String)>, String> {
     if !url.is_empty() {
-        return Ok(vec![(url, String::new())]);
+        return Ok(vec![(url.to_string(), String::new())]);
     }
-    let provider = env("PI_ENSEMBLE_SUBAGENT_PROVIDER");
     if provider.is_empty() {
-        return Err("PI_ENSEMBLE_SUBAGENT_PROVIDER is not set".into());
+        return Err("no subagent provider is set".into());
     }
-    let path = match env("TEHAS_MODELS_FILE") {
-        p if p.is_empty() => host_path(),
-        p => p,
-    };
-    let models = ModelFile::read(&path);
-    Ok(ends(settled(live))
+    Ok(ends(word)
         .iter()
         .filter_map(|end| {
-            let base = models.url(&provider, end);
-            (!base.is_empty()).then(|| (cluster_url(&base), models.key(&provider, end)))
+            let base = models.url(provider, end);
+            (!base.is_empty()).then(|| (cluster_url(&base), models.key(provider, end)))
         })
         .collect())
 }
 
 /// The named endpoint alone, so an endpoint the cycles are not on cannot
 /// answer for the factory's draw. With none named, both.
-fn ends(word: Option<&'static str>) -> Vec<&'static str> {
+pub fn ends(word: Option<&'static str>) -> Vec<&'static str> {
     word.map_or(vec!["main", "backup"], |w| vec![w])
 }
 
-enum Answer {
+/// What an ask gave.
+pub enum Answer {
+    /// A cluster snapshot: the feed is rewritten.
     Snapshot(J),
-    /// No answer, a server error or a busy answer: the file stays.
+    /// No answer, a server error or a busy answer: the feed stays.
     Later,
+    /// Any other answer: the feed is removed.
     Other,
 }
 
-fn ask(url: &str, key: &str) -> Answer {
+/// Each ask in turn, until one gives a snapshot. With none, [`Answer::Later`]
+/// when any said later, else [`Answer::Other`].
+pub fn read(asks: &[(String, String)]) -> Answer {
+    let mut later = false;
+    for (url, key) in asks {
+        match ask(url, key) {
+            Answer::Snapshot(j) => return Answer::Snapshot(j),
+            Answer::Later => later = true,
+            Answer::Other => {}
+        }
+    }
+    if later {
+        Answer::Later
+    } else {
+        Answer::Other
+    }
+}
+
+/// One ask of a cluster URL by curl, the key on its standard input.
+pub fn ask(url: &str, key: &str) -> Answer {
     let spawned = Command::new("curl")
         .args(["-sS", "-K", "-", "-m", "5", "-w", r"\n%{http_code}", url])
         .stdin(Stdio::piped())
@@ -233,7 +147,8 @@ fn ask(url: &str, key: &str) -> Answer {
     judge(code, body)
 }
 
-fn judge(code: &str, body: &str) -> Answer {
+/// The answer an HTTP status and body mean.
+pub fn judge(code: &str, body: &str) -> Answer {
     if code.starts_with('5') || code == "408" || code == "429" {
         return Answer::Later;
     }
@@ -246,17 +161,9 @@ fn judge(code: &str, body: &str) -> Answer {
     }
 }
 
-fn write(file: &Path, value: &J) -> u8 {
-    let text = format!("{}\n", value.pretty());
-    match write_atomic(file, text.as_bytes(), 0o644, &Temp::Pid) {
-        Ok(()) => 0,
-        Err(_) => 1,
-    }
-}
-
 /// The models the factory uses: PI_ENSEMBLE_SUBAGENT_MODEL and each
 /// PI_ENSEMBLE_MODEL_<ROLE>, sorted, each once.
-fn factory_models() -> Vec<String> {
+pub fn factory_models() -> Vec<String> {
     let mut models: Vec<String> = std::env::vars_os()
         .filter(|(k, _)| k.to_str().is_some_and(names_a_model))
         .map(|(_, v)| v.to_string_lossy().into_owned())
@@ -267,7 +174,7 @@ fn factory_models() -> Vec<String> {
     models
 }
 
-fn names_a_model(name: &str) -> bool {
+pub fn names_a_model(name: &str) -> bool {
     name == "PI_ENSEMBLE_SUBAGENT_MODEL"
         || name.strip_prefix("PI_ENSEMBLE_MODEL_").is_some_and(|r| {
             !r.is_empty()
@@ -499,9 +406,9 @@ fn slot(t: f64) -> f64 {
     (t / PERIOD as f64).floor()
 }
 
-/// The samples of the last file that stay: one per slot, the new one taking
+/// The samples of the last feed that stay: one per slot, the new one taking
 /// its slot, none older than the window or from a clock that has gone back.
-fn kept_samples(prev: &J, now: f64) -> Vec<J> {
+pub fn kept_samples(prev: &J, now: f64) -> Vec<J> {
     prev.get("samples")
         .items()
         .iter()
@@ -515,23 +422,16 @@ fn kept_samples(prev: &J, now: f64) -> Vec<J> {
         .collect()
 }
 
-/// The address the page links as the source of the numbers: only a host
-/// setting that is an `https://` one. Platform code names no project of its
-/// own, and a value that is no address is not published to the visitors.
-fn source_url() -> Option<String> {
-    source_url_from(&env("TEHAS_ENERGY_SOURCE_URL"))
-}
-
-/// The whole accept rule, apart from the read so a test holds the one the
-/// sampler runs.
-fn source_url_from(given: &str) -> Option<String> {
+/// The address a view may link as the source of the numbers: only an
+/// `https://` one. A value that is no address is not published.
+pub fn source_url(given: &str) -> Option<String> {
     let given = given.trim();
     given.starts_with("https://").then(|| given.to_string())
 }
 
-/// The energy file from a cluster snapshot and the file before it. Every field
-/// that reaches the file is named here: it can be on the internet.
-fn snapshot(cluster: &J, prev: &J, now: &J, factory: &[String], source: Option<&str>) -> J {
+/// The feed from a cluster snapshot and the feed before it. Every field that
+/// reaches the feed is named here: it can be on the internet.
+pub fn snapshot(cluster: &J, prev: &J, now: &J, factory: &[String], source: Option<&str>) -> J {
     let at = now.as_f64().unwrap_or(0.0);
     let mut alive: Vec<(&str, &J)> = cluster
         .get("members")
@@ -642,7 +542,7 @@ mod tests {
         // LEAKMARK of these values shows it.
         let cluster = one_machine(r#"{"models": [{"name": "m", "slots": 1}]}"#);
         let with = |given: &str| {
-            let source = source_url_from(given);
+            let source = source_url(given);
             snapshot(
                 &parse(&cluster),
                 &J::Null,
@@ -826,13 +726,6 @@ mod tests {
     }
 
     #[test]
-    fn the_wait_ends_on_a_mark() {
-        assert_eq!(to_mark(1791526545), 15);
-        assert_eq!(to_mark(1791526546), 14);
-        assert_eq!(to_mark(1791526559), 1);
-    }
-
-    #[test]
     fn the_cluster_url_comes_from_the_base_url() {
         let want = "http://mesh.example:8086/v1/cluster";
         for base in [
@@ -843,6 +736,35 @@ mod tests {
         ] {
             assert_eq!(cluster_url(base), want);
         }
+    }
+
+    #[test]
+    fn a_cluster_url_is_asked_alone_and_no_provider_is_nothing_to_ask_by() {
+        let none = ModelFile::read("/nonexistent/models.json");
+        let url = "http://mesh.example:8086/v1/cluster";
+        assert_eq!(
+            asks(url, "", &none, Some("main")).unwrap(),
+            [(url.to_string(), String::new())]
+        );
+        assert!(asks("", "", &none, None).is_err());
+        assert!(asks("", "p", &none, None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn only_main_or_backup_is_a_settled_word() {
+        let dir = std::env::temp_dir().join(format!("mesh-feed-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (text, want) in [
+            (r#"{"endpoint": "backup"}"#, Some("backup")),
+            (r#"{"endpoint": "main"}"#, Some("main")),
+            (r#"{"endpoint": "other"}"#, None),
+            ("not json", None),
+        ] {
+            std::fs::write(dir.join("dispatch.json"), text).unwrap();
+            assert_eq!(settled(&dir), want, "{text}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(settled(&dir), None);
     }
 
     #[test]

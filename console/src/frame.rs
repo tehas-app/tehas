@@ -148,14 +148,6 @@ fn unit_line(u: &J) -> String {
     )
 }
 
-/// " (<age>)" of a time, or nothing when it cannot be read.
-fn stamp(t: &J, now: i64) -> String {
-    match t.as_str().and_then(crate::holds::epoch) {
-        Some(e) => format!(" ({})", status::ago(e, now)),
-        None => String::new(),
-    }
-}
-
 fn draw(item: &Item, now: i64) -> Vec<String> {
     match &item.kind {
         Kind::Text(t) => vec![t.clone()],
@@ -300,22 +292,7 @@ pub fn frame(snapshot: &J, cols: usize, rows: usize) -> Vec<String> {
         }
     }
 
-    // 6. What the model mesh draws.
-    let e = s.get("energy");
-    items.push(text(if e.is_null() {
-        "energy    no sample".to_string()
-    } else {
-        let q = |k: &str| default(e.get(k), &J::str("?")).text();
-        format!(
-            "energy    {} W now, {} of {} slots busy{}",
-            q("watts"),
-            q("busy"),
-            q("slots"),
-            stamp(e.get("time"), now)
-        )
-    }));
-
-    // 7. The console of a cycle, in the rows that are left.
+    // 6. The console of a cycle, in the rows that are left.
     let c = s.get("console");
     if c.is_null() {
         items.push(text("console   no console file".to_string()));
@@ -358,7 +335,6 @@ mod tests {
       "host":{"cpus":2,"load":[0.10,0.20,0.30],"cpuPercent":33.3,"memory":{"usedMb":32,"totalMb":64},
               "processes":[{"pid":100,"name":"systemd","cpuPercent":1,"memPercent":0.5,"upSeconds":900}]},
       "units":[{"id":"tehas-dispatch.timer","unitFileState":"enabled","activeState":"active","next":"10:00:00"}],
-      "energy":{"watts":312.5,"busy":4,"slots":8,"time":"2026-10-17T14:00:10Z"},
       "console":{"issue":12,"name":"console-12.txt","ended":false,"lines":["one","two"]}}"#;
 
     #[test]
@@ -375,7 +351,6 @@ mod tests {
                 "      100  systemd              1%    0.5%       900 s",
                 "units     1 units, 1 active",
                 "  tehas-dispatch.timer        enabled  active  next 10:00:00",
-                "energy    312.5 W now, 4 of 8 slots busy (10 s ago)",
                 "console   #12  console-12.txt  live",
                 "one",
                 "two",
@@ -385,11 +360,11 @@ mod tests {
 
     #[test]
     fn a_short_terminal_drops_processes_then_the_later_console_lines() {
-        let f = frame(&snap(BASE), 80, 11);
-        assert_eq!(f.len(), 11);
+        let f = frame(&snap(BASE), 80, 10);
+        assert_eq!(f.len(), 10);
         assert!(!f.iter().any(|l| l.contains("systemd")));
-        assert_eq!(f[10], "one");
-        let f = frame(&snap(BASE), 80, 9);
+        assert_eq!(f[9], "one");
+        let f = frame(&snap(BASE), 80, 8);
         assert!(!f
             .iter()
             .any(|l| l == "one" || l.starts_with("  tehas-dispatch")));
@@ -421,7 +396,6 @@ mod tests {
                 "cycle     no cycle written yet",
                 "host      no reading of /proc",
                 "units     no tehas units",
-                "energy    no sample",
                 "console   no console file",
             ]
         );

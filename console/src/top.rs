@@ -63,15 +63,7 @@ const MAX_AGE: i64 = 600;
 // What of the snapshot may be published: these keys and nothing else. A key
 // added to the snapshot later stays out of live/top.json until someone names
 // it here. What is inside a listed key is fixed by the code that builds it.
-const PUBLISHED: [&str; 7] = [
-    "generatedAt",
-    "factory",
-    "queue",
-    "cycle",
-    "host",
-    "units",
-    "energy",
-];
+const PUBLISHED: [&str; 6] = ["generatedAt", "factory", "queue", "cycle", "host", "units"];
 
 // The seconds between the marks of the publisher.
 const PERIOD: i64 = 5;
@@ -1126,9 +1118,10 @@ mod tests {
         let snapshot = r#"{"token":"ghp_secret","host":{"load":[0.10]},"reading":{"clock":"1"},
             "console":{"lines":["x"]},"generatedAt":"t","factory":null,"queue":1,"cycle":[],
             "units":[],"energy":null,"draft":{"note":"no"}}"#;
+        // Energy use left core in 2.0: a key a snapshot of before names is cut.
         assert_eq!(
             published(snapshot).unwrap(),
-            r#"{"host":{"load":[0.10]},"generatedAt":"t","factory":null,"queue":1,"cycle":[],"units":[],"energy":null}"#
+            r#"{"host":{"load":[0.10]},"generatedAt":"t","factory":null,"queue":1,"cycle":[],"units":[]}"#
         );
     }
 

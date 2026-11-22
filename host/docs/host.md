@@ -157,12 +157,10 @@ commands a person does.
 | A Docker daemon of its own                     | Every cycle, planning turn and index run is a container here. Sharing a daemon with another factory would put its containers in this factory's slice, and let one factory stop another's cycles |
 | The published ports to itself                  | The docs server answers on port 8080 of `TEHAS_HOST_ADDR` and the edge router on 8081. Two factories on one host would want the same ports |
 | One Unix user who is in the `docker` group     | Everything tehas runs belongs to that user. The group makes it root-equivalent on this host, which is why the host is not shared |
-| `~/.config/tehas/env`, mode 600                | The bot's GitHub token, the model endpoints' tokens, and the energy switches. Never in git. See [Secrets and trust](#secrets-and-trust) |
+| `~/.config/tehas/env`, mode 600                | The model endpoints' tokens and the MCP server's settings. Never in git. See [Secrets and trust](#secrets-and-trust) |
 | An instance directory of its own               | `instance.env` and `models.json`, found through `~/.config/tehas/instance-dir`. See [Instance settings](#instance-settings) |
 | Its own `TEHAS_DOMAIN`                         | The edge makes `uat-<pr>.` and `lab-<issue>.` names under it. Two factories under one domain answer each other's previews |
 | The model gateway's `baseUrl` and key, when it uses one | `baseUrl` of the provider in `models.json`, with the token as `$TEHAS_MODEL_KEY_<NAME>` in `~/.config/tehas/env`. See [A backup model endpoint](#a-backup-model-endpoint) |
-| `TEHAS_ENERGY_URL`, when the model is behind a gateway | The energy sampler asks `<baseUrl>/v1/cluster` with the model's token. A gateway that does not pass that path through needs the cluster URL named here, asked with no token. See [`tehasbot energy`](/tools-health#tehasbot-energy) |
-| `TEHAS_ENERGY_SOURCE_URL`, when the energy page should link a source | The energy page ends with `DATA SOURCE: <name>`. This setting names the address that line links, and the page shows the name as plain text without it. Only an `https://` address is used. See [`tehasbot energy`](/tools-health#tehasbot-energy) |
 | Disk for the sandbox image                     | What `docker image inspect --format '{{.Size}}' tehas/pi-rukas:uid$(id -u)` reports for the host's image, with room above that for the base a build makes and the layers it writes, and room for one image of a rollback. Before the first build the image is not there to be measured, and its size is upstream's base plus these steps: [Bootstrap](/bootstrap#what-the-machine-needs). A second instance user of one host builds its own image for its own uid and shares the layers of the first: [What two instance users of one host share](#what-two-instance-users-of-one-host-share) |
 | Room to grow into, when the machine is a VM     | The host runs as one virtual machine on a hypervisor, so its CPUs and memory are set at its maximum once, with room above what the factory needs today: `<vcpu current='N'>MAX</vcpu>` and memory as a `virtio-mem` device. Everything under the maximum then changes while the machine runs, and a restart of the hypervisor saves the VM with its cycles in it. No tehas command takes part in any of it. See [Resize or restart the host](/resize). The other shape is a factory that is a container on another project's machine, as tehas-tehas is: it gains that room, and loses the live resize and the save, so a restart of the machine under it needs a drain first |
 
@@ -256,9 +254,9 @@ cat ~/.config/tehas/instance-dir
 Rules that hold for every command:
 
 - `instance.env` wins. A setting of the same name in the environment is
-  dropped. Only `TEHAS_HOME`, `TEHAS_INSTANCE_DIR`, the energy switches
-  `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, and the hooks the tests use are
-  taken from the environment.
+  dropped. Only `TEHAS_HOME`, `TEHAS_INSTANCE_DIR`, the host settings of
+  [Commands](/tools) and the hooks the tests use are taken from the
+  environment.
 - A missing or malformed setting stops the command with exit 78 and one line
   naming the setting, before it calls GitHub, Docker or git.
 - Loading settings runs no git command, makes no network call and writes
@@ -657,8 +655,7 @@ has ended`. The units systemd holds name them too, so this is the one case
 where the install asks systemd to reload, and it leaves the files and prints a
 `later:` line when the reload did not happen. A `later:` line is for a person
 and is not a step: `tehas update` prints it and finds the files again on its
-next run. Removing the old energy sampler asks for the `units` step, which
-restarts a running one from the new file. An old command that cannot be
+next run. An old command that cannot be
 removed fails the install.
 
 One thing it does besides copying, on a real run only: the product checkout's
@@ -942,9 +939,8 @@ models, and a token for each:
   set. `./install.sh --check` reports both. It reads the tokens from
   `~/.config/tehas/env` itself, so a first install, or an update from a
   version that did not know them, finds them there.
-- A running service keeps the tokens it started with. After you change one
-  in `~/.config/tehas/env`, run `systemctl --user restart tehas-energy`; the
-  dispatcher and each cycle read the file afresh. An update that changes
+- The dispatcher and each cycle read `~/.config/tehas/env` afresh. A running
+  service keeps the tokens it started with, and an update that changes
   `env.sh` restarts the running units itself.
 - `backupApiKey` defaults to `apiKey`.
 - Either endpoint can be any OpenAI-compatible endpoint, a
@@ -973,14 +969,6 @@ it to the preflight log. A container stays on its endpoint: when the main one
 fails mid-cycle, Pi retries it as [Provider retry](#provider-retry) says, and
 the next cycle starts on the backup. The image descriptions pick the same
 way.
-
-The energy sampler asks the endpoint the dispatcher settled on for the
-subagent provider, the one word in `~/tehas/live/dispatch.json`, and samples
-it only when it is a viiwork mesh. The cycles and the meter are then the same
-endpoint. With no word in that file, because the dispatcher has not settled
-one yet, it asks the main endpoint and then the backup as before, so an update
-of the dispatcher never blanks the floor. An endpoint that is not viiwork gives
-no meter, even when the backup is one: the section hides.
 
 ## Provider retry
 
@@ -1996,7 +1984,6 @@ release of tehas.
 | Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes, and `tehas-dispatch.path`, a poll as soon as a cycle, a planning turn or an index run ends | `tail ~/tehas/logs/dispatch.log`                       |
 | Planning turn | a unit the poll starts, `tehas-plan-<issue>.service`, one at a time. systemd stops it a quarter of an hour after `TEHAS_PLAN_TIMEOUT` | `tail ~/tehas/logs/dispatch-plan-<issue>.log` |
 | Code index | a unit the poll starts, `tehas-index.service`, before cycles start on an idle host. systemd stops it after 40 minutes | `tail ~/tehas/logs/dispatch-index.log` |
-| Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. It asks the endpoint the dispatcher settled on, the word in `~/tehas/live/dispatch.json`. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
 | Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=on` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache, host scratch, the sandbox image's old dated tags and the old `sha-` tags of the base repository, each removed by its own name. `install.sh` copies the unit; a person enables it. The unit prints; `tehasbot clean` writes `clean.log` | `tail ~/tehas/logs/clean.log`, and `journalctl --user -u tehas-clean` for a run that wrote nothing there |
@@ -2006,8 +1993,8 @@ release of tehas.
 | One preview | a container `tehas-preview-<pr>` | `docker ps --filter label=tehas.preview` |
 
 Every service in `host/systemd` sets `NoNewPrivileges=yes`: nothing a unit
-runs gains rights through a setuid program. The three that never end,
-`tehas-mcp`, `tehas-top` and `tehas-energy`, also have `MemoryMax=256M`. The
+runs gains rights through a setuid program. The two that never end,
+`tehas-mcp` and `tehas-top`, also have `MemoryMax=256M`. The
 ceiling holds where the user's systemd is given the memory controller, as
 current systemd does by default.
 
@@ -2134,16 +2121,14 @@ to take out of `instance.env`: set `TEHAS_DESIGN=pixel` instead.
 Both pages are always there, at `/floor` and `/business`. The business page
 reads the
 same files as the floor: `live/status.json`, `live/running.json` and the
-cycles' consoles, `live/protolab.json`, `live/analytics.json`,
-`live/epics.json` and `live/energy.json`. Its console follows the running cycle's output, with a tab
-for each cycle when there are several, as on the floor. Its live strip shows
-only where the host publishes power, and its 10 days only once there is a
-report. With no queue file it shows the floor's sample tickets and says so.
+cycles' consoles, `live/protolab.json`, `live/analytics.json` and
+`live/epics.json`. Its console follows the running cycle's output, with a tab
+for each cycle when there are several, as on the floor. Its 10 days show only
+once there is a report. With no queue file it shows the floor's sample tickets and says so.
 Both pages list the open epics from `live/epics.json`, one row each with a
 block per sub-issue, filled when it is closed; a row opens to list the
 sub-issues, open or closed, each linked, and a link to the epic. The panel
 shows only where the file is there.
-Its live charts cover the last 30 minutes, which is what `energy.json` holds.
 
 A page asks for its theme by name, `~/tehas/fun/theme-<name>.css`, and the docs
 server and the edge router answer with that file: nothing is rewritten. The
@@ -2166,10 +2151,7 @@ named and how big they may grow is on [The front end](/frontend).
   in it stop every command with 78, since the factory acts as a GitHub App.
   It holds the model
   endpoints' tokens (`TEHAS_MODEL_KEY_*`, see
-  [A backup model endpoint](#a-backup-model-endpoint)), mode 600. The
-  energy switches `TEHAS_ENERGY` and `TEHAS_ENERGY_URL` go here too
-  (see `tehasbot energy` in [Commands](/tools)); loading the instance keeps
-  them.
+  [A backup model endpoint](#a-backup-model-endpoint)), mode 600.
 - `~/.config/tehas/deploy_key`: the read-only deploy key the platform checkout
   is pulled with.
 

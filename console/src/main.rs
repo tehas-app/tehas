@@ -83,11 +83,6 @@
 //! How full this host is and what fills it, for tehas disk and the MCP tool
 //! factory_disk, see ops/src/disk.rs.
 //!
-//!   console energy [--every]
-//!
-//! One sample of what the model mesh draws, live/energy.json, for tehasbot
-//! energy, see src/energy.rs.
-//!
 //!   console disk free <path> [<seconds>]
 //!
 //! The free kilobytes a command holds work on, see ops/src/disk.rs.
@@ -192,7 +187,6 @@ mod attach;
 mod blockers;
 mod commands;
 mod dev;
-mod energy;
 mod epics;
 mod export;
 mod frame;
@@ -450,7 +444,6 @@ fn main() -> ExitCode {
             Some("check-product") => return ExitCode::from(product::check(&given[1..])),
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
             Some("disk") => return ExitCode::from(disk::main(&given[1..])),
-            Some("energy") => return ExitCode::from(energy::main(&given[1..])),
             Some("epics") => return ExitCode::from(epics::main(&given[1..])),
             Some("tickets") => return ExitCode::from(tickets::main(&given[1..])),
             Some("flags") => return ExitCode::from(holds::main(&given[1..])),

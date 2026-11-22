@@ -5,7 +5,7 @@
 //   node --test test/analytics_view_test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { analyticsView, dueToRead, duration, kwh, percent, READ_EVERY, tokens } from "../host/fun/analytics-data.js";
+import { analyticsView, dueToRead, duration, percent, READ_EVERY, tokens } from "../host/fun/analytics-data.js";
 
 const days = (rows) => Array.from({ length: 10 }, (_, i) => ({
   day: `2026-10-${15 + i}`, shipped: 0, runs: 0, failed: 0, minutes: 0, ...(rows[i] || {}),
@@ -26,7 +26,6 @@ function report(over = {}) {
     machineTime: { n: 6, seconds: 4800, perShipped: 1600 },
     tokens: { n: 4, total: 6650, input: 6100, output: 500, cacheRead: 50, perShipped: 2217 },
     availability: { n: 5, seconds: 734400, share: 0.002 },
-    energy: { n: 4, kwh: 0.075, perShipped: 0.025 },
     daily: days({ 0: { shipped: 1, runs: 3, minutes: 60 }, 1: { shipped: 1, runs: 2, failed: 2, minutes: 20 }, 2: { shipped: 1, runs: 1 } }),
     stopReasons: { n: 4, top: [{ reason: "explore-bodies-empty", n: 1 }, { reason: "other", n: 1 }, { reason: "refused", n: 1 }, { reason: "timeout", n: 1 }] },
     stations: { n: 5, steps: [
@@ -58,7 +57,6 @@ test("the row of figures, each with its count", () => {
     ["Machine time", "80 min", "27 min per shipped, n=6"],
     ["Tokens", "6.7k", "2.2k per shipped, n=4"],
     ["Availability", "0.2%", "could take work, of 8.5 d, n=5 samples"],
-    ["Energy", "0.025 kWh", "per shipped; 0.075 kWh in all, n=4 samples"],
   ]);
   // Shipped per day under the figure, and the planned trend: shares of the largest.
   assert.deepEqual(v.figures[0].bars, [1, 1, 1, 0, 0, 0, 0, 0, 0, 0]);
@@ -95,9 +93,8 @@ test("stop reasons, station yield and the version table", () => {
   ]);
 });
 
-test("a report without energy or samples leaves those figures out", () => {
-  const r = report();
-  delete r.energy;
+test("a report without samples leaves those figures out, and a 1.4 report's energy is not drawn", () => {
+  const r = report({ energy: { n: 4, kwh: 0.075, perShipped: 0.025 } });
   delete r.planned;
   r.availability = { n: 0 };
   r.firstPassYield = { n: 0 };
@@ -148,7 +145,6 @@ test("formats", () => {
   assert.deepEqual([duration(45), duration(750), duration(43400), duration(734400), duration(-1)],
     ["45 s", "13 min", "12.1 h", "8.5 d", "-"]);
   assert.deepEqual([tokens(950), tokens(6650), tokens(1234567), tokens(2.5e9), tokens(null)], ["950", "6.7k", "1.2M", "2.5G", "-"]);
-  assert.deepEqual([kwh(0.075), kwh(12.34), kwh(undefined)], ["0.075 kWh", "12.3 kWh", "-"]);
 });
 
 test("the file is read at most once a minute, and not while the page is hidden", () => {

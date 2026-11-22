@@ -140,12 +140,11 @@ writes no row rather than the same reading again. One consequence: the report co
 for the time to the next, at most ten minutes (see
 [`availability`](/tools-health#tehasbot-status-and-the-console)), so a stretch with no
 sample - a long pause or an idle week - counts as not available rather than as
-one reading held. The same rule bounds `energy`.
+one reading held.
 `~/tehas/libexec/analytics sample` reads the issues in line, running, awaiting
 a merge, stopped and in planning from
-`~/tehas/live/status.json`, the hold and the cycles allowed from
-`~/tehas/live/dispatch.json`, and the mesh's draw from
-`~/tehas/live/energy.json`. A file older than ten minutes gives no value, and a
+`~/tehas/live/status.json`, and the hold and the cycles allowed from
+`~/tehas/live/dispatch.json`. A file older than ten minutes gives no value, and a
 `dispatch.json` older than two and a half, an earlier poll's, neither. Nothing
 at the end of the poll prunes the analytics database: each write of the program
 - `run`, `plan`, `event` and `sample` - prunes after it writes, so a poll that
@@ -163,8 +162,7 @@ log once when its reason changes, with `released: cycles may start again`
 when it ends. A real poll also writes it to `~/tehas/live/dispatch.json` with
 the slice's numbers, for [tehas status](/tools-status#tehas-status), and, once the model
 endpoint has been settled, the subagent provider's endpoint as one word
-(`"endpoint": "main"` or `"backup"`), which is what
-[`tehasbot energy`](/tools-health#tehasbot-energy) asks. Every real poll that
+(`"endpoint": "main"` or `"backup"`), never an address. Every real poll that
 gets past the settings and the bot's login, a paused one too, writes
 `~/tehas/live/demand.json`: how many issues would start if there were room,
 and when the oldest of them was accepted, refresh requests included, with

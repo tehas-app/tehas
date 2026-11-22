@@ -79,9 +79,6 @@ pub enum Rule {
     /// Both analytics settings end up in an HTML attribute of every page, so
     /// no quote, space or angle bracket may get through.
     ScriptAddress,
-    /// An https address of a site, path included, with no space, control
-    /// character or quote: the energy page's source link is published.
-    SiteAddress,
     SiteName,
     /// The shape tehas_core::slice reads at every start: no leading zero, at most
     /// twelve digits of bytes or nine with a unit, and a size Docker takes:
@@ -156,9 +153,6 @@ pub enum Rule {
     /// The MCP server's keys, as [`crate::grammar::mcp_keys`] reads them. A
     /// refusal names a key by its place, never by its text.
     McpKeys,
-    /// An http or https address with a path, the energy sampler's cluster
-    /// address, which it asks with no token.
-    Address,
     /// Whole seconds from 0 to the bound: 0 refuses at once.
     Seconds(u64),
     /// `<name>=<url>@<commit>` entries, [`crate::plugin::pins`].
@@ -188,7 +182,6 @@ impl Rule {
             Rule::AppLogin => "app-login",
             Rule::OneOf(_, _) => "one-of",
             Rule::ScriptAddress => "script-address",
-            Rule::SiteAddress => "site-address",
             Rule::SiteName => "site-name",
             Rule::ContainerSize => "container-size",
             Rule::HostAddress => "host-address",
@@ -220,7 +213,6 @@ impl Rule {
             Rule::HostAliases => "host-aliases",
             Rule::Token => "token",
             Rule::McpKeys => "mcp-keys",
-            Rule::Address => "address",
             Rule::Seconds(_) => "seconds",
             Rule::Plugins => "plugins",
             Rule::PluginGrants => "plugin-grants",
@@ -244,7 +236,6 @@ impl Rule {
             // No list of words holds a space.
             Rule::OneOf(_, _) => "no such word",
             Rule::ScriptAddress => "http://a.example/x.js",
-            Rule::SiteAddress => "http://example.com/mesh",
             Rule::SiteName => "two words",
             Rule::ContainerSize => "5m",
             Rule::HostAddress => "not an address",
@@ -276,7 +267,6 @@ impl Rule {
             Rule::HostAliases => "models:192.0.2.8 extra",
             Rule::Token => "two words",
             Rule::McpKeys => "short",
-            Rule::Address => "ftp://example.com",
             Rule::Seconds(_) => "-1",
             Rule::Plugins => "floorplan",
             Rule::PluginGrants => "view",
@@ -447,7 +437,6 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_PROTOLAB_ZIP_URL", SWITCH, "0"),
     given_or("TEHAS_PROTOLAB_ZIP_HOSTS", Rule::Domains, ""),
     always("TEHAS_PROTOTYPE_FILE", SWITCH, "0"),
-    given("TEHAS_ENERGY_SOURCE_URL", Rule::SiteAddress),
     given(
         "TEHAS_UPDATE_FROM",
         Rule::OneOf(&["git", "release"], "expected git or release"),
@@ -496,8 +485,6 @@ pub const HOST: &[Setting] = &[
     given("TEHAS_MCP_KEYS", Rule::McpKeys),
     given("TEHAS_MCP_DASHBOARD_KEYS", Rule::McpKeys),
     given("TEHAS_MCP_CHECKOUT", Rule::Checkout),
-    given("TEHAS_ENERGY", SWITCH),
-    given("TEHAS_ENERGY_URL", Rule::Address),
     given_or("TEHAS_UPDATE_LOCK_WAIT", Rule::Seconds(300), "10"),
 ];
 
@@ -571,17 +558,6 @@ fn verdict(rule: Rule, v: &str) -> Result<(), String> {
                     is_host(host) && path.chars().all(class("._/-"))
                 }),
                 "expected the https address of a script",
-            )
-        }
-        // The energy page's source link: an https host, then a path of the
-        // ordinary characters of a URL. The sampler's own https check is the
-        // second gate; this one speaks at the load, where an operator hears it.
-        Rule::SiteAddress => {
-            let rest = v.strip_prefix("https://").unwrap_or("");
-            let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
-            refuse(
-                is_host(host) && path.chars().all(class("_~+?#=")),
-                "expected an https address such as https://example.com/mesh",
             )
         }
         Rule::SiteName => refuse(
@@ -681,17 +657,6 @@ fn verdict(rule: Rule, v: &str) -> Result<(), String> {
         Rule::McpKeys => crate::grammar::mcp_keys(v, "")
             .map(|_| ())
             .map_err(|why| why.trim_start_matches(": ").to_string()),
-        Rule::Address => {
-            let rest = v
-                .strip_prefix("https://")
-                .or_else(|| v.strip_prefix("http://"))
-                .unwrap_or("");
-            let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
-            refuse(
-                is_host(host) && path.chars().all(class("._~+?#=&%/:-")),
-                ADDRESS_WHY,
-            )
-        }
         Rule::Seconds(max) => refuse(
             is_count(v) && v.parse::<u64>().is_ok_and(|n| n <= max),
             &format!("expected a whole number of seconds from 0 to {max}"),
@@ -708,8 +673,6 @@ fn verdict(rule: Rule, v: &str) -> Result<(), String> {
 
 const TOKEN_WHY: &str =
     "expected one word of printable characters, with no quote, backslash, $ or backtick";
-const ADDRESS_WHY: &str =
-    "expected an http or https address such as http://models.example:8080/v1/cluster";
 
 const AUTO_GONE: &str = "expected a whole number: auto sizing is removed";
 const SLICE_AUTO_GONE: &str = "expected a whole number from 2 to 16: auto sizing is removed";
@@ -1178,42 +1141,6 @@ mod tests {
         ] {
             refuses("TEHAS_SITE_ANALYTICS_SRC", bad, why);
         }
-    }
-
-    #[test]
-    fn the_energy_source_address_is_https_and_one_word() {
-        takes("TEHAS_ENERGY_SOURCE_URL", "https://example.com/mesh");
-        takes("TEHAS_ENERGY_SOURCE_URL", "https://example.com");
-        takes(
-            "TEHAS_ENERGY_SOURCE_URL",
-            "https://example.com:8443/a_b~c+d#top",
-        );
-        let why = "expected an https address such as https://example.com/mesh";
-        refuses("TEHAS_ENERGY_SOURCE_URL", "", why);
-        refuses("TEHAS_ENERGY_SOURCE_URL", "   ", why);
-        // A value the sampler would turn down is refused here as well: the two
-        // gates say the same thing about an address.
-        for weak in [
-            "http://LEAKMARK.example",
-            "https:/LEAKMARK",
-            "HTTPS://LEAKMARK",
-            "https://a.example/x?a=1&b=2",
-            "https://a.example/x y",
-        ] {
-            refuses("TEHAS_ENERGY_SOURCE_URL", weak, why);
-        }
-        // The value reaches an <a href> of the dashboard, so no quote, space or
-        // control character gets through.
-        refuses(
-            "TEHAS_ENERGY_SOURCE_URL",
-            "https://a.example/x\" onload=\"x",
-            why,
-        );
-        refuses(
-            "TEHAS_ENERGY_SOURCE_URL",
-            &format!("https://a.example/x{}User-Agent: x", '\r'),
-            why,
-        );
     }
 
     #[test]
@@ -1798,28 +1725,11 @@ mod tests {
     }
 
     #[test]
-    fn the_host_switches_take_the_switch_words() {
-        for name in ["TEHAS_MCP", "TEHAS_ENERGY"] {
-            for v in SWITCH_WORDS {
-                takes(name, v);
-            }
-            refuses(name, "yes", "expected on or off");
+    fn the_host_switch_takes_the_switch_words() {
+        for v in SWITCH_WORDS {
+            takes("TEHAS_MCP", v);
         }
-    }
-
-    #[test]
-    fn the_energy_address_is_http_or_https() {
-        takes("TEHAS_ENERGY_URL", "http://gateway.lan:8080/v1/cluster");
-        takes("TEHAS_ENERGY_URL", "https://models.example/v1/cluster?x=1");
-        for bad in [
-            "gateway.lan/v1",
-            "ftp://a.example",
-            "http://a b",
-            "http://a.example/\"x\"",
-            "http://",
-        ] {
-            refuses("TEHAS_ENERGY_URL", bad, ADDRESS_WHY);
-        }
+        refuses("TEHAS_MCP", "yes", "expected on or off");
     }
 
     #[test]

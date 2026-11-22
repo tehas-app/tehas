@@ -33,10 +33,9 @@ t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "removed: $th/bin/tehas-dispatch"
 t_contains "$t_out" "removed: $th/bin/tehas-test"
-# A running sampler is the old file calling itself. The units step restarts it,
-# so the step is asked for and owed although no unit file changed.
-t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer"
-t_contains "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service"
+# The old sampler left with energy use, so no running loop is the old file
+# calling itself and no unit is restarted for it.
+t_lacks "$t_out" "next: units"
 # systemd reloaded before the files its old units name were removed.
 t_eq "$(t_calls systemctl | head -n 1)" "--user daemon-reload"
 t_eq "$(cd "$th/bin" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" "./gh ./tehas ./tehasbot "
@@ -150,6 +149,17 @@ t_contains "$t_out" "removed: $units/tehas-review.service"
 t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-review.timer
 --user daemon-reload"
 t_eq "$([ -e "$units/tehas-review.timer" ] || [ -e "$units/tehas-review.service" ] || echo gone)" "gone"
+
+t_case "the energy sampler, a service with no timer, is stopped and removed"
+echo "[Service]" >"$units/tehas-energy.service"
+t_run "$install --check"
+t_contains "$t_out" "stale: $units/tehas-energy.service"
+rm -f "$T/calls/systemctl"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $units/tehas-energy.service"
+t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-energy.service
+--user daemon-reload"
 
 t_case "the wiki's units go, its service only once systemd lets go of its path unit"
 for u in tehas-wiki-status.timer tehas-wiki-status.service tehas-wiki.timer tehas-wiki.path tehas-wiki.service; do echo "[Unit]" >"$units/$u"; done

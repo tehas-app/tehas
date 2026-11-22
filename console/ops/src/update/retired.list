@@ -90,3 +90,6 @@ lib/store.sh
 lib/rukas.sh
 edge/protolab.Caddyfile
 edge/protolab.compose.yaml
+# The energy file of energy use, which left core in 2.0: nothing writes or
+# reads it, and the docs server would serve the last one for ever.
+live/energy.json

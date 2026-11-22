@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use tehas_core::home::{Home, State};
 use tehas_core::testing::write_exe;
 
-const UNITS: &str = "tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer";
+const UNITS: &str = "tehas-dispatch.timer tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer";
 
 /// The pi-rukas head of the image cases: forty b.
 const IMAGE_HEAD: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -766,7 +766,7 @@ fn every_state_of_systemds_active_family_restarts_the_unit() {
         r#"if [ "$2" = is-active ]; then
   case "$3" in
     tehas-dispatch.timer) echo activating ;;
-    tehas-energy.service) echo reloading ;;
+    tehas-top.service) echo reloading ;;
     *) echo active ;;
   esac
 fi"#,
@@ -792,7 +792,7 @@ fi"#,
     assert_eq!(r.rc, 0, "{}", r.out);
     has(
         &r.out,
-        "systemd: restarted tehas-energy.service tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer",
+        "systemd: restarted tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer",
     );
     lacks(&r.out, "no unit was restarted");
 }
@@ -1170,11 +1170,12 @@ fn an_owed_units_line_from_before_a_unit_was_retired_restarts_the_current_units_
     assert_eq!(r.rc, 0, "{}", r.out);
     has(
         &r.out,
-        "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer",
+        "systemd: restarted tehas-dispatch.timer tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer",
     );
     lacks(&r.out, "tehas-refresh.timer");
     lacks(&r.out, "tehas-improve.timer");
     lacks(&r.out, "tehas-review.timer");
+    lacks(&r.out, "tehas-energy.service");
     lacks(&r.out, "tehas-wiki");
     assert_eq!(h.owed_steps(), "");
 }

@@ -43,12 +43,6 @@ export function tokens(v) {
   return `${Math.round(n / 1e8) / 10}G`;
 }
 
-export function kwh(v) {
-  const n = num(v);
-  if (n == null) return "-";
-  return `${n < 10 ? Math.round(n * 1000) / 1000 : Math.round(n * 10) / 10} kWh`;
-}
-
 // Heights for a row of bars: each value's share of the largest, 0 where all
 // are 0, so an empty ten days draws flat rather than full.
 function heights(values) {
@@ -122,11 +116,6 @@ export function analyticsView(data) {
   const avail = obj(r.availability);
   add("availability", "Availability", percent(avail.share),
     `could take work${num(avail.seconds) == null ? "" : ", of " + duration(avail.seconds)}, ${count(avail.n)} samples`);
-  if (r.energy && typeof r.energy === "object") {
-    const e = obj(r.energy);
-    add("energy", "Energy", num(e.perShipped) == null ? "-" : kwh(e.perShipped),
-      `per shipped; ${kwh(e.kwh)} in all, ${count(e.n)} samples`);
-  }
 
   const stops = obj(r.stopReasons);
   const reasons = list(stops.top).slice(0, 5).map((t) => ({ reason: text(obj(t).reason), n: num(obj(t).n) ?? 0 }))

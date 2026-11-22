@@ -1341,26 +1341,15 @@ t_run "$load && echo \"\$TEHAS_TOP\""
 t_eq "$t_out" "0"
 T_ENV=()
 
-t_case "the energy switches in ~/.config/tehas/env survive env.sh"
+t_case "the energy settings a 1.4 host left in ~/.config/tehas/env load and are not read"
 t_instance "${T_MINIMAL[@]}"
 mkdir -p "$T/home/.config/tehas" "$T/home/tehas/lib"
 cp "$T_ROOT/lib/config.sh" "$T/home/tehas/lib/"
-printf '%s\n' TEHAS_ENERGY=off TEHAS_ENERGY_URL=http://mesh.example:8086/v1/cluster \
+printf '%s\n' TEHAS_ENERGY=viiwork TEHAS_ENERGY_URL=mesh TEHAS_ENERGY_SOURCE_URL=x \
   >"$T/home/.config/tehas/env"
 t_run '. "$T_ROOT/host/env.sh"; echo "[${TEHAS_ENERGY:-}] [${TEHAS_ENERGY_URL:-}] [$TEHAS_REPO]"'
-t_eq "$t_out" "[off] [http://mesh.example:8086/v1/cluster] [acme/widget]"
+t_eq "$t_out" "[] [] [acme/widget]"
 rm -rf "$T/home/.config/tehas" "$T/home/tehas/lib"
-
-t_case "the energy switch takes the switch words, and a load refuses any other"
-t_instance "${T_MINIMAL[@]}"
-T_ENV=(TEHAS_ENERGY=0)
-t_run "$load && echo \"[\$TEHAS_ENERGY]\""
-t_eq "$t_out" "[off]"
-T_ENV=(TEHAS_ENERGY=viiwork)
-t_run "$load; echo rc=\$?"
-t_contains "$t_out" "rc=78"
-t_contains "$t_out" "tehas: TEHAS_ENERGY is not valid: expected on or off"
-T_ENV=()
 
 t_case "without a role model every role is left to the subagent model"
 t_instance "${T_MINIMAL[@]}"

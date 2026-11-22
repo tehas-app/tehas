@@ -176,7 +176,6 @@ reset
 for arg in "" help -h --help; do
   t_run "$bot $arg"
   t_eq "$t_rc" 0
-  t_contains "$t_out" "tehasbot energy [--every]"
   t_contains "$t_out" "tehasbot top [--every]"
 done
 for name in work plan dev index update labels summary bogus "''"; do
@@ -315,7 +314,7 @@ done <"$T_ROOT/api/renames-1.0.tsv"
 
 t_case "each tehasbot verb of 0.30 is still one, or a command row of the renames file"
 bot_help=$(TEHAS_CONSOLE=$T_CONSOLE "$T_ROOT/bin/tehasbot" help)
-for verb in clean cycle dispatch energy github-token github-writes health help improve mcp \
+for verb in clean cycle dispatch github-token github-writes health help improve mcp \
   preview protolab refresh status top; do
   row=$(awk -F '\t' -v v="tehasbot $verb" '$1 == "command" && $2 == v && $3 == ""' "$T_ROOT/api/renames-1.0.tsv")
   if [ -n "$row" ]; then
