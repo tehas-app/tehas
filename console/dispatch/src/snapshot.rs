@@ -46,8 +46,10 @@ pub struct Issue {
     /// The approval of its latest start (approval-view), Err when the
     /// store could not answer.
     pub approval: Option<Result<Option<Value>, ()>>,
-    /// approval-current's .current, for the owner of a refresh.
-    pub current: Option<Result<Option<Value>, StoreErr>>,
+    /// The pull request approval-current's .current names as its refresh's:
+    /// its refresh_pr when its how is refresh and that is a number of 1 to 10
+    /// digits with no leading 0, None otherwise.
+    pub current: Option<Result<Option<u64>, StoreErr>>,
     /// The question on record: {plan, id, kind}. plan is plan-show's
     /// `.planning` of an open session, null for none; id and kind as
     /// park-show and question-known answer for it.
@@ -60,13 +62,154 @@ pub struct Issue {
     pub view: Option<Value>,
     /// The cycle history on record, Err when the store
     /// could not answer.
-    pub history: Option<Result<Vec<Value>, ()>>,
-    /// state/refresh/<n>.json, as written; and what <n>.said holds.
-    pub request: Option<Value>,
+    pub history: Option<Result<Vec<CycleRow>, ()>>,
+    /// state/refresh/<n>.json; and what <n>.said holds.
+    pub request: Option<RefreshRequest>,
     pub refresh_said: Option<String>,
     /// state/plan-start/<n>.json: what lets the bot's tehas:ready start this
-    /// one issue. Null when it is there and cannot be read.
-    pub plan_start: Option<Value>,
+    /// one issue.
+    pub plan_start: Option<PlanStart>,
+}
+
+/// A row of the cycle history, as the park rule of a refresh reads it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CycleRow {
+    /// Its how is refresh.
+    pub refresh: bool,
+    /// Its parked is JSON true.
+    pub parked: bool,
+    /// Its start in seconds; None when it is missing, null or no u64.
+    pub started: Option<u64>,
+}
+
+/// A refresh request. `at` is read from any request, `target` only from one
+/// whose pr is a JSON number and whose shas are commit ids.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RefreshRequest {
+    pub at: String,
+    pub target: Option<RefreshTarget>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RefreshTarget {
+    /// The pr as a u64, 0 for a number that is not one.
+    pub pr: u64,
+    pub head_sha: String,
+    pub base_sha: String,
+}
+
+/// The record of a plan's start. Unreadable is a file that is there and is
+/// not a JSON object: it still makes the bot's label a plan's, and so refused.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PlanStart {
+    /// by is empty when it is not text; sum is None when it is not text.
+    Record {
+        by: String,
+        sum: Option<String>,
+    },
+    Unreadable,
+}
+
+/// A pull request a refresh reads (GraphQL's .data.repository.pullRequest).
+#[derive(Clone, Debug, PartialEq)]
+pub enum PullNode {
+    /// The read failed, on this gh call's line.
+    Failed {
+        line: Option<String>,
+    },
+    /// GitHub gave no object.
+    Unreadable,
+    Read(Box<PullRead>),
+}
+
+/// What the refresh rules read of a pull request. A text GitHub did not give
+/// as text is empty.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PullRead {
+    pub number: Option<u64>,
+    /// The number as JSON text, `null` when missing.
+    pub number_said: String,
+    pub state: String,
+    pub author: String,
+    pub cross_repository: Option<bool>,
+    pub head_repository: String,
+    pub draft: Option<bool>,
+    /// closingIssuesReferences' totalCount as a float, 0 when it is none.
+    pub closing_count: f64,
+    pub closing: Vec<ClosedIssue>,
+    pub head_oid: Option<String>,
+    pub base_ref: String,
+    /// GitHub's word for whether it conflicts.
+    pub merge: Option<String>,
+    pub labels: Vec<String>,
+    pub url: String,
+}
+
+/// An issue a pull request closes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ClosedIssue {
+    pub number: Option<u64>,
+    pub state: String,
+    pub labels: Vec<String>,
+    /// The numbers of the open pull requests that close it, None for one that
+    /// is not a u64.
+    pub open_prs: Vec<Option<u64>>,
+}
+
+/// Whether a value is a commit id: 40 lowercase hex.
+pub(crate) fn hex40(v: Option<&Value>) -> bool {
+    v.and_then(Value::as_str)
+        .is_some_and(tehas_core::grammar::commit_id)
+}
+
+/// A pull request as GraphQL gives it, read for the refresh rules.
+pub(crate) fn pull_read(pr: &Value) -> PullRead {
+    let text = |v: Option<&Value>| v.and_then(Value::as_str).unwrap_or("").to_string();
+    let names = |v: &Value| names(v.pointer("/labels/nodes"));
+    let closing = pr.get("closingIssuesReferences");
+    PullRead {
+        number: pr.get("number").and_then(Value::as_u64),
+        number_said: pr.get("number").unwrap_or(&Value::Null).to_string(),
+        state: text(pr.get("state")),
+        author: text(pr.pointer("/author/login")),
+        cross_repository: pr.get("isCrossRepository").and_then(Value::as_bool),
+        head_repository: text(pr.pointer("/headRepository/nameWithOwner")),
+        draft: pr.get("isDraft").and_then(Value::as_bool),
+        closing_count: closing
+            .and_then(|c| c.get("totalCount"))
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0),
+        closing: closing
+            .and_then(|c| c.get("nodes"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|i| ClosedIssue {
+                number: i.get("number").and_then(Value::as_u64),
+                state: text(i.get("state")),
+                labels: names(i),
+                open_prs: i
+                    .pointer("/closedByPullRequestsReferences/nodes")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter(|p| p.get("state").and_then(Value::as_str) == Some("OPEN"))
+                    .map(|p| p.get("number").and_then(Value::as_u64))
+                    .collect(),
+            })
+            .collect(),
+        head_oid: pr
+            .get("headRefOid")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        base_ref: text(pr.get("baseRefName")),
+        merge: pr
+            .get("mergeable")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        labels: names(pr),
+        url: text(pr.get("url")),
+    }
 }
 
 /// A pull request that closes an issue. A url GitHub did not give is
@@ -507,9 +650,8 @@ pub struct Snapshot {
     /// --continue-pr (asked when a refresh may start).
     pub refresh_held: String,
     pub continues: Option<bool>,
-    /// The pull requests a refresh reads, by number: GraphQL's
-    /// .data.repository.pullRequest, or {"failed": true}.
-    pub pulls: BTreeMap<u64, Value>,
+    /// The pull requests a refresh reads, by number.
+    pub pulls: BTreeMap<u64, PullNode>,
     /// With TEHAS_MILLWRIGHT_FEED: the running cycles a fed start began, None
     /// when that could not be read.
     pub fed: Option<u64>,
@@ -700,7 +842,19 @@ fn issue(v: &Value) -> Issue {
         current: v.get("current").map(|a| match a {
             Value::Null => Ok(None),
             a if failed(a) => Err(StoreErr::parse(a)),
-            a => Ok(Some(a.clone())),
+            a if a.get("how").and_then(Value::as_str) == Some("refresh") => {
+                let pr = match a.get("refresh_pr") {
+                    Some(Value::Number(x)) => x.to_string(),
+                    Some(Value::String(x)) => x.clone(),
+                    _ => String::new(),
+                };
+                let ok = !pr.is_empty()
+                    && pr.len() <= 10
+                    && !pr.starts_with('0')
+                    && pr.bytes().all(|b| b.is_ascii_digit());
+                Ok(ok.then(|| pr.parse().unwrap_or(0)))
+            }
+            _ => Ok(None),
         }),
         question: v.get("question").map(|q| {
             if failed(q) {
@@ -728,14 +882,47 @@ fn issue(v: &Value) -> Issue {
         view: v.get("view").cloned(),
         history: v.get("history").map(|h| match h {
             h if failed(h) => Err(()),
-            h => Ok(h.as_array().cloned().unwrap_or_default()),
+            h => Ok(h
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|r| CycleRow {
+                    refresh: r.get("how").and_then(Value::as_str) == Some("refresh"),
+                    parked: r.get("parked").and_then(Value::as_bool) == Some(true),
+                    started: r.get("started").and_then(Value::as_u64),
+                })
+                .collect()),
         }),
-        request: v.get("request").cloned(),
+        request: v.get("request").map(|r| RefreshRequest {
+            at: r
+                .get("at")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            target: (r.get("pr").is_some_and(Value::is_number)
+                && hex40(r.get("head_sha"))
+                && hex40(r.get("base_sha")))
+            .then(|| RefreshTarget {
+                pr: r["pr"].as_u64().unwrap_or(0),
+                head_sha: r["head_sha"].as_str().unwrap_or("").to_string(),
+                base_sha: r["base_sha"].as_str().unwrap_or("").to_string(),
+            }),
+        }),
         refresh_said: v
             .get("refresh_said")
             .and_then(Value::as_str)
             .map(str::to_string),
-        plan_start: v.get("plan_start").cloned(),
+        plan_start: v.get("plan_start").map(|p| match p {
+            Value::Object(o) => PlanStart::Record {
+                by: o
+                    .get("by")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                sum: o.get("sum").and_then(Value::as_str).map(str::to_string),
+            },
+            _ => PlanStart::Unreadable,
+        }),
     }
 }
 
@@ -1055,7 +1242,18 @@ impl Snapshot {
                 .and_then(Value::as_object)
                 .map(|m| {
                     m.iter()
-                        .filter_map(|(k, p)| Some((k.parse().ok()?, p.clone())))
+                        .filter_map(|(k, p)| {
+                            let node = if failed(p) {
+                                PullNode::Failed {
+                                    line: failed_line(Some(p)),
+                                }
+                            } else if p.is_object() {
+                                PullNode::Read(Box::new(pull_read(p)))
+                            } else {
+                                PullNode::Unreadable
+                            };
+                            Some((k.parse().ok()?, node))
+                        })
                         .collect()
                 })
                 .unwrap_or_default(),

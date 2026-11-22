@@ -3,9 +3,10 @@
 //! under state/refresh. What a run does and its statuses are in
 //! src/usage/refresh.txt, this command's --help.
 
-use crate::decide::{hex40, iso_now, refresh_why};
+use crate::decide::{iso_now, refresh_why};
 use crate::read::github;
 use crate::read::run::Calls;
+use crate::snapshot::{hex40, pull_read};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::Write;
@@ -69,7 +70,7 @@ fn asked(node: &Value, bot: &str, repo: &str, control: u64) -> Result<Conflict, 
     if node.get("state").and_then(Value::as_str) != Some("OPEN") {
         return Err("it is not open".into());
     }
-    let why = refresh_why(node, bot, repo, control);
+    let why = refresh_why(&pull_read(node), bot, repo, control);
     if !why.is_empty() {
         return Err(why);
     }

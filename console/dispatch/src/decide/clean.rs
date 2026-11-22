@@ -411,21 +411,10 @@ impl Poll<'_> {
                         prs.clear();
                         break;
                     }
-                    Ok(Some(c)) if c.get("how").and_then(Value::as_str) == Some("refresh") => {
-                        let pr = match c.get("refresh_pr") {
-                            Some(Value::Number(x)) => x.to_string(),
-                            Some(Value::String(x)) => x.clone(),
-                            _ => String::new(),
-                        };
-                        let ok = !pr.is_empty()
-                            && pr.len() <= 10
-                            && !pr.starts_with('0')
-                            && pr.bytes().all(|b| b.is_ascii_digit());
-                        if ok {
-                            owner.insert(pr.parse::<u64>().unwrap_or(0), n);
-                        }
+                    Ok(Some(pr)) => {
+                        owner.insert(pr, n);
                     }
-                    Ok(_) => {}
+                    Ok(None) => {}
                 }
             }
         }

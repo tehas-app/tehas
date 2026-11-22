@@ -2154,7 +2154,10 @@ esac"#,
         let parsed = Snapshot::parse(&snap);
         assert_eq!(
             parsed.issues[&21].plan_start,
-            Some(json!({"by": "alice", "sum": "21"}))
+            Some(crate::snapshot::PlanStart::Record {
+                by: "alice".into(),
+                sum: Some("21".into())
+            })
         );
         assert_eq!(parsed.issues[&22].plan_start, None);
         assert!(!parsed.issues.contains_key(&99), "no candidate, no read");
