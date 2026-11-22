@@ -488,17 +488,19 @@ refactor step. The program manager is the session tehas-2d.
    setup at `ready`, before any model runs, never for a cause in the
    issue, with nothing posted), the same cycle runs classic. An exit
    status is not the key: lean's exit 11 also stops an issue with no
-   spec. The issue gets one comment with lean's reason and a link to the
-   settings in `host/docs/new-project.md`, and `approval.driver` records
-   classic with the reason. A `tehas:lean` label or an explicit
+   spec. Nothing stops, and tehas says so (the owner, 2026-11-22): a
+   host message names lean's reason and how to set `verify.roster`, with
+   the recipes in `host/docs/new-project.md`, the issue gets one comment
+   with the reason, and `approval.driver` records classic with the
+   reason. A `tehas:lean` label or an explicit
    `TEHAS_DRIVER=lean` parks as today, and any other lean failure falls
    back to nothing. tehas reads no `.pi/work.json` itself: lean's refusal
    is the one rule. #2511 blocks this part only. If it is not in by the
    trio's readiness review, 2.0.0 ships lean available but not the
    default, and the owner decides.
 5. **The contract.** T9 lists the new default in "Changed in 2.0", with
-   its readers, and the changelog's adopter action: write `pi-spec v1`
-   blocks and `.pi/work.json`, or set `TEHAS_DRIVER=classic`.
+   its readers, and the changelog's adopter action: "set
+   `verify.roster`, or `TEHAS_DRIVER=classic`".
 
 Done when the proof is in `features.md`, the pinned pi-rukas has the
 fixes of trail-openers/pi-rukas#2493, and the dispatcher's and the
@@ -619,3 +621,4 @@ of main, each grade.
 | 2026-11-22 | T13: lean is the default driver in 2.0.0 (the owner) | #2784 |
 | 2026-11-22 | The ending: squash merges only, so the branch lands by a merge commit the owner allows or a fast-forward | this pull request |
 | 2026-11-22 | T13: the fallback to classic on lean's setup refusal; the pi-rukas blockers as #2493 lists them | T13 fallback pull request |
+| 2026-11-22 | T13: the fallback leaves a host message; the adopter action is "set `verify.roster`, or `TEHAS_DRIVER=classic`" (the owner) | T13 host message pull request |
