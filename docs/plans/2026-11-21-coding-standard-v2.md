@@ -599,6 +599,6 @@ of main, each grade.
 | 2026-11-22 | T0: checks for R3, R6, R7 and R8; tests counted; the checks as wide as their rules | #2780 |
 | 2026-11-22 | T3 begins: the closing pull requests of an issue typed (`ClosingPr`) | #2781 |
 | 2026-11-22 | The architecture test runs in CI on the branch; the AGENTS.md section merged by the owner | #2777, #2779 |
-| 2026-11-22 | T12 (answers in words, #2782) and the pi-rukas pin (v0.14.101 or later) added to this plan; T3 planned as fifteen slices | this pull request |
+| 2026-11-22 | T12 (answers in words, #2782) and the pi-rukas pin (v0.14.101 or later) added to this plan; T3 planned as fifteen slices | #2783 |
 | 2026-11-22 | T13: lean is the default driver in 2.0.0 (the owner) | #2784 |
 | 2026-11-22 | The ending: squash merges only, so the branch lands by a merge commit the owner allows or a fast-forward | this pull request |
