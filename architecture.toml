@@ -8,9 +8,9 @@
 # aim for each is 0, or a floor written in docs/architecture.md. The
 # questions a reviewer answers are in docs/architecture-review.md.
 #
-# Tests in a file of their own (tests/, tests.rs, *_tests.rs) are left
-# out. A #[cfg(test)] module inside a source file cannot be: the test
-# counts lines, not Rust items, so those tests count until they move.
+# Tests are counted, in files of their own and in #[cfg(test)] modules
+# alike, so a test that moves does not lower a count it did not fix.
+# Only a port's own fake and an adapter's own tests are allowed.
 
 version = 1
 method = "docs/architecture-rubric.md"
@@ -20,45 +20,43 @@ review = "docs/architecture-review.md"
 id = "github-rest"
 rule = "R1"
 what = "GitHub's REST paths, its GraphQL API and its API host are written only in the forge"
-pattern = 'api\.github\.com|\bgraphql\b|\brepos/(\{|\$|:owner)|"/?(user|users|orgs|installation)/|/(issues|pulls|labels|check-runs|commits|git/refs|releases|collaborators|installations|actions)(/|\b)\{'
-files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh", "host/fun/**/*.js"]
-allowed = ["console/core/src/forge.rs", "console/core/src/forge/**", "console/**/tests/**", "console/**/tests.rs", "console/**/*_tests.rs"]
+pattern = 'api\.github\.com|\bgraphql\b|\brepos/(\{|\$|:owner)|"/?(user|users|orgs|installation)/|/(issues|pulls|labels|check-runs|commits|git/refs|releases|collaborators|installations|actions)(/|\b)\{|--jq\b|"--json"|\b(headRefName|baseRefName|headRefOid|mergedAt|closedAt|createdAt|updatedAt|isDraft|statusCheckRollup|reviewDecision|mergeStateStatus|mergeable|timelineItems|labelEvents|pageInfo|endCursor|hasNextPage)\b'
+files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh", "host/systemd/*", "host/fun/**/*.js"]
+allowed = ["console/core/src/forge.rs", "console/core/src/forge/**"]
 comment = "//"
-max = 162
-why = "The map at the fork, v1.4.0 (T0): dispatch 57, the console 45, ops 22, cycle 14, core 13 outside the forge, the front pages 4, attach, mcp and plugin 2 each, plugin-gate 1. 67 are in #[cfg(test)] modules. A few are the home's repos/ path, not GitHub's (settings/load.rs), counted until Home owns it (T5). T4 moves them behind the code host, tickets and blueprints ports."
+max = 846
+why = "Re-measured at T0's follow-up, with tests in files counted and GitHub's JSON fields, --json and --jq added: the console 240, dispatch 225, ops 98, cycle 93, the front pages 69, mcp 38, store 37, core 21 outside the forge, analytics 8, xtask 6, the sandbox 4, the rest 1 or 2. 219 are in test files. Some field names (createdAt, updatedAt) are also tehas's own JSON keys where it copied GitHub's: T4 and T7 rename or own them. T4 moves the rest behind the three ports."
 
 [[check]]
 id = "gh-argv"
 rule = "R2"
 what = "the gh program is run only by the forge"
 pattern = '"gh"|\bgh (api|pr|issue|repo|release|run|label|auth|search|workflow|secret|variable)\b'
-files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh"]
-allowed = ["console/core/src/forge.rs", "console/core/src/forge/**", "console/**/tests/**", "console/**/tests.rs", "console/**/*_tests.rs"]
+files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh", "host/systemd/*"]
+allowed = ["console/core/src/forge.rs", "console/core/src/forge/**"]
 comment = "//"
-max = 153
-why = "The map at the fork (T0): dispatch 39, the console 34, ops 32, cycle 22, core 13, store and xtask 4 each, the rest 1 each. 75 are in #[cfg(test)] modules. The security shims that decide whether a gh call writes are among them (the console's gh shim, the sandbox's gh-shim, cycle's relay): whether they stay separate is the owner's (T4), and those that stay become a written floor."
+max = 408
+why = "Re-measured at T0's follow-up, with tests in files counted: dispatch 207, cycle 67, the console 62, ops 34, core 13, store 11, mcp and xtask 4 each, the rest 1 or 2. 255 are in test files, which T1 moves onto the ports' fakes. The security shims that decide whether a gh call writes are among the rest: whether they stay separate is the owner's (T4), and those that stay become a written floor."
 
 [[check]]
 id = "label-words"
 rule = "R1"
 what = "the state labels and markers (tehas:...) are written only in the one module that names them"
-pattern = 'tehas:[a-z]'
-files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh", "host/fun/**/*.js"]
-allowed = ["console/**/tests/**", "console/**/tests.rs", "console/**/*_tests.rs"]
+pattern = 'tehas:[a-z]|\bneeds-human-attention\b|"epic"'
+files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh", "host/systemd/*", "host/fun/**/*.js"]
 comment = "//"
-max = 886
-why = "The map at the fork (T0): dispatch 405, core 164, ops 132, the console 81, cycle 48, the front pages 30, mcp 18, store 6. 506 are in #[cfg(test)] modules. No module owns the state words yet; T2 gives them one owner in core, checked against host/labels.tsv, and lowers this to 0."
+max = 1878
+why = "Re-measured at T0's follow-up, with tests in files counted and needs-human-attention and epic added: dispatch 1010, cycle 228, core 189, the console 184, ops 137, store 70, the front pages 34, mcp 21, analytics 4, plugin 1. 930 are in test files. T2 gives the state words one owner in core, checked against host/labels.tsv."
 
 [[check]]
 id = "home-layout"
 rule = "R1"
 what = "the $TEHAS_HOME layout (state/, live/, run/) is written only in Home"
-pattern = '"(state|live|run)/|join\("(state|live|run)"\)|TEHAS_HOME}?/(state|live|run)\b|~/tehas/(state|live|run)\b'
-files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh", "host/fun/**/*.js"]
-allowed = ["console/**/tests/**", "console/**/tests.rs", "console/**/*_tests.rs"]
+pattern = '"(state|live|run)/|join\("(state|live|run)"\)|TEHAS_HOME}?/(state|live|run)\b|~/tehas/(state|live|run)\b|\{home\}/(state|live|run)\b|%h/tehas/(state|live|run)\b|/tehas/(state|live|run)/'
+files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh", "host/systemd/*", "host/fun/**/*.js"]
 comment = "//"
-max = 512
-why = "The map at the fork (T0): ops 232, dispatch 91, cycle 60, the console 39, core 23, install.sh 21, store 20, plugin 8, proxy 7, analytics 6, contractor 5. 298 are in #[cfg(test)] modules. run/ is counted as well as state/ and live/. T5 gives the layout one owner, Home; bash asks it for paths at T8."
+max = 1356
+why = "Re-measured at T0's follow-up, with tests in files counted and {home}/... paths, the units and the installer added: dispatch 341, cycle 278, ops 238, store 145, the console 124, analytics 98, proxy 31, contractor and core 25 each, install.sh 21, mcp 16, plugin 8, the units 5, xtask 1. 819 are in test files. T5 gives the layout one owner, Home (state/, live/, run/); bash asks it at T8."
 
 [[check]]
 id = "untyped-signatures"
@@ -69,28 +67,78 @@ start = '^\s*(pub(\([^)]*\))?\s+)?(const\s+)?(async\s+)?(unsafe\s+)?fn\s'
 end = '\{|;\s*$'
 pattern = '\bValue\b'
 files = ["console/**/*.rs"]
-allowed = ["console/**/tests/**", "console/**/tests.rs", "console/**/*_tests.rs"]
 comment = "//"
-max = 1044
-why = "The map at the fork (T0): dispatch 270, mcp 170, the console 138, core 126, cycle 125, ops 78, attach 35, analytics 34, plugin 21, store 20, proxy 16, contractor 11. 179 are in #[cfg(test)] modules. T3 types the dispatcher's core, T4 the ports, T5 the store client; T7 moves the rest or writes a floor for an adapter's own parsing."
+max = 1421
+why = "Re-measured at T0's follow-up, with tests in files counted: dispatch 369, mcp 251, cycle 181, the console 162, core 128, ops 89, store 77, analytics 45, attach 42, plugin 33, proxy 28, contractor 16. 377 are in test files. T3 types the dispatcher's core, T4 the ports, T5 the store client; T7 moves the rest or writes a floor for an adapter's own parsing."
 
 [[check]]
 id = "untyped-fields"
 rule = "R4"
-what = "no serde_json::Value in a public field"
-pattern = '^\s*pub(\([^)]*\))?\s+[a-z_][a-z0-9_]*\s*:.*\bValue\b'
+what = "no serde_json::Value in a public field, an enum variant or a tuple field"
+pattern = '^\s*pub(\([^)]*\))?\s+[a-z_][a-z0-9_]*\s*:.*\bValue\b|^\s*[A-Z][A-Za-z0-9]*\s*\([^()]*\bValue\b[^()]*\),?\s*$|^\s*(pub(\([^)]*\))?\s+)?struct\s+\w+\s*(<[^>]*>)?\s*\(.*\bValue\b'
 files = ["console/**/*.rs"]
-allowed = ["console/**/tests/**", "console/**/tests.rs", "console/**/*_tests.rs"]
 comment = "//"
-max = 56
-why = "The map at the fork (T0): dispatch 37 (Snapshot and its rows), cycle 6, ops 4, core 3, contractor and the console 2 each, attach and proxy 1 each. T3 types Snapshot; T7 the rest, or a written floor."
+max = 66
+why = "Re-measured at T0's follow-up, with enum variants and tuple fields added: dispatch 38 (Snapshot and its rows), cycle 7, ops 5, attach, contractor, core and the console 3 each, mcp, plugin, proxy and store 1 each. T3 types Snapshot; T7 the rest, or a written floor."
 
 [[report]]
 id = "public-items"
 rule = "R5"
-what = "public items per file: a rise is a question in review"
-pattern = '^\s*pub\s+(async\s+)?(fn|struct|enum|trait|type|const|static|mod)\b'
+what = "public items per file, pub(crate) and pub use included: a rise is a question in review"
+pattern = '^\s*pub(\([^)]*\))?\s+((async|const|unsafe)\s+)*(fn|struct|enum|trait|type|const|static|mod|use)\b'
 files = ["console/**/*.rs"]
 allowed = ["console/**/tests/**", "console/**/tests.rs", "console/**/*_tests.rs"]
 comment = "//"
 top = 20
+
+# R3, R8: the core. Today it is the dispatcher's decide and the modules it
+# reads: what it decides from (snapshot, settings, place, text, questions,
+# starts). tehas-core
+# is not pure (it holds the forge, the sandbox and the process runner), so
+# it is not the core; T6 settles where the core ends and widens these.
+
+[[check]]
+id = "core-effects"
+rule = "R3"
+what = "the core reads no file, network, process, environment or clock"
+pattern = 'std::(fs|net|process|env)\b|\bfs::|Command::new|SystemTime::now|Instant::now|Utc::now|Local::now|env::var|reqwest|tokio::(fs|net|process)|thread::sleep'
+files = ["console/dispatch/src/decide.rs", "console/dispatch/src/decide/**", "console/dispatch/src/place.rs", "console/dispatch/src/snapshot.rs", "console/dispatch/src/text.rs", "console/dispatch/src/settings.rs", "console/dispatch/src/questions.rs", "console/dispatch/src/starts.rs"]
+comment = "//"
+max = 0
+
+[[check]]
+id = "core-inward"
+rule = "R8"
+what = "the core uses nothing of the shell or the adapters"
+pattern = '\b(crate::(read|apply|poll|finish|auto_finish|refresh|pins|usage)|tehas_core::(forge|sandbox|call|retry|access|journal|lock|file|disk|install|tunnel|github_fails|release|rukas))\b'
+files = ["console/dispatch/src/decide.rs", "console/dispatch/src/decide/**", "console/dispatch/src/place.rs", "console/dispatch/src/snapshot.rs", "console/dispatch/src/text.rs", "console/dispatch/src/settings.rs", "console/dispatch/src/questions.rs", "console/dispatch/src/starts.rs"]
+comment = "//"
+max = 3
+why = "The map at T0: decide.rs reads three things of the shell, the push fault's hold from read::host (decide.rs:6), call::trim (decide.rs:438) and apply::start::change_note (decide.rs:2705). T3 moves them into the core or passes their answers in the snapshot."
+
+# R6: a supplier's failure reaches a caller as a named outcome, not a raw
+# HTTP status the caller must read.
+
+[[check]]
+id = "raw-statuses"
+rule = "R6"
+what = "GitHub's HTTP statuses are read only in the forge"
+pattern = 'HTTP [45][0-9]{2}|\b(status|code)\s*(==|!=)\s*[45][0-9]{2}\b|"(401|403|404|409|422|429|500|502|503)"'
+files = ["console/**/*.rs"]
+allowed = ["console/core/src/forge.rs", "console/core/src/forge/**"]
+comment = "//"
+max = 259
+why = "The map at T0: core 92 outside the forge (end_fault, journal, retry, call read gh's error text), dispatch 51, the console 46, ops 31, cycle 26, plugin 6, the rest 1 or 2. 55 are in test files. T4 turns them into the ports' named outcomes, read in the adapter."
+
+# R7: tests drive the ports' fakes, not gh's argument lists.
+
+[[check]]
+id = "tests-stub-gh"
+rule = "R7"
+what = "no shell test stubs gh where the point is not the bash; no Rust test outside the forge's pins a gh argument list"
+pattern = 't_stub gh\b|"gh"|\bgh (api|pr|issue|repo|release|run|label|search)\b'
+files = ["test/**/*.sh", "console/**/tests/**", "console/**/tests.rs", "console/**/*_tests.rs"]
+allowed = ["console/core/src/forge/**"]
+comment = "#"
+max = 419
+why = "The map at T0: dispatch's tests 191, the shell tests of test/ 123 (84 of them t_stub gh), cycle 45, the console 31, store 17, core, mcp 4 each, ops 2, analytics, attach 1 each. T1 moves each crate's tests onto the ports' fakes, with the same answers, before its calls move; the forge's own pins stay."
