@@ -2,7 +2,7 @@
 //! is selected does not depend on the real suite. test/select_test.sh runs it
 //! on the real workspace and through scripts/verify.sh --changed.
 
-use super::{select, RUNS};
+use super::{select, test_targets, RUNS};
 use std::fs;
 use tehas_core::testdir::TestDir;
 
@@ -576,4 +576,29 @@ fn hidden_files_under_test_are_not_test_files() {
     t.fake(".x_test.sh", "lib/config.sh")
         .fake("a_test.sh", "lib/config.sh");
     assert_eq!(t.pick(&["lib/config.sh"]), "test test/a_test.sh");
+}
+
+#[test]
+fn test_targets_are_the_test_kind_with_their_file_from_the_checkout() {
+    let json = r#"{"workspace_root": "/w", "packages": [
+      {"name": "tehas-mcp", "targets": [
+        {"name": "tehas-mcp", "kind": ["lib"], "src_path": "/w/mcp/src/lib.rs"},
+        {"name": "mcp", "kind": ["test"], "src_path": "/w/mcp/tests/mcp.rs"}]},
+      {"name": "console", "targets": [
+        {"name": "surface", "kind": ["test"], "src_path": "/w/tests/surface.rs"},
+        {"name": "console", "kind": ["bin"], "src_path": "/w/src/main.rs"}]}]}"#;
+    let got = test_targets(json).unwrap();
+    let want = [
+        ("tehas-mcp", "mcp", "console/mcp/tests/mcp.rs"),
+        ("console", "surface", "console/tests/surface.rs"),
+    ];
+    assert_eq!(got.len(), 2);
+    for (p, n, f) in want {
+        assert!(
+            got.iter()
+                .any(|t| (t.0.as_str(), t.1.as_str(), t.2.as_str()) == (p, n, f)),
+            "{p} {n} {f}"
+        );
+    }
+    assert!(test_targets("{}").is_none());
 }

@@ -3,8 +3,19 @@
   "verify": {
     "fast": "scripts/verify.sh --changed",
     "full": "scripts/verify.sh",
-    "test": "scripts/test.sh {file}",
-    "testDir": "test",
-    "testGlob": "*_test.sh"
+    "test": "scripts/lean-test.sh {file}",
+    "roster": "scripts/lean-roster.sh {dir} {report}",
+    "testDirs": [
+      "console/tests",
+      "console/analytics/tests",
+      "console/contractor/tests",
+      "console/core/tests",
+      "console/cycle/tests",
+      "console/dispatch/tests",
+      "console/front/tests",
+      "console/proxy/tests",
+      "console/store/tests"
+    ],
+    "testGlob": "*.rs"
   }
 }
