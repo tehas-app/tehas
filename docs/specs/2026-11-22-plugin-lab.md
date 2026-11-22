@@ -72,9 +72,17 @@ GitHub.
   dispatcher.
 - For each issue it writes the number, the title, the URL, who applied the
   label and when, and the texts that give files to `/run/issues.json`,
-  checked against `api/plugin-issues.schema.json`. Those texts are the body
-  and comments written by an allowed account that nobody off the list
-  edited last, without quoted lines. A title changed since by someone off
+  checked against `api/plugin-issues.schema.json`:
+
+  ```json
+  {"api": 1, "issues": [{"number": 7, "title": "Checkout page", "url": "https://github.com/<owner>/<repo>/issues/7",
+    "label": {"by": "<login>", "at": "2026-11-22T10:00:00Z"},
+    "texts": [{"kind": "body", "author": "<login>", "body": "..."}]}]}
+  ```
+
+  `kind` is `body` or `comment`. Those texts are the body and comments
+  written by an allowed account that nobody off the list edited last,
+  without quoted lines. A title changed since by someone off
   the list is held back, as the Protolab holds it.
 - The tick refreshes a plugin with this grant when the feed's hash changed
   since its last run, as well as when the default branch moved. That is one
@@ -84,16 +92,40 @@ GitHub.
 ### 3. `files:<MiB>`: the attachments of the feed
 
 This needs `issues:`. The host fetches the files that the texts link, using
-`console/attach`, and mounts them read-only at `/given/<issue>/` with its
-manifest:
+`console/attach`, and mounts them read-only at `/given/<issue>/`:
 
 - the link rule (`attach/link.rs`)
 - the fetch (`attach/fetch.rs`)
 - the sniff of the first bytes (`attach/sniff.rs`)
 - zips unpacked into folders of their own (`attach/zip.rs`, `attach/unpack.rs`)
 
-The limits are the Protolab's: 10 MB and 40 files an issue. The grant's
-number may lower that, never raise it. A file whose link did not change
+This is the plugin mode of `console/attach`, not the mode a cycle gets. A
+cycle's manifest holds at most 8 images, 16 text files and 2 zips in 4 MB,
+no videos, and flattens a zip's entries. The plugin mode keeps the
+Protolab's rules:
+
+- **Kinds.** Images (png, jpg, webp, gif) and videos (mp4, webm), told by
+  their first bytes. HTML, CSS, JavaScript and text by extension, valid
+  UTF-8 with no NUL byte. Anything else is left out with its reason.
+- **Zips.** At most 2 an issue, each unpacked into a folder named after it,
+  its paths kept, at most 4 folders deep, no links.
+- **Limits.** 10 MB and 40 files an issue, a zip's files counted one by
+  one. The grant's number may lower the bytes, never raise them.
+- **The layout.** `/given/<issue>/manifest.json`, and the files under
+  `/given/<issue>/files/`.
+- **The manifest**, checked against `api/plugin-given.schema.json`:
+
+  ```json
+  {"api": 1, "issue": 7,
+   "files": [{"path": "files/mock.png", "link": "https://github.com/user-attachments/...", "type": "image", "bytes": 48213, "sha256": "<hex>"},
+             {"path": "files/site/index.html", "link": "https://github.com/user-attachments/...", "type": "html", "bytes": 912, "sha256": "<hex>", "zip": "site.zip"}],
+   "left": [{"link": "https://github.com/user-attachments/...", "reason": "too-big"}],
+   "more": 0}
+  ```
+
+  `type` is `image`, `video`, `html`, `css`, `js` or `text`. `left` holds
+  at most 100 entries and `more` counts the rest, as the cycle's manifest
+  does. A file whose link did not change
 since the last run is taken from the host's cache, not fetched again. The
 run gets no token and no network.
 
@@ -104,6 +136,21 @@ code in T14.
 ### 4. `pages`: attached files, served as sandboxed pages
 
 The plugin writes `/out/pages/<issue>/`. The trees count against `keep:`.
+
+**Never the view.** The view is `/out` without `pages/` and `_tehas/`. The
+gate never serves a path under `pages/` at the plugin's name: a request for
+`plugin-<name>.<domain>/pages/...` is 404. A page tree is served only under
+`/_page`, with its token and policy. Otherwise attached HTML would run
+unsandboxed in the plugin's own origin.
+
+**The tree.** A page tree has two parts:
+
+- at its root, the plugin's own files: the page around the attached ones
+  (`index.html`) and its styles. No folder but `files/`.
+- under `files/`, the attached files, copied from `/given/<issue>/files/`
+  as they are. The gate serves a path under `files/` only when that issue's
+  last `/given` manifest lists it with the same sha256. A file the plugin
+  wrote itself under `files/` is 404.
 
 **Why not `/_keep`.** `/_keep` serves kept files in the plugin's own
 origin, for the plugin's own view. The lab's pages hold HTML and scripts
@@ -143,8 +190,12 @@ instead of the cookie:
   `allow-top-navigation` or `allow-modals`.
 - `Referrer-Policy: no-referrer`, so the token does not leave in a
   `Referer`.
-- The page the lab writes around the files has no script and nothing from
-  elsewhere: `script-src 'none'` on top of the above.
+- A file at the tree's root is the plugin's, and gets `script-src 'none'`
+  on top of the above: the page around the files runs no script. A file
+  under `files/` is attached, and gets the policy above as it is.
+- A sandboxed page can open nothing outside its frame: no popups and no
+  top navigation. So the issue's link is in the plugin's view, beside the
+  frame. The page names the issue as text.
 
 The v3 frame (`/_frame`) and `/_keep` stay as they are. A host name for each
 page (`lab-<n>.<domain>` today) is not part of this: an opaque origin keeps
@@ -156,7 +207,11 @@ case a later page type needs real origins.
 The dashboard carries no plugin text. A plugin with this ask writes
 `/out/_tehas/list.json`, checked against `api/plugin-list.schema.json`: up
 to 200 items, each an issue number and a page path. The path must be
-`/_page/<issue>/` for that issue and nothing else.
+`/_page/<issue>/` for that issue and nothing else:
+
+```json
+{"api": 1, "items": [{"issue": 7, "path": "/_page/7/"}]}
+```
 
 The host builds `live/plugin-<name>.json` itself. It takes each item's
 title and URL from its own feed (the held title), and drops an item whose
@@ -174,9 +229,15 @@ The manifest asks, with no values:
 ```json
 {
   "plugin": 1,
+  "kind": "batch",
   "name": "lab",
+  "label": "Lab",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "timeout": 600,
   "labels": [{"name": "lab", "color": "5319e7", "description": "Show this issue's prototype in the lab"}],
-  "asks": ["view", "menu", "issues", "files", "pages", "list", "keep"]
+  "asks": ["view", "menu", "issues", "files", "pages", "list", "keep"],
+  "view": {"label": "Lab"}
 }
 ```
 
@@ -189,11 +250,13 @@ TEHAS_PLUGIN_GRANTS_LAB="<commit> view menu issues:lab files:10 pages list keep:
 On a run it:
 
 1. reads `/run/issues.json` and `/given/<issue>/manifest.json`
-2. for each issue, writes `/out/pages/<issue>/` with the files and an
-   `index.html` that holds the title, a link to the issue, the images, the
-   videos, and links to the HTML files and the unpacked folders
+2. for each issue, writes `/out/pages/<issue>/`: the attached files under
+   `files/` as they are, and at the root an `index.html` and `lab.css` that
+   show the title, the issue's number as text, the images, the videos, and
+   links to the HTML files and the unpacked folders
 3. removes the tree of an issue that is no longer in the feed
-4. writes the view (the list of pages) and `/out/_tehas/list.json`
+4. writes the view, the list of pages with each issue's link beside its
+   frame, and `/out/_tehas/list.json`
 
 It needs no model and no `product`. Its tests cover the page writer and the
 list against fixed feeds.
