@@ -24,6 +24,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tehas_core::exit::work;
+use tehas_core::home::Home;
 use tehas_core::sandbox;
 use tehas_core::{call, time};
 
@@ -632,7 +633,7 @@ struct Files {
 
 impl Files {
     fn of(home: &Path, issue: u64) -> Files {
-        let f = |name: &str| home.join(format!("state/cycles/{issue}.{name}"));
+        let f = |name: &str| Home::new(home).cycle_note(issue, name);
         Files {
             cid: f("cid"),
             oom: f("oom"),
@@ -1024,8 +1025,7 @@ fn start_container(g: &Given, files: &Files) -> Running {
     }
 }
 
-fn start_console(g: &Given, live: &Path, started: i64, console_now: &Path) -> Option<Child> {
-    let out = live.join(format!("console-{}.txt", g.issue));
+fn start_console(g: &Given, out: &Path, started: i64, console_now: &Path) -> Option<Child> {
     let mut args: Vec<String> = vec![
         "--progress".into(),
         g.log.to_string_lossy().into_owned(),
@@ -1054,8 +1054,8 @@ fn start_console(g: &Given, live: &Path, started: i64, console_now: &Path) -> Op
 /// A cycle's whole watch, its exit status at the end. `stop` is the flag the
 /// handlers of TERM, INT and HUP set, which tehas work took before its start.
 pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
-    let live = home.join("live");
-    let console_now = live.join(format!("console-{}.txt.now", g.issue));
+    let layout = Home::new(home);
+    let console_now = layout.live_console_now(g.issue);
     let mut w = Watch {
         home,
         g,
@@ -1099,10 +1099,11 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
 
     // The console's file and the step it keeps beside it start empty: stale
     // lines of a cycle before this one are no better than none.
-    let _ = fs::create_dir_all(&live);
-    let _ = File::create(live.join(format!("console-{}.txt", g.issue)));
+    let console = layout.live_console(g.issue);
+    let _ = fs::create_dir_all(layout.live_dir());
+    let _ = File::create(&console);
     let _ = fs::remove_file(&w.console_now);
-    w.console = start_console(g, &live, started, &w.console_now);
+    w.console = start_console(g, &console, started, &w.console_now);
     w.live_on = true;
     w.now_file(true, "running");
 
@@ -1315,15 +1316,15 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         tail += &signal_line(w.sig, &step_in_flight, &cut_gates);
     }
     if !tail.is_empty() {
-        let out = live.join(format!("console-{}.txt", g.issue));
-        if !append(&out, tail.as_bytes()) {
+        let out = &console;
+        if !append(out, tail.as_bytes()) {
             eprintln!("tehas work: could not write {}", out.display());
         }
     }
     if decided.killed {
         let line = killed_line(&step_in_flight, w.ooms);
-        let out = live.join(format!("console-{}.txt", g.issue));
-        if !append(&out, line.as_bytes()) {
+        let out = &console;
+        if !append(out, line.as_bytes()) {
             eprintln!("tehas work: could not write {}", out.display());
         }
         w.append_or_say(line.as_bytes());
@@ -1549,7 +1550,7 @@ mod tests {
     fn the_end_line_reads_only_the_tail_of_a_run_log_past_the_bound() {
         let d = dir("end-tail");
         let home = d.join("home");
-        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        fs::create_dir_all(Home::new(&home).cycles_dir()).unwrap();
         let g = given(&d);
         let w = a_watch(&d, &home, &g);
         // A log past LOG_TAIL whose diagnostics are in its last bytes. The
@@ -1579,7 +1580,7 @@ mod tests {
     fn the_end_line_of_a_cap_the_driver_only_named_says_no_evidence_and_the_memory_kills() {
         let d = dir("end-echo");
         let home = d.join("home");
-        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        fs::create_dir_all(Home::new(&home).cycles_dir()).unwrap();
         let g = given(&d);
         let mut w = a_watch(&d, &home, &g);
         fs::write(&g.log, "").unwrap();
@@ -1620,7 +1621,7 @@ mod tests {
     fn the_end_line_says_when_its_reason_or_diagnostics_could_not_be_carried() {
         let d = dir("end-line");
         let home = d.join("home");
-        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        fs::create_dir_all(Home::new(&home).cycles_dir()).unwrap();
         let g = given(&d);
         let w = a_watch(&d, &home, &g);
         let err = || fs::read_to_string(&w.err).unwrap_or_default();
@@ -2263,7 +2264,7 @@ mod tests {
     fn a_note_is_written_whole_or_not_at_all() {
         let d = dir("note");
         let home = d.join("home");
-        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        fs::create_dir_all(Home::new(&home).cycles_dir()).unwrap();
         let g = given(&d);
         let w = a_watch(&d, &home, &g);
         assert!(w.write_note(&w.files.runner_exit, "10"));

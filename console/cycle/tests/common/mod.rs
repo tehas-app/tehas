@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Once;
+use tehas_core::home::{Home, State};
 use tehas_core::testdir::TestDir;
 use tehas_core::testing::{link_exe, write_exe};
 
@@ -223,21 +224,22 @@ const LOGINS: &[&str] = &[
     "acme-app-millwright",
 ];
 
-/// Files of records that live on the store now: no cycle leaves one.
-const OLD_STATE: &[(&str, &str)] = &[
-    ("state/cycles", ".taken"),
-    ("state/cycles", ".by"),
-    ("state/cycles", ".requeued"),
-    ("state/cycles", ".rukas"),
-    ("state/cycles", ".image"),
-    ("state/cycles", ".settings"),
-    ("state/cycles", ".branch"),
-    ("state/cycles", ".approved.json"),
-    ("state/cycles", ".approved.json.new"),
-    ("state/cycles", ".history.jsonl"),
-    ("state/cycles", ".park"),
-    ("state/cycles", ".park.new"),
-    ("state/cycles", ".quiet"),
+/// Files of records that live on the store now, by their ends in `state/cycles`:
+/// no cycle leaves one.
+const OLD_STATE: &[&str] = &[
+    ".taken",
+    ".by",
+    ".requeued",
+    ".rukas",
+    ".image",
+    ".settings",
+    ".branch",
+    ".approved.json",
+    ".approved.json.new",
+    ".history.jsonl",
+    ".park",
+    ".park.new",
+    ".quiet",
 ];
 
 #[allow(dead_code)] // each test file uses a part of this module
@@ -344,19 +346,23 @@ impl World {
             "acme/widget",
         ]);
         let ids: String = LOGINS.iter().map(|l| format!("{l} {}\n", uid(l))).collect();
-        fs::write(w.home.join("state/account-ids"), ids).unwrap();
+        fs::write(Home::new(&w.home).state(State::AccountIds), ids).unwrap();
         let until = tehas_core::time::now() + 86400;
         for (dir, token) in [
             ("github", "app"),
             ("github-cycle", "cycle"),
             ("github-session", "session"),
         ] {
-            let d = w.home.join("state").join(dir);
+            let d = Home::new(&w.home).state_dir().join(dir);
             fs::create_dir_all(&d).unwrap();
             fs::write(d.join("token"), format!("ghs_{token}\n")).unwrap();
             fs::write(d.join("token.expires"), format!("{until}\n")).unwrap();
         }
-        fs::write(w.home.join("state/github/login"), "tehas-bot[bot]\n").unwrap();
+        fs::write(
+            Home::new(&w.home).state(State::BotLogin),
+            "tehas-bot[bot]\n",
+        )
+        .unwrap();
         w.instance(&[
             "TEHAS_GITHUB_APP_ID=1",
             "TEHAS_REPO=acme/widget",
@@ -375,7 +381,7 @@ impl World {
 
     /// The cycle's state directory.
     pub fn state(&self) -> PathBuf {
-        self.home.join("state/cycles")
+        Home::new(&self.home).cycles_dir()
     }
 
     /// The workspace tehas work makes for #7.
@@ -793,16 +799,15 @@ impl Drop for World {
             return;
         }
         let mut left = vec![];
-        for (dir, suffix) in OLD_STATE {
-            for f in self.files(&self.home.join(dir)) {
-                if f.ends_with(suffix) {
-                    left.push(format!("{dir}/{f}"));
-                }
+        let home = Home::new(&self.home);
+        for f in self.files(&home.cycles_dir()) {
+            if OLD_STATE.iter().any(|suffix| f.ends_with(suffix)) {
+                left.push(home.cycles_dir().join(f));
             }
         }
-        for f in self.files(&self.home.join("state")) {
+        for f in self.files(&home.state_dir()) {
             if f.starts_with("park-") || f.starts_with("plan-") {
-                left.push(format!("state/{f}"));
+                left.push(home.state_dir().join(f));
             }
         }
         assert!(left.is_empty(), "an old record file is there: {left:?}");

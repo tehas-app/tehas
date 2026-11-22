@@ -20,6 +20,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 use tehas_core::call;
 use tehas_core::events;
+use tehas_core::home::{Home, State};
 
 /// Why nothing can be checked without the program.
 const NO_ATTACH: &str =
@@ -413,8 +414,8 @@ fn plugin_files_of(
         let Some(r) = rows.iter().find(|r| takes(r, issue, line, allowed, &ids)) else {
             continue;
         };
-        let src = home
-            .join("state/plugin-files")
+        let src = Home::new(home)
+            .state(State::PluginFiles)
             .join(&line.plugin)
             .join(&line.record);
         let dst = dir
@@ -915,7 +916,9 @@ mod tests {
 
     fn filed(name: &str, row: impl Fn(&mut Value)) -> Filed {
         let d = TestDir::new(&format!("gives-plugin-files-{name}"));
-        let src = d.path().join("state/plugin-files/pageticket/p-1");
+        let src = Home::new(d.path())
+            .state(State::PluginFiles)
+            .join("pageticket/p-1");
         fs::create_dir_all(&src).unwrap();
         fs::write(src.join("v2.html"), "<p>the prototype</p>").unwrap();
         fs::write(src.join("notes.md"), "# notes").unwrap();
@@ -923,7 +926,11 @@ mod tests {
         let tree =
             attach::plugin_files::tree_sha256(&attach::plugin_files::copy(&src, &scratch).unwrap());
         fs::remove_dir_all(&scratch).unwrap();
-        fs::write(d.path().join("state/account-ids"), "alice 583231\n").unwrap();
+        fs::write(
+            Home::new(d.path()).state(State::AccountIds),
+            "alice 583231\n",
+        )
+        .unwrap();
         let body = format!("Make it so.\n\ntehas-files: pageticket/p-1 {tree}\n");
         let answer = json!({"body": body}).to_string();
         let record = d.path().join("record.json");
@@ -1022,7 +1029,9 @@ mod tests {
     fn files_changed_after_filing_stop_the_start() {
         let f = filed("changed", |_| {});
         fs::write(
-            f.d.path().join("state/plugin-files/pageticket/p-1/v2.html"),
+            Home::new(f.d.path())
+                .state(State::PluginFiles)
+                .join("pageticket/p-1/v2.html"),
             "<p>other</p>",
         )
         .unwrap();
@@ -1041,7 +1050,9 @@ mod tests {
         let f = filed("linked", |_| {});
         std::os::unix::fs::symlink(
             "/etc/passwd",
-            f.d.path().join("state/plugin-files/pageticket/p-1/x"),
+            Home::new(f.d.path())
+                .state(State::PluginFiles)
+                .join("pageticket/p-1/x"),
         )
         .unwrap();
         assert!(take(&f).unwrap_err().starts_with(FILES_CHANGED));

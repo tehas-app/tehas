@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::process::{Command, Stdio};
+use tehas_core::home::{Home, Live};
 
 const OUTAGE: &str = r#"{"kind":"dispatch-failed-provider","step":"adversarial","at":2,"providerMessage":"Connection error."}"#;
 const LOG: &str = r#"echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl""#;
@@ -1090,7 +1091,7 @@ fn a_lean_start_tehas_work_refused_is_parked_with_what_to_do_and_its_approval_go
         "holds nothing, so its step is read from its run log",
     );
     let live: Value =
-        serde_json::from_str(&fs::read_to_string(w.home.join("live/running.json")).unwrap())
+        serde_json::from_str(&fs::read_to_string(Home::new(&w.home).live(Live::Running)).unwrap())
             .unwrap();
     assert_eq!(
         live["last"]["statusText"],

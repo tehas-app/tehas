@@ -7,6 +7,7 @@ use common::{has, lacks, World};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
+use tehas_core::home::{Home, State};
 
 const RUKAS: &str = "0123456789abcdef0123456789abcdef01234567";
 const LOG: &str = r#"echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl""#;
@@ -365,10 +366,10 @@ fn an_end_the_store_will_not_take_is_an_error_with_its_arguments_the_cycle_is_st
 #[test]
 fn the_end_of_a_cycle_starts_one_poll_of_the_dispatcher_and_leaves_the_request_for_the_path_unit() {
     let w = World::new("rec-poll");
-    let _ = fs::remove_file(w.home.join("state/dispatch.again"));
+    let _ = fs::remove_file(Home::new(&w.home).state(State::DispatchAgain));
     w.run7();
     assert_eq!(w.calls("systemctl").trim_end(), POLL);
-    assert!(w.home.join("state/dispatch.again").exists());
+    assert!(Home::new(&w.home).state(State::DispatchAgain).exists());
 }
 
 #[test]
@@ -408,7 +409,7 @@ fn a_step_longer_than_one_argument_may_be_stops_nothing_that_follows_the_end() {
     );
     lacks(&r.out, "did not run");
     assert_eq!(w.calls("systemctl").trim_end(), POLL);
-    assert!(w.home.join("state/dispatch.again").exists());
+    assert!(Home::new(&w.home).state(State::DispatchAgain).exists());
 }
 
 #[test]

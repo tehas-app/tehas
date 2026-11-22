@@ -39,6 +39,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tehas_core::call::{gh_why, run_full, GRACE};
+use tehas_core::home::Home;
 use tehas_core::plugin::hook::Ending;
 use tehas_core::{cycle_notes, time};
 
@@ -433,7 +434,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     }
     let started = time::now();
     let restart = wants_restart(&issue);
-    let cycles = home.join("state/cycles");
+    let cycles = Home::new(home).cycles_dir();
     // The notes of an earlier cycle, killed outright before it could report. A
     // freeze left by one would pause this cycle the moment it starts.
     for note in cycle_notes::started() {

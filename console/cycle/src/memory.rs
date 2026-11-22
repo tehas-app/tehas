@@ -29,6 +29,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use tehas_core::home::{Home, State};
 
 /// The status the pinned vipune ([`PINNED`]) exits with on a usage error.
 pub const USAGE_EXIT: i32 = 64;
@@ -211,7 +212,7 @@ impl InImage {
             docker: PathBuf::from("docker"),
             image: image.to_string(),
             user: tehas_core::sandbox::user(),
-            dir: home.join("state/memory/cycles"),
+            dir: Home::new(home).state(State::CycleMemory),
         }
     }
 

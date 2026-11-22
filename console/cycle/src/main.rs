@@ -259,6 +259,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tehas_core::driver::Driver;
+use tehas_core::home::{Home, State};
 use tehas_cycle::after::{self, After};
 use tehas_cycle::host::{Runner, Start};
 use tehas_cycle::last_attempt::{self, Action};
@@ -453,9 +454,9 @@ fn main() {
 /// One run of the indexer under state/index.lock, which its docker client
 /// inherits: a client that outlives the run still writes the index.
 fn index_verb(home: &Path, run: impl FnOnce() -> u8) -> ! {
-    let state = home.join("state");
-    let _ = std::fs::create_dir_all(&state);
-    let held = match lock::take(&state.join("index.lock"), Duration::ZERO) {
+    let home = Home::new(home);
+    let _ = std::fs::create_dir_all(home.state_dir());
+    let held = match lock::take(&home.state(State::CodeIndexLock), Duration::ZERO) {
         Ok(Some(f)) => f,
         Ok(None) => {
             eprintln!("tehas index: another index run holds its lock, nothing was indexed; run it again in a moment");
@@ -505,7 +506,7 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         after::log("ERROR: the state store is not installed (run install.sh)");
         std::process::exit(78);
     }
-    let cycles = home.join("state/cycles");
+    let cycles = Home::new(home).cycles_dir();
     let _ = std::fs::create_dir_all(&cycles);
     let _ = std::fs::create_dir_all(home.join("logs"));
     // tehas work and the docker client it starts inherit this lock. If this
@@ -551,8 +552,8 @@ fn work_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     // Under tehasbot cycle the lock comes down already held. Taken here, it is
     // handed down: every program of the cycle, the docker client among them,
     // holds it, so a run by hand and the unit's cycle never share a workspace.
-    let path = home.join(format!("state/cycles/{n}.lock"));
-    let _ = std::fs::create_dir_all(home.join("state/cycles"));
+    let path = Home::new(home).cycle_note(n, "lock");
+    let _ = std::fs::create_dir_all(Home::new(home).cycles_dir());
     let _held = if lock::held_here(&path) {
         None
     } else {

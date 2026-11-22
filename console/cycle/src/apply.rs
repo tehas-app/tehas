@@ -19,6 +19,7 @@ use std::path::Path;
 use std::time::Duration;
 use tehas_core::call::{run_full, store_try, GH_BOUND, GRACE};
 use tehas_core::end_fault;
+use tehas_core::home::{Home, State};
 use tehas_core::journal::{Journal, Wrote};
 use tehas_core::question::is_handoff_marker;
 use tehas_core::stamp::Built;
@@ -635,9 +636,8 @@ impl Writer<'_> {
         if tehas_core::read_only::refuse(&format!("push the Built-by: rewrite of {}", pull.head)) {
             return;
         }
-        let scratch = self
-            .home
-            .join(crate::stamp::SCRATCH)
+        let scratch = Home::new(self.home)
+            .state(State::OutsourceStamp)
             .join(self.issue.to_string());
         let remote = format!("https://github.com/{}.git", self.repo);
         let from = heads.at(&pull.head);
@@ -740,7 +740,7 @@ fn keep_lean_state(home: &Path, workdir: &str, issue: u64, lean: bool) {
     if !lean || !crate::after::analytics_on(home) {
         return;
     }
-    let to = home.join(format!("state/cycles/{issue}.{LEAN_STATE}"));
+    let to = Home::new(home).cycle_note(issue, LEAN_STATE);
     let _ = fs::remove_file(&to);
     // The read of the workspace's own file, which refuses a link anywhere on the
     // way and a file of no sane size; the copy is of what that read answered.
@@ -806,7 +806,7 @@ fn clear_workspace(workdir: &str) {
 /// however the cycle before it ended.
 fn clear_notes(home: &Path, issue: u64) {
     for name in tehas_core::cycle_notes::ENDED {
-        let _ = fs::remove_file(home.join(format!("state/cycles/{issue}.{name}")));
+        let _ = fs::remove_file(Home::new(home).cycle_note(issue, name));
     }
 }
 
@@ -837,7 +837,7 @@ fn refused_notice(home: &Path, f: &Facts, why: &str) {
 /// place. False when the end is not on record.
 fn end(home: &Path, r: &Report, f: &Facts) -> bool {
     let issue = f.issue;
-    let cycles = home.join("state/cycles");
+    let cycles = Home::new(home).cycles_dir();
     let mut args: Vec<String> = r.end[..r.files_at].to_vec();
     for k in &r.files {
         args.push(format!("--{k}"));

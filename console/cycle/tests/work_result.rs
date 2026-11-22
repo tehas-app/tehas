@@ -6,6 +6,7 @@ mod work;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
+use tehas_core::home::Home;
 use work::{has, lacks, World, GONE, HOLD};
 
 /// The log a run names in its line `tehas work: issue 7 started, log <path>`.
@@ -37,7 +38,7 @@ fn json_of(p: &Path) -> Value {
 }
 
 fn no_nostart(w: &World) {
-    assert!(!w.home.join("state/cycles/7.nostart").exists());
+    assert!(!Home::new(&w.home).cycle_note(7, "nostart").exists());
 }
 
 /// The words of the cycle's docker call, one line.
@@ -86,7 +87,7 @@ fn a_container_that_ends_with_no_result_and_no_line_of_its_stream_leaves_the_not
     assert_eq!(r.rc, 2, "{}", r.out);
     let log = log_of(&r.out);
     assert_eq!(
-        fs::read_to_string(w.home.join("state/cycles/7.nostart")).unwrap(),
+        fs::read_to_string(Home::new(&w.home).cycle_note(7, "nostart")).unwrap(),
         "1\n"
     );
     assert_eq!(

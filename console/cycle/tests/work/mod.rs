@@ -20,6 +20,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Once;
+use tehas_core::home::{Home, State, TokenDir};
 use tehas_core::testdir::TestDir;
 use tehas_core::testing::{copy_exe, link_exe, write_exe};
 
@@ -131,31 +132,47 @@ const LOGINS: &[&str] = &[
 
 /// The old record files the store replaced, as <dir>, <prefix>, <suffix>
 /// under the home (t_old_state). No case leaves one.
-const OLD_STATE: &[(&str, &str, &str)] = &[
-    ("state/cycles", "", ".taken"),
-    ("state/cycles", "", ".by"),
-    ("state/cycles", "", ".requeued"),
-    ("state/cycles", "", ".rukas"),
-    ("state/cycles", "", ".image"),
-    ("state/cycles", "", ".settings"),
-    ("state/cycles", "", ".branch"),
-    ("state/cycles", "", ".approved.json"),
-    ("state/cycles", "", ".approved.json.new"),
-    ("state/cycles", "", ".park"),
-    ("state/cycles", "", ".park.new"),
-    ("state/cycles", "", ".quiet"),
-    ("state/cycles", "plan-", ".history.jsonl"),
-    ("state", "park-", ".id"),
-    ("state", "park-", ".json"),
-    ("state", "plan-", ".json"),
-    ("state", "plan-", ".json.new"),
-    ("state", "plan-", ".json.brief"),
-    ("state", "plan-", ".json.answer"),
-    ("state", "plan-", ".json.answer.new"),
-    ("state", "plan-", ".json.keep"),
-    ("state", "plan-", ".turn"),
-    ("state", "plan-", ".history.jsonl"),
+const OLD_STATE: &[(Under, &str, &str)] = &[
+    (Under::Cycles, "", ".taken"),
+    (Under::Cycles, "", ".by"),
+    (Under::Cycles, "", ".requeued"),
+    (Under::Cycles, "", ".rukas"),
+    (Under::Cycles, "", ".image"),
+    (Under::Cycles, "", ".settings"),
+    (Under::Cycles, "", ".branch"),
+    (Under::Cycles, "", ".approved.json"),
+    (Under::Cycles, "", ".approved.json.new"),
+    (Under::Cycles, "", ".park"),
+    (Under::Cycles, "", ".park.new"),
+    (Under::Cycles, "", ".quiet"),
+    (Under::Cycles, "plan-", ".history.jsonl"),
+    (Under::State, "park-", ".id"),
+    (Under::State, "park-", ".json"),
+    (Under::State, "plan-", ".json"),
+    (Under::State, "plan-", ".json.new"),
+    (Under::State, "plan-", ".json.brief"),
+    (Under::State, "plan-", ".json.answer"),
+    (Under::State, "plan-", ".json.answer.new"),
+    (Under::State, "plan-", ".json.keep"),
+    (Under::State, "plan-", ".turn"),
+    (Under::State, "plan-", ".history.jsonl"),
 ];
+
+/// A directory of `OLD_STATE`.
+#[derive(Clone, Copy)]
+enum Under {
+    Cycles,
+    State,
+}
+
+impl Under {
+    fn dir(self, home: &Home) -> PathBuf {
+        match self {
+            Under::Cycles => home.cycles_dir(),
+            Under::State => home.state_dir(),
+        }
+    }
+}
 
 /// The console of the cycle, in place of the program a host has beside the
 /// script. It records its words and keeps the two lines beside its file as the
@@ -565,7 +582,7 @@ impl World {
         state.push(".state");
         let mut imgs = ws.clone().into_os_string();
         imgs.push(".images");
-        let cycles = home.join("state/cycles");
+        let cycles = Home::new(&home).cycles_dir();
         let w = World {
             fx: t.join("fx"),
             upstream: t.join("git/acme/widget"),
@@ -574,9 +591,9 @@ impl World {
             runs: t.join("home/.pi/agent/ensemble-runs/issue-7"),
             state: PathBuf::from(state),
             imgs: PathBuf::from(imgs),
-            hostindex: home.join("state/index"),
+            hostindex: Home::new(&home).state(State::CodeIndex),
             kept: cycles.join("7.manifest.json"),
-            live: home.join("live"),
+            live: Home::new(&home).live_dir(),
             cid_file: cycles.join("7.cid"),
             oom_file: cycles.join("7.oom"),
             forks_file: cycles.join("7.forks"),
@@ -748,7 +765,7 @@ impl World {
     }
 
     /// A file under the home, with these bytes.
-    pub fn home_file(&self, rel: &str, text: impl AsRef<[u8]>) {
+    pub fn home_file(&self, rel: impl AsRef<Path>, text: impl AsRef<[u8]>) {
         let p = self.home.join(rel);
         fs::create_dir_all(p.parent().unwrap()).unwrap();
         fs::write(p, text).unwrap();
@@ -985,7 +1002,7 @@ impl World {
         }
         fs::write(dir.join("instance.env"), text).unwrap();
         self.instance_on.set(true);
-        if !self.home.join("state/github/login").exists() {
+        if !Home::new(&self.home).state(State::BotLogin).exists() {
             self.app_world("tehas-bot");
         }
     }
@@ -1007,15 +1024,17 @@ impl World {
     /// The factory as the GitHub App `<slug>[bot]`, with its tokens.
     pub fn app_world(&self, slug: &str) {
         let until = tehas_core::time::now() + 86400;
+        let home = Home::new(&self.home);
         for (dir, token) in [
-            ("github", "app"),
-            ("github-cycle", "cycle"),
-            ("github-session", "session"),
+            (TokenDir::App, "app"),
+            (TokenDir::Cycle, "cycle"),
+            (TokenDir::Session, "session"),
         ] {
-            self.home_file(&format!("state/{dir}/token"), format!("ghs_{token}\n"));
-            self.home_file(&format!("state/{dir}/token.expires"), format!("{until}\n"));
+            let dir = home.token_dir(dir);
+            self.home_file(dir.join("token"), format!("ghs_{token}\n"));
+            self.home_file(dir.join("token.expires"), format!("{until}\n"));
         }
-        self.home_file("state/github/login", format!("{slug}[bot]\n"));
+        self.home_file(home.state(State::BotLogin), format!("{slug}[bot]\n"));
     }
 
     /// A variable of every later run, as T_ENV+= is. A name given again
@@ -1154,7 +1173,7 @@ impl World {
 
     /// The fault of a sandbox that cannot push, compact, "" for none.
     pub fn push_fault_file(&self) -> String {
-        fs::read_to_string(self.home.join("state/push-fault.json"))
+        fs::read_to_string(Home::new(&self.home).state(State::PushFault))
             .ok()
             .and_then(|s| serde_json::from_str::<Value>(&s).ok())
             .map(|v| v.to_string())
@@ -1164,7 +1183,7 @@ impl World {
     /// The three fields of the fault as three lines: whether `at` is the form
     /// a host writes, the account and git's own line; "" for no fault.
     pub fn push_fault_parts(&self) -> String {
-        let Ok(text) = fs::read_to_string(self.home.join("state/push-fault.json")) else {
+        let Ok(text) = fs::read_to_string(Home::new(&self.home).state(State::PushFault)) else {
             return String::new();
         };
         let Ok(v) = serde_json::from_str::<Value>(&text) else {
@@ -1178,7 +1197,7 @@ impl World {
 
     /// The account the factory acts as.
     pub fn cycle_account(&self) -> String {
-        fs::read_to_string(self.home.join("state/github/login"))
+        fs::read_to_string(Home::new(&self.home).state(State::BotLogin))
             .unwrap_or_default()
             .trim_end()
             .to_string()
@@ -1214,7 +1233,7 @@ impl World {
     pub fn push_fault_ended(&self, n: u64) -> String {
         let out = Command::new("sqlite3")
             .args(["-cmd", ".mode list"])
-            .arg(self.home.join("state/tehas.db"))
+            .arg(Home::new(&self.home).state(State::StoreDb))
             .arg(format!("select status from endings where issue={n};"))
             .stderr(Stdio::null())
             .output();
@@ -1241,7 +1260,7 @@ impl World {
             self.rm(f);
         }
         remove_like(&self.home.join("logs"), "work-7-*");
-        let _ = fs::remove_file(self.home.join("state/push-fault.json"));
+        let _ = fs::remove_file(Home::new(&self.home).state(State::PushFault));
         self.store_home();
         self.env_unset("TEHAS_CYCLE_ATTEMPT");
     }
@@ -1254,7 +1273,7 @@ impl World {
             let _ = fs::remove_dir_all(self.home.join("logs"));
         }
         let _ = fs::remove_file(&self.kept);
-        let _ = fs::remove_file(self.home.join("state/push-fault.json"));
+        let _ = fs::remove_file(Home::new(&self.home).state(State::PushFault));
         self.rm("container.sh");
         self.store_home();
         fs::create_dir_all(self.fx.join("net")).unwrap();
@@ -1347,10 +1366,10 @@ impl World {
     fn store_cmd(&self, args: &[&str], now: Option<i64>, lock: Option<u64>) -> Run {
         let mut c = match lock {
             Some(n) => {
-                fs::create_dir_all(self.home.join("state/cycles")).unwrap();
+                fs::create_dir_all(Home::new(&self.home).cycles_dir()).unwrap();
                 let mut c = Command::new("flock");
                 c.args(["-w", "5"])
-                    .arg(self.home.join(format!("state/cycles/{n}.lock")))
+                    .arg(Home::new(&self.home).cycle_note(n, "lock"))
                     .arg(self.t.join("store-bin"));
                 c
             }
@@ -1406,9 +1425,9 @@ impl World {
     /// A fresh database, made by the store's own init (t_store_db).
     pub fn store_db(&self) {
         for f in ["tehas.db", "tehas.db-wal", "tehas.db-shm"] {
-            let _ = fs::remove_file(self.home.join("state").join(f));
+            let _ = fs::remove_file(Home::new(&self.home).state_dir().join(f));
         }
-        fs::create_dir_all(self.home.join("state")).unwrap();
+        fs::create_dir_all(Home::new(&self.home).state_dir()).unwrap();
         self.store_ok(&[
             "init",
             "--version",
@@ -1435,7 +1454,7 @@ impl World {
         self.store_db();
         place(&self.t.join("attach-bin"), &libexec.join("attach"));
         let ids: String = LOGINS.iter().map(|l| format!("{l} {}\n", uid(l))).collect();
-        self.home_file("state/account-ids", ids);
+        self.home_file(Home::new(&self.home).state(State::AccountIds), ids);
     }
 
     /// The store of a run answers a call whose arguments begin with `args`
@@ -1717,24 +1736,26 @@ impl Drop for World {
         let denied = self.read("denied");
         assert!(denied.is_empty(), "no stub stands in for:\n{denied}");
         let mut left = vec![];
-        for (dir, start, end) in OLD_STATE {
-            let Ok(entries) = fs::read_dir(self.home.join(dir)) else {
+        let home = Home::new(&self.home);
+        for (under, start, end) in OLD_STATE {
+            let dir = under.dir(&home);
+            let Ok(entries) = fs::read_dir(&dir) else {
                 continue;
             };
             for e in entries.flatten() {
                 let f = e.file_name().to_string_lossy().into_owned();
                 if f.starts_with(start) && f.ends_with(end) && f.len() >= start.len() + end.len() {
-                    left.push(format!("{dir}/{f}"));
+                    left.push(dir.join(f));
                 }
             }
         }
-        if let Ok(entries) = fs::read_dir(self.home.join("state/cycles")) {
+        if let Ok(entries) = fs::read_dir(home.cycles_dir()) {
             for e in entries.flatten() {
                 let f = e.file_name().to_string_lossy().into_owned();
                 if f.ends_with(".history.jsonl")
                     && f.starts_with(|c: char| ('1'..='9').contains(&c))
                 {
-                    left.push(format!("state/cycles/{f}"));
+                    left.push(home.cycles_dir().join(f));
                 }
             }
         }

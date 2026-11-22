@@ -5,8 +5,10 @@ mod work;
 
 use serde_json::{json, Value};
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Instant;
+use tehas_core::home::{Home, State};
 use work::{has, lacks, World, GONE, HOLD, PUSH_SAYS};
 
 /// A world whose gh answers for the issue: a start that finds the host cannot
@@ -17,15 +19,20 @@ fn world(name: &str) -> World {
     w
 }
 
-fn file(w: &World, rel: &str) -> String {
-    fs::read_to_string(w.home.join(rel))
+fn file(p: &Path) -> String {
+    fs::read_to_string(p)
         .unwrap_or_default()
         .trim_end_matches('\n')
         .to_string()
 }
 
-fn gone(w: &World, rel: &str) {
-    assert!(!w.home.join(rel).exists(), "{rel} is there");
+fn gone(p: &Path) {
+    assert!(!p.exists(), "{} is there", p.display());
+}
+
+/// The cycle's note `name`.
+fn note(w: &World, name: &str) -> PathBuf {
+    Home::new(&w.home).cycle_note(7, name)
 }
 
 fn live7(w: &World) -> Value {
@@ -97,7 +104,7 @@ fn a_runner_that_does_not_stop_at_its_own_limit_is_stopped_after_the_grace_and_n
     has(&r.out, "step=lens-review cap=wall-clock");
     lacks(&r.out, "was killed");
     has(&w.calls("docker"), "stop -t 20 tehas-work-7");
-    assert_eq!(file(&w, "state/cycles/7.timed"), "1 tehas lens-review");
+    assert_eq!(file(&note(&w, "timed")), "1 tehas lens-review");
 }
 
 /// The time limit of a second, and the grace given.
@@ -120,7 +127,7 @@ fn a_runner_stopped_at_the_time_limit_that_writes_interrupted_is_a_timeout_exit_
     has(&r.out, "status=timeout");
     has(&r.out, "cap=wall-clock");
     assert_eq!(live7(&w), json!([false, "timeout"]));
-    assert_eq!(file(&w, "state/cycles/7.timed"), "1 tehas -");
+    assert_eq!(file(&note(&w, "timed")), "1 tehas -");
 }
 
 #[test]
@@ -132,7 +139,7 @@ fn a_runner_that_stops_itself_at_the_time_limit_with_a_result_that_names_no_end_
     assert_eq!(r.rc, 30, "{}", r.out);
     has(&r.out, "status=timeout");
     lacks(&r.out, "time limit of 1s passed");
-    assert_eq!(file(&w, "state/cycles/7.timed"), "1 runner develop");
+    assert_eq!(file(&note(&w, "timed")), "1 runner develop");
 }
 
 #[test]
@@ -146,7 +153,7 @@ fn a_runner_that_stops_itself_at_the_time_limit_with_no_result_is_a_timeout_at_t
     let r = w.work7();
     assert_eq!(r.rc, 2, "{}", r.out);
     has(&r.out, "status=timeout");
-    assert_eq!(file(&w, "state/cycles/7.timed"), "1 runner adversarial");
+    assert_eq!(file(&note(&w, "timed")), "1 runner adversarial");
 }
 
 #[test]
@@ -154,11 +161,11 @@ fn a_runner_that_ends_at_the_time_limit_on_a_cap_of_its_own_or_with_an_end_is_no
     let w = limited("stop-self-end", "30");
     for end in ["says handoff deadline; exit 10", "says merged; exit 0"] {
         w.fresh();
-        let _ = fs::remove_file(w.home.join("state/cycles/7.timed"));
+        let _ = fs::remove_file(Home::new(&w.home).cycle_note(7, "timed"));
         w.container(&format!(r#""$nap" 1.2; {end}"#));
         let r = w.work7();
         lacks(&r.out, "status=timeout");
-        gone(&w, "state/cycles/7.timed");
+        gone(&note(&w, "timed"));
     }
 }
 
@@ -174,7 +181,7 @@ fn stalling(name: &str) -> World {
 fn a_cycle_none_of_whose_logs_change_is_stopped_as_stalled_before_its_time_limit() {
     let w = stalling("stop-stalled");
     w.under_cycle();
-    let _ = fs::remove_file(w.home.join("state/cycles/7.stalled"));
+    let _ = fs::remove_file(Home::new(&w.home).cycle_note(7, "stalled"));
     w.container(&format!("{HOLD}; {GONE}"));
     let r = w.work7();
     assert_eq!(r.rc, 2, "{}", r.out);
@@ -186,7 +193,7 @@ fn a_cycle_none_of_whose_logs_change_is_stopped_as_stalled_before_its_time_limit
     lacks(&r.out, "time limit");
     lacks(&r.out, "was killed");
     has(&w.calls("docker"), "stop -t 20 tehas-work-7");
-    assert_eq!(file(&w, "state/cycles/7.stalled"), "2\n-");
+    assert_eq!(file(&note(&w, "stalled")), "2\n-");
     has(&r.out, "status=stalled step=- cap=stall");
     assert_eq!(live7(&w), json!([false, "stalled"]));
 }
@@ -218,7 +225,7 @@ fn busy(name: &str) -> World {
 #[test]
 fn a_cycle_whose_agents_keep_writing_is_not_stalled() {
     let w = busy("stop-agents-write");
-    let _ = fs::remove_file(w.home.join("state/cycles/7.stalled"));
+    let _ = fs::remove_file(Home::new(&w.home).cycle_note(7, "stalled"));
     w.container(&format!(
         r#"{HOLD}; ( while kill -0 "$(cat "$T/sleeper.pid")" 2>/dev/null; do date >>"{}/agent.jsonl"; "$nap" 0.3; done ) & {GONE}"#,
         w.runs.display()
@@ -227,7 +234,7 @@ fn a_cycle_whose_agents_keep_writing_is_not_stalled() {
     assert_eq!(r.rc, 2, "{}", r.out);
     has(&r.out, "time limit of 5s passed");
     lacks(&r.out, "stalled");
-    gone(&w, "state/cycles/7.stalled");
+    gone(&note(&w, "stalled"));
 }
 
 #[test]
@@ -253,7 +260,7 @@ fn term_stops_the_container_and_the_runners_result_says_interrupted() {
     lacks(&w.read("work.out"), "was killed");
     assert_eq!(live7(&w), json!([false, "interrupted"]));
     // No gate ran, so none is closed. No step was seen, so none is named.
-    assert_eq!(file(&w, "state/cycles/7.signal"), "TERM -");
+    assert_eq!(file(&note(&w, "signal")), "TERM -");
     let mut logs = String::new();
     for e in fs::read_dir(w.home.join("logs")).unwrap().flatten() {
         let n = e.file_name().to_string_lossy().into_owned();
@@ -295,7 +302,7 @@ fn a_term_inside_a_gate_leaves_the_signal_and_the_step_closes_the_gate_in_the_st
     term_when(&w, &ready, 200);
     kill_sleeper(&w);
     has(&w.read("work.out"), "status=interrupted step=- cap=signal");
-    assert_eq!(file(&w, "state/cycles/7.signal"), "TERM develop");
+    assert_eq!(file(&note(&w, "signal")), "TERM develop");
     let log = fs::read_dir(w.home.join("logs"))
         .unwrap()
         .flatten()
@@ -421,7 +428,7 @@ fn a_docker_client_that_never_exits_is_killed_after_the_stop_wait_and_the_cycle_
     has(&r.out, "status=timeout");
     assert_eq!(live7(&w), json!([false, "timeout"]));
     // The cycle is reported, not left running.
-    assert_eq!(file(&w, "state/cycles/7.runner_exit"), "2");
+    assert_eq!(file(&note(&w, "runner_exit")), "2");
     lacks(&r.out, "was killed");
     let secs = began.elapsed().as_secs();
     assert!(secs < 20, "the docker client was waited on for {secs}s");
@@ -521,8 +528,8 @@ fn a_push_check_the_sandbox_refused_records_the_fault_ends_the_start_as_push_fau
     assert_eq!(parts.first(), Some(&"true"));
     assert_eq!(parts.get(1), Some(&w.cycle_account().as_str()));
     assert_eq!(parts.get(2), Some(&PUSH_SAYS));
-    let v: Value =
-        serde_json::from_str(&file(&w, "state/push-fault.json")).expect("the fault file");
+    let v: Value = serde_json::from_str(&file(&Home::new(&w.home).state(State::PushFault)))
+        .expect("the fault file");
     let mut keys: Vec<&String> = v.as_object().unwrap().keys().collect();
     keys.sort();
     assert_eq!(keys, ["at", "line", "login"]);
@@ -599,7 +606,7 @@ for _ in $(seq 50); do grep -q 'stopped, not going on' \"$T/work.out\" && break;
     has(&w.read("work.out"), "stopped, not going on with the start");
     assert!(w.cycle_args().is_empty());
     assert!(
-        !w.home.join("state/cycles/7.prepared").exists(),
+        !Home::new(&w.home).cycle_note(7, "prepared").exists(),
         "the plan of the start outlived the stop"
     );
 }

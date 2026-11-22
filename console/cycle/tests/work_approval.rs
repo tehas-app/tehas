@@ -10,6 +10,7 @@ use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tehas_core::home::{Home, State};
 use tehas_core::testing::write_exe;
 use work::{has, lacks, root, World, A, GIF, JPG, PNG, WANT};
 
@@ -134,7 +135,7 @@ const SIZE_BODY: &str = "Give `lib/sizing.sh` one function.
 ";
 
 fn sizes(w: &World) -> PathBuf {
-    w.home.join("state/sizes.jsonl")
+    Home::new(&w.home).state(State::Sizes)
 }
 
 /// The ledger of the cases before is gone, whatever kind of file it was.
@@ -1039,7 +1040,7 @@ fn the_comments_are_kept_beside_the_manifest() {
     comments_retry(&w);
     assert!(same(
         &w.imgs.join("comments.json"),
-        &w.home.join("state/cycles/7.comments.json")
+        &Home::new(&w.home).cycle_note(7, "comments.json")
     ));
 }
 
@@ -1047,7 +1048,7 @@ fn the_comments_are_kept_beside_the_manifest() {
 fn a_cycle_without_comments_leaves_none_of_an_earlier_cycle_s_beside_the_manifest() {
     let w = world("comments-none");
     w.images_on(&["TEHAS_WORK_COMMENTS=1"]);
-    let cycles = w.home.join("state/cycles");
+    let cycles = Home::new(&w.home).cycles_dir();
     fs::create_dir_all(&cycles).unwrap();
     for f in ["7.comments.json", "7.retry-context.md", "7.images.md"] {
         fs::write(cycles.join(f), "old\n").unwrap();
@@ -1156,7 +1157,7 @@ fn the_image_s_word_on_comments_is_noted_for_the_park_and_a_comments_retry_on_th
     w.issue_is("Words.", "NONE", "");
     w.record_is("alice", "Words.", &[]);
     w.record_edit(one_comment_retry);
-    let noted = w.home.join("state/cycles/7.comments");
+    let noted = Home::new(&w.home).cycle_note(7, "comments");
     let word = || fs::read_to_string(&noted).unwrap().trim_end().to_string();
     w.work7();
     assert_eq!(word(), "off");
