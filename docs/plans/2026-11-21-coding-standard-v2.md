@@ -269,7 +269,11 @@ parsing.
 
 ## The steps
 
-In this order, T11, T12 and T13 before T9 and T10 last. T3 to T7 may overlap where a type and its port go
+In this order, T11, T12, T13 and T14 before T9 and T10 last. The owner,
+2026-11-22: the migration of GitHub and its peers behind the ports (the
+moves of T4, with T1's fakes and the tests of T15 that stub `gh`) is
+designed now, in `docs/specs/2026-11-22-ports.md`, and lands after the
+rest of the refactor, still before v2.0.0. T3 to T7 may overlap where a type and its port go
 together. Each "Done when" is checked before the next step leans on it.
 
 ### T0. The test, the rules, the map
@@ -507,6 +511,61 @@ fixes of trail-openers/pi-rukas#2493, and the dispatcher's and the
 cycle's tests show a start with no driver setting running lean, and
 falling back to classic on lean's setup refusal.
 
+### T14. The Protolab removed, its plumbing kept
+
+The owner, 2026-11-22: 2.0.0 removes the Protolab. It was envisioned
+and never pulled through, so it is deleted as dead code, not migrated.
+No factory uses it and no issue carries its label. Its plumbing for
+storing and serving files stays, made generic, for a plugin to use in
+2.1.
+
+Removed:
+
+- the Protolab pass and its pages (`console/src/protolab.rs`, `tehasbot
+  protolab`), its timer units, `live/protolab.json` and the `protolab/`
+  directory of the home; `tehas update` stops and removes the old units
+  and the directory (`retired.list`);
+- `prototype-file` (`tehas prototype file`, `console/src/prototype.rs`,
+  `TEHAS_PROTOTYPE_FILE`, `TEHAS_PROTOLAB_URL`);
+- the `tehas:prototype` label (`host/labels.tsv`, the label pins, the
+  dispatcher's flow) and the `prototype` kind (`TEHAS_ISSUE_TYPES`
+  keeps `improvement`). This part waits for T3, which owns the
+  dispatcher's files until it is done;
+- `host/docs/tools-protolab.md`, the rows of `features.md`, and the
+  `prototypes` field of `tehas status --json` with its schemas.
+
+Kept, under neutral names:
+
+- `console/attach`: fetch, limits, sniff, zip unpack and manifest, which
+  cycles already use;
+- the safe store of a ticket's files and the page writer of
+  `console/src/protolab/build.rs`, moved to a module of their own;
+- the edge's static serving: a directory per item, sandboxed HTML, the
+  no-script policy on the generated page, the per-item host name and
+  its port, with their tests;
+- zip by address (the host allowlist, the redirect walk, the sha256
+  pin), as library code, off behind its setting.
+
+T9 lists what goes in "Changed in 2.0", and what stays and under which
+names, for the plugin work in 2.1.
+
+Done when nothing names the Protolab, the kept plumbing has its tests
+under its new names, and `tehas update` removes the old units.
+
+### T15. Shell tests to Rust
+
+The shell tests that test a Rust program from outside move to Rust
+(#2816 to #2822, under #2597), keeping each case's behaviour. Each
+issue names the files it needs and when they are free: now, after T3, or
+after T4 when its cases stub `gh` (those move onto the ports' fakes with
+T1). `test/sandbox_argv_test.sh` and `test/fixtures/argv/` stay shell,
+as T4's floor. #2823 shortens the shell run, at any time; #2824 trims
+the shell that stays, last. Each port lowers `scripts/test-lines.max`
+to its new count.
+
+Done when no shell test tests a Rust program's behaviour that a Rust
+test can, and `test-lines.max` is at its new count.
+
 ### T9. The contract for 2.0
 
 - `host/docs/contract.md` for 2.x, with a section "Changed in 2.0" that
@@ -588,7 +647,7 @@ All of these, in the last pull request into the branch:
 - `.tehas/coding-standard` says `v2`, and the architecture test passes
   without `--force`, against the base;
 - `scripts/verify.sh --full` passes, and the 2.0 contract is written;
-- T10, T11, T12 and T13 are done, and the trio's gate holds.
+- T10 to T15 are done, and the trio's gate holds.
 
 Then, when the trio is tagged, the pull request into main (a merge
 commit or a fast-forward, as "Finish" says), and the owner's release of
@@ -629,3 +688,5 @@ of main, each grade.
 | 2026-11-22 | T12.1: `tehas answer`, and `--text -` from standard input | #2794, #2808 |
 | 2026-11-22 | T13 part 4: lean's fallback to classic keys on pi-rukas's typed setup refusal (pi-rukas#2511), with a host message | #2798, #2801 |
 | 2026-11-22 | A flaky test fixed: the two writes reports compared without their minute | #2799 |
+| 2026-11-22 | T14: the Protolab removed as dead code, its file storage and serving kept for plugins (the owner) | #2826 |
+| 2026-11-22 | T15: shell tests to Rust (#2816 to #2824); the migration behind the ports lands after the rest of the refactor, before v2.0.0 (the owner) | #2826 |
