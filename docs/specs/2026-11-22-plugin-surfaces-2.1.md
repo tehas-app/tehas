@@ -127,7 +127,8 @@ view cannot frame another site: its policy is `frame-src 'self'`.
 - The manifest asks `frame`. The grant gives up to 4 pages,
   `frame:<id>=<url>`: the id `a-z` and `-`, 1 to 16, the URL `https://`, at
   most 512 bytes, with no space, user or password, and not on
-  `TEHAS_DOMAIN`. These are the rules of `tehas panel set`.
+  `TEHAS_DOMAIN`. These are tighter than `tehas panel set`'s on purpose:
+  that took `a-z0-9-` ids of up to 32 characters, and the dock took `http:`.
 - The gate serves `/_outside/<id>`, a page tehas makes. It holds one frame
   of that URL and nothing else, with the sandbox words the dock uses today
   (`allow-scripts allow-same-origin allow-forms allow-popups
@@ -326,6 +327,8 @@ Outside pages in the dock. No build, no run.
 {"plugin": 1, "name": "panels", "label": "Panels", "asks": ["menu", "frame"]}
 ```
 
+It has no build, so it needs no `kind`, `build` or `timeout` (1.0.1).
+
 ```
 TEHAS_PLUGIN_GRANTS_PANELS="<commit> menu frame:support=https://chat.example/tehas"
 ```
@@ -338,7 +341,17 @@ The pages are the instance's, so they are in the grant, not the manifest.
 The page at `/business`, as a view.
 
 ```json
-"asks": ["view", "menu", "live:status", "live:running", "live:analytics", "live:plugins"]
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "business",
+  "label": "Business",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "timeout": 120,
+  "asks": ["view", "menu", "live:status", "live:running", "live:analytics", "live:plugins"],
+  "view": {"label": "Business"}
+}
 ```
 
 ```
@@ -347,13 +360,24 @@ TEHAS_PLUGIN_GRANTS_BUSINESS="<commit> view menu live:status live:running live:a
 
 A refresh copies the page's files to `/out`. The page reads the feeds from
 `/_live/` and draws the production line, the last 10 days and the board.
-Its power figures come back when a later revision lets one plugin read
-another's feed.
+`live:plugins` gives it the other plugins' views, which it draws as links,
+as the dock did. Its power figures come back when a later revision lets one
+plugin read another's feed.
 
 ### energy
 
 ```json
-"asks": ["view", "menu", "feed:mesh"]
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "energy",
+  "label": "Energy",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "timeout": 120,
+  "asks": ["view", "menu", "feed:mesh"],
+  "view": {"label": "Energy"}
+}
 ```
 
 ```
@@ -367,7 +391,17 @@ draws the draw now, the kWh, the chart and the machines. The settings
 ### hoststats
 
 ```json
-"asks": ["view", "menu", "feed:host"]
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "hoststats",
+  "label": "Host",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "timeout": 120,
+  "asks": ["view", "menu", "feed:host"],
+  "view": {"label": "Host"}
+}
 ```
 
 ```
@@ -381,7 +415,18 @@ goes. `tehas top` stays in core.
 ### review
 
 ```json
-"asks": ["view", "menu", "product", "history", "model", "every", "action:run", "record", "keep", "issue:draft"]
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "review",
+  "label": "Review",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "timeout": 3600,
+  "asks": ["view", "menu", "product", "history", "model", "every", "action:run", "record", "keep", "issue:draft"],
+  "view": {"label": "Review"},
+  "actions": [{"id": "run", "label": "Run the review"}]
+}
 ```
 
 ```
@@ -397,7 +442,18 @@ medium findings one to a line and the rest counted, as
 ### wiki
 
 ```json
-"asks": ["view", "menu", "product", "history", "model", "every", "action:build", "keep"]
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "wiki",
+  "label": "Wiki",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "timeout": 7200,
+  "asks": ["view", "menu", "product", "history", "model", "every", "action:build", "keep"],
+  "view": {"label": "Wiki"},
+  "actions": [{"id": "build", "label": "Build the wiki"}]
+}
 ```
 
 ```
@@ -414,7 +470,17 @@ wiki spec on every host.
 ### given
 
 ```json
-"asks": ["hook:gate:cycle.before-work", "files", "model", "model:images"]
+{
+  "plugin": 1,
+  "kind": "batch",
+  "name": "given",
+  "label": "Given",
+  "license": "Apache-2.0",
+  "build": "Dockerfile",
+  "timeout": 300,
+  "asks": ["hook:gate:cycle.before-work", "files", "model", "model:images"],
+  "hooks": [{"at": "cycle.before-work", "timeout": 300}]
+}
 ```
 
 ```
