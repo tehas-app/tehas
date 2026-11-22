@@ -444,13 +444,11 @@ fn both_front_pages_and_dashboard_load_the_reading_module_before_the_views_and_t
         );
     }
     let fun = root().join("host/fun");
+    let register =
+        regex::Regex::new("serviceWorker.register|navigator.serviceWorker.register").unwrap();
     let registers: Vec<PathBuf> = files_ending(&fun, &[".js", ".html"])
         .into_iter()
-        .filter(|f| {
-            fs::read_to_string(f)
-                .unwrap()
-                .contains("serviceWorker.register")
-        })
+        .filter(|f| register.is_match(&fs::read_to_string(f).unwrap()))
         .collect();
     assert!(registers.is_empty(), "{registers:?}");
     has(&text("host/fun/host-bridge.js"), "r.unregister()");

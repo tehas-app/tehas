@@ -58,31 +58,94 @@ fn cpu_figures(text: &str) -> String {
     format!("[{}]", all.join(","))
 }
 
-/// The text of the value of `key` inside the object of `section`, as the
-/// console wrote it: a number read through JSON would lose its digits.
-fn raw(out: &str, section: &str, key: &str) -> String {
-    let from = out
-        .find(&format!("\"{section}\":{{"))
-        .unwrap_or_else(|| panic!("no {section} in {out}"));
-    let rest = &out[from..];
-    let at = rest.find(&format!("\"{key}\":")).unwrap() + key.len() + 3;
-    let rest = &rest[at..];
-    let end = if rest.starts_with('[') {
-        rest.find(']').unwrap() + 1
-    } else {
-        rest.find([',', '}']).unwrap()
-    };
-    rest[..end].to_string()
+/// The end of the JSON value that starts at byte `i` of `s`.
+fn value_end(s: &str, i: usize) -> usize {
+    let b = s.as_bytes();
+    let (mut depth, mut in_str, mut esc) = (0usize, false, false);
+    let mut j = i;
+    while j < b.len() {
+        let c = b[j];
+        if in_str {
+            match c {
+                _ if esc => esc = false,
+                b'\\' => esc = true,
+                b'"' => {
+                    in_str = false;
+                    if depth == 0 {
+                        return j + 1;
+                    }
+                }
+                _ => {}
+            }
+        } else {
+            match c {
+                b'"' => in_str = true,
+                b'{' | b'[' => depth += 1,
+                b'}' | b']' if depth == 0 => return j,
+                b'}' | b']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return j + 1;
+                    }
+                }
+                b',' if depth == 0 => return j,
+                _ => {}
+            }
+        }
+        j += 1;
+    }
+    j
 }
 
-/// A figure of the process named `name`.
-fn figure_of(text: &str, name: &str, key: &str) -> Option<f64> {
-    let p = processes(text)
-        .iter()
-        .map(|p| p.parse::<Value>().unwrap())
-        .find(|p| p["name"] == name)
-        .unwrap_or_else(|| panic!("no process {name}"));
-    p[key].as_f64()
+/// The values of an object's or an array's text, as written, each with its
+/// key ("" in an array).
+fn parts(text: &str) -> Vec<(&str, &str)> {
+    let t = text.trim();
+    let inner = &t[1..t.len() - 1];
+    let mut out = vec![];
+    let mut i = 0;
+    while i < inner.len() {
+        i += inner[i..].len() - inner[i..].trim_start().len();
+        if i >= inner.len() {
+            break;
+        }
+        let mut key = "";
+        if t.starts_with('{') {
+            let end = value_end(inner, i);
+            key = &inner[i + 1..end - 1];
+            i = end + inner[end..].find(':').unwrap() + 1;
+            i += inner[i..].len() - inner[i..].trim_start().len();
+        }
+        let end = value_end(inner, i);
+        out.push((key, inner[i..end].trim_end()));
+        i = end + 1;
+    }
+    out
+}
+
+/// The text of the value at `path` of a JSON text, as the console wrote it: a
+/// number read through JSON would lose its digits.
+fn at<'a>(text: &'a str, path: &[&str]) -> &'a str {
+    path.iter().fold(text.trim(), |t, key| {
+        parts(t)
+            .into_iter()
+            .find(|(k, _)| k == key)
+            .unwrap_or_else(|| panic!("no {key} in {t}"))
+            .1
+    })
+}
+
+/// The text of the value of `key` inside the object of `section`.
+fn raw(out: &str, section: &str, key: &str) -> String {
+    at(out, &[section, key]).to_string()
+}
+
+/// The text of the field `key` of each process of the host section.
+fn raw_of_each(text: &str, key: &str) -> Vec<String> {
+    parts(at(text, &["host", "processes"]))
+        .into_iter()
+        .map(|(_, p)| at(p, &[key]).to_string())
+        .collect()
 }
 
 #[test]
@@ -356,7 +419,6 @@ fn a_snapshot_given_the_reading_of_the_frame_before_does_not_wait_for_a_second_o
     assert!(elapsed >= 900, "no wait: {elapsed}ms");
     let one = fs::read_to_string(w.t().join("one")).unwrap();
     assert_eq!(raw(&one, "reading", "clock"), "1000.00");
-    let v = one.parse::<Value>().unwrap();
     assert_eq!(cpu_figures(&one), "[null,null,null,null,null]");
     // Time passes, as it does between two frames of a view. The reading of the
     // frame before is handed to the next one, and that call takes no wait at
@@ -387,7 +449,7 @@ fn a_snapshot_given_the_reading_of_the_frame_before_does_not_wait_for_a_second_o
   {{ printf "1005.00 0.00\n" >"$TEHAS_PROC_DIR/uptime"; }} & writer=$!
   timeout 10 "$TEHAS_CONSOLE" top snapshot 16 '{}' >"$T/two"; rc=$?
   kill "$writer" 2>/dev/null; wait "$writer" 2>/dev/null; exit "$rc""#,
-        v["reading"]
+        at(&one, &["reading"])
     ));
     assert_eq!(r.rc, 0, "{}", r.out);
     // The reading of the frame before was given, so no second reading is
@@ -397,10 +459,20 @@ fn a_snapshot_given_the_reading_of_the_frame_before_does_not_wait_for_a_second_o
     assert_eq!(raw(&two, "reading", "clock"), "1005.00");
     // Measured over the five seconds between the two readings: 50% for the
     // host, and 100% for the process that used them.
-    let v: Value = serde_json::from_str(&two).unwrap();
-    assert_eq!(v["host"]["cpuPercent"].as_f64(), Some(50.0));
-    assert_eq!(figure_of(&two, "tehas-cycle", "cpuPercent"), Some(100.0));
-    assert_eq!(figure_of(&two, "tehas-cycle", "upSeconds"), Some(995.0));
+    assert_eq!(raw(&two, "host", "cpuPercent"), "50");
+    let names = raw_of_each(&two, "name");
+    let of_cycle = |key| {
+        let all = raw_of_each(&two, key);
+        let picked: Vec<String> = names
+            .iter()
+            .zip(all)
+            .filter(|(n, _)| *n == r#""tehas-cycle""#)
+            .map(|(_, v)| v)
+            .collect();
+        format!("[{}]", picked.join(","))
+    };
+    assert_eq!(of_cycle("cpuPercent"), "[100]");
+    assert_eq!(of_cycle("upSeconds"), "[995]");
     // The frame is drawn from the snapshot as it is: the extra key changes
     // nothing that is printed.
     let r = w.sh(r#""$TEHAS_CONSOLE" top frame 80 24 <"$T/two""#);
@@ -466,30 +538,34 @@ fn a_snapshot_given_the_reading_of_the_frame_before_reports_the_difference() {
     // The host over the window: 4000 ticks of use out of the 4000 the aggregate
     // line gained, and none of them idle - so the host reads 100% and all of it
     // is the one process.
-    assert_eq!(v["host"]["cpuPercent"].as_f64(), Some(100.0));
-    let procs = v["host"]["processes"].as_array().unwrap();
-    assert_eq!(procs[0]["name"], "tehas-cycle");
-    assert_eq!(procs[0]["cpuPercent"].as_f64(), Some(40.0));
-    assert_eq!(procs.len(), 15);
+    assert_eq!(raw(&text, "host", "cpuPercent"), "100");
+    let names = raw_of_each(&text, "name");
+    let cpus = raw_of_each(&text, "cpuPercent");
+    assert_eq!(
+        format!("{} {} {}", names[0].trim_matches('"'), cpus[0], names.len()),
+        "tehas-cycle 40 15"
+    );
     // The fifteen that used the most CPU in this window: tehas-cycle, then the
     // pids from p515 down. p516 to p519, which are in the earlier reading only,
     // are not measured: there is nothing to take a difference between.
-    let mut want = vec!["tehas-cycle".to_string()];
-    want.extend((502..=515).rev().map(|p| format!("p{p}")));
-    assert_eq!(names(&text), want);
-    let mut cpus: Vec<f64> = procs
-        .iter()
-        .map(|p| p["cpuPercent"].as_f64().unwrap())
-        .collect();
-    cpus.sort_by(f64::total_cmp);
-    cpus.dedup();
-    let mut want: Vec<f64> = (2..=15).map(f64::from).collect();
-    want.push(40.0);
-    assert_eq!(cpus, want);
+    assert_eq!(
+        format!("[{}]", names.join(",")),
+        r#"["tehas-cycle","p515","p514","p513","p512","p511","p510","p509","p508","p507","p506","p505","p504","p503","p502"]"#
+    );
+    let mut unique = cpus.clone();
+    unique.sort_by(|a, b| {
+        let n = |s: &String| s.parse::<f64>().unwrap();
+        n(a).total_cmp(&n(b))
+    });
+    unique.dedup();
+    assert_eq!(
+        format!("[{}]", unique.join(",")),
+        "[2,3,4,5,6,7,8,9,10,11,12,13,14,15,40]"
+    );
     // The first row is tehas-cycle, pid 200: the clock of the later reading,
     // 1100 s, less the start ticks its pid gives it, (900 + 200 - 100) * 100 /
     // 100.
-    assert_eq!(procs[0]["upSeconds"].as_f64(), Some(1090.0));
+    assert_eq!(raw_of_each(&text, "upSeconds")[0], "1090");
     // Load and memory are the text of the tree: 0.10 stays 0.10.
     assert_eq!(raw(&text, "host", "load"), "[0.10,0.20,0.30]");
     let mut keys: Vec<&String> = v["host"]["memory"].as_object().unwrap().keys().collect();
