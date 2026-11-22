@@ -63,6 +63,7 @@ plugin run building=plugins
 plugin skills --chat --json building=plugins
 prototype building=prototype-file
 prototype file --body-file --spec --spec-sha256 --title --zip --zip-sha256 building=prototype-file
+question --json
 refresh --json --pr
 resume
 setup --app-client-id:building=plugins --app-id --app-key-file --app-name --app-owner --app-secret-file:building=plugins --control-issue --endpoint --force --labelers --model --model-key-file --new-app --no-build --provider --repo

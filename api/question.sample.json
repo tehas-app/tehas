@@ -1,0 +1,23 @@
+{
+  "api": 1,
+  "issue": 12,
+  "question": {
+    "asked_at": "2026-10-17T14:00:20Z",
+    "choices": [
+      {
+        "choice": "retry",
+        "label": "Retry with the issue and all its comments"
+      },
+      {
+        "choice": "retry-text",
+        "label": "Retry with the issue text only"
+      },
+      {
+        "choice": "park",
+        "label": "Leave it parked"
+      }
+    ],
+    "id": 4001,
+    "kind": "park"
+  }
+}

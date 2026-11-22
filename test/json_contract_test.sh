@@ -1455,6 +1455,7 @@ pinned=(
   'settings-rules	test/settings_rules_test.sh	own'
   'host-bridge	test/host_bridge_test.sh	open'
   'answer	console/tests/answer.rs	'
+  'question	console/tests/answer.rs	'
 )
 
 t_case "every schema in api/ is a surface of the table or pinned by its own test"

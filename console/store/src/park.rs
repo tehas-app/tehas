@@ -42,6 +42,8 @@ pub enum Call {
         kind: &'static str,
         attempt: Option<i64>,
         body_sha: Option<String>,
+        /// The choices a park's question offers, as their words joined.
+        offers: Option<String>,
     },
     Known {
         issue: i64,
@@ -178,20 +180,35 @@ fn asked_args(rest: &[String]) -> Result<Call, String> {
             ("--kind", Kind::Value),
             ("--attempt", Kind::Value),
             ("--body-sha", Kind::Value),
+            ("--offers", Kind::Value),
         ],
         true,
     )?;
     let issue = a.issue()?;
     let id = a.strict_need("--id", "a comment id", verbs::comment_id)?;
     a.need("--kind")?;
+    let kind = a
+        .word("--kind", &[("park", "park"), ("plan", "plan")])?
+        .expect("--kind was given");
+    // A park's choices, each a word of a park's question, once each.
+    let offers = a.strict("--offers", "the words of a park's choices", |v| {
+        use tehas_core::question::{Choice, Kind as Asked};
+        let words: Vec<&str> = v.split(',').collect();
+        let each = words.iter().enumerate().all(|(i, w)| {
+            Choice::of(w).is_some_and(|c| c.kind() == Asked::Park) && !words[..i].contains(w)
+        });
+        each.then(|| v.to_string())
+    })?;
+    if offers.is_some() && kind != "park" {
+        return Err(a.usage("--offers", "is given only with --kind park"));
+    }
     Ok(Call::Asked {
         issue,
         id,
-        kind: a
-            .word("--kind", &[("park", "park"), ("plan", "plan")])?
-            .expect("--kind was given"),
+        kind,
         attempt: a.strict("--attempt", "a number", verbs::number)?,
         body_sha: a.strict("--body-sha", "a sha256", verbs::sha256)?,
+        offers,
     })
 }
 
@@ -228,7 +245,17 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
             kind,
             attempt,
             body_sha,
-        } => asked(home, *issue, *id, kind, *attempt, body_sha.as_deref(), now),
+            offers,
+        } => asked(
+            home,
+            *issue,
+            *id,
+            kind,
+            *attempt,
+            body_sha.as_deref(),
+            offers.as_deref(),
+            now,
+        ),
         Call::Known { issue, id } => verbs::look(home, |c| known(c, *issue, *id)),
         Call::Answered { issue, id, by } => answered(home, *issue, *id, by.as_deref(), now),
     }
@@ -540,6 +567,7 @@ fn question_json(c: &Connection, id: i64) -> Result<String, Fail> {
     .map_or("null".to_string(), |p| obj(&p)))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn asked(
     home: &Path,
     issue: i64,
@@ -547,6 +575,7 @@ fn asked(
     kind: &str,
     attempt: Option<i64>,
     body_sha: Option<&str>,
+    offers: Option<&str>,
     now: i64,
 ) -> Result<String, Fail> {
     verbs::write(home, |c| {
@@ -579,9 +608,9 @@ fn asked(
             Some(true) => {}
             Some(false) => {
                 c.execute(
-                    "INSERT INTO questions (id, issue, attempt, kind, posted_at, body_sha256)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    params![id, issue, derived, kind, now, body_sha],
+                    "INSERT INTO questions (id, issue, attempt, kind, posted_at, body_sha256, offers)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![id, issue, derived, kind, now, body_sha, offers],
                 )
                 .q()?;
                 if kind == "plan" {

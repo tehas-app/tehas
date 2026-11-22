@@ -74,20 +74,16 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr"
 for gone in store-copy host-message-health refresh-pr-starts refresh-pr-lane refresh-pr-json; do
   t_eq "$gone $(jq --arg w "$gone" '.features | index($w)' <<<"$t_out")" "$gone null"
 done
-t_eq "$(jq -r '.features | last' <<<"$t_out")" "answer"
-t_eq "$(jq -r '.features | length' <<<"$t_out")" 32
+t_eq "$(jq -r '.features | last' <<<"$t_out")" "question"
+t_eq "$(jq -r '.features | length' <<<"$t_out")" 33
 t_eq "$(jq -r '.features | index("host-bridge-tokens")' <<<"$t_out")" null
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr"'
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr` ('
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"host-start"'
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`host-start` ('
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`flags` ('
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"status-previews"'
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`status-previews` ('
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"wake"'
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`wake` ('
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`start-reasons` ('
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`blockers` ('
+# Every word of features is in the manual's example and has its own entry,
+# with what it is, in the manual's row of features.
+row=$(grep '^| `features` |' "$T_ROOT/host/docs/api.md")
+for word in $(jq -r '.features[]' <<<"$t_out"); do
+  t_contains "$(cat "$T_ROOT/host/docs/api.md")" "\"$word\""
+  t_contains "$row" "\`$word\` ("
+done
 # The guide to updating from 0.30.x names the old words to say what replaced
 # them; the rest of the manual names only the new ones.
 manual=$(awk '/^### Updating from 0\.30\.x to 1\.0$/ {skip = 1; next} skip && /^##/ {skip = 0} !skip' "$T_ROOT"/host/docs/*.md)
@@ -339,7 +335,7 @@ t_eq "$(jq -c '.flags | keys_unsorted' "$T_ROOT/api/api.sample.json")" "$(jq -c 
 t_case "api.schema.json refuses a field it does not name, a flag that is no boolean and a word of another form"
 reset
 t_eq "$(jq '.zz = 1 | .flags.lean = "on" | .features += ["Two words"]' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
-  "$(printf '%s\n' '.zz: not in the schema' '.features[32]: "Two words" does not match "^[a-z][a-z0-9-]*$"' '.flags.lean: string, not boolean')"
+  "$(printf '%s\n' '.zz: not in the schema' '.features[33]: "Two words" does not match "^[a-z][a-z0-9-]*$"' '.flags.lean: string, not boolean')"
 t_eq "$(jq 'del(.poll.last.ageMin) | .poll.hour.polls = -1' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
   "$(printf '%s\n' '.poll.last: ageMin is missing' '.poll.hour.polls: -1 is under 0')"
 

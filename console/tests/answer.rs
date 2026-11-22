@@ -3,7 +3,9 @@
 //! refuses, and its contract. api/answer.schema.json says what the object
 //! holds; api/answer.sample.json (a retry of a stop) and api/answer.option.json
 //! (an option of a planning question, given in place of an answer before it)
-//! are what the command prints. It reads nothing of GitHub. What the poll does
+//! are what the command prints. tehas question: api/question.schema.json,
+//! with api/question.sample.json (a stop) and api/question.plan.json (a
+//! planning question). Neither reads anything of GitHub. What the poll does
 //! with an answer is the dispatcher's: console/dispatch/tests/dispatch_answer.rs.
 //!
 //! To write the samples again after a change to the object:
@@ -45,6 +47,32 @@ fn stopped(w: &World) {
     assert_eq!(w.store_locked(12, &end).rc, 0);
     w.store_ok(&["park", "12", "--attempt", "1", "--reason", "failed"]);
     w.store_ok(&["question-asked", "12", "--id", "4001", "--kind", "park"]);
+}
+
+/// tehas question with these words, the console run as itself at the
+/// samples' clock.
+fn question_at_now(w: &World, words: &str) -> Run {
+    w.sh(&format!(
+        "TEHAS_REPO=acme/widget TEHAS_STORE_TEST_NOW={NOW} '{}' tehas question {words}",
+        w.console().display()
+    ))
+}
+
+/// The sample `name` of `surface` is what the command printed, or is
+/// written again.
+fn sample_of(surface: &str, name: &str, printed: &str) {
+    let file = root().join("api").join(format!("{surface}.{name}.json"));
+    let v: serde_json::Value = serde_json::from_str(printed).unwrap();
+    let pretty = format!("{}\n", serde_json::to_string_pretty(&v).unwrap());
+    if std::env::var_os("TEHAS_SAMPLES_WRITE").is_some() {
+        fs::write(&file, &pretty).unwrap();
+    }
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        pretty,
+        "{}",
+        file.display()
+    );
 }
 
 /// The label that starts a planning session, as host/labels.tsv names it.
@@ -89,7 +117,8 @@ fn planning(w: &World) {
         "--option",
         "Update this issue",
     ]);
-    w.store_ok(&["question-asked", "12", "--id", "4002", "--kind", "plan"]);
+    let asked = ["question-asked", "12", "--id", "4002", "--kind", "plan"];
+    assert_eq!(w.store_at(NOW.parse().unwrap(), &asked).rc, 0);
 }
 
 /// tehas answer with these words, as a person runs it: bin/tehas, under the
@@ -277,4 +306,100 @@ fn a_bad_argument_writes_nothing_and_exits_64() {
         assert_eq!(answer(&w, words).rc, 64, "{words}");
     }
     assert_eq!(waiting(&w, "4001"), "none");
+}
+
+#[test]
+fn the_question_samples_are_what_the_command_prints() {
+    let w = World::new("question-samples");
+    stopped(&w);
+    // The stop of a cycle whose image gives the comments offers all three.
+    w.store_ok(&["question-answered", "12", "--id", "4001", "--withdraw"]);
+    let asked = [
+        "question-asked",
+        "12",
+        "--id",
+        "4001",
+        "--kind",
+        "park",
+        "--offers",
+        "retry,retry-text,park",
+    ];
+    assert_eq!(w.store_at(NOW.parse().unwrap(), &asked).rc, 0);
+    let r = question_at_now(&w, "12 --json");
+    assert_eq!(r.rc, 0, "{}", r.out);
+    sample_of("question", "sample", &r.out);
+    w.reset();
+    planning(&w);
+    let r = question_at_now(&w, "12 --json");
+    assert_eq!(r.rc, 0, "{}", r.out);
+    sample_of("question", "plan", &r.out);
+}
+
+#[test]
+fn the_choices_listed_are_those_offered_and_each_is_an_answer() {
+    let w = World::new("question-choices");
+    stopped(&w);
+    w.store_ok(&["question-answered", "12", "--id", "4001", "--withdraw"]);
+    w.store_ok(&[
+        "question-asked",
+        "12",
+        "--id",
+        "4001",
+        "--kind",
+        "park",
+        "--offers",
+        "retry-text,park",
+    ]);
+    let r = question_at_now(&w, "12 --json");
+    let v: serde_json::Value = serde_json::from_str(&r.out).unwrap();
+    let words: Vec<&str> = v["question"]["choices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["choice"].as_str().unwrap())
+        .collect();
+    assert_eq!(words, ["retry-text", "park"]);
+    for word in words {
+        let r = answer(&w, &format!("12 {word} --by alice"));
+        assert_eq!(r.rc, 0, "{word}: {}", r.out);
+    }
+    w.reset();
+    planning(&w);
+    let r = question_at_now(&w, "12 --json");
+    let v: serde_json::Value = serde_json::from_str(&r.out).unwrap();
+    let words: Vec<String> = v["question"]["choices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["choice"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(words, ["option:1", "update", "end"]);
+    for word in &words {
+        let r = answer(&w, &format!("12 {word} --by alice"));
+        assert_eq!(r.rc, 0, "{word}: {}", r.out);
+    }
+}
+
+#[test]
+fn no_question_waiting_is_3_and_a_bad_argument_64() {
+    let w = World::new("question-none");
+    let r = w.sh("\"$T_ROOT/bin/tehas\" question 12 2>&1");
+    assert_eq!(r.rc, 3, "{}", r.out);
+    assert!(r.out.contains("no question waits on #12"), "{}", r.out);
+    for words in ["", "0", "12 13", "12 --soon"] {
+        assert_eq!(
+            w.sh(&format!("\"$T_ROOT/bin/tehas\" question {words}")).rc,
+            64,
+            "{words}"
+        );
+    }
+    stopped(&w);
+    let r = w.sh("\"$T_ROOT/bin/tehas\" question 12");
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert!(
+        r.out
+            .starts_with("#12 waits on its park question, asked at "),
+        "{}",
+        r.out
+    );
 }

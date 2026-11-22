@@ -49,7 +49,8 @@
 
 use crate::{
     answer, api, blockers, clean, dev, disk, export, freeze, github, health, history, holds,
-    host_message, labels, mcp, order, panel, queue, review, start, state, status, stop, top, wake,
+    host_message, labels, mcp, order, panel, question, queue, review, start, state, status, stop,
+    top, wake,
 };
 use std::env;
 use std::os::unix::fs::PermissionsExt;
@@ -193,6 +194,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "blockers" => blockers::main(rest),
         "start" => start::main(rest),
         "answer" => answer::main(rest),
+        "question" => question::main(rest),
         "pause" => flag(pause_words(rest)),
         "analytics" => analytics(rest),
         "top" => top::view(rest),
@@ -328,6 +330,7 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas" | "tehasbot", "mcp"] => mcp::words(rest).map(|_| ()),
         ["tehas", "start"] => start::words(rest).map(|_| ()),
         ["tehas", "answer"] => answer::words(rest).map(|_| ()),
+        ["tehas", "question"] => question::words(rest).map(|_| ()),
         ["tehas", "pause"] => pause_words(rest).map(|_| ()),
         ["tehas", "analytics"] => analytics_words(rest),
         ["tehas", "api"] => api::words(rest).map(|_| ()),
@@ -408,7 +411,8 @@ fn issue_words(word: Option<&String>, usage: &str) -> Result<(), u8> {
 pub fn required(given: &[String]) -> &'static [&'static str] {
     let words: Vec<&str> = given.iter().take(2).map(String::as_str).collect();
     match words[..] {
-        ["tehas", "api" | "check-product" | "export" | "history" | "index" | "init-product" | "labels"]
+        ["tehas", "api" | "check-product" | "export" | "history" | "index" | "init-product" | "labels"
+        | "question"]
         | ["tehasbot", "cycle" | "preview"] => &["TEHAS_REPO"],
         // What writes or calls GitHub stops on the three before it does.
         ["tehas", "resume"]
@@ -463,6 +467,7 @@ pub fn text(command: &str) -> Option<&'static str> {
         "outsource" => crate::outsource::USAGE,
         "start" => include_str!("usage/start.txt"),
         "answer" => include_str!("usage/answer.txt"),
+        "question" => include_str!("usage/question.txt"),
         "dev" => dev::USAGE,
         "panel" => include_str!("usage/panel.txt"),
         "plugin" => include_str!("usage/plugin.txt"),

@@ -19,7 +19,7 @@ use tehas_core::home::{Home, State};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 24;
+pub const SCHEMA_VERSION: i64 = 25;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The five tables of section 3.15, the outsource state. Every store of this
@@ -326,6 +326,13 @@ CREATE TABLE answers (
 /// What init lays for schema 24 after schema.sql, whose `cycles` already
 /// takes `answer`.
 pub const STEP_24_INIT: &str = answers_table!();
+
+/// The step from 24 to 25: the choices a park's question offers (#2782),
+/// the words of `tehas_core::question::Choice` joined with commas, which
+/// `tehas question` reads. A question asked before it has none on record.
+pub const STEP_25: &str = "
+ALTER TABLE questions ADD COLUMN offers TEXT;
+";
 
 /// The step from 23 to 24: the answers, and `cycles.how` takes `answer`, a
 /// retry an answer of `tehas answer` asked for. SQLite cannot change a CHECK in
@@ -1291,6 +1298,7 @@ pub fn write_schema(
     tx.execute_batch(STEP_22).map_err(classify)?;
     tx.execute_batch(STEP_23).map_err(classify)?;
     tx.execute_batch(STEP_24_INIT).map_err(classify)?;
+    tx.execute_batch(STEP_25).map_err(classify)?;
     let rows = [
         ("schema", SCHEMA_VERSION.to_string()),
         ("created_at", now.to_string()),
@@ -1443,6 +1451,9 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     // A store at 23 is one this binary wrote before a question took an answer
     // of a program.
     (24, step_24),
+    // A store at 24 is one this binary wrote before a question kept its
+    // choices.
+    (25, |c| step(c, 25, STEP_25)),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and

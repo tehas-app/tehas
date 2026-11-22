@@ -68,7 +68,7 @@ fn script(which: &str, command: &str) -> Option<&'static str> {
 
 /// The verbs of `tehas`. work and index are tehas-cycle's, which takes their
 /// lock (src/run.rs).
-const VERBS: [&str; 37] = [
+const VERBS: [&str; 38] = [
     "work",
     "index",
     "dispatch",
@@ -106,6 +106,7 @@ const VERBS: [&str; 37] = [
     "blockers",
     "wiki",
     "answer",
+    "question",
 ];
 
 fn tehas(words: &[String]) -> Go {
@@ -360,6 +361,7 @@ mod tests {
             "order",
             "start",
             "answer",
+            "question",
             "panel",
             "host-message",
             "pause",
@@ -837,7 +839,7 @@ mod tests {
 
     /// Each public `--json` row of api/commands.txt and the schemas in api/ of
     /// the objects it prints.
-    const JSON_SCHEMAS: [(&str, Option<&str>, &[&str]); 24] = [
+    const JSON_SCHEMAS: [(&str, Option<&str>, &[&str]); 25] = [
         ("analytics", Some("copy"), &["analytics-copy"]),
         ("answer", None, &["answer"]),
         ("api", None, &["api"]),
@@ -854,6 +856,7 @@ mod tests {
         ("order", Some("clear"), &["order"]),
         ("order", Some("set"), &["order"]),
         ("panel", None, &["panel"]),
+        ("question", None, &["question"]),
         ("refresh", None, &["refresh"]),
         ("start", None, &["start"]),
         ("state", Some("check"), &["state-check"]),
