@@ -86,7 +86,15 @@ fn the_record_lists_the_options_that_were_posted_so_a_box_and_its_option_keep_th
         rec_jq(&w, "[(.options | length), .options[0], .options[19]]"),
         json!([20, "Way 0", "Way 19"])
     );
-    assert_eq!(gh_lines(&w, "- [ ] Way "), 20);
+    let numbered = w
+        .gh()
+        .lines()
+        .filter(|l| {
+            l.split_once(". Way ")
+                .is_some_and(|(k, _)| k.parse::<u32>().is_ok())
+        })
+        .count();
+    assert_eq!(numbered, 20);
     has(&w.gh(), "Options left out: 10.");
 }
 
@@ -104,8 +112,8 @@ fn questions_posted_as_one_have_no_option_boxes_so_a_tick_answers_none_of_them()
     assert_eq!(w.rec()["options"], json!([]));
     has(&w.gh(), "1. Which?");
     has(&w.gh(), "2. Where?");
-    assert_eq!(gh_lines(&w, "- [ ] "), 1);
-    has(&w.gh(), "- [ ] End this planning session");
+    assert_eq!(gh_lines(&w, "- [ ] "), 0);
+    has(&w.gh(), "1. End this planning session");
 }
 
 #[test]
@@ -224,7 +232,7 @@ fn a_reply_s_turn_is_given_the_reply_s_comment_id_so_its_attachments_go_with_it(
 }
 
 #[test]
-fn a_reply_and_a_tick_from_a_listed_login_with_another_user_id_run_no_turn() {
+fn replies_from_a_listed_login_with_another_user_id_run_no_turn() {
     // The login alice changed hands: the account that answers is not the one listed.
     let w = World::new("plan-answer");
     w.planning();
@@ -233,7 +241,8 @@ fn a_reply_and_a_tick_from_a_listed_login_with_another_user_id_run_no_turn() {
     w.comments(7, &plan_body("x", " ", " ", 1, ""), "alice", after);
     let path = w.fx.join("comments-7.json");
     let mut c = v(&fs::read_to_string(&path).unwrap());
-    c["data"]["repository"]["issue"]["comments"]["nodes"][0]["editor"]["databaseId"] = json!(99);
+    // The box is answered by alice's reply now, under the same id.
+    c["data"]["repository"]["issue"]["comments"]["nodes"][1]["author"]["databaseId"] = json!(99);
     w.fx_json("comments-7.json", &c);
     let r = w.poll();
     assert_eq!(w.plan_calls(), "");
@@ -244,7 +253,7 @@ fn a_reply_and_a_tick_from_a_listed_login_with_another_user_id_run_no_turn() {
             uid("alice")
         ),
     );
-    has(&w.gh(), "api -X PATCH");
+    lacks(&w.gh(), "api -X PATCH");
 }
 
 #[test]

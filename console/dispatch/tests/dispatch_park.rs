@@ -59,8 +59,8 @@ fn a_retry_ticked_by_an_allowed_account_starts_a_cycle() {
     );
     // The cycle's --restart takes it off, through pi-rukas.
     lacks(&w.gh(), "--remove-label needs-human-attention");
-    has(&w.gh(), "authorized by @alice's retry tick");
-    has(&r.out, "start #7 (retry ticked by alice)");
+    has(&w.gh(), "authorized by @alice's answer");
+    has(&r.out, "start #7 (retry answered by alice)");
 }
 
 /// A retry tick on an issue that also carries tehas:ready and the escalation
@@ -92,7 +92,7 @@ fn a_retry_tick_writes_the_approval_record_with_the_ticks_time_before_the_label_
     retry_with_labels(&w);
     assert_eq!(
         w.at_mark("[.by, .how, .at, .comment_id] | tostring"),
-        r#"["alice","retry-tick","2026-01-01T01:00:00Z",4001]"#
+        r#"["alice","answer","2026-01-01T01:00:00Z",4001]"#
     );
 }
 
@@ -123,7 +123,7 @@ fn a_tick_counts_once_the_next_poll_finds_its_question_off_the_record_and_starts
     assert_eq!(started(&w), "");
     has(
         &r.out,
-        "skip #7: a box was ticked in a question this host has no record of",
+        "skip #7: a choice was made in a question this host has no record of",
     );
     assert_eq!(row(&w, &["cycle-show", "7"], ".cycle.attempt"), "2");
 }
@@ -178,7 +178,7 @@ fn a_dry_run_says_what_the_tick_would_do_and_changes_nothing() {
     let w = World::new("park-dry");
     ticked(&w, &["x", " "], "alice");
     let r = w.dispatch(&["--dry-run"]);
-    has(&r.out, "would run a cycle for #7 (retry ticked by alice)");
+    has(&r.out, "would run a cycle for #7 (retry answered by alice)");
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
     lacks(&w.gh(), "api -X PATCH");
@@ -186,65 +186,62 @@ fn a_dry_run_says_what_the_tick_would_do_and_changes_nothing() {
 }
 
 #[test]
-fn a_retry_ticked_by_the_bot_or_a_stranger_starts_nothing_and_is_undone() {
+fn a_retry_answered_by_the_bot_or_a_stranger_starts_nothing() {
     let w = World::new("park-stranger");
-    for other in ["tehas-bot", "mallory", ""] {
+    for other in ["tehas-bot", "mallory"] {
         ticked(&w, &["x", " "], other);
         w.poll();
         assert_eq!(started(&w), "", "{other}");
-        has(
-            &w.gh(),
-            "api -X PATCH repos/acme/widget/issues/comments/4001",
-        );
-        has(&w.gh(), "- [ ] Retry from a clean start");
-        has(&w.gh(), "may not answer for this factory");
+        lacks(&w.gh(), "api -X PATCH");
     }
 }
 
 #[test]
-fn a_retry_ticked_by_a_listed_login_with_another_user_id_starts_nothing_and_is_undone() {
+fn a_retry_answered_by_a_listed_login_with_another_user_id_starts_nothing() {
     let w = World::new("park-user-id");
     for id in [json!(99), Value::Null] {
         ticked(&w, &["x", " "], "alice");
         let path = w.fx.join("comments-7.json");
         let mut v: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-        v["data"]["repository"]["issue"]["comments"]["nodes"][0]["editor"]["databaseId"] =
+        v["data"]["repository"]["issue"]["comments"]["nodes"][1]["author"]["databaseId"] =
             id.clone();
         w.fx_json("comments-7.json", &v);
         let r = w.poll();
         assert_eq!(started(&w), "", "{id}");
         has(&r.out, "does not count");
-        has(&w.gh(), "- [ ] Retry from a clean start");
-        has(&w.gh(), "may not answer for this factory");
+    }
+}
+
+/// #2782: a box ticked in a comment of before 2.0 does nothing at all: no
+/// cycle starts, no answer is recorded, and nothing is posted.
+#[test]
+fn a_box_ticked_on_an_old_comment_does_nothing() {
+    let w = World::new("park-tick");
+    // Two boxes ticked, or one with nobody's reply: neither is an answer.
+    for boxes in [&["x", " ", "x"][..], &["x", " ", " "]] {
+        w.parked("failed", "alice");
+        w.comments(7, &park_body(boxes), "", json!([]));
+        let r = w.poll();
+        assert_eq!(r.rc, 0, "{}", r.out);
+        assert_eq!(started(&w), "", "{boxes:?}");
+        let gh = w.gh();
+        lacks(&gh, "issue comment");
+        lacks(&gh, "issue edit");
+        lacks(&gh, "api -X PATCH");
+        assert_eq!(w.park_q(7), "4001");
+        assert_eq!(
+            row(
+                &w,
+                &["question-known", "7", "--id", "4001"],
+                "[.answered, .answer] | tostring"
+            ),
+            "[false,null]"
+        );
     }
 }
 
 #[test]
-fn when_a_refused_tick_cannot_be_undone_the_note_is_not_repeated_every_poll() {
-    let w = World::new("park-refused-stays");
-    ticked(&w, &["x", " "], "mallory");
-    w.touch("patch-fails");
-    let r = w.poll();
-    assert_eq!(started(&w), "");
-    has(&w.gh(), "api -X PATCH");
-    lacks(&w.gh(), "may not answer for this factory");
-    has(&r.out, "could not untick the question on #7");
-}
-
-#[test]
-fn both_boxes_ticked_is_no_choice_nothing_starts_the_boxes_are_emptied_one_note() {
-    let w = World::new("park-both");
-    ticked(&w, &["x", " ", "x"], "alice");
-    w.poll();
-    assert_eq!(started(&w), "");
-    has(&w.gh(), "api -X PATCH");
-    has(&w.gh(), "Tick one");
-}
-
-// The third box is a retry as the first one is: the same rules, and only the
-// record is smaller.
-#[test]
-fn the_issue_alone_tick_by_an_allowed_account_starts_a_cycle_with_how_retry_tick() {
+fn the_issue_alone_answer_by_an_allowed_account_starts_a_cycle_with_how_answer() {
     let w = World::new("park-alone");
     ticked(&w, &[" ", "x", " "], "alice");
     let r = w.poll();
@@ -252,41 +249,36 @@ fn the_issue_alone_tick_by_an_allowed_account_starts_a_cycle_with_how_retry_tick
     assert_eq!(started(&w), "7");
     assert_eq!(
         w.at_mark("[.by, .how, .at, .comment_id] | tostring"),
-        r#"["alice","retry-tick","2026-01-01T01:00:00Z",4001]"#
+        r#"["alice","answer","2026-01-01T01:00:00Z",4001]"#
     );
     has(
         &w.gh(),
         "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question",
     );
-    has(&w.gh(), "authorized by @alice's retry tick");
-    has(&r.out, "start #7 (retry ticked by alice)");
+    has(&w.gh(), "authorized by @alice's answer");
+    has(&r.out, "start #7 (retry answered by alice)");
     assert_eq!(w.park_q(7), "none");
 }
 
 #[test]
-fn the_issue_alone_tick_by_the_bot_or_a_stranger_starts_nothing_and_is_undone() {
+fn the_issue_alone_answer_by_the_bot_or_a_stranger_starts_nothing() {
     let w = World::new("park-alone-stranger");
-    for other in ["tehas-bot", "mallory", ""] {
+    for other in ["tehas-bot", "mallory"] {
         ticked(&w, &[" ", "x", " "], other);
         w.poll();
         assert_eq!(started(&w), "", "{other}");
-        has(
-            &w.gh(),
-            "api -X PATCH repos/acme/widget/issues/comments/4001",
-        );
-        has(&w.gh(), "- [ ] Retry with the issue text only");
-        has(&w.gh(), "may not answer for this factory");
+        lacks(&w.gh(), "api -X PATCH");
     }
 }
 
 #[test]
-fn both_retry_boxes_ticked_is_no_choice_nothing_starts_and_the_boxes_are_emptied() {
+fn both_retry_boxes_ticked_answer_nothing() {
     let w = World::new("park-both-retry");
     ticked(&w, &["x", "x"], "alice");
     w.poll();
     assert_eq!(started(&w), "");
-    has(&w.gh(), "api -X PATCH");
-    has(&w.gh(), "Tick one");
+    lacks(&w.gh(), "issue comment");
+    lacks(&w.gh(), "api -X PATCH");
 }
 
 #[test]
@@ -306,7 +298,7 @@ fn a_dry_run_says_what_the_issue_alone_tick_would_do_and_changes_nothing() {
     let w = World::new("park-alone-dry");
     ticked(&w, &[" ", "x", " "], "alice");
     let r = w.dispatch(&["--dry-run"]);
-    has(&r.out, "would run a cycle for #7 (retry ticked by alice)");
+    has(&r.out, "would run a cycle for #7 (retry answered by alice)");
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit");
     assert_eq!(w.park_q(7), "4001");
@@ -318,7 +310,7 @@ fn a_park_comment_of_the_old_two_boxes_still_starts_a_clean_start_when_it_is_tic
     ticked(&w, &["x", " "], "alice");
     w.poll();
     assert_eq!(started(&w), "7");
-    assert_eq!(w.at_mark(".how"), "retry-tick");
+    assert_eq!(w.at_mark(".how"), "answer");
 }
 
 #[test]

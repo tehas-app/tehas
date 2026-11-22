@@ -613,7 +613,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "retry-tick",
+      "given": "answer",
       "driver": "lean"
      }
     ]
@@ -678,7 +678,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "retry-tick"
+      "given": "answer"
      }
     ],
     "no_actions": [
@@ -854,7 +854,7 @@
     "picked": [],
     "nothing": true,
     "log": [
-     "wait #7: a retry was ticked on the park of a lean start this tehas cannot run; take tehas:lean off first, and the tick then starts it on classic"
+     "wait #7: a retry was answered on the park of a lean start this tehas cannot run; take tehas:lean off first, and the answer then starts it on classic"
     ]
    },
    "after": {
@@ -913,7 +913,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "retry-tick"
+      "given": "answer"
      }
     ],
     "no_actions": [
@@ -1048,8 +1048,8 @@
     ],
     "actions": [
      {
-      "untick": 7,
-      "say": "Retry was ticked and nothing was started: `tehas:lean` was applied by `mallory`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:lean` again, or takes it off for classic, then ticks Retry."
+      "issue": 7,
+      "say": "Retry was asked for and nothing was started: `tehas:lean` was applied by `mallory`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:lean` again, or takes it off for classic, then answers retry again."
      }
     ],
     "no_actions": [
@@ -1119,9 +1119,6 @@
     "no_actions": [
      {
       "start": 7
-     },
-     {
-      "untick": 7
      }
     ]
    },
@@ -2446,8 +2443,8 @@
     ],
     "actions": [
      {
-      "untick": 7,
-      "say": "Retry was ticked and nothing was started: `tehas:lean` was taken off by `mallory`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:lean` again, and takes it off for classic, then ticks Retry."
+      "issue": 7,
+      "say": "Retry was asked for and nothing was started: `tehas:lean` was taken off by `mallory`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:lean` again, and takes it off for classic, then answers retry again."
      }
     ],
     "no_actions": [
@@ -3749,7 +3746,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "retry-tick",
+      "given": "answer",
       "driver": "lean",
       "remove": [
        "tehas:question",
@@ -3818,7 +3815,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "retry-tick",
+      "given": "answer",
       "remove": [
        "tehas:question"
       ]
@@ -3876,7 +3873,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "retry-tick",
+      "given": "answer",
       "driver": "lean"
      }
     ]
@@ -3932,7 +3929,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "retry-tick",
+      "given": "answer",
       "driver": "lean"
      }
     ]
@@ -4000,7 +3997,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "retry-tick"
+      "given": "answer"
      }
     ],
     "no_actions": [
@@ -4068,7 +4065,7 @@
     "picked": [],
     "nothing": true,
     "log": [
-     "wait #7: a retry was ticked on the park of a lean start this tehas cannot run; apply tehas:classic first, and the tick then starts it on classic"
+     "wait #7: a retry was answered on the park of a lean start this tehas cannot run; apply tehas:classic first, and the answer then starts it on classic"
     ]
    },
    "after": {
@@ -4123,7 +4120,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "retry-tick",
+      "given": "answer",
       "remove": [
        "tehas:question"
       ]
@@ -4202,11 +4199,7 @@
     "log": [
      "skip #7: tehas:classic was applied by 'mallory', not an allowed account"
     ],
-    "actions": [
-     {
-      "untick": 7
-     }
-    ],
+    "actions": [],
     "no_actions": [
      {
       "start": 7
@@ -4269,7 +4262,7 @@
     "picked": [],
     "nothing": true,
     "log": [
-     "wait #7: a retry was ticked on the park of a lean start this tehas cannot run; take tehas:lean off first, and the tick then starts it on classic"
+     "wait #7: a retry was answered on the park of a lean start this tehas cannot run; take tehas:lean off first, and the answer then starts it on classic"
     ]
    },
    "after": {
@@ -4743,7 +4736,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "retry-tick",
+      "given": "answer",
       "remove": [
        "tehas:question"
       ]
@@ -5072,8 +5065,8 @@
     ],
     "actions": [
      {
-      "untick": 7,
-      "say": "Retry was ticked and nothing was started: `tehas:lean` asks for the lean driver, which is still being built in this release, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` takes `tehas:lean` off, then ticks Retry."
+      "issue": 7,
+      "say": "Retry was asked for and nothing was started: `tehas:lean` asks for the lean driver, which is still being built in this release, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` takes `tehas:lean` off, then answers retry again."
      }
     ],
     "no_actions": [

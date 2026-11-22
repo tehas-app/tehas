@@ -201,6 +201,12 @@ impl Park {
         p + &self.repeat
     }
 
+    /// Whether the park asks a person anything: not when the factory takes it
+    /// up again on its own (`auto`), which its comment says instead.
+    pub fn asks(&self) -> bool {
+        self.auto.is_empty()
+    }
+
     /// The question of a park on record: the text the question file holds,
     /// and the body posted.
     pub fn question(&self, issue: u64, stuck: bool) -> (String, String) {
@@ -1779,7 +1785,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 };
                 parked = format!("Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. {lacks} To keep it on lean, rebuild the sandbox image on a pi-rukas that supports this, then apply `tehas:ready` again. To run it on classic instead, which changes its driver, {how}, then retry; {log_where}.");
                 park_why = tehas_core::question::LEAN_REFUSED;
-                lead = format!("To run it on classic instead, {step} this issue, then tick a box.");
+                lead = format!("To run it on classic instead, {step} this issue, then reply with one of the choices.");
             }
         } else if let Some(said) = &conflicted {
             r.arm = "refresh-conflict";
@@ -2089,9 +2095,9 @@ pub fn for_host(body: &str) -> String {
     cmd.replace_all(body, |c: &regex::Captures| {
         let said = match c.get(2).map(|m| m.as_str().trim()).filter(|p| !p.is_empty()) {
             Some(paths) => format!(
-                "make the change to `{paths}` yourself, since a cycle may not change a protected path, then tick a retry box on this comment"
+                "make the change to `{paths}` yourself, since a cycle may not change a protected path, then reply `retry` to this comment"
             ),
-            None => "tick a retry box on this comment".to_string(),
+            None => "reply `retry` to this comment".to_string(),
         };
         let upper = c
             .get(1)
@@ -2117,11 +2123,11 @@ mod tests {
     fn a_handoff_s_work_command_is_said_as_the_host_s_way() {
         assert_eq!(
             super::for_host("Run `/work 1435 --restart --allow-protected .pi/verify-cmd` once it is right."),
-            "Make the change to `.pi/verify-cmd` yourself, since a cycle may not change a protected path, then tick a retry box on this comment once it is right."
+            "Make the change to `.pi/verify-cmd` yourself, since a cycle may not change a protected path, then reply `retry` to this comment once it is right."
         );
         assert_eq!(
             super::for_host("fix the change the evidence names, then re-run `/work 7 --restart`"),
-            "fix the change the evidence names, then tick a retry box on this comment"
+            "fix the change the evidence names, then reply `retry` to this comment"
         );
         let plain = "Nothing to run here; `tehas work 7` and `/work` alone stay.";
         assert_eq!(super::for_host(plain), plain);

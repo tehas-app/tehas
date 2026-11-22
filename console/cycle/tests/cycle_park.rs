@@ -194,8 +194,12 @@ fn markers(w: &World) -> usize {
         .count()
 }
 
+/// The factory's own choices posted, one line each, and never a task-list
+/// line: what an agent writes cannot add one.
 fn boxes(w: &World) -> usize {
-    starts(&w.gh(), "- [")
+    let gh = w.gh();
+    assert_eq!(starts(&gh, "- ["), 0, "{gh}");
+    starts(&gh, "- retry") + starts(&gh, "- park: ")
 }
 
 /// The usage numbers come from files too: a string there must not reach a
@@ -720,7 +724,7 @@ fn a_cycle_that_stops_asks_what_to_do_next_with_boxes() {
         .count();
     assert_eq!(both, 0);
     has(&gh, "api repos/acme/widget/issues/7/comments");
-    has(&gh, "- [ ] Retry with the issue text only");
+    has(&gh, "- retry-text: Retry with the issue text only");
     has(&gh, "<!-- tehas:question kind=park issue=7 turn=1 -->");
 }
 
@@ -730,9 +734,12 @@ fn a_cycle_on_an_image_that_gives_a_retry_the_comments_offers_the_comments_retry
     w.work(r#"echo native >"$TEHAS_HOME/state/cycles/7.comments""#);
     w.run7();
     let gh = w.gh();
-    has(&gh, "- [ ] Retry with the issue and all its comments");
-    has(&gh, "- [ ] Retry with the issue text only");
-    has(&gh, "Both retries start over in a new workspace.");
+    has(&gh, "- retry: Retry with the issue and all its comments");
+    has(&gh, "- retry-text: Retry with the issue text only");
+    has(
+        &gh,
+        "given what allowed accounts wrote on this issue and on its pull requests",
+    );
     let w = World::new("park-comments2");
     w.run7();
     lacks(&w.gh(), "Retry with the issue and all its comments");
@@ -842,7 +849,7 @@ fn a_park_the_store_would_not_take_asks_no_question_the_plain_comment_and_no_teh
     has(&gh, "issue comment 7 --repo acme/widget --body");
     has(&gh, "Tehas cycle stopped without a pull request");
     has(&gh, "To retry, apply `tehas:ready`.");
-    lacks(&gh, "- [ ] Retry with the issue text only");
+    lacks(&gh, "- retry-text: Retry with the issue text only");
     lacks(&edits(&w), "tehas:question");
     has(
         &gh,
@@ -893,10 +900,10 @@ fn a_question_the_store_would_not_take_is_posted_and_the_log_says_its_boxes_will
         0,
     );
     let r = w.run7();
-    has(&w.gh(), "- [ ] Retry with the issue text only");
+    has(&w.gh(), "- retry-text: Retry with the issue text only");
     has(
         &r.out,
-        "WARN: could not record the park question of #7, its boxes will not work (busy)",
+        "WARN: could not record the park question of #7, a reply to it will not count (busy)",
     );
     w.store_answers_off();
     assert_eq!(park_q(&w), "none");
@@ -908,8 +915,8 @@ fn when_the_question_label_cannot_be_added_the_person_is_told_the_boxes_do_not_w
     w.fx("edit-fails-on", "--add-label tehas:question");
     let r = w.run7();
     let gh = w.gh();
-    has(&gh, "- [ ] Retry with the issue text only");
-    has(&gh, "issue comment 7 --repo acme/widget --body The boxes above cannot be used: the label `tehas:question` could not be added (run `tehas labels` on the host). To retry, apply `tehas:ready`.");
+    has(&gh, "- retry-text: Retry with the issue text only");
+    has(&gh, "issue comment 7 --repo acme/widget --body A reply to the choices above does nothing: the label `tehas:question` could not be added (run `tehas labels` on the host). To retry, apply `tehas:ready`.");
     has(
         &r.out,
         "WARN: label change on #7 failed: --add-label tehas:question",
@@ -1082,7 +1089,7 @@ fn a_lean_start_tehas_work_refused_is_parked_with_what_to_do_and_its_approval_go
     );
     has(
         &gh,
-        "To run it on classic instead, take `tehas:lean` off this issue, then tick a box.",
+        "To run it on classic instead, take `tehas:lean` off this issue, then reply with one of the choices.",
     );
     // One line names the refusal, and no warning of a missing result.
     has(&r.out, "#7: tehas work refused the start before its runner ran (exit 78): the sandbox image cannot run lean as this start asks");
@@ -1097,7 +1104,7 @@ fn a_lean_start_tehas_work_refused_is_parked_with_what_to_do_and_its_approval_go
         live["last"]["statusText"],
         "the sandbox image cannot run lean as this start asks"
     );
-    has(&gh, "- [ ] Retry with the issue text only");
+    has(&gh, "- retry-text: Retry with the issue text only");
     lacks(&gh, "stopped without a pull request");
     lacks(&gh, "--add-label tehas:ready");
     assert_eq!(w.park()["reason"], "lean-refused");
@@ -1156,7 +1163,7 @@ fn a_start_that_never_ran_is_parked_as_one_that_never_ran_named_from_the_record(
     let gh = w.gh();
     has(&gh, "Tehas started no cycle: tehas work refused the start before its runner ran (runner exit 4). It refuses one, for example, when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle.");
     has(&gh, "alice approved this start at 2026-01-01T00:00:00Z");
-    has(&gh, "- [ ] Retry with the issue text only");
+    has(&gh, "- retry-text: Retry with the issue text only");
     lacks(&gh, "stopped without a pull request");
     lacks(&gh, "status `unknown`");
     lacks(&gh, "last step");
@@ -1317,7 +1324,7 @@ fn a_develop_timeout_leaves_a_note_of_the_attempt_in_the_issues_body_and_still_o
     has(&gh, "api -X PATCH repos/acme/widget/issues/7 -f body=Fix the drain.\n\n<!-- tehas:last-attempt base=");
     has(&gh, "the developer ran past its time bound of 90 minutes");
     has(&gh, "  - `libexec/drain`");
-    has(&gh, "- [ ] Retry with the issue text only");
+    has(&gh, "- retry-text: Retry with the issue text only");
     assert_eq!(w.park()["reason"], "child-timeout:develop");
 }
 
@@ -1330,7 +1337,7 @@ fn a_second_develop_timeout_on_the_same_text_writes_nothing_offers_no_retry_and_
     let gh = w.gh();
     lacks(&gh, "api -X PATCH");
     lacks(&gh, "Retry with the issue text only");
-    has(&gh, "- [ ] Leave it parked");
+    has(&gh, "- park: Leave it parked");
     has(
         &gh,
         "ran out of time in develop twice on the same text: split it with `tehas:plan`",
@@ -1351,7 +1358,7 @@ fn a_timeout_after_the_text_changed_outside_the_note_writes_a_fresh_note_and_off
         &w.gh(),
         "api -X PATCH repos/acme/widget/issues/7 -f body=Fix only the drain's check.",
     );
-    has(&w.gh(), "- [ ] Retry with the issue text only");
+    has(&w.gh(), "- retry-text: Retry with the issue text only");
 }
 
 #[test]
@@ -1364,7 +1371,7 @@ fn a_note_github_will_not_take_is_a_warning_and_the_park_is_posted_as_before() {
         &r.out,
         "WARN: could not leave the last attempt's note in the body of #7",
     );
-    has(&w.gh(), "- [ ] Retry with the issue text only");
+    has(&w.gh(), "- retry-text: Retry with the issue text only");
     assert_eq!(park_q(&w), "4002");
 }
 
@@ -1375,5 +1382,5 @@ fn another_cap_leaves_the_body_alone() {
     w.entry(|e| e["cap"] = json!("child-timeout:explore"));
     w.run7();
     lacks(&w.gh(), "api -X PATCH");
-    has(&w.gh(), "- [ ] Retry with the issue text only");
+    has(&w.gh(), "- retry-text: Retry with the issue text only");
 }

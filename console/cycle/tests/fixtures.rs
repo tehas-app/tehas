@@ -15,7 +15,7 @@ use std::fs;
 use tehas_cycle::report::{last_attempts, report, Action, Given};
 use tehas_cycle::Facts;
 
-const BOXES: &str = "The boxes above cannot be used: the label `tehas:question` could not be added (run `tehas labels` on the host). To retry, apply `tehas:ready`.";
+const BOXES: &str = "A reply to the choices above does nothing: the label `tehas:question` could not be added (run `tehas labels` on the host). To retry, apply `tehas:ready`.";
 
 /// The writes of a report under what the bash met: its label changes, each
 /// counted once however often it was tried, its park on record or not, and
@@ -259,13 +259,15 @@ fn the_park_of_a_refused_lean_start_puts_the_label_above_its_boxes() {
             })
             .unwrap()
     };
-    let lead = "To run it on classic instead, take `tehas:lean` off this issue, then tick a box.";
+    let lead = "To run it on classic instead, take `tehas:lean` off this issue, then reply with one of the choices.";
     let p = parks(78, true);
     let reason = p.args.iter().position(|a| a == "--reason").unwrap();
     assert_eq!(p.args[reason + 1], "lean-refused", "{:?}", p.args);
     let (_, body) = p.question(7, false);
     let at = body.find(lead).unwrap_or_else(|| panic!("{body}"));
-    let boxes = body.find("- [ ] Retry with the issue text only").unwrap();
+    let boxes = body
+        .find("- retry-text: Retry with the issue text only")
+        .unwrap();
     assert!(at < boxes, "{body}");
     for p in [parks(4, false), parks(78, false)] {
         assert!(
@@ -308,7 +310,7 @@ fn under_a_lean_default_the_park_of_a_refused_lean_start_asks_for_tehas_classic(
     let (_, body) = p.question(7, false);
     assert!(
         body.contains(
-            "To run it on classic instead, apply `tehas:classic` to this issue, then tick a box."
+            "To run it on classic instead, apply `tehas:classic` to this issue, then reply with one of the choices."
         ),
         "{body}"
     );

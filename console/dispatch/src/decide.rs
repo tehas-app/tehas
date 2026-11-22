@@ -2565,7 +2565,7 @@ impl<'a> Poll<'a> {
         {
             Some(Ok(by)) => {
                 self.log(format!(
-                    "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted on the Retry {by} ticked"
+                    "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted on the retry {by} answered"
                 ));
                 return Ok(false);
             }
@@ -2582,14 +2582,14 @@ impl<'a> Poll<'a> {
         // unticks it and points at the label), so the label is not held.
         if p.question.is_none() {
             self.log(format!(
-                "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted as its park has no question on record to tick"
+                "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted as its park has no question on record to answer"
             ));
             return Ok(false);
         }
         if !p.told && !self.dry {
             self.act(Action::ParkTold {
                 issue: n,
-                say: format!("Not started: the last cycle parked on `{cap}` and the issue text has not changed since. Edit the body, or tick Retry in the park comment."),
+                say: format!("Not started: the last cycle parked on `{cap}` and the issue text has not changed since. Edit the body, or reply `retry` to the park comment."),
             });
         }
         self.log(format!(
@@ -2651,7 +2651,7 @@ impl<'a> Poll<'a> {
             issue: n,
             why: HELD_PARKED,
             text: text.chars().take(HELD_TEXT_MAX).collect(),
-            clear: "edit the body, or tick Retry in the park comment".into(),
+            clear: tehas_core::hold::HELD_PARKED_CLEAR.into(),
         });
     }
 

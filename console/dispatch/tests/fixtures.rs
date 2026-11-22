@@ -6,6 +6,9 @@
 use serde_json::{json, Map, Value};
 use std::fs;
 use tehas_core::question::box_line;
+
+#[path = "common/replies.rs"]
+mod replies;
 use tehas_dispatch::text::{body_sha256, plan_sum};
 use tehas_dispatch::{decide, Settings, Snapshot};
 
@@ -442,9 +445,24 @@ fn expand(c: &Value, snap: &mut Value) {
     if !asked.is_empty() {
         let mut is = issues(snap);
         for (n, x) in asked {
-            let ed = x[1].as_str().unwrap_or("");
+            // A box ticked is answered now by a reply of its editor (#2782).
+            let (unticked, reply) = replies::as_reply(
+                x[0].as_str().unwrap_or(""),
+                x[1].as_str().unwrap_or(""),
+                None,
+            );
+            let ed = if reply.is_some() {
+                ""
+            } else {
+                x[1].as_str().unwrap_or("")
+            };
+            let body = if reply.is_some() {
+                json!(unticked)
+            } else {
+                x[0].clone()
+            };
             let mut nodes = vec![
-                json!({"databaseId": 4001, "author": {"login": "tehas-bot"}, "body": x[0],
+                json!({"databaseId": 4001, "author": {"login": "tehas-bot"}, "body": body,
                 "createdAt": "2026-01-01T00:00:00Z",
                 "lastEditedAt": if ed.is_empty() { Value::Null } else { json!("2026-01-01T01:00:00Z") },
                 "editor": if ed.is_empty() { Value::Null } else { json!({"login": ed}) }}),
@@ -457,12 +475,13 @@ fn expand(c: &Value, snap: &mut Value) {
             if let Some(a) = c.get("question_author") {
                 nodes[0]["author"] = a.clone();
             }
-            nodes.extend(
+            nodes.extend(replies::in_order(
+                reply,
                 x.get(2)
                     .and_then(Value::as_array)
                     .cloned()
                     .unwrap_or_default(),
-            );
+            ));
             let i = is.entry(n).or_insert_with(|| json!({}));
             i["comments"] =
                 json!({"data": {"repository": {"issue": {"comments": {"nodes": nodes}}}}});

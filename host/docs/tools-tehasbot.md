@@ -165,16 +165,16 @@ the step it stopped in, cap, branch, token usage), finds the pull request the
 bot opened, and relabels and
 comments: merged, `tehas:awaiting-merge`, or `needs-human-attention`. A cycle
 that stopped is parked on the state store first (`store park`: why it parked,
-its step and its pull request), then gets its comment with three boxes and the
+its step and its pull request), then gets its comment with its choices as plain lines and the
 label `tehas:question`. The comment's id goes on the store as the park's
 question, with the sha256 of the body posted, which is what lets the
-dispatcher take a tick there. A park the store does not take asks no
+dispatcher take an answer to it. A park the store does not take asks no
 question: the comment is the plain one that says to apply `tehas:ready`, with
-no boxes and no `tehas:question`, and the log says `WARN: could not record the
+no choices and no `tehas:question`, and the log says `WARN: could not record the
 park of #N (...), so it asks no question`. A question the store does not take
-is posted all the same, and the log says its boxes will not work. A question
+is posted all the same, and the log says a reply to it will not count. A question
 whose label cannot be added is taken off the record again, and the issue is
-told the boxes cannot be used. It
+told a reply to it does nothing. It
 then removes the workspace of a cycle that merged or left a pull request, and
 keeps the workspace of one that stopped. The images `tehas work` fetched for
 the cycle are removed in every case. A runner that started no cycle (exit 4) is
@@ -293,7 +293,7 @@ is parked, and the tail of every poll,
 [tehasbot status](/tools-health#tehasbot-status-and-the-console)
 label the closed issue `tehas:shipped`. One that a person closed without
 merging gets `needs-human-attention` and a plain comment that says so, without
-the retry boxes: to try again, apply `tehas:ready`.
+the retry choices: to try again, apply `tehas:ready`.
 
 What the result says is checked against GitHub. A pull request counts as the
 cycle's only when the bot opened it on the branch the result names and it

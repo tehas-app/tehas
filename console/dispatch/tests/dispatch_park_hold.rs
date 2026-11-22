@@ -125,12 +125,12 @@ fn a_relabelled_start_on_the_body_its_last_cycle_parked_on_is_held_said_once_on_
     parked_words(&w);
     let r = holds(&w);
     has(&r.out, HOLD);
-    has(&w.gh(), "issue comment 7 --repo acme/widget --body Not started: the last cycle parked on `intent-park` and the issue text has not changed since. Edit the body, or tick Retry in the park comment.");
+    has(&w.gh(), "issue comment 7 --repo acme/widget --body Not started: the last cycle parked on `intent-park` and the issue text has not changed since. Edit the body, or reply `retry` to the park comment.");
     assert_eq!(park_of(&w, ".told_at != null"), "true");
     assert_eq!(count_lines(&w.gh(), "issue comment 7"), 1);
     assert_eq!(
         w.dispatch_state()["held"],
-        json!([{"clear": "edit the body, or tick Retry in the park comment", "issue": 7,
+        json!([{"clear": "edit the body, or reply `retry` to the park comment", "issue": 7,
             "text": "its last cycle parked on `intent-park` and the body has not changed since",
             "why": "parked"}])
     );
@@ -809,7 +809,7 @@ fn a_retry_ticked_in_the_park_comment_lifts_the_hold_once_the_question_label_is_
     no_question(&w);
     w.comments(7, &park_body(&[" ", "x", " "]), "alice", json!([]));
     let r = lifts(&w);
-    has(&r.out, "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the Retry alice ticked");
+    has(&r.out, "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the retry alice answered");
 }
 
 #[test]
@@ -827,7 +827,7 @@ fn a_retry_answered_through_tehas_answer_lifts_the_hold_as_a_tick_does() {
         "retry-text",
     ]);
     let r = lifts(&w);
-    has(&r.out, "lifted on the Retry alice ticked");
+    has(&r.out, "lifted on the retry alice answered");
 }
 
 #[test]
@@ -848,5 +848,5 @@ fn a_park_whose_question_is_no_longer_on_record_does_not_hold_a_new_tehas_ready(
     parked_words(&w);
     w.store_ok(&["question-answered", "7", "--id", "4001", "--withdraw"]);
     let r = lifts(&w);
-    has(&r.out, "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted as its park has no question on record to tick");
+    has(&r.out, "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted as its park has no question on record to answer");
 }

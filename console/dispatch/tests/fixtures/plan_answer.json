@@ -186,7 +186,7 @@
    }
   },
   {
-   "case": "a reply wins over a tick, and the answer says what was ticked",
+   "case": "a later reply wins over a choice made before it",
    "snapshot": {
     "ready": [],
     "asking": [
@@ -245,7 +245,7 @@
     "actions": [
      {
       "plan_turn": 7,
-      "answer": "The operator replied on the issue:\n\nactually, wait\n\nA box was also ticked, by alice: Adopt all",
+      "answer": "The operator replied on the issue:\n\nactually, wait",
       "by": "bob"
      }
     ],
@@ -255,7 +255,7 @@
    }
   },
   {
-   "case": "a reply with the way out ticked runs the turn and says the box was ticked",
+   "case": "a reply after the end was chosen runs the turn with the reply",
    "snapshot": {
     "ready": [],
     "asking": [
@@ -311,7 +311,7 @@
     "actions": [
      {
       "plan_turn": 7,
-      "answer": "The operator replied on the issue:\n\none more thing\n\nA box was also ticked, by alice: End this planning session"
+      "answer": "The operator replied on the issue:\n\none more thing"
      }
     ]
    }
@@ -488,12 +488,7 @@
     ]
    },
    "expect": {
-    "actions": [
-     {
-      "untick": 7,
-      "comment": 4001
-     }
-    ],
+    "actions": [],
     "no_actions": [
      {
       "plan_turn": 7
@@ -861,7 +856,7 @@
    },
    "expect": {
     "log": [
-     "skip #7: the ticked box matches no option on record"
+     "skip #7: the choice made matches no option on record"
     ],
     "nothing": true
    }

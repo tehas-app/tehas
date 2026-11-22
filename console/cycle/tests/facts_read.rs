@@ -167,11 +167,11 @@ fn a_park_offers_the_comments_retry_only_when_the_image_gives_the_comments() {
         };
         let (_, body) = park.question(7, false);
         assert_eq!(
-            body.contains("- [ ] Retry with the issue and all its comments"),
+            body.contains("- retry: Retry with the issue and all its comments"),
             offered,
             "{body}"
         );
-        assert!(body.contains("- [ ] Retry with the issue text only"));
+        assert!(body.contains("- retry-text: Retry with the issue text only"));
     }
 }
 

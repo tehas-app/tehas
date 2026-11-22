@@ -469,28 +469,6 @@ fn an_app_millwright_set_with_bot_answers_as_graphql_names_it_and_the_store_has_
 }
 
 #[test]
-fn an_app_millwright_set_with_bot_ticks_a_box_as_graphql_names_it() {
-    let w = planning_world(json!([]));
-    w.slots(1, &[]);
-    w.comments(7, &plan_body(" ", "x", " ", 1, ""), "tehas-bot", json!([]));
-    w.poll();
-    assert_eq!(answer(&w), "The fixer chose: Change some");
-}
-
-#[test]
-fn a_box_the_fixer_ticked_runs_the_turn_as_its_choice() {
-    let w = planning_world(json!([]));
-    w.comments(7, &plan_body(" ", "x", " ", 1, ""), "tehas-bot", json!([]));
-    w.poll();
-    assert_eq!(answer(&w), "The fixer chose: Change some");
-    lacks(&w.plan_calls(), "--comment");
-    assert_eq!(
-        w.rec()["answers"],
-        json!([{"turn": 2, "by": "tehas-bot", "fixer": true}])
-    );
-}
-
-#[test]
 fn a_person_s_reply_wins_over_a_newer_reply_of_the_fixer_s_and_a_person_s_tick_wins_too() {
     let w = planning_world(json!([]));
     let mut after = vec![
@@ -569,45 +547,6 @@ fn and_a_person_s_answer_then_runs_the_turn() {
     has(&w.plan_calls(), "--comment 4005");
 }
 
-/// The fixer's tick, saved after alice saved the question.
-fn held() -> World {
-    let w = planning_world(json!([]));
-    w.comments(
-        7,
-        &plan_body(" ", "x", " ", 1, ""),
-        "tehas-bot",
-        freply(&marked("Adopt all."), 4003),
-    );
-    edit_question(&w, saved_after_alice);
-    w
-}
-
-#[test]
-fn a_tick_the_fixer_saved_after_alice_edited_the_question_is_held_for_a_person_not_unticked() {
-    let w = held();
-    let r = w.poll();
-    assert_eq!(w.plan_calls(), "");
-    lacks(&w.gh(), "api -X PATCH");
-    has(&r.out, "skip #7: the fixer saved the question after another account did, so who ticked it is not known");
-    assert_eq!(comments_7(&w), 1);
-    has(&w.gh(), "A person ticks the box again or replies");
-    assert_eq!(w.rec()["held"], json!([4001]));
-    w.clear_calls();
-    w.poll();
-    assert_eq!(w.plan_calls(), "");
-    lacks(&w.gh(), "issue comment");
-}
-
-#[test]
-fn and_alice_s_tick_saved_again_runs_the_turn_as_hers() {
-    let w = held();
-    w.poll();
-    w.poll();
-    edit_question(&w, |q| q["editor"]["login"] = json!("alice"));
-    w.poll();
-    assert_eq!(answer(&w), "The operator chose: Change some");
-}
-
 #[test]
 fn a_held_tick_on_a_parked_cycle_s_question_starts_nothing_and_stays() {
     let w = World::new("millwright");
@@ -639,51 +578,4 @@ fn a_host_note_after_a_plan_question_is_no_fixer_reply_two_polls_post_nothing() 
         lacks(&w.gh(), "issue comment");
         lacks(&r.out, "the fixer's answer runs no turn");
     }
-}
-
-/// The fixer's tick, saved after alice saved the question, read as GitHub
-/// now answers it: an id and no history, which the poll reads by the id.
-fn held_by_id() -> World {
-    let w = planning_world(json!([]));
-    w.comments(
-        7,
-        &plan_body(" ", "x", " ", 1, ""),
-        "tehas-bot",
-        freply(&marked("Adopt all."), 4003),
-    );
-    edit_question(&w, |q| {
-        q["id"] = json!("IC_q7");
-        q.as_object_mut().unwrap().remove("userContentEdits");
-    });
-    w.fx(
-        "comment-edits.json",
-        r#"{"data":{"nodes":[{"id":"IC_q7","userContentEdits":{"totalCount":2,"nodes":[{"editor":{"login":"alice"}},{"editor":{"login":"tehas-bot"}}]}}]}}"#,
-    );
-    w
-}
-
-#[test]
-fn a_tick_the_fixer_saved_after_alice_edited_the_question_is_held_its_history_read_by_the_comment_s_id(
-) {
-    let w = held_by_id();
-    let r = w.poll();
-    has(&w.gh(), r#"nodes(ids: ["IC_q7"])"#);
-    assert_eq!(w.plan_calls(), "");
-    has(&r.out, "skip #7: the fixer saved the question after another account did, so who ticked it is not known");
-}
-
-#[test]
-fn a_tick_the_fixer_saved_whose_history_cannot_be_read_waits_with_no_note() {
-    let w = held_by_id();
-    w.poll();
-    w.clear_calls();
-    w.touch("comment-edits-fail");
-    let r = w.poll();
-    assert_eq!(w.plan_calls(), "");
-    has(
-        &r.out,
-        "skip #7: the edit history of its question could not be read; it waits for the next poll",
-    );
-    lacks(&w.gh(), "issue comment");
-    lacks(&w.gh(), "api -X PATCH");
 }

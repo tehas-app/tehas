@@ -47,6 +47,10 @@ pub const KEY_HELD: &str = "held";
 /// `held[].why` of an issue held because its last cycle parked and its body
 /// has not changed since.
 pub const HELD_PARKED: &str = "parked";
+
+/// What a person does to release a park's hold: the `clear` of a hold of
+/// [`HELD_PARKED`].
+pub const HELD_PARKED_CLEAR: &str = "edit the body, or reply `retry` to the park comment";
 /// The most characters `held[].text` keeps: it quotes a park's reason.
 pub const HELD_TEXT_MAX: usize = 200;
 
@@ -331,7 +335,7 @@ mod tests {
                 issue: 7,
                 why: HELD_PARKED,
                 text: "its last cycle parked on `gate` and the body has not changed since".into(),
-                clear: "edit the body, or tick Retry in the park comment".into(),
+                clear: "edit the body, or reply `retry` to the park comment".into(),
             }],
         };
         let v = r.to_value();
@@ -350,7 +354,7 @@ mod tests {
             v[KEY_HELD],
             json!([{"issue": 7, "why": "parked",
                 "text": "its last cycle parked on `gate` and the body has not changed since",
-                "clear": "edit the body, or tick Retry in the park comment"}])
+                "clear": "edit the body, or reply `retry` to the park comment"}])
         );
         assert_eq!(Held::parse(&v[KEY_HELD][0]).map(|h| h.0), Some(7));
         for bad in [

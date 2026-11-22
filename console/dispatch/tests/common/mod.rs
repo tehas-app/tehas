@@ -8,6 +8,7 @@
 //! files in `fx/`, named as the stubs read them (the comments of GH and PAGE
 //! say which); every stub records its calls in `calls/<name>`.
 
+pub mod replies;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
@@ -1609,6 +1610,16 @@ impl World {
     /// The comments of an issue: the bot's question (comment 4001), who
     /// edited it last ("" for none), and the comments written after it.
     pub fn comments(&self, n: u64, body: &str, editor: &str, after: Value) {
+        // A box ticked is answered now by a reply of its editor (#2782).
+        let (unticked, reply) = replies::as_reply(body, editor, Some(uid(editor)));
+        let (body, editor) = match &reply {
+            Some(_) => (unticked.as_str(), ""),
+            None => (body, editor),
+        };
+        let after = Value::Array(replies::in_order(
+            reply,
+            after.as_array().cloned().unwrap_or_default(),
+        ));
         let ed = !editor.is_empty();
         let mut nodes = vec![json!({
             "databaseId": 4001,
