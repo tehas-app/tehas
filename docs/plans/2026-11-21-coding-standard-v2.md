@@ -458,11 +458,12 @@ The owner, 2026-11-22: 2.0.0 runs the lean driver by default. This is a
 behaviour change, made in its own pull requests and not inside a
 refactor step. The program manager is the session tehas-2d.
 
-1. **The proof (#1105), on main.** A person adds `.pi/work.json` to this
-   repository (AGENTS.md rule 7). About 20 issues of the same size, with
+1. **The proof (#1105), on main.** `.pi/work.json` is on main (1d429809).
+   About 20 issues of the same size, with
    `pi-spec v1` blocks, split evenly between the drivers, run on a lab
    build (`TEHAS_LAB_BUILD=on`, `TEHAS_TEST_FEATURES=lean`) at the
-   pinned pi-rukas. Read the analytics report by driver and the pull
+   pinned pi-rukas, on tehas-tehas. Its hold is lifted for the proof's
+   issues only (the owner, 2026-11-22). Read the analytics report by driver and the pull
    requests.
 2. **pi-rukas.** The pin carries the fixes of trail-openers/pi-rukas
    #2410 (a lean patch can break the project's existing tests), #2480
@@ -574,8 +575,6 @@ commit), and the owner's release of v2.0.0.
 - Whether the security shims that decide a `gh` write stay separate (T4).
 - The regrouping of T6, once the map shows the crates.
 - Each contract change T9 lists, before it is made.
-- Where T13's proof runs: tehas-tehas, with its hold lifted for the
-  proof's issues only, is the recommendation.
 
 ## Log
 
