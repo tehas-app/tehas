@@ -4,7 +4,7 @@
 
 use crate::decide::HOST;
 use crate::settings::Settings;
-use crate::slice::{Reading, Scope};
+use crate::slice::{Probed, Reading, Scope};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use tehas_core::driver::Driver;
@@ -1369,7 +1369,7 @@ pub struct Snapshot {
     /// `store approval-hosts` lists them with each issue's labels. None when
     /// the list could not be read.
     pub host_starts: Option<Vec<HostStart>>,
-    pub slice: Reading,
+    pub slice: Probed,
     /// What the model endpoints answered: the hold, when both failed, and
     /// which endpoint the subagent provider is on.
     pub endpoint_hold: String,
@@ -1501,9 +1501,9 @@ fn issues(v: Option<&Value>) -> Issues {
     }
 }
 
-pub(crate) fn reading(v: &Value) -> Reading {
+pub(crate) fn reading(v: &Value) -> Probed {
     let s = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
-    Reading {
+    let reading = Reading {
         show: v.get("show").and_then(Value::as_object).cloned(),
         docker: s("docker"),
         controllers: s("controllers"),
@@ -1532,7 +1532,8 @@ pub(crate) fn reading(v: &Value) -> Reading {
                     .collect()
             })
             .unwrap_or_default(),
-    }
+    };
+    Probed::of(reading)
 }
 
 fn issue(v: &Value) -> Issue {

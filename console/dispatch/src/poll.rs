@@ -826,9 +826,9 @@ fn body(
         && may_start(&snap, settings)
     {
         let slice = crate::snapshot::reading(snap.get("slice").unwrap_or(&Value::Null));
-        w.host.container_mb =
-            crate::slice::usable(&slice, &settings.reserve, &settings.slice_containers)
-                .map_or(0, |u| u.ceiling_mb);
+        w.host.container_mb = slice
+            .usable(&settings.reserve, &settings.slice_containers)
+            .map_or(0, |u| u.ceiling_mb);
         let (lines, holds) = w.push_probe(dry);
         for l in &lines {
             say(l);
