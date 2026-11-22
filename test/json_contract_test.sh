@@ -711,13 +711,13 @@ printf "%s\n" \
   "/dev/x 60000000 1 41943040 1% /"
 '
 
-# The daemon of every disk sample: the directory of the images, the four lines
-# of `docker system df` that the sample with `full` holds, and the two containers
-# it still holds back. The listing is the `ps` question a `--full` reading asks
-# without `--publish`, which is the whole of why the answer of that form carries
-# them: a reader that must not write the host can still ask for both figures.
+# The daemon of every disk sample: the directory of the images, one no host has
+# so it is a file system of its own whatever a real /var/lib/docker shares, the
+# lines of `docker system df` the sample with `full` holds, and the two
+# containers it holds back, which the `ps` of a `--full` reading without
+# `--publish` asks for: a reader that must not write can still ask for both.
 t_stub docker 'case "$*" in
-  *DockerRootDir*) echo /var/lib/docker ;;
+  *DockerRootDir*) echo /nonexistent/docker ;;
   "system df"*) printf "TYPE\tTOTAL\tACTIVE\tSIZE\tRECLAIMABLE\nImages\t2\t1\t1.2GB\t0B (0%%)\n" ;;
   "ps "*) printf "ab12c34d5e6f\ttehas-sandbox:latest\t/bin/sh -c sleep\n0123456789ab\tubuntu:24.04\n" ;;
 esac
