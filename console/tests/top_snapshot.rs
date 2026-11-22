@@ -533,7 +533,7 @@ fn a_process_with_no_row_in_the_earlier_reading_is_not_measured() {
     // snapshot had no reading of the frame before. With the earlier tree
     // really given, the console leaves out the rows it cannot pair and reads
     // the host at 100%, which is not what the comment above says. Kept as it
-    // ran until someone decides which is right.
+    // ran; #2854 decides which is right.
     let text = against_earlier(&w, r#""""#);
     let v = text.parse::<Value>().unwrap();
     let mut n = names(&text);
