@@ -8,7 +8,7 @@ use crate::slice::{self, gib};
 #[cfg(test)]
 use crate::snapshot::check_state;
 use crate::snapshot::{
-    Check, Comment, CommentId, HostStart, Issues, Labels, LimitState, Listed, OrderState,
+    Base, Check, Comment, CommentId, HostStart, Issues, Labels, LimitState, Listed, OrderState,
     PauseFlag, PlanStart, Snapshot, Text, Until, Work, WorkIssue,
 };
 use crate::text;
@@ -30,7 +30,9 @@ mod plan;
 mod retry;
 mod starts;
 
-pub(crate) use crate::snapshot::{named_blockers, shape};
+pub(crate) use crate::snapshot::{
+    base_approver, base_stands, fixer_base, fixer_starts, named_blockers, shape,
+};
 pub(crate) use clean::{iso, quiet_due, quiet_why, Due, QUIET_ASKS};
 pub(crate) use flow::in_flow;
 pub(crate) use note::{change_note_of, in_window, window_order, ContextNote};
@@ -286,7 +288,7 @@ struct Start {
     remove: Vec<String>,
     /// A start of the fixer's: the person's approval it rests on, and its
     /// starts with this one.
-    fixer: Option<(Value, u64)>,
+    fixer: Option<(Base, u64)>,
     /// The millwright's guidance comment that lifted the park's hold off this
     /// start's label: the one entry the record names `park_lifted`, so the
     /// reason the start was allowed is on it (#1130). A person's label lifts
@@ -1577,9 +1579,7 @@ impl<'a> Poll<'a> {
             // No start on record to follow: this one is the first.
             Some(Ok(None)) => Ok(chosen),
             // Only a record that names lean runs lean; any other runs classic.
-            Some(Ok(Some(r))) if Driver::of_record(&r) == Some(Driver::Lean) => {
-                Ok(Choice::Run(Driver::Lean))
-            }
+            Some(Ok(Some(r))) if r.driver == Some(Driver::Lean) => Ok(Choice::Run(Driver::Lean)),
             Some(Ok(Some(_))) => Ok(Choice::Run(Driver::Classic)),
         }
     }
@@ -1625,18 +1625,7 @@ impl<'a> Poll<'a> {
         let Some(Some(Ok(Some(record)))) = self.s.issues.get(&n).map(|i| i.approval.clone()) else {
             return false;
         };
-        // The one rule of `fixer_base`, so the two cannot disagree about which
-        // of the record's sums binds the text.
-        let rests = matches!(
-            record.get("how").and_then(Value::as_str),
-            Some("fixer" | "refresh")
-        );
-        let base = match record.get("rests_on") {
-            Some(b) if rests => b,
-            _ => &record,
-        };
-        base.get("body_sha256").and_then(Value::as_str)
-            == Some(text::body_sum(self.text(n).body_text()).as_str())
+        record.bound_sum() == Some(text::body_sum(self.text(n).body_text()).as_str())
     }
 
     /// The body a start reads its text from: the issue's own, as the page of
@@ -2637,7 +2626,7 @@ impl<'a> Poll<'a> {
         who: &str,
         at: &str,
         labels: &[String],
-    ) -> Step<Option<(Value, u64)>> {
+    ) -> Step<Option<(Base, u64)>> {
         if !self.unchanged_since(
             n,
             at,
@@ -2660,9 +2649,9 @@ impl<'a> Poll<'a> {
         }
         let why = match self.fixer_grant(n, &sum) {
             Ok((base, count)) => {
-                let by = base["by"].as_str().unwrap_or("").to_string();
-                let since = base["at"].as_str().unwrap_or("").to_string();
-                let approver = base_approver(&base).to_string();
+                let by = base.by.clone();
+                let since = base.at.clone();
+                let approver = base.approver().to_string();
                 if self.unchanged_since(
                     n,
                     &since,
@@ -2706,7 +2695,7 @@ impl<'a> Poll<'a> {
     /// cycle of, under TEHAS_MILLWRIGHT_FEED. A person wrote it, and the text
     /// is still theirs: the start rests on that. Some(base, 1), or None with
     /// the label off and the reason said, or kept when the cap only defers it.
-    fn feed_ok(&mut self, n: u64, sum: &str, labels: &[String]) -> Step<Option<(Value, u64)>> {
+    fn feed_ok(&mut self, n: u64, sum: &str, labels: &[String]) -> Step<Option<(Base, u64)>> {
         let Some(running) = self.s.fed else {
             self.log(format!(
                 "skip #{n}: tehas:ready from the fixer waits: the fed cycles running could not be counted"
@@ -2761,14 +2750,19 @@ impl<'a> Poll<'a> {
             return Ok(None);
         }
         Ok(Some((
-            json!({"at": written, "by": author, "how": "feed", "body_sha256": sum}),
+            Base {
+                at: written,
+                by: author,
+                how: "feed".into(),
+                body_sha256: sum.into(),
+            },
             1,
         )))
     }
 
     /// tehas_fixer_grant: the approval and count, or why not and whether
     /// that is only for now (the store could not answer).
-    fn fixer_grant(&self, n: u64, sum: &str) -> Result<(Value, u64), (String, bool)> {
+    fn fixer_grant(&self, n: u64, sum: &str) -> Result<(Base, u64), (String, bool)> {
         if n == self.c.control {
             return Err(("it is the control issue".into(), false));
         }
@@ -2790,14 +2784,15 @@ impl<'a> Poll<'a> {
             )
         };
         let record = record.ok_or_else(none)?;
-        let base = fixer_base(&record)
-            .filter(|b| base_stands(self.c, b))
+        let base = record
+            .base()
+            .filter(|b| b.stands(self.c))
             .ok_or_else(none)?;
-        let by = base["by"].as_str().unwrap_or("").to_string();
-        if sum != base["body_sha256"].as_str().unwrap_or("") {
+        let by = base.by.clone();
+        if sum != base.body_sha256 {
             return Err((format!("its text is not the text {by} approved"), false));
         }
-        let Some(had) = fixer_starts(&record) else {
+        let Some(had) = record.fixer_starts() else {
             return Err((
                 "its approval record does not say how many cycles the fixer started".into(),
                 false,
@@ -3084,25 +3079,17 @@ impl<'a> Poll<'a> {
                 st.given_how = HOST.into();
             }
             if let Some((base, count)) = fixer {
-                let s = |k: &str| {
-                    base.get(k)
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string()
-                };
                 st.verb = "labelled by the fixer".into();
-                st.how = if s("how") == "feed" {
+                st.how = if base.how == "feed" {
                     self.fed_picked += 1;
                     format!(
                         "`tehas:ready` label as the fixer, on the issue {} wrote at {}",
-                        s("by"),
-                        s("at")
+                        base.by, base.at
                     )
                 } else {
                     format!(
                         "`tehas:ready` label as the fixer, on {}'s approval of {}",
-                        s("by"),
-                        s("at")
+                        base.by, base.at
                     )
                 };
                 st.given_how = "millwright".into();
@@ -3222,7 +3209,12 @@ impl<'a> Poll<'a> {
             "links": text::link_list(body),
         });
         if let Some((base, count)) = st.fixer {
-            a["rests_on"] = base;
+            a["rests_on"] = Value::Object(
+                base.pairs()
+                    .into_iter()
+                    .map(|(k, v)| (k.into(), json!(v)))
+                    .collect(),
+            );
             a["fixer_starts"] = json!(count);
         }
         if let Some(note) = st.park_lifted {
@@ -3260,66 +3252,6 @@ fn spec_of(body: &str, remove: &[String]) -> Option<Value> {
         Ok(Some(m)) => Some(json!({"link": m.link, "sha256": m.sha256, "off": off})),
         Err(why) => Some(json!({"why": why, "off": off})),
     }
-}
-
-/// The person's approval a record rests on, {at, by, how,
-/// body_sha256}, when it reads as one.
-pub(crate) fn fixer_base(record: &Value) -> Option<Value> {
-    let how = record.get("how").and_then(Value::as_str);
-    let base = if matches!(how, Some("fixer" | "refresh")) {
-        record.get("rests_on")?
-    } else {
-        record
-    };
-    let s = |k: &str| base.get(k).and_then(Value::as_str);
-    let at = s("at")?;
-    let by = s("by")?;
-    let how = s("how")?;
-    let sum = s("body_sha256")?;
-    let ok = !at.is_empty()
-        && at
-            .bytes()
-            .all(|b| b.is_ascii_digit() || matches!(b, b'T' | b':' | b'.' | b'Z' | b'-'))
-        && !by.is_empty()
-        && by.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        && matches!(
-            how,
-            "label" | "retry-tick" | "outage-retry" | HOST | "answer"
-        )
-        && sum.len() == 64
-        && sum.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
-    ok.then(|| json!({"at": at, "by": by, "how": how, "body_sha256": sum}))
-}
-
-/// Whether a base of `fixer_base` still approves: the host's approval names no
-/// account (#1967), and a person's stands while the list names its account.
-pub(crate) fn base_stands(c: &Settings, base: &Value) -> bool {
-    base["how"] == HOST || c.allowed(base["by"].as_str().unwrap_or(""))
-}
-
-/// The account a base of `fixer_base` was given by, as `changed_after` reads
-/// an approver: none for the host's, whose `by` is a word and not an account,
-/// so a change in its second by an account called `host` counts as after it.
-pub(crate) fn base_approver(base: &Value) -> &str {
-    if base["how"] == HOST {
-        ""
-    } else {
-        base["by"].as_str().unwrap_or("")
-    }
-}
-
-/// The fixer starts a record counts, at most six digits.
-pub(crate) fn fixer_starts(record: &Value) -> Option<u64> {
-    let whole = |v: &Value, min: f64| v.as_f64().filter(|f| *f >= min && f.fract() == 0.0);
-    let n = match record.get("how").and_then(Value::as_str) {
-        Some("fixer") => whole(record.get("fixer_starts")?, 1.0)?,
-        Some("refresh") => match record.get("fixer_starts") {
-            None | Some(Value::Null) => 0.0,
-            Some(v) => whole(v, 0.0)?,
-        },
-        _ => 0.0,
-    };
-    (n < 1_000_000.0).then_some(n as u64)
 }
 
 /// The most numbers `labelAlone` lists, so the line status prints is bounded.
