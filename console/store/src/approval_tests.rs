@@ -5,6 +5,27 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 fn record(home: &Path, issue: i64, at: i64, by: &str, how: &str) -> Value {
+    let refresh: &[&str] = if how == "refresh" {
+        &[
+            "--refresh-pr",
+            "40",
+            "--refresh-head",
+            "0123456789abcdef0123456789abcdef01234567",
+        ]
+    } else {
+        &[]
+    };
+    let args = record_args(issue, at, by, how, refresh);
+    ok(home, &args.iter().map(String::as_str).collect::<Vec<_>>())
+}
+
+/// `record` with the caller's own extra arguments, and no refresh of its own.
+fn record_extra(home: &Path, issue: i64, at: i64, by: &str, how: &str, extra: &[&str]) {
+    let args = record_args(issue, at, by, how, extra);
+    ok(home, &args.iter().map(String::as_str).collect::<Vec<_>>());
+}
+
+fn record_args(issue: i64, at: i64, by: &str, how: &str, extra: &[&str]) -> Vec<String> {
     let (n, a) = (issue.to_string(), at.to_string());
     let mut args = vec![
         "approval-record",
@@ -21,15 +42,8 @@ fn record(home: &Path, issue: i64, at: i64, by: &str, how: &str) -> Value {
     if how == "label" || crate::approval::is_millwright(how) {
         args.extend(["--label", "tehas:ready"]);
     }
-    if how == "refresh" {
-        args.extend([
-            "--refresh-pr",
-            "40",
-            "--refresh-head",
-            "0123456789abcdef0123456789abcdef01234567",
-        ]);
-    }
-    ok(home, &args)
+    args.extend(extra);
+    strings(&args)
 }
 
 fn current(home: &Path, issue: i64) -> Value {
@@ -757,7 +771,7 @@ fn approval_record_keeps_the_pin_of_a_spec() {
         spec
     );
     used(&home, 43);
-    assert_eq!(view(&home, 43)["spec"], spec["spec"]);
+    assert_eq!(view(&home, 43, None)["spec"], spec["spec"]);
     let link = "https://github.com/user-attachments/files/1/spec.md";
     for (name, bad) in [
         ("list", json!([])),
@@ -982,8 +996,14 @@ fn the_easy_mark_is_a_refresh_switch_and_defaults_to_no() {
     assert_eq!(v["easy"], false, "{v}");
 }
 
-fn view(home: &Path, issue: i64) -> Value {
-    ok(home, &["approval-view", &issue.to_string()])["view"].clone()
+/// The view of the start `attempt`, or of the newest when none is given.
+fn view(home: &Path, issue: i64, attempt: Option<i64>) -> Value {
+    let (n, a) = (issue.to_string(), attempt.map(|a| a.to_string()));
+    let mut args = vec!["approval-view", &n];
+    if let Some(a) = &a {
+        args.extend(["--attempt", a]);
+    }
+    ok(home, &args)["view"].clone()
 }
 
 /// The approval on record used by a start, and that start's attempt.
@@ -1023,13 +1043,13 @@ fn a_view_is_the_record_file_key_for_key_and_in_its_order() {
 #[test]
 fn a_view_leaves_out_what_is_not_on_record() {
     let home = home("approval-view-empty");
-    assert_eq!(view(&home, 7), Value::Null);
+    assert_eq!(view(&home, 7, None), Value::Null);
     record(&home, 7, 1792497600, "alice", "label");
     // Recorded, and started nothing yet.
-    assert_eq!(view(&home, 7), Value::Null);
+    assert_eq!(view(&home, 7, None), Value::Null);
     used(&home, 7);
     assert_eq!(
-        view(&home, 7),
+        view(&home, 7, None),
         json!({"at": "2026-10-20T12:00:00Z", "by": "alice", "how": "label",
             "body_sha256": SHA, "links": []})
     );
@@ -1064,7 +1084,7 @@ fn a_millwright_start_in_a_view_says_fixer_and_rests_on_the_person() {
     end(&home, 7, first, "merged");
     record(&home, 7, 1792584000, "tehas-fixer", "millwright");
     used(&home, 7);
-    let v = view(&home, 7);
+    let v = view(&home, 7, None);
     assert_eq!(v["how"], "fixer");
     assert_eq!(v["by"], "tehas-fixer");
     assert_eq!(v["at"], "2026-10-21T12:00:00Z");
@@ -1136,7 +1156,7 @@ fn a_retry_context_with_nothing_in_it_is_no_key_of_a_view() {
         ],
     );
     used(&home, 7);
-    assert_eq!(view(&home, 7).get("retry_context"), None);
+    assert_eq!(view(&home, 7, None).get("retry_context"), None);
 }
 
 /// #1967: the host's approval is a kind of its own. It takes no label, the
@@ -1211,4 +1231,133 @@ fn a_host_start_whose_cycle_was_killed_is_listed_with_its_lock_free() {
     let v = ok(&home, &["approval-hosts"]);
     assert_eq!(v["running"][0]["issue"], 33);
     assert_eq!(v["running"][0]["lock"], "free");
+}
+
+// --- moved from test/store_approval_test.sh ------------------------------------
+
+/// The named keys of a view, as one object.
+macro_rules! picked {
+    ($v:expr, $($k:literal),+) => {{
+        let v: Value = $v;
+        json!({ $($k: v[$k].clone()),+ })
+    }};
+}
+
+#[test]
+fn a_view_names_the_driver_on_record_and_no_driver_when_none() {
+    let home = home("approval-view-driver");
+    let lean = input(&home, r#"{"links":[],"driver":"lean"}"#);
+    record_extra(
+        &home,
+        7,
+        1760000000,
+        "alice",
+        "label",
+        &["--input-file", &lean],
+    );
+    record(&home, 8, 1760000000, "alice", "label");
+    used(&home, 7);
+    used(&home, 8);
+    let v = view(&home, 7, None);
+    assert_eq!(
+        (v["how"].clone(), v["driver"].clone()),
+        (json!("label"), json!("lean"))
+    );
+    assert_eq!(view(&home, 8, None).get("driver"), None);
+}
+
+#[test]
+fn a_view_of_a_person_s_label_is_field_for_field_what_the_dispatcher_wrote() {
+    let home = home("approval-view-label");
+    let file = input(
+        &home,
+        r#"{"links":["https://github.com/user-attachments/assets/1"],
+  "comment_links":[{"link":"https://github.com/user-attachments/assets/2","source":"comment:5","by":"alice"}]}"#,
+    );
+    record_extra(
+        &home,
+        7,
+        1792497600,
+        "alice",
+        "label",
+        &["--title-sha", SHA_B, "--input-file", &file],
+    );
+    used(&home, 7);
+    let v = view(&home, 7, None);
+    assert_eq!(
+        v,
+        json!({"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":SHA,
+            "links":["https://github.com/user-attachments/assets/1"],"title_sha256":SHA_B,
+            "comment_links":[{"link":"https://github.com/user-attachments/assets/2","source":"comment:5","by":"alice"}]})
+    );
+    assert_eq!(v.get("driver"), None);
+
+    // The fixer's start rests on the person's approval and counts itself.
+    let file = input(
+        &home,
+        r#"{"links":[],"retry_context":[{"source":"comment:9","by":"tehas-fixer","at":"2026-10-21T11:59:00Z","text":"Try the other way."}]}"#,
+    );
+    record_extra(
+        &home,
+        7,
+        1792584000,
+        "tehas-fixer",
+        "fixer",
+        &["--input-file", &file],
+    );
+    assert_eq!(used(&home, 7), 2);
+    assert_eq!(
+        view(&home, 7, Some(2)),
+        json!({"at":"2026-10-21T12:00:00Z","by":"tehas-fixer","how":"fixer","body_sha256":SHA,
+            "links":[],"retry_context":[{"source":"comment:9","by":"tehas-fixer","at":"2026-10-21T11:59:00Z","text":"Try the other way."}],
+            "rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":SHA},"fixer_starts":1})
+    );
+}
+
+/// #1130: a start a park's lift let through keeps rests_on as the person's
+/// approval and names the millwright's note under its own key.
+#[test]
+fn a_view_names_the_note_that_lifted_a_park_s_hold_and_none_is_no_key() {
+    let home = home("approval-view-lifted");
+    let note = r#"{"source":"millwright:81","by":"tehas-fixer","at":"2026-10-21T11:55:00Z","text":"Do not run the whole suite."}"#;
+    let file = input(
+        &home,
+        &format!(r#"{{"links":[],"retry_context":[{note}],"park_lifted":{note}}}"#),
+    );
+    record(&home, 7, 1792497600, "alice", "label");
+    used(&home, 7);
+    record_extra(
+        &home,
+        7,
+        1792584000,
+        "tehas-fixer",
+        "fixer",
+        &["--input-file", &file],
+    );
+    used(&home, 7);
+    let note: Value = serde_json::from_str(note).unwrap();
+    assert_eq!(
+        picked!(
+            view(&home, 7, Some(2)),
+            "park_lifted",
+            "retry_context",
+            "rests_on"
+        ),
+        json!({"park_lifted":note,"retry_context":[note],
+            "rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":SHA}})
+    );
+
+    let home = crate::verbs_tests::home("approval-view-not-lifted");
+    let file = input(&home, r#"{"links":[]}"#);
+    record(&home, 7, 1792497600, "alice", "label");
+    record_extra(
+        &home,
+        7,
+        1792584000,
+        "tehas-fixer",
+        "fixer",
+        &["--input-file", &file],
+    );
+    used(&home, 7);
+    assert_eq!(view(&home, 7, Some(1)).get("park_lifted"), None);
 }
