@@ -469,7 +469,7 @@ Not kept:
 | v1, guarantee 7 (a view loads nothing from another site) | Kept for a plugin's pages. `/_outside/<id>` is tehas's page and frames a granted URL | Panels |
 | v1, guarantee 8 (writes only through tehas) | Kept. A run may leave a draft; a person files it | The review loop no longer files by itself |
 | v1, the manifest | The asks `every`, `live:<feed>`, `feed:<name>`, `frame`, `history`, `hook:gate:cycle.before-work`. A hook's `at` may be the event before a cycle starts, with `timeout` 30 to 300 | |
-| Hooks part | `cycle.before-work`, with `model` allowed in it. `after:work` is unchanged | |
+| Hooks part | `cycle.before-work`, with `model` allowed in it. The event after a cycle (`after:work` in 1.x) is renamed as T9 lists it too, with no alias | |
 | Security part, the container | One new read-only mount, `/run/history/`. In a `cycle.before-work` hook, the lab's `/run/issues.json` and `/given/`. Pinned in `sandbox.rs` and `test/fixtures/argv/plugin-*` | A security change |
 | Security part, the product | With `history:`, the clone holds the range, up to the grant's number | The review and the wiki read diffs |
 | Web part, the gate | `/_live/<feed>.json`, `/_feed/<feed>.json`, `/_outside/<id>`, `/_draft` | |
