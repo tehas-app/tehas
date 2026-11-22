@@ -1294,7 +1294,7 @@ impl World {
     /// The same instance with nothing given to the cycle.
     pub fn images_off(&self) {
         self.images_reset(true);
-        self.minimal(&["TEHAS_WORK_IMAGES=0", "TEHAS_WORK_FILES=0"]);
+        self.minimal(&["TEHAS_WORK_IMAGES=0"]);
     }
 
     // --- GitHub ------------------------------------------------------------

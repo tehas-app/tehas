@@ -556,7 +556,6 @@ pub fn check(c: &Check) -> i32 {
         names.push_str(word.split('=').next().unwrap_or(word));
     }
     if env("TEHAS_WORK_IMAGES") == "1"
-        || env("TEHAS_WORK_FILES") == "1"
         || crate::gives::comments_given(&c.record)
         || crate::gives::hands_over(&c.record)
     {
