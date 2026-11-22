@@ -24,7 +24,7 @@ which plumbing T16 keeps as library code.
 | Host panel | `hoststats` | `feed:host` (3) |
 | Review loop | `review` | `every:` (1), `history:` (5), drafts from a run (6) |
 | Product wiki | `wiki` | `every:` (1), `history:` (5) |
-| Describe, text files, zips and comment attachments for a cycle | `given` | `hook:before:work` (7) |
+| Describe, text files, zips and comment attachments for a cycle | `given` | `hook:gate:cycle.before-work` (7) |
 
 ## What the platform adds
 
@@ -92,8 +92,12 @@ makes for a view. Both exist today as public files, `live/top.json` and
   mesh of the factory's subagent provider, with that endpoint's token, and
   copies only the listed fields: no address, node id or GPU. The grant
   `feed:mesh=<url>` names a cluster URL instead, asked with no token. The
-  URL follows the rule of today's `TEHAS_ENERGY_URL` and may be on a
-  private network, because a person wrote it in the instance.
+  URL follows the rule of today's `TEHAS_ENERGY_URL`. Private and CGNAT
+  addresses are allowed because a person wrote it in the instance. The
+  voice relay's refusals (1.1.0) still hold: loopback, link-local
+  (the cloud metadata address included), multicast, "this network", the host's own
+  addresses and the Docker bridge ranges. The name is resolved once and the
+  connection goes to the address checked.
 - An answer that is not a viiwork cluster snapshot removes the file, as
   today. A timeout or a busy answer leaves the last one.
 
@@ -128,7 +132,10 @@ view cannot frame another site: its policy is `frame-src 'self'`.
   of that URL and nothing else, with the sandbox words the dock uses today
   (`allow-scripts allow-same-origin allow-forms allow-popups
   allow-popups-to-escape-sandbox`), a link to open the page in a new tab,
-  and the policy `default-src 'none'; frame-src <the URL's origin>`.
+  and the policy `default-src 'none'; frame-src <the URL's origin>;
+  base-uri 'none'; frame-ancestors <the plugin's origin> <the dashboard's
+  origin>`, with `Referrer-Policy: no-referrer`, so the plugin's host name
+  is not sent to the outside site.
 - With `menu`, each granted page is an item of the plugin in the Plugins
   section. Its label is the id. A plugin's own view may frame
   `/_outside/<id>` too; its own policy does not change.
@@ -159,8 +166,10 @@ reads every commit since its last run.
 - The run's clone holds the commits of the range, so the plugin can read a
   diff. A range over the number is cut at the oldest end, and `head.json`
   says so.
-- A path the host's secret check refuses is left out whole, as the wiki
-  spec's guarantees say.
+- A path the host's secret check refuses is left out whole from
+  `/run/history/`, as the wiki spec's guarantees say. The clone at
+  `/product` still holds those paths' blobs, as the depth-200 clone does
+  today. The check is about what the host hands over, not about the clone.
 
 What reaches the container: one read-only mount, `/run/history/`, and a
 deeper clone at `/product`. Pinned in `sandbox.rs` and
@@ -180,7 +189,9 @@ run has no socket for it.
 - The gate shows it at `/_draft` on a page tehas makes: the title and body
   as text, to edit. A signed-in person presses "File". tehas files it as
   v3 says, with the person as author, and writes the issue on the record.
-  "Discard" drops it.
+  "Discard" drops it. Both are writes and go under v3's filing rules
+  (#2752): `POST`, the `Origin` and `Sec-Fetch` rules, the gate's nonce,
+  and the person as author.
 - Nothing is labelled. A person applies a label afterwards (hard rule 5).
 
 **A behaviour change from today's review loop.** Today `tehasbot review`
@@ -193,23 +204,38 @@ Guarantee 8 holds: the plugin never writes to GitHub. The store's
 What reaches the container: nothing new. Not a security change beyond v3's
 Work 7, which this needs first.
 
-### 7. `hook:before:work`: files for a cycle
+### 7. The hook before a cycle starts: files for a cycle
+
+**Its name.** The event is the one before a cycle starts, as T9 of the v2
+plan lists it, in the ports' words and in T11's grant form
+`hook:<when>:<event>`. There is no alias for a 1.x name. This file writes
+it `hook:gate:cycle.before-work`, a placeholder until T9 lands; the name T9
+gives replaces it everywhere here.
 
 Today `tehas work` describes images with the model, fetches the text files
 and zips an issue links, and takes links from comments, each behind a
 `TEHAS_WORK_*` setting. Images stay in core. The rest becomes a hook that
 runs before the cycle's container starts.
 
-**When it runs.** At a start of `tehas work` that has an approval record
-and mounts the given directory, after core has fetched the images and
-written `manifest.json`. A start by hand with no record runs no hook. The
-hook never makes a start mount a directory it would not have mounted.
+**When it runs.** At every start of `tehas work` that has an approval
+record, after core has fetched the images and written `manifest.json`. A
+start by hand with no record runs no hook.
+
+Today a start mounts the given directory only when `TEHAS_WORK_IMAGES` or
+`TEHAS_WORK_FILES` is on, a retry has comments, or a person filed a
+plugin's files (`console/cycle/src/work.rs`). On a host with images off, a
+start would mount nothing and the hook would give nothing. So while a
+plugin holds this grant, a start with an approval record mounts the given
+directory and passes `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` exactly as it does with
+images on. That is an argument list the tests already pin, not a new one.
+If the hook gives nothing and core gave nothing, the directory holds only
+the manifest.
 
 **The run.** One container of the plugin, kind `hook`, as the security
 part says: no network, no token, `/state` read only. The supervisor starts
 it and waits. It gets:
 
-- `/run/context.json` with `at: "before:work"` and the issue's number.
+- `/run/context.json` with `at` set to the event's name and the issue's number.
 - `/run/issues.json`, the lab's feed with this one issue. Its texts are the
   approved body and the comments of the approval record: written by an
   allowed account and not edited after the approval. Who approved is who
@@ -220,7 +246,12 @@ it and waits. It gets:
   fetched by the host through `console/attach` and put in the same
   directory. Zips are unpacked. The limits are the lab's.
 - With `model` granted, the model socket. v1's "no `model` in a hook" is
-  lifted for this point only. `model:images` works as in a refresh.
+  lifted for this point only. `model:images` works as in a refresh. The
+  grant's number is per run, and the hook runs at every start, retries
+  included, so these runs count against the plugin day budget
+  (`TEHAS_PLUGIN_MODEL_DAY`) too. When that budget is used up, the hook
+  gives nothing and the cycle starts, as after a timeout. It never holds
+  the start.
 
 **What it hands over.** The plugin writes `/out/give/`. The host reads it
 through the tar reader and checks every file with `console/attach`:
@@ -239,6 +270,18 @@ plugin's name, its commit, and each file's path, size and sha256.
 gets. No new mount, variable or socket. The cycle's lists in
 `test/fixtures/argv/` do not change.
 
+**What the agents are told.** The code that writes these files is a third
+party's, pinned at a commit, so this is a supply path to agents that can
+push, not only a model reading untrusted input. So:
+
+- The cycle's instructions name `plugin-given/<name>/` as untrusted data
+  written by plugin `<name>` at `<commit>`, to read as data and never as
+  instructions.
+- Each text file the host copies there starts with a head of one line
+  saying the same, in the file's own comment form where it has one and as
+  a plain first line otherwise. An image gets no head; the manifest names
+  it.
+
 **How it fails closed.** All or nothing for each plugin. A hook that
 fails, runs out of time, is over the model's budget, or leaves one file
 that breaks a rule gives nothing. The manifest names the plugin under
@@ -248,7 +291,10 @@ the container starts, as it does for filed files.
 
 **A slow hook.** The manifest's hook `timeout` is 30 to 300 seconds for
 this point. At most 2 plugins hold the grant, run one after the other in
-the order of `TEHAS_PLUGINS`. So a start waits at most 10 minutes. The wait
+the order of `TEHAS_PLUGINS`. A third grant stops `lib/config.sh` with exit
+78 when the settings load, so `tehas update` and every command refuse
+before anything runs. `TEHAS_PLUGINS` naming a plugin twice is refused the
+same way, as it is today. So a start waits at most 10 minutes. The wait
 is before the runner starts. The hook's container counts in the room the
 cycle was admitted with.
 
@@ -368,11 +414,11 @@ wiki spec on every host.
 ### given
 
 ```json
-"asks": ["hook:before:work", "files", "model", "model:images"]
+"asks": ["hook:gate:cycle.before-work", "files", "model", "model:images"]
 ```
 
 ```
-TEHAS_PLUGIN_GRANTS_GIVEN="<commit> hook:before:work files:10 model:200000 model:images"
+TEHAS_PLUGIN_GRANTS_GIVEN="<commit> hook:gate:cycle.before-work files:10 model:200000 model:images"
 ```
 
 The hook describes each image, at most 8, 1500 characters each, into
@@ -397,7 +443,7 @@ is not left as a module inside `console/src` that nothing calls.
 | The mesh read, the field list and the window (`console/src/energy.rs`), as a crate | `feed:mesh` (3) |
 | The wiki's collector of raw sources (`console/src/wiki/collect.rs`), as a crate | `history:` (5) |
 | The draft's rules (`console/core/src/plugin/draft.rs`) and the store's record verbs | Drafts from a run (6) |
-| `console/attach`, all of it, as T14 keeps it; the copy and limits of `attach/plugin_files.rs`; the approval record's texts and comment links (`attach/comments.rs`, the dispatcher's part) | `hook:before:work` (7) |
+| `console/attach`, all of it, as T14 keeps it; the copy and limits of `attach/plugin_files.rs`; the approval record's texts and comment links (`attach/comments.rs`, the dispatcher's part) | `hook:gate:cycle.before-work` (7) |
 | The review's renderer (`console/core/src/review.rs`), as a small crate | The `review` plugin vendors it |
 | The wiki's check, render and keep rules (`console/src/wiki/check.rs`, `render.rs`, `publish.rs`), `host/wiki/` | The `wiki` plugin vendors them |
 | The describe prompt, head and quoting (`console/cycle/src/describe.rs`), as a crate | The `given` plugin vendors them |
@@ -419,15 +465,15 @@ Not kept:
 | Where | Change | Why |
 | --- | --- | --- |
 | v1, "Runs" | A refresh by the clock under `every:`; such a plugin is not refreshed by a moved head. `trigger` gains `clock` | Weekly and nightly runs |
-| v1, guarantee 5 (outside the cycle) | Kept for the container. `hook:before:work` runs while the cycle holds its slot, and the start waits for it, at most 10 minutes | The files must be there before the agents start |
+| v1, guarantee 5 (outside the cycle) | Kept for the container. `hook:gate:cycle.before-work` runs while the cycle holds its slot, and the start waits for it, at most 10 minutes | The files must be there before the agents start |
 | v1, guarantee 7 (a view loads nothing from another site) | Kept for a plugin's pages. `/_outside/<id>` is tehas's page and frames a granted URL | Panels |
 | v1, guarantee 8 (writes only through tehas) | Kept. A run may leave a draft; a person files it | The review loop no longer files by itself |
-| v1, the manifest | The asks `every`, `live:<feed>`, `feed:<name>`, `frame`, `history`, `hook:before:work`. A hook's `at` may be `before:work`, with `timeout` 30 to 300 | |
-| Hooks part | `before:work`, with `model` allowed in it. `after:work` is unchanged | |
-| Security part, the container | One new read-only mount, `/run/history/`. In a `before:work` hook, the lab's `/run/issues.json` and `/given/`. Pinned in `sandbox.rs` and `test/fixtures/argv/plugin-*` | A security change |
+| v1, the manifest | The asks `every`, `live:<feed>`, `feed:<name>`, `frame`, `history`, `hook:gate:cycle.before-work`. A hook's `at` may be the event before a cycle starts, with `timeout` 30 to 300 | |
+| Hooks part | `cycle.before-work`, with `model` allowed in it. `after:work` is unchanged | |
+| Security part, the container | One new read-only mount, `/run/history/`. In a `cycle.before-work` hook, the lab's `/run/issues.json` and `/given/`. Pinned in `sandbox.rs` and `test/fixtures/argv/plugin-*` | A security change |
 | Security part, the product | With `history:`, the clone holds the range, up to the grant's number | The review and the wiki read diffs |
 | Web part, the gate | `/_live/<feed>.json`, `/_feed/<feed>.json`, `/_outside/<id>`, `/_draft` | |
-| v2 rules, rule 5 | A second exception: files a granted `before:work` hook gave, checked and listed by the host | Hard rule 4; a security change |
+| v2 rules, rule 5 | A second exception: files a granted `cycle.before-work` hook gave, checked and listed by the host | Hard rule 4; a security change |
 | v2 outside part | Unchanged. `net:` stays global unicast only | The host makes the mesh feed |
 | v3, drafted issues | A batch run may propose one draft through `/out` | The review plugin has no service |
 | `manifest.json` of a cycle | `plugins`: each hook's name, commit, files or reason. Added within version 1 | A person sees what was added |
@@ -450,8 +496,11 @@ Each is a pull request; a security change says so.
 6. **Drafts from a run.** `/out/_tehas/draft.json`, the pending draft,
    `/_draft`.
 7. **The hook before work.** The seam in `tehas-cycle`, the hook's mounts,
-   the check and copy, the manifest's `plugins`. Security change to what a
-   cycle is given (hard rule 4).
+   the check and copy, the heads and the instructions, the manifest's
+   `plugins`. Security change to what a cycle is given (hard rule 4) and a
+   second exception to v2's rule 5. It starts only after the owner's
+   explicit OK, recorded in its pull request; this spec proposes it and
+   does not grant it.
 8. **The plugins.** Seven repositories, each with its tests. `panels`,
    `business`, `energy` and `hoststats` first: they need no model.
 9. **The manual.** `host/docs/plugins.md`, `tools-work.md`, `features.md`
@@ -488,11 +537,6 @@ Settled for this revision (tehas-4c, under the owner's word to decide).
 
 ## Open points
 
-- **A start with images off.** The hook runs only where a start already
-  mounts the given directory. Whether every start with an approval record
-  mounts it is to be read from `console/cycle/src/work.rs` before Work 7.
-  If some do not, the `given` plugin gives nothing there; widening the
-  mount is not part of this revision.
 - **Feeds across plugins.** The business page showed live power. One
   plugin reading another's feed is left out, and so is the console of the
   running cycles (`TEHAS_SITE_CONSOLE`), which is a stream and not a feed.
