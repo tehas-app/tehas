@@ -1,6 +1,6 @@
 # Handover: tehas to coding standard v2, for v2.0.0
 
-Date: 2026-11-21. Status: waiting for v1.4.0 ("Before the fork"). Start a
+Date: 2026-11-21. Status: forked from v1.4.0 on 2026-11-22, at T0. Start a
 session on this work here.
 
 The owner's direction (2026-11-21): every codebase of the tehas system
@@ -23,12 +23,62 @@ style in `AGENTS.md` stays as it is. Resilient means:
 
 Keep it light: no rules on function length or naming, no rewrite.
 
-v2.0.0 carries other work too: putting GitHub behind adapters, and the
-repository's new name. Those are planned on their own. This work builds
-what the adapters need (the ports, with GitHub as their one adapter) and
-does neither.
+v2.0.0 carries everything: coding standard v2, the adapters with the
+adapter API, and the repository's new name, tehas-factory (the owner,
+2026-11-21). See "Released as a trio" below.
+
+## Released as a trio
+
+The owner decided on 2026-11-21 that the three releases that complete
+coding standard v2 in the tehas system are tagged together: tehas 2.0.0
+and the 2.0.0 and 1.0.0 of the two repositories that read it. For tehas:
+
+1. **2.0.0 carries everything.** Coding standard v2, the adapters and the
+   adapter API (T4), and the rename (T10).
+2. **The branch stays unmerged until the trio is tagged.** Main stays the
+   stable line and ships 1.4.x patches; each is ported into the branch.
+   Release candidates `2.0.0-rc.N` are tagged from the branch. The merge
+   into main and the final tag wait for the trio, and the final tag for
+   the owner.
+3. **One set of ports, defined here.** The tracker and code host ports of
+   T4 are the shared set: a consumer that runs many factories adopts the
+   same ports instead of writing its own. Its needs (the operations, the
+   shapes, the failures, the actors) are read before T4 drafts, and
+   neither side merges its ports before the other has read them.
+4. **The gate of the trio.** Every rule at conformant, graded by a fresh
+   reviewer and confirmed by a person, with no departure or raised floor
+   written to make a date. The contracts between the three are final,
+   the factory API among them, and the end-to-end suite passes the three
+   tagged versions together.
+5. **Plugins stay off.** The plugin API is written into the 2.0 contract
+   at T9 as it then stands. The feature stays behind the setting that
+   refuses it today, and finishing it is 2.1 work. The refactor moves
+   the plugin code with its behaviour kept, and builds no new plugin
+   features.
+6. **pi-rukas v0.14.100.** 2.0.0 pins pi-rukas v0.14.100 (the owner,
+   2026-11-21). It is not released yet. Each release candidate's tag
+   names the pi-rukas commit it pins (`scripts/tag-release.sh`); from the
+   first candidate after v0.14.100 is out, that is its commit. If it is
+   not out by the final, the owner decides.
+
+### The adapters
+
+- The ports of T4 are that abstraction: the ticket tracker and the code
+  host are separate ports, since they can sit in different systems.
+- **The contract names the act, not the label.** Approve, block, plan,
+  refine are tracker terms; labels are the GitHub adapter's answer.
+- **The account behind a change.** Authorisation stays who applied the
+  label (AGENTS.md rule 5). In tracker terms: every tracker adapter names
+  the account behind a change and keeps its history.
+- **The adapter API is defined here.** The ports, the named outcomes, the
+  fakes and the adapters' contract tests, with a setting that chooses the
+  adapter. GitHub stays the one adapter written in 2.0.0. An adapter
+  delivered from outside waits for plugins (2.1).
 
 ## Before the fork
+
+Done: the fork is at v1.4.0 (a0aa16a5), the owner approved the gate
+changes and holds the factory that builds tehas to no new work.
 
 1. **Wait for v1.4.0.** The tag is the owner's. This plan is on main
    already (#2735, merged 2026-11-21), so v1.4.0 carries it.
@@ -65,11 +115,15 @@ does neither.
 5. **Finish.**
    - The last pull request into the branch writes `v2` in
      `.tehas/coding-standard` (see "Done").
-   - One pull request from `refactor/coding-standard-v2` into `main`,
-     merged with **a merge commit**, not squashed, so the steps stay in
-     main's history.
-   - The release of v2.0.0, the tag and the release notes follow the
-     usual release process. Tags and releases are the owner's.
+   - When the trio is tagged, one pull request from
+     `refactor/coding-standard-v2` into `main`, merged with **a merge
+     commit**, not squashed, so the steps stay in main's history.
+   - Release candidates `2.0.0-rc.N` are tagged from the branch by the
+     session doing this work. The final v2.0.0 is the owner's.
+6. **A merge train of two lanes.** At most two pull requests into the
+   branch are in flight at once. Each is brought up to the branch's tip,
+   passes the gate and the architecture test, and is squash-merged; the
+   next takes its lane.
 
 While the branch is open, `.tehas/coding-standard` says `v1`, so the
 architecture test is skipped. Run it on every pull request into the
@@ -193,7 +247,7 @@ approximate. Re-measure at the fork.
 | `github-rest` (REST paths, `graphql`, the API host outside the forge) | R1 | 105 | 0 |
 | `gh-argv` (`gh` run outside the forge) | R2 | 277 | 0, or the security shims as a written floor |
 | `label-words` (state labels outside one module) | R1 | 413 | 0 |
-| `home-layout` (`state/`, `live/` paths outside one module) | R1 | 570 | 0 |
+| `home-layout` (`state/`, `live/`, `run/` paths outside one module) | R1 | 570 (without `run/`) | 0 |
 | `untyped-signatures` (`Value` in a signature) | R4 | 996 | 0, or a floor written in `docs/architecture.md` |
 | `untyped-fields` (`Value` in a public field) | R4 | 54 | 0, or a floor written |
 
@@ -275,6 +329,10 @@ document and field, the paging, the retries and the time limits. An
 outage or a rate limit is handled there, and reported once. The security
 shims stay where they are unless the owner agrees to merge them.
 
+They are the adapter API of "The adapters" above, and the shared set a
+consumer that runs many factories adopts: read its needs before the
+drafts, and answer its open questions in the spec.
+
 Design both ports twice: two independent drafts each, read by fresh
 reviewers against R1, R2, R4, R6 and R7, and against how little of the
 rest changes. Write the choice in a spec under `docs/specs/`, and update
@@ -286,7 +344,10 @@ dispatcher and a cycle running, with one report.
 
 ### T5. Deep homes for files
 
-- A `Home` type owns the `state/` and `live/` paths.
+- A `Home` type owns the `state/`, `live/` and `run/` paths. `run/` holds
+  the sockets, one directory per socket, each given only to the container
+  that uses it; they stay out of `live/`, which is mounted more widely.
+  Its mounts are a security change (AGENTS.md rule 4).
 - A typed store client stands over `call`, so no caller passes a verb
   string or reads `Value`.
 
@@ -329,6 +390,23 @@ Done when the checks that read bash hold at 0 or at written floors.
 
 Done when the 2.0 contract is written, and each change has its row and
 its note to adopters.
+
+### T10. The rename
+
+tehas becomes tehas-factory in 2.0.0, and `tehas-app/tehas` is later
+reused for a get-started repository, which ends GitHub's redirect. Every
+reference here moves before that. After T9:
+
+- Grep the whole tree for `tehas-app/tehas` (not a list): the release
+  repository of `host/versions.env`, the installer, `tehas update`, the
+  ids of the schemas in `api/`, the manual, AGENTS.md and the tests.
+- A setting that names the old repository is a contract change (T9 lists
+  it): an instance that names it keeps working while the redirect holds,
+  and `tehas update` says so.
+- The repository's rename on GitHub is the owner's.
+
+Done when nothing outside the renames list and the history in `docs/`
+and `CHANGELOG.md` names `tehas-app/tehas` as the factory's repository.
 
 ## Grading
 
@@ -381,18 +459,15 @@ All of these, in the last pull request into the branch:
 - a fresh grade at **conformant**, confirmed by the owner;
 - `.tehas/coding-standard` says `v2`, and the architecture test passes
   without `--force`, against the base;
-- `scripts/verify.sh --full` passes, and the 2.0 contract is written.
+- `scripts/verify.sh --full` passes, and the 2.0 contract is written;
+- T10 is done, and the trio's gate holds.
 
-Then the pull request into main (with a merge commit), and the owner's
-release of v2.0.0.
+Then, when the trio is tagged, the pull request into main (with a merge
+commit), and the owner's release of v2.0.0.
 
 ## Open, for the owner
 
-- The branch in `verify.yml`, or a `release/` name for it; and the
-  architecture test as a gate job (before T0's first pull request).
 - The AGENTS.md section of T0, which a person makes.
-- Holding the factory that builds tehas to no new work while the branch
-  is open.
 - Whether the security shims that decide a `gh` write stay separate (T4).
 - The regrouping of T6, once the map shows the crates.
 - Each contract change T9 lists, before it is made.
@@ -405,3 +480,7 @@ of main, each grade.
 | Date | What | Commit or PR |
 | --- | --- | --- |
 | 2026-11-21 | Plan written and merged ahead of v1.4.0; the work waits for the tag | #2735 |
+| 2026-11-21 | The owner approves the branch in `verify.yml`, the architecture test as a gate job, and no new work for the factory that builds tehas | |
+| 2026-11-22 | Forked `refactor/coding-standard-v2` from v1.4.0 | a0aa16a5 |
+| 2026-11-22 | The gate runs on the branch | #2775 |
+| 2026-11-22 | The trio, the adapters, the rename (T10), the pi-rukas pin and the merge train added to this plan | this pull request |
