@@ -521,6 +521,9 @@ falling back to classic on lean's setup refusal.
 
 The owner, 2026-11-22: 2.0.0 removes the Protolab. It was envisioned
 and never pulled through, so it is deleted as dead code, not migrated.
+It is parked, not abandoned: `docs/specs/parked-protolab.md` records
+every piece, where it lived and the last commit that had it, so it can
+return.
 No factory uses it and no issue carries its label. Its plumbing for
 storing and serving files stays, made generic, for a plugin to use in
 2.1.
@@ -552,8 +555,19 @@ Kept, under neutral names:
 - zip by address (the host allowlist, the redirect walk, the sha256
   pin), as library code, off behind its setting.
 
-T9 lists what goes in "Changed in 2.0", and what stays and under which
-names, for the plugin work in 2.1.
+Idea stays. The owner, 2026-11-22: the first stage of a ticket's
+progress is renamed Idea, and nothing is called Prototype. A ticket can
+be at Idea, in development, before it goes in line. The line reads Idea,
+In line, Blueprint, Production, Review, Shipped. Idea is an open ticket
+that is not in line yet: it carries none of the state labels of
+`host/labels.tsv` that put it in the queue or further on (`tehas:ready`,
+`tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, the plan and
+refine labels), and it is not closed. A reader tells it from those, not
+from a label of its own, so removing `tehas:prototype` and the
+`prototype` kind does not remove it. T2's state words name it `Idea`.
+
+T9 lists what goes in "Changed in 2.0", "Idea (was Prototype)", and
+what stays and under which names, for the plugin work in 2.1.
 
 Done when nothing names the Protolab, the kept plumbing has its tests
 under its new names, and `tehas update` removes the old units.
@@ -697,3 +711,4 @@ of main, each grade.
 | 2026-11-22 | T14: the Protolab removed as dead code, its file storage and serving kept for plugins (the owner) | #2826 |
 | 2026-11-22 | T15: shell tests to Rust (#2816 to #2824); the migration behind the ports lands after the rest of the refactor, before v2.0.0 (the owner) | #2826 |
 | 2026-11-22 | T13: the pin is pi-rukas 0.15.0; a crash is no setup refusal, and the fallback clears lean's state of the issue | #2832 |
+| 2026-11-22 | T14: the stage stays as Idea, an open ticket not in line; the Protolab parked, with a record (the owner) | #2835 |
