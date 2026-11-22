@@ -270,7 +270,7 @@ impl Writer {
     }
 
     /// A label change on an issue, journaled; false when it did not land.
-    fn edit_labels(&mut self, n: u64, flags: &[(&str, &str)]) -> bool {
+    pub(crate) fn edit_labels(&mut self, n: u64, flags: &[(&str, &str)]) -> bool {
         let mut args: Vec<String> = vec![
             "issue".into(),
             "edit".into(),

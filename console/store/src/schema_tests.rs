@@ -1074,6 +1074,17 @@ fn the_step_to_27_rewrites_retry_tick_and_marks_the_open_questions() {
         );
     }
     assert_eq!(count(&home, "approvals WHERE label = 'retry-tick'"), 0);
+    assert_eq!(
+        count(&home, "approvals WHERE started_how = 'retry-tick'"),
+        0
+    );
+    assert_eq!(
+        count(
+            &home,
+            "approvals WHERE issue = 21 AND started_how = 'reply'"
+        ),
+        1
+    );
     assert!(conn(&home)
         .execute("UPDATE cycles SET how = 'retry-tick' WHERE issue = 21", [])
         .is_err());

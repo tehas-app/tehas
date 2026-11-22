@@ -5,9 +5,11 @@ INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (21, 'issue', 17900
 INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (22, 'issue', 1790000000, 1790000000);
 INSERT INTO cycles (issue, attempt, started_at, started_by, how, end_reason, ended_at)
   VALUES (21, 2, 1790000400, 'alice', 'retry-tick', 'parked', 1790000600);
-INSERT INTO approvals (issue, at, by_account, how, label, body_sha256, comment_id, used_at, used_by)
+INSERT INTO approvals (issue, at, by_account, how, label, body_sha256, comment_id, used_at, used_by,
+                       started_by, started_how)
   VALUES (21, 1790000390, 'alice', 'retry-tick', 'retry-tick',
-          'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', 2100, 1790000400, 2);
+          'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', 2100, 1790000400, 2,
+          2, 'retry-tick');
 INSERT INTO cycle_history (issue, attempt, at, status, by_account, how, started_at)
   VALUES (21, 1, 1790000300, 'parked', 'alice', 'retry-tick', 1790000200);
 INSERT INTO parks (issue, attempt, at, reason, step) VALUES (21, 2, 1790000600, 'failed', 'develop');

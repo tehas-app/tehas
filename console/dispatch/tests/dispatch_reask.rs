@@ -96,6 +96,64 @@ fn a_stop_that_offered_no_retry_is_closed_and_not_asked_again() {
     let k = w.row(&["question-known", "21", "--id", "2101"]);
     assert_eq!(k["recorded"], json!(false), "{k}");
     assert_eq!(w.row(&["question-show", "21"])["question"], json!(null));
+    // It waits on no question any more.
+    has(
+        &gh,
+        "issue edit 21 --repo acme/widget --remove-label tehas:question",
+    );
+    // The next poll, with the old comment as it now reads, does nothing.
+    let closed = format!("{park}\n\n{}", tehas_core::question::superseded(None));
+    w.comments_of(21, 2101, &closed, "");
+    w.clear_calls();
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    let gh = w.gh();
+    assert_eq!(count_lines(&gh, "api -X POST"), 0, "{gh}");
+    assert_eq!(count_lines(&gh, "api -X PATCH"), 0, "{gh}");
+    assert_eq!(count_lines(&gh, "issue edit 21"), 0, "{gh}");
+}
+
+/// The old question goes off the record before its comment is edited: a
+/// withdrawal the store refuses edits nothing, poll after poll, so the closing
+/// line is never added twice; and an old comment that already ends in it is
+/// not edited again.
+#[test]
+fn a_withdrawal_that_fails_edits_nothing_and_a_closed_comment_is_not_edited_again() {
+    let w = World::new("reask-withdraw");
+    let park = old_park().replace("- [ ] Retry with the issue text only\n", "");
+    asking(&w, &park);
+    w.store_answers("question-answered 21", 1, "store: busy the database", 0);
+    for _ in 0..2 {
+        w.clear_calls();
+        let r = w.poll();
+        has(
+            &r.out,
+            "WARN: the old question of #21 could not be taken off the record",
+        );
+        assert_eq!(
+            count_lines(
+                &w.gh(),
+                "api -X PATCH repos/acme/widget/issues/comments/2101"
+            ),
+            0
+        );
+    }
+    let w = World::new("reask-closed");
+    let closed = format!("{park}\n\n{}", tehas_core::question::superseded(None));
+    asking(&w, &closed);
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(
+        count_lines(
+            &w.gh(),
+            "api -X PATCH repos/acme/widget/issues/comments/2101"
+        ),
+        0
+    );
+    assert_eq!(
+        w.row(&["question-known", "21", "--id", "2101"])["recorded"],
+        json!(false)
+    );
 }
 
 #[test]

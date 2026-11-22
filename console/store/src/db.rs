@@ -405,6 +405,7 @@ pub const STEP_27: &str = concat!(
 UPDATE cycles SET how = 'reply' WHERE how = 'retry-tick';
 UPDATE approvals SET how = 'reply' WHERE how = 'retry-tick';
 UPDATE approvals SET label = 'reply' WHERE label = 'retry-tick';
+UPDATE approvals SET started_how = 'reply' WHERE started_how = 'retry-tick';
 UPDATE cycle_history SET how = 'reply' WHERE how = 'retry-tick';
 ",
     cycles_with_hows!(

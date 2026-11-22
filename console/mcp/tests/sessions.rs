@@ -1724,3 +1724,26 @@ fn a_session_that_does_not_match_its_schema_is_not_served() {
         other => panic!("{other:?}"),
     }
 }
+
+/// A run a ticked retry started before 2.0 reaches the tools as analytics
+/// rewrote it on open, `how` `reply` (#2782): `factory_sessions` lists and
+/// filters it, and `factory_session` shows it. The old word is no filter.
+#[test]
+fn a_run_of_a_retry_of_before_2_0_is_listed_as_reply() {
+    let all = [
+        sess("work", 1, 100, json!({"how": "reply"})),
+        sess("work", 2, 200, json!({"how": "label"})),
+    ];
+    let env = Env::new("reply", Some("a/b"), &all);
+    let out = env
+        .call("factory_sessions", json!({"how": "reply"}))
+        .unwrap();
+    assert_eq!(ids(&out), [all[0]["id"].as_str().unwrap()]);
+    let one = env
+        .call("factory_session", json!({"id": all[0]["id"]}))
+        .unwrap();
+    assert_eq!(one["session"]["how"], "reply", "{one}");
+    assert!(env
+        .call("factory_sessions", json!({"how": "retry-tick"}))
+        .is_err());
+}

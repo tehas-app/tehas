@@ -579,10 +579,11 @@ impl Writer {
     }
 
     /// A question of before 2.0 asked again in 2.0's words (#2782): the new
-    /// comment posted and recorded, the old one told once where it went and
-    /// taken off the record. A step that fails stops there: until the old one
-    /// is off the record the next poll asks again, so nothing is lost; a new
-    /// comment posted and not recorded is said in the log.
+    /// comment posted and recorded, the old one taken off the record, then
+    /// told once where it went (a stop closed with nothing to ask also loses
+    /// `tehas:question`). A step before the withdrawal that fails stops there,
+    /// and the next poll asks again; one after it is said in the log and not
+    /// repeated. An old comment that already ends in the line is not edited.
     fn reask(&mut self, n: u64, r: &Reask, log: &mut Vec<String>) {
         let mut new = None;
         if let Some(body) = r.body {
@@ -604,39 +605,48 @@ impl Writer {
             }
             new = id.parse().ok();
         }
-        let line = tehas_core::question::superseded(new);
-        let edited = format!("{}\n\n{line}", r.old_body.trim_end());
-        let args = vec![
-            "api".into(),
-            "-X".into(),
-            "PATCH".into(),
-            self.issues_path(&format!("comments/{}", r.old)),
-            "--input".into(),
-            "-".into(),
-        ];
-        let input = json!({"body": edited}).to_string();
-        if !matches!(
-            self.write(n, "comment-edit", args, Some(&input), None),
-            Wrote::Done(_)
-        ) {
-            log.push(format!(
-                "WARN: the old question of #{n} could not be told it is superseded"
-            ));
-        }
+        // Off the record first: a step after it that fails is not repeated
+        // by the next poll, which no longer finds the old question marked.
         let issue = n.to_string();
-        match self.store_try(
+        if let Err(f) = self.store_try(
             3,
             &["question-answered", &issue, "--id", r.old, "--withdraw"],
         ) {
-            Ok(_) => log.push(format!(
-                "asked #{n}'s question again in the words of 2.0 (comment {} superseded)",
-                r.old
-            )),
-            Err(f) => log.push(format!(
+            log.push(format!(
                 "WARN: the old question of #{n} could not be taken off the record ({})",
                 word(&f)
-            )),
+            ));
+            return;
         }
+        // A stop closed with nothing to ask no longer waits on a question.
+        if r.body.is_none() && !self.edit_labels(n, &[("--remove-label", "tehas:question")]) {
+            log.push(format!("WARN: tehas:question could not be taken off #{n}"));
+        }
+        let line = tehas_core::question::superseded(new);
+        if !r.old_body.trim_end().ends_with(&line) {
+            let edited = format!("{}\n\n{line}", r.old_body.trim_end());
+            let args = vec![
+                "api".into(),
+                "-X".into(),
+                "PATCH".into(),
+                self.issues_path(&format!("comments/{}", r.old)),
+                "--input".into(),
+                "-".into(),
+            ];
+            let input = json!({"body": edited}).to_string();
+            if !matches!(
+                self.write(n, "comment-edit", args, Some(&input), None),
+                Wrote::Done(_)
+            ) {
+                log.push(format!(
+                    "WARN: the old question of #{n} could not be told it is superseded"
+                ));
+            }
+        }
+        log.push(format!(
+            "asked #{n}'s question again in the words of 2.0 (comment {} superseded)",
+            r.old
+        ));
     }
 
     /// refresh_unmark: tehas:refreshing off a pull request; one already

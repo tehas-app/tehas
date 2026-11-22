@@ -502,6 +502,18 @@ pub fn reasked(kind: Kind, issue: u64, turn: u64, old: &str) -> Option<Reasked> 
                     offers: Vec::new(),
                 });
             }
+            // The words of before 2.0 that asked for a tick ask for a reply.
+            let word = if comments { "retry" } else { "retry-text" };
+            let words = words
+                .replace(
+                    "Tick a retry box on this comment",
+                    &format!("Reply `{word}` to this comment"),
+                )
+                .replace(
+                    "tick a retry box on this comment",
+                    &format!("reply `{word}` to this comment"),
+                )
+                .replace("then tick a box.", "then reply with one of the choices.");
             let park = lines
                 .iter()
                 .find(|l| is_park_marker(l, issue))
@@ -580,6 +592,18 @@ mod tests {
             r.offers,
             vec![Choice::Retry, Choice::RetryText, Choice::Park]
         );
+        // The phrases of before 2.0 that asked for a tick ask for a reply of
+        // a choice the comment offers.
+        for (said, says, label) in [
+            ("To run it on classic instead, take `tehas:lean` off this issue, then tick a box.", "To run it on classic instead, take `tehas:lean` off this issue, then reply with one of the choices.", OLD_BOX_CLEAN),
+            ("Make the change yourself, then tick a retry box on this comment.", "Make the change yourself, then reply `retry` to this comment.", OLD_BOX_CLEAN),
+            ("Tick a retry box on this comment once it is right.", "Reply `retry-text` to this comment once it is right.", BOX_ALONE),
+        ] {
+            let was = old.replace("Tehas cycle stopped.", &format!("Tehas cycle stopped.\n\n{said}")).replace(OLD_BOX_CLEAN, label);
+            let body = reasked(Kind::Park, 7, 1, &was).unwrap().body.unwrap();
+            assert!(body.contains(says), "{body}");
+            assert!(!body.to_lowercase().contains("tick a"), "{body}");
+        }
         let alone = old.replace(OLD_BOX_CLEAN, BOX_ALONE);
         assert_eq!(
             reasked(Kind::Park, 7, 1, &alone).unwrap().offers,
