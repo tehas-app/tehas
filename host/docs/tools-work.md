@@ -474,7 +474,7 @@ name ends in `.zip`: a link named `.zip` that holds something else is left out
 with `Not a zip archive.` At most 2 archives per issue, each downloaded at most
 4 MB, and the download is refused over that with a reason. The archive is
 unpacked into a scratch directory beside the others by `~/tehas/libexec/attach`
-(`console/attach`), the Protolab's own unpacker, which reads the archive's
+(`console/attach`), which reads the archive's
 central directory first and refuses an archive it cannot read whole (a zip64
 or a split one among them), and of its entries an absolute path, a `..` part,
 a backslash, a link, a locked file, a method other than stored or deflated, a

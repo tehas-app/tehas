@@ -217,7 +217,7 @@ line that sets one stops every command with exit 78; take them out too.
   `tehas-cycle renew` (`console/cycle/src/renew.rs`). It ends within a second
   of a `tehas work` that was killed outright, so it does not keep the issue's
   lock after its cycle is gone.
-- The dispatcher, the refresh and the Protolab take the bot's login from
+- The dispatcher and the refresh take the bot's login from
   `~/tehas/state/github/login`, because an installation token cannot ask
   GitHub who it is. The millwright is that same login (see
   [the millwright's grant](/operating#the-millwrights-grant)).

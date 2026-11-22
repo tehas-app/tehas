@@ -1,21 +1,20 @@
 ---
-title: Previews and the Protolab on the internet
-description: "How a tehas host publishes a preview of every pull request and the Protolab's tickets under names of their own: the domain, the certificate, the proxy and the edge router."
+title: Previews on the internet
+description: "How a tehas host publishes a preview of every pull request, and an item's page, under names of their own: the domain, the certificate, the proxy and the edge router."
 ---
 
-# Previews and the Protolab on the internet
+# Previews on the internet
 
 A host can publish two things under names of their own: a running preview of
-every open pull request, and the Protolab's page for every ticket at the
-prototype stage. This page is how that was set up for the tehas-tehas
+every open pull request, and the page of an item under `~/tehas/items`, which
+nothing in this version writes. This page is how that was set up for the tehas-tehas
 instance, written so that another instance can follow it.
 
 | Name | What answers |
 | --- | --- |
 | `uat-<pr>.tehas.app` | The preview of that pull request |
 | `uat-main.tehas.app` | The preview of the default branch's head |
-| `item-<issue>.tehas.app` | That ticket's page in the Protolab |
-| `lab.tehas.app` | The Protolab's list |
+| `item-<issue>.tehas.app` | That item's page |
 
 How far this is proven:
 
@@ -74,11 +73,10 @@ level by joining the label with a dash:
 | --- | --- |
 | `uat-<pr>-demo.example.org` | The preview of that pull request |
 | `uat-main-demo.example.org` | The preview of the default branch's head |
-| `item-<issue>-demo.example.org` | That ticket's page in the Protolab |
-| `lab-demo.example.org` | The Protolab's list |
+| `item-<issue>-demo.example.org` | That item's page |
 
-These are the names the pull request's notice, the dashboard's Previews and
-the Protolab's links say. The router still picks by `<label>.<domain>`, so the
+These are the names the pull request's notice and the dashboard's Previews
+say. The router still picks by `<label>.<domain>`, so the
 proxy sends each name on with that `Host`. In a Caddy that already serves
 `*.example.org`:
 
@@ -380,7 +378,7 @@ with the `Host` as it came: the gate checks the whole name against its
 settings. A name that starts `plugin` and is no plugin's name answers 404 with
 "No plugin is set at this address.", and so does the gate for a plugin that
 is not set. When the gate does not answer, the name answers 503 with "The
-plugins' gate is not answering.", never a preview's or the Protolab's page.
+plugins' gate is not answering.", never a preview's or an item's page.
 
 ### The gate's address
 

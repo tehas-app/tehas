@@ -6,7 +6,7 @@ description: "How the dashboard and the front pages are built: the platform and 
 # The front end
 
 This page is the contract for the pages a factory serves: the business page,
-the factory floor, the dashboard, the manual and the Protolab's pages. It says
+the factory floor, the dashboard and the manual. It says
 what a page may use, how its parts are named and split, and how big it may
 grow. Existing pages follow the rules as they are touched; a page moved to them
 looks the same before and after.

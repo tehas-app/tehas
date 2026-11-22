@@ -8,84 +8,22 @@ description: "Running a tehas factory day to day: writing an issue, labels, revi
 Everything on this page is done in GitHub unless a command is shown. Commands
 run on the host as the tehas user (in the example, `ssh boss@tehas-tehas`).
 
-## Prototypes: before the factory
+## Ideas: before the factory
 
-Optional. The factory needs no prototype stage: an issue can be written and
-labelled `tehas:ready` directly, as in step 1 below. Skip this section if you
-do not use the label.
+Optional. An open issue that carries none of tehas's queue labels
+(`tehas:ready`, `tehas:plan`, `tehas:running` and the others of the
+[line](#3-what-happens-next)) is an idea: it is not in line yet. Work on it can
+happen anywhere, with other tools and systems, for as long as it takes.
+tehas does not act on it. The business page shows such tickets as its Idea
+stage when it draws the bundled sample, and the factory floor counts them as
+not on the line.
 
-A prototype is an ordinary issue with the label **`tehas:prototype`**. The
-label puts the ticket at the prototype stage: an idea that is still being
-worked out. That work can happen anywhere, with other tools and systems, for
-as long as it takes. tehas does not act on `tehas:prototype`: the dispatcher
-never starts a cycle because of it.
+This version has no Protolab: the site that kept a page of the files
+attached to each prototype is parked, to come back as a plugin.
+`tehas labels` still makes and pins `tehas:prototype`, and the dispatcher
+does not act on it.
 
-The label counts when an account in `TEHAS_ALLOWED_LABELERS` applied it, which
-is the same rule `tehas:ready` follows. A `tehas:prototype` applied by anyone
-else, the bot included, counts as no label at all: the ticket gets no page, a
-page it had is removed, and the Protolab's log names the issue and the account.
-An account in a cycle holds the bot's token, and the bot can label, so the
-account behind the label is what is checked, not the label itself. The check
-only means something while the bot's own login is outside
-`TEHAS_ALLOWED_LABELERS`, and the Protolab stops with an error when it is not.
-The label must also be the one `tehas labels` pinned, as the granting labels
-are (see [label pins](/github-app#label-pins)), and a title changed since the
-labelling by an account outside the list is not published: the page stays as
-it was until an allowed account applies the label again.
-
-With `TEHAS_ISSUE_TYPES` mapping `prototype` to an issue type, the type puts
-a ticket at the stage in place of the label, by the same rule: see
-[Kinds as issue types](#kinds-as-issue-types).
-
-The **Protolab** is where tickets at the prototype stage are kept. It is a
-small site of its own, on port 8081 of the host, with a page for every open
-prototype: the title, a link to the issue, and what is attached to the issue.
-On the [factory floor](/floor) the Protolab panel lists the same tickets and each
-row opens its page.
-
-To put something on a ticket's page, attach it to the issue on GitHub, in the
-issue text or in a comment, the way any file is attached there. The page has
-it within about five minutes. It takes:
-
-- images (png, jpg, gif, webp, svg, avif) and videos (mp4, webm, mov), shown
-  as they are,
-- HTML files, shown in a frame with a link to open them full size,
-- the style sheets, scripts and data an HTML file refers to (css, js, mjs,
-  json, txt). Attach them to the same ticket and refer to them by name, as
-  `<script src="app.js">`,
-- a zip, unpacked into a folder of its own; its files count against the same
-  limits. It takes the types above and md files, kept in their folders, so
-  `index.html` in a zip can refer to `data/sample.json` in it. Links, paths
-  that leave the zip, paths more than six levels deep and locked files are
-  left out. At most 200 entries of a zip are read, and once a file of it is
-  over the 10 MB, nothing more of it is unpacked.
-
-A prototype zip may carry instructions for language models on what it holds,
-for example a `prototype.md`; the lab serves it like any other file and does
-not define what it says.
-
-The limits:
-
-- **10 megabytes a ticket**, counted in the order the files were attached,
-  and at most 40 files. What does not fit is left out, and the page lists it
-  under "left out" with the reason.
-- **Static files only.** Nothing is run on the host for a prototype.
-- **Only a label from an allowed account** puts the ticket here, as said
-  above: the most recent `tehas:prototype` labelling is by an account in
-  `TEHAS_ALLOWED_LABELERS`.
-- **Only files linked by an allowed account** are taken: in text an account
-  in `TEHAS_ALLOWED_LABELERS` wrote and nobody off the list edited last, and
-  not on a quoted line. Links by anyone else, the bot included, are counted on
-  the page and not fetched.
-- An HTML prototype runs in the browser's sandbox, apart from the dashboard
-  and from every other prototype. Scripts work; storage in the browser
-  (`localStorage`, cookies) does not.
-
-The page and its files go when the ticket is closed, loses the label, or
-carries it from an account the instance does not allow. They are copies: GitHub
-keeps what was attached.
-
-A prototype goes to the factory when it is ready for implementation, which
+An idea goes to the factory when it is ready for implementation, which
 means:
 
 - the issue body has a good description, written as in step 1 below,
@@ -100,22 +38,22 @@ means:
 
 ## Attachments
 
-What is attached to an issue reaches three parts of tehas, each by its own
+What is attached to an issue reaches two parts of tehas, each by its own
 rule. A cycle works from words first: anything it must know is safest in the
 issue text.
 
-| What                                        | A cycle | A planning session | The Protolab |
-| ------------------------------------------- | ------- | ------------------ | ------------ |
-| The issue's title and body                  | Read | Read, at the start | The title |
-| Comments on the issue                       | Not given, except on a retry with comments (below) | Replies by an allowed account to its question, as answers | Not shown |
-| A png, jpg, webp or gif linked in the body  | Fetched and mounted with `TEHAS_WORK_IMAGES=on`; shown to explore and plan when the sandbox image says its pi-rukas reads them | The same | Shown |
-| The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=on`, when an allowed account wrote it before the label or the retry's answer and nobody edited it since | When a reply to its question links it | Shown |
-| The text of comments, on a retry with comments | `comments.json` beside the images, when `retry` (`Retry with the issue and all its comments`) was answered: what allowed accounts that may write said on the issue and its pull requests up to the answer. Read by the sandbox image's pi-rukas or its polyfill | Not given | Not shown |
-| The spec an issue's `Spec:` line names, and the approved title and body | With `TEHAS_SPEC_PIPE=on`, still being built: the spec, held to the sha256 its approval pinned, and `approved.json`, beside the images and named in the manifest. A spec needs a sandbox image whose pi-rukas lists `issueSpec` | Not given | Not shown |
-| md, txt, csv, json, yaml, log, html, css or js linked in the body | Fetched and mounted with `TEHAS_WORK_FILES=on`; pi-rukas does not read them yet | The same | html, css, js, json and txt shown, html in a frame |
-| svg, avif, a video                          | Not given | Not given | Shown |
-| A zip                                       | Unpacked with `TEHAS_WORK_ZIPS=on`, its files given as above | The same | Unpacked, its files shown as above |
-| Any other file, such as a pdf               | Not given | Not given | Left out |
+| What                                        | A cycle | A planning session |
+| ------------------------------------------- | ------- | ------------------ |
+| The issue's title and body                  | Read | Read, at the start |
+| Comments on the issue                       | Not given, except on a retry with comments (below) | Replies by an allowed account to its question, as answers |
+| A png, jpg, webp or gif linked in the body  | Fetched and mounted with `TEHAS_WORK_IMAGES=on`; shown to explore and plan when the sandbox image says its pi-rukas reads them | The same |
+| The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=on`, when an allowed account wrote it before the label or the retry's answer and nobody edited it since | When a reply to its question links it |
+| The text of comments, on a retry with comments | `comments.json` beside the images, when `retry` (`Retry with the issue and all its comments`) was answered: what allowed accounts that may write said on the issue and its pull requests up to the answer. Read by the sandbox image's pi-rukas or its polyfill | Not given |
+| The spec an issue's `Spec:` line names, and the approved title and body | With `TEHAS_SPEC_PIPE=on`, still being built: the spec, held to the sha256 its approval pinned, and `approved.json`, beside the images and named in the manifest. A spec needs a sandbox image whose pi-rukas lists `issueSpec` | Not given |
+| md, txt, csv, json, yaml, log, html, css or js linked in the body | Fetched and mounted with `TEHAS_WORK_FILES=on`; pi-rukas does not read them yet | The same |
+| svg, avif, a video                          | Not given | Not given |
+| A zip                                       | Unpacked with `TEHAS_WORK_ZIPS=on`, its files given as above | The same |
+| Any other file, such as a pdf               | Not given | Not given |
 
 The rules behind each column:
 
@@ -152,9 +90,6 @@ The rules behind each column:
   rules, once at its start, and is shown the images when the same label says
   so. A reply to its question can carry more. See
   [Planning on an issue](#planning-on-an-issue).
-- **The Protolab** shows what is attached to an issue labelled
-  `tehas:prototype` by an allowed account, in the body or in a comment, from
-  an owner, member or collaborator, as said under "Prototypes" above.
 
 So for a picture, write the words too: name the element by its selector and
 its visible title, and say where in it the thing goes.
@@ -1295,9 +1230,8 @@ and you apply `tehas:plan` again.
 The bot (the app's login) is never one of the allowed labellers. If it is listed in
 `TEHAS_ALLOWED_LABELERS`, the dispatcher stops with an error rather than let
 the bot approve its own work: every poll reads its own login first, before it
-reads a label or changes one. The Protolab refuses the same list, with an error
-before it reads, builds or removes a page. A poll or a pass that cannot read
-its own login stops there and does nothing else. A cycle acts as the same login from inside its container, so there is no second account to refuse.
+reads a label or changes one. A poll that cannot read its own login stops
+there and does nothing else. A cycle acts as the same login from inside its container, so there is no second account to refuse.
 
 
 ### The dispatcher in Rust
@@ -1858,14 +1792,11 @@ What changes:
   holds one labelled `tehas:improvement`: the millwright does not start it.
   The label still holds where a person left it, so turning the setting on lets
   nothing start that was held.
-- **prototype**: the Protolab lists the open issues of the type, and a ticket
-  counts when an account in `TEHAS_ALLOWED_LABELERS` made the newest change to
-  its type, the change that set it. A type set by anyone else, or a change the
-  Protolab cannot see, counts as no type, as a label from anyone else does.
-  With the setting on, `tehas:prototype` puts nothing in the lab.
+- **prototype**: a `prototype=` pair is accepted, and nothing in this
+  version reads the type. It was the Protolab's, which is parked.
 
-A type the organisation does not have fails closed: the poll or the
-Protolab pass that reads the setting stops with 78 before it writes anything,
+A type the organisation does not have fails closed: the poll that reads the
+setting stops with 78 before it writes anything,
 and the log names the type and the repository. A repository of a personal
 account has no issue types, so the setting is not for it. To go back to the
 labels, remove the setting; issues keep their types, and a person relabels

@@ -100,8 +100,9 @@ refused while the feature is building, as every building feature's name is.
 2.0 takes the names of the features it moves out of core off the list,
 `TEHAS_REVIEW` and `TEHAS_REVIEW_REPO` among them.
 
-In `tehas status --json` the fields of `running[].progress` and `prototypes`
-describe one driver's steps and the Protolab, and may change. The fields of
+In `tehas status --json` the fields of `running[].progress` describe one
+driver's steps and may change, and `prototypes` is left out on every host
+of this version. The fields of
 `contractors` may change while outsource is still being built, and so may
 `api/status.outsourced.json`, the sample that shows them.
 

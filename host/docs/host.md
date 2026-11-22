@@ -134,7 +134,7 @@ sandbox recipe - `~/tehas/sandbox/sandbox-uid.Dockerfile`, or its
 `sandbox-uid.Dockerfile.XXXXXX` temporary - of that age a build killed before its
 cleanup ran left beside the build script. Nothing else under `~/tehas` outside
 those directories is touched, and nothing outside `~/tehas`: not
-`state`, `logs`, `dev`, `repos`, `preview` or `protolab`. One line per removal and
+`state`, `logs`, `dev`, `repos`, `preview` or `items`. One line per removal and
 a closing line with the bytes freed go to `~/tehas/logs/clean.log`; `tehasbot
 clean --dry-run` logs what it would remove and removes nothing. The cleaner starts
 no work, so the pause label does not hold it.
@@ -605,7 +605,7 @@ given (see [Tools](/tools)). It holds `GH_TOKEN` only to pass it to `gh` and to
 run as a child with no environment but `PATH`. Without it a start or a planning
 reply that links a file stops, with a reason that names no host path, one that
 links nothing goes on with a manifest that gives nothing, a cycle given none says
-it could not read the record, and the Protolab leaves a zip out. A host installed from a release tarball has neither
+it could not read the record. A host installed from a release tarball has neither
 `cargo` nor `console/`: its programs are the ones the release packed
 ([Releases](/tools-releases#releases)), and a release without a store installs only on a
 host that has one. On a host with none, `--check` says so on a `Store: REFUSED`
@@ -2017,8 +2017,8 @@ label of the name it is asked for:
 | Name asked for | Answer |
 | --- | --- |
 | `uat-<pr>.` and anything after it | The preview of that pull request, the container `tehas-preview-<pr>`. With no such container, a 404 that says no preview is running |
-| `item-<issue>.` and anything after it | That ticket's page in the Protolab, from `~/tehas/items/<issue>/` |
-| Any other name | The Protolab by path: the list at `/`, a ticket at `/<issue>/` |
+| `item-<issue>.` and anything after it | That item's page, from `~/tehas/items/<issue>/`. Nothing in this version writes one |
+| Any other name | The items by path: the list at `/`, an item at `/<issue>/` |
 
 The number is one to nine digits and does not start with a zero. Another `uat-` or
 `lab-` name is a 404. Every answer of the router says `noindex`. Its
@@ -2119,10 +2119,10 @@ to take out of `instance.env`: set `TEHAS_DESIGN=pixel` instead.
 Both pages are always there, at `/floor` and `/business`. The business page
 reads the
 same files as the floor: `live/status.json`, `live/running.json` and the
-cycles' consoles, `live/protolab.json`, `live/analytics.json` and
-`live/epics.json`. Its console follows the running cycle's output, with a tab
-for each cycle when there are several, as on the floor. Its 10 days show only
-once there is a report. With no queue file it shows the floor's sample tickets and says so.
+cycles' consoles, `live/analytics.json` and `live/epics.json`. Its console
+follows the running cycle's output, with a tab for each cycle when there are
+several, as on the floor. Its 10 days show only once there is a report. With
+no queue file it shows the floor's sample tickets and says so.
 Both pages list the open epics from `live/epics.json`, one row each with a
 block per sub-issue, filled when it is closed; a row opens to list the
 sub-issues, open or closed, each linked, and a link to the epic. The panel
