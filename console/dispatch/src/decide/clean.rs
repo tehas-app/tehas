@@ -4,7 +4,9 @@
 //! cycle left on this host.
 
 use super::{has, or_unknown, Poll, Step};
-use crate::snapshot::Cycle;
+#[cfg(test)]
+use crate::snapshot::own_branch;
+use crate::snapshot::{BotPr, Cycle, Marked};
 use regex::Regex;
 use serde_json::{json, Value};
 use tehas_core::accounts::account;
@@ -64,15 +66,6 @@ pub(crate) fn quiet_due(times: u64, asked: u64, now: u64) -> Due {
 /// Why a cycle is quiet, as both halves of a poll say it.
 pub(crate) fn quiet_why(n: u64, heard: u64) -> String {
     format!("the cycle for #{n} holds its lock but has not been heard from since {}, more than {QUIET_BOUND}s", iso(heard))
-}
-
-/// A pull request of issue `n`'s own branch, `feature/issue-<n>` or
-/// `feature/issue-<n>-*`. Its body does not count: any cycle can write
-/// `Fixes #<n>` in a pull request of its own.
-fn own_branch(pr: &Value, n: u64) -> bool {
-    let head = pr.get("headRefName").and_then(Value::as_str).unwrap_or("");
-    let branch = format!("feature/issue-{n}");
-    head == branch || head.starts_with(&format!("{branch}-"))
 }
 
 impl Poll<'_> {
@@ -174,14 +167,14 @@ impl Poll<'_> {
     /// list is said once and the poll goes on, as a failed history of
     /// refreshes is in `refreshing`. The words of the failed call are left out:
     /// the poll says them at its end, and would say them twice here.
-    fn bot_prs(&mut self) -> Vec<Value> {
+    fn bot_prs(&mut self) -> Vec<BotPr> {
         match &self.s.bot_prs {
             None => {
                 self.need("bot_prs");
                 Vec::new()
             }
-            Some(Value::Array(a)) => a.clone(),
-            Some(_) => {
+            Some(Some(a)) => a.clone(),
+            Some(None) => {
                 self.log("WARN: the bot's pull requests could not be read, so no cycle is stopped for its pull request this poll".to_string());
                 Vec::new()
             }
@@ -215,27 +208,17 @@ impl Poll<'_> {
                 ("closed", "its issue is closed".to_string())
             } else {
                 let since = iso(took);
-                let created = |p: &Value| {
-                    p.get("createdAt")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string()
-                };
-                let mut mine: Vec<&Value> = prs
+                let mut mine: Vec<&BotPr> = prs
                     .iter()
-                    .filter(|p| p.is_object() && created(p) >= since && own_branch(p, n))
+                    .filter(|p| p.created >= since && p.own_branch(n))
                     .collect();
-                mine.sort_by_key(|p| created(p));
+                mine.sort_by_key(|p| &p.created);
                 let last = mine.last();
-                let field = |k: &str| {
-                    last.and_then(|p| p.get(k))
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                };
-                let url = Some(field("url"))
+                let url = last
+                    .map(|p| p.url.as_str())
                     .filter(|u| url_ok.is_match(u))
                     .unwrap_or("");
-                match field("state") {
+                match last.map_or("", |p| p.state.as_str()) {
                     "MERGED" => ("merged", format!("its pull request {url} is merged")),
                     "CLOSED" => (
                         "pr-closed",
@@ -262,24 +245,16 @@ impl Poll<'_> {
             self.need("marked");
             return Ok(());
         };
-        let list = match marked {
-            v if v.get("failed") == Some(&json!(true)) => {
-                return Err(self.fail("ERROR: gh issue list failed", 1))
+        let mut list = match marked {
+            Marked::Failed => return Err(self.fail("ERROR: gh issue list failed", 1)),
+            Marked::Listed(a) => a.clone(),
+            Marked::Unreadable => {
+                return Err(self.fail("ERROR: unreadable list of issues marked as running", 1))
             }
-            Value::Array(a) => a.clone(),
-            _ => return Err(self.fail("ERROR: unreadable list of issues marked as running", 1)),
         };
-        let mut numbers = Vec::new();
-        for i in &list {
-            match i.get("number").and_then(Value::as_u64) {
-                Some(n) => numbers.push((n, i.clone())),
-                None => {
-                    return Err(self.fail("ERROR: unreadable list of issues marked as running", 1))
-                }
-            }
-        }
-        numbers.sort_by_key(|(n, _)| *n);
-        for (n, i) in numbers {
+        list.sort_by_key(|i| i.number);
+        for i in list {
+            let n = i.number;
             if self.running(n) || self.stopped.contains(&n) {
                 continue;
             }
@@ -287,7 +262,7 @@ impl Poll<'_> {
                 self.act(json!({"reap": format!("tehas-work-{n}"),
                     "why": format!("no cycle holds the lock of #{n}")}));
             }
-            if i.get("state").and_then(Value::as_str) == Some("CLOSED") {
+            if i.closed {
                 let line = format!(
                     "clear #{n}: it is closed, marked tehas:running, and no cycle holds its lock"
                 );
@@ -412,27 +387,17 @@ impl Poll<'_> {
         if from.is_empty() && !self.refresh_waits() {
             return Ok(());
         }
-        let list = match &self.s.refreshing {
+        let mut prs = match &self.s.refreshing {
             None => {
                 self.need("refreshing");
                 return Ok(());
             }
-            Some(Value::Array(a)) => a.clone(),
-            Some(_) => {
+            Some(Some(a)) => a.clone(),
+            Some(None) => {
                 self.log("WARN: the pull requests marked tehas:refreshing could not be read, so no pull request is cleared of tehas:refreshing this poll".to_string());
                 return Ok(());
             }
         };
-        let mut prs: Vec<u64> = list
-            .iter()
-            .filter(|p| {
-                p.get("labels").and_then(Value::as_array).is_some_and(|l| {
-                    l.iter()
-                        .any(|x| x.get("name").and_then(Value::as_str) == Some("tehas:refreshing"))
-                })
-            })
-            .filter_map(|p| p.get("number").and_then(Value::as_u64))
-            .collect();
         let mut owner = std::collections::BTreeMap::new();
         if !prs.is_empty() {
             for &n in &from {

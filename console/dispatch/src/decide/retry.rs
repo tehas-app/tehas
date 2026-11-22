@@ -266,16 +266,16 @@ impl Poll<'_> {
             self.need("asking");
             return Ok(());
         };
-        let Some(list) = asking.as_array() else {
+        let Some(list) = asking else {
             self.log("WARN: the issues with a question could not be read, so no question is answered this poll");
             return Ok(());
         };
         let mut numbers: Vec<(u64, Vec<String>)> = Vec::new();
         for i in list {
-            let Some(n) = i.get("number").and_then(Value::as_u64) else {
+            let Some(n) = i.number else {
                 return Err(self.fail("ERROR: unreadable list of issues with a question", 1));
             };
-            numbers.push((n, labels(i)));
+            numbers.push((n, i.labels));
         }
         numbers.sort_by_key(|(n, _)| *n);
         let asked: Vec<u64> = numbers.iter().map(|(n, _)| *n).collect();

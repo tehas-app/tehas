@@ -808,27 +808,21 @@ impl<'a> Poll<'a> {
     /// ticked a Retry, and when: what rule 4 would start with room. An issue
     /// whose question or comments this poll did not read is left out.
     fn retries_ticked(&self) -> Vec<(u64, String)> {
-        let Some(list) = self.s.asking.as_ref().and_then(Value::as_array) else {
+        let Some(Some(list)) = &self.s.asking else {
             return Vec::new();
         };
         let mut out = Vec::new();
         for i in list {
-            let Some(n) = i.get("number").and_then(Value::as_u64) else {
+            let Some(n) = i.number else {
                 continue;
             };
-            let labels: Vec<String> = i
-                .get("labels")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|l| l.get("name").and_then(Value::as_str).map(String::from))
-                .collect();
+            let labels = &i.labels;
             if n == self.c.control
                 || self.plan_open(n)
                 || self.running(n)
-                || has(&labels, "tehas:running")
-                || has(&labels, "tehas:awaiting-merge")
-                || !has(&labels, "needs-human-attention")
+                || has(labels, "tehas:running")
+                || has(labels, "tehas:awaiting-merge")
+                || !has(labels, "needs-human-attention")
             {
                 continue;
             }

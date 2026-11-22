@@ -143,12 +143,6 @@ impl Poll<'_> {
 
     /// What holds a blocker the poll did not decide on, from the lists it read.
     fn hold_of(&self, n: u64) -> Reason {
-        let numbered = |v: Option<&Value>| {
-            v.and_then(Value::as_array).is_some_and(|l| {
-                l.iter()
-                    .any(|i| i.get("number").and_then(Value::as_u64) == Some(n))
-            })
-        };
         let awaiting = self
             .s
             .awaiting
@@ -157,7 +151,14 @@ impl Poll<'_> {
             .is_some_and(|l| l.iter().any(|i| i.number == Some(n)));
         if self.running(n) {
             Reason::new(code::RUNNING, "its cycle is running")
-        } else if numbered(self.s.asking.as_ref()) {
+        } else if self
+            .s
+            .asking
+            .iter()
+            .flatten()
+            .flatten()
+            .any(|i| i.number == Some(n))
+        {
             Reason::new(
                 code::QUESTION,
                 "it carries tehas:question: it waits for an answer",
