@@ -44,7 +44,7 @@ all_present() {
   t_stub vipune "echo 'vipune $VIPUNE_VERSION'"
   t_stub oo "echo 'oo $OO_VERSION'"
   t_stub codebase-memory-mcp "echo 'codebase-memory-mcp $CBM_VERSION'"
-  t_stub git "case \"\$*\" in *ls-remote*) printf '%s\trefs/tags/v0.12.81\n' $rukas_head ;; *rev-parse*) echo $rukas_head ;; *) echo 'git version 2.53.0' ;; esac"
+  t_stub git "case \"\$*\" in *ls-remote*) printf '%s\trefs/tags/v0.15.81\n' $rukas_head ;; *rev-parse*) echo $rukas_head ;; *) echo 'git version 2.53.0' ;; esac"
   t_stub docker 'echo "Docker version 29.1.3"'
   t_stub loginctl 'echo yes'
   t_stub curl 'echo "curl 8.0.0"'
@@ -472,7 +472,7 @@ t_lacks "$(cat "$T_ROOT/host/sandbox/Dockerfile")" "playwright@"
 # something to move it to.
 behind_head() {
   t_stub git "case \"\$*\" in
-  *ls-remote*) printf '%s\trefs/tags/v0.12.81\n' $rukas_head ;;
+  *ls-remote*) printf '%s\trefs/tags/v0.15.81\n' $rukas_head ;;
   *rev-parse*) echo $rukas_stub_behind ;;
   *) echo 'git version 2.53.0' ;;
 esac"
@@ -506,7 +506,7 @@ all_present
 behind_head
 t_stub git "case \"\$*\" in
   *fetch*) echo 'fatal: the remote did not answer' >&2; exit 128 ;;
-  *ls-remote*) printf '%s\trefs/tags/v0.12.81\n' $rukas_head ;;
+  *ls-remote*) printf '%s\trefs/tags/v0.15.81\n' $rukas_head ;;
   *rev-parse*) echo $rukas_stub_behind ;;
   *) echo 'git version 2.53.0' ;;
 esac"
@@ -528,7 +528,7 @@ rukas_lost() {
   t_stub git "case \"\$*\" in
   *cat-file*) [ -e \"\$T/fetched-by-id\" ] ;;
   *'fetch -q origin $rukas_head'*) [ -z \"\${BY_ID_FAILS:-}\" ] || { echo 'fatal: not our ref' >&2; exit 128; }; : >\"\$T/fetched-by-id\" ;;
-  *ls-remote*) printf '%s\trefs/tags/v0.12.81\n' $rukas_head ;;
+  *ls-remote*) printf '%s\trefs/tags/v0.15.81\n' $rukas_head ;;
   *checkout*) : >\"\$T/checked-out\" ;;
   *rev-parse*) if [ -e \"\$T/checked-out\" ]; then echo $rukas_head; else echo $rukas_stub_behind; fi ;;
   *) echo 'git version 2.53.0' ;;
@@ -817,8 +817,8 @@ t_git() {
 
 # A bare repository standing for pi-rukas's, its upstream, and the host's clone
 # made from it before upstream moved the tag. Two commits land on top of what
-# the clone was made on, and the annotated release tag v0.12.80 is pointed at
-# the first of them while v0.12.81 names the second. The clone therefore holds
+# the clone was made on, and the annotated release tag v0.15.80 is pointed at
+# the first of them while v0.15.81 names the second. The clone therefore holds
 # the tag at a commit upstream no longer calls a release, and the newest release
 # is a tag the clone has never seen. Everything is under $T/rukas-moved.
 # shellcheck disable=SC2329  # the three cases below call it
@@ -831,23 +831,23 @@ rukas_moved() {
   printf 'first\n' >"$r/up/one"
   t_git -C "$r/up" add one
   t_git -C "$r/up" commit --quiet -m first
-  t_git -C "$r/up" tag -a -m 'Release v0.12.80 - first' v0.12.80
-  t_git -C "$r/up" push --quiet origin main v0.12.80
+  t_git -C "$r/up" tag -a -m 'Release v0.15.80 - first' v0.15.80
+  t_git -C "$r/up" push --quiet origin main v0.15.80
   t_git clone --quiet "$r/origin.git" "$r/host" 2>/dev/null
   t_git -C "$r/up" checkout --quiet -b release
   printf 'second\n' >"$r/up/two"
   t_git -C "$r/up" add two
   t_git -C "$r/up" commit --quiet -m second
-  t_git -C "$r/up" tag --force -a -m 'Release v0.12.80 - moved' v0.12.80
+  t_git -C "$r/up" tag --force -a -m 'Release v0.15.80 - moved' v0.15.80
   printf 'third\n' >"$r/up/three"
   t_git -C "$r/up" add three
   t_git -C "$r/up" commit --quiet -m third
-  t_git -C "$r/up" tag v0.12.81
+  t_git -C "$r/up" tag v0.15.81
   t_git -C "$r/up" push --quiet --force origin release
   # The remote answers as upstream does now: its head, and the two tags as
   # upstream has them. The host's clone keeps what it read before the move.
   t_git -C "$r/origin.git" update-ref refs/heads/main "$(t_git -C "$r/up" rev-parse HEAD)"
-  for ref in refs/tags/v0.12.80 refs/tags/v0.12.81; do
+  for ref in refs/tags/v0.15.80 refs/tags/v0.15.81; do
     t_git -C "$r/origin.git" fetch --quiet --force "$r/up" "+$ref:$ref"
   done
 }
@@ -857,9 +857,9 @@ rukas_moved
 # The clone was made from the one commit the remote had then, and still has the
 # tag where that left it, with no sign of the release that came after.
 t_eq "$(t_git -C "$T/rukas-moved/host" rev-parse HEAD)" "$(t_git -C "$T/rukas-moved/up" rev-parse "HEAD~2^{commit}")"
-t_eq "$(t_git -C "$T/rukas-moved/host" rev-parse "v0.12.80^{commit}")" "$(t_git -C "$T/rukas-moved/host" rev-parse HEAD)"
-t_eq "$(t_git -C "$T/rukas-moved/up" rev-parse "v0.12.80^{commit}")" "$(t_git -C "$T/rukas-moved/up" rev-parse HEAD~1)"
-t_lacks "$(t_git -C "$T/rukas-moved/host" tag --list)" v0.12.81
+t_eq "$(t_git -C "$T/rukas-moved/host" rev-parse "v0.15.80^{commit}")" "$(t_git -C "$T/rukas-moved/host" rev-parse HEAD)"
+t_eq "$(t_git -C "$T/rukas-moved/up" rev-parse "v0.15.80^{commit}")" "$(t_git -C "$T/rukas-moved/up" rev-parse HEAD~1)"
+t_lacks "$(t_git -C "$T/rukas-moved/host" tag --list)" v0.15.81
 
 # The fetch the script used, the same arguments bar --force: git refuses the
 # moved tag and exits 1, which is the failure that stopped the run.
@@ -881,8 +881,8 @@ rukas_moved
 newest=$(t_git -C "$T/rukas-moved/up" rev-parse HEAD)
 git -C "$T/rukas-moved/host" fetch --tags --force origin >"$T/fetch.out" 2>&1
 t_eq "$?" 0
-t_eq "$(t_git -C "$T/rukas-moved/host" rev-parse "v0.12.80^{commit}")" "$(t_git -C "$T/rukas-moved/up" rev-parse "v0.12.80^{commit}")"
-t_eq "$(t_git -C "$T/rukas-moved/host" rev-parse "v0.12.81^{commit}")" "$newest"
+t_eq "$(t_git -C "$T/rukas-moved/host" rev-parse "v0.15.80^{commit}")" "$(t_git -C "$T/rukas-moved/up" rev-parse "v0.15.80^{commit}")"
+t_eq "$(t_git -C "$T/rukas-moved/host" rev-parse "v0.15.81^{commit}")" "$newest"
 git -C "$T/rukas-moved/host" checkout -q "$newest"
 t_eq "$(t_git -C "$T/rukas-moved/host" rev-parse HEAD)" "$newest"
 

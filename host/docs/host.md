@@ -1892,11 +1892,10 @@ commit a host follows:
 
 - `release:<line>`, the default: the commit of the newest `vX.Y.Z` tag of that
   line, by version. `release:0` takes the newest `v0.Y.Z`, `release:2` the
-  newest `v2.Y.Z`, `release:0.14` the newest `v0.14.Z`. `versions.env` names the
-  major version this tehas works with, `release:0` while pi-rukas is before 1.0,
-  so a new pi-rukas reaches a host installed from a checkout at its next
-  `tehas update`. A new major version waits for a tehas release that moves the
-  line. A release archive pins: its `versions.env` ends with
+  newest `v2.Y.Z`, `release:0.15` the newest `v0.15.Z`. `versions.env` names the
+  line this tehas works with, `release:0.15`, so a new 0.15.Z reaches a host
+  installed from a checkout at its next `tehas update`. A 0.16 waits for a
+  tehas change that moves the line. A release archive pins: its `versions.env` ends with
   `PI_RUKAS_FOLLOW=commit:<sha>`, the commit the line resolved to when the
   release was packed, so a host installed from releases gets a new pi-rukas
   with the next release of tehas
@@ -1944,7 +1943,7 @@ What follows from it:
 - The health of the factory (`checks.rukas`) names the commit the image runs,
   the one the host follows and the clone's, and says `warn` while the image is
   behind, or while its instance layer is not the one `sandbox.Dockerfile` sums
-  to now. With `PI_RUKAS_FOLLOW=release:0` the line of `versions.env` stays the
+  to now. With `PI_RUKAS_FOLLOW=release:0.15` the line of `versions.env` stays the
   same from one pi-rukas release to the next, so no `install.sh` owes a build;
   `tehas update` runs `build.sh --if-moved` on every update, and health is what
   says a host that has not run one is behind.

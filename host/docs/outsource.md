@@ -45,7 +45,7 @@ forgets it.
 A contractor's sandbox image needs pi-rukas v0.14.86 or later: that release
 reads `PI_ENSEMBLE_BASE_URL_<PROVIDER>` and `PI_ENSEMBLE_API_KEY_<PROVIDER>` as
 a run's own endpoint and key and keeps the key out of every log and file. An
-image that follows `release:0` today has it.
+image that follows `release:0.15` today has it.
 
 ### A job's two tokens
 
