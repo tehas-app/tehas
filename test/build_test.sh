@@ -79,7 +79,7 @@ t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 T_ENV_ALWAYS+=("TEHAS_CONSOLE=$T_CONSOLE" "TEHAS_CYCLE_BIN=$T_CYCLE")
 uid=$(id -u)
 # pi-rukas's newest release tag, so the build asks no network.
-t_stub git 'printf "%s\trefs/tags/v0.12.80\n" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+t_stub git 'printf "%s\trefs/tags/v0.15.80\n" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 t_stub docker 'case "$1" in
   build)
     # The base is built from a tree on standard input.

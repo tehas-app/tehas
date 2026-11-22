@@ -100,8 +100,9 @@ PI_RUKAS_IMAGE_DIGEST=sha256:<hex>   upstream's image of that commit, no longer 
 ```
 
 The rest of the file is the checkout's own. A checkout follows the pi-rukas
-line its `versions.env` names (`PI_RUKAS_FOLLOW=release:0`), so an install from
-a checkout gets the newest pi-rukas release of that line. A release pins one
+line its `versions.env` names (`PI_RUKAS_FOLLOW=release:0.15`), so an install from
+a checkout gets the newest pi-rukas release of that line, every 0.15.Z. A
+0.16 waits for a tehas change. A release pins one
 commit, so every install of it gets the same pi-rukas: the one the release
 gate built against. `scripts/tag-release.sh` asks `console rukas target` for
 the commit the tag's own `PI_RUKAS_FOLLOW` and `PI_RUKAS_REPO` name before the
