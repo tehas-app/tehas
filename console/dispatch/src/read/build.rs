@@ -2193,7 +2193,7 @@ esac"#,
             .host_starts
             .unwrap_or_default()
             .iter()
-            .filter_map(|h| h["issue"].as_u64())
+            .filter_map(|h| h.issue)
             .collect();
         assert_eq!(hosts, vec![21]);
     }

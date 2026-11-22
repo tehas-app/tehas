@@ -3,6 +3,7 @@
 //! is asked twice and no reason is written apart from its rule.
 
 use super::{blockers, has, newest_marker, Poll, BLOCKED};
+use crate::snapshot::OrderState;
 use crate::starts::{code_of, of_issue};
 use serde_json::Value;
 use tehas_core::starts::{code, Edge, Reason, Record};
@@ -11,16 +12,8 @@ impl Poll<'_> {
     /// The ranked issues, then the rest of rule 7's order, each once.
     fn start_issues(&self) -> Vec<u64> {
         let mut out: Vec<u64> = Vec::new();
-        if self.s.order.get("state").and_then(Value::as_str) == Some("ok") {
-            out.extend(
-                self.s
-                    .order
-                    .get("issues")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_u64),
-            );
+        if self.s.order.state == OrderState::Ok {
+            out.extend(self.s.order.issues.iter().copied());
         }
         for n in &self.cand_order {
             if !out.contains(n) {

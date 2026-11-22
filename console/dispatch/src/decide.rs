@@ -6,7 +6,9 @@ use crate::place::{place, Need, Outsourcing, Place};
 use crate::read::host;
 use crate::settings::{account, Settings};
 use crate::slice::{self, gib};
-use crate::snapshot::{Issues, Listed, Snapshot};
+use crate::snapshot::{
+    HostStart, Issues, LimitState, Listed, OrderState, PauseFlag, Snapshot, Until,
+};
 use crate::text;
 use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
@@ -642,17 +644,11 @@ impl<'a> Poll<'a> {
 
     /// 1. The flag tehas pause writes: what holds this host, if anything.
     fn pause_flag(&mut self) -> Option<String> {
-        let f = self.s.pause_flag.as_ref()?;
-        let ok = f.as_object().filter(|o| {
-            o.get("at").map(Value::is_string) == Some(true)
-                && o.get("reason").map(Value::is_string) == Some(true)
-        });
-        match ok {
-            Some(o) => Some(format!(
-                "the flag tehas pause wrote at {} holds this host",
-                o["at"].as_str().unwrap_or("")
+        match self.s.pause_flag.as_ref()? {
+            PauseFlag::Held { at } => Some(format!(
+                "the flag tehas pause wrote at {at} holds this host"
             )),
-            None => {
+            PauseFlag::Unreadable => {
                 let home = self.c.home.clone();
                 self.log(format!(
                     "WARN: {home}/state/pause.json is not a pause flag: taking it as paused"
@@ -1004,14 +1000,8 @@ impl<'a> Poll<'a> {
         match &self.s.host_starts {
             Some(hosts) => all.extend(hosts.iter().filter_map(|h| {
                 Some(Listed {
-                    number: Some(h.get("issue")?.as_u64()?),
-                    labels: h
-                        .get("labels")
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|l| l.get("name")?.as_str().map(str::to_string))
-                        .collect(),
+                    number: Some(h.issue?),
+                    labels: h.labels.clone(),
                     state: "OPEN".into(),
                 })
             })),
@@ -1030,23 +1020,23 @@ impl<'a> Poll<'a> {
     }
 
     /// The approval `tehas start` recorded for `n` that waits for a start.
-    fn host_start(&self, n: u64) -> Option<Value> {
+    fn host_start(&self, n: u64) -> Option<HostStart> {
         self.s
             .host_starts
             .as_ref()?
             .iter()
-            .find(|h| h.get("issue").and_then(Value::as_u64) == Some(n))
+            .find(|h| h.issue == Some(n))
             .cloned()
     }
 
     /// host_ok: the host's approval binds the title and the text it was given
     /// on; a change since starts nothing until the host approves it again. The
     /// time of the approval, or None.
-    fn host_ok(&mut self, n: u64, h: &Value) -> Option<String> {
-        let at = h.get("at").and_then(Value::as_u64).map(iso)?;
+    fn host_ok(&mut self, n: u64, h: &HostStart) -> Option<String> {
+        let at = h.at.map(iso)?;
         let t = self.text(n);
-        let body = h.get("body_sha256").and_then(Value::as_str) == Some(&text::body_sha256(&t));
-        let title = match h.get("title_sha256").and_then(Value::as_str) {
+        let body = h.body_sha256.as_deref() == Some(&text::body_sha256(&t));
+        let title = match h.title_sha256.as_deref() {
             Some(sum) => text::title_sha256(&t).as_deref() == Some(sum),
             None => true,
         };
@@ -1076,23 +1066,13 @@ impl<'a> Poll<'a> {
         }
         let concurrency = c.concurrency;
         let free = concurrency - cycles;
-        let limit_state = s
-            .limit
-            .get("state")
-            .and_then(Value::as_str)
-            .unwrap_or("unreadable")
-            .to_string();
-        let limit_cycles = s.limit.get("cycles").and_then(Value::as_i64).unwrap_or(0);
-        let limit_reason = s
-            .limit
-            .get("reason")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let limit_room: Option<i64> = match limit_state.as_str() {
-            "ok" => Some((limit_cycles - count).max(0)),
-            "expired" | "unreadable" => Some(0),
-            _ => None,
+        let limit_state = s.limit.state;
+        let limit_cycles = s.limit.cycles;
+        let limit_reason = s.limit.reason.clone();
+        let limit_room: Option<i64> = match limit_state {
+            LimitState::Ok => Some((limit_cycles - count).max(0)),
+            LimitState::Expired | LimitState::Unreadable => Some(0),
+            LimitState::None => None,
         };
         let limit_words = if limit_cycles == 1 {
             "1 cycle".to_string()
@@ -1101,8 +1081,7 @@ impl<'a> Poll<'a> {
         };
         // The plan of the file, read the way the dispatcher's other reader of
         // it does: a boolean or the text of one.
-        let limit_plan_off = matches!(s.limit.get("plan"), Some(Value::Bool(false)))
-            || s.limit.get("plan").and_then(Value::as_str) == Some("false");
+        let limit_plan_off = s.limit.plan_off;
         let with_reason = |r: &str| {
             if r.is_empty() {
                 String::new()
@@ -1148,10 +1127,8 @@ impl<'a> Poll<'a> {
             Err(why) => slice_hold = format!("holding: {why}"),
         }
         let slice_ok = slice_hold.is_empty() && mem_why != "unreadable";
-        let limit_ok = limit_state != "expired" && limit_state != "unreadable";
-        let limit_plan_ok = limit_ok
-            && !matches!(s.limit.get("plan"), Some(Value::Bool(false)))
-            && s.limit.get("plan").and_then(Value::as_str) != Some("false");
+        let limit_ok = !matches!(limit_state, LimitState::Expired | LimitState::Unreadable);
+        let limit_plan_ok = limit_ok && !limit_plan_off;
         for line in s.endpoint_log.clone() {
             self.log(line);
         }
@@ -1199,14 +1176,16 @@ impl<'a> Poll<'a> {
         } else if matches!(s.disk_kb, Some(None)) {
             why = Some(Why::Disk);
             hold = "holding: the free disk space could not be read: no cycle starts".into();
-        } else if limit_state == "expired" {
+        } else if limit_state == LimitState::Expired {
             why = Some(Why::Limit);
-            hold =
-                format!(
+            hold = format!(
                 "holding: the limit expired at {}: nothing starts until it is set again or cleared",
-                s.limit.get("until").and_then(Value::as_str).unwrap_or("null")
+                match &s.limit.until {
+                    Until::At(t) => t.as_str(),
+                    Until::Unset | Until::Other => "null",
+                }
             );
-        } else if limit_state == "unreadable" {
+        } else if limit_state == LimitState::Unreadable {
             why = Some(Why::Limit);
             hold = format!(
                 "holding: the limit cannot be read: nothing starts until it is set again or cleared ({}/state/limit.json)",
@@ -1218,10 +1197,8 @@ impl<'a> Poll<'a> {
             // stays until a person clears it, so the line names the command
             // that frees the factory. Another limit under its own ceiling is
             // no drain and keeps its words.
-            let drained = limit_cycles == 0
-                && count == 0
-                && limit_plan_off
-                && s.limit.get("until").is_none_or(Value::is_null);
+            let drained =
+                limit_cycles == 0 && count == 0 && limit_plan_off && s.limit.until == Until::Unset;
             hold = format!(
                 "holding: the limit allows {limit_words} at once and {count} {} running{}{}",
                 if count == 1 { "is" } else { "are" },
@@ -3031,31 +3008,29 @@ impl<'a> Poll<'a> {
     /// that are ready, in order, and whether it holds every other ready issue.
     fn ranked(&mut self, ready: &[Listed]) -> (Vec<u64>, bool) {
         let o = &self.s.order;
-        match o.get("state").and_then(Value::as_str) {
-            Some("ok") => {}
-            Some("expired") => {
-                let until = o.get("until").and_then(Value::as_str).unwrap_or("?");
+        match o.state {
+            OrderState::Ok => {}
+            OrderState::Expired => {
+                let until = o.until.as_deref().unwrap_or("?");
                 self.log(format!(
                     "order expired at {until}: ready issues start lowest number first"
                 ));
                 return (Vec::new(), false);
             }
-            Some("unreadable") => {
+            OrderState::Unreadable => {
                 self.log(
                     "WARN: the start order could not be read from the state store: ready issues start lowest number first",
                 );
                 return (Vec::new(), false);
             }
-            _ => return (Vec::new(), false),
+            OrderState::Other => return (Vec::new(), false),
         }
-        let only = o.get("only").and_then(Value::as_bool) == Some(true);
+        let only = o.only;
         let listed: Vec<u64> = ready.iter().filter_map(|i| i.number).collect();
         let ranked = o
-            .get("issues")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_u64)
+            .issues
+            .iter()
+            .copied()
             .filter(|n| listed.contains(n))
             .collect();
         (ranked, only)
