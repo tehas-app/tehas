@@ -767,7 +767,7 @@ No container is given it. Only one program writes it: the store,
 `~/tehas/libexec/store`, which `install.sh` builds and installs with the
 console, or takes from the release.
 
-What is in it today: the schema, version 25 (`PRAGMA user_version`); `meta`,
+What is in it today: the schema, version 28 (`PRAGMA user_version`); `meta`,
 which says when the database was made, by which version and commit of tehas,
 and for which instance and repository; and the cycles' records: the approval
 each start rests on (the dispatcher's), each cycle's start and end with its
