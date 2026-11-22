@@ -8,7 +8,7 @@ use crate::slice::gib;
 #[cfg(test)]
 use crate::snapshot::check_state;
 use crate::snapshot::{
-    Base, Check, Comment, CommentId, HostStart, Issues, Labels, LimitState, Listed, OrderState,
+    Check, Comment, CommentId, HostStart, Issues, Labels, LimitState, Listed, OrderState,
     PauseFlag, PlanStart, Snapshot, Text, Until, Work, WorkIssue,
 };
 use crate::text;
@@ -31,16 +31,14 @@ mod plan;
 mod retry;
 mod starts;
 
-pub(crate) use crate::snapshot::{
-    base_approver, base_stands, fixer_base, fixer_starts, named_blockers, shape,
-};
+pub(crate) use crate::snapshot::{base_approver, base_stands, fixer_base, named_blockers, shape};
 pub use action::{
     Action, CommentRef, CycleStart, LabelChange, NoteKind, QuietDue, RefreshOf, RetryTick, SpecPin,
     Spend, StartExtra, Turn,
 };
 pub(crate) use clean::{iso, quiet_due, quiet_why, Due, QUIET_ASKS};
 pub(crate) use flow::in_flow;
-pub(crate) use note::{change_note_of, in_window, window_order, ContextNote};
+pub(crate) use note::{in_window, window_order};
 pub(crate) use retry::refresh_why;
 
 /// The time now as log() writes it.
@@ -338,14 +336,6 @@ struct Start {
     given_at: String,
     given_how: String,
     remove: Vec<String>,
-    /// A start of the fixer's: the person's approval it rests on, and its
-    /// starts with this one.
-    fixer: Option<(Base, u64)>,
-    /// The millwright's guidance comment that lifted the park's hold off this
-    /// start's label: the one entry the record names `park_lifted`, so the
-    /// reason the start was allowed is on it (#1130). A person's label lifts
-    /// nothing.
-    park_lifted: Option<ContextNote>,
     /// What a start of its kind adds to the action: the comment of a retry
     /// tick, the pull request of a refresh.
     extra: StartExtra,
@@ -386,8 +376,6 @@ struct Poll<'a> {
     dry: bool,
     d: Decision,
     control_skipped: bool,
-    /// Fed starts this poll picked, beside the ones running.
-    fed_picked: u64,
     work_refused: Vec<u64>,
     starts: Vec<(u64, Start)>,
     /// image_ok's answer, asked once a poll: the hold, empty for none.
@@ -430,7 +418,6 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
         dry,
         d: Decision::default(),
         control_skipped: false,
-        fed_picked: 0,
         work_refused: Vec::new(),
         starts: Vec::new(),
         image_hold: None,
@@ -1658,19 +1645,6 @@ impl<'a> Poll<'a> {
         }
     }
 
-    /// Whether the issue's text is the text of a record on the state store, as
-    /// `fixer_base` reads one: the base approval a fixer's or a refresh's start
-    /// rests on, or the record itself, and the sum of the body it bound, asked
-    /// of the same `edit` record `fixer_ok` summed. Nothing on record, or a
-    /// record that cannot be read, is no record: the question falls back to
-    /// whatever the body itself answers.
-    fn bound_to_a_record(&self, n: u64) -> bool {
-        let Some(Some(Ok(Some(record)))) = self.s.issues.get(&n).map(|i| i.approval.clone()) else {
-            return false;
-        };
-        record.bound_sum() == Some(text::body_sum(self.text(n).body_text()).as_str())
-    }
-
     /// The body a start reads its text from: the issue's own, as the page of
     /// the queue gave it. `edit` is the record an approval binds and `work`
     /// the REST issue; the read of the queue puts the same text in both, and a
@@ -1734,28 +1708,10 @@ impl<'a> Poll<'a> {
     /// `tehas:lean` stays on, or the next `tehas:ready` would run classic in
     /// its place. Classic is asked nothing of the block, and a start that
     /// follows a record on purpose runs the driver of that record: a tick, an
-    /// outage retry, the fixer's `tehas:ready` and a refresh ask nothing new
-    /// of the body. Only a start that asks for a cycle is asked this question,
-    /// so `ask` is the label that asked it and always sits on the issue here.
-    ///
-    /// `follows_a_record` is not the flag `driver` is given two lines above for
-    /// the same start: that one says whose driver to run, this one says the body
-    /// may be asked nothing of because the start is bound to text a person
-    /// approved. The fixer path earns that at `fixer_grant`'s sum check on the
-    /// body it read, in another function, so the premise is checked here as well
-    /// as trusted: a start given the flag with no record behind it, or whose
-    /// text is no longer the record's, is asked for its block like any other.
-    /// A caller that cannot point at such a check must pass false.
-    fn spec_ok(
-        &mut self,
-        n: u64,
-        ask: &str,
-        labels: &[String],
-        follows_a_record: bool,
-    ) -> Step<bool> {
-        if follows_a_record && self.bound_to_a_record(n) {
-            return Ok(true);
-        }
+    /// outage retry and a refresh ask nothing new of the body. Only a start
+    /// that asks for a cycle is asked this question, so `ask` is the label
+    /// that asked it and always sits on the issue here.
+    fn spec_ok(&mut self, n: u64, ask: &str, labels: &[String]) -> Step<bool> {
         let Some(body) = self.body(n) else {
             return Err(self.fail(format!("ERROR: the text of #{n} could not be read"), 1));
         };
@@ -2353,9 +2309,8 @@ impl<'a> Poll<'a> {
 
     /// epic_ready: the millwright's tehas:ready, applied at `at`, on the
     /// first cycle of an approved epic's sub-issue. None when no epic stands
-    /// over it or a cycle of it was approved before, which the fixer's grant
-    /// decides as for any issue; Some(None) with the label off and the
-    /// reason said.
+    /// over it or a cycle of it was approved before; Some(None) with the label
+    /// off and the reason said.
     fn epic_ready(&mut self, n: u64, who: &str, at: &str) -> Step<Option<Option<EpicGrant>>> {
         if !matches!(self.s.issues.get(&n), Some(i) if matches!(i.approval, Some(Ok(None)))) {
             return Ok(None);
@@ -2478,16 +2433,8 @@ impl<'a> Poll<'a> {
     }
 
     /// park_holds: a fresh label on the very body the last cycle parked on
-    /// starts nothing. Said on the issue once a park. The millwright's own
-    /// label, applied at `fixer_at` within its grant, is lifted by a fresh
-    /// `action=change` comment when the instance gives a cycle the note
-    /// (#1130): `lift` then carries that comment for the start.
-    fn park_holds(
-        &mut self,
-        n: u64,
-        fixer_at: Option<&str>,
-        lift: &mut Option<ContextNote>,
-    ) -> Step<bool> {
+    /// starts nothing. Said on the issue once a park.
+    fn park_holds(&mut self, n: u64) -> Step<bool> {
         let Some(park) = self.s.issues.get(&n).and_then(|i| i.park.clone()) else {
             self.need("park");
             return Ok(true);
@@ -2528,34 +2475,6 @@ impl<'a> Poll<'a> {
             .unwrap_or("")
             .trim_matches([' ', '\t']);
         let cap = if cap.is_empty() { "nothing" } else { cap }.to_string();
-        // The way round a park open to the millwright alone: its own guidance
-        // comment says the next run is not the run that stopped. The grant was
-        // reached before this, and the note reaches a cycle only where the
-        // instance gives it images or files. A read that failed proves no note
-        // either way: the hold stays, untold, and the next poll asks again.
-        if let Some(at) = fixer_at.filter(|_| self.c.work_images || self.c.work_files) {
-            let read = self
-                .s
-                .issues
-                .get(&n)
-                .and_then(|i| i.comments.as_ref())
-                .and_then(|c| c.nodes_or_bare())
-                .and_then(|list| change_note_of(list, n, &self.c.millwright, at));
-            let Some(found) = read else {
-                self.log(format!(
-                    "hold #{n}: its last cycle parked on {cap} and the body has not changed since, and the fixer's comments could not be read"
-                ));
-                self.held_parked(n, &cap);
-                return Ok(true);
-            };
-            if let Some(note) = found {
-                *lift = Some(note);
-                self.log(format!(
-                    "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted on the fixer's guidance comment"
-                ));
-                return Ok(false);
-            }
-        }
         // A Retry ticked in the park's own question is the new approval the
         // hold waits for, also once the question label is off (#1829). A read
         // that failed proves no tick: the hold stays, untold.
@@ -2675,65 +2594,6 @@ impl<'a> Poll<'a> {
         });
     }
 
-    /// fixer_ok: the fixer's tehas:ready, applied at `at`. The person's
-    /// approval it rests on and the count of fixer starts with this one, or
-    /// None with the label off and the reason said. With the feed on, an
-    /// issue never approved may rest on its author instead (feed_ok).
-    fn fixer_ok(
-        &mut self,
-        n: u64,
-        who: &str,
-        at: &str,
-        labels: &[String],
-    ) -> Step<Option<(Base, u64)>> {
-        if !self.unchanged_since(
-            n,
-            at,
-            who,
-            "the fixer applied tehas:ready",
-            "the fixer or a person applies it again",
-        )? {
-            return Ok(None);
-        }
-        if n != self.c.control && !matches!(self.s.issues.get(&n), Some(i) if i.approval.is_some())
-        {
-            self.need("approval");
-            return Ok(None);
-        }
-        let sum = text::body_sum(self.text(n).body_text());
-        let never =
-            matches!(self.s.issues.get(&n), Some(i) if matches!(i.approval, Some(Ok(None))));
-        if self.c.millwright_feed && never && n != self.c.control {
-            return self.feed_ok(n, &sum, labels);
-        }
-        let why = match self.fixer_grant(n, &sum) {
-            Ok((base, count)) => {
-                let by = base.by.clone();
-                let since = base.at.clone();
-                let approver = base.approver().to_string();
-                if self.unchanged_since(
-                    n,
-                    &since,
-                    &approver,
-                    &format!("{by} approved it"),
-                    "a person applies tehas:ready",
-                )? {
-                    return Ok(Some((base, count)));
-                }
-                format!("its title or text was changed since {by} approved it")
-            }
-            Err((why, true)) => {
-                self.log(format!(
-                    "skip #{n}: tehas:ready from the fixer waits: {why}"
-                ));
-                return Ok(None);
-            }
-            Err((why, false)) => why,
-        };
-        self.fixer_refused(n, &why);
-        Ok(None)
-    }
-
     /// The fixer's tehas:ready comes off, and the issue says why.
     fn fixer_refused(&mut self, n: u64, why: &str) {
         self.log(format!(
@@ -2747,124 +2607,6 @@ impl<'a> Poll<'a> {
                     .say(format!("Tehas took `tehas:ready` off this issue and started nothing. The fixer applied it, and the fixer may not start this issue: {why}. A person decides now: an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to start a cycle.")),
             ));
         }
-    }
-
-    /// feed_ok: the millwright's tehas:ready on an issue no person approved a
-    /// cycle of, under TEHAS_MILLWRIGHT_FEED. A person wrote it, and the text
-    /// is still theirs: the start rests on that. Some(base, 1), or None with
-    /// the label off and the reason said, or kept when the cap only defers it.
-    fn feed_ok(&mut self, n: u64, sum: &str, labels: &[String]) -> Step<Option<(Base, u64)>> {
-        let Some(running) = self.s.fed else {
-            self.log(format!(
-                "skip #{n}: tehas:ready from the fixer waits: the fed cycles running could not be counted"
-            ));
-            return Ok(None);
-        };
-        let max = self.c.millwright_max_feeds.max(0) as u64;
-        if running + self.fed_picked >= max {
-            self.log(format!(
-                "wait #{n}: {} fed cycles run, TEHAS_MILLWRIGHT_MAX_FEEDS is {max}",
-                running + self.fed_picked
-            ));
-            return Ok(None);
-        }
-        let t = self.text(n);
-        let (author, written) = (t.author, t.created_at);
-        let held = MILLWRIGHT_HELD.into_iter().find(|l| has(labels, l));
-        let ev = self.events(n)?;
-        let c = self.c;
-        let undone = ev
-            .iter()
-            .find(|e| e.event == "unlabeled" && e.label == "tehas:ready" && c.allowed(&e.actor))
-            .map(|e| e.actor.clone());
-        let why = if !self.c.allowed(&author) {
-            Some(format!(
-                "no person approved a cycle of it, and its author {} is not named in `TEHAS_ALLOWED_LABELERS`",
-                or_unknown(&author)
-            ))
-        } else if written.is_empty() {
-            Some(
-                "no person approved a cycle of it, and when it was written could not be read"
-                    .into(),
-            )
-        } else if let Some(l) = held {
-            Some(format!(
-                "no person approved a cycle of it, and it carries `{l}`"
-            ))
-        } else {
-            undone.map(|who| format!("{who} took `tehas:ready` off it before"))
-        };
-        if let Some(why) = why {
-            self.fixer_refused(n, &why);
-            return Ok(None);
-        }
-        if !self.unchanged_since(
-            n,
-            &written,
-            &author,
-            &format!("{author} wrote it"),
-            "a person applies tehas:ready",
-        )? {
-            return Ok(None);
-        }
-        Ok(Some((
-            Base {
-                at: written,
-                by: author,
-                how: "feed".into(),
-                body_sha256: sum.into(),
-            },
-            1,
-        )))
-    }
-
-    /// tehas_fixer_grant: the approval and count, or why not and whether
-    /// that is only for now (the store could not answer).
-    fn fixer_grant(&self, n: u64, sum: &str) -> Result<(Base, u64), (String, bool)> {
-        if n == self.c.control {
-            return Err(("it is the control issue".into(), false));
-        }
-        let record = match self.s.issues.get(&n).and_then(|i| i.approval.clone()) {
-            Some(Err(())) => {
-                return Err((
-                    "its approvals on the state store could not be read".into(),
-                    true,
-                ))
-            }
-            Some(Ok(r)) => r,
-            None => None,
-        };
-        let none = || {
-            (
-                "no person approved an earlier cycle of it, so the fixer may not start one"
-                    .to_string(),
-                false,
-            )
-        };
-        let record = record.ok_or_else(none)?;
-        let base = record
-            .base()
-            .filter(|b| b.stands(self.c))
-            .ok_or_else(none)?;
-        let by = base.by.clone();
-        if sum != base.body_sha256 {
-            return Err((format!("its text is not the text {by} approved"), false));
-        }
-        let Some(had) = record.fixer_starts() else {
-            return Err((
-                "its approval record does not say how many cycles the fixer started".into(),
-                false,
-            ));
-        };
-        if had as i64 >= self.c.fixer_max_retries {
-            return Err((
-                format!(
-                    "the fixer has started {had} cycles on it since {by} approved it, the limit"
-                ),
-                false,
-            ));
-        }
-        Ok((base, had + 1))
     }
 
     /// The start order `tehas order` set, when one is in force: its issues
@@ -2999,7 +2741,6 @@ impl<'a> Poll<'a> {
             } else {
                 "tehas:blocked"
             };
-            let mut fixer = None;
             let mut epic: Option<EpicGrant> = None;
             let mut planned = false;
             let (who, at) = if let Some(h) = &host {
@@ -3031,11 +2772,9 @@ impl<'a> Poll<'a> {
                                 }
                                 Some(None) => continue,
                                 None => {
-                                    match self.fixer_ok(n, &refused, &at, &labels)? {
-                                        Some(grant) => fixer = Some(grant),
-                                        None => continue,
-                                    }
-                                    (refused, at)
+                                    self.deny("skip", n, "tehas:ready", &refused);
+                                    self.clear_unauthorised(n, "tehas:ready", &refused);
+                                    continue;
                                 }
                             }
                         }
@@ -3078,22 +2817,16 @@ impl<'a> Poll<'a> {
                 self.holds_on_pr(n, ask, &url);
                 continue;
             }
-            // The start a lift lets through is held back here and built with
-            // the note below, so the record says why the hold let it go.
-            let mut lift = None;
-            if !self.image_ok(n)?
-                || !self.image_missing_ok(n)
-                || self.park_holds(n, fixer.as_ref().map(|_| at.as_str()), &mut lift)?
-            {
+            if !self.image_ok(n)? || !self.image_missing_ok(n) || self.park_holds(n)? {
                 continue;
             }
-            let driver = match self.driver(n, &labels, fixer.is_some())? {
+            let driver = match self.driver(n, &labels, false)? {
                 Choice::Wait => continue,
                 Choice::Stranger(s) => {
                     self.lean_refused(n, ask, &labels, &s);
                     continue;
                 }
-                Choice::Run(Driver::Lean) if !self.spec_ok(n, ask, &labels, fixer.is_some())? => {
+                Choice::Run(Driver::Lean) if !self.spec_ok(n, ask, &labels)? => {
                     continue;
                 }
                 d => d,
@@ -3126,8 +2859,6 @@ impl<'a> Poll<'a> {
                 given_at: at,
                 given_how: "label".into(),
                 remove,
-                fixer: None,
-                park_lifted: None,
                 extra: StartExtra::default(),
                 placed: None,
             };
@@ -3135,26 +2866,6 @@ impl<'a> Poll<'a> {
                 st.verb = "started from the host".into();
                 st.how = "`tehas start`".into();
                 st.given_how = HOST.into();
-            }
-            if let Some((base, count)) = fixer {
-                st.verb = "labelled by the fixer".into();
-                st.how = if base.how == "feed" {
-                    self.fed_picked += 1;
-                    format!(
-                        "`tehas:ready` label as the fixer, on the issue {} wrote at {}",
-                        base.by, base.at
-                    )
-                } else {
-                    format!(
-                        "`tehas:ready` label as the fixer, on {}'s approval of {}",
-                        base.by, base.at
-                    )
-                };
-                st.given_how = "millwright".into();
-                if let Some(note) = lift.take() {
-                    st.park_lifted = Some(note);
-                }
-                st.fixer = Some((base, count));
             }
             // The start is recorded as the person's label: their tehas:ready
             // on the epic approved this issue, and a retry of the fixer's
@@ -3275,8 +2986,6 @@ impl<'a> Poll<'a> {
             body_sha256: text::body_sum(body),
             title_sha256: text::title_sum(t.title.as_deref()),
             links: text::link_list(body),
-            rests_on: st.fixer,
-            park_lifted: st.park_lifted,
             spec,
             extra: st.extra,
         })));
@@ -3417,7 +3126,7 @@ mod spec_tests {
 
 #[cfg(test)]
 mod fixer_tests {
-    use super::{base_approver, base_stands, fixer_base, fixer_starts};
+    use super::{base_approver, base_stands, fixer_base};
     use serde_json::{json, Value};
 
     const SUM: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -3499,23 +3208,6 @@ mod fixer_tests {
     #[test]
     fn an_approval_whose_account_has_a_newline_on_the_end_is_no_base() {
         assert_eq!(fixer_base(&person("alice\n")), None);
-    }
-
-    #[test]
-    fn a_record_counts_its_fixer_starts_and_a_refresh_carries_them_on() {
-        assert_eq!(fixer_starts(&person("alice")), Some(0));
-        assert_eq!(fixer_starts(&by_fixer(json!(2), person("alice"))), Some(2));
-        assert_eq!(fixer_starts(&by_refresh(json!(1))), Some(1));
-        assert_eq!(fixer_starts(&by_refresh(json!(0))), Some(0));
-        assert_eq!(fixer_starts(&by_refresh(Value::Null)), Some(0));
-    }
-
-    #[test]
-    fn a_count_that_is_no_whole_number_is_no_count() {
-        assert_eq!(fixer_starts(&by_fixer(json!(0), person("alice"))), None);
-        assert_eq!(fixer_starts(&by_fixer(json!(1.5), person("alice"))), None);
-        assert_eq!(fixer_starts(&by_fixer(json!("1"), person("alice"))), None);
-        assert_eq!(fixer_starts(&by_refresh(json!(-1))), None);
     }
 }
 

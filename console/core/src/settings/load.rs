@@ -152,6 +152,18 @@ pub(super) const IGNORED: &[(&str, &str)] = &[
         "TEHAS_WIKI",
         "the product wiki left core in 2.0 and returns as a plugin",
     ),
+    (
+        "TEHAS_MILLWRIGHT_MAX_RETRIES",
+        "the millwright's grant left in 2.0: a program starts work for a person only through tehas start",
+    ),
+    (
+        "TEHAS_MILLWRIGHT_FEED",
+        "the millwright's grant left in 2.0: a program starts work for a person only through tehas start",
+    ),
+    (
+        "TEHAS_MILLWRIGHT_MAX_FEEDS",
+        "the millwright's grant left in 2.0: a program starts work for a person only through tehas start",
+    ),
 ];
 
 /// Whether `name` is one the load warns of and drops (`IGNORED`).
@@ -2591,6 +2603,28 @@ mod tests {
         ignored_names(&mut vars, &mut host, GONE);
         assert!(!vars.is_set("TEHAS_GONE"));
         assert!(!String::from_utf8_lossy(&script(&start(&[]), &vars)).contains("TEHAS_GONE"));
+    }
+
+    /// A 1.4.x instance that set the millwright's grant loads on 2.0: each
+    /// line is said once and dropped.
+    #[test]
+    fn the_millwrights_grant_settings_load_warn_and_are_dropped() {
+        for line in [
+            "TEHAS_MILLWRIGHT_MAX_RETRIES=3",
+            "TEHAS_MILLWRIGHT_FEED=on",
+            "TEHAS_MILLWRIGHT_MAX_FEEDS=4",
+        ] {
+            let name = line.split('=').next().unwrap();
+            let mut vars = start(&[]);
+            let mut host = Fake::with(&[line]);
+            assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()), "{line}");
+            assert!(!vars.is_set(name), "{line}");
+            assert_eq!(
+                host.warned,
+                [format!("{name} is no longer read: the millwright's grant left in 2.0: a program starts work for a person only through tehas start; remove it from the instance")],
+                "{line}"
+            );
+        }
     }
 
     #[test]

@@ -114,7 +114,7 @@ fn an_allowed_ask_runs_the_finish_takes_the_label_off_and_gives_the_url() {
 }
 
 #[test]
-fn the_millwright_asks_within_its_grant() {
+fn the_millwright_asks_on_a_persons_approval() {
     let mut f = Fake::default();
     run(ask("acme-millwright"), &mut f);
     assert_eq!(f.finished.len(), 1);
@@ -123,7 +123,7 @@ fn the_millwright_asks_within_its_grant() {
         "{:?}",
         f.lines
     );
-    // The last start the cap allowed may still be finished.
+    // A millwright start on record rests on the person's approval.
     let mut a = ask("acme-millwright[bot]");
     let mut r = approved();
     r = json!({"at": "2026-10-31T10:00:00Z", "by": "acme-millwright", "how": "fixer",
@@ -330,16 +330,6 @@ fn a_rule_not_met_takes_the_label_off_runs_nothing_and_says_why() {
                 ..ask("acme-millwright")
             },
             "changed since alice approved it",
-        ),
-        (
-            Ask {
-                approval: Ok(Some(
-                    json!({"at": "2026-10-31T10:00:00Z", "by": "acme-millwright",
-                    "how": "fixer", "fixer_starts": 3, "rests_on": approved()}),
-                )),
-                ..ask("acme-millwright")
-            },
-            "more than TEHAS_MILLWRIGHT_MAX_RETRIES",
         ),
     ];
     for (a, want) in cases {

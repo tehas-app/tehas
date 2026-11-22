@@ -6,10 +6,9 @@
 //! `<!-- tehas:millwright issue=<n> action=finish -->`, the reason after it,
 //! and then the label `tehas:finish`, applied by the comment's author within
 //! ten minutes of it. An allowed labeller may ask. The millwright may ask
-//! within its grant: a person approved a cycle of the issue, the text is the
-//! text they approved, nobody outside the list changed it since, and the
-//! millwright's starts on it are within `TEHAS_MILLWRIGHT_MAX_RETRIES`. An ask
-//! from anyone else is ignored and the label stays.
+//! when a person approved a cycle of the issue, the text is the text they
+//! approved, and nobody outside the list changed it since. An ask from anyone
+//! else is ignored and the label stays.
 //!
 //! The step takes no slot and starts no agent and no cycle. Whatever the
 //! answer, the label comes off first, so a finish is run once for one ask, and
@@ -17,7 +16,7 @@
 //! poll logs is the record: `finish #<n>: ...` in `dispatch.log`, which
 //! `factory_decisions` answers.
 
-use crate::decide::{base_approver, base_stands, fixer_base, fixer_starts};
+use crate::decide::{base_approver, base_stands, fixer_base};
 use crate::read::host::epoch;
 use crate::settings::account;
 use crate::text::body_sha256;
@@ -190,10 +189,9 @@ fn reason_of(a: &Ask, who: &str, at: &str) -> Result<String, String> {
     Ok(reason.chars().take(REASON_MAX).collect())
 }
 
-/// The millwright's grant, as its `tehas:ready` has it, with one difference:
-/// a finish starts no cycle, so the last start the cap allowed may still be
-/// finished. None when the grant holds.
-fn grant(c: &Settings, a: &Ask) -> Result<Option<String>, String> {
+/// What the millwright's ask rests on: a person's approval of the text as it
+/// is. None when it holds.
+fn approval_holds(c: &Settings, a: &Ask) -> Result<Option<String>, String> {
     let record = match &a.approval {
         Err(()) => return Err("its approvals on the state store could not be read".into()),
         Ok(r) => r,
@@ -210,16 +208,6 @@ fn grant(c: &Settings, a: &Ask) -> Result<Option<String>, String> {
     let approver = base_approver(&base);
     if body_sha256(&a.edit) != base["body_sha256"].as_str().unwrap_or("") {
         return Ok(Some(format!("its text is not the text {by} approved")));
-    }
-    let Some(had) = fixer_starts(record) else {
-        return Ok(Some(
-            "its approval record does not say how many cycles the millwright started".into(),
-        ));
-    };
-    if had as i64 > c.fixer_max_retries {
-        return Ok(Some(format!(
-            "the millwright has started {had} cycles on it since {by} approved it, more than TEHAS_MILLWRIGHT_MAX_RETRIES"
-        )));
     }
     if edit_holds(&a.edit, since, approver, &|w| c.allowed(w)).is_some() {
         if edit_history_unread(&a.edit, &|w| c.allowed(w)) {
@@ -271,7 +259,7 @@ pub fn judge(c: &Settings, a: &Ask) -> Verdict {
         Err(why) => return refuse(why),
     };
     if how == "millwright" {
-        match grant(c, a) {
+        match approval_holds(c, a) {
             Err(why) => return Verdict::Wait(format!("wait #{n}: {LABEL} waits: {why}")),
             Ok(Some(why)) => return refuse(format!("the millwright may not ask it: {why}")),
             Ok(None) => {}
