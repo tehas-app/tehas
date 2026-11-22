@@ -847,4 +847,4 @@ of main, each grade.
 | 2026-11-22 | T15: the install and bootstrap shell tests split so the quick check runs fewer of them | #2868 |
 | 2026-11-22 | The minimum pi-rukas is v0.15.4, for lean's base probes in a cycle container (found by T13's proof) | #2873 |
 | 2026-11-22 | T16: describe, text files, zips and comment links leave core | #2875 |
-| 2026-11-22 | The minimum pi-rukas is v0.15.5, so lean's trees stay out of a product's commits | this |
+| 2026-11-22 | The minimum pi-rukas is v0.15.5, so lean's trees stay out of a product's commits | #2882 |
