@@ -140,10 +140,10 @@ carrier '\.retry-context\.md\b' 'cp "$images/x" "$TEHAS_HOME/state/cycles/7.retr
   '' \
   "what a reviewer said before a retry, mounted into the container"
 carrier '\$\{?st\}?\.rc\b|\.json\.rc\b' 'rc=$(cat "$st.rc" 2>/dev/null)' \
-  'console/ops/src/health.rs' \
+  '' \
   "a planning turn's exit, from the turn to the poll that collects it"
 carrier '\$\{?st\}?\.lock\b|\.json\.lock\b' '[ -f "$st.lock" ]' \
-  'console/ops/src/health.rs' \
+  '' \
   "the lock a planning turn holds while it runs; nothing moves its .keep while it is held"
 carrier '\$\{?st\}?\.out\b|\.json\.out\b' 'what=$(cat "$st.out")' \
   "$an/plan.rs" \
