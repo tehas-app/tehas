@@ -10,12 +10,11 @@
 t_case "--json gives one object: generatedAt and one key per section"
 reset
 files
-energy
 t_run "$top --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -r '[(.generatedAt | type), (keys | length)] | join(" ")' <<<"$t_out")" "string 9"
-t_eq "$(jq -r '[.factory, .queue, .cycle, .host, .units, .energy, .console | type] | join(",")' <<<"$t_out")" \
-  "object,object,object,object,array,object,object"
+t_eq "$(jq -r '[(.generatedAt | type), (keys | length)] | join(" ")' <<<"$t_out")" "string 8"
+t_eq "$(jq -r '[.factory, .queue, .cycle, .host, .units, .console | type] | join(",")' <<<"$t_out")" \
+  "object,object,object,object,array,object"
 t_eq "$(jq -r '.factory.status, .queue.counts.inLine, .cycle.cycles[0].issue, .console.name' <<<"$t_out")" \
   "pass
 1
@@ -33,18 +32,18 @@ t_contains "$(t_calls systemctl)" "show -p Id,LoadState,ActiveState,SubState,Uni
 t_case "a source that is not there is null, and the others are still there"
 reset
 files
-rm -f "$live/energy.json" "$live/console-12.txt" "$live/running.json"
+rm -f "$live/console-12.txt" "$live/running.json"
 t_run "$top --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '[.factory, .queue, .cycle, .units, .energy, .console | . == null]' <<<"$t_out")" \
-  "[false,false,true,false,true,true]"
+t_eq "$(jq -c '[.factory, .queue, .cycle, .units, .console | . == null]' <<<"$t_out")" \
+  "[false,false,true,false,true]"
 
 t_case "every source missing is null for its key, and --json still exits 0"
 reset
 t_run "$top --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '[.factory, .queue, .cycle, .energy, .console] | map(. == null)' <<<"$t_out")" \
-  "[true,true,true,true,true]"
+t_eq "$(jq -c '[.factory, .queue, .cycle, .console] | map(. == null)' <<<"$t_out")" \
+  "[true,true,true,true]"
 
 t_case "a snapshot fed to the renderer gives the same frame as --once"
 reset
@@ -84,7 +83,7 @@ T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$T/no-such-tree")
 t_run "$top --json"
 t_eq "$t_rc" 0
 t_eq "$(jq -c '.host' <<<"$t_out")" "null"
-t_eq "$(jq -r 'keys | length' <<<"$t_out")" 9
+t_eq "$(jq -r 'keys | length' <<<"$t_out")" 8
 t_eq "$(jq -c '.reading' <<<"$t_out")" "null"
 t_run "$top --once"
 t_eq "$t_rc" 0

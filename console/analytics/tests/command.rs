@@ -215,10 +215,6 @@ impl Host {
             self.layout().live(Live::Dispatch),
             &json!({"time": iso(now), "why": "resources", "count": 0, "free": 2}).to_string(),
         );
-        self.put_at(
-            self.layout().live(Live::Energy),
-            &json!({"generatedAt": iso(now), "totals": {"watts": 250.0}}).to_string(),
-        );
         self.put("docs/version.txt", "v0.7.22+1234abc\n");
         // The run's facts as tehas-cycle gives them: the history line,
         // the approval, the settings snapshot as tehas-cycle writes it (a

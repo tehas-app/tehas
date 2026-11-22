@@ -36,7 +36,6 @@ t_contains "$t_out" "[step develop] @developer ran the gate"
 t_case "a frame costs no jq process whatever it holds"
 reset
 files
-energy
 jqreal=$(command -v jq)
 t_stub jq 'printf "jq\n" >>"$T/calls/jqcount"; exec '"$jqreal"' "$@"'
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=200)
@@ -56,7 +55,6 @@ t_eq "$([ -e "$T/calls/jqcount" ] && echo called)" ""
 t_case "standard output that is not a terminal gets no escape codes"
 reset
 files
-energy
 t_run "$top --once"
 t_eq "$(control_bytes "$t_out")" 0
 t_run "$top"
@@ -160,14 +158,13 @@ done
 t_case "a run changes nothing under TEHAS_HOME"
 reset
 files
-energy
 before=$(cd "$live" && cksum ./* | LC_ALL=C sort)
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=20)
 t_run "$top --once && $top --json >/dev/null"
 t_eq "$t_rc" 0
 t_eq "$(cd "$live" && cksum ./* | LC_ALL=C sort)" "$before"
 t_eq "$(cd "$live" && find . -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" \
-  "console-12.txt energy.json health.json running.json status.json "
+  "console-12.txt health.json running.json status.json "
 
 t_case "the frame comes from the snapshot alone: a snapshot with nothing in it"
 reset
@@ -175,7 +172,7 @@ printf '%s' '{"generatedAt":"2026-01-01T00:00:00Z"}' >"$T/snap"
 t_run '"$TEHAS_CONSOLE" top frame 80 24 <"$T/snap"'
 t_eq "$t_rc" 0
 for line in "factory   no health file yet" "cycle     no cycle written yet" "host      no reading of /proc" \
-  "units     systemctl --user gave no answer" "energy    no sample" "console   no console file"; do
+  "units     systemctl --user gave no answer" "console   no console file"; do
   t_contains "$t_out" "$line"
 done
 t_done

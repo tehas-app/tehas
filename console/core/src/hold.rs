@@ -36,8 +36,8 @@ pub const KEY_AWAIT_ROOM: &str = "awaitRoom";
 pub const KEY_LIMIT_ROOM: &str = "limitRoom";
 /// `refreshRoom`: slots free in the refresh lane.
 pub const KEY_REFRESH_ROOM: &str = "refreshRoom";
-/// `endpoint`: which model endpoint the subagent provider is on. The energy
-/// sampler asks only that endpoint for the factory's draw.
+/// `endpoint`: which model endpoint the subagent provider is on. The mesh
+/// read (`tehas-mesh-feed`) asks only that endpoint for the factory's draw.
 pub const KEY_ENDPOINT: &str = "endpoint";
 /// `time`: the poll's own stamp, added when the file is written.
 pub const KEY_TIME: &str = "time";
@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn the_words_the_readers_name_are_there() {
         // `resources` is the word the status page reads to tell a hold of the
-        // models from any other; `endpoint` is the key the energy sampler asks
+        // models from any other; `endpoint` is the key the mesh read asks
         // about. Both are named by a reader outside the dispatcher, so a
         // rename that dropped either would be a silent break.
         assert_eq!(Why::parse("resources"), Some(Why::Resources));

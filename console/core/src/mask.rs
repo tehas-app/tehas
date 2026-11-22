@@ -151,11 +151,9 @@ pub fn set_models(text: &str) {
 // The text of the host's file, given by a caller; None is "read it yourself".
 static MODELS: OnceLock<String> = OnceLock::new();
 
-// The name of the host's file under a home, as models::host_path
-// writes it: .pi/agent/models.json. console energy honours a
-// TEHAS_MODELS_FILE of its own; the mask keeps that one name, as the loader
-// does, and a program that reads the file another way passes its text with
-// set_models.
+// The name of the host's file under a home, as models::host_path writes it:
+// .pi/agent/models.json. The mask keeps that one name, as the loader does, and
+// a program that reads the file another way passes its text with set_models.
 fn models_of_home(home: &Path) -> PathBuf {
     home.join(".pi/agent/models.json")
 }

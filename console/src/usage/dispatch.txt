@@ -327,8 +327,8 @@ else is a start that did not happen.
 A real poll that gets as far as rule 3 writes $TEHAS_HOME/live/dispatch.json:
 what holds cycles back, if anything, and the slice's numbers. Once the model
 endpoint has been settled it also names the subagent provider's endpoint, as
-"endpoint": "main" or "backup": the one word the energy sampler asks for,
-never an address, because live/ is public. tehasbot
+"endpoint": "main" or "backup": the one word the mesh read asks for, never
+an address, because live/ is public. tehasbot
 health copies it for tehas status. A hold is logged once, when its reason
 changes, and "released" once when it ends; a dry run prints it every time.
 Every real poll that gets past the bot's login, a paused one too, writes
@@ -345,7 +345,6 @@ start records the events ready, at the approval record's time, and started
 of its issue, and every real poll that holds the lock, a paused, held or
 failed one too, ends with
 `analytics sample` (the counts of live/status.json, the hold and the cycles
-allowed of live/dispatch.json, the draw of live/energy.json) and `analytics
-prune`. Each call has a time limit, and one that fails or runs out of time is
+allowed of live/dispatch.json) and `analytics prune`. Each call has a time limit, and one that fails or runs out of time is
 a WARN line: it changes nothing in the poll. A planning turn that ended is
 recorded with `analytics plan` as its end is posted.

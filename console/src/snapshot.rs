@@ -43,7 +43,6 @@ pub fn snapshot(live: &Path, lines: usize, max_age: i64, reading: &str, earlier:
         "queue": queue(&live.join("status.json"), counts),
         "cycle": cycle,
         "units": units().unwrap_or(Value::Null),
-        "energy": energy(&live.join("energy.json"), now, max_age),
         "console": console,
     }));
     // The host section and the reading keep the text the host gave (1000.00
@@ -228,53 +227,6 @@ fn console(live: &Path, cycle: &Value, lines: usize) -> Value {
         .filter(|l| !l.is_empty())
         .collect();
     json!({"issue": issue, "name": name, "ended": ended, "lines": tail})
-}
-
-/// The energy sample, when it is fresh: the totals and the model slots.
-fn energy(path: &Path, now: i64, max_age: i64) -> Value {
-    let Some(e) = fs::read_to_string(path)
-        .ok()
-        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-        .filter(Value::is_object)
-    else {
-        return Value::Null;
-    };
-    let at = e
-        .get("generatedAt")
-        .and_then(Value::as_str)
-        .and_then(epoch)
-        .unwrap_or(0);
-    if at <= now - max_age {
-        return Value::Null;
-    }
-    let models: Vec<Value> = match e.get("models") {
-        Some(Value::Array(a)) => a.clone(),
-        Some(Value::Object(o)) => o.values().cloned().collect(),
-        _ => Vec::new(),
-    };
-    let sum = |key: &str| -> Value {
-        let n: Vec<&Value> = models
-            .iter()
-            .filter_map(|m| m.get(key))
-            .filter(|v| v.is_number())
-            .collect();
-        if n.is_empty() {
-            return Value::Null;
-        }
-        if n.iter().all(|v| v.is_i64()) {
-            json!(n.iter().filter_map(|v| v.as_i64()).sum::<i64>())
-        } else {
-            json!(n.iter().filter_map(|v| v.as_f64()).sum::<f64>())
-        }
-    };
-    let totals = e.get("totals").cloned().unwrap_or(Value::Null);
-    json!({
-        "time": field(&e, "generatedAt"),
-        "watts": field(&totals, "watts"),
-        "hosts": field(&totals, "hosts"),
-        "slots": sum("slots"),
-        "busy": sum("busy"),
-    })
 }
 
 /// The seconds one `systemctl --user` of the units section is given. A bus
