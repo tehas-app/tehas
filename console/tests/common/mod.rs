@@ -121,21 +121,26 @@ pub fn root() -> PathBuf {
         .to_path_buf()
 }
 
-/// The store of this build: above the harness when the workspace built it,
-/// built once here otherwise.
+/// The store of this build.
 fn store_binary() -> PathBuf {
-    fn above() -> Option<PathBuf> {
+    static BUILT: Once = Once::new();
+    built("store", &BUILT)
+}
+
+/// The program of a package of the workspace, named as the package: above the
+/// harness when the workspace built it, built once here otherwise.
+pub fn built(package: &str, once: &Once) -> PathBuf {
+    let above = || {
         let exe = std::env::current_exe().unwrap();
         exe.ancestors()
             .skip(1)
-            .map(|dir| dir.join("store"))
+            .map(|dir| dir.join(package))
             .find(|p| p.is_file())
-    }
+    };
     if let Some(found) = above() {
         return found;
     }
-    static BUILT: Once = Once::new();
-    BUILT.call_once(|| {
+    once.call_once(|| {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
         let target = std::env::var_os("CARGO_TARGET_DIR")
             .map(PathBuf::from)
@@ -151,17 +156,17 @@ fn store_binary() -> PathBuf {
             .arg(&manifest)
             .arg("--target-dir")
             .arg(&target)
-            .args(["-p", "store"])
+            .args(["-p", package])
             .args((!cfg!(debug_assertions)).then_some("--release"))
             .output()
             .expect("cargo");
         assert!(
             out.status.success(),
-            "the store did not build: {}",
+            "{package} did not build: {}",
             String::from_utf8_lossy(&out.stderr)
         );
     });
-    above().expect("the store of this build is above the test binary")
+    above().unwrap_or_else(|| panic!("{package} of this build is above the test binary"))
 }
 
 /// A program on the PATH of the tests, by its path.
