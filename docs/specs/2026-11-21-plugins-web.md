@@ -82,7 +82,7 @@ A preview, `uat-<pr>.<domain>`, is the same site as a plugin's name, so
 | --- | --- |
 | `/_kit/<file>` | A file of the installed tehas's `host/fun/kit/MANIFEST`, when the manifest has `ui.kit` |
 | `/_actions/<id>` | A press, see "Actions" |
-| `/_hooks/<pr>` | The findings of the plugin's last hook on that pull request, in a page the gate makes, every text escaped: a finding may quote names the model wrote |
+| `/_hooks/<pr>` | The findings of the plugin's last hook on that pull request, in a page the gate makes, every text escaped: a finding may quote names the model wrote. From 1.6.0 the hook's report, `report.md`, is shown under the findings as safe Markdown: raw HTML as text, no link, no image loaded, no script (`2026-11-22-plugins-1.6.md`) |
 | `/_session` | `GET`: 200 `{"signed": true}` or 401, for a frame to poll |
 | `/_signout` | `POST`, see "The session" |
 | `/_auth/ask`, `/_auth/take` | The plugin name's two steps of the hand-off, see "The sign-in" |
@@ -161,6 +161,9 @@ frame sees the session and reloads. GitHub's pages cannot be framed, so the
 sign-in never runs in the frame. The frame is the same site as the dashboard,
 so its `SameSite=Lax` cookie is sent; a domain that is a public suffix would
 make it cross-site, and then the dock's "Open in a new tab" link is the way.
+A tailnet is one site: `ts.net` is on the public suffix list, so
+`<tailnet>.ts.net` is the site, and a chat host and the plugins on names
+under it are same-site. Their frames get the `Lax` cookie.
 
 Panels have no `open` in v1: a plugin's view always docks, and the dock's
 link opens it in a tab.
@@ -192,7 +195,9 @@ same-origin-allow-popups`.
   hashed. A style cannot run code; what it could load, `img-src` and
   `font-src` bound to the view's own files and `data:`.
 - **`frame-ancestors 'self'`** lets the view frame its own pages, as the
-  reference plugin frames its map.
+  reference plugin frames its map. From 1.6.0 a view with `open: full`
+  also names the origins of `TEHAS_PLUGIN_FRAMERS`, the chat hosts that
+  open it. No other answer does.
 - **The export's own policy.** A page that also carries a `<meta>` policy
   gets both; the browser applies the stricter.
 - **Styles added at run time.** A `<style>` element a script makes is not
