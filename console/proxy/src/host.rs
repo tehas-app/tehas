@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use serde_json::{json, Value};
+use tehas_core::home::{Home, TokenDir};
 use tehas_cycle::memory::{InImage, Planned, Vipune};
 use tehas_cycle::relay::{self, Scope, Via};
 
@@ -32,7 +33,7 @@ const TOKEN_WAIT: &str = "60";
 
 impl OfHost {
     fn cycles(&self) -> PathBuf {
-        self.home.join("state").join("cycles")
+        Home::new(&self.home).cycles_dir()
     }
 
     fn vipune(&self) -> InImage {
@@ -57,10 +58,14 @@ impl Factory for OfHost {
             .ok()
             .filter(|o| o.status.success())?;
         let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        let expires = fs::read_to_string(self.home.join("state/github-cycle/token.expires"))
-            .ok()
-            .and_then(|t| t.trim().parse().ok())
-            .unwrap_or_default();
+        let expires = fs::read_to_string(
+            Home::new(&self.home)
+                .token_dir(TokenDir::Cycle)
+                .join("token.expires"),
+        )
+        .ok()
+        .and_then(|t| t.trim().parse().ok())
+        .unwrap_or_default();
         (!token.is_empty()).then_some((token, expires))
     }
 

@@ -28,10 +28,14 @@ pub enum State {
     GithubFailures,
     /// The pins of the state labels to their node ids.
     LabelPins,
+    /// The images a contractor runs, kept by the proxy.
+    Images,
     /// The limit `tehas limit` sets.
     Limit,
     /// A contractor's files of the job it runs.
     Outsource,
+    /// The proxy's index, bundles and jobs' files for contractors.
+    OutsourceDownloads,
     /// The flag `tehas pause` sets.
     Pause,
     /// The record of a sandbox that cannot push.
@@ -59,8 +63,10 @@ impl State {
             State::EgressLock => "state/egress.lock",
             State::GithubFailures => "state/github-failures",
             State::LabelPins => "state/labels",
+            State::Images => "state/images",
             State::Limit => "state/limit.json",
             State::Outsource => "state/outsource",
+            State::OutsourceDownloads => "state/outsource/downloads",
             State::Pause => "state/pause.json",
             State::PushFault => "state/push-fault.json",
             State::ReadOnly => "state/read-only",
@@ -183,8 +189,10 @@ mod tests {
             (State::EgressLock, "/h/state/egress.lock"),
             (State::GithubFailures, "/h/state/github-failures"),
             (State::LabelPins, "/h/state/labels"),
+            (State::Images, "/h/state/images"),
             (State::Limit, "/h/state/limit.json"),
             (State::Outsource, "/h/state/outsource"),
+            (State::OutsourceDownloads, "/h/state/outsource/downloads"),
             (State::Pause, "/h/state/pause.json"),
             (State::PushFault, "/h/state/push-fault.json"),
             (State::ReadOnly, "/h/state/read-only"),

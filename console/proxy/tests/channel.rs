@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
+use tehas_core::home::{Home, State};
 use tehas_core::testdir::TestDir;
 use tehas_cycle::memory::Planned;
 use tehas_cycle::relay::Scope;
@@ -24,7 +25,7 @@ fn call(home: &Path, args: &[&str]) -> Value {
 
 fn made(name: &str, outsource: bool) -> TestDir {
     let home = TestDir::new(name);
-    std::fs::create_dir_all(home.path().join("state")).unwrap();
+    std::fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     let mut args = vec![
         "init",
         "--version",
@@ -174,7 +175,7 @@ fn by_key(chan: &Channel, call: Call) -> Answer {
 
 /// The row of an issue a job may name, as the poll leaves it.
 fn issue(home: &Path, n: i64) {
-    let c = rusqlite::Connection::open(home.join("state/tehas.db")).unwrap();
+    let c = rusqlite::Connection::open(Home::new(home).state(State::StoreDb)).unwrap();
     c.execute(
         "INSERT OR IGNORE INTO issues (issue, kind, kind_at, checked_at) VALUES (?1, 'issue', 1, 1)",
         [n],
@@ -233,7 +234,7 @@ fn a_host_joins_once_with_its_code_and_the_store_keeps_only_hashes() {
         ask(&chan, Call::Join, None, None, wrong).refused(),
         Some("unknown")
     );
-    let db = std::fs::read(h.join("state/tehas.db")).unwrap();
+    let db = std::fs::read(Home::new(h).state(State::StoreDb)).unwrap();
     let text = String::from_utf8_lossy(&db);
     assert!(!text.contains(code) && !text.contains(KEY));
     // The joined key says hello; another key does not.
@@ -622,8 +623,9 @@ fn a_restarted_proxy_takes_the_token_of_a_running_job_by_its_kept_hash() {
         taken(&chan)
     };
     // The store holds the token's hash, never the token.
-    let db = std::fs::read(h.join("state/tehas.db")).unwrap();
-    let wal = std::fs::read(h.join("state/tehas.db-wal")).unwrap_or_default();
+    let db = std::fs::read(Home::new(h).state(State::StoreDb)).unwrap();
+    let wal = std::fs::read(Home::new(h).state(State::StoreDb).with_extension("db-wal"))
+        .unwrap_or_default();
     for file in [&db, &wal] {
         assert!(!String::from_utf8_lossy(file).contains(&token));
     }
@@ -738,8 +740,9 @@ fn both_scopes_survive_a_restart_and_keep_their_scope() {
     let fake = Fake::at(h);
     let before = Issuer::backed(Arc::new(KeptIn::at(h)));
     let (job, model) = taken_pair(&Channel::new(&before, &fake));
-    let db = std::fs::read(h.join("state/tehas.db")).unwrap();
-    let wal = std::fs::read(h.join("state/tehas.db-wal")).unwrap_or_default();
+    let db = std::fs::read(Home::new(h).state(State::StoreDb)).unwrap();
+    let wal = std::fs::read(Home::new(h).state(State::StoreDb).with_extension("db-wal"))
+        .unwrap_or_default();
     for file in [&db, &wal] {
         let text = String::from_utf8_lossy(file);
         assert!(!text.contains(&job) && !text.contains(&model));

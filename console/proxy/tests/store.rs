@@ -4,6 +4,7 @@
 
 use std::path::Path;
 
+use tehas_core::home::{self as layout, Home};
 use tehas_core::testdir::TestDir;
 use tehas_proxy::jobs::Issuer;
 use tehas_proxy::records::{OfProxy, OfStore, Reader};
@@ -17,7 +18,7 @@ fn call(home: &Path, args: &[&str]) -> String {
 
 fn made(name: &str, outsource: bool) -> TestDir {
     let home = TestDir::new(name);
-    std::fs::create_dir_all(home.path().join("state")).unwrap();
+    std::fs::create_dir_all(Home::new(home.path()).state_dir()).unwrap();
     let mut args = vec![
         "init",
         "--version",
@@ -39,7 +40,7 @@ fn made(name: &str, outsource: bool) -> TestDir {
 /// A job row as the store's job machine leaves it. The issue it names has no
 /// row of its own here: the proxy reads the job, never the issue.
 fn job(home: &Path, id: i64, contractor: &str, state: &str) {
-    let c = rusqlite::Connection::open(home.join("state/tehas.db")).unwrap();
+    let c = rusqlite::Connection::open(Home::new(home).state(layout::State::StoreDb)).unwrap();
     c.execute_batch("PRAGMA foreign_keys = OFF").unwrap();
     c.execute(
         "INSERT INTO jobs (id, issue, contractor, attempt, state, offered_at, expires_at, updated_at)

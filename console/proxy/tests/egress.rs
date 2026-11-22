@@ -10,6 +10,7 @@ use std::thread;
 use std::time::Duration;
 
 use serde_json::{json, Value};
+use tehas_core::home::{Home, State};
 use tehas_core::testdir::TestDir;
 use tehas_cycle::relay::Scope;
 use tehas_proxy::channel::{key_hash, Asked, Call, Channel, Factory};
@@ -110,7 +111,7 @@ fn case_idle(
 ) -> Case {
     let home = TestDir::new(name);
     let h = home.path();
-    std::fs::create_dir_all(h.join("state")).unwrap();
+    std::fs::create_dir_all(Home::new(h).state_dir()).unwrap();
     call(
         h,
         &[
@@ -126,7 +127,7 @@ fn case_idle(
             "--outsource",
         ],
     );
-    let c = rusqlite::Connection::open(h.join("state/tehas.db")).unwrap();
+    let c = rusqlite::Connection::open(Home::new(h).state(State::StoreDb)).unwrap();
     c.execute(
         "INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (7, 'issue', 1, 1)",
         [],
