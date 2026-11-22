@@ -18,9 +18,9 @@ const UNITS: &str = r#"case " $* " in
     printf "%s\n" "tehas-dispatch.timer loaded active waiting Dispatch the queue" \
                   "tehas-cycle@12.service loaded active running Cycle for 12" ;;
   *" list-unit-files "*)
-    printf "%s\n" "tehas-dispatch.timer enabled" "tehas-energy.service enabled" ;;
+    printf "%s\n" "tehas-dispatch.timer enabled" "tehas-top.service enabled" ;;
   *" show "*)
-    printf "Id=tehas-cycle@12.service\nLoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=\nNextElapseUSecRealtime=n/a\n\nId=tehas-dispatch.timer\nLoadState=loaded\nActiveState=active\nSubState=waiting\nUnitFileState=enabled\nNextElapseUSecRealtime=Mon 2026-01-01 10:00:00 UTC n/a\n\nId=tehas-energy.service\nLoadState=loaded\nActiveState=inactive\nSubState=dead\nUnitFileState=enabled\nNextElapseUSecRealtime=n/a\n" ;;
+    printf "Id=tehas-cycle@12.service\nLoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=\nNextElapseUSecRealtime=n/a\n\nId=tehas-dispatch.timer\nLoadState=loaded\nActiveState=active\nSubState=waiting\nUnitFileState=enabled\nNextElapseUSecRealtime=Mon 2026-01-01 10:00:00 UTC n/a\n\nId=tehas-top.service\nLoadState=loaded\nActiveState=inactive\nSubState=dead\nUnitFileState=enabled\nNextElapseUSecRealtime=n/a\n" ;;
   *) exit 0 ;;
 esac"#;
 
