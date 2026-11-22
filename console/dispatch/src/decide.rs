@@ -233,15 +233,25 @@ pub struct Decision {
     pub paused: bool,
     /// The bot's login, which the poll's writes name.
     pub bot: String,
-    /// Where the poll sweeps the unused locks (after its clean-up) and
-    /// publishes its report (at rule 3): the action and the line each comes
-    /// before, as the bash does them there.
-    pub swept_at: Option<(usize, usize)>,
-    pub reported_at: Option<(usize, usize)>,
+    /// The poll's steps in order: its lines, its actions, and where it sweeps
+    /// the unused locks (after its clean-up) and publishes its report (at
+    /// rule 3), as the bash does them there.
+    pub plan: Vec<PlanStep>,
     /// What the poll decided of each issue it could start, and the holds
     /// between issues it read: state/starts.json, without its time. A dry run
     /// writes none.
     pub starts: tehas_core::starts::Record,
+}
+
+/// One step of a poll's plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlanStep {
+    /// Log the line at this index of `log`.
+    Say(usize),
+    /// Apply the action at this index of `actions`.
+    Act(usize),
+    SweepLocks,
+    Report,
 }
 
 /// live/demand.json, without its time.
@@ -457,6 +467,7 @@ fn or_unknown(who: &str) -> &str {
 
 impl<'a> Poll<'a> {
     fn log(&mut self, line: impl Into<String>) {
+        self.d.plan.push(PlanStep::Say(self.d.log.len()));
         self.d.log.push(line.into());
     }
 
@@ -489,12 +500,9 @@ impl<'a> Poll<'a> {
         self.unreadable(&format!("comments of #{n}"), call.as_deref())
     }
 
-    /// An action, with its place among the poll's lines: the lines before it
-    /// are logged before it is applied.
-    fn act(&mut self, mut a: Value) {
-        if let Some(o) = a.as_object_mut() {
-            o.insert("_line".into(), json!(self.d.log.len()));
-        }
+    /// An action, in its place among the poll's lines.
+    fn act(&mut self, a: Value) {
+        self.d.plan.push(PlanStep::Act(self.d.actions.len()));
         self.d.actions.push(a);
     }
 
@@ -647,7 +655,7 @@ impl<'a> Poll<'a> {
             None => self.pause_label()?,
         };
         self.clean_up(&bot)?;
-        self.d.swept_at = Some((self.d.actions.len(), self.d.log.len()));
+        self.d.plan.push(PlanStep::SweepLocks);
         // 1b. The pause switches end the poll here.
         if let Some(h) = holds {
             self.d.paused = true;
@@ -1372,7 +1380,7 @@ impl<'a> Poll<'a> {
                 endpoint: (!s.endpoint.is_empty()).then(|| s.endpoint.clone()),
                 held: Vec::new(),
             });
-            self.d.reported_at = Some((self.d.actions.len(), self.d.log.len()));
+            self.d.plan.push(PlanStep::Report);
         }
         Ok(Room {
             want,
