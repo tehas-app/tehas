@@ -199,8 +199,8 @@
 //! stops the start: a cycle that works without a picture the issue relies on
 //! builds the wrong thing.
 //!
-//! Every manifest entry has a source, "body" or, for a retry,
-//! "pr-comment:<id>". By hand there is no record, and only the body is read.
+//! Every manifest entry has the source "body": an issue's images come from its
+//! text alone. By hand there is no record, and the body is read the same way.
 //!
 //! A record whose retry_context holds anything gives the cycle comments: the
 //! comments a comments retry recorded at its tick (the issue's and its pull

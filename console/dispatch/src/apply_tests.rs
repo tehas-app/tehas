@@ -1707,22 +1707,6 @@ fn the_approval_names_no_link_of_a_comment_and_reads_no_comment() {
 }
 
 #[test]
-fn the_links_of_comments_are_each_link_once_with_where_it_came_from() {
-    let list = json!([
-        {"id": 1, "body": "https://github.com/user-attachments/assets/2 and https://github.com/user-attachments/assets/2",
-            "user": {"login": "alice"}},
-        {"id": 2, "body": "https://github.com/user-attachments/assets/3", "user": {"login": "bob"}}
-    ]);
-    assert_eq!(
-        crate::apply::start::comment_links(list.as_array().unwrap(), "comment"),
-        [
-            json!({"link": "https://github.com/user-attachments/assets/2", "source": "comment:1", "by": "alice"}),
-            json!({"link": "https://github.com/user-attachments/assets/3", "source": "comment:2", "by": "bob"}),
-        ]
-    );
-}
-
-#[test]
 fn a_start_with_no_text_read_records_nothing() {
     let mut t = world();
     let mut a = start_of(7, "label");

@@ -238,24 +238,6 @@ pub(crate) fn window(
     Some(out)
 }
 
-/// The links of the comments, each link once, with where it came from. No
-/// record names them in 2.0: the given plugin of 2.1 takes them.
-pub fn comment_links(comments: &[Value], source: &str) -> Vec<Value> {
-    let mut out: Vec<Value> = Vec::new();
-    for c in comments {
-        let body = c.get("body").and_then(Value::as_str).unwrap_or("");
-        for link in crate::text::link_list(body) {
-            if !out.iter().any(|x| x["link"] == json!(link)) {
-                out.push(
-                    json!({"link": link, "source": format!("{source}:{}", c["id"]),
-                    "by": c.pointer("/user/login").cloned().unwrap_or(Value::Null)}),
-                );
-            }
-        }
-    }
-    out
-}
-
 /// A comment as retry_context has it: its first 4000 characters, without
 /// carriage returns.
 pub(crate) fn context(c: &Value, source: &str) -> Value {
@@ -1086,7 +1068,7 @@ impl Writer {
         // of the fixer or of a refresh stays out of its record whatever asks.
         if !alone {
             if let Some(note) = a.get("park_lifted").filter(|_| given == "millwright") {
-                retry = json!({"links": [], "context": [note]});
+                retry = json!({"context": [note]});
             } else if given == "millwright" {
                 let Some(r) = self.fixer_note(n, &given_at) else {
                     log.push(format!(
@@ -1101,7 +1083,7 @@ impl Writer {
                     .pointer("/refresh_of/branch")
                     .and_then(Value::as_str)
                     .unwrap_or("");
-                retry = json!({"links": [], "context": [{"source": "refresh", "by": "tehas", "at": iso(tehas_core::time::now() as u64),
+                retry = json!({"context": [{"source": "refresh", "by": "tehas", "at": iso(tehas_core::time::now() as u64),
                     "text": format!("This pull request conflicts with `{b}`. Merge `{b}` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate in `.pi/verify-cmd`, and push to the same branch. Do no other work.")}]});
             }
         }
@@ -1300,11 +1282,8 @@ impl Writer {
         }
         mine.sort_unstable();
         mine.dedup();
-        let mut said = Vec::new();
         for pr in mine {
-            let talk = window(&self.comments(pr)?, "", at, &who)?;
-            said.extend(talk.iter().cloned());
-            for c in talk {
+            for c in window(&self.comments(pr)?, "", at, &who)? {
                 items.push(item(&c, "pr-comment", Some(pr)));
             }
             let path = format!("repos/{repo}/pulls/{pr}/reviews?per_page=100");
@@ -1371,17 +1350,7 @@ impl Writer {
         if dropped > 0 {
             log.push(format!("WARN: #{n}: {dropped} older comments are left out of the retry's record, which holds {RECORD_TEXT} bytes of their text"));
         }
-        let said: Vec<Value> = said
-            .into_iter()
-            .filter(|c| {
-                c.pointer("/user/login")
-                    .and_then(Value::as_str)
-                    .is_some_and(|b| keep.iter().any(|k| k == b))
-            })
-            .collect();
-        Some(
-            json!({"links": comment_links(&said, "pr-comment"), "context": given, "left_out": left_out}),
-        )
+        Some(json!({"context": given, "left_out": left_out}))
     }
 
     /// fixer_note: the millwright's comment behind its tehas:ready, written
@@ -1406,7 +1375,7 @@ impl Writer {
             .map(|c| context(c, "millwright"))
             .into_iter()
             .collect();
-        Some(json!({"links": [], "context": last}))
+        Some(json!({"context": last}))
     }
 
     /// park_unask: the question of the issue's park off the record. Whether
