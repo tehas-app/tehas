@@ -172,11 +172,16 @@ else:
 
 - The fetch is over https only, with no submodules and no LFS.
 - The build context is `git archive` of the commit: no `.git`, no file
-  outside it.
+  outside it. A commit with a `.gitattributes` file anywhere is refused:
+  `git archive` would apply it, and the files built would not be the files
+  checked.
+- The Dockerfile and each skill file must be regular files in the commit,
+  not links.
 - Every `FROM` names an image by `@sha256:` digest, except an earlier stage
   and `scratch`. No `# syntax=` line, no `ADD` of a URL, and `COPY --from`
-  names a stage of the file. A line that breaks a rule refuses the plugin and
-  is named.
+  names a stage of the file. No `RUN --mount` of a cache, an SSH agent or a
+  secret: a cache is shared by every build on the host. A line that breaks a
+  rule refuses the plugin and is named.
 - A base image with an `ONBUILD` trigger is refused: its steps would run
   outside these rules.
 - The build runs with BuildKit and `--network none`. A plugin that needs

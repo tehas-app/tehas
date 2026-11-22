@@ -115,6 +115,30 @@ fn file_of(dir: &Path, path: &str, max: u64) -> Result<Option<Vec<u8>>, String> 
     Ok(Some(bytes))
 }
 
+/// The paths under `dir`, by their path in the repository, links not
+/// followed. A `.git` folder is not the commit's.
+fn walk(dir: &Path, at: &str, out: &mut Vec<String>) -> std::io::Result<()> {
+    let mut entries: Vec<_> = fs::read_dir(dir)?.collect::<Result<_, _>>()?;
+    entries.sort_by_key(|e| e.file_name());
+    for e in entries {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let path = if at.is_empty() {
+            name.clone()
+        } else {
+            format!("{at}/{name}")
+        };
+        let kind = e.file_type()?;
+        if kind.is_dir() {
+            if at.is_empty() && name == ".git" {
+                continue;
+            }
+            walk(&e.path(), &path, out)?;
+        }
+        out.push(path);
+    }
+    Ok(())
+}
+
 /// Check the plugin in `dir`. Err: the folder holds no manifest that can be
 /// read at all, with why.
 pub fn check(dir: &Path) -> Result<Checked, String> {
@@ -133,7 +157,12 @@ pub fn check(dir: &Path) -> Result<Checked, String> {
     .unwrap_or_else(|| "plugin".to_string());
     let mut file = |path: &str, max: u64| file_of(dir, path, max);
     let shown = dir.display().to_string();
-    let reading = prepare::reading(&mut file, &name, &shown, "the folder")?;
+    let mut reading = prepare::reading(&mut file, &name, &shown, "the folder")?;
+    let mut paths = Vec::new();
+    walk(dir, "", &mut paths).map_err(|e| format!("{shown} could not be listed: {e}"))?;
+    reading
+        .refusals
+        .extend(prepare::attributes_refusals(&paths));
     Ok(Checked {
         dir: shown,
         reading,
@@ -253,6 +282,30 @@ mod tests {
             "{:?}",
             r.refusals()
         );
+    }
+
+    #[test]
+    fn a_folder_with_a_gitattributes_file_at_any_depth_is_refused() {
+        let files = [
+            ("tehas-plugin.json", manifest(r#""product""#)),
+            ("Dockerfile", format!("{}# $Format:%B$\n", dockerfile())),
+        ];
+        for (case, at) in [("top", ".gitattributes"), ("deep", "src/a/.gitattributes")] {
+            let mut all: Vec<(&str, &str)> = files.iter().map(|(p, t)| (*p, t.as_str())).collect();
+            all.push((at, "Dockerfile export-subst\n"));
+            let d = folder(&format!("attributes-{case}"), &all);
+            assert_eq!(
+                check(&d).unwrap().refusals(),
+                [format!(
+                    "{at}: a .gitattributes file, which would change the files the build is given"
+                )]
+            );
+        }
+        let all: Vec<(&str, &str)> = files.iter().map(|(p, t)| (*p, t.as_str())).collect();
+        let d = folder("attributes-git", &all);
+        fs::create_dir_all(d.join(".git/info")).unwrap();
+        fs::write(d.join(".git/.gitattributes"), "x").unwrap();
+        assert!(check(&d).unwrap().refusals().is_empty());
     }
 
     #[test]

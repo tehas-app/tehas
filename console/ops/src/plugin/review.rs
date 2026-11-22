@@ -304,7 +304,7 @@ pub fn review(x: &mut dyn Exec, g: &Given, pin: &Pin, commit: &str) -> Result<Re
 #[cfg(test)]
 mod tests {
     use super::super::exec::fake::{fails, ok};
-    use super::super::prepare::tests::{dockerfile, good, manifest, pin, C, NODE};
+    use super::super::prepare::tests::{commit_files, dockerfile, good, manifest, pin, C, NODE};
     use super::*;
     use std::collections::BTreeMap;
 
@@ -435,17 +435,14 @@ mod tests {
         let new = manifest(r#""product", "model""#);
         let d = dockerfile();
         for (c, m) in [(C, &old), (D, &new)] {
-            for (path, text) in [
-                ("tehas-plugin.json", m.as_str()),
-                ("Dockerfile", d.as_str()),
-            ] {
-                x.on(&format!("cat-file -t {c}:{path}"), ok("blob\n"));
-                x.on(
-                    &format!("cat-file -s {c}:{path}"),
-                    ok(&format!("{}\n", text.len())),
-                );
-                x.on(&format!("cat-file blob {c}:{path}"), ok(text));
-            }
+            commit_files(
+                &mut x,
+                c,
+                &[
+                    ("tehas-plugin.json", m.as_str()),
+                    ("Dockerfile", d.as_str()),
+                ],
+            );
         }
         let get = vars(&[("TEHAS_PLUGIN_GRANTS_FLOORPLAN", &format!("{C} product"))]);
         let models = ModelFile { json: Value::Null };
