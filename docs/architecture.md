@@ -74,18 +74,21 @@ and may stay separate on purpose; the owner decides (T4).
 
 ## Crate graph
 
-| Crate | Depends on |
-| --- | --- |
-| tehas-core | nothing of the workspace |
-| store, analytics, attach, tehas-front, tehas-mcp, tehas-xtask | tehas-core |
-| tehas-cycle | attach, tehas-core |
-| tehas-dispatch | attach, tehas-core |
-| tehas-ops | store, tehas-core, tehas-cycle |
-| tehas-proxy | store, tehas-core, tehas-cycle |
-| tehas-contractor | tehas-core, tehas-cycle |
-| tehas-plugin | tehas-core, tehas-ops |
-| tehas-plugin-gate | tehas-core, tehas-plugin |
-| console | attach, store, tehas-core, tehas-cycle, tehas-ops |
+From `cargo metadata`. Tests' own dependencies are in the last column.
+
+| Crate | Depends on | Its tests also use |
+| --- | --- | --- |
+| tehas-core | nothing of the workspace | |
+| store, attach, tehas-front, tehas-mcp, tehas-xtask | tehas-core | |
+| analytics | tehas-core | tehas-mcp |
+| tehas-cycle | attach, tehas-core | |
+| tehas-dispatch | attach, tehas-core | |
+| tehas-ops | store, tehas-core, tehas-cycle | tehas-dispatch |
+| tehas-proxy | store, tehas-core, tehas-cycle | |
+| tehas-contractor | tehas-core, tehas-cycle | store, tehas-proxy |
+| tehas-plugin | tehas-core, tehas-ops | |
+| tehas-plugin-gate | tehas-core, tehas-plugin | |
+| console | attach, store, tehas-core, tehas-cycle, tehas-ops | tehas-dispatch |
 
 core depends on nothing, so the graph points inward at the root (R8).
 The direction is not checked in CI yet. core itself mixes the pure
@@ -122,7 +125,7 @@ the old term and removed at T9, and agreed with the owner first.
 | Settings | contract, "Settings and the knob rule"; `api/settings-rules.json` | settings that choose the adapters; the release repository at the rename (T10) |
 | Labels | `host/labels.tsv` | the contract names the act (approve, block, plan, refine); labels become the GitHub adapter's answer |
 | The factory API | `api/api.schema.json`, `status.schema.json` and the other schemas | fields that name GitHub's shapes, where the ports rename them |
-| The plugin API | `api/plugin-*.schema.json`, the grants | written into the 2.0 contract as it stands; events (`hook:<when>:<event>`) added (T11) |
+| The plugin API | `api/plugin-*.schema.json`, the grants; not frozen until the feature ships | written into the 2.0 contract as it stands; events (`hook:<when>:<event>`) added (T11) |
 | Events | none yet | new: the event names and schemas (T11) |
 
 ## Grades
@@ -132,3 +135,9 @@ rewritten.
 
 | Date | Commit | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10 | Pass line |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-11-22 | 0538004d (baseline) | partial | partial | partial | partial | partial | partial | partial | mostly | mostly | baseline: no pull requests since a grade | below adopting: the test is not in CI yet |
+
+The baseline was graded by the overseer's three fresh graders on a
+one-commit export of 0538004d, with `docs/plans/` and this section cut.
+All three agree on R1 to R8. On R9 two read `mostly` and one `met`; the
+lower band stands. A person confirms the grade.

@@ -5,11 +5,11 @@ page, and for R10 the pull requests since the last grade. Nothing else:
 not the plan, not the session that wrote the code.
 
 Copied from tehas-docs, `wiki/decisions/architecture-method.md` at
-commit 7a281f3: §3 (the rules) and §9.2 (grading). The bodies are
-verbatim. Only the headings were renamed: "3. The rules" is "The rules
-(§3)", and "9.2 Grading a repository" is "Grading (§9.2)", one level up.
-The relative links in the copy resolve against tehas-docs
-`wiki/decisions/`, not this repository. The checks that hold what a grep
+commit 9b70be4: §3 (the rules) and §9.2 (grading). The rule texts and
+the tables are verbatim. Left out: the wiki's source markers and its
+links to other wiki pages, whose text stays. The headings were renamed:
+"3. The rules" is "The rules (§3)", and "9.2 Grading a repository" is
+"Grading (§9.2)", one level up. The checks that hold what a grep
 can hold are in `architecture.toml`; run them with
 `python3 -I scripts/architecture.py --force`.
 
@@ -118,13 +118,12 @@ since which release.
 lands as an ordinary ticket and pull request, and is green on its own.
 A move earns its place by making a named change easier ("make the change
 easy, then make the easy change", Beck in Fowler). No big rewrite.
-*From:* Fowler; [remanufacturing](../components/remanufacturing.md),
+*From:* Fowler; remanufacturing,
 which is this kind of work.
 *Checked:* in review.
 
 The ideas each rule draws on are known practice; their wording here is
-the session's, from its knowledge of the sources, not re-read
-[UNVERIFIED for exact wording].
+the session's, from its knowledge of the sources, not re-read.
 
 ## Grading (§9.2)
 
@@ -152,9 +151,9 @@ What each band asks, rule by rule:
 | R9 Expand, then contract | The contract file | Every frozen term is listed with its release; nothing removed outside a major |
 | R10 Small steps | Review of the pull requests since the last grade | The moves since the last grade were behaviour-keeping and reviewable alone |
 
-How far the rule holds and whether its breaks are listed both count: listing alone does not lift a band [FROM owner, 2026-11-22, after two sets of graders read `mostly` differently at tehas-industry's I0].
+How far the rule holds and whether its breaks are listed both count: listing alone does not lift a band.
 
-**The grade is the ten bands, not a sum** [SPEC]. A total would let a
+**The grade is the ten bands, not a sum**. A total would let a
 `met` hide an `absent`. Two pass lines:
 
 - **Adopting:** every rule at `partial` or better, the architecture
@@ -168,8 +167,7 @@ mechanical bands come from the architecture test. The judged bands (R5,
 R6, R10, and the parts of the others the test cannot see) are scored
 by a reviewer who sees only the code at that commit and this rubric,
 not the plan or the session that wrote the code, so the grade is not
-the author's own reading [INFERENCE: the fresh reader of
-[EGM](../components/egm.md), applied to grading]. A person confirms the
+the author's own reading. A person confirms the
 grade. Each grade names the band and the evidence for it: a count, a
 file and line, a test.
 
@@ -183,9 +181,9 @@ agent there needs nothing from this wiki.
 **Release gates.** A part's 1.0.0 and a major release are not tagged
 below **conformant** unless the owner says otherwise and the
 departure is written. A minor release may be tagged at any grade, but
-no band may fall below the last grade's [SPEC].
+no band may fall below the last grade's.
 
 **Cycle scoring.** The rubric is written in cycle scoring's format so
 the industrial engineer could later grade merged cycles against R1 to
 R10 as well, with the review questions of §9.1 as what the reason must
-name [IDEA].
+name.
