@@ -147,7 +147,7 @@
 //!   store review-issue <path> <branch> <commit>
 //!                (the review issue's title and body, masked, and the count of
 //!                its findings, from the document of one review run:
-//!                tehas_core::review, src/review_issue.rs)
+//!                tehas_review_render, src/review_issue.rs)
 //!   store review-file --repo <owner/name> --doc <path> --branch <b> --commit <sha>
 //!                [--ask <line>] [--private <name>]... [--gh <program>]
 //!                (the filing of one run: the render above and the GitHub

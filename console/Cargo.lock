@@ -1782,6 +1782,7 @@ dependencies = [
  "rusqlite",
  "serde_json",
  "tehas-core",
+ "tehas-review-render",
 ]
 
 [[package]]
@@ -1917,6 +1918,13 @@ dependencies = [
  "store",
  "tehas-core",
  "tehas-cycle",
+]
+
+[[package]]
+name = "tehas-review-render"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

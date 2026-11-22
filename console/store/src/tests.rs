@@ -2419,7 +2419,7 @@ fn paths_overlap_is_no_verb_any_more() {
 
 // --- the review issue -------------------------------------------------------
 // The title and body of the issue tehasbot review files for triage, rendered
-// from the document of one run (tehas_core::review).
+// from the document of one run (tehas_review_render).
 
 /// The verb's three arguments, given as words.
 fn review_args(args: &[&str]) -> Vec<String> {

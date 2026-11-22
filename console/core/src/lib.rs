@@ -53,7 +53,6 @@ pub mod read_only;
 pub mod release;
 #[cfg(feature = "mask")]
 pub mod retry;
-pub mod review;
 pub mod rukas;
 pub mod sandbox;
 pub mod secret;

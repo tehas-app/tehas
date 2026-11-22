@@ -1,4 +1,4 @@
-//! The review issue of one run: rendered by the rule of `tehas_core::review`,
+//! The review issue of one run: rendered by the rule of `tehas_review_render`,
 //! masked on the way out, and filed. The filing decisions of `tehasbot review`
 //! live here, beside the renderer they belong to (#508 put that glue in bash;
 //! #952 took it out again), so the answers to "what does the issue say, is
@@ -9,7 +9,7 @@
 //!     The issue's title and body, from the document of one review run, the
 //!     body masked as an agent's words are masked, and the count of the
 //!     findings the body lists. The rule of what is listed and how much of it
-//!     is shown is tehas_core::review, where it is tested; this verb is the
+//!     is shown is tehas_review_render, where it is tested; this verb is the
 //!     way the shell reaches it and the way the values arrive as one line the
 //!     store's caller can read. The words of a finding come from the model, so
 //!     both values are escaped by the line builder and the answer stays one
@@ -64,7 +64,7 @@ const MAX_BYTES: u64 = tehas_core::file::READ_BOUND;
 /// put on after them, so a body that runs past this bound asks for a filing
 /// that cannot be posted and is tried again next week for nothing. The
 /// renderer keeps each listed finding to a line of `MAX_CHARS` characters
-/// (tehas_core::review), so this is the bound of a run of many findings, and
+/// (tehas_review_render), so this is the bound of a run of many findings, and
 /// the same ceiling the questions of the factory are cut at.
 const MAX_BODY: usize = 60_000;
 
@@ -195,7 +195,7 @@ fn count(body: &str) -> usize {
 /// `review-issue`: the title, the masked body and the count, as one line.
 pub fn run(path: &Path, branch: &str, commit: &str) -> Result<String, (u8, String)> {
     let document = document("review-issue", path)?;
-    let issue = tehas_core::review::review_issue(&document, branch, short(commit));
+    let issue = tehas_review_render::review_issue(&document, branch, short(commit));
     let body = mask(&issue.body);
     let findings = count(&body);
     Ok(verbs::line(
@@ -318,7 +318,7 @@ fn filed_body(findings: &str, ask: &str) -> String {
 pub fn file(ask: &Ask, home: &Path) -> Result<String, (u8, String)> {
     let document = document("review-file", &ask.doc)?;
     let head = short(&ask.commit);
-    let issue = tehas_core::review::review_issue(&document, &ask.branch, head);
+    let issue = tehas_review_render::review_issue(&document, &ask.branch, head);
     let found = count(&issue.body);
     // A run that found nothing files nothing, and GitHub is asked nothing at
     // all: no list, no issue, no comment, as the command has always had it.
