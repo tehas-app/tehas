@@ -56,6 +56,10 @@ change.
 
 ### 2. `live:<feed>`: a view reads a live feed
 
+(A view may ship scripts of its own, served from `'self'`, as the web
+part's policy allows: `script-src 'self'`. A view's action buttons post to
+`/_actions/<id>` from such a script.)
+
 The dashboard's feeds are files in `~/tehas/live/`, public on the docs
 server. A view cannot read them: its policy is `connect-src 'self'`.
 
@@ -165,8 +169,12 @@ reads every commit since its last run.
   trailers dropped. With no last good run, or one that is not an ancestor
   of the head, the range is the whole history up to the grant's number.
 - The run's clone holds the commits of the range, so the plugin can read a
-  diff. A range over the number is cut at the oldest end, and `head.json`
-  says so.
+  diff. A range over the number is cut at the oldest end: `head.json` then
+  has `"cut": true` and `"oldest"`, the oldest commit given; otherwise
+  `"cut": false`. On a whole-history range `changed.json` is
+  `{"from": null, "paths": null}`: every path at the head is new to the
+  plugin. Otherwise `from` is the last good run's head and `paths` the
+  paths changed since.
 - A path the host's secret check refuses is left out whole from
   `/run/history/`, as the wiki spec's guarantees say. The clone at
   `/product` still holds those paths' blobs, as the depth-200 clone does
@@ -195,6 +203,22 @@ run has no socket for it.
   and the person as author.
 - Nothing is labelled. A person applies a label afterwards (hard rule 5).
 
+**Records and kept files from a batch run.** A batch run has no socket to
+ask for a record either, so it writes what it asks for:
+
+- **Kept files.** With `keep:`, `/out/_keep/` is the run's whole kept set.
+  It replaces the last run's when the run ends well, and a set over the
+  grant's size fails the run. A failed run keeps the last set.
+- **Records.** With `record`, the run may write `/out/_tehas/records.json`:
+  `{"api": 1, "records": [{"id": "review-<head12>", "kind": "review",
+  "files": "_keep/review-<head12>/"}], "close": []}`. At most 16 records a
+  run. Each `kind` must be one of the manifest's `records`. `files`, when
+  given, is a folder under `_keep/`, and tehas writes its sha256 on the
+  record. `close` names records to close. A record not named is left as it
+  is. tehas writes the rows; the plugin never reaches the store.
+- A draft's `record` must name a record of this run's `records.json` or one
+  already open.
+
 **A behaviour change from today's review loop.** Today `tehasbot review`
 files the issue itself, labelled `tehas:improvement`, in
 `TEHAS_REVIEW_REPO`, and comments on it while it is open. As a plugin, the
@@ -211,7 +235,9 @@ Work 7, which this needs first.
 plan lists it, in the ports' words and in T11's grant form
 `hook:<when>:<event>`. There is no alias for a 1.x name. This file writes
 it `hook:gate:cycle.before-work`, a placeholder until T9 lands; the name T9
-gives replaces it everywhere here.
+gives replaces it everywhere here. The ask and the grant are
+`hook:gate:<event>`, the kind of event and its name; the manifest's hook
+`at` is the event's name alone, `cycle.before-work`.
 
 Today `tehas work` describes images with the model, fetches the text files
 and zips an issue links, and takes links from comments, each behind a
@@ -236,16 +262,23 @@ the manifest.
 part says: no network, no token, `/state` read only. The supervisor starts
 it and waits. It gets:
 
-- `/run/context.json` with `at` set to the event's name and the issue's number.
+- `/run/context.json`, checked against `api/plugin-context.schema.json`:
+  `{"kind": "hook", "at": "cycle.before-work", "issue": 7, ...}` with the
+  other fields of a hook's context. `issue` is the cycle's issue number.
+  The schema allows the model socket's fields in a hook whose `at` is this
+  event, and in no other hook.
 - `/run/issues.json`, the lab's feed with this one issue. Its texts are the
   approved body and the comments of the approval record: written by an
   allowed account and not edited after the approval. Who approved is who
   applied the label, read by the host (hard rule 5).
-- `/given/<issue>/`, read-only: a copy of what core gave so far, the images
-  and the manifest.
+- `/given/<issue>/`, read-only: a copy of what core gave so far, its
+  images and core's `manifest.json` in the cycle's format, whose `images`
+  and `leftOut` sections name them.
 - With `files:<MiB>` also granted: the other files those texts link,
-  fetched by the host through `console/attach` and put in the same
-  directory. Zips are unpacked. The limits are the lab's.
+  fetched by the host through `console/attach` in its plugin mode, under
+  `/given/<issue>/plugin/`, with that mode's own `manifest.json`
+  (`api/plugin-given.schema.json`, 1.5.1). Zips are unpacked. The limits
+  are the lab's. The two manifests never share a file.
 - With `model` granted, the model socket. v1's "no `model` in a hook" is
   lifted for this point only. `model:images` works as in a refresh. The
   grant's number is per run, and the hook runs at every start, retries
@@ -253,6 +286,10 @@ it and waits. It gets:
   (`TEHAS_PLUGIN_MODEL_DAY`) too. When that budget is used up, the hook
   gives nothing and the cycle starts, as after a timeout. It never holds
   the start.
+- In this hook each model request is bounded at 30 seconds, so eight fit
+  the 300-second limit. `model:images` takes PNG, JPEG and WebP only. A
+  GIF is given to the hook, and the plugin leaves it undescribed, saying
+  so; today's describe sent GIF, which this socket refuses.
 
 **What it hands over.** The plugin writes `/out/give/`. The host reads it
 through the tar reader and checks every file with `console/attach`:
@@ -261,7 +298,9 @@ through the tar reader and checks every file with `console/attach`:
   extension (md, txt, csv, json, yaml, log, html, css, js), valid UTF-8
   with no NUL byte
 - at most 16 files, 1 MB each and 4 MB together, at most 4 folders deep,
-  plain names (`attach/plugin_files.rs`)
+  plain names (`attach/plugin_files.rs`). The sizes are checked after the
+  host adds its head line to each text file, so what reaches the cycle is
+  within them; a plugin leaves room for the line.
 
 The host copies them into the cycle's given directory as
 `plugin-given/<name>/`, and adds to `manifest.json` under `plugins` the
@@ -425,7 +464,8 @@ goes. `tehas top` stays in core.
   "timeout": 3600,
   "asks": ["view", "menu", "product", "history", "model", "every", "action:run", "record", "keep", "issue:draft"],
   "view": {"label": "Review"},
-  "actions": [{"id": "run", "label": "Run the review"}]
+  "actions": [{"id": "run", "label": "Run the review"}],
+  "records": [{"kind": "review"}]
 }
 ```
 
@@ -435,7 +475,8 @@ TEHAS_PLUGIN_GRANTS_REVIEW="<commit> view menu product history:2000 model:400000
 
 A run reads the range from `/run/history/` and the code, asks the model for
 findings through six lenses, writes them to the view and keeps the whole
-document as the record's file. It writes one draft: the critical, high and
+document under `/out/_keep/review-<head12>/`, the folder of a record of
+kind `review` and id `review-<head12>`. It writes one draft: the critical, high and
 medium findings one to a line and the rest counted, as
 `console/core/src/review.rs` renders them today. A person files it.
 
