@@ -954,7 +954,7 @@ pub fn line(e: db::DbError) -> (u8, String) {
 
 fn name(e: &db::DbError) -> &'static str {
     match e {
-        db::DbError::Missing => "state/tehas.db",
+        db::DbError::Missing => tehas_core::home::State::StoreDb.relative(),
         _ => "the database",
     }
 }

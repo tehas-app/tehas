@@ -5,6 +5,7 @@ use crate::verbs_tests::*;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
+use tehas_core::home::Home;
 use tehas_core::time::iso;
 
 /// The CPU of every poll these tests record.
@@ -12,7 +13,7 @@ const CPU_MS: i64 = 1500;
 
 /// A poll of `gh` calls and 1.5 s of CPU, and its write log when `log` is given.
 fn files(home: &Path, gh: i64, log: Option<&str>) -> Record {
-    let state = home.join("state");
+    let state = Home::new(home).state_dir();
     let writes_log = state.join("github-writes.log");
     if let Some(l) = log {
         fs::write(&writes_log, l).unwrap();
@@ -69,7 +70,7 @@ fn record(
 /// One row written through the verb, which is how `--starts` arrives. The
 /// write log is the one `files` wrote.
 fn record_verb(home: &Path, at: i64, started: &str, starts: &str) -> Value {
-    let state = home.join("state");
+    let state = Home::new(home).state_dir();
     let path = |n: &str| state.join(n).to_string_lossy().into_owned();
     ok_at(
         home,

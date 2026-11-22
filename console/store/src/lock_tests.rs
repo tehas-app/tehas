@@ -4,6 +4,7 @@ use crate::lock::{self, Lock};
 use crate::verbs_tests::{hold, modes_bind, scratch};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
+use tehas_core::home::Home;
 
 fn rc(l: &Lock) -> (u8, bool) {
     (l.rc, l.file)
@@ -62,7 +63,7 @@ fn a_lock_that_is_a_link_a_directory_or_not_in_a_directory_is_probe_rc_2() {
     assert_eq!(rc(&lock::probe(&home, 7, false)), (2, true));
     // state/cycles itself a file, or a link to a directory.
     let other = scratch("probe-dir-shapes");
-    fs::create_dir_all(other.join("state")).unwrap();
+    fs::create_dir_all(Home::new(other.path()).state_dir()).unwrap();
     fs::write(lock::dir(&other), b"").unwrap();
     let l = lock::probe(&other, 1, false);
     assert_eq!(l.rc, 2);

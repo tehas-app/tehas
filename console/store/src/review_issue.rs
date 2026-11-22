@@ -53,6 +53,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
+use tehas_core::home::{Home, State};
 
 /// A review's document is one object with the findings of the six lenses. This
 /// is far above it, and is the bound the verb agrees to read.
@@ -80,7 +81,7 @@ pub const TITLE_PREFIX: &str = "Six-lens review:";
 /// 0700 the store keeps its database in, which no container is given
 /// (AGENTS.md rule 4). `backup` copies that directory and no verb of the store
 /// reads a file of it that it did not write.
-const BODY_FILE: &str = "state/review.body";
+const BODY_FILE: State = State::ReviewBody;
 
 /// The bound of one call of gh. A filing is at most three, made after the run
 /// is over and its record written; a gh that will not answer is cut off rather
@@ -350,9 +351,9 @@ pub fn file(ask: &Ask, home: &Path) -> Result<String, (u8, String)> {
 /// wrote, in the 0700 directory the store's database already lives in, does
 /// not.
 fn write_body(home: &Path, body: &str) -> Result<PathBuf, String> {
-    let state = home.join("state");
+    let state = Home::new(home).state_dir();
     std::fs::create_dir_all(&state).map_err(|e| format!("{}: {e}", state.display()))?;
-    let file = home.join(BODY_FILE);
+    let file = Home::new(home).state(BODY_FILE);
     let made = OpenOptions::new()
         .write(true)
         .create(true)
@@ -514,7 +515,7 @@ fn gh_create(ask: &Ask, title: &str, body: &Path) -> Vec<String> {
 /// calls were made; `file` takes it away again as the verb ends.
 #[cfg(test)]
 pub fn body_file(home: &Path) -> PathBuf {
-    home.join(BODY_FILE)
+    Home::new(home).state(BODY_FILE)
 }
 
 #[cfg(test)]

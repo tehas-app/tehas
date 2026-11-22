@@ -11,6 +11,7 @@ use rusqlite::Connection;
 use std::fs::{self, OpenOptions};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
+use tehas_core::home::{Home, State};
 
 /// The store each tagged release 1.0 updates from makes, by the schema it is
 /// at: v0.30.0 wrote 12, v0.30.1 13, v0.30.2 to v0.30.6 14 with one
@@ -60,7 +61,7 @@ fn settings() -> Settings {
 /// A home whose store is the one a release made, from its SQL.
 fn release_home(name: &str, sql: &str) -> TestDir {
     let home = scratch(name);
-    let state = home.join("state");
+    let state = Home::new(home.path()).state_dir();
     fs::DirBuilder::new().mode(0o700).create(&state).unwrap();
     OpenOptions::new()
         .write(true)
@@ -231,7 +232,7 @@ fn migrate_with(home: &Path, outsource: bool, now: i64) -> Result<String, (u8, S
     execute(
         home,
         &Verb::Migrate {
-            backup: home.join("state").join("backup"),
+            backup: Home::new(home).state(State::Backups),
             settings: settings(),
             outsource,
         },
@@ -478,8 +479,8 @@ fn a_store_of_each_release_1_0_updates_from_comes_to_18_with_every_row() {
         let open = ok(&home, &["journal-open"]);
         assert_eq!(open["actions"][0]["state"], "attempted", "{version}");
         // The copy the migrate took is the store as the release left it.
-        let copy = home
-            .join("state/backup")
+        let copy = Home::new(home.path())
+            .state(State::Backups)
             .join(format!("tehas-{schema}-{NOW}.db"));
         let c = Connection::open(&copy).unwrap();
         let at: i64 = c
@@ -609,7 +610,7 @@ fn a_store_older_than_v0_30_is_refused_and_left_as_it_was() {
         assert_eq!(one::<i64>(&home, "PRAGMA user_version"), schema);
         assert_eq!(rows(&conn(&home)), before);
         // Refused before the copy: no backup of it is written.
-        let backups = home.join("state").join("backup");
+        let backups = Home::new(home.path()).state(State::Backups);
         let kept = fs::read_dir(&backups).map_or(0, |d| d.count());
         assert_eq!(kept, 0, "{}", backups.display());
         // The dry run, which install.sh asks before it copies anything,
@@ -696,13 +697,13 @@ fn the_dry_run_with_a_backup_writes_the_copies_and_takes_them_away() {
         let home = release(&format!("rehearse-{schema}"), 17);
         if schema == db::SCHEMA_VERSION {
             migrate(&home).unwrap();
-            for copy in fs::read_dir(home.join("state/backup")).unwrap() {
+            for copy in fs::read_dir(Home::new(home.path()).state(State::Backups)).unwrap() {
                 fs::remove_file(copy.unwrap().path()).unwrap();
             }
         }
         let file = db::path(&home);
         let before = fs::read(&file).unwrap();
-        let backup = home.join("state").join("backup");
+        let backup = Home::new(home.path()).state(State::Backups);
         let said = rehearse(&home, &backup).unwrap();
         let v: serde_json::Value = serde_json::from_str(&said).unwrap();
         assert_eq!(v["dry_run"], true, "{said}");
@@ -721,12 +722,12 @@ fn the_dry_run_with_a_backup_refuses_a_directory_out_of_the_home() {
     let home = release("rehearse-out", 17);
     let elsewhere = home.join("elsewhere");
     fs::create_dir_all(&elsewhere).unwrap();
-    std::os::unix::fs::symlink(&elsewhere, home.join("state/backup")).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, Home::new(home.path()).state(State::Backups)).unwrap();
     let file = db::path(&home);
     let before = fs::read(&file).unwrap();
     // The plain dry run cannot see it, which is why install.sh asks with it.
     execute(&home, &Verb::MigrateDry { backup: None }, NOW).unwrap();
-    let (code, line) = rehearse(&home, &home.join("state/backup")).unwrap_err();
+    let (code, line) = rehearse(&home, &Home::new(home.path()).state(State::Backups)).unwrap_err();
     assert_eq!(code, 78, "{line}");
     assert!(
         line.contains("the backup goes in the state/ or state/backup/ of the store's home"),

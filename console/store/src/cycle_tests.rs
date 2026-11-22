@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use tehas_core::home::{Home, Live};
 use tehas_core::outcome::END_REASONS;
 use tehas_core::secret::secret;
 
@@ -838,7 +839,7 @@ fn an_ending_maps_a_word_that_is_not_an_end_to_unknown() {
     let (_l, a) = start(&home, 47);
     end(&home, 47, a, "running");
     ok(&home, &["publish"]);
-    let text = fs::read_to_string(home.join("live/endings.json")).unwrap();
+    let text = fs::read_to_string(Home::new(home.path()).live(Live::Endings)).unwrap();
     let e: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(e[0]["status"], "unknown");
 }
@@ -1367,8 +1368,10 @@ fn a_refused_never_ran_end_keeps_the_word_in_the_ending_and_unknown_as_reason() 
     );
     // What publish writes for the ending: the file the page and health read.
     ok(&home, &["publish"]);
-    let e: Value =
-        serde_json::from_str(&fs::read_to_string(home.join("live/endings.json")).unwrap()).unwrap();
+    let e: Value = serde_json::from_str(
+        &fs::read_to_string(Home::new(home.path()).live(Live::Endings)).unwrap(),
+    )
+    .unwrap();
     assert_eq!(e[0]["status"], "refused");
 }
 

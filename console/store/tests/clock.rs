@@ -7,6 +7,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use tehas_core::home::{Home, State};
 
 const STORE: &str = env!("CARGO_BIN_EXE_store");
 
@@ -48,7 +49,7 @@ fn seen_at(out: &Output) -> i64 {
 fn a_debug_build_reads_its_clock_from_the_variable() {
     let home = home("read");
     assert!(store(&home, Some("1700000123"), &INIT).status.success());
-    let c = rusqlite::Connection::open(home.join("state/tehas.db")).unwrap();
+    let c = rusqlite::Connection::open(Home::new(&home).state(State::StoreDb)).unwrap();
     let made: String = c
         .query_row("SELECT value FROM meta WHERE key = 'created_at'", [], |r| {
             r.get(0)
