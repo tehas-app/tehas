@@ -28,6 +28,31 @@ fn run_once(keys: Option<&str>, args: &[&str]) -> (i32, String) {
     run_once_with(keys, None, args)
 }
 
+/// Outsource was dropped in 2.0: the server has no `--outsource` to start
+/// with, and says so by name.
+#[test]
+fn the_outsource_flag_is_an_unknown_argument() {
+    let (rc, err) = run_once(
+        Some(K1),
+        &[
+            "--live",
+            "/x",
+            "--sessions",
+            "/s",
+            "--logs",
+            "/l",
+            "--listen",
+            "127.0.0.1:0",
+            "--server-version",
+            "v1",
+            "--outsource",
+        ],
+    );
+    assert_eq!(rc, 78, "{err}");
+    assert!(err.contains("unknown argument --outsource"), "{err}");
+    assert!(!err.contains("[--outsource]"), "{err}");
+}
+
 /// The binary with the two key settings: `keys` for TEHAS_MCP_KEYS and
 /// `dashboard` for TEHAS_MCP_DASHBOARD_KEYS, each left unset when None. A test
 /// of one of the two must not inherit the other from the environment of the

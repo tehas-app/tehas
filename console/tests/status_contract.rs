@@ -3,7 +3,7 @@
 //! api/status.quiet.json, api/status.readonly.json, api/status.pushfault.json
 //! and api/status.lab.json (TEHAS_TEST_FEATURES set on a lab build), are what
 //! console status json (console/src/status.rs) makes of the health files in
-//! test/fixtures/status-json/, with the Protolab's list beside one of them, at
+//! test/fixtures/status-json/, with the previews' list beside one of them, at
 //! a fixed time. A program that
 //! reads the object copies the samples into its own tests, so a change here is
 //! a change for it: docs/specs/2026-10-24-status-json-contract.md.
@@ -160,13 +160,6 @@ fn held_paths(v: &Value, prefix: &[String], out: &mut BTreeSet<String>) {
     }
 }
 
-fn schema_description(field: &str) -> String {
-    json(&read(&schema_file()))["properties"][field]["description"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string()
-}
-
 #[test]
 fn api_status_name_json_is_what_the_console_makes_of_name_health_json() {
     for name in SAMPLES {
@@ -196,7 +189,7 @@ fn tehas_status_json_prints_what_the_sample_holds_but_for_the_clock() {
             w.live_file("health.json"),
         )
         .unwrap();
-        for beside in ["protolab", "previews"] {
+        for beside in ["previews"] {
             let to = w.live_file(&format!("{beside}.json"));
             let _ = fs::remove_file(&to);
             let from = fixtures().join(format!("{name}.{beside}.json"));
@@ -341,14 +334,6 @@ fn a_schema_keyword_the_check_does_not_know_is_an_error_not_passed_over() {
     has(
         &check_with(&schema, &sample_file("busy")),
         ".age: the schema uses multipleOf, which this check does not know",
-    );
-}
-
-#[test]
-fn the_schema_says_the_fields_of_prototypes_may_change() {
-    has(
-        &schema_description("prototypes"),
-        "may change in a minor release",
     );
 }
 

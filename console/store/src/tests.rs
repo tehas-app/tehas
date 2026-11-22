@@ -2152,6 +2152,46 @@ fn the_arguments_init_accepts_are_the_ones_it_states() {
     );
 }
 
+/// Outsource was dropped in 2.0, and `--outsource` with it: wherever it
+/// stands, init and migrate answer their usage and write nothing.
+#[test]
+fn the_outsource_flag_of_init_and_migrate_is_refused_with_the_usage() {
+    let home = scratch("no-outsource-flag");
+    let full = [
+        "--version",
+        "v0.10.2",
+        "--commit",
+        "cb6912a",
+        "--instance",
+        "tehas-tehas",
+        "--repo",
+        "example-owner/example-product",
+    ];
+    for verb in ["init", "migrate"] {
+        let backup: &[&str] = if verb == "migrate" {
+            &["--backup", "/b"]
+        } else {
+            &[]
+        };
+        for at in [0, 2, full.len()] {
+            let mut args = vec![verb];
+            args.extend_from_slice(backup);
+            args.extend_from_slice(&full[..at]);
+            args.push("--outsource");
+            args.extend_from_slice(&full[at..]);
+            let (code, said) = crate::call(&home, &args, &mut std::io::empty()).unwrap_err();
+            assert_eq!(code, 64, "{args:?}: {said}");
+            assert!(
+                said.starts_with("usage: store init [--force] [--version"),
+                "{said}"
+            );
+            assert!(!said.contains("--outsource"), "{said}");
+        }
+    }
+    assert!(!Home::new(home.path()).state_dir().exists());
+    assert!(!crate::USAGE.contains("contractor") && !crate::USAGE.contains("job-"));
+}
+
 #[test]
 fn the_schema_holds_every_table_of_the_spec_with_its_checks() {
     let home = scratch("schema");

@@ -177,34 +177,15 @@ t_eq "$(listing 1760700000-12-1 | head -n 1)" "history.json"
 t_eq "$([ -e "$out/cycles/1760700060-7-2/plan.json" ] && echo written)" ""
 t_store_home "$home"
 
-t_case "the transcripts of the cycle are carried, and the Protolab page with its files"
+t_case "the transcripts of the cycle are carried"
 reset
 cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
-mkdir -p "$T/home/.pi/agent/ensemble-runs/issue-12" "$home/protolab/12/files"
+mkdir -p "$T/home/.pi/agent/ensemble-runs/issue-12"
 printf '%s\n' '{"type":"assistant"}' >"$T/home/.pi/agent/ensemble-runs/issue-12/abc.jsonl"
-printf '%s\n' '# the ticket' >"$home/protolab/12/index.md"
-printf 'a file with %s\n' "$token" >"$home/protolab/12/files/note.md"
-printf '%s\n' 'not for the export' >"$home/protolab/12/.stamp"
 run_export --json --after $((T0 - 1))-12 "$out"
-t_eq "$(listing 1760700000-12-1 | grep -e '^transcripts/' -e '^protolab/')" "protolab/files/note.md
-protolab/index.md
-transcripts/abc.jsonl"
-t_eq "$(cat "$out/cycles/1760700000-12-1/protolab/files/note.md")" "a file with $masked"
+t_eq "$(listing 1760700000-12-1 | grep -e '^transcripts/')" "transcripts/abc.jsonl"
 
-t_case "an image of the Protolab page is copied byte for byte, and its text files are masked"
-reset
-cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
-mkdir -p "$home/protolab/12/files"
-printf '\211PNG\r\n\032\n\377\376\000 %s' "$token" >"$home/protolab/12/files/shot.png"
-printf '<p>%s</p>\n' "$token" >"$home/protolab/12/files/page.html"
-run_export --json --after $((T0 - 1))-12 "$out"
-t_eq "$t_rc" 0
-t_eq "$(cmp -s "$home/protolab/12/files/shot.png" "$out/cycles/1760700000-12-1/protolab/files/shot.png" &&
-  echo same || echo differs)" same
-t_eq "$(cat "$out/cycles/1760700000-12-1/protolab/files/page.html")" "<p>$masked</p>"
-t_eq "$(stat -c %a "$out/cycles/1760700000-12-1/protolab" "$out/cycles/1760700000-12-1/protolab/files" | uniq)" 755
-
-t_case "a cycle with no logs, no transcripts and no page is exported all the same"
+t_case "a cycle with no logs and no transcripts is exported all the same"
 reset
 t_history_end "$home" 12 "$T0" '{"rc":0,"status":"merged"}'
 run_export --json --after $((T0 - 1))-12 "$out"
@@ -378,13 +359,10 @@ t_stub git 'echo bot@mail.example'
 cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 names='gpu-one SOLO-HOST model-main.lan Model-Backup.lan role-only.lan bot@mail.example'
 printf '%s\n' "$names" >"$logs/work-12-1760.jsonl"
-mkdir -p "$home/protolab/12"
-printf '%s\n' "$names" >"$home/protolab/12/index.md"
 run_export --json --after $((T0 - 1))-12 "$out"
 t_eq "$t_rc" 0
 six='[private name] [private name] [private name] [private name] [private name] [private name]'
 t_eq "$(cat "$out/cycles/1760700000-12-1/logs/work-12-1760.jsonl")" "$six"
-t_eq "$(cat "$out/cycles/1760700000-12-1/protolab/index.md")" "$six"
 t_contains "$(t_calls git)" "config --global user.email"
 printf 'http://not-used.lan/v1\n' >"$logs/work-12-1760.jsonl"
 run_export --json --after $((T0 - 1))-12 "$out"

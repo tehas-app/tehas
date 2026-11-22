@@ -82,7 +82,7 @@ t_eq "$(t_slug "$(sed -n 's/^## \(Sandbox image\)$/\1/p' "$docs/host.md")")" \
 TOOLS_PAGES=("$docs"/tools.md "$docs"/tools-dispatch.md "$docs"/tools-work.md \
   "$docs"/tools-plan.md "$docs"/tools-dev.md "$docs"/tools-setup.md \
   "$docs"/tools-control.md "$docs"/tools-status.md "$docs"/tools-tehasbot.md \
-  "$docs"/tools-health.md "$docs"/tools-protolab.md "$docs"/tools-github.md \
+  "$docs"/tools-health.md "$docs"/tools-github.md \
   "$docs"/tools-clean.md "$docs"/tools-update.md "$docs"/tools-releases.md)
 for page in "${TOOLS_PAGES[@]}"; do
   [ -f "$page" ] || t_bad "not a page: $page"
@@ -169,8 +169,8 @@ done
 # the check of the token got a tehas name of its own, and `## Host settings`
 # when the host's settings got rules beside the instance's, `## tehas plugin`
 # with plugins and `## The commands of other parts` with the parts.
-# `## tehasbot review` went with the review loop in 2.0, and
-# `## tehas outsource` with outsource.
+# `## tehasbot review` went with the review loop in 2.0, `## tehasbot protolab`
+# with the Protolab and `## tehas outsource` with outsource.
 t_case "the tools pages hold the 46 sections of the commands, each once"
 t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 46
 t_eq "$(cat "${TOOLS_PAGES[@]}" | grep '^## ' | grep -v '^## The pages$' \
@@ -586,13 +586,13 @@ fixture_mixed=$T/manual-compose-mixed.md
 
 # The manual as it stands, judged by the rule the fixtures below are shown the
 # same way. Two asks, one for each half of what "the manual is clean" means: that
-# the rule found the ten commands the finder finds, and that it found none of them
+# the rule found the nine commands the finder finds, and that it found none of them
 # without the host's environment.
 t_case "the manual runs compose over a file of host/edge, so the judge has work"
-t_verdict OK 10 10 "${pages[@]}"
+t_verdict OK 9 9 "${pages[@]}"
 
 t_case "every compose line of the manual reads env.sh first, on its own line or the one above"
-t_verdict BAD 0 10 "${pages[@]}"
+t_verdict BAD 0 9 "${pages[@]}"
 
 # The negative fixtures: pages made for the rule, judged by the same function that
 # judges the manual. A rule that matched nothing, or that matched and kept its
@@ -667,11 +667,11 @@ t_row 'docker compose -f ~/tehas/edge/router.compose.yaml up -d' "$docs/host.md"
 # line pass for the other. The judge is given the totals of its own choosing, so
 # were it shrunk off the lines it should read or widened onto lines it should not,
 # its own totals would go quietly wrong and this case would still say how many
-# commands the manual really writes. Ten, at the time of writing: four in the two
-# tables of host.md, two each in api.md and tools.md, one in edge.md, and one more
-# in troubleshooting.md besides the line that takes the containers down.
-t_case "the finder and the judge read the same ten commands of the manual"
-t_eq "$(compose_line "${pages[@]}" | wc -l)" 10
-t_eq "$(compose_found "${pages[@]}")" 10
+# commands the manual really writes. Nine, at the time of writing: four in the two
+# tables of host.md, one each in api.md, edge.md and tools-control.md, and two in
+# troubleshooting.md besides the line that takes the containers down.
+t_case "the finder and the judge read the same nine commands of the manual"
+t_eq "$(compose_line "${pages[@]}" | wc -l)" 9
+t_eq "$(compose_found "${pages[@]}")" 9
 
 t_done

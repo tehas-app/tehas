@@ -32,6 +32,49 @@ fn attempt_ended(w: &World, n: &str) -> Value {
     json!([c["attempt"], !c["ended_at"].is_null()])
 }
 
+/// Outsource was dropped in 2.0 and the runner seam with it: `--runner`, with
+/// either of its old words, is an argument tehas-cycle does not know.
+#[test]
+fn the_runner_flag_is_refused_as_an_unknown_argument_and_nothing_runs() {
+    for runner in ["job", "work"] {
+        let w = World::new("no-runner-flag");
+        let r = w.cycle(&["7", "--runner", runner]);
+        assert_eq!(r.rc, 64, "{runner}: {}", r.out);
+        has(&r.out, "tehas-cycle: unknown invocation: cycle 7 --runner");
+        lacks(&r.out, "[--runner");
+        nothing_ran(&w);
+        let r = w.exec(&[
+            "report",
+            "7",
+            "--attempt",
+            "1",
+            "--rc",
+            "0",
+            "--started",
+            "1",
+            "--signalled",
+            "0",
+            "--by",
+            "alice",
+            "--how",
+            "label",
+            "--approval-at",
+            "1",
+            "--requeued",
+            "0",
+            "--console",
+            "fake-console",
+            "--status-cmd",
+            "true",
+            "--runner",
+            runner,
+        ]);
+        assert_eq!(r.rc, 64, "{runner}: {}", r.out);
+        has(&r.out, "tehas-cycle: unknown invocation: report 7");
+        nothing_ran(&w);
+    }
+}
+
 /// `path` locked, as another cycle holds it, until the file drops.
 fn held(path: &Path) -> File {
     fs::create_dir_all(path.parent().unwrap()).unwrap();

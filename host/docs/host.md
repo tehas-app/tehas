@@ -38,7 +38,7 @@ on [the contract](/contract).
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
 | `~/tehas/sandbox/`, `versions.env`   | Sandbox image definition, build script, the Playwright npm pin, and the pinned tool versions |
 | `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the edge router (`router.compose.yaml`) |
-| `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehasbot protolab` |
+| `~/tehas/items/`                     | A page and the files of each item, which the edge router serves on port 8081. Nothing in this version writes them, and `tehas update` removes the `protolab/` directory an earlier version left |
 | `~/tehas/preview/`                   | The state of each preview, and a bare clone the pull requests' commits are fetched into, written by `tehasbot preview` |
 | `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the files a planning turn passes on (`plan-<issue>.json.out`, `.json.rc`, `.json.lock` and `.json.image`), the state store (`tehas.db`), which holds what each start rests on, each cycle's record and its history, each park and the id of its question, each planning session and the history of its turns, and the manifest of each start's images (`cycles/<issue>.manifest.json`, with `cycles/<issue>.comments.json` when the cycle had it). What each approved start measured is kept in `state/sizes.jsonl`, one line per start, mode 600: when, which issue, and the four counts of its approved body, the last 500 lines. The report's size figures read it. What each refining session filed is kept beside it in `state/refined.jsonl`, likewise the last 500 lines. What the last real poll decided of each issue it could start, and the holds between issues it read, is `state/starts.json`, mode 600, which [`tehas order --json`](/api#start-reasons) and [`tehas blockers`](/api#tehas-blockers) read. No cycle, planning or manual container is given it; the indexing container is given `state/index` to write |
 | `~/tehas/mcp/`                       | The two files `tehasbot status` asks `analytics` to write for the MCP server: the sessions snapshot `sessions.jsonl` and the outcomes counts `outcomes.jsonl`, each with a `.stamp` line beside it that says why it need not be written again. Mode 700: the snapshot holds what the agents saw, and neither is published |
@@ -134,7 +134,7 @@ sandbox recipe - `~/tehas/sandbox/sandbox-uid.Dockerfile`, or its
 `sandbox-uid.Dockerfile.XXXXXX` temporary - of that age a build killed before its
 cleanup ran left beside the build script. Nothing else under `~/tehas` outside
 those directories is touched, and nothing outside `~/tehas`: not
-`state`, `logs`, `dev`, `repos`, `preview` or `protolab`. One line per removal and
+`state`, `logs`, `dev`, `repos`, `preview` or `items`. One line per removal and
 a closing line with the bytes freed go to `~/tehas/logs/clean.log`; `tehasbot
 clean --dry-run` logs what it would remove and removes nothing. The cleaner starts
 no work, so the pause label does not hold it.
@@ -159,7 +159,7 @@ commands a person does.
 | One Unix user who is in the `docker` group     | Everything tehas runs belongs to that user. The group makes it root-equivalent on this host, which is why the host is not shared |
 | `~/.config/tehas/env`, mode 600                | The model endpoints' tokens and the MCP server's settings. Never in git. See [Secrets and trust](#secrets-and-trust) |
 | An instance directory of its own               | `instance.env` and `models.json`, found through `~/.config/tehas/instance-dir`. See [Instance settings](#instance-settings) |
-| Its own `TEHAS_DOMAIN`                         | The edge makes `uat-<pr>.` and `lab-<issue>.` names under it. Two factories under one domain answer each other's previews |
+| Its own `TEHAS_DOMAIN`                         | The edge makes `uat-<pr>.` and `item-<issue>.` names under it. Two factories under one domain answer each other's previews |
 | The model gateway's `baseUrl` and key, when it uses one | `baseUrl` of the provider in `models.json`, with the token as `$TEHAS_MODEL_KEY_<NAME>` in `~/.config/tehas/env`. See [A backup model endpoint](#a-backup-model-endpoint) |
 | Disk for the sandbox image                     | What `docker image inspect --format '{{.Size}}' tehas/pi-rukas:uid$(id -u)` reports for the host's image, with room above that for the base a build makes and the layers it writes, and room for one image of a rollback. Before the first build the image is not there to be measured, and its size is upstream's base plus these steps: [Bootstrap](/bootstrap#what-the-machine-needs). A second instance user of one host builds its own image for its own uid and shares the layers of the first: [What two instance users of one host share](#what-two-instance-users-of-one-host-share) |
 | Room to grow into, when the machine is a VM     | The host runs as one virtual machine on a hypervisor, so its CPUs and memory are set at its maximum once, with room above what the factory needs today: `<vcpu current='N'>MAX</vcpu>` and memory as a `virtio-mem` device. Everything under the maximum then changes while the machine runs, and a restart of the hypervisor saves the VM with its cycles in it. No tehas command takes part in any of it. See [Resize or restart the host](/resize). The other shape is a factory that is a container on another project's machine, as tehas-tehas is: it gains that room, and loses the live resize and the save, so a restart of the machine under it needs a drain first |
@@ -600,7 +600,7 @@ given (see [Tools](/tools)). It holds `GH_TOKEN` only to pass it to `gh` and to
 run as a child with no environment but `PATH`. Without it a start or a planning
 reply that links a file stops, with a reason that names no host path, one that
 links nothing goes on with a manifest that gives nothing, a cycle given none says
-it could not read the record, and the Protolab leaves a zip out. A host installed from a release tarball has neither
+it could not read the record. A host installed from a release tarball has neither
 `cargo` nor `console/`: its programs are the ones the release packed
 ([Releases](/tools-releases#releases)), and a release without a store installs only on a
 host that has one. On a host with none, `--check` says so on a `Store: REFUSED`
@@ -1978,7 +1978,6 @@ release of tehas.
 | Planning turn | a unit the poll starts, `tehas-plan-<issue>.service`, one at a time. systemd stops it a quarter of an hour after `TEHAS_PLAN_TIMEOUT` | `tail ~/tehas/logs/dispatch-plan-<issue>.log` |
 | Code index | a unit the poll starts, `tehas-index.service`, before cycles start on an idle host. systemd stops it after 40 minutes | `tail ~/tehas/logs/dispatch-index.log` |
 | Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=on` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
-| Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache, host scratch, the sandbox image's old dated tags and the old `sha-` tags of the base repository, each removed by its own name. `install.sh` copies the unit; a person enables it. The unit prints; `tehasbot clean` writes `clean.log` | `tail ~/tehas/logs/clean.log`, and `journalctl --user -u tehas-clean` for a run that wrote nothing there |
 | Edge router | `. ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
 | Previews | systemd user timer `tehas-preview.timer`, every 5 minutes | `tail ~/tehas/logs/preview.log`, `jq . ~/tehas/live/previews.json` |
@@ -2011,8 +2010,8 @@ label of the name it is asked for:
 | Name asked for | Answer |
 | --- | --- |
 | `uat-<pr>.` and anything after it | The preview of that pull request, the container `tehas-preview-<pr>`. With no such container, a 404 that says no preview is running |
-| `lab-<issue>.` and anything after it | That ticket's page in the Protolab, from `~/tehas/protolab/<issue>/` |
-| Any other name | The Protolab by path: the list at `/`, a ticket at `/<issue>/` |
+| `item-<issue>.` and anything after it | That item's page, from `~/tehas/items/<issue>/`. Nothing in this version writes one |
+| Any other name | The items by path: the list at `/`, an item at `/<issue>/` |
 
 The number is one to nine digits and does not start with a zero. Another `uat-` or
 `lab-` name is a 404. Every answer of the router says `noindex`. Its
@@ -2098,10 +2097,9 @@ meant for a factory whose site is also its demo; a factory that sets nothing is
 drawn in `beesknees26` everywhere, `/` included.
 
 The design draws every page: `/`, `/floor`, `/business`, `/dashboard`, every
-manual page and the Protolab. The docs server reads `TEHAS_DESIGN` when its
+manual page. The docs server reads `TEHAS_DESIGN` when its
 container is created, so run its `docker compose ... up -d` line again after a
-change. `tehasbot protolab` writes the Protolab's pages in the design, and
-builds every page again at its next pass when the design changes. The edge
+change. The edge
 router is given no setting about looks: it serves the files the pages name.
 
 Any value but `beesknees26` or `pixel` stops every tehas command with 78.
@@ -2114,10 +2112,10 @@ to take out of `instance.env`: set `TEHAS_DESIGN=pixel` instead.
 Both pages are always there, at `/floor` and `/business`. The business page
 reads the
 same files as the floor: `live/status.json`, `live/running.json` and the
-cycles' consoles, `live/protolab.json`, `live/analytics.json` and
-`live/epics.json`. Its console follows the running cycle's output, with a tab
-for each cycle when there are several, as on the floor. Its 10 days show only
-once there is a report. With no queue file it shows the floor's sample tickets and says so.
+cycles' consoles, `live/analytics.json` and `live/epics.json`. Its console
+follows the running cycle's output, with a tab for each cycle when there are
+several, as on the floor. Its 10 days show only once there is a report. With
+no queue file it shows the floor's sample tickets and says so.
 Both pages list the open epics from `live/epics.json`, one row each with a
 block per sub-issue, filled when it is closed; a row opens to list the
 sub-issues, open or closed, each linked, and a link to the epic. The panel
@@ -2156,7 +2154,6 @@ Both are outside the repository and the tehas tree.
 | What the label approves                | The title and body as they were when it was applied. An issue whose text was changed afterwards by any other account, or by one GitHub no longer names, is skipped until the label is applied again. GitHub's times count whole seconds, so a change by another account in the second the label went on counts as afterwards. An approval of `tehas start` is by no account, so every change in its second counts as afterwards, even one by an account called `host` |
 | What else starts a cycle               | A reply of one of those accounts that answers `retry` (or `retry-text`) to a parked issue's question, or the same answer through `tehas answer`. It counts once, and only to the question whose comment id the host has on record for that issue. Like the label, the answer approves the text as it was at that moment. A box ticked in a comment of before 2.0 counts for nothing |
 | Who can start or continue planning     | The same accounts. A session starts when one of them applied `tehas:plan`. A turn runs on a reply from one of them to the question the session is waiting on, or on an answer through `tehas answer` |
-| Who can put a ticket in the Protolab   | The same accounts. `tehasbot protolab` checks who most recently applied `tehas:prototype`, and that the label is the pinned one, as the dispatcher checks `tehas:ready`. A title changed since by anyone else is not published. A label from anyone else counts as no label, and a page it had is removed. The pass stops with an error when `TEHAS_ALLOWED_LABELERS` names the bot's own login. The files beside a ticket are taken only from an owner, member or collaborator |
 | What a planning container is given     | A token narrowed to the product repository, with Contents and Pull requests write and Issues read, from `~/tehas/state/github-session` (read-only), renewed every 5 minutes while the turn runs. Otherwise the same mounts and the same approve-everything mode as a work cycle's. The agent is asked to plan and file issues. Nothing in the container holds it to that |
 | What an agent can do as the bot        | With the narrowed token: push the branch, open and edit pull requests, and read issues. Its `gh issue create`, `edit` and `comment` go through the host's relay, which comments only on the cycle's own issue and on issues the cycle created, edits only issues it created during that cycle, never sets labels, assignees or state, refuses any text with `<!-- tehas:` in it, and allows 50 writes a cycle. The relay is a host channel under the rule that a container's mounts and variables are not widened ([the relay](/github-app#the-relay-is-a-security-channel)). So a comment is the factory's question only if the host has its id on record in `~/tehas/state`, which no cycle or planning container is given, and an answer counts only by who gave it |
 | Where an agent's conversation is kept  | In the container's own sessions directory: `~/tehas/work/<name>-<issue>.state/sessions` for a cycle, `~/tehas/dev/<name>.state/sessions` for a manual session. No other container reads or writes it, and a cycle's goes with its workspace |

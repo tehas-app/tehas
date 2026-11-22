@@ -13,8 +13,10 @@ kind belongs in a plugin. The owner asked to keep its plumbing for file
 storage and serving, so that a plugin can do the same job.
 
 This file says what that plugin does, what the platform adds for it, and
-which plumbing T14 keeps for those additions. Other features that could
-leave core are listed in `docs/plans/2026-11-22-unused-features.md`.
+which plumbing T14 keeps for those additions. The Protolab is parked, not
+abandoned: `docs/specs/parked-protolab.md` lists every piece T14 removed,
+where it lived, and what was kept under which names. Other features that
+could leave core are listed in `docs/plans/2026-11-22-unused-features.md`.
 
 ## What the lab does
 
@@ -263,7 +265,8 @@ list against fixed feeds.
 
 ## What T14 keeps, and where it goes
 
-Agreed with the v2 session.
+Agreed with the v2 session. The names they have now are in
+`docs/specs/parked-protolab.md`.
 
 | Kept in T14 | Used by |
 | --- | --- |

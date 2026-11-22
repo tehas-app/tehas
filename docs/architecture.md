@@ -84,17 +84,20 @@ From `cargo metadata`. Tests' own dependencies are in the last column.
 
 | Crate | Depends on | Its tests also use |
 | --- | --- | --- |
-| tehas-core | nothing of the workspace | |
+| tehas-core | nothing of the workspace | attach |
 | store, attach, tehas-front, tehas-mcp, tehas-xtask | tehas-core | |
 | analytics | tehas-core | tehas-mcp |
 | tehas-cycle | attach, tehas-core | |
+| tehas-items | attach, tehas-core | |
 | tehas-dispatch | attach, tehas-core | |
 | tehas-ops | store, tehas-core, tehas-cycle | tehas-dispatch |
 | tehas-plugin | tehas-core, tehas-ops | |
 | tehas-plugin-gate | tehas-core, tehas-plugin | |
-| console | attach, store, tehas-core, tehas-cycle, tehas-ops | tehas-dispatch |
+| console | attach, store, tehas-core, tehas-cycle, tehas-items, tehas-ops | tehas-dispatch |
 
 core depends on nothing, so the graph points inward at the root (R8).
+Its tests read links by attach's rule, which the issue feed takes as a
+parameter.
 The direction is not checked in CI yet. core itself mixes the pure
 rules with effects (`sandbox.rs`, `access.rs`, `call.rs`, `retry.rs`):
 T6 settles where the core ends.

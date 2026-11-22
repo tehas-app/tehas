@@ -129,7 +129,7 @@ tehas api [--json]
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
   "features": ["status", "millwright-grant", "all-hands", "limit", "drain", "history", "export", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "state-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-start", "flags", "status-previews", "wake", "start-reasons", "blockers", "answer", "question"],
-  "flags": {"spec-pipe": false, "protolab-zip-url": false, "prototype-file": false, "lean": false, "plugins": false},
+  "flags": {"spec-pipe": false, "lean": false, "plugins": false},
   "millwright": null,
   "poll": {
     "last": {
@@ -154,7 +154,7 @@ tehas api [--json]
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
 | `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status` ([`tehas status --json`](#tehas-status---json)), `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `all-hands` ([`tehas:all-hands`](/operating#all-hands)), `limit` ([`tehas limit`](#tehas-limit)), `drain` ([`tehas drain`](#tehas-drain)), `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `analytics` ([`tehas analytics copy --json`](#tehas-analytics-copy)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` (the hourly cleaner runs on this host, [`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)), `state-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)), `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message), shown by health, `tehas status`, the MCP server and the dashboard), `refresh-pr` ([`tehas refresh --pr N`](/tools-github#tehas-refresh) asks for the refresh of one pull request, `--json` prints what it asked as one object, and the dispatcher starts it in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `host-start` ([`tehas start`](#tehas-start) approves an issue from the host), `flags` (the object below is there), `status-previews` (`previews` in [`tehas status --json`](#tehas-status---json)), `wake` ([`tehas wake`](#tehas-wake) asks for a poll now), `start-reasons` (`starts` in [`tehas order --json`](#tehas-order)), `blockers` ([`tehas blockers`](#tehas-blockers)), `answer` ([`tehas answer`](#tehas-answer)) and `question` ([`tehas question`](#tehas-question)). A shipped optional feature adds its name of `flags` here; a building one does not |
-| `flags` | Every optional feature of the release and whether this instance has it on, `true` or `false`. A feature still being built is always `false` and its switch set to `on` stops every command with exit 78. Only a shipped feature's key is contract: a building feature's key may change or go until the release that ships it, and `api/api.schema.json` requires only the keys of shipped features. Today `spec-pipe` (`TEHAS_SPEC_PIPE`, still being built: the `Spec:` line of an issue, [the feature list](/features)), `protolab-zip-url` (`TEHAS_PROTOLAB_ZIP_URL`, still being built: [a zip by address](/tools-protolab#a-zip-by-address)), `prototype-file` (`TEHAS_PROTOTYPE_FILE`, still being built: [`tehas prototype file`](/tools-protolab#tehas-prototype-file)) `lean` (`TEHAS_LEAN`, still being built: [choosing the driver](/operating#choosing-the-driver)) and `plugins` (`TEHAS_PLUGIN`, still being built: [what it leaves visible](/contract#plugins)) |
+| `flags` | Every optional feature of the release and whether this instance has it on, `true` or `false`. A feature still being built is always `false` and its switch set to `on` stops every command with exit 78. Only a shipped feature's key is contract: a building feature's key may change or go until the release that ships it, and `api/api.schema.json` requires only the keys of shipped features. Today `spec-pipe` (`TEHAS_SPEC_PIPE`, still being built: the `Spec:` line of an issue, [the feature list](/features)), `lean` (`TEHAS_LEAN`, still being built: [choosing the driver](/operating#choosing-the-driver)) and `plugins` (`TEHAS_PLUGIN`, still being built: [what it leaves visible](/contract#plugins)) |
 | `millwright` | The app's login, or `null` before it is known |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
 
@@ -209,7 +209,6 @@ tehas status --json
   "room": {"cycles": 0, "slice": 2},
   "versions": {"platform": {"release": "v0.25.0", "commit": "0123456789abcdef0123456789abcdef01234567", "latest": "v0.26.0", "behind": true},
                "rukas": {"version": "v0.14.54", "latest": "v0.14.54", "behind": false}},
-  "prototypes": [{"issue": 21, "builtAt": "2026-10-17T09:12:00Z"}],
   "previews": [{"number": 31, "state": "serving", "url": "https://uat-31.example.org/"},
                {"number": 30, "state": "building"}]
 }
@@ -267,9 +266,6 @@ tehas status --json
 | `versions.rukas.version` | The version the sandbox image's pi-rukas answers, such as `v0.14.53`; `null` when it is not known |
 | `versions.rukas.latest` | The version of the pi-rukas commit the host follows (`PI_RUKAS_FOLLOW`); `null` when that commit is no release, as when the host follows a branch |
 | `versions.rukas.behind` | `true` when the image is not on the commit the host follows, compared by commit, so it can be `true` while both versions are `null` |
-| `prototypes` | The issues with a [Protolab](/tools-protolab#tehasbot-protolab) page, from `live/protolab.json` as the Protolab last wrote it. Left out when there is no such list, as on a host that does not run the Protolab. Its fields may change in a minor release, as those of `running[].progress` may |
-| `prototypes.issue` | The issue number |
-| `prototypes.builtAt` | When its page was last built; left out for a page whose time cannot be read |
 | `previews` | The [previews](/tools-clean#tehasbot-preview) of the open pull requests, newest first, from `live/previews.json` as the previews last wrote it. The preview of the default branch is not one of them. Left out when there is no such list, as on a host that does not run previews (`TEHAS_PREVIEWS` is not `1`). A pull request the previews do not build, such as one from a fork, is not in it. The feature `status-previews` of [`tehas api`](#tehas-api) says a factory has the field |
 | `previews.number` | The pull request's number |
 | `previews.state` | The preview's own word for where it is: `building`, `serving`, `build-failed`, `no-recipe`, `over-limit` or `no-space`. Treat it as an open list: later releases add words |
@@ -984,8 +980,7 @@ the directory.
 
 The copy a person reads afterwards. For every line `tehas history` gives after
 `CURSOR`, it writes `<dir>/cycles/<cursor>/`: the cycle's `result.json`, its
-`logs/`, its agents' `transcripts/`, its Protolab page under `protolab/`, and
-`history.json`, the line as `tehas history` publishes it. A planning turn brings
+`logs/`, its agents' `transcripts/`, and `history.json`, the line as `tehas history` publishes it. A planning turn brings
 `plan.json` and no cycle files: the session as the state store has it now
 (`plan-show`), with `issue`, `session`, `turns`, `options`, `pending`,
 `pending_outcome`, `failed`, `running`, `started_at`, `comment_id`, `lost`,
@@ -1003,9 +998,8 @@ error: those files are simply not there.
 The console does the copying, and every file goes through its mask, the one
 masker tehas has, with the same names of the host a cycle is given (the host
 aliases, the model hosts and the bot's email), so a token or a private address
-that reached a log does not reach the copy. Only a file of a Protolab page that
-is not UTF-8, such as an image, is copied as it is; a log is masked whatever
-bytes it holds. A file over 32 MiB is left out: an export is for reading. The mask catches accidents;
+that reached a log does not reach the copy. A file is masked whatever bytes it
+holds. A file over 32 MiB is left out: an export is for reading. The mask catches accidents;
 it cannot stop what no pattern knows, so an export is still a copy of what a
 cycle wrote.
 
@@ -1619,7 +1613,6 @@ the site](/host#the-live-console-on-the-site)).
 | `platform.json` | `console/src/platform.rs`, run by `tehasbot status` | `console/ops/src/health.rs`, which answers it as `checks.platform` |
 | `rukas.json` | `console/ops/src/rukas.rs`, run by `tehasbot status` | `console/ops/src/health.rs`, which answers it as `checks.rukas` |
 | `previews.json` | `console/src/preview/list.rs` of `tehasbot preview` ([tehasbot preview](/tools-clean#tehasbot-preview)) | `host/fun/factory/tehas-factory-previews.*`; `console/ops/src/health.rs`, `console/src/status.rs`, which answers it as `previews` |
-| `protolab.json` | `console/src/protolab/build.rs` of `tehasbot protolab` ([tehasbot protolab](/tools-protolab#tehasbot-protolab)) | `host/fun/business-view.js`, `host/fun/game-view.js`; `console/src/status.rs`, which answers it as `prototypes` |
 | `cycles/<n>.json` | the store's `publish`, one file per running cycle and the last that finished | the pages that read `running.json` (the plain dashboard's console island, `host/fun/business-view.js`, `host/fun/console-tabs.js`) draw the same view; no page asks for the file by its own path |
 | `console-<n>.txt` | `console` (`console/src/tail.rs`), started by the cycle's watch (`console/cycle/src/watch.rs`) | `host/fun/factory/tehas-factory-tail.js`, `host/fun/business-view.js` and `host/fun/game-view.js`, each by the name in `running.json`, and the console of the MCP server (`factory_console`) |
 | `console-<n>.txt.now` | the cycle's watch (`console/cycle/src/watch.rs`), the two lines of the console's status line | `console/cycle/src/watch.rs` and the record of the cycle that ended |

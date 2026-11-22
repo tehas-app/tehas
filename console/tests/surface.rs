@@ -38,13 +38,12 @@ const BUILDING_SCHEMAS: &[(&str, &str)] = &[
     ("plugin-verdict", "plugins"),
 ];
 
-/// Fields whose own fields may change: one driver's steps and the Protolab.
+/// Fields whose own fields may change: one driver's steps.
 /// The field itself is public, what is under it is not.
 const OPEN_FIELDS: &[&str] = &[
     "status.running[].progress",
     "history.runs[].progress",
     "export.runs[].progress",
-    "status.prototypes",
 ];
 
 fn repo(rel: &str) -> PathBuf {
@@ -444,8 +443,7 @@ fn the_reads_leave_out_what_is_not_public() {
     let mut out = BTreeSet::new();
     let schema: Value = serde_json::from_str(
         r#"{"properties": {
-            "running": {"items": {"properties": {"progress": {"properties": {"step": {}}}}}},
-            "prototypes": {"properties": {"x": {}}}
+            "running": {"items": {"properties": {"progress": {"properties": {"step": {}}}}}}
         }}"#,
     )
     .unwrap();
@@ -453,11 +451,7 @@ fn the_reads_leave_out_what_is_not_public() {
     let got: Vec<&str> = out.iter().map(String::as_str).collect();
     assert_eq!(
         got,
-        [
-            "field status.prototypes",
-            "field status.running",
-            "field status.running[].progress",
-        ]
+        ["field status.running", "field status.running[].progress"]
     );
 
     let mut out = BTreeSet::new();

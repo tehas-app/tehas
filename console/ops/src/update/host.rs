@@ -188,11 +188,7 @@ fn featured(get: &dyn Fn(&str) -> String) -> Vec<String> {
 
 /// The units a first install enables, from the settings `get` reads.
 fn first_units(get: impl Fn(&str) -> Option<String>) -> Vec<&'static str> {
-    let set = |name: &str| get(name).filter(|v| !v.is_empty());
     let mut units = vec!["tehas-dispatch.timer", "tehas-dispatch.path"];
-    if set("TEHAS_DOMAIN").is_some() {
-        units.push("tehas-protolab.timer");
-    }
     let on = |name: &str| get(name).and_then(|v| switch(&v)) == Some(true);
     if on("TEHAS_PREVIEWS") {
         units.extend(["tehas-preview.timer", "tehas-preview-sweep.timer"]);
@@ -383,8 +379,18 @@ mod tests {
                 // Energy use left core in 2.0: its unit is never enabled.
                 ("TEHAS_ENERGY", "on"),
             ],),
-            "tehas-dispatch.timer tehas-dispatch.path tehas-protolab.timer \
+            "tehas-dispatch.timer tehas-dispatch.path \
              tehas-preview.timer tehas-preview-sweep.timer"
+        );
+    }
+
+    #[test]
+    fn a_domain_enables_no_timer_of_its_own_and_the_previews_bring_theirs() {
+        let base = "tehas-dispatch.timer tehas-dispatch.path";
+        assert_eq!(units(&[("TEHAS_DOMAIN", "example.org")]), base);
+        assert_eq!(
+            units(&[("TEHAS_DOMAIN", "example.org"), ("TEHAS_PREVIEWS", "on")]),
+            format!("{base} tehas-preview.timer tehas-preview-sweep.timer")
         );
     }
 
