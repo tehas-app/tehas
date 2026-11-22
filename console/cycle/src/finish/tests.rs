@@ -1662,7 +1662,7 @@ fn a_hook_of_the_workspace_outside_the_tree_is_not_run_either() {
 fn the_hooks_of_the_workspace_are_asked_of_nobody_and_the_push_goes() {
     // The kept workspace of a real host is a clone, so the hooks git would run
     // for it live under its own `.git`, as the cleaner's case plants its
-    // `core.fsmonitor` (`test/clean_test.sh`): the file is container-writable,
+    // `core.fsmonitor` (`console/tests/clean_workspaces.rs`): the file is container-writable,
     // so anything of the tree's git settings is. A `pre-push` of the workspace
     // that refuses is the shape that matters most, because it lets a script
     // somebody left answer for whether the factory's push goes through. The
