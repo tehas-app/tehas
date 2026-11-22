@@ -11,7 +11,9 @@
 # Lines are only added, at the end, in the release that brings the name.
 # None is taken out or changed within 1.x. console/tests/surface.rs fails
 # when the surface loses a name of this file, and when it has one this file
-# does not list yet. The settings of energy use went in 2.0.
+# does not list yet. The settings of energy use went in 2.0, and so did
+# TEHAS_WORK_DESCRIBE, TEHAS_WORK_FILES, TEHAS_WORK_ZIPS and
+# TEHAS_WORK_COMMENTS.
 
 command analytics
 command analytics copy
@@ -217,14 +219,10 @@ setting TEHAS_UPDATE_LOCK_WAIT
 setting TEHAS_VERIFY_TIMEOUT
 setting TEHAS_WORKSPACE_KEEP_DAYS
 setting TEHAS_WORKSTREAMS
-setting TEHAS_WORK_COMMENTS
-setting TEHAS_WORK_DESCRIBE
-setting TEHAS_WORK_FILES
 setting TEHAS_WORK_IMAGES
 setting TEHAS_WORK_REPO
 setting TEHAS_WORK_STALL
 setting TEHAS_WORK_TIMEOUT
-setting TEHAS_WORK_ZIPS
 role ADVERSARIAL_DEVELOPER
 role CODE_REVIEW_SPECIALIST
 role DEVELOPER

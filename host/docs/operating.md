@@ -109,12 +109,12 @@ issue text.
 | The issue's title and body                  | Read | Read, at the start | The title |
 | Comments on the issue                       | Not given, except on a retry with comments (below) | Replies by an allowed account to its question, as answers | Not shown |
 | A png, jpg, webp or gif linked in the body  | Fetched and mounted with `TEHAS_WORK_IMAGES=on`; shown to explore and plan when the sandbox image says its pi-rukas reads them | The same | Shown |
-| The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=on`, when an allowed account wrote it before the label or the retry's answer and nobody edited it since | When a reply to its question links it | Shown |
+| The same image linked in a comment          | Not given | When a reply to its question links it | Shown |
 | The text of comments, on a retry with comments | `comments.json` beside the images, when `retry` (`Retry with the issue and all its comments`) was answered: what allowed accounts that may write said on the issue and its pull requests up to the answer. Read by the sandbox image's pi-rukas or its polyfill | Not given | Not shown |
 | The spec an issue's `Spec:` line names, and the approved title and body | With `TEHAS_SPEC_PIPE=on`, still being built: the spec, held to the sha256 its approval pinned, and `approved.json`, beside the images and named in the manifest. A spec needs a sandbox image whose pi-rukas lists `issueSpec` | Not given | Not shown |
-| md, txt, csv, json, yaml, log, html, css or js linked in the body | Fetched and mounted with `TEHAS_WORK_FILES=on`; pi-rukas does not read them yet | The same | html, css, js, json and txt shown, html in a frame |
+| md, txt, csv, json, yaml, log, html, css or js linked in the body | Not given | Not given | html, css, js, json and txt shown, html in a frame |
 | svg, avif, a video                          | Not given | Not given | Shown |
-| A zip                                       | Unpacked with `TEHAS_WORK_ZIPS=on`, its files given as above | The same | Unpacked, its files shown as above |
+| A zip                                       | Not given | Not given | Unpacked, its files shown as above |
 | Any other file, such as a pdf               | Not given | Not given | Left out |
 
 The rules behind each column:
@@ -131,24 +131,10 @@ The rules behind each column:
   2026-10-14, and the host follows its main, so an image built since then
   says yes. One that says no holds every issue whose text links an
   attachment while the setting stands; the other issues start. The steps
-  after plan read the plan, not the pictures. With `TEHAS_WORK_DESCRIBE=on`
-  the model also describes each image in words, into `images.md` beside
-  them, and names the issue in `X-Tehas-Issue` on each of those requests; with
-  `TEHAS_WORK_FILES=on` the text files come too. pi-rukas reads
-  neither yet. `TEHAS_WORK_COMMENTS=on` adds the attachments of comments, by
-  the rule in the table.
-- **A zip** reaches a cycle with `TEHAS_WORK_ZIPS=on`, and needs
-  `TEHAS_WORK_IMAGES=on` or `TEHAS_WORK_FILES=on`: what comes out of an archive
-  goes into the directory of one of those. It is taken by its first bytes, not
-  by a name ending in `.zip`: a link named `.zip` that holds something else is
-  left out and said. At most 2 archives per issue, each downloaded at most
-  4 MB. Every file inside one then goes through the same checks as a file the
-  issue links, an image by its first bytes and a text file by its extension
-  and its encoding, and counts against the same limits. An svg, a nested
-  archive or any other binary is left out with its path in the archive and the
-  reason. The files are named on from the linked ones, and the archive is not
-  kept. See [tehas work](/tools-work#tehas-work).
-- **A planning session** is given the same images and files by the same
+  after plan read the plan, not the pictures. Images described in words,
+  text files, zips and the attachments of comments left core in 2.0; they
+  return as a plugin.
+- **A planning session** is given the same images by the same
   rules, once at its start, and is shown the images when the same label says
   so. A reply to its question can carry more. See
   [Planning on an issue](#planning-on-an-issue).
@@ -817,9 +803,8 @@ in a new workspace. A program on the host answers the same way with
   answer; `tehas work` writes them to `comments.json` beside the images, each
   cut at 4,000 characters and the whole at 64 KB with the oldest dropped and
   counted, and mounts that directory even when the instance gives a cycle no
-  images or files. It needs no setting: the answer is the opt-in. With
-  `TEHAS_WORK_COMMENTS=on` the images and files those comments link come too,
-  by the usual rules.
+  images. It needs no setting: the answer is the opt-in. What those comments
+  link is not fetched.
 - `retry-text` (`Retry with the issue text only`) gives the cycle the title and body, nothing
   else: its approval names no comment of the issue or of the pull request, so
   the cycle is given the approved body and the links of that body alone. Neither
@@ -901,8 +886,7 @@ holds the issue for that poll.
 The millwright's own `tehas:ready` is the one label a park lets through without
 a change to the body, when its comment says the next run is not the run that
 stopped. The hold is lifted when the label came from the millwright,
-the instance gives a cycle images or files (`TEHAS_WORK_IMAGES=on` or
-`TEHAS_WORK_FILES=on`), and the note
+the instance gives a cycle images (`TEHAS_WORK_IMAGES=on`), and the note
 the record would take from that account is one carrying `<!-- tehas:millwright
 issue=<n> action=change -->`: its newest marked comment of the ten minutes
 before the label, saved by nobody after the label and by no other account. A
@@ -1261,8 +1245,7 @@ a reply does nothing.
 
 Where the instance gives a cycle the images an issue links
 (`TEHAS_WORK_IMAGES=on`), a planning session is given them too, by the same
-rules, once at its start, and with `TEHAS_WORK_FILES=on` its text files. The
-bot says what it fetched, which it left out, and whether the session was shown
+rules, once at its start. The bot says what it fetched, which it left out, and whether the session was shown
 them. If one cannot be fetched, no session starts and the bot says so. A reply
 can carry a picture or a file too: the next turn adds what the reply links to
 the session's images, by the same rules and limits, and tells the agent their
@@ -2133,8 +2116,8 @@ api`](/api#tehas-api) lists only the new names: `millwright-grant` and
   nobody after, goes into the record as `retry_context`. `tehas work` writes
   it to `comments.json`, source `fixer`, in the directory it mounts for the
   cycle's attachments, mounted for it alone where the instance gives a cycle
-  no images or files. The park's hold is lifted by the `action=change` one of
-  them alone, and only where the instance gives a cycle images or files, as
+  no images. The park's hold is lifted by the `action=change` one of
+  them alone, and only where the instance gives a cycle images, as
   [parking](#5-when-a-cycle-stops) says.
 - **It may answer a planning question**, by a marked reply, only when
   no person has answered the same question: a person's reply wins,

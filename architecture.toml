@@ -24,7 +24,7 @@ pattern = 'api\.github\.com|\bgraphql\b|\brepos/(\{|\$|:owner)|"/?(user|users|or
 files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh", "host/systemd/*", "host/fun/**/*.js"]
 allowed = ["console/core/src/forge.rs", "console/core/src/forge/**"]
 comment = "//"
-max = 857
+max = 855
 why = "Re-measured at T0's follow-up, with tests in files counted and GitHub's JSON fields, --json and --jq added: the console 240, dispatch 225, ops 98, cycle 93, the front pages 69, mcp 38, store 37, core 21 outside the forge, analytics 8, xtask 6, the sandbox 4, the rest 1 or 2. 219 are in test files. Some field names (createdAt, updatedAt) are also tehas's own JSON keys where it copied GitHub's: T4 and T7 rename or own them. T4 moves the rest behind the three ports. T15's ports of the top and host bridge shell tests add 20: tehas's own --json flag and tehas's JSON keys copied from GitHub's names (updatedAt, closedAt), false positives that T4/T7 remove by narrowing the check to the adapter's paths or renaming the keys. T15's port of the headless runner's shell tests adds 10: pi-rukas's runner flag --json, written as the tests pass it, a false positive that T4/T7 remove by narrowing the check to the adapter's paths. T15's port of test/console_run_test.sh adds 1, the --json of tehas order in console/tests/console_run.rs, a word of tehas's own command line and not GitHub's: a false positive. T15's port of test/top_frame_test.sh adds 2 in console/tests/top_frame.rs: tehas top's own --json flag and the updatedAt key of tehas's own running.json, false positives that T4/T7 remove."
 
 [[check]]
@@ -69,7 +69,7 @@ end = '\{|;\s*$'
 pattern = '\bValue\b'
 files = ["console/**/*.rs"]
 comment = "//"
-max = 1387
+max = 1386
 why = "Re-measured at T0's follow-up, with tests in files counted: dispatch 366, mcp 251, cycle 181, the console 162, core 128, ops 89, store 77, analytics 45, attach 42, plugin 33, proxy 28, contractor 16. 377 are in test files. T3 types the dispatcher's core, T4 the ports, T5 the store client; T7 moves the rest or writes a floor for an adapter's own parsing. T15's port of test/preview_choose_test.sh adds 1, the test helper in console/src/preview/choose_tests.rs that edits a row of GitHub's list as the shell's jq did: the row is the untyped value preview::choose itself takes, so it is no new untyped interface and goes when T7 types that list."
 
 [[check]]
@@ -142,5 +142,5 @@ pattern = 't_stub gh\b|"gh"|\bgh (api|pr|issue|repo|release|run|label|search)\b'
 files = ["test/**/*.sh", "console/**/tests/**", "console/**/tests.rs", "console/**/*_tests.rs"]
 allowed = ["console/core/src/forge/**"]
 comment = "#"
-max = 414
+max = 413
 why = "The map at T0: dispatch's tests 191, the shell tests of test/ 123 (84 of them t_stub gh), cycle 45, the console 31, store 17, core, mcp 4 each, ops 2, analytics, attach 1 each. T1 moves each crate's tests onto the ports' fakes, with the same answers, before its calls move; the forge's own pins stay. T15's port of the top snapshot shell tests moves 1 from test/ into Rust, so the count holds: the short name \"gh\" of a process in a fixture of /proc, a false positive that T4/T7 remove by narrowing the check to the adapter's paths. T15's port of test/analytics_cmd_test.sh adds 2: console/tests/analytics_cmd.rs names gh in the list of tools it stubs to fail and checks were never called, as the shell's loop did without the name, so it runs no gh and is a false positive until T1 moves the test onto the ports' fakes. T15's port of test/console_run_test.sh adds 3 in console/tests/console_run.rs: a gh stub that fails and records, read only to show that a command the settings refuse called nothing; it pins no argument list, so a false positive."

@@ -3332,7 +3332,7 @@
    "case": "the millwright's action=change comment of the ten minutes before its label lifts the hold, and the record says so",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
+    "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
     "ready": [
@@ -3566,11 +3566,10 @@
    }
   },
   {
-   "case": "with neither images nor files the note reaches no cycle, so the hold stays",
+   "case": "without images the note reaches no cycle, so the hold stays",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_IMAGES": "0",
-    "TEHAS_WORK_FILES": "0"
+    "TEHAS_WORK_IMAGES": "0"
    },
    "snapshot": {
     "ready": [
@@ -3678,7 +3677,7 @@
    "case": "an action=retry comment of the same window lifts nothing: that ask is the run again",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
+    "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
     "ready": [
@@ -3786,7 +3785,7 @@
    "case": "two change notes of the window: the newest of them is the one the record names",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
+    "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
     "ready": [
@@ -3919,7 +3918,7 @@
    "case": "a change note of another account, or one saved after the label, lifts nothing",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
+    "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
     "ready": [
@@ -4040,7 +4039,7 @@
    "case": "a person's tehas:ready on the parked body is held whatever comments exist",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
+    "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
     "ready": [
@@ -4148,7 +4147,7 @@
    "case": "with no person's approval behind the park the grant refuses, so no note lifts the hold",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
+    "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
     "ready": [
@@ -4249,7 +4248,7 @@
    "case": "at the cap of retries the grant refuses the start, so no note lifts the hold",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
+    "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
     "ready": [
@@ -4358,7 +4357,7 @@
    "case": "comments that cannot be read hold the issue, as an unreadable park does",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
+    "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
     "ready": [
@@ -4446,7 +4445,7 @@
    "case": "an answer that is no list of comments holds the issue too, untold",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
+    "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
     "ready": [
@@ -4538,7 +4537,7 @@
    "case": "a newer action=retry comment takes the lift away: the note on the record would ask for the same run",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
+    "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
     "ready": [
@@ -4667,7 +4666,7 @@
    "case": "a change note whose marker names another issue lifts nothing",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
+    "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
     "ready": [
@@ -4782,7 +4781,7 @@
    "case": "a change note older than the ten minutes before the label lifts nothing",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
+    "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
     "ready": [
@@ -4897,7 +4896,7 @@
    "case": "a change note another account saved before the label lifts nothing",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
+    "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
     "ready": [
@@ -5014,7 +5013,7 @@
    "case": "a change note its own account saved again before the label lifts the hold",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
+    "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
     "ready": [
@@ -5124,7 +5123,7 @@
    "case": "a marker past what a cycle is given lifts nothing",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
+    "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
     "ready": [
@@ -5239,7 +5238,7 @@
    "case": "a dry run of the lift says it, starts nothing and writes nothing",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
+    "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
     "ready": [
