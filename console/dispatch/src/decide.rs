@@ -8,7 +8,8 @@ use crate::slice::{self, gib};
 #[cfg(test)]
 use crate::snapshot::check_state;
 use crate::snapshot::{
-    Check, HostStart, Issues, LimitState, Listed, OrderState, PauseFlag, PlanStart, Snapshot, Until,
+    Check, HostStart, Issues, Labels, LimitState, Listed, OrderState, PauseFlag, PlanStart,
+    Snapshot, Text, Until, Work, WorkIssue,
 };
 use crate::text;
 use serde_json::{json, Map, Value};
@@ -912,11 +913,7 @@ impl<'a> Poll<'a> {
             if state.event() != "labeled" || !self.c.allowed(state.actor()) {
                 continue;
             }
-            let links = self
-                .work(n)
-                .pointer("/issue_dependencies_summary/blocked_by")
-                .and_then(Value::as_u64)
-                .unwrap_or(0);
+            let links = self.work(n).map_or(0, |w| w.blocked_by);
             let Some(nodes) = issue
                 .comments
                 .as_ref()
@@ -1684,7 +1681,14 @@ impl<'a> Poll<'a> {
                 Some(_) => Some(None),
             }
         }
-        read(i.edit.as_ref()).or_else(|| read(i.work.as_ref().and_then(Value::as_object)))?
+        read(i.edit.as_ref()).or_else(|| match i.work.as_ref()? {
+            Work::Issue(w) => match &w.body {
+                Text::None => None,
+                Text::Some(b) => Some(Some(b.clone())),
+                Text::Unreadable => Some(None),
+            },
+            Work::Unreadable => None,
+        })?
     }
 
     /// The labels that ask for a start come off, and the issue says why once:
@@ -2016,11 +2020,7 @@ impl<'a> Poll<'a> {
     /// without the field holds nothing, so the marked comment of `blocked_ok`
     /// is all that names blockers there.
     fn links_ok(&mut self, n: u64) -> bool {
-        let open = self
-            .work(n)
-            .pointer("/issue_dependencies_summary/blocked_by")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
+        let open = self.work(n).map_or(0, |w| w.blocked_by);
         if open == 0 {
             return true;
         }
@@ -2107,22 +2107,14 @@ impl<'a> Poll<'a> {
             let repo = self.c.repo.clone();
             return Err(self.fail(format!("ERROR: gh api repos/{repo}/issues/{n} failed"), 1));
         };
-        let kind = if !w.is_object() {
-            "unreadable"
-        } else if !w.get("pull_request").unwrap_or(&Value::Null).is_null() {
-            "pr"
-        } else {
-            match w
-                .get("state")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_lowercase()
-                .as_str()
-            {
+        let kind = match w {
+            Work::Unreadable => "unreadable",
+            Work::Issue(w) if w.is_pull => "pr",
+            Work::Issue(w) => match w.state.as_deref().unwrap_or("").to_lowercase().as_str() {
                 "open" => "open",
                 "closed" => "closed",
                 _ => "unreadable",
-            }
+            },
         };
         match kind {
             "open" => Ok(true),
@@ -2198,13 +2190,12 @@ impl<'a> Poll<'a> {
         }
     }
 
-    /// The answer work_ok read for the issue.
-    fn work(&self, n: u64) -> Value {
-        self.s
-            .issues
-            .get(&n)
-            .and_then(|i| i.work.clone())
-            .unwrap_or(Value::Null)
+    /// The answer work_ok read for the issue, when it is an object.
+    fn work(&self, n: u64) -> Option<&WorkIssue> {
+        match self.s.issues.get(&n)?.work.as_ref()? {
+            Work::Issue(w) => Some(w),
+            Work::Unreadable => None,
+        }
     }
 
     /// The edit record unchanged_since read, the text an approval binds.
@@ -2220,10 +2211,10 @@ impl<'a> Poll<'a> {
     /// epic_ok: an issue with open sub-issues is a plan, never started. Only
     /// the label that asked for the cycle comes off.
     fn epic_ok(&mut self, n: u64, ask: &str, labels: &[String]) -> bool {
-        let w = self.work(n);
-        let sum = w.get("sub_issues_summary");
-        let count = |k: &str| sum.and_then(|s| s.get(k)).and_then(Value::as_f64);
-        let (Some(total), Some(done)) = (count("total"), count("completed")) else {
+        let sum = self.work(n).and_then(|w| w.sub_issues.as_ref());
+        let (Some(total), Some(done)) =
+            (sum.and_then(|s| s.total.f), sum.and_then(|s| s.completed.f))
+        else {
             return true;
         };
         let open = total - done;
@@ -2279,20 +2270,18 @@ impl<'a> Poll<'a> {
     /// every open issue, so a closed epic is not in it.
     fn epic_stands(&self, p: u64) -> Option<(String, String)> {
         let i = self.s.issues.get(&p)?;
-        let w = i.work.as_ref()?;
-        if w.get("state").and_then(Value::as_str) != Some("open") {
+        let w = self.work(p)?;
+        if w.state.as_deref() != Some("open") {
             return None;
         }
-        let sum = w.get("sub_issues_summary")?;
-        let count = |k: &str| sum.get(k).and_then(Value::as_u64);
-        if count("total")? <= count("completed")? {
+        let sum = w.sub_issues.as_ref()?;
+        if sum.total.u? <= sum.completed.u? {
             return None;
         }
-        let held = w
-            .get("labels")
-            .and_then(Value::as_array)?
-            .iter()
-            .any(|l| l.get("name").and_then(Value::as_str) == Some("needs-human-attention"));
+        let Labels::Names(names) = &w.labels else {
+            return None;
+        };
+        let held = has(names, "needs-human-attention");
         if held {
             return None;
         }
@@ -2311,7 +2300,7 @@ impl<'a> Poll<'a> {
         if !self.c.millwright_epics || self.c.millwright.is_empty() {
             return Ok(EpicPart::None);
         }
-        let Some(p) = self.work(n).get("parent").and_then(Value::as_u64) else {
+        let Some(p) = self.work(n).and_then(|w| w.parent) else {
             return Ok(EpicPart::None);
         };
         let Some((by, at)) = self.epic_stands(p) else {
@@ -2319,12 +2308,8 @@ impl<'a> Poll<'a> {
         };
         let labels: Vec<String> = self
             .work(n)
-            .get("labels")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
-            .collect();
+            .map(|w| w.labels.names().to_vec())
+            .unwrap_or_default();
         let refuse = |why: String| {
             Ok(EpicPart::Refused(format!(
                 "its epic #{p} is approved, but {why}"
@@ -2419,11 +2404,10 @@ impl<'a> Poll<'a> {
         let Some(max) = self.c.size_max_files else {
             return Ok(true);
         };
-        let w = self.work(n);
-        let body = match w.get("body") {
-            None | Some(Value::Null) => "",
-            Some(Value::String(b)) => b,
-            Some(_) => {
+        let body = match self.work(n).map(|w| &w.body) {
+            None | Some(Text::None) => "",
+            Some(Text::Some(b)) => b,
+            Some(Text::Unreadable) => {
                 return Err(self.fail(format!("ERROR: the size of #{n} could not be read"), 1))
             }
         };
@@ -2454,11 +2438,10 @@ impl<'a> Poll<'a> {
         if !self.c.work_images {
             return Ok(true);
         }
-        let w = self.work(n);
-        let linked = match w.get("body") {
-            None | Some(Value::Null) => false,
-            Some(Value::String(b)) => text::links(b) > 0,
-            Some(_) => {
+        let linked = match self.work(n).map(|w| &w.body) {
+            None | Some(Text::None) => false,
+            Some(Text::Some(b)) => text::links(b) > 0,
+            Some(Text::Unreadable) => {
                 return Err(self.fail(
                     format!("ERROR: the text of #{n} could not be read for its links"),
                     1,
@@ -2504,11 +2487,7 @@ impl<'a> Poll<'a> {
     /// image_missing_ok: a text that promises a file and links none waits for
     /// its owner, with nothing on the issue changed.
     fn image_missing_ok(&mut self, n: u64) -> bool {
-        let w = self.work(n);
-        if w.is_null() {
-            return true;
-        }
-        let Some(word) = text::promise(&w) else {
+        let Some(word) = self.work(n).and_then(|w| text::promise_of(&w.strings)) else {
             return true;
         };
         self.log(format!("hold #{n}: its text says {word} and links no attachment, so the cycle would be given none; attach the file or write out what it shows, before applying `tehas:ready`"));

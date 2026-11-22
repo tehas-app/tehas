@@ -267,7 +267,7 @@ fn placeholder(text: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn strings<'a>(v: &'a Value, out: &mut Vec<&'a str>) {
+pub(crate) fn strings<'a>(v: &'a Value, out: &mut Vec<&'a str>) {
     match v {
         Value::String(s) => out.push(s),
         Value::Array(a) => a.iter().for_each(|x| strings(x, out)),
@@ -281,6 +281,12 @@ fn strings<'a>(v: &'a Value, out: &mut Vec<&'a str>) {
 pub fn promise(answer: &Value) -> Option<String> {
     let mut texts = Vec::new();
     strings(answer, &mut texts);
+    promise_of(&texts)
+}
+
+/// promise over the texts of an answer, in the order it walks them.
+pub fn promise_of<T: AsRef<str>>(texts: &[T]) -> Option<String> {
+    let texts: Vec<&str> = texts.iter().map(AsRef::as_ref).collect();
     if texts.iter().any(|t| links(t) > 0) {
         return None;
     }

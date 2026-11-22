@@ -6,9 +6,9 @@
 use super::{has, or_unknown, Poll, Step};
 #[cfg(test)]
 use crate::snapshot::own_branch;
-use crate::snapshot::{BotPr, Cycle, Marked};
+use crate::snapshot::{BotPr, Cycle, Labels, Marked, Work};
 use regex::Regex;
-use serde_json::{json, Value};
+use serde_json::json;
 use tehas_core::accounts::account;
 use tehas_core::events::label_actor;
 
@@ -199,11 +199,10 @@ impl Poll<'_> {
                 let repo = self.c.repo.clone();
                 return Err(self.fail(format!("ERROR: gh api repos/{repo}/issues/{n} failed"), 1));
             };
-            let state = work
-                .get("state")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_ascii_lowercase();
+            let state = match &work {
+                Work::Issue(w) => w.state.as_deref().unwrap_or("").to_ascii_lowercase(),
+                Work::Unreadable => String::new(),
+            };
             let (why, text) = if state == "closed" {
                 ("closed", "its issue is closed".to_string())
             } else {
@@ -279,15 +278,13 @@ impl Poll<'_> {
                 let repo = self.c.repo.clone();
                 return Err(self.fail(format!("ERROR: gh api repos/{repo}/issues/{n} failed"), 1));
             };
-            let labels = match work.get("labels") {
-                _ if !work.is_object() => None,
-                None | Some(Value::Null) => Some(Vec::new()),
-                Some(Value::Array(a)) => Some(
-                    a.iter()
-                        .filter_map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
-                        .collect(),
-                ),
-                Some(_) => None,
+            let labels = match &work {
+                Work::Unreadable => None,
+                Work::Issue(w) => match &w.labels {
+                    Labels::Absent | Labels::Null => Some(Vec::new()),
+                    Labels::Names(a) => Some(a.clone()),
+                    Labels::Unreadable => None,
+                },
             };
             let Some(labels) = labels else {
                 return Err(self.fail(

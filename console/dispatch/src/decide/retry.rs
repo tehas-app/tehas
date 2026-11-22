@@ -17,17 +17,6 @@ use tehas_core::driver::Driver;
 const ISSUE_MAX: u64 = 9_999_999_999;
 const TIME_MAX: u64 = 99_999_999_999;
 
-fn labels(v: &Value) -> Vec<String> {
-    v.get("labels")
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 /// Why the labels `have` of an issue keep its refresh from starting, None
 /// when they do not.
 fn refresh_labels_why(have: &[String]) -> Option<String> {
@@ -807,7 +796,10 @@ impl Poll<'_> {
         if !self.work_ok(n)? {
             return self.refresh_drop(n, "it is not an open issue");
         }
-        let have = labels(&self.work(n));
+        let have = self
+            .work(n)
+            .map(|w| w.labels.names().to_vec())
+            .unwrap_or_default();
         if let Some(why) = refresh_labels_why(&have) {
             return self.refresh_drop(n, &why);
         }
