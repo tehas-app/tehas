@@ -326,6 +326,91 @@ pub fn loaded(names: &[&str]) -> Result<(), u8> {
     require(names, &load_here(uid, "bash")?)
 }
 
+/// The settings `tehas update` rewrites, each old name with its new one. 2.0
+/// rewrites none: a setting is kept, dropped with a warning (`IGNORED` of
+/// tehas_core's load) or refused. A rewrite table, when one is added, lives in
+/// console/ops/src/update/rewrites.rs and is read here.
+fn rewrites() -> &'static [(&'static str, &'static str)] {
+    &[]
+}
+
+/// `cargo xtask config-check`: the settings of the instance directory `dir`
+/// held against this version's load, with nothing of the host read. One line
+/// for each setting the load changes or drops, one for each it refuses, then
+/// `pass` or `fail`; true on a pass.
+pub fn config_check(dir: &str, bash: &str) -> (Vec<String>, bool) {
+    // The load takes an absolute path only.
+    let dir = fs::canonicalize(dir).map_or_else(|_| dir.to_string(), |d| d.display().to_string());
+    let dir = dir.as_str();
+    let text = fs::read(format!("{dir}/instance.env")).unwrap_or_default();
+    let names = load::names_in(&text);
+    let mut out = Vec::new();
+    for (old, new) in rewrites() {
+        if names.iter().any(|n| n == old) {
+            out.push(format!("changed {old} -> {new}"));
+        }
+    }
+    for name in &names {
+        if let Some(why) = load::ignored_why(name) {
+            out.push(format!("dropped {name}: {why}"));
+        }
+    }
+    // A home that does not exist, so no credential file and no other file of
+    // this machine takes part.
+    let home = "/nonexistent";
+    let mut vars = Vars::new([
+        (b"HOME".to_vec(), home.as_bytes().to_vec()),
+        (b"TEHAS_INSTANCE_DIR".to_vec(), dir.as_bytes().to_vec()),
+    ]);
+    let mut warned = Vec::new();
+    let uid = sandbox::user();
+    let uid = uid.split(':').next().unwrap_or_default();
+    let refusals = match load_keeping_warnings(&mut vars, uid, bash, &mut warned) {
+        Ok(()) => Vec::new(),
+        Err(line) => refused(
+            format!("tehas: {line}"),
+            dir,
+            &format!("{home}/.config/tehas"),
+        ),
+    };
+    for line in &refusals {
+        let why = line.strip_prefix("tehas: ").unwrap_or(line);
+        out.push(format!("fail {}: {why}", named(why, &names)));
+    }
+    // The load stops at its first refusal: every other value the file gives
+    // that its rule refuses is named too, so one run lists them all.
+    if !refusals.is_empty() {
+        for (name, why) in load::bad(&vars) {
+            let line = format!("fail {name}: {name} is not valid: {why}");
+            if names.contains(&name) && !out.iter().any(|l| l.starts_with(&format!("fail {name}:")))
+            {
+                out.push(line);
+            }
+        }
+    }
+    let pass = refusals.is_empty();
+    out.push(if pass { "pass" } else { "fail" }.to_string());
+    (out, pass)
+}
+
+/// The setting a refusal is about: the first word of it that the instance
+/// sets, else its first word that is a setting's name, else the file.
+fn named(why: &str, names: &[String]) -> String {
+    let words: Vec<&str> = why
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|w| !w.is_empty())
+        .collect();
+    words
+        .iter()
+        .find(|w| names.iter().any(|n| n == *w))
+        .or_else(|| {
+            words
+                .iter()
+                .find(|w| w.starts_with("TEHAS_") || w.starts_with("PI_ENSEMBLE_"))
+        })
+        .map_or_else(|| "instance.env".to_string(), |w| w.to_string())
+}
+
 fn why(name: &str, value: &str) -> Option<String> {
     rules::check(name, value).err()
 }

@@ -1,0 +1,4 @@
+# `cargo xtask <task>` from the top of the repository: the development tasks
+# of console/xtask, run from the workspace in console/.
+[alias]
+xtask = "run --locked --quiet --manifest-path console/Cargo.toml -p tehas-xtask --"
