@@ -156,6 +156,9 @@ Counts T15's ports raised above their fork value. The fork's github-rest was 846
 | gh-argv | 408 | 409 | #2859 | a fixture's process named gh | T4 |
 | raw-statuses | 259 | 260 | #2859 | a fixture's 404 from the docs server | T4/T7 |
 | github-rest | 860 | 870 | #2860 | pi-rukas's runner flag --json, written as the tests pass it | T4/T7: the check narrows to the adapter's paths |
+| gh-argv | 404 | 406 | #PRNUM | the name gh in the list of tools the analytics tests stub to fail | T1 |
+| tests-stub-gh | 414 | 416 | #PRNUM | the same list of tools, counted again in a test file | T1 |
+| untyped-signatures | 1388 | 1389 | #PRNUM | a test helper that edits a row of GitHub's list, the untyped value preview::choose takes | T7 |
 
 Lowered since by removals, not by these rows' causes: github-rest 870 to 863 (#2862, the product wiki). The rises above stay to be removed by T4 and T7.
 
