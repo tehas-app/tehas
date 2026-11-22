@@ -1,23 +1,18 @@
 # shellcheck shell=bash
 # What the tests of install.sh share: the scratch host, the stubs for Docker,
-# systemctl and cargo, an instance that is valid, and the files a fresh
-# install puts. Source this from an install_*_test.sh file.
+# systemctl and cargo, a valid instance, and the files a fresh install puts.
+# Source this from an install_*_test.sh file, after test/lib.sh.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck disable=SC2034  # the variables here are read by the test files
-# The part has sourced test/lib.sh before this.
 
-# install_fixture <checkout> <dir>: a fixture of <checkout> made of its tracked
-# files and nothing else, so an untracked file in a working tree cannot change
-# what an install sees. Uncommitted edits to a tracked file are in it, because
-# the files are copied from the working tree; files removed from it are left
-# out, as a release leaves them. The fixture has no .git, so it names itself as
-# a release tree does: COMMIT, and VERSION as <newest tag>+<short hash>, the
-# hash alone where there is no tag, which is what install.sh reads from git.
+# install_fixture <checkout> <dir>: <checkout>'s tracked files as the working
+# tree holds them, deleted ones left out, so an untracked file cannot change what
+# an install sees. With no .git it names itself as a release tree does: COMMIT,
+# and VERSION as <newest tag>+<short hash>, the hash alone with no tag.
 install_fixture() { # <checkout> <dir>
   local from=$1 to=$2 kept=$T/ls-files deleted=$T/ls-deleted tag hash
-  # What a run of this takes is the result of the last copy, so a tree whose
-  # tracked files cannot be read says so instead of leaving a fixture of part
-  # of them behind.
+  # A tree whose tracked files cannot be read fails here, not as a fixture of
+  # part of them.
   rm -rf "$to"
   mkdir -p "$to"
   git -C "$from" ls-files -z >"$kept" || return 1
@@ -30,17 +25,15 @@ install_fixture() { # <checkout> <dir>
   tag=$(git -C "$from" describe --tags --abbrev=0 2>/dev/null) || tag=""
   printf '%s\n' "${tag:+$tag+}$hash" >"$to/VERSION"
 }
-# The tree every install of this file runs: built once here from this checkout,
-# in $T, so no case writes into the checkout and none reads an untracked file.
-# A case that changes the tree copies it first.
+# The tree every install here runs, built once in $T so no case writes into the
+# checkout. A case that changes the tree copies it first.
 fixture=$T/tree
 install_fixture "$T_ROOT" "$fixture"
 install="$fixture/install.sh"
 home=$T/home
 th=$home/tehas
-# bootstrap.sh dev writes two files outside any home, and install.sh reads them to
-# know whether this host lets other accounts start a session. Pointed at scratch
-# in every run here, so no test reads or writes the real /etc or /usr/local/bin.
+# The two files of bootstrap.sh dev that install.sh reads, outside any home: in
+# scratch, so no test touches the real /etc or /usr/local/bin.
 dev_etc=$T/etc
 dev_bin=$T/usr-local-bin
 console_env=()
@@ -82,9 +75,8 @@ EOF
 }
 # Everything install.sh put on the host, relative to the scratch home.
 installed_files() { (cd "$home" && find . -type f ! -name '*.prev' | LC_ALL=C sort); }
-# The host facts a program reads back after an install, as one JSON object: the
-# same answer `tehas api --json` gives, from the files install.sh put there.
-# Read in a clean environment, as the factory's user would run it.
+# The host facts after an install as one JSON object, from `tehas api --json`
+# in a clean environment, as the factory's user would run it.
 # shellcheck disable=SC2154  # t_out is set by test/lib.sh, which the part sources first
 api_json() { t_run "'$th/bin/tehas' api --json"; printf '%s\n' "$t_out"; }
 
@@ -158,14 +150,9 @@ files="./.bashrc
 ./tehas/sandbox/vipune-shim
 ./tehas/shim/gh
 ./tehas/versions.env"
-# The manual and the front page are whole directories; leave them out of the
-# exact comparison and check them separately. So is state/, which is what the host
-# keeps for itself - the record of follow-ups owed among it - not a file install.sh
-# puts.
-# The marker that says the home is tehas's: the host's own, like state/, so it
-# is left out of the exact comparison and checked by its own cases. Nothing
-# removes it, so a host installed before the marker keeps it once a run gave it
-# one.
+# Left out of the exact comparison and checked on their own: the manual and the
+# front page, whole directories, and what is the host's own, not install.sh's:
+# state/ and the marker that says the home is tehas's, which nothing removes.
 install_marker=.tehas-home
 core_files() {
   installed_files | grep -v -e '^./tehas/docs/' -e '^./tehas/fun/' -e '^./tehas/state/' -e "^./tehas/$install_marker"
@@ -198,6 +185,8 @@ checkout() {
     "$fixture/libexec" "$part/"
   t_console_source "$part" "$fixture"
 }
+# A home installed from such a checkout, which owes no build.
+installed_checkout() { fresh; instance; checkout; t_run "$part/install.sh"; }
 
 # install_list_report: the names of a home that the files= list above does not
 # name, and the names it promises that the home lacks, one line each, with the
