@@ -151,8 +151,13 @@ Counts T15's ports raised. "Max before" is the max just before that pull request
 | gh-argv | 404 | 406 | #2866 | the name gh in the list of tools the analytics tests stub to fail | T1 |
 | tests-stub-gh | 414 | 416 | #2866 | the same list of tools, counted again in a test file | T1 |
 | untyped-signatures | 1388 | 1389 | #2866 | a test helper that edits a row of GitHub's list, the untyped value preview::choose takes | T7 |
+| github-rest | 852 | 855 | #2879 | tehas order's and tehas top's own --json flag, and the updatedAt key of tehas's own running.json | T4/T7: the check narrows to the adapter's paths, or the key is renamed |
+| gh-argv | 402 | 405 | #2879 | the name gh in console_run's list of stubbed tools and the calls it reads to show nothing ran | T1 |
+| tests-stub-gh | 410 | 413 | #2879 | the same three lines, counted again in a test file | T1 |
+| label-words | 1866 | 1867 | #2879 | a park marker that store_paths gives its patterns as a line they must not take | T7 |
+| home-layout | 491 | 513 | #2879 | the sample lines store_paths gives its patterns: shell text naming the old files under state/, data the check reads | T7 |
 
-Lowered since by removals, not by these rows' causes: github-rest 870 to 863 (#2862, the product wiki); github-rest to 837, gh-argv to 394, raw-statuses to 256, untyped-signatures to 1299 and tests-stub-gh to 402 (outsource, which 2.0 dropped). The rises above stay to be removed by T4 and T7.
+Lowered since by removals, not by these rows' causes: github-rest 870 to 863 (#2862, the product wiki); github-rest by 15, gh-argv by 8, home-layout by 10, raw-statuses by 4, untyped-signatures by 87, untyped-fields by 4 and tests-stub-gh by 8 (outsource, which 2.0 dropped). The rises above stay to be removed by T4 and T7.
 
 ### Fork values
 

@@ -1,10 +1,10 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2016,SC2034  # stub bodies are expanded when the stub runs; the parts read the variables
-# What the shell tests of tehas top share: top_frame_test.sh and
-# top_publish_test.sh source this. They cover the frame and the publisher, both
-# in the console (console/src/top.rs). The snapshot and the view are tested in
-# Rust, console/tests/top_snapshot.rs and top_view.rs, with console/tests/top/
-# as their twin of this file.
+# What the shell tests of tehas top share: top_publish_test.sh sources this.
+# It covers the publisher, in the console (console/src/top.rs). The snapshot,
+# the view and the frame are tested in Rust, console/tests/top_snapshot.rs,
+# top_view.rs and top_frame.rs, with console/tests/top/ as their twin of this
+# file.
 # Everything runs against files written here under $TEHAS_HOME/live/ and a
 # tree of host numbers written here, with systemctl stubbed. Nothing here calls
 # GitHub, a model or Docker, and no case reads the machine that runs it.
@@ -91,10 +91,3 @@ files() { # [title]
     >"$live/console-12.txt"
 }
 
-# Bytes that are not printing characters, tab and newline excepted.
-control_bytes() { printf '%s' "$1" | LC_ALL=C tr -cd '\000-\010\013-\037\177' | wc -c; }
-
-# The C1 controls, U+0080 to U+009F. In UTF-8 they are the pair 0xc2 followed by
-# a byte from 0x80 to 0x9f. A bare byte range would not do: the same byte values
-# are continuation bytes of characters that are not controls.
-c1_bytes() { printf '%s' "$1" | LC_ALL=C grep -o "$(printf '\xc2[\x80-\x9f]')" | wc -l; }
