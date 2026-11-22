@@ -159,11 +159,11 @@ Counts T15's ports raised. "Max before" is the max just before that pull request
 | gh-argv | 404 | 406 | #2866 | the name gh in the list of tools the analytics tests stub to fail | T1 |
 | tests-stub-gh | 414 | 416 | #2866 | the same list of tools, counted again in a test file | T1 |
 | untyped-signatures | 1388 | 1389 | #2866 | a test helper that edits a row of GitHub's list, the untyped value preview::choose takes | T7 |
-| github-rest | 854 | 857 | #PRNUM | tehas order's and tehas top's own --json flag, and the updatedAt key of tehas's own running.json | T4/T7: the check narrows to the adapter's paths, or the key is renamed |
-| gh-argv | 402 | 405 | #PRNUM | the name gh in console_run's list of stubbed tools and the calls it reads to show nothing ran | T1 |
-| tests-stub-gh | 411 | 414 | #PRNUM | the same three lines, counted again in a test file | T1 |
-| label-words | 1866 | 1867 | #PRNUM | a park marker that store_paths gives its patterns as a line they must not take | T7 |
-| home-layout | 491 | 513 | #PRNUM | the sample lines store_paths gives its patterns: shell text naming the old files under state/, data the check reads | T7 |
+| github-rest | 854 | 857 | #2879 | tehas order's and tehas top's own --json flag, and the updatedAt key of tehas's own running.json | T4/T7: the check narrows to the adapter's paths, or the key is renamed |
+| gh-argv | 402 | 405 | #2879 | the name gh in console_run's list of stubbed tools and the calls it reads to show nothing ran | T1 |
+| tests-stub-gh | 411 | 414 | #2879 | the same three lines, counted again in a test file | T1 |
+| label-words | 1866 | 1867 | #2879 | a park marker that store_paths gives its patterns as a line they must not take | T7 |
+| home-layout | 491 | 513 | #2879 | the sample lines store_paths gives its patterns: shell text naming the old files under state/, data the check reads | T7 |
 
 Lowered since by removals, not by these rows' causes: github-rest 870 to 863 (#2862, the product wiki). The rises above stay to be removed by T4 and T7.
 
