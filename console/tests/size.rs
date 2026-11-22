@@ -68,9 +68,12 @@ fn an_empty_body_is_four_zeros_and_so_is_no_body_at_all() {
 #[test]
 fn the_measure_reads_only_its_stdin_and_writes_nothing() {
     let dir = TestDir::new("size-measure-quiet");
-    let (rc, _) = measure_in(&dir, Some(b"x"), &[]);
+    let tmp = dir.join("tmp");
+    fs::create_dir(&tmp).unwrap();
+    let (rc, _) = measure_in(&dir, Some(b"x"), &[("TMPDIR", tmp.to_str().unwrap())]);
     assert_eq!(rc, 0);
-    assert_eq!(fs::read_dir(&*dir).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(&*dir).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(&tmp).unwrap().count(), 0);
 }
 
 #[test]

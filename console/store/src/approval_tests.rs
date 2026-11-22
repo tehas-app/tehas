@@ -1263,7 +1263,9 @@ fn a_view_names_the_driver_on_record_and_no_driver_when_none() {
         (v["how"].clone(), v["driver"].clone()),
         (json!("label"), json!("lean"))
     );
-    assert_eq!(view(&home, 8, None).get("driver"), None);
+    let v8 = view(&home, 8, None);
+    assert!(v8.is_object(), "no view of issue 8: {v8}");
+    assert_eq!(v8.get("driver"), None);
 }
 
 #[test]
@@ -1359,5 +1361,7 @@ fn a_view_names_the_note_that_lifted_a_park_s_hold_and_none_is_no_key() {
         &["--input-file", &file],
     );
     used(&home, 7);
-    assert_eq!(view(&home, 7, Some(1)).get("park_lifted"), None);
+    let v = view(&home, 7, Some(1));
+    assert!(v.is_object(), "no view of issue 7, attempt 1: {v}");
+    assert_eq!(v.get("park_lifted"), None);
 }

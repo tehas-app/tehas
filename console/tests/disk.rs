@@ -51,11 +51,17 @@ fn df(w: &World) {
     );
 }
 
-/// `tehas disk <args>`, after the shell words in `env`.
+/// `tehas disk <args>`, after the shell words in `env`, from a tree laid out
+/// as a host's: bin/tehas copied beside libexec/console, and no TEHAS_CONSOLE,
+/// so the command finds the console as an installed one does.
 fn disk(w: &World, env: &str, args: &str) -> Run {
+    let tehas = w.t().join("tree/bin/tehas");
+    if !tehas.exists() {
+        fs::copy(root().join("bin/tehas"), &tehas).unwrap();
+    }
     w.sh(&format!(
-        "{env} {} disk {args}",
-        root().join("bin/tehas").display()
+        "unset TEHAS_CONSOLE; {env} {} disk {args}",
+        tehas.display()
     ))
 }
 
