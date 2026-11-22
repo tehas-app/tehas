@@ -392,9 +392,14 @@ fn a_dry_run_of_leave_it_parked_changes_nothing() {
 }
 
 /// One comment after the question, as GitHub's GraphQL gives it.
-fn later_comment(id: u64, by: &str, body: &str, at: &str) -> serde_json::Value {
-    json!({"databaseId": id, "author": {"login": by, "databaseId": common::uid(by)}, "body": body, "createdAt": at,
-        "lastEditedAt": null, "editor": null, "userContentEdits": {"totalCount": 0, "nodes": []}})
+macro_rules! later_comment {
+    ($id:expr, $by:expr, $body:expr, $at:expr $(,)?) => {{
+        let mut c = json!({"databaseId": $id, "author": {"login": $by, "databaseId": common::uid($by)},
+            "body": $body, "lastEditedAt": null, "editor": null,
+            "userContentEdits": {"totalCount": 0, "nodes": []}});
+        c[common::replies::CREATED] = json!($at);
+        c
+    }};
 }
 
 /// A newer reply that names a choice the stop does not offer (`retry`, where
@@ -413,8 +418,8 @@ fn a_reply_naming_a_choice_the_stop_does_not_offer_is_declined_and_nothing_start
         "",
     );
     let replies = vec![
-        later_comment(4002, "alice", "retry-text", "2026-01-01T01:00:00Z"),
-        later_comment(4003, "alice", "retry", "2026-01-01T02:00:00Z"),
+        later_comment!(4002, "alice", "retry-text", "2026-01-01T01:00:00Z"),
+        later_comment!(4003, "alice", "retry", "2026-01-01T02:00:00Z"),
     ];
     w.comments(7, &body, "", json!(replies));
     let r = w.poll();
@@ -426,14 +431,15 @@ fn a_reply_naming_a_choice_the_stop_does_not_offer_is_declined_and_nothing_start
     );
     let note = "The reply names a choice this question does not offer, so nothing was started.";
     has(&w.gh(), note);
-    has(&w.gh(), "<!-- tehas:declined question=4001 -->");
+    let mark = tehas_dispatch::questions::declined_marker("4001");
+    has(&w.gh(), &mark);
     assert_eq!(w.park_q(7), "4001");
     // The next poll finds the note after both replies: nothing is said again.
     let mut replies = replies;
-    replies.push(later_comment(
+    replies.push(later_comment!(
         4004,
         "tehas-bot",
-        &format!("{note}\n\n<!-- tehas:declined question=4001 -->"),
+        &format!("{note}\n\n{mark}"),
         "2026-01-01T03:00:00Z",
     ));
     w.comments(7, &body, "", json!(replies));

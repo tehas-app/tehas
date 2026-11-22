@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 pub const REPLY_ID: u64 = 4002;
 
 /// The key of a comment's time, as GitHub's GraphQL names it.
-const CREATED: &str = "createdAt";
+pub const CREATED: &str = "createdAt";
 
 /// The body with its one tick taken off, and the comments written after the
 /// question with the reply of `by` that names the choice it ticked among them
