@@ -473,6 +473,12 @@ The owner, 2026-11-22: 2.0.0 runs the lean driver by default. This is a
 behaviour change, made in its own pull requests and not inside a
 refactor step. The program manager is the session tehas-2d.
 
+What "lean by default" covers (work-a7, 2026-11-22): lean runs an issue
+that carries a `pi-spec v1` block. An issue without one runs classic, as
+it does today. Sending spec-less issues to lean too, where the product
+lets lean draft the spec, is #2839 for 2.1. Classic stays a supported
+driver in 2.0 (the owner).
+
 1. **The proof (#1105), on main.** `.pi/work.json` is on main (1d429809).
    About 20 issues of the same size, with
    `pi-spec v1` blocks, split evenly between the drivers, run on a lab
@@ -514,8 +520,9 @@ refactor step. The program manager is the session tehas-2d.
    trio's readiness review, 2.0.0 ships lean available but not the
    default, and the owner decides.
 5. **The contract.** T9 lists the new default in "Changed in 2.0", with
-   its readers, and the changelog's adopter action: "set
-   `verify.roster`, or `TEHAS_DRIVER=classic`".
+   its readers, in these words: "An issue with a `pi-spec v1` block runs
+   the lean driver; an issue without one runs classic." The changelog's
+   adopter action: "set `verify.roster`, or `TEHAS_DRIVER=classic`".
 
 Done when the proof is in `features.md`, the pinned pi-rukas has the
 fixes of trail-openers/pi-rukas#2493, and the dispatcher's and the
@@ -793,3 +800,4 @@ of main, each grade.
 | 2026-11-22 | T4: the ports spec, read and accepted in writing by the consumer that runs many factories | #2828 |
 | 2026-11-22 | Port main @ abc4afca (a checkout follows pi-rukas's 0.15 line, #2834) | #2836 |
 | 2026-11-22 | T16: every row of the unused features approved; classic stays a driver; T10's rename to tehas-factory confirmed (the owner) | this pull request |
+| 2026-11-22 | T13: lean by default covers issues with a spec block; spec-less issues stay classic in 2.0, the rest is #2839 for 2.1 (work-a7) | #2840 |
