@@ -54,9 +54,22 @@ pub fn read(p: impl AsRef<Path>) -> String {
 pub struct Out {
     pub out: String,
     /// The output whole.
-    #[allow(dead_code)] // each test file uses a part of this module
     pub raw: String,
+    /// Its standard error, whole.
+    #[allow(dead_code)] // each test file uses a part of this module
+    pub err: String,
     pub code: i32,
+}
+
+impl Out {
+    /// Output and error as one, trailing newlines gone, as t_run's `2>&1`
+    /// gave them. Each run here prints to one of the two.
+    #[allow(dead_code)] // each test file uses a part of this module
+    pub fn merged(&self) -> String {
+        format!("{}{}", self.raw, self.err)
+            .trim_end_matches('\n')
+            .to_string()
+    }
 }
 
 /// The program run with `args`, `stdin` given as a here-string gives it, with
@@ -79,6 +92,7 @@ pub fn exec_at(program: &Path, args: &[&str], stdin: Option<&str>) -> Out {
     Out {
         out: raw.trim_end_matches('\n').to_string(),
         raw,
+        err: String::from_utf8_lossy(&o.stderr).to_string(),
         code: o.status.code().unwrap_or(-1),
     }
 }

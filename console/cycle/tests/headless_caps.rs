@@ -233,8 +233,10 @@ fn a_feature_is_native_where_the_answer_sets_it_to_true_planturns_in_v0140_not_i
         "off"
     );
     for bad in ["", "not json", "[]", r#"{"features":[]}"#] {
+        // t_run compared output and error as one.
         let o = mode(bad, "planTurns");
-        assert_eq!(o.out, "error", "{bad}");
+        assert_eq!(o.merged(), "error", "{bad}");
+        assert_eq!(o.err, "", "{bad}");
         assert_eq!(o.code, 1, "{bad}");
     }
 }
@@ -250,9 +252,17 @@ fn a_feature_the_answer_lacks_is_a_polyfill_where_tehas_carries_one_and_native_w
         ("otherFeature", "{}"),
     ]
     .iter()
-    .map(|(f, a)| exec_at(&program, &["caps", "mode", f], Some(a)).out)
+    .map(|(f, a)| {
+        let o = exec_at(&program, &["caps", "mode", f], Some(a));
+        assert_eq!(o.err, "", "{f}");
+        format!("{}{}", o.raw, o.err)
+    })
     .collect();
-    assert_eq!(said.join("\n"), "polyfill\nnative\noff");
+    // One t_run of the three: their output and error as one.
+    assert_eq!(
+        said.concat().trim_end_matches('\n'),
+        "polyfill\nnative\noff"
+    );
 }
 
 #[test]
@@ -261,7 +271,8 @@ fn an_answer_that_cannot_be_read_is_error_where_tehas_carries_a_polyfill_not_pol
     let program = beside(&t);
     for bad in ["", "not json", "[]", r#"{"features":[]}"#] {
         let o = exec_at(&program, &["caps", "mode", "someFeature"], Some(bad));
-        assert_eq!(o.out, "error", "{bad}");
+        assert_eq!(o.merged(), "error", "{bad}");
+        assert_eq!(o.err, "", "{bad}");
         assert_eq!(o.code, 1, "{bad}");
     }
 }
@@ -273,7 +284,8 @@ fn a_name_that_is_no_feature_name_is_off_with_status_1_and_names_no_file() {
     fs::write(t.join("lib/polyfill-.sh"), "").unwrap();
     for bad in ["", "../x", "Plan", "a-b", "a b"] {
         let o = exec_at(&program, &["caps", "mode", bad], Some("{}"));
-        assert_eq!(o.out, "off", "{bad}");
+        assert_eq!(o.merged(), "off", "{bad}");
+        assert_eq!(o.err, "", "{bad}");
         assert_eq!(o.code, 1, "{bad}");
     }
 }

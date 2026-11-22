@@ -39,6 +39,13 @@ fn error_only(result: &Path) -> i32 {
 /// of the programs' compact output: in the order the program wrote it. `null`
 /// when the key is not there.
 fn field(json: &str, key: &str) -> String {
+    // As jq: null has every key as null, and text that is no object, or no
+    // JSON at all, is an error, not a null.
+    match serde_json::from_str::<serde_json::Value>(json) {
+        Ok(serde_json::Value::Null) => return "null".into(),
+        Ok(serde_json::Value::Object(_)) => {}
+        _ => panic!("not a JSON object: {json:?}"),
+    }
     let b = json.as_bytes();
     let want = format!("\"{key}\":");
     let (mut depth, mut i, mut in_str) = (0usize, 0usize, false);
@@ -375,13 +382,13 @@ fn an_empty_log_an_unreadable_one_and_no_issue_number_say_nothing() {
     // is said for it. A missing file is answered the same way, and said of in
     // the log.
     let o = run(&empty, "abc");
-    assert_eq!((o.out.as_str(), o.code), ("", 1));
+    assert_eq!((o.raw.as_str(), o.code), ("", 1));
     let o = run(&t.join("nothing.jsonl"), "7");
-    assert_eq!((o.out.as_str(), o.code), ("", 1));
+    assert_eq!((o.raw.as_str(), o.code), ("", 1));
     let link = t.join("run-link.jsonl");
     symlink(progress_jsonl(&fx()), &link).unwrap();
     let o = run(&link, "7");
-    assert_eq!((o.out.as_str(), o.code), ("", 1));
+    assert_eq!((o.raw.as_str(), o.code), ("", 1));
 }
 
 #[test]
@@ -528,10 +535,15 @@ fn another_issue_another_schema_or_no_file_is_no_outcome() {
 #[test]
 fn an_exit_code_that_is_missing_or_not_a_number_is_null_not_0() {
     let t = scratch();
-    let r = result_with(&t, &[("/issues/0/exitCode", None)]);
-    assert_eq!(field(&outcome(&r, "7").out, "exitCode"), "null");
-    let r = result_with(&t, &[("/issues/0/exitCode", Some(r#""0""#))]);
-    assert_eq!(field(&outcome(&r, "7").out, "exitCode"), "null");
+    for to in [None, Some(r#""0""#)] {
+        let r = result_with(&t, &[("/issues/0/exitCode", to)]);
+        let o = outcome(&r, "7").out;
+        let v: serde_json::Value = serde_json::from_str(&o).unwrap();
+        let o = v.as_object().unwrap();
+        // jq's .exitCode: a key that is not there is null too.
+        let code = o.get("exitCode").unwrap_or(&serde_json::Value::Null);
+        assert!(code.is_null(), "{to:?}: {code}");
+    }
 }
 
 #[test]
