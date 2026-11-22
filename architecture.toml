@@ -142,5 +142,5 @@ pattern = 't_stub gh\b|"gh"|\bgh (api|pr|issue|repo|release|run|label|search)\b'
 files = ["test/**/*.sh", "console/**/tests/**", "console/**/tests.rs", "console/**/*_tests.rs"]
 allowed = ["console/core/src/forge/**"]
 comment = "#"
-max = 419
+max = 418
 why = "The map at T0: dispatch's tests 191, the shell tests of test/ 123 (84 of them t_stub gh), cycle 45, the console 31, store 17, core, mcp 4 each, ops 2, analytics, attach 1 each. T1 moves each crate's tests onto the ports' fakes, with the same answers, before its calls move; the forge's own pins stay."
