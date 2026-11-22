@@ -619,6 +619,13 @@ of main, each grade.
 | 2026-11-22 | The architecture test runs in CI on the branch; the AGENTS.md section merged by the owner | #2777, #2779 |
 | 2026-11-22 | T12 (answers in words, #2782) and the pi-rukas pin (v0.14.101 or later) added to this plan; T3 planned as fifteen slices | #2783 |
 | 2026-11-22 | T13: lean is the default driver in 2.0.0 (the owner) | #2784 |
-| 2026-11-22 | The ending: squash merges only, so the branch lands by a merge commit the owner allows or a fast-forward | this pull request |
-| 2026-11-22 | T13: the fallback to classic on lean's setup refusal; the pi-rukas blockers as #2493 lists them | T13 fallback pull request |
-| 2026-11-22 | T13: the fallback leaves a host message; the adopter action is "set `verify.roster`, or `TEHAS_DRIVER=classic`" (the owner) | T13 host message pull request |
+| 2026-11-22 | The ending: squash merges only, so the branch lands by a merge commit the owner allows or a fast-forward | #2785 |
+| 2026-11-22 | T13: the fallback to classic on lean's setup refusal; the pi-rukas blockers as #2493 lists them | #2798 |
+| 2026-11-22 | T13: the fallback leaves a host message; the adopter action is "set `verify.roster`, or `TEHAS_DRIVER=classic`" (the owner) | #2801 |
+| 2026-11-22 | T3.1 to T3.5: host scalars, branch check and push fault, issue lists, park rows, refresh inputs typed | #2786, #2788, #2793, #2796, #2805 |
+| 2026-11-22 | T5 part 1: `Home` owns the `state/`, `live/` and `run/` layout; core, plugin, mcp, contractor, proxy, analytics, the console, store, ops and cycle read from it | #2787, #2789, #2795, #2802, #2803, #2804, #2806, #2807 |
+| 2026-11-22 | Port main @ c4b1b8ed (url 2.5.9 for RUSTSEC-2026-0592, #2791) and @ ea6fa29d (lean runs the workspace's Rust tests, #2797, its `.pi/` change confirmed by the owner) | #2792, #2800 |
+| 2026-11-22 | A port of main lands by a fast-forward of the branch to the port's head, never a squash, so main stays in the branch's history | #2792 |
+| 2026-11-22 | T12.1: `tehas answer`, and `--text -` from standard input | #2794, #2808 |
+| 2026-11-22 | T13 part 4: lean's fallback to classic keys on pi-rukas's typed setup refusal (pi-rukas#2511), with a host message | #2798, #2801 |
+| 2026-11-22 | A flaky test fixed: the two writes reports compared without their minute | #2799 |
