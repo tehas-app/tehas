@@ -892,7 +892,7 @@ fn attempt_counts_earlier_runs_and_how_is_kept() {
         9,
         &[
             line(t, "label"),
-            line(t + 1000, "retry-tick"),
+            line(t + 1000, "reply"),
             line(t + 2000, "fixer"),
         ],
     );
@@ -1211,7 +1211,7 @@ fn the_run_takes_its_history_approval_settings_and_commit_from_the_facts_alone()
         &home,
         7,
         "approval",
-        json!({"at": iso(started - 30), "how": "retry-tick"}),
+        json!({"at": iso(started - 30), "how": "reply"}),
     );
     fact(
         &home,
@@ -1228,7 +1228,7 @@ fn the_run_takes_its_history_approval_settings_and_commit_from_the_facts_alone()
             "SELECT id || ' ' || attempt || ' ' || how || ' ' || queue_wait || ' ' || status || ' ' ||
                seconds || ' ' || concurrent || ' ' || rukas_commit FROM runs"
         ),
-        format!("work-7-{started} 4 retry-tick 30 merged 60 2 1234abc")
+        format!("work-7-{started} 4 reply 30 merged 60 2 1234abc")
     );
     assert_eq!(
         one::<String>(&conn, "SELECT role || ' ' || model FROM run_roles"),
@@ -6759,4 +6759,43 @@ fn the_contractor_of_a_run_is_kept_and_an_in_house_run_or_a_bad_word_keeps_none(
             "{name}"
         );
     }
+}
+
+/// A store of before 2.0 holds runs a ticked retry started, `how`
+/// `retry-tick`. Each open rewrites them to `reply` as data, on the schema the
+/// file has, and an open with none left writes nothing; the sessions then list
+/// those runs with `reply` (#2782).
+#[test]
+fn an_open_rewrites_the_hows_of_before_2_0_once_and_the_sessions_list_them() {
+    let home = scratch("old-hows");
+    let now = 1_792_000_000;
+    drop(db::open(&db::path(&home), now).unwrap());
+    let conn = Connection::open(db::path(&home)).unwrap();
+    add_run(&conn, "work-7-old", 7, now - 3600);
+    conn.execute(
+        "UPDATE runs SET how = 'retry-tick' WHERE id = 'work-7-old'",
+        [],
+    )
+    .unwrap();
+    let version: i64 = one(&conn, "PRAGMA user_version");
+    drop(conn);
+    for _ in 0..2 {
+        let (c, _) = db::open(&db::path(&home), now).unwrap();
+        assert_eq!(
+            one::<i64>(&c, "SELECT count(*) FROM runs WHERE how = 'retry-tick'"),
+            0
+        );
+        assert_eq!(
+            one::<String>(&c, "SELECT how FROM runs WHERE id = 'work-7-old'"),
+            "reply"
+        );
+        assert_eq!(one::<i64>(&c, "PRAGMA user_version"), version);
+        drop(c);
+    }
+    let listed = sessions_output(&home, now);
+    let run = listed
+        .iter()
+        .find(|l| l["id"] == "work-7-old")
+        .expect("the run is listed");
+    assert_eq!(run["how"], "reply", "{run}");
 }

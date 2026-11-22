@@ -91,7 +91,9 @@ Rules, in order:
      and 3 hold both back too. The answer counts only on a parked issue that
      GitHub still says is open, and once. One on an issue closed since its
      cycle stopped starts nothing. A box ticked in a comment of before 2.0 is
-     no answer, and nothing happens. A comment is a question only if this
+     no answer, and nothing happens. A question open at the move to 2.0
+     (marked by tehas update) is asked again first, once, in 2.0's words,
+     and its old comment gets one line that links the new one. A comment is a question only if this
      host has its id on record
      on the state store:
      the question of the issue's open planning session, or of its current

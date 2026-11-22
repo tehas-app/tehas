@@ -22,7 +22,7 @@ home=$T/home/tehas
 # record. A run's facts are tehas-cycle's: run_facts <issue> <attempt> [<forks>].
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 t_stub systemctl
-scall="run_facts() { \"\$T/cycle-bin\" after \"\$1\" < <(printf '%s\\0' --attempt \"\$2\" --started $((now - 600)) --rc 0 --status merged --how retry-tick --pr https://github.com/o/r/pull/3 \\
+scall="run_facts() { \"\$T/cycle-bin\" after \"\$1\" < <(printf '%s\\0' --attempt \"\$2\" --started $((now - 600)) --rc 0 --status merged --how reply --pr https://github.com/o/r/pull/3 \\
   --approved \"\$(\"\$T/cycle-bin\" approved \"\$1\" \"\$2\")\" --oom 0 --forks \"\${3:-0}\" --signalled 1 --workdir /nowhere --console true --status-cmd true); }"
 
 t_case "a run's facts are the cycle's line and attempt, and the approval, the settings and the commit on record"
@@ -30,7 +30,7 @@ rm -f "$T"/calls/*
 facts_stub
 T_ENV=(TEHAS_ANALYTICS=on)
 t_store_home "$home"
-t_approve "$home" 7 alice retry-tick "$(date -u -d 2026-10-24T10:59:00Z +%s)"
+t_approve "$home" 7 alice reply "$(date -u -d 2026-10-24T10:59:00Z +%s)"
 t_started "$home" 7 --rukas abcdef1
 echo '{"container": {"PI_ENSEMBLE_SUBAGENT_MODEL": "m"}, "host": {"TEHAS_WORK_TIMEOUT": "60"}, "concurrentCycles": 2}' >"$T/settings.json"
 TEHAS_HOME=$home flock -w 5 "$cycles/7.lock" "$T_STORE" cycle-image 7 --attempt 1 \
@@ -42,8 +42,8 @@ facts=$(cat "$T/calls/facts.path")
 t_eq "$(t_calls analytics)" "run 7 --facts $facts --oom 0 --forks 1
 event 7 ended"
 t_eq "$(jq -c 'del(.line.at)' "$T/calls/facts.json")" "$(jq -n -c --argjson s $((now - 600)) '{line: {started: $s, rc: 0, status: "merged", provider: false, parked: false,
-  pr: "https://github.com/o/r/pull/3", how: "retry-tick"},
-  attempt: 1, approval: {at: "2026-10-24T10:59:00Z", how: "retry-tick", driver: null},
+  pr: "https://github.com/o/r/pull/3", how: "reply"},
+  attempt: 1, approval: {at: "2026-10-24T10:59:00Z", how: "reply", driver: null},
   settings: {container: {PI_ENSEMBLE_SUBAGENT_MODEL: "m"}, host: {TEHAS_WORK_TIMEOUT: "60"}, concurrentCycles: 2},
   rukas: "abcdef1"}')"
 t_eq "$(jq -r .line.at "$T/calls/facts.json" | grep -c '^[0-9-]*T[0-9:]*Z$')" 1
@@ -65,7 +65,7 @@ t_contains "$t_out" "rc=0"
 t_eq "$(jq -c '[.attempt, .approval, .settings, .rukas, .line.status]' "$T/calls/facts.json")" '[2,null,null,null,"merged"]'
 t_store_answers settings-view 1 'store: busy #7: the database is locked'
 t_run "$scall; run_facts 7 1"
-t_eq "$(jq -c '[.approval.how, .settings, .rukas]' "$T/calls/facts.json")" '["retry-tick",null,null]'
+t_eq "$(jq -c '[.approval.how, .settings, .rukas]' "$T/calls/facts.json")" '["reply",null,null]'
 t_store_answers approval-view 78 'store: corrupt: the file is not a database'
 t_run "$scall; run_facts 7 1"
 t_eq "$(jq -c '[.approval, .settings.concurrentCycles]' "$T/calls/facts.json")" '[null,2]'
