@@ -25,6 +25,7 @@ use tehas_core::kinds::Kind;
 mod clean;
 mod epic;
 mod flow;
+mod note;
 mod plan;
 mod retry;
 mod starts;
@@ -32,6 +33,7 @@ mod starts;
 pub(crate) use crate::snapshot::{named_blockers, shape};
 pub(crate) use clean::{iso, quiet_due, quiet_why, Due, QUIET_ASKS};
 pub(crate) use flow::in_flow;
+pub(crate) use note::{change_note_of, in_window, window_order, ContextNote};
 pub(crate) use retry::refresh_why;
 
 /// The time now as log() writes it.
@@ -289,7 +291,7 @@ struct Start {
     /// start's label: the one entry the record names `park_lifted`, so the
     /// reason the start was allowed is on it (#1130). A person's label lifts
     /// nothing.
-    park_lifted: Option<Value>,
+    park_lifted: Option<ContextNote>,
     /// What a start of its kind adds to the action: the comment of a retry
     /// tick, the pull request of a refresh.
     extra: Map<String, Value>,
@@ -2456,7 +2458,7 @@ impl<'a> Poll<'a> {
         &mut self,
         n: u64,
         fixer_at: Option<&str>,
-        lift: &mut Option<Value>,
+        lift: &mut Option<ContextNote>,
     ) -> Step<bool> {
         let Some(park) = self.s.issues.get(&n).and_then(|i| i.park.clone()) else {
             self.need("park");
@@ -2510,9 +2512,7 @@ impl<'a> Poll<'a> {
                 .get(&n)
                 .and_then(|i| i.comments.as_ref())
                 .and_then(|c| c.nodes_or_bare())
-                .and_then(|list| {
-                    crate::apply::start::change_note_of(list, n, &self.c.millwright, at)
-                });
+                .and_then(|list| change_note_of(list, n, &self.c.millwright, at));
             let Some(found) = read else {
                 self.log(format!(
                     "hold #{n}: its last cycle parked on {cap} and the body has not changed since, and the fixer's comments could not be read"
@@ -2581,7 +2581,7 @@ impl<'a> Poll<'a> {
         let Some(comments) = self.s.issues.get(&n).and_then(|i| i.comments.as_ref()) else {
             return Some(Err(()));
         };
-        let Some(mut ans) = comments.or_none().and_then(|c| {
+        let Some(ans) = comments.or_none().and_then(|c| {
             crate::questions::answer_of(
                 c,
                 &self.bot,
@@ -2593,22 +2593,20 @@ impl<'a> Poll<'a> {
         }) else {
             return Some(Err(()));
         };
+        let crate::questions::Answer::Asked(mut ans) = ans else {
+            return None;
+        };
         let given = self.s.issues.get(&n).and_then(|i| i.answer.as_ref());
         crate::answer::overlay(&mut ans, given, |by| self.c.allowed(by));
-        if ans["asked"] != json!(true)
-            || ans["issue"] != json!(n)
-            || ans["kind"] != json!("park")
-            || ans["tick"]["status"] != json!("one")
+        if ans.issue_number() != Some(n)
+            || ans.kind != "park"
+            || ans.tick.status != crate::questions::Status::One
         {
             return None;
         }
-        ans["tick"]["index"]
-            .as_u64()
-            .and_then(|i| ans["labels"].get(usize::try_from(i).ok()?))
-            .and_then(Value::as_str)
+        ans.ticked_label()
             .and_then(tehas_core::question::retry_of)?;
-        let text = |k: &str| ans["tick"][k].as_str().unwrap_or("").to_string();
-        Some(Ok((text("by"), text("at"))))
+        Some(Ok((ans.tick.by.clone(), ans.tick.at.clone())))
     }
 
     /// The park's hold of `n` goes into the poll's report, so status names
@@ -3228,7 +3226,12 @@ impl<'a> Poll<'a> {
             a["fixer_starts"] = json!(count);
         }
         if let Some(note) = st.park_lifted {
-            a["park_lifted"] = note;
+            a["park_lifted"] = Value::Object(
+                note.pairs()
+                    .into_iter()
+                    .map(|(k, v)| (k.into(), json!(v)))
+                    .collect(),
+            );
         }
         if self.c.spec_pipe {
             if let Some(spec) = spec_of(body, &st.remove) {

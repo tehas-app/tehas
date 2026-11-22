@@ -534,6 +534,16 @@ impl Given {
         }
     }
 
+    /// The value as GitHub gave it, null for none.
+    pub fn json(g: Option<&Given>) -> Value {
+        match g {
+            Some(Given::Number(n)) => Value::Number(n.clone()),
+            Some(Given::Text(t)) => json!(t),
+            Some(Given::Other(j)) => serde_json::from_str(j).unwrap_or(Value::Null),
+            None => Value::Null,
+        }
+    }
+
     /// The value for sorting: a whole number, 0 otherwise.
     pub fn sort_key(id: Option<&Given>) -> i64 {
         match id {

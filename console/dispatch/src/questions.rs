@@ -42,7 +42,163 @@ pub fn answer(
     fixer: &str,
 ) -> Option<Value> {
     let c = Comments::parse(comments);
-    answer_of(c.or_none()?, bot, bot_id, allowed, id, fixer)
+    let a = answer_of(c.or_none()?, bot, bot_id, allowed, id, fixer)?;
+    let q = match a {
+        Answer::NotAsked {
+            written_by: Some(by),
+        } => return Some(json!({"asked": false, "written_by": by})),
+        Answer::NotAsked { written_by: None } => return Some(json!({"asked": false})),
+        Answer::Asked(q) => q,
+    };
+    // jq's tonumber: digits too many for an integer are a float, never an
+    // error.
+    let num = |d: &str| -> Value {
+        d.parse::<u64>()
+            .map(Value::from)
+            .unwrap_or_else(|_| json!(d.parse::<f64>().unwrap_or(f64::MAX)))
+    };
+    let t = &q.tick;
+    let tick = match t.status {
+        Status::None => json!({"status": "none"}),
+        Status::Fixer | Status::One => {
+            json!({"status": t.status.word(), "by": t.by, "index": t.index, "at": t.at})
+        }
+        _ => json!({"status": t.status.word(), "by": t.by}),
+    };
+    let mut out = json!({
+        "asked": true, "comment": Given::json(q.comment.as_ref()),
+        "asked_at": q.asked_at,
+        "body": q.body, "kind": q.kind, "issue": num(&q.issue),
+        "turn": num(&q.turn),
+        "boxes": q.boxes, "labels": q.labels, "tick": tick,
+        "reply": q.reply.map(|r| json!({"by": r.by, "text": Given::json(r.text.as_ref()),
+            "at": Given::json(r.at.as_ref()), "id": Given::json(r.id.as_ref())})),
+    });
+    if !fixer.is_empty() {
+        out["fixer_reply"] = match q.fixer_reply {
+            None => Value::Null,
+            Some(f) => json!({"by": f.by, "text": f.text, "at": Given::json(f.at.as_ref()),
+                "id": Given::json(f.id.as_ref()), "marked": true}),
+        };
+    }
+    Some(out)
+}
+
+/// What `answer` reads of the comments.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Answer {
+    /// No question of the bot's is there; `written_by` names who wrote the
+    /// comment with the id asked for, when another account did.
+    NotAsked {
+        written_by: Option<String>,
+    },
+    Asked(Box<Asked>),
+}
+
+/// The bot's question and what was answered to it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Asked {
+    /// The question's databaseId as GitHub gave it.
+    pub comment: Option<Given>,
+    /// createdAt, empty when it is not text.
+    pub asked_at: String,
+    pub body: String,
+    pub kind: String,
+    /// The marker's issue and turn, as digits.
+    pub issue: String,
+    pub turn: String,
+    pub boxes: usize,
+    /// The label of each box.
+    pub labels: Vec<String>,
+    pub tick: Tick,
+    pub reply: Option<Reply>,
+    /// None also when no fixer was named.
+    pub fixer_reply: Option<FixerReply>,
+}
+
+impl Asked {
+    /// The marker's issue as a number, None when it is too big for one.
+    pub fn issue_number(&self) -> Option<u64> {
+        self.issue.parse().ok()
+    }
+
+    /// The label of the ticked box, when one was ticked.
+    pub fn ticked_label(&self) -> Option<&str> {
+        self.labels.get(self.tick.index?).map(String::as_str)
+    }
+}
+
+/// What was ticked in the question.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tick {
+    pub status: Status,
+    /// Who saved the question, empty for no tick.
+    pub by: String,
+    /// The box ticked, counted from the top: for One and Fixer.
+    pub index: Option<usize>,
+    /// When the question was saved, for One and Fixer; empty otherwise.
+    pub at: String,
+    /// The tick is an answer of `tehas answer`, written in by
+    /// `answer::overlay`.
+    pub answered: bool,
+}
+
+impl Tick {
+    /// No box ticked.
+    pub fn none() -> Tick {
+        Tick {
+            status: Status::None,
+            by: String::new(),
+            index: None,
+            at: String::new(),
+            answered: false,
+        }
+    }
+}
+
+/// The kinds of tick `answer` tells apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Status {
+    None,
+    Unread,
+    Held,
+    Fixer,
+    Stranger,
+    Many,
+    One,
+}
+
+impl Status {
+    /// The status as the answer writes it.
+    pub fn word(self) -> &'static str {
+        match self {
+            Status::None => "none",
+            Status::Unread => "unread",
+            Status::Held => "held",
+            Status::Fixer => "fixer",
+            Status::Stranger => "stranger",
+            Status::Many => "many",
+            Status::One => "one",
+        }
+    }
+}
+
+/// The newest reply of an allowed account, its values as GitHub gave them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Reply {
+    pub by: String,
+    pub text: Option<Given>,
+    pub at: Option<Given>,
+    pub id: Option<Given>,
+}
+
+/// The fixer's marked reply: its text leaves the marker out.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FixerReply {
+    pub by: String,
+    pub text: String,
+    pub at: Option<Given>,
+    pub id: Option<Given>,
 }
 
 /// `answer` of comments already read.
@@ -53,19 +209,12 @@ pub fn answer_of(
     allowed: &[String],
     id: &str,
     fixer: &str,
-) -> Option<Value> {
+) -> Option<Answer> {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| {
         Regex::new(r"<!-- tehas:question kind=(?<kind>[a-z]+) issue=(?<issue>[0-9]+) turn=(?<turn>[0-9]+) -->").unwrap()
     });
     let bot = bot.strip_suffix("[bot]").unwrap_or(bot);
-    // The value as GitHub gave it.
-    let raw = |g: &Option<Given>| match g {
-        Some(Given::Number(n)) => Value::Number(n.clone()),
-        Some(Given::Text(t)) => json!(t),
-        Some(Given::Other(j)) => serde_json::from_str(j).unwrap_or(Value::Null),
-        None => Value::Null,
-    };
     let listed = |l: &str| allowed.iter().any(|a| a == l);
     let bots = |a: &Account| match bot_id {
         Some(i) => a.id == Some(i),
@@ -91,9 +240,8 @@ pub fn answer_of(
         }
     }
     let Some(k) = q else {
-        return Some(match stranger {
-            Some(by) => json!({"asked": false, "written_by": by}),
-            None => json!({"asked": false}),
+        return Some(Answer::NotAsked {
+            written_by: stranger,
         });
     };
     let qv = &c[k];
@@ -107,10 +255,10 @@ pub fn answer_of(
     // The label of each box, the text after its box: jq's `.[6:]` of the same
     // lines. A poll reads what was ticked from these, so the comment and its
     // readers parse a line one way, in either language.
-    let labels: Vec<Value> = body
+    let labels: Vec<String> = body
         .split('\n')
         .filter(|l| l.starts_with("- [") && matches!(l.get(3..6), Some(" ] " | "x] " | "X] ")))
-        .map(|l| json!(l.get(6..).unwrap_or("")))
+        .map(|l| l.get(6..).unwrap_or("").to_string())
         .collect();
     let ticks: Vec<usize> = boxes
         .iter()
@@ -125,8 +273,22 @@ pub fn answer_of(
         let e = x.editor_login();
         listed(&x.author.login) && (e.is_empty() || listed(e))
     });
+    let saved = |status: Status| Tick {
+        status,
+        by: ed.clone(),
+        index: None,
+        at: String::new(),
+        answered: false,
+    };
+    let chose = |status: Status| Tick {
+        status,
+        by: ed.clone(),
+        index: Some(ticks[0]),
+        at: edited_at.to_string(),
+        answered: false,
+    };
     let tick = if ticks.is_empty() {
-        json!({"status": "none"})
+        Tick::none()
     } else if !fixer.is_empty() && ed == fixer && ticks.len() == 1 {
         let h = &qv.history;
         // A history whose read failed says nothing of who saved the question:
@@ -135,65 +297,67 @@ pub fn answer_of(
         // gives every comment a history: read, none for an unedited one, or
         // failed.
         if h.failed {
-            json!({"status": "unread", "by": ed})
+            saved(Status::Unread)
         } else if h.total > h.editors.len() as f64
             || h.editors.iter().any(|e| e.login != fixer && !bots(e))
         {
-            json!({"status": "held", "by": ed})
+            saved(Status::Held)
         } else {
-            json!({"status": "fixer", "by": ed, "index": ticks[0], "at": edited_at})
+            chose(Status::Fixer)
         }
     } else if !listed(&ed) && (fixer.is_empty() || ed != fixer) {
-        json!({"status": "stranger", "by": ed})
+        saved(Status::Stranger)
     } else if ticks.len() > 1 {
-        json!({"status": "many", "by": ed})
+        saved(Status::Many)
     } else {
-        json!({"status": "one", "by": ed, "index": ticks[0], "at": edited_at})
-    };
-    // jq's tonumber: digits too many for an integer are a float, never an
-    // error.
-    let num = |d: &str| -> Value {
-        d.parse::<u64>()
-            .map(Value::from)
-            .unwrap_or_else(|_| json!(d.parse::<f64>().unwrap_or(f64::MAX)))
+        chose(Status::One)
     };
     let issue = &m["issue"];
-    let mut out = json!({
-        "asked": true, "comment": raw(&qv.id),
-        "asked_at": qv.created_text().unwrap_or(""),
-        "body": body, "kind": &m["kind"], "issue": num(issue),
-        "turn": num(&m["turn"]),
-        "boxes": boxes.len(), "labels": labels, "tick": tick,
-        "reply": reply.map(|r| json!({"by": r.author.login, "text": raw(&r.body),
-            "at": raw(&r.created_at), "id": raw(&r.id)})),
-    });
-    if !fixer.is_empty() {
+    let fixer_reply = if fixer.is_empty() {
+        None
+    } else {
         let mark = format!("<!-- tehas:millwright issue={issue} action=answer -->");
         let marked = |b: &str| {
             let first = b.split('\n').next().unwrap_or("");
             first.strip_suffix('\r').unwrap_or(first) == mark
         };
-        let f = after.iter().rfind(|x| {
-            let e = x.editor_login();
-            x.author.login == fixer
-                && (e.is_empty() || e == fixer)
-                && marked(x.body_text().unwrap_or(""))
-        });
-        out["fixer_reply"] = match f {
-            None => Value::Null,
-            Some(f) => {
+        after
+            .iter()
+            .rfind(|x| {
+                let e = x.editor_login();
+                x.author.login == fixer
+                    && (e.is_empty() || e == fixer)
+                    && marked(x.body_text().unwrap_or(""))
+            })
+            .and_then(|f| {
                 let b = f.body_text().unwrap_or("");
                 let text = b.split_once('\n').map_or("", |(_, rest)| rest);
-                if text.trim().is_empty() {
-                    Value::Null
-                } else {
-                    json!({"by": f.author.login, "text": text, "at": raw(&f.created_at),
-                        "id": raw(&f.id), "marked": true})
-                }
-            }
-        };
-    }
-    Some(out)
+                (!text.trim().is_empty()).then(|| FixerReply {
+                    by: f.author.login.clone(),
+                    text: text.to_string(),
+                    at: f.created_at.clone(),
+                    id: f.id.clone(),
+                })
+            })
+    };
+    Some(Answer::Asked(Box::new(Asked {
+        comment: qv.id.clone(),
+        asked_at: qv.created_text().unwrap_or("").to_string(),
+        body: body.to_string(),
+        kind: m["kind"].to_string(),
+        issue: issue.to_string(),
+        turn: m["turn"].to_string(),
+        boxes: boxes.len(),
+        labels,
+        tick,
+        reply: reply.map(|r| Reply {
+            by: r.author.login.clone(),
+            text: r.body.clone(),
+            at: r.created_at.clone(),
+            id: r.id.clone(),
+        }),
+        fixer_reply,
+    })))
 }
 
 /// A body with every box empty, read with no final newlines.
