@@ -15,6 +15,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+use tehas_core::home::{Home, State};
 use tehas_core::testdir::TestDir;
 use tehas_cycle::relay::Scope;
 use tehas_proxy::channel::{key_hash, Channel, Factory};
@@ -385,7 +386,7 @@ fn every_file(dir: &Path, out: &mut Vec<(PathBuf, Vec<u8>)>) {
 fn a_host_joins_runs_one_job_to_its_result_and_is_left_clean() {
     let d = TestDir::new("contractor-program");
     let factory_home = d.path().join("factory");
-    fs::create_dir_all(factory_home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(&factory_home).state_dir()).unwrap();
     call(
         &factory_home,
         &[
@@ -401,7 +402,7 @@ fn a_host_joins_runs_one_job_to_its_result_and_is_left_clean() {
             "--outsource",
         ],
     );
-    let c = rusqlite::Connection::open(factory_home.join("state/tehas.db")).unwrap();
+    let c = rusqlite::Connection::open(Home::new(&factory_home).state(State::StoreDb)).unwrap();
     c.execute(
         "INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (7, 'issue', 1, 1)",
         [],
@@ -451,10 +452,11 @@ fn a_host_joins_runs_one_job_to_its_result_and_is_left_clean() {
         .unwrap();
     assert!(cloned.status.success());
     let image = format!("sha256:{}", "a".repeat(64));
-    fs::create_dir_all(factory_home.join("state/index")).unwrap();
-    fs::write(factory_home.join("state/index/widget.db"), "an index\n").unwrap();
+    let index = Home::new(&factory_home).state(State::CodeIndex);
+    fs::create_dir_all(&index).unwrap();
+    fs::write(index.join("widget.db"), "an index\n").unwrap();
     fs::write(
-        factory_home.join("state/index.json"),
+        Home::new(&factory_home).state(State::CodeIndexState),
         json!({ "commit": "c0ffee", "indexer_image": image }).to_string(),
     )
     .unwrap();
@@ -759,10 +761,10 @@ fn run_refuses_a_home_that_holds_a_factory_and_removes_nothing() {
     let user_home = d.path().join("factory-owner");
     let tehas_home = user_home.join("tehas");
     let kept = [
-        tehas_home.join("state/tehas.db"),
+        Home::new(&tehas_home).state(State::StoreDb),
         tehas_home.join("repos/widget/README"),
         tehas_home.join("work/widget-7/notes"),
-        tehas_home.join("state/cycles/7.result.json"),
+        Home::new(&tehas_home).cycle_note(7, "result.json"),
         user_home.join(".pi/agent/models.json"),
     ];
     for f in &kept {
@@ -818,7 +820,7 @@ fn resolve(host: &str, _: u16) -> std::io::Result<Vec<std::net::SocketAddr>> {
 fn the_contractor_s_git_goes_out_only_through_the_factory_s_egress_route() {
     let d = TestDir::new("contractor-egress");
     let factory_home = d.path().join("factory");
-    fs::create_dir_all(factory_home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(&factory_home).state_dir()).unwrap();
     call(
         &factory_home,
         &[
@@ -834,7 +836,7 @@ fn the_contractor_s_git_goes_out_only_through_the_factory_s_egress_route() {
             "--outsource",
         ],
     );
-    let c = rusqlite::Connection::open(factory_home.join("state/tehas.db")).unwrap();
+    let c = rusqlite::Connection::open(Home::new(&factory_home).state(State::StoreDb)).unwrap();
     c.execute(
         "INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (7, 'issue', 1, 1)",
         [],
@@ -929,7 +931,7 @@ fn the_contractor_s_git_goes_out_only_through_the_factory_s_egress_route() {
 /// listener: its home, its address and the key.
 fn factory_with(d: &Path, downloads: Option<&'static OfHome>) -> (PathBuf, String, &'static str) {
     let home = d.join("factory");
-    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(&home).state_dir()).unwrap();
     call(
         &home,
         &[
@@ -945,7 +947,7 @@ fn factory_with(d: &Path, downloads: Option<&'static OfHome>) -> (PathBuf, Strin
             "--outsource",
         ],
     );
-    let c = rusqlite::Connection::open(home.join("state/tehas.db")).unwrap();
+    let c = rusqlite::Connection::open(Home::new(&home).state(State::StoreDb)).unwrap();
     c.execute(
         "INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (7, 'issue', 1, 1)",
         [],
