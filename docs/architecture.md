@@ -150,22 +150,13 @@ likewise.
 
 Counts T15's ports raised. "Max before" is the max just before that pull request, not the fork value. The fork values are in the next table; the trio's gate fails any count left above its fork value at the end, and the plan's aim for each is 0 or a written floor.
 
-| Check | Max before | Max after | Pull request | Why (false positives) | Removed by |
+| Check | Max before | Max after | Pull request | Why | Removed by |
 | --- | --- | --- | --- | --- | --- |
-| github-rest | 840 | 860 | #2859 | tehas's own --json flag, and tehas's JSON keys copied from GitHub's names | T4/T7: the check narrows to the adapter's paths, or the keys are renamed |
-| gh-argv | 408 | 409 | #2859 | a fixture's process named gh | T4 |
-| raw-statuses | 259 | 260 | #2859 | a fixture's 404 from the docs server | T4/T7 |
-| github-rest | 860 | 870 | #2860 | pi-rukas's runner flag --json, written as the tests pass it | T4/T7: the check narrows to the adapter's paths |
-| gh-argv | 404 | 406 | #2866 | the name gh in the list of tools the analytics tests stub to fail | T1 |
-| tests-stub-gh | 414 | 416 | #2866 | the same list of tools, counted again in a test file | T1 |
-| untyped-signatures | 1388 | 1389 | #2866 | a test helper that edits a row of GitHub's list, the untyped value preview::choose takes | T7 |
-| github-rest | 852 | 855 | #2879 | tehas order's and tehas top's own --json flag, and the updatedAt key of tehas's own running.json | T4/T7: the check narrows to the adapter's paths, or the key is renamed |
-| gh-argv | 402 | 405 | #2879 | the name gh in console_run's list of stubbed tools and the calls it reads to show nothing ran | T1 |
-| tests-stub-gh | 410 | 413 | #2879 | the same three lines, counted again in a test file | T1 |
-| label-words | 1866 | 1867 | #2879 | a park marker that store_paths gives its patterns as a line they must not take | T7 |
-| home-layout | 491 | 513 | #2879 | the sample lines store_paths gives its patterns: shell text naming the old files under state/, data the check reads | T7 |
+| untyped-signatures | 1388 | 1389 | #2866 | a test helper that edits a row of GitHub's list, the untyped value preview::choose takes: a real untyped signature | T7 |
+| gh-argv | 402 | 405 | #2879 | console_run reads its stub gh's calls to show a refused command called nothing: reading a stub's calls is how a test pins an argument list, so the check is not narrowed there. The other 2 of the 3 were narrowed out | T1 |
+| tests-stub-gh | 410 | 413 | #2879 | the same calls("gh"), counted again in a test file. The other 2 of the 3 were narrowed out | T1 |
 
-Lowered since by removals, not by these rows' causes: github-rest 870 to 863 (#2862, the product wiki). The rises above stay to be removed by T4 and T7.
+Lowered since by removals, not by these rows' causes: github-rest 870 to 863 (#2862, the product wiki). Cleared by narrowing the checks, not left for T4 and T7: every other row, from #2859, #2860, #2866 and #2879. Test files whose every match is the check's data or tehas's own words are in the check's `allowed` (store_paths.rs for label-words and home-layout, host_bridge.rs for raw-statuses, headless_caps.rs, top/mod.rs and top_frame.rs for github-rest), and the patterns skip tehas top's and tehas order's own --json, a "gh" after a colon (a process name in a fixture) and a "gh" beside "docker" in a list (a harness's deny list). Each check's `why` says what. Since then: github-rest 855 to 822, gh-argv 405 to 395, tests-stub-gh 413 to 403, home-layout 513 to 491, label-words 1867 to 1866, raw-statuses 260 to 259. The narrowed patterns also stop 5 deny-list lines older than T15 in gh-argv and tests-stub-gh.
 
 ### Fork values
 
@@ -184,7 +175,7 @@ Each check's count at the fork (v1.4.0, a0aa16a5), as `architecture.toml` measur
 | raw-statuses | 259 |
 | tests-stub-gh | 419 |
 
-Above its fork value today: github-rest and raw-statuses, both from the rises above, for T4 and T7 to bring down.
+Above its fork value today: none. Below it: github-rest (822, 24 below), gh-argv (395, 13 below), tests-stub-gh (403, 16 below), label-words, home-layout and untyped-signatures. raw-statuses is at it (259).
 
 ## Grades
 
