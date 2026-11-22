@@ -29,6 +29,7 @@ use crate::run::{iso_ms, read_json};
 use rusqlite::{params, Connection};
 use serde_json::Value;
 use std::path::Path;
+use tehas_core::home::{Home, Live};
 use tehas_core::queue_lists;
 
 /// Seconds after which a live file no longer describes the poll.
@@ -49,14 +50,14 @@ pub struct Sample {
 }
 
 pub fn read(home: &Path, now: i64) -> Sample {
-    let live = home.join("live");
-    let fresh = |name: &str, key: &str, stale: i64| {
-        let v = read_json(&live.join(name))?;
+    let home = Home::new(home);
+    let fresh = |view: Live, key: &str, stale: i64| {
+        let v = read_json(&home.live(view))?;
         let at = iso_ms(v.get(key)?.as_str()?)? / 1000;
         (now - at <= stale).then_some(v)
     };
     let mut s = Sample::default();
-    if let Some(st) = fresh("status.json", "generatedAt", STALE) {
+    if let Some(st) = fresh(Live::Status, "generatedAt", STALE) {
         let len = |k: &str| st.get(k).and_then(Value::as_array).map(|a| a.len() as i64);
         s.in_line = len(queue_lists::QUEUED);
         s.running = len(queue_lists::RUNNING);
@@ -68,7 +69,7 @@ pub fn read(home: &Path, now: i64) -> Sample {
             .and_then(Value::as_i64)
             .filter(|n| *n >= 0);
     }
-    if let Some(d) = fresh("dispatch.json", tehas_core::hold::KEY_TIME, STALE_DISPATCH) {
+    if let Some(d) = fresh(Live::Dispatch, tehas_core::hold::KEY_TIME, STALE_DISPATCH) {
         let n = |k: &str| d.get(k).and_then(Value::as_i64);
         s.held = d
             .get(tehas_core::hold::KEY_WHY)
@@ -91,7 +92,7 @@ pub fn read(home: &Path, now: i64) -> Sample {
             s.cycle_limit = Some(limit.max(0));
         }
     }
-    if let Some(e) = fresh("energy.json", "generatedAt", STALE) {
+    if let Some(e) = fresh(Live::Energy, "generatedAt", STALE) {
         s.watts = e
             .get("totals")
             .and_then(|t| t.get("watts"))

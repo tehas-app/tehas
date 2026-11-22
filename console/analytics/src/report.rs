@@ -46,6 +46,7 @@ use rusqlite::{params, Connection};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use tehas_core::home::State;
 use tehas_core::time::civil_from_days;
 
 pub const REPORT_VERSION: i64 = 1;
@@ -107,10 +108,6 @@ const SIZE_MAX_FILES: i64 = 999_999_999;
 /// The greatest gate share the report prints: a run of the gate that outlasted
 /// the run it was in is a figure of two clocks, not a share above the whole.
 const MAX_SHARE: f64 = 1.0;
-/// The two ledgers beside the database, named once: `sessions` reads
-/// `refined.jsonl` too, and both readers must mean the same file.
-const SIZES_LEDGER: &str = "sizes.jsonl";
-pub(crate) const REFINED_LEDGER: &str = "refined.jsonl";
 
 /// A word of a published vocabulary, or "other": a value of any other shape
 /// is never published as it is.
@@ -427,8 +424,8 @@ pub struct Refined {
     pub filed: i64,
 }
 
-fn read_ledger(home: &Path, name: &str) -> Option<String> {
-    crate::run::read_ledger(home, name, LEDGER_MAX_BYTES)
+fn read_ledger(home: &Path, ledger: State) -> Option<String> {
+    crate::run::read_ledger(home, ledger, LEDGER_MAX_BYTES)
 }
 
 /// A ledger line's `at` in Unix seconds, or nothing: an ISO time as the writers
@@ -450,7 +447,7 @@ pub(crate) fn ledger_at(v: &Value) -> Option<i64> {
 /// and a positive number is skipped, and so is a line of `LEDGER_MAX_LINE`
 /// bytes or more; no file is no refined issue.
 pub fn read_refined(home: &Path) -> Vec<Refined> {
-    ledger_lines(home, REFINED_LEDGER)
+    ledger_lines(home, State::Refined)
         .into_iter()
         .filter_map(|v| {
             let at = ledger_at(&v)?;
@@ -463,8 +460,8 @@ pub fn read_refined(home: &Path) -> Vec<Refined> {
 /// The lines of one ledger beside the database, each parsed as a JSON value and
 /// none of a shape it cannot be: what the file is not (no file, a link, a
 /// device, too long, not text) is no lines at all.
-fn ledger_lines(home: &Path, name: &str) -> Vec<Value> {
-    let Some(text) = read_ledger(home, name) else {
+fn ledger_lines(home: &Path, ledger: State) -> Vec<Value> {
+    let Some(text) = read_ledger(home, ledger) else {
         return Vec::new();
     };
     text.lines()
@@ -579,7 +576,7 @@ pub struct Size {
 /// measured issue at all, as no file is.
 pub fn read_sizes(home: &Path) -> Vec<Size> {
     let mut latest: BTreeMap<i64, Size> = BTreeMap::new();
-    for v in ledger_lines(home, SIZES_LEDGER) {
+    for v in ledger_lines(home, State::Sizes) {
         let Some(at) = ledger_at(&v) else {
             continue;
         };

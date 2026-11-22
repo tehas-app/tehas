@@ -21,6 +21,7 @@ use crate::run::{iso_ms, read_facts, read_json, tehas_version, Run};
 use rusqlite::{params, Connection};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use tehas_core::home::Home;
 
 /// What the poll passes: how the turn's unit ended (its exit status, interrupted, not-started or not-readable), the
 /// sandbox image's id, build time and pi-rukas commit, and the facts file.
@@ -46,7 +47,6 @@ pub const MILLWRIGHT_MARKS: [&str; 2] = tehas_core::grammar::MILLWRIGHT_WORDS;
 const MILLWRIGHT_MARKS: [&str; 2] = tehas_core::grammar::MILLWRIGHT_WORDS;
 
 pub fn read(home: &Path, issue: i64, given: &Given, now: i64) -> Result<Run, String> {
-    let state = home.join("state");
     let none = || format!("no planning turn of issue {issue} in flight, so none to record");
     let rec = read_facts(given.facts.as_deref()).ok_or_else(none)?;
     let rec = rec.as_object().ok_or_else(none)?;
@@ -65,7 +65,7 @@ pub fn read(home: &Path, issue: i64, given: &Given, now: i64) -> Result<Run, Str
         .filter(|n| *n >= 0)
         .unwrap_or(0);
     let turn = before + 1;
-    let out = read_json(&state.join(format!("plan-{issue}.json.out")));
+    let out = read_json(&Home::new(home).plan_file(issue as u64, ".out"));
     let lost = out
         .as_ref()
         .and_then(|o| o.get("lost"))

@@ -181,7 +181,7 @@ struct Filed {
 // plain-file rule the report's own ledger reader uses: anything unreadable, a
 // link, or a line of another shape is no filed issue.
 fn ledger(home: &Path) -> Vec<Filed> {
-    let text = crate::run::read_ledger(home, crate::report::REFINED_LEDGER, LEDGER_MAX_BYTES)
+    let text = crate::run::read_ledger(home, tehas_core::home::State::Refined, LEDGER_MAX_BYTES)
         .unwrap_or_default();
     text.lines()
         .filter(|l| l.len() < LEDGER_MAX_LINE)

@@ -9,13 +9,15 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use tehas_core::home::{Home, State};
 
 const ANALYTICS: &str = env!("CARGO_BIN_EXE_analytics");
 
 fn scratch(name: &str) -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
     let _ = fs::remove_dir_all(&dir);
-    for sub in ["state/cycles", "logs", "docs"] {
+    fs::create_dir_all(Home::new(&dir).cycles_dir()).unwrap();
+    for sub in ["logs", "docs"] {
         fs::create_dir_all(dir.join(sub)).unwrap();
     }
     dir
@@ -57,7 +59,7 @@ fn home_with_a_run(name: &str) -> (PathBuf, String) {
         .unwrap();
     assert_eq!(run.status.code(), Some(0), "{run:?}");
 
-    let conn = rusqlite::Connection::open(home.join("state/analytics.db")).unwrap();
+    let conn = rusqlite::Connection::open(Home::new(&home).state(State::AnalyticsDb)).unwrap();
     conn.execute(
         &format!(
             "INSERT INTO runs (id, kind, issue, attempt, how, started, ended, seconds,
@@ -95,7 +97,7 @@ fn home_with_a_run(name: &str) -> (PathBuf, String) {
         "abc",
     )
     .unwrap();
-    fs::create_dir_all(home.join("live")).unwrap();
+    fs::create_dir_all(Home::new(&home).live_dir()).unwrap();
     (home, id)
 }
 
@@ -122,7 +124,7 @@ fn the_mcp_reader_copies_every_field_the_sessions_writer_emits() {
     let (home, id) = home_with_a_run("sessions-contract");
     write_snapshot(&home);
     let dirs = mcp::tools::Dirs {
-        live: home.join("live"),
+        live: Home::new(&home).live_dir(),
         sessions: home.join("mcp"),
         logs: home.join("logs"),
     };

@@ -72,6 +72,7 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::time::UNIX_EPOCH;
 use tehas_core::grammar::is_hex;
+use tehas_core::home::{Home, State};
 use tehas_core::mask;
 use tehas_core::time::days_from_civil;
 
@@ -235,7 +236,7 @@ const MAX_LEAN_FILE: u64 = 256 << 10;
 /// as it starts, so what is there when the run is recorded is this run's. None
 /// when there is no file, or one this reads no step from.
 pub fn lean_steps(home: &Path, issue: i64) -> Option<Vec<String>> {
-    let p = home.join(format!("state/cycles/{issue}.lean-state.json"));
+    let p = Home::new(home).cycle_note(issue as u64, "lean-state.json");
     let v = read_json_of(&p, MAX_LEAN_FILE)?;
     let out: Vec<String> = v
         .get("steps")?
@@ -257,8 +258,8 @@ pub(crate) fn read_facts(given: Option<&Path>) -> Option<Value> {
 /// Reads the run of `issue` that ended last. Err when its facts cannot be
 /// read or hold no history line.
 pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
-    let cycles = home.join("state").join("cycles");
-    let note = |ext: &str| cycles.join(format!("{issue}.{ext}"));
+    let cycles = Home::new(home);
+    let note = |ext: &str| cycles.cycle_note(issue as u64, ext);
 
     let facts = read_facts(given.facts.as_deref())
         .and_then(|f| match f {
@@ -861,12 +862,12 @@ fn plain_file(p: &Path) -> Option<File> {
     File::open(p).ok()
 }
 
-/// A ledger beside the database: `state/<name>`, read by the one rule this
+/// A ledger beside the database, under `state/`, read by the one rule this
 /// program has for a host file it did not write -- never through a link, never
 /// a device or a fifo, and none over `limit` bytes. Both state ledgers are read
 /// here, so "a ledger is a bounded plain file" is held in one place.
-pub(crate) fn read_ledger(home: &Path, name: &str, limit: u64) -> Option<String> {
-    read_plain(&home.join("state").join(name), limit)
+pub(crate) fn read_ledger(home: &Path, ledger: State, limit: u64) -> Option<String> {
+    read_plain(&Home::new(home).state(ledger), limit)
 }
 
 /// A plain file's text, never through a link, and none over `limit` bytes. The
