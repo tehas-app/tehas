@@ -304,6 +304,12 @@ fn current(c: &Connection, issue: i64) -> Result<Option<(i64, bool, Option<i64>)
     .q()
 }
 
+/// The park question on record of the issue: the newest unanswered one of
+/// the current park's attempt.
+pub(crate) fn question_on_record(c: &Connection, issue: i64) -> Result<Option<i64>, Fail> {
+    Ok(current(c, issue)?.and_then(|(_, _, q)| q))
+}
+
 /// The id is taken when it is a question of another issue or of `kind`'s other
 /// kind. Some(true) when the same question is already on record.
 fn taken(c: &Connection, issue: i64, id: i64, kind: &str) -> Result<Option<bool>, Fail> {
@@ -621,6 +627,14 @@ pub(crate) fn known(c: &Connection, issue: i64, id: i64) -> Result<String, Fail>
             ("kind", j(row.as_ref().map(|r| r.0.clone()))),
             ("recorded", j(row.is_some())),
             ("answered", j(row.is_some_and(|r| r.1.is_some()))),
+            (
+                "answer",
+                if known {
+                    crate::answer::waiting_json(c, issue, id)?
+                } else {
+                    "null".to_string()
+                },
+            ),
         ],
     ))
 }

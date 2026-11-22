@@ -154,17 +154,18 @@ fn step_sql(to: i64) -> &'static str {
         21 => db::STEP_21,
         22 => db::STEP_22,
         23 => db::STEP_23,
+        24 => db::STEP_24,
         _ => unreachable!("no step to {to}"),
     }
 }
 
-/// Every table but meta, plugin_runs and plugin_records, with its rows, in
-/// rowid order. The two are new at 19 and 20, so no store a step starts from
-/// holds them.
+/// Every table but meta, plugin_runs, plugin_records and answers, with its
+/// rows, in rowid order. The three are new at 19, 20 and 24, so no store a
+/// step starts from holds them.
 fn rows(c: &Connection) -> Vec<(String, usize)> {
     tables(c)
         .into_iter()
-        .filter(|t| t != "meta" && t != "plugin_runs" && t != "plugin_records")
+        .filter(|t| !["meta", "plugin_runs", "plugin_records", "answers"].contains(&t.as_str()))
         .map(|t| {
             let n = dump(c, &t, &columns(c, &t)).len();
             (t, n)
@@ -289,13 +290,13 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_23() {
-    assert_eq!(db::SCHEMA_VERSION, 23);
-    let home = home("schema-23");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 23);
+fn init_writes_schema_24() {
+    assert_eq!(db::SCHEMA_VERSION, 24);
+    let home = home("schema-24");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 24);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "23"
+        "24"
     );
     // The five tables of the feature are laid by every init, and stay empty
     // while it is off.
@@ -349,6 +350,20 @@ fn init_writes_schema_23() {
     // Schema 21: who filed a record's issue.
     assert!(columns(&c, "plugin_records").contains(&"filed_by".to_string()));
     assert!(columns(&c, "plugin_records").contains(&"filed_by_id".to_string()));
+    // Schema 24: the answers of `tehas answer`, none until one is given.
+    assert_eq!(
+        columns(&c, "answers"),
+        [
+            "question",
+            "issue",
+            "at",
+            "by_account",
+            "choice",
+            "option_key",
+            "text"
+        ]
+    );
+    assert_eq!(count(&home, "answers"), 0);
     let made = tables(&c);
     for t in DROPPED {
         assert!(!made.contains(&t.to_string()), "{t}");
@@ -950,6 +965,47 @@ fn the_step_from_22_keeps_the_plugin_runs_and_takes_a_call() {
     same_shape_as_init(&home, &conn(&made), "22");
 }
 
+/// The step to 24 keeps every row and adds the answers, empty, which go with
+/// their question.
+#[test]
+fn the_step_from_23_adds_the_answers_and_an_answer_goes_with_its_question() {
+    let home = at_22("step-24-answers");
+    let mut c = conn(&home);
+    for (to, run) in db::STEPS {
+        if *to == 23 {
+            run(&mut c).unwrap();
+        }
+    }
+    drop(c);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 23);
+    let before = rows(&conn(&home));
+    migrate(&home).unwrap();
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
+    assert_eq!(rows(&conn(&home)), before);
+    assert_eq!(count(&home, "answers"), 0);
+    let c = conn(&home);
+    c.execute_batch("PRAGMA foreign_keys = ON").unwrap();
+    let id: i64 = c
+        .query_row("SELECT id FROM questions LIMIT 1", [], |r| r.get(0))
+        .unwrap();
+    c.execute(
+        "INSERT INTO answers (question, issue, at, by_account, choice) VALUES (?1, 7, 100, 'alice', 'retry')",
+        [id],
+    )
+    .unwrap();
+    assert!(c
+        .execute(
+            "INSERT INTO answers (question, issue, at, by_account, choice) VALUES (?1, 7, 100, 'alice', 'tick')",
+            [id + 1],
+        )
+        .is_err());
+    c.execute("DELETE FROM questions WHERE id = ?1", [id])
+        .unwrap();
+    assert_eq!(count(&home, "answers"), 0);
+    let made = crate::verbs_tests::home("step-24-shape");
+    same_shape_as_init(&home, &conn(&made), "23");
+}
+
 #[test]
 fn the_steps_are_the_ladder_from_v0_30_up_to_the_schema_this_binary_writes() {
     // The list migrate walks is one entry per schema, in order, each once: a
@@ -1042,7 +1098,8 @@ fn a_migrated_store_with_the_feature_off_writes_no_outsource_row() {
 const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 /// The sources of the verbs, without their tests.
-const VERB_SOURCES: [(&str, &str); 23] = [
+const VERB_SOURCES: [(&str, &str); 24] = [
+    ("answer.rs", include_str!("answer.rs")),
     ("approval.rs", include_str!("approval.rs")),
     ("batch.rs", include_str!("batch.rs")),
     ("call.rs", include_str!("call.rs")),

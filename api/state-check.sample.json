@@ -2,10 +2,11 @@
   "api": 1,
   "verb": "check",
   "ok": true,
-  "schema": 23,
+  "schema": 24,
   "integrity": "ok",
   "rows": {
     "actions": 0,
+    "answers": 0,
     "approvals": 0,
     "cycle_history": 0,
     "cycle_notes": 0,

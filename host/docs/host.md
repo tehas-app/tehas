@@ -771,13 +771,14 @@ No container is given it. Only one program writes it: the store,
 `~/tehas/libexec/store`, which `install.sh` builds and installs with the
 console, or takes from the release.
 
-What is in it today: the schema, version 23 (`PRAGMA user_version`); `meta`,
+What is in it today: the schema, version 24 (`PRAGMA user_version`); `meta`,
 which says when the database was made, by which version and commit of tehas,
 and for which instance and repository; and the cycles' records: the approval
 each start rests on (the dispatcher's), each cycle's start and end with its
 image, settings, branch, result and progress (`tehasbot cycle`, `tehas work`,
 `tehas stop`), and the last 50 lines of history of each issue; each park and
-its question (`tehasbot cycle`, the dispatcher); and each planning session,
+its question (`tehasbot cycle`, the dispatcher), and the answer `tehas answer`
+gave to a question on record; and each planning session,
 with its brief, its answers, the issues it filed, its open question and the
 last 50 lines of history of its turns (the dispatcher); and the records
 plugins keep, such as a prototype and the issue it was filed in (the store's

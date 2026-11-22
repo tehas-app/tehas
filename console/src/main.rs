@@ -188,6 +188,7 @@ use tehas_ops::{
     account, clean, disk, edge, forge, freeze, github, health, holds, host_message, ids, mcp,
     panel, pins, rukas, sandbox, settings, setup, shipped, size, slice, stop, store, tidy, update,
 };
+mod answer;
 mod api;
 mod attach;
 mod blockers;

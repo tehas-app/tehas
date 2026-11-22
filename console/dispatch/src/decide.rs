@@ -833,8 +833,8 @@ impl<'a> Poll<'a> {
                 continue;
             }
             let park = json!({"question": q.get("id").cloned().unwrap_or(Value::Null)});
-            if let Some(Ok(at)) = self.retry_ticked_at(n, &park) {
-                out.push((n, at));
+            if let Some(Ok(t)) = self.retry_tick(n, &park) {
+                out.push((n, t["at"].as_str().unwrap_or("").to_string()));
             }
         }
         out
@@ -2605,7 +2605,8 @@ impl<'a> Poll<'a> {
         // A Retry ticked in the park's own question is the new approval the
         // hold waits for, also once the question label is off (#1829). A read
         // that failed proves no tick: the hold stays, untold.
-        match self.retry_ticked(n, &p) {
+        let by = |t: Value| t["by"].as_str().unwrap_or("").to_string();
+        match self.retry_tick(n, &p).map(|r| r.map(by)) {
             Some(Ok(by)) => {
                 self.log(format!(
                     "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted on the Retry {by} ticked"
@@ -2648,22 +2649,11 @@ impl<'a> Poll<'a> {
         Ok(true)
     }
 
-    /// retry_ticked: who ticked a Retry box in the question on record of the
-    /// park `p`, when one tick of an allowed account did. None when the park
-    /// has no question or nothing in it counts; Some(Err) when its comments
-    /// could not be read.
-    fn retry_ticked(&self, n: u64, p: &Value) -> Option<Result<String, ()>> {
-        self.retry_tick(n, p)
-            .map(|r| r.map(|t| t["by"].as_str().unwrap_or("").to_string()))
-    }
-
-    /// When the Retry that retry_ticked reads was ticked.
-    fn retry_ticked_at(&self, n: u64, p: &Value) -> Option<Result<String, ()>> {
-        self.retry_tick(n, p)
-            .map(|r| r.map(|t| t["at"].as_str().unwrap_or("").to_string()))
-    }
-
-    /// The tick of retry_ticked, as questions::answer reads it.
+    /// retry_tick: the tick of a Retry box in the question on record of the
+    /// park `p`, as questions::answer reads it, when one tick of an allowed
+    /// account did; an answer `tehas answer` gave counts as the box it stands
+    /// for. None when the park has no question or nothing in it counts;
+    /// Some(Err) when its comments could not be read.
     fn retry_tick(&self, n: u64, p: &Value) -> Option<Result<Value, ()>> {
         let qid = match p.get("question") {
             Some(Value::String(s)) if !s.is_empty() => s.clone(),
@@ -2673,7 +2663,7 @@ impl<'a> Poll<'a> {
         let Some(comments) = self.s.issues.get(&n).and_then(|i| i.comments.as_ref()) else {
             return Some(Err(()));
         };
-        let Some(ans) = crate::questions::answer(
+        let Some(mut ans) = crate::questions::answer(
             comments,
             &self.bot,
             self.s.bot_id,
@@ -2683,6 +2673,8 @@ impl<'a> Poll<'a> {
         ) else {
             return Some(Err(()));
         };
+        let given = self.s.issues.get(&n).and_then(|i| i.answer.as_ref());
+        crate::answer::overlay(&mut ans, given, |by| self.c.allowed(by));
         if ans["asked"] != json!(true)
             || ans["issue"] != json!(n)
             || ans["kind"] != json!("park")

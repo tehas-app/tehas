@@ -587,6 +587,7 @@ pub fn question(asked: &Asked, n: u64) -> Value {
         reason = park.pointer("/park/reason").cloned().unwrap_or(Value::Null);
     }
     let mut kind = String::new();
+    let mut answer = Value::Null;
     if !qid.is_empty() {
         match asked.know(n) {
             v if v.get("failed") == Some(&json!(true)) => return v,
@@ -596,11 +597,12 @@ pub fn question(asked: &Asked, n: u64) -> Value {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
+                answer = v.get("answer").cloned().unwrap_or(Value::Null);
             }
             _ => qid.clear(),
         }
     }
-    json!({"plan": plan, "id": qid, "kind": kind, "reason": reason})
+    json!({"plan": plan, "id": qid, "kind": kind, "reason": reason, "answer": answer})
 }
 
 #[cfg(test)]

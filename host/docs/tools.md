@@ -31,6 +31,7 @@ tehas limit [set ...|clear]      # an outside cap on what this factory starts
 tehas order [set ...|clear]      # the order ready issues start in
 tehas blockers [--json]          # which issues hold which, as the last poll read them
 tehas start <issue> [--clear]    # approve an issue for a start, from the host
+tehas answer <issue> <choice> --by LOGIN  # answer a stop or a planning question, for a person
 tehas refresh --pr N [--json]    # ask for the refresh of pull request N
 tehas wake [--json]              # ask for a poll now, return at once
 tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles

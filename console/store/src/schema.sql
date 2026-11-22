@@ -23,7 +23,8 @@
 -- job_token_sha256, the contractor program's token for the job channel, and
 -- model_token_sha256 is the token of the container's models.json. Schema 19
 -- adds plugin_runs, one row per run of a plugin (db::STEP_19, run after
--- STEP_18).
+-- STEP_18). Schema 24 adds answers, an answer `tehas answer` gave to the
+-- question on record of an issue (db::STEP_24, run after STEP_23).
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named

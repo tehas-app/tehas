@@ -661,6 +661,16 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | 64 | A bad argument; nothing is written |
 | 78 | The settings are missing or malformed; nothing is written |
 
+### tehas answer
+
+| Status | When |
+| --- | --- |
+| 0 | The answer is recorded |
+| 1 | The state store refused or is not installed |
+| 3 | No question of that kind waits on the issue, or the question does not offer that option. Nothing is recorded |
+| 64 | A bad argument; nothing is written |
+| 78 | `--by` may not authorise work, or the settings are missing or malformed; nothing is written |
+
 ### tehas refresh
 
 | Status | When |

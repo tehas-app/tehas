@@ -213,6 +213,14 @@ impl Writer {
             self.say(n, say, log);
         } else if let Some(n) = a.get("untick").and_then(Value::as_u64) {
             self.untick(n, a, log);
+        } else if let Some(n) = a.get("answer_drop").and_then(Value::as_u64) {
+            let id = match a.get("id") {
+                Some(Value::String(s)) => s.clone(),
+                Some(Value::Number(c)) => c.to_string(),
+                _ => String::new(),
+            };
+            let say = a.get("say").and_then(Value::as_str);
+            self.answer_drop(n, &id, say, text(a, "fail"), log);
         } else if let Some(pr) = a.get("pr").and_then(Value::as_u64) {
             self.unmark(pr, a, log);
         } else if let Some(n) = a.get("plan_note").and_then(Value::as_u64) {
@@ -505,6 +513,26 @@ impl Writer {
                     word(&f)
                 ));
             }
+        }
+    }
+
+    /// answer_drop: the answer `tehas answer` gave, taken away as a box is
+    /// unticked, then its note.
+    fn answer_drop(
+        &mut self,
+        n: u64,
+        id: &str,
+        say: Option<&str>,
+        fail: &str,
+        log: &mut Vec<String>,
+    ) {
+        match self.store_try(3, &["answer-drop", &n.to_string(), "--id", id]) {
+            Ok(_) => {
+                if let Some(say) = say {
+                    self.say(n, say, log);
+                }
+            }
+            Err(_) => log.push(fail.to_string()),
         }
     }
 

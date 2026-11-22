@@ -7,6 +7,7 @@ use super::{
     base_approver, base_stands, fixer_base, has, or_unknown, standing_actor, Choice, End, Poll,
     Room, Start, Step, CLASSIC, LEAN,
 };
+use crate::answer::{self, Overlay};
 use crate::questions;
 use crate::text;
 use serde_json::{json, Map, Value};
@@ -226,6 +227,18 @@ impl Poll<'_> {
     }
 
     pub(super) fn untick(&mut self, n: u64, ans: &Value, note: Option<&str>) {
+        // An answer of `tehas answer` has no box: it is taken away instead.
+        if ans["tick"]["how"] == json!("answer") {
+            let mut a = json!({
+                "answer_drop": n, "id": ans["comment"],
+                "fail": format!("WARN: could not take away the answer to the question on #{n}"),
+            });
+            if let Some(note) = note {
+                a["say"] = json!(note);
+            }
+            self.act(a);
+            return;
+        }
         let mut a = json!({
             "untick": n, "comment": ans["comment"],
             "body": questions::untick(ans["body"].as_str().unwrap_or("")),
@@ -331,6 +344,19 @@ impl Poll<'_> {
             ) else {
                 return Err(self.fail(format!("ERROR: unreadable comments of #{n}"), 1));
             };
+            // An answer `tehas answer` gave reads as the box it stands for.
+            // One the question does not offer is taken away, and said.
+            let given = self.s.issues.get(&n).and_then(|i| i.answer.clone());
+            let allowed = |by: &str| self.c.allowed(by);
+            if let Overlay::Refused(why) = answer::overlay(&mut ans, given.as_ref(), allowed) {
+                self.log(format!("skip #{n}: {why}"));
+                if !self.dry {
+                    let note = format!("The answer given for this question was not taken: {why}. Nothing was done.");
+                    ans["tick"]["how"] = json!("answer");
+                    self.untick(n, &ans, Some(&note));
+                }
+                continue;
+            }
             if ans["asked"] != json!(true) {
                 if let Some(by) = ans["written_by"].as_str() {
                     self.log(format!(
@@ -456,12 +482,21 @@ impl Poll<'_> {
                 continue;
             }
             let at = ans["tick"]["at"].as_str().unwrap_or("").to_string();
+            let answered = ans["tick"]["how"] == json!("answer");
             if !self.unchanged_since(
                 n,
                 &at,
                 &by,
-                &format!("{by} ticked retry"),
-                "untick the box and tick it again",
+                &if answered {
+                    format!("{by} answered retry")
+                } else {
+                    format!("{by} ticked retry")
+                },
+                if answered {
+                    "answer again"
+                } else {
+                    "untick the box and tick it again"
+                },
             )? {
                 continue;
             }
@@ -510,7 +545,8 @@ impl Poll<'_> {
                 d => d,
             };
             if self.dry {
-                self.log(format!("would run a cycle for #{n} (retry ticked by {by})"));
+                let how = if answered { "answered" } else { "ticked" };
+                self.log(format!("would run a cycle for #{n} (retry {how} by {by})"));
                 return Err(End(0));
             }
             let mut remove = vec!["tehas:question".to_string()];
@@ -532,8 +568,13 @@ impl Poll<'_> {
                 n,
                 Start {
                     starter: by,
-                    verb: "retry ticked".into(),
-                    how: "retry tick".into(),
+                    verb: if answered {
+                        "retry answered"
+                    } else {
+                        "retry ticked"
+                    }
+                    .into(),
+                    how: if answered { "answer" } else { "retry tick" }.into(),
                     given_at: at,
                     given_how: "retry-tick".into(),
                     remove,

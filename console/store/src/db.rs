@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 23;
+pub const SCHEMA_VERSION: i64 = 24;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The five tables of section 3.15, the outsource state. Every store of this
@@ -300,6 +300,22 @@ INSERT INTO plugin_runs_new (id, plugin, plugin_commit, kind, how, started_by, h
 DROP TABLE plugin_runs;
 ALTER TABLE plugin_runs_new RENAME TO plugin_runs;
 CREATE INDEX plugin_runs_last ON plugin_runs (plugin, kind, started_at);
+";
+
+/// The step from 23 to 24: an answer given through `tehas answer` (#2782),
+/// one row per question, which goes with its question. `choice` is a word of
+/// the question's kind, `option_key` the number of a planning option, `text` a
+/// reply in words. The how of every row is `answer`, so it is not kept.
+pub const STEP_24: &str = "
+CREATE TABLE answers (
+  question   INTEGER PRIMARY KEY REFERENCES questions (id) ON DELETE CASCADE,
+  issue      INTEGER NOT NULL,
+  at         INTEGER NOT NULL,
+  by_account TEXT NOT NULL,
+  choice     TEXT NOT NULL CHECK (choice IN ('retry','retry-text','park','option','update','end','text')),
+  option_key INTEGER,
+  text       TEXT
+);
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -617,8 +633,9 @@ pub const COUNTED_INDEXES: [&str; 23] = [
 /// every_counted_table_exists pins, so a table that goes missing from the
 /// schema cannot go missing from the report too. `check` counts these and
 /// [`OUTSOURCE_TABLES`], and `copy` counts and `load` moves both.
-pub const COUNTED_TABLES: [&str; 26] = [
+pub const COUNTED_TABLES: [&str; 27] = [
     "actions",
+    "answers",
     "approvals",
     "cycle_history",
     "cycle_notes",
@@ -1228,6 +1245,7 @@ pub fn write_schema(
     tx.execute_batch(STEP_21).map_err(classify)?;
     tx.execute_batch(STEP_22).map_err(classify)?;
     tx.execute_batch(STEP_23).map_err(classify)?;
+    tx.execute_batch(STEP_24).map_err(classify)?;
     let rows = [
         ("schema", SCHEMA_VERSION.to_string()),
         ("created_at", now.to_string()),
@@ -1377,6 +1395,9 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     (22, |c| step(c, 22, STEP_22)),
     // A store at 22 is one this binary wrote before a tool was called.
     (23, |c| step(c, 23, STEP_23)),
+    // A store at 23 is one this binary wrote before a question took an answer
+    // of a program.
+    (24, |c| step(c, 24, STEP_24)),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and
