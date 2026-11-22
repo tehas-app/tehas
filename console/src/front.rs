@@ -143,8 +143,7 @@ fn tehasbot(words: &[String]) -> Go {
         None | Some("help" | "-h" | "--help") => Go::Usage,
         Some(
             "health" | "status" | "top" | "refresh" | "clean" | "preview" | "protolab" | "dispatch"
-            | "review" | "github-token" | "cycle" | "outsource-proxy" | "plugin" | "plugin-gate"
-            | "wiki",
+            | "github-token" | "cycle" | "outsource-proxy" | "plugin" | "plugin-gate" | "wiki",
         ) => Go::Run,
         Some("mcp") if words.get(1).map(String::as_str) == Some("serve") => Go::Run,
         Some("mcp" | "github-writes") => Go::Verb,
@@ -324,7 +323,7 @@ mod tests {
         assert_eq!(t(&["plugin", "check", "."]), Go::Verb);
         assert_eq!(t(&["plugin", "review", "floorplan"]), Go::Run);
         assert_eq!(t(&["plugin"]), Go::Run);
-        for c in ["dispatch", "review", "github-token"] {
+        for c in ["dispatch", "github-token"] {
             assert_eq!(b(&[c]), Go::Run, "{c}");
         }
         for c in [
@@ -435,7 +434,6 @@ mod tests {
             "preview",
             "protolab",
             "dispatch",
-            "review",
             "github-token",
             "cycle",
         ] {
@@ -443,6 +441,8 @@ mod tests {
         }
         // The improvement loop is gone, and so is its command.
         assert_eq!(b(&["improve"]), Go::Unknown("improve".into()));
+        // The review loop left core in 2.0.
+        assert_eq!(b(&["review"]), Go::Unknown("review".into()));
         assert_eq!(b(&["mcp", "serve"]), Go::Run);
         assert_eq!(b(&["outsource-proxy"]), Go::Run);
         assert_eq!(b(&["plugin", "tick"]), Go::Run);
