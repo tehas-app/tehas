@@ -146,6 +146,16 @@ None yet. A count that stays above 0 at the end of the work is written
 here with its reason, as a floor; a departure from a should rule (R5)
 likewise.
 
+### Temporary rises
+
+Counts T15's ports raised above their fork value. Each goes back down in the step named; the trio's gate fails any count left above its fork value at the end.
+
+| Check | Max before | Max after | Pull request | Why (false positives) | Removed by |
+| --- | --- | --- | --- | --- | --- |
+| github-rest | 840 | 860 | #2859 | tehas's own --json flag, and tehas's JSON keys copied from GitHub's names | T4/T7: the check narrows to the adapter's paths, or the keys are renamed |
+| gh-argv | 408 | 409 | #2859 | a fixture's process named gh | T4 |
+| raw-statuses | 259 | 260 | #2859 | a fixture's 404 from the docs server | T4/T7 |
+
 ## Grades
 
 The grade is the ten bands, never a sum. Rows are appended, never
