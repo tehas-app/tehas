@@ -1611,15 +1611,18 @@ impl World {
     /// edited it last ("" for none), and the comments written after it.
     pub fn comments(&self, n: u64, body: &str, editor: &str, after: Value) {
         // A box ticked is answered now by a reply of its editor (#2782).
-        let (unticked, reply) = replies::as_reply(body, editor, Some(uid(editor)));
-        let (body, editor) = match &reply {
-            Some(_) => (unticked.as_str(), ""),
-            None => (body, editor),
-        };
-        let after = Value::Array(replies::in_order(
-            reply,
+        let (unticked, later, answered) = replies::as_reply(
+            body,
+            editor,
+            Some(uid(editor)),
             after.as_array().cloned().unwrap_or_default(),
-        ));
+        );
+        let (body, editor) = if answered {
+            (unticked.as_str(), "")
+        } else {
+            (body, editor)
+        };
+        let after = Value::Array(later);
         let ed = !editor.is_empty();
         let mut nodes = vec![json!({
             "databaseId": 4001,

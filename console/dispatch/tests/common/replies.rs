@@ -9,9 +9,19 @@ use serde_json::{json, Value};
 /// The reply's comment id: after the question's 4001.
 pub const REPLY_ID: u64 = 4002;
 
-/// The body with its one tick taken off, and the reply of `by` that names
-/// the choice it ticked, when exactly one box was ticked and `by` is someone.
-pub fn as_reply(body: &str, by: &str, by_id: Option<u64>) -> (String, Option<Value>) {
+/// The key of a comment's time, as GitHub's GraphQL names it.
+const CREATED: &str = "createdAt";
+
+/// The body with its one tick taken off, and the comments written after the
+/// question with the reply of `by` that names the choice it ticked among them
+/// at its time, when exactly one box was ticked and `by` is someone; the
+/// body and the comments as they were otherwise.
+pub fn as_reply(
+    body: &str,
+    by: &str,
+    by_id: Option<u64>,
+    later: Vec<Value>,
+) -> (String, Vec<Value>, bool) {
     let boxes: Vec<&str> = body
         .lines()
         .filter(|l| l.starts_with("- [") && matches!(l.get(3..6), Some(" ] " | "x] " | "X] ")))
@@ -23,7 +33,7 @@ pub fn as_reply(body: &str, by: &str, by_id: Option<u64>) -> (String, Option<Val
         .map(|(i, _)| i)
         .collect();
     if ticked.len() != 1 || by.is_empty() {
-        return (body.to_string(), None);
+        return (body.to_string(), later, false);
     }
     let i = ticked[0];
     let label = &boxes[i][6..];
@@ -48,24 +58,19 @@ pub fn as_reply(body: &str, by: &str, by_id: Option<u64>) -> (String, Option<Val
     if let Some(id) = by_id {
         author["databaseId"] = json!(id);
     }
-    let reply = json!({"databaseId": REPLY_ID, "author": author, "body": words,
-        "createdAt": "2026-01-01T01:00:00Z", "lastEditedAt": null, "editor": null,
+    let mut reply = json!({"databaseId": REPLY_ID, "author": author, "body": words,
+        "lastEditedAt": null, "editor": null,
         "userContentEdits": {"totalCount": 0, "nodes": []}});
-    (unticked, Some(reply))
-}
-
-/// `later` with the reply put where its time puts it, among the comments
-/// written after the question.
-pub fn in_order(reply: Option<Value>, later: Vec<Value>) -> Vec<Value> {
-    let Some(reply) = reply else {
-        return later;
-    };
-    let at = reply["createdAt"].as_str().unwrap_or("").to_string();
+    reply[CREATED] = json!("2026-01-01T01:00:00Z");
     let k = later
         .iter()
-        .position(|c| c["createdAt"].as_str().is_some_and(|t| t > at.as_str()))
+        .position(|c| {
+            c[CREATED]
+                .as_str()
+                .is_some_and(|t| t > "2026-01-01T01:00:00Z")
+        })
         .unwrap_or(later.len());
-    let mut out = later;
-    out.insert(k, reply);
-    out
+    let mut later = later;
+    later.insert(k, reply);
+    (unticked, later, true)
 }

@@ -446,17 +446,23 @@ fn expand(c: &Value, snap: &mut Value) {
         let mut is = issues(snap);
         for (n, x) in asked {
             // A box ticked is answered now by a reply of its editor (#2782).
-            let (unticked, reply) = replies::as_reply(
+            let later = x
+                .get(2)
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let (unticked, later, answered) = replies::as_reply(
                 x[0].as_str().unwrap_or(""),
                 x[1].as_str().unwrap_or(""),
                 None,
+                later,
             );
-            let ed = if reply.is_some() {
+            let ed = if answered {
                 ""
             } else {
                 x[1].as_str().unwrap_or("")
             };
-            let body = if reply.is_some() {
+            let body = if answered {
                 json!(unticked)
             } else {
                 x[0].clone()
@@ -475,13 +481,7 @@ fn expand(c: &Value, snap: &mut Value) {
             if let Some(a) = c.get("question_author") {
                 nodes[0]["author"] = a.clone();
             }
-            nodes.extend(replies::in_order(
-                reply,
-                x.get(2)
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default(),
-            ));
+            nodes.extend(later);
             let i = is.entry(n).or_insert_with(|| json!({}));
             i["comments"] =
                 json!({"data": {"repository": {"issue": {"comments": {"nodes": nodes}}}}});

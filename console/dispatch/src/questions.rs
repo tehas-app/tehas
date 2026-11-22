@@ -743,23 +743,27 @@ mod tests {
     }
 
     /// The typed read, for the fields the JSON form does not carry.
-    fn typed(c: &Value) -> Asked {
-        let c = Comments::parse(c);
-        match answer_of(c.or_none().unwrap(), BOT, None, &people(), "", "").unwrap() {
-            Answer::Asked(a) => *a,
-            Answer::NotAsked { .. } => panic!("no question"),
-        }
+    macro_rules! typed {
+        ($c:expr) => {{
+            let c = Comments::parse(&$c);
+            match answer_of(c.or_none().unwrap(), BOT, None, &people(), "", "").unwrap() {
+                Answer::Asked(a) => *a,
+                Answer::NotAsked { .. } => panic!("no question"),
+            }
+        }};
     }
 
-    fn reply(id: u64, by: &str, body: &str, at: &str) -> Value {
-        json!({"databaseId": id, "author": {"login": by}, "body": body, "createdAt": at})
+    macro_rules! reply {
+        ($id:expr, $by:expr, $body:expr, $at:expr) => {
+            json!({"databaseId": $id, "author": {"login": $by}, "body": $body, "createdAt": $at})
+        };
     }
 
     /// A box ticked in a comment of before 2.0 is no answer, and nothing of
     /// it is read.
     #[test]
     fn a_ticked_box_is_no_choice() {
-        let a = typed(&asked(&ticked("Change some"), "alice", json!([])));
+        let a = typed!(asked(&ticked("Change some"), "alice", json!([])));
         assert_eq!(a.tick, Tick::none());
         assert_eq!(a.reply, None);
     }
@@ -782,10 +786,10 @@ mod tests {
             ("3", 2),
             (BOX_END, 2),
         ] {
-            let a = typed(&asked(
+            let a = typed!(asked(
                 &body,
                 "",
-                json!([reply(7, "alice", said, "2026-01-01T04:00:00Z")]),
+                json!([reply!(7, "alice", said, "2026-01-01T04:00:00Z")]),
             ));
             assert_eq!(a.tick.status, Status::One, "{said}");
             assert_eq!(a.tick.index, Some(index), "{said}");
@@ -794,19 +798,19 @@ mod tests {
             assert_eq!(a.reply, None, "{said}");
         }
         for words in ["4", "split it in two", "0"] {
-            let a = typed(&asked(
+            let a = typed!(asked(
                 &body,
                 "",
-                json!([reply(7, "alice", words, "2026-01-01T04:00:00Z")]),
+                json!([reply!(7, "alice", words, "2026-01-01T04:00:00Z")]),
             ));
             assert_eq!(a.tick.status, Status::None, "{words}");
             assert!(a.reply.is_some(), "{words}");
         }
         // A stranger's reply chooses nothing.
-        let a = typed(&asked(
+        let a = typed!(asked(
             &body,
             "",
-            json!([reply(7, "mallory", "1", "2026-01-01T04:00:00Z")]),
+            json!([reply!(7, "mallory", "1", "2026-01-01T04:00:00Z")]),
         ));
         assert_eq!(a.tick.status, Status::None);
     }
@@ -827,22 +831,29 @@ mod tests {
             ("Retry", BOX_COMMENTS),
             ("leave it parked", BOX_PARKED),
         ] {
-            let a = typed(&asked(
+            let a = typed!(asked(
                 &body.replace("issue=7 turn=1", "issue=7 turn=2"),
                 "",
-                json!([reply(7, "alice", said, "2026-01-01T04:00:00Z")]),
+                json!([reply!(7, "alice", said, "2026-01-01T04:00:00Z")]),
             ));
             assert_eq!(a.ticked_label(), Some(label), "{said}");
         }
-        let answered = json!([reply(7, "alice", "retry", "2026-01-01T04:00:00Z"),
-            {"databaseId": 8, "author": {"login": BOT}, "body": "Retry was asked for, but nothing was started.", "createdAt": "2026-01-01T05:00:00Z"}]);
-        let a = typed(&asked(&body, "", answered));
+        let answered = json!([
+            reply!(7, "alice", "retry", "2026-01-01T04:00:00Z"),
+            reply!(
+                8,
+                BOT,
+                "Retry was asked for, but nothing was started.",
+                "2026-01-01T05:00:00Z"
+            )
+        ]);
+        let a = typed!(asked(&body, "", answered));
         assert_eq!(a.tick.status, Status::None);
         // Words that name no choice are no answer to a park.
-        let a = typed(&asked(
+        let a = typed!(asked(
             &body,
             "",
-            json!([reply(7, "alice", "please look", "2026-01-01T04:00:00Z")]),
+            json!([reply!(7, "alice", "please look", "2026-01-01T04:00:00Z")]),
         ));
         assert_eq!((a.tick.status, a.reply), (Status::None, None));
     }
