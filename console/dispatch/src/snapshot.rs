@@ -33,7 +33,7 @@ pub struct Issue {
     pub prs: Option<Vec<ClosingPr>>,
     /// The issue's last 100 comments, for tehas:blocked and a park's lift; None
     /// when the call failed or was not asked.
-    pub comments: Option<Value>,
+    pub comments: Option<Comments>,
     /// The line of the gh call the comments read failed on; None when no gh
     /// call failed, or none was asked.
     pub comments_failed: Option<String>,
@@ -319,6 +319,258 @@ pub(crate) fn shape(row: &Value) -> Value {
         v["held"] = json!(held);
     }
     v
+}
+
+/// An issue's comment read (GraphQL's .data.repository.issue.comments.nodes).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Comments {
+    Read(Vec<Comment>),
+    /// The answer has no list of nodes, or a null one.
+    NoList,
+    /// The answer is itself a list, as REST gives it.
+    Bare(Vec<Comment>),
+    /// The nodes are neither a list nor null.
+    Unreadable,
+}
+
+impl Comments {
+    /// The comments of an answer, the GraphQL nodes or a bare list.
+    pub fn parse(v: &Value) -> Comments {
+        let account = |a: Option<&Value>| Account {
+            login: a
+                .and_then(|a| a.get("login"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            id: a.and_then(|a| a.get("databaseId")).and_then(number),
+        };
+        let comment = |x: &Value| {
+            let s = |k: &str| x.get(k).and_then(Value::as_str).map(str::to_string);
+            let created = x.get("createdAt");
+            let edited = x.get("lastEditedAt");
+            let h = x.get("userContentEdits");
+            let note = || {
+                let login = x
+                    .pointer("/author/login")
+                    .or_else(|| x.pointer("/user/login"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let created = created
+                    .or_else(|| x.get("created_at"))
+                    .and_then(Value::as_str)?
+                    .to_string();
+                let updated = match edited.or_else(|| x.get("updated_at")) {
+                    None | Some(Value::Null) => created.clone(),
+                    Some(u) => u.as_str()?.to_string(),
+                };
+                let Some(Value::Number(id)) = x.get("databaseId").or_else(|| x.get("id")) else {
+                    return None;
+                };
+                Some(Note {
+                    id: id.clone(),
+                    editor: x
+                        .pointer("/editor/login")
+                        .and_then(Value::as_str)
+                        .map_or_else(|| login.clone(), str::to_string),
+                    login,
+                    body: s("body")?,
+                    created,
+                    updated,
+                })
+            };
+            let given = |v: Option<&Value>| match v? {
+                Value::Null => None,
+                Value::Number(n) => Some(Given::Number(n.clone())),
+                Value::String(t) => Some(Given::Text(t.clone())),
+                o => Some(Given::Other(o.to_string())),
+            };
+            Comment {
+                id: given(x.get("databaseId")),
+                author: account(x.get("author")),
+                editor: x
+                    .pointer("/editor/login")
+                    .filter(|l| l.is_string())
+                    .map(|_| account(x.get("editor"))),
+                body: given(x.get("body")),
+                created_at: given(created),
+                edited: edited.is_some_and(|e| !e.is_null()),
+                last_edited_at: edited.and_then(Value::as_str).unwrap_or("").to_string(),
+                history: CommentHistory {
+                    failed: h.and_then(|h| h.get("failed")) == Some(&Value::Bool(true)),
+                    total: h
+                        .and_then(|h| h.get("totalCount"))
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.0),
+                    editors: h
+                        .and_then(|h| h.get("nodes"))
+                        .and_then(Value::as_array)
+                        .map(|a| a.iter().map(|e| account(e.get("editor"))).collect())
+                        .unwrap_or_default(),
+                },
+                note: note(),
+            }
+        };
+        if let Value::Array(a) = v {
+            return Comments::Bare(a.iter().map(comment).collect());
+        }
+        match v.pointer("/data/repository/issue/comments/nodes") {
+            None | Some(Value::Null) => Comments::NoList,
+            Some(Value::Array(a)) => Comments::Read(a.iter().map(comment).collect()),
+            Some(_) => Comments::Unreadable,
+        }
+    }
+
+    /// The nodes GitHub listed, None for no list.
+    pub fn listed(&self) -> Option<&[Comment]> {
+        match self {
+            Comments::Read(l) => Some(l),
+            _ => None,
+        }
+    }
+
+    /// The nodes as the question's read takes them: no list is none, and
+    /// nodes that are no list cannot be read.
+    pub fn or_none(&self) -> Option<&[Comment]> {
+        match self {
+            Comments::Read(l) => Some(l),
+            Comments::NoList | Comments::Bare(_) => Some(&[]),
+            Comments::Unreadable => None,
+        }
+    }
+
+    /// The nodes, or the bare list a REST answer is.
+    pub fn nodes_or_bare(&self) -> Option<&[Comment]> {
+        match self {
+            Comments::Read(l) | Comments::Bare(l) => Some(l),
+            _ => None,
+        }
+    }
+}
+
+/// One comment. A text GitHub did not give as text is None, or empty where
+/// it says so.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Comment {
+    /// databaseId, None when missing or null.
+    pub id: Option<CommentId>,
+    pub author: Account,
+    /// Present when it has a login as text.
+    pub editor: Option<Account>,
+    pub body: Option<Given>,
+    pub created_at: Option<Given>,
+    /// lastEditedAt is there and not null.
+    pub edited: bool,
+    /// lastEditedAt as text, empty when it is none.
+    pub last_edited_at: String,
+    pub history: CommentHistory,
+    /// The comment as change_note reads it, REST's names taken where
+    /// GraphQL's are missing; None when it is no note.
+    pub note: Option<Note>,
+}
+
+impl Comment {
+    /// The editor's login, empty for none.
+    pub fn editor_login(&self) -> &str {
+        self.editor.as_ref().map_or("", |e| e.login.as_str())
+    }
+
+    /// The body when it is text.
+    pub fn body_text(&self) -> Option<&str> {
+        self.body.as_ref().and_then(Given::text)
+    }
+
+    /// createdAt when it is text.
+    pub fn created_text(&self) -> Option<&str> {
+        self.created_at.as_ref().and_then(Given::text)
+    }
+}
+
+/// An account a comment names: its login, empty when missing, and its user
+/// id, a number or text that is one.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Account {
+    pub login: String,
+    pub id: Option<u64>,
+}
+
+/// A comment's databaseId as GitHub gave it.
+pub type CommentId = Given;
+
+/// A value of a comment as GitHub gave it, not null: text, a number, or
+/// any other JSON as its text, kept so an answer passes it on unchanged.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Given {
+    Number(serde_json::Number),
+    Text(String),
+    Other(String),
+}
+
+impl Given {
+    /// The value when it is text.
+    pub fn text(&self) -> Option<&str> {
+        match self {
+            Given::Text(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// The value as a number, as `number` reads it.
+    pub fn number(&self) -> Option<u64> {
+        match self {
+            Given::Number(n) => n.as_u64(),
+            Given::Text(s) => s.trim().parse().ok(),
+            Given::Other(_) => None,
+        }
+    }
+
+    /// The value as raw text: text as it is, anything else in JSON, `null`
+    /// for none.
+    pub fn said(id: Option<&Given>) -> String {
+        match id {
+            Some(Given::Text(s) | Given::Other(s)) => s.clone(),
+            Some(Given::Number(n)) => n.to_string(),
+            None => "null".into(),
+        }
+    }
+
+    /// The value for sorting: a whole number, 0 otherwise.
+    pub fn sort_key(id: Option<&Given>) -> i64 {
+        match id {
+            Some(Given::Number(n)) => n.as_i64().unwrap_or(0),
+            _ => 0,
+        }
+    }
+}
+
+/// A comment's edit history (userContentEdits).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CommentHistory {
+    /// The read of the history failed.
+    pub failed: bool,
+    /// totalCount, 0 when it is none.
+    pub total: f64,
+    /// The editor of each edit read.
+    pub editors: Vec<Account>,
+}
+
+/// A comment in the REST shape `window` reads: a number id, a text body and
+/// both stamps; the last edit is the first stamp when nobody saved it after.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Note {
+    pub id: serde_json::Number,
+    pub login: String,
+    /// The editor's login, the author's when none is given.
+    pub editor: String,
+    pub body: String,
+    pub created: String,
+    pub updated: String,
+}
+
+/// The numbers every blocker comment of an issue names, for the snapshot to
+/// ask their states: blocked_ok reads the newest one an allowed account wrote.
+pub(crate) fn named_blockers(comments: &Value) -> Vec<u64> {
+    crate::decide::named_blockers_of(Comments::parse(comments).listed().unwrap_or_default())
 }
 
 /// A pull request a refresh reads (GraphQL's .data.repository.pullRequest).
@@ -962,14 +1214,6 @@ fn issues(v: Option<&Value>) -> Issues {
     }
 }
 
-fn opt(v: &Value) -> Option<Value> {
-    if failed(v) {
-        None
-    } else {
-        Some(v.clone())
-    }
-}
-
 pub(crate) fn reading(v: &Value) -> Reading {
     let s = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
     Reading {
@@ -1064,7 +1308,10 @@ fn issue(v: &Value) -> Issue {
                     })
                     .collect()
             }),
-        comments: v.get("comments").and_then(opt),
+        comments: v
+            .get("comments")
+            .filter(|c| !failed(c))
+            .map(Comments::parse),
         comments_failed: failed_line(v.get("comments")),
         blockers: v
             .get("blockers")
@@ -1509,8 +1756,8 @@ impl Snapshot {
                 .unwrap_or_default(),
             disk_kb: v.get("disk_kb").map(Value::as_u64),
             checks: v.get("checks").map(|c| {
-                opt(c)
-                    .as_ref()
+                Some(c)
+                    .filter(|c| !failed(c))
                     .and_then(check_state)
                     .unwrap_or(Check::Unreadable)
             }),

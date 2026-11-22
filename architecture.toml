@@ -24,7 +24,7 @@ pattern = 'api\.github\.com|\bgraphql\b|\brepos/(\{|\$|:owner)|"/?(user|users|or
 files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh", "host/systemd/*", "host/fun/**/*.js"]
 allowed = ["console/core/src/forge.rs", "console/core/src/forge/**"]
 comment = "//"
-max = 845
+max = 840
 why = "Re-measured at T0's follow-up, with tests in files counted and GitHub's JSON fields, --json and --jq added: the console 240, dispatch 225, ops 98, cycle 93, the front pages 69, mcp 38, store 37, core 21 outside the forge, analytics 8, xtask 6, the sandbox 4, the rest 1 or 2. 219 are in test files. Some field names (createdAt, updatedAt) are also tehas's own JSON keys where it copied GitHub's: T4 and T7 rename or own them. T4 moves the rest behind the three ports."
 
 [[check]]
@@ -69,7 +69,7 @@ end = '\{|;\s*$'
 pattern = '\bValue\b'
 files = ["console/**/*.rs"]
 comment = "//"
-max = 1410
+max = 1409
 why = "Re-measured at T0's follow-up, with tests in files counted: dispatch 366, mcp 251, cycle 181, the console 162, core 128, ops 89, store 77, analytics 45, attach 42, plugin 33, proxy 28, contractor 16. 377 are in test files. T3 types the dispatcher's core, T4 the ports, T5 the store client; T7 moves the rest or writes a floor for an adapter's own parsing."
 
 [[check]]
@@ -79,7 +79,7 @@ what = "no serde_json::Value in a public field, an enum variant or a tuple field
 pattern = '^\s*pub(\([^)]*\))?\s+[a-z_][a-z0-9_]*\s*:.*\bValue\b|^\s*[A-Z][A-Za-z0-9]*\s*\([^()]*\bValue\b[^()]*\),?\s*$|^\s*(pub(\([^)]*\))?\s+)?struct\s+\w+\s*(<[^>]*>)?\s*\(.*\bValue\b'
 files = ["console/**/*.rs"]
 comment = "//"
-max = 41
+max = 40
 why = "Re-measured at T0's follow-up, with enum variants and tuple fields added: dispatch 23 (Snapshot and its rows, after T3 typed the closing pull requests, the pause flag, the limit, the start order, the host's approvals, the branch check, the push fault, the lists of issues and pull requests and the parks owed a retry or a refine), cycle 7, ops 5, attach, contractor, core and the console 3 each, mcp, plugin, proxy and store 1 each. T3 types Snapshot; T7 the rest, or a written floor."
 
 [[report]]

@@ -291,14 +291,16 @@ impl Poll<'_> {
             let Some(comments) = self.s.issues.get(&n).and_then(|i| i.comments.clone()) else {
                 return Err(self.comments_unread(n));
             };
-            let Some(mut ans) = questions::answer(
-                &comments,
-                bot,
-                self.s.bot_id,
-                &self.c.allowed,
-                &qid,
-                &self.c.millwright,
-            ) else {
+            let Some(mut ans) = comments.or_none().and_then(|c| {
+                questions::answer_of(
+                    c,
+                    bot,
+                    self.s.bot_id,
+                    &self.c.allowed,
+                    &qid,
+                    &self.c.millwright,
+                )
+            }) else {
                 return Err(self.fail(format!("ERROR: unreadable comments of #{n}"), 1));
             };
             // An answer `tehas answer` gave reads as the box it stands for.
