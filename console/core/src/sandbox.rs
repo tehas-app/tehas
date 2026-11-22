@@ -1,5 +1,5 @@
 //! What a sandbox container is given, in one place so that a cycle, a planning
-//! turn, a manual session and a review cannot drift apart. AGENTS.md rule 4:
+//! turn and a manual session cannot drift apart. AGENTS.md rule 4:
 //! a change here is a security change, and test/fixtures/argv pins the result
 //! word by word.
 //!
@@ -37,17 +37,6 @@ pub const TARGET_DIR: &str = "/home/vscode/.tehas-target";
 pub const HELPER_KEY: &str = "credential.https://github.com.helper";
 const HELPER: &str = "!gh auth git-credential";
 
-const REVIEW_LEAVES_OUT: [&str; 8] = [
-    "PI_ENSEMBLE_EXTRA_IMAGE_DIRS",
-    "PI_ENSEMBLE_PLAN_ISSUE",
-    "PI_ENSEMBLE_PLAN_SESSION_DIR",
-    "PI_ENSEMBLE_PLAN_CACHE_TTL_MS",
-    "PI_ENSEMBLE_MAX_WORKSTREAMS",
-    "PI_ENSEMBLE_VERIFY_TIMEOUT_MS",
-    "PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS",
-    "PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS",
-];
-
 // A cycle's own: `tehas work` gives these itself, or not at all, whatever the
 // instance says. An instance's image directory would name a path no one mounted.
 const CYCLE_LEAVES_OUT: [&str; 7] = [
@@ -79,7 +68,6 @@ pub enum Kind {
     Cycle,
     Turn,
     Session,
-    Review,
 }
 
 impl Kind {
@@ -88,16 +76,8 @@ impl Kind {
             "cycle" => Some(Kind::Cycle),
             "turn" => Some(Kind::Turn),
             "session" => Some(Kind::Session),
-            "review" => Some(Kind::Review),
             _ => None,
         }
-    }
-
-    // A run that writes nothing to the tracker is given no token to write
-    // with: its name is not among the variables at all, and the GitHub App's
-    // token directory is not mounted. This is the one place that decides it.
-    fn token(self) -> bool {
-        self != Kind::Review
     }
 
     // The directory under $TEHAS_HOME of the app token a container reads. A
@@ -108,7 +88,6 @@ impl Kind {
         match self {
             Kind::Turn | Kind::Session => Some(TokenDir::Session.relative()),
             Kind::Cycle => Some(TokenDir::Cycle.relative()),
-            Kind::Review => None,
         }
     }
 }
@@ -437,10 +416,8 @@ fn env_options_of(
     read_only: bool,
 ) -> Vec<String> {
     let mut vars = Vec::new();
-    if kind.token() {
-        vars.push("GH_TOKEN".to_string());
-    }
     vars.extend([
+        "GH_TOKEN".to_string(),
         "PI_ENSEMBLE_SANDBOX_MODE=1".to_string(),
         format!("PI_ENSEMBLE_WORKSPACE_ROOT={}", who.tree),
         format!("CBM_CACHE_DIR={CACHE_DIR}"),
@@ -468,8 +445,7 @@ const NO_PUSH: &str = "file:///nonexistent/tehas-read-only/";
 /// The PI_ENSEMBLE_* the host has set, in the order of its environment. Not the
 /// settings of pi-rukas's own docker wrapper, which no container runs: the
 /// image, the aliases (given as --add-host) and the socket and SSH switches.
-/// The runner does not list them as inputs. A review is given none of the names
-/// of a planning turn or of a cycle's gate: it writes nothing to the tracker. A
+/// The runner does not list them as inputs. A
 /// session's image directory is its own command's to give, and an instance's
 /// would name a path the container does not have.
 pub fn ensemble(kind: Kind) -> Vec<String> {
@@ -485,7 +461,6 @@ pub fn ensemble(kind: Kind) -> Vec<String> {
                     | "PI_ENSEMBLE_NO_SSH"
             )
         })
-        .filter(|name| kind != Kind::Review || !REVIEW_LEAVES_OUT.contains(&name.as_str()))
         .filter(|name| kind != Kind::Session || name != "PI_ENSEMBLE_EXTRA_IMAGE_DIRS")
         .filter(|name| kind != Kind::Cycle || !CYCLE_LEAVES_OUT.contains(&name.as_str()))
         .collect()
@@ -1154,7 +1129,7 @@ pub fn network(aliases: &str) -> Result<Vec<String>, String> {
 /// itself more of the host than it was given: every capability Docker grants
 /// by default is taken away, and a program cannot gain rights through its mode
 /// or file capabilities. The same ten words for a cycle, a planning turn, a
-/// manual session, a review and the push check before a cycle. host/docs/host.md
+/// manual session and the push check before a cycle. host/docs/host.md
 /// documents them in a table, and test/work_caps_test.sh compares that table
 /// with what a command is given, so adding one option is an edit here, a row
 /// there, and nothing else.
@@ -1750,10 +1725,8 @@ mod tests {
     }
 
     #[test]
-    fn a_review_has_no_token_in_any_form() {
-        let env = env_of(Kind::Review);
-        assert_eq!(env, shared_env());
-        assert!(!env.iter().any(|w| w.starts_with("GH_TOKEN")));
+    fn the_review_loops_kind_left_with_the_loop() {
+        assert_eq!(Kind::parse("review"), None);
     }
 
     #[test]
@@ -1784,10 +1757,8 @@ mod tests {
         -v /a/settings.json:/home/vscode/.pi/agent/settings.json:ro";
 
     #[test]
-    fn every_kind_has_the_eight_mounts_in_order() {
-        for kind in [Kind::Turn, Kind::Review] {
-            assert_eq!(mount_options(kind, &PATHS, "/a", None), words(EIGHT));
-        }
+    fn a_turn_has_the_eight_mounts_in_order() {
+        assert_eq!(mount_options(Kind::Turn, &PATHS, "/a", None), words(EIGHT));
     }
 
     #[test]
@@ -1796,14 +1767,14 @@ mod tests {
             mount_options(Kind::Cycle, &PATHS, "/a", None),
             words(&format!("{EIGHT} -v /s/relay:/run/tehas/relay"))
         );
-        for kind in [Kind::Turn, Kind::Session, Kind::Review] {
+        for kind in [Kind::Turn, Kind::Session] {
             let all = mount_options(kind, &PATHS, "/a", Some("/g")).join(" ");
             assert!(!all.contains("relay"), "{kind:?}");
         }
     }
 
     #[test]
-    fn a_token_directory_is_read_only_and_never_a_reviews() {
+    fn a_token_directory_is_read_only() {
         let want = format!("{EIGHT} -v /g:/run/tehas/github:ro");
         assert_eq!(
             mount_options(Kind::Turn, &PATHS, "/a", Some("/g")),
@@ -1813,10 +1784,6 @@ mod tests {
             mount_options(Kind::Cycle, &PATHS, "/a", Some("/g")),
             words(&format!("{want} -v /s/relay:/run/tehas/relay"))
         );
-        assert_eq!(
-            mount_options(Kind::Review, &PATHS, "/a", Some("/g")),
-            words(EIGHT)
-        );
     }
 
     #[test]
@@ -1824,7 +1791,6 @@ mod tests {
         assert_eq!(Kind::Cycle.app_dir(), Some("state/github-cycle"));
         assert_eq!(Kind::Turn.app_dir(), Some("state/github-session"));
         assert_eq!(Kind::Session.app_dir(), Some("state/github-session"));
-        assert_eq!(Kind::Review.app_dir(), None);
     }
 
     #[test]
@@ -1839,7 +1805,7 @@ mod tests {
 
     #[test]
     fn nothing_that_controls_the_host_is_in_any_list() {
-        for kind in [Kind::Cycle, Kind::Turn, Kind::Session, Kind::Review] {
+        for kind in [Kind::Cycle, Kind::Turn, Kind::Session] {
             let mut all = env_of(kind);
             all.extend(mount_options(kind, &PATHS, "/a", Some("/g")));
             let all = all.join(" ");

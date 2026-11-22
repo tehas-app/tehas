@@ -363,7 +363,6 @@ pub const TABLE: &[Setting] = &[
     ),
     always("TEHAS_OUTSOURCE_PROXY_IDLE", Rule::Count, "900"),
     always("TEHAS_SPEC_PIPE", SWITCH, "0"),
-    always("TEHAS_REVIEW", SWITCH, "0"),
     // Plugins. TEHAS_PLUGIN_GRANTS_<NAME> is a family, one per plugin of
     // TEHAS_PLUGINS: every name with the front plugin::GRANTS takes its rule,
     // and the load checks what the lines mean together.
@@ -462,7 +461,6 @@ pub const TABLE: &[Setting] = &[
     required("TEHAS_ALLOWED_LABELERS", Rule::Logins),
     required("PI_ENSEMBLE_SUBAGENT_MODEL", Rule::OneWord),
     required("PI_ENSEMBLE_SUBAGENT_PROVIDER", Rule::OneWord),
-    row("TEHAS_REVIEW_REPO", Rule::Repo, When::Required, Some("")),
 ];
 
 /// What ends the name of a row that stands for a family of settings, such as
@@ -1107,7 +1105,7 @@ mod tests {
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 23);
+        assert_eq!(switches.len(), 22);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);

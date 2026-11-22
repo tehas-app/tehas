@@ -1170,10 +1170,11 @@ fn an_owed_units_line_from_before_a_unit_was_retired_restarts_the_current_units_
     assert_eq!(r.rc, 0, "{}", r.out);
     has(
         &r.out,
-        "systemd: restarted tehas-dispatch.timer tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-review.timer tehas-clean.timer",
+        "systemd: restarted tehas-dispatch.timer tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer",
     );
     lacks(&r.out, "tehas-refresh.timer");
     lacks(&r.out, "tehas-improve.timer");
+    lacks(&r.out, "tehas-review.timer");
     lacks(&r.out, "tehas-energy.service");
     lacks(&r.out, "tehas-wiki");
     assert_eq!(h.owed_steps(), "");

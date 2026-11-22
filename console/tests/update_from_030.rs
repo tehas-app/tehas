@@ -115,7 +115,7 @@ fn this_releases_settings_check_lists_every_renamed_removed_or_building_line_of_
     home_030(&h);
     let mut extra = lines(&old().join("instance.env"));
     extra.push("TEHAS_OVERLAP_HOLD=1".into());
-    extra.push("TEHAS_REVIEW_REPO=acme/backlog".into());
+    extra.push("TEHAS_PLUGINS=floorplan".into());
     instance_of(&mut h, &extra);
     let env = h.join("home/.config/tehas/env");
     fs::create_dir_all(env.parent().unwrap()).unwrap();
@@ -135,7 +135,7 @@ fn this_releases_settings_check_lists_every_renamed_removed_or_building_line_of_
         has(&r.out, &format!("tehas: {name} is no longer read: "));
     }
     let dir = h.instance_dir().display().to_string();
-    has(&r.out, &format!("tehas: TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out (see {dir}/instance.env)"));
+    has(&r.out, &format!("tehas: TEHAS_PLUGINS is set and plugins is still being built in this release: take the line out (see {dir}/instance.env)"));
     has(&r.out, &format!("tehas: TEHAS_BOT_LOGIN is no longer read: the bot is the GitHub App's login, kept in state/github/login, so take the line out (see {})", env.display()));
     assert_eq!(
         r.out.lines().filter(|l| l.starts_with("tehas: ")).count(),

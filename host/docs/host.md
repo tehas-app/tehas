@@ -1191,7 +1191,7 @@ as that user it skips the drop. The image is built with the tehas user's uid
 
 Every container tehas starts from the sandbox image or its base has
 `--pull=never`: a cycle and its capabilities check, push check and install, a
-planning turn, a review, a `tehas dev` session, the indexer, the memory's
+planning turn, a `tehas dev` session, the indexer, the memory's
 vipune, the product check, the build's smoke runs and the questions the
 dispatcher and `tehasbot status` ask the image. The image is built on the
 host, and its name is also a name on Docker Hub. When the local image is gone, for example after
@@ -1450,7 +1450,7 @@ Cycles that run side by side know nothing of each other:
 
 By default a container is on Docker's default bridge and can connect to any
 address: the host's own ports, the local network and the internet. With
-`TEHAS_EGRESS=on` in `instance.env`, a cycle, a planning turn, a review and a
+`TEHAS_EGRESS=on` in `instance.env`, a cycle, a planning turn and a
 `tehas dev` session are put on `tehas-egress` instead, and so are the two
 containers before a cycle, the push check and the install of the product's
 dependencies, an internal Docker

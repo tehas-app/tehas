@@ -8,7 +8,7 @@
 pub const NAME_WORDS: [&str; 6] = ["TOKEN", "SECRET", "PASSWORD", "PASSWD", "KEY", "CREDENTIAL"];
 
 /// Whether a setting's name says its value is a secret. The one rule: the
-/// mask, the review's input check and anything else that asks use this.
+/// mask and anything else that asks use this.
 pub fn secret_name(name: &str) -> bool {
     let name = name.to_ascii_uppercase();
     NAME_WORDS.iter().any(|w| name.contains(w))

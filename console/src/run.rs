@@ -18,12 +18,7 @@
 //! (AGENTS.md, rule 2). A command's own rule sits between 2 and 4:
 //!
 //!   refresh   exit 64 before step 2 unless the arguments are --pr N
-//!   review    exit 0 after step 3 unless the review feature is on
 //!   preview   exit 78 after step 3 unless TEHAS_PREVIEWS is 1
-//!
-//! The review's gate sits below the check of the settings it needs because an
-//! agent runs here on a timer with no person in front of it: a weekly run says 78
-//! for an instance that could not review rather than exiting 0 on it.
 //!
 //! tehasbot outsource-proxy is `tehas-proxy` beside this program, by exec
 //! under the settings: the model proxy of outsource, which says itself
@@ -45,7 +40,7 @@
 //! settings are missing or malformed.
 
 use crate::commands::{self, ANSWERED};
-use crate::{clean, disk, github, plan, preview, product, protolab, review, settings};
+use crate::{clean, disk, github, plan, preview, product, protolab, settings};
 use std::env;
 use std::ffi::OsString;
 use std::fs::File;
@@ -333,8 +328,6 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
             env::set_var("PATH", path);
             hand_to_dispatcher(libexec, rest, Some(format!("{home}/logs/refresh.log")))
         }
-        ["tehasbot", "review"] if !tehas_core::features::on("review") => 0,
-        ["tehasbot", "review"] => review::main(&["main".to_string()]),
         _ => commands::tehasbot(&words[1..]),
     })
 }

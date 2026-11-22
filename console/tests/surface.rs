@@ -233,17 +233,10 @@ fn baseline() -> Vec<String> {
 }
 
 #[test]
-fn a_building_features_settings_stay_when_the_baseline_had_them() {
-    assert!(building_setting("TEHAS_REVIEW"));
-    assert!(building_setting("TEHAS_REVIEW_REPO"));
+fn a_building_features_setting_the_baseline_never_had_stays_out() {
+    assert!(building_setting("TEHAS_LEAN"));
     assert!(!building_setting("TEHAS_REPO"));
-    let surface = surface();
-    for name in ["setting TEHAS_REVIEW", "setting TEHAS_REVIEW_REPO"] {
-        assert!(baseline().iter().any(|n| n == name), "{name}");
-        assert!(surface.contains(name), "{name}");
-    }
-    // A building feature's setting the baseline never had stays out.
-    assert!(!surface.contains("setting TEHAS_LEAN"));
+    assert!(!surface().contains("setting TEHAS_LEAN"));
 }
 
 #[test]
