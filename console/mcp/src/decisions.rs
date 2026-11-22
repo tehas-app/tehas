@@ -163,7 +163,7 @@ pub const WRITER_NON_DECISIONS: [(&str, &str, &str); 7] = [
     ),
     (
         "lift",
-        "2026-10-29T16:23:14Z lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment",
+        "2026-10-29T16:23:14Z lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the millwright's guidance comment",
         "warn",
     ),
     (
@@ -186,7 +186,7 @@ pub const WRITER_NON_DECISIONS: [(&str, &str, &str); 7] = [
 pub const HOST_HOLD_LINES: [&str; 3] = [
     "2026-10-29T16:23:14Z hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not declare image input in models.json",
     "2026-10-29T16:23:14Z hold #7: its text says SCREENSHOT GOES HERE and links no attachment",
-    "2026-10-29T16:23:14Z hold #7: its last cycle parked on intent-park and the body has not changed since, and the fixer's comments could not be read",
+    "2026-10-29T16:23:14Z hold #7: its last cycle parked on intent-park and the body has not changed since, and the millwright's comments could not be read",
 ];
 
 /// One decision line, as the dispatcher writes it:

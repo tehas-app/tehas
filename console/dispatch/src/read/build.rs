@@ -1519,7 +1519,7 @@ esac"#,
                 "timelineItems": {"nodes": [
                     {"__typename": "LabeledEvent",
                      "createdAt": at,
-                     "actor": {"login": "tehas-fixer"}, "label": {"name": "tehas:ready"}}
+                     "actor": {"login": "tehas-millwright"}, "label": {"name": "tehas:ready"}}
                 ]},
                 "closedByPullRequestsReferences": {"nodes": []}
             })
@@ -1528,7 +1528,7 @@ esac"#,
         // lifts the park's hold on, and the read the batch now pays once.
         let note = |n: u64| {
             json!({"data": {"repository": {"issue": {"comments": {"nodes": [
-                {"databaseId": 600 + n, "author": {"login": "tehas-fixer"},
+                {"databaseId": 600 + n, "author": {"login": "tehas-millwright"},
                  "body": format!("<!-- tehas:millwright issue={n} action=change -->\\nDo not run the whole suite."),
                  "createdAt": note_at, "lastEditedAt": null, "editor": null,
                  "userContentEdits": {"totalCount": 0, "nodes": []}}
@@ -1560,7 +1560,7 @@ esac"#,
     /// millwright's comment of guidance able to lift a park's hold.
     fn millwright_settings() -> Settings {
         let mut c = settings();
-        c.millwright = "tehas-fixer".into();
+        c.millwright = "tehas-millwright".into();
         c.work_images = true;
         c
     }
@@ -1574,16 +1574,16 @@ esac"#,
         )
     }
 
-    /// The store's answer of one `approval-current <n>`: the fixer's start on
+    /// The store's answer of one `approval-current <n>`: the millwright's start on
     /// the text `sum` of the issue, resting on alice's approval of the same
-    /// text, with a start left to the fixer. `at` is the instant the millwright
+    /// text, with a start left to the millwright. `at` is the instant the millwright
     /// applied the label again, an hour after that start, so the label and the
     /// approval cover one text and the label is newer than the start that took
     /// the last one off.
     fn approval_answer(at: &str, sum: &str) -> String {
         let at = tehas_core::time::from_iso(at).unwrap_or_default() - 3600;
         format!(
-"{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"current\":{{\"at\":{at},\"by\":\"tehas-fixer\",\"how\":\"millwright\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"{sum}\"}},\"millwright_starts\":1,\"fixer_starts\":1}}"
+"{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"current\":{{\"at\":{at},\"by\":\"tehas-millwright\",\"how\":\"millwright\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"{sum}\"}},\"millwright_starts\":1,\"fixer_starts\":1}}"
         )
     }
 

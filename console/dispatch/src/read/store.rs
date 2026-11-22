@@ -454,11 +454,11 @@ pub fn approval_shape(v: &Value) -> Option<Value> {
         .unwrap_or(json!(0));
     let input = c.get("input").cloned().unwrap_or(json!({}));
     let base = person(&get(v, "rests_on"))?;
-    let how = match c.get("how").and_then(Value::as_str) {
-        Some("millwright") => "fixer".to_string(),
-        Some(h) => h.to_string(),
-        None => String::new(),
-    };
+    let how = c
+        .get("how")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
     let mut out = json!({"at": iso(c.get("at")?.as_u64()?), "by": get(c, "by"), "how": how,
         "body_sha256": get(c, "body_sha256"), "links": input.get("links").cloned().unwrap_or(json!([]))});
     if let Some(t) = c.get("title_sha256").filter(|t| !t.is_null()) {
@@ -477,7 +477,7 @@ pub fn approval_shape(v: &Value) -> Option<Value> {
     {
         out["retry_context"] = input["retry_context"].clone();
     }
-    if how == "fixer" {
+    if how == tehas_core::grammar::MILLWRIGHT {
         out["rests_on"] = base.clone();
         out["fixer_starts"] = starts.clone();
     }
@@ -519,9 +519,7 @@ pub fn fed(asked: &Asked, running: &[u64]) -> Value {
             .pointer("/current/how")
             .and_then(Value::as_str)
             .unwrap_or("");
-        if tehas_core::grammar::MILLWRIGHT_WORDS.contains(&how)
-            && v.get("rests_on").is_none_or(Value::is_null)
-        {
+        if how == tehas_core::grammar::MILLWRIGHT && v.get("rests_on").is_none_or(Value::is_null) {
             count += 1;
         }
     }
@@ -1045,7 +1043,7 @@ printf 'store %s %s\\n' \"$*\" \"$(cat \"$0.request\")\" >>\"$0.calls\"\nexec {b
         a.answers
             .insert(Read::Approval(7), fed("millwright", Value::Null));
         a.answers
-            .insert(Read::Approval(8), fed("fixer", Value::Null));
+            .insert(Read::Approval(8), fed("millwright", Value::Null));
         a.answers
             .insert(Read::Approval(9), fed("millwright", json!({"by": "alice"})));
         a.answers

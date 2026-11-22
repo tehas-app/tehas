@@ -893,14 +893,14 @@ fn attempt_counts_earlier_runs_and_how_is_kept() {
         &[
             line(t, "label"),
             line(t + 1000, "reply"),
-            line(t + 2000, "fixer"),
+            line(t + 2000, "millwright"),
         ],
     );
     fact(
         &home,
         9,
         "approval",
-        json!({"at": iso(t + 1900), "how": "fixer"}),
+        json!({"at": iso(t + 1900), "how": "millwright"}),
     );
     let conn = record(&home, 9, t + 3000);
     assert_eq!(
@@ -908,7 +908,7 @@ fn attempt_counts_earlier_runs_and_how_is_kept() {
             &conn,
             "SELECT attempt || ' ' || how || ' ' || queue_wait FROM runs"
         ),
-        "3 fixer 100"
+        "3 millwright 100"
     );
     // Recorded again, it replaces itself.
     execute(&home, &Cmd::Run(9, given(&home, 9)), t + 3000).unwrap();
@@ -1186,7 +1186,7 @@ fn the_run_takes_its_history_approval_settings_and_commit_from_the_facts_alone()
     );
     put_at(
         h(&home).cycle_note(7, "approved.json"),
-        &json!({"at": iso(started - 9000), "how": "fixer"}).to_string(),
+        &json!({"at": iso(started - 9000), "how": "millwright"}).to_string(),
     );
     put_at(
         h(&home).cycle_note(7, "settings"),
@@ -2617,7 +2617,7 @@ fn plan_stores_the_turn_with_its_times_turn_and_outcome_and_no_usage() {
         &home,
         json!({"session": "s1", "turns": 1, "options": [], "pending": false, "failed": false,
                "running": true, "startedAt": iso(started), "by": "alice",
-               "answers": [{"turn": 2, "by": "alice", "fixer": false}]}),
+               "answers": [{"turn": 2, "by": "alice", "millwright": false}]}),
         Some(json!({"session": "s1", "text": "Which one?", "question": null})),
     );
     execute(&home, &plan_cmd(&home, "0"), now).unwrap();
@@ -2657,7 +2657,6 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
     let now = 1_792_000_000;
     let at = iso(now - 60);
     let rec = |turns: i64, answers: Value| json!({"session": "s", "turns": turns, "running": true, "startedAt": at, "answers": answers});
-    let fixer = json!([{"turn": 3, "by": "fixer-bot", "fixer": true}]);
     let millwright = json!([{"turn": 3, "by": "millwright-bot", "millwright": true}]);
     for (rc, record, out, outcome, status, how) in [
         (
@@ -2676,16 +2675,8 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
             "-",
             "label",
         ),
-        (
-            "2",
-            rec(2, fixer.clone()),
-            Some(json!({"session": "s"})),
-            "failed",
-            "-",
-            "millwright",
-        ),
-        // An answer marked `millwright` is the millwright's too, and a record
-        // marked with neither word is an answer of a person.
+        // An answer marked `millwright` is the millwright's, and a record
+        // not marked so is an answer of a person.
         (
             "2",
             rec(2, millwright.clone()),
@@ -2753,12 +2744,12 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
 }
 
 #[test]
-fn plan_how_words_are_the_pair_of_the_core_grammar() {
-    // Each reader of the class has a test of its own that its words are these
-    // two: this is analytics', beside the MCP server's and the core pair's.
+fn plan_how_words_are_the_word_of_the_core_grammar() {
+    // Each reader of the word has a test of its own that its word is this
+    // one: this is analytics', beside the MCP server's and the core word's.
     assert_eq!(
-        crate::plan::MILLWRIGHT_MARKS,
-        tehas_core::grammar::MILLWRIGHT_WORDS
+        crate::plan::MILLWRIGHT_MARK,
+        tehas_core::grammar::MILLWRIGHT
     );
     let now = 1_792_000_000;
     let at = iso(now - 60);
@@ -2773,18 +2764,18 @@ fn plan_how_words_are_the_pair_of_the_core_grammar() {
         let conn = Connection::open(db::path(&home)).unwrap();
         one::<String>(&conn, "SELECT how FROM runs")
     };
-    // Each word of the pair marks the turn the millwright's and neither word
-    // is an answer: were the marks anything else, one of these three disagrees.
+    // The word marks the turn the millwright's, and the old one is no mark:
+    // were the mark anything else, one of these three disagrees.
     assert_eq!(
         mark(json!({"turn": 3, "by": "bot", "millwright": true})),
         "millwright"
     );
     assert_eq!(
         mark(json!({"turn": 3, "by": "bot", "fixer": true})),
-        "millwright"
+        "answer"
     );
     assert_eq!(
-        mark(json!({"turn": 3, "by": "bot", "millwright": false, "fixer": false})),
+        mark(json!({"turn": 3, "by": "bot", "millwright": false})),
         "answer"
     );
 }
@@ -6762,9 +6753,10 @@ fn the_contractor_of_a_run_is_kept_and_an_in_house_run_or_a_bad_word_keeps_none(
 }
 
 /// A store of before 2.0 holds runs a ticked retry started, `how`
-/// `retry-tick`. Each open rewrites them to `reply` as data, on the schema the
-/// file has, and an open with none left writes nothing; the sessions then list
-/// those runs with `reply` (#2782).
+/// `retry-tick`, and runs recorded under the millwright's old name, `fixer`.
+/// Each open rewrites them to `reply` and `millwright` as data, on the schema
+/// the file has, and an open with none left writes nothing; the sessions then
+/// list those runs with the new words (#2782).
 #[test]
 fn an_open_rewrites_the_hows_of_before_2_0_once_and_the_sessions_list_them() {
     let home = scratch("old-hows");
@@ -6772,9 +6764,10 @@ fn an_open_rewrites_the_hows_of_before_2_0_once_and_the_sessions_list_them() {
     drop(db::open(&db::path(&home), now).unwrap());
     let conn = Connection::open(db::path(&home)).unwrap();
     add_run(&conn, "work-7-old", 7, now - 3600);
-    conn.execute(
-        "UPDATE runs SET how = 'retry-tick' WHERE id = 'work-7-old'",
-        [],
+    add_run(&conn, "work-8-old", 8, now - 3600);
+    conn.execute_batch(
+        "UPDATE runs SET how = 'retry-tick' WHERE id = 'work-7-old';
+         UPDATE runs SET how = 'fixer' WHERE id = 'work-8-old';",
     )
     .unwrap();
     let version: i64 = one(&conn, "PRAGMA user_version");
@@ -6789,6 +6782,10 @@ fn an_open_rewrites_the_hows_of_before_2_0_once_and_the_sessions_list_them() {
             one::<String>(&c, "SELECT how FROM runs WHERE id = 'work-7-old'"),
             "reply"
         );
+        assert_eq!(
+            one::<String>(&c, "SELECT how FROM runs WHERE id = 'work-8-old'"),
+            "millwright"
+        );
         assert_eq!(one::<i64>(&c, "PRAGMA user_version"), version);
         drop(c);
     }
@@ -6798,4 +6795,9 @@ fn an_open_rewrites_the_hows_of_before_2_0_once_and_the_sessions_list_them() {
         .find(|l| l["id"] == "work-7-old")
         .expect("the run is listed");
     assert_eq!(run["how"], "reply", "{run}");
+    let run = listed
+        .iter()
+        .find(|l| l["id"] == "work-8-old")
+        .expect("the run is listed");
+    assert_eq!(run["how"], "millwright", "{run}");
 }

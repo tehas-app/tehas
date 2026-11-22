@@ -325,8 +325,6 @@ fn every_64_names_the_flag_and_an_enumerated_word() {
             &[
                 "approval-record", "1", "--at", "5", "--by", "a", "--how", "bogus", "--body-sha", SHA,
             ][..],
-            // The old `fixer` is taken but not advertised: the refusal names
-            // only the words of this release.
             "usage approval-record: --how is not one of millwright, label, refresh, outage-retry, host, answer, reply: \"bogus\"",
         ),
         (

@@ -655,7 +655,7 @@ mod tests {
         assert_eq!(d("stop #975: its issue is closed"), "done");
         assert_eq!(d("planning #3 ended"), "done");
         assert_eq!(
-            d("planning #7 continues (answer from mill-bot, the fixer)"),
+            d("planning #7 continues (answer from mill-bot, the millwright)"),
             "start"
         );
         assert_eq!(d("wait #462: tehas:blocked holds it"), "wait");
@@ -664,11 +664,11 @@ mod tests {
         // The release of a hold is no decision of `factory_decisions`, but it
         // is an event; the poll's own words for its slots are a wait.
         assert_eq!(
-            d("lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment"),
+            d("lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the millwright's guidance comment"),
             "warn"
         );
         assert_eq!(
-            d("lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment"),
+            d("lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the millwright's guidance comment"),
             "warn"
         );
         assert_eq!(
@@ -680,7 +680,7 @@ mod tests {
             "wait"
         );
         assert_eq!(
-            d("hold #7: its last cycle parked on intent-park and the body has not changed since, and the fixer's comments could not be read"),
+            d("hold #7: its last cycle parked on intent-park and the body has not changed since, and the millwright's comments could not be read"),
             "wait"
         );
         assert_eq!(d("released: cycles may start again"), "wait");
