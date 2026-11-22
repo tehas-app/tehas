@@ -107,6 +107,31 @@ pub fn cargo_metadata(root: &Path) -> Option<String> {
     String::from_utf8(out.stdout).ok()
 }
 
+/// Each test target of the workspace, from `cargo_metadata`'s output: its
+/// package, its name and its file relative to the checkout.
+pub fn test_targets(json: &str) -> Option<Vec<(String, String, String)>> {
+    let v: serde_json::Value = serde_json::from_str(json).ok()?;
+    let root = v.get("workspace_root")?.as_str()?;
+    let mut out = Vec::new();
+    for pkg in v.get("packages")?.as_array()? {
+        let package = pkg.get("name")?.as_str()?;
+        for t in pkg.get("targets")?.as_array()? {
+            if !t.get("kind")?.as_array()?.iter().any(|k| k == "test") {
+                continue;
+            }
+            let src = t.get("src_path")?.as_str()?;
+            let rel = src.strip_prefix(root)?.trim_start_matches('/');
+            out.push((
+                package.to_string(),
+                t.get("name")?.as_str()?.to_string(),
+                format!("console/{rel}"),
+            ));
+        }
+    }
+    out.sort_by(|a, b| a.2.cmp(&b.2));
+    Some(out)
+}
+
 /// The workspace as metadata gives it: the crate of each directory, and the
 /// crates that depend on each crate.
 struct Crates {
