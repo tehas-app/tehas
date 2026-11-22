@@ -66,7 +66,7 @@ fn script(which: &str, command: &str) -> Option<&'static str> {
 
 /// The verbs of `tehas`. work and index are tehas-cycle's, which takes their
 /// lock (src/run.rs).
-const VERBS: [&str; 38] = [
+const VERBS: [&str; 37] = [
     "work",
     "index",
     "dispatch",
@@ -102,7 +102,6 @@ const VERBS: [&str; 38] = [
     "plugin",
     "wake",
     "blockers",
-    "wiki",
     "answer",
     "question",
 ];
@@ -141,8 +140,7 @@ fn tehasbot(words: &[String]) -> Go {
         None | Some("help" | "-h" | "--help") => Go::Usage,
         Some(
             "health" | "status" | "top" | "refresh" | "clean" | "preview" | "protolab" | "dispatch"
-            | "review" | "github-token" | "cycle" | "outsource-proxy" | "plugin" | "plugin-gate"
-            | "wiki",
+            | "review" | "github-token" | "cycle" | "outsource-proxy" | "plugin" | "plugin-gate",
         ) => Go::Run,
         Some("mcp") if words.get(1).map(String::as_str) == Some("serve") => Go::Run,
         Some("mcp" | "github-writes") => Go::Verb,
@@ -438,6 +436,9 @@ mod tests {
         }
         // The improvement loop is gone, and so is its command.
         assert_eq!(b(&["improve"]), Go::Unknown("improve".into()));
+        // The product wiki left core in 2.0.
+        assert_eq!(t(&["wiki"]), Go::Unknown("wiki".into()));
+        assert_eq!(b(&["wiki"]), Go::Unknown("wiki".into()));
         assert_eq!(b(&["mcp", "serve"]), Go::Run);
         assert_eq!(b(&["outsource-proxy"]), Go::Run);
         assert_eq!(b(&["plugin", "tick"]), Go::Run);
@@ -822,8 +823,7 @@ mod tests {
             [
                 ("outsource", "outsource"),
                 ("plugin", "plugins"),
-                ("prototype", "prototype-file"),
-                ("wiki", "wiki")
+                ("prototype", "prototype-file")
             ]
         );
         for (command, name) in marked {

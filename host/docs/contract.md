@@ -87,7 +87,7 @@ Internal:
 | MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
 | `tehas update` | From any 0.30.x, 0.31.x or 0.32.x release. A 0.30.x host can name an rc or the release, not an alpha or a beta. From 1.0 on, the release repository and the signing key are built into tehas: the `TEHAS_RELEASE_REPO` line of `host/versions.env` and `host/release/minisign.pub` when the release was built. An instance may name another repository with `TEHAS_RELEASE_REPO` in `instance.env`; the key stays the built-in one | The update's shell tests, and the tests of `console/core/src/release.rs` |
 | Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x; a renamed name is taken under both names through 1.x | `console/cycle/tests/work_container.rs` |
-| Host namespace | `/host/` on the factory's origin belongs to the host that fronts the factory's domain: tehas never serves a path under it, and its docs server answers 404 there, which the dashboard reads as no host. The host bridge, `/host/bridge.json`, is `bridge: 1`, by `api/host-bridge.schema.json` and [its rules](/api#the-host-bridge) | `test/host_bridge_test.sh` (the 404 under `/host/`, the schema and its samples), `test/json_contract_test.sh`, `test/host_bridge_test.mjs` (what the dashboard keeps of an answer) and `test/panels_dock_test.mjs` (a menu item opens in the dock, and a page item in a new tab with no dock) |
+| Host namespace | `/host/` on the factory's origin belongs to the host that fronts the factory's domain: tehas never serves a path under it, and its docs server answers 404 there, which the dashboard reads as no host. The host bridge, `/host/bridge.json`, is `bridge: 1`, by `api/host-bridge.schema.json` and [its rules](/api#the-host-bridge) | `console/tests/host_bridge.rs` (the 404 under `/host/`, the schema and its samples), `test/json_contract_test.sh`, `test/host_bridge_test.mjs` (what the dashboard keeps of an answer) and `test/panels_dock_test.mjs` (a menu item opens in the dock, and a page item in a new tab with no dock) |
 
 `api/surface-1.0.txt` lists the names of the frozen surface in one place:
 each public command, subcommand and flag, setting, role, label and `--json`
@@ -512,25 +512,6 @@ with exit 78 and says `plugins` is still being built.
   feature and are not contract until it ships.
 - No label, no `--json` field of another command, no MCP tool, no file under
   `live/`.
-
-### wiki
-
-Building since v1.3.0. Off by default; `TEHAS_WIKI=on` stops every command
-with exit 78 and says `wiki` is still being built.
-
-- `tehas api --json` has `"wiki": false` in `flags`, and no word `wiki` in
-  `features`.
-- `tehas wiki` exits 78 and reads nothing more. `tehas help wiki` prints its
-  text, and the list of `tehas help` does not name it.
-- `tehas wiki build` exits 78 too, and `tehasbot wiki` and
-  `tehasbot wiki build` exit 0 and write nothing. `install.sh` installs none
-  of `tehas-wiki-status.service`, `tehas-wiki.service` and their timers, and
-  not `tehas-wiki.path`.
-- The sandbox kind `wiki` and its argument list are not contract.
-- `/wiki` and every address under it answer 404, because no `live/wiki.json`
-  is written, and the dashboard's `wiki` link stays hidden.
-- No label, no `--json` field of another command, no MCP tool and no file
-  under `live/`.
 
 ## Exit statuses
 

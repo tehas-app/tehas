@@ -390,7 +390,6 @@ pub const TABLE: &[Setting] = &[
         When::Always,
         None,
     ),
-    always("TEHAS_WIKI", SWITCH, "0"),
     always("TEHAS_WORKSTREAMS", Rule::Count, "1"),
     row("TEHAS_MAX_CYCLES", Rule::Cycles, When::Always, None),
     always("TEHAS_HOST_ADDR", Rule::HostAddress, "127.0.0.1"),
@@ -1105,11 +1104,10 @@ mod tests {
             "TEHAS_PROTOTYPE_FILE",
             "TEHAS_LEAN",
             "TEHAS_PLUGIN",
-            "TEHAS_WIKI",
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 24);
+        assert_eq!(switches.len(), 23);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);

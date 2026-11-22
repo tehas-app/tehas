@@ -94,12 +94,11 @@ t_case "the real workspace: a core change selects the whole workspace"
 t_eq "$(real_pick console/core/src/lib.rs)" "cargo"
 
 # The tests that run a built program take it from the run, so a change under
-# console/ needs them: headless_test.sh is one of them and names none of the
-# words the old pick looked for. A helper of test/lib.sh that copies a program
-# in (t_cycle) is enough to be one.
+# console/ needs them. A helper of test/lib.sh that copies a program in
+# (t_cycle) is enough to be one, as in cycle_front_test.sh.
 t_case "the real workspace: a cycle change selects the shell tests that run a built program"
 picked=$(bash "$T_ROOT/scripts/select-tests.sh" console/cycle/src/main.rs 2>&1 | grep '^test ')
-t_contains "$picked" "test test/headless_test.sh"
+t_contains "$picked" "test test/cycle_front_test.sh"
 t_contains "$picked" "test test/console_run_test.sh"
 t_contains "$picked" "test test/sandbox_argv_test.sh"
 
@@ -109,7 +108,7 @@ t_contains "$picked" "test test/sandbox_argv_test.sh"
 # core through the settings, and stay left to the full gate.
 t_case "the real workspace: a core change selects every shell test"
 picked=$(bash "$T_ROOT/scripts/select-tests.sh" console/core/src/settings/load.rs 2>&1)
-for f in headless_test.sh describe_test.sh refresh_test.sh labels_test.sh login_test.sh \
+for f in describe_test.sh refresh_test.sh labels_test.sh login_test.sh \
   config_test.sh cycle_front_test.sh tidy_test.sh sandbox_argv_test.sh \
   shim_writes_test.sh; do
   t_contains "$picked" "est test/$f"

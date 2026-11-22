@@ -45,8 +45,7 @@
     "prototype-file": false,
     "lean": false,
     "review": false,
-    "plugins": false,
-    "wiki": false
+    "plugins": false
   },
   "millwright": null,
   "poll": {

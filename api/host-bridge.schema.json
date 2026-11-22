@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tehas-app/tehas/api/host-bridge.schema.json",
   "title": "/host/bridge.json",
-  "description": "The answer a host that fronts a factory's domain gives at /host/bridge.json. The dashboard reads it with host/fun/host-bridge.js. host/docs/api.md, \"The host bridge\", says what each field means and how it is read: the rules here that a schema cannot say (an id unique in its list, at most 3 notes a ticket) are there. Unknown fields are allowed at the top level and in each element. test/host_bridge_test.sh checks the samples beside this file against it.",
+  "description": "The answer a host that fronts a factory's domain gives at /host/bridge.json. The dashboard reads it with host/fun/host-bridge.js. host/docs/api.md, \"The host bridge\", says what each field means and how it is read: the rules here that a schema cannot say (an id unique in its list, at most 3 notes a ticket) are there. Unknown fields are allowed at the top level and in each element. console/tests/host_bridge.rs checks the samples beside this file against it.",
   "type": "object",
   "required": ["bridge", "host", "time"],
   "properties": {

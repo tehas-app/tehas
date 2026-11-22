@@ -1,8 +1,10 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2016,SC2034  # stub bodies are expanded when the stub runs; the parts read the variables
-# What the tests of tehas top share: test/top_*_test.sh source this. They
-# cover the snapshot, the frame drawn from it, the command that wires the two
-# and the publisher, all in the console (console/src/top.rs).
+# What the shell tests of tehas top share: top_frame_test.sh and
+# top_publish_test.sh source this. They cover the frame and the publisher, both
+# in the console (console/src/top.rs). The snapshot and the view are tested in
+# Rust, console/tests/top_snapshot.rs and top_view.rs, with console/tests/top/
+# as their twin of this file.
 # Everything runs against files written here under $TEHAS_HOME/live/ and a
 # tree of host numbers written here, with systemctl stubbed. Nothing here calls
 # GitHub, a model or Docker, and no case reads the machine that runs it.
@@ -16,7 +18,6 @@ top="$T_ROOT/bin/tehas top"
 publish="$T_ROOT/bin/tehasbot top"
 live=$T/home/tehas/live
 proc1=$T/proc1
-proc2=$T/proc2
 
 iso() { date -u -d "@$(($(date +%s) - ${1:-30}))" +%FT%TZ; }
 
@@ -37,15 +38,8 @@ esac'
 
 # The host's own numbers, as files a reading can be taken from: two CPUs, load
 # averages, memory and four processes. One of them has a command line with a
-# token in it, which no reading is allowed to open.
-#
-# proc1 is the same at both of its readings, so its CPU figures measure nothing.
-# proc_files "$proc2" 1005 ... is proc1 five seconds on: tehas-cycle used 2.5 s
-# of CPU in those five, pi-rukas 0.1 s, systemd 0.05 s, and the aggregate cpu
-# line moved by 450 ticks of which 300 were idle. Read together they give 50%,
-# 2% and 1%, and 33.3% over the host - what changed between two readings, not
-# the average since a process started, which for these three would be 1.5%, 0%
-# and 7.3%.
+# token in it, which no reading is allowed to open. proc1 is the same at both
+# of its readings, so its CPU figures measure nothing.
 proc_files() { # <dir> <clock seconds> "<cpu user nice system idle iowait irq softirq steal>" <row>..
   local dir=$1 clock=$2 cpu=$3 row pid name ticks rss
   shift 3
@@ -56,31 +50,17 @@ proc_files() { # <dir> <clock seconds> "<cpu user nice system idle iowait irq so
   printf 'MemTotal:       65536 kB\nMemFree:          10000 kB\nMemAvailable:     32768 kB\n' >"$dir/meminfo"
   printf 'processor\t: 0\nmodel name\t: a cpu\nprocessor\t: 1\n' >"$dir/cpuinfo"
   # A row is "<pid> <short name> <cpu ticks> <resident pages>". The start ticks
-  # come from the pid: 900 + pid - 100, in ticks. So two trees give the same
-  # process the same start, and a process whose start has to differ is written
-  # by hand, as the brackets case does.
+  # come from the pid: 900 + pid - 100, in ticks.
   for row in "$@"; do
-    read -r pid name ticks rss <<<"${row//\|/ }"
+    read -r pid name ticks rss <<<"$row"
     mkdir -p "$dir/$pid"
     printf '%s (%s) S 1 %s %s 0 -1 1 0 0 0 0 %s 0 0 0 20 0 1 0 %s 1048576 %s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 17 0 0 0 0 0 0\n' \
       "$pid" "$name" "$pid" "$pid" "$ticks" "$((900 + pid - 100))" "$rss" >"$dir/$pid/stat"
   done
 }
 
-# The rows of a process set, for proc_files: pids from the first to the last,
-# each named after itself and all of them with the same start (the start ticks
-# come from the pid). Each next pid has used <step> ticks more than the last,
-# from <base> for the first. The fields of a row are kept apart by | so the
-# whole set survives one unquoted word per row.
-pid_rows() { # <first> <last> <base ticks> <step>
-  local p base=$3 span=$4
-  for p in $(seq "$1" "$2"); do
-    printf "%d|p%d|%d|10 " "$p" "$p" "$((base + (p - $1) * span))"
-  done
-}
-
 reset() {
-  rm -rf "$T"/calls/* "$live" "$proc1" "$proc2"
+  rm -rf "$T"/calls/* "$live" "$proc1"
   mkdir -p "$live"
   unit_stub
   proc_files "$proc1" 1000 '1000 100 500 8000 200 10 5 20' \

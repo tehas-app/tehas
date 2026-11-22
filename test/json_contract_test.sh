@@ -1453,7 +1453,7 @@ pinned=(
   'wake	console/src/wake.rs'
   'blockers	console/src/blockers.rs'
   'settings-rules	test/settings_rules_test.sh	own'
-  'host-bridge	test/host_bridge_test.sh	open'
+  'host-bridge	console/tests/host_bridge.rs	open'
   'answer	console/tests/answer.rs	'
   'question	console/tests/answer.rs	'
 )

@@ -422,12 +422,7 @@ mod tests {
                     .unwrap_or_default()
             }
         };
-        let idle = [
-            "idle tehas-review.timer",
-            "idle tehas-plugin.timer",
-            "idle tehas-wiki-status.timer",
-            "idle tehas-wiki.timer",
-        ];
+        let idle = ["idle tehas-review.timer", "idle tehas-plugin.timer"];
         assert_eq!(featured(&get(&[])), idle);
         assert_eq!(featured(&get(&[("TEHAS_OUTSOURCE", "on")])), idle);
         assert_eq!(
@@ -440,9 +435,7 @@ mod tests {
                 "program tehas-contractor",
                 "unit tehas-outsource-proxy.service",
                 "idle tehas-review.timer",
-                "idle tehas-plugin.timer",
-                "idle tehas-wiki-status.timer",
-                "idle tehas-wiki.timer"
+                "idle tehas-plugin.timer"
             ]
         );
         // On, the timer is installed and no longer idle.
@@ -454,23 +447,6 @@ mod tests {
             [
                 "unit tehas-review.service",
                 "unit tehas-review.timer",
-                "idle tehas-plugin.timer",
-                "idle tehas-wiki-status.timer",
-                "idle tehas-wiki.timer"
-            ]
-        );
-        assert_eq!(
-            featured(&get(&[
-                ("TEHAS_WIKI", "on"),
-                ("TEHAS_TEST_FEATURES", "wiki")
-            ])),
-            [
-                "unit tehas-wiki-status.service",
-                "unit tehas-wiki-status.timer",
-                "unit tehas-wiki.service",
-                "unit tehas-wiki.timer",
-                "unit tehas-wiki.path",
-                "idle tehas-review.timer",
                 "idle tehas-plugin.timer"
             ]
         );
