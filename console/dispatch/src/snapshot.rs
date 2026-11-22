@@ -2,9 +2,12 @@
 //! JSON in the shapes `gh`, the store and the files answer in. A field that a
 //! poll reads only when it needs it is None until it is read.
 
+use crate::decide::HOST;
+use crate::settings::Settings;
 use crate::slice::{Reading, Scope};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use tehas_core::driver::Driver;
 use tehas_core::events::{EditRecord, Events};
 
 /// A list GitHub gave, or a call that failed.
@@ -46,7 +49,7 @@ pub struct Issue {
     pub park: Option<Result<Option<Park>, StoreErr>>,
     /// The approval of its latest start (approval-view), Err when the
     /// store could not answer.
-    pub approval: Option<Result<Option<Value>, ()>>,
+    pub approval: Option<Result<Option<Approval>, ()>>,
     /// The pull request approval-current's .current names as its refresh's:
     /// its refresh_pr when its how is refresh and that is a number of 1 to 10
     /// digits with no leading 0, None otherwise.
@@ -894,6 +897,280 @@ pub fn push_fault_holds(fault: &Value) -> bool {
     !matches!(fault, Value::Null)
 }
 
+/// The approval of an issue's latest start, as approval-view gives it. A
+/// text that is no string reads as empty, and a record that is no object as
+/// one with every field empty.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Approval {
+    pub how: String,
+    pub at: String,
+    pub by: String,
+    pub body_sha256: Option<String>,
+    /// [`Driver::of_record`] of it.
+    pub driver: Option<Driver>,
+    pub rests_on: RestsOn,
+    pub fixer_starts: Starts,
+    pub refreshes: RefreshCount,
+}
+
+/// The record's rests_on: the approval a fixer's or a refresh's start rests
+/// on.
+#[derive(Clone, Debug, PartialEq)]
+pub enum RestsOn {
+    Absent,
+    Null,
+    /// Neither an object nor null.
+    Other,
+    Record(Rests),
+}
+
+/// The fields of a rests_on object; one that is no string is None.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Rests {
+    pub at: Option<String>,
+    pub by: Option<String>,
+    pub how: Option<String>,
+    pub body_sha256: Option<String>,
+}
+
+/// The record's fixer_starts. None is absent or null.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Starts {
+    None,
+    Num(f64),
+    Other,
+}
+
+/// The record's refreshes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RefreshCount {
+    Absent,
+    Num(f64),
+    Other,
+}
+
+/// The person's approval a record rests on, when it reads as one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Base {
+    pub at: String,
+    pub by: String,
+    pub how: String,
+    pub body_sha256: String,
+}
+
+impl Approval {
+    pub(crate) fn of(v: &Value) -> Approval {
+        let s = |o: &Value, k: &str| o.get(k).and_then(Value::as_str).map(str::to_string);
+        let num = |k: &str| v.get(k).map(|x| x.as_f64().ok_or(()));
+        Approval {
+            how: s(v, "how").unwrap_or_default(),
+            at: s(v, "at").unwrap_or_default(),
+            by: s(v, "by").unwrap_or_default(),
+            body_sha256: s(v, "body_sha256"),
+            driver: Driver::of_record(v),
+            rests_on: match v.get("rests_on") {
+                None => RestsOn::Absent,
+                Some(Value::Null) => RestsOn::Null,
+                Some(r @ Value::Object(_)) => RestsOn::Record(Rests {
+                    at: s(r, "at"),
+                    by: s(r, "by"),
+                    how: s(r, "how"),
+                    body_sha256: s(r, "body_sha256"),
+                }),
+                Some(_) => RestsOn::Other,
+            },
+            fixer_starts: match v.get("fixer_starts") {
+                None | Some(Value::Null) => Starts::None,
+                _ => match num("fixer_starts") {
+                    Some(Ok(f)) => Starts::Num(f),
+                    _ => Starts::Other,
+                },
+            },
+            refreshes: match num("refreshes") {
+                None => RefreshCount::Absent,
+                Some(Ok(f)) => RefreshCount::Num(f),
+                Some(Err(())) => RefreshCount::Other,
+            },
+        }
+    }
+
+    /// A fixer's or a refresh's record rests on another approval.
+    fn rests(&self) -> bool {
+        matches!(self.how.as_str(), "fixer" | "refresh")
+    }
+
+    /// The base it rests on: rests_on for a fixer's or a refresh's, the
+    /// record itself for any other.
+    pub fn base(&self) -> Option<Base> {
+        if !self.rests() {
+            return Base::checked(&self.at, &self.by, &self.how, self.body_sha256.as_deref()?);
+        }
+        let RestsOn::Record(r) = &self.rests_on else {
+            return None;
+        };
+        Base::checked(
+            r.at.as_deref()?,
+            r.by.as_deref()?,
+            r.how.as_deref()?,
+            r.body_sha256.as_deref()?,
+        )
+    }
+
+    /// The sum of the body the record binds, by the rule of [`Approval::base`]:
+    /// a fixer's or a refresh's with no rests_on binds its own.
+    pub fn bound_sum(&self) -> Option<&str> {
+        if !self.rests() {
+            return self.body_sha256.as_deref();
+        }
+        match &self.rests_on {
+            RestsOn::Absent => self.body_sha256.as_deref(),
+            RestsOn::Record(r) => r.body_sha256.as_deref(),
+            RestsOn::Null | RestsOn::Other => None,
+        }
+    }
+
+    /// The fixer starts it counts, at most six digits.
+    pub fn fixer_starts(&self) -> Option<u64> {
+        let whole = |f: f64, min: f64| (f >= min && f.fract() == 0.0).then_some(f);
+        let n = match (self.how.as_str(), self.fixer_starts) {
+            ("fixer", Starts::Num(f)) => whole(f, 1.0)?,
+            ("fixer", _) => return None,
+            ("refresh", Starts::None) => 0.0,
+            ("refresh", Starts::Num(f)) => whole(f, 0.0)?,
+            ("refresh", Starts::Other) => return None,
+            _ => 0.0,
+        };
+        (n < 1_000_000.0).then_some(n as u64)
+    }
+
+    /// The refreshes it counts on that base.
+    pub fn refresh_count(&self, base: &Base) -> Option<u64> {
+        self.refreshes_on(Some(&base.at), Some(&base.by))
+    }
+
+    /// The refreshes it counts on the approval of `at` by `by`, None for one
+    /// that is not there.
+    fn refreshes_on(&self, at: Option<&str>, by: Option<&str>) -> Option<u64> {
+        if self.how != "refresh" {
+            return Some(0);
+        }
+        // jq's (.rests_on | {at, by}) fails on anything but an object or null.
+        let same = match &self.rests_on {
+            RestsOn::Other => return None,
+            RestsOn::Absent | RestsOn::Null => at.is_none() && by.is_none(),
+            RestsOn::Record(r) => r.at.as_deref() == at && r.by.as_deref() == by,
+        };
+        if !same {
+            return Some(0);
+        }
+        let RefreshCount::Num(n) = self.refreshes else {
+            return None;
+        };
+        (n >= 1.0 && n.fract() == 0.0 && n < 1_000_000.0).then_some(n as u64)
+    }
+}
+
+impl Base {
+    fn checked(at: &str, by: &str, how: &str, sum: &str) -> Option<Base> {
+        let ok = !at.is_empty()
+            && at
+                .bytes()
+                .all(|b| b.is_ascii_digit() || matches!(b, b'T' | b':' | b'.' | b'Z' | b'-'))
+            && !by.is_empty()
+            && by.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+            && matches!(
+                how,
+                "label" | "retry-tick" | "outage-retry" | HOST | "answer"
+            )
+            && sum.len() == 64
+            && sum.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+        ok.then(|| Base {
+            at: at.into(),
+            by: by.into(),
+            how: how.into(),
+            body_sha256: sum.into(),
+        })
+    }
+
+    /// Whether it still approves: the host's approval names no account
+    /// (#1967), and a person's stands while the list names its account.
+    pub fn stands(&self, c: &Settings) -> bool {
+        self.how == HOST || c.allowed(&self.by)
+    }
+
+    /// The account it was given by, as `changed_after` reads an approver.
+    pub fn approver(&self) -> &str {
+        approver(&self.how, &self.by)
+    }
+
+    /// Its four fields as the record writes them.
+    pub fn pairs(&self) -> [(&'static str, &str); 4] {
+        [
+            ("at", &self.at),
+            ("by", &self.by),
+            ("how", &self.how),
+            ("body_sha256", &self.body_sha256),
+        ]
+    }
+}
+
+/// None for the host's approval, whose `by` is a word and not an account, so
+/// a change in its second by an account called `host` counts as after it.
+fn approver<'a>(how: &str, by: &'a str) -> &'a str {
+    if how == HOST {
+        ""
+    } else {
+        by
+    }
+}
+
+/// [`Approval::base`] of a record, {at, by, how, body_sha256}.
+pub(crate) fn fixer_base(record: &Value) -> Option<Value> {
+    Approval::of(record).base().map(|b| {
+        Value::Object(
+            b.pairs()
+                .into_iter()
+                .map(|(k, v)| (k.into(), json!(v)))
+                .collect(),
+        )
+    })
+}
+
+/// [`Base::stands`] of a base of `fixer_base`.
+pub(crate) fn base_stands(c: &Settings, base: &Value) -> bool {
+    let s = |k: &str| {
+        base.get(k)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+    Base {
+        at: s("at"),
+        by: s("by"),
+        how: s("how"),
+        body_sha256: s("body_sha256"),
+    }
+    .stands(c)
+}
+
+/// [`Base::approver`] of a base of `fixer_base`.
+pub(crate) fn base_approver(base: &Value) -> &str {
+    let s = |k: &str| base.get(k).and_then(Value::as_str).unwrap_or("");
+    approver(s("how"), s("by"))
+}
+
+/// [`Approval::fixer_starts`] of a record.
+pub(crate) fn fixer_starts(record: &Value) -> Option<u64> {
+    Approval::of(record).fixer_starts()
+}
+
+/// [`Approval::refresh_count`] of a record on a base of at least {at, by}.
+#[cfg(test)]
+pub(crate) fn refresh_count(record: &Value, base: &Value) -> Option<u64> {
+    let s = |k: &str| base.get(k).and_then(Value::as_str);
+    Approval::of(record).refreshes_on(s("at"), s("by"))
+}
+
 /// What a poll asks before it starts an issue that links an attachment, with
 /// TEHAS_WORK_IMAGES=1.
 #[derive(Clone, Debug, Default)]
@@ -1358,7 +1635,7 @@ fn issue(v: &Value) -> Issue {
         approval: v.get("approval").map(|a| match a {
             Value::Null => Ok(None),
             a if failed(a) => Err(()),
-            a => Ok(Some(a.clone())),
+            a => Ok(Some(Approval::of(a))),
         }),
         current: v.get("current").map(|a| match a {
             Value::Null => Ok(None),

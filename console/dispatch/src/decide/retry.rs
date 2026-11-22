@@ -3,15 +3,16 @@
 //! request. Each takes the room rules 2 and 3 left, as the bash dispatcher did.
 
 use super::clean::iso;
-use super::{
-    base_approver, base_stands, fixer_base, has, or_unknown, standing_actor, Choice, End, Poll,
-    Room, Start, Step, CLASSIC, LEAN,
-};
+use super::{has, or_unknown, standing_actor, Choice, End, Poll, Room, Start, Step, CLASSIC, LEAN};
 use crate::answer::{self, Overlay};
 use crate::questions::{self, Answer, Asked, Status};
+#[cfg(test)]
+use crate::snapshot::refresh_count;
 use crate::snapshot::{CycleRow, Given, PullNode, PullRead, View};
 use crate::text;
-use serde_json::{json, Map, Value};
+#[cfg(test)]
+use serde_json::Value;
+use serde_json::{json, Map};
 use tehas_core::driver::Driver;
 
 const ISSUE_MAX: u64 = 9_999_999_999;
@@ -136,28 +137,6 @@ fn parked(history: &[Value], at: &str) -> (bool, bool) {
         Some(Ok(rows)) => parked_rows(rows, at),
         _ => unreachable!("an array of rows is a history"),
     }
-}
-
-/// The refreshes a record counts on that approval.
-fn refresh_count(record: &Value, base: &Value) -> Option<u64> {
-    let same = |r: &Value| {
-        ["at", "by"]
-            .iter()
-            .all(|k| r.get(*k).unwrap_or(&Value::Null) == base.get(*k).unwrap_or(&Value::Null))
-    };
-    if record.get("how").and_then(Value::as_str) == Some("refresh") {
-        // jq's (.rests_on | {at, by}) fails on anything but an object or null.
-        let rests = record.get("rests_on").unwrap_or(&Value::Null);
-        if !rests.is_object() && !rests.is_null() {
-            return None;
-        }
-        if !same(rests) {
-            return Some(0);
-        }
-        let n = record.get("refreshes")?.as_f64()?;
-        return (n >= 1.0 && n.fract() == 0.0 && n < 1_000_000.0).then_some(n as u64);
-    }
-    Some(0)
 }
 
 impl Poll<'_> {
@@ -819,13 +798,13 @@ impl Poll<'_> {
             Some(Ok(None)) => return self.refresh_drop(n, none),
             Some(Ok(Some(r))) => r,
         };
-        let Some(rests) = fixer_base(&record).filter(|b| base_stands(self.c, b)) else {
+        let Some(rests) = record.base().filter(|b| b.stands(self.c)) else {
             return self.refresh_drop(n, none);
         };
-        let count = refresh_count(&record, &rests);
-        let by = rests["by"].as_str().unwrap_or("").to_string();
-        let at = rests["at"].as_str().unwrap_or("").to_string();
-        let approver = base_approver(&rests).to_string();
+        let count = record.refresh_count(&rests);
+        let by = rests.by.clone();
+        let at = rests.at.clone();
+        let approver = rests.approver().to_string();
         if !self.unchanged_since(
             n,
             &at,
@@ -838,7 +817,7 @@ impl Poll<'_> {
                 &format!("its title or text was changed since {by} approved it"),
             );
         }
-        if text::body_sum(self.text(n).body_text()) != rests["body_sha256"].as_str().unwrap_or("") {
+        if text::body_sum(self.text(n).body_text()) != rests.body_sha256 {
             return self.refresh_drop(n, &format!("its text is not the text {by} approved"));
         }
         let node = match self.s.pulls.get(&pr).cloned() {
