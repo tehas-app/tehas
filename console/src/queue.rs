@@ -29,9 +29,7 @@
 //! label, lifted}`, where `flag` is {at, reason} written by tehas pause or null,
 //! `label` is tehas:pause on the control issue, and `lifted` says the label is
 //! off but the account that took it off may not authorise work, which holds this
-//! host paused just as much. `allHands` is true while tehas:all-hands on the
-//! control issue was applied by an allowed account, null when that could not be
-//! read. The flag is read from this host, so pausing needs no answer from
+//! host paused just as much. The flag is read from this host, so pausing needs no answer from
 //! GitHub. `by`, the account that set the flag, stays out of the file: the page
 //! that reads it can be public.
 //!
@@ -64,8 +62,7 @@
 //! events could be read, `pause.label` and `pause.lifted` are. `stale` names
 //! each part kept so: `queue`, `completed` or `pause`.
 //!
-//! Prints nothing but an ignored all-hands label, once, analytics warnings and
-//! WARN lines, on standard error. Exit 0 even when GitHub is down. Exit 78, before
+//! Prints nothing but analytics warnings and WARN lines, on standard error. Exit 0 even when GitHub is down. Exit 78, before
 //! GitHub is asked or anything is written, when a setting it needs is not set,
 //! however it was started.
 
@@ -88,7 +85,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tehas_core::call;
-use tehas_core::events::{label_actor, pause_holds, Event, Events};
+use tehas_core::events::{pause_holds, Event, Events};
 use tehas_core::file::{write_atomic, Temp};
 use tehas_core::github_fails;
 use tehas_core::home::{Home, State};
@@ -270,7 +267,6 @@ fn events_of(text: &str) -> Option<Vec<Event>> {
 struct Control {
     label: bool,
     lifted: bool,
-    all_hands: Option<bool>,
     /// False when neither the labels nor the events could be read, so
     /// `label` and `lifted` say nothing.
     read: bool,
@@ -299,17 +295,10 @@ fn kept(mut c: Control, previous: &J) -> (Control, bool) {
 /// it cannot read the events. When the labels could not be read, the events
 /// say whether the label is on: it is when its last event applied it. When
 /// neither answered, `read` is false.
-///
-/// tehas:all-hands holds while it is on the issue and the account that applied
-/// it is allowed. It is reported and changes nothing in the factory. A label
-/// anyone else applied is said once, on standard error; `ignored` remembers
-/// which application was said. None is a label that could not be read.
 fn control(
     labels: Option<&str>,
     read_events: &mut dyn FnMut() -> String,
     allowed: &dyn Fn(&str) -> bool,
-    ignored: &Path,
-    issue: &str,
 ) -> Control {
     let joined = format!(" {} ", labels.unwrap_or_default().trim_end_matches('\n'));
     let mut label = joined.contains(" tehas:pause ");
@@ -327,41 +316,9 @@ fn control(
             None => known = labels.is_some(),
         }
     }
-    let all_hands = if labels.is_none() {
-        None
-    } else if joined.contains(" tehas:all-hands ") {
-        let text = read.get_or_insert_with(&mut *read_events);
-        let applied = (!text.trim_end_matches('\n').is_empty())
-            .then(|| events_of(text))
-            .flatten()
-            .map(|e| label_actor(&e, "tehas:all-hands"));
-        match applied {
-            None => None,
-            Some((who, _)) if allowed(&who) => {
-                let _ = fs::remove_file(ignored);
-                Some(true)
-            }
-            Some((who, at)) => {
-                let line = format!("{who}\t{at}");
-                let said = fs::read_to_string(ignored).unwrap_or_default();
-                if !ignored.exists() || said.trim_end_matches('\n') != line {
-                    eprintln!("tehasbot status: tehas:all-hands on #{issue} was applied by '{who}', not an allowed account: ignored");
-                    if let Some(dir) = ignored.parent() {
-                        let _ = fs::create_dir_all(dir);
-                    }
-                    let _ = fs::write(ignored, format!("{line}\n"));
-                }
-                Some(false)
-            }
-        }
-    } else {
-        let _ = fs::remove_file(ignored);
-        Some(false)
-    };
     Control {
         label,
         lifted,
-        all_hands,
         read: known,
     }
 }
@@ -614,7 +571,6 @@ fn snapshot(f: &Facts) -> Result<J, String> {
                 ("lifted", J::Bool(f.switches.lifted)),
             ]),
         ),
-        ("allHands", f.switches.all_hands.map_or(J::Null, J::Bool)),
         ("noResources", J::Bool(f.no_resources)),
         (RUNNING, J::Arr(with(&|h| h.contains(&"tehas:running")))),
         (
@@ -996,8 +952,6 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
                 .unwrap_or_default()
         },
         &allowed,
-        &Home::new(home).state(State::AllHandsIgnored),
-        issue,
     );
     if stopped() {
         return;
@@ -1164,7 +1118,6 @@ mod tests {
             switches: Control {
                 label: false,
                 lifted: false,
-                all_hands: Some(false),
                 read: true,
             },
             flag: J::Null,
@@ -1381,7 +1334,6 @@ mod tests {
                 "repo",
                 "paused",
                 "pause",
-                "allHands",
                 "noResources",
                 "running",
                 "queued",
@@ -1397,9 +1349,9 @@ mod tests {
         f.count = Some(J::num(3.0));
         let s = snapshot(&f).unwrap();
         let J::Obj(o) = &s else { panic!() };
-        assert_eq!(o[15].0, "completedCount");
-        assert_eq!(o[16].0, "links");
-        assert_eq!(o[17].0, "buzzwords");
+        assert_eq!(o[14].0, "completedCount");
+        assert_eq!(o[15].0, "links");
+        assert_eq!(o[16].0, "buzzwords");
         assert_eq!(
             s.at(&["links", "completed"]).as_str().unwrap(),
             "https://github.com/acme/widget/issues?q=is%3Aissue%20is%3Aclosed%20label%3Atehas%3Ashipped"
@@ -1480,13 +1432,7 @@ mod tests {
         )
     }
 
-    fn hands(who: &str) -> String {
-        format!(
-            r#"[{{"event":"labeled","label":{{"name":"tehas:all-hands"}},"actor":{{"login":"{who}"}},"created_at":"2026-10-17T10:00:00Z"}}]"#
-        )
-    }
-
-    fn switches(labels: Option<&str>, events: &str, ignored: &Path) -> (Control, u32) {
+    fn switches(labels: Option<&str>, events: &str) -> (Control, u32) {
         let asked = Cell::new(0);
         let c = control(
             labels,
@@ -1495,17 +1441,13 @@ mod tests {
                 events.to_string()
             },
             &|l| l == "alice",
-            ignored,
-            "1",
         );
         (c, asked.get())
     }
 
     #[test]
     fn a_pause_only_an_allowed_account_took_off_is_no_pause() {
-        let dir = temp("lifted");
-        let f = dir.join("ignored");
-        let lifted = |events: &str| switches(Some(""), events, &f).0.lifted;
+        let lifted = |events: &str| switches(Some(""), events).0.lifted;
         assert!(!lifted(&pause("unlabeled", "alice")));
         assert!(lifted(&pause("unlabeled", "mallory")));
         assert!(lifted(&pause("unlabeled", "")));
@@ -1517,7 +1459,7 @@ mod tests {
         assert!(!lifted("{}"));
         assert!(!lifted(r#"{"message":"no"}"#));
         // A label on the issue needs no events.
-        let (c, asked) = switches(Some("tehas:pause"), "", &f);
+        let (c, asked) = switches(Some("tehas:pause"), "");
         assert!(c.label && !c.lifted);
         assert_eq!(asked, 0);
         // Two pages are one list, and of two events in one second the
@@ -1532,9 +1474,7 @@ mod tests {
 
     #[test]
     fn labels_that_could_not_be_read_take_the_pause_from_its_events() {
-        let dir = temp("unread");
-        let f = dir.join("ignored");
-        let unread = |events: &str| switches(None, events, &f).0;
+        let unread = |events: &str| switches(None, events).0;
         // The last event put the label on: it is on, and nobody lifted it.
         let c = unread(&pause("labeled", "mallory"));
         assert!(c.label && !c.lifted && c.read);
@@ -1548,7 +1488,7 @@ mod tests {
         for bad in ["", "not json", "{}"] {
             assert!(!unread(bad).read, "{bad}");
         }
-        assert!(switches(Some(""), "", &f).0.read);
+        assert!(switches(Some(""), "").0.read);
     }
 
     #[test]
@@ -1556,7 +1496,6 @@ mod tests {
         let read = Control {
             label: false,
             lifted: false,
-            all_hands: None,
             read: true,
         };
         let before = j(r#"{"pause":{"flag":null,"label":true,"lifted":false}}"#);
@@ -1565,7 +1504,6 @@ mod tests {
         let unread = || Control {
             label: false,
             lifted: false,
-            all_hands: None,
             read: false,
         };
         let (c, stale) = kept(unread(), &before);
@@ -1583,36 +1521,6 @@ mod tests {
         assert_eq!(s.get("stale").dump(), r#"["pause"]"#);
         assert_eq!(s.get("completed").dump(), "[]");
         assert_eq!(s.get("queueAt").as_str(), Some("2026-11-01T00:00:00Z"));
-    }
-
-    #[test]
-    fn all_hands_holds_only_by_an_allowed_account() {
-        let dir = temp("hands");
-        let f = dir.join("state/ignored");
-        let on = Some("tehas:all-hands");
-        assert_eq!(switches(on, &hands("alice"), &f).0.all_hands, Some(true));
-        assert_eq!(switches(on, &hands("mallory"), &f).0.all_hands, Some(false));
-        assert_eq!(
-            fs::read_to_string(&f).unwrap(),
-            "mallory\t2026-10-17T10:00:00Z\n"
-        );
-        // An allowed application takes the memory of the ignored one away.
-        assert_eq!(switches(on, &hands("alice"), &f).0.all_hands, Some(true));
-        assert!(!f.exists());
-        switches(on, &hands("mallory"), &f);
-        // Off the issue is off, whatever the events say, and the events are read
-        // once for the two switches.
-        let (c, asked) = switches(Some(""), &hands("alice"), &f);
-        assert_eq!(c.all_hands, Some(false));
-        assert_eq!(asked, 1);
-        assert!(!f.exists());
-        // Unknown: events that cannot be read, or labels that could not.
-        assert_eq!(switches(on, "", &f).0.all_hands, None);
-        assert_eq!(switches(on, "not json", &f).0.all_hands, None);
-        assert_eq!(switches(None, &hands("alice"), &f).0.all_hands, None);
-        // No event applied it: nobody did.
-        assert_eq!(switches(on, "[]", &f).0.all_hands, Some(false));
-        assert_eq!(fs::read_to_string(&f).unwrap(), "\t\n");
     }
 
     #[test]

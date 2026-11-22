@@ -6,7 +6,6 @@
   "features": [
     "status",
     "millwright-grant",
-    "all-hands",
     "limit",
     "drain",
     "history",

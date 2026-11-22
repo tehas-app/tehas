@@ -11,7 +11,8 @@
 # Lines are only added, at the end, in the release that brings the name.
 # None is taken out or changed within 1.x. console/tests/surface.rs fails
 # when the surface loses a name of this file, and when it has one this file
-# does not list yet. The settings of energy use went in 2.0.
+# does not list yet. The settings of energy use went in 2.0, and so did
+# the label tehas:all-hands and status.allHands.
 
 command analytics
 command analytics copy
@@ -232,7 +233,6 @@ role EXPLORE
 role OPS
 label epic
 label needs-human-attention
-label tehas:all-hands
 label tehas:awaiting-merge
 label tehas:blocked
 label tehas:classic
@@ -486,7 +486,6 @@ field state-load.rows
 field state-load.schema
 field state-load.source
 field status.age
-field status.allHands
 field status.api
 field status.demand
 field status.demand.labelAlone

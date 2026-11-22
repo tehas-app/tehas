@@ -16,8 +16,6 @@ pub struct Home {
 pub enum State {
     /// The ids of the accounts the lists name.
     AccountIds,
-    /// Who set all-hands without being allowed to, and when.
-    AllHandsIgnored,
     /// The analytics program's database.
     AnalyticsDb,
     /// The store's backups.
@@ -115,7 +113,6 @@ impl State {
     pub const fn relative(self) -> &'static str {
         match self {
             State::AccountIds => "state/account-ids",
-            State::AllHandsIgnored => "state/all-hands.ignored",
             State::AnalyticsDb => "state/analytics.db",
             State::Backups => "state/backup",
             State::BotLogin => "state/github/login",
@@ -408,7 +405,6 @@ mod tests {
     fn each_state_name_is_its_file() {
         let cases = [
             (State::AccountIds, "/h/state/account-ids"),
-            (State::AllHandsIgnored, "/h/state/all-hands.ignored"),
             (State::AnalyticsDb, "/h/state/analytics.db"),
             (State::Backups, "/h/state/backup"),
             (State::BotLogin, "/h/state/github/login"),

@@ -76,12 +76,6 @@ label alone, with no comment that names their blockers (up to 50 numbers):
 blocked   by the label alone, no blockers named: #7, #9. Each waits until an allowed account comments a `<!-- tehas:blocked by=N -->` marker on it or a person takes tehas:blocked off
 ```
 
-And while [`tehas:all-hands`](/operating#all-hands) holds:
-
-```
-all-hands tehas:all-hands is on the control issue, applied by an allowed account
-```
-
 On a lab build, and wherever `TEHAS_TEST_FEATURES` is set (see [proving a
 building feature on a lab host](/tools-update#proving-a-building-feature-on-a-lab-host)).
 A lab build with the variable unset names no building feature:
@@ -145,7 +139,7 @@ tehas api [--json]
 api         1
 tehas       v0.8.0 (cb6912a)
 repo        tehas-app/tehas
-features    status millwright-grant all-hands limit drain history export analytics state-move mcp-dashboard-keys clean disk state-check finish
+features    status millwright-grant limit drain history export analytics state-move mcp-dashboard-keys clean disk state-check finish
 flags       outsource=off
 millwright  none
 poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU

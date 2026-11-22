@@ -5,7 +5,6 @@
   "repo": "acme/widget",
   "paused": false,
   "pause": { "flag": null, "label": false, "lifted": false },
-  "allHands": false,
   "noResources": false,
   "running": [
     { "number": 41, "title": "Export the report as CSV", "url": "https://github.com/acme/widget/issues/41", "createdAt": "2026-11-16T08:00:00Z", "updatedAt": "2026-11-17T11:40:00Z", "closedAt": null }
