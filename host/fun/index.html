@@ -60,7 +60,6 @@
   <link rel="icon" type="image/svg+xml" href="/fun/favicon.svg">
   <link rel="stylesheet" href="/fun/theme-{{ $design }}.css">
   <link rel="stylesheet" href="/fun/game-view.css">
-  <link rel="stylesheet" href="/fun/energy-view.css">
   <link rel="stylesheet" href="/fun/host-view.css">
   <link rel="stylesheet" href="/fun/panels.css">
   {{- /* Visitor analytics, only on an instance that names a script and a site. */}}
@@ -90,7 +89,6 @@
       <a href="#board" data-filter="open">ISSUE BOARD</a>
       <a href="#lab">PROTOLAB</a>
       <a href="#console">PRODUCTION CONSOLE</a>
-      <a href="#energy" id="menu-energy" hidden>ENERGY USE</a>
       <a href="#host" id="menu-host" hidden>HOST</a>
       <a href="#break-room">BREAKROOM</a>
       <a href="/overview">MANUAL</a>
@@ -107,12 +105,6 @@
         <h1 id="floor-title">TEHAS: THE LEAN SOFTWARE FACTORY</h1>
         <p class="floor-intro">The floor of an open source lean software factory powered by the <a href="https://pi.dev" target="_blank" rel="noopener noreferrer">Pi coding agent</a> and <a href="https://github.com/trail-openers/pi-rukas" target="_blank" rel="noopener noreferrer">pi-rukas</a>. GitHub issues go in and reviewed pull requests come out, built in a sandbox on self-hosted models. A person merges. <a href="/lean-software-factory">HOW IT WORKS</a> <a href="/operating#1-write-an-issue-tehas-can-build">HOW TO WRITE AN ISSUE</a></p>
         <p id="floor-summary">Waiting for ticket data.</p>
-        <a class="floor-meter" id="floor-meter" href="#energy" aria-label="Live meter. Opens Energy use." hidden>
-          <span class="meter-row"><b>POWER</b><span><i id="meter-watts">--</i> W</span></span>
-          <span class="meter-gauge" id="meter-watts-gauge" aria-hidden="true"></span>
-          <span class="meter-row" id="meter-tokens-row"><b>TOKENS</b><span><i id="meter-tokens">--</i> /MIN</span></span>
-          <span class="meter-gauge" id="meter-tokens-gauge" aria-hidden="true"></span>
-        </a>
         <a class="floor-host" id="floor-host" href="#host" aria-label="Host. Opens Host." hidden>
           <b>HOST</b><span><i id="floor-host-cpu">--</i></span>
         </a>
@@ -265,37 +257,6 @@
       <div class="epics-list" id="epics-list"></div>
     </section>
 
-    <section class="energy" id="energy" aria-labelledby="energy-title" hidden>
-      <div class="energy-head">
-        <h2 id="energy-title">ENERGY USE</h2>
-        <p class="energy-scope"><span id="energy-scope"></span> <span class="energy-state" id="energy-state" role="status">CHECKING</span></p>
-      </div>
-      <div class="energy-body">
-        <p class="energy-total">
-          <span><b id="energy-watts">--</b> W</span>
-          <span><b id="energy-kwh24">--</b> KWH (24H)</span>
-          <span>SERVING THE FACTORY</span>
-          <span class="energy-month"><b id="energy-kwh30">--</b> KWH (30D)</span>
-        </p>
-        <div class="energy-screen">
-          <div class="energy-chart">
-            <ol class="energy-scale" aria-hidden="true"><li id="energy-top"></li><li id="energy-half"></li><li>0</li></ol>
-            <canvas id="energy-canvas" width="480" height="136" role="img" aria-label="Power of the machines serving the factory"></canvas>
-            <p class="energy-times" aria-hidden="true"><span id="energy-from"></span><span id="energy-to"></span></p>
-          </div>
-        </div>
-        <table class="energy-table energy-hosts" aria-label="Machines serving the factory">
-          <thead><tr><th class="col-swatch"></th><th scope="col">HOST</th><th scope="col" class="col-source">SOURCE</th><th scope="col" class="num">NOW</th><th scope="col" class="num">24H</th><th scope="col" class="num col-month">30D</th><th scope="col" class="col-ram">RAM</th></tr></thead>
-          <tbody id="energy-rows"></tbody>
-        </table>
-        <table class="energy-table" id="energy-models" aria-label="Models the factory uses">
-          <thead><tr><th class="col-swatch"></th><th scope="col">MODEL</th><th scope="col" class="col-hosts">HOSTS</th><th scope="col" class="col-hosts">ENGINES</th><th scope="col" class="num">BUSY</th><th scope="col" class="num">QUEUED</th></tr></thead>
-          <tbody id="energy-model-rows"></tbody>
-        </table>
-        <p class="energy-source" id="energy-source" hidden></p>
-      </div>
-    </section>
-
     <section class="host" id="host" aria-labelledby="host-title" hidden>
       <div class="host-head">
         <h2 id="host-title">HOST</h2>
@@ -354,7 +315,7 @@
         </label>
       </div>
     </section>
-    <p class="footer-note">This view is read-only. Nothing here changes a ticket or the factory. A ticket's energy is an estimate: <span id="energy-basis">time spent at an assumed draw</span>. Energy use is what the model servers report, within about 15%. Agents start at the <a href="/agents">agents page</a> or <a href="/llms.txt">/llms.txt</a>.</p>
+    <p class="footer-note">This view is read-only. Nothing here changes a ticket or the factory. A ticket's energy is an estimate: <span id="energy-basis">time spent at an assumed draw</span>. Agents start at the <a href="/agents">agents page</a> or <a href="/llms.txt">/llms.txt</a>.</p>
     <div class="ascii"><pre role="img" aria-label="Tehas ASCII art logo">       __________________________.____    _________    ______
        \___     ___/  __    /    |    \ _/    _    \ _/   __/__
 __ __/\ _/       \_   \____/__   _     \__   _/     \\______   \_ /\___ ___ _
@@ -372,7 +333,6 @@ __ __/\ _/       \_   \____/__   _     \__   _/     \\______   \_ /\___ ___ _
   <script src="/fun/console-tabs.js"></script>
   <script src="/fun/fold-fit.js"></script>
   <script type="module" src="/fun/game-view.js"></script>
-  <script type="module" src="/fun/energy-view.js"></script>
   <script type="module" src="/fun/host-view.js"></script>
   <script src="/fun/dom.js"></script>
   <script src="/fun/epics-view.js"></script>

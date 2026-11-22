@@ -235,11 +235,11 @@ t_lacks "$(rule '.doors {')" 'max-width'
 
 # The rows the monitor column named go with it, so the one-column template names
 # them in its own order. A panel that names no area is placed after every named
-# one: on a host that shows the energy and host panels, PROTOLAB and the console
+# one: on a host that shows the host panel, PROTOLAB and the console
 # would be dropped below the breakroom.
 t_case "every panel of the one-column stage names its row"
 medium_areas=$(awk '/^  \.stage \{/,/^  \}/' <<<"$medium" | grep -o '"[a-z ]*"' | tr '\n' ' ')
-t_eq "$medium_areas" '"floor" "doors" "desk" "lab" "console" "epics" "energy" "host" "break" '
+t_eq "$medium_areas" '"floor" "doors" "desk" "lab" "console" "epics" "host" "break" '
 t_lacks "$medium_body" 'grid-area: auto'
 
 # That list is only right while it matches the markup. These are the elements the
@@ -266,12 +266,9 @@ stage_children=$(awk '
     }
     if (first != "" && depth == before + 1 && depth == 1) print first
   }' "$page")
-t_eq "$(tr '\n' ' ' <<<"$stage_children")" "floor doors desk epics energy host break-room "
+t_eq "$(tr '\n' ' ' <<<"$stage_children")" "floor doors desk epics host break-room "
 t_case "every panel the markup puts in the stage has a row of its own"
 for panel in $stage_children; do
-  # Energy use left core in 2.0 with its stylesheet; its markup goes with
-  # index.html's next change.
-  [ "$panel" = energy ] && continue
   t_contains "$medium_areas" "\"$(area_of "$panel")\""
 done
 
@@ -452,16 +449,16 @@ t_contains "$hostjs_text" 'if (r.status === 404) { data = null; missedAt = Date.
 t_eq "$(awk '/href="#host"/ { n++ } END { print n }' <<<"$page_text")" 2
 
 # A panel that spans the columns and names no area is placed by the grid's own
-# rules, and those rules move it: with the energy panel shown every named row is
+# rules, and those rules move it: with every other panel shown every named row is
 # taken, and the panel lands after the breakroom. The row is named here so that
 # the panel stands in one place on every host.
-t_case "the panel takes a row of its own, between the energy and the breakroom"
+t_case "the panel takes a row of its own, between the epics and the breakroom"
 t_contains "$hostcss_text" 'grid-area: host;'
 t_lacks "$hostcss_text" 'grid-column:'
-t_eq "$stage_areas" '"head head" "line monitor" "doors monitor" "board monitor" "lab monitor" "console monitor" "epics epics" "energy energy" "host host" "break break" '
+t_eq "$stage_areas" '"head head" "line monitor" "doors monitor" "board monitor" "lab monitor" "console monitor" "epics epics" "host host" "break break" '
 # The one-column stage names the row too, in its own order, at the stage's own
 # band.
-t_eq "$(query_of 'grid-template-areas: "floor" "doors" "desk" "lab" "console" "epics" "energy" "host" "break";' "$game")" \
+t_eq "$(query_of 'grid-template-areas: "floor" "doors" "desk" "lab" "console" "epics" "host" "break";' "$game")" \
   "$stage_band"
 t_lacks "$game_text" '.host '
 # The chip is part of the head panel only where it is shown.

@@ -169,7 +169,7 @@ body[data-factory="live"] .console-state::before {
    1440px and up: wide. The floor, the doors and the board in one column with
      the work order monitor fixed beside them, so the first screen is the whole
      status. game-view.js asks for this same width before it centres the first
-     screen, and energy-view.css gives the meter its column at it.
+     screen.
    below 1440px: one column, every panel filling it, the monitor a panel too.
    below 1280px: the stations stack, one sign per row.
    test/front_page_test.sh reads the width out of each place that writes one and
@@ -186,7 +186,6 @@ body[data-factory="live"] .console-state::before {
     "lab monitor"
     "console monitor"
     "epics epics"
-    "energy energy"
     "host host"
     "break break";
   column-gap: 24px;
@@ -681,11 +680,11 @@ body[data-factory="live"] .console-state::before {
 @media not all and (min-width: 1440px) {
   /* The template names every row it draws, PROTOLAB and the console included.
      A panel that names no area is placed after the named ones, and on a host
-     that shows the energy and host panels every row up to the breakroom is
+     that shows the host panel every row up to the breakroom is
      taken: lab and the console would be dropped below the breakroom. */
   .stage {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "floor" "doors" "desk" "lab" "console" "epics" "energy" "host" "break";
+    grid-template-areas: "floor" "doors" "desk" "lab" "console" "epics" "host" "break";
   }
   .floor { display: block; grid-area: floor; }
   /* Here the work order is a panel in the column: it scrolls away with the
