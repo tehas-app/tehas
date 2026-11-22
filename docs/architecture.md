@@ -142,22 +142,18 @@ the old term and removed at T9, and agreed with the owner first.
 
 ## Departures and floors
 
-None yet. A count that stays above 0 at the end of the work is written
-here with its reason, as a floor; a departure from a should rule (R5)
-likewise.
+A count that stays above 0 at the end of the work is written here with
+its reason, as a floor; a departure from a should rule (R5) likewise.
+
+| Check | Floor | Where | Reason |
+| --- | --- | --- | --- |
+| gh-argv, tests-stub-gh | 1 each | `console/tests/top_snapshot.rs` | the short name "gh" of a process in a fixture of /proc (`"name":"gh"`, #2859), which tehas top shows. Nothing runs gh. A pattern that skipped it would be fragile and allowing the file would hide a later gh call there, so it stays counted as a floor |
 
 ### Temporary rises
 
-Counts T15's ports raised. "Max before" is the max just before that pull request, not the fork value. The fork values are in the next table; the trio's gate fails any count left above its fork value at the end, and the plan's aim for each is 0 or a written floor.
+Empty since #2890. A T15 pull request that raises a count narrows the check in the same pull request: a test file whose every match is the check's data or tehas's own words goes in the check's `allowed`, by name and with what it covers, or a list copied in many tests gets one owner. A real finding goes to the step that fixes it in the plan.
 
-| Check | Max before | Max after | Pull request | Why it is still counted | Removed by |
-| --- | --- | --- | --- | --- | --- |
-| github-rest | 840 | 860 | #2859 | 2 of the 20 are left: the updatedAt and closedAt of the items of live/status.json in console/tests/top/mod.rs, GitHub's names that the queue copies through unchanged, so a real finding | T4/T7: the keys are renamed or owned |
-| gh-argv | 408 | 409 | #2859 | the short name "gh" of a process in a fixture of /proc in console/tests/top_snapshot.rs, counted again by tests-stub-gh: a false positive, left counted because a pattern that skipped it would be fragile | T4/T7 |
-| untyped-signatures | 1388 | 1389 | #2866 | a test helper that edits a row of GitHub's list, the untyped value preview::choose takes: a real untyped signature | T7 |
-| github-rest | 852 | 855 | #2879 | 1 of the 3 is left: the --json of tehas order in console/tests/console_run.rs, tehas's own word in a file that also stubs gh, so the file is not allowed | T4/T7 |
-
-Lowered since by removals, not by these rows' causes: github-rest 870 to 863 (#2862, the product wiki). Cleared since, not left for T4 and T7: every other row and part of these, in two ways. Test files whose every match is the check's data or tehas's own words are allowed by name: console/tests/store_paths.rs for label-words and home-layout (the store lint's patterns and sample lines), console/tests/host_bridge.rs for raw-statuses (the docs server's 404), and console/cycle/tests/headless_caps.rs, top_snapshot.rs, top_view.rs and top_frame.rs for github-rest (the runner's and tehas top's --json, tehas's running.json). And the list of tools every test stubs to fail has one owner, console/core/src/testing.rs, allowed in gh-argv, in place of eight copies of the deny list and three lists of tools stubbed to fail; that took out 10 in gh-argv and tests-stub-gh, 5 of them older than T15. Since then: github-rest 855 to 825, gh-argv 405 to 395, tests-stub-gh 413 to 403, home-layout 513 to 491, label-words 1867 to 1866, raw-statuses 260 to 259.
+#2890 cleared the rows of #2859, #2860, #2866 and #2879 that way. Allowed by name: console/tests/store_paths.rs for label-words and home-layout (the store lint's patterns and sample lines), console/tests/host_bridge.rs for raw-statuses (the docs server's 404), and console/cycle/tests/headless_caps.rs, top_snapshot.rs, top_view.rs and top_frame.rs for github-rest (the runner's and tehas top's --json, tehas's running.json). The list of tools every test stubs to fail has one owner, console/core/src/testing.rs, allowed in gh-argv, in place of eight copies of the deny list and three lists of tools stubbed to fail; that took out 10 in gh-argv and tests-stub-gh, 5 of them older than T15. Its findings moved: two github-rest lines to T4's Done, one untyped-signatures line to T7's, and the /proc fixture to the floor above. Counts at #2890: github-rest 825, gh-argv 395, tests-stub-gh 403, home-layout 491, label-words 1866, raw-statuses 259.
 
 ### Fork values
 
