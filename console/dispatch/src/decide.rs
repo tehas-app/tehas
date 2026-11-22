@@ -43,7 +43,7 @@ pub fn iso_now() -> String {
 pub(crate) fn named_blockers_of(nodes: &[Comment]) -> Vec<u64> {
     let mut out: Vec<u64> = nodes
         .iter()
-        .filter_map(|x| x.body.as_deref())
+        .filter_map(|x| x.body_text())
         .filter_map(blockers)
         .flatten()
         .collect();
@@ -914,10 +914,10 @@ impl<'a> Poll<'a> {
             if links > 0 || !self.marker_hold(n, nodes).is_empty() {
                 continue;
             }
-            let at = |x: &Comment| x.created_at.clone().unwrap_or_default();
+            let at = |x: &Comment| x.created_text().unwrap_or_default().to_string();
             let since = at(marker);
             let said = nodes.iter().any(|x| {
-                x.body.as_deref().is_some_and(|b| b.contains(HOLD_CLEARED))
+                x.body_text().is_some_and(|b| b.contains(HOLD_CLEARED))
                     && tehas_core::accounts::factorys(&x.author.login, &self.c.bot_login)
                     && at(x) >= since
             });
@@ -2032,7 +2032,7 @@ impl<'a> Poll<'a> {
                 if x.edited && editor != x.author.login {
                     format!("the newest comment that names its blockers was edited by '{editor}'")
                 } else {
-                    match blockers(x.body.as_deref().unwrap_or("")) {
+                    match blockers(x.body_text().unwrap_or("")) {
                         None => "the newest comment that names its blockers cannot be read".into(),
                         Some(list) => {
                             let states = &self.s.issues[&n].blockers;
@@ -3338,8 +3338,7 @@ fn newest_marker<'v>(nodes: &'v [Comment], c: &Settings) -> Option<&'v Comment> 
     let mut marked: Vec<&Comment> = nodes
         .iter()
         .filter(|x| {
-            x.body
-                .as_deref()
+            x.body_text()
                 .is_some_and(|b| b.contains("<!-- tehas:blocked"))
                 && {
                     let a = x.author.login.as_str();
@@ -3349,7 +3348,7 @@ fn newest_marker<'v>(nodes: &'v [Comment], c: &Settings) -> Option<&'v Comment> 
         .collect();
     marked.sort_by_key(|x| {
         (
-            x.created_at.clone().unwrap_or_default(),
+            x.created_text().unwrap_or_default().to_string(),
             CommentId::sort_key(x.id.as_ref()),
         )
     });

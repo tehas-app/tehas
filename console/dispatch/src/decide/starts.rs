@@ -108,7 +108,7 @@ impl Poll<'_> {
             if x.edited && x.editor_login() != by {
                 continue;
             }
-            let body = x.body.as_deref().unwrap_or("");
+            let body = x.body_text().unwrap_or("");
             for on in blockers(body).unwrap_or_default() {
                 let closed = matches!(
                     issue.blockers.get(&on).map(String::as_str),

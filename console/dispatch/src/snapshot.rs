@@ -379,19 +379,21 @@ impl Comments {
                     updated,
                 })
             };
+            let given = |v: Option<&Value>| match v? {
+                Value::Null => None,
+                Value::Number(n) => Some(Given::Number(n.clone())),
+                Value::String(t) => Some(Given::Text(t.clone())),
+                o => Some(Given::Other(o.to_string())),
+            };
             Comment {
-                id: match x.get("databaseId") {
-                    Some(Value::Number(n)) => Some(CommentId::Number(n.clone())),
-                    Some(Value::String(t)) => Some(CommentId::Text(t.clone())),
-                    _ => None,
-                },
+                id: given(x.get("databaseId")),
                 author: account(x.get("author")),
                 editor: x
                     .pointer("/editor/login")
                     .filter(|l| l.is_string())
                     .map(|_| account(x.get("editor"))),
-                body: s("body"),
-                created_at: created.and_then(Value::as_str).map(str::to_string),
+                body: given(x.get("body")),
+                created_at: given(created),
                 edited: edited.is_some_and(|e| !e.is_null()),
                 last_edited_at: edited.and_then(Value::as_str).unwrap_or("").to_string(),
                 history: CommentHistory {
@@ -450,13 +452,13 @@ impl Comments {
 /// it says so.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Comment {
-    /// databaseId, None when missing, null or neither a number nor text.
+    /// databaseId, None when missing or null.
     pub id: Option<CommentId>,
     pub author: Account,
     /// Present when it has a login as text.
     pub editor: Option<Account>,
-    pub body: Option<String>,
-    pub created_at: Option<String>,
+    pub body: Option<Given>,
+    pub created_at: Option<Given>,
     /// lastEditedAt is there and not null.
     pub edited: bool,
     /// lastEditedAt as text, empty when it is none.
@@ -472,6 +474,16 @@ impl Comment {
     pub fn editor_login(&self) -> &str {
         self.editor.as_ref().map_or("", |e| e.login.as_str())
     }
+
+    /// The body when it is text.
+    pub fn body_text(&self) -> Option<&str> {
+        self.body.as_ref().and_then(Given::text)
+    }
+
+    /// createdAt when it is text.
+    pub fn created_text(&self) -> Option<&str> {
+        self.created_at.as_ref().and_then(Given::text)
+    }
 }
 
 /// An account a comment names: its login, empty when missing, and its user
@@ -483,34 +495,49 @@ pub struct Account {
 }
 
 /// A comment's databaseId as GitHub gave it.
+pub type CommentId = Given;
+
+/// A value of a comment as GitHub gave it, not null: text, a number, or
+/// any other JSON as its text, kept so an answer passes it on unchanged.
 #[derive(Clone, Debug, PartialEq)]
-pub enum CommentId {
+pub enum Given {
     Number(serde_json::Number),
     Text(String),
+    Other(String),
 }
 
-impl CommentId {
-    /// The id as a number, as `number` reads it.
-    pub fn number(&self) -> Option<u64> {
+impl Given {
+    /// The value when it is text.
+    pub fn text(&self) -> Option<&str> {
         match self {
-            CommentId::Number(n) => n.as_u64(),
-            CommentId::Text(s) => s.trim().parse().ok(),
+            Given::Text(s) => Some(s),
+            _ => None,
         }
     }
 
-    /// The id as raw text: text as it is, a number in JSON, `null` for none.
-    pub fn said(id: Option<&CommentId>) -> String {
+    /// The value as a number, as `number` reads it.
+    pub fn number(&self) -> Option<u64> {
+        match self {
+            Given::Number(n) => n.as_u64(),
+            Given::Text(s) => s.trim().parse().ok(),
+            Given::Other(_) => None,
+        }
+    }
+
+    /// The value as raw text: text as it is, anything else in JSON, `null`
+    /// for none.
+    pub fn said(id: Option<&Given>) -> String {
         match id {
-            Some(CommentId::Text(s)) => s.clone(),
-            Some(CommentId::Number(n)) => n.to_string(),
+            Some(Given::Text(s) | Given::Other(s)) => s.clone(),
+            Some(Given::Number(n)) => n.to_string(),
             None => "null".into(),
         }
     }
 
-    /// The id for sorting: a whole number, 0 otherwise.
-    pub fn sort_key(id: Option<&CommentId>) -> i64 {
+    /// The value for sorting: a whole number, 0 otherwise.
+    pub fn sort_key(id: Option<&Given>) -> i64 {
         match id {
-            Some(CommentId::Number(n)) => n.as_i64().unwrap_or(0),
+            Some(Given::Number(n)) => n.as_i64().unwrap_or(0),
             _ => 0,
         }
     }

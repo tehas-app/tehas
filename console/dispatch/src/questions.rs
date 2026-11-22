@@ -1,6 +1,6 @@
 //! The bot's questions on an issue and the answers it takes.
 
-use crate::snapshot::{Account, Comment, CommentId, Comments};
+use crate::snapshot::{Account, Comment, Comments, Given};
 use regex::Regex;
 use serde_json::{json, Value};
 use std::sync::OnceLock;
@@ -59,9 +59,11 @@ pub fn answer_of(
         Regex::new(r"<!-- tehas:question kind=(?<kind>[a-z]+) issue=(?<issue>[0-9]+) turn=(?<turn>[0-9]+) -->").unwrap()
     });
     let bot = bot.strip_suffix("[bot]").unwrap_or(bot);
-    let id_json = |i: &Option<CommentId>| match i {
-        Some(CommentId::Number(n)) => Value::Number(n.clone()),
-        Some(CommentId::Text(t)) => json!(t),
+    // The value as GitHub gave it.
+    let raw = |g: &Option<Given>| match g {
+        Some(Given::Number(n)) => Value::Number(n.clone()),
+        Some(Given::Text(t)) => json!(t),
+        Some(Given::Other(j)) => serde_json::from_str(j).unwrap_or(Value::Null),
         None => Value::Null,
     };
     let listed = |l: &str| allowed.iter().any(|a| a == l);
@@ -74,10 +76,7 @@ pub fn answer_of(
     for (k, x) in c.iter().enumerate() {
         if !bots(&x.author) {
             if !id.is_empty()
-                && x.id
-                    .as_ref()
-                    .and_then(CommentId::number)
-                    .map(|d| d.to_string())
+                && x.id.as_ref().and_then(Given::number).map(|d| d.to_string())
                     == Some(id.to_string())
             {
                 stranger = Some(x.author.login.clone());
@@ -85,8 +84,8 @@ pub fn answer_of(
             continue;
         }
         // A bot comment with no text is an answer jq cannot read.
-        let body = x.body.as_deref()?;
-        let did = CommentId::said(x.id.as_ref());
+        let body = x.body_text()?;
+        let did = Given::said(x.id.as_ref());
         if re.is_match(body) && (id.is_empty() || did == id) {
             q = Some(k);
         }
@@ -98,7 +97,7 @@ pub fn answer_of(
         });
     };
     let qv = &c[k];
-    let body = qv.body.as_deref().unwrap_or("");
+    let body = qv.body_text().unwrap_or("");
     let m = re.captures(body)?;
     let boxes: Vec<bool> = body
         .split('\n')
@@ -160,13 +159,13 @@ pub fn answer_of(
     };
     let issue = &m["issue"];
     let mut out = json!({
-        "asked": true, "comment": id_json(&qv.id),
-        "asked_at": qv.created_at.as_deref().unwrap_or(""),
+        "asked": true, "comment": raw(&qv.id),
+        "asked_at": qv.created_text().unwrap_or(""),
         "body": body, "kind": &m["kind"], "issue": num(issue),
         "turn": num(&m["turn"]),
         "boxes": boxes.len(), "labels": labels, "tick": tick,
-        "reply": reply.map(|r| json!({"by": r.author.login, "text": r.body,
-            "at": r.created_at, "id": id_json(&r.id)})),
+        "reply": reply.map(|r| json!({"by": r.author.login, "text": raw(&r.body),
+            "at": raw(&r.created_at), "id": raw(&r.id)})),
     });
     if !fixer.is_empty() {
         let mark = format!("<!-- tehas:millwright issue={issue} action=answer -->");
@@ -178,18 +177,18 @@ pub fn answer_of(
             let e = x.editor_login();
             x.author.login == fixer
                 && (e.is_empty() || e == fixer)
-                && marked(x.body.as_deref().unwrap_or(""))
+                && marked(x.body_text().unwrap_or(""))
         });
         out["fixer_reply"] = match f {
             None => Value::Null,
             Some(f) => {
-                let b = f.body.as_deref().unwrap_or("");
+                let b = f.body_text().unwrap_or("");
                 let text = b.split_once('\n').map_or("", |(_, rest)| rest);
                 if text.trim().is_empty() {
                     Value::Null
                 } else {
-                    json!({"by": f.author.login, "text": text, "at": f.created_at,
-                        "id": id_json(&f.id), "marked": true})
+                    json!({"by": f.author.login, "text": text, "at": raw(&f.created_at),
+                        "id": raw(&f.id), "marked": true})
                 }
             }
         };
@@ -268,9 +267,15 @@ mod tests {
         c
     }
 
+    /// A comment by `login` with its body, its time and its id as given.
+    macro_rules! said {
+        ($login:expr, $body:expr, $at:expr, $id:expr) => {
+            json!({"databaseId": $id, "author": {"login": $login}, "body": $body, "createdAt": $at})
+        };
+    }
+
     fn fixer_said(body: &str) -> Value {
-        json!([{"databaseId": 8, "author": {"login": FIXER}, "body": body,
-            "createdAt": "2026-01-01T05:00:00Z"}])
+        json!([said!(FIXER, body, "2026-01-01T05:00:00Z", 8)])
     }
 
     #[test]
@@ -759,5 +764,30 @@ mod tests {
             untick("a\n- [x] One\n- [X] Two\n- [ ] Three"),
             "a\n- [ ] One\n- [ ] Two\n- [ ] Three"
         );
+    }
+
+    #[test]
+    fn ids_texts_and_stamps_of_other_types_pass_through_as_given() {
+        let c = nodes(json!([
+            {"author": {"login": BOT}, "databaseId": true, "body": TURN_3},
+            said!("alice", 7, 12345, json!({"x": 1})),
+            said!(FIXER, format!("{MARK}\nyes"), [1], false),
+        ]));
+        let a = answer(&c, BOT, None, &people(), "", FIXER).unwrap();
+        assert_eq!(a["comment"], json!(true));
+        assert_eq!(
+            a["reply"],
+            json!({"by": "alice", "text": 7, "at": 12345, "id": {"x": 1}})
+        );
+        assert_eq!(a["fixer_reply"]["at"], json!([1]));
+        assert_eq!(a["fixer_reply"]["id"], json!(false));
+    }
+
+    #[test]
+    fn a_question_id_of_another_type_is_matched_by_its_json() {
+        let c = nodes(json!([{"author": {"login": BOT}, "databaseId": true, "body": TURN_3}]));
+        let read = |id| answer(&c, BOT, None, &people(), id, "").unwrap()["asked"].clone();
+        assert_eq!(read("true"), json!(true));
+        assert_eq!(read("null"), json!(false));
     }
 }
