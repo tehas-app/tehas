@@ -2,7 +2,10 @@
 # every push to them: the lint, shellcheck, the shell tests and the console's
 # tests. A release/vX.Y.Z branch is where the next minor release is made while
 # main takes patch releases (host/docs/tools-releases.md, Branches), so it is
-# gated as main is. A pull request onto any other branch, such as a release
+# gated as main is. So is refactor/coding-standard-v2, the branch that moves
+# the code to coding standard v2 for 2.0.0 (docs/plans/
+# 2026-11-21-coding-standard-v2.md): its pull requests are gated as main's.
+# A pull request onto any other branch, such as a release
 # train, runs none of it: its author quotes scripts/verify.sh --changed, and the
 # train's own pull request is the gate for the whole batch. It makes scripts/verify.sh something a
 # ruleset can require, and the check of the repository's lockfiles against
@@ -17,7 +20,7 @@
 name: verify
 on:
   pull_request:
-    branches: [main, 'release/**']
+    branches: [main, 'release/**', refactor/coding-standard-v2]
   push:
     branches: [main, 'release/**']
 permissions:
