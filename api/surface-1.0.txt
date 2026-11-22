@@ -11,7 +11,8 @@
 # Lines are only added, at the end, in the release that brings the name.
 # None is taken out or changed within 1.x. console/tests/surface.rs fails
 # when the surface loses a name of this file, and when it has one this file
-# does not list yet. The settings of energy use went in 2.0.
+# does not list yet. The settings of energy use went in 2.0, and so did
+# the Protolab's setting and its status field.
 
 command analytics
 command analytics copy
@@ -518,7 +519,6 @@ field status.planning
 field status.planning[].issue
 field status.planning[].since
 field status.planning[].turn
-field status.prototypes
 field status.pushFault
 field status.pushFault.at
 field status.pushFault.line

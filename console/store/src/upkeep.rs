@@ -27,7 +27,7 @@
 //!   upkeep [--dry-run]
 //!                     what tehasbot clean asks once an hour: the logs of
 //!                     cycles, planning turns, index runs and reviews
-//!                     older than 7 days, the seven long-lived logs rolled past
+//!                     older than 7 days, the six long-lived logs rolled past
 //!                     64 MiB, then backup and prune --days 90. A dry run
 //!                     names the logs and touches nothing
 
@@ -568,7 +568,7 @@ const LOG_DAYS: i64 = 7;
 const PRUNE_DAYS: i64 = 90;
 
 /// The size one long-lived log may reach before upkeep rolls it: one figure for
-/// the seven, no setting for it, and nothing fsynced. The cap is a function
+/// the six, no setting for it, and nothing fsynced. The cap is a function
 /// argument all the way to `upkeep`, and the parse of the verb gives this, so a
 /// test proves the same rule on a log it can write instead of 64 MiB.
 pub const LOG_CAP: u64 = 64 * 1024 * 1024;

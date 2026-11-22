@@ -4,4 +4,4 @@
 
 ### Adopter action
 
-Take any `TEHAS_PROTOLAB_URL`, `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOLAB_ZIP_HOSTS` or `TEHAS_PROTOTYPE_FILE` line out of `instance.env`. `tehas update` stops and removes the Protolab's units and removes `~/tehas/protolab`. A DNS name `lab-<n>.<domain>` is now `item-<n>.<domain>`.
+Take any `TEHAS_PROTOLAB_URL`, `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOLAB_ZIP_HOSTS` or `TEHAS_PROTOTYPE_FILE` line out of `instance.env`. `tehas update` stops and removes the Protolab's units and removes `~/tehas/protolab`, `live/protolab.json` and `logs/protolab.log`. `tehas status --json` no longer gives `prototypes`. A proxy in front of the host can drop `lab` from the names it sends to the edge router. A DNS name `lab-<n>.<domain>` is now `item-<n>.<domain>`.

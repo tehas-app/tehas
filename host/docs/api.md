@@ -209,7 +209,6 @@ tehas status --json
   "room": {"cycles": 0, "slice": 2},
   "versions": {"platform": {"release": "v0.25.0", "commit": "0123456789abcdef0123456789abcdef01234567", "latest": "v0.26.0", "behind": true},
                "rukas": {"version": "v0.14.54", "latest": "v0.14.54", "behind": false}},
-  "prototypes": [{"issue": 21, "builtAt": "2026-10-17T09:12:00Z"}],
   "previews": [{"number": 31, "state": "serving", "url": "https://uat-31.example.org/"},
                {"number": 30, "state": "building"}]
 }
@@ -267,9 +266,6 @@ tehas status --json
 | `versions.rukas.version` | The version the sandbox image's pi-rukas answers, such as `v0.14.53`; `null` when it is not known |
 | `versions.rukas.latest` | The version of the pi-rukas commit the host follows (`PI_RUKAS_FOLLOW`); `null` when that commit is no release, as when the host follows a branch |
 | `versions.rukas.behind` | `true` when the image is not on the commit the host follows, compared by commit, so it can be `true` while both versions are `null` |
-| `prototypes` | The issues with a Protolab page, from `live/protolab.json` as an earlier version's Protolab last wrote it. Left out when there is no such list, as on every host of this version. Its fields may change in a minor release, as those of `running[].progress` may |
-| `prototypes.issue` | The issue number |
-| `prototypes.builtAt` | When its page was last built; left out for a page whose time cannot be read |
 | `previews` | The [previews](/tools-clean#tehasbot-preview) of the open pull requests, newest first, from `live/previews.json` as the previews last wrote it. The preview of the default branch is not one of them. Left out when there is no such list, as on a host that does not run previews (`TEHAS_PREVIEWS` is not `1`). A pull request the previews do not build, such as one from a fork, is not in it. The feature `status-previews` of [`tehas api`](#tehas-api) says a factory has the field |
 | `previews.number` | The pull request's number |
 | `previews.state` | The preview's own word for where it is: `building`, `serving`, `build-failed`, `no-recipe`, `over-limit` or `no-space`. Treat it as an open list: later releases add words |

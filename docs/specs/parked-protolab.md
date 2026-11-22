@@ -116,8 +116,9 @@ loader's `IGNORED` list, is not read, and every command warns of it once.
 `tehas status --json` carried `prototypes`, read from `live/protolab.json`
 (`console/src/status.rs:239`, `:1060`; `api/status.schema.json:144`;
 `host/docs/api.md:270`). With nothing writing that file in 2.0 the field
-is always left out. Its reader and schema are removed by the separate T16
-commit named below.
+would always be left out, so its reader, its schema and its name on the
+surface are removed here, and `tehas update` removes the file an earlier
+version left.
 
 ### The export copy
 
@@ -153,8 +154,7 @@ the lab plugin to use:
 
 The `tehas:prototype` label (`host/labels.tsv`, the label pins, the
 dispatcher's flow), the `prototype` kind (`console/core/src/kinds.rs`,
-`TEHAS_ISSUE_TYPES`) and the status field `prototypes` are removed by a
-separate T16 commit.
+`TEHAS_ISSUE_TYPES`) are removed by a separate T16 commit.
 
 ## Bringing it back
 
