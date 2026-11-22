@@ -56,13 +56,15 @@ and the 2.0.0 and 1.0.0 of the two repositories that read it. For tehas:
    refuses it today, and finishing it is 2.1 work. The refactor moves
    the plugin code with its behaviour kept, and builds no new plugin
    features.
-6. **pi-rukas v0.15.4 or later.** 2.0.0 needs pi-rukas v0.15.4 at the
+6. **pi-rukas v0.15.5 or later.** 2.0.0 needs pi-rukas v0.15.5 at the
    least (the trio's program manager, 2026-11-22). T13's proof found two
    faults: on 0.15.1 a roster that exits 0 reports no exit, so lean hands
    back on every pass (fixed in 0.15.2), and lean verify's base probes
    checked out beside the repository, which no cycle container can write
    (fixed in 0.15.4, which checks them out under the repository's
-   `.worktrees/`). tehas refuses a lean start on a
+   `.worktrees/`). 0.15.5 adds `.worktrees/` to each clone's
+   `.git/info/exclude`, so nothing that stages at the repository's root
+   sees lean's trees. tehas refuses a lean start on a
    sandbox image whose pi-rukas is older, saying why. At the trio's
    readiness review the newest pi-rukas release on the 0.15 line is the one
    pinned (`PI_RUKAS_FOLLOW=release:0.15`): pi-rukas 0.16, which moves it
@@ -508,8 +510,9 @@ driver in 2.0 (the owner).
    without a JUnit report), #2480 (a killed lean job keeps running),
    #2403 (the lens review is not recorded), #2501 (the rest of #2410)
    and #2511 (a typed setup refusal, for part 4). All are merged and
-   ship in 0.15.0, and the roster fix of 0.15.2 and the base-probe fix of
-   0.15.4 join them, so the pin is 0.15.4 or later on the 0.15 line
+   ship in 0.15.0, and the roster fix of 0.15.2, the base-probe fix of
+   0.15.4 and the exclude of 0.15.5 join them, so the pin is 0.15.5 or later
+   on the 0.15 line
    (`PI_RUKAS_FOLLOW=release:0.15`). Each release
    candidate checks this as it checks the pin.
 3. **Ship it.** `lean` in `console/core/src/features.rs` moves to
@@ -679,10 +682,12 @@ trio are supported, so 2.0 carries no backwards compatibility.
   T16 corrects the manual's words where they say so.
   Each has its line in T9's "Changed in 2.0", its settings handled by the
   configuration migration, and `cargo xtask config-check` covers them.
-  A store table or column that exists only for a removed feature goes
-  through a state-store step with a migration test, not left unread.
-  Steps land in number order: 28 the fixer-to-millwright rename, 29
-  Outsource's tables, 30 the `comment_links` column that #2875 leaves.
+  A store table, column or stored key that exists only for a removed
+  feature goes through a state-store step with a migration test, not left
+  unread. The store's steps run one after another with no gap, so they
+  land in number order: 28 the fixer-to-millwright rename, which also
+  removes the `comment_links` key #2875 leaves in an approval's input, and
+  29 Outsource's tables.
 
 An inventory comes first, then one pull request per kind of thing
 removed, each green alone, each lowering the counts and ceilings it
@@ -847,3 +852,5 @@ of main, each grade.
 | 2026-11-22 | T12.4: `retry-tick` is `reply` in both stores, and a question open at the upgrade is asked again once in 2.0's words | #2867 |
 | 2026-11-22 | T15: the install and bootstrap shell tests split so the quick check runs fewer of them | #2868 |
 | 2026-11-22 | The minimum pi-rukas is v0.15.4, for lean's base probes in a cycle container (found by T13's proof) | #2873 |
+| 2026-11-22 | T16: describe, text files, zips and comment links leave core | #2875 |
+| 2026-11-22 | The minimum pi-rukas is v0.15.5, so lean's trees stay out of a product's commits | #2882 |
