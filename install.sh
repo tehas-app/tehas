@@ -683,7 +683,6 @@ files=(
   "systemd/tehas-dispatch.service|$units/tehas-dispatch.service|644"
   "systemd/tehas-dispatch.path|$units/tehas-dispatch.path|644"
   "systemd/tehas-dispatch.timer|$units/tehas-dispatch.timer|644"
-  "systemd/tehas-energy.service|$units/tehas-energy.service|644"
   "systemd/tehas-mcp.service|$units/tehas-mcp.service|644"
   "systemd/tehas-mcp-fetch.socket|$units/tehas-mcp-fetch.socket|644"
   "systemd/tehas-mcp-fetch@.service|$units/tehas-mcp-fetch@.service|644"
@@ -1107,12 +1106,13 @@ while IFS= read -r f; do
 done <<<"$retired"
 
 # The units of features this version does not have: the timed refresh scan
-# (refreshes are asked for one pull request at a time) and the improvement
-# loop. Found here; in step 5 each timer is stopped and disabled and its files
-# go.
+# (refreshes are asked for one pull request at a time), the improvement loop
+# and the energy sampler. Found here; in step 5 each timer, or a service with
+# no timer, is stopped and disabled and its files go.
 old_units=()
 scan_units=$units
-for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-improve.service; do
+for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-improve.service \
+  tehas-energy.service; do
   [ -e "$scan_units/$unit" ] || [ -L "$scan_units/$unit" ] || continue
   old_units+=("$unit")
   [ "$check" = 0 ] || note "stale: $scan_units/$unit"
@@ -1235,9 +1235,7 @@ first_index() {
 first_install() {
   [ -f "$first_owed" ] || return 0
   local units=() why="" line
-  # A first install runs before any shell has read env.sh, so the console reads
-  # TEHAS_ENERGY from the host's private file too.
-  line=$(export "${!TEHAS_@}"; "$loaded_console" update units "$HOME/.config/tehas/env") || line=""
+  line=$(export "${!TEHAS_@}"; "$loaded_console" update units) || line=""
   read -ra units <<<"$line"
   if [ "${#units[@]}" = 0 ]; then
     why="the console at $loaded_console did not name the units"
@@ -1282,15 +1280,17 @@ report_login() {
 }
 
 # A timer is stopped before its files go, so systemd holds no timer whose
-# unit file is gone. A unit systemd cannot let go of is left, and the next run
-# tries again. The timer comes first in the list, so its service follows it.
+# unit file is gone, and so is a service no timer starts. A unit systemd cannot
+# let go of is left, and the next run tries again. The timer comes first in the
+# list, so its service follows it.
 if [ "${#old_units[@]}" -gt 0 ]; then
   gone=0
   for unit in "${old_units[@]}"; do
-    timer=${unit%.*}.timer
-    if [ -e "$scan_units/$timer" ] && ! systemctl --user disable --now "$timer" >/dev/null 2>&1; then
-      [ "$unit" != "$timer" ] ||
-        echo "later: ./install.sh again   (systemctl --user disable --now $timer failed, so its units were left)"
+    stop=${unit%.*}.timer
+    case " ${old_units[*]} " in *" $stop "*) ;; *) stop=$unit ;; esac
+    if [ -e "$scan_units/$stop" ] && ! systemctl --user disable --now "$stop" >/dev/null 2>&1; then
+      [ "$unit" != "$stop" ] ||
+        echo "later: ./install.sh again   (systemctl --user disable --now $stop failed, so its units were left)"
       continue
     fi
     rm -f "$scan_units/$unit" && echo "removed: $scan_units/$unit" && gone=1

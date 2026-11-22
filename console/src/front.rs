@@ -25,7 +25,7 @@
 //! Exit: the command's, a part's its own; 64 a command this does not know
 //! and no part has; 1 a part that could not be run.
 
-use crate::{commands, energy, run};
+use crate::{commands, run};
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::os::unix::process::CommandExt;
@@ -51,8 +51,6 @@ enum Go {
     Verb,
     /// `console run`: the words under the settings.
     Run,
-    /// `console energy` with the words after the first.
-    Energy,
 }
 
 /// The commands of `tehas` that run a script in libexec.
@@ -148,7 +146,6 @@ fn tehasbot(words: &[String]) -> Go {
         ) => Go::Run,
         Some("mcp") if words.get(1).map(String::as_str) == Some("serve") => Go::Run,
         Some("mcp" | "github-writes") => Go::Verb,
-        Some("energy") => Go::Energy,
         Some(c) => script("tehasbot", c).map_or_else(|| Go::Unknown(c.to_string()), Go::Script),
     }
 }
@@ -260,7 +257,6 @@ pub fn main(given: &[OsString]) -> u8 {
             return 64;
         }
     };
-    let rest = || words.get(1..).unwrap_or_default();
     match go {
         Go::Usage if which == "tehas" => {
             say(&usage_with_parts(libexec));
@@ -283,7 +279,6 @@ pub fn main(given: &[OsString]) -> u8 {
         }
         Go::Verb if which == "tehas" => commands::tehas(words),
         Go::Verb => commands::tehasbot(words),
-        Go::Energy => energy::main(rest()),
         Go::Run => {
             let text = given.iter().all(|w| w.to_str().is_some());
             run::main(&as_run(lossy), text)
@@ -454,7 +449,8 @@ mod tests {
         );
         assert_eq!(b(&["mcp", "key"]), Go::Verb);
         assert_eq!(b(&["github-writes"]), Go::Verb);
-        assert_eq!(b(&["energy", "--every"]), Go::Energy);
+        // Energy use left core in 2.0, and so did its sampler.
+        assert_eq!(b(&["energy", "--every"]), Go::Unknown("energy".into()));
         for w in [&[][..], &["help"], &["-h"], &["--help"]] {
             assert_eq!(b(w), Go::Usage, "{w:?}");
         }

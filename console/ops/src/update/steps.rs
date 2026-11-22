@@ -39,7 +39,6 @@ use tehas_core::home::{Home, State};
 /// restarted, because that would run its job off schedule; the reload reaches it.
 pub(crate) const UNITS: &[&str] = &[
     "tehas-dispatch.timer",
-    "tehas-energy.service",
     "tehas-top.service",
     "tehas-mcp.service",
     "tehas-mcp-fetch.socket",
@@ -59,7 +58,11 @@ const SERVERS: &[(&str, &str)] = &[
 /// Units an earlier version named and this one no longer installs. A record
 /// written before the update may still name them on its `units` line; that line
 /// is owed work, not a stranger, so the names are dropped rather than the line.
-pub(crate) const RETIRED_UNITS: &[&str] = &["tehas-refresh.timer", "tehas-improve.timer"];
+pub(crate) const RETIRED_UNITS: &[&str] = &[
+    "tehas-refresh.timer",
+    "tehas-improve.timer",
+    "tehas-energy.service",
+];
 
 /// The ids, in the order they run: systemd first, because a unit file is not in
 /// effect until it is reloaded and its unit restarted, and the containers last.
@@ -118,20 +121,15 @@ fn steps_for_in(sources: &[String], get: &dyn Fn(&str) -> String) -> Vec<String>
         .filter(|(program, _)| any(&|s| s.ends_with(&format!("/{program}"))))
         .map(|(_, unit)| *unit)
         .collect();
-    // bin/tehas-energy and the energy and top-publish scripts an older install
-    // left in libexec are loops of before the console: a running one moves on
-    // only when restarted. So is a tehasbot top that still runs the old
-    // with-settings script each mark. A running
-    // service keeps the environment env.sh gave it at its start.
+    // The top-publish script an older install left in libexec is a loop of
+    // before the console: a running one moves on only when restarted. So is a
+    // tehasbot top that still runs the old with-settings script each mark. A
+    // running service keeps the environment env.sh gave it at its start.
     if any(&|s| {
         s.starts_with("systemd/")
             || matches!(
                 s,
-                "bin/tehas-energy"
-                    | "libexec/energy"
-                    | "libexec/top-publish"
-                    | "libexec/with-settings"
-                    | "env.sh"
+                "libexec/top-publish" | "libexec/with-settings" | "env.sh"
             )
     }) {
         // A feature's unit while the feature is on, as the others. While it
@@ -549,13 +547,7 @@ mod tests {
 
     #[test]
     fn the_loops_of_before_and_env_sh_ask_for_the_units() {
-        for source in [
-            "bin/tehas-energy",
-            "libexec/energy",
-            "libexec/top-publish",
-            "libexec/with-settings",
-            "env.sh",
-        ] {
+        for source in ["libexec/top-publish", "libexec/with-settings", "env.sh"] {
             assert_eq!(
                 asked(&[source]),
                 [format!("units {}", UNITS.join(" "))],
@@ -836,7 +828,7 @@ mod tests {
 
     #[test]
     fn a_unit_name_is_one_word_with_a_unit_suffix() {
-        assert!(is_unit("tehas-energy@1.service"));
+        assert!(is_unit("tehas-cycle@1.service"));
         assert!(is_unit("socket-2.socket"));
         assert!(!is_unit("--force-recreate"));
         assert!(!is_unit("-x.service"));
@@ -958,6 +950,7 @@ mod tests {
         assert_eq!(current("sandbox").as_deref(), Some("sandbox"));
         assert_eq!(current("units tehas-refresh.timer"), None);
         assert_eq!(current("units tehas-improve.timer"), None);
+        assert_eq!(current("units tehas-energy.service"), None);
         assert_eq!(
             current("units tehas-improve.timer tehas-clean.timer").as_deref(),
             Some("units tehas-clean.timer")
