@@ -131,6 +131,16 @@ pub(super) fn retired(name: &str) -> bool {
     RETIRED.contains(&name)
 }
 
+/// The names of features 2.0 took out, each with why. Unlike `RETIRED`, a
+/// line of one loads: a 1.4.x instance must never fail to load (the owner,
+/// 2026-11-22). The load warns once and drops the name, so nothing reads it.
+pub(super) const IGNORED: &[(&str, &str)] = &[];
+
+/// Whether `name` is one the load warns of and drops (`IGNORED`).
+pub(super) fn ignored(name: &str) -> bool {
+    IGNORED.iter().any(|(n, _)| *n == name)
+}
+
 /// What the shell of the source sets for itself. BASH_ENV is not given to it:
 /// that file would run in the shell that reads the settings.
 const SHELL_OWN: [&str; 5] = ["_", "PWD", "OLDPWD", "SHLVL", "BASH_ENV"];
@@ -463,6 +473,19 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
         return Err(format!("{name} {reason} (see {file})"));
     }
     Ok(())
+}
+
+/// One warning for each name of `list` the instance set, and every one of
+/// them dropped, set or not.
+fn ignored_names(vars: &mut Vars, host: &mut dyn Host, list: &[(&str, &str)]) {
+    for (name, why) in list {
+        if vars.is_set(name) {
+            host.warn(&format!(
+                "{name} is no longer read: {why}; remove it from the instance"
+            ));
+        }
+        vars.unset(name.as_bytes());
+    }
 }
 
 /// A row of api/renames-1.0.tsv still set stops the load, the instance's
@@ -909,6 +932,7 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     role_models(vars, &file)?;
     tokens(vars, host, &text)?;
     retired_names(vars, &file)?;
+    ignored_names(vars, host, IGNORED);
     renamed(vars, host, &file)?;
     app_login(vars, host);
     let gave = given(vars);
@@ -2537,6 +2561,55 @@ mod tests {
                 names.contains(name),
                 "{name} is no longer in instances/example"
             );
+        }
+    }
+
+    const GONE: &[(&str, &str)] = &[("TEHAS_GONE", "the gone feature left core in 2.0")];
+
+    /// `ignored_names` returns nothing to refuse with, and the rest of the
+    /// load passes a name no row rules.
+    #[test]
+    fn an_ignored_name_loads() {
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&["TEHAS_GONE=on"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+    }
+
+    #[test]
+    fn an_ignored_name_warns_once() {
+        let mut vars = start(&[("TEHAS_GONE", "on")]);
+        let mut host = Fake::new(&[]);
+        ignored_names(&mut vars, &mut host, GONE);
+        assert_eq!(
+            host.warned,
+            ["TEHAS_GONE is no longer read: the gone feature left core in 2.0; remove it from the instance"]
+        );
+        let mut quiet = start(&[]);
+        let mut host = Fake::new(&[]);
+        ignored_names(&mut quiet, &mut host, GONE);
+        assert!(host.warned.is_empty(), "{:?}", host.warned);
+    }
+
+    #[test]
+    fn an_ignored_name_is_not_read() {
+        let mut vars = start(&[("TEHAS_GONE", "on")]);
+        let mut host = Fake::new(&[]);
+        ignored_names(&mut vars, &mut host, GONE);
+        assert!(!vars.is_set("TEHAS_GONE"));
+        assert!(!String::from_utf8_lossy(&script(&start(&[]), &vars)).contains("TEHAS_GONE"));
+    }
+
+    #[test]
+    fn an_ignored_name_is_neither_a_setting_nor_kept_nor_retired() {
+        for (name, why) in IGNORED {
+            assert!(!why.is_empty(), "{name} gives no reason");
+            assert!(
+                !TABLE.iter().any(|s| s.name == *name),
+                "{name} is ignored and in TABLE"
+            );
+            assert!(!KEPT.contains(name), "{name} is ignored and in KEPT");
+            assert!(!RETIRED.contains(name), "{name} is ignored and retired");
+            assert!(!RULED_ELSEWHERE.contains(name), "{name} is ignored");
         }
     }
 

@@ -181,6 +181,10 @@ Run `tehas dispatch --dry-run` and read what it prints.
   start lowest number first`: the poll treats it as no order. Set it again
   with `tehas order set`, or clear it, and run `tehas state check` if it
   keeps coming back.
+- `<NAME> is no longer read: <reason>; remove it from the instance`: the
+  instance sets a setting of a feature 2.0 took out of core. The command goes
+  on: the line loads, nothing reads it, and the warning comes once a load.
+  Take the line out of `instance.env`.
 - `TEHAS_PRIORITY_FIELD is no longer read: tehas order sets the order ready
   issues start in, so take the line out` (the same for `TEHAS_LOW_GATE` and
   `TEHAS_LOW_GATE_WAIT`): every command stops with 78 while the instance sets
