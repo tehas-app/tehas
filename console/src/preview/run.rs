@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use tehas_core::grammar::commit_id;
+use tehas_core::home::Home;
 
 pub const NET: &str = "tehas-previews";
 /// Names the default branch's preview where a pull request's is named by its
@@ -189,7 +190,7 @@ impl Preview {
             min_kb: 0,
             settle: settle_of(""),
             bare: root.join("repo.git"),
-            live: home.join("live"),
+            live: Home::new(&home).live_dir(),
             logs: home.join("logs"),
             root,
             home,

@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tehas_core::events::{first_unallowed_rename, label_state, standing_actor, LabelState};
 use tehas_core::forge::{Bounded, Forge, GhRunner, GitHub};
+use tehas_core::home::Home;
 use tehas_core::kinds::Kind;
 
 const LABEL: &str = Kind::Prototype.label();
@@ -69,7 +70,7 @@ pub fn run() -> u8 {
     };
     let home = PathBuf::from(home);
     let site = home.join("protolab");
-    let live = home.join("live");
+    let live = Home::new(&home).live_dir();
     if let Err(e) = fs::create_dir_all(&site).and_then(|()| fs::create_dir_all(&live)) {
         eprintln!("tehasbot protolab: cannot make its directories: {e}");
         return 1;

@@ -23,6 +23,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
+use tehas_core::home::{Home, State};
 use tehas_core::models::{self, host_path};
 use tehas_core::sandbox::{self, Identity, Kind, Paths, WIKI_OUT, WIKI_RAW};
 use tehas_core::slice::{Host, Load};
@@ -242,7 +243,8 @@ pub fn main(given: &[String]) -> u8 {
         Err(why) => return refuse(format!("tehasbot wiki: {why}, not starting")),
     };
     let stop_wait: u64 = var("TEHAS_STOP_WAIT").parse().unwrap_or(60);
-    if fs::create_dir_all(format!("{home}/state"))
+    let at = Home::of_text(&home);
+    if fs::create_dir_all(at.state_dir())
         .and_then(|()| fs::create_dir_all(format!("{home}/logs")))
         .is_err()
     {
@@ -250,7 +252,7 @@ pub fn main(given: &[String]) -> u8 {
             "tehasbot wiki: could not make the directories under {home}"
         ));
     }
-    let Ok(lock) = fs::File::create(format!("{home}/state/wiki.lock")) else {
+    let Ok(lock) = fs::File::create(at.state(State::WikiLock)) else {
         return refuse("tehasbot wiki: could not open the lock".to_string());
     };
     if lock.try_lock().is_err() {

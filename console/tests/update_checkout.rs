@@ -8,6 +8,7 @@ use common::{git, has, lacks, s, uid, Host, Run};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use tehas_core::home::{Home, State};
 
 /// A host with the minimal instance and a platform `behind` commits behind.
 fn host(behind: u32, body: &str) -> Host {
@@ -115,8 +116,8 @@ fn asking(behind: u32) -> Host {
 fn held() -> (Host, String) {
     let h = asking(1);
     let before = h.state();
-    fs::create_dir_all(h.home.join("state")).unwrap();
-    fs::write(h.home.join("state/update-hold"), "").unwrap();
+    fs::create_dir_all(Home::new(&h.home).state_dir()).unwrap();
+    fs::write(Home::new(&h.home).state(State::UpdateHold), "").unwrap();
     (h, before)
 }
 
@@ -624,7 +625,7 @@ chmod 000 "$TEHAS_HOME/state/update-pending""#,
 #[test]
 fn a_record_that_cannot_be_written_stops_the_run_before_any_step() {
     let h = host(1, r#"echo "next: sandbox""#);
-    let state = h.home.join("state");
+    let state = Home::new(&h.home).state_dir();
     fs::create_dir_all(&state).unwrap();
     // The lock is there from an earlier run; only the record cannot be written.
     fs::write(state.join("update.lock"), "").unwrap();
@@ -665,7 +666,7 @@ fn a_failed_run_leaves_the_record_and_nothing_else_in_state() {
     has(&r.out, "2 of 4 follow-up(s) are not done");
     // Each rewrite goes through a temporary file moved over the record, and
     // the lock is kept. The ids are what the install recorded.
-    let mut names: Vec<String> = fs::read_dir(h.home.join("state"))
+    let mut names: Vec<String> = fs::read_dir(Home::new(&h.home).state_dir())
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
@@ -690,7 +691,7 @@ fn an_update_asks_github_for_the_ids_and_runs_on_when_they_are_the_recorded_ones
 fn an_id_that_changed_stops_the_update_with_78_before_anything_moves_and_accept_id_records_it() {
     let h = host(1, "echo \"installed: nothing\"");
     let before = h.head_sha();
-    let ids = h.home.join("state/account-ids");
+    let ids = Home::new(&h.home).state(State::AccountIds);
     fs::write(&ids, "alice 7\n").unwrap();
     let r = h.update(&[]);
     assert_eq!(r.rc, 78, "{}", r.out);

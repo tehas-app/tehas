@@ -91,6 +91,7 @@ use tehas_core::call;
 use tehas_core::events::{label_actor, pause_holds, Event, Events};
 use tehas_core::file::{write_atomic, Temp};
 use tehas_core::github_fails;
+use tehas_core::home::{Home, State};
 use tehas_core::queue_lists::{AWAITING, COMPLETED, PLANNED, QUEUED, RUNNING, STOPPED};
 use tehas_core::retry::{retry_with, Budget};
 use tehas_core::time;
@@ -902,7 +903,7 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
         .ok()
         .and_then(|t| J::parse(&t))
         .unwrap_or(J::Null);
-    let words_at = home.join("state/buzzwords.at");
+    let words_at = Home::new(home).state(State::Buzzwords);
     let read_at = fs::read_to_string(&words_at)
         .ok()
         .and_then(|t| t.trim().parse().ok());
@@ -995,13 +996,13 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
                 .unwrap_or_default()
         },
         &allowed,
-        &home.join("state/all-hands.ignored"),
+        &Home::new(home).state(State::AllHandsIgnored),
         issue,
     );
     if stopped() {
         return;
     }
-    let (flag, flag_paused) = host_pause_flag(&home.join("state/pause.json"));
+    let (flag, flag_paused) = host_pause_flag(&Home::new(home).state(State::Pause));
     let now = time::now();
     let on = env::var("TEHAS_ANALYTICS").as_deref() == Ok("on");
     let was = if on && stale.is_empty() {
@@ -1099,7 +1100,7 @@ pub fn main() -> u8 {
     }
     let from_poll = env::var_os("TEHAS_FROM_POLL").is_some_and(|v| !v.is_empty());
     let home = PathBuf::from(env::var_os("TEHAS_HOME").unwrap_or_default());
-    let live = home.join("live");
+    let live = Home::new(&home).live_dir();
     let _ = fs::create_dir_all(&live);
     let analytics = Analytics::new(&home);
     let stop = Arc::new(AtomicBool::new(false));

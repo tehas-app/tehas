@@ -17,6 +17,7 @@ use std::env;
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use tehas_core::home::Home;
 use tehas_core::{mask, models};
 
 const USAGE: &str = "usage: tehas export [--json] --after CURSOR <dir>";
@@ -459,7 +460,7 @@ impl Export {
                 .plan(&issue, epoch(&v["ended"]), &out)
                 .ok_or_else(failed)?;
         } else {
-            let state = self.home.join("state").join("cycles");
+            let state = Home::new(&self.home).cycles_dir();
             let logs = self.home.join("logs");
             let into = out.join("logs");
             for (file, name) in [

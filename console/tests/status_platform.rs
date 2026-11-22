@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use tehas_core::home::State;
 
 /// git with a name and a branch of its own, quiet.
 fn g(args: &[&str], date: Option<&str>) {
@@ -44,7 +45,7 @@ fn platform_setup(w: &World) {
         let _ = fs::remove_dir_all(t.join(d));
     }
     let _ = fs::remove_dir_all(w.home.join("platform"));
-    let _ = fs::remove_file(w.home.join("state/platform-fetch"));
+    let _ = fs::remove_file(w.at().state(State::PlatformFetch));
     let origin = p(&t.join("origin"));
     let bare = p(&t.join("origin.git"));
     g(&["init", "-q", &origin], None);
@@ -130,10 +131,13 @@ fn platform_bare(w: &World) -> Value {
 
 /// The record of the last fetch is an hour and a second older.
 fn fetch_an_hour_ago(w: &World) {
-    let text = w.read_home("state/platform-fetch");
+    let text = w.read_home(w.at().state(State::PlatformFetch));
     let last: i64 = text.split_whitespace().next().unwrap().parse().unwrap();
     let then = last - 3601;
-    w.home_file("state/platform-fetch", &format!("{then} {then}\n"));
+    w.home_file(
+        w.at().state(State::PlatformFetch),
+        &format!("{then} {then}\n"),
+    );
 }
 
 fn release_calls(w: &World) -> usize {
@@ -219,12 +223,12 @@ fn platform_a_fetch_that_fails_is_no_error_and_is_not_tried_again_for_an_hour() 
     let w = World::new("platform-fetch-fails");
     platform_setup(&w);
     fs::rename(w.t().join("origin.git"), w.t().join("origin.gone")).unwrap();
-    w.home_file("state/platform-fetch", "1 1\n");
+    w.home_file(w.at().state(State::PlatformFetch), "1 1\n");
     let r = w.status();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(r.out, "");
     assert_eq!(platform(&w)["fetchedAt"], "1970-01-01T00:00:01Z");
-    let text = w.read_home("state/platform-fetch");
+    let text = w.read_home(w.at().state(State::PlatformFetch));
     let last: i64 = text.split_whitespace().next().unwrap().parse().unwrap();
     assert!(epoch("now") - last < 60, "{text}");
 }
@@ -262,7 +266,7 @@ fn release_setup(w: &World, installed: &[&str]) {
     }
     w.rm_fx("rel.json");
     fs::create_dir_all(w.home.join("versions")).unwrap();
-    fs::create_dir_all(w.home.join("state")).unwrap();
+    fs::create_dir_all(w.at().state_dir()).unwrap();
     // The release repository, as the host's versions.env gives it.
     fs::copy(
         root().join("host/versions.env"),
@@ -270,7 +274,7 @@ fn release_setup(w: &World, installed: &[&str]) {
     )
     .unwrap();
     for v in installed {
-        w.home_file(&format!("versions/{v}/VERSION"), &format!("{v}\n"));
+        w.home_file(format!("versions/{v}/VERSION"), &format!("{v}\n"));
     }
     std::os::unix::fs::symlink(format!("versions/{}", installed[0]), w.home.join("current"))
         .unwrap();
@@ -290,8 +294,11 @@ fn releases(w: &World, tags: &[&str]) {
 /// Two hours ago, the host read `newest`.
 fn read_two_hours_ago(w: &World, newest: &str) {
     let then = epoch("now") - 7200;
-    w.home_file("state/platform-fetch", &format!("{then} {then}\n"));
-    w.home_file("state/platform-newest", &format!("{newest}\n"));
+    w.home_file(
+        w.at().state(State::PlatformFetch),
+        &format!("{then} {then}\n"),
+    );
+    w.home_file(w.at().state(State::PlatformNewest), &format!("{newest}\n"));
 }
 
 #[test]
@@ -350,7 +357,10 @@ fn platform_the_releases_are_read_at_most_once_an_hour() {
     w.status();
     assert_eq!(release_calls(&w), 1);
     assert_eq!(platform(&w)["newest"], "v0.9.0");
-    assert_eq!(w.read_home("state/platform-newest").trim_end(), "v0.9.0");
+    assert_eq!(
+        w.read_home(w.at().state(State::PlatformNewest)).trim_end(),
+        "v0.9.0"
+    );
     fetch_an_hour_ago(&w);
     let r = status_then_summary(&w);
     assert_eq!(release_calls(&w), 2);
@@ -410,7 +420,10 @@ fn platform_a_cached_newest_older_than_the_installed_release_is_read_again() {
     let r = status_then_summary(&w);
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(platform(&w)["newest"], "v0.10.0");
-    assert_eq!(w.read_home("state/platform-newest").trim_end(), "v0.10.0");
+    assert_eq!(
+        w.read_home(w.at().state(State::PlatformNewest)).trim_end(),
+        "v0.10.0"
+    );
     assert_eq!(release_calls(&w), 1);
     lacks(&r.out, "is out");
     has(&r.out, "platform  v0.10.0, newest v0.10.0, fetched ");

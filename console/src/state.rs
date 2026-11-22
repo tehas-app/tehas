@@ -75,10 +75,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
-
-/// The directories under the home that hold a live token and its lookup
-/// files. None is packed, and unpack keeps the target's own.
-const TOKEN_DIRS: [&str; 3] = ["state/github", "state/github-cycle", "state/github-session"];
+use tehas_core::home::{Home, State, TokenDir};
 
 const USAGE: &str = "usage: tehas state pack [--rehearse] - | unpack [--rehearse] - | check [--json] | copy --to <file> [--json] | load --from <file> [--json]";
 const MANIFEST: &str = "tehas-state.json";
@@ -245,7 +242,7 @@ fn load(home: &Path, from: &str, json: bool) -> Result<(), Fail> {
     }
     let source = std::path::absolute(from).map_err(io_fail("could not name the copy"))?;
     let source = source.to_string_lossy();
-    if !crate::holds::drained(&home.join("state/limit.json")) {
+    if !crate::holds::drained(&Home::new(home).state(State::Limit)) {
         return Err((
             1,
             "the factory is not drained: run tehas drain, then load".to_string(),
@@ -830,13 +827,13 @@ fn unpack(home: &Path, rehearse: bool) -> Result<(), Fail> {
     }
     walk(&new, &new)?;
     // The live token is the target's own, never the source's.
-    for name in TOKEN_DIRS {
-        let token = new.join(name);
+    for t in TokenDir::ALL {
+        let token = Home::new(&new).token_dir(t);
         if fs::symlink_metadata(&token).is_ok() {
             fs::remove_dir_all(&token).map_err(io_fail("could not drop the archive's token"))?;
         }
     }
-    if fs::symlink_metadata(new.join("state/tehas.db")).is_err() {
+    if fs::symlink_metadata(Home::new(&new).state(State::StoreDb)).is_err() {
         return Err((1, "the archive holds no state store".to_string()));
     }
     // The store is checked where it is, with the installed store binary.
@@ -853,18 +850,18 @@ fn unpack(home: &Path, rehearse: bool) -> Result<(), Fail> {
     no_active_unit()?;
     // From here a signal must not take the directory that holds the old state.
     *CLEAN.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    for name in TOKEN_DIRS {
-        let own_token = home.join(name);
+    for t in TokenDir::ALL {
+        let own_token = Home::new(home).token_dir(t);
         if fs::symlink_metadata(&own_token).is_ok() {
-            fs::rename(&own_token, new.join(name))
+            fs::rename(&own_token, Home::new(&new).token_dir(t))
                 .map_err(io_fail("could not keep this host's token"))?;
         }
     }
     let done = swap(home, &new, &scratch.dir.join("old"));
     if let Err(e) = done {
         // The target's tokens go back where they were found.
-        for name in TOKEN_DIRS {
-            let _ = fs::rename(new.join(name), home.join(name));
+        for t in TokenDir::ALL {
+            let _ = fs::rename(Home::new(&new).token_dir(t), Home::new(home).token_dir(t));
         }
         if e.1.contains("left in ") {
             scratch.keep = true;

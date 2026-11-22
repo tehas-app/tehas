@@ -11,6 +11,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use tehas_core::home::{Home, State};
 use tehas_core::testdir::TestDir;
 use tehas_core::testing::{copy_exe, write_exe};
 
@@ -393,9 +394,10 @@ impl Host {
 
     /// The user ids an install records, of every login of `LOGINS` (t_ids).
     pub fn ids(&self, home: &Path) {
-        fs::create_dir_all(home.join("state")).unwrap();
+        let at = Home::new(home);
+        fs::create_dir_all(at.state_dir()).unwrap();
         let ids: String = LOGINS.iter().map(|l| format!("{l} {}\n", uid(l))).collect();
-        fs::write(home.join("state/account-ids"), ids).unwrap();
+        fs::write(at.state(State::AccountIds), ids).unwrap();
     }
 
     /// docker of a host whose containers run.

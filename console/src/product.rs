@@ -29,6 +29,7 @@ use std::process::{self, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tehas_core::file::Temp;
+use tehas_core::home::{Home, State};
 use tehas_core::install::{self, Step};
 use tehas_core::{exit, sandbox, slice, time};
 
@@ -744,14 +745,18 @@ fn result_text(at: &str, failures: &[String], sandbox: Option<bool>) -> String {
 }
 
 fn write_result(home: &str, failures: &[String], sandbox: Option<bool>) {
-    let state = format!("{home}/state");
-    let file = format!("{state}/check-product.json");
+    let at = Home::new(home);
+    let state = at.state_dir();
+    let file = at.state(State::CheckProduct);
     let text = result_text(&time::iso(time::now()), failures, sandbox);
     let written = fs::create_dir_all(&state).and_then(|()| {
-        tehas_core::file::write_atomic(Path::new(&file), text.as_bytes(), 0o644, &Temp::Predictable)
+        tehas_core::file::write_atomic(&file, text.as_bytes(), 0o644, &Temp::Predictable)
     });
     if written.is_err() {
-        complain(&format!("tehas check-product: could not write {file}"));
+        complain(&format!(
+            "tehas check-product: could not write {}",
+            file.display()
+        ));
     }
 }
 

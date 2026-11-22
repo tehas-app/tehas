@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Once;
 use std::time::{Duration, Instant};
+use tehas_core::home::{Home, State};
 use tehas_core::testing::write_exe;
 
 const UNITS: &str = "tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer";
@@ -50,7 +51,7 @@ fn lock(h: &Host) -> String {
 
 /// libexec/update run with the lock held by the snippet's shell.
 fn held_run(h: &Host, wait0: bool, args: &str) -> Run {
-    fs::create_dir_all(h.home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(&h.home).state_dir()).unwrap();
     let no_wait = if wait0 {
         "export TEHAS_UPDATE_LOCK_WAIT=0; "
     } else {
@@ -148,8 +149,8 @@ fn real(name: &str) -> Host {
 
 /// The host of one install before this run.
 fn installed_once(h: &Host) {
-    fs::create_dir_all(h.home.join("state")).unwrap();
-    fs::write(h.home.join("state/first-install"), "").unwrap();
+    fs::create_dir_all(Home::new(&h.home).state_dir()).unwrap();
+    fs::write(Home::new(&h.home).state(State::FirstInstall), "").unwrap();
 }
 
 /// build.sh that records its arguments and exits `rc`, and a versions.env
@@ -425,7 +426,7 @@ fn check_takes_no_lock() {
 #[test]
 fn an_update_that_finds_the_lock_held_waits_for_it_and_runs_when_it_is_let_go() {
     let h = host("wait", 0, "");
-    fs::create_dir_all(h.home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(&h.home).state_dir()).unwrap();
     let ready = h.join("holder-ready");
     let mut holder = Command::new("bash")
         .arg("-c")
@@ -484,7 +485,7 @@ fn the_wait_rule_takes_0_through_300_is_10_unset_and_refuses_anything_else_with_
 #[test]
 fn tehas_update_with_a_wait_it_cannot_read_stops_with_78_before_the_lock_and_the_install() {
     let h = host("wait-bad", 0, "");
-    fs::create_dir_all(h.home.join("state")).unwrap();
+    fs::create_dir_all(Home::new(&h.home).state_dir()).unwrap();
     let r = h.sh(&format!(
         "export TEHAS_UPDATE_LOCK_WAIT=soon; '{}'",
         h.update_script()
@@ -1555,8 +1556,8 @@ fn a_step_that_fails_under_pending_stays_recorded_for_the_next_run() {
 #[test]
 fn pending_runs_the_steps_with_the_platform_held() {
     let h = host("pending-held", 0, "");
-    fs::create_dir_all(h.home.join("state")).unwrap();
-    fs::write(h.home.join("state/update-hold"), "").unwrap();
+    fs::create_dir_all(Home::new(&h.home).state_dir()).unwrap();
+    fs::write(Home::new(&h.home).state(State::UpdateHold), "").unwrap();
     h.record(&["docs --force-recreate"]);
     let r = h.update(&["--pending"]);
     assert_eq!(r.rc, 0, "{}", r.out);

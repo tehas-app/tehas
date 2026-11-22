@@ -49,6 +49,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tehas_core::file::Temp;
+use tehas_core::home::{Home, Live};
 use tehas_core::out::print as printed;
 use tehas_core::time;
 
@@ -188,7 +189,7 @@ fn readings(read: impl Fn() -> Option<String>, wait: impl FnOnce(), was: &str) -
 fn take(lines: usize, was: &str, wait: impl FnOnce()) -> (String, String) {
     let dir = proc_dir();
     let (now, earlier) = readings(|| reading(&dir), wait, was);
-    let live = Path::new(&home()).join("live");
+    let live = Home::new(home()).live_dir();
     let snapshot = crate::snapshot::snapshot(&live, lines, MAX_AGE, &now, &earlier);
     (snapshot, now)
 }
@@ -217,8 +218,9 @@ fn write_published(file: &Path, line: &str) -> std::io::Result<()> {
 }
 
 fn publish_once(home: &str) -> u8 {
-    let live = Path::new(home).join("live");
-    let file = live.join("top.json");
+    let at = Home::new(home);
+    let live = at.live_dir();
+    let file = at.live(Live::Top);
     if var("TEHAS_TOP") != "1" {
         let _ = fs::remove_file(&file);
         return 0;
@@ -465,7 +467,7 @@ pub fn view(given: &[String]) -> u8 {
             return 64;
         }
     };
-    let live = Path::new(&home()).join("live");
+    let live = Home::new(home()).live_dir();
     if !live.is_dir() {
         eprintln!("tehas top: no live directory at {} yet", live.display());
         return 1;

@@ -30,6 +30,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tehas_core::file::{write_atomic, Temp};
+use tehas_core::home::{Home, Live, State};
 
 const USAGE: &str = "usage: tehas wiki [--json] | tehas wiki build [--full] [--json]";
 
@@ -73,7 +74,7 @@ pub fn words(given: &[String]) -> Result<Words, u8> {
 
 /// The ask a build takes: `<home>/state/wiki.ask`, `full` or empty.
 fn ask_file(home: &Path) -> PathBuf {
-    home.join("state/wiki.ask")
+    Home::new(home).state(State::WikiAsk)
 }
 
 /// Writes the ask, which tehas-wiki.path starts a build on. A full ask is not
@@ -86,7 +87,7 @@ pub fn ask(home: &Path, full: bool) -> std::io::Result<()> {
     } else {
         ""
     };
-    fs::create_dir_all(home.join("state"))?;
+    fs::create_dir_all(Home::new(home).state_dir())?;
     write_atomic(&file, format!("{word}\n").as_bytes(), 0o644, &Temp::Pid)
 }
 
@@ -100,7 +101,7 @@ pub fn take_ask(home: &Path) -> Option<String> {
 
 /// Whether a build holds the lock now.
 fn building(home: &Path) -> bool {
-    fs::File::open(home.join("state/wiki.lock")).is_ok_and(|f| f.try_lock().is_err())
+    fs::File::open(Home::new(home).state(State::WikiLock)).is_ok_and(|f| f.try_lock().is_err())
 }
 
 /// A build's id: its date and the first eight hex of its commit,
@@ -380,8 +381,9 @@ pub fn publish(given: &[String]) -> u8 {
     }
     let (home, read) = here();
     let text = format!("{}\n", object(&read));
-    let out = home.join("live/wiki.json");
-    let written = fs::create_dir_all(home.join("live"))
+    let at = Home::new(&home);
+    let out = at.live(Live::Wiki);
+    let written = fs::create_dir_all(at.live_dir())
         .and_then(|()| write_atomic(&out, text.as_bytes(), 0o644, &Temp::Pid));
     match written {
         Ok(()) => 0,

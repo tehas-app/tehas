@@ -537,6 +537,7 @@ fn text_line(line: &J) -> String {
 mod tests {
     use super::*;
     use std::fs;
+    use tehas_core::home::{Home, State};
 
     // Outputs in this file were captured from the jq of v0.21.0.
     const ROWS: &str = r#"{"api":1,"ok":true,"verb":"history-show","rows":[
@@ -796,7 +797,7 @@ mod tests {
     fn scratch(name: &str) -> tehas_core::testdir::TestDir {
         let dir = tehas_core::testdir::TestDir::new(&format!("history-{name}"));
         fs::create_dir_all(dir.join("libexec")).unwrap();
-        fs::create_dir_all(dir.join("state")).unwrap();
+        fs::create_dir_all(Home::new(dir.to_path_buf()).state_dir()).unwrap();
         dir
     }
 
@@ -804,7 +805,7 @@ mod tests {
     /// `rc` and `line`, newest first (store/src/call.rs).
     fn store_says(home: &Path, args: &str, rc: u8, line: &str) {
         tehas_core::testing::write_exe(store::program(home), "#!/bin/sh\n").unwrap();
-        fs::write(home.join("state/tehas.db"), "").unwrap();
+        fs::write(Home::new(home).state(State::StoreDb), "").unwrap();
         let file = home.join("answers");
         let mut said = fs::read_to_string(&file).unwrap_or_default();
         said.push_str(&format!("{args}|{rc}|{line}\n"));

@@ -15,6 +15,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Once;
+use tehas_core::home::{Home, State, TokenDir};
 use tehas_core::testdir::TestDir;
 use tehas_core::testing::{copy_exe, write_exe};
 
@@ -222,7 +223,7 @@ impl World {
         std::os::unix::fs::symlink(root().join("bin/tehasbot"), t.join("tree/bin/tehasbot"))
             .unwrap();
         let w = World {
-            live: home.join("live"),
+            live: Home::new(&home).live_dir(),
             home,
             bash: which("bash"),
             console,
@@ -293,20 +294,20 @@ impl World {
         place(&self.t.join("store-bin"), &self.home.join("libexec/store"));
         self.store_db();
         let ids: String = LOGINS.iter().map(|l| format!("{l} {}\n", uid(l))).collect();
-        fs::write(self.home.join("state/account-ids"), ids).unwrap();
+        fs::write(self.at().state(State::AccountIds), ids).unwrap();
     }
 
     /// The database is gone, with its journal files.
     pub fn no_db(&self) {
         for f in ["tehas.db", "tehas.db-wal", "tehas.db-shm"] {
-            let _ = fs::remove_file(self.home.join("state").join(f));
+            let _ = fs::remove_file(self.at().state_dir().join(f));
         }
     }
 
     /// A fresh database, made by the store's own init (t_store_db).
     pub fn store_db(&self) {
         self.no_db();
-        fs::create_dir_all(self.home.join("state")).unwrap();
+        fs::create_dir_all(self.at().state_dir()).unwrap();
         self.store_ok(&[
             "init",
             "--version",
@@ -480,7 +481,7 @@ impl World {
         }
         fs::write(dir.join("instance.env"), text).unwrap();
         *self.instance.borrow_mut() = true;
-        if !self.home.join("state/github/login").exists() {
+        if !self.at().state(State::BotLogin).exists() {
             self.app_world("tehas-bot");
         }
     }
@@ -504,20 +505,16 @@ impl World {
     pub fn app_world(&self, slug: &str) {
         let until = tehas_core::time::now() + 86400;
         for (dir, token) in [
-            ("github", "app"),
-            ("github-cycle", "cycle"),
-            ("github-session", "session"),
+            (TokenDir::App, "app"),
+            (TokenDir::Cycle, "cycle"),
+            (TokenDir::Session, "session"),
         ] {
-            let d = self.home.join("state").join(dir);
+            let d = self.at().token_dir(dir);
             fs::create_dir_all(&d).unwrap();
             fs::write(d.join("token"), format!("ghs_{token}\n")).unwrap();
             fs::write(d.join("token.expires"), format!("{until}\n")).unwrap();
         }
-        fs::write(
-            self.home.join("state/github/login"),
-            format!("{slug}[bot]\n"),
-        )
-        .unwrap();
+        fs::write(self.at().state(State::BotLogin), format!("{slug}[bot]\n")).unwrap();
     }
 
     /// The variables of every later run until reset(), in place of those
@@ -561,8 +558,14 @@ impl World {
         let _ = fs::remove_file(self.t.join(rel));
     }
 
-    /// A file under the home, with these bytes.
-    pub fn home_file(&self, rel: &str, text: &str) {
+    /// The home's layout.
+    pub fn at(&self) -> Home {
+        Home::new(&self.home)
+    }
+
+    /// A file under the home, with these bytes: `rel` is relative to the
+    /// home, or a path `at` gives.
+    pub fn home_file(&self, rel: impl AsRef<Path>, text: &str) {
         let p = self.home.join(rel);
         if let Some(d) = p.parent() {
             fs::create_dir_all(d).unwrap();
@@ -571,7 +574,7 @@ impl World {
     }
 
     /// What a file under the home holds, "" when there is none.
-    pub fn read_home(&self, rel: &str) -> String {
+    pub fn read_home(&self, rel: impl AsRef<Path>) -> String {
         fs::read_to_string(self.home.join(rel)).unwrap_or_default()
     }
 
@@ -707,7 +710,7 @@ impl World {
     fn store_cmd(&self, args: &[&str], now: Option<i64>, lock: Option<u64>) -> Run {
         let mut c = match lock {
             Some(n) => {
-                let cycles = self.home.join("state/cycles");
+                let cycles = self.at().cycles_dir();
                 fs::create_dir_all(&cycles).unwrap();
                 let mut c = Command::new("flock");
                 c.args(["-w", "5"])

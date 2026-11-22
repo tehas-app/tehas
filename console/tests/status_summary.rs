@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
+use tehas_core::home::State;
 use tehas_core::time::{iso, now};
 
 /// `$status && $summary <words>`, the two outputs as one.
@@ -263,7 +264,7 @@ fn status_json_a_read_only_instance_says_so_the_snapshot_lists_what_its_starts_l
     w.minimal(&["TEHAS_READ_ONLY=1"]);
     // The workspace of #7, beside TEHAS_WORK_DIR, the default <home>/work/widget.
     w.home_file(
-        "state/read-only/7.json",
+        w.at().state(State::ReadOnly).join("7.json"),
         "{\"issue\":7,\"how\":\"cycle\",\"at\":\"2026-11-06T10:00:00Z\"}\n",
     );
     w.home_file(
@@ -438,7 +439,7 @@ fn status_json_room_the_last_poll_did_not_read_is_left_out() {
 fn status_json_a_paused_factory_by_the_flag_or_by_the_label_is_held_by_the_pause() {
     let w = World::new("json-paused");
     w.home_file(
-        "state/pause.json",
+        w.at().state(State::Pause),
         r#"{"by":"boss","at":"2026-10-15T10:00:00Z","reason":"waiting for the gate"}"#,
     );
     let r = status_then(&w, &["--json"]);

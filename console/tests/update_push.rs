@@ -9,6 +9,7 @@ mod common;
 use common::{git, has, lacks, which, Host};
 use std::fs;
 use std::path::PathBuf;
+use tehas_core::home::{Home, State};
 use tehas_core::testing::write_exe;
 
 const DRAIN: &str = r#"{"v":1,"cycles":0,"plan":false,"until":null,"reason":"draining"}"#;
@@ -81,7 +82,7 @@ esac
         );
         let origin = h.join("product-origin").display().to_string();
         git(Some(&product), &["remote", "add", "origin", &origin]);
-        let limit = h.home.join("state/limit.json");
+        let limit = Home::new(&h.home).state(State::Limit);
         if drained {
             fs::create_dir_all(limit.parent().unwrap()).unwrap();
             fs::write(&limit, format!("{DRAIN}\n")).unwrap();

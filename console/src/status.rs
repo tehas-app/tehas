@@ -39,6 +39,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tehas_core::exit;
+use tehas_core::home::{Home, Live, State};
 
 /// The age after which a health file is not believed.
 pub const MAX_AGE: i64 = 600;
@@ -87,7 +88,7 @@ pub fn print(given: &[String]) -> u8 {
         eprintln!("tehas status: neither TEHAS_HOME nor HOME is set");
         return 1;
     };
-    let file = home.join("live/health.json").display().to_string();
+    let file = Home::new(&home).live(Live::Health).display().to_string();
     let now = tehas_core::time::now();
     if json {
         return answer(&file, now, None, &[]);
@@ -95,7 +96,7 @@ pub fn print(given: &[String]) -> u8 {
     let every = tehas_ops::poll_timer::user_units()
         .and_then(|units| tehas_ops::poll_timer::written(&units));
     let poll = with_interval(poll_line(&home), every);
-    let product = home.join("state/check-product.json");
+    let product = Home::new(&home).state(State::CheckProduct);
     let mut ends = host_lines(&home, now);
     ends.extend(end_lines(&tehas_core::end_fault::all(&home), now));
     answer(&file, now, Some((&poll, product.to_str())), &ends)
