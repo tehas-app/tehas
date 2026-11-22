@@ -591,36 +591,24 @@ impl Poll<'_> {
         for p in owed {
             // A row of a shape the store never writes is said: one with no
             // issue cannot be spent, one with no start is spent once.
-            let Some(n) = p
-                .get("issue")
-                .and_then(Value::as_u64)
-                .filter(|n| (1..=ISSUE_MAX).contains(n))
-            else {
+            let Some(n) = p.issue.filter(|n| (1..=ISSUE_MAX).contains(n)) else {
                 self.log(format!(
                     "WARN: a park owed a retry after a provider outage names no issue tehas can read (issue={})",
-                    p.get("issue").unwrap_or(&Value::Null)
+                    p.issue_said
                 ));
                 continue;
             };
-            let Some(started) = p
-                .get("started_at")
-                .and_then(Value::as_u64)
-                .filter(|t| *t <= TIME_MAX)
-            else {
+            let Some(started) = p.started_at.filter(|t| *t <= TIME_MAX) else {
                 self.log(format!(
                     "skip #{n}: its retry after a provider outage is not started: its park record has no time its cycle began (started_at={})",
-                    p.get("started_at").unwrap_or(&Value::Null)
+                    p.started_said
                 ));
                 if !self.dry {
                     self.act(json!({"park_retry": n, "how": "outage"}));
                 }
                 continue;
             };
-            let by = p
-                .get("started_by")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
+            let by = p.started_by.text_or_empty().to_string();
             if self.running(n) {
                 continue;
             }

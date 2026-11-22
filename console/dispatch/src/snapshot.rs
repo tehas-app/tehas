@@ -130,6 +130,47 @@ impl StoreErr {
     }
 }
 
+/// A row of park-show --automatic or --refine. `*_said` is the raw value as
+/// JSON text, `null` when it is missing, for the line that says the row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwedPark {
+    pub issue: Option<u64>,
+    pub issue_said: String,
+    pub started_at: Option<u64>,
+    pub started_said: String,
+    pub started_by: ParkField,
+    pub park_reason: ParkField,
+    pub question: ParkField,
+    pub body_sha256: ParkField,
+}
+
+/// A text field of a park row: absent, null or false; a string; or any other
+/// value, as its JSON text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ParkField {
+    Missing,
+    Text(String),
+    Other(String),
+}
+
+impl ParkField {
+    /// The field as a line says it: `-` for none.
+    pub fn dash(&self) -> String {
+        match self {
+            ParkField::Missing => "-".into(),
+            ParkField::Text(s) | ParkField::Other(s) => s.clone(),
+        }
+    }
+
+    /// The field when it is a string, empty otherwise.
+    pub fn text_or_empty(&self) -> &str {
+        match self {
+            ParkField::Text(s) => s,
+            _ => "",
+        }
+    }
+}
+
 /// What the poll reads of a check's runs on the branch's head. The words are
 /// the set the store pins in console/store/src/schema.sql
 /// (`red`|`done`|`pending`|`none`|`unreadable`), so this enum is the contract
@@ -414,7 +455,7 @@ pub struct Snapshot {
     /// lib/refine-brief.md is there and not empty.
     pub refine_brief: bool,
     /// park-show --refine's parks, owed a refine.
-    pub refines_owed: Option<Result<Vec<Value>, StoreErr>>,
+    pub refines_owed: Option<Result<Vec<OwedPark>, StoreErr>>,
     /// The issues whose cycle holds its lock, with how each started on record.
     pub running: Vec<(u64, String)>,
     /// state/cycles is there but could not be listed: `running` is empty and
@@ -471,7 +512,7 @@ pub struct Snapshot {
     /// gh issue list --label tehas:question; Some(None) when it gave no list.
     pub asking: Option<Option<Vec<Asked>>>,
     /// park-show --automatic's parks, owed a retry after an outage.
-    pub owed: Option<Result<Vec<Value>, StoreErr>>,
+    pub owed: Option<Result<Vec<OwedPark>, StoreErr>>,
     pub images: Option<Images>,
     pub issues: BTreeMap<u64, Issue>,
     /// The open issues whose title starts with the epic marker and that do not
@@ -705,6 +746,33 @@ fn cycles(v: Option<&Value>) -> Result<BTreeMap<u64, Cycle>, StoreErr> {
 
 impl Snapshot {
     pub fn parse(v: &Value) -> Snapshot {
+        let owed = |o: &Value| -> Result<Vec<OwedPark>, StoreErr> {
+            if failed(o) {
+                return Err(StoreErr::parse(o));
+            }
+            let field = |p: &Value, k: &str| match p.get(k) {
+                None | Some(Value::Null) | Some(Value::Bool(false)) => ParkField::Missing,
+                Some(Value::String(s)) => ParkField::Text(s.clone()),
+                Some(x) => ParkField::Other(x.to_string()),
+            };
+            let said = |p: &Value, k: &str| p.get(k).unwrap_or(&Value::Null).to_string();
+            Ok(o.as_array()
+                .map(|a| {
+                    a.iter()
+                        .map(|p| OwedPark {
+                            issue: p.get("issue").and_then(Value::as_u64),
+                            issue_said: said(p, "issue"),
+                            started_at: p.get("started_at").and_then(Value::as_u64),
+                            started_said: said(p, "started_at"),
+                            started_by: field(p, "started_by"),
+                            park_reason: field(p, "park_reason"),
+                            question: field(p, "question"),
+                            body_sha256: field(p, "body_sha256"),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default())
+        };
         let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
         let control = v.get("control").cloned().unwrap_or(Value::Null);
         let asked = |i: &Value| Asked {
@@ -810,13 +878,7 @@ impl Snapshot {
             plans: v.get("plans").map(plan_list),
             refines: v.get("refines").map(plan_list),
             refine_brief: v.get("refine_brief").and_then(Value::as_bool) != Some(false),
-            refines_owed: v.get("refines_owed").map(|o| {
-                if failed(o) {
-                    Err(StoreErr::parse(o))
-                } else {
-                    Ok(o.as_array().cloned().unwrap_or_default())
-                }
-            }),
+            refines_owed: v.get("refines_owed").map(owed),
             running_unlisted: v.get("running_unlisted") == Some(&Value::Bool(true)),
             running: v
                 .get("running")
@@ -981,13 +1043,7 @@ impl Snapshot {
             asking: v
                 .get("asking")
                 .map(|a| a.as_array().map(|a| a.iter().map(asked).collect())),
-            owed: v.get("owed").map(|o| {
-                if failed(o) {
-                    Err(StoreErr::parse(o))
-                } else {
-                    Ok(o.as_array().cloned().unwrap_or_default())
-                }
-            }),
+            owed: v.get("owed").map(owed),
             images: v.get("images").map(|i| Images {
                 rukas: i.get("rukas").and_then(Value::as_str).unwrap_or("").into(),
                 commit: i.get("commit").and_then(Value::as_str).unwrap_or("").into(),
