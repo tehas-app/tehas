@@ -459,6 +459,7 @@ fn the_heavy_files_a_shared_library_reaches_are_left_to_the_full_gate() {
         "update_release_test.sh",
         "pack_release_test.sh",
         "bootstrap_test.sh",
+        "bootstrap_rukas_test.sh",
         "install_test.sh",
         "a_test.sh",
     ] {
@@ -467,6 +468,7 @@ fn the_heavy_files_a_shared_library_reaches_are_left_to_the_full_gate() {
     assert_eq!(
         t.pick(&["lib/config.sh"]),
         "test test/a_test.sh
+omit test/bootstrap_rukas_test.sh
 omit test/bootstrap_test.sh
 omit test/install_steps_test.sh
 test test/install_test.sh
@@ -488,10 +490,12 @@ fn a_heavy_file_runs_when_the_change_touches_what_it_tests() {
         "pack_release_test.sh",
         "\"$T_ROOT/scripts/pack-release.sh\"",
     )
-    .fake("bootstrap_test.sh", "\"$T_ROOT/bootstrap.sh\"");
+    .fake("bootstrap_test.sh", "\"$T_ROOT/bootstrap.sh\"")
+    .fake("bootstrap_rukas_test.sh", "\"$T_ROOT/bootstrap.sh\"");
     assert_eq!(
         t.pick(&["libexec/update", "scripts/pack-release.sh", "bootstrap.sh"]),
-        "test test/bootstrap_test.sh
+        "test test/bootstrap_rukas_test.sh
+test test/bootstrap_test.sh
 omit test/install_steps_test.sh
 test test/pack_release_test.sh
 test test/update_test.sh"
