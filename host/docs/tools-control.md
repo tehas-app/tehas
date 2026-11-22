@@ -445,6 +445,11 @@ while `TEHAS_PLUGIN` is on, and a first install enables it. It listens on
 must be mode 600. Off, it says so and ends 0. A setting or a client file
 missing or malformed ends it with 78, and systemd does not start it again;
 any other end is restarted after 5 seconds. A restart signs everyone out.
+The gate reads its settings once, when it starts, so `tehas update` restarts
+it when it is running (`systemctl --user try-restart`): a changed
+`TEHAS_PLUGIN_ACCESS`, `TEHAS_REPO`, pin or grant applies, and everyone
+signed in signs in again. A restart that fails is said, and the update goes
+on.
 The edge router sends the two names to it: see
 [Plugins' views](/edge#plugins-views) for the address the router reaches.
 

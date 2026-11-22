@@ -11,7 +11,7 @@
 //! (docs/specs/2026-11-21-plugins-web.md, "The panel"). With the feature off
 //! it runs nothing, and only takes away a plugin's panel left from before.
 
-use super::exec::Exec;
+use super::exec::{Cmd, Exec};
 use super::prepare::{self, prepare_view, Shown};
 use super::runs;
 use crate::panel::{self, Panel};
@@ -67,6 +67,10 @@ fn weighed(
     }
 }
 
+/// The gate reads its settings once, at start. `try-restart` restarts it
+/// only when it runs, so a changed setting applies and nothing starts it.
+pub const GATE: &str = "tehas-plugin-gate.service";
+
 pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said {
     let mut said = Said::default();
     if !tehas_core::features::on_in("plugins", get) {
@@ -74,6 +78,22 @@ pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said
         menued(home, &[], &mut said);
         return said;
     }
+    plugins(x, home, get, &mut said);
+    let args = ["--user", "try-restart", GATE];
+    let d = x.run(&Cmd::new(
+        "systemctl",
+        args.iter().map(|a| a.to_string()).collect(),
+    ));
+    if !d.ok {
+        said.lines.push(format!(
+            "plugins: systemctl could not restart {GATE}: {}",
+            d.err
+        ));
+    }
+    said
+}
+
+fn plugins(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String, said: &mut Said) {
     let domain = get("TEHAS_DOMAIN");
     let one_level = switch(&get("TEHAS_EDGE_ONE_LEVEL")) == Some(true);
     let mut views = Vec::new();
@@ -164,10 +184,10 @@ pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said
         };
         said.lines.push(line);
     }
-    docked(home, &views, &mut said);
-    menued(home, &menu, &mut said);
+    docked(home, &views, said);
+    menued(home, &menu, said);
     let Ok(dirs) = fs::read_dir(prepare::root(home)) else {
-        return said;
+        return;
     };
     let mut gone: Vec<String> = dirs
         .filter_map(|e| e.ok()?.file_name().into_string().ok())
@@ -183,7 +203,6 @@ pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said
             }
         });
     }
-    said
 }
 
 /// The menu's entry of a plugin granted `menu`: its name and label, and each
@@ -255,7 +274,7 @@ fn docked(home: &Path, views: &[Panel], said: &mut Said) {
 
 #[cfg(test)]
 mod tests {
-    use super::super::exec::fake::{ok, Fake};
+    use super::super::exec::fake::{fails, ok, Fake};
     use super::super::prepare::tests::{dockerfile, good, manifest, C, ID, URL};
     use super::*;
     use std::collections::BTreeMap;
@@ -295,6 +314,7 @@ mod tests {
             "plugin-update-needs",
             &[("tehas-plugin.json", m), ("Dockerfile", &d)],
         );
+        x.on("systemctl", ok(""));
         x.on("{{.Id}}", ok(&format!("{ID}\n")));
         x.on("for-each-ref", ok(""));
         x.on("gc --prune=now", ok(""));
@@ -324,6 +344,7 @@ mod tests {
             "plugin-update",
             &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
         );
+        x.on("systemctl", ok(""));
         x.on("{{.Id}}", ok(&format!("{ID}\n")));
         let get = on(&[
             ("TEHAS_PLUGINS", format!("floorplan={URL}@{C}")),
@@ -356,6 +377,7 @@ mod tests {
     #[test]
     fn a_plugin_taken_out_is_removed_and_a_stray_directory_name_left() {
         let (home, mut x) = good("plugin-update-gone", &[]);
+        x.on("systemctl", ok(""));
         fs::create_dir_all(prepare::root(&home).join("not-a-name")).unwrap();
         x.on("docker image ls", ok(""));
         x.on("docker volume inspect", ok("[]"));
@@ -369,6 +391,29 @@ mod tests {
         assert!(!said.refused);
         assert!(!prepare::dir(&home, "floorplan").exists());
         assert!(prepare::root(&home).join("not-a-name").exists());
+    }
+
+    #[test]
+    fn a_running_gate_is_restarted_and_a_failure_said() {
+        let (home, mut x) = good("plugin-update-gate", &[]);
+        x.on("docker image ls", ok(""));
+        x.on("docker volume inspect", ok("[]"));
+        x.on("docker volume rm", ok(""));
+        x.on("systemctl", ok(""));
+        let get = on(&[]);
+        step(&mut x, &home, &get);
+        assert!(x.ran_any("systemctl --user try-restart tehas-plugin-gate.service"));
+        let mut x = Fake::new();
+        x.on("systemctl", fails("unit failed"));
+        let said = step(&mut x, &home, &get);
+        assert_eq!(
+            said.lines,
+            ["plugins: systemctl could not restart tehas-plugin-gate.service: unit failed"]
+        );
+        assert!(!said.refused);
+        let mut x = Fake::new();
+        step(&mut x, &home, &vars(&[]));
+        assert!(!x.ran_any("systemctl"));
     }
 
     fn panels(home: &Path) -> Vec<Panel> {
@@ -399,6 +444,7 @@ mod tests {
             "plugin-update-menu",
             &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
         );
+        x.on("systemctl", ok(""));
         x.on("{{.Id}}", ok(&format!("{ID}\n")));
         x.on("for-each-ref", ok(&format!("refs/tehas/{C}\n")));
         x.on("gc --prune=now", ok(""));
@@ -454,6 +500,7 @@ mod tests {
             "plugin-update-view",
             &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
         );
+        x.on("systemctl", ok(""));
         x.on("{{.Id}}", ok(&format!("{ID}\n")));
         x.on("for-each-ref", ok(&format!("refs/tehas/{C}\n")));
         x.on("gc --prune=now", ok(""));
@@ -495,6 +542,7 @@ mod tests {
             "plugin-update-moved",
             &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
         );
+        x.on("systemctl", ok(""));
         x.on("{{.Id}}", ok(&format!("{ID}\n")));
         x.on("for-each-ref", ok(&format!("refs/tehas/{C}\n")));
         x.on("gc --prune=now", ok(""));
