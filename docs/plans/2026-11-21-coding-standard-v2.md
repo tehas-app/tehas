@@ -263,7 +263,7 @@ parsing.
 
 ## The steps
 
-In this order, T11 and T12 before T9 and T10 last. T3 to T7 may overlap where a type and its port go
+In this order, T11, T12 and T13 before T9 and T10 last. T3 to T7 may overlap where a type and its port go
 together. Each "Done when" is checked before the next step leans on it.
 
 ### T0. The test, the rules, the map
@@ -452,6 +452,37 @@ T9 lists it in "Changed in 2.0" with its readers.
 
 Done when #2782's "Done when" holds.
 
+### T13. Lean is the default driver
+
+The owner, 2026-11-22: 2.0.0 runs the lean driver by default. This is a
+behaviour change, made in its own pull requests and not inside a
+refactor step. The program manager is the session tehas-2d.
+
+1. **The proof (#1105), on main.** `.pi/work.json` is on main (1d429809).
+   About 20 issues of the same size, with
+   `pi-spec v1` blocks, split evenly between the drivers, run on a lab
+   build (`TEHAS_LAB_BUILD=on`, `TEHAS_TEST_FEATURES=lean`) at the
+   pinned pi-rukas, on tehas-tehas. Its hold is lifted for the proof's
+   issues only (the owner, 2026-11-22). Read the analytics report by driver and the pull
+   requests.
+2. **pi-rukas.** The pin carries the fixes of trail-openers/pi-rukas
+   #2410 (a lean patch can break the project's existing tests), #2480
+   (a killed lean job keeps running) and #2403 (the lens review is not
+   recorded). Each release candidate checks this as it checks the pin.
+3. **Ship it.** `lean` in `console/core/src/features.rs` moves to
+   shipped, and `host/docs/features.md` marks it proven with the dates
+   and issues of the proof.
+4. **The default.** With no `TEHAS_DRIVER`, a start runs lean. An issue
+   with no `pi-spec v1` block runs classic, as under `TEHAS_DRIVER=lean`
+   today. `TEHAS_DRIVER=classic` and `tehas:classic` keep classic.
+5. **The contract.** T9 lists the new default in "Changed in 2.0", with
+   its readers, and the changelog's adopter action: write `pi-spec v1`
+   blocks and `.pi/work.json`, or set `TEHAS_DRIVER=classic`.
+
+Done when the proof is in `features.md`, the pinned pi-rukas has the
+three fixes, and a start with no driver setting runs lean in the
+dispatcher's tests.
+
 ### T9. The contract for 2.0
 
 - `host/docs/contract.md` for 2.x, with a section "Changed in 2.0" that
@@ -533,7 +564,7 @@ All of these, in the last pull request into the branch:
 - `.tehas/coding-standard` says `v2`, and the architecture test passes
   without `--force`, against the base;
 - `scripts/verify.sh --full` passes, and the 2.0 contract is written;
-- T10, T11 and T12 are done, and the trio's gate holds.
+- T10, T11, T12 and T13 are done, and the trio's gate holds.
 
 Then, when the trio is tagged, the pull request into main (with a merge
 commit), and the owner's release of v2.0.0.
@@ -562,3 +593,4 @@ of main, each grade.
 | 2026-11-22 | T3 begins: the closing pull requests of an issue typed (`ClosingPr`) | #2781 |
 | 2026-11-22 | The architecture test runs in CI on the branch; the AGENTS.md section merged by the owner | #2777, #2779 |
 | 2026-11-22 | T12 (answers in words, #2782) and the pi-rukas pin (v0.14.101 or later) added to this plan; T3 planned as fifteen slices | this pull request |
+| 2026-11-22 | T13: lean is the default driver in 2.0.0 (the owner) | #2784 |
