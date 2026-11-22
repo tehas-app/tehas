@@ -15,9 +15,9 @@ use crate::text;
 use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
 use tehas_core::events::{
-    edit_history_unread, edit_holds, first_unallowed_rename, label_actor, label_state, pause_holds,
-    plan_credit, sole_application, standing_actor, standing_past_bot, Event, Events, LabelState,
-    NOBODY, UNKNOWN_ACTOR,
+    edit_history_unread_of, edit_holds_of, first_unallowed_rename, label_actor, label_state,
+    pause_holds, plan_credit, sole_application, standing_actor, standing_past_bot, EditRecord,
+    Event, Events, LabelState, Stamp, NOBODY, UNKNOWN_ACTOR,
 };
 use tehas_core::hold::{Held, Report, Why, HELD_PARKED, HELD_TEXT_MAX};
 use tehas_core::kinds::Kind;
@@ -1022,9 +1022,9 @@ impl<'a> Poll<'a> {
     fn host_ok(&mut self, n: u64, h: &HostStart) -> Option<String> {
         let at = h.at.map(iso)?;
         let t = self.text(n);
-        let body = h.body_sha256.as_deref() == Some(&text::body_sha256(&t));
+        let body = h.body_sha256.as_deref() == Some(&text::body_sum(t.body_text()));
         let title = match h.title_sha256.as_deref() {
-            Some(sum) => text::title_sha256(&t).as_deref() == Some(sum),
+            Some(sum) => text::title_sum(t.title.as_deref()).as_deref() == Some(sum),
             None => true,
         };
         if body && title {
@@ -1660,7 +1660,7 @@ impl<'a> Poll<'a> {
             _ => &record,
         };
         base.get("body_sha256").and_then(Value::as_str)
-            == Some(text::body_sha256(&self.text(n)).as_str())
+            == Some(text::body_sum(self.text(n).body_text()).as_str())
     }
 
     /// The body a start reads its text from: the issue's own, as the page of
@@ -1674,21 +1674,18 @@ impl<'a> Poll<'a> {
         let i = self.s.issues.get(&n)?;
         // A body that is there and no string answers `Some(None)`: the poll
         // ends rather than reading it as a body of no text.
-        fn read(rec: Option<&Map<String, Value>>) -> Option<Option<String>> {
-            match rec?.get("body") {
-                None | Some(Value::Null) => None,
-                Some(Value::String(b)) => Some(Some(b.clone())),
-                Some(_) => Some(None),
-            }
-        }
-        read(i.edit.as_ref()).or_else(|| match i.work.as_ref()? {
-            Work::Issue(w) => match &w.body {
-                Text::None => None,
-                Text::Some(b) => Some(Some(b.clone())),
-                Text::Unreadable => Some(None),
-            },
-            Work::Unreadable => None,
-        })?
+        let read = |t: &Text| match t {
+            Text::None => None,
+            Text::Some(b) => Some(Some(b.clone())),
+            Text::Unreadable => Some(None),
+        };
+        i.edit
+            .as_ref()
+            .and_then(|e| read(&e.body))
+            .or_else(|| match i.work.as_ref()? {
+                Work::Issue(w) => read(&w.body),
+                Work::Unreadable => None,
+            })?
     }
 
     /// The labels that ask for a start come off, and the issue says why once:
@@ -1860,14 +1857,11 @@ impl<'a> Poll<'a> {
                 let Some(edit) = self.s.issues.get(&n).and_then(|i| i.edit.clone()) else {
                     return Err(self.unreadable(&format!("edit record of #{n}"), None));
                 };
-                let edit = Value::Object(edit);
-                let held = edit_holds(&edit, since, approver, &|w| c.allowed(w));
+                let held = edit_holds_of(&edit, since, approver, &|w| c.allowed(w));
                 // A history the poll asked for and GitHub did not give ends
                 // the poll, as an unread comment does.
-                if held.is_some() && edit_history_unread(&edit, &|w| c.allowed(w)) {
-                    let line = edit
-                        .pointer("/userContentEdits/line")
-                        .and_then(Value::as_str);
+                if held.is_some() && edit_history_unread_of(&edit, &|w| c.allowed(w)) {
+                    let line = edit.history.line();
                     return Err(self.unreadable(&format!("edit history of #{n}"), line));
                 }
                 held
@@ -1968,7 +1962,9 @@ impl<'a> Poll<'a> {
             return Ok(self.plan_taken_off(n, "its text was changed since the plan was written"));
         }
         // The time cannot see a change made before the label went on.
-        if sum.as_deref() != Some(text::plan_sum(&self.text(n)).as_str()) {
+        let t = self.text(n);
+        let plan = text::plan_sum_of(t.title.as_deref().unwrap_or(""), t.body_text());
+        if sum.as_deref() != Some(plan.as_str()) {
             return Ok(self.plan_refused(n, "its title or text is not the plan tehas wrote"));
         }
         Ok(Planned::Go(by.to_string(), at))
@@ -2199,13 +2195,12 @@ impl<'a> Poll<'a> {
     }
 
     /// The edit record unchanged_since read, the text an approval binds.
-    fn text(&self, n: u64) -> Value {
+    fn text(&self, n: u64) -> EditRecord {
         self.s
             .issues
             .get(&n)
             .and_then(|i| i.edit.clone())
-            .map(Value::Object)
-            .unwrap_or_else(|| json!({}))
+            .unwrap_or_default()
     }
 
     /// epic_ok: an issue with open sub-issues is a plan, never started. Only
@@ -2325,29 +2320,23 @@ impl<'a> Poll<'a> {
         let t = self.text(n);
         // GitHub answers null for a text never edited. A record without the
         // field, or with something else in it, was not read and grants nothing.
-        let edited = match t.get("lastEditedAt") {
-            Some(Value::Null) => false,
-            Some(Value::String(_)) => true,
-            _ => {
+        let edited = match t.last_edited {
+            Stamp::Never => false,
+            Stamp::At(_) => true,
+            Stamp::Unread => {
                 return refuse(
                     "whether its text was changed since it was written could not be read".into(),
                 )
             }
         };
-        let login = |k: &str| {
-            t.pointer(&format!("/{k}/login"))
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string()
-        };
-        let author = login("author");
+        let author = t.author.clone();
         if !ours(&author) {
             return refuse(format!(
                 "its author {} is neither tehas nor named in `TEHAS_ALLOWED_LABELERS`",
                 or_unknown(&author)
             ));
         }
-        let editor = login("editor");
+        let editor = t.editor.clone();
         if edited && !ours(&editor) {
             return refuse(format!(
                 "its text was last changed by {}",
@@ -2355,9 +2344,9 @@ impl<'a> Poll<'a> {
             ));
         }
         // Every edit counts, not only the last.
-        if let Some(who) = edited.then(|| edit_holds(&t, "", "", &ours)).flatten() {
-            if edit_history_unread(&t, &ours) {
-                let line = t.pointer("/userContentEdits/line").and_then(Value::as_str);
+        if let Some(who) = edited.then(|| edit_holds_of(&t, "", "", &ours)).flatten() {
+            if edit_history_unread_of(&t, &ours) {
+                let line = t.history.line();
                 return Err(self.unreadable(&format!("edit history of #{n}"), line));
             }
             return refuse(format!("its text was changed by {who}"));
@@ -2533,7 +2522,7 @@ impl<'a> Poll<'a> {
         if p.reason == "provider-outage" || !p.fresh || !hex {
             return Ok(false);
         }
-        if text::body_sha256(&self.text(n)) != sum {
+        if text::body_sum(self.text(n).body_text()) != sum {
             return Ok(false);
         }
         // As `read -r` leaves it: only its first line counts, trimmed of
@@ -2696,7 +2685,7 @@ impl<'a> Poll<'a> {
             self.need("approval");
             return Ok(None);
         }
-        let sum = text::body_sha256(&self.text(n));
+        let sum = text::body_sum(self.text(n).body_text());
         let never =
             matches!(self.s.issues.get(&n), Some(i) if matches!(i.approval, Some(Ok(None))));
         if self.c.millwright_feed && never && n != self.c.control {
@@ -2766,16 +2755,7 @@ impl<'a> Poll<'a> {
             return Ok(None);
         }
         let t = self.text(n);
-        let author = t
-            .pointer("/author/login")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let written = t
-            .get("createdAt")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
+        let (author, written) = (t.author, t.created_at);
         let held = MILLWRIGHT_HELD.into_iter().find(|l| has(labels, l));
         let ev = self.events(n)?;
         let c = self.c;
@@ -3259,7 +3239,7 @@ impl<'a> Poll<'a> {
         // What the approval binds: the sums and links of the text this poll
         // read, which the record is written from.
         let t = self.text(n);
-        let body = t.get("body").and_then(Value::as_str).unwrap_or("");
+        let body = t.body_text();
         let mut a = json!({
             "start": n, "by": st.starter, "how": st.how, "at": st.given_at,
             "given": st.given_how, "remove": st.remove, "verb": st.verb,
@@ -3270,8 +3250,8 @@ impl<'a> Poll<'a> {
                 (false, None) => format!("start #{n} ({} by {})", st.verb, st.starter),
                 (false, Some(p)) => format!("start #{n} ({} by {}), {p}", st.verb, st.starter),
             },
-            "text": !t.as_object().is_none_or(|o| o.is_empty()),
-            "body_sha256": text::body_sha256(&t), "title_sha256": text::title_sha256(&t),
+            "text": !t.empty,
+            "body_sha256": text::body_sum(body), "title_sha256": text::title_sum(t.title.as_deref()),
             "links": text::link_list(body),
         });
         if let Some((base, count)) = st.fixer {

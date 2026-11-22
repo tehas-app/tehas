@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::sync::{LazyLock, OnceLock};
-pub use tehas_core::approval::{body_sha256, title_sha256};
+pub use tehas_core::approval::{body_sha256, body_sum, title_sha256, title_sum};
 use tehas_core::grammar::{SpecMark, SPEC_MARK};
 /// The info string of the block, the one name the reader of a body and the
 /// writer of one both use.
@@ -107,16 +107,14 @@ pub fn spec_refused_said(off: &[String], why: &str) -> String {
 /// white space at their ends and the carriage returns, which GitHub may change
 /// on its own.
 pub fn plan_sum(issue: &Value) -> String {
-    let part = |k: &str| {
-        issue
-            .get(k)
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .replace('\r', "")
-            .trim()
-            .to_string()
-    };
-    let sum = Sha256::digest(json!([part("title"), part("body")]).to_string().as_bytes());
+    let part = |k: &str| issue.get(k).and_then(Value::as_str).unwrap_or("");
+    plan_sum_of(part("title"), part("body"))
+}
+
+/// [`plan_sum`] of a title and a body read as text.
+pub fn plan_sum_of(title: &str, body: &str) -> String {
+    let part = |t: &str| t.replace('\r', "").trim().to_string();
+    let sum = Sha256::digest(json!([part(title), part(body)]).to_string().as_bytes());
     sum.iter().map(|b| format!("{b:02x}")).collect()
 }
 

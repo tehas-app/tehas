@@ -14,20 +14,23 @@ fn sum(text: &str) -> String {
 /// reads the body from GraphQL and tehas work from REST, and only line ends may
 /// differ.
 pub fn body_sha256(issue: &Value) -> String {
-    sum(&issue
-        .get("body")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .replace('\r', ""))
+    body_sum(issue.get("body").and_then(Value::as_str).unwrap_or(""))
+}
+
+/// [`body_sha256`] of a body read as text.
+pub fn body_sum(body: &str) -> String {
+    sum(&body.replace('\r', ""))
 }
 
 /// The sha256 of an issue's title, without its line ends. None when the answer
 /// names no title.
 pub fn title_sha256(issue: &Value) -> Option<String> {
-    Some(sum(&issue
-        .get("title")?
-        .as_str()?
-        .replace(['\r', '\n'], "")))
+    title_sum(issue.get("title").and_then(Value::as_str))
+}
+
+/// [`title_sha256`] of a title read as text, None for none.
+pub fn title_sum(title: Option<&str>) -> Option<String> {
+    Some(sum(&title?.replace(['\r', '\n'], "")))
 }
 
 fn all_of(s: &str, ok: fn(u8) -> bool) -> bool {

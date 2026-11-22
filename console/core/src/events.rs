@@ -316,33 +316,40 @@ pub fn edit_holds(
     approver: &str,
     allowed: &dyn Fn(&str) -> bool,
 ) -> Option<String> {
-    let at = edit
-        .get("lastEditedAt")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let by = login_of(edit);
+    edit_holds_of(&EditRecord::parse(edit), since, approver, allowed)
+}
+
+/// [`edit_holds`] over the record as read. A `lastEditedAt` that is no text
+/// is no stamp, as an empty one is.
+pub fn edit_holds_of(
+    edit: &EditRecord,
+    since: &str,
+    approver: &str,
+    allowed: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    let at = match &edit.last_edited {
+        Stamp::At(at) => at.as_str(),
+        Stamp::Never | Stamp::Unread => "",
+    };
+    let by = edit.editor.as_str();
     if at.is_empty() || !changed_after(at, by, since, approver) {
         return None;
     }
     if by == NOBODY || !allowed(by) {
         return Some(shown(by));
     }
-    let history = edit.get("userContentEdits");
-    let nodes = history
-        .and_then(|h| h.get("nodes"))
-        .and_then(Value::as_array);
-    let total = history
-        .and_then(|h| h.get("totalCount"))
-        .and_then(Value::as_u64);
-    let (Some(nodes), Some(total)) = (nodes, total) else {
+    let History::Read {
+        total: Some(total),
+        nodes,
+    } = &edit.history
+    else {
         return Some(UNKNOWN_ACTOR.to_string());
     };
-    if total > nodes.len() as u64 {
+    if *total > nodes.len() as u64 {
         return Some(UNKNOWN_ACTOR.to_string());
     }
     nodes.iter().find_map(|n| {
-        let at = n.get("editedAt").and_then(Value::as_str).unwrap_or("");
-        let by = login_of(n);
+        let (at, by) = (n.edited_at.as_str(), n.editor.as_str());
         if !at.is_empty() && !changed_after(at, by, since, approver) {
             return None;
         }
@@ -365,17 +372,146 @@ fn shown(login: &str) -> String {
 /// that failed: the last editor is one `allowed` takes, and the history is
 /// `{"failed": true}`. The caller waits for a read rather than refuse.
 pub fn edit_history_unread(edit: &Value, allowed: &dyn Fn(&str) -> bool) -> bool {
-    let by = login_of(edit);
-    !by.is_empty()
-        && allowed(by)
-        && edit.pointer("/userContentEdits/failed") == Some(&Value::Bool(true))
+    edit_history_unread_of(&EditRecord::parse(edit), allowed)
 }
 
-fn login_of(v: &Value) -> &str {
-    v.get("editor")
-        .and_then(|e| e.get("login"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
+/// [`edit_history_unread`] over the record as read.
+pub fn edit_history_unread_of(edit: &EditRecord, allowed: &dyn Fn(&str) -> bool) -> bool {
+    let by = edit.editor.as_str();
+    !by.is_empty() && allowed(by) && matches!(edit.history, History::Failed { .. })
+}
+
+/// A text field: missing or null is None, anything but text Unreadable.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Text {
+    None,
+    Some(String),
+    Unreadable,
+}
+
+/// An issue's `lastEditedAt`: null for a text never edited, a time (empty
+/// included) for one edited, Unread when the field is missing or no text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Stamp {
+    Never,
+    At(String),
+    Unread,
+}
+
+/// An issue's `userContentEdits`: Failed for a read that failed, with the
+/// line of its gh call; Read when it holds a list of nodes; Missing else.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum History {
+    Missing,
+    Failed {
+        line: Option<String>,
+    },
+    Read {
+        /// totalCount, None when it is no u64.
+        total: Option<u64>,
+        nodes: Vec<HistoryEdit>,
+    },
+}
+
+impl History {
+    /// The line of the gh call a failed read failed on.
+    pub fn line(&self) -> Option<&str> {
+        match self {
+            History::Failed { line } => line.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+/// One node of the history: a missing stamp or editor reads as "".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HistoryEdit {
+    pub edited_at: String,
+    pub editor: String,
+}
+
+/// The edit record of an issue as the poll reads it from GraphQL: the stamp
+/// and author of the last edit, the author, the time it was written, the
+/// body, the title and the history of edits. A login or time that is missing
+/// or no text reads as "".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EditRecord {
+    /// The record held no field at all, or was no object.
+    pub empty: bool,
+    pub last_edited: Stamp,
+    pub editor: String,
+    pub author: String,
+    pub created_at: String,
+    pub body: Text,
+    /// None when it is missing or no text.
+    pub title: Option<String>,
+    pub history: History,
+}
+
+impl Default for EditRecord {
+    /// The record of no answer, as `{}` reads.
+    fn default() -> Self {
+        EditRecord {
+            empty: true,
+            last_edited: Stamp::Unread,
+            editor: String::new(),
+            author: String::new(),
+            created_at: String::new(),
+            body: Text::None,
+            title: None,
+            history: History::Missing,
+        }
+    }
+}
+
+impl EditRecord {
+    /// The record from GraphQL's answer. Anything but an object reads as `{}`.
+    pub fn parse(v: &Value) -> EditRecord {
+        let text = |v: Option<&Value>| v.and_then(Value::as_str).unwrap_or("").to_string();
+        let login = |v: Option<&Value>| text(v.and_then(|v| v.get("login")));
+        let history = v.get("userContentEdits");
+        EditRecord {
+            empty: v.as_object().is_none_or(|o| o.is_empty()),
+            last_edited: match v.get("lastEditedAt") {
+                Some(Value::Null) => Stamp::Never,
+                Some(Value::String(at)) => Stamp::At(at.clone()),
+                _ => Stamp::Unread,
+            },
+            editor: login(v.get("editor")),
+            author: login(v.get("author")),
+            created_at: text(v.get("createdAt")),
+            body: match v.get("body") {
+                None | Some(Value::Null) => Text::None,
+                Some(Value::String(b)) => Text::Some(b.clone()),
+                Some(_) => Text::Unreadable,
+            },
+            title: v.get("title").and_then(Value::as_str).map(str::to_string),
+            history: match (history, history.and_then(|h| h.get("nodes"))) {
+                (Some(h), _) if h.get("failed") == Some(&Value::Bool(true)) => History::Failed {
+                    line: h.get("line").and_then(Value::as_str).map(str::to_string),
+                },
+                (Some(h), Some(Value::Array(nodes))) => History::Read {
+                    total: h.get("totalCount").and_then(Value::as_u64),
+                    nodes: nodes
+                        .iter()
+                        .map(|n| HistoryEdit {
+                            edited_at: text(n.get("editedAt")),
+                            editor: login(n.get("editor")),
+                        })
+                        .collect(),
+                },
+                _ => History::Missing,
+            },
+        }
+    }
+
+    /// The body as a sum and a start read it: "" when it is no text.
+    pub fn body_text(&self) -> &str {
+        match &self.body {
+            Text::Some(b) => b,
+            Text::None | Text::Unreadable => "",
+        }
+    }
 }
 
 /// The first `renamed` event after `since` (any of them when `since` is

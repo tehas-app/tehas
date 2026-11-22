@@ -3,9 +3,9 @@
 //! poll reads only when it needs it is None until it is read.
 
 use crate::slice::{Reading, Scope};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use tehas_core::events::Events;
+use tehas_core::events::{EditRecord, Events};
 
 /// A list GitHub gave, or a call that failed.
 #[derive(Clone, Debug, Default)]
@@ -24,8 +24,8 @@ pub struct Listed {
 pub struct Issue {
     pub events: Events,
     /// The edit record: lastEditedAt, the editor's login, the body and the
-    /// title. None when the call failed.
-    pub edit: Option<Map<String, Value>>,
+    /// title. None when the call failed or the answer is no object.
+    pub edit: Option<EditRecord>,
     /// `gh api repos/<repo>/issues/<n>`, or None when the call failed.
     pub work: Option<Work>,
     /// The pull requests that close it; None when the call failed or the
@@ -156,13 +156,7 @@ pub struct WorkIssue {
     pub strings: Vec<String>,
 }
 
-/// A text field: missing or null is None, anything but text Unreadable.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Text {
-    None,
-    Some(String),
-    Unreadable,
-}
+pub use tehas_core::events::Text;
 
 /// The labels of an answer. Names skips an entry with no text name.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1015,9 +1009,8 @@ fn issue(v: &Value) -> Issue {
         events: v.get("events").map(Events::parse).unwrap_or(Events::Failed),
         edit: v
             .get("edit")
-            .filter(|e| !failed(e))
-            .and_then(Value::as_object)
-            .cloned(),
+            .filter(|e| !failed(e) && e.is_object())
+            .map(EditRecord::parse),
         work: v.get("work").filter(|w| !failed(w)).map(|w| {
             let Value::Object(o) = w else {
                 return Work::Unreadable;
