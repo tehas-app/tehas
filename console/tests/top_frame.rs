@@ -294,7 +294,7 @@ fn a_c1_control_does_not_reach_the_output_from_a_json_escape() {
     let w = frame_host("c1-escape");
     files0(&w);
     // The escape, not yet a control character.
-    let esc = r"Escaped \u009btitle äö";
+    let esc = r"Escaped \u009btitle \u00e4\u00f6";
     fs::write(
         w.live_file("status.json"),
         format!(
