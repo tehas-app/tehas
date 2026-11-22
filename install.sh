@@ -1282,14 +1282,16 @@ report_login() {
   fi
 }
 
-# A timer is stopped before its files go, so systemd holds no timer whose
-# unit file is gone. A unit systemd cannot let go of is left, and the next run
-# tries again. The timer comes first in the list, so its service follows it.
+# A trigger is stopped before its files go, so systemd holds no timer or path
+# unit whose file is gone. A unit systemd cannot let go of is left, and the
+# next run tries again. Triggers come first in the list, so a service follows
+# its own: the path unit while one is left, else the timer.
 if [ "${#old_units[@]}" -gt 0 ]; then
   gone=0
   for unit in "${old_units[@]}"; do
     timer=${unit%.*}.timer
     [ "${unit##*.}" != path ] || timer=$unit
+    [ "${unit##*.}" != service ] || [ ! -e "$scan_units/${unit%.*}.path" ] || timer=${unit%.*}.path
     if [ -e "$scan_units/$timer" ] && ! systemctl --user disable --now "$timer" >/dev/null 2>&1; then
       [ "$unit" != "$timer" ] ||
         echo "later: ./install.sh again   (systemctl --user disable --now $timer failed, so its units were left)"

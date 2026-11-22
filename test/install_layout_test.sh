@@ -135,12 +135,13 @@ t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-improve.time
 --user daemon-reload"
 t_eq "$([ -e "$units/tehas-improve.timer" ] || [ -e "$units/tehas-improve.service" ] || echo gone)" "gone"
 
-t_case "the units of the product wiki are stopped and removed, its path unit too"
+t_case "the wiki's units go, its service only once systemd lets go of its path unit"
 for u in tehas-wiki-status.timer tehas-wiki-status.service tehas-wiki.timer tehas-wiki.path tehas-wiki.service; do echo "[Unit]" >"$units/$u"; done
-rm -f "$T/calls/systemctl"
+t_stub systemctl '[ "$4" != tehas-wiki.path ]'
 t_run "$install"
-t_eq "$(t_calls systemctl | grep -c disable)" 3
-t_contains "$(t_calls systemctl)" "--user disable --now tehas-wiki.path"
+t_eq "$([ -e "$units/tehas-wiki.path" ] && [ -e "$units/tehas-wiki.service" ] && [ ! -e "$units/tehas-wiki.timer" ] && echo kept)" "kept"
+t_stub systemctl
+t_run "$install"
 t_eq "$(compgen -G "$units/tehas-wiki*" || echo gone)" "gone"
 
 t_case "one retired timer systemd cannot disable leaves its units and not the other's"
