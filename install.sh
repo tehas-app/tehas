@@ -414,7 +414,7 @@ home_marker=.tehas-home
 # them without the marker is not known to be tehas's, and this run would remove
 # the pages of someone else from them.
 home_dirs=(bin libexec lib live logs mcp platform preview protolab repos sandbox
-  state tmp tools work target .cargo versions current run wiki)
+  state tmp tools work target .cargo versions current run)
 
 home_refusal() { # the reason $TEHAS_HOME is not provably tehas's, or nothing
   local path=${TEHAS_HOME:-} entry part rest
@@ -991,7 +991,7 @@ had_versions=0
 # --check changes nothing, so it makes neither.
 if [ "$check" != 1 ]; then
   mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
-    "$TEHAS_HOME/preview" "$TEHAS_HOME/wiki"
+    "$TEHAS_HOME/preview"
   # A home with no env.sh has never been installed.
   [ -f "$TEHAS_HOME/env.sh" ] || : >"$first_owed"
   if ! bashrc_ok; then
@@ -1105,13 +1105,14 @@ while IFS= read -r f; do
 done <<<"$retired"
 
 # The units of features this version does not have: the timed refresh scan
-# (refreshes are asked for one pull request at a time), the improvement loop
-# and the review loop. Found here; in step 5 each timer is stopped and
-# disabled and its files go.
+# (refreshes are asked for one pull request at a time), the improvement loop,
+# the review loop and the product wiki, which left core in 2.0. Found here;
+# in step 5 each timer and path unit is stopped and disabled and its files go.
 old_units=()
 scan_units=$units
 for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-improve.service \
-  tehas-review.timer tehas-review.service; do
+  tehas-review.timer tehas-review.service \
+  tehas-wiki-status.timer tehas-wiki-status.service tehas-wiki.timer tehas-wiki.path tehas-wiki.service; do
   [ -e "$scan_units/$unit" ] || [ -L "$scan_units/$unit" ] || continue
   old_units+=("$unit")
   [ "$check" = 0 ] || note "stale: $scan_units/$unit"
@@ -1280,13 +1281,16 @@ report_login() {
   fi
 }
 
-# A timer is stopped before its files go, so systemd holds no timer whose
-# unit file is gone. A unit systemd cannot let go of is left, and the next run
-# tries again. The timer comes first in the list, so its service follows it.
+# A trigger is stopped before its files go, so systemd holds no timer or path
+# unit whose file is gone. A unit systemd cannot let go of is left, and the
+# next run tries again. Triggers come first in the list, so a service follows
+# its own: the path unit while one is left, else the timer.
 if [ "${#old_units[@]}" -gt 0 ]; then
   gone=0
   for unit in "${old_units[@]}"; do
     timer=${unit%.*}.timer
+    [ "${unit##*.}" != path ] || timer=$unit
+    [ "${unit##*.}" != service ] || [ ! -e "$scan_units/${unit%.*}.path" ] || timer=${unit%.*}.path
     if [ -e "$scan_units/$timer" ] && ! systemctl --user disable --now "$timer" >/dev/null 2>&1; then
       [ "$unit" != "$timer" ] ||
         echo "later: ./install.sh again   (systemctl --user disable --now $timer failed, so its units were left)"

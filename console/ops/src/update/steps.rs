@@ -63,6 +63,11 @@ pub(crate) const RETIRED_UNITS: &[&str] = &[
     "tehas-refresh.timer",
     "tehas-improve.timer",
     "tehas-review.timer",
+    "tehas-wiki-status.service",
+    "tehas-wiki-status.timer",
+    "tehas-wiki.service",
+    "tehas-wiki.timer",
+    "tehas-wiki.path",
 ];
 
 /// The ids, in the order they run: systemd first, because a unit file is not in
@@ -935,6 +940,10 @@ mod tests {
         );
         assert_eq!(
             current("units tehas-improve.timer tehas-clean.timer").as_deref(),
+            Some("units tehas-clean.timer")
+        );
+        assert_eq!(
+            current("units tehas-wiki.timer tehas-wiki.path tehas-clean.timer").as_deref(),
             Some("units tehas-clean.timer")
         );
     }

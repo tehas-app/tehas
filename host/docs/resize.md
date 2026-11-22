@@ -250,7 +250,7 @@ saved with them, and both are handled outside tehas:
   serving it and the connection has gone. Pi's provider retry takes the failed
   call and asks again; a retry that cannot be made parks the cycle as any
   provider failure does, with `kind` `provider`, and the dispatcher starts it
-  again once, without a tick, when the endpoint answers. So one
+  again once, without an answer, when the endpoint answers. So one
   request is lost, and the cycle loses the minutes of that one call, not the
   cycle.
 - **The GitHub call in flight**, same shape: the call fails, the host retries

@@ -88,21 +88,15 @@ fn and_a_dry_run_of_that_tick_says_the_same_and_changes_nothing() {
 }
 
 #[test]
-fn a_retry_tick_is_used_up_once_the_issue_is_marked() {
+fn a_retry_answered_is_used_up_once_the_issue_is_marked() {
     let w = World::new("record-used-up");
     retry_ticked(&w);
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(started(&w), "7");
-    let gh = w.gh();
-    has(&gh, "api -X PATCH repos/acme/widget/issues/comments/4001");
-    has(&gh, "- [ ] Retry from a clean start");
-    let line = |want: &str| gh.lines().position(|l| l.contains(want));
-    let (patch, start) = (line("api -X PATCH"), line("--add-label tehas:running"));
-    assert!(
-        matches!((patch, start), (Some(p), Some(s)) if s < p),
-        "the untick does not follow the mark:\n{gh}"
-    );
+    // Nothing edits the question: the start took it off the record.
+    lacks(&w.gh(), "api -X PATCH");
+    assert_eq!(w.park_q(7), "none");
 }
 
 #[test]
@@ -124,22 +118,7 @@ fn when_the_issue_cannot_be_marked_the_tick_stays_and_the_next_poll_starts_the_r
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(started(&w), "7");
-    has(
-        &w.gh(),
-        "api -X PATCH repos/acme/widget/issues/comments/4001",
-    );
-}
-
-#[test]
-fn when_the_tick_cannot_be_undone_the_cycle_still_starts_and_the_tick_starts_nothing_more() {
-    let w = World::new("record-untick-fails");
-    retry_ticked(&w);
-    w.touch("patch-fails");
-    let r = w.poll();
-    assert_eq!(r.rc, 0, "{}", r.out);
-    assert_eq!(started(&w), "7");
-    has(&r.out, "WARN: could not untick the retry on #7; its question is no longer on record, so it starts nothing more");
-    assert_eq!(w.park_q(7), "none");
+    lacks(&w.gh(), "api -X PATCH");
 }
 
 #[test]
@@ -226,28 +205,15 @@ fn a_retry_ticked_on_an_issue_that_is_not_parked_starts_nothing() {
         assert_eq!(started(&w), "", "{have}");
         let gh = w.gh();
         lacks(&gh, "issue edit");
-        // A tick left in place would fire later, when the labels change.
-        has(&gh, "api -X PATCH repos/acme/widget/issues/comments/4001");
-        has(&gh, "- [ ] Retry from a clean start");
-        has(&gh, "issue comment 7 --repo acme/widget --body Retry was ticked, but this issue is not parked, so nothing was started.");
+        // The note answers the reply, so a later poll reads it no more.
+        lacks(&gh, "api -X PATCH");
+        has(&gh, "issue comment 7 --repo acme/widget --body Retry was asked for, but this issue is not parked, so nothing was started.");
         has(
             &r.out,
-            "skip #7: a retry was ticked but the issue is not parked",
+            "skip #7: a retry was answered but the issue is not parked",
         );
         assert_eq!(w.park_q(7), "4001", "{have}");
     }
-}
-
-#[test]
-fn when_that_tick_cannot_be_undone_nothing_is_said() {
-    let w = World::new("record-not-parked-untick");
-    retry_ticked(&w);
-    not_parked(&w, "tehas:question");
-    w.touch("patch-fails");
-    let r = w.poll();
-    assert_eq!(started(&w), "");
-    lacks(&w.gh(), "issue comment");
-    has(&r.out, "could not untick the question on #7");
 }
 
 #[test]
@@ -292,22 +258,9 @@ fn a_bot_comment_with_a_park_marker_that_the_host_has_no_record_of_starts_nothin
     assert_eq!(started(&w), "");
     let gh = w.gh();
     lacks(&gh, "issue edit");
-    has(&gh, "api -X PATCH repos/acme/widget/issues/comments/4001");
-    has(&gh, "- [ ] Retry from a clean start");
+    lacks(&gh, "api -X PATCH");
     has(&gh, "issue comment 9 --repo acme/widget --body This question is not one the factory is waiting on. To retry, apply `tehas:ready`.");
     assert_eq!(w.park_q(9), "none");
-}
-
-#[test]
-fn and_when_its_box_cannot_be_unticked_nothing_starts_and_nothing_is_said() {
-    let w = World::new("record-unrecorded-untick");
-    unrecorded(&w);
-    w.touch("patch-fails");
-    let r = w.poll();
-    assert_eq!(started(&w), "");
-    lacks(&w.gh(), "issue edit");
-    lacks(&w.gh(), "issue comment");
-    has(&r.out, "could not untick the question on #9");
 }
 
 #[test]
@@ -337,7 +290,7 @@ fn a_tick_in_a_question_taken_off_the_record_starts_nothing() {
     assert_eq!(started(&w), "");
     has(
         &r.out,
-        "skip #7: a box was ticked in a question this host has no record of",
+        "skip #7: a choice was made in a question this host has no record of",
     );
     has(
         &w.gh(),
@@ -355,7 +308,7 @@ fn a_question_of_an_earlier_attempt_is_not_honoured_after_a_new_start() {
     assert_eq!(started(&w), "");
     has(
         &r.out,
-        "skip #7: a box was ticked in a question this host has no record of",
+        "skip #7: a choice was made in a question this host has no record of",
     );
     assert_eq!(
         row(

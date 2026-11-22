@@ -59,14 +59,14 @@ For each ready issue the last poll held on its own while it had room, such as
 one whose last cycle parked on the body it still has:
 
 ```
-held      #21: its last cycle parked on `intent-park` and the body has not changed since; edit the body, or tick Retry in the park comment
+held      #21: its last cycle parked on `intent-park` and the body has not changed since; edit the body, or reply to the park comment with the word of one of its retries
 ```
 
 When every issue in line is held that way and no cycle runs, the factory line
 is a `warn` that names them instead of `Idle, taking work.`:
 
 ```
-factory   warn: #21 is held: its last cycle parked on `intent-park` and the body has not changed since. Edit the body, or tick Retry in the park comment. (40 s ago)
+factory   warn: #21 is held: its last cycle parked on `intent-park` and the body has not changed since. Edit the body, or reply to the park comment with the word of one of its retries. (40 s ago)
 ```
 
 While [`tehas:blocked`](/operating#3-what-happens-next) holds issues by the
@@ -159,50 +159,6 @@ instance settings, the version file `install.sh` writes and the state store, a
 store that cannot answer being no poll on record; no network, no git, and it
 writes nothing. Exit 0, 64 on an argument it does not know, 78 when the
 settings are missing or malformed.
-
-## tehas wiki
-
-```
-tehas wiki [--json]
-tehas wiki build [--full] [--json]
-tehasbot wiki
-tehasbot wiki build [--full]
-```
-
-```
-wiki: 2026-11-21-68ffab1d from 68ffab1d (v1.2.0-5-g68ffab1d), built 2026-11-21T03:04:10Z
-wiki: 5 commits and 2 days behind main
-```
-
-The state of the product wiki: the current build, the commit it was built
-from, and how far it is behind main, the commits since that commit and the
-age between the two commit dates, in days, or in months from 60 days. With
-no build yet it says `wiki: no build yet`. It reads `~/tehas/wiki/current/build.json`
-and the product checkout; no model, no GitHub call, and it writes nothing.
-`tehasbot wiki` writes the same object to `~/tehas/live/wiki.json`, and
-`tehas-wiki-status.timer` runs it every five minutes.
-
-`tehas wiki build` asks for a build and returns at once: it writes
-`~/tehas/state/wiki.ask`, and `tehas-wiki.path` starts `tehasbot wiki build`.
-`tehas-wiki.timer` asks every night at 03:00. A build of a commit already
-built does nothing; `--full` builds it again and lets every page change.
-
-A build runs pi-rukas's `wiki` verb, from pi-rukas v0.14.99,
-in a container of its own kind: the code at the head of the default branch
-and the raw sources read-only, the pages it writes, no GitHub token, no relay,
-and a CPU weight of 64 against a cycle's 1024. The model has no time limit.
-The host then checks the pages (front matter, every changed page checked at
-this commit, links that land, every page in `index.md`, one new entry in
-`log.md`, sizes, credentials), renders them to HTML with any HTML in them
-shown as text, and moves the build into place under
-`~/tehas/wiki/<date>-<8 hex>/`. A build that fails changes nothing that is
-served and says why in `~/tehas/wiki/failure.json`. The last ten builds and
-the last of each release are kept. An image whose `--capabilities` lists no
-`wiki` verb is refused with 78.
-
-The wiki is still being built: with `TEHAS_WIKI` off, or in a release, it
-exits 78 and says so. Exit 0, 64 on an argument but `--json`, 78 when the
-wiki is off or the settings are missing or malformed.
 
 ## tehas disk
 

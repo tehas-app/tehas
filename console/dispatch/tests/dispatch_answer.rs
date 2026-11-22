@@ -194,20 +194,20 @@ fn a_persons_tick_after_the_answer_stands_and_the_answer_goes() {
 }
 
 #[test]
-fn a_box_ticked_before_the_answer_is_unticked_with_it() {
+fn a_reply_before_the_answer_gives_way_to_it() {
     let w = World::new("answer-earlier-tick");
     w.parked("failed", "alice");
-    // The fixture's tick (01:00) is before an answer given now.
+    // The fixture's reply (01:00) is before an answer given now.
     w.comments(7, &park_body(&[" ", "x"]), "alice", json!([]));
     answered(&w, "alice", &["retry"]);
     w.poll();
     assert_eq!(started(&w), "7");
-    has(&w.gh(), "PATCH");
+    lacks(&w.gh(), "PATCH");
     assert_eq!(waiting(&w), "none");
 }
 
 #[test]
-fn a_refused_answer_leaves_a_valid_tick_to_count() {
+fn a_refused_answer_leaves_a_valid_reply_to_count() {
     let w = World::new("answer-refused-tick");
     w.parked("failed", "alice");
     w.comments(7, &park_body(&["x", " "]), "alice", json!([]));
@@ -215,5 +215,5 @@ fn a_refused_answer_leaves_a_valid_tick_to_count() {
     let r = w.poll();
     has(&r.out, "which its question does not offer");
     assert_eq!(started(&w), "7");
-    has(&r.out, "start #7 (retry ticked by alice)");
+    has(&r.out, "start #7 (retry answered by alice)");
 }

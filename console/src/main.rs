@@ -226,7 +226,6 @@ mod tail;
 mod tickets;
 mod top;
 mod wake;
-mod wiki;
 
 use render::Entry;
 use std::collections::HashSet;

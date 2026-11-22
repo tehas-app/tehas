@@ -151,6 +151,15 @@ t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-review.timer
 --user daemon-reload"
 t_eq "$([ -e "$units/tehas-review.timer" ] || [ -e "$units/tehas-review.service" ] || echo gone)" "gone"
 
+t_case "the wiki's units go, its service only once systemd lets go of its path unit"
+for u in tehas-wiki-status.timer tehas-wiki-status.service tehas-wiki.timer tehas-wiki.path tehas-wiki.service; do echo "[Unit]" >"$units/$u"; done
+t_stub systemctl '[ "$4" != tehas-wiki.path ]'
+t_run "$install"
+t_eq "$([ -e "$units/tehas-wiki.path" ] && [ -e "$units/tehas-wiki.service" ] && [ ! -e "$units/tehas-wiki.timer" ] && echo kept)" "kept"
+t_stub systemctl
+t_run "$install"
+t_eq "$(compgen -G "$units/tehas-wiki*" || echo gone)" "gone"
+
 t_case "one retired timer systemd cannot disable leaves its units and not the other's"
 echo "[Timer]" >"$units/tehas-refresh.timer"
 echo "[Timer]" >"$units/tehas-improve.timer"
@@ -167,8 +176,8 @@ t_run "$install"
 t_contains "$t_out" "removed: $units/tehas-refresh.timer"
 
 t_case "an enabled timer of a feature that is off is named, then stopped and disabled, and its files stay"
-echo "[Timer]" >"$units/tehas-wiki.timer"
-echo "[Service]" >"$units/tehas-wiki.service"
+echo "[Timer]" >"$units/tehas-plugin.timer"
+echo "[Service]" >"$units/tehas-plugin.service"
 rm -f "$T/disabled"
 t_stub systemctl 'case $2 in
   is-enabled) [ ! -e "$T/disabled" ] ;;
@@ -177,26 +186,26 @@ esac'
 rm -f "$T/calls/systemctl"
 t_run "$install --check"
 t_eq "$t_rc" 1
-t_contains "$t_out" "enabled: $units/tehas-wiki.timer (its feature is off; a real run disables it)"
+t_contains "$t_out" "enabled: $units/tehas-plugin.timer (its feature is off; a real run disables it)"
 t_lacks "$(t_calls systemctl)" "disable"
 rm -f "$T/calls/systemctl"
 t_run "$install"
 t_eq "$t_rc" 0
-t_contains "$t_out" "systemd: stopped and disabled tehas-wiki.timer: its feature is off (the unit files stay)"
-t_contains "$(t_calls systemctl)" "--user disable --now tehas-wiki.timer"
-t_eq "$(cat "$units/tehas-wiki.timer" "$units/tehas-wiki.service")" "[Timer]
+t_contains "$t_out" "systemd: stopped and disabled tehas-plugin.timer: its feature is off (the unit files stay)"
+t_contains "$(t_calls systemctl)" "--user disable --now tehas-plugin.timer"
+t_eq "$(cat "$units/tehas-plugin.timer" "$units/tehas-plugin.service")" "[Timer]
 [Service]"
 t_run "$install"
 t_contains "$t_out" "tehas is up to date"
-t_lacks "$t_out" "tehas-wiki.timer"
+t_lacks "$t_out" "tehas-plugin.timer"
 
 t_case "a timer of a feature that is off that systemd cannot disable is left for the next run"
 rm -f "$T/disabled"
 t_stub systemctl '[ "$2" != disable ]'
 t_run "$install"
 t_eq "$t_rc" 0
-t_contains "$t_out" "later: systemctl --user disable --now tehas-wiki.timer   (its feature is off)"
-rm -f "$units/tehas-wiki.timer" "$units/tehas-wiki.service"
+t_contains "$t_out" "later: systemctl --user disable --now tehas-plugin.timer   (its feature is off)"
+rm -f "$units/tehas-plugin.timer" "$units/tehas-plugin.service"
 t_stub systemctl
 
 t_case "while a poll holds the dispatcher's lock nothing is installed, and the next run removes them"

@@ -105,16 +105,18 @@ pub const HOST: &str = "host";
 /// The how of a retry an answer of `tehas answer` asked for (#2782): the
 /// account the answer was given for, and the question's comment.
 pub const ANSWER: &str = "answer";
+/// The how of a retry a person's reply on the issue asked for (#2782).
+pub const REPLY: &str = "reply";
 
 /// The kinds of approval a person gave, which a fixer or refresh start rests on.
 /// The host's approval is one of them.
-const BASES: &str = "('label', 'retry-tick', 'outage-retry', 'host', 'answer')";
+const BASES: &str = "('label', 'retry-tick', 'outage-retry', 'host', 'answer', 'reply')";
 
 /// The hows of this release: what `approval-record` takes, in the order a
 /// refusal prints them (the case in `verbs_tests.rs` pins that string), with
 /// `fixer` as the alias `Args::word` takes beside the word it stands for.
 /// `fixer` is the old name of `millwright` and has no row of its own.
-const CURRENT_HOWS: [(&str, &str); 7] = [
+const CURRENT_HOWS: [(&str, &str); 8] = [
     (MILLWRIGHT, FIXER),
     ("label", "label"),
     ("refresh", "refresh"),
@@ -122,6 +124,7 @@ const CURRENT_HOWS: [(&str, &str); 7] = [
     ("outage-retry", "outage-retry"),
     (HOST, HOST),
     (ANSWER, ANSWER),
+    (REPLY, REPLY),
 ];
 
 /// Whether `how` names the millwright's start, in either spelling.

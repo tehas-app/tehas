@@ -179,7 +179,7 @@ fn without_the_test_seams_a_planning_turn_runs_the_script_beside_it_too() {
         &w.calls("systemd-run"),
         "--unit tehas-plan-7 -p RuntimeMaxSec=",
     );
-    has(&w.gh(), "- [ ] Adopt all");
+    has(&w.gh(), "1. Adopt all");
     for name in ["tehas", "tehasbot", "tehas-plan"] {
         assert_eq!(w.calls(name), "", "{name}");
     }

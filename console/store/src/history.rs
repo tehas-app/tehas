@@ -22,7 +22,7 @@ pub struct Call {
 /// release, in the order a refusal prints them. Each pair is one word and its
 /// old spelling: `fixer` is matched and never printed, and a filter of either
 /// word keeps the rows of both. #686: part 5 drops the alias of the pair.
-pub const HOWS: [(&str, &str); 8] = [
+pub const HOWS: [(&str, &str); 9] = [
     (crate::approval::MILLWRIGHT, crate::approval::FIXER),
     ("label", "label"),
     ("refresh", "refresh"),
@@ -31,6 +31,7 @@ pub const HOWS: [(&str, &str); 8] = [
     ("hand", "hand"),
     (crate::approval::HOST, crate::approval::HOST),
     (crate::approval::ANSWER, crate::approval::ANSWER),
+    (crate::approval::REPLY, crate::approval::REPLY),
 ];
 
 pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
