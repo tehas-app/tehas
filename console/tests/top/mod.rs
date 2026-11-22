@@ -3,8 +3,7 @@
 //! in place of /proc (TEHAS_PROC_DIR), and a systemctl stub that answers with
 //! two units and a timer. The console is this build's. Nothing here calls
 //! GitHub, a model or Docker, and no case reads the machine that runs it.
-//! Moved from test/top_lib.sh, which top_frame_test.sh and
-//! top_publish_test.sh still source.
+//! Moved from test/top_lib.sh, which top_publish_test.sh still sources.
 
 use crate::common::*;
 use serde_json::json;
