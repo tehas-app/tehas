@@ -284,7 +284,7 @@ const PARK_SELECT: &str = "SELECT p.issue, p.attempt, p.at, p.reason, p.step, p.
     h.park_reason,
     h.cap,
     (p.reason = 'intent-park' AND h.park_reason IN ('underspecified', 'too-large')
-      AND p.retries = 0 AND c.how IN ('label', 'retry-tick', 'outage-retry', 'host', 'answer', 'reply')
+      AND p.retries = 0 AND c.how IN ('label', 'outage-retry', 'host', 'answer', 'reply')
       AND c.started_by IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM planning g WHERE g.issue = p.issue)
       AND NOT EXISTS (SELECT 1 FROM plan_history g WHERE g.issue = p.issue))
@@ -650,11 +650,11 @@ pub fn on_record(c: &Connection, issue: i64, id: i64) -> Result<bool, Fail> {
 /// host has on record for the issue. The single call reads it through
 /// `verbs::look`; `verbs::look_many` hands it the connection of the batch.
 pub(crate) fn known(c: &Connection, issue: i64, id: i64) -> Result<String, Fail> {
-    let row: Option<(String, Option<i64>)> = c
+    let row: Option<(String, Option<i64>, bool)> = c
         .query_row(
-            "SELECT kind, answered_at FROM questions WHERE id = ?1 AND issue = ?2",
+            "SELECT kind, answered_at, reask FROM questions WHERE id = ?1 AND issue = ?2",
             params![id, issue],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()
         .q()?;
@@ -665,7 +665,10 @@ pub(crate) fn known(c: &Connection, issue: i64, id: i64) -> Result<String, Fail>
             ("known", j(known)),
             ("kind", j(row.as_ref().map(|r| r.0.clone()))),
             ("recorded", j(row.is_some())),
-            ("answered", j(row.is_some_and(|r| r.1.is_some()))),
+            ("answered", j(row.as_ref().is_some_and(|r| r.1.is_some()))),
+            // Asked before 2.0, open at the upgrade: the poll asks it again
+            // in 2.0's words, once.
+            ("reask", j(row.as_ref().is_some_and(|r| r.2))),
             (
                 "answer",
                 if known {

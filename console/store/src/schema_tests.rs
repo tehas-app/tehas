@@ -163,6 +163,7 @@ fn step_sql(to: i64) -> &'static str {
         24 => db::STEP_24,
         25 => db::STEP_25,
         26 => db::STEP_26,
+        27 => db::STEP_27,
         _ => unreachable!("no step to {to}"),
     }
 }
@@ -298,14 +299,16 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_26() {
-    assert_eq!(db::SCHEMA_VERSION, 26);
-    let home = home("schema-26");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 26);
+fn init_writes_schema_27() {
+    assert_eq!(db::SCHEMA_VERSION, 27);
+    let home = home("schema-27");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 27);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "26"
+        "27"
     );
+    // Schema 27: a question asked again in 2.0's words.
+    assert!(columns(&conn(&home), "questions").contains(&"reask".to_string()));
     // Schema 25: the choices a park's question offers.
     assert!(columns(&conn(&home), "questions").contains(&"offers".to_string()));
     // The five tables of the feature are laid by every init, and stay empty
@@ -1042,6 +1045,64 @@ fn the_step_from_24_adds_the_offers_of_a_question_and_keeps_every_row() {
     assert_eq!(count(&home, "questions WHERE offers IS NOT NULL"), 0);
     let made = crate::verbs_tests::home("step-25-shape");
     same_shape_as_init(&home, &conn(&made), "24");
+}
+
+/// The step to 27 from a store of v1.4.0 with a retry ticked and two
+/// questions open: every `retry-tick` is `reply` (cycles, approvals and the
+/// history), `cycles.how` takes `retry-tick` no more, and each open question
+/// is marked to be asked again, which question-known says.
+#[test]
+fn the_step_to_27_rewrites_retry_tick_and_marks_the_open_questions() {
+    let sql = format!(
+        "{}\n{}",
+        include_str!("../tests/fixtures/store-v1.4.0.sql"),
+        include_str!("../tests/fixtures/store-v1.4.0-open.sql")
+    );
+    let home = release_home("step-27-reask", &sql);
+    migrate(&home).unwrap();
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
+    for t in ["cycles", "approvals", "cycle_history"] {
+        assert_eq!(
+            count(&home, &format!("{t} WHERE how = 'retry-tick'")),
+            0,
+            "{t}"
+        );
+        assert_eq!(
+            count(&home, &format!("{t} WHERE issue = 21 AND how = 'reply'")),
+            1,
+            "{t}"
+        );
+    }
+    assert_eq!(count(&home, "approvals WHERE label = 'retry-tick'"), 0);
+    assert_eq!(
+        count(&home, "approvals WHERE started_how = 'retry-tick'"),
+        0
+    );
+    assert_eq!(
+        count(
+            &home,
+            "approvals WHERE issue = 21 AND started_how = 'reply'"
+        ),
+        1
+    );
+    assert!(conn(&home)
+        .execute("UPDATE cycles SET how = 'retry-tick' WHERE issue = 21", [])
+        .is_err());
+    // The open questions, and only they, are marked.
+    assert_eq!(
+        count(&home, "questions WHERE reask = 1"),
+        count(&home, "questions WHERE answered_at IS NULL")
+    );
+    for (issue, id) in [("21", "2101"), ("22", "2201")] {
+        let v = ok(&home, &["question-known", issue, "--id", id]);
+        assert_eq!(
+            (v["known"].clone(), v["reask"].clone()),
+            (serde_json::json!(true), serde_json::json!(true)),
+            "{v}"
+        );
+    }
+    let made = crate::verbs_tests::home("step-27-shape");
+    same_shape_as_init(&home, &conn(&made), "v1.4.0");
 }
 
 /// The step to 26 keeps every cycle, and a cycle's start may then say
