@@ -193,7 +193,6 @@ reset
 t_instance 'echo "settings were read" >&2; exit 9'
 t_run "$tehas github writes"
 t_eq "$t_rc" 0
-# The two runs may fall in different minutes; the report names its minute.
 public=${t_out#*Z:}
 t_lacks "$t_out" "settings were read"
 t_run "$bot github-writes"
