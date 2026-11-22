@@ -9,14 +9,17 @@ use tehas_core::file::side_file;
 use tehas_core::home::{Home, State};
 
 /// PRAGMA user_version of the schema in schema.sql. v0.30.0 wrote 4 already,
-/// so a database of any other schema is moved aside whole under its version.
-pub const SCHEMA_VERSION: i64 = 4;
+/// and a file of 4 is migrated in place; a database of any other schema is
+/// moved aside whole under its version.
+pub const SCHEMA_VERSION: i64 = 5;
+/// The one schema `settle` migrates from.
+const MIGRATES_FROM: i64 = 4;
 pub const SCHEMA: &str = include_str!("schema.sql");
 pub const RETENTION_DAYS: i64 = 365;
 
 /// The columns added within schema 4, after v0.30.0 wrote it: table, column
-/// and type. A file a release before them wrote gains each as it is opened,
-/// last in its table, where schema.sql has it too.
+/// and type. A file a release before them wrote gains each as it is opened or
+/// migrated, last in its table, where schema.sql has it too.
 pub const ADDED: [(&str, &str, &str); 1] = [("runs", "contractor_id", "TEXT")];
 const DAY: i64 = 86_400;
 
@@ -38,6 +41,7 @@ pub fn path(home: &Path) -> PathBuf {
 /// Opens the database, making it when there is none. A file that is not a
 /// database is moved to analytics.db.broken and a new one is made: the data
 /// is at most RETENTION_DAYS deep.
+/// One of schema 4 is migrated to 5 in place.
 /// One of any other schema version is moved, with its -wal and -shm, to
 /// analytics.db.schema-<version>, where a reader can still fetch it, and
 /// prune_aside deletes it RETENTION_DAYS after its last write. Any other
@@ -211,14 +215,15 @@ fn is_busy(e: &rusqlite::Error) -> bool {
     )
 }
 
-/// Makes the schema of a database whose user_version read `seen`. The version
-/// is read again under a write lock: another program may have done it since,
-/// and its database is not a broken one.
+/// Makes the schema of a database whose user_version read `seen`, or
+/// migrates one of schema 4. The version is read again under a write lock:
+/// another program may have done it since, and its database is not a broken
+/// one.
 pub(crate) fn settle(conn: &mut Connection, seen: i64, now: i64) -> Result<(), Unusable> {
     if seen == SCHEMA_VERSION {
         return Ok(());
     }
-    if seen != 0 {
+    if seen != 0 && seen != MIGRATES_FROM {
         return Err(foreign(seen));
     }
     let tx = conn
@@ -240,9 +245,25 @@ pub(crate) fn settle(conn: &mut Connection, seen: i64, now: i64) -> Result<(), U
             }
             create(&tx, now).map_err(classify)?;
         }
+        MIGRATES_FROM => migrate(&tx).map_err(classify)?,
         other => return Err(foreign(other)),
     }
     tx.commit().map_err(classify)
+}
+
+/// Schema 4 to 5: samples.watts goes, nothing has written it since 2.0. A
+/// file of 0.30 gains the columns of [`ADDED`] first, so a 4 of either age
+/// ends as a new 5 is.
+fn migrate(tx: &Transaction) -> rusqlite::Result<()> {
+    for (table, column, kind) in lacking(tx)? {
+        tx.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {kind}"))?;
+    }
+    tx.execute_batch("ALTER TABLE samples DROP COLUMN watts")?;
+    tx.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'schema'",
+        [SCHEMA_VERSION.to_string()],
+    )?;
+    tx.pragma_update(None, "user_version", SCHEMA_VERSION)
 }
 
 /// The columns of [`ADDED`] the file does not hold yet. Read first without a

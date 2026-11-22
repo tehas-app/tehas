@@ -40,7 +40,7 @@ Public:
   with the state store and analytics migrated;
 - [the cycle inputs rule](#cycle-inputs);
 - the host namespace `/host/` and [the host bridge](/api#the-host-bridge);
-- [analytics.db at schema 4](#analyticsdb);
+- [analytics.db at schema 5](#analyticsdb);
 - [the commands of other parts](#the-commands-of-other-parts): the rule by
   which `tehas <part>` runs `tehas-<part>`, the words kept for the family,
   and the front asset of a release.
@@ -81,7 +81,7 @@ Internal:
 | Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the shell tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
 | Labels | The rows of `host/labels.tsv`: the name and what the dispatcher does with it | The dispatcher's and the tidy's tests |
 | Store | The store opens any store from schema 12 (v0.30.0) and brings it to its own schema. An older store is refused with a message that names v0.30 | The store's migration tests |
-| analytics.db | `user_version` 4, tables and columns only added | `console/analytics/src/schema.pinned` |
+| analytics.db | `user_version` 5, tables and columns only added | `console/analytics/src/schema.pinned` |
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints, and the tests of `console/src/front.rs`, which fail when a public `--json` row of `api/commands.txt` has no schema |
 | MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
@@ -246,10 +246,11 @@ and a change to them is a security change.
 
 ## analytics.db
 
-`~/tehas/state/analytics.db` is at `user_version` 4. Within it tables and
-columns are only added, never renamed, retyped or removed, and a file of
-schema 4 that a 0.30.x release wrote opens and gains what was added. A new
-version comes only with a major release. [Analytics](/analytics) has the
+`~/tehas/state/analytics.db` is at `user_version` 5. Within it tables and
+columns are only added, never renamed, retyped or removed. A file of schema 4,
+from 0.30.x or 1.x, is migrated to 5 in place as it is opened: it gains what
+was added within 4 and loses `samples.watts`. A new version comes only with a
+major release. [Analytics](/analytics) has the
 schema; [`tehas analytics copy`](/api#tehas-analytics-copy) is how a program
 takes a consistent copy.
 
@@ -373,8 +374,8 @@ Building, planned for 2.1. Off by default; `TEHAS_OUTSOURCE=on` stops every comm
   store's table names and internal.
 - `analytics.db` has the column `contractor_id` of `runs`, the name of the
   contractor that ran the cycle, NULL on every run while outsource is off. It
-  is part of schema 4, which is frozen: 1.1 keeps its name, its type and its
-  meaning.
+  is part of the schema since 4, and of 5: 1.1 keeps its name, its type and
+  its meaning.
 
 [Outsource](/outsource) says what the feature does once it ships.
 
