@@ -80,7 +80,7 @@ fn item(e: &Value, how: &str, issue: u64, repo: &str, millwright: &str) -> Optio
             if !mine {
                 return None;
             }
-        } else if how != "retry-tick" {
+        } else if !matches!(how, "retry-tick" | "answer") {
             return None;
         }
         m.insert(
@@ -105,7 +105,7 @@ fn item(e: &Value, how: &str, issue: u64, repo: &str, millwright: &str) -> Optio
         "pr-comment" | "review" | "review-comment" => true,
         _ => return None,
     };
-    if how != "retry-tick" {
+    if !matches!(how, "retry-tick" | "answer") {
         return None;
     }
     let id = e.get("id").filter(|i| i.is_u64())?;

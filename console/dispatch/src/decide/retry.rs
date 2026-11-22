@@ -7,6 +7,7 @@ use super::{
     base_approver, base_stands, fixer_base, has, or_unknown, standing_actor, Choice, End, Poll,
     Room, Start, Step, CLASSIC, LEAN,
 };
+use crate::answer::{self, Overlay};
 use crate::questions;
 use crate::text;
 use serde_json::{json, Map, Value};
@@ -226,10 +227,38 @@ impl Poll<'_> {
     }
 
     pub(super) fn untick(&mut self, n: u64, ans: &Value, note: Option<&str>) {
+        let body = ans["body"].as_str().unwrap_or("");
+        let unticked = questions::untick(body);
+        // An answer of `tehas answer` is taken away, and a box ticked beside
+        // it is unticked too, with the note.
+        if ans["tick"]["how"] == json!("answer") {
+            let question = ans["comment"].as_u64().unwrap_or(0);
+            let boxed = unticked != body.trim_end_matches('\n');
+            self.drop_answer(n, question, if boxed { None } else { note });
+            if !boxed {
+                return;
+            }
+        }
         let mut a = json!({
             "untick": n, "comment": ans["comment"],
-            "body": questions::untick(ans["body"].as_str().unwrap_or("")),
+            "body": unticked,
             "fail": format!("WARN: could not untick the question on #{n}"),
+        });
+        if let Some(note) = note {
+            a["say"] = json!(note);
+        }
+        self.act(a);
+    }
+
+    /// The answer `tehas answer` gave to question `question` taken away, as a
+    /// box is unticked, with its note. A dry run takes nothing away.
+    pub(super) fn drop_answer(&mut self, n: u64, question: u64, note: Option<&str>) {
+        if self.dry {
+            return;
+        }
+        let mut a = json!({
+            "answer_drop": n, "id": question,
+            "fail": format!("WARN: could not take away the answer to the question on #{n}"),
         });
         if let Some(note) = note {
             a["say"] = json!(note);
@@ -331,6 +360,28 @@ impl Poll<'_> {
             ) else {
                 return Err(self.fail(format!("ERROR: unreadable comments of #{n}"), 1));
             };
+            // An answer `tehas answer` gave reads as the box it stands for.
+            // One the question does not offer is taken away, and said.
+            // One a person's later tick or reply stands over is taken away
+            // without a word. Either way the tick of the comment is read as
+            // it is.
+            let given = self.s.issues.get(&n).and_then(|i| i.answer.clone());
+            let allowed = |by: &str| self.c.allowed(by);
+            match (answer::overlay(&mut ans, given.as_ref(), allowed), &given) {
+                (Overlay::Refused(why), Some(a)) => {
+                    self.log(format!("skip #{n}: {why}"));
+                    let note = format!("The answer given for this question was not taken: {why}.");
+                    self.drop_answer(n, a.question, Some(&note));
+                }
+                (Overlay::Later(who), Some(a)) => {
+                    self.log(format!(
+                        "skip #{n}: the answer of {} is no answer: {who} answered the question after it",
+                        a.by
+                    ));
+                    self.drop_answer(n, a.question, None);
+                }
+                _ => {}
+            }
             if ans["asked"] != json!(true) {
                 if let Some(by) = ans["written_by"].as_str() {
                     self.log(format!(
@@ -456,12 +507,21 @@ impl Poll<'_> {
                 continue;
             }
             let at = ans["tick"]["at"].as_str().unwrap_or("").to_string();
+            let answered = ans["tick"]["how"] == json!("answer");
             if !self.unchanged_since(
                 n,
                 &at,
                 &by,
-                &format!("{by} ticked retry"),
-                "untick the box and tick it again",
+                &if answered {
+                    format!("{by} answered retry")
+                } else {
+                    format!("{by} ticked retry")
+                },
+                if answered {
+                    "answer again"
+                } else {
+                    "untick the box and tick it again"
+                },
             )? {
                 continue;
             }
@@ -510,7 +570,8 @@ impl Poll<'_> {
                 d => d,
             };
             if self.dry {
-                self.log(format!("would run a cycle for #{n} (retry ticked by {by})"));
+                let how = if answered { "answered" } else { "ticked" };
+                self.log(format!("would run a cycle for #{n} (retry {how} by {by})"));
                 return Err(End(0));
             }
             let mut remove = vec!["tehas:question".to_string()];
@@ -532,10 +593,15 @@ impl Poll<'_> {
                 n,
                 Start {
                     starter: by,
-                    verb: "retry ticked".into(),
-                    how: "retry tick".into(),
+                    verb: if answered {
+                        "retry answered"
+                    } else {
+                        "retry ticked"
+                    }
+                    .into(),
+                    how: if answered { "answer" } else { "retry tick" }.into(),
                     given_at: at,
-                    given_how: "retry-tick".into(),
+                    given_how: if answered { "answer" } else { "retry-tick" }.into(),
                     remove,
                     fixer: None,
                     park_lifted: None,

@@ -32,7 +32,7 @@ use std::time::Instant;
 /// these -- `meta`, `issues`, `polls`, `poll_cost` and `sweep_log` -- are the
 /// installation's record, the numbers the poll reads from GitHub and its own
 /// log, which a drained factory may still write and the copy's rows replace.
-pub const HISTORY: [&str; 19] = [
+pub const HISTORY: [&str; 20] = [
     "cycles",
     "heartbeats",
     "endings",
@@ -47,6 +47,7 @@ pub const HISTORY: [&str; 19] = [
     "cycle_progress",
     "parks",
     "questions",
+    "answers",
     "cycle_history",
     "plan_history",
     "actions",

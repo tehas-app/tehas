@@ -193,7 +193,6 @@ reset
 t_instance 'echo "settings were read" >&2; exit 9'
 t_run "$tehas github writes"
 t_eq "$t_rc" 0
-# The two runs may fall in different minutes; the report names its minute.
 public=${t_out#*Z:}
 t_lacks "$t_out" "settings were read"
 t_run "$bot github-writes"
@@ -264,7 +263,7 @@ t_case "every command in the usage of tehas has a text that says how to use it"
 reset
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE")
 names=$(TEHAS_CONSOLE=$T_CONSOLE "$T_ROOT/bin/tehas" help | sed -n 's/^  tehas \([a-z-]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
-t_eq "$names" "dispatch work plan dev index setup update labels panel host-message check-product init-product status api disk limit order blockers start refresh wake drain history export state top analytics mcp github pause resume stop freeze thaw "
+t_eq "$names" "dispatch work plan dev index setup update labels panel host-message check-product init-product status api disk limit order blockers start answer refresh wake drain history export state top analytics mcp github pause resume stop freeze thaw "
 for name in $names; do
   t_run "$T_ROOT/bin/tehas help $name"
   t_eq "$t_rc" 0

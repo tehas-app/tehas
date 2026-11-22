@@ -52,6 +52,10 @@ pub struct Issue {
     /// `.planning` of an open session, null for none; id and kind as
     /// park-show and question-known answer for it.
     pub question: Option<Result<Value, StoreErr>>,
+    /// The answer `tehas answer` gave to the question on record, as
+    /// `question-known` has it; None for none, and for one that does not
+    /// parse.
+    pub answer: Option<crate::answer::Answer>,
     /// gh issue view --json state,labels, for a retry after an outage.
     pub view: Option<Value>,
     /// The cycle history on record, Err when the store
@@ -705,6 +709,22 @@ fn issue(v: &Value) -> Issue {
                 Ok(q.clone())
             }
         }),
+        // The question read's, or the park's for a park whose hold may lift.
+        answer: ["/question/answer", "/park/answer"]
+            .iter()
+            .find_map(|p| v.pointer(p).filter(|a| a.is_object()))
+            .and_then(|a| {
+                let s = |k: &str| a.get(k).and_then(Value::as_str);
+                crate::answer::Answer::new(
+                    a.get("question")?.as_u64()?,
+                    s("kind")?,
+                    s("choice")?,
+                    a.get("option").and_then(Value::as_u64),
+                    s("text"),
+                    s("by")?,
+                    a.get("at")?.as_i64()?,
+                )
+            }),
         view: v.get("view").cloned(),
         history: v.get("history").map(|h| match h {
             h if failed(h) => Err(()),

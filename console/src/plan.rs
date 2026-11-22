@@ -223,7 +223,7 @@ pub fn outcome(
                 ));
             }
             let mut options = vec![
-                json!({"label": "Update this issue", "description": "make the plan above the text of this issue"}),
+                json!({"label": tehas_core::plan::UPDATE, "description": "make the plan above the text of this issue"}),
             ];
             let tick = if refine {
                 options.push(json!({"label": "File as a new issue", "description": "file the plan above as one new issue"}));

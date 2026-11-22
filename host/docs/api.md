@@ -20,7 +20,7 @@ remain the way to change anything.
 What exists today: [`tehas api`](#tehas-api),
 [`tehas status --json`](#tehas-status---json), [`tehas limit`](#tehas-limit),
 [`tehas order`](#tehas-order), [`tehas blockers`](#tehas-blockers),
-[`tehas start`](#tehas-start),
+[`tehas start`](#tehas-start), [`tehas answer`](#tehas-answer),
 [`tehas refresh`](/tools-github#tehas-refresh) (`tehasbot refresh`, its old
 name, stays through 1.x),
 [`tehas wake`](#tehas-wake), [`tehas drain`](#tehas-drain), [`tehas freeze`](#tehas-freeze-and-tehas-thaw),
@@ -574,6 +574,79 @@ or the store refused; 3 GitHub has no open issue of that number (none, a pull
 request or a closed issue); 64 on a bad argument, which writes nothing; 78
 without an instance.
 
+## tehas answer
+
+```
+tehas answer <issue> <choice> --by <login> [--json]
+tehas answer <issue> --text <file> --by <login> [--json]
+```
+
+```json
+{"api": 1, "issue": 12, "question": {"id": 4001, "kind": "park"}, "answer": {"choice": "retry", "option": null, "by": "alice", "how": "answer", "at": "2026-10-17T14:00:20Z"}, "replaced": false}
+```
+
+Answers the question an issue waits on, for a person: the question of a
+stopped ticket (a park) or of a planning session. It is the way in for a
+program acting for a person, such as an industry or a chat, in place of a
+box ticked or a reply on the issue (#2782). Tested only, not yet seen on a
+host.
+
+`--by` names the person. It is trusted as the host's caller, as `tehas start`
+trusts its caller, and must be an account of `TEHAS_ALLOWED_LABELERS`; any
+other stops with exit 78 and records nothing. The choices:
+
+| Choice | Of | What the poll does |
+| --- | --- | --- |
+| `retry` | a stop | Starts the cycle again with the issue and its comments, as the Retry box with all its comments |
+| `retry-text` | a stop | Starts it again with the issue text only |
+| `park` | a stop | Leaves it stopped, and the question is answered |
+| `option:<k>` | a planning question | The option numbered `<k>`, from 1, as the question lists it |
+| `update` | a planning question | The option "Update this issue" |
+| `end` | a planning question | Ends the planning session |
+| `--text <file>` | a planning question | A reply in words, read from the file |
+
+The answer is a row of the state store bound to the question on record of the
+issue, with who gave it, when, and how (`answer`). Nothing happens at once.
+The next poll acts on it as on the same box ticked by that account, under the
+rules every answer passes: a retry waits for room, and starts only while the
+issue is still stopped, its text unchanged and no pull request closes it. A
+box ticked or a reply from an allowed account after the answer is the newer
+word: it stands, and the answer is taken away. A box ticked before it is
+unticked once the answer is acted on. An answer the poll cannot take (a retry
+the stop does not offer, an account no longer allowed, an issue no longer
+stopped) is taken away, the poll says why on the issue, and a box ticked on
+the question is read as it would be without it. Running it again before the
+poll replaces the answer that waits. Once the question is answered or a new
+one is asked, an answer to the old one does nothing. A retry answered lifts a
+park's hold as a ticked Retry does, also once `tehas:question` is off.
+
+The cycle a retry starts is recorded with `"how": "answer"` in
+[`tehas history`](#tehas-history), started by `--by`, and its start comment
+says it was authorised by that account's answer. A planning turn records the
+account as the one who answered it.
+
+| Field | Meaning |
+| --- | --- |
+| `api` | The API version, 1 |
+| `issue` | The issue |
+| `question.id` | The id of the question's comment |
+| `question.kind` | `park` for a stopped ticket, `plan` for a planning question |
+| `answer` | What was recorded |
+| `answer.choice` | `retry`, `retry-text`, `park`, `option`, `update`, `end` or `text` |
+| `answer.option` | The number of the option, from 1, of `option` and `update`; `null` for the rest |
+| `answer.by` | The account the answer was given for |
+| `answer.how` | `answer` |
+| `answer.at` | When it was recorded |
+| `replaced` | `true` when an answer given before to the same question was waiting, and this one took its place |
+
+`api/answer.schema.json` in the source says what the object holds, and
+`api/answer.sample.json` and `api/answer.option.json` are samples of it.
+
+Exit 0 recorded; 1 the store refused or is not installed; 3 no question of that
+kind waits on the issue, or the question does not offer that option; 64 on a
+bad argument, which writes nothing; 78 `--by` may not authorise work, or
+without an instance.
+
 ## tehas wake
 
 ```
@@ -827,7 +900,7 @@ schema names it, under `runs` for a field of a line.
 | `runs.repeat` | The parks in a row that stopped exactly as this one did, this one not counted, so 1 on the first repeat. On the park of a run of parks only. A field of a work line |
 | `runs.pr` | The pull request, as an address of the repository the instance names. A field of a work line that had one |
 | `runs.by` | Who asked for it. Left out for a cycle run by hand, which names no account |
-| `runs.how` | How it was asked for: `label`, `refresh`, `retry-tick`, `outage-retry`, `millwright`, `host` ([`tehas start`](#tehas-start)) or `hand` |
+| `runs.how` | How it was asked for: `label`, `refresh`, `retry-tick`, `outage-retry`, `millwright`, `host` ([`tehas start`](#tehas-start)), `answer` ([`tehas answer`](#tehas-answer)) or `hand` |
 | `runs.label` | The label that started the turn's session, `tehas:plan` or `tehas:refine`. A field of a plan line |
 | `runs.auto` | `true` for a refine the factory started on its own when a cycle parked as underspecified or too-large. Left out otherwise. A field of a plan line |
 | `runs.filed` | The issues the turn filed, when it filed any. A field of a plan line |

@@ -40,6 +40,11 @@ fn parked(home: &Path, issue: i64, by: &str, how: &str, reason: &str) -> i64 {
 
 /// A planning session in its second turn, waiting for an answer.
 fn planned(home: &Path, issue: i64) {
+    planned_with(home, issue, &[]);
+}
+
+/// The same, its first turn having offered `options`.
+pub(crate) fn planned_with(home: &Path, issue: i64, options: &[&str]) {
     let brief = write_file(home, &format!("brief-{issue}.md"), b"brief");
     let n = issue.to_string();
     ok(
@@ -55,21 +60,22 @@ fn planned(home: &Path, issue: i64) {
             brief.to_str().unwrap(),
         ],
     );
-    ok(
-        home,
-        &[
-            "plan-end",
-            &n,
-            "--turn",
-            "1",
-            "--outcome",
-            "finished",
-            "--rc",
-            "0",
-            "--session",
-            "s1",
-        ],
-    );
+    let mut end = vec![
+        "plan-end",
+        &n,
+        "--turn",
+        "1",
+        "--outcome",
+        "finished",
+        "--rc",
+        "0",
+        "--session",
+        "s1",
+    ];
+    for o in options {
+        end.extend(["--option", o]);
+    }
+    ok(home, &end);
 }
 
 #[test]
@@ -100,7 +106,7 @@ fn park_records_the_park_and_its_question() {
         v["park"],
         json!({"issue":10,"attempt":1,"at":NOW,"reason":"provider-outage","step":"review","pr":12,
                "retries":0,"started_at":NOW,"started_by":"alice","automatic":true,"question":5001,
-               "told_at":null,"body_sha256":SHA,"park_reason":null,"refine":false,"cap":null})
+               "told_at":null,"body_sha256":SHA,"park_reason":null,"refine":false,"cap":null,"answer":null})
     );
     assert_eq!(
         one::<String>(
@@ -623,7 +629,7 @@ fn question_known_is_true_only_for_the_question_on_record() {
     );
     assert_eq!(
         known(&home, 40, 41),
-        json!({"api":1,"verb":"question-known","ok":true,"known":true,"kind":"park","recorded":true,"answered":false})
+        json!({"api":1,"verb":"question-known","ok":true,"known":true,"kind":"park","recorded":true,"answered":false,"answer":null})
     );
     planned(&home, 42);
     ok(

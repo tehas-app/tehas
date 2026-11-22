@@ -69,7 +69,7 @@ end = '\{|;\s*$'
 pattern = '\bValue\b'
 files = ["console/**/*.rs"]
 comment = "//"
-max = 1418
+max = 1417
 why = "Re-measured at T0's follow-up, with tests in files counted: dispatch 366, mcp 251, cycle 181, the console 162, core 128, ops 89, store 77, analytics 45, attach 42, plugin 33, proxy 28, contractor 16. 377 are in test files. T3 types the dispatcher's core, T4 the ports, T5 the store client; T7 moves the rest or writes a floor for an adapter's own parsing."
 
 [[check]]
@@ -103,19 +103,20 @@ id = "core-effects"
 rule = "R3"
 what = "the core reads no file, network, process, environment or clock"
 pattern = 'std::(fs|net|process|env)\b|\bfs::|Command::new|SystemTime::now|Instant::now|Utc::now|Local::now|env::var|reqwest|tokio::(fs|net|process)|thread::sleep'
-files = ["console/dispatch/src/decide.rs", "console/dispatch/src/decide/**", "console/dispatch/src/place.rs", "console/dispatch/src/snapshot.rs", "console/dispatch/src/text.rs", "console/dispatch/src/settings.rs", "console/dispatch/src/questions.rs", "console/dispatch/src/starts.rs"]
+files = ["console/dispatch/src/decide.rs", "console/dispatch/src/decide/**", "console/dispatch/src/place.rs", "console/dispatch/src/snapshot.rs", "console/dispatch/src/text.rs", "console/dispatch/src/settings.rs", "console/dispatch/src/questions.rs", "console/dispatch/src/starts.rs", "console/dispatch/src/answer.rs"]
 comment = "//"
 max = 0
+why = "The core's files, and since T12.1 the reading of an answer of tehas answer (dispatch/src/answer.rs), which decide and the snapshot use: it reads nothing either."
 
 [[check]]
 id = "core-inward"
 rule = "R8"
 what = "the core uses nothing of the shell or the adapters"
 pattern = '\b(crate::(read|apply|poll|finish|auto_finish|refresh|pins|usage)|tehas_core::(forge|sandbox|call|retry|access|journal|lock|file|disk|install|tunnel|github_fails|release|rukas))\b'
-files = ["console/dispatch/src/decide.rs", "console/dispatch/src/decide/**", "console/dispatch/src/place.rs", "console/dispatch/src/snapshot.rs", "console/dispatch/src/text.rs", "console/dispatch/src/settings.rs", "console/dispatch/src/questions.rs", "console/dispatch/src/starts.rs"]
+files = ["console/dispatch/src/decide.rs", "console/dispatch/src/decide/**", "console/dispatch/src/place.rs", "console/dispatch/src/snapshot.rs", "console/dispatch/src/text.rs", "console/dispatch/src/settings.rs", "console/dispatch/src/questions.rs", "console/dispatch/src/starts.rs", "console/dispatch/src/answer.rs"]
 comment = "//"
 max = 2
-why = "The map at T0 had three; T3 moved the push fault's hold into snapshot.rs. decide.rs reads two things of the shell, call::trim and apply::start::change_note. T3 moves them into the core or passes their answers in the snapshot."
+why = "The map at T0 had three; T3 moved the push fault's hold into snapshot.rs. decide.rs reads two things of the shell, call::trim and apply::start::change_note. T3 moves them into the core or passes their answers in the snapshot. T12.1 adds dispatch/src/answer.rs to the files, which decide and the snapshot use; it uses nothing of the shell, so the count holds."
 
 # R6: a supplier's failure reaches a caller as a named outcome, not a raw
 # HTTP status the caller must read.

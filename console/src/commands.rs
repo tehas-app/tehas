@@ -48,8 +48,8 @@
 //! Exit: the status of the command; 64 usage.
 
 use crate::{
-    api, blockers, clean, dev, disk, export, freeze, github, health, history, holds, host_message,
-    labels, mcp, order, panel, queue, review, start, state, status, stop, top, wake,
+    answer, api, blockers, clean, dev, disk, export, freeze, github, health, history, holds,
+    host_message, labels, mcp, order, panel, queue, review, start, state, status, stop, top, wake,
 };
 use std::env;
 use std::os::unix::fs::PermissionsExt;
@@ -192,6 +192,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "order" => order::main(rest),
         "blockers" => blockers::main(rest),
         "start" => start::main(rest),
+        "answer" => answer::main(rest),
         "pause" => flag(pause_words(rest)),
         "analytics" => analytics(rest),
         "top" => top::view(rest),
@@ -326,6 +327,7 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "blockers"] => blockers::words(rest).map(|_| ()),
         ["tehas" | "tehasbot", "mcp"] => mcp::words(rest).map(|_| ()),
         ["tehas", "start"] => start::words(rest).map(|_| ()),
+        ["tehas", "answer"] => answer::words(rest).map(|_| ()),
         ["tehas", "pause"] => pause_words(rest).map(|_| ()),
         ["tehas", "analytics"] => analytics_words(rest),
         ["tehas", "api"] => api::words(rest).map(|_| ()),
@@ -411,8 +413,8 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
         // What writes or calls GitHub stops on the three before it does.
         ["tehas", "resume"]
         | ["tehasbot", "status"]
-        | ["tehas", "start" | "limit" | "order" | "blockers" | "panel" | "host-message" | "freeze" | "thaw"
-        | "pause" | "drain" | "wake"] => &[
+        | ["tehas", "start" | "answer" | "limit" | "order" | "blockers" | "panel" | "host-message"
+        | "freeze" | "thaw" | "pause" | "drain" | "wake"] => &[
             "TEHAS_REPO",
             "TEHAS_CONTROL_ISSUE",
             "TEHAS_ALLOWED_LABELERS",
@@ -460,6 +462,7 @@ pub fn text(command: &str) -> Option<&'static str> {
         "order" => include_str!("usage/order.txt"),
         "outsource" => crate::outsource::USAGE,
         "start" => include_str!("usage/start.txt"),
+        "answer" => include_str!("usage/answer.txt"),
         "dev" => dev::USAGE,
         "panel" => include_str!("usage/panel.txt"),
         "plugin" => include_str!("usage/plugin.txt"),
@@ -736,6 +739,7 @@ mod tests {
         );
         for writer in [
             "start",
+            "answer",
             "limit",
             "order",
             "panel",

@@ -23,6 +23,66 @@ pub const BOX_ALONE: &str = "Retry with the issue text only";
 pub const OLD_BOX_CLEAN: &str = "Retry from a clean start";
 pub const OLD_BOX_ALONE: &str = "Retry from the issue alone";
 
+/// The last box of a park's question, and of a planning question. A program
+/// answers with them through `tehas answer` (#2782), so the poll finds the
+/// box an answer stands for by the same text the comment shows.
+pub const BOX_PARKED: &str = "Leave it parked";
+pub const BOX_END: &str = "End this planning session";
+
+/// A choice an answer of `tehas answer` gives (#2782). Its word is the one
+/// the command, the store's verb, its CHECK (a test of the store holds the two
+/// alike) and the dispatcher read; `option` carries the number of an option,
+/// `text` a reply in words, and `update` is the planner's option
+/// [`crate::plan::UPDATE`], kept by its number.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Choice {
+    Retry,
+    RetryText,
+    Park,
+    Option,
+    Update,
+    End,
+    Text,
+}
+
+/// Every choice, in the order a refusal lists their words.
+pub const CHOICES: [Choice; 7] = [
+    Choice::Retry,
+    Choice::RetryText,
+    Choice::Park,
+    Choice::Option,
+    Choice::Update,
+    Choice::End,
+    Choice::Text,
+];
+
+impl Choice {
+    pub fn word(self) -> &'static str {
+        match self {
+            Choice::Retry => "retry",
+            Choice::RetryText => "retry-text",
+            Choice::Park => "park",
+            Choice::Option => "option",
+            Choice::Update => "update",
+            Choice::End => "end",
+            Choice::Text => "text",
+        }
+    }
+
+    /// The kind of question it answers.
+    pub fn kind(self) -> Kind {
+        match self {
+            Choice::Retry | Choice::RetryText | Choice::Park => Kind::Park,
+            _ => Kind::Plan,
+        }
+    }
+
+    /// The choice of a word, or None for no word of one.
+    pub fn of(word: &str) -> Option<Choice> {
+        CHOICES.into_iter().find(|c| c.word() == word)
+    }
+}
+
 /// What the retries are given, said under the boxes.
 pub const SAY_COMMENTS: &str = "Both retries start over in a new workspace. \"All its comments\" means what\nallowed accounts wrote on this issue and on its pull requests up to your\ntick. \"Issue text only\" means the title and body, nothing else.";
 pub const SAY_ALONE: &str = "The retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.";
@@ -138,6 +198,16 @@ pub enum Kind {
     Park,
 }
 
+impl Kind {
+    /// The kind as the store and a question's marker name it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Kind::Plan => "plan",
+            Kind::Park => "park",
+        }
+    }
+}
+
 /// A text of the outcome, a string or nothing, as `.k // ""` reads it.
 fn s<'a>(v: &'a Value, path: &str) -> &'a str {
     v.pointer(path).and_then(Value::as_str).unwrap_or("")
@@ -207,7 +277,7 @@ pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> S
     }
     let name = match kind {
         Kind::Plan => {
-            b += "- [ ] End this planning session\n\n";
+            b += &format!("{}\n\n", box_line(BOX_END, false));
             b += "Tick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n";
             "plan"
         }
@@ -222,7 +292,7 @@ pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> S
             if retry {
                 b += &format!("{}\n", box_line(BOX_ALONE, false));
             }
-            b += "- [ ] Leave it parked\n\n";
+            b += &format!("{}\n\n", box_line(BOX_PARKED, false));
             match (retry, comments) {
                 (true, true) => b += &format!("{SAY_COMMENTS}\n"),
                 (true, false) => b += &format!("{SAY_ALONE}\n"),

@@ -12,6 +12,7 @@
 analytics
 analytics copy --json --to
 analytics report
+answer --by --json --text
 api --json
 blockers --json
 check-product --sandbox

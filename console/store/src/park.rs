@@ -257,7 +257,7 @@ const PARK_SELECT: &str = "SELECT p.issue, p.attempt, p.at, p.reason, p.step, p.
     h.park_reason,
     h.cap,
     (p.reason = 'intent-park' AND h.park_reason IN ('underspecified', 'too-large')
-      AND p.retries = 0 AND c.how IN ('label', 'retry-tick', 'outage-retry', 'host')
+      AND p.retries = 0 AND c.how IN ('label', 'retry-tick', 'outage-retry', 'host', 'answer')
       AND c.started_by IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM planning g WHERE g.issue = p.issue)
       AND NOT EXISTS (SELECT 1 FROM plan_history g WHERE g.issue = p.issue))
@@ -284,15 +284,25 @@ const PARK_NAMES: [&str; 16] = [
     "refine?",
 ];
 
+/// The current park, with the answer `tehas answer` gave to its question on
+/// record (null for none): a poll that reads the park and not the question,
+/// as the lift of a hold does, reads the answer here.
 fn park_json(c: &Connection, issue: i64) -> Result<String, Fail> {
-    Ok(
-        c.query_row(&format!("{PARK_SELECT} WHERE p.issue = ?1"), [issue], |r| {
-            row_json(r, &PARK_NAMES)
+    let row = c
+        .query_row(&format!("{PARK_SELECT} WHERE p.issue = ?1"), [issue], |r| {
+            Ok((row_json(r, &PARK_NAMES)?, r.get::<_, Option<i64>>(10)?))
         })
         .optional()
-        .q()?
-        .map_or("null".to_string(), |p| obj(&p)),
-    )
+        .q()?;
+    let Some((mut p, question)) = row else {
+        return Ok("null".to_string());
+    };
+    let answer = match question {
+        Some(id) => crate::answer::waiting_json(c, issue, id)?,
+        None => "null".to_string(),
+    };
+    p.push(("answer", answer));
+    Ok(obj(&p))
 }
 
 /// `(retries, automatic, question on record)` of the current park.
@@ -302,6 +312,12 @@ fn current(c: &Connection, issue: i64) -> Result<Option<(i64, bool, Option<i64>)
     })
     .optional()
     .q()
+}
+
+/// The park question on record of the issue: the newest unanswered one of
+/// the current park's attempt.
+pub(crate) fn question_on_record(c: &Connection, issue: i64) -> Result<Option<i64>, Fail> {
+    Ok(current(c, issue)?.and_then(|(_, _, q)| q))
 }
 
 /// The id is taken when it is a question of another issue or of `kind`'s other
@@ -621,6 +637,14 @@ pub(crate) fn known(c: &Connection, issue: i64, id: i64) -> Result<String, Fail>
             ("kind", j(row.as_ref().map(|r| r.0.clone()))),
             ("recorded", j(row.is_some())),
             ("answered", j(row.is_some_and(|r| r.1.is_some()))),
+            (
+                "answer",
+                if known {
+                    crate::answer::waiting_json(c, issue, id)?
+                } else {
+                    "null".to_string()
+                },
+            ),
         ],
     ))
 }

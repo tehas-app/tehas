@@ -12,6 +12,11 @@
 use crate::textcheck::{check_body, check_title, Reason, Refusal};
 use serde_json::{json, map::Map, Value};
 
+/// The option of a drafted plan that makes it the issue's text: the planner
+/// offers it, the turn after it reads a choice of it, and `tehas answer
+/// update` names it.
+pub const UPDATE: &str = "Update this issue";
+
 /// A GitHub comment holds 65,536 characters; the plan is cut well before.
 pub const CLIP: usize = 40_000;
 

@@ -1,6 +1,7 @@
 //! The dispatcher's decisions in Rust (#253). `decide` takes what a poll read
 //! and returns what it does; it reads and writes nothing itself.
 
+pub mod answer;
 pub mod apply;
 pub mod auto_finish;
 pub mod decide;

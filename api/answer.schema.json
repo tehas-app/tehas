@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/answer.schema.json",
+  "title": "tehas answer --json",
+  "description": "What tehas answer <issue> <choice> --by <login> --json prints, version 1: the answer recorded to the question on record of the issue, which the next poll acts on. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. console/tests/answer.rs checks that the command prints the samples beside this file, and test/json_contract_test.sh that they fit it.",
+  "type": "object",
+  "required": ["api", "issue", "question", "answer", "replaced"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "issue": {"type": "integer", "minimum": 1},
+    "question": {
+      "description": "The question answered: the id of its comment, and park for a stopped ticket or plan for a planning question.",
+      "type": "object",
+      "required": ["id", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "kind": {"enum": ["park", "plan"]}
+      }
+    },
+    "answer": {
+      "type": "object",
+      "required": ["choice", "option", "by", "how", "at"],
+      "additionalProperties": false,
+      "properties": {
+        "choice": {"enum": ["retry", "retry-text", "park", "option", "update", "end", "text"]},
+        "option": {
+          "description": "The number of the option chosen, from 1: of option, and of update, the option \"Update this issue\". null for the other choices.",
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 20
+        },
+        "by": {"type": "string", "minLength": 1, "maxLength": 39},
+        "how": {"const": "answer"},
+        "at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "replaced": {
+      "description": "Whether an answer given before to the same question was waiting, and this one took its place.",
+      "type": "boolean"
+    }
+  }
+}
