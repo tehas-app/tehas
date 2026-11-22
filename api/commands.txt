@@ -62,7 +62,7 @@ plugin review --json building=plugins
 plugin run building=plugins
 plugin skills --chat --json building=plugins
 prototype building=prototype-file
-prototype file --body-file --spec --spec-sha256 --title --zip --zip-sha256 building=prototype-file
+prototype file --body-file --title --zip --zip-sha256 building=prototype-file
 question --json
 refresh --json --pr
 resume

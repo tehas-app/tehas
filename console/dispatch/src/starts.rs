@@ -72,7 +72,6 @@ pub fn code_of(text: &str) -> &'static str {
         ("the refresh lane is full", code::REFRESH_LANE),
         ("carries tehas:refreshing", code::REFRESH_LANE),
         ("GitHub has not said yet", code::UNREADABLE),
-        ("Spec:", code::SPEC),
         ("could not be read", code::UNREADABLE),
     ];
     ARMS.iter()

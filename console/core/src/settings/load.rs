@@ -152,6 +152,10 @@ pub(super) const IGNORED: &[(&str, &str)] = &[
         "TEHAS_WIKI",
         "the product wiki left core in 2.0 and returns as a plugin",
     ),
+    (
+        "TEHAS_SPEC_PIPE",
+        "the spec mark, an issue's `Spec:` line, was dropped in 2.0",
+    ),
 ];
 
 /// Whether `name` is one the load warns of and drops (`IGNORED`).
@@ -1367,21 +1371,6 @@ mod tests {
     }
 
     #[test]
-    fn the_spec_pipe_set_on_stops_the_load_and_off_is_the_default() {
-        let got = refused(&["TEHAS_SPEC_PIPE=on"]);
-        assert_eq!(
-            got,
-            format!("TEHAS_SPEC_PIPE is on and spec-pipe is still being built in this release: set it to off or take the line out (see {FILE})")
-        );
-        assert_eq!(loads(&[]).text("TEHAS_SPEC_PIPE"), "0");
-        assert_eq!(loads(&["TEHAS_SPEC_PIPE=off"]).text("TEHAS_SPEC_PIPE"), "0");
-        let mut vars = start(&[(crate::features::TEST_VAR, "spec-pipe")]);
-        let mut host = Fake::with(&["TEHAS_SPEC_PIPE=on"]);
-        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
-        assert_eq!(vars.text("TEHAS_SPEC_PIPE"), "1");
-    }
-
-    #[test]
     fn the_protolab_zip_url_set_on_stops_the_load_and_off_is_the_default() {
         let got = refused(&["TEHAS_PROTOLAB_ZIP_URL=on"]);
         assert_eq!(
@@ -2567,6 +2556,18 @@ mod tests {
             ["TEHAS_WIKI is no longer read: the product wiki left core in 2.0 and returns as a plugin; remove it from the instance"]
         );
         assert!(!vars.is_set("TEHAS_WIKI"));
+    }
+
+    #[test]
+    fn a_line_of_the_spec_pipe_loads_warns_and_is_not_read() {
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&["TEHAS_SPEC_PIPE=on"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(
+            host.warned,
+            ["TEHAS_SPEC_PIPE is no longer read: the spec mark, an issue's `Spec:` line, was dropped in 2.0; remove it from the instance"]
+        );
+        assert!(!vars.is_set("TEHAS_SPEC_PIPE"));
     }
 
     #[test]

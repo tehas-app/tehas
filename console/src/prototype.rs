@@ -4,7 +4,6 @@
 //!
 //!   tehas prototype file --title TEXT [--body-file FILE|-]
 //!                        [--zip ADDRESS --zip-sha256 HEX]
-//!                        [--spec LINK --spec-sha256 HEX]
 //!
 //! The Protolab takes a ticket only from an allowed account: the label, the
 //! text its links are in, and a `Zip:` line all count only when an account of
@@ -31,7 +30,7 @@ use std::path::Path;
 use tehas_core::accounts::{self, Accounts};
 use tehas_core::events::allowed_in;
 use tehas_core::forge::{Bounded, Forge, GhRunner, GitHub};
-use tehas_core::grammar::{is_hex, spec_mark, SpecMark, SPEC_MARK};
+use tehas_core::grammar::is_hex;
 use tehas_core::kinds::{self, Kind};
 
 /// The feature of this command.
@@ -39,7 +38,7 @@ pub const FEATURE: &str = "prototype-file";
 /// The feature a zip outside GitHub needs.
 const ZIP_URL: &str = "protolab-zip-url";
 
-const USAGE: &str = "usage: tehas prototype file --title TEXT [--body-file FILE|-] [--zip ADDRESS --zip-sha256 HEX] [--spec LINK --spec-sha256 HEX]";
+const USAGE: &str = "usage: tehas prototype file --title TEXT [--body-file FILE|-] [--zip ADDRESS --zip-sha256 HEX]";
 
 /// The line that names a zip by address, as the Protolab reads it.
 const ZIP_MARK: &str = "Zip:";
@@ -63,7 +62,6 @@ pub struct Asked {
     title: String,
     body_file: Option<String>,
     zip: Option<(String, String)>,
-    spec: Option<SpecMark>,
 }
 
 fn bad(why: &str) -> u8 {
@@ -81,7 +79,7 @@ pub fn words(given: &[String]) -> Result<Asked, u8> {
         return Err(bad(&format!("unknown verb: {verb}")));
     }
     let mut a = Asked::default();
-    let (mut title, mut zip, mut zip_sum, mut spec, mut spec_sum) = (None, None, None, None, None);
+    let (mut title, mut zip, mut zip_sum) = (None, None, None);
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
         let slot = match flag.as_str() {
@@ -89,8 +87,6 @@ pub fn words(given: &[String]) -> Result<Asked, u8> {
             "--body-file" => &mut a.body_file,
             "--zip" => &mut zip,
             "--zip-sha256" => &mut zip_sum,
-            "--spec" => &mut spec,
-            "--spec-sha256" => &mut spec_sum,
             other => return Err(bad(&format!("unknown argument: {other}"))),
         };
         let Some(value) = it.next() else {
@@ -112,15 +108,6 @@ pub fn words(given: &[String]) -> Result<Asked, u8> {
         return Err(bad("--body-file names a file, or - for standard input"));
     }
     a.zip = pair("--zip", zip, zip_sum)?;
-    a.spec = pair("--spec", spec, spec_sum)?.map(|(link, sha256)| SpecMark { link, sha256 });
-    if let Some(m) = &a.spec {
-        if !is_link(&m.link) {
-            return Err(bad(&format!(
-                "--spec is a file attached on GitHub, not {}",
-                m.link
-            )));
-        }
-    }
     Ok(a)
 }
 
@@ -173,16 +160,10 @@ fn bare(line: &str) -> &str {
     line.trim_start_matches(|c: char| c == '>' || c.is_whitespace())
 }
 
-/// The issue's text: the person's, then a line for the zip and one for the
-/// spec, the spec's as tehas_core::grammar writes it. Err says why the text
-/// cannot carry them: it has such a line of its own, or leaves a code fence
-/// open, which would hide the lines after it. The dispatcher reads the spec
-/// back with spec_mark, so the text is held to read back as the spec given.
-fn body(
-    text: &str,
-    zip: Option<&(String, String)>,
-    spec: Option<&SpecMark>,
-) -> Result<String, String> {
+/// The issue's text: the person's, then a line for the zip. Err says why the
+/// text cannot carry it: it has such a line of its own, or leaves a code fence
+/// open, which would hide the line after it.
+fn body(text: &str, zip: Option<&(String, String)>) -> Result<String, String> {
     let mut fence: Option<&str> = None;
     for line in text.lines() {
         let t = line.trim();
@@ -192,41 +173,23 @@ fn body(
             None if t.starts_with("```") || t.starts_with("~~~") => fence = Some(&t[..3]),
             None => {}
         }
-        for (mark, given) in [(ZIP_MARK, zip.is_some()), (SPEC_MARK, spec.is_some())] {
-            if given && bare(line).starts_with(mark) {
-                return Err(format!("the text has a `{mark}` line of its own"));
-            }
+        if zip.is_some() && bare(line).starts_with(ZIP_MARK) {
+            return Err(format!("the text has a `{ZIP_MARK}` line of its own"));
         }
     }
-    if fence.is_some() && (zip.is_some() || spec.is_some()) {
+    if fence.is_some() && zip.is_some() {
         return Err("the text leaves a code fence open".to_string());
     }
     let mut out = text.trim_end().to_string();
-    let lines: Vec<String> = zip
-        .map(|(link, sum)| format!("{ZIP_MARK} {link} sha256:{sum}"))
-        .into_iter()
-        .chain(spec.map(SpecMark::line))
-        .collect();
-    if !lines.is_empty() {
+    if let Some((link, sum)) = zip {
         if !out.is_empty() {
             out.push_str("\n\n");
         }
-        out.push_str(&lines.join("\n"));
+        out.push_str(&format!("{ZIP_MARK} {link} sha256:{sum}"));
     }
     out.push('\n');
     if out.chars().count() > BODY_MAX {
         return Err(format!("the text is over {BODY_MAX} characters"));
-    }
-    if let Some(m) = spec {
-        match spec_mark(&out) {
-            Ok(Some(read)) if &read == m => {}
-            Ok(_) => {
-                return Err(format!(
-                    "the text does not read back as its `{SPEC_MARK}` line"
-                ))
-            }
-            Err(why) => return Err(format!("the text would not be read: {why}")),
-        }
     }
     Ok(out)
 }
@@ -310,7 +273,7 @@ pub fn main(given: &[String]) -> u8 {
             return 1;
         }
     };
-    let body = match body(&text, asked.zip.as_ref(), asked.spec.as_ref()) {
+    let body = match body(&text, asked.zip.as_ref()) {
         Ok(b) => b,
         Err(why) => return bad(&why),
     };
@@ -415,19 +378,11 @@ mod tests {
         c.to_string().repeat(64)
     }
 
-    fn mark(link: &str, sha256: String) -> SpecMark {
-        SpecMark {
-            link: link.into(),
-            sha256,
-        }
-    }
-
     const ATTACHED: &str = "https://github.com/user-attachments/files/7/proto.zip";
-    const SPEC: &str = "https://github.com/user-attachments/files/8/spec.md";
 
     #[test]
-    fn the_words_give_a_title_a_text_a_zip_and_a_spec() {
-        let (z, s) = (sum('a'), sum('b'));
+    fn the_words_give_a_title_a_text_and_a_zip() {
+        let z = sum('a');
         let got = words(&w(&[
             "file",
             "--title",
@@ -438,10 +393,6 @@ mod tests {
             ATTACHED,
             "--zip-sha256",
             &z,
-            "--spec",
-            SPEC,
-            "--spec-sha256",
-            &s,
         ]));
         assert_eq!(
             got,
@@ -449,11 +400,10 @@ mod tests {
                 title: "A prototype".into(),
                 body_file: Some("-".into()),
                 zip: Some((ATTACHED.into(), z)),
-                spec: Some(mark(SPEC, s)),
             })
         );
         assert_eq!(
-            words(&w(&["file", "--title", "T"])).map(|a| a.zip.is_none() && a.spec.is_none()),
+            words(&w(&["file", "--title", "T"])).map(|a| a.zip.is_none()),
             Ok(true)
         );
     }
@@ -486,25 +436,6 @@ mod tests {
                 "ABC",
             ],
             &["file", "--title", "T", "--zip", "a b", "--zip-sha256", &z],
-            &["file", "--title", "T", "--spec", SPEC],
-            &[
-                "file",
-                "--title",
-                "T",
-                "--spec",
-                "https://example.org/s.md",
-                "--spec-sha256",
-                &z,
-            ],
-            &[
-                "file",
-                "--title",
-                "T",
-                "--spec",
-                SPEC,
-                "--spec-sha256",
-                &z.to_uppercase(),
-            ],
         ] {
             assert_eq!(words(&w(bad)), Err(64), "{bad:?}");
         }
@@ -526,48 +457,31 @@ mod tests {
     }
 
     #[test]
-    fn the_text_takes_a_zip_line_and_a_spec_line_after_it() {
+    fn the_text_takes_a_zip_line_after_it() {
         let z = (ATTACHED.to_string(), sum('a'));
-        let s = mark(SPEC, sum('b'));
         assert_eq!(
-            body("Make it fast.\n\n", Some(&z), Some(&s)),
+            body("Make it fast.\n\n", Some(&z)),
             Ok(format!(
-                "Make it fast.\n\nZip: {ATTACHED} sha256:{}\nSpec: {SPEC} sha256:{}\n",
-                sum('a'),
-                sum('b')
+                "Make it fast.\n\nZip: {ATTACHED} sha256:{}\n",
+                sum('a')
             ))
         );
-        assert_eq!(
-            body("", None, Some(&s)),
-            Ok(format!("Spec: {SPEC} sha256:{}\n", sum('b')))
-        );
-        assert_eq!(body("Words.", None, None), Ok("Words.\n".into()));
-        // A fence closed before the lines hides nothing.
-        assert!(body("```\nZip: x\n```\n", None, Some(&s)).is_ok());
-    }
-
-    #[test]
-    fn the_spec_line_is_the_one_grammar_of_a_spec_mark() {
-        let s = mark(SPEC, sum('c'));
-        let text = body("Words.", None, Some(&s)).unwrap();
-        assert_eq!(text.lines().last(), Some(s.line().as_str()));
-        assert_eq!(spec_mark(&text), Ok(Some(s.clone())));
-        assert_eq!(tehas_dispatch::text::spec_mark(&text), Ok(Some(s)));
+        assert_eq!(body("Words.", None), Ok("Words.\n".into()));
+        // A fence closed before the line hides nothing.
+        assert!(body("```\nx\n```\n", Some(&z)).is_ok());
     }
 
     #[test]
     fn a_text_that_would_hide_or_double_a_line_is_refused() {
         let z = (ATTACHED.to_string(), sum('a'));
-        let s = mark(SPEC, sum('b'));
-        assert!(body("Zip: mine", Some(&z), None).is_err());
-        assert!(body("> Zip: quoted", Some(&z), None).is_err());
-        assert!(body("  Spec: x", None, Some(&s)).is_err());
-        assert!(body("```\nopen", Some(&z), None).is_err());
-        assert!(body("~~~\nopen", None, Some(&s)).is_err());
+        assert!(body("Zip: mine", Some(&z)).is_err());
+        assert!(body("> Zip: quoted", Some(&z)).is_err());
+        assert!(body("```\nopen", Some(&z)).is_err());
+        assert!(body("~~~\nopen", Some(&z)).is_err());
         // Without the flag, the person's own line is the person's text.
-        assert!(body("Zip: mine", None, Some(&s)).is_ok());
-        assert!(body("```\nopen", None, None).is_ok());
-        assert!(body(&"x".repeat(BODY_MAX), None, None).is_err());
+        assert!(body("Zip: mine", None).is_ok());
+        assert!(body("```\nopen", None).is_ok());
+        assert!(body(&"x".repeat(BODY_MAX), None).is_err());
     }
 
     #[test]
@@ -590,81 +504,6 @@ mod tests {
         );
         // No bot login known yet: an app still names itself.
         assert!(refused("acme-app[bot]", "", "acme-app[bot]", None).is_some());
-    }
-
-    /// The dispatcher's poll over one issue, #7, with `labels` put on by
-    /// alice, an allowed account, and `text` its body.
-    fn poll_over(text: &str, labels: &[&str]) -> tehas_dispatch::Decision {
-        use serde_json::json;
-        use tehas_dispatch::{decide, Settings, Snapshot};
-        let settings = json!({
-            "TEHAS_REPO": "acme/widget", "TEHAS_CONTROL_ISSUE": 1,
-            "TEHAS_ALLOWED_LABELERS": "alice", "TEHAS_MAX_CYCLES": 1,
-            "TEHAS_BOT_LOGIN": "tehas-bot",
-            "TEHAS_SPEC_PIPE": "1", "TEHAS_TEST_FEATURES": "spec-pipe",
-        });
-        let gib: u64 = 1 << 30;
-        let events: Vec<Value> = labels
-            .iter()
-            .enumerate()
-            .map(|(k, l)| {
-                json!({"event": "labeled", "label": {"name": l}, "actor": {"login": "alice"},
-                       "created_at": format!("2026-10-01T00:0{k}:00Z")})
-            })
-            .collect();
-        let names: Vec<Value> = labels.iter().map(|l| json!({"name": l})).collect();
-        let pressure = "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n";
-        let snapshot = json!({
-            "repo": "acme/widget",
-            "control": {"labels": [], "events": []},
-            "plan_open": [], "running": [], "blocked": [], "awaiting": [],
-            "ready": [{"number": 7, "labels": names}],
-            "limit": {"state": "none"},
-            "slice": {
-                "show": {"FragmentPath": "/etc/systemd/system/tehas.slice", "ActiveState": "active",
-                         "MemoryMax": (20 * gib).to_string()},
-                "docker": "systemd 2",
-                "controllers": "cpuset cpu io memory hugetlb pids rdma misc",
-                "cpus": "8", "root": "/sys/fs/cgroup", "scopes": {}, "pressure": pressure,
-            },
-            "endpoint": {},
-            "disk_kb": 40u64 * 1_048_576,
-            "issues": {"7": {
-                "events": events,
-                "work": {"number": 7, "state": "open", "labels": names},
-                "edit": {"body": text, "lastEditedAt": null, "editor": null},
-                "prs": [], "comments": {"failed": true}, "park": null, "approval": null,
-                "current": null, "refresh_said": "",
-            }},
-            "now": 1_793_404_800u64,
-            "hostname": "tehas-test",
-            "bot_prs": [], "marked": [], "planning": [], "refresh_history": [],
-            "leftovers": [], "asking": [], "owed": [], "plans": [], "refines": [],
-            "refines_owed": [],
-        });
-        decide(
-            &Snapshot::parse(&snapshot),
-            &Settings::parse(&settings),
-            false,
-        )
-    }
-
-    #[test]
-    fn a_filed_ticket_labelled_ready_starts_its_cycle_with_its_spec() {
-        let z = (ATTACHED.to_string(), sum('a'));
-        let s = mark(SPEC, sum('b'));
-        let text = body("Make it fast.", Some(&z), Some(&s)).unwrap();
-        let d = poll_over(&text, &["tehas:prototype", "tehas:ready"]);
-        assert_eq!(d.picked, [7], "{:?} {:?}", d.log, d.actions);
-        let actions: Vec<Value> = d.actions.iter().map(Value::from).collect();
-        let start = actions
-            .iter()
-            .find(|a| a.get("start").and_then(Value::as_u64) == Some(7))
-            .expect("a start of #7");
-        assert_eq!(
-            start["spec"],
-            serde_json::json!({"link": SPEC, "sha256": sum('b'), "off": ["tehas:ready"]})
-        );
     }
 
     #[test]

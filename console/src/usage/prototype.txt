@@ -4,7 +4,7 @@ Still being built in this release: TEHAS_PROTOTYPE_FILE=on stops every command
 with 78, and with it off this command exits 78 and files nothing.
 
 It opens an issue in TEHAS_REPO with the title and the text you give, a line
-for the zip and a line for the spec when you name them, and puts
+for the zip when you name one, and puts
 tehas:prototype on it. With TEHAS_ISSUE_TYPES mapping prototype to a type, the
 issue is opened with that type in place of the label.
 
@@ -17,7 +17,6 @@ not the recorded one. Nothing is filed then.
 Usage:
   tehas prototype file --title TEXT [--body-file FILE|-]
                        [--zip ADDRESS --zip-sha256 HEX]
-                       [--spec LINK --spec-sha256 HEX]
 
   --title        the issue's title, one line
   --body-file    the ticket's text, from a file or - for standard input
@@ -25,12 +24,10 @@ Usage:
                  protolab-zip-url on, an https address on a host of
                  TEHAS_PROTOLAB_ZIP_HOSTS. Written as the line
                  Zip: <address> sha256:<hex>
-  --spec         the spec, a file attached on GitHub. Written as the line
-                 Spec: <link> sha256:<hex>
-  --*-sha256     the sha256 of the file's bytes, 64 lower-case hex digits
+  --zip-sha256   the sha256 of the zip's bytes, 64 lower-case hex digits
 
-The two lines go after the text, the zip's first. A text that has such a line
-of its own, or leaves a code fence open, is refused.
+The zip's line goes after the text. A text that has such a line of its own,
+or leaves a code fence open, is refused.
 
 It prints one line:
 

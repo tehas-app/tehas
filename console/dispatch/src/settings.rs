@@ -68,8 +68,6 @@ pub struct Settings {
     /// TEHAS_DRIVER=lean: a start no driver label chose runs lean, and
     /// `tehas:classic` is the choice against it.
     pub driver_default: Driver,
-    /// The `spec-pipe` feature is on: a start reads the issue's `Spec:` line.
-    pub spec_pipe: bool,
     /// The `lean` feature is on. Off, a start that would run lean starts
     /// nothing and says why; classic never runs in its place.
     pub lean: bool,
@@ -142,7 +140,6 @@ impl Settings {
             libexec: s("libexec", "/home/tehas/tehas/libexec"),
             keep_days: n("TEHAS_WORKSPACE_KEEP_DAYS", 7).max(1) as u64,
             driver_default: Driver::default_of(&s("TEHAS_DRIVER", "classic")),
-            spec_pipe: tehas_core::features::on_in("spec-pipe", &|k| s(k, "")),
             lean: tehas_core::features::on_in("lean", &|k| s(k, "")),
             outsource: crate::place::Rules::of(&|k| {
                 v.get(k).map_or(String::new(), |x| {
@@ -238,16 +235,6 @@ mod tests {
                 "TEHAS_ISSUE_TYPES is not valid: bug is no kind: expected improvement or prototype"
             )
         );
-    }
-
-    #[test]
-    fn the_spec_pipe_is_on_only_where_the_registry_lets_it_be() {
-        assert!(!Settings::parse(&json!({})).spec_pipe);
-        assert!(!Settings::parse(&json!({"TEHAS_SPEC_PIPE": "1"})).spec_pipe);
-        let tested = json!({"TEHAS_SPEC_PIPE": "1", "TEHAS_TEST_FEATURES": "spec-pipe"});
-        assert!(Settings::parse(&tested).spec_pipe);
-        let off = json!({"TEHAS_SPEC_PIPE": "0", "TEHAS_TEST_FEATURES": "spec-pipe"});
-        assert!(!Settings::parse(&off).spec_pipe);
     }
 
     #[test]

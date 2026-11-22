@@ -127,7 +127,7 @@ default, or an example where there is none.
 
 A switch takes `on` or `off`. `1` and `0` mean the same and keep working;
 any other value stops every command with 78. A switch of an optional feature
-that is still being built, `TEHAS_OUTSOURCE`, `TEHAS_SPEC_PIPE`,
+that is still being built, `TEHAS_OUTSOURCE`,
 `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOTYPE_FILE` and `TEHAS_LEAN` in this
 release, stops every command with 78 when it is `on`. So does a line that
 gives a value to one of such a feature's own settings, the `TEHAS_OUTSOURCE_*`
@@ -192,7 +192,6 @@ settings and `TEHAS_PROTOLAB_ZIP_HOSTS` in this release.
 | `TEHAS_OUTSOURCE_JOIN_TTL`     | `3600`                                   | How long in seconds a one-time invite code stays valid, for the host that has not joined with it yet. A positive whole number |
 | `TEHAS_OUTSOURCE_PROXY_ADDR`   | `127.0.0.1:8090`                         | The address and port the model proxy listens on. Never the dashboard's `TEHAS_HOST_ADDR` port. An address or host name and a port, as `192.0.2.7:8090`, else every command stops with 78 |
 | `TEHAS_OUTSOURCE_PROXY_IDLE`   | `900`                                    | Seconds a model stream may go silent before the proxy drops it. Must be longer than `TEHAS_OUTSOURCE_TIMEOUT`, else every command stops with 78 |
-| `TEHAS_SPEC_PIPE`              | `off`                                    | `on` reads the `Spec: <link> sha256:<64 hex digits>` line of an issue's body at a start: a line of another form, a link that is no file attached on GitHub, or two such lines start nothing, and the poll says why once. A start fetches the file and holds its bytes to that sha256, and its approval keeps the pin: other bytes start nothing either (see [the feature list](/features)). The cycle is given the spec, fetched again and held to the pin, and the approved title and body as files beside the images, and a cycle with a spec starts only on a sandbox image whose pi-rukas lists `issueSpec` (see [tehas work](/tools-work)). Anything but `on`, `off`, `1` or `0` stops every command with 78. The spec pipe is still being built in this release, so `on` stops every command with 78 too, naming `spec-pipe` |
 | `TEHAS_REFRESH_MAX_PER_PR`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
 | `TEHAS_REFRESH_SLOTS`          | `1`                                      | Refreshes side by side in a lane of their own, from 0 to 8. They do not count against `TEHAS_MAX_CYCLES`, and new cycles leave room in the slice for them (see [refreshes](/operating#refreshes)). 0 has refreshes share the cycles' slots |
 | `TEHAS_CLEAN_AFTER`            | `24`                                     | Hours a thing must have gone unused before `tehasbot clean` removes it: build output in a kept workspace, Docker's build cache and host scratch. A whole number of at least 1, else every command stops with 78 (see [tehasbot clean](/tools-clean#tehasbot-clean)) |

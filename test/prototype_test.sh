@@ -13,9 +13,7 @@ T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 cmd="$T_ROOT/bin/tehas prototype file"
 th=$T/home/tehas
 SUM_A=$(printf 'a%.0s' {1..64})
-SUM_B=$(printf 'b%.0s' {1..64})
 ATTACHED=https://github.com/user-attachments/files/7/proto.zip
-SPEC=https://github.com/user-attachments/files/8/spec.md
 
 gh_stub() {
   t_stub gh '
@@ -76,14 +74,13 @@ t_contains "$t_out" "tehas prototype file --title TEXT"
 t_case "on in a test build: the issue is opened and labelled by the person's own gh"
 reset
 printf 'A page to try the new menu.\n' >"$T/text.md"
-t_run "$cmd --title 'New menu' --body-file $T/text.md --zip $ATTACHED --zip-sha256 $SUM_A --spec $SPEC --spec-sha256 $SUM_B"
+t_run "$cmd --title 'New menu' --body-file $T/text.md --zip $ATTACHED --zip-sha256 $SUM_A"
 t_eq "$t_rc" 0
 t_eq "$t_out" "filed #42 as alice with tehas:prototype: https://github.com/acme/widget/issues/42"
 t_eq "$(t_calls gh | head -1)" "api user"
 t_contains "$(t_calls gh)" "api -X POST repos/acme/widget/issues -f title=New menu -f body=A page to try the new menu.
 
 Zip: $ATTACHED sha256:$SUM_A
-Spec: $SPEC sha256:$SUM_B
 "
 t_eq "$(t_calls gh | tail -1)" "api -X POST repos/acme/widget/issues/42/labels -f labels[]=tehas:prototype"
 t_eq "$(t_calls tokens)" ""
@@ -168,12 +165,8 @@ t_run "$cmd --title T --zip https://other.example.org/p.zip --zip-sha256 $SUM_A"
 t_eq "$t_rc" 64
 t_eq "$(t_calls gh)" ""
 
-t_case "bad words and a text that already has the line are 64 and call nothing"
+t_case "bad words are 64 and call nothing"
 reset
-printf 'Spec: mine\n' >"$T/text.md"
-t_run "$cmd --title T --body-file $T/text.md --spec $SPEC --spec-sha256 $SUM_B"
-t_eq "$t_rc" 64
-t_contains "$t_out" "the text has a \`Spec:\` line of its own"
 t_run "$cmd --title T --zip $ATTACHED"
 t_eq "$t_rc" 64
 t_run "$cmd"

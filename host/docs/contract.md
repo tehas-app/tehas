@@ -45,10 +45,6 @@ Public:
   which `tehas <part>` runs `tehas-<part>`, the words kept for the family,
   and the front asset of a release.
 
-[The pull request spec block](#the-pull-request-spec-block) is defined
-below as part of `spec-pipe`, a feature still being built: it becomes public
-with the release that ships that feature.
-
 Internal:
 
 - `tehasbot`, the units' command, but for the old name above;
@@ -137,7 +133,7 @@ Decided for 1.0 on 2026-11-18.
   `api/api.schema.json` requires only those. A name that was on `api/surface-1.0.txt`
   before its feature became building stays on it and keeps its meaning,
   though its row is marked `"building": true` and the release refuses it.
-- **The building features of 1.0 come in 1.1.** outsource, spec-pipe,
+- **The building features of 1.0 come in 1.1.** outsource,
   protolab-zip-url, prototype-file and lean are planned for 1.1
   (decided 2026-11-19). The names [listed for each below](#names-reserved-for-11) are
   the ones 1.1 adds to the frozen surface: no other feature takes them, and
@@ -254,68 +250,6 @@ major release. [Analytics](/analytics) has the
 schema; [`tehas analytics copy`](/api#tehas-analytics-copy) is how a program
 takes a consistent copy.
 
-## The pull request spec block
-
-Part of `spec-pipe`, a feature still being built, so it is not part of the
-frozen surface until the release that ships it. A pull request built from an
-approved spec answers it with this block in its body, version 1:
-
-```
-<!-- tehas:spec v1 -->
-Spec: <link> sha256:<64 lower-case hex>
-- <id> met: <where>
-- <id> not met: <why>
-<!-- /tehas:spec -->
-```
-
-For example:
-
-```
-<!-- tehas:spec v1 -->
-Spec: https://github.com/user-attachments/files/123/spec.md sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
-- R1 met: src/search.rs, search() with tests in tests/search.rs
-- R2 not met: the export needs an API the backend does not have yet
-<!-- /tehas:spec -->
-```
-
-The rules (`spec_block` in `console/core/src/grammar.rs`):
-
-- The open line is exactly `<!-- tehas:spec v1 -->` and the close line exactly
-  `<!-- /tehas:spec -->`, each on a line of its own. Spaces around a line do
-  not count, and LF and CRLF line ends are both read.
-- Only lines outside fenced code blocks count, as for the issue's `Spec:` line.
-  A block quoted inside a fence is text.
-- The first line inside that is not blank is the `Spec:` line, in the form of
-  the issue's: the link of the spec, not its file name, and the sha256 of the
-  manifest's `spec` entry.
-- One or more requirement lines follow, blank lines allowed between them:
-  `- <id> met: <text>` or `- <id> not met: <text>`. A line splits at its first
-  `:`. What comes before must end in ` not met` or ` met`, and what precedes
-  that is the id. The id is not empty and holds no `:` and no backtick. The
-  text is not empty.
-- The id is the spec's own requirement id, such as `R1` or `FR-3`. A spec
-  with no ids uses the text of each top heading instead, without the `#`s and
-  any `:`.
-
-A body with no block has none. A body tehas cannot read: no close line, a
-second block, an open line of another version (named) or one that starts
-`<!-- tehas:spec v` and is not exactly the open line, a missing or malformed
-`Spec:` line, a line inside of neither form, no requirement line, or an id
-named twice. The manifest's `spec` entry says in `block` which version the
-cycle writes.
-
-What tehas checks (`spec_answered`, and the cycle's report): with the feature
-on, a start not run by hand whose approval pins a spec, a pull request waits
-only for a merge when its body holds one block tehas can read and the block's
-`Spec:` line names the sha256 of that pin. The link is not compared. A body
-with no block, a block of another sha256 or one tehas cannot read parks the
-issue with `needs-human-attention` and the park reason `spec-block`; so does an
-approval that cannot be read. The pull request stays open and gets no
-comment.
-
-The lines are for the person who reviews. This block is not lean's `pi-spec v1`
-block, which goes in an issue body.
-
 ## Features still being built
 
 A feature is `building` or `shipped` in a release (`console/core/src/features.rs`).
@@ -346,9 +280,8 @@ already and keep their meaning in 1.0.
 | Feature | Settings | Commands | Fields, tools and text | Labels | Programs and units |
 | --- | --- | --- | --- | --- | --- |
 | outsource | `TEHAS_OUTSOURCE` and `TEHAS_OUTSOURCE_TIMEOUT`, `_GRACE`, `_RETRIES`, `_REST`, `_REPOS`, `_CONTRACTORS`, `_JOIN_TTL`, `_PROXY_ADDR`, `_PROXY_IDLE` | `tehas outsource invite [--name NAME]`, `list`, `status`, `revoke <contractor>`, `drain <contractor>`, each with `--json` | `contractors` in `tehas status --json` (`api/status.outsourced.json`), the MCP tool `factory_contractors`, the job channel `/outsource/v1/<call>`, the column `runs.contractor_id` of `analytics.db` (frozen) | none | `tehas-proxy`, `tehas-contractor`, `tehas-outsource-proxy.service` |
-| spec-pipe | `TEHAS_SPEC_PIPE` | none | the issue line `Spec: <link> sha256:<hex>`, [the pull request spec block](#the-pull-request-spec-block) version 1, the cycle's `spec` and `approved.json` and their manifest keys `spec` and `approvedText`, the runner capability `issueSpec` | none | none |
 | protolab-zip-url | `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOLAB_ZIP_HOSTS` | none | the ticket line `Zip: <address> sha256:<hex>` | `tehas:prototype` (frozen) | none |
-| prototype-file | `TEHAS_PROTOTYPE_FILE` | `tehas prototype file` with `--title`, `--body-file`, `--spec`, `--spec-sha256`, `--zip`, `--zip-sha256` | none | `tehas:prototype` (frozen) | none |
+| prototype-file | `TEHAS_PROTOTYPE_FILE` | `tehas prototype file` with `--title`, `--body-file`, `--zip`, `--zip-sha256` | none | `tehas:prototype` (frozen) | none |
 | lean | `TEHAS_LEAN`, and the word `lean` of `TEHAS_DRIVER` (frozen) | `tehas work --driver lean` (the flag is frozen) | the issue's `pi-spec v1` block, the `driver` columns of `analytics.db` (frozen) | `tehas:lean`, `tehas:classic` (frozen) | none |
 
 Each feature's name is its key in `flags` and the word 1.1 appends to
@@ -378,25 +311,6 @@ Building, planned for 2.1. Off by default; `TEHAS_OUTSOURCE=on` stops every comm
   its meaning.
 
 [Outsource](/outsource) says what the feature does once it ships.
-
-### spec-pipe
-
-Building, planned for 1.1. Off by default; `TEHAS_SPEC_PIPE=on` stops every command with exit
-78 and says `spec-pipe` is still being built.
-
-- `tehas api --json` has `"spec-pipe": false` in `flags`, and no word
-  `spec-pipe` in `features`.
-- The poll asks an issue's body nothing more: a `Spec:` line is text, and a
-  body with one starts as any other.
-- A start fetches no spec and its approval keeps no pin. The approval record
-  in the state store has room for one, which is internal.
-- A cycle is given no `spec` and no `approved.json`, and its manifest names
-  neither.
-- No pull request is checked for a spec block: a handoff waits for a merge as
-  before.
-- No command, no label, no `--json` field, no MCP tool.
-
-[tehas work](/tools-work) says what the feature gives a cycle once it ships.
 
 ### protolab-zip-url
 
