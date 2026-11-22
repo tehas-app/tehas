@@ -34,7 +34,8 @@
     "status-previews",
     "wake",
     "start-reasons",
-    "blockers"
+    "blockers",
+    "answer"
   ],
   "flags": {
     "outsource": false,
