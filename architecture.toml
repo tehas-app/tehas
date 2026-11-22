@@ -35,8 +35,8 @@ pattern = '"gh"|\bgh (api|pr|issue|repo|release|run|label|auth|search|workflow|s
 files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh", "host/systemd/*"]
 allowed = ["console/core/src/forge.rs", "console/core/src/forge/**"]
 comment = "//"
-max = 404
-why = "Re-measured at T0's follow-up, with tests in files counted: dispatch 207, cycle 67, the console 62, ops 34, core 13, store 11, mcp and xtask 4 each, the rest 1 or 2. 255 are in test files, which T1 moves onto the ports' fakes. The security shims that decide whether a gh call writes are among the rest: whether they stay separate is the owner's (T4), and those that stay become a written floor. T15's port of the top snapshot shell tests adds 1: the short name \"gh\" of a process in a fixture of /proc, a false positive that T4/T7 remove by narrowing the check to the adapter's paths."
+max = 406
+why = "Re-measured at T0's follow-up, with tests in files counted: dispatch 207, cycle 67, the console 62, ops 34, core 13, store 11, mcp and xtask 4 each, the rest 1 or 2. 255 are in test files, which T1 moves onto the ports' fakes. The security shims that decide whether a gh call writes are among the rest: whether they stay separate is the owner's (T4), and those that stay become a written floor. T15's port of the top snapshot shell tests adds 1: the short name \"gh\" of a process in a fixture of /proc, a false positive that T4/T7 remove by narrowing the check to the adapter's paths. T15's port of test/analytics_cmd_test.sh adds 2: console/tests/analytics_cmd.rs names gh in the list of tools it stubs to fail and checks were never called, as the shell's loop did without the name, so it runs no gh and is a false positive until T1 moves the test onto the ports' fakes."
 
 [[check]]
 id = "label-words"
@@ -142,5 +142,5 @@ pattern = 't_stub gh\b|"gh"|\bgh (api|pr|issue|repo|release|run|label|search)\b'
 files = ["test/**/*.sh", "console/**/tests/**", "console/**/tests.rs", "console/**/*_tests.rs"]
 allowed = ["console/core/src/forge/**"]
 comment = "#"
-max = 414
-why = "The map at T0: dispatch's tests 191, the shell tests of test/ 123 (84 of them t_stub gh), cycle 45, the console 31, store 17, core, mcp 4 each, ops 2, analytics, attach 1 each. T1 moves each crate's tests onto the ports' fakes, with the same answers, before its calls move; the forge's own pins stay. T15's port of the top snapshot shell tests moves 1 from test/ into Rust, so the count holds: the short name \"gh\" of a process in a fixture of /proc, a false positive that T4/T7 remove by narrowing the check to the adapter's paths."
+max = 416
+why = "The map at T0: dispatch's tests 191, the shell tests of test/ 123 (84 of them t_stub gh), cycle 45, the console 31, store 17, core, mcp 4 each, ops 2, analytics, attach 1 each. T1 moves each crate's tests onto the ports' fakes, with the same answers, before its calls move; the forge's own pins stay. T15's port of the top snapshot shell tests moves 1 from test/ into Rust, so the count holds: the short name \"gh\" of a process in a fixture of /proc, a false positive that T4/T7 remove by narrowing the check to the adapter's paths. T15's port of test/analytics_cmd_test.sh adds 2: console/tests/analytics_cmd.rs names gh in the list of tools it stubs to fail and checks were never called, as the shell's loop did without the name, so it runs no gh and is a false positive until T1 moves the test onto the ports' fakes."
