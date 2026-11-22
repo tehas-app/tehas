@@ -474,8 +474,8 @@ refactor step. The program manager is the session tehas-2d.
 2. **pi-rukas.** The pin carries the fixes of trail-openers/pi-rukas
    #2493: #2494 (several test directories), #2495 (no project-test check
    without a JUnit report), #2480 (a killed lean job keeps running),
-   #2403 (the lens review is not recorded) and #2501 (the rest of
-   #2410). They come in 0.15.x. Each release candidate checks this as it
+   #2403 (the lens review is not recorded), #2501 (the rest of #2410)
+   and #2511 (a typed setup refusal, for part 4). They come in 0.15.x. Each release candidate checks this as it
    checks the pin.
 3. **Ship it.** `lean` in `console/core/src/features.rs` moves to
    shipped, and `host/docs/features.md` marks it proven with the dates
@@ -483,14 +483,19 @@ refactor step. The program manager is the session tehas-2d.
 4. **The default.** With no `TEHAS_DRIVER`, a start runs lean. An issue
    with no `pi-spec v1` block runs classic, as under `TEHAS_DRIVER=lean`
    today. `TEHAS_DRIVER=classic` and `tehas:classic` keep classic.
-   When lean is only the default and refuses the repository's setup at
-   `ready` (runner exit 11, before any model runs), the same cycle runs
-   classic. The issue gets one comment with lean's reason and a link to
-   the settings in `host/docs/new-project.md`, and `approval.driver`
-   records classic with the reason. A `tehas:lean` label or an explicit
+   When lean is only the default and its result says `failure.kind` is
+   `setup` (trail-openers/pi-rukas#2511: a refusal of the repository's
+   setup at `ready`, before any model runs, never for a cause in the
+   issue, with nothing posted), the same cycle runs classic. An exit
+   status is not the key: lean's exit 11 also stops an issue with no
+   spec. The issue gets one comment with lean's reason and a link to the
+   settings in `host/docs/new-project.md`, and `approval.driver` records
+   classic with the reason. A `tehas:lean` label or an explicit
    `TEHAS_DRIVER=lean` parks as today, and any other lean failure falls
    back to nothing. tehas reads no `.pi/work.json` itself: lean's refusal
-   is the one rule.
+   is the one rule. #2511 blocks this part only. If it is not in by the
+   trio's readiness review, 2.0.0 ships lean available but not the
+   default, and the owner decides.
 5. **The contract.** T9 lists the new default in "Changed in 2.0", with
    its readers, and the changelog's adopter action: write `pi-spec v1`
    blocks and `.pi/work.json`, or set `TEHAS_DRIVER=classic`.
