@@ -634,6 +634,8 @@ trio are supported, so 2.0 carries no backwards compatibility.
     Panels, the Business page, Energy use, the Host panel (`tehas top`
     stays), the Review loop, the Product wiki, and a cycle's describe,
     text files, zips and comments (images stay).
+  Outsource leaving 2.0 supersedes any plan of the manual for it in 2.1:
+  T16 corrects the manual's words where they say so.
   Each has its line in T9's "Changed in 2.0", its settings handled by the
   configuration migration, and `cargo xtask config-check` covers them.
 
@@ -773,4 +775,8 @@ of main, each grade.
 | 2026-11-22 | T13: the pin is pi-rukas 0.15.0; a crash is no setup refusal, and the fallback clears lean's state of the issue | #2832 |
 | 2026-11-22 | T14: the stage stays as Idea, an open ticket not in line; the Protolab parked, with a record (the owner) | #2835 |
 | 2026-11-22 | T16: clean house, no backwards compatibility, the store keeps only the 1.4.x migration, no renames table in T9 (the owner) | #2837 |
+| 2026-11-22 | T3.6 to T3.12: issue view, park and question records, the work record, the edit record, comments, the answer and park note, the approval record, the slice read, typed and ported onto `tehas answer` | #2810, #2811, #2812, #2814, #2815, #2825, #2831, #2833 |
+| 2026-11-22 | T12.1c and T12.1d: the feature word `answer`, and `tehas question` | #2813, #2830 |
+| 2026-11-22 | T4: the ports spec, read and accepted in writing by the consumer that runs many factories | #2828 |
+| 2026-11-22 | Port main @ abc4afca (a checkout follows pi-rukas's 0.15 line, #2834) | #2836 |
 | 2026-11-22 | T16: every row of the unused features approved; classic stays a driver; T10's rename to tehas-factory confirmed (the owner) | this pull request |
