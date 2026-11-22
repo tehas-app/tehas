@@ -83,7 +83,7 @@ proxy sends each name on with that `Host`. In a Caddy that already serves
 `*.example.org`:
 
 ```
-@demo header_regexp demo Host ^(uat-[0-9]+|uat-main|lab|lab-[0-9]+)-demo\.example\.org$
+@demo header_regexp demo Host ^(uat-[0-9]+|uat-main|lab|item-[0-9]+)-demo\.example\.org$
 handle @demo {
     reverse_proxy <host>:8081 {
         header_up Host {re.demo.1}.demo.example.org
@@ -157,7 +157,7 @@ address in place of `<address>`:
 ```
 *.tehas.app {
     tls /etc/caddy/certs/origin.pem /etc/caddy/certs/origin.key
-    @edge header_regexp Host ^(lab|lab-[0-9]+|uat-[0-9]+|uat-main)\.tehas\.app$
+    @edge header_regexp Host ^(lab|item-[0-9]+|uat-[0-9]+|uat-main)\.tehas\.app$
     handle @edge {
         reverse_proxy <address>:8081
     }
@@ -167,7 +167,7 @@ address in place of `<address>`:
 }
 ```
 
-Caddy takes a wildcard as a whole label only, so `lab-*` cannot be a site
+Caddy takes a wildcard as a whole label only, so `item-*` cannot be a site
 address; the matcher picks the names. The sites `tehas.app` and
 `www.tehas.app` are more specific and are not touched. The Host header is
 passed on as it is, which is what the router picks by.
@@ -410,7 +410,7 @@ reach port 8095.
 The proxy's matcher of step 4 names each kind of name by hand. Add the two:
 
 ```
-@edge header_regexp Host ^(lab|lab-[0-9]+|uat-[0-9]+|uat-main|plugin-[a-z][a-z0-9]*|plugins)\.tehas\.app$
+@edge header_regexp Host ^(lab|item-[0-9]+|uat-[0-9]+|uat-main|plugin-[a-z][a-z0-9]*|plugins)\.tehas\.app$
 ```
 
 With `TEHAS_EDGE_ONE_LEVEL=on`, send the plugins' names on with their `Host`

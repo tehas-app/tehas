@@ -294,7 +294,7 @@ t_case "the pages take an address only with a number of one to nine digits and n
 # A dot or a dash after the label: TEHAS_EDGE_ONE_LEVEL names uat-12-demo.example.org.
 t_eq "$(grep -c -F 'const ADDRESS = /^https:\/\/uat-([1-9][0-9]{0,8}|main)[.-][a-z0-9.-]+\/$/;' "$T_ROOT/host/fun/factory/tehas-factory-previews.model.js")" 1
 t_eq "$(grep -c -F '/^https:\/\/item-[1-9][0-9]{0,8}[.-][a-z0-9.-]+\/$/.test(t.address)' "$T_ROOT/host/fun/game-view.js")" 1
-t_eq "$(grep -c -e 'uat-\[0-9\]+' -e 'lab-\[0-9\]+' "$T_ROOT/host/fun/factory/tehas-factory-previews.model.js" "$T_ROOT/host/fun/game-view.js" | grep -c -v ':0$')" 0
+t_eq "$(grep -c -e 'uat-\[0-9\]+' -e 'item-\[0-9\]+' "$T_ROOT/host/fun/factory/tehas-factory-previews.model.js" "$T_ROOT/host/fun/game-view.js" | grep -c -v ':0$')" 0
 
 # The dashboard's files are compressed on their way out and cached by the
 # browser: the scripts and stylesheets under a name that holds their own bytes,
