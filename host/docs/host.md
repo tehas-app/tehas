@@ -2235,7 +2235,7 @@ What a member of the group gets, and does not:
 | The environment                  | `sudo` clears it. `dev-login` loads the tehas user's own, as the timers do. `TERM` and `COLORTERM` are kept |
 
 `gpasswd -d alice tehas` takes an account out. `test/login_test.sh` and
-`test/bootstrap_test.sh` hold the rule and the two scripts to this.
+`test/bootstrap_system_test.sh` hold the rule and the two scripts to this.
 
 `/usr/local/bin/tehas` is a copy of `host/login/tehas`, so an update of the
 platform can leave the accounts typing an older command. No tehas command runs as

@@ -429,7 +429,7 @@ beside it, so a change to that library, or to a crate that depends on it, is a
 change to all of them. A changelog fragment, a path under
 `changelog.d/`, runs the test files that name `changelog.d`.
 The heavy integration files, `test/install_*`, `test/update_*`,
-`test/pack_release_test.sh` and `test/bootstrap_test.sh`, run only when the
+`test/bootstrap_*` and `test/pack_release_test.sh`, run only when the
 change touches what they test directly, and a `note` line names the ones left
 to the whole gate. A change to `test/lib.sh`, `scripts/test.sh`,
 `scripts/verify.sh` or the selector (`scripts/select-tests.sh` and
