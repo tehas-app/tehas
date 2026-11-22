@@ -226,6 +226,7 @@ mod tests {
         Host {
             home: home.to_path_buf(),
             image: String::new(),
+            from: String::new(),
         }
     }
 
