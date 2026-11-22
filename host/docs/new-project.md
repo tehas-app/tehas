@@ -168,6 +168,12 @@ changes it (AGENTS.md rule 7).
   shell characters.
 - `verify.testDir` and `verify.testGlob` come as a pair or not at all. With
   them, lean's tests go where the project's CI runs them.
+- `verify.roster` runs the project's own tests, at the run's head and at its
+  base, and writes a JUnit report to `{report}` for the tree `{dir}`. Lean
+  stops a run that makes a test fail that passed at the base. Without the
+  setting lean builds a pytest command from `verify.test`, so a project with
+  another runner sets it. Name a test the same in any checkout: lean matches
+  head and base by `classname::name`.
 - `budgets` sets the turns, tokens and minutes of each step.
 
 A file that does not parse, or holds a field lean refuses, stops the run: it is

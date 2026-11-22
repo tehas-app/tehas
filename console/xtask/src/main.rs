@@ -11,6 +11,8 @@
 //!   xtask polyfills --script <path> <argument>...
 //!   xtask test --root <dir> [path...]
 //!   xtask kani-shard <kani-list.json> <index> <count>
+//!   xtask lean-test --root <dir> <file>
+//!   xtask lean-roster --root <dir> --report <file>
 //!
 //! select-tests is scripts/select-tests.sh: src/select.rs says what it prints.
 //! pack-release is scripts/pack-release.sh, whose header (the --script) is its
@@ -24,7 +26,8 @@
 //! --script. test
 //! is scripts/test.sh: src/run.rs. Each check of its pool runs as
 //! `xtask test-task`, a process of this program's own. kani-shard is the
-//! release gate's proofs job: src/kani.rs.
+//! release gate's proofs job: src/kani.rs. lean-test and lean-roster are the
+//! test commands of .pi/work.json: src/lean.rs.
 //!
 //! Exit: what the task says; 64 a task or an argument it does not know;
 //! kani-shard 65 a list or a shard it refuses.
@@ -35,6 +38,7 @@ use std::process::ExitCode;
 mod changelog;
 mod deploy;
 mod kani;
+mod lean;
 mod notes;
 mod pack;
 mod polyfills;
@@ -59,6 +63,8 @@ fn main() -> ExitCode {
         Some("polyfills") => polyfills(&args[1..]),
         Some("test") => test(&args[1..]),
         Some("kani-shard") => kani_shard(&args[1..]),
+        Some("lean-test") => lean_test(&args[1..]),
+        Some("lean-roster") => lean_roster(&args[1..]),
         _ => {
             eprintln!("xtask: usage: xtask select-tests --root <dir> <path>...");
             eprintln!("       xtask pack-release --script <path> <argument>...");
@@ -69,9 +75,66 @@ fn main() -> ExitCode {
             eprintln!("       xtask polyfills --script <path> <argument>...");
             eprintln!("       xtask test --root <dir> [path...]");
             eprintln!("       xtask kani-shard <kani-list.json> <index> <count>");
+            eprintln!("       xtask lean-test --root <dir> <file>");
+            eprintln!("       xtask lean-roster --root <dir> --report <file>");
             ExitCode::from(64)
         }
     }
+}
+
+fn workspace(root: &std::path::Path) -> Option<Vec<lean::Target>> {
+    let all = select::test_targets(&select::cargo_metadata(root)?)?;
+    Some(
+        all.into_iter()
+            .map(|(package, target, file)| lean::Target {
+                package,
+                target,
+                file,
+            })
+            .collect(),
+    )
+}
+
+fn lean_test(args: &[String]) -> ExitCode {
+    let [flag, root, file] = args else {
+        eprintln!("xtask: usage: xtask lean-test --root <dir> <file>");
+        return ExitCode::from(64);
+    };
+    if flag != "--root" {
+        eprintln!("xtask: usage: xtask lean-test --root <dir> <file>");
+        return ExitCode::from(64);
+    }
+    let root = PathBuf::from(root);
+    let Some(all) = workspace(&root) else {
+        eprintln!(
+            "xtask: lean-test: cargo metadata failed in {}",
+            root.display()
+        );
+        return ExitCode::from(1);
+    };
+    let prefix = format!("{}/", root.display());
+    let file = file.strip_prefix(&prefix).unwrap_or(file);
+    ExitCode::from(lean::run_test(&root, &all, file))
+}
+
+fn lean_roster(args: &[String]) -> ExitCode {
+    let [f1, root, f2, report] = args else {
+        eprintln!("xtask: usage: xtask lean-roster --root <dir> --report <file>");
+        return ExitCode::from(64);
+    };
+    if f1 != "--root" || f2 != "--report" {
+        eprintln!("xtask: usage: xtask lean-roster --root <dir> --report <file>");
+        return ExitCode::from(64);
+    }
+    let root = PathBuf::from(root);
+    let Some(all) = workspace(&root) else {
+        eprintln!(
+            "xtask: lean-roster: cargo metadata failed in {}",
+            root.display()
+        );
+        return ExitCode::from(2);
+    };
+    ExitCode::from(lean::run_roster(&root, &all, std::path::Path::new(report)))
 }
 
 fn select_tests(args: &[String]) -> ExitCode {
