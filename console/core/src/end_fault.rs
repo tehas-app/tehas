@@ -16,6 +16,7 @@
 //! A handoff comment that failed is recorded, but the poll finishes nothing for
 //! it: the pull request is open or there is no change to deliver.
 
+use crate::home::Home;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -69,7 +70,7 @@ pub enum Due {
 
 /// The file of `issue` under a tehas home.
 pub fn path(home: &Path, issue: u64) -> PathBuf {
-    home.join(format!("state/cycles/{issue}.end-failed.json"))
+    Home::new(home).cycle_note(issue, "end-failed.json")
 }
 
 fn one_line(t: &str) -> String {
@@ -225,7 +226,7 @@ pub fn read(home: &Path, issue: u64) -> Option<EndFault> {
 
 /// Every record that reads, by issue.
 pub fn all(home: &Path) -> Vec<EndFault> {
-    let mut out: Vec<EndFault> = fs::read_dir(home.join("state/cycles"))
+    let mut out: Vec<EndFault> = fs::read_dir(Home::new(home).cycles_dir())
         .into_iter()
         .flatten()
         .flatten()
@@ -449,8 +450,8 @@ mod tests {
     fn no_record_is_left_where_state_cycles_is_no_directory() {
         let dir = crate::testdir::TestDir::new("end-fault-no-dir");
         let home = dir.path();
-        fs::create_dir_all(home.join("state")).unwrap();
-        fs::write(home.join("state/cycles"), "").unwrap();
+        fs::create_dir_all(Home::new(home).state_dir()).unwrap();
+        fs::write(Home::new(home).cycles_dir(), "").unwrap();
         assert_eq!(remove(home, 7), Ok(()));
         assert!(write(home, &rec("push", "HTTP 502")).is_err());
     }

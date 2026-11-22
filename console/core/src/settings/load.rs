@@ -32,6 +32,7 @@ use super::renamed;
 use super::rules::{self, When, HOST, ROLES, SWITCH_WORDS, TABLE};
 use crate::driver::Driver;
 use crate::features;
+use crate::home::{Home, State};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The names of the two families the environment may give: the home, the
@@ -401,7 +402,10 @@ fn tokens(vars: &Vars, host: &dyn Host, instance: &[u8]) -> Result<(), String> {
 /// millwright. Without the file neither is set. TEHAS_MILLWRIGHT_APP, when the
 /// instance sets it, is the millwright, with or without the file.
 fn app_login(vars: &mut Vars, host: &mut dyn Host) {
-    let path = format!("{}/state/github/login", vars.text("TEHAS_HOME"));
+    let path = Home::new(vars.text("TEHAS_HOME"))
+        .state(State::BotLogin)
+        .display()
+        .to_string();
     if let Some(login) = host.read(&path).as_deref().and_then(super::login_of) {
         vars.set("TEHAS_BOT_LOGIN", login.clone());
         vars.set("TEHAS_MILLWRIGHT_LOGIN", login);

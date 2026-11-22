@@ -13,6 +13,7 @@
 //!
 //! Every list here is docker options, one word each.
 
+use crate::home::TokenDir;
 use crate::models::{self, ModelFile};
 use crate::plugin;
 use crate::slice::{self, Load, Probe, Usable};
@@ -114,8 +115,8 @@ impl Kind {
     // directory of their own. The app's own token goes to no container.
     fn app_dir(self) -> Option<&'static str> {
         match self {
-            Kind::Turn | Kind::Session => Some("state/github-session"),
-            Kind::Cycle => Some("state/github-cycle"),
+            Kind::Turn | Kind::Session => Some(TokenDir::Session.relative()),
+            Kind::Cycle => Some(TokenDir::Cycle.relative()),
             Kind::Review | Kind::Wiki => None,
         }
     }
@@ -144,7 +145,7 @@ pub fn give_cycle_token(cmd: &mut Command) -> &mut Command {
 /// its push check is refused (Part 1), the poll holds starts while it is young
 /// (Part 2), and the poll's own re-probe and `tehasbot health` read it (Part 3).
 /// Every reader and writer of the file names it here.
-pub const PUSH_FAULT: &str = "state/push-fault.json";
+pub const PUSH_FAULT: &str = crate::home::State::PushFault.relative();
 
 /// A line of git's with the host's secrets replaced. The mask is a feature of
 /// `tehas_core`: a build without it masks nothing.

@@ -3,6 +3,7 @@
 //! is left of `tehas_require` is whether the name is set: a command that needs
 //! a setting stops with 78 before it does anything else.
 
+use crate::home::{Home, State};
 use std::env;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -90,7 +91,7 @@ pub fn login_of(text: &[u8]) -> Option<String> {
 /// The login of the app the factory acts as, which the lookup of the app's
 /// installation wrote under `home`; None before it has.
 pub fn bot_login(home: &Path) -> Option<String> {
-    login_of(&std::fs::read(home.join("state/github/login")).ok()?)
+    login_of(&std::fs::read(Home::new(home).state(State::BotLogin)).ok()?)
 }
 
 /// tehas_checkout: the product checkout is a clone of TEHAS_REPO. Err is the

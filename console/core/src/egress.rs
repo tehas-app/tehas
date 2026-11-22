@@ -16,6 +16,7 @@
 //! binary or its image changed. Without `TEHAS_EGRESS=1` nothing here runs and
 //! a container has Docker's default bridge, as before.
 
+use crate::home::{Home, State};
 use crate::hostnet;
 use crate::models::ModelFile;
 use crate::sandbox;
@@ -404,7 +405,10 @@ pub fn ensure(aliases: &str) -> Result<(), String> {
         ),
         binary,
     };
-    let path = format!("{home}/state/egress.lock");
+    let path = Home::new(&home)
+        .state(State::EgressLock)
+        .display()
+        .to_string();
     let lock = fs::OpenOptions::new()
         .create(true)
         .truncate(false)

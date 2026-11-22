@@ -8,6 +8,7 @@
 //! the program that failed its call. The file is cut back to the lines of the
 //! last `WINDOW` once it is over `KEEP_BYTES`.
 
+use crate::home::{Home, State};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -23,7 +24,7 @@ const LINE_MAX: usize = 300;
 
 /// The file under a tehas home.
 pub fn path(home: &Path) -> PathBuf {
-    home.join("state/github-failures")
+    Home::new(home).state(State::GithubFailures)
 }
 
 /// One line of a log made safe for the file: no control character, so no
@@ -102,7 +103,7 @@ mod tests {
 
     fn home(name: &str) -> TestDir {
         let d = TestDir::new(&format!("github-fails-{name}"));
-        fs::create_dir_all(d.join("state")).unwrap();
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
         d
     }
 

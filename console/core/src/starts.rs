@@ -7,12 +7,13 @@
 //! reason is a code and a line: the codes are an open list, and a reader
 //! takes a code it does not know as a hold it cannot name.
 
+use crate::home::{Home, State};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 /// Where the record is kept under the home.
 pub fn path(home: &Path) -> PathBuf {
-    home.join("state/starts.json")
+    Home::new(home).state(State::Starts)
 }
 
 /// The codes of a reason. The list only grows; `OTHER` is any hold the poll
@@ -239,7 +240,7 @@ mod tests {
     #[test]
     fn a_missing_file_is_none_and_a_broken_one_is_unreadable() {
         let home = std::env::temp_dir().join(format!("tehas-starts-{}", std::process::id()));
-        std::fs::create_dir_all(home.join("state")).unwrap();
+        std::fs::create_dir_all(Home::new(&home).state_dir()).unwrap();
         assert_eq!(read(&home), Ok(None));
         std::fs::write(path(&home), "{\"at\": \"t\"").unwrap();
         assert_eq!(read(&home), Err(Unreadable));

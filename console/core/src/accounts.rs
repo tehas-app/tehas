@@ -19,7 +19,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 /// Where the pairs are, under the instance's home.
-pub const FILE: &str = "state/account-ids";
+pub const FILE: &str = crate::home::State::AccountIds.relative();
 
 /// The bound of the file: a list of logins, nothing near it.
 const BOUND: u64 = 64 * 1024;
