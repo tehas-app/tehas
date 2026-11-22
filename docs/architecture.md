@@ -155,6 +155,7 @@ Counts T15's ports raised above their fork value. Each goes back down in the ste
 | github-rest | 840 | 860 | #2859 | tehas's own --json flag, and tehas's JSON keys copied from GitHub's names | T4/T7: the check narrows to the adapter's paths, or the keys are renamed |
 | gh-argv | 408 | 409 | #2859 | a fixture's process named gh | T4 |
 | raw-statuses | 259 | 260 | #2859 | a fixture's 404 from the docs server | T4/T7 |
+| github-rest | 860 | 870 | #2860 | pi-rukas's runner flag --json, written as the tests pass it | T4/T7: the check narrows to the adapter's paths |
 
 ## Grades
 
