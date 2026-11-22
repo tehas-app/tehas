@@ -414,21 +414,13 @@ for name in TEHAS_REVIEW TEHAS_REVIEW_REPO; do
   t_contains "$t_out" "$name is no longer read: the review loop left core in 2.0 and returns as a plugin; remove it from the instance"
 done
 
-t_case "the millwright may retry twice and answer three planning questions by default"
+t_case "the millwright may answer three planning questions by default"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && set -u && echo \"[\$TEHAS_MILLWRIGHT_MAX_RETRIES][\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
-t_eq "$t_out" "[2][3]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_MAX_RETRIES=3 TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=1 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_MAX_RETRIES][\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
-t_eq "$t_out" "[3][1]"
-
-t_case "the millwright's feed is off unless the instance turns it on, two at once by default"
-printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && set -u && echo \"[\$TEHAS_MILLWRIGHT_FEED][\$TEHAS_MILLWRIGHT_MAX_FEEDS]\""
-t_eq "$t_out" "[0][2]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_FEED=1 TEHAS_MILLWRIGHT_MAX_FEEDS=4 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_FEED][\$TEHAS_MILLWRIGHT_MAX_FEEDS]\""
-t_eq "$t_out" "[1][4]"
+t_run "$load && set -u && echo \"[\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
+t_eq "$t_out" "[3]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
+t_eq "$t_out" "[1]"
 
 t_case "the millwright's epics are off unless the instance turns them on"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -568,8 +560,7 @@ done
 # Every count: a digit string no comparison can hold is refused by its length,
 # so a long number stops the load rather than reach the dispatcher or tehas limit.
 for name in TEHAS_WORK_TIMEOUT TEHAS_WORKSTREAMS TEHAS_MAX_CYCLES TEHAS_VERIFY_TIMEOUT \
-  TEHAS_CHILD_TIMEOUT TEHAS_WORK_STALL TEHAS_PLAN_TIMEOUT TEHAS_SIZE_MAX_FILES TEHAS_MAX_AWAITING \
-  TEHAS_MILLWRIGHT_MAX_RETRIES; do
+  TEHAS_CHILD_TIMEOUT TEHAS_WORK_STALL TEHAS_PLAN_TIMEOUT TEHAS_SIZE_MAX_FILES TEHAS_MAX_AWAITING; do
   t_case "loading rejects a $name of 20 digits"
   t_instance "${T_MINIMAL[@]}" "$name=99999999999999999999"
   t_run "$load; echo rc=\$?"
@@ -581,9 +572,7 @@ t_instance "${T_MINIMAL[@]}" TEHAS_SIZE_MAX_FILES=999999999
 t_run "$load && echo \"[\$TEHAS_SIZE_MAX_FILES]\""
 t_eq "$t_out" "[999999999]"
 
-for bad in "TEHAS_MILLWRIGHT_MAX_RETRIES=0" "TEHAS_MILLWRIGHT_MAX_RETRIES=many" \
-  "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=0" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=-1" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=lots" \
-  "TEHAS_MILLWRIGHT_FEED=yes" "TEHAS_MILLWRIGHT_FEED=2" "TEHAS_MILLWRIGHT_MAX_FEEDS=0" "TEHAS_MILLWRIGHT_MAX_FEEDS=many" \
+for bad in "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=0" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=-1" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=lots" \
   "TEHAS_MILLWRIGHT_EPICS=yes" "TEHAS_MILLWRIGHT_EPICS=2"; do
   t_case "loading rejects $bad"
   t_instance "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'"
@@ -634,7 +623,7 @@ t_contains "$t_out" "rc=78"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "an old fixer name stops the load with 78 and names the new one"
-for old in TEHAS_FIXER_LOGIN=tehas-mill TEHAS_FIXER_MAX_RETRIES=3 TEHAS_FIXER_MAX_PLAN_ANSWERS=1 TEHAS_FIXER_LOGIN=; do
+for old in TEHAS_FIXER_LOGIN=tehas-mill TEHAS_FIXER_MAX_PLAN_ANSWERS=1 TEHAS_FIXER_LOGIN=; do
   t_case "loading rejects $old"
   printf '%s\n' "${T_MINIMAL[@]}" "$old" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"

@@ -57,8 +57,8 @@ pub const FIXER: &str = tehas_core::grammar::MILLWRIGHT_WORDS[1];
 pub const MILLWRIGHT_WORDS: [&str; 2] = tehas_core::grammar::MILLWRIGHT_WORDS;
 
 /// The keys `--input-file` may hold: what the cycle is given with the
-/// approval. Each list is a JSON array, `refresh_of` an object or null,
-/// `park_lifted` a `lifted_note` and `spec` a `spec_pin`; the readers check
+/// approval. Each list is a JSON array, `refresh_of` an object or null and
+/// `spec` a `spec_pin`; the readers check
 /// the entries. `driver` is
 /// written only when it is `DRIVER`: no driver means classic, which is every
 /// record written before it existed. `contractor` is the contractor the
@@ -82,20 +82,6 @@ pub fn spec_pin(v: &Value) -> bool {
                 .any(|b| b.is_ascii_whitespace() || b.is_ascii_control())
     });
     m.len() == 2 && link && v["sha256"].as_str().and_then(verbs::sha256).is_some()
-}
-
-/// The one note that lifted a park's hold off a start (#1130), as a
-/// `retry_context` entry has it: {source: "millwright:<id>", by, at, text}.
-pub fn lifted_note(v: &Value) -> bool {
-    let Value::Object(m) = v else {
-        return false;
-    };
-    let id = v["source"]
-        .as_str()
-        .and_then(|s| s.strip_prefix("millwright:"));
-    m.len() == 4
-        && ["by", "at", "text"].iter().all(|k| v[*k].is_string())
-        && id.is_some_and(|i| !i.is_empty() && i.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// The how of an approval `tehas start` records on the host (#1967): no GitHub
@@ -267,8 +253,6 @@ fn read_input(path: &Path, issue: i64) -> Result<String, Fail> {
             value.is_array()
         } else if key == "refresh_of" {
             value.is_object() || value.is_null()
-        } else if key == "park_lifted" {
-            lifted_note(value)
         } else if key == "driver" {
             value == DRIVER
         } else if key == "contractor" {
@@ -600,11 +584,8 @@ pub const EASY_KEPT: &str = "easy = 1 AND started_how = 'refresh'
                       WHERE h.issue = approvals.issue
                         AND h.attempt = approvals.started_by)";
 
-/// The starts on the base above `floor`, as two counts: the millwright's and
-/// the refreshes. One statement, because the two are read together; an old row
-/// still says `fixer`, so a millwright start is either word of the pair and
-/// both are summed. The words of each start are the ones it wrote on the approval
-/// it ran -- `started_by` and `started_how` -- so a record that ran its refreshes
+/// The refreshes started on the base above `floor`. The words of each start are
+/// the ones it wrote on the approval it ran -- `started_by` and `started_how` -- so a record that ran its refreshes
 /// keeps counting them after the keeping has deleted the rows they ran on (#1751).
 ///
 /// A start is an approval the dispatcher took: `cycle-start` names the row it ran on
@@ -613,34 +594,16 @@ pub const EASY_KEPT: &str = "easy = 1 AND started_how = 'refresh'
 /// store anything (#1751). It counts nowhere. Read as a refresh, it would answer the
 /// refreshes of a record that ran none as one, and the dispatcher drops a refresh
 /// whose record does not say how many there were.
-fn starts(c: &Connection, issue: i64, floor: i64) -> Result<(i64, i64), Fail> {
-    let mut millwright_starts = 0;
-    let mut refreshes = 0;
-    let mut q = c
-        .prepare(
-            "SELECT how, count(*) FROM approvals
-             WHERE issue = ?1
-               AND (used_by IS NOT NULL OR started_by IS NOT NULL)
-               AND (CASE WHEN used_by IS NOT NULL THEN used_by ELSE started_by END) > ?2
-               AND how IN (?3, ?4, 'refresh')
-             GROUP BY how",
-        )
-        .q()?;
-    let rows = q
-        .query_map(params![issue, floor, MILLWRIGHT, FIXER], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
-        })
-        .q()?;
-    for row in rows {
-        let (how, n) = row.q()?;
-        // A word the IN list does not admit counts nowhere.
-        match how.as_str() {
-            "refresh" => refreshes += n,
-            w if is_millwright(w) => millwright_starts += n,
-            _ => {}
-        }
-    }
-    Ok((millwright_starts, refreshes))
+fn refreshes(c: &Connection, issue: i64, floor: i64) -> Result<i64, Fail> {
+    c.query_row(
+        "SELECT count(*) FROM approvals
+         WHERE issue = ?1 AND how = 'refresh'
+           AND (used_by IS NOT NULL OR started_by IS NOT NULL)
+           AND (CASE WHEN used_by IS NOT NULL THEN used_by ELSE started_by END) > ?2",
+        params![issue, floor],
+        |r| r.get::<_, i64>(0),
+    )
+    .q()
 }
 
 /// Whether the one easy merge this approval is owed has been had: 1 when a start on
@@ -710,7 +673,7 @@ pub(crate) fn current(c: &Connection, issue: i64) -> Result<String, Fail> {
     // is gone by the time the next poll asks, and a record that forgot it would owe
     // the approval a second easy merge it never spent (#1751).
     let floor = base.as_ref().map_or(0, |b| b.4);
-    let (millwright_starts, refreshes) = starts(c, issue, floor)?;
+    let refreshes = refreshes(c, issue, floor)?;
     // Whether the base has had its one easy merge, read whether the approvals of the
     // starts still stand or the keeping has deleted them and left the mark behind,
     // which is the read #1751 is for.
@@ -730,10 +693,6 @@ pub(crate) fn current(c: &Connection, issue: i64) -> Result<String, Fail> {
             ("approval", unused),
             ("current", cur),
             ("rests_on", base),
-            ("millwright_starts", j(millwright_starts)),
-            // #686: the old key, the same number, until part 5 moves the
-            // shell's readers to the new one.
-            ("fixer_starts", j(millwright_starts)),
             ("refreshes", j(refreshes)),
             // Whether the one easy merge of this approval has been had: 1 when
             // a refresh start on it ran as one. The read the dispatcher asks
@@ -765,11 +724,11 @@ fn holds_nothing(v: &Value) -> Result<bool, Fail> {
 
 /// The approval of an approval-current answer as the dispatcher wrote
 /// `.approved.json`: its inputs, the driver it bound, and for a millwright's or
-/// a refresh start the approval it rests on and the starts counted on that. A
-/// refresh names the person's approval: its own `at` is when the dispatcher
-/// decided (D5). With `want`, only the approval that start used. The word
-/// `fixer` and its keys are #686's alias: the readers of the view have the old
-/// words until part 5.
+/// a refresh start the approval it rests on, and for a refresh the refreshes
+/// counted on that. A refresh names the person's approval: its own `at` is
+/// when the dispatcher decided (D5). With `want`, only the approval that start
+/// used. The word `fixer` is #686's alias: the readers of the view have the
+/// old word until part 5.
 pub fn view_of(answer: &Value, want: Option<i64>) -> Result<String, Fail> {
     let c = &answer["current"];
     if c.is_null() {
@@ -801,9 +760,6 @@ pub fn view_of(answer: &Value, want: Option<i64>) -> Result<String, Fail> {
             ("body_sha256", base["body_sha256"].to_string()),
         ])
     });
-    let starts = verbs::given(&answer["millwright_starts"])
-        .or(verbs::given(&answer["fixer_starts"]))
-        .map_or("0".to_string(), Value::to_string);
     let how = match c["how"].as_str() {
         Some(MILLWRIGHT) => FIXER,
         Some(how) => how,
@@ -835,15 +791,11 @@ pub fn view_of(answer: &Value, want: Option<i64>) -> Result<String, Fail> {
     if !holds_nothing(at_input("retry_context"))? {
         p.push(("retry_context", at_input("retry_context").to_string()));
     }
-    if let Some(v) = input.get("park_lifted") {
-        p.push(("park_lifted", v.to_string()));
-    }
     if let Some(v) = input.get("spec") {
         p.push(("spec", v.to_string()));
     }
     if how == FIXER || how == "refresh" {
         p.push(("rests_on", rests_on));
-        p.push(("fixer_starts", starts));
     }
     if how == "refresh" {
         p.push(("refreshes", answer["refreshes"].to_string()));

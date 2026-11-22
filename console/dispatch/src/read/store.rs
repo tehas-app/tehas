@@ -446,12 +446,6 @@ pub fn approval_shape(v: &Value) -> Option<Value> {
             "body_sha256": get(p, "body_sha256")}),
         )
     };
-    let starts = v
-        .get("millwright_starts")
-        .filter(|x| !x.is_null())
-        .or_else(|| v.get("fixer_starts").filter(|x| !x.is_null()))
-        .cloned()
-        .unwrap_or(json!(0));
     let input = c.get("input").cloned().unwrap_or(json!({}));
     let base = person(&get(v, "rests_on"))?;
     let how = match c.get("how").and_then(Value::as_str) {
@@ -479,11 +473,9 @@ pub fn approval_shape(v: &Value) -> Option<Value> {
     }
     if how == "fixer" {
         out["rests_on"] = base.clone();
-        out["fixer_starts"] = starts.clone();
     }
     if how == "refresh" {
         out["rests_on"] = base.clone();
-        out["fixer_starts"] = starts;
         out["refreshes"] = get(v, "refreshes");
         out["refresh_of"] = get(&input, "refresh_of");
         if !base.is_null() {
@@ -504,28 +496,6 @@ pub fn approval(asked: &Asked, n: u64) -> (Value, Value) {
             get(&v, "current"),
         ),
     }
-}
-
-/// How many of `running` a fed start began: the millwright's start resting on
-/// no person's approval. `{"failed": true}` when one cannot be read.
-pub fn fed(asked: &Asked, running: &[u64]) -> Value {
-    let mut count = 0;
-    for n in running {
-        let v = asked.answer(Read::Approval(*n));
-        if v.get("failed") == Some(&json!(true)) {
-            return json!({"failed": true});
-        }
-        let how = v
-            .pointer("/current/how")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if tehas_core::grammar::MILLWRIGHT_WORDS.contains(&how)
-            && v.get("rests_on").is_none_or(Value::is_null)
-        {
-            count += 1;
-        }
-    }
-    json!(count)
 }
 
 /// history-show <n> --kind cycle, its lines in the shape they had before the store.
@@ -1036,24 +1006,6 @@ printf 'store %s %s\\n' \"$*\" \"$(cat \"$0.request\")\" >>\"$0.calls\"\nexec {b
             super::park(&asked, 7)["issue"],
             super::park(&asked, 8)["issue"]
         );
-    }
-
-    #[test]
-    fn fed_counts_the_millwrights_starts_on_no_persons_approval() {
-        let mut a = Asked::empty();
-        let fed = |how: &str, base: Value| json!({"current": {"how": how}, "rests_on": base});
-        a.answers
-            .insert(Read::Approval(7), fed("millwright", Value::Null));
-        a.answers
-            .insert(Read::Approval(8), fed("fixer", Value::Null));
-        a.answers
-            .insert(Read::Approval(9), fed("millwright", json!({"by": "alice"})));
-        a.answers
-            .insert(Read::Approval(10), fed("label", Value::Null));
-        assert_eq!(super::fed(&a, &[7, 8, 9, 10]), json!(2));
-        assert_eq!(super::fed(&a, &[]), json!(0));
-        // One that cannot be read leaves the count unknown, not low.
-        assert_eq!(super::fed(&a, &[7, 11])["failed"], true);
     }
 
     #[test]

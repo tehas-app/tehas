@@ -204,10 +204,10 @@
 //!
 //! A record whose retry_context holds anything gives the cycle comments: the
 //! comments a comments retry recorded at its tick (the issue's and its pull
-//! requests', by allowed accounts that may write), the fixer's note of a
-//! millwright's start, or a refresh's task. console/attach writes them to
-//! comments.json in the same directory, in the format of
-//! trail-openers/pi-rukas#2020, and names it under "comments" in the manifest:
+//! requests', by allowed accounts that may write) or a refresh's task.
+//! console/attach writes them to comments.json in the same directory, in the
+//! format of trail-openers/pi-rukas#2020, and names it under "comments" in the
+//! manifest:
 //! each item cut at 4000 characters, the blob at 64 KB with the oldest dropped
 //! and counted. With TEHAS_WORK_IMAGES=0 the directory is still mounted and named in PI_ENSEMBLE_EXTRA_IMAGE_DIRS, and
 //! holds the manifest and comments.json alone. A blob that cannot be written
@@ -730,7 +730,8 @@ enum Approved {
 fn approved(issue: u64, record: &str, console: &str) -> Approved {
     if start::is_record(record) {
         // The dispatcher's record of the start: who approved and which links. A
-        // start of the millwright's counts on the person's approval it rests on.
+        // millwright's start 1.4.x recorded counts on the person's approval it
+        // rests on.
         return if gives::record_approves(record) {
             Approved::Yes
         } else {

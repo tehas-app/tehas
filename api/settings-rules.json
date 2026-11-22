@@ -382,37 +382,10 @@
       "reason": "expected a positive whole number"
     },
     {
-      "name": "TEHAS_MILLWRIGHT_MAX_RETRIES",
-      "rule": "count",
-      "when": "always",
-      "default": "2",
-      "reason": "expected a positive whole number"
-    },
-    {
       "name": "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS",
       "rule": "count",
       "when": "always",
       "default": "3",
-      "reason": "expected a positive whole number"
-    },
-    {
-      "name": "TEHAS_MILLWRIGHT_FEED",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "on",
-        "off",
-        "1",
-        "0"
-      ],
-      "reason": "expected on or off"
-    },
-    {
-      "name": "TEHAS_MILLWRIGHT_MAX_FEEDS",
-      "rule": "count",
-      "when": "always",
-      "default": "2",
       "reason": "expected a positive whole number"
     },
     {

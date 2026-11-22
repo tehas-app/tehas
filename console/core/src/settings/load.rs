@@ -156,6 +156,18 @@ pub(super) const IGNORED: &[(&str, &str)] = &[
     ("TEHAS_WORK_FILES", GIVEN),
     ("TEHAS_WORK_ZIPS", GIVEN),
     ("TEHAS_WORK_COMMENTS", GIVEN),
+    (
+        "TEHAS_MILLWRIGHT_MAX_RETRIES",
+        "the millwright's grant left in 2.0: a program starts work for a person only through tehas start",
+    ),
+    (
+        "TEHAS_MILLWRIGHT_FEED",
+        "the millwright's grant left in 2.0: a program starts work for a person only through tehas start",
+    ),
+    (
+        "TEHAS_MILLWRIGHT_MAX_FEEDS",
+        "the millwright's grant left in 2.0: a program starts work for a person only through tehas start",
+    ),
 ];
 
 const GIVEN: &str = "this kind of attachment left core in 2.0 and returns as the given plugin";
@@ -489,6 +501,7 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
             "TEHAS_LOW_GATE" | "TEHAS_LOW_GATE_WAIT" | "TEHAS_PRIORITY_FIELD" => "is no longer read: tehas order sets the order ready issues start in, so take the line out".to_string(),
             "TEHAS_LAYOUT" => "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out".to_string(),
             "TEHAS_FIXER_LOGIN" => "is no longer read: the millwright is the GitHub App's login, or the app TEHAS_MILLWRIGHT_APP names, so take the line out".to_string(),
+            "TEHAS_FIXER_MAX_RETRIES" => "is no longer read: the millwright's grant left in 2.0, so take the line out".to_string(),
             _ => format!(
                 "is no longer read: rename it TEHAS_MILLWRIGHT_{}",
                 name.strip_prefix("TEHAS_FIXER_").unwrap_or(name)
@@ -1977,6 +1990,10 @@ mod tests {
             format!("TEHAS_FIXER_LOGIN is no longer read: the millwright is the GitHub App's login, or the app TEHAS_MILLWRIGHT_APP names, so take the line out (see {FILE})")
         );
         assert_eq!(
+            refused(&["TEHAS_FIXER_MAX_RETRIES=3"]),
+            format!("TEHAS_FIXER_MAX_RETRIES is no longer read: the millwright's grant left in 2.0, so take the line out (see {FILE})")
+        );
+        assert_eq!(
             refused(&["TEHAS_WORK_MEMORY=8g", "TEHAS_CLONES=1"]),
             format!(
                 "TEHAS_CLONES is set and this version of tehas has no database clones (see {FILE})"
@@ -2596,6 +2613,28 @@ mod tests {
         ignored_names(&mut vars, &mut host, GONE);
         assert!(!vars.is_set("TEHAS_GONE"));
         assert!(!String::from_utf8_lossy(&script(&start(&[]), &vars)).contains("TEHAS_GONE"));
+    }
+
+    /// A 1.4.x instance that set the millwright's grant loads on 2.0: each
+    /// line is said once and dropped.
+    #[test]
+    fn the_millwrights_grant_settings_load_warn_and_are_dropped() {
+        for line in [
+            "TEHAS_MILLWRIGHT_MAX_RETRIES=3",
+            "TEHAS_MILLWRIGHT_FEED=on",
+            "TEHAS_MILLWRIGHT_MAX_FEEDS=4",
+        ] {
+            let name = line.split('=').next().unwrap();
+            let mut vars = start(&[]);
+            let mut host = Fake::with(&[line]);
+            assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()), "{line}");
+            assert!(!vars.is_set(name), "{line}");
+            assert_eq!(
+                host.warned,
+                [format!("{name} is no longer read: the millwright's grant left in 2.0: a program starts work for a person only through tehas start; remove it from the instance")],
+                "{line}"
+            );
+        }
     }
 
     #[test]

@@ -23,7 +23,7 @@
 //!     The comment on what <dir>/manifest.json gave a <what>. --reads is what
 //!     the sandbox image says of its pi-rukas, --build the script that records
 //!     it. Answers {"api":1,"verb":"said","ok":true,"text":"..."|null}.
-//!   attach comments <issue> <dir> --record PATH --repo R --millwright LOGIN
+//!   attach comments <issue> <dir> --record PATH --repo R
 //!     Remake <dir> with comments.json of the approval record and a manifest
 //!     that lists no file, for a retry of an instance that gives a cycle no
 //!     images and no files. Answers "why" as issue does, and "count" and
@@ -38,7 +38,7 @@
 //!     it, or null when there is nothing to say.
 //!
 //!   attach issue <issue> <dir> --approved WORD --record PATH --repo R
-//!       --comments 0|1 --allowed LOGINS --millwright LOGIN
+//!       --comments 0|1 --allowed LOGINS
 //!       --images 0|1 --files 0|1 --zips 0|1 --attach PATH
 //!     Remake <dir> from what the issue links, with a manifest.json. The issue
 //!     as JSON on standard input, or nothing to read it with gh. --approved is
@@ -74,10 +74,10 @@ fn usage(why: &str) -> ! {
     eprintln!("attach: usage: {why}");
     eprintln!("usage: attach sniff <file> | attach unpack <zip> <dir> --max-bytes N --max-files N");
     eprintln!("       attach said <dir> <what> --reads R --build PATH");
-    eprintln!("       attach comments <issue> <dir> --record PATH --repo R --millwright LOGIN");
+    eprintln!("       attach comments <issue> <dir> --record PATH --repo R");
     eprintln!("       attach changed <kept manifest> <manifest>");
     eprintln!("       attach left-out <issue> <file> <record> --images 0|1 --files 0|1");
-    eprintln!("       attach issue <issue> <dir> --approved WORD --record PATH --repo R --comments 0|1 --allowed LOGINS --millwright LOGIN --images 0|1 --files 0|1 --zips 0|1 --attach PATH");
+    eprintln!("       attach issue <issue> <dir> --approved WORD --record PATH --repo R --comments 0|1 --allowed LOGINS --images 0|1 --files 0|1 --zips 0|1 --attach PATH");
     eprintln!("       attach answer <dir> <reply file> <comment id> --images 0|1 --files 0|1 --zips 0|1 --attach PATH");
     exit(64);
 }
@@ -198,17 +198,15 @@ fn said_verb(args: &[String]) {
 }
 
 fn comments_verb(args: &[String]) {
-    let (pos, [record, repo, millwright]) =
-        flagged("comments", args, ["--record", "--repo", "--millwright"]);
+    let (pos, [record, repo]) = flagged("comments", args, ["--record", "--repo"]);
     let ([issue, dir], false) = (pos.as_slice(), record.is_empty()) else {
-        usage("comments <issue> <dir> --record PATH --repo R --millwright LOGIN")
+        usage("comments <issue> <dir> --record PATH --repo R")
     };
     let run = take::CommentsRun {
         issue,
         dir,
         record,
         repo,
-        millwright,
     };
     let v = match take::comments_only(&run) {
         Ok((count, dropped)) => json!({"why": null, "count": count, "dropped": dropped}),
@@ -234,10 +232,7 @@ fn left_out_verb(args: &[String]) {
 }
 
 fn issue_verb(args: &[String]) {
-    let (
-        pos,
-        [approved, record, repo, comments, allowed, millwright, images, files, zips, program],
-    ) = flagged(
+    let (pos, [approved, record, repo, comments, allowed, images, files, zips, program]) = flagged(
         "issue",
         args,
         [
@@ -246,7 +241,6 @@ fn issue_verb(args: &[String]) {
             "--repo",
             "--comments",
             "--allowed",
-            "--millwright",
             "--images",
             "--files",
             "--zips",
@@ -270,7 +264,6 @@ fn issue_verb(args: &[String]) {
         wants: take::Wants::of(images, files, zips),
         comments: comments == "1",
         allowed,
-        millwright,
         data: &String::from_utf8_lossy(&data),
     };
     let net = take::Children {

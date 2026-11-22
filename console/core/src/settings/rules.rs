@@ -395,10 +395,7 @@ pub const TABLE: &[Setting] = &[
     row("TEHAS_CHILD_TIMEOUT", Rule::Count, When::Always, None),
     always("TEHAS_PLAN_MAX_TURNS", Rule::Count, "20"),
     row("TEHAS_PLAN_TIMEOUT", Rule::Count, When::Always, None),
-    always("TEHAS_MILLWRIGHT_MAX_RETRIES", Rule::Count, "2"),
     always("TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS", Rule::Count, "3"),
-    always("TEHAS_MILLWRIGHT_FEED", SWITCH, "0"),
-    always("TEHAS_MILLWRIGHT_MAX_FEEDS", Rule::Count, "2"),
     always("TEHAS_MILLWRIGHT_EPICS", SWITCH, "0"),
     always("TEHAS_REFRESH_MAX_PER_PR", Rule::Count, "2"),
     always("TEHAS_REFRESH_SLOTS", Rule::RefreshSlots, "1"),
@@ -1089,7 +1086,6 @@ mod tests {
             "TEHAS_SITE_CONSOLE",
             "TEHAS_PREVIEWS",
             "TEHAS_EDGE_ONE_LEVEL",
-            "TEHAS_MILLWRIGHT_FEED",
             "TEHAS_MILLWRIGHT_EPICS",
             "TEHAS_ANALYTICS",
             "TEHAS_OUTSOURCE",
@@ -1101,7 +1097,7 @@ mod tests {
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 18);
+        assert_eq!(switches.len(), 17);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);

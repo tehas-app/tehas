@@ -277,7 +277,7 @@ pub fn issue_images(
         return gives_nothing(issue, dir, record, data);
     };
     let (issue_str, repo, dir_str) = (issue.to_string(), env("TEHAS_REPO"), dir.to_string_lossy());
-    let (allowed, millwright) = (env("TEHAS_ALLOWED_LABELERS"), env("TEHAS_MILLWRIGHT_LOGIN"));
+    let allowed = env("TEHAS_ALLOWED_LABELERS");
     let args: Vec<&str> = [
         issue_str.as_str(),
         dir_str.as_ref(),
@@ -289,8 +289,6 @@ pub fn issue_images(
         &repo,
         "--allowed",
         &allowed,
-        "--millwright",
-        &millwright,
     ]
     .to_vec();
     take(&bin, "issue", &args, &format!("{data}\n"))
@@ -556,8 +554,6 @@ pub fn comments_only(home: &Path, issue: u64, dir: &Path, record: &str) -> Resul
         record.to_string(),
         "--repo".into(),
         env("TEHAS_REPO"),
-        "--millwright".into(),
-        env("TEHAS_MILLWRIGHT_LOGIN"),
     ];
     let answer = ask(home, "comments", &args).map_err(|no| {
         format!(
@@ -1057,7 +1053,7 @@ mod tests {
     #[test]
     fn a_record_rests_on_the_persons_approval_in_each_shape_a_start_has() {
         let fixer = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-fixer", "how": "fixer",
-            "body_sha256": "a".repeat(64), "fixer_starts": 1, "rests_on": person("alice")});
+            "body_sha256": "a".repeat(64), "rests_on": person("alice")});
         let refresh = json!({"at": "2026-10-01T00:00:00Z", "by": "alice", "how": "refresh",
             "body_sha256": "a".repeat(64), "refreshes": 1, "rests_on": person("alice")});
         for mut shape in [person("alice"), fixer, refresh] {
@@ -1074,7 +1070,7 @@ mod tests {
         let mut host = person("host");
         host["how"] = json!("host");
         let fixer = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-fixer", "how": "fixer",
-            "body_sha256": "a".repeat(64), "fixer_starts": 1, "rests_on": host.clone()});
+            "body_sha256": "a".repeat(64), "rests_on": host.clone()});
         for shape in [host, fixer] {
             let got = base(&shape, "alice").expect("an approval");
             assert_eq!(got["how"], "host");
