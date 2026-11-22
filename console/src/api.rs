@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 /// brings it, and taken out only with the feature itself. The shipped features
 /// of the registry (core/src/features.rs) follow these; a building one is not
 /// a word of `features`.
-const FEATURES: [&str; 31] = [
+const FEATURES: [&str; 32] = [
     "status",
     "millwright-grant",
     "all-hands",
@@ -45,6 +45,7 @@ const FEATURES: [&str; 31] = [
     "wake",
     "start-reasons",
     "blockers",
+    "answer",
 ];
 
 /// The longest version text read, which `head -c` kept it to.
@@ -237,7 +238,7 @@ mod tests {
             r#"{"api":1,"tehas":"v1.2.3","commit":null,"repo":"acme/widget","features":["status","#
         ));
         assert!(printed.ends_with(
-            r#""disk","panels","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags","status-previews","wake","start-reasons","blockers"],"flags":{"outsource":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2}}"#
+            r#""disk","panels","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags","status-previews","wake","start-reasons","blockers","answer"],"flags":{"outsource":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2}}"#
         ));
     }
 
@@ -295,6 +296,20 @@ mod tests {
             features().starts_with(&then),
             "features drops or moves a word of {tag}: only add, at the end"
         );
+    }
+
+    /// The manual's row of `features` names every word, each with what it is.
+    #[test]
+    fn the_manual_names_every_word_of_features() {
+        let manual = include_str!("../../host/docs/api.md");
+        let row = manual
+            .lines()
+            .find(|l| l.starts_with("| `features` |"))
+            .unwrap();
+        for word in features() {
+            assert!(row.contains(&format!("`{word}`")), "{word}");
+        }
+        assert!(row.contains("`answer` ([`tehas answer`](#tehas-answer))"));
     }
 
     #[test]
