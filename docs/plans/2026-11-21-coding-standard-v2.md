@@ -433,7 +433,12 @@ owner, 2026-11-22). Names use the ports' words (`ticket.approved`,
   `postMessage` to plugin frames from an allowed list. The kit owns these
   names; the other repositories of the trio follow them.
 
-T9 lists the event names and schemas in the 2.0 contract.
+T9 lists the event names and schemas in the 2.0 contract. Its plugin
+API section lists every event a plugin can see under exactly the name
+2.1 grants: the ports' word for the event (`cycle.after-work`), granted
+as `hook:<when>:<event>`. The 1.x hook names, `hook:after:work` among
+them, are dropped with no alias (the plugins lead, through the trio's
+program manager, 2026-11-22).
 
 Done when the dispatcher and its events are in, each event has its
 schema in `api/`, and the contract lists them.
