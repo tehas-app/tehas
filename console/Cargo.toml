@@ -38,6 +38,7 @@ tehas-cycle = { path = "cycle" }
 tehas-ops = { path = "ops" }
 
 [dev-dependencies]
+regex = "1"
 # The store's test hook, which the history tests plant answers in.
 tehas-ops = { path = "ops", features = ["testing"] }
 # The dispatcher's read of a refresh request, which a test holds to the console's.
