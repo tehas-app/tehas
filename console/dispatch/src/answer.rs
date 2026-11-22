@@ -1,6 +1,6 @@
 //! An answer a program gave through `tehas answer` (#2782), read as the poll
-//! reads a box: `overlay` writes it into what `questions::answer` read of the
-//! question's comment, so every rule that acts on a ticked box acts on it the
+//! reads a box: `overlay` writes it into what `questions::answer_of` read of
+//! the question's comment, so every rule that acts on a ticked box acts on it the
 //! same way, and nothing of what a retry or an answer does changes.
 //!
 //! The store keeps the answer bound to its question and gives it only while
@@ -9,7 +9,8 @@
 //! An answer the poll does not act on is taken away (`answer_drop`) where a
 //! box would be unticked.
 
-use serde_json::{json, Value};
+use crate::questions::{Asked, Reply, Status, Tick};
+use crate::snapshot::Given;
 use tehas_core::question::{
     BOX_ALONE, BOX_COMMENTS, BOX_END, BOX_PARKED, OLD_BOX_ALONE, OLD_BOX_CLEAN,
 };
@@ -111,17 +112,16 @@ pub enum Overlay {
 }
 
 /// The answer `a` written into the read `ans` of its question: a choice as
-/// the one box ticked, by its account at its time, with `how` "answer"; a
-/// reply in words as the reply. `allowed` is the account rule of a tick.
-pub fn overlay(ans: &mut Value, a: Option<&Answer>, allowed: impl Fn(&str) -> bool) -> Overlay {
+/// the one box ticked, by its account at its time, marked answered; a reply
+/// in words as the reply. `allowed` is the account rule of a tick.
+pub fn overlay(ans: &mut Asked, a: Option<&Answer>, allowed: impl Fn(&str) -> bool) -> Overlay {
     // The same question, of the same kind.
-    let comment = match &ans["comment"] {
-        Value::Number(c) => c.as_u64(),
-        Value::String(s) => s.parse().ok(),
+    let comment = match &ans.comment {
+        Some(Given::Number(c)) => c.as_u64(),
+        Some(Given::Text(s)) => s.parse().ok(),
         _ => None,
     };
-    let asked = ans["asked"] == json!(true);
-    let of = |a: &&Answer| asked && comment == Some(a.question) && ans["kind"] == json!(a.kind);
+    let of = |a: &&Answer| comment == Some(a.question) && ans.kind == a.kind;
     let Some(a) = a.filter(of) else {
         return Overlay::None;
     };
@@ -133,40 +133,39 @@ pub fn overlay(ans: &mut Value, a: Option<&Answer>, allowed: impl Fn(&str) -> bo
     }
     // A tick whose saver could not be told this poll waits, as the rules
     // wait for it: the answer is read again with it on the next poll.
-    if matches!(ans["tick"]["status"].as_str(), Some("unread" | "held")) {
+    if matches!(ans.tick.status, Status::Unread | Status::Held) {
         return Overlay::None;
     }
     // A person's tick or reply after the answer is the newer word.
-    let after = |at: &Value| at.as_str().is_some_and(|t| t > a.at.as_str());
-    if matches!(ans["tick"]["status"].as_str(), Some("one" | "fixer")) && after(&ans["tick"]["at"])
-    {
-        return Overlay::Later(ans["tick"]["by"].as_str().unwrap_or("").to_string());
+    let after = |at: Option<&str>| at.is_some_and(|t| t > a.at.as_str());
+    if matches!(ans.tick.status, Status::One | Status::Fixer) && after(Some(&ans.tick.at)) {
+        return Overlay::Later(ans.tick.by.clone());
     }
-    if a.kind == "plan" && after(&ans["reply"]["at"]) {
-        return Overlay::Later(ans["reply"]["by"].as_str().unwrap_or("").to_string());
+    if let Some(r) = ans.reply.as_ref() {
+        if a.kind == "plan" && after(r.at.as_ref().and_then(Given::text)) {
+            return Overlay::Later(r.by.clone());
+        }
     }
-    let boxes = ans["boxes"].as_u64().unwrap_or(0);
     // The index of the first box whose label is one of `labels`.
-    let box_of = |ans: &Value, labels: &[&str]| {
-        ans["labels"]
-            .as_array()?
-            .iter()
-            .position(|l| l.as_str().is_some_and(|l| labels.contains(&l)))
-            .map(|i| i as u64)
-    };
+    let box_of = |labels: &[&str]| ans.labels.iter().position(|l| labels.contains(&l.as_str()));
+    let boxes = ans.boxes;
     let index = match &a.choice {
         Choice::Text(text) => {
-            ans["reply"] =
-                json!({"by": a.by, "text": text, "at": a.at, "id": null, "how": "answer"});
-            ans["tick"] = json!({"status": "none"});
+            ans.reply = Some(Reply {
+                by: a.by.clone(),
+                text: Some(Given::Text(text.clone())),
+                at: Some(Given::Text(a.at.clone())),
+                id: None,
+            });
+            ans.tick = Tick::none();
             return Overlay::Given;
         }
-        Choice::Retry => box_of(ans, &[BOX_COMMENTS, OLD_BOX_CLEAN]),
-        Choice::RetryText => box_of(ans, &[BOX_ALONE, OLD_BOX_ALONE]),
-        Choice::Park => box_of(ans, &[BOX_PARKED]),
+        Choice::Retry => box_of(&[BOX_COMMENTS, OLD_BOX_CLEAN]),
+        Choice::RetryText => box_of(&[BOX_ALONE, OLD_BOX_ALONE]),
+        Choice::Park => box_of(&[BOX_PARKED]),
         // The options come first and the end of the session last.
-        Choice::Option(k) => Some(k - 1).filter(|i| i + 1 < boxes),
-        Choice::End => box_of(ans, &[BOX_END]).filter(|i| i + 1 == boxes),
+        Choice::Option(k) => usize::try_from(k - 1).ok().filter(|i| i + 1 < boxes),
+        Choice::End => box_of(&[BOX_END]).filter(|i| i + 1 == boxes),
     };
     let Some(index) = index else {
         return Overlay::Refused(format!(
@@ -175,14 +174,21 @@ pub fn overlay(ans: &mut Value, a: Option<&Answer>, allowed: impl Fn(&str) -> bo
             a.said()
         ));
     };
-    ans["tick"] = json!({"status": "one", "by": a.by, "index": index, "at": a.at, "how": "answer"});
-    ans["reply"] = Value::Null;
+    ans.tick = Tick {
+        status: Status::One,
+        by: a.by.clone(),
+        index: Some(index),
+        at: a.at.clone(),
+        answered: true,
+    };
+    ans.reply = None;
     Overlay::Given
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use tehas_core::question::{q_render, Kind};
 
     fn answer(kind: &str, choice: Choice) -> Answer {
@@ -201,21 +207,30 @@ mod tests {
         ($kind:expr, $out:expr, $reply:expr) => {{
             let kind = $kind;
             let body = q_render(kind, 7, 2, &$out, "");
-            let labels: Vec<Value> = body
+            let labels: Vec<String> = body
                 .lines()
                 .filter_map(|l| l.strip_prefix("- [ ] "))
-                .map(|l| json!(l))
+                .map(String::from)
                 .collect();
-            json!({"asked": true, "comment": 4001,
-                "kind": if kind == Kind::Park { "park" } else { "plan" },
-                "issue": 7, "boxes": labels.len(), "labels": labels, "tick": {"status": "none"},
-                "reply": $reply})
+            Asked {
+                comment: Some(Given::Number(4001.into())),
+                asked_at: String::new(),
+                body,
+                kind: if kind == Kind::Park { "park" } else { "plan" }.into(),
+                issue: "7".into(),
+                turn: "2".into(),
+                boxes: labels.len(),
+                labels,
+                tick: Tick::none(),
+                reply: $reply,
+                fixer_reply: None,
+            }
         }};
     }
 
     macro_rules! park {
         () => {
-            read!(Kind::Park, json!({"text": "Parked.", "comments": true}), Value::Null)
+            read!(Kind::Park, json!({"text": "Parked.", "comments": true}), None)
         };
     }
 
@@ -245,30 +260,26 @@ mod tests {
                 overlay(&mut ans, Some(&answer("park", choice)), anyone),
                 Overlay::Given
             );
-            let i = ans["tick"]["index"].as_u64().unwrap() as usize;
-            assert_eq!(ans["labels"][i], label);
-            assert_eq!(ans["tick"]["status"], "one");
-            assert_eq!(ans["tick"]["by"], "alice");
-            assert_eq!(ans["tick"]["at"], "2026-01-01T02:00:00Z");
-            assert_eq!(ans["tick"]["how"], "answer");
+            let i = ans.tick.index.unwrap();
+            assert_eq!(ans.labels[i], label);
+            assert_eq!(ans.tick.status, Status::One);
+            assert_eq!(ans.tick.by, "alice");
+            assert_eq!(ans.tick.at, "2026-01-01T02:00:00Z");
+            assert!(ans.tick.answered);
         }
     }
 
     #[test]
     fn a_retry_the_park_does_not_offer_is_refused() {
-        let mut ans = read!(
-            Kind::Park,
-            json!({"text": "Parked.", "retry": false}),
-            Value::Null
-        );
+        let mut ans = read!(Kind::Park, json!({"text": "Parked.", "retry": false}), None);
         let got = overlay(&mut ans, Some(&answer("park", Choice::Retry)), anyone);
         assert!(
             matches!(got, Overlay::Refused(ref why) if why.contains("does not offer")),
             "{got:?}"
         );
-        assert_eq!(ans["tick"]["status"], "none");
+        assert_eq!(ans.tick.status, Status::None);
         // The comments retry is not offered when the image gives none.
-        let mut ans = read!(Kind::Park, json!({"text": "Parked."}), Value::Null);
+        let mut ans = read!(Kind::Park, json!({"text": "Parked."}), None);
         assert!(matches!(
             overlay(&mut ans, Some(&answer("park", Choice::Retry)), anyone),
             Overlay::Refused(_)
@@ -277,54 +288,69 @@ mod tests {
 
     #[test]
     fn a_planning_choice_is_its_option_or_the_last_box() {
-        let mut ans = plan!(Value::Null);
+        let mut ans = plan!(None);
         overlay(&mut ans, Some(&answer("plan", Choice::Option(2))), anyone);
-        assert_eq!(ans["tick"]["index"], 1);
-        let mut ans = plan!(Value::Null);
+        assert_eq!(ans.tick.index, Some(1));
+        let mut ans = plan!(None);
         overlay(&mut ans, Some(&answer("plan", Choice::End)), anyone);
-        assert_eq!(ans["tick"]["index"], 2);
-        assert_eq!(ans["boxes"], 3);
-        let mut ans = plan!(Value::Null);
+        assert_eq!(ans.tick.index, Some(2));
+        assert_eq!(ans.boxes, 3);
+        let mut ans = plan!(None);
         let got = overlay(&mut ans, Some(&answer("plan", Choice::Option(3))), anyone);
         assert!(matches!(got, Overlay::Refused(_)), "{got:?}");
     }
 
     #[test]
     fn a_reply_in_words_is_the_reply_unless_the_persons_came_later() {
-        let mut ans =
-            plan!(json!({"by": "bob", "text": "older", "at": "2026-01-01T01:00:00Z", "id": 5}));
+        let reply = |text: &str, at: &str, id: u64| Reply {
+            by: "bob".into(),
+            text: Some(Given::Text(text.into())),
+            at: Some(Given::Text(at.into())),
+            id: Some(Given::Number(id.into())),
+        };
+        let mut ans = plan!(Some(reply("older", "2026-01-01T01:00:00Z", 5)));
         let a = answer("plan", Choice::Text("Split it.".into()));
         assert_eq!(overlay(&mut ans, Some(&a), anyone), Overlay::Given);
-        assert_eq!(ans["reply"]["text"], "Split it.");
-        assert_eq!(ans["reply"]["by"], "alice");
-        assert_eq!(ans["reply"]["id"], Value::Null);
-        let later = json!({"by": "bob", "text": "newer", "at": "2026-01-01T03:00:00Z", "id": 6});
-        let mut ans = plan!(later.clone());
+        let given = ans.reply.as_ref().unwrap();
+        assert_eq!(given.text, Some(Given::Text("Split it.".into())));
+        assert_eq!(given.by, "alice");
+        assert_eq!(given.id, None);
+        let later = reply("newer", "2026-01-01T03:00:00Z", 6);
+        let mut ans = plan!(Some(later.clone()));
         assert_eq!(
             overlay(&mut ans, Some(&a), anyone),
             Overlay::Later("bob".into())
         );
-        assert_eq!(ans["reply"], later);
+        assert_eq!(ans.reply, Some(later));
     }
 
     #[test]
     fn a_tick_after_the_answer_stands_and_one_before_it_does_not() {
         let a = answer("park", Choice::Retry);
         let mut ans = park!();
-        ans["tick"] =
-            json!({"status": "one", "by": "bob", "index": 2, "at": "2026-01-01T03:00:00Z"});
+        ans.tick = Tick {
+            status: Status::One,
+            by: "bob".into(),
+            index: Some(2),
+            at: "2026-01-01T03:00:00Z".into(),
+            answered: false,
+        };
         let before = ans.clone();
         assert_eq!(
             overlay(&mut ans, Some(&a), anyone),
             Overlay::Later("bob".into())
         );
         assert_eq!(ans, before);
-        ans["tick"]["at"] = json!("2026-01-01T01:00:00Z");
+        ans.tick.at = "2026-01-01T01:00:00Z".into();
         assert_eq!(overlay(&mut ans, Some(&a), anyone), Overlay::Given);
-        assert_eq!(ans["tick"]["by"], "alice");
+        assert_eq!(ans.tick.by, "alice");
         // A tick whose saver could not be told waits with the answer.
         let mut ans = park!();
-        ans["tick"] = json!({"status": "unread", "by": "bob"});
+        ans.tick = Tick {
+            status: Status::Unread,
+            by: "bob".into(),
+            ..Tick::none()
+        };
         let before = ans.clone();
         assert_eq!(overlay(&mut ans, Some(&a), anyone), Overlay::None);
         assert_eq!(ans, before);

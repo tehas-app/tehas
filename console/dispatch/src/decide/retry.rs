@@ -8,8 +8,8 @@ use super::{
     Room, Start, Step, CLASSIC, LEAN,
 };
 use crate::answer::{self, Overlay};
-use crate::questions;
-use crate::snapshot::{CycleRow, PullNode, PullRead, View};
+use crate::questions::{self, Answer, Asked, Status};
+use crate::snapshot::{CycleRow, Given, PullNode, PullRead, View};
 use crate::text;
 use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
@@ -175,21 +175,23 @@ impl Poll<'_> {
         true
     }
 
-    pub(super) fn untick(&mut self, n: u64, ans: &Value, note: Option<&str>) {
-        let body = ans["body"].as_str().unwrap_or("");
-        let unticked = questions::untick(body);
+    pub(super) fn untick(&mut self, n: u64, ans: &Asked, note: Option<&str>) {
+        let unticked = questions::untick(&ans.body);
         // An answer of `tehas answer` is taken away, and a box ticked beside
         // it is unticked too, with the note.
-        if ans["tick"]["how"] == json!("answer") {
-            let question = ans["comment"].as_u64().unwrap_or(0);
-            let boxed = unticked != body.trim_end_matches('\n');
+        if ans.tick.answered {
+            let question = match &ans.comment {
+                Some(Given::Number(c)) => c.as_u64().unwrap_or(0),
+                _ => 0,
+            };
+            let boxed = unticked != ans.body.trim_end_matches('\n');
             self.drop_answer(n, question, if boxed { None } else { note });
             if !boxed {
                 return;
             }
         }
         let mut a = json!({
-            "untick": n, "comment": ans["comment"],
+            "untick": n, "comment": Given::json(ans.comment.as_ref()),
             "body": unticked,
             "fail": format!("WARN: could not untick the question on #{n}"),
         });
@@ -219,7 +221,7 @@ impl Poll<'_> {
     /// same way, and the box taken off with the note that names it. The issue
     /// keeps `tehas:question` and stays parked, so the park's comment is still
     /// there to tick once the pull request is gone.
-    pub(super) fn holds_on_pr_tick(&mut self, n: u64, ans: &Value, url: &str) {
+    pub(super) fn holds_on_pr_tick(&mut self, n: u64, ans: &Asked, url: &str) {
         self.log(format!(
             "skip #{n}: pull request {url} is open and closes it"
         ));
@@ -291,7 +293,7 @@ impl Poll<'_> {
             let Some(comments) = self.s.issues.get(&n).and_then(|i| i.comments.clone()) else {
                 return Err(self.comments_unread(n));
             };
-            let Some(mut ans) = comments.or_none().and_then(|c| {
+            let Some(ans) = comments.or_none().and_then(|c| {
                 questions::answer_of(
                     c,
                     bot,
@@ -302,6 +304,25 @@ impl Poll<'_> {
                 )
             }) else {
                 return Err(self.fail(format!("ERROR: unreadable comments of #{n}"), 1));
+            };
+            let mut ans = match ans {
+                Answer::Asked(a) => a,
+                Answer::NotAsked { written_by } => {
+                    if let Some(by) = written_by {
+                        self.log(format!(
+                            "skip #{n}: its question was written by '{}', not the bot '{bot}'",
+                            or_unknown(&by)
+                        ));
+                    } else if !qid.is_empty() {
+                        // The line names the hold and what clears it: the label
+                        // is the hold, not the read's bound, and a new comment
+                        // lifts nothing while the question on record stays open.
+                        self.log(format!(
+                            "skip #{n}: its question is not among the last 100 comments; tehas:question is set and no comment carries the question, so the issue waits until its open points are answered or the label is taken off"
+                        ));
+                    }
+                    continue;
+                }
             };
             // An answer `tehas answer` gave reads as the box it stands for.
             // One the question does not offer is taken away, and said.
@@ -325,31 +346,15 @@ impl Poll<'_> {
                 }
                 _ => {}
             }
-            if ans["asked"] != json!(true) {
-                if let Some(by) = ans["written_by"].as_str() {
-                    self.log(format!(
-                        "skip #{n}: its question was written by '{}', not the bot '{bot}'",
-                        or_unknown(by)
-                    ));
-                } else if !qid.is_empty() {
-                    // The line names the hold and what clears it: the label is
-                    // the hold, not the read's bound, and a new comment lifts
-                    // nothing while the question on record stays open.
-                    self.log(format!(
-                        "skip #{n}: its question is not among the last 100 comments; tehas:question is set and no comment carries the question, so the issue waits until its open points are answered or the label is taken off"
-                    ));
-                }
-                continue;
-            }
-            let kind = ans["kind"].as_str().unwrap_or("").to_string();
-            if !qid.is_empty() && (ans["issue"] != json!(n) || kind != qkind) {
+            let kind = ans.kind.clone();
+            if !qid.is_empty() && (ans.issue_number() != Some(n) || kind != qkind) {
                 self.log(format!(
                     "skip #{n}: the question on record does not belong to this issue"
                 ));
                 continue;
             }
-            let mut tick = ans["tick"]["status"].as_str().unwrap_or("").to_string();
-            let by = ans["tick"]["by"].as_str().unwrap_or("").to_string();
+            let mut tick = ans.tick.status.word().to_string();
+            let by = ans.tick.by.clone();
             if tick == "fixer" && kind != "plan" {
                 tick = "stranger".into();
             }
@@ -367,7 +372,7 @@ impl Poll<'_> {
                     self.untick(n, &ans, Some(&note));
                 }
                 tick = "none".into();
-                ans["tick"]["status"] = json!("none");
+                ans.tick.status = Status::None;
             }
             if kind == "plan" {
                 // A turn this poll collects or posts asks a new question: the
@@ -400,11 +405,7 @@ impl Poll<'_> {
             // differs is that its record names no comment of the issue or of
             // the pull request. A comment posted before #1492 carries the old
             // labels, read as the retries they stand for.
-            let retry = ans["tick"]["index"]
-                .as_u64()
-                .and_then(|i| ans["labels"].get(usize::try_from(i).unwrap_or(usize::MAX)))
-                .and_then(Value::as_str)
-                .and_then(tehas_core::question::retry_of);
+            let retry = ans.ticked_label().and_then(tehas_core::question::retry_of);
             let Some(with_comments) = retry else {
                 if !self.dry {
                     self.act(json!({"issue": n, "remove": ["tehas:question"],
@@ -447,8 +448,8 @@ impl Poll<'_> {
             if !self.work_ok(n)? || !self.epic_ok(n, "tehas:ready", &have) {
                 continue;
             }
-            let at = ans["tick"]["at"].as_str().unwrap_or("").to_string();
-            let answered = ans["tick"]["how"] == json!("answer");
+            let at = ans.tick.at.clone();
+            let answered = ans.tick.answered;
             if !self.unchanged_since(
                 n,
                 &at,
@@ -522,8 +523,8 @@ impl Poll<'_> {
                 }
             }
             let mut extra = Map::new();
-            extra.insert("comment".into(), ans["comment"].clone());
-            extra.insert("since".into(), ans["asked_at"].clone());
+            extra.insert("comment".into(), Given::json(ans.comment.as_ref()));
+            extra.insert("since".into(), json!(ans.asked_at));
             if issue_alone {
                 extra.insert("issue_alone".into(), json!(true));
             }

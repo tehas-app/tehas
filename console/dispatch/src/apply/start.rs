@@ -10,7 +10,7 @@
 //! the checkout) is the poll's, part 4 of #254.
 
 use super::{text, word, Writer, Wrote};
-use crate::decide::iso;
+use crate::decide::{in_window, iso, window_order, ContextNote};
 use crate::read::host::{epoch, held};
 use crate::read::run::{gh_env, run_grace_env, run_quiet};
 use crate::settings::account;
@@ -224,12 +224,7 @@ pub(crate) fn window(
                 .unwrap_or("");
             c.get("id").is_some_and(Value::is_number)
                 && c.get("body").is_some_and(Value::is_string)
-                && !login.is_empty()
-                && who(login)
-                && !at.is_empty()
-                && created.as_str() >= since
-                && created.as_str() <= at
-                && updated.as_str() <= at
+                && in_window(login, &created, &updated, since, at, who)
         })
         .cloned()
         .collect();
@@ -241,7 +236,7 @@ pub(crate) fn window(
             )
         };
         let (x, y) = (k(a), k(b));
-        x.0.cmp(&y.0).then(x.1.total_cmp(&y.1))
+        window_order((&x.0, x.1), (&y.0, y.1))
     });
     Some(out)
 }
@@ -266,16 +261,20 @@ fn comment_links(comments: &[Value], source: &str) -> Vec<Value> {
 /// A comment as retry_context has it: its first 4000 characters, without
 /// carriage returns.
 pub(crate) fn context(c: &Value, source: &str) -> Value {
-    let body: String = c
-        .get("body")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .replace('\r', "")
-        .chars()
-        .take(4000)
-        .collect();
-    json!({"source": format!("{source}:{}", c["id"]), "by": c.pointer("/user/login").cloned().unwrap_or(Value::Null),
-        "at": c.get("created_at").cloned().unwrap_or(Value::Null), "text": body})
+    let s = |k: &str| c.pointer(k).and_then(Value::as_str).unwrap_or("");
+    let note = ContextNote::new(
+        source,
+        &c["id"].to_string(),
+        s("/user/login"),
+        s("/created_at"),
+        s("/body"),
+    );
+    Value::Object(
+        note.pairs()
+            .into_iter()
+            .map(|(k, v)| (k.into(), json!(v)))
+            .collect(),
+    )
 }
 
 /// The most text of comments a record holds, in bytes of their text: the
@@ -372,56 +371,22 @@ fn bounded(items: Vec<Value>) -> (Vec<Value>, usize) {
     (items.into_iter().skip(dropped).collect(), dropped)
 }
 
-/// The comment that lifts a park's hold off the millwright's `tehas:ready` at
-/// `at`: the note `fixer_note` would put on the record, when it carries the
-/// `action=change` marker within the text a cycle is given and no other
-/// account saved it. `action=retry` asks for the same run again, so a newer
-/// one of those takes the lift away (#1130).
-///
-/// <list> is the poll's GraphQL read of the issue's comments, put here in the
-/// REST shape `window` and `context` read. None when that read or `at` is no
-/// answer, so a failed read is never taken for no note.
+/// `change_note_of` of the poll's GraphQL read of the issue's comments, as
+/// the record keeps the note. None when that read or `at` is no answer, so a
+/// failed read is never taken for no note.
 #[cfg(test)]
 pub(crate) fn change_note(list: &Value, n: u64, fixer: &str, at: &str) -> Option<Option<Value>> {
     let c = crate::snapshot::Comments::parse(list);
-    change_note_of(c.nodes_or_bare()?, n, fixer, at)
-}
-
-/// `change_note` of comments already read.
-pub(crate) fn change_note_of(
-    nodes: &[crate::snapshot::Comment],
-    n: u64,
-    fixer: &str,
-    at: &str,
-) -> Option<Option<Value>> {
-    let since = iso(u64::try_from(epoch(at)? - 600).ok()?);
-    let marker = regex::Regex::new(&format!(
-        "<!-- tehas:millwright issue={n} action=(retry|change) -->"
-    ))
-    .ok()?;
-    let rest: Vec<Value> = nodes
-        .iter()
-        .filter_map(|x| {
-            let x = x.note.as_ref()?;
-            Some(
-                json!({"id": x.id, "body": x.body, "user": {"login": x.login},
-                "created_at": x.created, "updated_at": x.updated,
-                "outsider": account(&x.editor) != account(&x.login)}),
+    crate::decide::change_note_of(c.nodes_or_bare()?, n, fixer, at).map(|note| {
+        note.map(|n| {
+            Value::Object(
+                n.pairs()
+                    .into_iter()
+                    .map(|(k, v)| (k.into(), json!(v)))
+                    .collect(),
             )
         })
-        .collect();
-    let who = |l: &str| !fixer.is_empty() && account(l) == fixer;
-    let Some(newest) = window(&Value::Array(rest), &since, at, &who)?
-        .into_iter()
-        .rfind(|c| marker.is_match(c.get("body").and_then(Value::as_str).unwrap_or("")))
-    else {
-        return Some(None);
-    };
-    let note = context(&newest, "millwright");
-    let change = format!("<!-- tehas:millwright issue={n} action=change -->");
-    let lifts = newest["outsider"] == json!(false)
-        && note["text"].as_str().is_some_and(|t| t.contains(&change));
-    Some(lifts.then_some(note))
+    })
 }
 
 /// Where the probe copies the checkout for its one check, under the home.

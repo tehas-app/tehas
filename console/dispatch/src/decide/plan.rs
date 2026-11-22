@@ -35,12 +35,15 @@ fn fixer_answer_why(c: &Settings, view: &Value) -> String {
     fixer_why(c, crate::snapshot::plan_view(view).as_ref())
 }
 use super::{has, or_unknown, End, Poll, Room, Step};
+use crate::questions::{Asked, Status};
 use crate::settings::Settings;
 #[cfg(test)]
 use crate::snapshot::shape;
-use crate::snapshot::{PlanList, PlanRow, PlanView, View};
+use crate::snapshot::{Given, PlanList, PlanRow, PlanView, View};
 use crate::text;
-use serde_json::{json, Value};
+use serde_json::json;
+#[cfg(test)]
+use serde_json::Value;
 use tehas_core::question::BOX_END;
 
 /// The largest issue number and the latest cycle start (epoch seconds) a
@@ -48,11 +51,11 @@ use tehas_core::question::BOX_END;
 const ISSUE_MAX: u64 = 9_999_999_999;
 const TIME_MAX: u64 = 99_999_999_999;
 
-fn digits(v: &Value) -> Option<String> {
-    let s = match v {
-        Value::Number(n) => n.to_string(),
-        Value::String(s) => s.clone(),
-        _ => return None,
+fn digits(v: Option<&Given>) -> Option<String> {
+    let s = match v? {
+        Given::Number(n) => n.to_string(),
+        Given::Text(s) => s.clone(),
+        Given::Other(_) => return None,
     };
     (!s.is_empty() && s.len() <= 16 && !s.starts_with('0') && s.bytes().all(|b| b.is_ascii_digit()))
         .then_some(s)
@@ -121,10 +124,9 @@ impl Poll<'_> {
     }
 
     /// fixer_answer_ok: whether the fixer's tick or reply may run the turn.
-    fn fixer_answer_ok(&mut self, n: u64, view: &PlanView, ans: &Value, said: &str) -> bool {
-        let boxes = ans["boxes"].as_u64().unwrap_or(0);
-        let why = if ans["tick"]["status"] == "fixer"
-            && ans["tick"]["index"].as_u64().map(|i| i + 1) == Some(boxes)
+    fn fixer_answer_ok(&mut self, n: u64, view: &PlanView, ans: &Asked, said: &str) -> bool {
+        let why = if ans.tick.status == Status::Fixer
+            && ans.tick.index.map(|i| i + 1) == Some(ans.boxes)
         {
             format!("it ticked {BOX_END}, which only a person may")
         } else {
@@ -141,7 +143,7 @@ impl Poll<'_> {
             }
             return false;
         }
-        let Some(id) = digits(&ans["fixer_reply"]["id"]) else {
+        let Some(id) = digits(ans.fixer_reply.as_ref().and_then(|f| f.id.as_ref())) else {
             return false;
         };
         if listed(&view.refused, &id) {
@@ -157,8 +159,8 @@ impl Poll<'_> {
 
     /// fixer_held: a tick the fixer saved after someone else edited the
     /// question is neither used nor undone. Said once a question.
-    fn fixer_held(&mut self, n: u64, view: &PlanView, ans: &Value) {
-        let Some(id) = digits(&ans["comment"]) else {
+    fn fixer_held(&mut self, n: u64, view: &PlanView, ans: &Asked) {
+        let Some(id) = digits(ans.comment.as_ref()) else {
             return;
         };
         if listed(&view.held, &id) {
@@ -176,22 +178,26 @@ impl Poll<'_> {
     pub(super) fn plan_answer(
         &mut self,
         n: u64,
-        ans: &Value,
+        ans: &Asked,
         tick: &str,
         row: &PlanRow,
         room: &Room,
     ) -> Step {
-        let mut by = ans["tick"]["by"].as_str().unwrap_or("").to_string();
-        let mut reply = ans["reply"]["text"]
-            .as_str()
+        let mut by = ans.tick.by.clone();
+        let mut reply = ans
+            .reply
+            .as_ref()
+            .and_then(|r| r.text.as_ref())
+            .and_then(Given::text)
             .unwrap_or("")
             .trim_end_matches('\n')
             .to_string();
         let mut reply_id = String::new();
         let mut fixer_said = "";
         if !reply.is_empty() {
-            by = ans["reply"]["by"].as_str().unwrap_or("").to_string();
-            reply_id = digits(&ans["reply"]["id"]).unwrap_or_default();
+            let r = ans.reply.as_ref();
+            by = r.map(|r| r.by.clone()).unwrap_or_default();
+            reply_id = digits(r.and_then(|r| r.id.as_ref())).unwrap_or_default();
         } else if tick == "one" {
         } else if tick == "held" {
             if let PlanRow::Open(p) = row {
@@ -206,7 +212,7 @@ impl Poll<'_> {
                 "skip #{n}: the edit history of its question could not be read; it waits for the next poll"
             ));
             return Ok(());
-        } else if !ans["fixer_reply"].is_null() {
+        } else if ans.fixer_reply.is_some() {
             fixer_said = "reply";
         } else if tick == "fixer" {
             fixer_said = "tick";
@@ -224,10 +230,7 @@ impl Poll<'_> {
             _ => None,
         };
         let wanted = open.map_or("", |p| p.comment_id.as_str());
-        let answered = match &ans["comment"] {
-            Value::String(s) => s.clone(),
-            v => v.to_string(),
-        };
+        let answered = Given::said(ans.comment.as_ref());
         if wanted != answered {
             self.log(format!(
                 "skip #{n}: the question answered is not the one this session is waiting on"
@@ -248,16 +251,16 @@ impl Poll<'_> {
             speaker = "The fixer";
             by = self.c.millwright.clone();
             if fixer_said == "reply" {
-                reply = ans["fixer_reply"]["text"]
-                    .as_str()
-                    .unwrap_or("")
+                let f = ans.fixer_reply.as_ref();
+                reply = f
+                    .map_or("", |f| f.text.as_str())
                     .trim_end_matches('\n')
                     .to_string();
-                reply_id = digits(&ans["fixer_reply"]["id"]).unwrap_or_default();
+                reply_id = digits(f.and_then(|f| f.id.as_ref())).unwrap_or_default();
             }
         }
-        let boxes = ans["boxes"].as_u64().unwrap_or(0);
-        let index = ans["tick"]["index"].as_u64();
+        let boxes = ans.boxes as u64;
+        let index = ans.tick.index.map(|i| i as u64);
         // As `$(jq -r ...)` leaves it: no final newlines.
         let option = |i: u64| {
             open.and_then(|p| p.options.get(i as usize))
@@ -275,7 +278,7 @@ impl Poll<'_> {
                         .filter(|c| !c.is_empty())
                         .unwrap_or_else(|| "a box that matches no option on record".into())
                 };
-                let ticker = ans["tick"]["by"].as_str().unwrap_or("");
+                let ticker = ans.tick.by.as_str();
                 text = format!("{text}\n\nA box was also ticked, by {ticker}: {choice}");
             }
             text
