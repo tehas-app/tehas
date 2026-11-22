@@ -144,14 +144,6 @@
 //!   store poll-idle --since <seconds> [--budget <spec>]
 //!                (what each poll cost, and the cost of the idle ones: src/poll.rs)
 //!   store poll-begin
-//!   store review-issue <path> <branch> <commit>
-//!                (the review issue's title and body, masked, and the count of
-//!                its findings, from the document of one review run:
-//!                tehas_review_render, src/review_issue.rs)
-//!   store review-file --repo <owner/name> --doc <path> --branch <b> --commit <sha>
-//!                [--ask <line>] [--private <name>]... [--gh <program>]
-//!                (the filing of one run: the render above and the GitHub
-//!                calls that go with it, src/review_issue.rs)
 //!   store journal-record --poll <at> --kind <kind> --issue <n> --args <json>
 //!                --before <at>
 //!   store journal-attempt --action N

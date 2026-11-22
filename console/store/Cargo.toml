@@ -26,7 +26,6 @@ path = "src/main.rs"
 rusqlite = { version = "0.41", features = ["bundled"] }
 serde_json = "1"
 tehas-core = { path = "../core", features = ["mask"] }
-tehas-review-render = { path = "../review-render" }
 
 # rusqlite's `trace` feature is for the tests alone: it is the hook that lets
 # `tests::a_read_open_runs_no_quick_check_and_a_write_open_still_does` ask

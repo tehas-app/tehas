@@ -89,8 +89,8 @@ In order, stopping at the first step that fails:
    token from the key and checks that the token's permissions have
    `contents`, `issues` and `pull_requests` at `write`. It reads the app's
    slug (`GET /app`) and the ID of its bot, `<slug>[bot]`
-   (`GET /users/<slug>[bot]`). Each other repository `instance.env` names
-   (`TEHAS_REVIEW_REPO`, `TEHAS_RELEASE_REPO`) that the app does not reach is named with the install
+   (`GET /users/<slug>[bot]`). Another repository `instance.env` names
+   (`TEHAS_RELEASE_REPO`) that the app does not reach is named with the install
    link, and the run goes on. Then it makes the control issue. A check that
    fails stops the run with 1 and nothing written, except the key and the ID
    `--new-app` wrote. The token is kept in no file.

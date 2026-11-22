@@ -40,10 +40,9 @@
 # are on (TEHAS_PLUGIN) it compiles the runner (console/plugin,
 # libexec/tehas-plugin) and installs its units: the templates of a run,
 # tehas-plugin@.service and tehas-plugin-hook@.service, and tehas-plugin.timer
-# with its service; off, none of them. The review
-# loop's units, tehas-review.service and .timer, are installed only while
-# review is on (TEHAS_REVIEW), which no release allows yet; off, a timer an
-# earlier release left enabled is stopped and disabled, its files kept. A real
+# with its service; off, none of them. The timer of a feature that is off,
+# which an earlier release left enabled, is stopped and disabled, its files
+# kept. A real
 # run builds each with cargo in this checkout (console/target, which git
 # ignores) and installs them as libexec/console, libexec/analytics,
 # libexec/tehas-mcp, libexec/store, libexec/attach, libexec/tehas-dispatch and
@@ -725,8 +724,7 @@ for f in "$root"/lib/polyfill-*.sh; do
 done
 shopt -u nullglob
 # What a feature that is on installs besides the rest: outsource's model proxy,
-# its unit and the contractor program, review's units, the plugins' runner and
-# units
+# its unit and the contractor program, the plugins' runner and units
 # (console/ops/src/update/host.rs). Off,
 # none of it is installed or compared.
 featured=$(export "${!TEHAS_@}"; "$loaded_console" update featured) ||
@@ -1107,12 +1105,13 @@ while IFS= read -r f; do
 done <<<"$retired"
 
 # The units of features this version does not have: the timed refresh scan
-# (refreshes are asked for one pull request at a time) and the improvement
-# loop. Found here; in step 5 each timer is stopped and disabled and its files
-# go.
+# (refreshes are asked for one pull request at a time), the improvement loop
+# and the review loop. Found here; in step 5 each timer is stopped and
+# disabled and its files go.
 old_units=()
 scan_units=$units
-for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-improve.service; do
+for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-improve.service \
+  tehas-review.timer tehas-review.service; do
   [ -e "$scan_units/$unit" ] || [ -L "$scan_units/$unit" ] || continue
   old_units+=("$unit")
   [ "$check" = 0 ] || note "stale: $scan_units/$unit"

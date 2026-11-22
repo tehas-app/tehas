@@ -405,8 +405,7 @@ Run `tehas dispatch --dry-run` and read what it prints.
   without that issue or that field.
 - `ERROR: <repo> is now <other> on GitHub`: the repository was renamed or
   moved. Until it is put right the factory floor shows an empty board. Set
-  `TEHAS_REPO` to the new name, and `TEHAS_REVIEW_REPO` too if it named the
-  same repository. Point the product checkout's `origin` at it, move the
+  `TEHAS_REPO` to the new name. Point the product checkout's `origin` at it, move the
   checkout if its directory was named after the old one, and run
   `install.sh`. When the product is tehas itself, point the platform
   checkout's `origin` at it as well, or `tehas update` pulls from the old

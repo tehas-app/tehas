@@ -170,8 +170,9 @@ done
 # when the host's settings got rules beside the instance's, `## tehas outsource`
 # when outsource got its commands, `## tehas plugin` with plugins, `## tehas
 # wiki` with the wiki and `## The commands of other parts` with the parts.
-t_case "the tools pages hold the 49 sections of the commands, each once"
-t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 50
+# `## tehasbot review` went with the review loop in 2.0.
+t_case "the tools pages hold the 48 sections of the commands, each once"
+t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 49
 t_eq "$(cat "${TOOLS_PAGES[@]}" | grep '^## ' | grep -v '^## The pages$' \
    | sort | uniq -d | wc -l | tr -d ' ')" 0
 

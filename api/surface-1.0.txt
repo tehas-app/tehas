@@ -6,7 +6,7 @@
 # are the flags api/commands.txt marks internal or the fields under those
 # host/docs/contract.md says may change. A name that was here before its
 # feature became building stays, and a release refuses it while the feature
-# is building: TEHAS_REVIEW and TEHAS_REVIEW_REPO of review.
+# is building. The settings of the review loop went in 2.0.
 #
 # Lines are only added, at the end, in the release that brings the name.
 # None is taken out or changed within 1.x. console/tests/surface.rs fails
@@ -202,8 +202,6 @@ setting TEHAS_REFRESH_MAX_PER_PR
 setting TEHAS_REFRESH_SLOTS
 setting TEHAS_RELEASE_REPO
 setting TEHAS_REPO
-setting TEHAS_REVIEW
-setting TEHAS_REVIEW_REPO
 setting TEHAS_RUKAS_WORKAROUNDS
 setting TEHAS_SCRATCH_DIR
 setting TEHAS_SCRATCH_MAX

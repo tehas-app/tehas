@@ -96,7 +96,7 @@ for name in $body; do
 done
 [ -z "$missing_body" ] || t_bad "a name of the table's body this parse did not read:$missing_body"
 t_contains "$loader" TEHAS_REPO
-t_contains "$loader" TEHAS_REVIEW_REPO
+t_contains "$loader" TEHAS_RELEASE_REPO
 t_contains "$loader" TEHAS_UPDATE_FROM
 t_contains "$loader" TEHAS_MAX_CYCLES
 

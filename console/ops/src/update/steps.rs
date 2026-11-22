@@ -59,7 +59,11 @@ const SERVERS: &[(&str, &str)] = &[
 /// Units an earlier version named and this one no longer installs. A record
 /// written before the update may still name them on its `units` line; that line
 /// is owed work, not a stranger, so the names are dropped rather than the line.
-pub(crate) const RETIRED_UNITS: &[&str] = &["tehas-refresh.timer", "tehas-improve.timer"];
+pub(crate) const RETIRED_UNITS: &[&str] = &[
+    "tehas-refresh.timer",
+    "tehas-improve.timer",
+    "tehas-review.timer",
+];
 
 /// The ids, in the order they run: systemd first, because a unit file is not in
 /// effect until it is reloaded and its unit restarted, and the containers last.
@@ -585,39 +589,6 @@ mod tests {
     }
 
     #[test]
-    fn the_review_timer_stands_for_its_service_in_the_units_step() {
-        let on = |name: &str| {
-            match name {
-                "TEHAS_REVIEW" => "on",
-                "TEHAS_TEST_FEATURES" => "review",
-                _ => "",
-            }
-            .to_string()
-        };
-        let all = format!("units {}", UNITS.join(" "));
-        assert!(!UNITS.contains(&"tehas-review.timer"));
-        assert_eq!(asked(&["env.sh"]), [all.as_str()]);
-        let with_timer = format!("{all} tehas-review.timer");
-        assert_eq!(
-            steps_for_in(&lines(&["env.sh"]), &on),
-            [with_timer.as_str()]
-        );
-        assert_eq!(
-            steps_for_in(
-                &lines(&["systemd/tehas-review.service", "systemd/tehas-review.timer"]),
-                &on
-            ),
-            [with_timer.as_str()]
-        );
-        // Off, a change to either file restarts the timer where it runs.
-        for file in ["systemd/tehas-review.service", "systemd/tehas-review.timer"] {
-            assert_eq!(asked(&[file]), [with_timer.as_str()], "{file}");
-        }
-        // A line an older version recorded with the timer still runs.
-        assert!(valid(&with_timer));
-    }
-
-    #[test]
     fn the_plugins_timer_is_restarted_and_no_template_is_named() {
         let on = |name: &str| {
             match name {
@@ -958,6 +929,10 @@ mod tests {
         assert_eq!(current("sandbox").as_deref(), Some("sandbox"));
         assert_eq!(current("units tehas-refresh.timer"), None);
         assert_eq!(current("units tehas-improve.timer"), None);
+        assert_eq!(
+            current("units tehas-review.timer tehas-clean.timer").as_deref(),
+            Some("units tehas-clean.timer")
+        );
         assert_eq!(
             current("units tehas-improve.timer tehas-clean.timer").as_deref(),
             Some("units tehas-clean.timer")
