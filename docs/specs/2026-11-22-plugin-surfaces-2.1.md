@@ -24,7 +24,7 @@ which plumbing T16 keeps as library code.
 | Host panel | `hoststats` | `feed:host` (3) |
 | Review loop | `review` | `every:` (1), `history:` (5), drafts from a run (6) |
 | Product wiki | `wiki` | `every:` (1), `history:` (5) |
-| Describe, text files, zips and comment attachments for a cycle | `given` | `hook:gate:cycle.before-work` (7) |
+| Describe, text files, zips and comment attachments for a cycle | `given` | `hook:before:cycle.started=<policy>` (7) |
 
 ## What the platform adds
 
@@ -235,13 +235,20 @@ Work 7, which this needs first.
 
 ### 7. The hook before a cycle starts: files for a cycle
 
-**Its name.** The event is the one before a cycle starts, as T9 of the v2
-plan lists it, in the ports' words and in T11's grant form
-`hook:<when>:<event>`. There is no alias for a 1.x name. This file writes
-it `hook:gate:cycle.before-work`, a placeholder until T9 lands; the name T9
-gives replaces it everywhere here. The ask and the grant are
-`hook:gate:<event>`, the kind of event and its name; the manifest's hook
-`at` is the event's name alone, `cycle.before-work`.
+**Its name.** The event is `cycle.started`, a gate event, as T11's events
+spec (#2878) names it. There is no alias for a 1.x name. The ask is
+`hook:before:cycle.started`; the grant is `hook:before:cycle.started=<policy>`,
+and must carry a policy, `pass` or `hold`, or it is refused with 78 at load:
+the policy says what the start does when the hook does not answer in time.
+The manifest's hook `at` is `before:cycle.started`. Time limits are the ones
+#2878 sets for a gate's listener.
+
+**Its answer.** The hook writes `/out/_tehas/answer.json`:
+`{"api": 1, "answer": "allow" | "refuse", "why": "..."}`, with `why` at most
+140 characters. `refuse` holds the start, as a gate event allows, and the
+issue's comment names the plugin and its `why`. A missing or malformed
+answer is taken as no answer: the grant's policy decides. The `given` plugin
+always answers `allow`.
 
 Today `tehas work` describes images with the model, fetches the text files
 and zips an issue links, and takes links from comments, each behind a
@@ -267,7 +274,7 @@ part says: no network, no token, `/state` read only. The supervisor starts
 it and waits. It gets:
 
 - `/run/context.json`, checked against `api/plugin-context.schema.json`:
-  `{"kind": "hook", "at": "cycle.before-work", "issue": 7, ...}` with the
+  `{"kind": "hook", "at": "before:cycle.started", "issue": 7, ...}` with the
   other fields of a hook's context. `issue` is the cycle's issue number.
   The schema allows the model socket's fields in a hook whose `at` is this
   event, and in no other hook.
@@ -524,13 +531,13 @@ wiki spec on every host.
   "license": "Apache-2.0",
   "build": "Dockerfile",
   "timeout": 300,
-  "asks": ["hook:gate:cycle.before-work", "files", "model", "model:images"],
-  "hooks": [{"at": "cycle.before-work", "timeout": 300}]
+  "asks": ["hook:before:cycle.started", "files", "model", "model:images"],
+  "hooks": [{"at": "before:cycle.started", "timeout": 300}]
 }
 ```
 
 ```
-TEHAS_PLUGIN_GRANTS_GIVEN="<commit> hook:gate:cycle.before-work files:10 model:200000 model:images"
+TEHAS_PLUGIN_GRANTS_GIVEN="<commit> hook:before:cycle.started=pass files:10 model:200000 model:images"
 ```
 
 The hook describes each image, at most 8, 1500 characters each, into
@@ -555,7 +562,7 @@ is not left as a module inside `console/src` that nothing calls.
 | The mesh read, the field list and the window (`console/src/energy.rs`), as a crate | `feed:mesh` (3) |
 | The wiki's collector of raw sources (`console/src/wiki/collect.rs`), as a crate | `history:` (5) |
 | The draft's rules (`console/core/src/plugin/draft.rs`) and the store's record verbs | Drafts from a run (6) |
-| `console/attach`, all of it, as T14 keeps it; the copy and limits of `attach/plugin_files.rs`; the approval record's texts and comment links (`attach/comments.rs`, the dispatcher's part) | `hook:gate:cycle.before-work` (7) |
+| `console/attach`, all of it, as T14 keeps it; the copy and limits of `attach/plugin_files.rs`; the approval record's texts and comment links (`attach/comments.rs`, the dispatcher's part) | `hook:before:cycle.started=<policy>` (7) |
 | The review's renderer (`console/core/src/review.rs`), as a small crate | The `review` plugin vendors it |
 | The wiki's check, render and keep rules (`console/src/wiki/check.rs`, `render.rs`, `publish.rs`), `host/wiki/` | The `wiki` plugin vendors them |
 | The describe prompt, head and quoting (`console/cycle/src/describe.rs`), as a crate | The `given` plugin vendors them |
@@ -577,15 +584,15 @@ Not kept:
 | Where | Change | Why |
 | --- | --- | --- |
 | v1, "Runs" | A refresh by the clock under `every:`; such a plugin is not refreshed by a moved head. `trigger` gains `clock` | Weekly and nightly runs |
-| v1, guarantee 5 (outside the cycle) | Kept for the container. `hook:gate:cycle.before-work` runs while the cycle holds its slot, and the start waits for it, at most 10 minutes | The files must be there before the agents start |
+| v1, guarantee 5 (outside the cycle) | Kept for the container. `hook:before:cycle.started=<policy>` runs while the cycle holds its slot, and the start waits for it, at most 10 minutes | The files must be there before the agents start |
 | v1, guarantee 7 (a view loads nothing from another site) | Kept for a plugin's pages. `/_outside/<id>` is tehas's page and frames a granted URL | Panels |
 | v1, guarantee 8 (writes only through tehas) | Kept. A run may leave a draft; a person files it | The review loop no longer files by itself |
-| v1, the manifest | The asks `every`, `live:<feed>`, `feed:<name>`, `frame`, `history`, `hook:gate:cycle.before-work`. A hook's `at` may be the event before a cycle starts, with `timeout` 30 to 300 | |
-| Hooks part | `cycle.before-work`, with `model` allowed in it. The event after a cycle (`after:work` in 1.x) is renamed as T9 lists it too, with no alias | |
-| Security part, the container | One new read-only mount, `/run/history/`. In a `cycle.before-work` hook, the lab's `/run/issues.json` and `/given/`. Pinned in `sandbox.rs` and `test/fixtures/argv/plugin-*` | A security change |
+| v1, the manifest | The asks `every`, `live:<feed>`, `feed:<name>`, `frame`, `history`, `hook:before:cycle.started=<policy>`. A hook's `at` may be the event before a cycle starts, with `timeout` 30 to 300 | |
+| Hooks part | `before:cycle.started`, with `model` allowed in it. The event after a cycle (`after:work` in 1.x) is renamed as T9 lists it too, with no alias | |
+| Security part, the container | One new read-only mount, `/run/history/`. In a `before:cycle.started` hook, the lab's `/run/issues.json` and `/given/`. Pinned in `sandbox.rs` and `test/fixtures/argv/plugin-*` | A security change |
 | Security part, the product | With `history:`, the clone holds the range, up to the grant's number | The review and the wiki read diffs |
 | Web part, the gate | `/_live/<feed>.json`, `/_feed/<feed>.json`, `/_outside/<id>`, `/_draft` | |
-| v2 rules, rule 5 | A second exception: files a granted `cycle.before-work` hook gave, checked and listed by the host | Hard rule 4; a security change |
+| v2 rules, rule 5 | A second exception: files a granted `before:cycle.started` hook gave, checked and listed by the host | Hard rule 4; a security change |
 | v2 outside part | Unchanged. `net:` stays global unicast only | The host makes the mesh feed |
 | v3, drafted issues | A batch run may propose one draft through `/out` | The review plugin has no service |
 | `manifest.json` of a cycle | `plugins`: each hook's name, commit, files or reason. Added within version 1 | A person sees what was added |

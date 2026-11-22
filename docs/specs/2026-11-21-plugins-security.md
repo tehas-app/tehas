@@ -18,7 +18,7 @@ and pinned by a test.
 | `product` | `/product`, read only, in every run: the default branch's head in a refresh, the pull request's head in a hook | The plugin reads all the code. With `view`, what it writes is shown; with `model`, the code goes to the model |
 | `model:<tokens>` | `/run/tehas/model.sock`: chat completions for one model, at most `<tokens>` a run | Model time, and where the model runs: `review` says whether the endpoint is on this host or another |
 | `action:<id>` | The view's button `<id>`: a signed-in person asks for a refresh | A refresh's cost, at most one at a time |
-| `hook:notify:cycle.after-work` | A run on each pull request a cycle leaves, reported as a commit status | Its summary, 140 characters, is on the pull request for every reader of the repository; its findings are behind the sign-in |
+| `hook:after:change.offered` | A run on each pull request a cycle leaves, reported as a commit status | Its summary, 140 characters, is on the pull request for every reader of the repository; its findings are behind the sign-in |
 
 `kit` is no capability: the kit is tehas's own files, served behind the
 view's sign-in.

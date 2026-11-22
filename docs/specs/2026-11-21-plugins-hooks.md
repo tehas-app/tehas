@@ -12,19 +12,18 @@ branch protection; that is GitHub's gate, and the person's choice.
 
 ## Its name
 
-The names follow T9 of `docs/plans/2026-11-21-coding-standard-v2.md`, in
-T11's grant form `hook:<when>:<event>` (1.6.0). The event is
-`cycle.after-work`, a notify event: it comes after the fact and waits for
-no answer. The ask and the grant are `hook:notify:cycle.after-work`. The
-manifest's hook `at` is the event's name alone, `cycle.after-work`. These
-are placeholders until T9 lands, as `hook:gate:cycle.before-work` is in
-1.5.0; the names T9 gives replace them everywhere. There is no alias for
-the 1.x names `hook:after:work` and `after:work`.
+The names are those of T11's events spec (#2878), in its grant form
+`hook:<when>:<event>` (1.6.0). The event is `change.offered`, a notify
+event: it comes after the fact and waits for no answer. The ask and the
+grant are `hook:after:change.offered`. The manifest's hook `at` is
+`after:change.offered`. The hook before a cycle is
+`hook:before:cycle.started=<policy>` (1.5.0). There is no alias for the 1.x
+names `hook:after:work` and `after:work`.
 
 The reader's rule is for any event: a hook whose `at` is `<event>` needs
-the ask `hook:<when>:<event>` for the same event, with the `<when>` T9
-lists for it. A manifest has at most one hook for each event. An `at` that
-T9 does not list is refused by name.
+the ask `hook:<when>:<event>` for the same event, with the `<when>` #2878
+gives it. A manifest has at most one hook for each event. An `at` that
+#2878 does not list is refused by name.
 
 ## When it runs
 
@@ -34,7 +33,7 @@ refreshes included, and on `tehas plugin hook <name> <pr>`.
 The seam is in `console/cycle/src/supervise.rs`, after `apply::run` has done
 the report: the label is set, the park comment posted, the issue's lock
 released by the supervisor's normal end. The supervisor then writes one
-request file per plugin with `hook:notify:cycle.after-work` granted,
+request file per plugin with `hook:after:change.offered` granted,
 `~/tehas/plugins/<name>/hooks/<pr>.json` (the pull request, its head commit
 as GitHub gave it, the issue, the base), and starts
 `tehas-plugin-hook@<name>-<pr>.service` with `systemctl --user start --no-block`.
@@ -57,7 +56,7 @@ A hook is a run of the plugin's image as the security part says, with kind
 `timeout` from the manifest (60 to 1800 seconds), no `model` in v1, and
 `/run/context.json` holding the pull request's number, base and head.
 
-From 1.6.0 the context also holds `at`, `cycle.after-work`, and `issue`,
+From 1.6.0 the context also holds `at`, `after:change.offered`, and `issue`,
 the cycle's issue number, as the hook before a cycle has them (1.5.3). The
 host takes the issue from the request file. A plugin needs it to find its
 issue's files under `/given/<issue>/`. `2026-11-22-plugins-1.6.md` adds,
