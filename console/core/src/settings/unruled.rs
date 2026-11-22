@@ -42,7 +42,6 @@ pub const UNRULED: &[(&str, &str)] = &[
         "TEHAS_STORE_TEST_BUSY_REPORT",
         "a test's view of the store's retries",
     ),
-    ("TEHAS_MODELS_FILE", "a test's model list"),
     (
         "TEHAS_GH_BIN",
         "the sandbox's gh shim: the real gh, for tests",

@@ -233,7 +233,7 @@ tehas top --every 10     # redraw every 10 seconds
 
 One screen for a person, in the manner of `top`: is the factory taking work,
 what is in the queue and which issues are behind the counts, what the cycles are
-doing, which units run, what the model mesh draws, and the tail of a cycle's
+doing, which units run, and the tail of a cycle's
 console. It draws again every 2 seconds unless `--every` says otherwise; `q` or
 Ctrl-C ends it and leaves the terminal as it was. Without a terminal on standard
 output, and with `--once`, it prints one frame as plain text: no escape codes.
