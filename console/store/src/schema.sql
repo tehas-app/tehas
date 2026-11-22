@@ -10,7 +10,7 @@
 -- started_* columns of approvals (db::STEP_13). Schema 14 lets cycles.how say
 -- 'host', a start `tehas start` approved (db::STEP_14). Schemas 15, 17 and 18
 -- held the five tables of outsource (db::STEP_15, STEP_17, STEP_18), which
--- schema 27 drops (db::STEP_27): init lays none of them. Schema 16 lets
+-- schema 28 drops (db::DROP_OUTSOURCE): init lays none of them. Schema 16 lets
 -- actions.state say 'unknown', a write GitHub may have taken, and writes
 -- 'millwright' in every row that still said 'fixer' (db::STEP_16). Schema 19
 -- adds plugin_runs, one row per run of a plugin (db::STEP_19). Schema 24 adds answers, an answer `tehas answer` gave to the
@@ -18,8 +18,12 @@
 -- cycles.how takes 'answer', which db::STEP_24 rebuilds cycles for.
 -- Schema 25 adds questions.offers, the choices a park's question offers
 -- (db::STEP_25). Schema 26: cycles.how takes 'reply', a retry a person's reply
--- asked for, which db::STEP_26 rebuilds cycles for. Schema 27 drops the
--- outsource tables.
+-- asked for, which db::STEP_26 rebuilds cycles for. Schema 27: cycles.how no
+-- longer takes 'retry-tick' (every one stored became 'reply', in cycles,
+-- approvals and cycle_history), and questions.reask marks a question open at
+-- the upgrade, which the first poll asks again in 2.0's words
+-- (db::STEP_27, db::STEP_27_INIT at init).
+-- Schema 28 drops the outsource tables (db::DROP_OUTSOURCE).
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
@@ -74,7 +78,7 @@ CREATE TABLE cycles (
   attempt        INTEGER NOT NULL DEFAULT 1,
   started_at     INTEGER NOT NULL,
   started_by     TEXT,
-  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host','answer','reply')),
+  how            TEXT NOT NULL CHECK (how IN ('label','refresh','outage-retry','fixer','millwright','hand','host','answer','reply')),
   requeued       INTEGER NOT NULL DEFAULT 0,
   rukas_commit   TEXT,
   image          TEXT,

@@ -762,7 +762,7 @@ No container is given it. Only one program writes it: the store,
 `~/tehas/libexec/store`, which `install.sh` builds and installs with the
 console, or takes from the release.
 
-What is in it today: the schema, version 27 (`PRAGMA user_version`); `meta`,
+What is in it today: the schema, version 28 (`PRAGMA user_version`); `meta`,
 which says when the database was made, by which version and commit of tehas,
 and for which instance and repository; and the cycles' records: the approval
 each start rests on (the dispatcher's), each cycle's start and end with its
@@ -812,7 +812,7 @@ JSON answer:
   `how` may say `host`, a start [`tehas start`](/api#tehas-start) approved,
   the step to 16
   lets the action journal keep a write as `unknown` and writes `millwright`
-  in every row that still said `fixer`, and the step to 27 drops the five
+  in every row that still said `fixer`, and the step to 28 drops the five
   tables schemas 15 to 26 held for outsource, which 2.0 dropped and no
   release wrote a row of. Every other step keeps every row.
 - A store older than that, from a release before v0.30, is refused and left
@@ -2228,7 +2228,7 @@ What a member of the group gets, and does not:
 | The environment                  | `sudo` clears it. `dev-login` loads the tehas user's own, as the timers do. `TERM` and `COLORTERM` are kept |
 
 `gpasswd -d alice tehas` takes an account out. `test/login_test.sh` and
-`test/bootstrap_test.sh` hold the rule and the two scripts to this.
+`test/bootstrap_system_test.sh` hold the rule and the two scripts to this.
 
 `/usr/local/bin/tehas` is a copy of `host/login/tehas`, so an update of the
 platform can leave the accounts typing an older command. No tehas command runs as

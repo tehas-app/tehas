@@ -1,6 +1,6 @@
 -- The step to schema 15, as it was written: the five tables of outsource,
 -- which 2.0 dropped. A store older than 15 still passes through it on the way
--- to 27, whose step drops them again (db::STEP_27). Nothing reads or writes a
+-- to this one, where they are dropped again (db::DROP_OUTSOURCE). Nothing reads or writes a
 -- row of them.
 
 -- The contractors that may work for this factory. A key is what the joining

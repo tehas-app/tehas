@@ -329,9 +329,9 @@ pub(crate) fn installed(host: &Host) -> String {
 /// does, so a host installed before the setting existed keeps updating the way
 /// it did. A host with neither is not guessed at.
 pub(crate) fn source(host: &Host) -> Result<&'static str, u8> {
-    match env::var("TEHAS_UPDATE_FROM").as_deref() {
-        Ok("git") => return Ok("git"),
-        Ok("release") => return Ok("release"),
+    match host.from.as_str() {
+        "git" => return Ok("git"),
+        "release" => return Ok("release"),
         _ => {}
     }
     if fs::symlink_metadata(host.current()).is_ok_and(|m| m.file_type().is_symlink()) {
@@ -1236,6 +1236,7 @@ mod tests {
         Host {
             home: home.to_path_buf(),
             image: "tehas/pi-rukas:uid1000".to_string(),
+            from: String::new(),
         }
     }
 

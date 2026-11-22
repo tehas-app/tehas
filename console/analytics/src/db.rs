@@ -167,6 +167,7 @@ fn try_open(file: &Path, now: i64) -> Result<Connection, Unusable> {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(classify)?;
     settle(&mut conn, version, now)?;
+    rewrite_hows(&mut conn)?;
     // Only now: a file that is moved aside is moved as it was found.
     set_wal(&mut conn)?;
     conn.pragma_update(None, "foreign_keys", "ON")
@@ -242,6 +243,36 @@ pub(crate) fn settle(conn: &mut Connection, seen: i64, now: i64) -> Result<(), U
         }
         from if MIGRATES_FROM.contains(&from) => migrate(&tx).map_err(classify)?,
         other => return Err(foreign(other)),
+    }
+    tx.commit().map_err(classify)
+}
+
+/// The hows of before 2.0 in their words of 2.0, on every open: a retry
+/// ticked before 2.0 (`retry-tick`) is a retry a person's reply asked for
+/// (`reply`), as the state store's step to 27 has it (#2782). Data only, on
+/// any schema: read first without a lock, so an open with none to rewrite
+/// writes nothing, and done again under the write lock.
+pub const OLD_HOWS: [(&str, &str); 1] = [("retry-tick", "reply")];
+
+fn rewrite_hows(conn: &mut Connection) -> Result<(), Unusable> {
+    let some = |c: &Connection| -> rusqlite::Result<bool> {
+        let mut n = 0i64;
+        for (old, _) in OLD_HOWS {
+            n += c.query_row("SELECT count(*) FROM runs WHERE how = ?1", [old], |r| {
+                r.get::<_, i64>(0)
+            })?;
+        }
+        Ok(n > 0)
+    };
+    if !some(conn).map_err(classify)? {
+        return Ok(());
+    }
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(classify)?;
+    for (old, new) in OLD_HOWS {
+        tx.execute("UPDATE runs SET how = ?2 WHERE how = ?1", params![old, new])
+            .map_err(classify)?;
     }
     tx.commit().map_err(classify)
 }

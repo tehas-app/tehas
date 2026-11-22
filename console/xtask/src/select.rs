@@ -36,12 +36,13 @@
 //!     are not installed, and full for anything else.
 //!
 //! The heavy integration files, test/install_*, test/update_*,
-//! test/pack_release_test.sh and test/bootstrap_test.sh, are left to the full
-//! gate unless the change touches what they test directly: the file itself, a
+//! test/bootstrap_* and test/pack_release_test.sh, are left to the full gate
+//! unless the change touches what they test directly: the file itself, a
 //! helper it uses, or a path whose name starts its name (install.sh and
 //! host/release/install for install_*, libexec/update for update_*,
-//! scripts/pack-release.sh, bootstrap.sh). Reached only through a shared
-//! library such as lib/config.sh, they are omitted and named in an omit line.
+//! bootstrap.sh for bootstrap_*, scripts/pack-release.sh). Reached only
+//! through a shared library such as lib/config.sh, they are omitted and named
+//! in an omit line.
 //!
 //! When unsure it asks for more, never less. A test that reaches a file by a
 //! name built at run time is missed here; the full gate the driver and CI run
@@ -281,6 +282,7 @@ fn heavy(f: &str) -> bool {
         "update_test.sh" | "pack_release_test.sh" | "bootstrap_test.sh"
     ) || between(b, "install_", "_test.sh")
         || between(b, "update_", "_test.sh")
+        || between(b, "bootstrap_", "_test.sh")
 }
 
 fn find(hay: &[u8], needle: &[u8]) -> Vec<usize> {

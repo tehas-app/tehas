@@ -133,7 +133,11 @@ case "$1 $2" in
         [ ! -e "$T/fx/label-missing" ] || not_found
         fails unmark-fails ;;
       # A question as the Rust poll posts it, with its method said.
-      "POST repos/acme/widget/issues/"*/comments) [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;
+      # Its id is 4002, or what $fx/post-id-<n> holds for issue n.
+      "POST repos/acme/widget/issues/"*/comments)
+        [ ! -e "$T/fx/post-fails" ] || exit 1
+        n=${rest_path#repos/acme/widget/issues/}
+        cat "$T/fx/post-id-${n%%/*}" 2>/dev/null || echo 4002 ;;
       *) fails patch-fails ;;
     esac ;;
   # The reviews and inline comments of a pull request, as REST lists them.

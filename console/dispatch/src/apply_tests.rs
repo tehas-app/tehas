@@ -1790,7 +1790,7 @@ fn only_a_comment_id_of_its_grammar_is_named() {
         (json!("5x"), false),
     ] {
         let mut t = world();
-        let mut a = start_of(7, "retry-tick");
+        let mut a = start_of(7, "reply");
         a["comment"] = id.clone();
         t.apply(json!([a]));
         let record = t
@@ -1813,7 +1813,7 @@ fn said(id: u64, who: &str, at: &str, body: &str) -> Value {
 
 /// The tick of the comments retry, at 10:00, with the park asked at 09:00.
 fn comments_retry() -> Value {
-    let mut a = start_of(7, "retry-tick");
+    let mut a = start_of(7, "reply");
     a["since"] = json!("2026-10-26T09:00:00Z");
     a
 }
@@ -2097,7 +2097,7 @@ fn a_start_of_the_issue_alone_reads_no_comment_of_the_issue_or_its_pull_request(
         r#"[{"number": 30, "headRefName": "feature/issue-7-x", "body": ""}]"#,
     )
     .unwrap();
-    let mut a = start_of(7, "retry-tick");
+    let mut a = start_of(7, "reply");
     a["issue_alone"] = json!(true);
     a["since"] = json!("2026-10-26T09:00:00Z");
     let r = t.apply(json!([a]));
@@ -2132,7 +2132,7 @@ fn a_start_of_the_issue_alone_reads_no_comment_of_the_issue_or_its_pull_request(
         r#"[{"number": 30, "headRefName": "feature/issue-7-x", "body": ""}]"#,
     )
     .unwrap();
-    let mut a = start_of(7, "retry-tick");
+    let mut a = start_of(7, "reply");
     a["since"] = json!("2026-10-26T09:00:00Z");
     t.apply(json!([a]));
     let w = t.calls();
@@ -2157,7 +2157,7 @@ fn a_start_whose_issue_alone_is_not_a_bool_is_said_and_reads_its_comments() {
                 "created_at": "2026-10-26T09:00:00Z", "updated_at": "2026-10-26T09:00:00Z"}]"#,
         )
         .unwrap();
-        let mut a = start_of(7, "retry-tick");
+        let mut a = start_of(7, "reply");
         a["issue_alone"] = v.clone();
         a["since"] = json!("2026-10-26T09:00:00Z");
         let r = t.apply(json!([a]));

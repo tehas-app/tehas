@@ -219,6 +219,8 @@ pub struct Question {
     /// The park's reason, when it is text.
     pub reason: Option<String>,
     pub plan: PlanRow,
+    /// Asked before 2.0 and open at the upgrade: asked again in 2.0's words.
+    pub reask: bool,
 }
 
 /// plan-show's `.planning`: none, a value that is not an object, or the open
@@ -1078,10 +1080,7 @@ impl Base {
                 .all(|b| b.is_ascii_digit() || matches!(b, b'T' | b':' | b'.' | b'Z' | b'-'))
             && !by.is_empty()
             && by.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-            && matches!(
-                how,
-                "label" | "retry-tick" | "outage-retry" | HOST | "answer" | "reply"
-            )
+            && matches!(how, "label" | "outage-retry" | HOST | "answer" | "reply")
             && sum.len() == 64
             && sum.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
         ok.then(|| Base {
@@ -1684,6 +1683,7 @@ fn issue(v: &Value) -> Issue {
                 },
                 kind: q.get("kind").and_then(text).unwrap_or_default(),
                 reason: q.get("reason").and_then(text),
+                reask: q.get("reask") == Some(&Value::Bool(true)),
                 plan: match q.get("plan") {
                     None | Some(Value::Null) => PlanRow::None,
                     Some(row) => {

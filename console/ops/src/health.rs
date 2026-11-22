@@ -106,21 +106,27 @@ struct Given {
     test_features: Option<Tested>,
 }
 
-/// Where the run looks for the MCP server: `TEHAS_MCP` and `TEHAS_HOST_ADDR`
-/// as the settings gave them, and the port, which a case names for itself.
-struct Mcp {
+/// What the run reads of its environment, read once here so a case names its
+/// own and not the host's: where it looks for the MCP server (`TEHAS_MCP`,
+/// `TEHAS_HOST_ADDR` and the port), the manager's version and
+/// TEHAS_TEST_FEATURES.
+struct Settings {
     on: String,
     addr: String,
     port: u16,
+    manager: Option<String>,
+    tested: Option<Tested>,
 }
 
-impl Mcp {
-    fn of_settings() -> Self {
+impl Settings {
+    fn of_env() -> Self {
         let var = |name| env::var(name).unwrap_or_default();
         Self {
             on: var("TEHAS_MCP"),
             addr: var("TEHAS_HOST_ADDR"),
             port: crate::mcp::PORT,
+            manager: env::var("TEHAS_MANAGER_VERSION").ok(),
+            tested: tested(),
         }
     }
 }
@@ -309,7 +315,7 @@ fn publish_health(home: &Path, file: &Path, budget: Duration) -> Result<(), Refu
 /// left out rather than passed. Both say so with a WARN line: the units, the
 /// backup and the polls are the checks a run goes without, and a home that
 /// passes with three of them missing is a home whose store did not answer.
-fn checks(home: &Path, budget: &str, systemctl: &Path, mcp: &Mcp) -> Result<Given, u8> {
+fn checks(home: &Path, budget: &str, systemctl: &Path, settings: &Settings) -> Result<Given, u8> {
     // Each ask ends the run with the status of its refusal, which is the
     // status of the step and not of a later one.
     let ask = |step: Step, args: &[&str]| -> Result<Option<Value>, u8> {
@@ -357,7 +363,7 @@ fn checks(home: &Path, budget: &str, systemctl: &Path, mcp: &Mcp) -> Result<Give
     let poll_budget = over.as_ref().map(|_| budget.to_string());
     // systemd, bounded at 10 s; None leaves the units out of the file.
     let units = failed_units_of(systemctl);
-    let mcp = liveness(home, &mcp.on, &mcp.addr, mcp.port, MCP_BOUND);
+    let mcp = liveness(home, &settings.on, &settings.addr, settings.port, MCP_BOUND);
     Ok(Given {
         sessions: Some(sessions),
         units,
@@ -366,8 +372,8 @@ fn checks(home: &Path, budget: &str, systemctl: &Path, mcp: &Mcp) -> Result<Give
         poll_budget,
         poll_idle: idle.map(|v| v.to_string()),
         mcp: Some(mcp_check(&mcp).dump()),
-        manager: env::var("TEHAS_MANAGER_VERSION").ok(),
-        test_features: tested(),
+        manager: settings.manager.clone(),
+        test_features: settings.tested.clone(),
     })
 }
 
@@ -444,7 +450,7 @@ pub fn run(given: &[String]) -> u8 {
         Path::new(home),
         budget.unwrap_or_else(|| POLL_BUDGET.to_string()),
         Path::new("systemctl"),
-        &Mcp::of_settings(),
+        &Settings::of_env(),
     )
 }
 
@@ -463,7 +469,7 @@ pub fn loaded() -> u8 {
         Path::new(&home),
         budget,
         Path::new("systemctl"),
-        &Mcp::of_settings(),
+        &Settings::of_env(),
     )
 }
 
@@ -471,11 +477,11 @@ pub fn loaded() -> u8 {
 /// names a budget of its own does not reach over the environment of the
 /// process the tests of the workspace share. The units read is the read of
 /// systemd, which a case of the units names for itself.
-fn run_with(home: &Path, budget: String, systemctl: &Path, mcp: &Mcp) -> u8 {
+fn run_with(home: &Path, budget: String, systemctl: &Path, settings: &Settings) -> u8 {
     if !store::ready(home) {
         return not_installed();
     }
-    let given = match checks(home, &budget, systemctl, mcp) {
+    let given = match checks(home, &budget, systemctl, settings) {
         Ok(gathered) => gathered,
         Err(rc) => return rc,
     };
@@ -516,9 +522,9 @@ mod run_tests {
 
     struct Store {
         home: TestDir,
-        /// Where the run looks for the MCP server: off unless a case turns
-        /// it on.
-        mcp: Mcp,
+        /// The run's settings: the MCP server off unless a case turns it on,
+        /// and no manager or TEHAS_TEST_FEATURES whatever the host has.
+        settings: Settings,
     }
 
     impl Store {
@@ -555,10 +561,12 @@ mod run_tests {
             store::testing::plant(&home, &home.join("answers"));
             Store {
                 home,
-                mcp: Mcp {
+                settings: Settings {
                     on: String::new(),
                     addr: String::new(),
                     port: 0,
+                    manager: None,
+                    tested: None,
                 },
             }
         }
@@ -651,7 +659,7 @@ mod run_tests {
         fn run_with(&mut self, budget: &str) -> u8 {
             self.units("");
             let program = self.systemctl();
-            run_with(&self.home, budget.to_string(), &program, &self.mcp)
+            run_with(&self.home, budget.to_string(), &program, &self.settings)
         }
 
         /// The whole of `run` for a home whose settings named <budget> as its
@@ -674,7 +682,7 @@ mod run_tests {
                 &self.home,
                 POLL_BUDGET.to_string(),
                 &self.systemctl(),
-                &self.mcp,
+                &self.settings,
             )
         }
 
@@ -855,10 +863,12 @@ mod run_tests {
             .local_addr()
             .unwrap()
             .port();
-        s.mcp = Mcp {
+        s.settings = Settings {
             on: "1".into(),
             addr: "127.0.0.1".into(),
             port,
+            manager: None,
+            tested: None,
         };
         assert_eq!(s.run(), 0);
         let h = s.health();

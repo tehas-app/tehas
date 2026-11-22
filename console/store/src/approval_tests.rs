@@ -109,8 +109,8 @@ fn approval_record_stores_every_field() {
     assert_eq!(v["approval"]["refresh_pr"], 40);
     assert_eq!(v["approval"]["label"], "refresh");
     assert_eq!(
-        record(&home, 12, 5, "bob", "retry-tick")["approval"]["label"],
-        "retry-tick"
+        record(&home, 12, 5, "bob", "reply")["approval"]["label"],
+        "reply"
     );
     assert_eq!(
         record(&home, 13, 5, "bob", "outage-retry")["approval"]["label"],
@@ -223,9 +223,7 @@ fn approval_record_refuses_bad_arguments() {
         usage(&v)
     };
     assert!(with(&["--how", "label"]).contains("--label is required with --how label"));
-    assert!(
-        with(&["--how", "retry-tick", "--label", "tehas:ready"]).contains("--label is not taken")
-    );
+    assert!(with(&["--how", "reply", "--label", "tehas:ready"]).contains("--label is not taken"));
     assert!(
         with(&["--how", "label", "--label", "ready"]).contains("--label is not a tehas:* label")
     );
@@ -466,9 +464,9 @@ fn a_start_taken_by_the_unit_but_not_yet_ended_still_names_its_base() {
     drop(l);
     let (l, tick) = {
         let lock = hold(&home, 34);
-        approve(&home, 34, "alice", "retry-tick");
+        approve(&home, 34, "alice", "reply");
         let v = ok(&home, &["cycle-start", "34"]);
-        assert_eq!(v["how"], "retry-tick", "the start ran on the tick: {v}");
+        assert_eq!(v["how"], "reply", "the start ran on the tick: {v}");
         (lock, v["attempt"].as_i64().unwrap())
     };
     // The row of the tick's cycle is the one the record does not hold: the row of the
@@ -502,7 +500,7 @@ fn a_start_taken_by_the_unit_but_not_yet_ended_still_names_its_base() {
     // before it, and not no base at all (#1751).
     let v = current(&home, 34);
     assert_eq!(
-        v["rests_on"]["how"], "retry-tick",
+        v["rests_on"]["how"], "reply",
         "with the row of the tick on record the tick is itself the base: {v}"
     );
 }
@@ -519,7 +517,7 @@ fn a_refresh_after_a_tick_that_is_not_yet_taken_rests_on_that_tick() {
     end(&home, 35, a, "handoff");
     drop(l);
     // The tick of the merge, and the cycle of the merge that ran on it.
-    approve(&home, 35, "alice", "retry-tick");
+    approve(&home, 35, "alice", "reply");
     let (l, a) = {
         let lock = hold(&home, 35);
         let v = ok(&home, &["cycle-start", "35"]);
@@ -542,7 +540,7 @@ fn a_refresh_after_a_tick_that_is_not_yet_taken_rests_on_that_tick() {
         "no start has taken it: {v}"
     );
     assert_eq!(
-        v["rests_on"]["how"], "retry-tick",
+        v["rests_on"]["how"], "reply",
         "and the refresh rests on the tick of the merge, not on the label before it: {v}"
     );
 }

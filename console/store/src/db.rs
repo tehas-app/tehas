@@ -19,12 +19,12 @@ use tehas_core::home::{Home, State};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 27;
+pub const SCHEMA_VERSION: i64 = 28;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The five tables schemas 15 to 26 held for outsource, which 2.0 dropped:
-/// the step to 15 lays them, the steps to 17 and 18 add to them, and the step
-/// to 27 drops them.
+/// the step to 15 lays them, the steps to 17 and 18 add to them, and
+/// [`DROP_OUTSOURCE`] drops them.
 #[cfg(test)]
 pub const DROPPED_TABLES: [&str; 5] = [
     "contractors",
@@ -126,7 +126,7 @@ DELETE FROM planning_notes WHERE kind = 'fixer-refused';
 ";
 
 /// The step from 16 to 17, as it was written: columns on two of the tables
-/// the step to 27 drops, every one added null.
+/// [`DROP_OUTSOURCE`] drops, every one added null.
 pub const STEP_17: &str = "
 ALTER TABLE jobs ADD COLUMN token_sha256 TEXT;
 CREATE INDEX jobs_token ON jobs (token_sha256);
@@ -138,7 +138,7 @@ ALTER TABLE contractors ADD COLUMN report_at INTEGER;
 ";
 
 /// The step from 17 to 18, as it was written: a rename and a column on
-/// `jobs`, which the step to 27 drops.
+/// `jobs`, which [`DROP_OUTSOURCE`] drops.
 pub const STEP_18: &str = "
 ALTER TABLE jobs RENAME COLUMN token_sha256 TO job_token_sha256;
 DROP INDEX jobs_token;
@@ -322,11 +322,44 @@ pub const STEP_24: &str = concat!(
 /// Run as the step to 24 is, with foreign keys off (`step_26`).
 pub const STEP_26: &str = cycles_with_hows!("'label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host','answer','reply'");
 
-/// The step from 26 to 27: outsource was dropped in 2.0, and its five tables
-/// and its row of `meta` go with it. No release could turn the feature on, so
-/// the tables are empty on a host; the backup `migrate` takes first holds what
-/// a development store had. The children go before their parents.
-pub const STEP_27: &str = "
+/// The column of the step to 27 that `init` lays too: a question marked to be
+/// asked again in the words of 2.0 (#2782).
+pub const STEP_27_INIT: &str = "
+ALTER TABLE questions ADD COLUMN reask INTEGER NOT NULL DEFAULT 0;
+";
+
+/// The step from 26 to 27 (#2782): a retry ticked before 2.0 is a retry a
+/// person's reply asked for, so every stored `retry-tick` how becomes `reply`
+/// and `cycles.how` no longer takes `retry-tick`; and every question still
+/// open is marked to be asked again in 2.0's words, which the first poll does
+/// once. Run as the step to 24 is, with foreign keys off (`step_27`).
+pub const STEP_27: &str = concat!(
+    "
+UPDATE cycles SET how = 'reply' WHERE how = 'retry-tick';
+UPDATE approvals SET how = 'reply' WHERE how = 'retry-tick';
+UPDATE approvals SET label = 'reply' WHERE label = 'retry-tick';
+UPDATE approvals SET started_how = 'reply' WHERE started_how = 'retry-tick';
+UPDATE cycle_history SET how = 'reply' WHERE how = 'retry-tick';
+",
+    cycles_with_hows!(
+        "'label','refresh','outage-retry','fixer','millwright','hand','host','answer','reply'"
+    ),
+    "
+ALTER TABLE questions ADD COLUMN reask INTEGER NOT NULL DEFAULT 0;
+UPDATE questions SET reask = 1 WHERE answered_at IS NULL;
+"
+);
+
+/// The schema whose step drops outsource. Steps run in number order, so this
+/// one number moves if another step lands first.
+pub const DROP_OUTSOURCE_STEP: i64 = 28;
+
+/// The step to [`DROP_OUTSOURCE_STEP`]: outsource was dropped in 2.0, and its
+/// five tables and its row of `meta` go with it. No release could turn the
+/// feature on, so the tables are empty on a host; the backup `migrate` takes
+/// first holds what a development store had. The children go before their
+/// parents.
+pub const DROP_OUTSOURCE: &str = "
 DROP TABLE job_history;
 DROP TABLE issue_attempts;
 DROP TABLE jobs;
@@ -1254,6 +1287,7 @@ pub fn write_schema(
     tx.execute_batch(STEP_23).map_err(classify)?;
     tx.execute_batch(STEP_24_INIT).map_err(classify)?;
     tx.execute_batch(STEP_25).map_err(classify)?;
+    tx.execute_batch(STEP_27_INIT).map_err(classify)?;
     let rows = [
         ("schema", SCHEMA_VERSION.to_string()),
         ("created_at", now.to_string()),
@@ -1410,8 +1444,13 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     // A store at 25 is one this binary wrote before a reply's retry had a how
     // of its own.
     (26, step_26),
-    // A store at 26 is one this binary wrote while outsource was being built.
-    (27, |c| step(c, 27, STEP_27)),
+    // A store at 26 is one this binary wrote before retry-tick was gone and
+    // an open question was asked again in 2.0's words.
+    (27, step_27),
+    // A store at 27 is one this binary wrote while outsource was being built.
+    (DROP_OUTSOURCE_STEP, |c| {
+        step(c, DROP_OUTSOURCE_STEP, DROP_OUTSOURCE)
+    }),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and
@@ -1489,6 +1528,17 @@ fn step_26(conn: &mut Connection) -> Result<(), DbError> {
     conn.pragma_update(None, "foreign_keys", "OFF")
         .map_err(classify)?;
     let stepped = step(conn, 26, STEP_26);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(classify)?;
+    stepped?;
+    conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The step to 27, run as `step_14` runs its rebuild of `cycles`.
+fn step_27(conn: &mut Connection) -> Result<(), DbError> {
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(classify)?;
+    let stepped = step(conn, 27, STEP_27);
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(classify)?;
     stepped?;

@@ -143,6 +143,8 @@ fn parked(history: &[Value], at: &str) -> (bool, bool) {
     }
 }
 
+/// The label of an issue that waits on its question.
+const ASKS: [&str; 1] = ["tehas:question"];
 impl Poll<'_> {
     /// control_ask: the control issue is never worked on; said once a poll.
     pub(super) fn control_ask(&mut self, n: u64, what: &str) -> bool {
@@ -183,6 +185,41 @@ impl Poll<'_> {
                 say: format!("{note}\n\n{mark}"),
             });
         }
+    }
+
+    /// The question of before 2.0 in `ans` asked again in 2.0's words.
+    fn reask(&mut self, n: u64, ans: &Asked) {
+        use tehas_core::question::{reasked, Kind};
+        let kind = if ans.kind == "park" {
+            Kind::Park
+        } else {
+            Kind::Plan
+        };
+        let turn = ans.turn.parse().unwrap_or(1);
+        let Some(r) = reasked(kind, n, turn, &ans.body) else {
+            self.log(format!(
+                "skip #{n}: its question of before 2.0 holds no choice to ask again"
+            ));
+            return;
+        };
+        if self.dry {
+            self.log(format!(
+                "would ask #{n}'s question again in the words of 2.0"
+            ));
+            return;
+        }
+        let offers: Vec<&str> = r.offers.iter().map(|c| c.word()).collect();
+        // A stop closed with nothing to ask waits on no question any more.
+        let unlabel = r.body.is_none().then(|| ASKS[0].to_string());
+        self.act(Action::Reask {
+            unlabel,
+            issue: n,
+            kind: ans.kind.clone(),
+            old: Given::said(ans.comment.as_ref()),
+            old_body: ans.body.clone(),
+            body: r.body,
+            offers: offers.join(","),
+        });
     }
 
     /// The answer `tehas answer` gave to question `question` taken away, as a
@@ -320,6 +357,13 @@ impl Poll<'_> {
                     continue;
                 }
             };
+            // A question asked before 2.0 and open at the upgrade is asked
+            // again in 2.0's words, once: nothing of the old comment is read
+            // as an answer this poll.
+            if q.reask && !qid.is_empty() && ans.kind == qkind && ans.issue_number() == Some(n) {
+                self.reask(n, &ans);
+                continue;
+            }
             // An answer `tehas answer` gave reads as the box it stands for.
             // One the question does not offer is taken away, and said.
             // One a person's later tick or reply stands over is taken away
@@ -394,11 +438,7 @@ impl Poll<'_> {
             let retry = ans.ticked_label().and_then(tehas_core::question::retry_of);
             let Some(with_comments) = retry else {
                 if !self.dry {
-                    let mut l = LabelChange::new(
-                        n,
-                        &["tehas:question"],
-                        Self::label_fail(n, &["tehas:question"], &[]),
-                    );
+                    let mut l = LabelChange::new(n, &ASKS, Self::label_fail(n, &ASKS, &[]));
                     l.answered = Some((qid.clone(), by.clone()));
                     self.act(Action::Label(l));
                 }

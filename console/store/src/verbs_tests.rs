@@ -319,7 +319,7 @@ fn every_64_names_the_flag_and_an_enumerated_word() {
             ][..],
             // The old `fixer` is taken but not advertised: the refusal names
             // only the words of this release.
-            "usage approval-record: --how is not one of millwright, label, refresh, retry-tick, outage-retry, host, answer, reply: \"bogus\"",
+            "usage approval-record: --how is not one of millwright, label, refresh, outage-retry, host, answer, reply: \"bogus\"",
         ),
         (
             &[
@@ -475,7 +475,7 @@ fn samples(brief: &str, input: &str) -> Vec<Vec<String>> {
             "--by",
             "alice",
             "--how",
-            "retry-tick",
+            "reply",
             "--body-sha",
             SHA,
             "--input-file",
