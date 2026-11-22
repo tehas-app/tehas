@@ -193,11 +193,12 @@ reset
 t_instance 'echo "settings were read" >&2; exit 9'
 t_run "$tehas github writes"
 t_eq "$t_rc" 0
-public=$t_out
+# The two runs may fall in different minutes; the report names its minute.
+public=${t_out#*Z:}
 t_lacks "$t_out" "settings were read"
 t_run "$bot github-writes"
 t_eq "$t_rc" 0
-t_eq "$t_out" "$public"
+t_eq "${t_out#*Z:}" "$public"
 t_eq "$(ran)" ""
 
 t_case "tehas github with no verb, another verb or another word is 64 with its text"
