@@ -165,13 +165,13 @@ fn the_millwrights_tehas_ready_on_the_body_its_last_cycle_parked_on_is_held_too(
 
 /// The park of #7 on "Words." with the millwright's tehas:ready of two minutes
 /// ago on it and alice's approval behind it, with these settings
-/// [TEHAS_WORK_FILES=1]. The label's epoch.
+/// [TEHAS_WORK_IMAGES=1]. The label's epoch.
 fn millwright_parked(w: &World, settings: &[&str]) -> i64 {
     parked_words(w);
     let at = tehas_core::time::now() - 120;
     let mut lines = MINIMAL.to_vec();
     lines.extend_from_slice(if settings.is_empty() {
-        &["TEHAS_WORK_FILES=1"]
+        &["TEHAS_WORK_IMAGES=1"]
     } else {
         settings
     });
@@ -261,7 +261,7 @@ fn the_millwrights_action_change_comment_of_the_ten_minutes_before_its_label_lif
 }
 
 #[test]
-fn the_lift_needs_the_instance_to_give_a_cycle_the_note_images_lift_it_neither_setting_holds() {
+fn the_lift_needs_the_instance_to_give_a_cycle_images_and_without_them_it_holds() {
     let w = World::new("hold-lift-settings");
     let at = millwright_parked(&w, &["TEHAS_WORK_IMAGES=1"]);
     with_notes(
@@ -274,7 +274,8 @@ fn the_lift_needs_the_instance_to_give_a_cycle_the_note_images_lift_it_neither_s
         )],
     );
     lifts(&w);
-    let at = millwright_parked(&w, &["TEHAS_WORK_IMAGES=0", "TEHAS_WORK_FILES=0"]);
+    // TEHAS_WORK_FILES left core in 2.0: it gives the note no way in.
+    let at = millwright_parked(&w, &["TEHAS_WORK_IMAGES=0", "TEHAS_WORK_FILES=1"]);
     with_notes(
         &w,
         &[change_note(
@@ -494,7 +495,7 @@ fn a_start_the_lift_let_through_counts_against_the_cap_of_retries_and_a_second_o
     let w = World::new("hold-lift-cap");
     let at = millwright_parked(
         &w,
-        &["TEHAS_WORK_FILES=1", "TEHAS_MILLWRIGHT_MAX_RETRIES=1"],
+        &["TEHAS_WORK_IMAGES=1", "TEHAS_MILLWRIGHT_MAX_RETRIES=1"],
     );
     with_notes(
         &w,

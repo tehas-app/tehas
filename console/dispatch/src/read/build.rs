@@ -703,7 +703,7 @@ fn blocked_list(q: &github::Queue, candidates: &[u64], asking: &[u64]) -> Vec<u6
 fn park_lifts(park: &Value, c: &Settings) -> bool {
     park.is_object()
         && park.get("failed").is_none()
-        && ((!c.millwright.is_empty() && (c.work_images || c.work_files))
+        && ((!c.millwright.is_empty() && c.work_images)
             || park.get("question").is_some_and(|q| !q.is_null()))
 }
 
@@ -1556,12 +1556,12 @@ esac"#,
     }
 
     /// The settings of the lifted-park case: the millwright has an account, and
-    /// a cycle is given the files its issue links, which is what makes the
+    /// a cycle is given the images its issue links, which is what makes the
     /// millwright's comment of guidance able to lift a park's hold.
     fn millwright_settings() -> Settings {
         let mut c = settings();
         c.millwright = "tehas-fixer".into();
-        c.work_files = true;
+        c.work_images = true;
         c
     }
 

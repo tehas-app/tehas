@@ -40,14 +40,11 @@
 //!   draft.json      the title and spec of the last drafted plan (exit 12),
 //!                   and "block": the `pi-spec v1` block pi-rukas placed at
 //!                   the top of the spec, when it placed one.
-//!   images/         the issue's images, with TEHAS_WORK_IMAGES=1, and its
-//!                   text files, with TEHAS_WORK_FILES=1: fetched on the first
-//!                   turn as tehas work fetches a cycle's. Each turn is given
+//!   images/         the issue's images, with TEHAS_WORK_IMAGES=1: fetched on
+//!                   the first turn as tehas work fetches a cycle's. Each turn is given
 //!                   a copy, $TEHAS_HOME/work/<name>-plan-<issue>.images,
 //!                   read-only, with PI_ENSEMBLE_EXTRA_IMAGE_DIRS, and the
-//!                   copy is removed with the workspace. With
-//!                   TEHAS_WORK_DESCRIBE=1 it holds images.md too, written on
-//!                   the first turn. A later turn with --comment adds what the
+//!                   copy is removed with the workspace. A later turn with --comment adds what the
 //!                   reply links, by the same rules and limits, numbered on
 //!                   from the files there, source "answer:<id>", and the
 //!                   answer sent to the planner names the new files. The

@@ -157,6 +157,24 @@ fn an_earlier_manifest_of_the_approval_keeps_its_entries_in_its_order() {
 }
 
 #[test]
+fn with_no_files_word_the_gap_names_the_images_alone() {
+    let dir = TestDir::new("attach-given");
+    let file = dir.join("7.manifest.json");
+    let rec = dir.join("record.json");
+    fs::write(&rec, record().to_string()).unwrap();
+    let path = file.to_str().unwrap();
+    let gap = left_out("7", path, rec.to_str().unwrap(), "0", "").unwrap();
+    assert!(gap.unwrap().contains("(TEHAS_WORK_IMAGES=0)"));
+    let written = fs::read_to_string(&file).unwrap();
+    assert!(!written.contains("TEHAS_WORK_FILES"), "{written}");
+    assert!(written.contains("gives a cycle none (TEHAS_WORK_IMAGES=0)"));
+    assert_eq!(
+        left_out("7", path, rec.to_str().unwrap(), "1", "").unwrap(),
+        None
+    );
+}
+
+#[test]
 fn a_kept_manifest_that_is_no_json_is_a_refusal_and_stays() {
     let dir = TestDir::new("attach-given");
     let file = dir.join("7.manifest.json");

@@ -3,7 +3,8 @@
 # of the workspace, so the gate's cargo commands on this manifest cover the
 # analytics program in analytics/, the store in store/, the MCP server in
 # mcp/, the attachment checker in attach/, the library they share in core/,
-# the dispatcher's decisions in dispatch/, a cycle's report in cycle/, the
+# the dispatcher's decisions in dispatch/, the words of an image's
+# description in describe/, a cycle's report in cycle/, the
 # operations modules in ops/, the mesh read of the 2.1 `feed:mesh` in
 # mesh-feed/, the model proxy of outsource in proxy/, the
 # contractor program of outsource in contractor/, the plugins' program in
@@ -12,8 +13,8 @@
 # collector in wiki-collect/, and the development tasks behind scripts/ in
 # xtask/ as well.
 [workspace]
-members = ["analytics", "attach", "contractor", "core", "cycle", "dispatch", "front", "mcp", "mesh-feed", "ops", "plugin", "plugin-gate", "proxy", "review-render", "store", "wiki-collect", "wiki-render", "xtask"]
-default-members = [".", "analytics", "attach", "contractor", "core", "cycle", "dispatch", "front", "mcp", "mesh-feed", "ops", "plugin", "plugin-gate", "proxy", "review-render", "store", "wiki-collect", "wiki-render", "xtask"]
+members = ["analytics", "attach", "contractor", "core", "cycle", "describe", "dispatch", "front", "mcp", "mesh-feed", "ops", "plugin", "plugin-gate", "proxy", "review-render", "store", "wiki-collect", "wiki-render", "xtask"]
+default-members = [".", "analytics", "attach", "contractor", "core", "cycle", "describe", "dispatch", "front", "mcp", "mesh-feed", "ops", "plugin", "plugin-gate", "proxy", "review-render", "store", "wiki-collect", "wiki-render", "xtask"]
 
 [package]
 name = "console"

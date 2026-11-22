@@ -1,5 +1,4 @@
-//! The text files an issue links, and an issue that links what the cycle is
-//! not given.
+//! An issue that links what the cycle is not given.
 
 mod work;
 
@@ -8,10 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tehas_core::home::Home;
-use work::{
-    count_of, git_out, has, lacks, security_of, unknown_options, World, A, DOCKER_OPTS, F, GIF,
-    MINIMAL, PNG, WANT,
-};
+use work::{git_out, has, lacks, World, A, F, GIF, PNG, WANT};
 
 fn world(name: &str) -> World {
     let w = World::new(&format!("files-{name}"));
@@ -147,10 +143,6 @@ fn want_with(extra: &[&str]) -> Vec<String> {
     )
 }
 
-fn images_mount(w: &World) -> String {
-    format!("{}:{}.images:ro", w.imgs.display(), w.inside.display())
-}
-
 const NONE_GIVEN: &str = "tehas work: the approval record of issue 7 (approved 2026-10-14T00:00:00Z by alice) lists 2 attachments and this instance gives a cycle none";
 
 // --- An issue that links what the cycle is not given -------------------------
@@ -172,7 +164,7 @@ fn with_nothing_given_the_links_of_the_approval_record_are_said_and_kept_and_onl
     assert_eq!(sorted(w.after("-v")), mounts_with(&w, &[]));
     assert_eq!(names(w.after("-e")), want_with(&[]));
     has(&r.out, NONE_GIVEN);
-    assert_eq!(gapline(&w), format!("{NONE_GIVEN} (TEHAS_WORK_IMAGES=0, TEHAS_WORK_FILES=0): no directory is mounted and PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not set"));
+    assert_eq!(gapline(&w), format!("{NONE_GIVEN} (TEHAS_WORK_IMAGES=0): no directory is mounted and PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not set"));
     assert_eq!(
         kept(&w, "{images, approval}"),
         r#"{"images":[],"approval":{"at":"2026-10-14T00:00:00Z","by":"alice","how":"label"}}"#
@@ -181,8 +173,11 @@ fn with_nothing_given_the_links_of_the_approval_record_are_said_and_kept_and_onl
         kept(&w, "[.leftOut[] | [.link, .source]]"),
         format!("[[\"{l1}\",\"body\"],[\"{l2}\",\"body\"]]")
     );
-    has(&kept_r(&w, ".leftOut[0].reason"), "no images and no files");
-    assert_eq!(kept_r(&w, ".linksUnavailable"), "This instance gives a cycle none (TEHAS_WORK_IMAGES=0, TEHAS_WORK_FILES=0): no directory is mounted and PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not set.");
+    has(
+        &kept_r(&w, ".leftOut[0].reason"),
+        "no images (TEHAS_WORK_IMAGES=0)",
+    );
+    assert_eq!(kept_r(&w, ".linksUnavailable"), "This instance gives a cycle none (TEHAS_WORK_IMAGES=0): no directory is mounted and PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not set.");
     assert_eq!(kept_manifests(&w), 1);
 }
 
@@ -192,7 +187,6 @@ fn with_nothing_given_an_instance_line_for_the_images_variable_is_not_passed_on_
     w.images_off();
     w.minimal(&[
         "TEHAS_WORK_IMAGES=0",
-        "TEHAS_WORK_FILES=0",
         "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere",
     ]);
     let l = format!("{A}/1111");
@@ -486,308 +480,6 @@ fn the_manifest_of_a_cycle_given_nothing_keeps_what_an_earlier_cycle_of_the_same
     has(
         &r.out,
         &format!("{A}/1111 gave other bytes than when this approval was first fetched"),
-    );
-}
-
-// --- The issue's text files ----------------------------------------------------
-
-fn files_on(w: &World, more: &[&str]) {
-    w.images_on(more);
-    let mut all: Vec<&str> = MINIMAL.to_vec();
-    all.push("TEHAS_WORK_FILES=1");
-    all.extend_from_slice(more);
-    w.instance(&all);
-}
-
-fn files(w: &World) -> String {
-    w.manifest("[.files[] | [.file, .link, .name, .type, .bytes]]")
-}
-
-fn left(w: &World) -> String {
-    w.manifest("[.leftOut[] | [.link, .reason]]")
-}
-
-/// What the cycle's directory holds, as `find . -mindepth 1` lists it, each
-/// entry followed by a space.
-fn listing(w: &World) -> String {
-    let mut v: Vec<String> = fs::read_dir(&w.imgs)
-        .unwrap()
-        .flatten()
-        .map(|e| format!("./{}", e.file_name().to_string_lossy()))
-        .collect();
-    v.sort();
-    v.iter().map(|e| format!("{e} ")).collect()
-}
-
-#[test]
-fn a_files_setting_that_is_not_0_or_1_starts_nothing_and_asks_nobody() {
-    let w = world("files-yes");
-    files_on(&w, &[]);
-    w.minimal(&["TEHAS_WORK_FILES=yes"]);
-    let r = w.work7();
-    assert_eq!(r.rc, 78, "{}", r.out);
-    assert_eq!(
-        format!("{}{}{}", w.gh(), w.calls("curl"), w.calls("docker")),
-        ""
-    );
-}
-
-/// The start of a cycle given one file, spec.md, and no image.
-fn files_alone(name: &str) -> World {
-    let w = world(name);
-    files_on(&w, &[]);
-    w.net(&format!("{F}/31/spec.md"), "# Spec\nDo it.\n");
-    w.issue_is(&format!("[spec.md]({F}/31/spec.md)"), "", "");
-    let r = w.work7();
-    assert_eq!(r.rc, 2, "{}", r.out);
-    w
-}
-
-#[test]
-fn with_files_alone_the_cycle_gets_the_one_directory_read_only_and_the_one_variable_as_with_images()
-{
-    let w = files_alone("files-alone");
-    assert_eq!(sorted(w.after("-v")), mounts_with(&w, &[images_mount(&w)]));
-    assert_eq!(
-        names(w.after("-e")),
-        want_with(&["PI_ENSEMBLE_EXTRA_IMAGE_DIRS"])
-    );
-    let dirs: Vec<String> = w
-        .after("-e")
-        .into_iter()
-        .filter(|e| e.starts_with("PI_ENSEMBLE_EXTRA_IMAGE_DIRS"))
-        .collect();
-    assert_eq!(
-        dirs,
-        [format!(
-            "PI_ENSEMBLE_EXTRA_IMAGE_DIRS={}.images",
-            w.inside.display()
-        )]
-    );
-    let ca = w.cycle_args();
-    assert_eq!(
-        unknown_options(
-            &ca,
-            &w.image,
-            &format!("--name {DOCKER_OPTS} --user --cidfile -w -v -e"),
-            "--rm -i --init"
-        ),
-        Vec::<String>::new()
-    );
-    assert_eq!(count_of(&ca, "--tmpfs"), 1);
-    assert_eq!(
-        security_of(&w.preflight_args(), "-v"),
-        [format!("{}:{}", w.ws.display(), w.inside.display())]
-    );
-}
-
-#[test]
-fn with_files_alone_the_comment_says_nothing_of_images() {
-    let w = files_alone("files-alone-comment");
-    has(
-        &w.gh(),
-        "Tehas fetched 1 file from the issue text for this cycle",
-    );
-    lacks(&w.gh(), "image from the issue text");
-    lacks(&w.gh(), "sandbox image does not say");
-}
-
-/// The start of a cycle given six text files of an issue that links nine.
-fn many_files(name: &str) -> World {
-    let w = world(name);
-    files_on(&w, &[]);
-    w.net(&format!("{F}/31/spec.md"), "# Spec\n");
-    w.net(&format!("{F}/32/Data.CSV"), "a,b\n1,2\n");
-    w.net(&format!("{F}/33/fix.json"), r#"{"a": 1}"#);
-    w.net(&format!("{F}/34/ci.yml"), "on: push\n");
-    w.net(&format!("{F}/35/page.html"), "<p>hi</p>");
-    w.net(&format!("{F}/36/run.log"), "ok\n");
-    w.net(&format!("{F}/37/all.zip"), "PK");
-    w.net(&format!("{A}/1111"), PNG);
-    w.net(&format!("{F}/38/shot.png"), PNG);
-    w.issue_is(&format!("[spec.md]({F}/31/spec.md) [Data.CSV]({F}/32/Data.CSV) [fix.json]({F}/33/fix.json) [ci.yml]({F}/34/ci.yml)
-[page.html]({F}/35/page.html) [run.log]({F}/36/run.log) [all.zip]({F}/37/all.zip) ![s]({A}/1111) [shot.png]({F}/38/shot.png)"), "", "");
-    let r = w.work7();
-    assert_eq!(r.rc, 2, "{}", r.out);
-    w
-}
-
-#[test]
-fn text_files_are_taken_by_their_name_under_names_of_tehass_own_listed_with_their_name_type_size_and_hash(
-) {
-    let w = many_files("text-files");
-    assert_eq!(
-        listing(&w),
-        "./file-1.md ./file-2.csv ./file-3.json ./file-4.yml ./file-5.html ./file-6.log ./manifest.json "
-    );
-    assert_eq!(files(&w), format!("[[\"file-1.md\",\"{F}/31/spec.md\",\"spec.md\",\"text/markdown\",7],[\"file-2.csv\",\"{F}/32/Data.CSV\",\"Data.CSV\",\"text/csv\",8],[\"file-3.json\",\"{F}/33/fix.json\",\"fix.json\",\"application/json\",8],[\"file-4.yml\",\"{F}/34/ci.yml\",\"ci.yml\",\"application/yaml\",9],[\"file-5.html\",\"{F}/35/page.html\",\"page.html\",\"text/html\",9],[\"file-6.log\",\"{F}/36/run.log\",\"run.log\",\"text/plain\",3]]"));
-    assert_eq!(
-        w.manifest(".files[0].sha256"),
-        format!("\"{}\"", sha(b"# Spec\n"))
-    );
-    assert_eq!(w.manifest(".images"), "[]");
-}
-
-#[test]
-fn with_images_off_an_image_and_another_type_are_left_out_and_not_fetched() {
-    let w = many_files("images-off-left");
-    let other = "Not a md, txt, csv, json, yaml, log, html, css or js file. This instance gives a cycle no images.";
-    assert_eq!(
-        left(&w),
-        format!("[[\"{F}/37/all.zip\",\"{other}\"],[\"{A}/1111\",\"{other}\"],[\"{F}/38/shot.png\",\"{other}\"]]")
-    );
-    let curl = w.calls("curl");
-    lacks(&curl, "all.zip");
-    lacks(&curl, &format!("{A}/1111"));
-    lacks(&curl, "shot.png");
-}
-
-#[test]
-fn the_comment_says_the_files_were_fetched_and_are_not_shown_yet_with_each_hash() {
-    let w = many_files("files-comment");
-    has(&w.gh(), "--body Tehas fetched 6 files from the issue text for this cycle and lists them in its manifest. The pi-rukas in the sandbox image does not read them yet: its agents are not shown them.");
-    has(
-        &w.gh(),
-        &format!("- {F}/31/spec.md: file-1.md, sha256 {}", sha(b"# Spec\n")),
-    );
-    lacks(&w.gh(), "Tehas gave this cycle");
-}
-
-#[test]
-fn bytes_that_are_not_utf_8_text_or_hold_a_nul_are_left_out_with_the_reason() {
-    let w = world("not-utf8");
-    files_on(&w, &[]);
-    w.net(&format!("{F}/31/bad.txt"), b"caf\xe9\n");
-    w.net(&format!("{F}/32/nul.txt"), b"a\x00b");
-    w.net(&format!("{F}/33/ok.txt"), b"caf\xc3\xa9\n");
-    w.issue_is(
-        &format!("[bad.txt]({F}/31/bad.txt) [nul.txt]({F}/32/nul.txt) [ok.txt]({F}/33/ok.txt)"),
-        "",
-        "",
-    );
-    let r = w.work7();
-    assert_eq!(r.rc, 2, "{}", r.out);
-    let why = "Not valid UTF-8 text, or it holds a NUL byte.";
-    assert_eq!(
-        left(&w),
-        format!("[[\"{F}/31/bad.txt\",\"{why}\"],[\"{F}/32/nul.txt\",\"{why}\"]]")
-    );
-    assert_eq!(listing(&w), "./file-1.txt ./manifest.json ");
-}
-
-#[test]
-fn a_file_may_take_1_mb_and_all_files_4_mb_each_fetch_is_held_to_what_is_left() {
-    let w = world("sizes");
-    files_on(&w, &[]);
-    let mut body = String::new();
-    for i in 1..=5 {
-        w.net(&format!("{F}/4{i}/f{i}.txt"), vec![b'a'; 900000]);
-        body.push_str(&format!(" [f{i}.txt]({F}/4{i}/f{i}.txt)"));
-    }
-    w.net(&format!("{F}/49/big.txt"), vec![b'a'; 1100000]);
-    w.issue_is(&format!("[big.txt]({F}/49/big.txt){body}"), "", "");
-    let r = w.work7();
-    assert_eq!(r.rc, 2, "{}", r.out);
-    assert_eq!(
-        w.manifest(".files | map(.name)"),
-        r#"["f1.txt","f2.txt","f3.txt","f4.txt"]"#
-    );
-    assert_eq!(
-        left(&w),
-        format!("[[\"{F}/49/big.txt\",\"Over the 1 MB limit of a file.\"],[\"{F}/45/f5.txt\",\"Over the 4 MB limit of an issue's files.\"]]")
-    );
-    let re = regex::Regex::new(r"--max-filesize [0-9]*").unwrap();
-    let sizes: String = re
-        .find_iter(&w.calls("curl"))
-        .map(|m| format!("{} ", m.as_str()))
-        .collect();
-    assert_eq!(sizes, "--max-filesize 1048576 --max-filesize 1048576 --max-filesize 1048576 --max-filesize 1048576 --max-filesize 1048576 --max-filesize 594304 ");
-}
-
-#[test]
-fn at_most_sixteen_files_the_seventeenth_is_left_out_and_not_fetched() {
-    let w = world("sixteen");
-    files_on(&w, &[]);
-    let mut body = String::new();
-    for i in 1..=17 {
-        w.net(&format!("{F}/5{i}/n{i}.txt"), "x");
-        body.push_str(&format!(" [n{i}.txt]({F}/5{i}/n{i}.txt)"));
-    }
-    w.issue_is(&body, "", "");
-    w.work7();
-    assert_eq!(
-        w.manifest("[(.files | length), (.leftOut | map([.link, .reason]))]"),
-        format!("[16,[[\"{F}/517/n17.txt\",\"More than 16 files.\"]]]")
-    );
-    lacks(&w.calls("curl"), &format!("{F}/517/n17.txt"));
-}
-
-#[test]
-fn an_outsiders_issue_is_given_no_file_without_an_approval_and_nothing_is_fetched() {
-    let w = world("outsider");
-    files_on(&w, &[]);
-    w.net(&format!("{F}/31/spec.md"), "# Spec\n");
-    w.issue_is(&format!("[spec.md]({F}/31/spec.md)"), "NONE", "");
-    let r = w.work7();
-    assert_eq!(r.rc, 2, "{}", r.out);
-    assert_eq!(w.calls("curl"), "");
-    assert_eq!(w.manifest(".files"), "[]");
-}
-
-#[test]
-fn a_file_that_cannot_be_fetched_starts_no_cycle_exit_4_and_the_comment_names_files() {
-    let w = world("cannot-fetch");
-    files_on(&w, &[]);
-    w.issue_is(&format!("[spec.md]({F}/31/spec.md)"), "", "");
-    let r = w.work7();
-    assert_eq!(r.rc, 4, "{}", r.out);
-    assert_eq!(docker_runs(&w), 0);
-    has(&w.gh(), &format!("Tehas started no cycle: {F}/31/spec.md could not be fetched. This instance gives a cycle the files an issue links"));
-}
-
-/// The start of a cycle given one file and one image.
-fn both(name: &str) -> World {
-    let w = world(name);
-    files_on(&w, &["TEHAS_WORK_IMAGES=1"]);
-    w.net(&format!("{F}/31/spec.md"), "# Spec\n");
-    w.net(&format!("{A}/1111"), PNG);
-    w.reads_image("1");
-    w.issue_is(&format!("[spec.md]({F}/31/spec.md) ![s]({A}/1111)"), "", "");
-    let r = w.work7();
-    assert_eq!(r.rc, 2, "{}", r.out);
-    w
-}
-
-#[test]
-fn with_images_and_files_both_on_there_is_still_one_directory_and_one_variable_and_both_kinds_are_in_it(
-) {
-    let w = both("both");
-    assert_eq!(listing(&w), "./file-1.md ./image-1.png ./manifest.json ");
-    assert_eq!(sorted(w.after("-v")), mounts_with(&w, &[images_mount(&w)]));
-    assert_eq!(
-        names(w.after("-e")),
-        want_with(&["PI_ENSEMBLE_EXTRA_IMAGE_DIRS"])
-    );
-    has(
-        &w.gh(),
-        "--body Tehas gave this cycle 1 image from the issue text. Tehas fetched 1 file from the issue text",
-    );
-}
-
-#[test]
-fn a_file_of_the_same_approval_that_gives_other_bytes_stops_the_start() {
-    let w = both("other-bytes");
-    let l = format!("{F}/31/spec.md");
-    w.record_is("alice", &format!("[spec.md]({l}) ![s]({A}/1111)"), &[&l]);
-    let _ = fs::remove_file(&w.kept);
-    let r = w.work7();
-    assert_eq!(r.rc, 2, "{}", r.out);
-    w.net(&l, "# Other\n");
-    let r = w.work7();
-    assert_eq!(r.rc, 4, "{}", r.out);
-    has(
-        &r.out,
-        &format!("{l} gave other bytes than when this approval was first fetched"),
     );
 }
 
