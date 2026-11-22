@@ -841,3 +841,4 @@ of main, each grade.
 | 2026-11-22 | T12.4: `retry-tick` is `reply` in both stores, and a question open at the upgrade is asked again once in 2.0's words | #2867 |
 | 2026-11-22 | T15: the install and bootstrap shell tests split so the quick check runs fewer of them | #2868 |
 | 2026-11-22 | The minimum pi-rukas is v0.15.4, for lean's base probes in a cycle container (found by T13's proof) | #2873 |
+| 2026-11-22 | T16: Outsource is dropped, with the model proxy and the contractor; the state store drops its five tables, and analytics goes to schema 6 without `runs.contractor_id`, pinned by the consumer that reads the analytics copies before the merge | #2886 |
