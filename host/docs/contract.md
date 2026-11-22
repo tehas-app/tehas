@@ -95,9 +95,10 @@ field, read from the files in the table above. Lines are only added.
 `console/tests/surface.rs` fails when one of its names goes, and when the
 surface gains a name the list does not have yet. What a building feature
 adds is not in it. A name that was on the list before its feature became
-building stays on it: the list is only added to. Such a name is refused
-while the feature is building, as every building feature's name is
-([review](#review)).
+building stays on it: within 1.x the list is only added to. Such a name is
+refused while the feature is building, as every building feature's name is.
+2.0 takes the names of the features it moves out of core off the list,
+`TEHAS_REVIEW` and `TEHAS_REVIEW_REPO` among them.
 
 In `tehas status --json` the fields of `running[].progress` and `prototypes`
 describe one driver's steps and the Protolab, and may change. The fields of
@@ -324,7 +325,7 @@ adds no command, no label, no `--json` field and no MCP
 tool, and its settings, its key in `flags`, its commands, fields and MCP tools
 are not contract until the release that ships it, except a name that was
 public before the feature became building, which stays on
-`api/surface-1.0.txt` ([review](#review)). `tehas api --json` lists
+`api/surface-1.0.txt` within 1.x. `tehas api --json` lists
 every feature in `flags`, `false` while it is building, and a shipped
 feature's word in `features`. `api/settings-rules.json` marks the rows of a
 building feature `"building": true`. `api/commands.txt` marks a command of a

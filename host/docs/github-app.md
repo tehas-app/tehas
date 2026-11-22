@@ -33,8 +33,7 @@ prompt. Setup turns the code into the app, writes the key to
 `~/.config/tehas/github-app.pem` (mode 600) and the app's ID to `instance.env`
 as `TEHAS_GITHUB_APP_ID`, keeps the app's client id and client secret beside
 the key for the plugins' sign-in, and prints the install link. Install the app on the
-product repository, and on the repository review findings go to if it is
-another one. Setup waits up to 10 minutes for that, then goes on.
+product repository. Setup waits up to 10 minutes for that, then goes on.
 
 `--app-owner <login>` sets the organisation or user that owns the app (the
 repository's owner by default) and `--app-name <name>` its name
@@ -117,8 +116,7 @@ subscribe to no events.
 Create the app. On its **General** page note the **App ID**, and under
 **Private keys** generate one: a `.pem` file downloads. Keep it secret; it is
 the app's only credential. Install the app (**Install App**, then **Install**
-next to the organisation) on the product repository, and on the repository
-review findings go to if it is another one.
+next to the organisation) on the product repository.
 
 Then give the app to the host with `tehas setup --app-id <App ID>
 --app-key-file <key>`, or by hand as the tehas user:

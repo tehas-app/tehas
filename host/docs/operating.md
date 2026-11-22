@@ -1853,7 +1853,7 @@ What changes:
 - **improvement**: the dispatcher holds an issue of the type exactly as it
   holds one labelled `tehas:improvement`: the millwright does not start it.
   The label still holds where a person left it, so turning the setting on lets
-  nothing start that was held. The review still files under the label.
+  nothing start that was held.
 - **prototype**: the Protolab lists the open issues of the type, and a ticket
   counts when an account in `TEHAS_ALLOWED_LABELERS` made the newest change to
   its type, the change that set it. A type set by anyone else, or a change the
