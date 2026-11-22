@@ -694,10 +694,6 @@ of main, each grade.
 | 2026-11-22 | T12.1: `tehas answer`, and `--text -` from standard input | #2794, #2808 |
 | 2026-11-22 | T13 part 4: lean's fallback to classic keys on pi-rukas's typed setup refusal (pi-rukas#2511), with a host message | #2798, #2801 |
 | 2026-11-22 | A flaky test fixed: the two writes reports compared without their minute | #2799 |
-<<<<<<< HEAD
 | 2026-11-22 | T14: the Protolab removed as dead code, its file storage and serving kept for plugins (the owner) | #2826 |
 | 2026-11-22 | T15: shell tests to Rust (#2816 to #2824); the migration behind the ports lands after the rest of the refactor, before v2.0.0 (the owner) | #2826 |
-| 2026-11-22 | T13: the pin is pi-rukas 0.15.0; a crash is no setup refusal, and the fallback clears lean's state of the issue | |
-=======
 | 2026-11-22 | T13: the pin is pi-rukas 0.15.0; a crash is no setup refusal, and the fallback clears lean's state of the issue | #2832 |
->>>>>>> 915ca189 (Log row names its pull request)
