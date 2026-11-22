@@ -34,7 +34,7 @@ fn fixer_why(c: &Settings, view: Option<&PlanView>) -> String {
 fn fixer_answer_why(c: &Settings, view: &Value) -> String {
     fixer_why(c, crate::snapshot::plan_view(view).as_ref())
 }
-use super::{has, or_unknown, End, Poll, Room, Step};
+use super::{has, or_unknown, Action, End, NoteKind, Poll, Room, Spend, Step, Turn};
 use crate::questions::{Asked, Status};
 use crate::settings::Settings;
 #[cfg(test)]
@@ -84,7 +84,7 @@ impl Poll<'_> {
                     self.log(format!("would report the cut-off planning turn of #{n}"));
                 }
             } else {
-                self.act(json!({"plan_collect": n}));
+                self.act(Action::PlanCollect(n));
             }
             fresh.push(n);
         }
@@ -96,7 +96,7 @@ impl Poll<'_> {
             if self.dry {
                 self.log(format!("would post the waiting planning turn of #{n}"));
             } else {
-                self.act(json!({"plan_post": n}));
+                self.act(Action::PlanPost(n));
             }
             fresh.push(n);
         }
@@ -113,14 +113,17 @@ impl Poll<'_> {
             // A dry run closes nothing: the session stays open for the rules
             // after this one.
             if !self.dry {
-                self.act(json!({"plan_close": n}));
+                self.act(Action::PlanClose(n));
                 self.plan_closed.push(n);
             }
         }
     }
 
     fn plan_end(&mut self, n: u64, text: &str) {
-        self.act(json!({"plan_end": n, "say": text}));
+        self.act(Action::PlanEnd {
+            issue: n,
+            say: text.to_string(),
+        });
     }
 
     /// fixer_answer_ok: whether the fixer's tick or reply may run the turn.
@@ -151,8 +154,12 @@ impl Poll<'_> {
         }
         self.log(format!("skip #{n}: the fixer's answer runs no turn: {why}"));
         if !self.dry {
-            self.act(json!({"plan_note": n, "kind": "millwright-refused", "id": id,
-                "say": format!("Tehas did not take the fixer's reply as an answer: {why}. A person answers this question.")}));
+            self.act(Action::PlanNote {
+                issue: n,
+                kind: NoteKind::MillwrightRefused,
+                id,
+                say: format!("Tehas did not take the fixer's reply as an answer: {why}. A person answers this question."),
+            });
         }
         false
     }
@@ -168,8 +175,12 @@ impl Poll<'_> {
         }
         self.log(format!("skip #{n}: the fixer saved the question after another account did, so who ticked it is not known"));
         if !self.dry {
-            self.act(json!({"plan_note": n, "kind": "held", "id": id,
-                "say": "Tehas did not take the box ticked in this question as an answer: the fixer saved the comment after another account did, and GitHub does not say who ticked it. A person ticks the box again or replies."}));
+            self.act(Action::PlanNote {
+                issue: n,
+                kind: NoteKind::Held,
+                id,
+                say: "Tehas did not take the box ticked in this question as an answer: the fixer saved the comment after another account did, and GitHub does not say who ticked it. A person ticks the box again or replies.".into(),
+            });
         }
     }
 
@@ -325,12 +336,15 @@ impl Poll<'_> {
             return Err(End(0));
         }
         // Its line is logged once the answer is written, as the bash does.
-        let mut a = json!({"plan_turn": n, "kind": "next", "answer": text, "by": by,
-            "log": format!("planning #{n} continues (answer from {from})")});
-        if !reply_id.is_empty() {
-            a["reply"] = json!(reply_id);
-        }
-        self.act(a);
+        self.act(Action::PlanTurn {
+            issue: n,
+            turn: Turn::Next {
+                answer: text,
+                by,
+                log: format!("planning #{n} continues (answer from {from})"),
+                reply: (!reply_id.is_empty()).then_some(reply_id),
+            },
+        });
         Err(End(0))
     }
 
@@ -467,15 +481,21 @@ impl Poll<'_> {
             // The text the label approved goes in the brief; the line is
             // logged once the brief is written, as the bash does.
             let (title, body) = self.brief_text(n);
-            let mut a = json!({"plan_turn": n, "kind": "first", "label": label, "by": who, "refine": refine,
-                "title": title, "body": body, "log": format!("start planning #{n} (labelled by {who}{to})")});
-            if refine {
-                a["brief_extra"] = json!(self.refine_path());
-            }
-            if let Some(e) = epic {
-                a["epic"] = json!(e);
-            }
-            self.act(a);
+            let log = format!("start planning #{n} (labelled by {who}{to})");
+            self.act(Action::PlanTurn {
+                issue: n,
+                turn: Turn::First {
+                    label: label.to_string(),
+                    by: who,
+                    refine,
+                    title,
+                    body,
+                    log,
+                    brief_extra: refine.then(|| self.refine_path()),
+                    epic,
+                    auto: None,
+                },
+            });
             return Err(End(0));
         }
         Ok(())
@@ -596,7 +616,10 @@ impl Poll<'_> {
                     p.started_said
                 ));
                 if !self.dry {
-                    self.act(json!({"park_retry": n, "how": "skipped"}));
+                    self.act(Action::ParkRetry {
+                        issue: n,
+                        how: Spend::Skipped,
+                    });
                 }
                 continue;
             };
@@ -678,7 +701,10 @@ impl Poll<'_> {
             if !why.is_empty() {
                 self.log(format!("skip #{n}: not refined: {why}"));
                 if !self.dry {
-                    self.act(json!({"park_retry": n, "how": "skipped"}));
+                    self.act(Action::ParkRetry {
+                        issue: n,
+                        how: Spend::Skipped,
+                    });
                 }
                 continue;
             }
@@ -696,13 +722,25 @@ impl Poll<'_> {
             }
             // Spent once its brief is written, before the session begins: a
             // poll that fails after it never starts a second session.
-            self.act(json!({"park_retry": n, "how": "refine"}));
+            self.act(Action::ParkRetry {
+                issue: n,
+                how: Spend::Refine,
+            });
             let (title, body) = self.brief_text(n);
-            self.act(
-                json!({"plan_turn": n, "kind": "first", "label": "tehas:refine", "by": by,
-                "refine": true, "auto": reason, "title": title, "body": body,
-                "brief_extra": self.refine_path(), "log": format!("start {line}")}),
-            );
+            self.act(Action::PlanTurn {
+                issue: n,
+                turn: Turn::First {
+                    label: "tehas:refine".into(),
+                    by,
+                    refine: true,
+                    title,
+                    body,
+                    log: format!("start {line}"),
+                    brief_extra: Some(self.refine_path()),
+                    epic: None,
+                    auto: Some(reason),
+                },
+            });
             return Err(End(0));
         }
         Ok(())

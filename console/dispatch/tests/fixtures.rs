@@ -595,9 +595,10 @@ fn run_suite(name: &str) {
         }
         let dry = c.get("dry") == Some(&json!(true));
         let d = decide(&Snapshot::parse(&snap), &Settings::parse(&settings), dry);
+        let actions: Vec<Value> = d.actions.iter().map(Value::from).collect();
         let e = &c["expect"];
         let mut bad = Vec::new();
-        let log = expected(&json!({"log": d.log, "actions": d.actions})).join("\n");
+        let log = expected(&json!({"log": d.log, "actions": actions})).join("\n");
         if let Some(x) = e.get("exit") {
             if x != &json!(d.exit) {
                 bad.push(format!("exit {} not {x}", d.exit));
@@ -633,11 +634,11 @@ fn run_suite(name: &str) {
         }
         // apply takes a decision's starts as one run, as start_cycles is
         // called once: no other action stands between two of them.
-        let starts: Vec<usize> = (0..d.actions.len())
-            .filter(|&i| d.actions[i].get("start").is_some())
+        let starts: Vec<usize> = (0..actions.len())
+            .filter(|&i| actions[i].get("start").is_some())
             .collect();
         if starts.windows(2).any(|w| w[1] != w[0] + 1) {
-            bad.push(format!("starts not side by side: {:?}", d.actions));
+            bad.push(format!("starts not side by side: {:?}", actions));
         }
         for x in e
             .get("actions")
@@ -645,7 +646,7 @@ fn run_suite(name: &str) {
             .into_iter()
             .flatten()
         {
-            if !d.actions.iter().any(|a| within(x, a)) {
+            if !actions.iter().any(|a| within(x, a)) {
                 bad.push(format!("no action {x}"));
             }
         }
@@ -655,21 +656,21 @@ fn run_suite(name: &str) {
             .into_iter()
             .flatten()
         {
-            if d.actions.iter().any(|a| within(x, a)) {
+            if actions.iter().any(|a| within(x, a)) {
                 bad.push(format!("an action {x}"));
             }
         }
         // action_count: how many actions carry each key.
         if let Some(x) = e.get("action_count") {
             for (k, n) in x.as_object().unwrap() {
-                let got = d.actions.iter().filter(|a| a.get(k).is_some()).count();
+                let got = actions.iter().filter(|a| a.get(k).is_some()).count();
                 if json!(got) != *n {
                     bad.push(format!("{got} actions with {k:?}, not {n}"));
                 }
             }
         }
-        if e.get("nothing") == Some(&json!(true)) && !d.actions.is_empty() {
-            bad.push(format!("actions {:?}", d.actions));
+        if e.get("nothing") == Some(&json!(true)) && !actions.is_empty() {
+            bad.push(format!("actions {:?}", actions));
         }
         if let Some(x) = e.get("report") {
             let ok = match (x, &d.report) {
@@ -763,7 +764,7 @@ fn run_suite(name: &str) {
                 "{name}:\n  {}\n  log: {:?}\n  actions: {:?}",
                 bad.join("\n  "),
                 d.log,
-                d.actions
+                actions
             ));
         }
     }

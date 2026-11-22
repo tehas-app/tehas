@@ -22,6 +22,7 @@ use tehas_core::events::{
 use tehas_core::hold::{Held, Report, Why, HELD_PARKED, HELD_TEXT_MAX};
 use tehas_core::kinds::Kind;
 
+mod action;
 mod clean;
 mod epic;
 mod flow;
@@ -32,6 +33,10 @@ mod starts;
 
 pub(crate) use crate::snapshot::{
     base_approver, base_stands, fixer_base, fixer_starts, named_blockers, shape,
+};
+pub use action::{
+    Action, CommentRef, CycleStart, LabelChange, NoteKind, QuietDue, RefreshOf, RetryTick, SpecPin,
+    Spend, StartExtra, Turn,
 };
 pub(crate) use clean::{iso, quiet_due, quiet_why, Due, QUIET_ASKS};
 pub(crate) use flow::in_flow;
@@ -101,9 +106,9 @@ impl Choice {
     /// The action of a classic start names no driver. A lean start takes
     /// `needs-human-attention` off with its other labels: classic's
     /// `--restart` clears it in the cycle, and work-lean has no restart.
-    fn bind(&self, extra: &mut Map<String, Value>, remove: &mut Vec<String>, labels: &[String]) {
+    fn bind(&self, extra: &mut StartExtra, remove: &mut Vec<String>, labels: &[String]) {
         if matches!(self, Choice::Run(Driver::Lean)) {
-            extra.insert("driver".into(), json!(Driver::Lean.word()));
+            extra.driver = Some(Driver::Lean);
             let attention = "needs-human-attention";
             if has(labels, attention) && !remove.iter().any(|l| l == attention) {
                 remove.push(attention.into());
@@ -210,7 +215,7 @@ impl Stranger {
 pub struct Decision {
     pub exit: i32,
     pub log: Vec<String>,
-    pub actions: Vec<Value>,
+    pub actions: Vec<Action>,
     /// live/dispatch.json, without its time. A dry run writes none. The keys
     /// and the hold's words are tehas-core's, so the readers of the file name
     /// them by the same type the writer does.
@@ -343,7 +348,7 @@ struct Start {
     park_lifted: Option<ContextNote>,
     /// What a start of its kind adds to the action: the comment of a retry
     /// tick, the pull request of a refresh.
-    extra: Map<String, Value>,
+    extra: StartExtra,
     /// Under the outsource feature: where the start runs, as its log line
     /// ends. None with the feature off, and for the starts it does not place.
     placed: Option<String>,
@@ -501,7 +506,7 @@ impl<'a> Poll<'a> {
     }
 
     /// An action, in its place among the poll's lines.
-    fn act(&mut self, a: Value) {
+    fn act(&mut self, a: Action) {
         self.d.plan.push(PlanStep::Act(self.d.actions.len()));
         self.d.actions.push(a);
     }
@@ -825,11 +830,11 @@ impl<'a> Poll<'a> {
                 if !held.is_empty() {
                     self.log(format!("hold refreshes: {held}"));
                 }
-                self.act(json!({"refresh_held": held}));
+                self.act(Action::RefreshHeld(held.clone()));
             }
             self.refresh_said = true;
         } else if !self.s.refresh_held.is_empty() {
-            self.act(json!({"refresh_held": ""}));
+            self.act(Action::RefreshHeld(String::new()));
         }
         Demand::Counted(DemandCount {
             waiting,
@@ -974,7 +979,7 @@ impl<'a> Poll<'a> {
                 ));
                 continue;
             }
-            self.act(json!({"issue": n, "say": format!("Every issue the `tehas:blocked` marker names is closed, so the hold has cleared. Tehas takes `tehas:blocked` off when the cycle starts. Leave it on until then: it is what asks for the start when `tehas:ready` is not on.\n\n{HOLD_CLEARED}")}));
+            self.act(Action::Say { issue: n, say: format!("Every issue the `tehas:blocked` marker names is closed, so the hold has cleared. Tehas takes `tehas:blocked` off when the cycle starts. Leave it on until then: it is what asks for the start when `tehas:ready` is not on.\n\n{HOLD_CLEARED}") });
         }
     }
 }
@@ -1494,7 +1499,7 @@ impl<'a> Poll<'a> {
             if !note.is_empty() {
                 self.log(note.clone());
             }
-            self.act(json!({"branch_note": note}));
+            self.act(Action::BranchNote(note));
         }
         red
     }
@@ -1715,11 +1720,11 @@ impl<'a> Poll<'a> {
             return;
         }
         let names = format!("`{}`", off.join("` and `"));
-        self.act(json!({
-            "issue": n, "remove": off,
-            "fail": Self::label_fail(n, &off, &[]),
-            "say": format!("Tehas took {names} off this issue and started nothing: {why}"),
-        }));
+        self.act(Action::Label(
+            LabelChange::new(n, &off, Self::label_fail(n, &off, &[])).say(format!(
+                "Tehas took {names} off this issue and started nothing: {why}"
+            )),
+        ));
     }
 
     /// spec_ok: the last hold of a lean start. The driver reads only the
@@ -1985,12 +1990,11 @@ impl<'a> Poll<'a> {
         if self.dry {
             self.log(format!("would take tehas:ready off #{n}"));
         } else {
-            self.act(json!({
-                "issue": n, "remove": ["tehas:ready"],
-                "fail": Self::label_fail(n, &["tehas:ready"], &[]),
-                "say": format!("Tehas took `tehas:ready` off this issue and started nothing: {why}. Read it, and an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to build it."),
-            }));
-            self.act(json!({"plan_start_drop": n}));
+            self.act(Action::Label(
+                LabelChange::new(n, &["tehas:ready"], Self::label_fail(n, &["tehas:ready"], &[]))
+                    .say(format!("Tehas took `tehas:ready` off this issue and started nothing: {why}. Read it, and an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to build it.")),
+            ));
+            self.act(Action::PlanStartDrop(n));
         }
         Planned::Refused
     }
@@ -2004,12 +2008,11 @@ impl<'a> Poll<'a> {
             ));
             return;
         }
-        self.act(json!({
-            "issue": n, "remove": [label],
-            "fail": Self::label_fail(n, &[label], &[]),
-            "log": format!("clear #{n}: {label} off, applied by '{by}' who may not authorise work here"),
-            "say": format!("Tehas took `{label}` off this issue. It was applied by `{by}`, an account that may not authorise work in this factory, so nothing was started and the issue is not queued. To ask again, an account named in `TEHAS_ALLOWED_LABELERS` applies `{label}`."),
-        }));
+        self.act(Action::Label(
+            LabelChange::new(n, &[label], Self::label_fail(n, &[label], &[]))
+                .log(format!("clear #{n}: {label} off, applied by '{by}' who may not authorise work here"))
+                .say(format!("Tehas took `{label}` off this issue. It was applied by `{by}`, an account that may not authorise work in this factory, so nothing was started and the issue is not queued. To ask again, an account named in `TEHAS_ALLOWED_LABELERS` applies `{label}`.")),
+        ));
     }
 
     /// links_ok: whether the issue's native blocked-by links let it start.
@@ -2171,11 +2174,10 @@ impl<'a> Poll<'a> {
             "skip #{n}: pull request {url} is open and closes it"
         ));
         if !self.dry && ask != HOST {
-            self.act(json!({
-                "issue": n, "remove": [ask],
-                "fail": Self::label_fail(n, &[ask], &[]),
-                "say": format!("Tehas took `{ask}` off this issue and started nothing: {url} is open and closes it. Merge or close that pull request, then apply `tehas:ready` if work is still needed."),
-            }));
+            self.act(Action::Label(
+                LabelChange::new(n, &[ask], Self::label_fail(n, &[ask], &[]))
+                    .say(format!("Tehas took `{ask}` off this issue and started nothing: {url} is open and closes it. Merge or close that pull request, then apply `tehas:ready` if work is still needed.")),
+            ));
         }
     }
 
@@ -2225,11 +2227,10 @@ impl<'a> Poll<'a> {
         if self.dry {
             self.log(format!("would take {ask} off #{n}: it is an epic"));
         } else {
-            self.act(json!({
-                "issue": n, "remove": [ask],
-                "fail": Self::label_fail(n, &[ask], &[]),
-                "say": format!("Tehas took `{ask}` off this issue and started nothing. It has {open} {word} open, so it is an epic: a plan, not a change. An epic is never started. {}", self.epic_next(n, ask)),
-            }));
+            let say = format!("Tehas took `{ask}` off this issue and started nothing. It has {open} {word} open, so it is an epic: a plan, not a change. An epic is never started. {}", self.epic_next(n, ask));
+            self.act(Action::Label(
+                LabelChange::new(n, &[ask], Self::label_fail(n, &[ask], &[])).say(say),
+            ));
         }
         false
     }
@@ -2404,11 +2405,11 @@ impl<'a> Poll<'a> {
         if self.dry {
             self.log(format!("would take {ask} off #{n} and add needs-human-attention: its body names {files} files, more than TEHAS_SIZE_MAX_FILES ({max})"));
         } else {
-            self.act(json!({
-                "issue": n, "remove": [ask], "add": ["needs-human-attention"],
-                "fail": Self::label_fail(n, &[ask], &["needs-human-attention"]),
-                "say": format!("Tehas took `{ask}` off this issue, put `needs-human-attention` on it and started nothing. Its body names {files} files, more than the {max} of `TEHAS_SIZE_MAX_FILES`, so one cycle would be asked for too many changes at once. Narrow this issue to the part of it one cycle can make, or split it into issues of that size, and apply `tehas:ready` again to start one of them."),
-            }));
+            self.act(Action::Label(
+                LabelChange::new(n, &[ask], Self::label_fail(n, &[ask], &["needs-human-attention"]))
+                    .put_on(&["needs-human-attention"])
+                    .say(format!("Tehas took `{ask}` off this issue, put `needs-human-attention` on it and started nothing. Its body names {files} files, more than the {max} of `TEHAS_SIZE_MAX_FILES`, so one cycle would be asked for too many changes at once. Narrow this issue to the part of it one cycle can make, or split it into issues of that size, and apply `tehas:ready` again to start one of them.")),
+            ));
         }
         Ok(false)
     }
@@ -2586,10 +2587,10 @@ impl<'a> Poll<'a> {
             return Ok(false);
         }
         if !p.told && !self.dry {
-            self.act(json!({
-                "issue": n, "park_told": true,
-                "say": format!("Not started: the last cycle parked on `{cap}` and the issue text has not changed since. Edit the body, or tick Retry in the park comment."),
-            }));
+            self.act(Action::ParkTold {
+                issue: n,
+                say: format!("Not started: the last cycle parked on `{cap}` and the issue text has not changed since. Edit the body, or tick Retry in the park comment."),
+            });
         }
         self.log(format!(
             "hold #{n}: its last cycle parked on {cap} and the body has not changed since"
@@ -2721,11 +2722,10 @@ impl<'a> Poll<'a> {
         if self.dry {
             self.log(format!("would take tehas:ready off #{n}"));
         } else {
-            self.act(json!({
-                "issue": n, "remove": ["tehas:ready"],
-                "fail": Self::label_fail(n, &["tehas:ready"], &[]),
-                "say": format!("Tehas took `tehas:ready` off this issue and started nothing. The fixer applied it, and the fixer may not start this issue: {why}. A person decides now: an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to start a cycle."),
-            }));
+            self.act(Action::Label(
+                LabelChange::new(n, &["tehas:ready"], Self::label_fail(n, &["tehas:ready"], &[]))
+                    .say(format!("Tehas took `tehas:ready` off this issue and started nothing. The fixer applied it, and the fixer may not start this issue: {why}. A person decides now: an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to start a cycle.")),
+            ));
         }
     }
 
@@ -3108,7 +3108,7 @@ impl<'a> Poll<'a> {
                 remove,
                 fixer: None,
                 park_lifted: None,
-                extra: Map::new(),
+                extra: StartExtra::default(),
                 placed: None,
             };
             if ask == HOST {
@@ -3149,8 +3149,7 @@ impl<'a> Poll<'a> {
             if planned {
                 st.verb = "planned".into();
                 st.how = "`tehas:plan` label, on a plan with no open points".into();
-                st.extra
-                    .insert("approved_label".into(), json!("tehas:plan"));
+                st.extra.approved_label = Some("tehas:plan".into());
             }
             driver.bind(&mut st.extra, &mut st.remove, &labels);
             self.place(n, &mut st);
@@ -3194,8 +3193,8 @@ impl<'a> Poll<'a> {
     /// stops.
     pub(super) fn act_gates(&mut self, first: u64) {
         let running: Vec<u64> = self.live().map(|(n, _)| *n).collect();
-        self.act(json!({"units": first}));
-        self.act(json!({"index_gate": running}));
+        self.act(Action::Units { first });
+        self.act(Action::IndexGate { running });
     }
 
     /// Under the outsource feature, where the start of `n` runs: a contractor
@@ -3216,7 +3215,7 @@ impl<'a> Poll<'a> {
         let o = self.s.outsource.as_ref().unwrap_or(&none);
         st.placed = Some(match place(rules, o, &need, &self.taken) {
             Place::Out(name) => {
-                st.extra.insert("contractor".into(), json!(name));
+                st.extra.contractor = Some(name.clone());
                 let said = format!("outsourced to {name}");
                 self.taken.push(name);
                 said
@@ -3232,64 +3231,56 @@ impl<'a> Poll<'a> {
         // read, which the record is written from.
         let t = self.text(n);
         let body = t.body_text();
-        let mut a = json!({
-            "start": n, "by": st.starter, "how": st.how, "at": st.given_at,
-            "given": st.given_how, "remove": st.remove, "verb": st.verb,
-            // The line apply logs as the start begins.
-            "log": match (st.given_how == HOST, &st.placed) {
-                (true, None) => format!("start #{n} ({})", st.verb),
-                (true, Some(p)) => format!("start #{n} ({}), {p}", st.verb),
-                (false, None) => format!("start #{n} ({} by {})", st.verb, st.starter),
-                (false, Some(p)) => format!("start #{n} ({} by {}), {p}", st.verb, st.starter),
-            },
-            "text": !t.empty,
-            "body_sha256": text::body_sum(body), "title_sha256": text::title_sum(t.title.as_deref()),
-            "links": text::link_list(body),
-        });
-        if let Some((base, count)) = st.fixer {
-            a["rests_on"] = Value::Object(
-                base.pairs()
-                    .into_iter()
-                    .map(|(k, v)| (k.into(), json!(v)))
-                    .collect(),
-            );
-            a["fixer_starts"] = json!(count);
-        }
-        if let Some(note) = st.park_lifted {
-            a["park_lifted"] = Value::Object(
-                note.pairs()
-                    .into_iter()
-                    .map(|(k, v)| (k.into(), json!(v)))
-                    .collect(),
-            );
-        }
-        if self.c.spec_pipe {
-            if let Some(spec) = spec_of(body, &st.remove) {
-                a["spec"] = spec;
-            }
-        }
-        for (k, v) in st.extra {
-            a[k] = v;
-        }
-        self.act(a);
+        let log = match (st.given_how == HOST, &st.placed) {
+            (true, None) => format!("start #{n} ({})", st.verb),
+            (true, Some(p)) => format!("start #{n} ({}), {p}", st.verb),
+            (false, None) => format!("start #{n} ({} by {})", st.verb, st.starter),
+            (false, Some(p)) => format!("start #{n} ({} by {}), {p}", st.verb, st.starter),
+        };
+        let spec = if self.c.spec_pipe {
+            spec_pin(body, &st.remove)
+        } else {
+            None
+        };
+        self.act(Action::Start(Box::new(CycleStart {
+            issue: n,
+            by: st.starter,
+            how: st.how,
+            at: st.given_at,
+            given: st.given_how,
+            remove: st.remove,
+            verb: st.verb,
+            log,
+            text: !t.empty,
+            body_sha256: text::body_sum(body),
+            title_sha256: text::title_sum(t.title.as_deref()),
+            links: text::link_list(body),
+            rests_on: st.fixer,
+            park_lifted: st.park_lifted,
+            spec,
+            extra: st.extra,
+        })));
     }
 }
 
-/// The spec a start pins, from the body its approval binds: {link, sha256,
-/// off} for a `Spec:` line, {why, off} for one tehas cannot read, so a start
-/// that did not pass `mark_ok` (a retry, a refresh) fails closed too. `off` is
+/// The spec a start pins, from the body its approval binds: the `Spec:` line
+/// read, or why tehas cannot read it, so a start that did not pass `mark_ok` (a retry, a refresh) fails closed too. `off` is
 /// what comes off when the spec stops the start: of the labels the start takes
 /// off, those that asked for it. None for a body with no such line.
-fn spec_of(body: &str, remove: &[String]) -> Option<Value> {
-    let off: Vec<&String> = remove
+fn spec_pin(body: &str, remove: &[String]) -> Option<SpecPin> {
+    let off: Vec<String> = remove
         .iter()
         .filter(|l| matches!(l.as_str(), "tehas:ready" | "tehas:blocked" | "tehas:plan"))
+        .cloned()
         .collect();
-    match text::spec_mark(body) {
-        Ok(None) => None,
-        Ok(Some(m)) => Some(json!({"link": m.link, "sha256": m.sha256, "off": off})),
-        Err(why) => Some(json!({"why": why, "off": off})),
-    }
+    let read = text::spec_mark(body).transpose()?;
+    Some(SpecPin { read, off })
+}
+
+/// [`spec_pin`] as the start's JSON writes it.
+#[cfg(test)]
+fn spec_of(body: &str, remove: &[String]) -> Option<Value> {
+    spec_pin(body, remove).as_ref().map(Value::from)
 }
 
 /// The most numbers `labelAlone` lists, so the line status prints is bounded.

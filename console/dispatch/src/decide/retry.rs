@@ -3,7 +3,10 @@
 //! request. Each takes the room rules 2 and 3 left, as the bash dispatcher did.
 
 use super::clean::iso;
-use super::{has, or_unknown, standing_actor, Choice, End, Poll, Room, Start, Step, CLASSIC, LEAN};
+use super::{
+    has, or_unknown, standing_actor, Action, Choice, End, LabelChange, Poll, RefreshOf, RetryTick,
+    Room, Spend, Start, StartExtra, Step, CLASSIC, LEAN,
+};
 use crate::answer::{self, Overlay};
 use crate::questions::{self, Answer, Asked, Status};
 #[cfg(test)]
@@ -11,8 +14,9 @@ use crate::snapshot::refresh_count;
 use crate::snapshot::{CycleRow, Given, PullNode, PullRead, View};
 use crate::text;
 #[cfg(test)]
+use serde_json::json;
+#[cfg(test)]
 use serde_json::Value;
-use serde_json::{json, Map};
 use tehas_core::driver::Driver;
 
 const ISSUE_MAX: u64 = 9_999_999_999;
@@ -155,45 +159,61 @@ impl Poll<'_> {
     }
 
     pub(super) fn untick(&mut self, n: u64, ans: &Asked, note: Option<&str>) {
+        self.untick_failing(n, ans, note, None);
+    }
+
+    /// An untick whose failure logs `fail`, or the default line when None.
+    /// An answer of `tehas answer` is taken away, and a box ticked beside it
+    /// is unticked too, with the note; `fail` is the last action's.
+    fn untick_failing(&mut self, n: u64, ans: &Asked, note: Option<&str>, fail: Option<String>) {
         let unticked = questions::untick(&ans.body);
-        // An answer of `tehas answer` is taken away, and a box ticked beside
-        // it is unticked too, with the note.
         if ans.tick.answered {
             let question = match &ans.comment {
                 Some(Given::Number(c)) => c.as_u64().unwrap_or(0),
                 _ => 0,
             };
             let boxed = unticked != ans.body.trim_end_matches('\n');
-            self.drop_answer(n, question, if boxed { None } else { note });
             if !boxed {
+                self.drop_answer_failing(n, question, note, fail);
                 return;
             }
+            self.drop_answer(n, question, None);
         }
-        let mut a = json!({
-            "untick": n, "comment": Given::json(ans.comment.as_ref()),
-            "body": unticked,
-            "fail": format!("WARN: could not untick the question on #{n}"),
+        self.act(Action::Untick {
+            issue: n,
+            comment: ans.comment.clone(),
+            body: unticked,
+            fail: fail.unwrap_or_else(|| format!("WARN: could not untick the question on #{n}")),
+            say: note.map(str::to_string),
         });
-        if let Some(note) = note {
-            a["say"] = json!(note);
-        }
-        self.act(a);
     }
 
     /// The answer `tehas answer` gave to question `question` taken away, as a
     /// box is unticked, with its note. A dry run takes nothing away.
     pub(super) fn drop_answer(&mut self, n: u64, question: u64, note: Option<&str>) {
+        self.drop_answer_failing(n, question, note, None);
+    }
+
+    /// A drop of an answer whose failure logs `fail`, or the default line
+    /// when None.
+    fn drop_answer_failing(
+        &mut self,
+        n: u64,
+        question: u64,
+        note: Option<&str>,
+        fail: Option<String>,
+    ) {
         if self.dry {
             return;
         }
-        let mut a = json!({
-            "answer_drop": n, "id": question,
-            "fail": format!("WARN: could not take away the answer to the question on #{n}"),
+        self.act(Action::AnswerDrop {
+            issue: n,
+            id: question,
+            fail: fail.unwrap_or_else(|| {
+                format!("WARN: could not take away the answer to the question on #{n}")
+            }),
+            say: note.map(str::to_string),
         });
-        if let Some(note) = note {
-            a["say"] = json!(note);
-        }
-        self.act(a);
     }
 
     /// The hold of a ticked retry: the pull request of `holds_on_pr` read the
@@ -387,9 +407,13 @@ impl Poll<'_> {
             let retry = ans.ticked_label().and_then(tehas_core::question::retry_of);
             let Some(with_comments) = retry else {
                 if !self.dry {
-                    self.act(json!({"issue": n, "remove": ["tehas:question"],
-                        "fail": Self::label_fail(n, &["tehas:question"], &[]),
-                        "answered": {"id": qid, "by": by}}));
+                    let mut l = LabelChange::new(
+                        n,
+                        &["tehas:question"],
+                        Self::label_fail(n, &["tehas:question"], &[]),
+                    );
+                    l.answered = Some((qid.clone(), by.clone()));
+                    self.act(Action::Label(l));
                 }
                 continue;
             };
@@ -501,12 +525,14 @@ impl Poll<'_> {
                     remove.push(l.into());
                 }
             }
-            let mut extra = Map::new();
-            extra.insert("comment".into(), Given::json(ans.comment.as_ref()));
-            extra.insert("since".into(), json!(ans.asked_at));
-            if issue_alone {
-                extra.insert("issue_alone".into(), json!(true));
-            }
+            let mut extra = StartExtra {
+                retry: Some(RetryTick {
+                    comment: ans.comment.clone(),
+                    since: ans.asked_at.clone(),
+                    issue_alone,
+                }),
+                ..StartExtra::default()
+            };
             driver.bind(&mut extra, &mut remove, &have);
             self.d.picked.push(n);
             self.act_gates(n);
@@ -530,10 +556,7 @@ impl Poll<'_> {
                     placed: None,
                 },
             );
-            self.untick(n, &ans, None);
-            if let Some(a) = self.d.actions.last_mut() {
-                a["fail"] = json!(format!("WARN: could not untick the retry on #{n}; its question is no longer on record, so it starts nothing more"));
-            }
+            self.untick_failing(n, &ans, None, Some(format!("WARN: could not untick the retry on #{n}; its question is no longer on record, so it starts nothing more")));
             return Err(End(0));
         }
         Ok(())
@@ -591,7 +614,10 @@ impl Poll<'_> {
                     p.started_said
                 ));
                 if !self.dry {
-                    self.act(json!({"park_retry": n, "how": "outage"}));
+                    self.act(Action::ParkRetry {
+                        issue: n,
+                        how: Spend::Outage,
+                    });
                 }
                 continue;
             };
@@ -637,10 +663,13 @@ impl Poll<'_> {
                 }
                 self.log(format!("skip #{n}: its retry after a provider outage is not started; it waits for a person"));
                 if !self.dry {
-                    self.act(json!({"park_retry": n, "how": "outage"}));
+                    self.act(Action::ParkRetry {
+                        issue: n,
+                        how: Spend::Outage,
+                    });
                     if let Choice::Stranger(s) = &driver {
                         let say = format!("Tehas did not start this issue again after the provider outage: {}, then applies `tehas:ready`.", s.said());
-                        self.act(json!({"issue": n, "say": say}));
+                        self.act(Action::Say { issue: n, say });
                     }
                 }
                 continue;
@@ -657,9 +686,9 @@ impl Poll<'_> {
                 Vec::new()
             };
             self.act_gates(n);
-            self.act(json!({"issue": n, "say": "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person."}));
+            self.act(Action::Say { issue: n, say: "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person.".into() });
             self.d.picked.push(n);
-            let mut extra = Map::new();
+            let mut extra = StartExtra::default();
             driver.bind(&mut extra, &mut remove, &have);
             self.act_start(
                 n,
@@ -727,7 +756,7 @@ impl Poll<'_> {
     fn refresh_drop(&mut self, n: u64, why: &str) -> Step<Option<Start>> {
         self.log(format!("drop the refresh of #{n}: {why}"));
         if !self.dry {
-            self.act(json!({"refresh_drop": n}));
+            self.act(Action::RefreshDrop(n));
         }
         Ok(None)
     }
@@ -740,10 +769,11 @@ impl Poll<'_> {
             return Ok(None);
         };
         if !self.dry && said != key {
-            self.act(json!({
-                "issue": n, "refresh_said": key,
-                "say": format!("Tehas does not refresh this issue's pull request on its own: {why}. It conflicts with the branch: a person resolves the conflict, or closes the pull request and then applies `tehas:ready` to start a fresh cycle."),
-            }));
+            self.act(Action::SayOnce {
+                issue: n,
+                key: key.to_string(),
+                say: format!("Tehas does not refresh this issue's pull request on its own: {why}. It conflicts with the branch: a person resolves the conflict, or closes the pull request and then applies `tehas:ready` to start a fresh cycle."),
+            });
         }
         Ok(None)
     }
@@ -915,14 +945,20 @@ impl Poll<'_> {
                 remove.push(l.to_string());
             }
         }
-        let mut extra = Map::new();
-        extra.insert("refresh_pr".into(), json!(pr));
-        extra.insert("refresh_url".into(), json!(url));
-        extra.insert(
-            "refresh_of".into(),
-            json!({"pr": pr, "head_sha": req.head_sha, "base_sha": req.base_sha,
-                "branch": if branch.is_empty() { self.c.branch.clone() } else { branch }}),
-        );
+        let mut extra = StartExtra {
+            refresh: Some(RefreshOf {
+                pr,
+                url: url.to_string(),
+                head_sha: req.head_sha.clone(),
+                base_sha: req.base_sha.clone(),
+                branch: if branch.is_empty() {
+                    self.c.branch.clone()
+                } else {
+                    branch
+                },
+            }),
+            ..StartExtra::default()
+        };
         driver.bind(&mut extra, &mut remove, &have);
         Ok(Some(Start {
             starter: by,
