@@ -5,3 +5,5 @@
 ### Adopter action
 
 Take any `TEHAS_WIKI` line out of `instance.env`. `tehas update` stops and removes the wiki's units on a host that has them.
+
+The wiki's builds in `~/tehas/wiki` are left in place, and nothing reads them any more. Delete the folder when you like.
