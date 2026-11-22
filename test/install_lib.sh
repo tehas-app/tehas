@@ -100,7 +100,6 @@ files="./.bashrc
 ./.config/systemd/user/tehas-dispatch.path
 ./.config/systemd/user/tehas-dispatch.service
 ./.config/systemd/user/tehas-dispatch.timer
-./.config/systemd/user/tehas-energy.service
 ./.config/systemd/user/tehas-mcp-fetch.socket
 ./.config/systemd/user/tehas-mcp-fetch@.service
 ./.config/systemd/user/tehas-mcp.service
@@ -183,7 +182,6 @@ host_files() { find "$home" -type f ! -path "$th/state/update.lock"; }
 next_steps() {
   "$T_CONSOLE" update steps for systemd/tehas-cycle@.service systemd/tehas-clean.service systemd/tehas-clean.timer \
     systemd/tehas-dispatch.path systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
-    systemd/tehas-energy.service \
     systemd/tehas-preview.service \
     systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer systemd/tehas-top.service sandbox/Dockerfile sandbox/base.Dockerfile sandbox/build.sh \
     sandbox/npm/playwright/package.json sandbox/npm/playwright/package-lock.json \

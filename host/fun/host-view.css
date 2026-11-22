@@ -2,7 +2,7 @@
    host-view.js, and shown only where that file is published (TEHAS_TOP is 1). */
 
 .host {
-  /* The stage names a row for this panel, between the energy and the
+  /* The stage names a row for this panel, between the epics and the
      breakroom: its place cannot depend on which other panels are shown. */
   grid-area: host;
   margin-top: 72px;

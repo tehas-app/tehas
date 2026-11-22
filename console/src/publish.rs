@@ -31,7 +31,7 @@ use tehas_core::time;
 
 const LIMIT: u64 = 5;
 const KEEP: i64 = 600;
-const PUBLIC: [&str; 20] = [
+const PUBLIC: [&str; 19] = [
     "report",
     "from",
     "to",
@@ -46,7 +46,6 @@ const PUBLIC: [&str; 20] = [
     "machineTime",
     "tokens",
     "availability",
-    "energy",
     "daily",
     "stopReasons",
     "stations",

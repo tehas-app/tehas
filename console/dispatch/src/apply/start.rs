@@ -1061,7 +1061,7 @@ impl Writer {
         let alone = issue_alone(a, log, n);
         // The tick of the comments retry is its own opt-in: what allowed
         // accounts wrote up to it goes on the record.
-        if matches!(given.as_str(), "retry-tick" | "answer") && !alone {
+        if matches!(given.as_str(), "retry-tick" | "answer" | "reply") && !alone {
             let Some(list) = self.comments(n) else {
                 log.push(format!("ERROR: the comments of #{n} could not be read"));
                 return Err(none());

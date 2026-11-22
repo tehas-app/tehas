@@ -28,7 +28,7 @@ mod reread;
 use reread::Seen;
 
 /// The comment a park posts when its question's label could not be added.
-pub const BOXES: &str = "The boxes above cannot be used: the label `tehas:question` could not be added (run `tehas labels` on the host). To retry, apply `tehas:ready`.";
+pub const BOXES: &str = "A reply to the choices above does nothing: the label `tehas:question` could not be added (run `tehas labels` on the host). To retry, apply `tehas:ready`.";
 
 /// The read of a develop timeout's issue and the write of its note.
 const NOTE_BOUND: Duration = Duration::from_secs(30);
@@ -438,7 +438,9 @@ impl Writer<'_> {
                 ));
             }
         }
-        if on_record {
+        // A park with nothing for a person to decide (no retry to offer)
+        // says so in a comment, and asks nothing.
+        if on_record && p.asks() {
             let (_, body) = p.question(n, self.stuck);
             let body = stamped(&body, self.stamp.as_ref());
             match self.post_question(&body) {
@@ -523,7 +525,7 @@ impl Writer<'_> {
         ];
         if let Err(e) = host::store_try(home, 3, &asked) {
             log(&format!(
-                "WARN: could not record the park question of #{n}, its boxes will not work ({})",
+                "WARN: could not record the park question of #{n}, a reply to it will not count ({})",
                 e.word
             ));
         }

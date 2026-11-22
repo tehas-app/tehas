@@ -151,7 +151,6 @@ version = "0.1.0"
 dependencies = [
  "attach",
  "libc",
- "pulldown-cmark",
  "regex",
  "rustix",
  "serde_json",
@@ -1847,6 +1846,7 @@ dependencies = [
 name = "tehas-describe"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "serde_json",
 ]
 
@@ -1877,6 +1877,13 @@ dependencies = [
  "regex",
  "serde_json",
  "sha2 0.10.9",
+ "tehas-core",
+]
+
+[[package]]
+name = "tehas-mesh-feed"
+version = "0.1.0"
+dependencies = [
  "tehas-core",
 ]
 
@@ -1924,6 +1931,32 @@ dependencies = [
  "store",
  "tehas-core",
  "tehas-cycle",
+]
+
+[[package]]
+name = "tehas-review-render"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "tehas-wiki-collect"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tehas-core",
+ "tehas-wiki-render",
+]
+
+[[package]]
+name = "tehas-wiki-render"
+version = "0.1.0"
+dependencies = [
+ "pulldown-cmark",
+ "regex",
+ "serde_json",
+ "tehas-core",
 ]
 
 [[package]]

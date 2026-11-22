@@ -14,8 +14,7 @@ import "../host/fun/epics-view.js";
 import "../host/fun/panels.js";
 import "../host/fun/versions.js";
 import { analyticsView } from "../host/fun/analytics-data.js";
-import { boardRows, consoleView, labBase, lineView, liveView } from "../host/fun/business-view.js";
-import { layout as energyLayout } from "../host/fun/energy-view.js";
+import { boardRows, consoleView, labBase, lineView } from "../host/fun/business-view.js";
 import { normalize } from "../host/fun/game-data.js";
 import { layout as hostLayout } from "../host/fun/host-data.js";
 import { consoleModel } from "../host/fun/factory/tehas-factory-console.model.js";
@@ -25,7 +24,6 @@ import { issuesModel } from "../host/fun/factory/tehas-factory-issues.model.js";
 import { previewsModel } from "../host/fun/factory/tehas-factory-previews.model.js";
 import { readonlyModel } from "../host/fun/factory/tehas-factory-readonly.model.js";
 import { stateModel } from "../host/fun/factory/tehas-factory-state.model.js";
-import { wikiLink, wikiModel } from "../host/fun/factory/tehas-factory-wiki.model.js";
 
 const FIXTURES = new URL("./fixtures/live/", import.meta.url);
 const FUN = new URL("../host/fun/", import.meta.url);
@@ -46,12 +44,6 @@ test("every file under /live/ a page fetches has a sample, and every sample is f
   for (const m of frag.matchAll(/ (?:src|running|status)="\/live\/([a-z0-9-]+\.json)"/g)) fetched.add(m[1]);
   const samples = readdirSync(FIXTURES).filter((n) => n.endsWith(".json")).sort();
   assert.deepEqual(samples, [...fetched].sort());
-});
-
-test("wiki.json draws the wiki page and the dashboard's link", () => {
-  const m = wikiModel(read("wiki.json"), NOW);
-  assert.deepEqual([m.href, m.behind], ["/wiki/2026-11-17-68ffab1d/", "4 commits and 1 day behind main."]);
-  assert.deepEqual(wikiLink(read("wiki.json")), { href: m.href, title: "2026-11-17-68ffab1d" });
 });
 
 test("the samples are written at one time and name no real repository", () => {
@@ -101,18 +93,6 @@ test("running.json draws the console tabs and the business page's console", () =
   assert.equal(c.state, "live");
   assert.equal(c.cycle, "Working on #41  Export the report as CSV");
   assert.equal(c.file, "console-41.txt");
-});
-
-test("energy.json draws the energy section and the business page's meter", () => {
-  const v = energyLayout(read("energy.json"), NOW);
-  assert.equal(v.state, "live");
-  assert.equal(v.watts, "1190");
-  assert.deepEqual(v.rows.map((r) => r.name), ["node-a", "node-b"]);
-  assert.equal(v.models.length, 1);
-  const live = liveView(read("energy.json"), NOW);
-  assert.equal(live.present, true);
-  assert.equal(live.stale, false);
-  assert.ok(live.tokenRates.length > 0);
 });
 
 test("analytics.json draws the ten-day report", () => {

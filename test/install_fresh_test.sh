@@ -207,7 +207,7 @@ t_eq "$(cd "$th/fun" && find . -type f ! -name version.txt -regextype posix-exte
 t_eq "$(cd "$th/fun" && find . -name '*.d.ts')" ""
 # Two pages name some of these files, so the copies are fewer than the tags.
 t_eq "$(cd "$th/fun" && find . -type f -regextype posix-extended \
-      -regex '.*/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)' | wc -l)" 31
+      -regex '.*/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)' | wc -l)" 27
 
 t_case "a tag of a dashboard page names the hashed copy, which is installed"
 # The name holds the first 12 hex digits of the sha256 of the file's bytes, the
@@ -370,11 +370,12 @@ t_lacks "$t_out" "first install"
 t_case "the optional units are enabled on a first install only when their setting is on"
 fresh
 instance TEHAS_DOMAIN=widget.test TEHAS_PREVIEWS=1
+# Energy use left core in 2.0: a host file that still sets it enables nothing.
 mkdir -p "$home/.config/tehas" && echo TEHAS_ENERGY=on >"$home/.config/tehas/env"
 t_run "$install"
 t_eq "$t_rc" 0
 t_eq "$(sed -n 2p "$T/calls/systemctl")" \
-  "--user enable --now tehas-dispatch.timer tehas-dispatch.path tehas-protolab.timer tehas-preview.timer tehas-preview-sweep.timer tehas-energy.service"
+  "--user enable --now tehas-dispatch.timer tehas-dispatch.path tehas-protolab.timer tehas-preview.timer tehas-preview-sweep.timer"
 
 t_case "a domain without previews enables the Protolab and not the previews"
 fresh

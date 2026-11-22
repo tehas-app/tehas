@@ -10,17 +10,16 @@
 # wait for a second reading takes no time here (top_snapshot_test.sh covers it).
 t_stub sleep
 
-t_case "a frame with a running cycle has all seven sections"
+t_case "a frame with a running cycle has all six sections"
 reset
 files
-energy
 t_run "$top --once"
 t_eq "$t_rc" 0
 for line in "tehas top" "factory   pass: Working on #12." "queue     1 in line, 1 building, 1 in review, 1 stopped" \
   "  12     running    Two cycles side by side" "cycle     #12 running, step develop, started 10 min ago" \
   "host      2 cpus, load 0.10 0.20 0.30" "  100  systemd" "  400  gh" \
   "units     3 units, 2 active" "  tehas-dispatch.timer        enabled  active  next 10:00:00" \
-  "energy    312.5 W now, 4 of 8 slots busy" "console   #12  console-12.txt  live" \
+  "console   #12  console-12.txt  live" \
   "[step develop] @developer ran the gate"; do
   t_contains "$t_out" "$line"
 done
@@ -56,16 +55,6 @@ t_contains "$t_out" "cycle     no cycle written yet"
 t_contains "$t_out" "console   no console file"
 t_contains "$t_out" "queue     1 in line"
 
-t_case "a missing energy.json is one line, and the rest of the frame is there"
-reset
-files
-energy
-rm -f "$live/energy.json"
-t_run "$top --once"
-t_eq "$t_rc" 0
-t_contains "$t_out" "energy    no sample"
-t_contains "$t_out" "cycle     #12 running"
-
 t_case "a missing console file is one line, and the rest of the frame is there"
 reset
 files
@@ -74,15 +63,6 @@ t_run "$top --once"
 t_eq "$t_rc" 0
 t_contains "$t_out" "console   no console file"
 t_contains "$t_out" "cycle     #12 running"
-
-t_case "an energy file older than ten minutes is not believed"
-reset
-files
-energy 700
-t_run "$top --json"
-t_eq "$(jq -c '.energy' <<<"$t_out")" "null"
-t_run "$top --once"
-t_contains "$t_out" "energy    no sample"
 
 t_case "a health file older than ten minutes reads stale, and is still shown"
 reset
@@ -99,7 +79,6 @@ t_contains "$t_out" "cycle     #12 running"
 t_case "a width of 40 and of 200 columns gives no line longer than the width"
 reset
 files
-energy
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=40 LINES=16)
 t_run "$top --once"
 t_eq "$t_rc" 0
@@ -114,7 +93,6 @@ t_eq "$(printf '%s\n' "$t_out" | awk 'length > 200' | wc -l)" 0
 t_case "the rows and the columns of the terminal are not swapped"
 reset
 files "$(printf '%150s' w | tr ' ' w)"
-energy
 t_stub stty 'printf "30 100\n"'
 seq -f 'console line %g' 1 40 >"$live/console-12.txt"
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1")
@@ -131,14 +109,13 @@ rm -f "$T/bin/stty"
 t_case "a short terminal drops console lines, not the sections"
 reset
 files
-energy
 # Named lines: a bare number could match the snapshot's clock.
 seq -f 'console line %g' 1 30 >"$live/console-12.txt"
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=12)
 t_run "$top --once"
 t_eq "$(printf '%s\n' "$t_out" | wc -l)" 12
 for line in "factory   pass" "queue     1 in line" "cycle     #12 running" "units     3 units" \
-  "energy    312.5 W" "console   #12"; do
+  "console   #12"; do
   t_contains "$t_out" "$line"
 done
 t_lacks "$t_out" "console line 30"
@@ -146,7 +123,6 @@ t_lacks "$t_out" "console line 30"
 t_case "a short terminal drops process rows first, then console lines, then unit rows"
 reset
 files
-energy
 seq -f 'console line %g' 1 30 >"$live/console-12.txt"
 # The whole frame at a height that drops nothing.
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=64)

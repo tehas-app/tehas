@@ -44,9 +44,7 @@ cp "$T_CYCLE" "$shim/libexec/tehas-cycle"
 # What an image answers that can do all a command here asks of it.
 jq '. + {contract: "0.14.0"}
   | .features.planTurns = true
-  | .verbs.plan.flags = ["--start", "--context", "--resume", "--answer", "--confirm", "--issue"]
-  | .verbs["lens-review"].flags = ["--base", "--head", "--since", "--full", "--context", "--pr", "--json"]
-  | .verbs.wiki.flags = ["--raw", "--out", "--full", "--json"]' \
+  | .verbs.plan.flags = ["--start", "--context", "--resume", "--answer", "--confirm", "--issue"]' \
   "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
 echo sha256:1111111111111111111111111111111111111111111111111111111111111111 >"$T/image.inspect"
 reads_image 1
@@ -72,7 +70,6 @@ prev=""
 for a in "$@"; do
   case $prev in
     --cidfile) cat "$T/cid" >"$a" ;;
-    --doc) doc=$a ;;
   esac
   case $a in
     *:/home/vscode/.tehas-cache) written=${a%%:*} ;;
@@ -87,10 +84,6 @@ case " $* " in
     echo "{}" >"$T/home/tehas/work/widget-plan-7/.git/pi-plan-sessions/abc-123/session.json"
     cat "$T/fx/turn.json"
     exit 11 ;;
-  *" lens-review "*) cat "$T/fx/review.json" | tee "${doc:-/dev/null}" ;;
-  *" wiki --raw "*) out=$(printf "%s\n" "$@" | sed -n "s#:/run/tehas/wiki/out\$##p")
-    v=$(jq -r ".commit[0:8]" "${out%/out}/raw/head.json"); printf -- "---\ntitle: T\nverified_at: %s\n---\n[s](SCHEMA.md) [l](log.md)\n" "$v" | tee "$out/index.md" >"$out/SCHEMA.md"
-    printf "# Log\n\n## %s\n" "$v" >"$out/log.md" && echo "{}" ;;
   *" index_repository "*)
     echo index >"$written/widget.db"
     echo "{\"project\":\"p\",\"status\":\"indexed\",\"nodes\":5,\"edges\":7}" ;;
@@ -100,17 +93,14 @@ t_stub gh 'case "$1 $2" in "issue list") echo "[]" ;; esac'
 
 mkdir -p "$fx"
 echo '{"subcommand":"plan","mode":"turn","exitCode":11,"status":"question","session":{"id":"abc-123","turn":1},"text":"One question.","questions":[{"id":"q1","question":"Which store?","options":[],"resolution":"SQLite"}]}' >"$fx/turn.json"
-echo '{"verdict":"APPROVED","exitCode":0}' >"$fx/review.json"
 printf '# Faster search\n\nMake it fast.\n' >"$T/brief.md"
 printf 'yes\n' >"$T/answer.md"
 # Two tokens by name, as a host has them, to pin their order; no backupBaseUrl.
 echo '{"providers":{"test-provider":{"baseUrl":"http://models.test/v1","apiKey":"$TEHAS_MODEL_KEY_MAIN","backupApiKey":"$TEHAS_MODEL_KEY_FLEET"}}}' >"$T/home/.pi/agent/models.json"
 
 # The instance of every case, and the tokens of the host's environment: all a
-# container can be given by name. A container that takes no token shows it too.
-all=("${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_REVIEW=1 TEHAS_WIKI=1)
-# review and wiki are still being built: a test turns them on to pin them.
-T_ENV_ALWAYS+=("TEHAS_TEST_FEATURES=review wiki")
+# container can be given by name.
+all=("${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9)
 clean() {
   fresh
   rm -f "$T/docker.n"
@@ -192,18 +182,6 @@ rm -f "$T"/calls/argv.* "$T/docker.n"
 t_run "$shim/bin/tehas plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
 t_eq "$t_rc" 0
 compare plan-resume
-
-t_case "a review"
-clean
-t_run "$shim/bin/tehasbot review"
-t_eq "$t_rc" 0
-compare review
-
-t_case "a wiki build"
-clean
-t_run "$shim/bin/tehasbot wiki build"
-t_eq "$t_rc" 0
-compare wiki
 
 t_case "the indexer"
 clean

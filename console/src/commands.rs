@@ -21,7 +21,6 @@
 //!   console tehas freeze <issue> [--reason TEXT] [--json]
 //!   console tehas thaw <issue> [--json]
 //!   console tehas wake [--json]
-//!   console tehas wiki [--json] | build [--full] [--json]
 //!   console tehas dev <arguments>
 //!   console tehas dev-login "Name <email>" [-- <pi arguments>]
 //!   console tehas github writes
@@ -49,8 +48,8 @@
 
 use crate::{
     answer, api, blockers, clean, dev, disk, export, freeze, github, health, history, holds,
-    host_message, labels, mcp, order, panel, question, queue, review, start, state, status, stop,
-    top, wake,
+    host_message, labels, mcp, order, panel, question, queue, start, state, status, stop, top,
+    wake,
 };
 use std::env;
 use std::os::unix::fs::PermissionsExt;
@@ -217,7 +216,6 @@ pub fn tehas(given: &[String]) -> u8 {
         "outsource" => crate::outsource::main(rest),
         "prototype" => crate::prototype::main(rest),
         "wake" => wake::main(rest),
-        "wiki" => crate::wiki::main(rest),
         _ => {
             eprintln!("console tehas: no such command: {command}");
             64
@@ -335,7 +333,6 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "analytics"] => analytics_words(rest),
         ["tehas", "api"] => api::words(rest).map(|_| ()),
         ["tehas", "wake"] => wake::words(rest).map(|_| ()),
-        ["tehas", "wiki"] => crate::wiki::words(rest).map(|_| ()),
         ["tehas", "labels"] => labels::words(rest),
         ["tehas", "outsource"] => match crate::outsource::words(rest) {
             Ok(None) => {
@@ -389,7 +386,6 @@ pub fn check(given: &[String]) -> u8 {
         ["tehasbot", "dispatch"] => dispatch_words(rest),
         ["tehasbot", "github-token"] => github::words(rest).map(|_| ()),
         ["tehasbot", "preview"] => preview_words(rest),
-        ["tehasbot", "review"] => review::words(rest, include_str!("usage/review.txt")),
         _ => Ok(()),
     };
     said.err().unwrap_or(0)
@@ -423,7 +419,7 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
             "TEHAS_CONTROL_ISSUE",
             "TEHAS_ALLOWED_LABELERS",
         ],
-        ["tehasbot", "clean" | "dispatch" | "refresh" | "review" | "outsource-proxy" | "plugin-gate"] => {
+        ["tehasbot", "clean" | "dispatch" | "refresh" | "outsource-proxy" | "plugin-gate"] => {
             &INSTANCE_SETTINGS
         }
         ["tehas", "plan" | "work"] => &[
@@ -431,7 +427,6 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
             "PI_ENSEMBLE_SUBAGENT_MODEL",
             "PI_ENSEMBLE_SUBAGENT_PROVIDER",
         ],
-        ["tehas", "wiki"] | ["tehasbot", "wiki"] => &["TEHAS_REPO"],
         ["tehasbot", "protolab"] | ["tehas", "prototype"] => {
             &["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"]
         }
@@ -476,7 +471,6 @@ pub fn text(command: &str) -> Option<&'static str> {
         "prototype" => include_str!("usage/prototype.txt"),
         // The dispatcher's own text, which `tehasbot refresh --help` prints.
         "refresh" => include_str!("../dispatch/src/usage/refresh.txt"),
-        "review" => include_str!("usage/review.txt"),
         "resume" => include_str!("usage/resume.txt"),
         "setup" => include_str!("usage/setup.txt"),
         "state" => include_str!("usage/state.txt"),
@@ -486,7 +480,6 @@ pub fn text(command: &str) -> Option<&'static str> {
         "top" => include_str!("usage/top.txt"),
         "update" => include_str!("usage/update.txt"),
         "wake" => include_str!("usage/wake.txt"),
-        "wiki" => include_str!("usage/wiki.txt"),
         "work" => include_str!("usage/work.txt"),
         _ => return None,
     })
@@ -774,7 +767,6 @@ mod tests {
             "clean",
             "dispatch",
             "refresh",
-            "review",
             "outsource-proxy",
             "plugin-gate",
         ] {

@@ -25,7 +25,7 @@
 //! Exit: the command's, a part's its own; 64 a command this does not know
 //! and no part has; 1 a part that could not be run.
 
-use crate::{commands, energy, run};
+use crate::{commands, run};
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::os::unix::process::CommandExt;
@@ -51,8 +51,6 @@ enum Go {
     Verb,
     /// `console run`: the words under the settings.
     Run,
-    /// `console energy` with the words after the first.
-    Energy,
 }
 
 /// The commands of `tehas` that run a script in libexec.
@@ -68,7 +66,7 @@ fn script(which: &str, command: &str) -> Option<&'static str> {
 
 /// The verbs of `tehas`. work and index are tehas-cycle's, which takes their
 /// lock (src/run.rs).
-const VERBS: [&str; 38] = [
+const VERBS: [&str; 37] = [
     "work",
     "index",
     "dispatch",
@@ -104,7 +102,6 @@ const VERBS: [&str; 38] = [
     "plugin",
     "wake",
     "blockers",
-    "wiki",
     "answer",
     "question",
 ];
@@ -143,12 +140,10 @@ fn tehasbot(words: &[String]) -> Go {
         None | Some("help" | "-h" | "--help") => Go::Usage,
         Some(
             "health" | "status" | "top" | "refresh" | "clean" | "preview" | "protolab" | "dispatch"
-            | "review" | "github-token" | "cycle" | "outsource-proxy" | "plugin" | "plugin-gate"
-            | "wiki",
+            | "github-token" | "cycle" | "outsource-proxy" | "plugin" | "plugin-gate",
         ) => Go::Run,
         Some("mcp") if words.get(1).map(String::as_str) == Some("serve") => Go::Run,
         Some("mcp" | "github-writes") => Go::Verb,
-        Some("energy") => Go::Energy,
         Some(c) => script("tehasbot", c).map_or_else(|| Go::Unknown(c.to_string()), Go::Script),
     }
 }
@@ -260,7 +255,6 @@ pub fn main(given: &[OsString]) -> u8 {
             return 64;
         }
     };
-    let rest = || words.get(1..).unwrap_or_default();
     match go {
         Go::Usage if which == "tehas" => {
             say(&usage_with_parts(libexec));
@@ -283,7 +277,6 @@ pub fn main(given: &[OsString]) -> u8 {
         }
         Go::Verb if which == "tehas" => commands::tehas(words),
         Go::Verb => commands::tehasbot(words),
-        Go::Energy => energy::main(rest()),
         Go::Run => {
             let text = given.iter().all(|w| w.to_str().is_some());
             run::main(&as_run(lossy), text)
@@ -324,7 +317,7 @@ mod tests {
         assert_eq!(t(&["plugin", "check", "."]), Go::Verb);
         assert_eq!(t(&["plugin", "review", "floorplan"]), Go::Run);
         assert_eq!(t(&["plugin"]), Go::Run);
-        for c in ["dispatch", "review", "github-token"] {
+        for c in ["dispatch", "github-token"] {
             assert_eq!(b(&[c]), Go::Run, "{c}");
         }
         for c in [
@@ -435,7 +428,6 @@ mod tests {
             "preview",
             "protolab",
             "dispatch",
-            "review",
             "github-token",
             "cycle",
         ] {
@@ -443,6 +435,10 @@ mod tests {
         }
         // The improvement loop is gone, and so is its command.
         assert_eq!(b(&["improve"]), Go::Unknown("improve".into()));
+        // The review loop and the product wiki left core in 2.0.
+        assert_eq!(b(&["review"]), Go::Unknown("review".into()));
+        assert_eq!(t(&["wiki"]), Go::Unknown("wiki".into()));
+        assert_eq!(b(&["wiki"]), Go::Unknown("wiki".into()));
         assert_eq!(b(&["mcp", "serve"]), Go::Run);
         assert_eq!(b(&["outsource-proxy"]), Go::Run);
         assert_eq!(b(&["plugin", "tick"]), Go::Run);
@@ -454,7 +450,8 @@ mod tests {
         );
         assert_eq!(b(&["mcp", "key"]), Go::Verb);
         assert_eq!(b(&["github-writes"]), Go::Verb);
-        assert_eq!(b(&["energy", "--every"]), Go::Energy);
+        // Energy use left core in 2.0, and so did its sampler.
+        assert_eq!(b(&["energy", "--every"]), Go::Unknown("energy".into()));
         for w in [&[][..], &["help"], &["-h"], &["--help"]] {
             assert_eq!(b(w), Go::Usage, "{w:?}");
         }
@@ -826,8 +823,7 @@ mod tests {
             [
                 ("outsource", "outsource"),
                 ("plugin", "plugins"),
-                ("prototype", "prototype-file"),
-                ("wiki", "wiki")
+                ("prototype", "prototype-file")
             ]
         );
         for (command, name) in marked {

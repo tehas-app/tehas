@@ -1080,7 +1080,7 @@ impl Base {
             && by.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
             && matches!(
                 how,
-                "label" | "retry-tick" | "outage-retry" | HOST | "answer"
+                "label" | "retry-tick" | "outage-retry" | HOST | "answer" | "reply"
             )
             && sum.len() == 64
             && sum.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));

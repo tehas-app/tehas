@@ -5,13 +5,16 @@
 # mcp/, the attachment checker in attach/, the library they share in core/,
 # the dispatcher's decisions in dispatch/, the words of an image's
 # description in describe/, a cycle's report in cycle/, the
-# operations modules in ops/, the model proxy of outsource in proxy/, the
+# operations modules in ops/, the mesh read of the 2.1 `feed:mesh` in
+# mesh-feed/, the model proxy of outsource in proxy/, the
 # contractor program of outsource in contractor/, the plugins' program in
-# plugin/, the plugins' gate in plugin-gate/ and the development tasks
-# behind scripts/ in xtask/ as well.
+# plugin/, the plugins' gate in plugin-gate/, the review's renderer in
+# review-render/, the product wiki's kept rules in wiki-render/ and its
+# collector in wiki-collect/, and the development tasks behind scripts/ in
+# xtask/ as well.
 [workspace]
-members = ["analytics", "attach", "contractor", "core", "cycle", "describe", "dispatch", "front", "mcp", "ops", "plugin", "plugin-gate", "proxy", "store", "xtask"]
-default-members = [".", "analytics", "attach", "contractor", "core", "cycle", "describe", "dispatch", "front", "mcp", "ops", "plugin", "plugin-gate", "proxy", "store", "xtask"]
+members = ["analytics", "attach", "contractor", "core", "cycle", "describe", "dispatch", "front", "mcp", "mesh-feed", "ops", "plugin", "plugin-gate", "proxy", "review-render", "store", "wiki-collect", "wiki-render", "xtask"]
+default-members = [".", "analytics", "attach", "contractor", "core", "cycle", "describe", "dispatch", "front", "mcp", "mesh-feed", "ops", "plugin", "plugin-gate", "proxy", "review-render", "store", "wiki-collect", "wiki-render", "xtask"]
 
 [package]
 name = "console"
@@ -26,10 +29,6 @@ publish = false
 # The link rule, the fetch and the manifest (src/attach.rs, src/protolab).
 attach = { path = "attach" }
 libc = "0.2"
-# The wiki's Markdown, rendered on the host with any HTML in it shown as text
-# (src/wiki/render.rs).
-pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
-regex = "1"
 rustix = { version = "1", default-features = false, features = ["std"] }
 serde_json = "1"
 sha2 = "0.10"
@@ -42,6 +41,7 @@ tehas-cycle = { path = "cycle" }
 tehas-ops = { path = "ops" }
 
 [dev-dependencies]
+regex = "1"
 # The store's test hook, which the history tests plant answers in.
 tehas-ops = { path = "ops", features = ["testing"] }
 # The dispatcher's read of a refresh request, which a test holds to the console's.

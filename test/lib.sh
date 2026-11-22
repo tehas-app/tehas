@@ -675,9 +675,10 @@ t_console_source() {
   local member from=${2:-$T_ROOT}
   mkdir -p "$1/console"
   cp -R "$from/console/Cargo.toml" "$from/console/Cargo.lock" "$from/console/src" "$1/console/"
-  for member in analytics attach contractor core cycle describe dispatch front mcp ops plugin plugin-gate proxy store xtask; do
+  for member in analytics attach contractor core cycle describe dispatch front mcp mesh-feed ops plugin plugin-gate proxy review-render store wiki-collect wiki-render xtask; do
     mkdir -p "$1/console/$member"
     cp -R "$from/console/$member/Cargo.toml" "$from/console/$member/src" "$1/console/$member/"
+    [ ! -d "$from/console/$member/assets" ] || cp -R "$from/console/$member/assets" "$1/console/$member/"
   done
   t_tree_commit "$1"
 }

@@ -2565,7 +2565,7 @@ impl<'a> Poll<'a> {
         {
             Some(Ok(by)) => {
                 self.log(format!(
-                    "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted on the Retry {by} ticked"
+                    "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted on the retry {by} answered"
                 ));
                 return Ok(false);
             }
@@ -2578,18 +2578,33 @@ impl<'a> Poll<'a> {
             }
             None => {}
         }
-        // With no question on record no tick can start the park (rule 4
-        // unticks it and points at the label), so the label is not held.
+        // A develop timeout on the same text twice offers no retry and asks
+        // nothing: only a new text releases it.
+        if p.question.is_none() && cap == "child-timeout:develop" {
+            if !p.told && !self.dry {
+                self.act(Action::ParkTold {
+                    issue: n,
+                    say: format!("Not started: the last cycle ran out of time in develop twice on this text, so it offers no retry: {}.", tehas_core::hold::HELD_PARKED_EDIT),
+                });
+            }
+            self.log(format!(
+                "hold #{n}: its last cycle parked on {cap} twice on the same text, and the body has not changed since"
+            ));
+            self.held_parked_as(n, &cap, tehas_core::hold::HELD_PARKED_EDIT);
+            return Ok(true);
+        }
+        // With no question on record no reply can start the park, so the
+        // label is not held.
         if p.question.is_none() {
             self.log(format!(
-                "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted as its park has no question on record to tick"
+                "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted as its park has no question on record to answer"
             ));
             return Ok(false);
         }
         if !p.told && !self.dry {
             self.act(Action::ParkTold {
                 issue: n,
-                say: format!("Not started: the last cycle parked on `{cap}` and the issue text has not changed since. Edit the body, or tick Retry in the park comment."),
+                say: format!("Not started: the last cycle parked on `{cap}` and the issue text has not changed since. Edit the body, or reply to the park comment with the word of one of its retries."),
             });
         }
         self.log(format!(
@@ -2640,6 +2655,11 @@ impl<'a> Poll<'a> {
     /// The park's hold of `n` goes into the poll's report, so status names
     /// the issue the queue would otherwise show as next.
     fn held_parked(&mut self, n: u64, cap: &str) {
+        self.held_parked_as(n, cap, tehas_core::hold::HELD_PARKED_CLEAR);
+    }
+
+    /// held_parked with what releases it said as `clear`.
+    fn held_parked_as(&mut self, n: u64, cap: &str, clear: &str) {
         let Some(r) = self.d.report.as_mut() else {
             return;
         };
@@ -2651,7 +2671,7 @@ impl<'a> Poll<'a> {
             issue: n,
             why: HELD_PARKED,
             text: text.chars().take(HELD_TEXT_MAX).collect(),
-            clear: "edit the body, or tick Retry in the park comment".into(),
+            clear: clear.into(),
         });
     }
 

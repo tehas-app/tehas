@@ -391,8 +391,8 @@ fn a_main_endpoint_that_fails_starts_the_cycle_on_the_backup_and_says_so() {
     }
 }
 
-/// Which endpoint the subagent provider is on, as the energy sampler reads
-/// it: the one word in live/dispatch.json. The endpoint itself is never
+/// Which endpoint the subagent provider is on, as the 2.1 mesh feed will
+/// read it: the one word in live/dispatch.json. The endpoint itself is never
 /// written.
 #[test]
 fn the_poll_publishes_the_subagent_providers_endpoint_as_one_word() {

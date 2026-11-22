@@ -8,7 +8,7 @@ use super::{
     Room, Spend, Start, StartExtra, Step, CLASSIC, LEAN,
 };
 use crate::answer::{self, Overlay};
-use crate::questions::{self, Answer, Asked, Status};
+use crate::questions::{self, Answer, Asked};
 #[cfg(test)]
 use crate::snapshot::refresh_count;
 use crate::snapshot::{CycleRow, Given, PullNode, PullRead, View};
@@ -158,34 +158,31 @@ impl Poll<'_> {
         true
     }
 
-    pub(super) fn untick(&mut self, n: u64, ans: &Asked, note: Option<&str>) {
-        self.untick_failing(n, ans, note, None);
+    /// A choice the poll does not act on: an answer of `tehas answer` is
+    /// taken away with the note, and a reply's choice is answered by the
+    /// note, which the next poll sees after it and reads the reply no more.
+    pub(super) fn decline(&mut self, n: u64, ans: &Asked, note: Option<&str>) {
+        self.decline_failing(n, ans, note, None);
     }
 
-    /// An untick whose failure logs `fail`, or the default line when None.
-    /// An answer of `tehas answer` is taken away, and a box ticked beside it
-    /// is unticked too, with the note; `fail` is the last action's.
-    fn untick_failing(&mut self, n: u64, ans: &Asked, note: Option<&str>, fail: Option<String>) {
-        let unticked = questions::untick(&ans.body);
+    /// A decline whose failure to take an answer away logs `fail`, or the
+    /// default line when None.
+    fn decline_failing(&mut self, n: u64, ans: &Asked, note: Option<&str>, fail: Option<String>) {
         if ans.tick.answered {
             let question = match &ans.comment {
                 Some(Given::Number(c)) => c.as_u64().unwrap_or(0),
                 _ => 0,
             };
-            let boxed = unticked != ans.body.trim_end_matches('\n');
-            if !boxed {
-                self.drop_answer_failing(n, question, note, fail);
-                return;
-            }
-            self.drop_answer(n, question, None);
+            self.drop_answer_failing(n, question, note, fail);
+            return;
         }
-        self.act(Action::Untick {
-            issue: n,
-            comment: ans.comment.clone(),
-            body: unticked,
-            fail: fail.unwrap_or_else(|| format!("WARN: could not untick the question on #{n}")),
-            say: note.map(str::to_string),
-        });
+        if let (Some(note), false) = (note, self.dry) {
+            let mark = crate::questions::declined_marker(&Given::said(ans.comment.as_ref()));
+            self.act(Action::Say {
+                issue: n,
+                say: format!("{note}\n\n{mark}"),
+            });
+        }
     }
 
     /// The answer `tehas answer` gave to question `question` taken away, as a
@@ -228,9 +225,9 @@ impl Poll<'_> {
             return;
         }
         let note = format!(
-            "Retry was ticked and nothing was started: {url} is open and closes this issue. Merge or close that pull request, then tick Retry."
+            "Retry was asked for and nothing was started: {url} is open and closes this issue. Merge or close that pull request, then answer retry again."
         );
-        self.untick(n, ans, Some(&note));
+        self.decline(n, ans, Some(&note));
     }
 
     /// Rule 4: the questions that wait for an answer. A box ticked to retry
@@ -352,27 +349,8 @@ impl Poll<'_> {
                 ));
                 continue;
             }
-            let mut tick = ans.tick.status.word().to_string();
+            let tick = ans.tick.status.word().to_string();
             let by = ans.tick.by.clone();
-            if tick == "fixer" && kind != "plan" {
-                tick = "stranger".into();
-            }
-            if tick == "stranger" || tick == "many" {
-                self.log(format!(
-                    "skip #{n}: boxes ticked by '{}' are no answer ({tick})",
-                    or_unknown(&by)
-                ));
-                if !self.dry {
-                    let note = if tick == "many" {
-                        "More than one box was ticked, so nothing was chosen. Tick one.".to_string()
-                    } else {
-                        format!("A box was ticked by an account that may not answer for this factory ({}). It was unticked.", or_unknown(&by))
-                    };
-                    self.untick(n, &ans, Some(&note));
-                }
-                tick = "none".into();
-                ans.tick.status = Status::None;
-            }
             if kind == "plan" {
                 // A turn this poll collects or posts asks a new question: the
                 // one read before it answers nothing. A turn still in flight
@@ -384,16 +362,25 @@ impl Poll<'_> {
                 self.plan_answer(n, &ans, &tick, &q.plan, room)?;
                 continue;
             }
+            if kind == "park" && tick == "unoffered" {
+                self.log(format!(
+                    "skip #{n}: {by} answered a choice its question does not offer"
+                ));
+                if !self.dry {
+                    self.decline(n, &ans, Some("The reply names a choice this question does not offer, so nothing was started. Reply with the word of one of the choices it lists."));
+                }
+                continue;
+            }
             if kind != "park" || tick != "one" {
                 continue;
             }
             self.park_ticked.push(n);
             if qkind != "park" {
                 self.log(format!(
-                    "skip #{n}: a box was ticked in a question this host has no record of"
+                    "skip #{n}: a choice was made in a question this host has no record of"
                 ));
                 if !self.dry {
-                    self.untick(n, &ans, Some("This question is not one the factory is waiting on. To retry, apply `tehas:ready`."));
+                    self.decline(n, &ans, Some("This question is not one the factory is waiting on. To retry, apply `tehas:ready`."));
                 }
                 continue;
             }
@@ -423,13 +410,13 @@ impl Poll<'_> {
                 && has(&have, "needs-human-attention");
             if !parked {
                 self.log(format!(
-                    "skip #{n}: a retry was ticked but the issue is not parked"
+                    "skip #{n}: a retry was answered but the issue is not parked"
                 ));
                 if !self.dry {
-                    self.untick(
+                    self.decline(
                         n,
                         &ans,
-                        Some("Retry was ticked, but this issue is not parked, so nothing was started."),
+                        Some("Retry was asked for, but this issue is not parked, so nothing was started."),
                     );
                 }
                 continue;
@@ -441,32 +428,23 @@ impl Poll<'_> {
             // and not against the record of the refused lean start.
             let lean_refused = q.reason.as_deref() == Some(tehas_core::question::LEAN_REFUSED);
             if lean_refused && (self.c.driver_default == Driver::Lean) && !has(&have, CLASSIC) {
-                self.log(format!("wait #{n}: a retry was ticked on the park of a lean start this tehas cannot run; apply {CLASSIC} first, and the tick then starts it on classic"));
+                self.log(format!("wait #{n}: a retry was answered on the park of a lean start this tehas cannot run; apply {CLASSIC} first, and the answer then starts it on classic"));
                 continue;
             }
             if lean_refused && !(self.c.driver_default == Driver::Lean) && has(&have, LEAN) {
-                self.log(format!("wait #{n}: a retry was ticked on the park of a lean start this tehas cannot run; take {LEAN} off first, and the tick then starts it on classic"));
+                self.log(format!("wait #{n}: a retry was answered on the park of a lean start this tehas cannot run; take {LEAN} off first, and the answer then starts it on classic"));
                 continue;
             }
             if !self.work_ok(n)? || !self.epic_ok(n, "tehas:ready", &have) {
                 continue;
             }
             let at = ans.tick.at.clone();
-            let answered = ans.tick.answered;
             if !self.unchanged_since(
                 n,
                 &at,
                 &by,
-                &if answered {
-                    format!("{by} answered retry")
-                } else {
-                    format!("{by} ticked retry")
-                },
-                if answered {
-                    "answer again"
-                } else {
-                    "untick the box and tick it again"
-                },
+                &format!("{by} answered retry"),
+                "answer again",
             )? {
                 continue;
             }
@@ -505,18 +483,19 @@ impl Poll<'_> {
                     self.lean_deny(n, &s);
                     if !self.dry {
                         let note = format!(
-                            "Retry was ticked and nothing was started: {}, then ticks Retry.",
+                            "Retry was asked for and nothing was started: {}, then answers retry again.",
                             s.said()
                         );
-                        self.untick(n, &ans, Some(&note));
+                        self.decline(n, &ans, Some(&note));
                     }
                     continue;
                 }
                 d => d,
             };
             if self.dry {
-                let how = if answered { "answered" } else { "ticked" };
-                self.log(format!("would run a cycle for #{n} (retry {how} by {by})"));
+                self.log(format!(
+                    "would run a cycle for #{n} (retry answered by {by})"
+                ));
                 return Err(End(0));
             }
             let mut remove = vec!["tehas:question".to_string()];
@@ -540,15 +519,10 @@ impl Poll<'_> {
                 n,
                 Start {
                     starter: by,
-                    verb: if answered {
-                        "retry answered"
-                    } else {
-                        "retry ticked"
-                    }
-                    .into(),
-                    how: if answered { "answer" } else { "retry tick" }.into(),
+                    verb: "retry answered".into(),
+                    how: if ans.tick.answered { "answer" } else { "reply" }.into(),
                     given_at: at,
-                    given_how: if answered { "answer" } else { "retry-tick" }.into(),
+                    given_how: if ans.tick.answered { "answer" } else { "reply" }.into(),
                     remove,
                     fixer: None,
                     park_lifted: None,
@@ -556,7 +530,9 @@ impl Poll<'_> {
                     placed: None,
                 },
             );
-            self.untick_failing(n, &ans, None, Some(format!("WARN: could not untick the retry on #{n}; its question is no longer on record, so it starts nothing more")));
+            // The answer of `tehas answer` is spent; a reply needs nothing: its
+            // question is no longer on record.
+            self.decline_failing(n, &ans, None, Some(format!("WARN: could not take away the answer to the retry on #{n}; its question is no longer on record, so it starts nothing more")));
             return Err(End(0));
         }
         Ok(())

@@ -15,7 +15,7 @@
 //!   console update keeps <home> <work dir>
 //!   console update leftovers [--check] <home>
 //!   console update cycles <home>
-//!   console update units <env file>
+//!   console update units
 //!   console update login <root> <login command> <marker>
 //!   console update pi <instance> <generic settings> <provider> <model> <out>
 //!   console update programs <home> release|build|lab <tree> <program>...

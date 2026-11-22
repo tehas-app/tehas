@@ -131,14 +131,9 @@ pub fn overlay(ans: &mut Asked, a: Option<&Answer>, allowed: impl Fn(&str) -> bo
             a.by
         ));
     }
-    // A tick whose saver could not be told this poll waits, as the rules
-    // wait for it: the answer is read again with it on the next poll.
-    if matches!(ans.tick.status, Status::Unread | Status::Held) {
-        return Overlay::None;
-    }
-    // A person's tick or reply after the answer is the newer word.
+    // A person's choice or reply after the answer is the newer word.
     let after = |at: Option<&str>| at.is_some_and(|t| t > a.at.as_str());
-    if matches!(ans.tick.status, Status::One | Status::Fixer) && after(Some(&ans.tick.at)) {
+    if ans.tick.status == Status::One && after(Some(&ans.tick.at)) {
         return Overlay::Later(ans.tick.by.clone());
     }
     if let Some(r) = ans.reply.as_ref() {
@@ -207,11 +202,7 @@ mod tests {
         ($kind:expr, $out:expr, $reply:expr) => {{
             let kind = $kind;
             let body = q_render(kind, 7, 2, &$out, "");
-            let labels: Vec<String> = body
-                .lines()
-                .filter_map(|l| l.strip_prefix("- [ ] "))
-                .map(String::from)
-                .collect();
+            let labels: Vec<String> = tehas_core::question::listed(&body).unwrap();
             Asked {
                 comment: Some(Given::Number(4001.into())),
                 asked_at: String::new(),
@@ -344,16 +335,6 @@ mod tests {
         ans.tick.at = "2026-01-01T01:00:00Z".into();
         assert_eq!(overlay(&mut ans, Some(&a), anyone), Overlay::Given);
         assert_eq!(ans.tick.by, "alice");
-        // A tick whose saver could not be told waits with the answer.
-        let mut ans = park!();
-        ans.tick = Tick {
-            status: Status::Unread,
-            by: "bob".into(),
-            ..Tick::none()
-        };
-        let before = ans.clone();
-        assert_eq!(overlay(&mut ans, Some(&a), anyone), Overlay::None);
-        assert_eq!(ans, before);
     }
 
     #[test]

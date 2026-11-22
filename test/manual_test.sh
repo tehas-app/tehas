@@ -104,7 +104,7 @@ t_anchors() {
 # and pass.
 t_case "the anchor rule finds the headings of a tools page"
 t_anchors "$docs/tools-health.md" "$T/anchors"
-t_eq "$(grep -c . "$T/anchors")" 5
+t_eq "$(grep -c . "$T/anchors")" 4
 t_anchors "$docs/tools-tehasbot.md" "$T/anchors"
 grep -qxF -- the-pull-request-of-a-stopped-cycle "$T/anchors" \
   || t_bad "the bold lead-in of the finish section is no anchor"
@@ -168,10 +168,11 @@ done
 # moved out of, shows here. `## tehas github check` came after the split, when
 # the check of the token got a tehas name of its own, and `## Host settings`
 # when the host's settings got rules beside the instance's, `## tehas outsource`
-# when outsource got its commands, `## tehas plugin` with plugins, `## tehas
-# wiki` with the wiki and `## The commands of other parts` with the parts.
-t_case "the tools pages hold the 49 sections of the commands, each once"
-t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 50
+# when outsource got its commands, `## tehas plugin` with plugins and `## The
+# commands of other parts` with the parts. `## tehasbot review` went with the
+# review loop in 2.0.
+t_case "the tools pages hold the 47 sections of the commands, each once"
+t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 47
 t_eq "$(cat "${TOOLS_PAGES[@]}" | grep '^## ' | grep -v '^## The pages$' \
    | sort | uniq -d | wc -l | tr -d ' ')" 0
 
@@ -235,8 +236,8 @@ t_lists_of() { # <tehas|tehasbot> <file>
 t_case "the front's verbs and the lists of the pages are both read"
 t_front_verbs tehas "$T/verbs-tehas"
 t_front_verbs tehasbot "$T/verbs-tehasbot"
-t_eq "$(sort -u "$T/verbs-tehas" | grep -c . | tr -d ' ')" 40
-t_eq "$(sort -u "$T/verbs-tehasbot" | grep -c . | tr -d ' ')" 18
+t_eq "$(sort -u "$T/verbs-tehas" | grep -c . | tr -d ' ')" 39
+t_eq "$(sort -u "$T/verbs-tehasbot" | grep -c . | tr -d ' ')" 15
 t_lists_of tehas "$T/list-tehas"
 t_lists_of tehasbot "$T/list-tehasbot"
 [ "$(grep -c . "$T/list-tehas" | tr -d ' ')" -ge 25 ] ||

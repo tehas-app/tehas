@@ -325,7 +325,7 @@ fn a_retry_ticks_record_takes_the_comments_written_before_the_tick() {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(
         w.at_mark(r#"[.how, (.retry_context | map(.id)), has("comment_links")]"#),
-        r#"["retry-tick",[61],false]"#
+        r#"["reply",[61],false]"#
     );
 }
 
@@ -356,7 +356,7 @@ fn a_retry_tick_of_the_issue_alone_reads_no_comment() {
     assert_eq!(w.started(), "7 ");
     assert_eq!(
         w.at_mark("[.by, .how, .comment_id] | tostring"),
-        r#"["alice","retry-tick",4001]"#
+        r#"["alice","reply",4001]"#
     );
     assert_eq!(
         w.at_mark(r#"[has("comment_links"), has("retry_context")]"#),

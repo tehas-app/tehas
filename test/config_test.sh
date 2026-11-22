@@ -421,24 +421,13 @@ t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=0"
 t_lacks "$t_out" "no longer read"
 
-t_case "the review never files in the product repository, whatever its case"
-# review is still being built: a test turns it on to load its repository.
-T_ENV=(TEHAS_TEST_FEATURES=review)
-for v in TEHAS_REVIEW_REPO=acme/widget TEHAS_REVIEW_REPO=Acme/Widget; do
-  printf '%s\n' "${T_MINIMAL[@]}" "$v" >"$TEHAS_INSTANCE_DIR/instance.env"
-  t_run "$load; echo rc=\$?"
-  t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "the review files in acme/widget, the product repository"
+t_case "a setting of the review loop, gone, loads with one warning and is dropped"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REVIEW=on TEHAS_REVIEW_REPO=acme/backlog >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load; echo rc=\$? \"[\${TEHAS_REVIEW-unset}][\${TEHAS_REVIEW_REPO-unset}]\""
+t_contains "$t_out" "rc=0 [unset][unset]"
+for name in TEHAS_REVIEW TEHAS_REVIEW_REPO; do
+  t_contains "$t_out" "$name is no longer read: the review loop left core in 2.0 and returns as a plugin; remove it from the instance"
 done
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REVIEW_REPO=acme/backlog >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_REVIEW_REPO]\""
-t_eq "$t_out" "[acme/backlog]"
-T_ENV=()
-
-t_case "a release refuses a review repository while review is being built"
-t_run "$load; echo rc=\$?"
-t_contains "$t_out" "TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out"
-t_contains "$t_out" "rc=78"
 
 t_case "the millwright may retry twice and answer three planning questions by default"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -540,21 +529,7 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_EGRESS=1 'TEHAS_EGRESS_HOSTS="pypi.org m.e
 t_run "$load && set -u && echo \"[\$TEHAS_EGRESS] [\$TEHAS_EGRESS_HOSTS]\""
 t_eq "$t_out" "[1] [pypi.org m.example:8443]"
 
-t_case "the review loop is off unless the instance turns it on"
-printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && set -u && echo \"[\$TEHAS_REVIEW]\""
-t_eq "$t_out" "[0]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REVIEW=1 >"$TEHAS_INSTANCE_DIR/instance.env"
-# review is still being built: a release refuses it on, a test may turn it on.
-t_run "$load; echo rc=\$?"
-t_contains "$t_out" "TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out"
-t_contains "$t_out" "rc=78"
-T_ENV=(TEHAS_TEST_FEATURES=review)
-t_run "$load && echo \"[\$TEHAS_REVIEW]\""
-T_ENV=()
-t_eq "$t_out" "[1]"
-
-for bad in "TEHAS_REVIEW=yes" "TEHAS_REVIEW=2" "TEHAS_REFRESH_MAX_PER_PR=0" "TEHAS_REFRESH_MAX_PER_PR=-1" "TEHAS_REFRESH_MAX_PER_PR=many" \
+for bad in "TEHAS_REFRESH_MAX_PER_PR=0" "TEHAS_REFRESH_MAX_PER_PR=-1" "TEHAS_REFRESH_MAX_PER_PR=many" \
   "TEHAS_REFRESH_SLOTS=9" "TEHAS_REFRESH_SLOTS=-1" "TEHAS_REFRESH_SLOTS=01" "TEHAS_REFRESH_SLOTS=one"; do
   t_case "loading rejects $bad"
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -1321,26 +1296,15 @@ t_run "$load && echo \"\$TEHAS_TOP\""
 t_eq "$t_out" "0"
 T_ENV=()
 
-t_case "the energy switches in ~/.config/tehas/env survive env.sh"
+t_case "the energy settings a 1.4 host left in ~/.config/tehas/env load and are not read"
 t_instance "${T_MINIMAL[@]}"
 mkdir -p "$T/home/.config/tehas" "$T/home/tehas/lib"
 cp "$T_ROOT/lib/config.sh" "$T/home/tehas/lib/"
-printf '%s\n' TEHAS_ENERGY=off TEHAS_ENERGY_URL=http://mesh.example:8086/v1/cluster \
+printf '%s\n' TEHAS_ENERGY=viiwork TEHAS_ENERGY_URL=mesh TEHAS_ENERGY_SOURCE_URL=x \
   >"$T/home/.config/tehas/env"
 t_run '. "$T_ROOT/host/env.sh"; echo "[${TEHAS_ENERGY:-}] [${TEHAS_ENERGY_URL:-}] [$TEHAS_REPO]"'
-t_eq "$t_out" "[off] [http://mesh.example:8086/v1/cluster] [acme/widget]"
+t_eq "$t_out" "[] [] [acme/widget]"
 rm -rf "$T/home/.config/tehas" "$T/home/tehas/lib"
-
-t_case "the energy switch takes the switch words, and a load refuses any other"
-t_instance "${T_MINIMAL[@]}"
-T_ENV=(TEHAS_ENERGY=0)
-t_run "$load && echo \"[\$TEHAS_ENERGY]\""
-t_eq "$t_out" "[off]"
-T_ENV=(TEHAS_ENERGY=viiwork)
-t_run "$load; echo rc=\$?"
-t_contains "$t_out" "rc=78"
-t_contains "$t_out" "tehas: TEHAS_ENERGY is not valid: expected on or off"
-T_ENV=()
 
 t_case "without a role model every role is left to the subagent model"
 t_instance "${T_MINIMAL[@]}"
@@ -1691,7 +1655,7 @@ names=(PI_ENSEMBLE_MODEL_ PI_ENSEMBLE_PROVIDER_ PI_ENSEMBLE_SUBAGENT_MODEL PI_EN
   TEHAS_MILLWRIGHT_EPICS TEHAS_MILLWRIGHT_FEED TEHAS_MILLWRIGHT_MAX_FEEDS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
   TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT TEHAS_POLL_BUDGET TEHAS_PREVIEWS TEHAS_PREVIEW_MAX
   TEHAS_PREVIEW_MIN_FREE TEHAS_PROTOLAB_URL TEHAS_READ_ONLY TEHAS_REFRESH_MAX_PER_PR
-  TEHAS_REFRESH_SLOTS TEHAS_RELEASE_REPO TEHAS_REPO TEHAS_REVIEW TEHAS_REVIEW_REPO TEHAS_RUKAS_WORKAROUNDS
+  TEHAS_REFRESH_SLOTS TEHAS_RELEASE_REPO TEHAS_REPO TEHAS_RUKAS_WORKAROUNDS
   TEHAS_SCRATCH_DIR TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_FILES TEHAS_SIZE_MAX_LINES TEHAS_SLICE_CONTAINERS
   TEHAS_MAX_CYCLES TEHAS_TOP TEHAS_UPDATE_FROM TEHAS_VERIFY_TIMEOUT
   TEHAS_WORK_IMAGES TEHAS_WORK_REPO TEHAS_WORK_STALL TEHAS_WORK_TIMEOUT)
@@ -1699,7 +1663,7 @@ for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "d857973bac83522fd475252b26dc046f968b8d69145c5d740b677b1a53b0049c"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "ac201cbef6b6d19ee6ca67cf1a6b3d9cbe819d6c8db96521c07bd338876cb52f"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"
@@ -1770,7 +1734,7 @@ TEHAS_TOP=1|TEHAS_RUKAS_WORKAROUNDS=TEHAS_TOP@1.2
 TEHAS_RUKAS_WORKAROUNDS=TEHAS_RUKAS_WORKAROUNDS@1.2
 TEHAS_GITHUB_APP_ID=7
 TEHAS_SITE_ANALYTICS_SRC=https://a.example/x.js
-TEHAS_REVIEW_REPO=Acme/Widget
+TEHAS_REVIEW=on|TEHAS_REVIEW_REPO=Acme/Widget
 TEHAS_WORK_DESCRIBE=1
 TEHAS_WORK_COMMENTS=1
 TEHAS_WORK_ZIPS=1
@@ -1799,7 +1763,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "b8c97f863e26816544bf7e98cd7655d0f1ddb05900b952ecc51b1249bdb03d65"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "a9e5a81d9e57ac4361bb325a79e3f25f0e1eeb75ce699d34b8c4c3bb1138eec0"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

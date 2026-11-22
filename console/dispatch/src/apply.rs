@@ -211,8 +211,6 @@ impl Writer {
             }
         } else if let (Some(n), Some(say)) = (n, a.get("say").and_then(Value::as_str)) {
             self.say(n, say, log);
-        } else if let Some(n) = a.get("untick").and_then(Value::as_u64) {
-            self.untick(n, a, log);
         } else if let Some(n) = a.get("answer_drop").and_then(Value::as_u64) {
             let id = match a.get("id") {
                 Some(Value::String(s)) => s.clone(),
@@ -533,34 +531,6 @@ impl Writer {
                 }
             }
             Err(f) => log.push(format!("{fail} ({})", word(&f))),
-        }
-    }
-
-    /// untick: the box taken out of the question's comment, then its note.
-    fn untick(&mut self, n: u64, a: &Value, log: &mut Vec<String>) {
-        let comment = match a.get("comment") {
-            Some(Value::String(s)) => s.clone(),
-            Some(Value::Number(c)) => c.to_string(),
-            _ => String::new(),
-        };
-        let args = vec![
-            "api".into(),
-            "-X".into(),
-            "PATCH".into(),
-            format!("repos/{}/issues/comments/{comment}", self.repo),
-            "--input".into(),
-            "-".into(),
-        ];
-        let body = json!({"body": text(a, "body")}).to_string();
-        match self.write(n, "comment-edit", args, Some(&body), None) {
-            Wrote::Done(_) => {
-                if let Some(say) = a.get("say").and_then(Value::as_str) {
-                    self.say(n, say, log);
-                }
-            }
-            Wrote::Failed(_) => log.push(text(a, "fail").to_string()),
-            Wrote::Unknown(why) => log.push(Self::unknown(n, "edit of a comment", &why)),
-            Wrote::Unrecorded => log.push(Self::unrecorded(n)),
         }
     }
 

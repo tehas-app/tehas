@@ -936,28 +936,6 @@ fn an_answered_question_is_recorded_after_its_label_and_retried_when_busy() {
 }
 
 #[test]
-fn an_untick_is_followed_by_its_note_only_when_it_worked() {
-    let mut t = world();
-    let act = json!([{"untick": 9, "comment": 55, "body": "- [ ] Retry", "say": "Not now.",
-        "fail": "WARN: could not untick the question on #9"}]);
-    t.apply(act.clone());
-    assert_eq!(
-        t.writes(),
-        vec![
-            r#"gh api -X PATCH repos/example-owner/example-product/issues/comments/55 --input - <<< {"body":"- [ ] Retry"}"#,
-            "gh issue comment 9 --repo example-owner/example-product --body-file - <<< Not now.",
-        ]
-    );
-    let mut t = world();
-    t.fail("gh", "PATCH");
-    assert_eq!(
-        t.apply(act).log,
-        vec!["WARN: could not untick the question on #9"]
-    );
-    assert!(!t.calls().iter().any(|c| c.contains("issue comment")));
-}
-
-#[test]
 fn a_pull_request_without_the_mark_is_unmarked_already() {
     let act = json!([{"pr": 12, "remove": ["tehas:refreshing"], "log": "unmark #12"}]);
     let mut t = world();
@@ -1006,18 +984,6 @@ fn the_journal_holds_a_body_by_its_sum_and_length_only() {
     assert!(!record.contains("long body"));
     assert!(record.contains(r#""bytes":27"#));
     assert!(record.contains(r#""sha256":""#));
-}
-
-#[test]
-fn an_untick_logs_the_line_its_site_gave() {
-    let mut t = world();
-    t.fail("gh", "PATCH");
-    let a = t.apply(json!([{"untick": 9, "comment": 55, "body": "x",
-        "fail": "WARN: could not untick the retry on #9; its question is no longer on record, so it starts nothing more"}]));
-    assert_eq!(
-        a.log,
-        vec!["WARN: could not untick the retry on #9; its question is no longer on record, so it starts nothing more"]
-    );
 }
 
 #[test]
@@ -1681,26 +1647,22 @@ fn a_start_not_taken_says_what_the_store_said_while_it_waited() {
 }
 
 #[test]
-fn a_retry_unticks_only_after_its_start_worked() {
-    let untick = json!({"untick": 7, "comment": 55, "body": "- [ ] Retry", "fail": "x"});
-    let mut retry = start_of(7, "retry-tick");
+fn a_retry_records_the_question_it_answered() {
+    let mut retry = start_of(7, "answer");
     retry["comment"] = json!(55);
     let mut t = world();
-    let a = t.apply(json!([retry.clone(), untick.clone()]));
+    let a = t.apply(json!([retry]));
     assert_eq!(a.exit, None);
-    assert!(t.writes().iter().any(|c| c.contains("PATCH")));
+    // Nothing edits the question: there is no box to take off.
+    assert!(!t.writes().iter().any(|c| c.contains("PATCH")));
     let record = t
         .writes()
         .into_iter()
         .find(|c| c.starts_with("store approval-record"))
         .unwrap();
+    assert!(record.contains("--how answer"));
     assert!(record.contains("--comment-id 55"));
     assert!(!record.contains("--label"));
-    let mut t = world();
-    t.fail("start", "7");
-    let a = t.apply(json!([retry, untick]));
-    assert_eq!(a.exit, Some(1));
-    assert!(!t.writes().iter().any(|c| c.contains("PATCH")));
 }
 
 #[test]
@@ -2737,7 +2699,7 @@ fn a_sweep_removes_a_link_and_never_what_it_points_at() {
 }
 
 use super::plan::{no_later_parts, plan_view, q_render};
-use tehas_core::question::q_clean;
+use tehas_core::question::{q_clean, ASK_PLAN, ONLY_ALLOWED};
 
 #[test]
 fn an_agents_words_are_masked_before_they_are_posted() {
@@ -2763,7 +2725,7 @@ fn a_planning_question_is_rendered_as_the_bash_renders_it() {
         "marker": "<!-- pi-rukas:handoff issue=7 cap=plan -->"});
     assert_eq!(
         q_render(7, 2, &out, "Filed in this turn: #9"),
-        "Which?\n\nFiled in this turn: #9\n\n- [ ] A first\n  the first\n- [ ] B\n- [ ] End this planning session\n\nTick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->"
+        format!("Which?\n\nFiled in this turn: #9\n\n{ASK_PLAN}\n\n1. A first: the first\n2. B\n3. End this planning session: the session ends, and nothing more is planned.\n\n{ONLY_ALLOWED}\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->")
     );
     let many: Vec<Value> = (0..22).map(|i| json!({"label": format!("o{i}")})).collect();
     let r = q_render(
@@ -2773,7 +2735,8 @@ fn a_planning_question_is_rendered_as_the_bash_renders_it() {
         "",
     );
     assert!(r.contains("Options left out: 2. A reply can name another choice."));
-    assert_eq!(r.matches("- [ ] o").count(), 20);
+    assert_eq!(tehas_core::question::listed(&r).unwrap().len(), 21);
+    assert!(!r.contains("- [ ]"));
 }
 
 #[test]

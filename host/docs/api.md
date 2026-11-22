@@ -129,7 +129,7 @@ tehas api [--json]
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
   "features": ["status", "millwright-grant", "all-hands", "limit", "drain", "history", "export", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "state-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-start", "flags", "status-previews", "wake", "start-reasons", "blockers", "answer", "question"],
-  "flags": {"outsource": false, "spec-pipe": false, "protolab-zip-url": false, "prototype-file": false, "lean": false, "review": false, "plugins": false},
+  "flags": {"outsource": false, "spec-pipe": false, "protolab-zip-url": false, "prototype-file": false, "lean": false, "plugins": false},
   "millwright": null,
   "poll": {
     "last": {
@@ -154,7 +154,7 @@ tehas api [--json]
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
 | `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status` ([`tehas status --json`](#tehas-status---json)), `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `all-hands` ([`tehas:all-hands`](/operating#all-hands)), `limit` ([`tehas limit`](#tehas-limit)), `drain` ([`tehas drain`](#tehas-drain)), `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `analytics` ([`tehas analytics copy --json`](#tehas-analytics-copy)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` (the hourly cleaner runs on this host, [`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)), `state-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)), `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message), shown by health, `tehas status`, the MCP server and the dashboard), `refresh-pr` ([`tehas refresh --pr N`](/tools-github#tehas-refresh) asks for the refresh of one pull request, `--json` prints what it asked as one object, and the dispatcher starts it in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `host-start` ([`tehas start`](#tehas-start) approves an issue from the host), `flags` (the object below is there), `status-previews` (`previews` in [`tehas status --json`](#tehas-status---json)), `wake` ([`tehas wake`](#tehas-wake) asks for a poll now), `start-reasons` (`starts` in [`tehas order --json`](#tehas-order)), `blockers` ([`tehas blockers`](#tehas-blockers)), `answer` ([`tehas answer`](#tehas-answer)) and `question` ([`tehas question`](#tehas-question)). A shipped optional feature adds its name of `flags` here; a building one does not |
-| `flags` | Every optional feature of the release and whether this instance has it on, `true` or `false`. A feature still being built is always `false` and its switch set to `on` stops every command with exit 78. Only a shipped feature's key is contract: a building feature's key may change or go until the release that ships it, and `api/api.schema.json` requires only the keys of shipped features. Today `outsource` (`TEHAS_OUTSOURCE`, still being built: [outsource](/outsource)), `spec-pipe` (`TEHAS_SPEC_PIPE`, still being built: the `Spec:` line of an issue, [the feature list](/features)), `protolab-zip-url` (`TEHAS_PROTOLAB_ZIP_URL`, still being built: [a zip by address](/tools-protolab#a-zip-by-address)), `prototype-file` (`TEHAS_PROTOTYPE_FILE`, still being built: [`tehas prototype file`](/tools-protolab#tehas-prototype-file)) `lean` (`TEHAS_LEAN`, still being built: [choosing the driver](/operating#choosing-the-driver)) `review` (`TEHAS_REVIEW`, still being built: [the review loop](/operating#the-review-loop)) and `plugins` (`TEHAS_PLUGIN`, still being built: [what it leaves visible](/contract#plugins)) |
+| `flags` | Every optional feature of the release and whether this instance has it on, `true` or `false`. A feature still being built is always `false` and its switch set to `on` stops every command with exit 78. Only a shipped feature's key is contract: a building feature's key may change or go until the release that ships it, and `api/api.schema.json` requires only the keys of shipped features. Today `outsource` (`TEHAS_OUTSOURCE`, still being built: [outsource](/outsource)), `spec-pipe` (`TEHAS_SPEC_PIPE`, still being built: the `Spec:` line of an issue, [the feature list](/features)), `protolab-zip-url` (`TEHAS_PROTOLAB_ZIP_URL`, still being built: [a zip by address](/tools-protolab#a-zip-by-address)), `prototype-file` (`TEHAS_PROTOTYPE_FILE`, still being built: [`tehas prototype file`](/tools-protolab#tehas-prototype-file)) `lean` (`TEHAS_LEAN`, still being built: [choosing the driver](/operating#choosing-the-driver)) and `plugins` (`TEHAS_PLUGIN`, still being built: [what it leaves visible](/contract#plugins)) |
 | `millwright` | The app's login, or `null` before it is known |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
 
@@ -238,7 +238,7 @@ tehas status --json
 | `order` | The start order, as [`tehas order --json`](#tehas-order) prints it without `api` and `starts`, or `{"state": "unreadable"}` when the store did not answer. Left out by a factory that predates `start-order` |
 | `running` | The running cycles: `issue`, `since` (when it started) and `progress`, where the cycle is as its driver reports it: `step`, `stepNumber` (the step the cycle is on, from 1, as the driver counts it), `stepTotal` (how many steps the cycle has), `round` (the round of a step that has run before in this cycle, from 2, or the round the driver gave), `roundLimit` (the most rounds the step may run, when the driver gives a limit) and `stepSince` (when the step started). Each is left out when not known yet, and `progress` is left out when none is known. `stepNumber`, `stepTotal` and `roundLimit` are there only when the driver puts them on its `step-started` lines. `progress` is driver-specific and may change in a minor release: show it, do not decide on it |
 | `planning` | The planning turns in flight: `issue`, `turn` (the session's turn that runs, from 1) and `since` (when it started; left out for a turn started before this was kept). A session whose last turn ended in error and waits for a person is not in flight and is not here; the text summary has a line for it |
-| `demand.waiting` | Open issues that would start if there were room: `tehas:ready` applied last by an account in `TEHAS_ALLOWED_LABELERS` or the millwright, with no cycle and no planning session open, the parked issues where an allowed labeller ticked Retry in the park comment, and the refresh requests waiting, unless refreshes are held |
+| `demand.waiting` | Open issues that would start if there were room: `tehas:ready` applied last by an account in `TEHAS_ALLOWED_LABELERS` or the millwright, with no cycle and no planning session open, the parked issues where an allowed labeller answered `retry` to the park comment, by a reply or through `tehas answer`, and the refresh requests waiting, unless refreshes are held |
 | `demand.oldestWait` | Seconds since the oldest of them was labelled or asked for; left out when none waits |
 | `demand.labelAlone` | The issues `tehas:blocked` holds by the label alone, by number, at most 50: the label counts, and no comment of an allowed labeller or the millwright names their blockers, so they never start until one does or a person takes the label off. A marker in the issue's body is not read. Left out when there are none |
 | `demand.refreshHold` | Why refresh requests start nothing on this host, for a person: the sandbox image cannot continue a pull request. Left out when nothing holds them or there are none |
@@ -250,7 +250,7 @@ tehas status --json
 | `held.issue` | The issue number |
 | `held.why` | One word for the reason: `parked` when its last cycle parked and its body has not changed since. Treat it as an open list |
 | `held.text` | The reason for a person. Do not parse it |
-| `held.clear` | What a person does to release it, such as editing the body or ticking Retry on the park comment |
+| `held.clear` | What a person does to release it, such as editing the body or replying `retry` to the park comment |
 | `room.cycles` | Free slots under `TEHAS_MAX_CYCLES`. Below 0 when more cycles run than it allows, as after it was lowered |
 | `room.refreshes` | Free slots of the refresh lane, `TEHAS_REFRESH_SLOTS`; left out when no lane is kept: `TEHAS_REFRESH_SLOTS=0`, or no refresh request waiting and no refresh running |
 | `room.maxAwaiting` | Room under `TEHAS_MAX_AWAITING`, the cycles running and pull requests waiting for review together. Below 0 when more wait than it allows. Left out when the last poll did not need to read it |
@@ -439,12 +439,12 @@ logged that no code names, with its line in `text`.
 | `unseen` | Was ranked after the last poll |
 | `running` | Has a cycle running |
 | `planning` | Has a planning session open |
-| `question` | Waits for an answer to its question, or a tick on the question cannot be read as an answer |
+| `question` | Waits for an answer to its question, or an answer to it cannot be taken |
 | `blocked` | Is held by `tehas:blocked`: [`tehas blockers`](#tehas-blockers) shows the chain |
 | `blocked-link` | Is held by an open blocked-by link |
 | `open-pr` | Has an open pull request that closes it |
 | `epic` | Is an epic, which never starts |
-| `parked` | Parked, and its body has not changed since; or a retry was ticked on an issue that is not parked, or its retry after a provider outage waits for a person |
+| `parked` | Parked, and its body has not changed since; or a retry was answered on an issue that is not parked, or its retry after a provider outage waits for a person |
 | `too-large` | Names more files than `TEHAS_SIZE_MAX_FILES` |
 | `text-changed` | Its title or text changed since its approval |
 | `not-allowed` | Its label was applied by an account that may not authorise work |
@@ -593,8 +593,8 @@ this way, and answers an older factory as it did before.
 
 Answers the question an issue waits on, for a person: the question of a
 stopped ticket (a park) or of a planning session. It is the way in for a
-program acting for a person, such as an industry or a chat, in place of a
-box ticked or a reply on the issue (#2782). Tested only, not yet seen on a
+program acting for a person, such as an industry or a chat, beside a reply on
+the issue (#2782). Tested only, not yet seen on a
 host.
 
 `--by` names the person. It is trusted as the host's caller, as `tehas start`
@@ -603,7 +603,7 @@ other stops with exit 78 and records nothing. The choices:
 
 | Choice | Of | What the poll does |
 | --- | --- | --- |
-| `retry` | a stop | Starts the cycle again with the issue and its comments, as the Retry box with all its comments |
+| `retry` | a stop | Starts the cycle again with the issue and its comments |
 | `retry-text` | a stop | Starts it again with the issue text only |
 | `park` | a stop | Leaves it stopped, and the question is answered |
 | `option:<k>` | a planning question | The option numbered `<k>`, from 1, as the question lists it |
@@ -614,18 +614,19 @@ other stops with exit 78 and records nothing. The choices:
 
 The answer is a row of the state store bound to the question on record of the
 issue, with who gave it, when, and how (`answer`). Nothing happens at once.
-The next poll acts on it as on the same box ticked by that account, under the
-rules every answer passes: a retry waits for room, and starts only while the
-issue is still stopped, its text unchanged and no pull request closes it. A
-box ticked or a reply from an allowed account after the answer is the newer
-word: it stands, and the answer is taken away. A box ticked before it is
-unticked once the answer is acted on. An answer the poll cannot take (a retry
-the stop does not offer, an account no longer allowed, an issue no longer
-stopped) is taken away, the poll says why on the issue, and a box ticked on
-the question is read as it would be without it. Running it again before the
-poll replaces the answer that waits. Once the question is answered or a new
-one is asked, an answer to the old one does nothing. A retry answered lifts a
-park's hold as a ticked Retry does, also once `tehas:question` is off.
+The next poll acts on it as on a reply of that account that names the same
+choice, under the rules every answer passes: a retry waits for room, and
+starts only while the issue is still stopped, its text unchanged and no pull
+request closes it. A reply from an allowed account after the answer is the
+newer word: it stands, and the answer is taken away. An answer the poll
+cannot take (a retry the stop does not offer, an account no longer allowed,
+an issue no longer stopped) is taken away, the poll says why on the issue,
+and a reply to the question is read as it would be without it. Running it
+again before the poll replaces the answer that waits. Once the question is
+answered or a new one is asked, an answer to the old one does nothing. A
+retry answered lifts a park's hold, also once `tehas:question` is off. A box
+ticked in a comment of before 2.0 is no answer, and the poll does nothing
+with it.
 
 The cycle a retry starts is recorded with `"how": "answer"` in
 [`tehas history`](#tehas-history), started by `--by`, and its start comment
@@ -947,7 +948,7 @@ schema names it, under `runs` for a field of a line.
 | `runs.repeat` | The parks in a row that stopped exactly as this one did, this one not counted, so 1 on the first repeat. On the park of a run of parks only. A field of a work line |
 | `runs.pr` | The pull request, as an address of the repository the instance names. A field of a work line that had one |
 | `runs.by` | Who asked for it. Left out for a cycle run by hand, which names no account |
-| `runs.how` | How it was asked for: `label`, `refresh`, `retry-tick`, `outage-retry`, `millwright`, `host` ([`tehas start`](#tehas-start)), `answer` ([`tehas answer`](#tehas-answer)) or `hand` |
+| `runs.how` | How it was asked for: `label`, `refresh`, `outage-retry`, `millwright`, `host` ([`tehas start`](#tehas-start)), `reply` (a retry a person's reply answered), `answer` (a retry answered through [`tehas answer`](#tehas-answer)) or `hand`. `retry-tick` is a retry ticked before 2.0, which history keeps |
 | `runs.label` | The label that started the turn's session, `tehas:plan` or `tehas:refine`. A field of a plan line |
 | `runs.auto` | `true` for a refine the factory started on its own when a cycle parked as underspecified or too-large. Left out otherwise. A field of a plan line |
 | `runs.filed` | The issues the turn filed, when it filed any. A field of a plan line |
@@ -1616,9 +1617,8 @@ the site](/host#the-live-console-on-the-site)).
 | `epics.json` | `console/src/epics.rs`, run by `tehasbot status` | `host/fun/epics-view.js`; `console/ops/src/health.rs` |
 | `health.json` | `console/ops/src/health.rs` run as `tehasbot health`, published by the store's `publish` ([tehasbot health](/tools-health#tehasbot-health)) | `/health` and `/healthz`, and `host/fun/versions.js`; `console/src/status.rs`, `console/ops/src/update/report.rs`; the MCP server (`factory_status`, `factory_issue`) |
 | `health.down` | the store's `publish`, which makes it before a `fail` health report (and takes it back when that report cannot be written) and removes it after any other | the docs server's `/health` and `/healthz`, which answer 503 while it is there |
-| `dispatch.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, published by the store's `publish` ([tehas dispatch](/tools-dispatch#tehas-dispatch)) | `console/ops/src/health.rs`, `console/src/queue.rs`, `console/src/energy.rs`, `console/analytics/src/sample.rs`; the MCP server (`factory_status`) |
+| `dispatch.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, published by the store's `publish` ([tehas dispatch](/tools-dispatch#tehas-dispatch)) | `console/ops/src/health.rs`, `console/src/queue.rs`, `console/analytics/src/sample.rs`; the MCP server (`factory_status`) |
 | `demand.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, at every real poll | `console/ops/src/health.rs` |
-| `energy.json` | `console/src/energy.rs` run as `tehasbot energy` ([tehasbot energy](/tools-health#tehasbot-energy)) | `host/fun/energy-view.js`, `host/fun/business-view.js`; `console/analytics/src/sample.rs` |
 | `analytics.json` | `console/src/publish.rs`, run by `tehasbot status` from the analytics program's `report --json` | `host/fun/factory/tehas-factory-days.*`, `host/fun/business-view.js`, `host/fun/analytics-data.js`; the MCP server (`factory_stats`) |
 | `top.json` | `console/src/top.rs` run as `tehasbot top`, when `TEHAS_TOP=on` ([tehasbot top](/tools-health#tehasbot-top)) | `host/fun/host-view.js`, `host/fun/host-data.js`, `host/fun/factory/tehas-factory-host.*` |
 | `panels.json` | `console/ops/src/panel.rs`, the copy of the person's list ([`tehas panel`](#tehas-panel)) | `host/fun/panels.js` |
@@ -1627,7 +1627,6 @@ the site](/host#the-live-console-on-the-site)).
 | `rukas.json` | `console/ops/src/rukas.rs`, run by `tehasbot status` | `console/ops/src/health.rs`, which answers it as `checks.rukas` |
 | `previews.json` | `console/src/preview/list.rs` of `tehasbot preview` ([tehasbot preview](/tools-clean#tehasbot-preview)) | `host/fun/factory/tehas-factory-previews.*`; `console/ops/src/health.rs`, `console/src/status.rs`, which answers it as `previews` |
 | `protolab.json` | `console/src/protolab/build.rs` of `tehasbot protolab` ([tehasbot protolab](/tools-protolab#tehasbot-protolab)) | `host/fun/business-view.js`, `host/fun/game-view.js`; `console/src/status.rs`, which answers it as `prototypes` |
-| `wiki.json` | `console/src/wiki.rs` run as `tehasbot wiki`, every five minutes while the wiki is on ([`tehas wiki`](/tools-status#tehas-wiki)) | `host/fun/factory/tehas-factory-wiki.*`, `host/fun/factory/tehas-factory-wikilink.*` |
 | `cycles/<n>.json` | the store's `publish`, one file per running cycle and the last that finished | the pages that read `running.json` (the plain dashboard's console island, `host/fun/business-view.js`, `host/fun/console-tabs.js`) draw the same view; no page asks for the file by its own path |
 | `console-<n>.txt` | `console` (`console/src/tail.rs`), started by the cycle's watch (`console/cycle/src/watch.rs`) | `host/fun/factory/tehas-factory-tail.js`, `host/fun/business-view.js` and `host/fun/game-view.js`, each by the name in `running.json`, and the console of the MCP server (`factory_console`) |
 | `console-<n>.txt.now` | the cycle's watch (`console/cycle/src/watch.rs`), the two lines of the console's status line | `console/cycle/src/watch.rs` and the record of the cycle that ended |

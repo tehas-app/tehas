@@ -510,7 +510,7 @@ t_eq "$(jq -r .question.question "$T/out.json")" "Open points, with the planner'
 1. Index on the title too?
    Proposed: Yes, both
 
-Tick Update this issue to make the plan, proposals included, this issue's text, or reply to change it."
+Reply \`1\` (Update this issue) to make the plan, proposals included, this issue's text, or reply in your own words to change it."
 t_eq "$(jq -c '[.question.options[].label]' "$T/out.json")" '["Update this issue"]'
 t_eq "$(cat "$T/keep/exit")" 12
 t_eq "$(jq -c . "$T/keep/draft.json")" '{"spec":"## Context\n\nSearch is slow.\n\n## Acceptance criteria\n\n- p95 under 100 ms","title":"Faster search"}'
@@ -520,7 +520,7 @@ reset
 shown
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md --kind refine"
 t_eq "$t_rc" 0
-t_contains "$(jq -r .question.question "$T/out.json")" "this issue's text, File as a new issue to file it as its own issue, or reply to change it."
+t_contains "$(jq -r .question.question "$T/out.json")" "this issue's text, \`2\` (File as a new issue) to file it as its own issue, or reply in your own words to change it."
 t_eq "$(jq -c '[.question.options[].label]' "$T/out.json")" '["Update this issue","File as a new issue"]'
 
 t_case "after a drafted plan, Update this issue runs no container and hands the plan and the issue's old text to the dispatcher"
@@ -605,7 +605,7 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_contains "$(jq -r .text "$T/out.json")" "(cut: the plan is longer than a comment holds)"
 t_eq "$([ "$(jq -r '.text | length' "$T/out.json")" -lt 41000 ] && echo cut)" cut
-t_eq "$(jq -r .question.question "$T/out.json")" "Tick Update this issue to make the plan, proposals included, this issue's text, or reply to change it."
+t_eq "$(jq -r .question.question "$T/out.json")" "Reply \`1\` (Update this issue) to make the plan, proposals included, this issue's text, or reply in your own words to change it."
 
 t_case "after a drafted plan, a tick on File as a new issue runs the confirm, and the issue it filed is named"
 reset

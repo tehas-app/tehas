@@ -84,19 +84,21 @@ Rules, in order:
      GitHub a poll asks for it. A check that is pending, missing or cannot
      be read holds nothing, and the log says so when that changes.
      Running cycles go on, and planning turns are not held.
-  4. A box ticked by an allowed account in the bot's question comment is an
-     answer: on a parked cycle, either retry box starts a fresh cycle; that
-     of "Retry from the issue alone" records no comment of the issue or its
-     pull request. Rules 2 and 3 hold both back too. The tick counts only on
-     a parked issue that GitHub still says is open, and it is unticked when
-     it is used. A tick on an issue closed since its cycle stopped starts
-     nothing. A comment is a question only if this host has its id on record
+  4. A reply of an allowed account that names a choice of the bot's
+     question comment, or the same answer through tehas answer, is an
+     answer: on a parked cycle, retry or retry-text starts a fresh cycle;
+     retry-text records no comment of the issue or its pull request. Rules 2
+     and 3 hold both back too. The answer counts only on a parked issue that
+     GitHub still says is open, and once. One on an issue closed since its
+     cycle stopped starts nothing. A box ticked in a comment of before 2.0 is
+     no answer, and nothing happens. A comment is a question only if this
+     host has its id on record
      on the state store:
      the question of the issue's open planning session, or of its current
      park (question-known). A record that could not be read skips the issue
-     for this poll: no tick counts and none is undone.
+     for this poll: no answer counts.
   4a. A cycle that tehasbot cycle parked for a provider outage starts again
-     once, without a tick, when nothing holds cycles back, on the word of the
+     once, without an answer, when nothing holds cycles back, on the word of the
      account that started the parked one (park-show --automatic). Any start
      of the issue spends that one retry (park-retry), and so does a park that
      can start nothing. A second such park waits.
@@ -106,8 +108,8 @@ Rules, in order:
      are equal, the park was no provider outage and no start has spent it,
      the poll starts no cycle, leaves the park and the labels where they are,
      and logs why. It says so on the issue once for that park (park-told);
-     later polls only log. A body that changed, a tick of "Retry from a clean
-     start", the retry rule 4a makes and a park of a run by hand all start as
+     later polls only log. A body that changed, an answer of retry, the retry
+     rule 4a makes and a park of a run by hand all start as
      they did.
   4b. A refresh request, state/refresh/<issue>.json from
      tehas refresh --pr N, starts a cycle that merges the branch into the
@@ -135,13 +137,14 @@ Rules, in order:
      tehas:question off too. A refresh of a handed-off issue is a restart:
      tehas cycle passes --restart, which takes needs-human-attention off, and
      the refresh's own end labels the issue.
-  5. A reply or a ticked option on a planning question runs the next turn
-     of that session. The millwright's reply or tick counts only when no
+  5. A reply on a planning question runs the next turn of that session: the
+     number of an option names it, other words are the answer as they are.
+     The millwright's marked reply counts only when no
      person answered, in a session an allowed account's tehas:plan
      started, fewer than TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS times in the session,
      never for two turns in a row and never as the way out; its reply
      starts with <!-- tehas:millwright issue=<n> action=answer -->.
-     Otherwise a tick is undone and a reply is said once. An issue
+     Otherwise its reply is said once. An issue
      whose tehas:plan or tehas:refine label was applied by an
      allowed account starts a session, a parked one included: as with
      tehas:ready, tehas:question is no bar to asking for a session, and the
@@ -185,7 +188,7 @@ Rules, in order:
      tehas:plan from such an account is taken off the same way. The control
      issue that carries tehas:pause is never work: whoever applies
      tehas:ready or tehas:plan to the number TEHAS_CONTROL_ISSUE names, or
-     ticks a retry box on it, starts nothing, and the label stays where it
+     replies retry on it, starts nothing, and the label stays where it
      is. The poll says so once, as it says a label of an account that is not
      allowed. The one exception is the millwright, the app's login or the app
      TEHAS_MILLWRIGHT_APP names:
@@ -284,7 +287,7 @@ TEHAS_PREFLIGHT_WAIT, as a start's own push check is [300].
 
 Before a start changes any label, the poll records what it rests on in the
 state store (libexec/store, approval-record): who approved and when, by the
-label or a retry tick, how, a sha256 of the body that approval was checked
+label or a retry answered, how, a sha256 of the body that approval was checked
 against (carriage returns dropped), a sha256 of the issue's title held the
 same way, and as the start's inputs the links to GitHub's attachment storage
 in that body. An answer that names no title records no title sha256, and
@@ -295,11 +298,12 @@ approval waiting at most, and an approval starts one cycle: the cycle's own
 start uses it (cycle-start), and a second poll that finds the same approval
 used starts nothing. tehas work and the cycle read it back in the shape
 below (the store's approval-view). It names no link of a comment. On a retry
-tick it adds the text of the comments allowed accounts wrote on the issue and
-the parked cycle's pull request between the park and the tick as
-retry_context, [{source, by, at, text}] - only for a tick on `Retry from a
-clean start`: the box of the issue alone names none. tehas work fetches the
-body's links only while the body still has that hash. A start of the fixer's has how "fixer", the
+answered it adds the text of the comments allowed accounts wrote on the issue
+and the parked cycle's pull request between the park and the answer as
+retry_context, [{source, by, at, text}] - only for the comments retry
+(`retry`): the retry of the issue text only (`retry-text`) names none. tehas
+work fetches the body's links only while the body still has that hash. A
+start of the fixer's has how "fixer", the
 person's approval it rests on as rests_on {at, by, how, body_sha256}, the
 fixer's starts since that approval as fixer_starts, and the fixer's marked comment on the issue written in
 the ten minutes before its label as retry_context, source "fixer:<id>". A
@@ -321,8 +325,8 @@ else is a start that did not happen.
 A real poll that gets as far as rule 3 writes $TEHAS_HOME/live/dispatch.json:
 what holds cycles back, if anything, and the slice's numbers. Once the model
 endpoint has been settled it also names the subagent provider's endpoint, as
-"endpoint": "main" or "backup": the one word the energy sampler asks for,
-never an address, because live/ is public. tehasbot
+"endpoint": "main" or "backup": the one word the mesh read asks for, never
+an address, because live/ is public. tehasbot
 health copies it for tehas status. A hold is logged once, when its reason
 changes, and "released" once when it ends; a dry run prints it every time.
 Every real poll that gets past the bot's login, a paused one too, writes
@@ -339,7 +343,6 @@ start records the events ready, at the approval record's time, and started
 of its issue, and every real poll that holds the lock, a paused, held or
 failed one too, ends with
 `analytics sample` (the counts of live/status.json, the hold and the cycles
-allowed of live/dispatch.json, the draw of live/energy.json) and `analytics
-prune`. Each call has a time limit, and one that fails or runs out of time is
+allowed of live/dispatch.json) and `analytics prune`. Each call has a time limit, and one that fails or runs out of time is
 a WARN line: it changes nothing in the poll. A planning turn that ended is
 recorded with `analytics plan` as its end is posted.

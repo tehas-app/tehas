@@ -39,12 +39,3 @@ fi
 if [ "${TEHAS_READ_ONLY:-0}" = 1 ]; then
   case ":$PATH:" in *":$TEHAS_HOME/shim:"*) ;; *) export PATH="$TEHAS_HOME/shim:$PATH" ;; esac
 fi
-# Energy use on the dashboard: tehasbot energy samples the model mesh when it
-# is a viiwork mesh, and the section appears by itself. TEHAS_ENERGY=off removes
-# it (the file tells every visitor the machines' names, their draw and their
-# models). TEHAS_ENERGY_URL names the cluster URL when it is not the model
-# provider's own, for example "http://mesh.example:8086/v1/cluster".
-# TEHAS_ENERGY_SOURCE_URL is the address the page links under DATA SOURCE; only
-# an https:// address is used, and with none set the page shows no link. Set
-# either in ~/.config/tehas/env, not here: install.sh replaces this file.
-# The service reads these when it starts: restart tehas-energy.service after a change.

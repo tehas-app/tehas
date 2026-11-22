@@ -25,11 +25,6 @@
       "shipped": 5
     }
   ],
-  "energy": {
-    "kwh": 0.628,
-    "n": 48,
-    "perShipped": 0.079
-  },
   "firstPassYield": {
     "n": 3,
     "share": 0.0

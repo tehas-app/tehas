@@ -31,9 +31,9 @@ Each event is stored once per issue, the first time. A second run of an issue
 adds no event; every run is in `runs`.
 
 Samples are the clock of the ten-day report: `availability` credits each row
-with the time to the next one, at most ten minutes, and `energy` with the same
-span, so a stretch with no row - a paused or held factory, an idle week -
-counts as not available and as no draw rather than as one reading held. A fall
+with the time to the next one, at most ten minutes, so a stretch with no row -
+a paused or held factory, an idle week - counts as not available rather than
+as one reading held. A fall
 in `availability` or in a report's `n` after a long pause means the factory did
 no work, not that the dispatcher is down.
 
@@ -141,7 +141,7 @@ call; one that a caller killed during the call leaves is removed by
 | `kind` | `work` or `plan` | 1 |
 | `issue` | The issue number | 1 |
 | `attempt` | The run's number for this issue: the attempt the state store gave its start, counting from 1, a start refused or by hand included. Work runs only | 1 |
-| `how` | What started it: `label`, `retry-tick`, `outage-retry`, `millwright` (`fixer` on a run recorded before the rename), `host` (an approval of `tehas start`) or `refresh`, from the approval the start used, else the history line, which says `hand` for a cycle run by hand. A planning turn: `label` for the first turn, `refine` for the first turn of a session `tehas:refine` started, `answer` or `millwright` for a later one | 1 |
+| `how` | What started it: `label`, `reply` (a retry a person's reply answered), `answer` (a retry `tehas answer` gave), `retry-tick` (a retry ticked before 2.0), `outage-retry`, `millwright` (`fixer` on a run recorded before the rename), `host` (an approval of `tehas start`) or `refresh`, from the approval the start used, else the history line, which says `hand` for a cycle run by hand. A planning turn: `label` for the first turn, `refine` for the first turn of a session `tehas:refine` started, `answer` or `millwright` for a later one | 1 |
 | `started`, `ended`, `seconds` | The run's start, its end and the wall time between: the history line's `started` and `at`. A planning turn ends when the poll collects it | 1 |
 | `queue_wait` | `started` less when `tehas:ready` was accepted (the approval the start used) | 1 |
 | `outcome` | `pr`, `merged`, `handoff`, `parked`, `failed`, `refused` or `stopped`, below | 1 |
@@ -258,9 +258,8 @@ further ahead is refused and nothing is stored.
 
 ### samples
 
-One row per poll, from the live files the poll wrote: `live/status.json`,
-`live/dispatch.json` and `live/energy.json`. A file that is missing or older
-than its poll gives NULL.
+One row per poll, from the live files the poll wrote: `live/status.json` and
+`live/dispatch.json`. A file that is missing or older than its poll gives NULL.
 
 | Column | Source | Since |
 | --- | --- | --- |
@@ -270,7 +269,7 @@ than its poll gives NULL.
 | `cycle_limit` | The cycles allowed at once, from `dispatch.json`: the concurrency, or the room under `tehas limit` where that is lower | 1 |
 | `paused` | 1 when the factory was paused | 1 |
 | `held` | The one word of the dispatcher's hold, empty when nothing held | 1 |
-| `watts` | The model mesh's draw, from `energy.json`, where the mesh reports one | 1 |
+| `watts` | The model mesh's draw until 2.0, when energy use left core. A new row leaves it NULL, and the report no longer reads it | 1 |
 
 ### meta
 

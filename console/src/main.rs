@@ -60,10 +60,8 @@
 //! The lines and the object of tehas status, see src/status.rs.
 //!
 //!   console dev table
-//!   console review main|table
 //!
-//! The row of the table of runs of a manual session, see src/dev.rs, and what
-//! tehasbot review decides and how it runs its container, see src/review.rs.
+//! The row of the table of runs of a manual session, see src/dev.rs.
 //!
 //!   console clean run ...
 //!
@@ -84,11 +82,6 @@
 //!
 //! How full this host is and what fills it, for tehas disk and the MCP tool
 //! factory_disk, see ops/src/disk.rs.
-//!
-//!   console energy [--every]
-//!
-//! One sample of what the model mesh draws, live/energy.json, for tehasbot
-//! energy, see src/energy.rs.
 //!
 //!   console disk free <path> [<seconds>]
 //!
@@ -194,7 +187,6 @@ mod attach;
 mod blockers;
 mod commands;
 mod dev;
-mod energy;
 mod epics;
 mod export;
 mod frame;
@@ -228,7 +220,6 @@ mod tail;
 mod tickets;
 mod top;
 mod wake;
-mod wiki;
 
 use render::Entry;
 use std::collections::HashSet;
@@ -453,7 +444,6 @@ fn main() -> ExitCode {
             Some("check-product") => return ExitCode::from(product::check(&given[1..])),
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
             Some("disk") => return ExitCode::from(disk::main(&given[1..])),
-            Some("energy") => return ExitCode::from(energy::main(&given[1..])),
             Some("epics") => return ExitCode::from(epics::main(&given[1..])),
             Some("tickets") => return ExitCode::from(tickets::main(&given[1..])),
             Some("flags") => return ExitCode::from(holds::main(&given[1..])),
@@ -461,7 +451,6 @@ fn main() -> ExitCode {
             Some("dev") => return ExitCode::from(dev::main(&given[1..])),
             Some("rukas") => return ExitCode::from(rukas::main(&given[1..])),
             Some("sandbox") => return ExitCode::from(sandbox::main(&given[1..])),
-            Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("settings") => return ExitCode::from(settings::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),

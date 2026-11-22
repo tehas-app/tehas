@@ -148,7 +148,7 @@ likewise.
 
 ### Temporary rises
 
-Counts T15's ports raised above their fork value. Each goes back down in the step named; the trio's gate fails any count left above its fork value at the end.
+Counts T15's ports raised. "Max before" is the max just before that pull request, not the fork value. The fork values are in the next table; the trio's gate fails any count left above its fork value at the end, and the plan's aim for each is 0 or a written floor.
 
 | Check | Max before | Max after | Pull request | Why (false positives) | Removed by |
 | --- | --- | --- | --- | --- | --- |
@@ -156,6 +156,30 @@ Counts T15's ports raised above their fork value. Each goes back down in the ste
 | gh-argv | 408 | 409 | #2859 | a fixture's process named gh | T4 |
 | raw-statuses | 259 | 260 | #2859 | a fixture's 404 from the docs server | T4/T7 |
 | github-rest | 860 | 870 | #2860 | pi-rukas's runner flag --json, written as the tests pass it | T4/T7: the check narrows to the adapter's paths |
+| gh-argv | 404 | 406 | #2866 | the name gh in the list of tools the analytics tests stub to fail | T1 |
+| tests-stub-gh | 414 | 416 | #2866 | the same list of tools, counted again in a test file | T1 |
+| untyped-signatures | 1388 | 1389 | #2866 | a test helper that edits a row of GitHub's list, the untyped value preview::choose takes | T7 |
+
+Lowered since by removals, not by these rows' causes: github-rest 870 to 863 (#2862, the product wiki). The rises above stay to be removed by T4 and T7.
+
+### Fork values
+
+Each check's count at the fork (v1.4.0, a0aa16a5), as `architecture.toml` measured it once its patterns were final (#2780). The final review compares each count with this.
+
+| Check | Fork value |
+| --- | --- |
+| github-rest | 846 |
+| gh-argv | 408 |
+| label-words | 1878 |
+| home-layout | 1356 |
+| untyped-signatures | 1421 |
+| untyped-fields | 66 |
+| core-effects | 0 |
+| core-inward | 3 |
+| raw-statuses | 259 |
+| tests-stub-gh | 419 |
+
+Above its fork value today: github-rest and raw-statuses, both from the rises above, for T4 and T7 to bring down.
 
 ## Grades
 

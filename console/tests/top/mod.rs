@@ -151,13 +151,6 @@ pub fn files0(w: &World) {
     files(w, "Two cycles side by side");
 }
 
-/// An energy sample `age` seconds old.
-pub fn energy(w: &World, age: i64) {
-    let v = json!({"generatedAt": iso(now() - age), "totals": {"watts": 312.5, "hosts": 4},
-        "models": [{"name": "m", "slots": 8, "busy": 4}]});
-    fs::write(w.at().live(Live::Energy), v.to_string()).unwrap();
-}
-
 /// `tehas top` with these words, as a shell snippet.
 pub fn top_cmd(words: &str) -> String {
     format!("{} top {words}", root().join("bin/tehas").display())

@@ -463,7 +463,7 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
 
     // An image whose runner does not take planning turns runs none, before
     // anything is fetched or cloned.
-    let caps = review::capabilities(&image).unwrap_or_default();
+    let caps = review::capabilities(&image);
     let lib = Path::new(libexec).join("../lib");
     if tehas_cycle::caps::mode(&caps, "planTurns", Some(&lib)).0 != "native" {
         return Err(refuse(format!("tehas plan: {image} runs no planning turns (its --capabilities has no features.planTurns), not starting a turn")));

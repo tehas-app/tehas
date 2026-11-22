@@ -1481,7 +1481,7 @@ records=$(records_of "$T_ROOT/libexec")
 t_console || t_bad "no console: $t_console_why"
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
-program_runs=$("$T_CONSOLE" check-product table; "$T_CONSOLE" review table; "$T_CONSOLE" plan table; "$T_CONSOLE" dev table; "$T_CYCLE" index table; "$T_CYCLE" sandbox table)
+program_runs=$("$T_CONSOLE" check-product table; "$T_CONSOLE" plan table; "$T_CONSOLE" dev table; "$T_CYCLE" index table; "$T_CYCLE" sandbox table)
 while IFS= read -r row; do
   records+=$'\n'"${row/$'\t'/$'\t0\t'}"$'\t'
 done <<<"$program_runs"
@@ -1494,7 +1494,6 @@ dev	PI_ENSEMBLE_IMAGE	pi
 index	PI_ENSEMBLE_IMAGE	codebase-memory-mcp
 plan	PI_ENSEMBLE_IMAGE	/opt/pi-rukas/bin/pi-rukas-headless
 plan	PI_ENSEMBLE_IMAGE	/opt/pi-rukas/bin/pi-rukas-headless
-review	PI_ENSEMBLE_IMAGE	/opt/pi-rukas/bin/pi-rukas-headless
 work	PI_ENSEMBLE_IMAGE	$runner
 work	PI_ENSEMBLE_IMAGE	$runner
 work	PI_ENSEMBLE_IMAGE	bash

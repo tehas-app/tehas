@@ -40,10 +40,9 @@
 # are on (TEHAS_PLUGIN) it compiles the runner (console/plugin,
 # libexec/tehas-plugin) and installs its units: the templates of a run,
 # tehas-plugin@.service and tehas-plugin-hook@.service, and tehas-plugin.timer
-# with its service; off, none of them. The review
-# loop's units, tehas-review.service and .timer, are installed only while
-# review is on (TEHAS_REVIEW), which no release allows yet; off, a timer an
-# earlier release left enabled is stopped and disabled, its files kept. A real
+# with its service; off, none of them. The timer of a feature that is off,
+# which an earlier release left enabled, is stopped and disabled, its files
+# kept. A real
 # run builds each with cargo in this checkout (console/target, which git
 # ignores) and installs them as libexec/console, libexec/analytics,
 # libexec/tehas-mcp, libexec/store, libexec/attach, libexec/tehas-dispatch and
@@ -415,7 +414,7 @@ home_marker=.tehas-home
 # them without the marker is not known to be tehas's, and this run would remove
 # the pages of someone else from them.
 home_dirs=(bin libexec lib live logs mcp platform preview protolab repos sandbox
-  state tmp tools work target .cargo versions current run wiki)
+  state tmp tools work target .cargo versions current run)
 
 home_refusal() { # the reason $TEHAS_HOME is not provably tehas's, or nothing
   local path=${TEHAS_HOME:-} entry part rest
@@ -683,7 +682,6 @@ files=(
   "systemd/tehas-dispatch.service|$units/tehas-dispatch.service|644"
   "systemd/tehas-dispatch.path|$units/tehas-dispatch.path|644"
   "systemd/tehas-dispatch.timer|$units/tehas-dispatch.timer|644"
-  "systemd/tehas-energy.service|$units/tehas-energy.service|644"
   "systemd/tehas-mcp.service|$units/tehas-mcp.service|644"
   "systemd/tehas-mcp-fetch.socket|$units/tehas-mcp-fetch.socket|644"
   "systemd/tehas-mcp-fetch@.service|$units/tehas-mcp-fetch@.service|644"
@@ -725,8 +723,7 @@ for f in "$root"/lib/polyfill-*.sh; do
 done
 shopt -u nullglob
 # What a feature that is on installs besides the rest: outsource's model proxy,
-# its unit and the contractor program, review's units, the plugins' runner and
-# units
+# its unit and the contractor program, the plugins' runner and units
 # (console/ops/src/update/host.rs). Off,
 # none of it is installed or compared.
 featured=$(export "${!TEHAS_@}"; "$loaded_console" update featured) ||
@@ -993,7 +990,7 @@ had_versions=0
 # --check changes nothing, so it makes neither.
 if [ "$check" != 1 ]; then
   mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
-    "$TEHAS_HOME/preview" "$TEHAS_HOME/wiki"
+    "$TEHAS_HOME/preview"
   # A home with no env.sh has never been installed.
   [ -f "$TEHAS_HOME/env.sh" ] || : >"$first_owed"
   if ! bashrc_ok; then
@@ -1107,12 +1104,16 @@ while IFS= read -r f; do
 done <<<"$retired"
 
 # The units of features this version does not have: the timed refresh scan
-# (refreshes are asked for one pull request at a time) and the improvement
-# loop. Found here; in step 5 each timer is stopped and disabled and its files
-# go.
+# (refreshes are asked for one pull request at a time), the improvement loop,
+# the review loop, the product wiki and the energy sampler, which left core in
+# 2.0. Found here; in step 5 each timer and path unit, or a service none
+# starts, is stopped and disabled and its files go.
 old_units=()
 scan_units=$units
-for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-improve.service; do
+for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-improve.service \
+  tehas-review.timer tehas-review.service \
+  tehas-wiki-status.timer tehas-wiki-status.service tehas-wiki.timer tehas-wiki.path tehas-wiki.service \
+  tehas-energy.service; do
   [ -e "$scan_units/$unit" ] || [ -L "$scan_units/$unit" ] || continue
   old_units+=("$unit")
   [ "$check" = 0 ] || note "stale: $scan_units/$unit"
@@ -1235,9 +1236,7 @@ first_index() {
 first_install() {
   [ -f "$first_owed" ] || return 0
   local units=() why="" line
-  # A first install runs before any shell has read env.sh, so the console reads
-  # TEHAS_ENERGY from the host's private file too.
-  line=$(export "${!TEHAS_@}"; "$loaded_console" update units "$HOME/.config/tehas/env") || line=""
+  line=$(export "${!TEHAS_@}"; "$loaded_console" update units) || line=""
   read -ra units <<<"$line"
   if [ "${#units[@]}" = 0 ]; then
     why="the console at $loaded_console did not name the units"
@@ -1281,13 +1280,18 @@ report_login() {
   fi
 }
 
-# A timer is stopped before its files go, so systemd holds no timer whose
-# unit file is gone. A unit systemd cannot let go of is left, and the next run
-# tries again. The timer comes first in the list, so its service follows it.
+# A trigger is stopped before its files go, so systemd holds no timer or path
+# unit whose file is gone, and so is a service none starts. A unit systemd
+# cannot let go of is left, and the next run tries again. Triggers come first
+# in the list, so a service follows its own: the path unit while one is left,
+# else the timer.
 if [ "${#old_units[@]}" -gt 0 ]; then
   gone=0
   for unit in "${old_units[@]}"; do
     timer=${unit%.*}.timer
+    [ "${unit##*.}" != path ] || timer=$unit
+    [ "${unit##*.}" != service ] || [ ! -e "$scan_units/${unit%.*}.path" ] || timer=${unit%.*}.path
+    case " ${old_units[*]} " in *" $timer "*) ;; *) timer=$unit ;; esac
     if [ -e "$scan_units/$timer" ] && ! systemctl --user disable --now "$timer" >/dev/null 2>&1; then
       [ "$unit" != "$timer" ] ||
         echo "later: ./install.sh again   (systemctl --user disable --now $timer failed, so its units were left)"

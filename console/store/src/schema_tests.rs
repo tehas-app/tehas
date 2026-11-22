@@ -162,6 +162,7 @@ fn step_sql(to: i64) -> &'static str {
         23 => db::STEP_23,
         24 => db::STEP_24,
         25 => db::STEP_25,
+        26 => db::STEP_26,
         _ => unreachable!("no step to {to}"),
     }
 }
@@ -297,13 +298,13 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_25() {
-    assert_eq!(db::SCHEMA_VERSION, 25);
-    let home = home("schema-25");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 25);
+fn init_writes_schema_26() {
+    assert_eq!(db::SCHEMA_VERSION, 26);
+    let home = home("schema-26");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 26);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "25"
+        "26"
     );
     // Schema 25: the choices a park's question offers.
     assert!(columns(&conn(&home), "questions").contains(&"offers".to_string()));
@@ -1043,6 +1044,34 @@ fn the_step_from_24_adds_the_offers_of_a_question_and_keeps_every_row() {
     same_shape_as_init(&home, &conn(&made), "24");
 }
 
+/// The step to 26 keeps every cycle, and a cycle's start may then say
+/// `reply`, the how of a retry a person's reply asked for.
+#[test]
+fn the_step_from_25_lets_a_cycle_say_reply_and_keeps_every_row() {
+    let home = at_22("step-26-reply");
+    let mut c = conn(&home);
+    for (to, run) in db::STEPS {
+        if (23..=25).contains(to) {
+            run(&mut c).unwrap();
+        }
+    }
+    assert!(c.execute("UPDATE cycles SET how = 'reply'", []).is_err());
+    drop(c);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 25);
+    let before = rows(&conn(&home));
+    migrate(&home).unwrap();
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
+    assert_eq!(rows(&conn(&home)), before);
+    let c = conn(&home);
+    c.execute("UPDATE cycles SET how = 'reply'", []).unwrap();
+    assert_eq!(
+        count(&home, "cycles WHERE how = 'reply'"),
+        count(&home, "cycles")
+    );
+    let made = crate::verbs_tests::home("step-26-shape");
+    same_shape_as_init(&home, &conn(&made), "25");
+}
+
 /// The CHECK of `answers.choice` is the words of the choices, which the
 /// command, the verb and the dispatcher read in tehas_core::question.
 #[test]
@@ -1149,7 +1178,7 @@ fn a_migrated_store_with_the_feature_off_writes_no_outsource_row() {
 const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 /// The sources of the verbs, without their tests.
-const VERB_SOURCES: [(&str, &str); 24] = [
+const VERB_SOURCES: [(&str, &str); 23] = [
     ("answer.rs", include_str!("answer.rs")),
     ("approval.rs", include_str!("approval.rs")),
     ("batch.rs", include_str!("batch.rs")),
@@ -1170,7 +1199,6 @@ const VERB_SOURCES: [(&str, &str); 24] = [
     ("plugin.rs", include_str!("plugin.rs")),
     ("poll.rs", include_str!("poll.rs")),
     ("record.rs", include_str!("record.rs")),
-    ("review_issue.rs", include_str!("review_issue.rs")),
     ("say.rs", include_str!("say.rs")),
     ("upkeep.rs", include_str!("upkeep.rs")),
     ("verbs.rs", include_str!("verbs.rs")),

@@ -1,9 +1,9 @@
 ---
-title: The console, health, energy and top
+title: The console, health and top
 description: "The files that feed the dashboard, and what watches the host's health, its models and its load."
 ---
 
-# The console, health, energy and top
+# The console, health and top
 
 ## tehasbot status and the console
 
@@ -132,7 +132,6 @@ turns are only counted.
 | `machineTime` | `seconds` of all `n` runs, and `perShipped` |
 | `tokens` | `total`, `input`, `output` and `cacheRead` of the `n` runs that reported usage, and `perShipped`: the total over the `shipped` issues it counts. A shipped issue whose runs all reported no usage is not one of them: an empty count is no zero |
 | `availability` | `share` of the `seconds` since the first sample in the window that the factory could take work, from `n` samples. A sample counts for the time to the next, at most ten minutes, and only when it says not paused and either no hold or cycles running (slots that are full are not down time); a stretch with no samples counts as not available |
-| `energy` | `kwh` and `perShipped`, from the `n` samples with the mesh's draw: each draw over the time to the next sample, at most ten minutes. Left out where no sample has one |
 | `daily` | Ten `{day, shipped, runs, failed, minutes}`, oldest first: issues shipped, runs ended and of them failed, and their minutes |
 | `stopReasons` | `top`: the five most common `{reason, n}` among the `n` runs that ended without a pull request, not counting those a person stopped. The reason is the failure kind, the cap for a failure that is a cap, else the park reason, else how the run ended |
 | `stations` | `steps`: per step, in the order runs reach it, the `n` runs that reached it, how many `passed` and the `share`. A run that reached a pull request passed every step it ran; one handed off, parked or failed stopped in its failed step, else its last. `n` is the runs counted: refused and stopped runs are not |
@@ -415,8 +414,8 @@ then says `The sandbox cannot push: <line> (<login>).`
 
 `checks.demand` is what the dispatcher's last poll wrote to
 `live/demand.json`: `{time, waiting, oldest}`, the issues that would start if
-there were room (a Retry ticked on a park among them) and when the oldest was
-labelled or ticked. An issue held only by a planning session is left out,
+there were room (a retry answered on a park among them) and when the oldest was
+labelled or answered. An issue held only by a planning session is left out,
 and a poll that ends that session writes the file again at its end with the
 issue counted. It is `null` when no poll
 wrote it in the last ten minutes. `checks.slice` also carries `free`, the free
@@ -487,100 +486,6 @@ A stopped dispatcher cannot report itself: the file simply stops changing and
 the endpoint keeps answering with the last state. A monitor should also treat
 a `time` older than about ten minutes as down.
 
-## tehasbot energy
-
-Optional. It feeds the Energy use section of the factory floor and nothing
-else: no command reads its file, and a factory without it dispatches and works
-the same. It is useful only when the model backend is a
-[viiwork](https://github.com/janit/viiwork) mesh. The
-command and its unit are installed on every instance, but the service runs
-only if you enable it.
-
-```
-tehasbot energy            # one sample; prints nothing; writes ~/tehas/live/energy.json
-tehasbot energy --every    # one sample at every 15-second mark; what the service runs
-systemctl --user enable --now tehas-energy.service
-```
-
-Asks the model mesh for its cluster snapshot and keeps what the Energy use
-section shows: per machine the draw, kWh and RAM; per model the slots, how
-many are busy and what serves it; and the last 30 minutes of draw, with the
-mesh's running count of tokens for the factory's models where it reports one. Only machines that are alive
-and serve a model the factory uses are kept, and only those models. The
-factory's models are the ones named by `PI_ENSEMBLE_SUBAGENT_MODEL` and
-`PI_ENSEMBLE_MODEL_*`; with none set, the file has no machines. It works only against a viiwork
-mesh, which it recognises by the answer.
-
-| The mesh answers                       | The file                                   |
-| -------------------------------------- | ------------------------------------------ |
-| A cluster snapshot                     | Rewritten                                  |
-| Nothing, a timeout, a server error or a busy answer (408, 429) | Left as it is; the page calls it stale |
-| Anything else                          | Removed, and the section with it           |
-
-The mesh is the endpoint the factory's cycles are on. The dispatcher settles
-that endpoint every poll and writes `"endpoint": "main"` or `"endpoint":
-"backup"` in `~/tehas/live/dispatch.json`; the sampler asks only that one,
-with its token. With no such word in the file, because the dispatcher has not
-settled one yet, it asks the main endpoint and then the backup, each with its
-token, and samples the first that answers. The file is removed only when the
-endpoint it asks is not a mesh and was not just down or busy. Set
-`TEHAS_ENERGY_URL` in `~/.config/tehas/env` to ask another
-cluster URL, which is asked with no token, and
-`TEHAS_ENERGY=off` (or `0`) to remove the file. With neither,
-`PI_ENSEMBLE_SUBAGENT_PROVIDER` has to be set: without it the command says so
-and exits 78, asks nobody and leaves the file as it is, and `--every` stops
-with it. The file is readable by anyone who can
-open the dashboard and names the machines, their draw and their models. It
-also holds the version of the mesh software and, for each model, the name and
-the version of the engine behind it. Addresses, node ids and GPUs are not in it.
-
-Each entry of `models` carries an `engines` array: one element per distinct
-set of values among the machines that serve the model, sorted.
-
-```json
-{ "name": "model-small", "hosts": ["node-a", "node-b"],
-  "engines": [{ "version": "2.9.2", "engine": "llamacpp",
-                "engineName": "llama.cpp", "engineVersion": "b11371" }],
-  "slots": 6, "busy": 2, "queued": 0 }
-```
-
-| Field           | What it is                                                              |
-| --------------- | ----------------------------------------------------------------------- |
-| `version`       | The mesh's version on that machine, without its leading `v`             |
-| `engine`        | The mesh's own id for the engine                                        |
-| `engineName`    | The engine's name for people. Reported from viiwork v2.9.2              |
-| `engineVersion` | The engine's own version on that machine. Reported from viiwork v2.9.2, and not by every engine |
-
-A value the machine does not report is `null`. `engineVersion` is also `null`
-when it is not a plain version: only letters, digits and `. + _ -`, at most 40
-characters, are copied. An element with no mesh version and no engine is left
-out. A mesh in the middle of an upgrade, or a model served by two engines,
-gives more than one element.
-
-The model table shows them in its `ENGINES` column: the engine's name, or its
-id where the mesh gives no name, then its version where there is one. So
-`viiwork 2.9.2 (llama.cpp b11371)` from a machine on v2.9.2 and
-`viiwork 2.9.0 (llamacpp)` from an older one. A model with no element shows a
-dash.
-
-The file's `source` names the mesh software. The section ends with a line that
-says so, `DATA SOURCE: viiwork`. `TEHAS_ENERGY_SOURCE_URL` in
-`~/.config/tehas/env` gives the address that name links; the sampler copies it
-into the file's `sourceUrl` only when it is an `https://` address, and the page
-shows the name as plain text with no `sourceUrl` in the file. The address is
-the operator's to give: the sampler holds none of its own, so an adopter who
-wants no link sets nothing.
-
-The service reads its settings when it starts: run
-`systemctl --user restart tehas-energy.service` after changing one of them.
-Stopping the service does not hide the section; the last file stays and the
-page calls it stale. To hide it, set `TEHAS_ENERGY=off` and restart, or stop the
-service and delete `~/tehas/live/energy.json`.
-
-Against a backend that is not viiwork the service still asks
-`<provider>/v1/cluster` every 15 seconds and writes nothing. On such a host
-leave the service disabled, or set `TEHAS_ENERGY=off`.
-
 ## tehasbot top
 
 Optional. It publishes what `tehas top` draws, so that the factory floor and the
@@ -595,7 +500,7 @@ systemctl --user enable --now tehas-top.service
 
 It builds the snapshot with the same code the terminal view uses, in the
 console (`console/src/top.rs`), and writes it as one line of JSON holding the keys the pages draw and nothing else:
-`generatedAt`, `factory`, `queue`, `cycle`, `host`, `units` and `energy`. The
+`generatedAt`, `factory`, `queue`, `cycle`, `host` and `units`. The
 list is `PUBLISHED` in `console/src/top.rs`. A key added to the snapshot
 later is not in the file until someone puts it on that list, which is how the
 console of a cycle and the raw reading a host section was computed from stay

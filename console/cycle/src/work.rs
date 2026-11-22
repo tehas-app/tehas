@@ -691,7 +691,7 @@ fn refused_comment(why: &str) -> String {
 
 /// The comment of a retry that could not get the issue's comments.
 fn comments_refused(why: &str) -> String {
-    format!("Tehas started no cycle: {}. The retry was ticked for the issue and all its comments, and a cycle without them is not that retry. To retry, apply `tehas:ready`.", disarm(why))
+    format!("Tehas started no cycle: {}. The retry asked for was the one with the issue and all its comments, and a cycle without them is not that retry. To retry, apply `tehas:ready`.", disarm(why))
 }
 
 /// The comment of a start that could not give its cycle what was approved.

@@ -5,13 +5,11 @@ Usage:
   tehasbot cycle <issue>        one cycle and its report (tehas-cycle@<issue>.service)
   tehasbot status               write the queue snapshot, live/status.json
   tehasbot health               write the health file, live/health.json
-  tehasbot energy [--every]     sample the model mesh's power (the service)
   tehasbot top [--every]        publish the host section for the dashboard
                                 (the service)
   tehasbot protolab             build the Protolab pages (the timer)
   tehasbot preview [--sweep]    keep the previews of pull requests (the timers)
   tehasbot refresh --pr N       tehas refresh --pr N, by its old name
-  tehasbot review               review the branch since the last review
   tehasbot clean                remove what the host can make again (the timer)
   tehasbot mcp serve            the read-only MCP server (the service)
   tehasbot mcp fetch            fetch the MCP server's shared checkout (tehas-mcp-fetch.socket)

@@ -10,4 +10,5 @@ rust-version = "1.89"
 publish = false
 
 [dependencies]
+serde = "1"
 serde_json = "1"

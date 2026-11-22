@@ -57,9 +57,12 @@ names, and exits 78 before install.sh runs.
 A feature still being built is refused the same way: its switch set to `on`,
 or a line that gives one of its own settings a value, stops every command
 with 78 and names the feature, and both checks list every such line at once.
-A host that turned the review loop on under an earlier release takes
-`TEHAS_REVIEW=on` and `TEHAS_REVIEW_REPO` out before it updates
-([the review loop](/operating#the-review-loop)).
+
+The review loop left core in 2.0 and returns as a plugin. A line of
+`TEHAS_REVIEW` or `TEHAS_REVIEW_REPO` still loads, with one warning, and
+nothing reads it: take it out. The update stops and removes
+`tehas-review.timer` and `tehas-review.service` where an earlier release left
+them.
 
 ### From v0.30.x, v0.31.x or v0.32.x
 
@@ -188,7 +191,7 @@ line. `install.sh` does the same before its first copy. The pair of a login
 taken off the list stays, so the login, listed again, must still be the same
 account.
 
-From then on a label, a retry tick, an answer to a planning question and a
+From then on a label, an answer to a question and a
 comment count only when the account that made them carries the recorded id
 (`user.id`, `actor.id`, or GraphQL's `databaseId`). An account with the
 login and another id, or with no id at all, does not count: the dispatcher

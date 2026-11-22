@@ -28,7 +28,7 @@
 //!    with its new key or why it went, so a 0.30 instance is put right in one
 //!    edit before anything is installed. So is every line that switches on,
 //!    or sets a setting of, a feature this release is still building, such
-//!    as TEHAS_REVIEW=on.
+//!    as TEHAS_PLUGIN=on.
 //! 3. The instance's models.json is there and holds JSON. It lists every model
 //!    the agents use (`tehas_core::models::used`) under the provider each uses, every key it
 //!    names is a word or a set token (tehas_core::models::keys_ok), and it lists
@@ -426,23 +426,22 @@ mod tests {
 
     #[test]
     fn every_line_of_a_building_feature_is_listed_at_once() {
-        // A host that had the review loop on before it became building: the
-        // load names the switch, and the findings name its repository too.
+        // The load names the switch, and the findings name its setting too.
         let (d, vars) = instance(&[
             (
                 "instance.env",
-                "TEHAS_REPO=acme/widget\nTEHAS_REVIEW=on\nTEHAS_REVIEW_REPO=acme/backlog\n",
+                "TEHAS_REPO=acme/widget\nTEHAS_PLUGIN=on\nTEHAS_PLUGINS=floorplan\n",
             ),
             ("models.json", MODELS),
         ]);
         let file = format!("{}/instance.env", inst(&d));
-        let line = format!("tehas: TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out (see {file})");
+        let line = format!("tehas: TEHAS_PLUGIN is on and plugins is still being built in this release: set it to off or take the line out (see {file})");
         let said = findings(vars, &me(), |_| Err(line.clone()));
         assert_eq!(
             said,
             [
                 line.clone(),
-                format!("tehas: TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out (see {file})"),
+                format!("tehas: TEHAS_PLUGINS is set and plugins is still being built in this release: take the line out (see {file})"),
             ]
         );
     }

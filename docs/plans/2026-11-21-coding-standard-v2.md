@@ -56,8 +56,11 @@ and the 2.0.0 and 1.0.0 of the two repositories that read it. For tehas:
    refuses it today, and finishing it is 2.1 work. The refactor moves
    the plugin code with its behaviour kept, and builds no new plugin
    features.
-6. **pi-rukas v0.14.101 or later.** 2.0.0 pins pi-rukas v0.14.101 at the
-   least, for a fix tehas wants (the owner, 2026-11-22), and at the trio's
+6. **pi-rukas v0.15.2 or later.** 2.0.0 needs pi-rukas v0.15.2 at the
+   least (the trio's program manager, 2026-11-22): T13's proof found that
+   on 0.15.1 a roster that exits 0 reports no exit, so lean hands back on
+   every pass, and 0.15.2 fixes it. tehas refuses a lean start on a
+   sandbox image whose pi-rukas is older, saying why. At the trio's
    readiness review the newest pi-rukas release on the 0.15 line is the one
    pinned (`PI_RUKAS_FOLLOW=release:0.15`): pi-rukas 0.16, which moves it
    to npm, is not for this trio. A tag
@@ -377,6 +380,15 @@ Done when `github-rest` is 0 and `gh-argv` is at 0 or at its written
 floor, and a fake code host that times out or rate-limits leaves the
 dispatcher and a cycle running, with one report.
 
+T4's Done also clears every row of "Temporary rises" in
+`docs/architecture.md` that is still there when it ends, whatever step
+the row names. At #2866 they are: `github-rest` (#2859 and #2860),
+`gh-argv` (#2859 and #2866), `raw-statuses` (#2859), `tests-stub-gh`
+(#2866) and `untyped-signatures` (#2866). A row added later joins the
+list in the same pull request. A T15 port is kept rise-neutral where it
+can be: what it adds to a count it takes out elsewhere in the same pull
+request.
+
 ### T5. Deep homes for files
 
 - A `Home` type owns the `state/`, `live/` and `run/` paths. `run/` holds
@@ -493,7 +505,8 @@ driver in 2.0 (the owner).
    without a JUnit report), #2480 (a killed lean job keeps running),
    #2403 (the lens review is not recorded), #2501 (the rest of #2410)
    and #2511 (a typed setup refusal, for part 4). All are merged and
-   ship in 0.15.0, so the pin is 0.15.0 or later on the 0.15 line
+   ship in 0.15.0, and the roster fix of 0.15.2 joins them, so the pin is
+   0.15.2 or later on the 0.15 line
    (`PI_RUKAS_FOLLOW=release:0.15`). Each release
    candidate checks this as it checks the pin.
 3. **Ship it.** `lean` in `console/core/src/features.rs` moves to
@@ -808,3 +821,6 @@ of main, each grade.
 | 2026-11-22 | T16: removed features' settings load, warn once and are dropped (`IGNORED`) | #2846 |
 | 2026-11-22 | Port main @ 40c97b24 (`xtask lean-test` answers lean's runner probe, #2845) | #2848 |
 | 2026-11-22 | T15: the clean shell tests are Rust tests | #2842 |
+| 2026-11-22 | The minimum pi-rukas is v0.15.2, for the roster's exit (found by T13's proof); lean refuses an older image | #2861 |
+| 2026-11-22 | T15: the index and mcp, top, and headless shell tests are Rust tests; the raises they need are recorded in `docs/architecture.md` under "Temporary rises" | #2858, #2859, #2860 |
+| 2026-11-22 | T16: the product wiki leaves core; its renderer and collector stay as crates | #2862 |

@@ -29,9 +29,9 @@ case " $* " in
     printf "%s\n" "tehas-dispatch.timer loaded active waiting Dispatch the queue" \
                   "tehas-cycle@12.service loaded active running Cycle for 12" ;;
   *" list-unit-files "*)
-    printf "%s\n" "tehas-dispatch.timer enabled" "tehas-energy.service enabled" ;;
+    printf "%s\n" "tehas-dispatch.timer enabled" "tehas-top.service enabled" ;;
   *" show "*)
-    printf "Id=tehas-cycle@12.service\nLoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=\nNextElapseUSecRealtime=n/a\n\nId=tehas-dispatch.timer\nLoadState=loaded\nActiveState=active\nSubState=waiting\nUnitFileState=enabled\nNextElapseUSecRealtime=Mon 2026-01-01 10:00:00 UTC n/a\n\nId=tehas-energy.service\nLoadState=loaded\nActiveState=inactive\nSubState=dead\nUnitFileState=enabled\nNextElapseUSecRealtime=n/a\n" ;;
+    printf "Id=tehas-cycle@12.service\nLoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=\nNextElapseUSecRealtime=n/a\n\nId=tehas-dispatch.timer\nLoadState=loaded\nActiveState=active\nSubState=waiting\nUnitFileState=enabled\nNextElapseUSecRealtime=Mon 2026-01-01 10:00:00 UTC n/a\n\nId=tehas-top.service\nLoadState=loaded\nActiveState=inactive\nSubState=dead\nUnitFileState=enabled\nNextElapseUSecRealtime=n/a\n" ;;
   *) exit 0 ;;
 esac'
 }
@@ -89,11 +89,6 @@ files() { # [title]
     --arg t "$(iso 210)" --arg q "$(iso 210)" >"$live/health.json"
   printf '%s\n' '[step develop] @developer ran the gate' 'ok    the shell tests' \
     >"$live/console-12.txt"
-}
-
-energy() { # age in seconds
-  jq -n --arg at "$(iso "${1:-20}")" '{generatedAt: $at, totals: {watts: 312.5, hosts: 4},
-    models: [{name: "m", slots: 8, busy: 4}]}' >"$live/energy.json"
 }
 
 # Bytes that are not printing characters, tab and newline excepted.

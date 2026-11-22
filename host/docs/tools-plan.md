@@ -1,9 +1,9 @@
 ---
-title: tehas plan and tehasbot review
-description: "One turn of a planning session, and one review of a branch."
+title: tehas plan
+description: "One turn of a planning session."
 ---
 
-# tehas plan and tehasbot review
+# tehas plan
 
 ## tehas plan
 
@@ -32,8 +32,8 @@ operator's answer. Each turn is one run of pi-rukas's headless runner,
 `pi-rukas-headless plan`, as the container's command. It exits when the
 planner has questions (11), has drafted a plan to confirm (12), or thinks the
 plan duplicates open work (10). After a drafted plan in a refine session, an
-answer that ticked **File as a new issue** runs `plan --resume <id> --confirm`, which files the
-plan as it was shown and nothing else. One that ticked **Update this issue**
+answer that chose **File as a new issue** runs `plan --resume <id> --confirm`, which files the
+plan as it was shown and nothing else. One that chose **Update this issue**
 runs no container: the turn reads the issue's title and body and hands the
 drafted plan, kept in the `--keep` directory as `draft.json`, to the
 dispatcher, which writes it onto the issue and ends the session. A plan with no
@@ -166,167 +166,3 @@ in `~/tehas/logs/plan-<issue>-<time>.jsonl` and its answer beside it as
 with `docker stop` and the turn exits 2. The session is on the state store
 (`plan-show`). A container left under the turn's name, by
 a turn whose client died, is removed before the turn starts.
-
-## tehasbot review
-
-Reviews what the default branch gained since the last reviewed commit, with
-pi-rukas's lens reviewer running headless in the sandbox image. It is the
-review step of the review loop, which is still being built in this release
-([the review loop](/operating#the-review-loop)): a release refuses
-`TEHAS_REVIEW=on` with exit 78, and with the feature off the command exits 0
-at once and calls nothing. What follows is what it does on a build that turns
-the feature on for a test: `tehas-review.timer` starts it once a week, and it
-files its findings only where `TEHAS_REVIEW_REPO` names a repository.
-
-```
-tehasbot review
-```
-
-One run is one turn of `pi-rukas-headless lens-review --since <commit>
---json`, over a clone made fresh for the run and removed when it is over. The
-clone holds the default branch and `TEHAS_CLONE_DEPTH` commits of its history,
-deepened until it reaches the commit the run starts from, as the product
-checkout has it; a clone that cannot be stops the run with 78. The
-commit to start from is read from `~/tehas/state/review.json`: the commit the
-last review read. A record is trusted only when it holds a whole commit and
-that commit is one the branch still reaches; with no record there, or one that
-is unreadable, names no commit, or names a commit the branch no longer has, the
-run starts at the commit 7 days back, or at the root when the branch is younger
-than that, and says which of the two happened. A branch whose newest commit is
-older than 7 days has nothing new in the window: the run says there is nothing
-new and starts no container. The same answer comes when the record already
-names the tip. A git that cannot walk back to the commit 7 days back
-is said with what git said, and the run exits 2 and reviews nothing rather
-than reading from the root.
-
-What a review is for is the whole range, so a run that failed records nothing
-and the next run reads the same commits again. Only the exits that mean the
-reviewer answered move the record on.
-
-| Runner exit | Meaning | Recorded |
-| ----------- | ------- | -------- |
-| 0  | APPROVED, or nothing to review | the commit |
-| 10 | ISSUES_FOUND | the commit |
-| 20 | CRITICAL | the commit |
-| 30 | REVIEW_INCOMPLETE | nothing |
-| 40 | ROUND_CAP_REACHED | nothing |
-| any other | the runner failed or refused | nothing, and the command exits 2 |
-
-On exit 0, 10 or 20 the record is
-`{"commit": "<the head that was reviewed>", "at": "<UTC time>", "exit": <code>}`
-and it replaces what was there. With any other status the file stays exactly as
-it was, and is not made when the host had none. Before anything is recorded the
-runner's document is read, as a cycle's result and a planning turn's answer are
-read: its `exitCode` and the exit status of the container must say the same
-thing about the range. Two answers that disagree record nothing, and both are
-named in the line that says so.
-
-| Exit | Meaning |
-| ---- | ------- |
-| 0 | the review answered with no findings |
-| 10, 20 | findings, or serious findings: the status the runner gave |
-| 2 | the runner failed, ran out of time, or its record could not be written down |
-| 64 | an argument this command does not know, or no git identity for the clone; nothing ran |
-| 78 | the instance settings are invalid, `tehas.slice` cannot be used, the console is not installed beside the command, the image's runner has no `lens-review` verb in its `--capabilities`, or the review would be given a `PI_ENSEMBLE_*` setting that answer does not list as an input. A family such as `PI_ENSEMBLE_MODEL_<ROLE>` takes its listed members, and a setting whose name says it is secret (it holds TOKEN, SECRET, PASSWORD, PASSWD, KEY or CREDENTIAL, in any case) is not checked. Nothing was cloned and nothing ran. Also 78 when the clone could not be deepened to the commit the run starts from, and nothing ran |
-
-### What a review files
-
-A run that exited 10 or 20 files its findings as one issue in
-`TEHAS_REVIEW_REPO` for a person to triage; loading refuses a
-`TEHAS_REVIEW_REPO` equal to `TEHAS_REPO`, the product. The filing is the
-store's: `store review-file --repo <owner/name> --doc <document> --branch <b>
---commit <sha> [--ask <line>] [--private <name>]...`
-(`console/store/src/review_issue.rs`) reads the document of the run, decides
-what to file, and makes the calls of GitHub. The command asks for the filing
-and says what the store answered; it puts no part of an issue together itself.
-The rule of what the issue says is
-`tehas_core::review` (`console/core/src/review.rs`): the findings of the six
-lenses, `CRITICAL`, `HIGH` and `MEDIUM` one to a line and the rest counted, the
-title naming the count, the branch and the commit the range starts at.
-
-What comes out of a model is made safe on the way out by the two functions the
-console's log of the same run goes through (`tehas_core::mask` and
-`tehas_core::question::q_clean`): tokens, passwords, private addresses and the
-host's own names (the same list the console is given, with `--private`) are
-masked or hidden, a comment marker is escaped, a task box such as `- [ ]`
-becomes the glyph `- ☐` (`☑` when ticked), and the body is cut at 60 000
-characters. The line that asks for `tehas:refine`, the label that plans an
-issue into parts of one cycle each
-([Planning](/operating#planning)), is the command's own text and is put on
-after the masking, so no finding can become it. The issue is labelled
-`tehas:improvement` and nothing else -- never `tehas:ready`, since a finding
-starts no cycle until a person says so.
-
-While one of those issues is still open, the findings of a later run go into it
-as a comment rather than beside it, so a range nobody has read yet stays one
-issue. GitHub is asked for the open issue of the review, and a GitHub that will
-not answer is asked nothing: the findings are then filed as new, because a
-duplicate is read by a person and a lost finding is not.
-
-A run that exited 0 files nothing, and a run whose container wrote no document
-is a run that left no findings: the store renders its empty document as one and
-asks GitHub nothing. A filing that GitHub refused is an answered filing: the
-line says what did not happen, the record of the range is already written, so
-the next run reads the next commits whatever GitHub did, and the command still
-exits with the status the runner gave. A host with no `TEHAS_REVIEW_REPO` files
-nothing and says so. The body GitHub is given is written to
-`state/review.body`, mode 0600, while the calls are made, and taken away as the
-verb ends.
-
-The container is the one `tehas plan` starts a planning turn in: the same
-image, the same limits in `tehas.slice`, the same mounts and variables from
-`console/core/src/sandbox.rs`, and no Docker socket, SSH keys or `~/.config/tehas`. It
-differs in its name, in what it runs, and in having no token: a review reads
-code, and the container writes nothing to the tracker, so no `-e` carries
-`GH_TOKEN`, and the directory of the app's token is not mounted. The names of a planning turn, which this run has none of, are
-dropped the same way. It has no cid file, so a review left by a client that
-died is not named for a later run to remove. The one call the run makes to
-GitHub is the host's own, after the container ended, as the app: the issue, or the comment on the issue that is still
-open.
-
-The workspace is `~/tehas/work/<name>-review`, a clone made for every run and
-removed when the run is over; inside the container it is at the path every
-cycle has its own, `~/tehas/work/<name>`. Beside it is `<name>-review.state`,
-the run's own copy of the code index and its own memory, removed with the
-workspace. A run that fails after making the two removes them too. Its
-transcripts go to `~/.pi/agent/ensemble-runs/review`. The
-runner's one JSON document goes to `~/tehas/logs/review-<time>.json` and its
-NDJSON progress beside it as `.jsonl`. Both are masked on the way there, as
-every other log an agent can see is masked before a reader gets it: no other
-reader reaches a file named `review-<time>`.
-
-The shell command prepares the sandbox. The console beside it
-(`~/tehas/libexec/console review`) reads the range, checks the variables
-against the image's `--capabilities`, starts the container, bounds it, masks the
-two files and writes the record. A host without the console reviews nothing:
-78, and `run install.sh`.
-
-One review at a time: the run holds `~/tehas/state/review.lock` for as long as
-it goes, and a second one started beside it says so and starts nothing. A
-container left under the run's name by a client that died is removed before the
-run starts; the `docker rm`, `docker stop` and `docker kill` of these are each
-bounded by `TEHAS_STOP_WAIT` (60 seconds), so a dockerd that stops answering is
-reported rather than being the last thing the run does. So is the wait on the
-`docker run` client: one that outlives its container is sent `TERM` after that
-grace and `KILL` two seconds later, and the run says the docker client of the
-review would not end.
-
-The limit is `TEHAS_PLAN_TIMEOUT`, the bound of one headless turn: past it the
-container is stopped with `docker stop` and the run exits 2. An image whose
-runner has no `lens-review` verb reviews nothing, and that is said before
-anything is cloned. A `PI_ENSEMBLE_*` name that the environment would carry
-into the container is given only when the image's `--capabilities` says a host
-may set it; one it does not name stops the run before anything is cloned, as it
-does for a cycle.
-
-`tehas-review.timer` starts `tehas-review.service` on Monday morning once a
-week, `Persistent=true` so a host that was down when it was due runs it when it
-comes back. `install.sh` installs both units, and a first install enables the
-timer, only while review is on, which no release allows yet.
-
-The unit keeps its own lines in `~/tehas/logs/review-timer.log`, beside the
-`review-<time>` files of the runs; `journalctl --user -u tehas-review` holds
-what a run printed before it could open that file. `TimeoutStartSec` of the
-service is 3 hours, above the 2 hours `TEHAS_PLAN_TIMEOUT` gives the container,
-so systemd is the last bound and not the first. With review off a run exits
-at once and all of this costs the host one short process a week.

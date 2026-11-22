@@ -243,20 +243,6 @@
       "building": true
     },
     {
-      "name": "TEHAS_REVIEW",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "on",
-        "off",
-        "1",
-        "0"
-      ],
-      "reason": "expected on or off",
-      "building": true
-    },
-    {
       "name": "TEHAS_PLUGIN",
       "rule": "one-of",
       "when": "always",
@@ -323,20 +309,6 @@
       "when": "always",
       "default": null,
       "reason": "expected a private address and a port other than the dashboard's 8080 and the router's 8081, as 127.0.0.1:8095, an IPv6 address in brackets, as [::1]:8095",
-      "building": true
-    },
-    {
-      "name": "TEHAS_WIKI",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "on",
-        "off",
-        "1",
-        "0"
-      ],
-      "reason": "expected on or off",
       "building": true
     },
     {
@@ -693,13 +665,6 @@
       "building": true
     },
     {
-      "name": "TEHAS_ENERGY_SOURCE_URL",
-      "rule": "site-address",
-      "when": "given",
-      "default": null,
-      "reason": "expected an https address such as https://example.com/mesh"
-    },
-    {
       "name": "TEHAS_UPDATE_FROM",
       "rule": "one-of",
       "when": "given",
@@ -849,14 +814,6 @@
       "when": "required",
       "default": null,
       "reason": "expected one word"
-    },
-    {
-      "name": "TEHAS_REVIEW_REPO",
-      "rule": "repo",
-      "when": "required",
-      "default": "",
-      "reason": "expected owner/name",
-      "building": true
     }
   ],
   "host": [
@@ -914,26 +871,6 @@
       "when": "given",
       "default": null,
       "reason": "expected the absolute path of a clone such as /srv/checkout/product"
-    },
-    {
-      "name": "TEHAS_ENERGY",
-      "rule": "one-of",
-      "when": "given",
-      "default": null,
-      "words": [
-        "on",
-        "off",
-        "1",
-        "0"
-      ],
-      "reason": "expected on or off"
-    },
-    {
-      "name": "TEHAS_ENERGY_URL",
-      "rule": "address",
-      "when": "given",
-      "default": null,
-      "reason": "expected an http or https address such as http://models.example:8080/v1/cluster"
     },
     {
       "name": "TEHAS_UPDATE_LOCK_WAIT",

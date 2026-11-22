@@ -2189,8 +2189,8 @@ fn a_kept_lean_record_gives_a_lean_run_its_steps() {
     assert_eq!(names(&r), stream);
 }
 
-// The live files of one poll, as tehasbot status, tehas-dispatch and
-// console energy write them, at `at`.
+// The live files of one poll, as tehasbot status and tehas-dispatch write
+// them, at `at`, and the energy file a 1.4 host left, which no sample reads.
 fn live(home: &Path, at: i64, why: &str, limit_room: Option<i64>) {
     fs::create_dir_all(h(home).live_dir()).unwrap();
     let issue = |n: i64| json!({"number": n, "title": "t", "url": "u"});
@@ -2209,7 +2209,7 @@ fn live(home: &Path, at: i64, why: &str, limit_room: Option<i64>) {
     }
     put_at(h(home).live(Live::Dispatch), &d.to_string());
     put_at(
-        h(home).live(Live::Energy),
+        h(home).live_dir().join("energy.json"),
         &json!({"generatedAt": iso(at), "totals": {"watts": 412.5, "hosts": 2}}).to_string(),
     );
 }
@@ -2234,13 +2234,13 @@ fn a_sample_reads_the_live_files_of_the_poll() {
     // Five slots: two running and three free.
     assert_eq!(
         sample_row(&home),
-        format!("{now} 3 2 1 0 2 5 1 [awaiting] 412.5")
+        format!("{now} 3 2 1 0 2 5 1 [awaiting] -")
     );
 
     // The limit of tehas limit allows fewer; nothing holds.
     live(&home, now + 90, "", Some(1));
     execute(&home, &Cmd::Sample, now + 100).unwrap();
-    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 3 1 [] 412.5", now + 100)));
+    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 3 1 [] -", now + 100)));
 }
 
 #[test]
@@ -2272,10 +2272,7 @@ fn a_sample_reads_the_report_the_dispatcher_writes() {
     execute(&home, &Cmd::Sample, now).unwrap();
     // The limit of tehas limit is the lower ceiling: count plus limitRoom,
     // three, though count plus free would give seven.
-    assert_eq!(
-        sample_row(&home),
-        format!("{now} 3 2 1 0 2 3 1 [limit] 412.5")
-    );
+    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 2 3 1 [limit] -"));
 }
 
 #[test]
@@ -2300,11 +2297,11 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
         &json!({"time": iso(now - 200), "why": "count", "count": 1, "free": 0}).to_string(),
     );
     execute(&home, &Cmd::Sample, now + 1).unwrap();
-    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 - 1 - 412.5", now + 1)));
+    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 - 1 - -", now + 1)));
 
     let home = scratch("sample-links");
     live(&home, now - 30, "count", None);
-    for view in [Live::Status, Live::Dispatch, Live::Energy] {
+    for view in [Live::Status, Live::Dispatch] {
         let p = h(&home).live(view);
         let moved = home.join(p.file_name().unwrap());
         fs::rename(&p, &moved).unwrap();
@@ -2319,10 +2316,6 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     put_at(
         h(&home).live(Live::Dispatch),
         &json!({"time": "yesterday", "why": "count", "count": 1, "free": 0}).to_string(),
-    );
-    put_at(
-        h(&home).live(Live::Energy),
-        &json!({"generatedAt": iso(now), "totals": {"watts": null}}).to_string(),
     );
     execute(&home, &Cmd::Sample, now).unwrap();
     assert_eq!(sample_row(&home), nothing(now));
@@ -2408,7 +2401,7 @@ fn a_sample_prunes_too_and_two_in_one_second_keep_the_last() {
     execute(&home, &Cmd::Sample, now).unwrap();
     live(&home, now, "", None);
     execute(&home, &Cmd::Sample, now).unwrap();
-    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 2 5 1 [] 412.5"));
+    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 2 5 1 [] -"));
     let conn = Connection::open(db::path(&home)).unwrap();
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 0);
 }
@@ -3819,8 +3812,6 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
                    "shipped": 3, "perShipped": 2217},
         // 1500 seconds of 734400 since the first sample: 600 + 600 + 300.
         "availability": {"n": 5, "seconds": 734_400, "share": 0.002},
-        // 100 W for 600 s, 100 W for 600 s, 200 W for 600 s, 100 W for 300 s.
-        "energy": {"n": 4, "kwh": 0.075, "perShipped": 0.025},
         "daily": [
             day("2026-10-15", 1, 3, 0, 60),
             day("2026-10-16", 1, 2, 2, 20),
@@ -4636,7 +4627,6 @@ fn the_text_report_says_the_figures_with_their_counts() {
         "\nMachine time       1h20m, 26m40s per shipped issue  (n=6)\n",
         "\nTokens             6650: 6100 input, 500 output, 50 cache read, 2217 per shipped issue  (n=4)\n",
         "\nAvailability       0.2% of 8d12h  (n=5)\n",
-        "\nEnergy             0.075 kWh, 0.025 kWh per shipped issue  (n=4)\n",
         "\nGate               median 5m, p90 9m, 1.333 runs per run, 46.7% of run time  (n=3, 20m)\n",
         "\n2026-10-16         1     2       2       20\n",
         "\nStop reasons  (n=4)\n  explore-bodies-empty              1\n",
@@ -4836,11 +4826,10 @@ fn a_wrong_typed_samples_cell_no_longer_ends_the_published_report() {
     assert!(old_way.is_err(), "a REAL is not a count read the old way");
 }
 
-// A cell of the wrong type in `at` or `watts`, the two columns still read as
-// they were, does end the report: this is the half the careful readers do not
-// reach, kept here so the shape of what changed is on the record.
+// The watts of a 1.4 database are not read: energy use left core in 2.0, and
+// a cell of any type there ends no report and gives it no energy.
 #[test]
-fn a_word_in_the_watts_column_still_ends_the_report() {
+fn the_watts_column_is_not_read() {
     let home = scratch("report-sample-watts");
     let to = 1_792_022_400 + 10 * DAY;
     let (conn, _) = db::open(&db::path(&home), to).unwrap();
@@ -4849,7 +4838,8 @@ fn a_word_in_the_watts_column_still_ends_the_report() {
         params![to - 300],
     )
     .unwrap();
-    assert!(crate::report::build(&conn, to).is_err());
+    let report = crate::report::build(&conn, to).unwrap();
+    assert!(report.get("energy").is_none());
 }
 
 fn add_run(conn: &Connection, id: &str, issue: i64, started: i64) {

@@ -12,7 +12,6 @@ published_keys() { jq -r 'keys | join(",")' "$live/top.json"; }
 t_case "the published file is the snapshot cut to the keys that may be published"
 reset
 files
-energy
 t_instance "${T_MINIMAL[@]}" TEHAS_TOP=1
 t_run "$top --json"
 snapshot=$t_out
@@ -27,7 +26,7 @@ t_eq "$(published)" "there"
 t_eq "$(jq -c 'del(.generatedAt, .console, .reading, .factory.ageSeconds)' "$live/top.json")" \
   "$(jq -c 'del(.generatedAt, .console, .reading, .factory.ageSeconds)' <<<"$snapshot")"
 t_eq "$(jq -r '.host | type' "$live/top.json")" "object"
-t_eq "$(published_keys)" "cycle,energy,factory,generatedAt,host,queue,units"
+t_eq "$(published_keys)" "cycle,factory,generatedAt,host,queue,units"
 t_lacks "$live/top.json" "SecretTokenInACommandLine"
 
 # What is published is a list of keys, not a list of keys to take out: two keys
@@ -35,10 +34,9 @@ t_lacks "$live/top.json" "SecretTokenInACommandLine"
 t_case "a key added to the snapshot later does not reach the published file"
 reset
 files
-energy
 t_instance "${T_MINIMAL[@]}" TEHAS_TOP=1
 t_run "$publish"
-t_eq "$(published_keys)" "cycle,energy,factory,generatedAt,host,queue,units"
+t_eq "$(published_keys)" "cycle,factory,generatedAt,host,queue,units"
 # The same cut of a snapshot with a key no page draws, and of what is no
 # snapshot, is in console/src/top.rs.
 

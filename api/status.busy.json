@@ -74,7 +74,7 @@
       "issue": 21,
       "why": "parked",
       "text": "its last cycle parked on `gate` and the body has not changed since",
-      "clear": "edit the body, or tick Retry in the park comment"
+      "clear": "edit the body, or reply to the park comment with the word of one of its retries"
     }
   ],
   "room": {

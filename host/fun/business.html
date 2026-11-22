@@ -83,12 +83,10 @@
         <a href="#board">Issues</a>
         <a href="#epics" data-epics-nav hidden>Epics</a>
         <a href="#console">Console</a>
-        <a href="#live" id="nav-power" hidden>Power</a>
         <a id="nav-lab" href="#" target="_blank" rel="noopener" hidden>Protolab</a>
         <a id="nav-repo" href="#" target="_blank" rel="noopener noreferrer" hidden>GitHub</a>
       </nav>
       <div class="status">
-        <a class="meter" id="meter" href="#live" hidden><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M7 1L2 7h3.5L5 11l5-6H6.5z" fill="currentColor"/></svg><span id="meter-w">-- W</span></a>
         <span class="tag" id="source" hidden></span>
         <span class="state" id="state" data-state="none"><i></i><span id="state-text">Reading</span></span>
         <button class="mode" type="button" id="mode" hidden>Dark mode</button>
@@ -110,24 +108,6 @@
         <span class="aside-note" id="aside-note"></span>
       </div>
     </div>
-
-    <section class="panel power" id="live" aria-label="Live" hidden>
-      <div class="power-figs">
-        <span class="power-tag" id="live-tag">Live</span>
-        <div><small>Power now</small><b><span id="live-w">--</span><em>W</em></b></div>
-        <div id="live-tokens-box"><small>Tokens now</small><b><span id="live-tokens">--</span><em>/min</em></b></div>
-        <div><small>Last 24 h</small><b><span id="live-24">--</span><em>kWh</em></b></div>
-        <div><small>Last 30 days</small><b><span id="live-30">--</span><em>kWh</em></b></div>
-      </div>
-      <div class="power-chart">
-        <header><span><b>Power, 30 minutes</b> watts</span></header>
-        <svg id="live-power" role="img" aria-label="Power drawn over the last 30 minutes"></svg>
-      </div>
-      <div class="power-chart" id="live-tokens-chart">
-        <header><span><b>Tokens, 30 minutes</b> per minute</span></header>
-        <svg id="live-token-bars" role="img" aria-label="Tokens a minute over the last 30 minutes"></svg>
-      </div>
-    </section>
 
     <section class="panel" id="production" aria-labelledby="line-title">
       <div class="panel-head"><div><p class="section-kicker">Current work</p><h2 id="line-title">Production line</h2></div><span id="line-note"></span></div>

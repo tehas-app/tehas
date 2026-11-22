@@ -8,10 +8,6 @@
 //!   instance.env that sets a token is refused: it is in a repository.
 //! - PI_RUKAS_FOLLOW may be set in instance.env, over the line of versions.env.
 //! - Loading runs no git command, makes no network call and writes nothing.
-//! - TEHAS_REVIEW is the switch of review, a feature still being built: on
-//!   stops the load, and so does a TEHAS_REVIEW_REPO line (features.rs). Off,
-//!   tehasbot review exits at once and calls nothing. TEHAS_REVIEW_REPO is
-//!   never TEHAS_REPO: a person triages findings before they are tickets.
 //! - TEHAS_GITHUB_APP_ID names the GitHub App the factory acts as, and is the
 //!   only setting that does; the load refuses without it. The app's login is
 //!   not a setting: state/github/login holds it, one line, `<slug>[bot]`, and
@@ -90,9 +86,6 @@ pub(super) const KEPT: &[&str] = &[
     "TEHAS_GITHUB_API",
     "TEHAS_GITHUB_APP_KEY",
     "TEHAS_GITHUB_RENEW_EVERY",
-    "TEHAS_ENERGY",
-    "TEHAS_ENERGY_URL",
-    "TEHAS_ENERGY_SOURCE_URL",
     "TEHAS_MANAGER_VERSION",
     "TEHAS_MCP",
     "TEHAS_MCP_KEYS",
@@ -135,6 +128,30 @@ pub(super) fn retired(name: &str) -> bool {
 /// line of one loads: a 1.4.x instance must never fail to load (the owner,
 /// 2026-11-22). The load warns once and drops the name, so nothing reads it.
 pub(super) const IGNORED: &[(&str, &str)] = &[
+    (
+        "TEHAS_REVIEW",
+        "the review loop left core in 2.0 and returns as a plugin",
+    ),
+    (
+        "TEHAS_REVIEW_REPO",
+        "the review loop left core in 2.0 and returns as a plugin",
+    ),
+    (
+        "TEHAS_ENERGY",
+        "energy use left core in 2.0 and returns as a plugin",
+    ),
+    (
+        "TEHAS_ENERGY_URL",
+        "energy use left core in 2.0 and returns as a plugin",
+    ),
+    (
+        "TEHAS_ENERGY_SOURCE_URL",
+        "energy use left core in 2.0 and returns as a plugin",
+    ),
+    (
+        "TEHAS_WIKI",
+        "the product wiki left core in 2.0 and returns as a plugin",
+    ),
     ("TEHAS_WORK_DESCRIBE", GIVEN),
     ("TEHAS_WORK_FILES", GIVEN),
     ("TEHAS_WORK_ZIPS", GIVEN),
@@ -679,18 +696,13 @@ fn host_values(vars: &Vars, text: &[u8], file: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The two switches of the host, checked already, in the words their readers
-/// compare with. TEHAS_ENERGY: `off` takes the energy section away, `on` asks
-/// for it, and unset or empty leaves it to the sampler; tehasbot energy and
-/// the first install read `on` and `off`. TEHAS_MCP: the MCP server reads `1`
-/// and `0`.
+/// The switch of the host, checked already, in the words its reader compares
+/// with: the MCP server reads TEHAS_MCP as `1` or `0`.
 fn host_switches(vars: &mut Vars) {
-    for (name, words) in [("TEHAS_ENERGY", ("on", "off")), ("TEHAS_MCP", ("1", "0"))] {
-        if let Some(on) = rules::switch(&vars.text(name)) {
-            let word = if on { words.0 } else { words.1 };
-            if vars.text(name) != word {
-                vars.set(name, word);
-            }
+    if let Some(on) = rules::switch(&vars.text("TEHAS_MCP")) {
+        let word = if on { "1" } else { "0" };
+        if vars.text("TEHAS_MCP") != word {
+            vars.set("TEHAS_MCP", word);
         }
     }
 }
@@ -788,15 +800,6 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
     if some("TEHAS_SITE_ANALYTICS_SRC") && !some("TEHAS_SITE_ANALYTICS_NAME") {
         return Err(format!(
             "TEHAS_SITE_ANALYTICS_NAME is not set and TEHAS_SITE_ANALYTICS_SRC is (see {file})"
-        ));
-    }
-    // A model's findings go to a repository of their own, where a person
-    // triages them into tickets of the product: filing them in the product is
-    // the one setting that cannot be allowed.
-    let repo = vars.text("TEHAS_REPO");
-    if !repo.is_empty() && vars.text("TEHAS_REVIEW_REPO").to_lowercase() == repo.to_lowercase() {
-        return Err(format!(
-            "the review files in {repo}, the product repository: a model writes its findings, so they go to a repository of their own where a person triages them (see {file})"
         ));
     }
     // One axis of parallelism: several cycles of one workstream, or one cycle
@@ -1156,10 +1159,10 @@ mod tests {
     fn refused(extra: &[&str]) -> String {
         run(&mut Fake::with(extra)).1.unwrap_err()
     }
-    /// A load whose environment names outsource and review in the test
+    /// A load whose environment names outsource in the test
     /// variable, as a test of a building feature starts a program.
     fn tested(extra: &[&str]) -> (Vars, Result<(), String>) {
-        let mut vars = start(&[(crate::features::TEST_VAR, "outsource review")]);
+        let mut vars = start(&[(crate::features::TEST_VAR, "outsource")]);
         let got = load(&mut vars, &mut Fake::with(extra), "1000");
         (vars, got)
     }
@@ -1192,11 +1195,6 @@ mod tests {
             ),
             ("TEHAS_MCP", "yes", "expected on or off"),
             (
-                "TEHAS_ENERGY_URL",
-                "gateway.lan/v1",
-                "expected an http or https address such as http://models.example:8080/v1/cluster",
-            ),
-            (
                 "TEHAS_MODEL_KEY_MAIN",
                 "sk-one two",
                 "expected one word of printable characters, with no quote, backslash, $ or backtick",
@@ -1220,7 +1218,6 @@ mod tests {
             ("TEHAS_MCP", "on"),
             ("TEHAS_MCP_KEYS", key),
             ("TEHAS_MODEL_KEY_MAIN", "sk-abc+/="),
-            ("TEHAS_ENERGY_URL", "http://gateway.lan:8080/v1/cluster"),
         ]);
         assert_eq!(load(&mut vars, &mut Fake::with(&[]), "1000"), Ok(()));
         assert_eq!(vars.text("TEHAS_MCP"), "1");
@@ -1436,24 +1433,21 @@ mod tests {
     }
 
     #[test]
-    fn the_review_switch_set_on_and_a_review_repo_stop_the_load() {
-        assert_eq!(
-            refused(&["TEHAS_REVIEW=on"]),
-            format!("TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out (see {FILE})")
-        );
-        assert_eq!(
-            refused(&["TEHAS_REVIEW=1", "TEHAS_REVIEW_REPO=acme/backlog"]),
-            format!("TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out (see {FILE})")
-        );
-        assert_eq!(
-            refused(&["TEHAS_REVIEW_REPO=acme/backlog"]),
-            format!("TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out (see {FILE})")
-        );
-        assert_eq!(loads(&["TEHAS_REVIEW=off"]).text("TEHAS_REVIEW"), "0");
-        let (vars, got) = tested(&["TEHAS_REVIEW=on", "TEHAS_REVIEW_REPO=acme/backlog"]);
-        assert_eq!(got, Ok(()));
-        assert_eq!(vars.text("TEHAS_REVIEW"), "1");
-        assert_eq!(vars.text("TEHAS_REVIEW_REPO"), "acme/backlog");
+    fn the_review_loops_settings_load_with_a_warning_and_are_dropped() {
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&["TEHAS_REVIEW=on", "TEHAS_REVIEW_REPO=acme/backlog"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert!(!vars.is_set("TEHAS_REVIEW"));
+        assert!(!vars.is_set("TEHAS_REVIEW_REPO"));
+        for name in ["TEHAS_REVIEW", "TEHAS_REVIEW_REPO"] {
+            assert!(
+                host.warned.iter().any(|w| w.starts_with(&format!(
+                    "{name} is no longer read: the review loop left core in 2.0"
+                ))),
+                "{:?}",
+                host.warned
+            );
+        }
     }
 
     const PIN: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -1633,7 +1627,6 @@ mod tests {
         assert_eq!(vars.text("TEHAS_ANALYTICS"), "off");
         assert_eq!(loads(&["TEHAS_ANALYTICS=1"]).text("TEHAS_ANALYTICS"), "on");
         assert_eq!(loads(&[]).text("TEHAS_ANALYTICS"), "on");
-        assert_eq!(loads(&[]).text("TEHAS_REVIEW"), "0");
         // The rules between switches read the value after it is brought to form.
         let got = refused(&["TEHAS_PREVIEWS=on"]);
         assert!(
@@ -1644,41 +1637,40 @@ mod tests {
     }
 
     #[test]
-    fn the_energy_switch_takes_the_switch_words_from_the_host_file() {
-        for (value, want) in [
-            ("on", "on"),
-            ("1", "on"),
-            ("off", "off"),
-            ("0", "off"),
-            ("", ""),
+    fn the_energy_settings_of_a_1_4_host_load_and_are_not_read() {
+        // Energy use left core in 2.0: any value, from the host or the
+        // instance, loads, and nothing reads it.
+        for name in [
+            "TEHAS_ENERGY",
+            "TEHAS_ENERGY_URL",
+            "TEHAS_ENERGY_SOURCE_URL",
         ] {
-            let mut vars = start(&[("TEHAS_ENERGY", value)]);
+            for value in ["on", "off", "viiwork", "gateway.lan/v1", ""] {
+                let mut vars = start(&[(name, value)]);
+                assert_eq!(
+                    load(&mut vars, &mut Fake::with(&[]), "1000"),
+                    Ok(()),
+                    "{name}={value}"
+                );
+                assert!(!vars.is_set(name), "{name}={value}");
+            }
+            let mut host = Fake::with(&[]).file("/h/.config/tehas/env", &format!("{name}=solar\n"));
+            assert_eq!(load(&mut start(&[]), &mut host, "1000"), Ok(()), "{name}");
+            let mut host = Fake::with(&[&format!("{name}=solar")]);
+            let mut vars = start(&[]);
+            assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()), "{name}");
+            assert!(!vars.is_set(name), "{name}");
             assert_eq!(
-                load(&mut vars, &mut Fake::with(&[]), "1000"),
-                Ok(()),
-                "{value}"
+                host.warned,
+                [format!(
+                    "{name} is no longer read: energy use left core in 2.0 and returns as a plugin; remove it from the instance"
+                )]
             );
-            assert_eq!(vars.text("TEHAS_ENERGY"), want, "{value}");
         }
-        let mut vars = start(&[]);
-        assert_eq!(load(&mut vars, &mut Fake::with(&[]), "1000"), Ok(()));
-        assert!(!vars.is_set("TEHAS_ENERGY"));
-        let mut vars = start(&[("TEHAS_ENERGY", "viiwork")]);
         assert_eq!(
-            load(&mut vars, &mut Fake::with(&[]), "1000"),
-            Err(
-                "TEHAS_ENERGY is not valid: expected on or off (see /h/.config/tehas/env)"
-                    .to_string()
-            )
+            refused(&["TEHAS_MCP=yes"]),
+            format!("TEHAS_MCP is not valid: expected on or off (see {FILE})")
         );
-        // instance.env that sets it is the file named.
-        for line in ["TEHAS_ENERGY=solar", "TEHAS_MCP=yes"] {
-            let name = line.split('=').next().unwrap();
-            assert_eq!(
-                refused(&[line]),
-                format!("{name} is not valid: expected on or off (see {FILE})")
-            );
-        }
     }
 
     #[test]
@@ -2072,18 +2064,11 @@ mod tests {
 
     #[test]
     fn what_a_load_requires_later_does_not_refuse_it() {
-        let (vars, got) = tested(&[
-            "TEHAS_REPO=widget",
-            "TEHAS_ALLOWED_LABELERS=alice ",
-            "TEHAS_REVIEW_REPO=acme",
-        ]);
+        let (vars, got) = tested(&["TEHAS_REPO=widget", "TEHAS_ALLOWED_LABELERS=alice "]);
         assert_eq!(got, Ok(()));
         let found: Vec<(String, String)> = bad(&vars);
         let names: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
-        assert_eq!(
-            names,
-            ["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS", "TEHAS_REVIEW_REPO"]
-        );
+        assert_eq!(names, ["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"]);
         assert_eq!(found[0].1, "expected owner/name");
     }
 
@@ -2112,10 +2097,6 @@ mod tests {
             (
                 &["TEHAS_SITE_ANALYTICS_SRC=https://a.example/x.js"][..],
                 "TEHAS_SITE_ANALYTICS_NAME is not set and TEHAS_SITE_ANALYTICS_SRC is",
-            ),
-            (
-                &["TEHAS_REVIEW_REPO=Acme/Widget"][..],
-                "the review files in acme/widget, the product repository",
             ),
             (
                 &["TEHAS_WORKSTREAMS=2", "TEHAS_MAX_CYCLES=3"][..],
@@ -2579,6 +2560,18 @@ mod tests {
                 host.warned
             );
         }
+    }
+
+    #[test]
+    fn a_line_of_the_product_wiki_loads_warns_and_is_not_read() {
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&["TEHAS_WIKI=on"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(
+            host.warned,
+            ["TEHAS_WIKI is no longer read: the product wiki left core in 2.0 and returns as a plugin; remove it from the instance"]
+        );
+        assert!(!vars.is_set("TEHAS_WIKI"));
     }
 
     #[test]
