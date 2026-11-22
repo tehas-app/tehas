@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Tests for the front page: where the live power meter stands and how much
-# width it is given at each width of the window, what the header band is when
-# the window is phone sized, and what answers a ticket row that is pressed.
+# Tests for the front page: how the panels take the width of the window, what
+# the header band is when the window is phone sized, and what answers a ticket
+# row that is pressed.
 # It reads the markup, the stylesheets and the scripts that draw into the
 # markup as they are in the checkout: no browser, no server, no rendering.
 # shellcheck source=test/lib.sh
@@ -9,8 +9,6 @@
 
 page=$T_ROOT/host/fun/index.html
 game=$T_ROOT/host/fun/game-view.css
-energy=$T_ROOT/host/fun/energy-view.css
-script=$T_ROOT/host/fun/energy-view.js
 hostjs=$T_ROOT/host/fun/host-view.js
 hostdata=$T_ROOT/host/fun/host-data.js
 hostcss=$T_ROOT/host/fun/host-view.css
@@ -26,8 +24,6 @@ dashjs_text=$(cat "$factory"/*.js)
 hostisl_text=$(cat "$factory"/tehas-factory-host.*)
 page_text=$(cat "$page")
 game_text=$(cat "$game")
-energy_text=$(cat "$energy")
-script_text=$(cat "$script")
 board_text=$(cat "$board")
 hostjs_text=$(cat "$hostjs")
 hostdata_text=$(cat "$hostdata")
@@ -55,14 +51,13 @@ manual_heading='## 1. Write an issue tehas can build'
 
 # The media query a line of a stylesheet sits in: the last @media above it, and
 # of the lines that hold the pattern, the first one. NO_QUERY when the line is
-# in the file with no media query around it, and NO_LINE when the line is not
-# there at all, so that a changed value cannot read as the answer for a line
+# in the file with no media query around it, and "not in the file" when the
+# line is not there at all, so that a changed value cannot read as the answer for a line
 # outside every media query.
 query_of() { # <holds this> <file>
   awk -v p="$1" '/@media/ { q = $0 } !seen && index($0, p) { seen = 1; found = q } END { print !seen ? "not in the file" : (found == "" ? "no media query" : found) }' "$2"
 }
 NO_QUERY="no media query" # a line of the file with no @media around it
-NO_LINE="not in the file" # the pattern is not in the file at all
 NO_SLUG="no slug" # the manual holds no heading to derive the deep link's anchor from
 NO_ORDER="no link" # one of the two links of the intro is not on the page at all
 
@@ -82,19 +77,8 @@ slug_of() { # <heading>
     END { print found ? slug : no }'
 }
 
-# How much room the meter needs, in the three parts the header comment of
-# host/fun/energy-view.css names: the line itself, its padding, and the rule
-# beside it. Topaz advances half an em: 8px a character at body size, 16px in
-# display type. A token rate under a million a minute shows at most five
-# figures, so the widest line is TOKENS with such a rate: the label of six
-# characters, the gap between the label and the figures, five figures, the space
-# before "/MIN" and the four characters of it.
-line=$((6 * 8 + 8 + 5 * 16 + 8 + 4 * 8)) # 176: the line
-padding=$((2 * 16)) # 32: its padding, 16px on each side
-rule=4 # 4: the rule beside it
-meter_widest=$((line + padding + rule)) # 212
 # A width, or NO_WIDTH where the file does not hold the declaration, so that an
-# absent declaration cannot read as a zero a meter would fit into.
+# absent declaration cannot read as a zero a panel would fit into.
 NO_WIDTH="no width"
 fits() { # <needs this many px> <has this, or no width>
   case "$2" in
@@ -127,65 +111,7 @@ area_of() { # <class>
       print substr($0, RSTART + 11, RLENGTH - 11); found = 1; exit
     }
     on && index($0, "}") { on = 0 }
-    END { if (!found) print no }' "$game" "$energy" "$hostcss"
-}
-
-t_case "the live meter stands at the right end of the head panel"
-t_contains "$head_panel" '<a class="floor-meter" id="floor-meter" href="#energy"'
-t_eq "$(awk -v a='<p id="floor-summary">' -v b='<a class="floor-meter"' \
-  'index($0, a) { last = NR } index($0, b) { meter = NR } END { print (last && meter > last) ? "after" : "wrong" }' "$page")" after
-
-t_case "the meter is not one of the doors and nothing was added to the top bar"
-t_lacks "$doors" 'meter'
-t_lacks "$topbar" 'meter'
-t_contains "$topbar" 'class="gate" id="gate"'   # the factory state gate still closes it
-t_eq "$(awk '/class="door"/ { n++ } END { print n }' <<<"$doors")" 6
-
-# The script reaches for an element by id. The dollar is written once here, so
-# each case names only the id.
-looks_up() { t_contains "$script_text" "\$(\"$1\")"; }
-
-t_case "the script names the meter the page has, and no meter of its own"
-looks_up floor-meter
-looks_up energy
-looks_up menu-energy
-t_lacks "$script_text" 'door-meter'
-t_lacks "$page_text" 'door-meter'
-
-t_case "the panel splits for the meter only while the meter is there"
-t_contains "$energy_text" '.floor-head:has(> .floor-meter:not([hidden])) {'
-# The split names every row of the panel, so the meter stands over the title bar
-# and the text under it rather than in a row of its own.
-t_contains "$energy_text" 'grid-template-areas: "title meter" "intro meter" "foot meter";'
-# The meter's own styles are in energy-view.css, not in the page's stylesheet.
-t_eq "$(query_of '.floor-meter' "$game")" "$NO_LINE"
-
-t_case "the meter costs 336px on a wide screen, where the monitor stands below it"
-# The base column carries no media query: it is what a wide screen gets.
-t_eq "$(query_of '--meter-column: 336px' "$energy")" "$NO_QUERY"
-t_contains "$energy_text" 'grid-template-columns: minmax(0, 1fr) var(--meter-column);'
-
-# The last width on the first line that holds this: the px a declaration ends
-# in, as a number. NO_WIDTH where no line does, so an absent declaration cannot
-# read as a zero a card would fit into.
-last_px() { # <line holds this> <file>
-  awk -v p="$1" -v no="$NO_WIDTH" '
-    !got && index($0, p) {
-      rest = $0
-      while (match(rest, /[0-9]+px/)) {
-        n = substr(rest, RSTART, RLENGTH - 2)
-        rest = substr(rest, RSTART + RLENGTH)
-      }
-      if (n != "") got = n
-    }
-    END { print got == "" ? no : got }' "$2"
-}
-
-# The whole rule that opens with this line, in a stylesheet of your choosing:
-# the opening line to the line that closes it, indented ones included.
-rule_in() { # <opens with this> <file>
-  awk -v hold="$1" '!on && (index($0, hold) == 1 || index($0, hold) == 3) { on = 1 }
-    on { print } on && index($0, "}") { exit }' "$2"
+    END { if (!found) print no }' "$game" "$hostcss"
 }
 
 # Every rule that opens with this selector and holds this declaration, printed
@@ -201,104 +127,6 @@ rules_holding() { # <opens with this> <declaration line holds this> [in this fil
     }
   ' "${3:-$game}"
 }
-
-t_case "at 1440px and up the meter is a card of its own over the monitor column"
-# The width where it becomes a card comes from the stylesheet that gives the
-# stage its monitor column, so the two bands cannot drift apart.
-card_band=$(query_of 'margin-right: var(--meter-room)' "$energy")
-t_eq "$(awk -v no="$NO_WIDTH" 'match($0, /min-width: [0-9]+/) {
-  print substr($0, RSTART + 11, RLENGTH - 11); found = 1 } END { if (!found) print no }' <<<"$card_band")" "$stage_from"
-t_eq "$(query_of 'grid-template-columns: minmax(0, 1fr) 0;' "$energy")" "$card_band"
-# The card is as wide as the column it stands over, and the panel gives up that
-# column plus the gutter between the stage's panels: so the card's edges are the
-# monitor column's, and the room between the card and the panel is what every
-# other pair of panels gets.
-monitor_col=$(last_px 'grid-template-columns: minmax(0, 1fr) ' "$game")
-stage_gap=$(last_px 'column-gap: ' "$game")
-meter_col=$(last_px '--meter-column: ' "$energy")
-room_gap=$(last_px '--meter-room: calc(var(--meter-column) + ' "$energy")
-case "$monitor_col $stage_gap $meter_col $room_gap" in
-  *"$NO_WIDTH"*) t_skip "a width is not in the stylesheets: $monitor_col $stage_gap $meter_col $room_gap" ;;
-  *)
-    t_eq "$meter_col" "$monitor_col"
-    t_eq "$room_gap" "$stage_gap"
-    ;;
-esac
-# Drawn like the other cards, and standing outside the panel: the meter gives up
-# the area it used to fill, that column narrows to nothing so the panel keeps
-# its whole width, and the card is measured against the panel's own edges rather
-# than against its rows -- it spans the panel whatever the panel holds.
-card=$(rule_in '.floor-head > .floor-meter {' "$energy")
-t_contains "$card" 'position: absolute;'
-t_contains "$card" 'grid-area: auto;'
-t_contains "$card" 'width: var(--meter-column);'
-t_contains "$card" 'border: var(--frame);'
-t_contains "$card" 'box-shadow: var(--shadow-sign);'
-# The card's edges are the panel's outer edges: what it steps out by, at the
-# top, the bottom and the right, is the panel's own border. The two are read
-# together because the coincidence is what stands the card on the monitor column
-# -- a border that moves and offsets that do not would drift the card off it
-# while every width above still matched. Both are the theme's --edge, whatever
-# width a theme gives it: every theme draws --frame at --edge (theme_test.sh).
-head_face=$(rules_holding '.floor-head {' 'border: ' "$game")
-t_contains "$head_face" 'border: var(--frame);'
-t_contains "$card" 'top: calc(-1 * var(--edge));'
-t_contains "$card" 'bottom: calc(-1 * var(--edge));'
-t_contains "$card" 'right: calc(-1 * (var(--meter-room) + var(--edge)));'
-# Below that band the meter is still a band inside the panel, closed off from
-# the text by a rule beside it rather than an outline all round.
-t_eq "$(query_of '.floor-meter { grid-area: meter; border-left: var(--frame); }' "$energy")" "$NO_QUERY"
-
-# The head panel holds a third element on a host that publishes the host
-# snapshot: the host line, which names no area of its own. An out-of-flow meter
-# holds no cell, so the grid's own rules would put the line in the column the
-# meter gave up, against a track of nothing. Its column is named where the card
-# is.
-t_case "the host line keeps the column of the text beside the card"
-chip=$(rule_in '.floor-head > .floor-host {' "$energy")
-t_contains "$chip" 'grid-column: 1;'
-# The pin is in the same band as the card and in the stylesheet that moves the
-# meter: the column the card gave up and the column the line is kept out of are
-# one decision, read as one.
-t_eq "$(query_of 'grid-column: 1;' "$energy")" "$card_band"
-t_eq "$(query_of 'grid-column: 1;' "$energy")" "$(query_of 'grid-template-columns: minmax(0, 1fr) 0;' "$energy")"
-
-t_case "it costs 240px from 900 up to the width where the stage is one column"
-# The band is read out of the stylesheet that gives up the monitor's column: the
-# meter is not given its narrow column at a width of its own.
-t_eq "$(query_of '--meter-column: 240px' "$energy")" "$stage_band"
-
-t_case "below 900px it lies across the foot of the panel at its full width"
-t_eq "$(query_of 'grid-template-areas: "title" "intro" "foot" "meter";' "$energy")" "@media (max-width: 899px) {"
-t_contains "$energy_text" '.floor-meter { border-top: var(--frame); border-left: 0; }'
-
-t_case "the meter fits the narrow column it is given, and the panel at 360px"
-# The width the meter's column is given between 900 and 1440px, read out of the
-# whole declaration rather than from an offset into it. A declaration that is
-# not there answers NO_WIDTH, which fits nothing.
-narrow=$(awk -v band="$stage_band" '/@media/ { q = $0 } !got && match($0, /--meter-column: [0-9]+px/) && index(q, band) { got = substr($0, RSTART, RLENGTH) } END { if (got == "") { print "no width"; exit } gsub(/[^0-9]/, "", got); print got }' "$energy")
-t_eq "$narrow" 240
-t_eq "$(fits "$meter_widest" "$narrow")" fits
-# At 360px the stage has 16px of padding each side and the panel a 4px border.
-# Below 900px the rule runs across the top of the meter rather than beside it, so
-# counting it asks for 4px more than the meter needs there: the safe direction.
-t_eq "$(query_of '.stage { padding: 0 16px; }' "$game")" "@media (max-width: 699px) {"
-panel_360=$((360 - 2 * 16 - 2 * 4))
-t_eq "$(fits "$meter_widest" "$panel_360")" fits
-
-t_case "the meter does not reach into the sticky header or its height"
-t_contains "$game_text" '--header: 80px;'
-t_lacks "$energy_text" '.topbar'
-t_lacks "$energy_text" '.door.meter'
-
-t_case "the manual says the meter stands on the head panel, not among the doors"
-t_contains "$manual_text" 'the panel that opens the first screen carries a'
-t_contains "$manual_text" 'live meter: the draw now'
-t_contains "$manual_text" 'it stands at the right end of the panel'
-t_contains "$manual_text" 'a card of its own beside that panel'
-t_lacks "$manual_text" 'meter stands among the doors'
-t_contains "$features_text" 'live meter on the head panel'
-t_lacks "$features_text" 'meter among the doors'
 
 # The body of one media block: the first block in the file that opens with
 # this, from its opening line to the line that closes it, braces counted.
@@ -441,6 +269,9 @@ stage_children=$(awk '
 t_eq "$(tr '\n' ' ' <<<"$stage_children")" "floor doors desk epics energy host break-room "
 t_case "every panel the markup puts in the stage has a row of its own"
 for panel in $stage_children; do
+  # Energy use left core in 2.0 with its stylesheet; its markup goes with
+  # index.html's next change.
+  [ "$panel" = energy ] && continue
   t_contains "$medium_areas" "\"$(area_of "$panel")\""
 done
 
@@ -633,7 +464,6 @@ t_eq "$stage_areas" '"head head" "line monitor" "doors monitor" "board monitor" 
 t_eq "$(query_of 'grid-template-areas: "floor" "doors" "desk" "lab" "console" "epics" "energy" "host" "break";' "$game")" \
   "$stage_band"
 t_lacks "$game_text" '.host '
-t_lacks "$energy_text" '.host '
 # The chip is part of the head panel only where it is shown.
 t_contains "$hostcss_text" '.floor-host'
 t_contains "$hostcss_text" '.floor-head:has(> .floor-host:not([hidden]))'

@@ -36,7 +36,6 @@ function file(over = {}) {
       { id: "tehas-cycle@12.service", loadState: "loaded", activeState: "active", subState: "running",
         unitFileState: "", next: "" },
     ],
-    energy: null,
     ...over,
   };
 }

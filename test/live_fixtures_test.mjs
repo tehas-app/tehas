@@ -14,8 +14,7 @@ import "../host/fun/epics-view.js";
 import "../host/fun/panels.js";
 import "../host/fun/versions.js";
 import { analyticsView } from "../host/fun/analytics-data.js";
-import { boardRows, consoleView, labBase, lineView, liveView } from "../host/fun/business-view.js";
-import { layout as energyLayout } from "../host/fun/energy-view.js";
+import { boardRows, consoleView, labBase, lineView } from "../host/fun/business-view.js";
 import { normalize } from "../host/fun/game-data.js";
 import { layout as hostLayout } from "../host/fun/host-data.js";
 import { consoleModel } from "../host/fun/factory/tehas-factory-console.model.js";
@@ -101,18 +100,6 @@ test("running.json draws the console tabs and the business page's console", () =
   assert.equal(c.state, "live");
   assert.equal(c.cycle, "Working on #41  Export the report as CSV");
   assert.equal(c.file, "console-41.txt");
-});
-
-test("energy.json draws the energy section and the business page's meter", () => {
-  const v = energyLayout(read("energy.json"), NOW);
-  assert.equal(v.state, "live");
-  assert.equal(v.watts, "1190");
-  assert.deepEqual(v.rows.map((r) => r.name), ["node-a", "node-b"]);
-  assert.equal(v.models.length, 1);
-  const live = liveView(read("energy.json"), NOW);
-  assert.equal(live.present, true);
-  assert.equal(live.stale, false);
-  assert.ok(live.tokenRates.length > 0);
 });
 
 test("analytics.json draws the ten-day report", () => {
