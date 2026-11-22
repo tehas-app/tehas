@@ -4,7 +4,7 @@
 
 use crate::place::{place, Need, Outsourcing, Place};
 use crate::settings::{account, Settings};
-use crate::slice::{self, gib};
+use crate::slice::gib;
 #[cfg(test)]
 use crate::snapshot::check_state;
 use crate::snapshot::{
@@ -1070,7 +1070,7 @@ impl<'a> Poll<'a> {
             Ok(u) => {
                 ceiling_mb = u.ceiling_mb;
                 self.cycle_mb = u.ceiling_mb;
-                let r = slice::room(&s.slice.reading, &u, &c.reserve, count as u64);
+                let r = s.slice.room(&u, &c.reserve, count as u64);
                 room_mem = r.room;
                 committed = r.committed;
                 slice_max = r.max;
