@@ -110,12 +110,47 @@ fn esc(v: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// The name of the test that stands for a target's build: passing when the
+/// target built, failing when not. A Rust test path holds no parentheses, so
+/// it names no real test. A build that breaks at the head and not at the base
+/// is then a test that newly fails, which the builder can fix.
+pub const BUILD: &str = "(build)";
+
+/// Whether a target's run reached its tests: libtest's `running <n> tests`.
+pub fn built(stdout: &str) -> bool {
+    stdout
+        .lines()
+        .any(|l| l.trim_start().starts_with("running "))
+}
+
+/// The target directory of the checkout whose `.git` this tree shares, so
+/// that lean's run at the base, in a fresh worktree, builds on the head's
+/// build. None when `CARGO_TARGET_DIR` is set or git cannot say.
+fn shared_target(root: &Path) -> Option<std::path::PathBuf> {
+    if std::env::var_os("CARGO_TARGET_DIR").is_some() {
+        return None;
+    }
+    let out = Command::new("git")
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let common = std::path::PathBuf::from(String::from_utf8(out.stdout).ok()?.trim());
+    Some(common.parent()?.join("console/target"))
+}
+
 fn cargo_test(root: &Path, t: &Target) -> Command {
     let mut c = Command::new("cargo");
     c.args(["test", "--locked", "--offline", "--manifest-path"])
         .arg(root.join("console/Cargo.toml"))
         .args(["-p", &t.package, "--test", &t.target])
         .current_dir(root);
+    if let Some(dir) = shared_target(root) {
+        c.env("CARGO_TARGET_DIR", dir);
+    }
     c
 }
 
@@ -138,8 +173,9 @@ pub fn run_test(root: &Path, all: &[Target], file: &str) -> u8 {
 }
 
 /// `lean-roster`: run every target and write the report. 0 when every test
-/// passed, 1 when one failed, 2 when a target failed with no test it
-/// reported, as when it did not build: lean reads that as a broken bench, not a verdict.
+/// passed, 1 when one failed or a target did not build, 2 when a built target
+/// failed with no failing test or the report could not be written: lean
+/// reads that as a broken bench, not a verdict.
 pub fn run_roster(root: &Path, all: &[Target], report_to: &Path) -> u8 {
     let mut runs = Vec::new();
     let mut status = 0;
@@ -151,7 +187,24 @@ pub fn run_roster(root: &Path, all: &[Target], report_to: &Path) -> u8 {
                 return 2;
             }
         };
-        let cases = cases(&String::from_utf8_lossy(&out.stdout));
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let mut cases = cases(&stdout);
+        let ok = built(&stdout);
+        cases.insert(
+            0,
+            Case {
+                name: BUILD.to_string(),
+                outcome: if ok { Outcome::Passed } else { Outcome::Failed },
+            },
+        );
+        if !ok {
+            eprintln!(
+                "lean-roster: {}::{} did not build\n{}",
+                t.package,
+                t.target,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
         if cases.iter().any(|c| c.outcome == Outcome::Failed) {
             status = status.max(1);
         } else if !out.status.success() {
@@ -251,6 +304,19 @@ test result: FAILED. 1 passed; 1 failed; 1 ignored
             !r.contains("console/"),
             "no path, so head and base name a test alike"
         );
+    }
+
+    #[test]
+    fn a_target_built_when_libtest_ran() {
+        assert!(built(OUT));
+        assert!(!built("error[E0425]: cannot find value `x`\n"));
+        assert!(!built(""));
+        let broken = vec![Case {
+            name: BUILD.into(),
+            outcome: Outcome::Failed,
+        }];
+        assert!(report(&[(t("p", "a", "f"), broken)])
+            .contains("<testcase classname=\"p::a\" name=\"(build)\"><failure"));
     }
 
     #[test]

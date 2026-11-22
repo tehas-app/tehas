@@ -6,8 +6,9 @@
 #
 #   scripts/lean-roster.sh <checkout> <report>
 #
-# Exit: 0 every test passed, 1 a test failed, 2 a test target failed with no
-# failing test (it did not build) or the report could not be written, 64 usage.
+# Exit: 0 every test passed, 1 a test failed or a target did not build, 2 a
+# built target failed with no failing test or the report could not be
+# written, 64 usage.
 set -uo pipefail
 
 [ "$#" -eq 2 ] || {
