@@ -384,23 +384,35 @@ files that comments linked into `/out/give/`. The settings
 
 ## What 2.0 keeps, and where it goes
 
-Proposed for T16. Not yet agreed with the v2 session.
+Agreed with the v2 session for T16.
+
+Kept code that nothing calls in 2.0 lives in a small crate of its own, with
+public items and its tests, so it builds clean with no `dead_code` allow. It
+is not left as a module inside `console/src` that nothing calls.
 
 | Kept in T16, as library code | Used by |
 | --- | --- |
 | The panel's URL and id rules (`console/ops/src/panel.rs`) and the dock's sandbox words (`host/fun/panels.js`) | `frame` (4) |
-| The top snapshot's cut to the published keys and the publisher's loop (`console/src/top.rs`). The reading and the frame stay in core for `tehas top` | `feed:host` (3) |
-| The mesh read, the field list and the window (`console/src/energy.rs`) | `feed:mesh` (3) |
-| The wiki's collector of raw sources (`console/src/wiki/collect.rs`) | `history:` (5) |
+| The top snapshot's cut to the published keys and the publisher's loop (`console/src/top.rs`), as a crate. The reading and the frame stay in core for `tehas top` | `feed:host` (3) |
+| The mesh read, the field list and the window (`console/src/energy.rs`), as a crate | `feed:mesh` (3) |
+| The wiki's collector of raw sources (`console/src/wiki/collect.rs`), as a crate | `history:` (5) |
 | The draft's rules (`console/core/src/plugin/draft.rs`) and the store's record verbs | Drafts from a run (6) |
 | `console/attach`, all of it, as T14 keeps it; the copy and limits of `attach/plugin_files.rs`; the approval record's texts and comment links (`attach/comments.rs`, the dispatcher's part) | `hook:before:work` (7) |
 | The review's renderer (`console/core/src/review.rs`), as a small crate | The `review` plugin vendors it |
 | The wiki's check, render and keep rules (`console/src/wiki/check.rs`, `render.rs`, `publish.rs`), `host/wiki/` | The `wiki` plugin vendors them |
-| The describe prompt, head and quoting (`console/cycle/src/describe.rs`) | The `given` plugin vendors them |
+| The describe prompt, head and quoting (`console/cycle/src/describe.rs`), as a crate | The `given` plugin vendors them |
 | The pages and their models: `host/fun/business-view.js`, `energy-view.js`, `host-view.js`, `host-data.js` and their styles | Moved to the plugins' repositories, not kept in core |
 
-Not kept: the `review_issue` table, `state/review.json`, the units and
-timers of energy, top, review and wiki, and the settings named above.
+Not kept:
+
+- the `review_issue` table and `state/review.json`
+- the units and timers of energy, top, review and wiki. They go through
+  `RETIRED_UNITS` in `console/ops/src/update/steps.rs` and the old units
+  loop of `install.sh`, as T14 does for the Protolab, so `tehas update`
+  stops and removes them on a host
+- the settings named above. An instance that still sets one loads as it
+  is: the setting is ignored with one warning line, or `tehas update`
+  rewrites it. `cargo xtask config-check` covers each one
 
 ## Changes to 1.0.0
 
