@@ -375,6 +375,9 @@ fn login_of(text: &Value, key: &str) -> String {
 }
 
 #[cfg(test)]
+mod feed_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::kinds::Kind;
