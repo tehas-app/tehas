@@ -46,11 +46,10 @@ t_case "a row of a feature still being built is marked building, and the schema 
 # The console's own tests hold the marked rows to the feature registry
 # (console/core/src/features.rs); here the file and the schema agree.
 t_eq "$(jq -c '[.settings[] | select(has("building")) | .building] | unique' "$file")" '[true]'
-t_contains "$(jq -r '.settings[] | select(.building) | .name' "$file")" "TEHAS_OUTSOURCE"
-t_contains "$(jq -r '.settings[] | select(.building) | .name' "$file")" "TEHAS_REVIEW_REPO"
-t_eq "$(jq -r '.settings[] | select(.name == "TEHAS_REVIEW") | .building' "$file")" true
+t_contains "$(jq -r '.settings[] | select(.building) | .name' "$file")" "TEHAS_PLUGIN"
+t_eq "$(jq -r '.settings[] | select(.name == "TEHAS_LEAN") | .building' "$file")" true
 t_eq "$(jq -c '[.host[] | select(has("building"))]' "$file")" '[]'
-jq '(.settings[] | select(.name == "TEHAS_OUTSOURCE") | .building) = false' "$file" >"$T/bad.json"
+jq '(.settings[] | select(.name == "TEHAS_PLUGIN") | .building) = false' "$file" >"$T/bad.json"
 t_contains "$(check "$T/bad.json")" ".building"
 
 t_case "words are given for one-of rows and for no other row"

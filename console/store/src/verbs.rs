@@ -4,8 +4,8 @@
 //! mapping of an error to its exit.
 
 use crate::{
-    answer, approval, cycle, db, history, journal, live, order, park, plan, plugin,
-    poll, record, upkeep,
+    answer, approval, cycle, db, history, journal, live, order, park, plan, plugin, poll, record,
+    upkeep,
 };
 use rusqlite::Connection;
 use serde_json::Value;

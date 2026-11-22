@@ -90,7 +90,6 @@ ALTER TABLE cycles_new RENAME TO cycles;
 CREATE INDEX cycles_running ON cycles (ended_at, started_at);
 ";
 
-
 /// The step from 15 to 16: an action may be `unknown`, a write GitHub may have
 /// taken that a read has still to settle (#1754). `actions` is rebuilt as
 /// schema.sql writes it, with foreign keys off (`step_16`): `journal` refers to
@@ -126,13 +125,8 @@ UPDATE OR IGNORE planning_notes SET kind = 'millwright-refused' WHERE kind = 'fi
 DELETE FROM planning_notes WHERE kind = 'fixer-refused';
 ";
 
-/// The step from 16 to 17: what outsource keeps across a restart of the model
-/// proxy and what a contractor last said it has. `jobs.token_sha256` is the
-/// sha256 of the token the proxy issued for the job, never the token: a proxy
-/// that restarts checks a presented token against it. The `report_*` columns
-/// of `contractors` are its last report (image id, pi-rukas version, free
-/// memory and disk) and the second the factory took it. Every column is added
-/// null, so no row changes, and only a verb of the feature writes one.
+/// The step from 16 to 17, as it was written: columns on two of the tables
+/// the step to 27 drops, every one added null.
 pub const STEP_17: &str = "
 ALTER TABLE jobs ADD COLUMN token_sha256 TEXT;
 CREATE INDEX jobs_token ON jobs (token_sha256);
@@ -143,13 +137,8 @@ ALTER TABLE contractors ADD COLUMN report_disk_kb INTEGER;
 ALTER TABLE contractors ADD COLUMN report_at INTEGER;
 ";
 
-/// The step from 17 to 18: a job's tokens in two scopes, one row per job. The
-/// job scope is the contractor program's token, which may call only the job
-/// channel and the job's downloads; the model scope is the token in the
-/// container's models.json, which may call only the model paths and the
-/// egress tunnel. `token_sha256` is renamed `job_token_sha256` and keeps its
-/// value, and `model_token_sha256` is added null. Each holds a sha256, never
-/// a token.
+/// The step from 17 to 18, as it was written: a rename and a column on
+/// `jobs`, which the step to 27 drops.
 pub const STEP_18: &str = "
 ALTER TABLE jobs RENAME COLUMN token_sha256 TO job_token_sha256;
 DROP INDEX jobs_token;
@@ -1398,11 +1387,9 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     // A store at 15 is one this binary wrote before an action could be
     // unknown.
     (16, step_16),
-    // A store at 16 is one this binary wrote before a job token or a
-    // contractor's report outlived the proxy.
+    // A store at 16 is one this binary wrote before the step to 17.
     (17, |c| step(c, 17, STEP_17)),
-    // A store at 17 is one this binary wrote before a job's token had a
-    // scope.
+    // A store at 17 is one this binary wrote before the step to 18.
     (18, |c| step(c, 18, STEP_18)),
     // A store at 18 is one this binary wrote before a plugin ran.
     (19, |c| step(c, 19, STEP_19)),
@@ -1625,8 +1612,7 @@ fn make_copy(conn: &Connection, copy: &Path, what: &str) -> Result<Copied, DbErr
         let wal = c.query_row("PRAGMA journal_mode = WAL", [], |r| r.get::<_, String>(0))?;
         let schema = c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?;
         let mut rows = 0;
-        for table in COUNTED_TABLES.iter().filter(|t| **t != "meta")
-        {
+        for table in COUNTED_TABLES.iter().filter(|t| **t != "meta") {
             let there: bool = c.query_row(
                 "SELECT count(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?1",
                 [table],

@@ -26,7 +26,6 @@ tehasbot protolab             # build the Protolab; what tehas-protolab.timer ru
 tehasbot preview              # keep the previews; what tehas-preview.timer runs
 tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer runs
 tehasbot refresh --pr N       # tehas refresh --pr N, by its old name
-tehasbot review               # one review of the branch; what tehas-review.timer runs
 tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
 tehasbot github-token         # the GitHub App's token; what the gh shim runs
 tehasbot github-token --cycle [--check]  # the cycle's token: the product repository only
@@ -34,7 +33,6 @@ tehasbot github-token --session [--check]  # the same body, for a planning turn 
 tehasbot github-writes        # tehas github writes, by its old name
 tehasbot mcp serve            # the read-only MCP server; what tehas-mcp.service runs
 tehasbot mcp fetch            # fetch its shared checkout; what tehas-mcp-fetch@.service runs
-tehasbot outsource-proxy      # the model proxy of outsource; what tehas-outsource-proxy.service runs
 tehasbot plugin tick          # a refresh of each plugin whose default branch moved; what tehas-plugin.timer runs
 tehasbot plugin run <name> --kind refresh|hook  # one run of a plugin; what its units run
 tehasbot plugin-gate          # the gate of the plugins' views; what tehas-plugin-gate.service runs
@@ -43,14 +41,11 @@ tehasbot plugin-gate          # the gate of the plugins' views; what tehas-plugi
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
 as a cycle ends), `tehas-top.service`,
 `tehas-protolab.timer`, the previews' `tehas-preview.timer` and
-`tehas-preview-sweep.timer`, the review loop's `tehas-review.timer` (weekly; installed only while
-review is on, which no release allows yet: [the review loop](/operating#the-review-loop)), the cleaner's `tehas-clean.timer` (installed, and enabled
+`tehas-preview-sweep.timer`, the cleaner's `tehas-clean.timer` (installed, and enabled
 by a person), `tehas-mcp.service` (installed, and enabled by a person; it runs
 `tehasbot mcp serve` only while `TEHAS_MCP=1`, and
 [The MCP server](/mcp-server) is how it is switched on),
-`tehas-outsource-proxy.service` (installed only while `TEHAS_OUTSOURCE` is on;
-it runs `tehasbot outsource-proxy`, the model proxy of
-[outsource](/outsource)), the plugins' `tehas-plugin.timer` with
+the plugins' `tehas-plugin.timer` with
 `tehas-plugin@<name>.service` for a refresh and
 `tehas-plugin-hook@<name>-<pr>.service` for a hook, and the gate of their
 views, `tehas-plugin-gate.service`, which runs `tehasbot plugin-gate`

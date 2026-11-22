@@ -129,7 +129,7 @@ tehas api [--json]
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
   "features": ["status", "millwright-grant", "all-hands", "limit", "drain", "history", "export", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "state-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-start", "flags", "status-previews", "wake", "start-reasons", "blockers", "answer", "question"],
-  "flags": {"outsource": false, "spec-pipe": false, "protolab-zip-url": false, "prototype-file": false, "lean": false, "review": false, "plugins": false},
+  "flags": {"spec-pipe": false, "protolab-zip-url": false, "prototype-file": false, "lean": false, "plugins": false},
   "millwright": null,
   "poll": {
     "last": {
@@ -154,7 +154,7 @@ tehas api [--json]
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
 | `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status` ([`tehas status --json`](#tehas-status---json)), `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `all-hands` ([`tehas:all-hands`](/operating#all-hands)), `limit` ([`tehas limit`](#tehas-limit)), `drain` ([`tehas drain`](#tehas-drain)), `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `analytics` ([`tehas analytics copy --json`](#tehas-analytics-copy)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` (the hourly cleaner runs on this host, [`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)), `state-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)), `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message), shown by health, `tehas status`, the MCP server and the dashboard), `refresh-pr` ([`tehas refresh --pr N`](/tools-github#tehas-refresh) asks for the refresh of one pull request, `--json` prints what it asked as one object, and the dispatcher starts it in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `host-start` ([`tehas start`](#tehas-start) approves an issue from the host), `flags` (the object below is there), `status-previews` (`previews` in [`tehas status --json`](#tehas-status---json)), `wake` ([`tehas wake`](#tehas-wake) asks for a poll now), `start-reasons` (`starts` in [`tehas order --json`](#tehas-order)), `blockers` ([`tehas blockers`](#tehas-blockers)), `answer` ([`tehas answer`](#tehas-answer)) and `question` ([`tehas question`](#tehas-question)). A shipped optional feature adds its name of `flags` here; a building one does not |
-| `flags` | Every optional feature of the release and whether this instance has it on, `true` or `false`. A feature still being built is always `false` and its switch set to `on` stops every command with exit 78. Only a shipped feature's key is contract: a building feature's key may change or go until the release that ships it, and `api/api.schema.json` requires only the keys of shipped features. Today `outsource` (`TEHAS_OUTSOURCE`, still being built: [outsource](/outsource)), `spec-pipe` (`TEHAS_SPEC_PIPE`, still being built: the `Spec:` line of an issue, [the feature list](/features)), `protolab-zip-url` (`TEHAS_PROTOLAB_ZIP_URL`, still being built: [a zip by address](/tools-protolab#a-zip-by-address)), `prototype-file` (`TEHAS_PROTOTYPE_FILE`, still being built: [`tehas prototype file`](/tools-protolab#tehas-prototype-file)) `lean` (`TEHAS_LEAN`, still being built: [choosing the driver](/operating#choosing-the-driver)) `review` (`TEHAS_REVIEW`, still being built: [the review loop](/operating#the-review-loop)) and `plugins` (`TEHAS_PLUGIN`, still being built: [what it leaves visible](/contract#plugins)) |
+| `flags` | Every optional feature of the release and whether this instance has it on, `true` or `false`. A feature still being built is always `false` and its switch set to `on` stops every command with exit 78. Only a shipped feature's key is contract: a building feature's key may change or go until the release that ships it, and `api/api.schema.json` requires only the keys of shipped features. Today `spec-pipe` (`TEHAS_SPEC_PIPE`, still being built: the `Spec:` line of an issue, [the feature list](/features)), `protolab-zip-url` (`TEHAS_PROTOLAB_ZIP_URL`, still being built: [a zip by address](/tools-protolab#a-zip-by-address)), `prototype-file` (`TEHAS_PROTOTYPE_FILE`, still being built: [`tehas prototype file`](/tools-protolab#tehas-prototype-file)) `lean` (`TEHAS_LEAN`, still being built: [choosing the driver](/operating#choosing-the-driver)) and `plugins` (`TEHAS_PLUGIN`, still being built: [what it leaves visible](/contract#plugins)) |
 | `millwright` | The app's login, or `null` before it is known |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
 
@@ -274,7 +274,6 @@ tehas status --json
 | `previews.number` | The pull request's number |
 | `previews.state` | The preview's own word for where it is: `building`, `serving`, `build-failed`, `no-recipe`, `over-limit` or `no-space`. Treat it as an open list: later releases add words |
 | `previews.url` | Where the preview answers, `https://uat-<number>.` and the factory's domain. There only while the state is `serving` |
-| `contractors` | The contractors of [outsource](/outsource), from `live/contractors.json` as `tehasbot status` last wrote it: `idle`, `working`, `stopping`, `silent`, `resting`, `draining` and `revoked`, how many contractors have each status, `outsourced`, how many cycles are on a contractor now, and `list`, each contractor with `name`, `status`, `issue` (the issue of the job in its hand, left out when it holds none), `lastSeenAt` (when it last called, left out when it never has), `jobsDone` and `jobsLost`, and from its last report `image` (the id of the sandbox image it runs), `rukas` (the pi-rukas version that image is labelled with), `memMb` and `diskKb` (its free memory in MiB and free disk in KiB) and `reportedAt` (when the factory took the report), each left out when it did not say. Present only while outsource is on: with it off the file is not there and the object has no `contractors`. Outsource is still being built in this release, so no factory has it yet, and its fields may change while outsource is still being built, as those of `running[].progress` may |
 
 Everything in the object is as the health file wrote it at `time`, and is
 `age` seconds old. The dispatcher writes it at each poll, every two minutes,
@@ -287,18 +286,13 @@ issue reads `age` first.
 checks, at a start, that the text is unchanged since the label, that no open
 pull request closes the issue, and the millwright's grant.
 
-A cycle outsourced to a contractor is in `running` and takes a place in
-`room` as a cycle on this host does: this host's supervisor holds its lock
-while the contractor runs it.
-
 The source holds a JSON Schema of this object, `api/status.schema.json`, and
-four samples made by the code that prints it, `api/status.busy.json`,
-`api/status.quiet.json`, `api/status.readonly.json` and
-`api/status.outsourced.json`, the one sample with `contractors`. Its tests keep
+samples made by the code that prints it, `api/status.busy.json`,
+`api/status.quiet.json` and `api/status.readonly.json` among them. Its tests keep
 them in step, and a program can copy the samples into its own tests.
 
-It reads `~/tehas/live/health.json`, and `protolab.json`, `previews.json` and
-`contractors.json` beside it when they are there, and nothing else: no network, no instance
+It reads `~/tehas/live/health.json`, and `protolab.json` and `previews.json`
+beside it when they are there, and nothing else: no network, no instance
 settings, and it writes nothing. Without a health file it prints nothing on
 standard output and exits 3. Exit 0 on `pass` and `warn`; 3 on `fail`, a stale
 file or no file; 64 on an argument other than `--json`.
@@ -1205,10 +1199,9 @@ It refuses, in one line on standard error and with the store as it was:
 
 - a factory that is not drained, or where a cycle or a planning turn runs;
 - a store that holds history: a row of a cycle, a planning turn, an approval,
-  a park, a question, an ending, an action or an outsourced job. The poll's
+  a park, a question, an ending or an action. The poll's
   samples and caches, which a drained factory still writes, are not history,
-  and the copy's replace them, as its contractors and invite codes replace
-  the store's;
+  and the copy's replace them;
 - a copy that is not there, is not a store or fails SQLite's
   `PRAGMA integrity_check`;
 - a copy of a newer schema than this release reads, naming both numbers;
@@ -1218,7 +1211,7 @@ It refuses, in one line on standard error and with the store as it was:
 A copy of an older schema, 12 or later, is brought forward by the same steps
 an update runs on the store. The copy is read from a file of its own beside the store, so
 the copy itself is not changed. The rows then replace the store's in one
-transaction, the outsource tables and whether the feature is on with them: the store's file is not replaced, because the readers of a
+transaction: the store's file is not replaced, because the readers of a
 drained factory, the dashboard and the poll, hold it open. A failure rolls the
 transaction back.
 

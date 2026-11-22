@@ -47,8 +47,8 @@
 
 use crate::{
     answer, api, blockers, clean, dev, disk, export, freeze, github, health, history, holds,
-    host_message, labels, mcp, order, panel, question, queue, review, start, state, status, stop,
-    top, wake,
+    host_message, labels, mcp, order, panel, question, queue, start, state, status, stop, top,
+    wake,
 };
 use std::env;
 use std::os::unix::fs::PermissionsExt;
@@ -376,7 +376,6 @@ pub fn check(given: &[String]) -> u8 {
         ["tehasbot", "dispatch"] => dispatch_words(rest),
         ["tehasbot", "github-token"] => github::words(rest).map(|_| ()),
         ["tehasbot", "preview"] => preview_words(rest),
-        ["tehasbot", "review"] => review::words(rest, include_str!("usage/review.txt")),
         _ => Ok(()),
     };
     said.err().unwrap_or(0)
@@ -410,9 +409,7 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
             "TEHAS_CONTROL_ISSUE",
             "TEHAS_ALLOWED_LABELERS",
         ],
-        ["tehasbot", "clean" | "dispatch" | "refresh" | "review" | "plugin-gate"] => {
-            &INSTANCE_SETTINGS
-        }
+        ["tehasbot", "clean" | "dispatch" | "refresh" | "plugin-gate"] => &INSTANCE_SETTINGS,
         ["tehas", "plan" | "work"] => &[
             "TEHAS_REPO",
             "PI_ENSEMBLE_SUBAGENT_MODEL",
@@ -461,7 +458,6 @@ pub fn text(command: &str) -> Option<&'static str> {
         "prototype" => include_str!("usage/prototype.txt"),
         // The dispatcher's own text, which `tehasbot refresh --help` prints.
         "refresh" => include_str!("../dispatch/src/usage/refresh.txt"),
-        "review" => include_str!("usage/review.txt"),
         "resume" => include_str!("usage/resume.txt"),
         "setup" => include_str!("usage/setup.txt"),
         "state" => include_str!("usage/state.txt"),
@@ -754,13 +750,7 @@ mod tests {
         ] {
             assert_eq!(required(&words(repo)), ["TEHAS_REPO"], "{repo:?}");
         }
-        for all in [
-            "clean",
-            "dispatch",
-            "refresh",
-            "review",
-            "plugin-gate",
-        ] {
+        for all in ["clean", "dispatch", "refresh", "plugin-gate"] {
             assert_eq!(
                 required(&words(&["tehasbot", all])),
                 INSTANCE_SETTINGS,

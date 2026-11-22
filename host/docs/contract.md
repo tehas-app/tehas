@@ -40,7 +40,7 @@ Public:
   with the state store and analytics migrated;
 - [the cycle inputs rule](#cycle-inputs);
 - the host namespace `/host/` and [the host bridge](/api#the-host-bridge);
-- [analytics.db at schema 4](#analyticsdb);
+- [analytics.db at schema 6](#analyticsdb);
 - [the commands of other parts](#the-commands-of-other-parts): the rule by
   which `tehas <part>` runs `tehas-<part>`, the words kept for the family,
   and the front asset of a release.
@@ -53,8 +53,8 @@ Internal:
 
 - `tehasbot`, the units' command, but for the old name above;
 - the `console` program and its subcommands;
-- `store`, `attach`, `analytics`, `tehas-dispatch`, `tehas-cycle`, `tehas-mcp`
-  and `tehas-proxy` as programs, and their verbs and statuses;
+- `store`, `attach`, `analytics`, `tehas-dispatch`, `tehas-cycle` and
+  `tehas-mcp` as programs, and their verbs and statuses;
 - everything under `~/tehas/live/`, `~/tehas/state/` and `~/tehas/logs/`. The
   dashboard reads `live/`; a program asks a command;
 - the environment names the settings load keeps for the units and the tests
@@ -81,7 +81,7 @@ Internal:
 | Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the shell tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
 | Labels | The rows of `host/labels.tsv`: the name and what the dispatcher does with it | The dispatcher's and the tidy's tests |
 | Store | The store opens any store from schema 12 (v0.30.0) and brings it to its own schema. An older store is refused with a message that names v0.30 | The store's migration tests |
-| analytics.db | `user_version` 4, tables and columns only added | `console/analytics/src/schema.pinned` |
+| analytics.db | `user_version` 6, tables and columns only added | `console/analytics/src/schema.pinned` |
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints, and the tests of `console/src/front.rs`, which fail when a public `--json` row of `api/commands.txt` has no schema |
 | MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
@@ -95,14 +95,13 @@ field, read from the files in the table above. Lines are only added.
 `console/tests/surface.rs` fails when one of its names goes, and when the
 surface gains a name the list does not have yet. What a building feature
 adds is not in it. A name that was on the list before its feature became
-building stays on it: the list is only added to. Such a name is refused
-while the feature is building, as every building feature's name is
-([review](#review)).
+building stays on it: within 1.x the list is only added to. Such a name is
+refused while the feature is building, as every building feature's name is.
+2.0 takes the names of the features it moves out of core off the list,
+`TEHAS_REVIEW` and `TEHAS_REVIEW_REPO` among them.
 
 In `tehas status --json` the fields of `running[].progress` and `prototypes`
-describe one driver's steps and the Protolab, and may change. The fields of
-`contractors` may change while outsource is still being built, and so may
-`api/status.outsourced.json`, the sample that shows them.
+describe one driver's steps and the Protolab, and may change.
 
 `testFeatures` in `tehas status --json` stays, with `read`, `features` and
 `lab`, through 1.x. It has been on the surface since 1.0.0-beta.7. It reports
@@ -129,16 +128,14 @@ Decided for 1.0 on 2026-11-18.
   unknown, not as an error.
 - **Building features.** A feature still being built is outside the contract:
   its rows in `api/settings-rules.json` (each marked `"building": true`), its
-  key in the `flags` object of `tehas api --json`, its `--json` fields (such
-  as `contractors` in `tehas status --json` and `api/status.outsourced.json`),
+  key in the `flags` object of `tehas api --json`, its `--json` fields,
   its commands and its MCP tools may change or go until the release that ships
   it. Only a shipped feature's key is guaranteed in `flags`, and
   `api/api.schema.json` requires only those. A name that was on `api/surface-1.0.txt`
   before its feature became building stays on it and keeps its meaning,
-  though its row is marked `"building": true` and the release refuses it:
-  `TEHAS_REVIEW` and `TEHAS_REVIEW_REPO` of [review](#review).
-- **The building features of 1.0 come in 1.1.** outsource, spec-pipe,
-  protolab-zip-url, prototype-file, lean and review are planned for 1.1
+  though its row is marked `"building": true` and the release refuses it.
+- **The building features of 1.0 come in 1.1.** spec-pipe,
+  protolab-zip-url, prototype-file and lean are planned for 1.1
   (decided 2026-11-19). The names [listed for each below](#names-reserved-for-11) are
   the ones 1.1 adds to the frozen surface: no other feature takes them, and
   1.1 ships each under the same name. Their shapes may still be settled
@@ -246,10 +243,11 @@ and a change to them is a security change.
 
 ## analytics.db
 
-`~/tehas/state/analytics.db` is at `user_version` 4. Within it tables and
-columns are only added, never renamed, retyped or removed, and a file of
-schema 4 that a 0.30.x release wrote opens and gains what was added. A new
-version comes only with a major release. [Analytics](/analytics) has the
+`~/tehas/state/analytics.db` is at `user_version` 6. Within it tables and
+columns are only added, never renamed, retyped or removed. A file of schema 4,
+from 0.30.x or 1.x, is migrated to 6 in place as it is opened: it loses
+`samples.watts` and `runs.contractor_id`, and keeps every row. A new version
+comes only with a major release. [Analytics](/analytics) has the
 schema; [`tehas analytics copy`](/api#tehas-analytics-copy) is how a program
 takes a consistent copy.
 
@@ -325,7 +323,7 @@ adds no command, no label, no `--json` field and no MCP
 tool, and its settings, its key in `flags`, its commands, fields and MCP tools
 are not contract until the release that ships it, except a name that was
 public before the feature became building, which stays on
-`api/surface-1.0.txt` ([review](#review)). `tehas api --json` lists
+`api/surface-1.0.txt` within 1.x. `tehas api --json` lists
 every feature in `flags`, `false` while it is building, and a shipped
 feature's word in `features`. `api/settings-rules.json` marks the rows of a
 building feature `"building": true`. `api/commands.txt` marks a command of a
@@ -339,45 +337,21 @@ building feature on a lab host](/tools-update#proving-a-building-feature-on-a-la
 ### Names reserved for 1.1
 
 Each building feature of 1.0 is planned for 1.1, and these are the names it
-adds when it ships. The names marked frozen are in `api/surface-1.0.txt`
+adds when it ships. Outsource is not among them: 2.0 dropped it, with its
+names, and no later release is planned to bring it back. The names marked frozen are in `api/surface-1.0.txt`
 already and keep their meaning in 1.0.
 
 | Feature | Settings | Commands | Fields, tools and text | Labels | Programs and units |
 | --- | --- | --- | --- | --- | --- |
-| outsource | `TEHAS_OUTSOURCE` and `TEHAS_OUTSOURCE_TIMEOUT`, `_GRACE`, `_RETRIES`, `_REST`, `_REPOS`, `_CONTRACTORS`, `_JOIN_TTL`, `_PROXY_ADDR`, `_PROXY_IDLE` | `tehas outsource invite [--name NAME]`, `list`, `status`, `revoke <contractor>`, `drain <contractor>`, each with `--json` | `contractors` in `tehas status --json` (`api/status.outsourced.json`), the MCP tool `factory_contractors`, the job channel `/outsource/v1/<call>`, the column `runs.contractor_id` of `analytics.db` (frozen) | none | `tehas-proxy`, `tehas-contractor`, `tehas-outsource-proxy.service` |
 | spec-pipe | `TEHAS_SPEC_PIPE` | none | the issue line `Spec: <link> sha256:<hex>`, [the pull request spec block](#the-pull-request-spec-block) version 1, the cycle's `spec` and `approved.json` and their manifest keys `spec` and `approvedText`, the runner capability `issueSpec` | none | none |
 | protolab-zip-url | `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOLAB_ZIP_HOSTS` | none | the ticket line `Zip: <address> sha256:<hex>` | `tehas:prototype` (frozen) | none |
 | prototype-file | `TEHAS_PROTOTYPE_FILE` | `tehas prototype file` with `--title`, `--body-file`, `--spec`, `--spec-sha256`, `--zip`, `--zip-sha256` | none | `tehas:prototype` (frozen) | none |
 | lean | `TEHAS_LEAN`, and the word `lean` of `TEHAS_DRIVER` (frozen) | `tehas work --driver lean` (the flag is frozen) | the issue's `pi-spec v1` block, the `driver` columns of `analytics.db` (frozen) | `tehas:lean`, `tehas:classic` (frozen) | none |
-| review | `TEHAS_REVIEW`, `TEHAS_REVIEW_REPO` (both frozen) | none | none | `tehas:improvement` (frozen) | `tehas-review.service`, `tehas-review.timer` |
 
 Each feature's name is its key in `flags` and the word 1.1 appends to
 `features`. None of them adds a `/health` field.
 
 What each registered feature leaves visible while its flag is off:
-
-### outsource
-
-Building, planned for 2.1. Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
-78 and says `outsource` is still being built.
-
-- `tehas api --json` has `"outsource": false` in `flags`, and no word
-  `outsource` in `features`.
-- The settings `TEHAS_OUTSOURCE_*` are in `api/settings-rules.json`, but they
-  are not contract: a line that gives one a value stops every command with
-  exit 78 and names `outsource`.
-- `tehas-proxy` ends at once with exit 0 and opens no port.
-- No command, no label, no `contractors` in `tehas status --json`, no MCP
-  tool, nothing in `live/`.
-- The state store has its tables for contractors and jobs, which are internal.
-  `tehas state check --json` counts them under `rows`, whose keys are the
-  store's table names and internal.
-- `analytics.db` has the column `contractor_id` of `runs`, the name of the
-  contractor that ran the cycle, NULL on every run while outsource is off. It
-  is part of schema 4, which is frozen: 1.1 keeps its name, its type and its
-  meaning.
-
-[Outsource](/outsource) says what the feature does once it ships.
 
 ### spec-pipe
 
@@ -451,30 +425,6 @@ names the feature it needs.
 
 [Choosing the driver](/operating#choosing-the-driver) says what the feature
 does once it ships.
-
-### review
-
-Building since v1.0.0-rc.1, planned for 1.1. It shipped as a setting before the registry, but
-no run was seen on a host, so it became building (decided 2026-11-19). Off by
-default; `TEHAS_REVIEW=on` stops every command with exit 78 and says `review`
-is still being built.
-
-- `tehas api --json` has `"review": false` in `flags`, and no word `review`
-  in `features`.
-- The settings `TEHAS_REVIEW` and `TEHAS_REVIEW_REPO` were public before
-  review became building, so they stay on `api/surface-1.0.txt` and keep
-  their meaning. While review is building they are refused: a line that
-  gives `TEHAS_REVIEW_REPO` a value stops every command with exit 78 and
-  names `review`.
-- `tehasbot review` exits 0 at once and calls nothing.
-- `install.sh` does not install `tehas-review.service` or
-  `tehas-review.timer`, does not enable the timer and an update does not
-  restart it. A host that had them from an earlier release keeps the files,
-  and `install.sh` stops and disables the timer if it is enabled.
-- No command, no label, no `--json` field, no MCP tool.
-
-[The review loop](/operating#the-review-loop) says what the feature does once
-it ships.
 
 ### plugins
 

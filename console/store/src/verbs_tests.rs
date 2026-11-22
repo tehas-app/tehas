@@ -56,12 +56,7 @@ pub fn call_at(home: &Path, now: i64, args: &[&str]) -> Result<Value, (u8, Strin
 }
 
 /// `call_at` where the answer names `word` in place of the verb asked.
-fn call_word_at(
-    home: &Path,
-    now: i64,
-    args: &[&str],
-    word: &str,
-) -> Result<Value, (u8, String)> {
+fn call_word_at(home: &Path, now: i64, args: &[&str], word: &str) -> Result<Value, (u8, String)> {
     match verbs::parse(&strings(args)) {
         Some(Ok(c)) => execute(home, &Verb::Record(c), now).map(|line| {
             assert_eq!(line.lines().count(), 1, "{line}");

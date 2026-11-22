@@ -100,3 +100,6 @@ libexec/tehas-proxy.stamp
 libexec/tehas-contractor
 libexec/tehas-contractor.stamp
 live/contractors.json
+# The stand-in for vipune in the sandbox image, which sent a cycle's memory
+# calls to the factory while outsource was on.
+sandbox/vipune-shim

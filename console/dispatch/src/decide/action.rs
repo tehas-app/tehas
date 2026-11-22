@@ -607,8 +607,8 @@ mod tests {
     fn a_start_s_extra_keys_override_none_of_its_own() {
         let v = Value::from(&Action::Start(Box::new(full())));
         let keys = v.as_object().unwrap().len();
-        // Its own keys, and the nine of the extra.
-        assert_eq!(keys, START_BASE.len() + 9, "{v}");
+        // Its own keys, and the eight of the extra.
+        assert_eq!(keys, START_BASE.len() + 8, "{v}");
     }
 
     #[test]

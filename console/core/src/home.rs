@@ -38,8 +38,6 @@ pub enum State {
     CodeIndexLock,
     /// The commit and indexer image the code index was made from.
     CodeIndexState,
-    /// The memory of the cycles, `memory/cycles`.
-    CycleMemory,
     /// The ask a poll is started on.
     DispatchAgain,
     /// Held while a poll reads.
@@ -82,12 +80,6 @@ pub enum State {
     Refined,
     /// The releases the host has run.
     ReleaseHistory,
-    /// The record of the last `tehas review`.
-    Review,
-    /// The body of a review's filing, while gh is given it.
-    ReviewBody,
-    /// Held while `tehas review` runs.
-    ReviewLock,
     /// The pi-rukas commit of the sandbox image, as last read.
     RukasImage,
     /// The pi-rukas commit last asked of upstream.
@@ -124,7 +116,6 @@ impl State {
             State::CodeIndexFailed => "state/index.failed",
             State::CodeIndexLock => "state/index.lock",
             State::CodeIndexState => "state/index.json",
-            State::CycleMemory => "state/memory/cycles",
             State::DispatchAgain => "state/dispatch.again",
             State::DispatchLock => "state/dispatch.lock",
             State::EgressLock => "state/egress.lock",
@@ -146,9 +137,6 @@ impl State {
             State::ReadOnlyLog => "state/read-only.log",
             State::Refined => "state/refined.jsonl",
             State::ReleaseHistory => "state/release-history",
-            State::Review => "state/review.json",
-            State::ReviewBody => "state/review.body",
-            State::ReviewLock => "state/review.lock",
             State::RukasImage => "state/rukas-image",
             State::RukasTarget => "state/rukas-target",
             State::Sizes => "state/sizes.jsonl",
@@ -381,8 +369,8 @@ mod tests {
             "/live/running.json"
         );
         assert_eq!(
-            at(Home::of_text("/h").state(State::Review)),
-            "/h/state/review.json"
+            at(Home::of_text("/h").state(State::Limit)),
+            "/h/state/limit.json"
         );
         assert_eq!(at(Home::of_text("/h/").state_dir()), "/h//state");
         assert_eq!(
@@ -413,7 +401,6 @@ mod tests {
             (State::CodeIndexFailed, "/h/state/index.failed"),
             (State::CodeIndexLock, "/h/state/index.lock"),
             (State::CodeIndexState, "/h/state/index.json"),
-            (State::CycleMemory, "/h/state/memory/cycles"),
             (State::DispatchAgain, "/h/state/dispatch.again"),
             (State::DispatchLock, "/h/state/dispatch.lock"),
             (State::EgressLock, "/h/state/egress.lock"),
@@ -435,9 +422,6 @@ mod tests {
             (State::ReadOnlyLog, "/h/state/read-only.log"),
             (State::Refined, "/h/state/refined.jsonl"),
             (State::ReleaseHistory, "/h/state/release-history"),
-            (State::Review, "/h/state/review.json"),
-            (State::ReviewBody, "/h/state/review.body"),
-            (State::ReviewLock, "/h/state/review.lock"),
             (State::RukasImage, "/h/state/rukas-image"),
             (State::RukasTarget, "/h/state/rukas-target"),
             (State::Sizes, "/h/state/sizes.jsonl"),

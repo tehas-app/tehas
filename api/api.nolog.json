@@ -39,12 +39,10 @@
     "question"
   ],
   "flags": {
-    "outsource": false,
     "spec-pipe": false,
     "protolab-zip-url": false,
     "prototype-file": false,
     "lean": false,
-    "review": false,
     "plugins": false
   },
   "millwright": null,

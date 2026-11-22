@@ -42,12 +42,6 @@ mcp key
 order --json
 order clear --json
 order set --for --issues --json --only --reason --until
-outsource building=outsource
-outsource drain --json building=outsource
-outsource invite --json --name building=outsource
-outsource list --json building=outsource
-outsource revoke --json building=outsource
-outsource status --json building=outsource
 panel --json
 panel clear
 panel set --label --url

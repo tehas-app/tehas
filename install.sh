@@ -32,18 +32,13 @@
 # analytics program, the MCP server, the state store, the attachment checker,
 # the dispatcher and the cycle's supervisor, Rust programs in the Cargo
 # workspace console/ (the other six in console/analytics, console/mcp,
-# console/store, console/attach, console/dispatch and console/cycle). While
-# outsource is on (TEHAS_OUTSOURCE) it compiles two more, the model proxy
-# (console/proxy, libexec/tehas-proxy) and the contractor program
-# (console/contractor, libexec/tehas-contractor), and installs the proxy's
-# unit, tehas-outsource-proxy.service; off, none of the three. While plugins
+# console/store, console/attach, console/dispatch and console/cycle). While plugins
 # are on (TEHAS_PLUGIN) it compiles the runner (console/plugin,
 # libexec/tehas-plugin) and installs its units: the templates of a run,
 # tehas-plugin@.service and tehas-plugin-hook@.service, and tehas-plugin.timer
-# with its service; off, none of them. The review
-# loop's units, tehas-review.service and .timer, are installed only while
-# review is on (TEHAS_REVIEW), which no release allows yet; off, a timer an
-# earlier release left enabled is stopped and disabled, its files kept. A real
+# with its service; off, none of them. The timer of a feature that is off,
+# which an earlier release left enabled, is stopped and disabled, its files
+# kept. A real
 # run builds each with cargo in this checkout (console/target, which git
 # ignores) and installs them as libexec/console, libexec/analytics,
 # libexec/tehas-mcp, libexec/store, libexec/attach, libexec/tehas-dispatch and
@@ -663,7 +658,6 @@ files=(
   "sandbox/base.Dockerfile|$TEHAS_HOME/sandbox/base.Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
   "sandbox/gh-shim|$TEHAS_HOME/sandbox/gh-shim|755"
-  "sandbox/vipune-shim|$TEHAS_HOME/sandbox/vipune-shim|755"
   "sandbox/npm/playwright/package.json|$TEHAS_HOME/sandbox/npm/playwright/package.json|644"
   "sandbox/npm/playwright/package-lock.json|$TEHAS_HOME/sandbox/npm/playwright/package-lock.json|644"
   # The npm trees the sandbox base installs pi, ctx7 and parallel-cli from.
@@ -723,9 +717,7 @@ for f in "$root"/lib/polyfill-*.sh; do
   files+=("lib/${f##*/}|$TEHAS_HOME/lib/${f##*/}|644")
 done
 shopt -u nullglob
-# What a feature that is on installs besides the rest: outsource's model proxy,
-# its unit and the contractor program, review's units, the plugins' runner and
-# units
+# What a feature that is on installs besides the rest: the plugins' runner and units
 # (console/ops/src/update/host.rs). Off,
 # none of it is installed or compared.
 featured=$(export "${!TEHAS_@}"; "$loaded_console" update featured) ||
@@ -1106,14 +1098,15 @@ while IFS= read -r f; do
 done <<<"$retired"
 
 # The units of features this version does not have: the timed refresh scan
-# (refreshes are asked for one pull request at a time), the improvement loop
-# the product wiki and the energy sampler, which left core in 2.0, and the
-# model proxy of outsource, which 2.0 dropped. Found here;
-# in step 5 each timer and path unit, or a service none starts, is stopped and
+# (refreshes are asked for one pull request at a time), the improvement loop,
+# the review loop, the product wiki and the energy sampler, which left core in
+# 2.0, and the model proxy of outsource, which 2.0 dropped. Found here; in
+# step 5 each timer and path unit, or a service none starts, is stopped and
 # disabled and its files go.
 old_units=()
 scan_units=$units
 for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-improve.service \
+  tehas-review.timer tehas-review.service \
   tehas-wiki-status.timer tehas-wiki-status.service tehas-wiki.timer tehas-wiki.path tehas-wiki.service \
   tehas-energy.service tehas-outsource-proxy.service; do
   [ -e "$scan_units/$unit" ] || [ -L "$scan_units/$unit" ] || continue

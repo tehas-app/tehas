@@ -157,7 +157,6 @@ files="./.bashrc
 ./tehas/sandbox/gh-shim
 ./tehas/sandbox/npm/playwright/package-lock.json
 ./tehas/sandbox/npm/playwright/package.json
-./tehas/sandbox/vipune-shim
 ./tehas/shim/gh
 ./tehas/versions.env"
 # The manual and the front page are whole directories; leave them out of the

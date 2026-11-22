@@ -17,12 +17,10 @@
       "required": [],
       "additionalProperties": false,
       "properties": {
-        "outsource": {"type": "boolean"},
         "spec-pipe": {"type": "boolean"},
         "protolab-zip-url": {"type": "boolean"},
         "prototype-file": {"type": "boolean"},
         "lean": {"type": "boolean"},
-        "review": {"type": "boolean"},
         "plugins": {"type": "boolean"}
       }
     },

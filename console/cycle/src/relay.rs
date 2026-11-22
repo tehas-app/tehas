@@ -596,7 +596,12 @@ fn run(via: &Via, argv: &[String], input: Option<&str>) -> (String, String, i32)
 /// container cannot have it written anywhere else.
 fn answer(dir: &Path, top: &OwnedFd, pid: &str, out: &str, err: &str, rc: i32) {
     let rc = format!("{rc}\n");
-    let files = [("out", out), ("err", err), ("rc", rc.as_str()), ("done", "")];
+    let files = [
+        ("out", out),
+        ("err", err),
+        ("rc", rc.as_str()),
+        ("done", ""),
+    ];
     let name = format!("res.{pid}");
     if !remove_at(dir, top, &name)
         || rustix::fs::mkdirat(top, &name, Mode::from_raw_mode(0o700)).is_err()

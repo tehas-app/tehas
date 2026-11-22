@@ -76,23 +76,28 @@ beside it. It is not under `live/` and is not served. Times are UTC Unix
 seconds and durations are seconds, as integers, except `runner_ms` and
 `run_roles.ms`, which are milliseconds.
 
-`PRAGMA user_version` is the schema version, today 4. Within one version
-columns are only added. A change of a column's meaning raises the version.
-v0.30.0 wrote 4 already, so this release migrates no older file: a file at 1, 2
-or 3 is kept aside under its version, as any other version is, and a new one is
-made. A file at 4 that lacks a column added within 4 since, `runs.contractor_id`
-from v1.0.0, gains it, empty, the first time it is opened; nothing else in it
-changes.
+`PRAGMA user_version` is the schema version, today 6. Within one version
+columns are only added. A change of a column's meaning, or a column removed,
+raises the version. Schema 5 removed `samples.watts`, which nothing writes
+since energy use left core in 2.0. Schema 6 removes `runs.contractor_id`:
+outsource was dropped in 2.0, and no release ever wrote a value there.
+
+A file at 4 or 5 is migrated in place the first time it is opened:
+`samples.watts` and `runs.contractor_id` are dropped where the file has them;
+every other column and row stays. Two programs
+that open it at once do not both migrate it. v0.30.0 wrote 4 already, so this
+release migrates no older file: a file at 1, 2 or 3 is kept aside under its
+version, as any other version is, and a new one is made.
 
 - **A file that is not a database**, or fails SQLite's check, is moved to
   `analytics.db.broken` and a new one is made. The data is at most 365 days deep.
 - **A database of another schema version** is moved, with its side files, to
   `analytics.db.schema-<version>`, where a reader can still fetch it, and a new
   one is made. It is deleted 365 days after its last write. That goes for a
-  version newer than the program too: after a rollback to a release of schema 3,
-  the file at 4 goes aside whole. Move it back by hand before going forward again:
-  nothing says it is still aside, and a second rollback renames the file then at 4
-  over it, which loses the runs it held.
+  version newer than the program too: after a rollback to a 1.x release, of
+  schema 4, the file at 6 goes aside whole. Move it back by hand before going
+  forward again: nothing says it is still aside, and a second rollback renames
+  the file then at 6 over it, which loses the runs it held.
 - Any other failure, a full disk or a lock held too long, leaves the file as
   it is.
 
@@ -116,8 +121,7 @@ the cycle, which gathers them into a private file for the call
 attempt the state store gave its start, and from the state store `at`, `how`
 and `driver` of the approval that start used, read before the end goes on record
 because a start that never ran takes its approval with it, the run's `settings`
-snapshot, the image's pi-rukas commit and, for a cycle run on a contractor, the
-contractor's name. It reads the rest from the host: the
+snapshot and the image's pi-rukas commit. It reads the rest from the host: the
 headless runner's result, `progress.json`, the preflight log,
 `state/cycles/<n>.lean-state.json` for a lean run, and `docs/version.txt`. The
 lean note is the cycle's copy of the driver's own record of its steps, and its
@@ -168,7 +172,6 @@ call; one that a caller killed during the call leaves is removed by
 | `driver` | The driver the start's approval bound: `classic` or `lean`. NULL where the approval holds no driver or another word, on every run from before the column, and on a planning turn. NULL reads as classic | 3 |
 | `tool_calls`, `tool_errors` | The result's `usage.toolCalls` and `usage.toolErrors`: the tool calls the run's children started, a codemode script's nested calls included, and those that ended in an error. NULL where the result has none: a pi-rukas before v0.14.66 (`features.usageTools`), a result that could not count them, a planning turn | 4 |
 | `result_driver` | The result's `driver`: the engine that ran the issue, `classic` or `lean`, beside `driver`, the one the approval bound. NULL where the result names none or another word | 4 |
-| `contractor_id` | The name of the contractor that ran the cycle, from the facts the cycle gives. NULL for a cycle run in-house, on every run of an instance with outsource off, on a planning turn and on every run from before the column. Outsource is still being built, so no instance writes one yet. The column is frozen with schema 4 | 4, v1.0.0 |
 
 The outcome of a work run:
 
@@ -269,7 +272,9 @@ One row per poll, from the live files the poll wrote: `live/status.json` and
 | `cycle_limit` | The cycles allowed at once, from `dispatch.json`: the concurrency, or the room under `tehas limit` where that is lower | 1 |
 | `paused` | 1 when the factory was paused | 1 |
 | `held` | The one word of the dispatcher's hold, empty when nothing held | 1 |
-| `watts` | The model mesh's draw until 2.0, when energy use left core. A new row leaves it NULL, and the report no longer reads it | 1 |
+
+Schema 1 to 4 had `watts` too, the model mesh's draw until energy use left core
+in 2.0. Schema 5 drops it.
 
 ### meta
 
