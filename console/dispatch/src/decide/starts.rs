@@ -98,28 +98,17 @@ impl Poll<'_> {
             let Some(issue) = self.s.issues.get(&n) else {
                 continue;
             };
-            let Some(nodes) = issue
-                .comments
-                .as_ref()
-                .and_then(|c| c.pointer("/data/repository/issue/comments/nodes"))
-                .and_then(Value::as_array)
-            else {
+            let Some(nodes) = issue.comments.as_ref().and_then(|c| c.listed()) else {
                 continue;
             };
             let Some(x) = newest_marker(nodes, self.c) else {
                 continue;
             };
-            let login = |k: &str| {
-                x.pointer(&format!("/{k}/login"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string()
-            };
-            let by = login("author");
-            if !x.get("lastEditedAt").unwrap_or(&Value::Null).is_null() && login("editor") != by {
+            let by = x.author.login.clone();
+            if x.edited && x.editor_login() != by {
                 continue;
             }
-            let body = x.get("body").and_then(Value::as_str).unwrap_or("");
+            let body = x.body.as_deref().unwrap_or("");
             for on in blockers(body).unwrap_or_default() {
                 let closed = matches!(
                     issue.blockers.get(&on).map(String::as_str),

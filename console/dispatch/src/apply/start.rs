@@ -381,11 +381,19 @@ fn bounded(items: Vec<Value>) -> (Vec<Value>, usize) {
 /// <list> is the poll's GraphQL read of the issue's comments, put here in the
 /// REST shape `window` and `context` read. None when that read or `at` is no
 /// answer, so a failed read is never taken for no note.
+#[cfg(test)]
 pub(crate) fn change_note(list: &Value, n: u64, fixer: &str, at: &str) -> Option<Option<Value>> {
-    let nodes = list
-        .pointer("/data/repository/issue/comments/nodes")
-        .and_then(Value::as_array)
-        .or_else(|| list.as_array())?;
+    let c = crate::snapshot::Comments::parse(list);
+    change_note_of(c.nodes_or_bare()?, n, fixer, at)
+}
+
+/// `change_note` of comments already read.
+pub(crate) fn change_note_of(
+    nodes: &[crate::snapshot::Comment],
+    n: u64,
+    fixer: &str,
+    at: &str,
+) -> Option<Option<Value>> {
     let since = iso(u64::try_from(epoch(at)? - 600).ok()?);
     let marker = regex::Regex::new(&format!(
         "<!-- tehas:millwright issue={n} action=(retry|change) -->"
@@ -394,43 +402,12 @@ pub(crate) fn change_note(list: &Value, n: u64, fixer: &str, at: &str) -> Option
     let rest: Vec<Value> = nodes
         .iter()
         .filter_map(|x| {
-            let id = x
-                .get("databaseId")
-                .or_else(|| x.get("id"))
-                .cloned()
-                .unwrap_or(Value::Null);
-            let login = x
-                .pointer("/author/login")
-                .or_else(|| x.pointer("/user/login"))
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            let (body, created) = (
-                x.get("body").and_then(Value::as_str)?,
-                x.get("createdAt")
-                    .or_else(|| x.get("created_at"))
-                    .and_then(Value::as_str)?,
-            );
-            // GitHub answers a comment nobody saved after it with no stamp at
-            // all, and REST with a stamp equal to the first: either is the
-            // comment as its author wrote it.
-            let edited = x
-                .get("lastEditedAt")
-                .or_else(|| x.get("updated_at"))
-                .cloned()
-                .unwrap_or(Value::Null);
-            let editor = x
-                .pointer("/editor/login")
-                .and_then(Value::as_str)
-                .unwrap_or(login);
-            let mut c = json!({"id": id, "body": body, "user": {"login": login},
-                "created_at": created});
-            c["updated_at"] = if edited.is_null() {
-                json!(created)
-            } else {
-                edited
-            };
-            c["outsider"] = json!(account(editor) != account(login));
-            Some(c)
+            let x = x.note.as_ref()?;
+            Some(
+                json!({"id": x.id, "body": x.body, "user": {"login": x.login},
+                "created_at": x.created, "updated_at": x.updated,
+                "outsider": account(&x.editor) != account(&x.login)}),
+            )
         })
         .collect();
     let who = |l: &str| !fixer.is_empty() && account(l) == fixer;

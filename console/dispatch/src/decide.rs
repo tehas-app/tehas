@@ -8,8 +8,8 @@ use crate::slice::{self, gib};
 #[cfg(test)]
 use crate::snapshot::check_state;
 use crate::snapshot::{
-    Check, HostStart, Issues, Labels, LimitState, Listed, OrderState, PauseFlag, PlanStart,
-    Snapshot, Text, Until, Work, WorkIssue,
+    Check, Comment, CommentId, HostStart, Issues, Labels, LimitState, Listed, OrderState,
+    PauseFlag, PlanStart, Snapshot, Text, Until, Work, WorkIssue,
 };
 use crate::text;
 use serde_json::{json, Map, Value};
@@ -29,7 +29,7 @@ mod plan;
 mod retry;
 mod starts;
 
-pub(crate) use crate::snapshot::shape;
+pub(crate) use crate::snapshot::{named_blockers, shape};
 pub(crate) use clean::{iso, quiet_due, quiet_why, Due, QUIET_ASKS};
 pub(crate) use flow::in_flow;
 pub(crate) use retry::refresh_why;
@@ -39,15 +39,11 @@ pub fn iso_now() -> String {
     iso(tehas_core::time::now() as u64)
 }
 
-/// The numbers every blocker comment of an issue names, for the snapshot to
-/// ask their states: blocked_ok reads the newest one an allowed account wrote.
-pub(crate) fn named_blockers(comments: &Value) -> Vec<u64> {
-    let mut out: Vec<u64> = comments
-        .pointer("/data/repository/issue/comments/nodes")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|x| x.get("body").and_then(Value::as_str))
+/// The numbers every blocker comment names.
+pub(crate) fn named_blockers_of(nodes: &[Comment]) -> Vec<u64> {
+    let mut out: Vec<u64> = nodes
+        .iter()
+        .filter_map(|x| x.body.as_deref())
         .filter_map(blockers)
         .flatten()
         .collect();
@@ -864,12 +860,7 @@ impl<'a> Poll<'a> {
             if !self.order_stands(&label_state(ev, BLOCKED)) {
                 continue;
             }
-            let Some(nodes) = issue
-                .comments
-                .as_ref()
-                .and_then(|a| a.pointer("/data/repository/issue/comments/nodes"))
-                .and_then(Value::as_array)
-            else {
+            let Some(nodes) = issue.comments.as_ref().and_then(|c| c.listed()) else {
                 continue;
             };
             if newest_marker(nodes, self.c).is_none() {
@@ -914,12 +905,7 @@ impl<'a> Poll<'a> {
                 continue;
             }
             let links = self.work(n).map_or(0, |w| w.blocked_by);
-            let Some(nodes) = issue
-                .comments
-                .as_ref()
-                .and_then(|a| a.pointer("/data/repository/issue/comments/nodes"))
-                .and_then(Value::as_array)
-            else {
+            let Some(nodes) = issue.comments.as_ref().and_then(|c| c.listed()) else {
                 continue;
             };
             let Some(marker) = newest_marker(nodes, self.c) else {
@@ -928,23 +914,11 @@ impl<'a> Poll<'a> {
             if links > 0 || !self.marker_hold(n, nodes).is_empty() {
                 continue;
             }
-            let at = |x: &Value| {
-                x.get("createdAt")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string()
-            };
+            let at = |x: &Comment| x.created_at.clone().unwrap_or_default();
             let since = at(marker);
             let said = nodes.iter().any(|x| {
-                x.get("body")
-                    .and_then(Value::as_str)
-                    .is_some_and(|b| b.contains(HOLD_CLEARED))
-                    && tehas_core::accounts::factorys(
-                        x.pointer("/author/login")
-                            .and_then(Value::as_str)
-                            .unwrap_or(""),
-                        &self.c.bot_login,
-                    )
+                x.body.as_deref().is_some_and(|b| b.contains(HOLD_CLEARED))
+                    && tehas_core::accounts::factorys(&x.author.login, &self.c.bot_login)
                     && at(x) >= since
             });
             if !said {
@@ -2037,10 +2011,7 @@ impl<'a> Poll<'a> {
         let Some(answer) = self.s.issues.get(&n).and_then(|i| i.comments.clone()) else {
             return Err(self.comments_unread(n));
         };
-        let Some(nodes) = answer
-            .pointer("/data/repository/issue/comments/nodes")
-            .and_then(Value::as_array)
-        else {
+        let Some(nodes) = answer.listed() else {
             return Err(self.fail(format!("ERROR: unreadable comments of #{n}"), 1));
         };
         let why = self.marker_hold(n, nodes);
@@ -2053,22 +2024,15 @@ impl<'a> Poll<'a> {
 
     /// What the newest marker comment of `n` still holds it on, empty when
     /// every blocker it names is closed.
-    fn marker_hold(&self, n: u64, nodes: &[Value]) -> String {
+    fn marker_hold(&self, n: u64, nodes: &[Comment]) -> String {
         match newest_marker(nodes, self.c) {
             None => LABEL_ALONE.to_string(),
             Some(x) => {
-                let author = x
-                    .pointer("/author/login")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                let editor = x
-                    .pointer("/editor/login")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                if !x.get("lastEditedAt").unwrap_or(&Value::Null).is_null() && editor != author {
+                let editor = x.editor_login();
+                if x.edited && editor != x.author.login {
                     format!("the newest comment that names its blockers was edited by '{editor}'")
                 } else {
-                    match blockers(x.get("body").and_then(Value::as_str).unwrap_or("")) {
+                    match blockers(x.body.as_deref().unwrap_or("")) {
                         None => "the newest comment that names its blockers cannot be read".into(),
                         Some(list) => {
                             let states = &self.s.issues[&n].blockers;
@@ -2545,7 +2509,10 @@ impl<'a> Poll<'a> {
                 .issues
                 .get(&n)
                 .and_then(|i| i.comments.as_ref())
-                .and_then(|list| crate::apply::start::change_note(list, n, &self.c.millwright, at));
+                .and_then(|c| c.nodes_or_bare())
+                .and_then(|list| {
+                    crate::apply::start::change_note_of(list, n, &self.c.millwright, at)
+                });
             let Some(found) = read else {
                 self.log(format!(
                     "hold #{n}: its last cycle parked on {cap} and the body has not changed since, and the fixer's comments could not be read"
@@ -2614,14 +2581,16 @@ impl<'a> Poll<'a> {
         let Some(comments) = self.s.issues.get(&n).and_then(|i| i.comments.as_ref()) else {
             return Some(Err(()));
         };
-        let Some(mut ans) = crate::questions::answer(
-            comments,
-            &self.bot,
-            self.s.bot_id,
-            &self.c.allowed,
-            qid,
-            &self.c.millwright,
-        ) else {
+        let Some(mut ans) = comments.or_none().and_then(|c| {
+            crate::questions::answer_of(
+                c,
+                &self.bot,
+                self.s.bot_id,
+                &self.c.allowed,
+                qid,
+                &self.c.millwright,
+            )
+        }) else {
             return Some(Err(()));
         };
         let given = self.s.issues.get(&n).and_then(|i| i.answer.as_ref());
@@ -3365,29 +3334,23 @@ pub(crate) const LABEL_ALONE: &str = "no comment of an allowed account or the mi
 
 /// The newest comment that holds a `tehas:blocked` marker and was written by
 /// an allowed account or the millwright: the one rule 6 reads its blockers from.
-fn newest_marker<'v>(nodes: &'v [Value], c: &Settings) -> Option<&'v Value> {
-    let mut marked: Vec<&Value> = nodes
+fn newest_marker<'v>(nodes: &'v [Comment], c: &Settings) -> Option<&'v Comment> {
+    let mut marked: Vec<&Comment> = nodes
         .iter()
         .filter(|x| {
-            x.get("body")
-                .and_then(Value::as_str)
+            x.body
+                .as_deref()
                 .is_some_and(|b| b.contains("<!-- tehas:blocked"))
                 && {
-                    let a = x
-                        .pointer("/author/login")
-                        .and_then(Value::as_str)
-                        .unwrap_or("");
+                    let a = x.author.login.as_str();
                     !a.is_empty() && (c.allowed(a) || c.is_millwright(a))
                 }
         })
         .collect();
     marked.sort_by_key(|x| {
         (
-            x.get("createdAt")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            x.get("databaseId").and_then(Value::as_i64).unwrap_or(0),
+            x.created_at.clone().unwrap_or_default(),
+            CommentId::sort_key(x.id.as_ref()),
         )
     });
     marked.last().copied()

@@ -1,16 +1,9 @@
 //! The bot's questions on an issue and the answers it takes.
 
-use crate::snapshot::number;
+use crate::snapshot::{Account, Comment, CommentId, Comments};
 use regex::Regex;
 use serde_json::{json, Value};
 use std::sync::OnceLock;
-
-fn login(v: &Value, path: &str) -> String {
-    v.pointer(path)
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string()
-}
 
 /// The newest question of the bot among the comments (the one
 /// with id `id` when it is given), what was ticked in it and the replies
@@ -48,41 +41,52 @@ pub fn answer(
     id: &str,
     fixer: &str,
 ) -> Option<Value> {
+    let c = Comments::parse(comments);
+    answer_of(c.or_none()?, bot, bot_id, allowed, id, fixer)
+}
+
+/// `answer` of comments already read.
+pub fn answer_of(
+    c: &[Comment],
+    bot: &str,
+    bot_id: Option<u64>,
+    allowed: &[String],
+    id: &str,
+    fixer: &str,
+) -> Option<Value> {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| {
         Regex::new(r"<!-- tehas:question kind=(?<kind>[a-z]+) issue=(?<issue>[0-9]+) turn=(?<turn>[0-9]+) -->").unwrap()
     });
     let bot = bot.strip_suffix("[bot]").unwrap_or(bot);
-    let c = match comments.pointer("/data/repository/issue/comments/nodes") {
-        None | Some(Value::Null) => Vec::new(),
-        Some(Value::Array(a)) => a.clone(),
-        Some(_) => return None,
+    let id_json = |i: &Option<CommentId>| match i {
+        Some(CommentId::Number(n)) => Value::Number(n.clone()),
+        Some(CommentId::Text(t)) => json!(t),
+        None => Value::Null,
     };
     let listed = |l: &str| allowed.iter().any(|a| a == l);
-    // Whether the account at `who` of `x` is the bot.
-    let bots = |x: &Value, who: &str| match bot_id {
-        Some(i) => x.pointer(&format!("{who}/databaseId")).and_then(number) == Some(i),
-        None => login(x, &format!("{who}/login")) == bot,
+    let bots = |a: &Account| match bot_id {
+        Some(i) => a.id == Some(i),
+        None => a.login == bot,
     };
     let mut q = None;
     let mut stranger = None;
     for (k, x) in c.iter().enumerate() {
-        if !bots(x, "/author") {
+        if !bots(&x.author) {
             if !id.is_empty()
-                && x.get("databaseId").and_then(number).map(|d| d.to_string())
+                && x.id
+                    .as_ref()
+                    .and_then(CommentId::number)
+                    .map(|d| d.to_string())
                     == Some(id.to_string())
             {
-                stranger = Some(login(x, "/author/login"));
+                stranger = Some(x.author.login.clone());
             }
             continue;
         }
         // A bot comment with no text is an answer jq cannot read.
-        let body = x.get("body").and_then(Value::as_str)?;
-        let did = match x.get("databaseId") {
-            Some(Value::String(s)) => s.clone(),
-            Some(v) => v.to_string(),
-            None => "null".into(),
-        };
+        let body = x.body.as_deref()?;
+        let did = CommentId::said(x.id.as_ref());
         if re.is_match(body) && (id.is_empty() || did == id) {
             q = Some(k);
         }
@@ -94,7 +98,7 @@ pub fn answer(
         });
     };
     let qv = &c[k];
-    let body = qv["body"].as_str().unwrap_or("");
+    let body = qv.body.as_deref().unwrap_or("");
     let m = re.captures(body)?;
     let boxes: Vec<bool> = body
         .split('\n')
@@ -115,36 +119,26 @@ pub fn answer(
         .filter(|(_, t)| **t)
         .map(|(i, _)| i)
         .collect();
-    let ed = login(qv, "/editor/login");
-    let edited_at = qv.get("lastEditedAt").and_then(Value::as_str).unwrap_or("");
+    let ed = qv.editor_login().to_string();
+    let edited_at = qv.last_edited_at.as_str();
     let after = &c[k + 1..];
     let reply = after.iter().rfind(|x| {
-        let a = login(x, "/author/login");
-        let e = login(x, "/editor/login");
-        listed(&a) && (e.is_empty() || listed(&e))
+        let e = x.editor_login();
+        listed(&x.author.login) && (e.is_empty() || listed(e))
     });
     let tick = if ticks.is_empty() {
         json!({"status": "none"})
     } else if !fixer.is_empty() && ed == fixer && ticks.len() == 1 {
-        let h = qv.get("userContentEdits").cloned().unwrap_or(json!({}));
+        let h = &qv.history;
         // A history whose read failed says nothing of who saved the question:
         // the tick is "unread", and the rules wait for the next poll without
         // acting. The poll's read
         // gives every comment a history: read, none for an unedited one, or
         // failed.
-        let failed = h.get("failed") == Some(&Value::Bool(true));
-        let nodes = h
-            .get("nodes")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let total = h.get("totalCount").and_then(Value::as_f64).unwrap_or(0.0);
-        if failed {
+        if h.failed {
             json!({"status": "unread", "by": ed})
-        } else if total > nodes.len() as f64
-            || nodes
-                .iter()
-                .any(|x| login(x, "/editor/login") != fixer && !bots(x, "/editor"))
+        } else if h.total > h.editors.len() as f64
+            || h.editors.iter().any(|e| e.login != fixer && !bots(e))
         {
             json!({"status": "held", "by": ed})
         } else {
@@ -166,13 +160,13 @@ pub fn answer(
     };
     let issue = &m["issue"];
     let mut out = json!({
-        "asked": true, "comment": qv.get("databaseId").cloned().unwrap_or(Value::Null),
-        "asked_at": qv.get("createdAt").and_then(Value::as_str).unwrap_or(""),
+        "asked": true, "comment": id_json(&qv.id),
+        "asked_at": qv.created_at.as_deref().unwrap_or(""),
         "body": body, "kind": &m["kind"], "issue": num(issue),
         "turn": num(&m["turn"]),
         "boxes": boxes.len(), "labels": labels, "tick": tick,
-        "reply": reply.map(|r| json!({"by": login(r, "/author/login"), "text": r.get("body"),
-            "at": r.get("createdAt"), "id": r.get("databaseId")})),
+        "reply": reply.map(|r| json!({"by": r.author.login, "text": r.body,
+            "at": r.created_at, "id": id_json(&r.id)})),
     });
     if !fixer.is_empty() {
         let mark = format!("<!-- tehas:millwright issue={issue} action=answer -->");
@@ -181,21 +175,21 @@ pub fn answer(
             first.strip_suffix('\r').unwrap_or(first) == mark
         };
         let f = after.iter().rfind(|x| {
-            let e = login(x, "/editor/login");
-            login(x, "/author/login") == fixer
+            let e = x.editor_login();
+            x.author.login == fixer
                 && (e.is_empty() || e == fixer)
-                && marked(x.get("body").and_then(Value::as_str).unwrap_or(""))
+                && marked(x.body.as_deref().unwrap_or(""))
         });
         out["fixer_reply"] = match f {
             None => Value::Null,
             Some(f) => {
-                let b = f.get("body").and_then(Value::as_str).unwrap_or("");
+                let b = f.body.as_deref().unwrap_or("");
                 let text = b.split_once('\n').map_or("", |(_, rest)| rest);
                 if text.trim().is_empty() {
                     Value::Null
                 } else {
-                    json!({"by": login(f, "/author/login"), "text": text, "at": f.get("createdAt"),
-                        "id": f.get("databaseId"), "marked": true})
+                    json!({"by": f.author.login, "text": text, "at": f.created_at,
+                        "id": id_json(&f.id), "marked": true})
                 }
             }
         };
