@@ -19,17 +19,26 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 
 ## Unreleased
 
+## v1.4.0 (2026-11-22)
+
+### Highlights
+
+- **The last release before the 2.0 refactor.** v2.0.0 is a refactoring release that forks from this tag. Work not built yet (outsource, carry, pipe, and finishing plugins and the wiki) is planned for v2.1.0.
+- **pi-rukas v0.14.99.** The release pins pi-rukas v0.14.99, which has the `wiki` verb the product wiki builds with.
+- **Plugins and the product wiki, closer to done and still off.** Both are features still being built, and a release refuses to turn either on. New since v1.3.0: the plugins' gate is wired into install, the edge router and setup, a plugins menu lists granted views, and the wiki has its build. A review of the plugins code before this release fixed several security bugs in it, all in code that a release never runs.
+
 ### Changes
 
-- The product wiki, still being built: `tehas wiki build [--full]` asks for a build and `tehas-wiki.timer` asks every night. pi-rukas's `wiki` verb writes the pages in a container of its own kind, with the code and the raw sources read-only, no token and a low CPU weight. The host checks the pages, renders them to HTML with any HTML in them shown as text, and moves the build into place, keeping the last ten builds and the last of each release. A failed build leaves the current one served. `tehas wiki` now says when a build is asked for, running or failed. pi-rukas has the verb from v0.14.99 (#2687).
-- Plugins, still being built: `install.sh` builds the gate `tehas-plugin-gate` and installs its unit `tehas-plugin-gate.service` (`tehasbot plugin-gate`) only while the feature is on. The edge router sends every `plugin-<name>` and `plugins` name to the gate before anything else, at `TEHAS_PLUGIN_GATE_ADDR`, and answers a name no plugin has and a gate that is down with texts of their own (#2633).
-- `tehas setup --new-app` names the callback URL `https://plugins.<domain>/_auth/callback` in the app's manifest when `instance.env` has `TEHAS_DOMAIN`, and keeps the client id and client secret GitHub returns in `~/.config/tehas/github-app.client-id` and `github-app.client-secret`, mode 600. `tehas setup --app-client-id <id> --app-secret-file <file>` writes them for an app made before (#2633).
-- `TEHAS_PLUGIN_GATE_ADDR` is `TEHAS_HOST_ADDR`'s address on port 8095 when the instance names none, where the router reaches it, in place of `127.0.0.1:8095`. An IPv6 address in it is in brackets, as `[::1]:8095`; the unbracketed form stops every command with 78 (#2633).
-- `tehas update` docks a ready plugin's view as the panel `p-<name>` and takes it away when the plugin goes or is refused. `tehas panel set` refuses an id that starts `p-` with 64 (#2633).
+- `tehas panel set` refuses an id that starts `p-` with 64. Those ids are kept for plugins' views, which `tehas update` docks as `p-<name>` and takes away when a plugin goes or is refused (#2633).
+- `tehas setup --new-app` names the callback URL `https://plugins.<domain>/_auth/callback` in the app's manifest when `instance.env` has `TEHAS_DOMAIN`, and keeps the client id and secret GitHub returns in `~/.config/tehas/github-app.client-id` and `github-app.client-secret`, mode 600. `tehas setup --app-client-id <id> --app-secret-file <file>` writes them for an app made before (#2633).
+- Plugins, still being built: `install.sh` builds and installs the gate `tehas-plugin-gate` and its unit only while the feature is on, and the edge router sends every `plugin-<name>` and `plugins` name to it first. `TEHAS_PLUGIN_GATE_ADDR` defaults to `TEHAS_HOST_ADDR`'s address on port 8095. Fixed before release: a plugin's build reads its Dockerfile and skills only as regular files, refuses `.gitattributes` and `RUN --mount` of a cache, ssh or secret; `tehas update` restarts a running gate so it reads the access list again; a view is served only for the commit that built it; a hook's findings page shows its verdict, and a hook acts on the plugin's grants and pin as they are when it runs (#2633).
+- The product wiki, still being built: `tehas wiki build [--full]` and `tehas-wiki.timer` ask for a build, which pi-rukas's `wiki` verb writes in a container of its own kind with the code and the raw sources read-only, no token and a low CPU weight. The host checks and renders the pages, with any HTML in them shown as text (#2687).
 
 ### Adopter action
 
-Only for a factory that will run plugins once they ship. For a GitHub App made before this release: on the app's settings page add the callback URL `https://plugins.<domain>/_auth/callback` (`plugins-<sub>.<domain>` with `TEHAS_EDGE_ONE_LEVEL=on`), generate a client secret, copy it into a file, and run `tehas setup --app-client-id <Client ID> --app-secret-file <file>`. In the proxy in front of the host, add `plugin-[a-z][a-z0-9]*` and `plugins` to the matcher of the edge's names, and in Cloudflare add a cache rule that bypasses the cache for both names. See the manual's pages on the edge ("Plugins' views") and on the GitHub App.
+Run `tehas update`. The store stays at schema 23.
+
+Only for a factory that will run plugins once they ship, with a GitHub App made before this release: add the callback URL `https://plugins.<domain>/_auth/callback` on the app's settings page, generate a client secret, and run `tehas setup --app-client-id <Client ID> --app-secret-file <file>`. In the proxy in front of the host, add `plugin-[a-z][a-z0-9]*` and `plugins` to the edge's names, and in Cloudflare bypass the cache for both.
 
 ## v1.3.0 (2026-11-21)
 
