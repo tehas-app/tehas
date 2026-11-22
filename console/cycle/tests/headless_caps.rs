@@ -9,10 +9,6 @@ use std::path::PathBuf;
 use tehas_core::testdir::TestDir;
 use tehas_core::testing::copy_exe;
 
-/// The runner's own flag for its result. Not gh's: built so the check of gh's
-/// argument lists does not read it as one.
-const JSON: &str = concat!("-", "-json");
-
 /// The result schema tehas-cycle takes.
 const RESULT: u64 = 5;
 
@@ -77,7 +73,7 @@ fn beside(t: &TestDir) -> PathBuf {
 #[test]
 fn the_runner_of_v0140_on_result_schema_5_supports_what_tehas_gives_a_cycle() {
     let given = format!("{GIVEN} PI_ENSEMBLE_EXTRA_IMAGE_DIRS");
-    let flags = format!("--timeout 360 {JSON} --restart");
+    let flags = "--timeout 360 --json --restart".to_string();
     assert_eq!(unsupported(&scaps(), &flags, &given, "").out, "");
 }
 
@@ -88,7 +84,7 @@ fn the_result_schema_the_bash_reads_is_the_one_tehascycle_takes() {
         "/contracts/resultSchema/version",
         Some(&RESULT.to_string()),
     );
-    assert_eq!(unsupported(&answer, JSON, "", "").out, "");
+    assert_eq!(unsupported(&answer, "--json", "", "").out, "");
 }
 
 #[test]
@@ -96,7 +92,7 @@ fn a_runner_on_result_schema_3_is_refused_for_that_alone() {
     // These runners came before the suite tier and its bound.
     let old_given = GIVEN.replacen(" PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS", "", 1);
     let names = format!("{old_given} PI_ENSEMBLE_EXTRA_IMAGE_DIRS");
-    let flags = format!("--timeout 360 {JSON} --restart");
+    let flags = "--timeout 360 --json --restart".to_string();
     assert_eq!(
         unsupported(&caps(), &flags, &names, "").out,
         "result schema version 3, not 5"
@@ -110,7 +106,7 @@ fn a_runner_on_result_schema_3_is_refused_for_that_alone() {
 #[test]
 fn a_roles_model_and_provider_are_inputs_of_their_family() {
     let names = "PI_ENSEMBLE_MODEL_DEVELOPER PI_ENSEMBLE_PROVIDER_CODE_REVIEW_SPECIALIST";
-    assert_eq!(unsupported(&scaps(), JSON, names, "").out, "");
+    assert_eq!(unsupported(&scaps(), "--json", names, "").out, "");
 }
 
 #[test]
@@ -118,7 +114,7 @@ fn a_name_the_build_does_not_read_one_it_sets_on_its_own_children_and_one_of_its
 ) {
     let names = "PI_ENSEMBLE_NOT_A_LEVER PI_ENSEMBLE_SUBAGENT_MODE PI_ENSEMBLE_NO_SSH";
     assert_eq!(
-        unsupported(&scaps(), JSON, names, "").out,
+        unsupported(&scaps(), "--json", names, "").out,
         "the input PI_ENSEMBLE_NOT_A_LEVER
 the input PI_ENSEMBLE_SUBAGENT_MODE
 the input PI_ENSEMBLE_NO_SSH"
@@ -127,7 +123,7 @@ the input PI_ENSEMBLE_NO_SSH"
 
 #[test]
 fn only_the_flags_are_checked_not_their_values() {
-    let flags = format!("--timeout 360 {JSON} --bogus");
+    let flags = "--timeout 360 --json --bogus".to_string();
     assert_eq!(
         unsupported(&scaps(), &flags, "", "").out,
         "the flag --bogus"
@@ -179,11 +175,11 @@ fn what_is_said_of_the_answer_is_plain_characters() {
 #[test]
 fn a_family_that_lists_its_members_takes_only_those() {
     let names = "PI_ENSEMBLE_MODEL_DEVELOPER PI_ENSEMBLE_PROVIDER_CODE_REVIEW_SPECIALIST PI_ENSEMBLE_MODEL_LENS_SECURITY PI_ENSEMBLE_TOKEN_BUDGET_OPS";
-    assert_eq!(unsupported(&scaps(), JSON, names, "").out, "");
+    assert_eq!(unsupported(&scaps(), "--json", names, "").out, "");
     let names =
         "PI_ENSEMBLE_MODEL_REVIEWER PI_ENSEMBLE_MODEL_LENS_STYLE PI_ENSEMBLE_MODEL_DEVELOPERX";
     assert_eq!(
-        unsupported(&scaps(), JSON, names, "").out,
+        unsupported(&scaps(), "--json", names, "").out,
         "the input PI_ENSEMBLE_MODEL_REVIEWER
 the input PI_ENSEMBLE_MODEL_LENS_STYLE
 the input PI_ENSEMBLE_MODEL_DEVELOPERX"
@@ -193,7 +189,7 @@ the input PI_ENSEMBLE_MODEL_DEVELOPERX"
     let at = input_at(&s, "PI_ENSEMBLE_MODEL_<ROLE>");
     let answer = edit(&s, &format!("{at}/members"), None);
     assert_eq!(
-        unsupported(&answer, JSON, "PI_ENSEMBLE_MODEL_REVIEWER", "").out,
+        unsupported(&answer, "--json", "PI_ENSEMBLE_MODEL_REVIEWER", "").out,
         ""
     );
 }
@@ -286,19 +282,19 @@ fn a_name_that_is_no_feature_name_is_off_with_status_1_and_names_no_file() {
 fn the_features_this_command_relies_on_are_checked_and_only_those_asked_for() {
     let asked = "handoffChannel cycleDeadline restartClearsAttention";
     let s = scaps();
-    assert_eq!(unsupported(&s, JSON, "", asked).out, "");
+    assert_eq!(unsupported(&s, "--json", "", asked).out, "");
     let mut answer = edit(&s, "/features/handoffChannel", None);
     answer = edit(&answer, "/features/cycleDeadline", Some(r#""yes""#));
     assert_eq!(
-        unsupported(&answer, JSON, "", asked).out,
+        unsupported(&answer, "--json", "", asked).out,
         "the feature handoffChannel
 the feature cycleDeadline"
     );
     let none = edit(&s, "/features", None);
-    assert_eq!(unsupported(&none, JSON, "", "").out, "");
+    assert_eq!(unsupported(&none, "--json", "", "").out, "");
     let list = edit(&s, "/features", Some("[1]"));
     assert_eq!(
-        unsupported(&list, JSON, "", "handoffChannel").out,
+        unsupported(&list, "--json", "", "handoffChannel").out,
         "the feature handoffChannel"
     );
 }

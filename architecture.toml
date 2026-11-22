@@ -24,8 +24,8 @@ pattern = 'api\.github\.com|\bgraphql\b|\brepos/(\{|\$|:owner)|"/?(user|users|or
 files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh", "host/systemd/*", "host/fun/**/*.js"]
 allowed = ["console/core/src/forge.rs", "console/core/src/forge/**"]
 comment = "//"
-max = 860
-why = "Re-measured at T0's follow-up, with tests in files counted and GitHub's JSON fields, --json and --jq added: the console 240, dispatch 225, ops 98, cycle 93, the front pages 69, mcp 38, store 37, core 21 outside the forge, analytics 8, xtask 6, the sandbox 4, the rest 1 or 2. 219 are in test files. Some field names (createdAt, updatedAt) are also tehas's own JSON keys where it copied GitHub's: T4 and T7 rename or own them. T4 moves the rest behind the three ports. T15's ports of the top and host bridge shell tests add 20: tehas's own --json flag and tehas's JSON keys copied from GitHub's names (updatedAt, closedAt), false positives that T4/T7 remove by narrowing the check to the adapter's paths or renaming the keys."
+max = 870
+why = "Re-measured at T0's follow-up, with tests in files counted and GitHub's JSON fields, --json and --jq added: the console 240, dispatch 225, ops 98, cycle 93, the front pages 69, mcp 38, store 37, core 21 outside the forge, analytics 8, xtask 6, the sandbox 4, the rest 1 or 2. 219 are in test files. Some field names (createdAt, updatedAt) are also tehas's own JSON keys where it copied GitHub's: T4 and T7 rename or own them. T4 moves the rest behind the three ports. T15's ports of the top and host bridge shell tests add 20: tehas's own --json flag and tehas's JSON keys copied from GitHub's names (updatedAt, closedAt), false positives that T4/T7 remove by narrowing the check to the adapter's paths or renaming the keys. T15's port of the headless runner's shell tests adds 10: pi-rukas's runner flag --json, written as the tests pass it, a false positive that T4/T7 remove by narrowing the check to the adapter's paths."
 
 [[check]]
 id = "gh-argv"
