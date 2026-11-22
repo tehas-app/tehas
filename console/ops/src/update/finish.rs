@@ -601,7 +601,7 @@ fn follow_ups(run: &mut Run, plan: &Plan, out: &str) -> u8 {
         }
     }
     if plan.mode == Mode::Update {
-        leftovers::parked(&run.host.home)
+        leftovers::retired_dirs(&run.host.home)
             .iter()
             .for_each(|l| say(l));
     }

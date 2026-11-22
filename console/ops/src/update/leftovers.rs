@@ -17,9 +17,9 @@
 //! with a suffix stay. It prints `removed: <path>` for each, as `leftovers`
 //! does. Exit 0, 64 usage.
 //!
-//! [`parked`] removes the directories of the home that a parked feature kept:
-//! `protolab/`, the Protolab's pages (docs/specs/parked-protolab.md). A real
-//! `tehas update` runs it (src/update/finish.rs).
+//! [`retired_dirs`] removes the directories of the home that a removed
+//! feature kept, those of [`RETIRED_DIRS`]. A real `tehas update` runs it
+//! (src/update/finish.rs).
 
 use super::{say, tell};
 use std::fs;
@@ -118,14 +118,18 @@ fn cycles(home: &Path) -> Vec<String> {
         .collect()
 }
 
-/// The home's directories of features this version parked.
-const PARKED: &[&str] = &["protolab"];
+/// The home's directories of features an earlier version had and this one
+/// does not, one name each.
+const RETIRED_DIRS: &[&str] = &[
+    // The Protolab's pages, removed in 2.0.
+    "protolab",
+];
 
-/// Removes each directory of [`PARKED`] the home holds: `removed: <path>` for
+/// Removes each directory of [`RETIRED_DIRS`] the home holds: `removed: <path>` for
 /// each, or the reason on standard error. A symbolic link there is left alone.
-pub(super) fn parked(home: &Path) -> Vec<String> {
+pub(super) fn retired_dirs(home: &Path) -> Vec<String> {
     let mut lines = Vec::new();
-    for name in PARKED {
+    for name in RETIRED_DIRS {
         let path = home.join(name);
         if !fs::symlink_metadata(&path).is_ok_and(|m| m.is_dir()) {
             continue;
@@ -213,26 +217,34 @@ mod tests {
     }
 
     #[test]
-    fn the_protolabs_directory_is_removed_with_what_it_holds_and_a_link_is_left() {
-        let d = dir("parked");
+    fn each_retired_directory_is_removed_with_what_it_holds_and_a_link_is_left() {
+        assert!(RETIRED_DIRS.contains(&"protolab"));
+        let d = dir("retired-dirs");
         let home = d.0.join("home");
-        let pages = home.join("protolab/7");
-        fs::create_dir_all(&pages).unwrap();
-        fs::write(pages.join("index.html"), "<p>7</p>\n").unwrap();
-        assert_eq!(
-            parked(&home),
-            [format!("removed: {}", home.join("protolab").display())]
-        );
-        assert!(!home.join("protolab").exists());
-        assert!(parked(&home).is_empty());
+        for name in RETIRED_DIRS {
+            let inner = home.join(name).join("7");
+            fs::create_dir_all(&inner).unwrap();
+            fs::write(inner.join("index.html"), "<p>7</p>\n").unwrap();
+        }
+        let removed: Vec<String> = RETIRED_DIRS
+            .iter()
+            .map(|n| format!("removed: {}", home.join(n).display()))
+            .collect();
+        assert_eq!(retired_dirs(&home), removed);
+        assert!(RETIRED_DIRS.iter().all(|n| !home.join(n).exists()));
+        assert!(retired_dirs(&home).is_empty());
         // A link of that name may point anywhere: neither it nor its target goes.
         let outside = d.0.join("outside");
         fs::create_dir(&outside).unwrap();
         fs::write(outside.join("keep"), "x\n").unwrap();
-        symlink(&outside, home.join("protolab")).unwrap();
-        assert!(parked(&home).is_empty());
+        for name in RETIRED_DIRS {
+            symlink(&outside, home.join(name)).unwrap();
+        }
+        assert!(retired_dirs(&home).is_empty());
         assert!(outside.join("keep").exists());
-        assert!(fs::symlink_metadata(home.join("protolab")).is_ok());
+        assert!(RETIRED_DIRS
+            .iter()
+            .all(|n| fs::symlink_metadata(home.join(n)).is_ok()));
     }
 
     #[test]
