@@ -23,9 +23,10 @@ export const FLIP_EVERY = 7; // seconds between waves of the line's cards
 // The line, left to right. `from` is the list in status.json; `search` the
 // GitHub query for the stage's "all" link; `total` the field of status.json
 // whose figure the stage shows when the file has a usable one, counted by the
-// search its `search` names (see lineView).
+// search its `search` names (see lineView). Idea is an open ticket that is not
+// in line yet: it carries none of the queue's labels (stages.js).
 export const STAGES = [
-  { key: "proto", label: "Prototypes", first: "Latest", later: "Prototype", none: "No prototypes." },
+  { key: "idea", label: "Idea", first: "Latest", later: "Idea", none: "No ideas." },
   { key: "line", label: "In line", from: "queued", first: "Next up", later: "In line", search: "is:open label:tehas:ready", none: "Nothing in line." },
   { key: "plan", label: "Planning", from: "planned", total: "planning", first: "Being planned", later: "Being planned", search: "is:open label:tehas:plan,tehas:planning", none: "Nothing in planning." },
   { key: "build", label: "Building", from: "running", first: "In work", later: "In work", search: "is:open label:tehas:running", none: "Nothing building." },
@@ -37,7 +38,7 @@ export const STAGES = [
 // its own and a whole number of issues above 0, as tehasbot status publishes it.
 const countOf = (s, name) => (Object.prototype.hasOwnProperty.call(s, name)
   && Number.isSafeInteger(s[name]) && s[name] > 0 ? s[name] : 0);
-const MORE = { proto: "in Protolab", line: "in line", plan: "in planning", build: "building", review: "in review", stop: "stopped", ship: "shipped" };
+const MORE = { idea: "ideas", line: "in line", plan: "in planning", build: "building", review: "in review", stop: "stopped", ship: "shipped" };
 
 const list = (v) => (Array.isArray(v) ? v : []);
 const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
@@ -49,57 +50,34 @@ function ticket(item) {
   return { number, title: item.title.slice(0, 180), url: github(item.url) };
 }
 
-// The Protolab's own list, as the factory floor reads it: a ticket's page is
-// at the address the file gives, or under the Protolab's base address.
-export function labBase(lab, pageUrl) {
-  const s = obj(lab);
-  if (typeof s.url === "string" && /^https?:\/\/[A-Za-z0-9.-]+(:[0-9]+)?$/.test(s.url)) return s.url;
-  const u = pageUrl ? new URL(pageUrl) : null;
-  return u && u.protocol === "http:" ? `http://${u.hostname}:8081` : null;
-}
-function labItems(lab, base) {
-  return list(obj(lab).tickets).map((t) => {
-    const item = ticket(t);
-    if (!item) return null;
-    const own = typeof t.address == "string" && /^https:\/\/item-[1-9][0-9]{0,8}[.-][a-z0-9.-]+\/$/.test(t.address) ? t.address : null;
-    return { ...item, url: own || (base ? `${base}/${item.number}/` : item.url) };
-  }).filter(Boolean);
-}
-
-// The sample, as the factory floor stages it: the same table, but a ticket that
-// carries none of tehas's labels is nowhere on the line unless it has left it,
-// which is the one case where the two answers agree. A prototype is drawn beside
-// its stage, so a running prototype stands twice.
+// The sample, as the factory floor stages it: the same table, and a ticket that
+// carries none of tehas's labels is an Idea, as the floor's backlog is, unless
+// it has left the line, which is the one case where the two answers agree.
 function fromSample(raw) {
   const out = Object.fromEntries(STAGES.map((s) => [s.key, []]));
   for (const i of list(obj(raw).issues)) {
     const item = ticket(i);
     if (!item) continue;
     const labels = list(i.labels).map((l) => String(typeof l === "string" ? l : obj(l).name || "").toLowerCase());
-    if (labels.includes("tehas:prototype")) out.proto.push(item);
     const closed = String(i.state || "").toLowerCase() === "closed";
-    // `none` is asked per ticket: an unlabelled issue is nowhere on the line,
-    // unless it has left it, in which case ship is the answer anyway.
-    const key = stageColumn(labelStage(labels, closed,
-      { planning: true, shipped: "ship", none: closed ? "ship" : null }));
+    const key = stageColumn(labelStage(labels, closed, { planning: true, shipped: "ship", none: "idea" }));
     if (key) out[key].push(item);
   }
   for (const i of list(obj(raw).shippedIssues)) { const item = ticket(i); if (item) out.ship.push(item); }
   return out;
 }
 
-// status: /live/status.json or null. lab: /live/protolab.json or null.
-// sample: the bundled sample, used only where there is no status file.
-export function lineView({ status = null, lab = null, sample = null, nowMs = Date.now(), pageUrl = null } = {}) {
+// status: /live/status.json or null. sample: the bundled sample, used only
+// where there is no status file. The queue lists no ideas, so with a status
+// file Idea is left out.
+export function lineView({ status = null, sample = null, nowMs = Date.now() } = {}) {
   const s = status && typeof status === "object" ? status : null;
   const generated = s ? Date.parse(s.generatedAt) : NaN;
   const source = s ? (nowMs - generated <= STALE_QUEUE * 1000 ? "live" : "stale") : sample ? "sample" : "none";
   const repo = s && typeof s.repo === "string" && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(s.repo) ? s.repo : null;
-  const base = lab ? labBase(lab, pageUrl) : null;
   const items = s
     ? Object.fromEntries(STAGES.map((st) => [st.key, st.from ? list(s[st.from]).map(ticket).filter(Boolean) : []]))
     : sample ? fromSample(sample) : Object.fromEntries(STAGES.map((st) => [st.key, []]));
-  if (s) items.proto = base ? labItems(lab, base) : [];
   // A ticket stands at one place on the line, as on the factory floor: a
   // stopped one is stopped wherever else the queue lists it.
   const seen = new Set();
@@ -113,8 +91,7 @@ export function lineView({ status = null, lab = null, sample = null, nowMs = Dat
     // the latest fifty. Without a count, as on an older host, the length of the
     // list is the best answer, and it keeps the stage's "all" link.
     const count = (st.total ? countOf(s || {}, st.total) : 0) || these.length;
-    const href = st.key === "proto" ? base
-      : repo ? `https://github.com/${repo}/issues?q=${encodeURIComponent(st.search)}` : null;
+    const href = repo && st.search ? `https://github.com/${repo}/issues?q=${encodeURIComponent(st.search)}` : null;
     const text = st.key === "stop" ? "See what stopped" : `All ${count} ${MORE[st.key]}`;
     return { key: st.key, label: st.label, count, items: these, first: st.first, later: st.later, none: st.none,
       more: (count || these.length) && href ? { text, href } : null };
@@ -125,7 +102,6 @@ export function lineView({ status = null, lab = null, sample = null, nowMs = Dat
     source,
     paused: Boolean(s && s.paused),
     repo: repo ? `https://github.com/${repo}` : null,
-    lab: base,
     stages,
   };
 }
@@ -176,7 +152,7 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
     return e;
   };
   const still = matchMedia("(prefers-reduced-motion: reduce)");
-  const data = { status: null, lab: null, analytics: null, analyticsAt: 0, serverAt: 0, localAt: 0 };
+  const data = { status: null, analytics: null, analyticsAt: 0, serverAt: 0, localAt: 0 };
 
   // The host bridge (host-bridge.js), when a host answers: a ticket of the
   // repository links to the host's page, in the same tab, and its notes are
@@ -221,7 +197,7 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
     if (notes) box.append(notes);
   }
   function renderLine() {
-    const v = lineView({ status: data.status, lab: data.lab, sample: data.status ? null : window.TEHAS_SAMPLE_ISSUES || null, nowMs: now(), pageUrl: location.href });
+    const v = lineView({ status: data.status, sample: data.status ? null : window.TEHAS_SAMPLE_ISSUES || null, nowMs: now() });
     const tag = $("source");
     tag.hidden = v.source === "live";
     tag.textContent = v.source === "sample" ? "Sample data" : v.source === "stale" ? "Queue stale" : "No queue";
@@ -231,7 +207,8 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
     state.dataset.state = v.paused ? "paused" : v.source === "live" || v.source === "stale" ? "running" : "none";
     $("aside-state").textContent = { Running: "Operations running", Paused: "Operations paused", "No factory": "No factory here" }[said];
     $("aside-note").textContent = { live: "Live queue", stale: "Queue not written for ten minutes", sample: "Sample tickets", none: "No queue" }[v.source];
-    for (const [id, href] of [["nav-repo", v.repo], ["nav-lab", v.lab]]) { $(id).hidden = !href; if (href) $(id).href = href; }
+    $("nav-repo").hidden = !v.repo;
+    if (v.repo) $("nav-repo").href = v.repo;
 
     const line = $("line");
     const signature = JSON.stringify(v.stages.map((s) => [s.key, s.items, s.more]));
@@ -458,8 +435,7 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
   markNav();
 
   // ---- Polling, as the factory floor does: the queue and the running cycles
-  // every ten seconds, the console every two, the Protolab and the report
-  // once a minute.
+  // every ten seconds, the console every two and the report once a minute.
   const lift = () => document.querySelector(".topbar").classList.toggle("is-scrolled", scrollY > 4);
   addEventListener("scroll", lift, { passive: true });
   lift();
@@ -469,7 +445,6 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
     renderLine();
     renderConsole();
   }
-  async function lab() { if (!document.hidden) { data.lab = await read("/live/protolab.json"); renderLine(); } }
   async function report() {
     if (!dueAnalytics({ hidden: document.hidden, readAt: data.analyticsAt })) return;
     data.analyticsAt = Date.now();
@@ -477,10 +452,9 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
     renderPeriod();
   }
   globalThis.TEHAS_HOST_BRIDGE?.onChange(() => { $("line").dataset.signature = ""; renderLine(); });
-  queue(); lab(); report();
+  queue(); report();
   setInterval(queue, 10000);
   setInterval(tail, 2000);
-  setInterval(lab, 60000);
   setInterval(report, 15000);
   setInterval(wave, FLIP_EVERY * 1000);
   addEventListener("resize", renderPeriod);

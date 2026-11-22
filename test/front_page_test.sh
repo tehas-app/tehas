@@ -235,11 +235,11 @@ t_lacks "$(rule '.doors {')" 'max-width'
 
 # The rows the monitor column named go with it, so the one-column template names
 # them in its own order. A panel that names no area is placed after every named
-# one: on a host that shows the host panel, PROTOLAB and the console
-# would be dropped below the breakroom.
+# one: on a host that shows the host panel, the console would
+# be dropped below the breakroom.
 t_case "every panel of the one-column stage names its row"
 medium_areas=$(awk '/^  \.stage \{/,/^  \}/' <<<"$medium" | grep -o '"[a-z ]*"' | tr '\n' ' ')
-t_eq "$medium_areas" '"floor" "doors" "desk" "lab" "console" "epics" "host" "break" '
+t_eq "$medium_areas" '"floor" "doors" "desk" "console" "epics" "host" "break" '
 t_lacks "$medium_body" 'grid-area: auto'
 
 # That list is only right while it matches the markup. These are the elements the
@@ -316,10 +316,10 @@ t_case "the front page clears the header its wrapped menu makes"
 t_eq "$(desk_clearance "$phone")" "--header: $(band 16 50 "$(menu_rows "$labels" 652 16)")px"
 t_eq "$(desk_clearance "$phone_small")" "--header: $(band 8 40 "$(menu_rows "$labels" 343 16)")px"
 
-# The manual and the Protolab load game-view.css and run no script, so their
-# clearance is the plain literal of the band. Their menu holds four links and
+# The manual loads game-view.css and runs no script, so its
+# clearance is the plain literal of the band. Its menu holds four links and
 # keeps the one row that scrolls, so raising it would put the literal above the
-# band those pages really render.
+# band the page really renders.
 t_case "the short headers keep one row of links and the clearance they are given"
 short=$(nav_labels "$T_ROOT/host/docs/_layout.html")
 t_eq "$(awk '/^ *\.topbar-short/ && /flex-wrap/ { n++ } END { print n + 0 }' <<<"$phone")" 0
@@ -455,10 +455,10 @@ t_eq "$(awk '/href="#host"/ { n++ } END { print n }' <<<"$page_text")" 2
 t_case "the panel takes a row of its own, between the epics and the breakroom"
 t_contains "$hostcss_text" 'grid-area: host;'
 t_lacks "$hostcss_text" 'grid-column:'
-t_eq "$stage_areas" '"head head" "line monitor" "doors monitor" "board monitor" "lab monitor" "console monitor" "epics epics" "host host" "break break" '
+t_eq "$stage_areas" '"head head" "line monitor" "doors monitor" "board monitor" "console monitor" "epics epics" "host host" "break break" '
 # The one-column stage names the row too, in its own order, at the stage's own
 # band.
-t_eq "$(query_of 'grid-template-areas: "floor" "doors" "desk" "lab" "console" "epics" "host" "break";' "$game")" \
+t_eq "$(query_of 'grid-template-areas: "floor" "doors" "desk" "console" "epics" "host" "break";' "$game")" \
   "$stage_band"
 t_lacks "$game_text" '.host '
 # The chip is part of the head panel only where it is shown.
