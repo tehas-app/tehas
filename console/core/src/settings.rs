@@ -217,8 +217,8 @@ mod tests {
             "uat-12-demo.example.org"
         );
         assert_eq!(
-            edge_name("lab", "demo.example.org", true),
-            "lab-demo.example.org"
+            edge_name("item-7", "demo.example.org", true),
+            "item-7-demo.example.org"
         );
         assert_eq!(
             edge_name("uat-main", "demo.example.org", false),

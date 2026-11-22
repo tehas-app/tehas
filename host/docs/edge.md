@@ -81,7 +81,7 @@ proxy sends each name on with that `Host`. In a Caddy that already serves
 `*.example.org`:
 
 ```
-@demo header_regexp demo Host ^(uat-[0-9]+|uat-main|lab|item-[0-9]+)-demo\.example\.org$
+@demo header_regexp demo Host ^(uat-[0-9]+|uat-main|item-[0-9]+)-demo\.example\.org$
 handle @demo {
     reverse_proxy <host>:8081 {
         header_up Host {re.demo.1}.demo.example.org
@@ -96,7 +96,7 @@ one level deep already.
 
 Cloudflare speaks HTTPS to the proxy in front of the host. A Caddy that gets a
 certificate per site has none for a name it has no site for, and Cloudflare
-then answers 525. That is what `lab.tehas.app` said before this was set up.
+then answers 525. That is what these names said before this was set up.
 
 The answer is one certificate for `*.tehas.app` on the proxy. A Cloudflare
 origin certificate is free, lasts for years and needs no renewal job. It is
@@ -155,7 +155,7 @@ address in place of `<address>`:
 ```
 *.tehas.app {
     tls /etc/caddy/certs/origin.pem /etc/caddy/certs/origin.key
-    @edge header_regexp Host ^(lab|item-[0-9]+|uat-[0-9]+|uat-main)\.tehas\.app$
+    @edge header_regexp Host ^(item-[0-9]+|uat-[0-9]+|uat-main)\.tehas\.app$
     handle @edge {
         reverse_proxy <address>:8081
     }
@@ -188,13 +188,13 @@ in the file do not matter; the last line has to be `Valid configuration`.
 | --- | --- | --- |
 | `tehas.app` | 200 | The dashboard is as before |
 | `www.tehas.app` | 301 | So is its redirect |
-| `lab.tehas.app`, `item-1.tehas.app`, `uat-1.tehas.app` | 502 | The certificate and the site work. Nothing listens on port 8081 of the host yet |
+| `item-1.tehas.app`, `uat-1.tehas.app` | 502 | The certificate and the site work. Nothing listens on port 8081 of the host yet |
 | `nothing.tehas.app`, `uat-x.tehas.app` | 404 | Other names are refused |
 | any of them | 521 | Caddy on the proxy is not running. See the box above |
 | any of them | 525 | The certificate is not in place, or the encryption mode is not Full |
 
 ```
-for h in tehas.app lab.tehas.app uat-1.tehas.app nothing.tehas.app; do
+for h in tehas.app item-1.tehas.app uat-1.tehas.app nothing.tehas.app; do
   printf '%-20s ' "$h"; curl -s -o /dev/null -w '%{http_code}\n' "https://$h"
 done
 ```
@@ -406,7 +406,7 @@ reach port 8095.
 The proxy's matcher of step 4 names each kind of name by hand. Add the two:
 
 ```
-@edge header_regexp Host ^(lab|item-[0-9]+|uat-[0-9]+|uat-main|plugin-[a-z][a-z0-9]*|plugins)\.tehas\.app$
+@edge header_regexp Host ^(item-[0-9]+|uat-[0-9]+|uat-main|plugin-[a-z][a-z0-9]*|plugins)\.tehas\.app$
 ```
 
 With `TEHAS_EDGE_ONE_LEVEL=on`, send the plugins' names on with their `Host`

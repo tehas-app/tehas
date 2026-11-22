@@ -195,7 +195,7 @@
 //! text files too, by the same rule of which links and whose approval:
 //!   types     md, txt, csv, json, yaml, yml, log, html, css and js, by the
 //!             name's extension, then checked: valid UTF-8 and no NUL byte.
-//!             html is text here; rendering it is the Protolab's job.
+//!             html is text here; nothing in this version renders it.
 //!   how much  At most 16 files, 1 megabyte each and 4 megabytes together.
 //! They are named file-1.md and so on and listed under "files" in the manifest
 //! with their original name. The pi-rukas that tehas pins does not read them
