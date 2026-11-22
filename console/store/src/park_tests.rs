@@ -367,7 +367,7 @@ fn refine_due(home: &Path) -> Vec<i64> {
 fn park_show_refine_lists_the_intent_parks_a_refine_is_owed() {
     let home = home("park-refine");
     intent_parked(&home, 60, "label", "underspecified");
-    intent_parked(&home, 61, "retry-tick", "too-large");
+    intent_parked(&home, 61, "reply", "too-large");
     intent_parked(&home, 62, "label", "premise-unsound");
     parked(&home, 63, "alice", "label", "failed");
     assert_eq!(refine_due(&home), vec![60, 61]);

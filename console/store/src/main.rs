@@ -105,7 +105,7 @@
 //!   store question-show <issue>
 //!   store approval-record <issue> --at <unix> --by <account> --how <how> ...
 //!                [--input-file <file>] | --undo --at <unix>
-//!                (the hows are label, refresh, retry-tick, outage-retry, answer,
+//!                (the hows are label, refresh, outage-retry, answer, reply,
 //!                millwright and host; the old `fixer` is taken too, and is
 //!                written as `millwright` until the shell stops sending it)
 //!   store approval-current <issue>

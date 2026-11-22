@@ -892,7 +892,7 @@ fn attempt_counts_earlier_runs_and_how_is_kept() {
         9,
         &[
             line(t, "label"),
-            line(t + 1000, "retry-tick"),
+            line(t + 1000, "reply"),
             line(t + 2000, "fixer"),
         ],
     );
@@ -1211,7 +1211,7 @@ fn the_run_takes_its_history_approval_settings_and_commit_from_the_facts_alone()
         &home,
         7,
         "approval",
-        json!({"at": iso(started - 30), "how": "retry-tick"}),
+        json!({"at": iso(started - 30), "how": "reply"}),
     );
     fact(
         &home,
@@ -1228,7 +1228,7 @@ fn the_run_takes_its_history_approval_settings_and_commit_from_the_facts_alone()
             "SELECT id || ' ' || attempt || ' ' || how || ' ' || queue_wait || ' ' || status || ' ' ||
                seconds || ' ' || concurrent || ' ' || rukas_commit FROM runs"
         ),
-        format!("work-7-{started} 4 retry-tick 30 merged 60 2 1234abc")
+        format!("work-7-{started} 4 reply 30 merged 60 2 1234abc")
     );
     assert_eq!(
         one::<String>(&conn, "SELECT role || ' ' || model FROM run_roles"),

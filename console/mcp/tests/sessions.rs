@@ -904,7 +904,7 @@ fn an_issue_with_several_attempts() {
             "work",
             7,
             t - 200,
-            json!({"attempt": 2, "how": "retry-tick", "outcome": "pr", "pr": 21}),
+            json!({"attempt": 2, "how": "reply", "outcome": "pr", "pr": 21}),
         ),
         sess_at(
             "work",

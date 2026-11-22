@@ -432,23 +432,185 @@ pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> S
         }
     };
     b += "\n";
-    let park = Regex::new(&format!(
-        r"^<!-- tehas:park issue={issue} step=[a-z0-9-]{{0,40}} kind=[a-z0-9-]{{0,40}} provider=[01] sig=[0-9a-f]{{64}} -->$"
-    ))
-    .unwrap();
     let park_marker = s(out, "/park");
-    if park.is_match(park_marker) {
+    if is_park_marker(park_marker, issue) {
         b += &format!("{park_marker}\n");
     }
-    b += &format!("<!-- tehas:question kind={name} issue={issue} turn={turn} -->\n");
+    b += &format!("{}\n", question_marker(name, issue, turn));
     // As $(q_render) has it: without its last line ends.
     b.trim_end_matches('\n').to_string()
+}
+
+/// Whether `line` is the host's park marker of `issue`.
+pub fn is_park_marker(line: &str, issue: u64) -> bool {
+    Regex::new(&format!(
+        r"^<!-- tehas:park issue={issue} step=[a-z0-9-]{{0,40}} kind=[a-z0-9-]{{0,40}} provider=[01] sig=[0-9a-f]{{64}} -->$"
+    ))
+    .unwrap()
+    .is_match(line)
+}
+
+/// The marker that ends a question of `kind` ("park" or "plan").
+pub fn question_marker(kind: &str, issue: u64, turn: u64) -> String {
+    format!("<!-- tehas:question kind={kind} issue={issue} turn={turn} -->")
+}
+
+/// A question asked before 2.0, asked again in 2.0's words (#2782): what the
+/// poll posts in its place.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Reasked {
+    /// The new comment, or None when the old one offered nothing to decide
+    /// (a stop with no retry), which 2.0 does not ask.
+    pub body: Option<String>,
+    /// The words of a stop's choices, as `question-asked --offers` takes them.
+    pub offers: Vec<Choice>,
+}
+
+/// The question of before 2.0 in `old`, a comment of boxes, rendered as 2.0
+/// asks it: its words above the boxes, its markers, and its boxes as the
+/// choices they were. None when `old` holds no box, which no question of
+/// before 2.0 lacks.
+pub fn reasked(kind: Kind, issue: u64, turn: u64, old: &str) -> Option<Reasked> {
+    let lines: Vec<&str> = old.lines().collect();
+    let is_box =
+        |l: &str| l.starts_with("- [") && matches!(l.get(3..6), Some(" ] " | "x] " | "X] "));
+    let first = lines.iter().position(|l| is_box(l))?;
+    let boxes: Vec<(usize, &str)> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| is_box(l))
+        .map(|(i, l)| (i, &l[6..]))
+        .collect();
+    let mut above: Vec<&str> = lines[..first].to_vec();
+    let marker = match above.first() {
+        Some(l) if is_handoff_marker(l, issue) => {
+            let m = l.to_string();
+            above.remove(0);
+            m
+        }
+        _ => String::new(),
+    };
+    let words = above.join("\n").trim().to_string();
+    match kind {
+        Kind::Park => {
+            let labels: Vec<&str> = boxes.iter().map(|(_, l)| *l).collect();
+            let retry = labels.iter().any(|l| retry_of(l).is_some());
+            let comments = labels.iter().any(|l| retry_of(l) == Some(true));
+            if !retry {
+                return Some(Reasked {
+                    body: None,
+                    offers: Vec::new(),
+                });
+            }
+            let park = lines
+                .iter()
+                .find(|l| is_park_marker(l, issue))
+                .copied()
+                .unwrap_or("");
+            let out = serde_json::json!({"text": words, "question": null, "marker": marker,
+                "park": park, "retry": true, "comments": comments});
+            Some(Reasked {
+                body: Some(q_render(Kind::Park, issue, turn, &out, "")),
+                offers: park_offers(true, comments),
+            })
+        }
+        _ => {
+            // An option is its box and the indented lines under it; the last
+            // box, the end of the session, is the host's own.
+            let mut options = Vec::new();
+            for (k, (at, label)) in boxes.iter().enumerate() {
+                if k + 1 == boxes.len() && label.starts_with(BOX_END) {
+                    break;
+                }
+                let desc: Vec<&str> = lines[at + 1..]
+                    .iter()
+                    .take_while(|l| l.starts_with("  ") && !is_box(l))
+                    .map(|l| l.trim())
+                    .collect();
+                options.push(serde_json::json!({"label": label, "description": desc.join(" ")}));
+            }
+            let out = serde_json::json!({"question": {"question": words, "options": options}});
+            Some(Reasked {
+                body: Some(q_render(Kind::Plan, issue, turn, &out, "")),
+                offers: Vec::new(),
+            })
+        }
+    }
+}
+
+/// The line added once to a question of before 2.0 that was asked again as
+/// the comment `id` on the same issue, or closed when it offered nothing to
+/// decide (None).
+pub fn superseded(id: Option<u64>) -> String {
+    match id {
+        Some(id) => format!("This question is asked again in the words of tehas 2.0: answer [the new comment](#issuecomment-{id}). A box ticked here does nothing."),
+        None => format!(
+            "This question is closed: tehas 2.0 asks nothing of a stop that offers no retry: {}.",
+            crate::hold::HELD_PARKED_EDIT
+        ),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// The park marker of #7 that the tests below render.
+    fn park_marker_7() -> String {
+        let sig = "a".repeat(64);
+        format!("<!-- tehas:park issue=7 step=review kind= provider=0 sig={sig} -->")
+    }
+
+    /// A question of before 2.0 is asked again in 2.0's words: a stop with
+    /// its markers, its words and the retries its boxes offered; a planning
+    /// question with its options and their descriptions; a stop that
+    /// offered no retry is not asked.
+    #[test]
+    fn a_question_of_boxes_is_asked_again_in_words() {
+        let park = park_marker_7();
+        let old = format!("<!-- pi-rukas:handoff issue=7 cap=x -->\nTehas cycle stopped.\n\n- [ ] {OLD_BOX_CLEAN}\n- [x] {BOX_PARKED}\n\nTick one box.\n\n{park}\n{}", question_marker("park", 7, 1));
+        let r = reasked(Kind::Park, 7, 1, &old).unwrap();
+        let body = r.body.unwrap();
+        assert!(body.starts_with("<!-- pi-rukas:handoff issue=7 cap=x -->\nTehas cycle stopped.\n\nReply in a comment"), "{body}");
+        assert!(body.contains("- retry: Retry with the issue and all its comments."));
+        assert!(body.contains(&park));
+        assert!(!body.contains("- ["), "{body}");
+        assert_eq!(
+            r.offers,
+            vec![Choice::Retry, Choice::RetryText, Choice::Park]
+        );
+        let alone = old.replace(OLD_BOX_CLEAN, BOX_ALONE);
+        assert_eq!(
+            reasked(Kind::Park, 7, 1, &alone).unwrap().offers,
+            vec![Choice::RetryText, Choice::Park]
+        );
+        let none = old.replace(&format!("- [ ] {OLD_BOX_CLEAN}\n"), "");
+        assert_eq!(
+            reasked(Kind::Park, 7, 1, &none).unwrap(),
+            Reasked {
+                body: None,
+                offers: vec![]
+            }
+        );
+        let plan = format!("Adopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\nTick one box.\n\n{}", question_marker("plan", 7, 2));
+        let body = reasked(Kind::Plan, 7, 2, &plan).unwrap().body.unwrap();
+        assert_eq!(
+            listed(&body),
+            Some(vec![
+                "Adopt all".to_string(),
+                "Change some".to_string(),
+                BOX_END.to_string()
+            ])
+        );
+        assert!(
+            body.contains(
+                "1. Adopt all: Apply all five\n2. Change some\n3. End this planning session"
+            ),
+            "{body}"
+        );
+        assert_eq!(reasked(Kind::Plan, 7, 2, "no boxes"), None);
+    }
 
     #[test]
     fn no_shape_of_task_box_survives_q_clean() {
@@ -491,8 +653,7 @@ mod tests {
     }
     #[test]
     fn a_park_question_lists_its_choices_in_words_and_both_markers() {
-        let sig = "a".repeat(64);
-        let park = format!("<!-- tehas:park issue=7 step=review kind= provider=0 sig={sig} -->");
+        let park = park_marker_7();
         let out = json!({"text": "Tehas cycle stopped.", "question": null,
             "marker": "<!-- pi-rukas:handoff issue=7 cap=x -->", "park": park, "comments": true});
         assert_eq!(

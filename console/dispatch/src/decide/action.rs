@@ -35,6 +35,19 @@ pub enum Action {
         fail: String,
         say: Option<String>,
     },
+    /// A question asked before 2.0, open at the upgrade, asked again in
+    /// 2.0's words once (#2782): `body` posted (None for a stop that offers
+    /// nothing to decide), the question recorded with `offers`, the old
+    /// comment `old` (whose text is `old_body`) told once that it is
+    /// superseded, and taken off the record.
+    Reask {
+        issue: u64,
+        kind: String,
+        old: String,
+        old_body: String,
+        body: Option<String>,
+        offers: String,
+    },
     /// tehas:refreshing comes off a pull request.
     Unmark {
         pr: u64,
@@ -363,6 +376,21 @@ impl From<&Action> for Value {
                 if let Some(s) = say {
                     put("say", json!(s));
                 }
+            }
+            Action::Reask {
+                issue,
+                kind,
+                old,
+                old_body,
+                body,
+                offers,
+            } => {
+                put("reask", json!(issue));
+                put("kind", json!(kind));
+                put("old", json!(old));
+                put("old_body", json!(old_body));
+                put("body", json!(body));
+                put("offers", json!(offers));
             }
             Action::Unmark { pr, log } => {
                 put("pr", json!(pr));

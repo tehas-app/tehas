@@ -185,6 +185,38 @@ impl Poll<'_> {
         }
     }
 
+    /// The question of before 2.0 in `ans` asked again in 2.0's words.
+    fn reask(&mut self, n: u64, ans: &Asked) {
+        use tehas_core::question::{reasked, Kind};
+        let kind = if ans.kind == "park" {
+            Kind::Park
+        } else {
+            Kind::Plan
+        };
+        let turn = ans.turn.parse().unwrap_or(1);
+        let Some(r) = reasked(kind, n, turn, &ans.body) else {
+            self.log(format!(
+                "skip #{n}: its question of before 2.0 holds no choice to ask again"
+            ));
+            return;
+        };
+        if self.dry {
+            self.log(format!(
+                "would ask #{n}'s question again in the words of 2.0"
+            ));
+            return;
+        }
+        let offers: Vec<&str> = r.offers.iter().map(|c| c.word()).collect();
+        self.act(Action::Reask {
+            issue: n,
+            kind: ans.kind.clone(),
+            old: Given::said(ans.comment.as_ref()),
+            old_body: ans.body.clone(),
+            body: r.body,
+            offers: offers.join(","),
+        });
+    }
+
     /// The answer `tehas answer` gave to question `question` taken away, as a
     /// box is unticked, with its note. A dry run takes nothing away.
     pub(super) fn drop_answer(&mut self, n: u64, question: u64, note: Option<&str>) {
@@ -320,6 +352,13 @@ impl Poll<'_> {
                     continue;
                 }
             };
+            // A question asked before 2.0 and open at the upgrade is asked
+            // again in 2.0's words, once: nothing of the old comment is read
+            // as an answer this poll.
+            if q.reask && !qid.is_empty() && ans.kind == qkind && ans.issue_number() == Some(n) {
+                self.reask(n, &ans);
+                continue;
+            }
             // An answer `tehas answer` gave reads as the box it stands for.
             // One the question does not offer is taken away, and said.
             // One a person's later tick or reply stands over is taken away
