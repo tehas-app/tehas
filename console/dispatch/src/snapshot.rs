@@ -3,7 +3,7 @@
 //! poll reads only when it needs it is None until it is read.
 
 use crate::slice::{Reading, Scope};
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use tehas_core::events::Events;
 
@@ -41,8 +41,9 @@ pub struct Issue {
     /// CLOSED or MERGED. A number missing is one GitHub gave no state for.
     pub blockers: BTreeMap<u64, String>,
     /// The issue's park on the state store (park-show's .park), or the store's
-    /// word and exit status when it could not say.
-    pub park: Option<Result<Option<Value>, StoreErr>>,
+    /// word and exit status when it could not say. A park that is not an
+    /// object is none.
+    pub park: Option<Result<Option<Park>, StoreErr>>,
     /// The approval of its latest start (approval-view), Err when the
     /// store could not answer.
     pub approval: Option<Result<Option<Value>, ()>>,
@@ -53,13 +54,14 @@ pub struct Issue {
     /// The question on record: {plan, id, kind}. plan is plan-show's
     /// `.planning` of an open session, null for none; id and kind as
     /// park-show and question-known answer for it.
-    pub question: Option<Result<Value, StoreErr>>,
+    pub question: Option<Result<Question, StoreErr>>,
     /// The answer `tehas answer` gave to the question on record, as
     /// `question-known` has it; None for none, and for one that does not
     /// parse.
     pub answer: Option<crate::answer::Answer>,
-    /// gh issue view --json state,labels, for a retry after an outage.
-    pub view: Option<Value>,
+    /// gh issue view --json state,labels,title,body, for a retry after an
+    /// outage and a planning session's brief.
+    pub view: Option<View>,
     /// The cycle history on record, Err when the store
     /// could not answer.
     pub history: Option<Result<Vec<CycleRow>, ()>>,
@@ -108,6 +110,153 @@ pub enum PlanStart {
         sum: Option<String>,
     },
     Unreadable,
+}
+
+/// The issue as `gh issue view` gave it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum View {
+    Failed,
+    Read(ViewRead),
+}
+
+/// A text GitHub did not give as text is None; a label with no name is left
+/// out.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ViewRead {
+    pub state: Option<String>,
+    pub labels: Vec<String>,
+    pub title: Option<String>,
+    pub body: Option<String>,
+}
+
+/// The park on record of an issue's last cycle.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Park {
+    /// Empty when it is not text.
+    pub body_sha256: String,
+    /// As jq's `tostring` gives it: `null` for none, text as it is, any other
+    /// value as its JSON text.
+    pub reason: String,
+    /// Its retries are 0.
+    pub fresh: bool,
+    /// The question asked of it: text that is not empty, or a number's text.
+    pub question: Option<String>,
+    /// Its told_at is there and not null.
+    pub told: bool,
+}
+
+/// The question on record of an issue. kind and id are empty when the store
+/// gave none as text; an id that is a number is its text.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Question {
+    pub id: String,
+    pub kind: String,
+    /// The park's reason, when it is text.
+    pub reason: Option<String>,
+    pub plan: PlanRow,
+}
+
+/// plan-show's `.planning`: none, a value that is not an object, or the open
+/// session.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PlanRow {
+    None,
+    Unreadable,
+    Open(Box<Planning>),
+}
+
+/// What the rules read of an open planning session.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Planning {
+    /// The question's comment id: empty for none, text as it is, any other
+    /// value as its JSON text.
+    pub comment_id: String,
+    /// The options of its question, each without its final newlines; one
+    /// that is not text is empty.
+    pub options: Vec<String>,
+    /// The session as `shape` gives it.
+    pub view: PlanView,
+}
+
+/// What the rules read of `shape`'s session: who started it, the fixer
+/// flags of its answers and the ids its notes hold. A list that is not one
+/// is None.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlanView {
+    /// Empty when it is not text.
+    pub by: String,
+    pub fixers: Option<Vec<bool>>,
+    pub refused: Option<Vec<u64>>,
+    pub held: Option<Vec<u64>>,
+}
+
+/// The session `shape` gives, as the fixer's rules read it; None when it is
+/// no object.
+pub(crate) fn plan_view(view: &Value) -> Option<PlanView> {
+    let ids = |k: &str| match view.get(k) {
+        None | Some(Value::Null) => Some(Vec::new()),
+        Some(Value::Array(a)) => Some(a.iter().filter_map(Value::as_u64).collect()),
+        Some(_) => None,
+    };
+    view.is_object().then(|| PlanView {
+        by: view
+            .get("by")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        fixers: match view.get("answers") {
+            None | Some(Value::Null) => Some(Vec::new()),
+            Some(Value::Array(a)) => a
+                .iter()
+                .map(|x| x.get("fixer").and_then(Value::as_bool))
+                .collect(),
+            Some(_) => None,
+        },
+        refused: ids("fixer_refused"),
+        held: ids("held"),
+    })
+}
+
+/// The shape of `store plan-view`: the session as plan_view gives it, from plan-show's
+/// `.planning`: the refused replies of both names and the held ticks from
+/// the notes, and an answer's millwright as fixer.
+pub(crate) fn shape(row: &Value) -> Value {
+    if !row.is_object() {
+        return Value::Null;
+    }
+    let notes = |k: &str| {
+        row.pointer(&format!("/notes/{k}"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let mut refused = notes("millwright_refused");
+    refused.extend(notes("fixer_refused"));
+    let answers: Vec<Value> = row
+        .get("answers")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|a| match a.get("millwright") {
+            Some(Value::Bool(m)) => json!({"turn": a.get("turn"), "by": a.get("by"), "fixer": m}),
+            _ => a,
+        })
+        .collect();
+    let mut v = json!({"answers": answers});
+    for k in ["by", "label"] {
+        if let Some(x) = row.get(k).filter(|x| !x.is_null()) {
+            v[k] = x.clone();
+        }
+    }
+    if !refused.is_empty() {
+        v["fixer_refused"] = json!(refused);
+    }
+    let held = notes("held");
+    if !held.is_empty() {
+        v["held"] = json!(held);
+    }
+    v
 }
 
 /// A pull request a refresh reads (GraphQL's .data.repository.pullRequest).
@@ -830,9 +979,27 @@ fn issue(v: &Value) -> Issue {
             })
             .unwrap_or_default(),
         park: v.get("park").map(|p| match p {
-            Value::Null => Ok(None),
             p if failed(p) => Err(StoreErr::parse(p)),
-            p => Ok(Some(p.clone())),
+            Value::Object(p) => Ok(Some(Park {
+                body_sha256: p
+                    .get("body_sha256")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                reason: match p.get("reason") {
+                    None => "null".to_string(),
+                    Some(Value::String(r)) => r.clone(),
+                    Some(r) => r.to_string(),
+                },
+                fresh: p.get("retries").and_then(Value::as_f64) == Some(0.0),
+                question: match p.get("question") {
+                    Some(Value::Number(x)) => Some(x.to_string()),
+                    Some(Value::String(s)) if !s.is_empty() => Some(s.clone()),
+                    _ => None,
+                },
+                told: !p.get("told_at").unwrap_or(&Value::Null).is_null(),
+            })),
+            _ => Ok(None),
         }),
         approval: v.get("approval").map(|a| match a {
             Value::Null => Ok(None),
@@ -858,10 +1025,54 @@ fn issue(v: &Value) -> Issue {
         }),
         question: v.get("question").map(|q| {
             if failed(q) {
-                Err(StoreErr::parse(q))
-            } else {
-                Ok(q.clone())
+                return Err(StoreErr::parse(q));
             }
+            let text = |v: &Value| v.as_str().map(str::to_string);
+            let planning = |row: &Value| {
+                let view = plan_view(&shape(row))?;
+                Some(Planning {
+                    comment_id: match row.get("comment_id") {
+                        None | Some(Value::Null) => String::new(),
+                        Some(Value::String(s)) => s.clone(),
+                        Some(v) => v.to_string(),
+                    },
+                    options: row
+                        .get("options")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .map(|o| o.as_str().unwrap_or("").trim_end_matches('\n').to_string())
+                        .collect(),
+                    view,
+                })
+            };
+            Ok(Question {
+                id: match q.get("id") {
+                    Some(Value::String(s)) => s.clone(),
+                    Some(Value::Number(x)) => x.to_string(),
+                    _ => String::new(),
+                },
+                kind: q.get("kind").and_then(text).unwrap_or_default(),
+                reason: q.get("reason").and_then(text),
+                plan: match q.get("plan") {
+                    None | Some(Value::Null) => PlanRow::None,
+                    Some(row) => {
+                        planning(row).map_or(PlanRow::Unreadable, |p| PlanRow::Open(Box::new(p)))
+                    }
+                },
+            })
+        }),
+        view: v.get("view").map(|w| {
+            if failed(w) {
+                return View::Failed;
+            }
+            let text = |k: &str| w.get(k).and_then(Value::as_str).map(str::to_string);
+            View::Read(ViewRead {
+                state: text("state"),
+                labels: names(w.get("labels")),
+                title: text("title"),
+                body: text("body"),
+            })
         }),
         // The question read's, or the park's for a park whose hold may lift.
         answer: ["/question/answer", "/park/answer"]
@@ -879,7 +1090,6 @@ fn issue(v: &Value) -> Issue {
                     a.get("at")?.as_i64()?,
                 )
             }),
-        view: v.get("view").cloned(),
         history: v.get("history").map(|h| match h {
             h if failed(h) => Err(()),
             h => Ok(h

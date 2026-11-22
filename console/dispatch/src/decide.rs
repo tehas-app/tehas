@@ -28,9 +28,9 @@ mod plan;
 mod retry;
 mod starts;
 
+pub(crate) use crate::snapshot::shape;
 pub(crate) use clean::{iso, quiet_due, quiet_why, Due, QUIET_ASKS};
 pub(crate) use flow::in_flow;
-pub(crate) use plan::shape;
 pub(crate) use retry::refresh_why;
 
 /// The time now as log() writes it.
@@ -825,12 +825,11 @@ impl<'a> Poll<'a> {
             let Some(Ok(q)) = self.s.issues.get(&n).and_then(|x| x.question.as_ref()) else {
                 continue;
             };
-            if q.get("kind").and_then(Value::as_str) != Some("park") {
+            if q.kind != "park" {
                 continue;
             }
-            let park = json!({"question": q.get("id").cloned().unwrap_or(Value::Null)});
-            if let Some(Ok(t)) = self.retry_tick(n, &park) {
-                out.push((n, t["at"].as_str().unwrap_or("").to_string()));
+            if let Some(Ok((_, at))) = self.retry_tick(n, Some(&q.id)) {
+                out.push((n, at));
             }
         }
         out
@@ -2547,28 +2546,21 @@ impl<'a> Poll<'a> {
                 ))
             }
         };
-        let Some(p) = park.filter(|p| p.is_object()) else {
+        let Some(p) = park else {
             return Ok(false);
         };
-        let sum = p.get("body_sha256").and_then(Value::as_str).unwrap_or("");
+        let sum = p.body_sha256.as_str();
         let hex = sum.len() == 64 && sum.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
-        if p.get("reason").and_then(Value::as_str) == Some("provider-outage")
-            || p.get("retries").and_then(Value::as_f64) != Some(0.0)
-            || !hex
-        {
+        if p.reason == "provider-outage" || !p.fresh || !hex {
             return Ok(false);
         }
         if text::body_sha256(&self.text(n)) != sum {
             return Ok(false);
         }
-        // As `tostring` and `read -r` leave it: no reason is "null", and
-        // only its first line counts, trimmed of spaces and tabs.
-        let reason = match p.get("reason") {
-            None => "null".to_string(),
-            Some(Value::String(r)) => r.clone(),
-            Some(r) => r.to_string(),
-        };
-        let cap = reason
+        // As `read -r` leaves it: only its first line counts, trimmed of
+        // spaces and tabs.
+        let cap = p
+            .reason
             .split('\n')
             .next()
             .unwrap_or("")
@@ -2604,8 +2596,10 @@ impl<'a> Poll<'a> {
         // A Retry ticked in the park's own question is the new approval the
         // hold waits for, also once the question label is off (#1829). A read
         // that failed proves no tick: the hold stays, untold.
-        let by = |t: Value| t["by"].as_str().unwrap_or("").to_string();
-        match self.retry_tick(n, &p).map(|r| r.map(by)) {
+        match self
+            .retry_tick(n, p.question.as_deref())
+            .map(|r| r.map(|(by, _)| by))
+        {
             Some(Ok(by)) => {
                 self.log(format!(
                     "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted on the Retry {by} ticked"
@@ -2623,19 +2617,13 @@ impl<'a> Poll<'a> {
         }
         // With no question on record no tick can start the park (rule 4
         // unticks it and points at the label), so the label is not held.
-        let asked = match p.get("question") {
-            Some(Value::Number(_)) => true,
-            Some(Value::String(s)) => !s.is_empty(),
-            _ => false,
-        };
-        if !asked {
+        if p.question.is_none() {
             self.log(format!(
                 "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted as its park has no question on record to tick"
             ));
             return Ok(false);
         }
-        let told = !p.get("told_at").unwrap_or(&Value::Null).is_null();
-        if !told && !self.dry {
+        if !p.told && !self.dry {
             self.act(json!({
                 "issue": n, "park_told": true,
                 "say": format!("Not started: the last cycle parked on `{cap}` and the issue text has not changed since. Edit the body, or tick Retry in the park comment."),
@@ -2648,17 +2636,13 @@ impl<'a> Poll<'a> {
         Ok(true)
     }
 
-    /// retry_tick: the tick of a Retry box in the question on record of the
-    /// park `p`, as questions::answer reads it, when one tick of an allowed
-    /// account did; an answer `tehas answer` gave counts as the box it stands
-    /// for. None when the park has no question or nothing in it counts;
-    /// Some(Err) when its comments could not be read.
-    fn retry_tick(&self, n: u64, p: &Value) -> Option<Result<Value, ()>> {
-        let qid = match p.get("question") {
-            Some(Value::String(s)) if !s.is_empty() => s.clone(),
-            Some(Value::Number(x)) => x.to_string(),
-            _ => return None,
-        };
+    /// retry_tick: who ticked a Retry box in the question `qid` on record
+    /// of a park and when, as questions::answer reads it, when one tick of an
+    /// allowed account did; an answer `tehas answer` gave counts as the box
+    /// it stands for. None when the park has no question or nothing in it
+    /// counts; Some(Err) when its comments could not be read.
+    fn retry_tick(&self, n: u64, qid: Option<&str>) -> Option<Result<(String, String), ()>> {
+        let qid = qid.filter(|q| !q.is_empty())?;
         let Some(comments) = self.s.issues.get(&n).and_then(|i| i.comments.as_ref()) else {
             return Some(Err(()));
         };
@@ -2667,7 +2651,7 @@ impl<'a> Poll<'a> {
             &self.bot,
             self.s.bot_id,
             &self.c.allowed,
-            &qid,
+            qid,
             &self.c.millwright,
         ) else {
             return Some(Err(()));
@@ -2686,7 +2670,8 @@ impl<'a> Poll<'a> {
             .and_then(|i| ans["labels"].get(usize::try_from(i).ok()?))
             .and_then(Value::as_str)
             .and_then(tehas_core::question::retry_of)?;
-        Some(Ok(ans["tick"].clone()))
+        let text = |k: &str| ans["tick"][k].as_str().unwrap_or("").to_string();
+        Some(Ok((text("by"), text("at"))))
     }
 
     /// The park's hold of `n` goes into the poll's report, so status names
