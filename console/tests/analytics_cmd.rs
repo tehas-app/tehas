@@ -13,7 +13,9 @@ use std::path::Path;
 /// them.
 fn reset(w: &World) {
     w.reset();
-    let _ = fs::remove_file(w.home.join("libexec/analytics"));
+    // The shell's reset removed the whole home, so World::reset's store home
+    // (libexec/store, state/tehas.db, the account ids, a backup) is not there.
+    let _ = fs::remove_dir_all(&w.home);
     for tool in ["gh", "docker", "git", "curl"] {
         w.stub(tool, "exit 1");
     }
