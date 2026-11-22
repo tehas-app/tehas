@@ -1107,12 +1107,13 @@ while IFS= read -r f; do
 done <<<"$retired"
 
 # The units of features this version does not have: the timed refresh scan
-# (refreshes are asked for one pull request at a time) and the improvement
-# loop. Found here; in step 5 each timer is stopped and disabled and its files
-# go.
+# (refreshes are asked for one pull request at a time), the improvement loop
+# and the product wiki, which left core in 2.0. Found here; in step 5 each
+# timer and path unit is stopped and disabled and its files go.
 old_units=()
 scan_units=$units
-for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-improve.service; do
+for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-improve.service \
+  tehas-wiki-status.timer tehas-wiki-status.service tehas-wiki.timer tehas-wiki.path tehas-wiki.service; do
   [ -e "$scan_units/$unit" ] || [ -L "$scan_units/$unit" ] || continue
   old_units+=("$unit")
   [ "$check" = 0 ] || note "stale: $scan_units/$unit"
@@ -1288,6 +1289,7 @@ if [ "${#old_units[@]}" -gt 0 ]; then
   gone=0
   for unit in "${old_units[@]}"; do
     timer=${unit%.*}.timer
+    [ "${unit##*.}" != path ] || timer=$unit
     if [ -e "$scan_units/$timer" ] && ! systemctl --user disable --now "$timer" >/dev/null 2>&1; then
       [ "$unit" != "$timer" ] ||
         echo "later: ./install.sh again   (systemctl --user disable --now $timer failed, so its units were left)"
