@@ -948,7 +948,7 @@ fn a_comments_retry_gets_its_blob_beside_the_images_and_in_the_manifest() {
     let record = format!("{base}/record.json");
     fs::write(
         &record,
-        json!({"at": "2026-11-04T10:12:00Z", "by": "alice", "how": "retry-tick", "links": [],
+        json!({"at": "2026-11-04T10:12:00Z", "by": "alice", "how": "reply", "links": [],
             "retry_context": [{"source": "issue-comment", "id": 1, "by": "alice",
                 "at": "2026-11-04T10:00:00Z", "url": "u1", "text": "Use the other API."}]})
         .to_string(),
@@ -978,7 +978,7 @@ fn a_comments_retry_gets_its_blob_beside_the_images_and_in_the_manifest() {
     // The text-only tick: no blob, no entry.
     fs::write(
         &record,
-        json!({"at": "2026-11-04T10:12:00Z", "by": "alice", "how": "retry-tick", "links": []})
+        json!({"at": "2026-11-04T10:12:00Z", "by": "alice", "how": "reply", "links": []})
             .to_string(),
     )
     .unwrap();
@@ -995,7 +995,7 @@ fn with_no_images_and_no_files_the_directory_holds_the_manifest_and_the_blob() {
     let record = format!("{base}/record.json");
     fs::write(
         &record,
-        json!({"at": "2026-11-04T10:12:00Z", "by": "alice", "how": "retry-tick",
+        json!({"at": "2026-11-04T10:12:00Z", "by": "alice", "how": "reply",
             "links": ["https://github.com/user-attachments/assets/1"],
             "retry_context": [{"source": "issue-comment", "id": 1, "by": "alice",
                 "at": "2026-11-04T10:00:00Z", "url": "u1", "text": "x"}]})
@@ -1018,7 +1018,7 @@ fn with_no_images_and_no_files_the_directory_holds_the_manifest_and_the_blob() {
     assert_eq!(m["issue"], 7);
     assert_eq!(
         m["approval"],
-        json!({"at": "2026-11-04T10:12:00Z", "by": "alice", "how": "retry-tick"})
+        json!({"at": "2026-11-04T10:12:00Z", "by": "alice", "how": "reply"})
     );
     assert_eq!(m["comments"]["file"], "comments.json");
 }

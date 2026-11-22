@@ -868,7 +868,7 @@ fn env_names(w: &World) -> Vec<String> {
 
 /// The text-only tick of a retry, with one comment.
 fn one_comment_retry(v: &mut Value) {
-    v["how"] = json!("retry-tick");
+    v["how"] = json!("reply");
     v["retry_context"] = json!([{"source": "issue-comment", "id": 1, "by": "alice",
         "at": "2026-01-01T00:20:00Z", "url": "u", "text": "x"}]);
 }
@@ -896,7 +896,7 @@ fn comments_retry(w: &World) -> work::Run {
     w.record_is("alice", "Words.", &[]);
     with_comments(w, &[("pr-comment:71", &format!("{A}/7171"), "alice")]);
     w.record_edit(|v| {
-        v["how"] = json!("retry-tick");
+        v["how"] = json!("reply");
         v["at"] = json!("2026-01-01T00:30:00Z");
         v["retry_context"] = json!([
             {"source": "pr-comment", "id": 71, "pr": 30, "by": "alice", "at": "2026-01-01T00:20:00Z",
@@ -974,7 +974,7 @@ fn comments_past_64_kb_drop_the_oldest_and_say_how_many() {
     w.record_is("alice", "Words.", &[]);
     let text = "a".repeat(6000);
     w.record_edit(|v| {
-        v["how"] = json!("retry-tick");
+        v["how"] = json!("reply");
         v["retry_context"] = (0..30)
             .map(|i| {
                 json!({"source": "issue-comment", "id": i, "by": "alice",
@@ -1009,7 +1009,7 @@ fn the_text_only_tick_and_a_start_that_is_no_retry_are_given_no_comments() {
     w.images_on(&[]);
     w.issue_is("Words.", "NONE", "");
     w.record_is("alice", "Words.", &[]);
-    w.record_edit(|v| v["how"] = json!("retry-tick"));
+    w.record_edit(|v| v["how"] = json!("reply"));
     w.work7();
     assert!(!w.imgs.join("comments.json").exists());
 }
@@ -1046,7 +1046,7 @@ fn with_images_off_a_retry_s_comments_are_mounted_with_the_manifest_alone() {
     assert_eq!(tree_of(&w.imgs), ["./comments.json", "./manifest.json"]);
     assert_eq!(
         w.manifest("[.images, .leftOut, .issue, .approval.how, .comments.file]"),
-        r#"[[],[],7,"retry-tick","comments.json"]"#
+        r#"[[],[],7,"reply","comments.json"]"#
     );
     assert_eq!(mounts(&w), mounts_with_images(&w));
     assert_eq!(env_names(&w), env_with_images());

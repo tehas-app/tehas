@@ -110,17 +110,16 @@ pub const REPLY: &str = "reply";
 
 /// The kinds of approval a person gave, which a fixer or refresh start rests on.
 /// The host's approval is one of them.
-const BASES: &str = "('label', 'retry-tick', 'outage-retry', 'host', 'answer', 'reply')";
+const BASES: &str = "('label', 'outage-retry', 'host', 'answer', 'reply')";
 
 /// The hows of this release: what `approval-record` takes, in the order a
 /// refusal prints them (the case in `verbs_tests.rs` pins that string), with
 /// `fixer` as the alias `Args::word` takes beside the word it stands for.
 /// `fixer` is the old name of `millwright` and has no row of its own.
-const CURRENT_HOWS: [(&str, &str); 8] = [
+const CURRENT_HOWS: [(&str, &str); 7] = [
     (MILLWRIGHT, FIXER),
     ("label", "label"),
     ("refresh", "refresh"),
-    ("retry-tick", "retry-tick"),
     ("outage-retry", "outage-retry"),
     (HOST, HOST),
     (ANSWER, ANSWER),

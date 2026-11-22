@@ -204,7 +204,10 @@ Beside the queue, a poll also reads two kinds of answer. A reply of an
 allowed account that names `retry` or `retry-text` to the bot's comment on a
 stopped cycle can start a fresh cycle, and a reply to a planning question runs
 the next turn of that session; `tehas answer` gives either from the host. A
-box ticked in a comment of before 2.0 is no answer, and nothing happens. A retry waits for a free slot and for the cap, as any cycle does.
+box ticked in a comment of before 2.0 is no answer, and nothing happens. A
+question open at the move to 2.0, which `tehas update` marks, is asked again
+first, once, in 2.0's words, and its old comment gets one line that links the
+new one. A retry waits for a free slot and for the cap, as any cycle does.
 A planning turn waits for neither. It runs as its own unit,
 `tehas-plan-<issue>.service`, started with `systemd-run`, from its own copy of
 the code as a cycle runs (`tehas-cycle pin plan`, see
@@ -455,7 +458,7 @@ state store (`~/tehas/state/tehas.db`, through `libexec/store`
 (`label`, `reply` for a retry a person's reply answered, `answer` for one
 `tehas answer` gave, `millwright`, `refresh`, `outage-retry` for the one start
 after a provider outage, or `host` for an approval of `tehas start`, whose `by`
-is `host` too; `retry-tick` is a retry ticked before 2.0), `body_sha256`, the sha256 of the body that approval
+is `host` too), `body_sha256`, the sha256 of the body that approval
 was checked against with carriage returns dropped, `title_sha256`, the sha256
 of the issue's title held the same way (line ends dropped), and as the start's
 inputs `links`, the links to GitHub's attachment storage in that body, and

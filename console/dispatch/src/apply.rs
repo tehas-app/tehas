@@ -126,6 +126,16 @@ fn word(v: &Value) -> String {
 /// read/build.rs both cut the file at this length.
 pub const SAID_MAX: usize = 200;
 
+/// What a re-ask carries (#2782), read off its action.
+struct Reask<'a> {
+    kind: &'a str,
+    old: &'a str,
+    old_body: &'a str,
+    body: Option<&'a str>,
+    offers: &'a str,
+    unlabel: Option<&'a str>,
+}
+
 /// state/refresh/<n>.said: what says that an issue's hold was told.
 pub fn said_file(home: &Path, n: u64) -> PathBuf {
     home.join(format!("state/refresh/{n}.said"))
@@ -219,6 +229,16 @@ impl Writer {
             };
             let say = a.get("say").and_then(Value::as_str);
             self.answer_drop(n, &id, say, text(a, "fail"), log);
+        } else if let Some(n) = a.get("reask").and_then(Value::as_u64) {
+            let r = Reask {
+                kind: text(a, "kind"),
+                old: text(a, "old"),
+                old_body: text(a, "old_body"),
+                body: a.get("body").and_then(Value::as_str),
+                offers: text(a, "offers"),
+                unlabel: a.get("unlabel").and_then(Value::as_str),
+            };
+            self.reask(n, &r, log);
         } else if let Some(pr) = a.get("pr").and_then(Value::as_u64) {
             self.unmark(pr, a, log);
         } else if let Some(n) = a.get("plan_note").and_then(Value::as_u64) {
@@ -532,6 +552,107 @@ impl Writer {
             }
             Err(f) => log.push(format!("{fail} ({})", word(&f))),
         }
+    }
+
+    /// The REST path of `rest` under the repository's issues.
+    fn issues_path(&self, rest: &str) -> String {
+        format!("repos/{}/issues/{rest}", self.repo)
+    }
+
+    /// A question's comment posted on issue `n`: its id, or None when GitHub
+    /// did not take it or gave no id.
+    pub(crate) fn question_post(&mut self, n: u64, body: &str) -> Option<u64> {
+        let args = vec![
+            "api".into(),
+            "-X".into(),
+            "POST".into(),
+            self.issues_path(&format!("{n}/comments")),
+            "--input".into(),
+            "-".into(),
+            "--jq".into(),
+            ".id".into(),
+        ];
+        let input = json!({"body": body}).to_string();
+        let Wrote::Done(said) = self.write(n, "comment-post", args, Some(&input), None) else {
+            return None;
+        };
+        // gh prints the id alone, as --jq .id has it.
+        said.trim().parse::<u64>().ok()
+    }
+
+    /// A question of before 2.0 asked again in 2.0's words (#2782): the new
+    /// comment posted and recorded, the old one taken off the record, then
+    /// told once where it went (a stop closed with nothing to ask also loses
+    /// `tehas:question`). A step before the withdrawal that fails stops there,
+    /// and the next poll asks again; one after it is said in the log and not
+    /// repeated. An old comment that already ends in the line is not edited.
+    fn reask(&mut self, n: u64, r: &Reask, log: &mut Vec<String>) {
+        let mut new = None;
+        if let Some(body) = r.body {
+            let Some(id) = self.question_post(n, body) else {
+                log.push(format!("WARN: the question of #{n} could not be asked again; the next poll tries again"));
+                return;
+            };
+            let (id, issue) = (id.to_string(), n.to_string());
+            let mut args = vec!["question-asked", &issue, "--id", &id, "--kind", r.kind];
+            if !r.offers.is_empty() {
+                args.extend(["--offers", r.offers]);
+            }
+            if let Err(f) = self.store_try(3, &args) {
+                log.push(format!(
+                    "WARN: the question of #{n} was asked again as comment {id}, but it could not be recorded ({})",
+                    word(&f)
+                ));
+                return;
+            }
+            new = id.parse().ok();
+        }
+        // Off the record first: a step after it that fails is not repeated
+        // by the next poll, which no longer finds the old question marked.
+        let issue = n.to_string();
+        if let Err(f) = self.store_try(
+            3,
+            &["question-answered", &issue, "--id", r.old, "--withdraw"],
+        ) {
+            log.push(format!(
+                "WARN: the old question of #{n} could not be taken off the record ({})",
+                word(&f)
+            ));
+            return;
+        }
+        // A stop closed with nothing to ask no longer waits on a question.
+        if let Some(label) = r.unlabel {
+            if !self.edit_labels(n, &[("--remove-label", label)]) {
+                log.push(format!(
+                    "WARN: the question's label could not be taken off #{n}"
+                ));
+            }
+        }
+        let line = tehas_core::question::superseded(new);
+        if !r.old_body.trim_end().ends_with(&line) {
+            let edited = format!("{}\n\n{line}", r.old_body.trim_end());
+            let args = vec![
+                "api".into(),
+                "-X".into(),
+                "PATCH".into(),
+                self.issues_path(&format!("comments/{}", r.old)),
+                "--input".into(),
+                "-".into(),
+            ];
+            let input = json!({"body": edited}).to_string();
+            if !matches!(
+                self.write(n, "comment-edit", args, Some(&input), None),
+                Wrote::Done(_)
+            ) {
+                log.push(format!(
+                    "WARN: the old question of #{n} could not be told it is superseded"
+                ));
+            }
+        }
+        log.push(format!(
+            "asked #{n}'s question again in the words of 2.0 (comment {} superseded)",
+            r.old
+        ));
     }
 
     /// refresh_unmark: tehas:refreshing off a pull request; one already

@@ -535,7 +535,7 @@ pub fn comments_retry(record: &str) -> bool {
         && record_value(Path::new(record)).is_some_and(|r| {
             matches!(
                 r.get("how").and_then(Value::as_str),
-                Some("retry-tick" | "answer" | "reply")
+                Some("answer" | "reply")
             )
         })
 }
@@ -794,10 +794,7 @@ fn base(r: &Value, allowed: &str) -> Option<Value> {
     }) && shaped(base, "by", |s| {
         s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
     }) && shaped(base, "how", |s| {
-        matches!(
-            s,
-            "label" | "retry-tick" | "outage-retry" | "host" | "answer" | "reply"
-        )
+        matches!(s, "label" | "outage-retry" | "host" | "answer" | "reply")
     }) && shaped(base, "body_sha256", |s| {
         s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
     });

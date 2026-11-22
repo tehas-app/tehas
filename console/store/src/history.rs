@@ -22,11 +22,10 @@ pub struct Call {
 /// release, in the order a refusal prints them. Each pair is one word and its
 /// old spelling: `fixer` is matched and never printed, and a filter of either
 /// word keeps the rows of both. #686: part 5 drops the alias of the pair.
-pub const HOWS: [(&str, &str); 9] = [
+pub const HOWS: [(&str, &str); 8] = [
     (crate::approval::MILLWRIGHT, crate::approval::FIXER),
     ("label", "label"),
     ("refresh", "refresh"),
-    ("retry-tick", "retry-tick"),
     ("outage-retry", "outage-retry"),
     ("hand", "hand"),
     (crate::approval::HOST, crate::approval::HOST),

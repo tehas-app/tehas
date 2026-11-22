@@ -828,7 +828,12 @@ polyfill's comments do not reach the repeat-park guard, and the end comment
 says the comments were given to the cycle's agents. With the native reader it
 says how many the runner read, or that it did not and why. A comment posted
 before 2.0 has boxes instead of lines: a box ticked in it does nothing, and
-nothing is said of it. A label works as well once the body has changed: apply
+nothing is said of it. A question still open when the host moves to 2.0 is
+asked again: `tehas update` marks it, and the first poll posts it once more in
+2.0's words, records the choices it offers, and adds one line to the old
+comment that links the new one. A stop of before 2.0 that offered no retry is
+not asked again, since 2.0 asks nothing of it: its old comment says it is
+closed. A label works as well once the body has changed: apply
 `tehas:ready`. While the text is the one the cycle parked on and the question
 is on record, the label is held until a reply answers a retry, as said
 below. `needs-human-attention` does not have to be removed first. A
@@ -1135,7 +1140,8 @@ dispatcher's log says so.
    on the host answers the same way with `tehas answer`, and reads the
    choices with `tehas question` ([the factory API](/api#tehas-answer)). The
    newest answer counts. A box ticked in a comment of before 2.0 is no
-   answer, and nothing is said of it. The next poll that is free
+   answer, and nothing is said of it; a question open at the move to 2.0 is
+   asked again once, in a new comment the old one links to. The next poll that is free
    continues the session with your answer, and the issue carries
    `tehas:planning` while the turn runs. The turn runs as its own unit,
    `tehas-plan-<issue>.service`, and the polls go on meanwhile: cycles start
