@@ -605,6 +605,18 @@ trio are supported, so 2.0 carries no backwards compatibility.
   schema of 1.4.x to 2.0's, and the owner confirmed that one is needed.
   Migrations from older schemas, the imports of v0.30 files, and their
   fixtures and tests go.
+- **Every existing configuration works or migrates.** The owner,
+  2026-11-22: "make sure existing configurations either work as is or
+  can be migrated." Each setting, environment variable, key or file of
+  an instance's layout that 2.0 removes or renames is either still read
+  as it is, or rewritten by `tehas update` to its 2.0 form, beside the
+  store's migration, with one line saying what changed. A 1.4.x
+  configuration never fails to load. What the update rewrites, 2.0 no
+  longer reads, so the rewrite is no lever. A test runs instance
+  directories of every shape 1.4.x accepts, `instances/example/`
+  included, through the migration and then through `lib/config.sh` and
+  the settings loader. The real instances, which live outside this
+  repository, are run through it by a person before the trio is tagged.
 - **T9 has no renames table.** The changes of 2.0 are listed once, in
   "Changed in 2.0", with no old name kept beside a new one.
 - **Open:** whether `TEHAS_DRIVER=classic`, and T13's fallback to it, is
