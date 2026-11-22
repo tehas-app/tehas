@@ -31,9 +31,9 @@ Each event is stored once per issue, the first time. A second run of an issue
 adds no event; every run is in `runs`.
 
 Samples are the clock of the ten-day report: `availability` credits each row
-with the time to the next one, at most ten minutes, and `energy` with the same
-span, so a stretch with no row - a paused or held factory, an idle week -
-counts as not available and as no draw rather than as one reading held. A fall
+with the time to the next one, at most ten minutes, so a stretch with no row -
+a paused or held factory, an idle week - counts as not available rather than
+as one reading held. A fall
 in `availability` or in a report's `n` after a long pause means the factory did
 no work, not that the dispatcher is down.
 
@@ -258,9 +258,8 @@ further ahead is refused and nothing is stored.
 
 ### samples
 
-One row per poll, from the live files the poll wrote: `live/status.json`,
-`live/dispatch.json` and `live/energy.json`. A file that is missing or older
-than its poll gives NULL.
+One row per poll, from the live files the poll wrote: `live/status.json` and
+`live/dispatch.json`. A file that is missing or older than its poll gives NULL.
 
 | Column | Source | Since |
 | --- | --- | --- |
@@ -270,7 +269,7 @@ than its poll gives NULL.
 | `cycle_limit` | The cycles allowed at once, from `dispatch.json`: the concurrency, or the room under `tehas limit` where that is lower | 1 |
 | `paused` | 1 when the factory was paused | 1 |
 | `held` | The one word of the dispatcher's hold, empty when nothing held | 1 |
-| `watts` | The model mesh's draw, from `energy.json`, where the mesh reports one | 1 |
+| `watts` | The model mesh's draw until 2.0, when energy use left core. A new row leaves it NULL, and the report no longer reads it | 1 |
 
 ### meta
 

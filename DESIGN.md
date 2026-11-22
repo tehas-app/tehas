@@ -126,8 +126,7 @@ the issue board starts under the fold.
 
 Motion is stepped, like sprite frames. One-shot moves answer something the
 viewer did or mark data arriving: signs and doors pop in on load, a changed
-count latches with a two-frame flash, a changed meter reading counts up or
-down to the new one in eight frames with its gauge, a selected ticket's number flies from where
+count latches with a two-frame flash, a selected ticket's number flies from where
 it was pressed to the monitor (blank and ringed in Brass while it waits), which
 then prints the ticket at 1200 bps, and a newly chosen stage prints its rows
 in. The only loops
@@ -221,8 +220,8 @@ tokens below are the ones the interface uses; the sprites draw on the rest.
 - **Slate** (`slate`): captions and secondary text.
 - **Hairline** (`hairline`): dividers inside a panel.
 - **CRT Black** (`crt-black`), **CRT Amber** (`crt-amber`) and **CRT Dim**
-  (`crt-dim`): the monitor screen, the console, the energy chart and the game
-  canvas. The only dark surfaces.
+  (`crt-dim`): the monitor screen, the console and the game canvas. The only
+  dark surfaces.
 
 ### Named Rules
 **The Twelve Bit Rule.** Every colour, in the stylesheet, the canvas and the
@@ -314,25 +313,6 @@ station, counting stopped and not on the line) and says when no ticket data is
 loaded, when the factory is paused, or when the last cycle failed. The room
 above the panel belongs to the field, not to its face.
 
-At the head panel stands the live meter, there only while the model
-mesh reports (see Energy Use): the draw now in watts and the tokens of the last
-minute, each in display type over a gauge of ten blocks, Brass for the filled
-ones. The power gauge is read against the chart's scale, the token gauge against
-the busiest minute of the last half hour. Where the mesh counts no tokens the
-meter shows power alone. It leads to Energy Use.
-The meter costs width and is given a column of its own, 336px where the stage
-has its monitor column. From 1440px it stands in that column as a card of its
-own beside the panel, over the work order monitor: Bone Shade, a 4px Outline,
-the sign shadow, the same left and right edges as the monitor column below it,
-its top and bottom edges the panel's own whatever rows the panel holds, and the
-field in the 24px between them. The panel gives up that room, so its
-face ends at the stage's first column. Below 1440px the meter is a Bone Shade
-band inside the panel again, over the height of the Steel head and the lines
-under it, closed off from the text by a 4px Outline rule in a column of 240px;
-below 900px the panel is one column and the meter lies across its foot at full
-width. Where the two do not fit side by side it is the meter that moves, never
-the text.
-
 ### Station Sign
 A signboard: the station's scene, the name and count in display type, one
 ticket (next up, in work, needs review, latest) with its title held to two
@@ -353,8 +333,7 @@ else on the page.
 Six Steel tiles in three columns (two on narrow screens): a name, a line of
 status beneath it, and a count in display type where there is one. The stopped
 door turns Brass when anything is stopped. A pressed door moves onto its
-shadow. The live meter is not one of the doors: it stands at the head panel,
-as a card beside it where the stage has its monitor column.
+shadow.
 
 ### Monitor
 The selected work order on a cream-cased screen: number in display type, then
@@ -427,8 +406,8 @@ floor where the menu wraps.
 ### Production Console
 A Bone Shade panel holding a CRT Black screen with CRT Amber text: the running
 cycle's output, followed as it grows. A tag in the panel head says LIVE (Brass),
-ENDED or NO CONSOLE, and its door says the same in words. It and the Factory
-Energy panel are the only live parts of the page, and both are labelled as such.
+ENDED or NO CONSOLE, and its door says the same in words. It is the only live
+part of the page, and is labelled as such.
 
 When more than one cycle can be shown, a row of tabs stands above the screen:
 one per running cycle, named by its issue number, and one for the cycle that
@@ -436,33 +415,6 @@ finished last, marked ENDED. A tab is a Bone button with the 4px outline; the
 selected one is Brass. The tag in the panel head describes the selected cycle.
 The door and the lamp say LIVE while any cycle runs. The plain dashboard has
 the same row.
-
-### Energy Use
-A Bone Shade panel in the console's style, shown only when the model backend
-reports power: a Steel head with the count of hosts reporting and a tag that
-says LIVE (Brass) or STALE; the mesh's draw now and its kWh in display type; a
-CRT Black screen with the last 30 minutes as a stack of columns; a table of
-machines and a table of models. From 1280px the models stand beside the screen
-and the machines run beneath both; below that the three stack. It spans the
-stage under the monitor's column.
-
-- **Chart:** a 480 by 136 canvas at its native size. 120 columns
-  of 4 pixels, one per 15 seconds. Each column is flat blocks, one per machine,
-  in the order of the rows beneath. No lines, no curves, nothing translucent.
-  A missed sample is an empty column. Scale labels are page text beside the
-  canvas, in CRT Dim.
-- **Band colours** (`--band-1` to `--band-8`): `#ea3`, `#4a9`, `#c53`, `#7cb`, `#ccd`, `#b97`, `#694`,
-  `#fc6`, in that order. From the ninth machine the list starts again as a
-  one-pixel checker with CRT Black. A row's swatch is drawn the same way.
-- **Tables:** 1px Hairline between rows, figures right-aligned, a missing
-  figure a dash. Only machines serving the factory and the models it uses are
-  listed, so no row carries a mark. RAM is ten blocks, Slate for each started tenth in use.
-  A model's engines follow its hosts, and leave the table with them on narrow
-  screens.
-- **Data source:** one line of small print at the foot of the panel, Slate
-  with the name an Ink link, as in the page's footer.
-- **Stillness:** nothing here animates and no figure flashes. The figures
-  change every 15 seconds, and motion that often would say nothing.
 
 ### Manual Page
 The manual and the plain dashboard wear the same header and footer as the
@@ -477,7 +429,8 @@ list lies across the top.
 - **Emphasis:** Topaz has one weight and no italic. Strong text is Rust,
   emphasised text has a dotted rule under it.
 - **Code:** inline on Bone Shade; a block is a CRT Black screen in CRT Amber.
-- **Tables:** as in Energy Use, and they scroll sideways before they squeeze.
+- **Tables:** 1px Hairline between rows, figures right-aligned, a missing
+  figure a dash. They scroll sideways before they squeeze.
 
 ### Breakroom
 A full-width panel on a Bone Shade ground with a Steel head, like the other
