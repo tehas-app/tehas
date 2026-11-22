@@ -5,7 +5,6 @@
 use super::{blockers, has, newest_marker, Poll, BLOCKED};
 use crate::snapshot::OrderState;
 use crate::starts::{code_of, of_issue};
-use serde_json::Value;
 use tehas_core::starts::{code, Edge, Reason, Record};
 
 impl Poll<'_> {
@@ -32,9 +31,9 @@ impl Poll<'_> {
         own.or_else(|| {
             self.d.actions[action..]
                 .iter()
-                .filter(|a| a.get("issue").and_then(Value::as_u64) == Some(n))
-                .filter_map(|a| a.get("log").and_then(Value::as_str))
-                .find_map(|l| of_issue(l, n).map(str::to_string))
+                .filter_map(|a| a.issue_log())
+                .filter(|(i, _)| *i == n)
+                .find_map(|(_, l)| of_issue(l, n).map(str::to_string))
         })
     }
 

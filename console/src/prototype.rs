@@ -656,8 +656,8 @@ mod tests {
         let text = body("Make it fast.", Some(&z), Some(&s)).unwrap();
         let d = poll_over(&text, &["tehas:prototype", "tehas:ready"]);
         assert_eq!(d.picked, [7], "{:?} {:?}", d.log, d.actions);
-        let start = d
-            .actions
+        let actions: Vec<Value> = d.actions.iter().map(Value::from).collect();
+        let start = actions
             .iter()
             .find(|a| a.get("start").and_then(Value::as_u64) == Some(7))
             .expect("a start of #7");

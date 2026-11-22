@@ -18,7 +18,7 @@
 
 use crate::apply::start::Host;
 use crate::apply::Writer;
-use crate::decide::{iso, iso_now, PlanStep};
+use crate::decide::{iso, iso_now, Action, LabelChange, PlanStep};
 use crate::read::build::{fill, may_start, snapshot, Sources};
 use crate::read::host::{hostname, push_fault, push_fault_aged_out};
 use crate::read::run::{read_gh_token, Calls, RetryPolicy};
@@ -851,7 +851,9 @@ fn body(
     // The decision's plan: its lines, its actions and the two steps the bash
     // takes where they fall. A poll an action ends logs nothing after it, as
     // the bash exits there.
-    let starts = |a: usize| d.actions[a].get("start").is_some();
+    // apply reads each action as JSON.
+    let actions: Vec<Value> = d.actions.iter().map(Value::from).collect();
+    let starts = |a: usize| d.actions[a].is_start();
     let mut k = 0;
     while k < d.plan.len() {
         let step = d.plan[k];
@@ -885,7 +887,7 @@ fn body(
                 k += 1;
             }
         }
-        let done = w.apply(&d.actions[a..end]);
+        let done = w.apply(&actions[a..end]);
         for l in &done.log {
             say(l);
         }
@@ -930,10 +932,11 @@ impl crate::finish::Hands for FinishHands<'_> {
     fn unlabel(&mut self, n: u64) -> bool {
         let label = crate::finish::LABEL;
         let done = format!("finish #{n}: {label} off");
-        let done = self.w.apply(&[json!({
-            "issue": n, "remove": [label], "reread": label, "log": done,
-            "fail": format!("WARN: label change on #{n} failed: --remove-label {label}"),
-        })]);
+        let fail = format!("WARN: label change on #{n} failed: --remove-label {label}");
+        let off = LabelChange::new(n, &[label], fail)
+            .reread(label, None)
+            .log(done);
+        let done = self.w.apply(&[Value::from(&Action::Label(off))]);
         let off = done
             .log
             .iter()
@@ -1030,7 +1033,11 @@ impl FinishHands<'_> {
     }
 
     fn post(&mut self, n: u64, body: &str) {
-        let done = self.w.apply(&[json!({"issue": n, "say": body})]);
+        let post = Action::Say {
+            issue: n,
+            say: body.to_string(),
+        };
+        let done = self.w.apply(&[Value::from(&post)]);
         for l in &done.log {
             say(l);
         }

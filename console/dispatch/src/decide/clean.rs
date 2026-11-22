@@ -3,14 +3,18 @@
 //! mark with no cycle, a tehas:refreshing with no refresh, and what an old
 //! cycle left on this host.
 
-use super::{has, or_unknown, Poll, Step};
+use super::{has, or_unknown, Action, LabelChange, Poll, QuietDue, Step};
 #[cfg(test)]
 use crate::snapshot::own_branch;
 use crate::snapshot::{BotPr, Cycle, Labels, Marked, Work};
 use regex::Regex;
+#[cfg(test)]
 use serde_json::json;
 use tehas_core::accounts::account;
 use tehas_core::events::label_actor;
+
+const RUNNING: &str = "tehas:running";
+const PLANNING: &str = "tehas:planning";
 
 pub(crate) const QUIET_BOUND: u64 = 1200;
 const QUIET_RETRY: u64 = 600;
@@ -141,24 +145,25 @@ impl Poll<'_> {
             // The line is the one the store's answer is expected to give:
             // apply decides from the answer, as the bash does, and logs that,
             // on this poll's clock.
-            let mut a = json!({"quiet": n, "said_for": heard, "now": now});
-            match due {
-                Due::Stop => {
-                    a["log"] = json!(format!("WARN: {why}: stopping {unit}"));
-                    a["stop"] = json!(true);
-                }
-                Due::Again => {
-                    a["log"] = json!(format!("WARN: {why}: the poll asks {unit} to stop again"));
-                    a["stop"] = json!(true);
-                }
-                Due::Line => {
-                    a["log"] = json!(format!("WARN: {why}: the poll asked {QUIET_ASKS} times to stop {unit} and asks no more: it needs a person, who can stop it with systemctl --user stop {unit}"));
-                    a["asked"] = json!(true);
-                    a["said_only"] = json!(asks != QUIET_ASKS);
-                }
-                Due::Wait => {}
-            }
-            self.act(a);
+            let due = match due {
+                Due::Stop => QuietDue::Stop {
+                    log: format!("WARN: {why}: stopping {unit}"),
+                },
+                Due::Again => QuietDue::Again {
+                    log: format!("WARN: {why}: the poll asks {unit} to stop again"),
+                },
+                Due::Line => QuietDue::Line {
+                    log: format!("WARN: {why}: the poll asked {QUIET_ASKS} times to stop {unit} and asks no more: it needs a person, who can stop it with systemctl --user stop {unit}"),
+                    said_only: asks != QUIET_ASKS,
+                },
+                Due::Wait => QuietDue::Wait,
+            };
+            self.act(Action::Quiet {
+                issue: n,
+                said_for: heard,
+                now,
+                due,
+            });
         }
     }
 
@@ -231,7 +236,10 @@ impl Poll<'_> {
                 continue;
             }
             self.log(format!("stop #{n}: {text}"));
-            self.act(json!({"stop_done": n, "why": why}));
+            self.act(Action::StopDone {
+                issue: n,
+                why: why.to_string(),
+            });
             self.stopped.push(n);
         }
         Ok(())
@@ -258,8 +266,10 @@ impl Poll<'_> {
                 continue;
             }
             if !self.dry {
-                self.act(json!({"reap": format!("tehas-work-{n}"),
-                    "why": format!("no cycle holds the lock of #{n}")}));
+                self.act(Action::Reap {
+                    name: format!("tehas-work-{n}"),
+                    why: format!("no cycle holds the lock of #{n}"),
+                });
             }
             if i.closed {
                 let line = format!(
@@ -269,8 +279,11 @@ impl Poll<'_> {
                     self.log(format!("would {line}"));
                 } else {
                     self.log(line);
-                    self.act(json!({"issue": n, "remove": ["tehas:running"],
-                        "fail": format!("WARN: label change on #{n} failed")}));
+                    self.act(Action::Label(LabelChange::new(
+                        n,
+                        &[RUNNING],
+                        format!("WARN: label change on #{n} failed"),
+                    )));
                 }
                 continue;
             }
@@ -292,7 +305,7 @@ impl Poll<'_> {
                     1,
                 ));
             };
-            if !has(&labels, "tehas:running") {
+            if !has(&labels, RUNNING) {
                 self.log(format!(
                     "skip #{n}: tehas:running is gone from it since the list was read"
                 ));
@@ -310,12 +323,12 @@ impl Poll<'_> {
             // The issue is read again just before the park: a cycle that
             // ended since the list was read took tehas:running off. The line
             // is logged once that read says the park is still due.
-            self.act(json!({
-                "issue": n, "remove": ["tehas:running"], "add": ["needs-human-attention"],
-                "reread": "tehas:running", "first": line,
-                "fail": format!("WARN: label change on #{n} failed"),
-                "say": format!("Tehas found this issue marked `tehas:running` with no cycle behind it on `{host}`: the cycle ended without changing the label, or never started. Look for a pull request it may have opened. The run log is `~/tehas/logs/dispatch-work-{n}.log` there. To retry, apply `tehas:ready`. If it is on the issue already, nothing more is needed."),
-            }));
+            self.act(Action::Label(
+                LabelChange::new(n, &[RUNNING], format!("WARN: label change on #{n} failed"))
+                    .put_on(&["needs-human-attention"])
+                    .reread(RUNNING, Some(line))
+                    .say(format!("Tehas found this issue marked `tehas:running` with no cycle behind it on `{host}`: the cycle ended without changing the label, or never started. Look for a pull request it may have opened. The run log is `~/tehas/logs/dispatch-work-{n}.log` there. To retry, apply `tehas:ready`. If it is on the issue already, nothing more is needed.")),
+            ));
         }
         Ok(())
     }
@@ -343,12 +356,12 @@ impl Poll<'_> {
                 self.need("hostname");
                 continue;
             };
-            self.act(json!({
-                "issue": n, "remove": ["tehas:planning"], "add": ["needs-human-attention"],
-                "reread": "tehas:planning", "first": line,
-                "fail": format!("WARN: label change on #{n} failed"),
-                "say": format!("Tehas found this issue marked `tehas:planning` with no planning session behind it on `{host}`: the session never started, or it ended without taking the label off. The log is `~/tehas/logs/dispatch.log` there. To plan it, apply `tehas:plan`."),
-            }));
+            self.act(Action::Label(
+                LabelChange::new(n, &[PLANNING], format!("WARN: label change on #{n} failed"))
+                    .put_on(&["needs-human-attention"])
+                    .reread(PLANNING, Some(line))
+                    .say(format!("Tehas found this issue marked `tehas:planning` with no planning session behind it on `{host}`: the session never started, or it ended without taking the label off. The log is `~/tehas/logs/dispatch.log` there. To plan it, apply `tehas:plan`.")),
+            ));
         }
     }
 
@@ -434,10 +447,10 @@ impl Poll<'_> {
                 ));
                 continue;
             }
-            self.act(json!({
-                "pr": pr, "remove": ["tehas:refreshing"],
-                "log": format!("clear pull request #{pr}: tehas:refreshing off, {why}"),
-            }));
+            self.act(Action::Unmark {
+                pr,
+                log: format!("clear pull request #{pr}: tehas:refreshing off, {why}"),
+            });
         }
         Ok(())
     }
@@ -483,7 +496,10 @@ impl Poll<'_> {
             if self.dry {
                 self.log(format!("would remove {line}"));
             } else {
-                self.act(json!({"sweep": n, "log": format!("removed {line}")}));
+                self.act(Action::Sweep {
+                    issue: n,
+                    log: format!("removed {line}"),
+                });
             }
         }
     }
