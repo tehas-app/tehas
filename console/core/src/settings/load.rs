@@ -152,7 +152,13 @@ pub(super) const IGNORED: &[(&str, &str)] = &[
         "TEHAS_WIKI",
         "the product wiki left core in 2.0 and returns as a plugin",
     ),
+    ("TEHAS_WORK_DESCRIBE", GIVEN),
+    ("TEHAS_WORK_FILES", GIVEN),
+    ("TEHAS_WORK_ZIPS", GIVEN),
+    ("TEHAS_WORK_COMMENTS", GIVEN),
 ];
+
+const GIVEN: &str = "this kind of attachment left core in 2.0 and returns as the given plugin";
 
 /// Whether `name` is one the load warns of and drops (`IGNORED`).
 pub(super) fn ignored(name: &str) -> bool {
@@ -794,22 +800,6 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
     if some("TEHAS_SITE_ANALYTICS_SRC") && !some("TEHAS_SITE_ANALYTICS_NAME") {
         return Err(format!(
             "TEHAS_SITE_ANALYTICS_NAME is not set and TEHAS_SITE_ANALYTICS_SRC is (see {file})"
-        ));
-    }
-    if on("TEHAS_WORK_DESCRIBE") && !on("TEHAS_WORK_IMAGES") {
-        return Err(format!(
-            "TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off: there are no images to describe (see {file})"
-        ));
-    }
-    let taken = on("TEHAS_WORK_IMAGES") || on("TEHAS_WORK_FILES");
-    if on("TEHAS_WORK_COMMENTS") && !taken {
-        return Err(format!(
-            "TEHAS_WORK_COMMENTS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: nothing is taken from comments (see {file})"
-        ));
-    }
-    if on("TEHAS_WORK_ZIPS") && !taken {
-        return Err(format!(
-            "TEHAS_WORK_ZIPS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: an unpacked file goes to the directory of one of them (see {file})"
         ));
     }
     // One axis of parallelism: several cycles of one workstream, or one cycle
@@ -1638,12 +1628,12 @@ mod tests {
         assert_eq!(loads(&["TEHAS_ANALYTICS=1"]).text("TEHAS_ANALYTICS"), "on");
         assert_eq!(loads(&[]).text("TEHAS_ANALYTICS"), "on");
         // The rules between switches read the value after it is brought to form.
-        let got = refused(&["TEHAS_WORK_DESCRIBE=on", "TEHAS_WORK_IMAGES=off"]);
+        let got = refused(&["TEHAS_PREVIEWS=on"]);
         assert!(
-            got.starts_with("TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off"),
+            got.starts_with("TEHAS_PREVIEWS is on and TEHAS_DOMAIN is not set"),
             "{got}"
         );
-        loads(&["TEHAS_WORK_DESCRIBE=on", "TEHAS_WORK_IMAGES=1"]);
+        loads(&["TEHAS_PREVIEWS=off"]);
     }
 
     #[test]
@@ -2109,18 +2099,6 @@ mod tests {
                 "TEHAS_SITE_ANALYTICS_NAME is not set and TEHAS_SITE_ANALYTICS_SRC is",
             ),
             (
-                &["TEHAS_WORK_DESCRIBE=1"][..],
-                "TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off",
-            ),
-            (
-                &["TEHAS_WORK_COMMENTS=1"][..],
-                "TEHAS_WORK_COMMENTS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is",
-            ),
-            (
-                &["TEHAS_WORK_ZIPS=1"][..],
-                "TEHAS_WORK_ZIPS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is",
-            ),
-            (
                 &["TEHAS_WORKSTREAMS=2", "TEHAS_MAX_CYCLES=3"][..],
                 "TEHAS_WORKSTREAMS (2) and TEHAS_MAX_CYCLES (3) are both above 1",
             ),
@@ -2555,6 +2533,33 @@ mod tests {
         let mut vars = start(&[]);
         let mut host = Fake::with(&["TEHAS_GONE=on"]);
         assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+    }
+
+    #[test]
+    fn the_attachment_kinds_that_left_core_load_with_a_warning() {
+        let given = [
+            "TEHAS_WORK_IMAGES=1",
+            "TEHAS_WORK_DESCRIBE=1",
+            "TEHAS_WORK_FILES=1",
+            "TEHAS_WORK_ZIPS=1",
+            "TEHAS_WORK_COMMENTS=1",
+        ];
+        let mut host = Fake::with(&given);
+        let (vars, got) = run(&mut host);
+        assert_eq!(got, Ok(()));
+        assert_eq!(vars.text("TEHAS_WORK_IMAGES"), "1");
+        assert_eq!(host.warned.len(), 4, "{:?}", host.warned);
+        for name in &given[1..] {
+            let name = name.split('=').next().unwrap();
+            assert!(!vars.is_set(name), "{name}");
+            assert!(
+                host.warned
+                    .iter()
+                    .any(|w| w.starts_with(&format!("{name} is no longer read: {GIVEN}"))),
+                "{name}: {:?}",
+                host.warned
+            );
+        }
     }
 
     #[test]

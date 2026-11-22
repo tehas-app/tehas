@@ -9,11 +9,7 @@ use sha2::{Digest, Sha256};
 use std::fs;
 
 const A: &str = "https://github.com/user-attachments/assets";
-const COMMENTS: &[&str] = &[
-    "TEHAS_MAX_CYCLES=1",
-    "TEHAS_WORK_IMAGES=1",
-    "TEHAS_WORK_COMMENTS=1",
-];
+const IMAGES: &[&str] = &["TEHAS_MAX_CYCLES=1", "TEHAS_WORK_IMAGES=1"];
 
 fn sha(text: &str) -> String {
     format!("{:x}", Sha256::digest(text.as_bytes()))
@@ -204,17 +200,20 @@ fn the_titles_hash_drops_line_ends_as_the_bodys_does() {
 }
 
 #[test]
-fn without_the_comments_setting_the_record_names_no_comment_and_none_are_read() {
+fn the_record_names_no_comment_and_none_are_read() {
     let w = World::new("ap-no-comments");
     title_world(&w);
     assert_eq!(w.approval(r#"has("comment_links")"#, 7), "false");
     lacks(&w.gh(), "comments?per_page");
 }
 
-/// Comments on: alice's two before the label, an outsider's, one after the
-/// label and one edited after it, and a poll.
+/// An instance that still sets TEHAS_WORK_COMMENTS: alice's two comments
+/// before the label, an outsider's, one after the label and one edited after
+/// it, and a poll.
 fn comments_world(w: &World) -> Run {
-    instance(w, COMMENTS);
+    let mut lines = IMAGES.to_vec();
+    lines.push("TEHAS_WORK_COMMENTS=1");
+    instance(w, &lines);
     w.fx(
         "events-7.json",
         r#"[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-01T00:00:00Z"}]"#,
@@ -265,19 +264,16 @@ fn comments_world(w: &World) -> Run {
 }
 
 #[test]
-fn with_comments_on_the_record_takes_the_links_of_comments_an_allowed_account_wrote_before_the_label(
-) {
+fn an_instance_that_still_sets_comments_records_no_link_of_a_comment() {
     let w = World::new("ap-comments");
     let r = comments_world(&w);
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "7 ");
     assert_eq!(
-        val(&w.at_mark("[.links, .comment_links]")),
-        json!([[format!("{A}/1111")], [
-            {"link": format!("{A}/4444"), "source": "comment:51", "by": "alice"},
-            {"link": format!("{A}/5555"), "source": "comment:52", "by": "alice"},
-            {"link": format!("{A}/1111"), "source": "comment:52", "by": "alice"}]])
+        val(&w.at_mark(r#"[.links, has("comment_links")]"#)),
+        json!([[format!("{A}/1111")], false])
     );
+    lacks(&w.gh(), "issues/7/comments?per_page");
 }
 
 #[test]
@@ -292,11 +288,11 @@ fn an_outsiders_comment_one_written_after_the_label_and_one_edited_after_it_are_
 }
 
 /// #7 parked on alice's label, its clean-start box ticked by alice, with
-/// comments on unless `off`.
+/// images on unless `off`.
 fn retry_world(w: &World, off: bool, boxes: &[&str]) {
     w.parked("failed", "alice");
     if !off {
-        instance(w, COMMENTS);
+        instance(w, IMAGES);
     }
     w.comments(7, &park_body(boxes), "alice", json!([]));
 }
@@ -328,16 +324,15 @@ fn a_retry_ticks_record_takes_the_comments_written_before_the_tick() {
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(
-        w.at_mark("[.how, (.comment_links | map(.source))]"),
-        r#"["reply",["comment:61"]]"#
+        w.at_mark(r#"[.how, (.retry_context | map(.id)), has("comment_links")]"#),
+        r#"["reply",[61],false]"#
     );
 }
 
-// The box of the issue alone, on an instance that reads comments: the start
-// names neither the issue's comments nor its pull request's, so neither read
-// is asked for.
+// The box of the issue alone: the start names neither the issue's comments
+// nor its pull request's, so neither read is asked for.
 #[test]
-fn a_retry_tick_of_the_issue_alone_reads_no_comment_with_the_comments_setting_on() {
+fn a_retry_tick_of_the_issue_alone_reads_no_comment() {
     let w = World::new("ap-retry-alone");
     retry_world(&w, false, &[" ", "x", " "]);
     issue_comments(&w, 7, &[]);
@@ -371,7 +366,7 @@ fn a_retry_tick_of_the_issue_alone_reads_no_comment_with_the_comments_setting_on
     lacks(&w.gh(), "issues/7/comments?per_page");
 }
 
-/// A retry tick with comments on, the cycle's pull request #30 commented on
+/// A retry tick, the cycle's pull request #30 commented on
 /// by alice, mallory and bob, another issue's #31 and a second of #7's, #32.
 fn pr_world(w: &World) -> Run {
     retry_world(w, false, &["x", " "]);
@@ -436,7 +431,7 @@ fn pr_world(w: &World) -> Run {
             "second PR",
         )],
     );
-    let mut more = COMMENTS.to_vec();
+    let mut more = IMAGES.to_vec();
     more.push(r#"TEHAS_ALLOWED_LABELERS="alice bob""#);
     instance(w, &more);
     w.poll()
@@ -448,11 +443,7 @@ fn a_retry_tick_takes_what_allowed_accounts_wrote_on_the_cycles_pull_request_up_
     let r = pr_world(&w);
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "7 ");
-    assert_eq!(
-        val(&w.at_mark(".comment_links")),
-        json!([{"link": format!("{A}/7373"), "source": "pr-comment:73", "by": "alice"},
-            {"link": format!("{A}/7171"), "source": "pr-comment:71", "by": "alice"}])
-    );
+    assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
     assert_eq!(
         val(&w.at_mark(".retry_context | map([.source, .id, .pr, .by, .text])")),
         json!([
@@ -495,7 +486,7 @@ fn an_outsiders_pull_request_comment_and_one_after_the_tick_are_not_taken_nor_an
 #[test]
 fn a_start_by_label_reads_no_pull_request() {
     let w = World::new("ap-label-no-pr");
-    instance(&w, COMMENTS);
+    instance(&w, IMAGES);
     issue_comments(&w, 7, &[]);
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
@@ -504,7 +495,7 @@ fn a_start_by_label_reads_no_pull_request() {
 }
 
 #[test]
-fn with_comments_off_a_retry_tick_still_takes_the_comments_text_and_no_link() {
+fn with_images_off_a_retry_tick_still_takes_the_comments_text_and_no_link() {
     let w = World::new("ap-retry-off");
     retry_world(&w, true, &["x", " "]);
     issue_comments(
@@ -549,7 +540,7 @@ fn pull_requests_that_cannot_be_listed_start_no_retry_and_change_no_label_exit_1
 #[test]
 fn comments_that_cannot_be_read_start_nothing_and_change_no_label_exit_1() {
     let w = World::new("ap-comments-fail");
-    instance(&w, COMMENTS);
+    retry_world(&w, false, &["x", " "]);
     w.touch("icomments-fails");
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);

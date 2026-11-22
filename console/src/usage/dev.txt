@@ -10,15 +10,14 @@ Usage: tehas dev [<name>] [--author "Name <email>"] [--issue <number>] [-- <pi a
              use, from the product checkout, and never removed or reset.
   --author   whose name the commits of this clone carry. Stored next to the
              clone and used from then on. Without one, the bot's.
-  --issue    give the session the images and text files that issue links,
-             by the rules a cycle is given them. Needs TEHAS_WORK_IMAGES=1
-             or TEHAS_WORK_FILES=1.
+  --issue    give the session the images that issue links, by the rules a
+             cycle is given them. Needs TEHAS_WORK_IMAGES=1.
   --         what follows is passed to pi, for example: tehas dev -- -r
 
 Exit status: the session's own, as docker reports it, or
             64 a wrong argument, a malformed author, no bot token or no git
                identity; no container was started.
-             4 with --issue: an image or file the issue links could not be
+             4 with --issue: an image the issue links could not be
                fetched, or the issue or its label events could not be read;
                no container was started.
             78 the instance settings are invalid, tehas.slice is not usable
@@ -26,7 +25,7 @@ Exit status: the session's own, as docker reports it, or
                clone, its lock stayed held for five minutes, the build output
                directory cannot be made or is not a directory of the user the
                container runs as, or --issue was given and the instance gives
-               no images or files; no container was started.
+               no images; no container was started.
 
 The container is a cycle's container with a terminal: the same image, limits,
 mounts and variables as a cycle is given, and pinned by test/dev_test.sh. It differs in the tree it works
@@ -42,7 +41,7 @@ cycles the slice has room for. Without a usable slice no clone is made and
 nothing starts.
 
 With --issue the container gets two things more, as a cycle does: the
-issue's images and files in $TEHAS_HOME/dev/<name>.images, read-only at the
+issue's images in $TEHAS_HOME/dev/<name>.images, read-only at the
 same path, and PI_ENSEMBLE_EXTRA_IMAGE_DIRS, which names it. The directory
 is remade from the issue's text at every start with --issue, by the rules of
 tehas work without an approval record. The person running this is not who

@@ -110,24 +110,19 @@ Each turn's container gets a copy of them, read-only, at the path a cycle has
 them, with `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` and `PI_ENSEMBLE_PLAN_ISSUE`, the
 issue's number. The copy is
 `~/tehas/work/<name>-plan-<issue>.images`, removed after the turn. An image
-that cannot be fetched starts no session: exit 4, said on the issue. With
-`TEHAS_WORK_DESCRIBE=on` the first turn also writes `images.md`, as
-`tehas work` does, with the issue's number in `X-Tehas-Issue` on each request,
-and every turn's copy holds it. With `TEHAS_WORK_FILES=on`
-the first turn fetches the text files too, by the rules of `tehas work`, into
-the same directory.
+that cannot be fetched starts no session: exit 4, said on the issue.
 
-With `TEHAS_WORK_IMAGES=off` and `TEHAS_WORK_FILES=off` a turn is given no
+With `TEHAS_WORK_IMAGES=off` a turn is given no
 attachments, and an instance line for `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` is dropped
 there too: the container is given no variable naming a directory it does not
 have. A turn given nothing says nothing about what the issue links; that is
 `tehas work`'s report of a cycle (see [tehas work](/tools-work#tehas-work)).
 
 A later turn given `--comment <id>`, the id of the reply its answer came
-from, fetches the images and files the answer links into that directory
+from, fetches the images the answer links into that directory
 before it starts: by the same rules and limits, counted with what is there,
 numbered on from it, and with `source` `answer:<id>` in the manifest. A link
-already there is not fetched again, and the new images are not described. The
+already there is not fetched again. The
 dispatcher passes the id when the answer is a reply; the reply counts only
 from an allowed account, so its links are approved as the label approves the
 body's. The answer sent to the agent ends with the names of the new files. A
@@ -153,7 +148,7 @@ session and says on the issue to apply `tehas:plan` again.
 | ---- | -------------------------------------------------------------------- |
 | 0    | The turn asked something, drafted a plan, or filed it                |
 | 2    | The runner failed, refused the turn or ran out of time, the turn said and asked nothing, its session is gone, or its outcome could not be written down |
-| 4    | With `TEHAS_WORK_IMAGES=on` or `TEHAS_WORK_FILES=on`: a first turn where an image or file the issue links could not be fetched, or the issue could not be read for them, or a later turn where one its reply links could not be fetched; nothing ran |
+| 4    | With `TEHAS_WORK_IMAGES=on`: a first turn where an image the issue links could not be fetched, or the issue could not be read for them, or a later turn where one its reply links could not be fetched; nothing ran |
 | 64   | A usage error, no bot token or no git identity; nothing ran          |
 | 78   | The instance settings are invalid, `tehas.slice` cannot be used, or the image runs no planning turns; nothing ran |
 
