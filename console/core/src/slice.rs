@@ -19,7 +19,6 @@ const GIB: u64 = 1_073_741_824;
 #[derive(Clone, Debug, Default)]
 pub struct Reading {
     /// `systemctl show tehas.slice`: FragmentPath, ActiveState, MemoryMax.
-    /// [`Probed::of`] types it.
     pub show: Option<Map<String, Value>>,
     /// `docker info`: "<driver> <version>", then on a line of its own the
     /// CPUs the Docker daemon counts, which a command that starts a container
@@ -51,31 +50,112 @@ pub struct Show {
 }
 
 /// A reading with systemctl's answer typed, as the dispatcher's snapshot
-/// holds it. `reading.show` is None: `show` is the answer, None when there
-/// was none.
+/// holds it. The fields are a [`Reading`]'s; `show` is None when systemctl
+/// gave no answer or an empty one.
 #[derive(Clone, Debug, Default)]
 pub struct Probed {
     pub show: Option<Show>,
-    pub reading: Reading,
+    pub docker: Option<String>,
+    pub controllers: Option<String>,
+    pub cpus: Option<String>,
+    pub root: String,
+    pub scopes: Option<Vec<Scope>>,
+    pub pressure: Option<String>,
+    pub cids: Vec<String>,
 }
 
 impl Probed {
-    /// The reading with its answer typed: an empty answer is none.
-    pub fn of(mut reading: Reading) -> Probed {
-        let show = reading.show.take().filter(|m| !m.is_empty()).map(|m| {
-            let field = |k: &str| m.get(k).and_then(Value::as_str).unwrap_or("").to_string();
-            Show {
-                fragment_path: field("FragmentPath"),
-                active_state: field("ActiveState"),
-                memory_max: field("MemoryMax"),
-            }
-        });
-        Probed { show, reading }
+    /// The reading with its answer typed.
+    pub fn of(r: Reading) -> Probed {
+        Probed {
+            show: typed(&r),
+            docker: r.docker,
+            controllers: r.controllers,
+            cpus: r.cpus,
+            root: r.root,
+            scopes: r.scopes,
+            pressure: r.pressure,
+            cids: r.cids,
+        }
     }
 
     /// `usable` of this reading, from its typed answer.
     pub fn usable(&self, reserve: &str, containers: &str) -> Result<Usable, String> {
-        checked(self.show.as_ref(), &self.reading, reserve, containers)
+        checked(self.show.as_ref(), self, reserve, containers)
+    }
+
+    /// `room` of this reading.
+    pub fn room(&self, s: &Usable, reserve: &str, count: u64) -> Room {
+        measured(&self.facts(), s, reserve, count)
+    }
+
+    fn facts(&self) -> Facts<'_> {
+        Facts {
+            root: &self.root,
+            scopes: self.scopes.as_deref(),
+            pressure: self.pressure.as_deref(),
+            cids: &self.cids,
+        }
+    }
+}
+
+/// systemctl's answer typed: an empty one is none.
+fn typed(r: &Reading) -> Option<Show> {
+    r.show.as_ref().filter(|m| !m.is_empty()).map(|m| {
+        let field = |k: &str| m.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        Show {
+            fragment_path: field("FragmentPath"),
+            active_state: field("ActiveState"),
+            memory_max: field("MemoryMax"),
+        }
+    })
+}
+
+/// What `room` reads of a reading.
+struct Facts<'a> {
+    root: &'a str,
+    scopes: Option<&'a [Scope]>,
+    pressure: Option<&'a str>,
+    cids: &'a [String],
+}
+
+/// What `usable` asks past systemctl, asked only when a check needs it.
+trait Asked {
+    fn docker(&self) -> Option<String>;
+    fn controllers(&self) -> Option<String>;
+    fn cpus(&self) -> Option<String>;
+    fn root(&self) -> &str;
+}
+
+struct Asking<'a, P>(&'a P);
+
+impl<P: Probe> Asked for Asking<'_, P> {
+    fn docker(&self) -> Option<String> {
+        self.0.docker()
+    }
+    fn controllers(&self) -> Option<String> {
+        self.0.controllers()
+    }
+    fn cpus(&self) -> Option<String> {
+        self.0.cpus()
+    }
+    fn root(&self) -> &str {
+        self.0.root()
+    }
+}
+
+impl Asked for Probed {
+    fn docker(&self) -> Option<String> {
+        self.docker.clone()
+    }
+    fn controllers(&self) -> Option<String> {
+        self.controllers.clone()
+    }
+    fn cpus(&self) -> Option<String> {
+        self.cpus.clone()
+    }
+    fn root(&self) -> &str {
+        &self.root
     }
 }
 
@@ -385,18 +465,17 @@ pub fn bytes(s: &str) -> Option<u64> {
 
 /// The slice, or the line a person can act on.
 pub fn usable(r: &impl Probe, reserve: &str, containers: &str) -> Result<Usable, String> {
-    let show = Probed::of(Reading {
+    let show = typed(&Reading {
         show: r.show(),
         ..Reading::default()
-    })
-    .show;
-    checked(show.as_ref(), r, reserve, containers)
+    });
+    checked(show.as_ref(), &Asking(r), reserve, containers)
 }
 
 /// `usable` past the call to systemctl, whose answer is `show`.
 fn checked(
     show: Option<&Show>,
-    r: &impl Probe,
+    r: &impl Asked,
     reserve: &str,
     containers: &str,
 ) -> Result<Usable, String> {
@@ -722,6 +801,16 @@ pub fn full_avg60(text: &str) -> Option<String> {
 /// slice that is full, and an operator chasing it reads the slice; a bad
 /// setting is nothing in the slice to read.
 pub fn room(r: &Reading, s: &Usable, reserve: &str, count: u64) -> Room {
+    let facts = Facts {
+        root: &r.root,
+        scopes: r.scopes.as_deref(),
+        pressure: r.pressure.as_deref(),
+        cids: &r.cids,
+    };
+    measured(&facts, s, reserve, count)
+}
+
+fn measured(r: &Facts, s: &Usable, reserve: &str, count: u64) -> Room {
     let Some(reserve) = bytes(reserve) else {
         return unreadable(
             0,
@@ -734,7 +823,7 @@ pub fn room(r: &Reading, s: &Usable, reserve: &str, count: u64) -> Room {
         return unreadable(0, max, "the slice was not probed".into());
     }
     let dir = format!("{}/tehas.slice", r.root);
-    let Some(scopes) = &r.scopes else {
+    let Some(scopes) = r.scopes else {
         // systemd removes the directory of a slice that is not active. A cycle
         // holds its lock also while it has no container in the slice (the
         // clone, the end), so each one is promised a reserve and nothing is
@@ -787,7 +876,7 @@ pub fn room(r: &Reading, s: &Usable, reserve: &str, count: u64) -> Room {
         committed += (count - scoped) * reserve;
         containers += count - scoped;
     }
-    let pressure = match &r.pressure {
+    let pressure = match r.pressure {
         None => {
             return unreadable(
                 committed,
