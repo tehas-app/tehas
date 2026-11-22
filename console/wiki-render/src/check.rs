@@ -101,7 +101,7 @@ pub fn front(text: &str) -> Result<(Front, &str), String> {
 /// The targets of a page's links and images, as the renderer reads them.
 pub fn links(text: &str) -> Vec<String> {
     use pulldown_cmark::{Event, Parser, Tag};
-    Parser::new_ext(text, super::render::OPTIONS)
+    Parser::new_ext(text, crate::render::OPTIONS)
         .filter_map(|e| match e {
             Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
                 Some(dest_url.to_string())

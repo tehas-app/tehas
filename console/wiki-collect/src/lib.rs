@@ -1,13 +1,14 @@
-//! The raw sources of a build, read from the product checkout before the model
-//! runs (docs/specs/2026-11-21-wiki.md, "The raw sources"). They are written
-//! to `<id>.raw/` and given to the model read-only. A commit whose text looks
-//! like a credential is left out whole and named in what this returns.
+//! The raw sources of a range of a checkout (docs/specs/2026-11-21-wiki.md,
+//! "The raw sources"), kept for the `history:` grant of the plugins in 2.1. A
+//! commit whose text looks like a credential is left out whole and named in
+//! what this returns.
 
-use super::check::{self, Pages};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use tehas_wiki_render::check::{self, Pages};
+pub use tehas_wiki_render::Head;
 
 /// The most commits one build reads, newest first, and the most bytes of the
 /// changelog it copies.
@@ -25,14 +26,6 @@ pub fn git(dir: &Path, args: &[&str]) -> Option<String> {
     out.status
         .success()
         .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
-}
-
-/// The commit a build reads and what it says of itself.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Head {
-    pub commit: String,
-    pub date: String,
-    pub describe: String,
 }
 
 pub fn head(dir: &Path, rev: &str) -> Option<Head> {

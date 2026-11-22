@@ -114,10 +114,6 @@ pub enum State {
     UpdatePending,
     /// The cleaner's record of its last upkeep.
     Upkeep,
-    /// The ask a wiki build is started on.
-    WikiAsk,
-    /// Held while a wiki build runs.
-    WikiLock,
 }
 
 impl State {
@@ -174,8 +170,6 @@ impl State {
             State::UpdateLock => "state/update.lock",
             State::UpdatePending => "state/update-pending",
             State::Upkeep => "state/upkeep.json",
-            State::WikiAsk => "state/wiki.ask",
-            State::WikiLock => "state/wiki.lock",
         }
     }
 }
@@ -239,8 +233,6 @@ pub enum Live {
     Status,
     /// The host's load, as `tehas top` publishes it.
     Top,
-    /// The product wiki's state.
-    Wiki,
 }
 
 impl Live {
@@ -263,7 +255,6 @@ impl Live {
             Live::Running => "running.json",
             Live::Status => "status.json",
             Live::Top => "top.json",
-            Live::Wiki => "wiki.json",
         }
     }
 }
@@ -478,8 +469,6 @@ mod tests {
             (State::UpdateLock, "/h/state/update.lock"),
             (State::UpdatePending, "/h/state/update-pending"),
             (State::Upkeep, "/h/state/upkeep.json"),
-            (State::WikiAsk, "/h/state/wiki.ask"),
-            (State::WikiLock, "/h/state/wiki.lock"),
         ];
         for (s, want) in cases {
             assert_eq!(at(h().state(s)), want, "{s:?}");
@@ -525,7 +514,6 @@ mod tests {
             (Live::Running, "/h/live/running.json"),
             (Live::Status, "/h/live/status.json"),
             (Live::Top, "/h/live/top.json"),
-            (Live::Wiki, "/h/live/wiki.json"),
         ];
         for (l, want) in cases {
             assert_eq!(at(h().live(l)), want, "{l:?}");

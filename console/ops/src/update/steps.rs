@@ -59,7 +59,15 @@ const SERVERS: &[(&str, &str)] = &[
 /// Units an earlier version named and this one no longer installs. A record
 /// written before the update may still name them on its `units` line; that line
 /// is owed work, not a stranger, so the names are dropped rather than the line.
-pub(crate) const RETIRED_UNITS: &[&str] = &["tehas-refresh.timer", "tehas-improve.timer"];
+pub(crate) const RETIRED_UNITS: &[&str] = &[
+    "tehas-refresh.timer",
+    "tehas-improve.timer",
+    "tehas-wiki-status.service",
+    "tehas-wiki-status.timer",
+    "tehas-wiki.service",
+    "tehas-wiki.timer",
+    "tehas-wiki.path",
+];
 
 /// The ids, in the order they run: systemd first, because a unit file is not in
 /// effect until it is reloaded and its unit restarted, and the containers last.
@@ -960,6 +968,10 @@ mod tests {
         assert_eq!(current("units tehas-improve.timer"), None);
         assert_eq!(
             current("units tehas-improve.timer tehas-clean.timer").as_deref(),
+            Some("units tehas-clean.timer")
+        );
+        assert_eq!(
+            current("units tehas-wiki.timer tehas-wiki.path tehas-clean.timer").as_deref(),
             Some("units tehas-clean.timer")
         );
     }
