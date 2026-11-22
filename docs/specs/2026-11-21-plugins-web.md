@@ -161,6 +161,9 @@ frame sees the session and reloads. GitHub's pages cannot be framed, so the
 sign-in never runs in the frame. The frame is the same site as the dashboard,
 so its `SameSite=Lax` cookie is sent; a domain that is a public suffix would
 make it cross-site, and then the dock's "Open in a new tab" link is the way.
+A tailnet is one site: `ts.net` is on the public suffix list, so
+`<tailnet>.ts.net` is the site, and a chat host and the plugins on names
+under it are same-site. Their frames get the `Lax` cookie.
 
 Panels have no `open` in v1: a plugin's view always docks, and the dock's
 link opens it in a tab.
