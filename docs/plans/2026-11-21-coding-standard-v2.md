@@ -824,3 +824,10 @@ of main, each grade.
 | 2026-11-22 | The minimum pi-rukas is v0.15.2, for the roster's exit (found by T13's proof); lean refuses an older image | #2861 |
 | 2026-11-22 | T15: the index and mcp, top, and headless shell tests are Rust tests; the raises they need are recorded in `docs/architecture.md` under "Temporary rises" | #2858, #2859, #2860 |
 | 2026-11-22 | T16: the product wiki leaves core; its renderer and collector stay as crates | #2862 |
+| 2026-11-22 | T12.2 and T12.3: answers in words, no boxes, and nothing reads a tick | #2843 |
+| 2026-11-22 | T16: energy use leaves core | #2864 |
+| 2026-11-22 | `docs/architecture.md` records each check's fork value | #2865 |
+| 2026-11-22 | T15: the analytics command and preview choose shell tests are Rust tests | #2866 |
+| 2026-11-22 | T16: the review loop leaves core; the review's container kind and its argv fixtures go (a narrowing) | #2857 |
+| 2026-11-22 | Analytics schema 5 drops `samples.watts`, pinned by the consumer that reads the analytics copies before the merge | #2869 |
+| 2026-11-22 | T4's Done clears every row of "Temporary rises" | #2870 |
