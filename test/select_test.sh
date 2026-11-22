@@ -111,7 +111,7 @@ t_case "the real workspace: a core change selects every shell test"
 picked=$(bash "$T_ROOT/scripts/select-tests.sh" console/core/src/settings/load.rs 2>&1)
 for f in headless_test.sh describe_test.sh refresh_test.sh labels_test.sh login_test.sh \
   config_test.sh cycle_front_test.sh energy_test.sh tidy_test.sh sandbox_argv_test.sh \
-  shim_writes_test.sh mcp_test.sh; do
+  shim_writes_test.sh; do
   t_contains "$picked" "est test/$f"
 done
 [ "$(grep -cE '^(test|omit) test/' <<<"$picked")" = "$(find "$T_ROOT/test" -maxdepth 1 -name '*_test.sh' | wc -l)" ] ||

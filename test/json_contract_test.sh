@@ -275,7 +275,7 @@ surfaces=(
   # the command prints and to the walk of its fields. The shape of the answer is
   # the host's - how many file systems the watched paths fold into, and which
   # places the home holds - so the reading each sample is made of plants its own
-  # home and says what `df` and the daemon answer, as test/disk_test.sh does.
+  # home and says what `df` and the daemon answer, as console/tests/disk.rs does.
   # `time` is the clock of the run that made the answer, which no name in
   # the environment bounds: the case of the clock below compares the two samples
   # with what the command prints now with that one field taken out of both sides,
@@ -698,7 +698,7 @@ disk_scratch=/mnt/scratch
 # disk. The stub answers nothing at all for the path of the scratch disk, which
 # is the reading's "df answered nothing": the entry of that file system is the
 # one of these samples with no figure and a `why`, the shape the disk tests'
-# own stub gives a figure a case does not plant (test/disk_test.sh). The path is
+# own stub gives a figure a case does not plant (console/tests/disk.rs). The path is
 # named here and not under the scratch tree of the run: two paths of one file
 # system are one entry (console/ops/src/disk.rs, same_dev), so a scratch under
 # `$T` would be folded into the entry of the home and print no entry of its own
@@ -1448,7 +1448,7 @@ pinned=(
   'analytics-copy	console/analytics/tests/command.rs'
   'state-copy	test/state_test.sh'
   'state-load	test/state_test.sh'
-  'disk-cycles	test/disk_test.sh	own'
+  'disk-cycles	console/tests/disk.rs	own'
   'host-messages	test/host_message_test.sh'
   'wake	console/src/wake.rs'
   'blockers	console/src/blockers.rs'

@@ -45,7 +45,7 @@ what = "the state labels and markers (tehas:...) are written only in the one mod
 pattern = 'tehas:[a-z]|\bneeds-human-attention\b|"epic"'
 files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh", "host/systemd/*", "host/fun/**/*.js"]
 comment = "//"
-max = 1878
+max = 1876
 why = "Re-measured at T0's follow-up, with tests in files counted and needs-human-attention and epic added: dispatch 1010, cycle 228, core 189, the console 184, ops 137, store 70, the front pages 34, mcp 21, analytics 4, plugin 1. 930 are in test files. T2 gives the state words one owner in core, checked against host/labels.tsv."
 
 [[check]]
@@ -69,7 +69,7 @@ end = '\{|;\s*$'
 pattern = '\bValue\b'
 files = ["console/**/*.rs"]
 comment = "//"
-max = 1392
+max = 1391
 why = "Re-measured at T0's follow-up, with tests in files counted: dispatch 366, mcp 251, cycle 181, the console 162, core 128, ops 89, store 77, analytics 45, attach 42, plugin 33, proxy 28, contractor 16. 377 are in test files. T3 types the dispatcher's core, T4 the ports, T5 the store client; T7 moves the rest or writes a floor for an adapter's own parsing."
 
 [[check]]
@@ -79,7 +79,7 @@ what = "no serde_json::Value in a public field, an enum variant or a tuple field
 pattern = '^\s*pub(\([^)]*\))?\s+[a-z_][a-z0-9_]*\s*:.*\bValue\b|^\s*[A-Z][A-Za-z0-9]*\s*\([^()]*\bValue\b[^()]*\),?\s*$|^\s*(pub(\([^)]*\))?\s+)?struct\s+\w+\s*(<[^>]*>)?\s*\(.*\bValue\b'
 files = ["console/**/*.rs"]
 comment = "//"
-max = 36
+max = 35
 why = "Re-measured at T0's follow-up, with enum variants and tuple fields added: dispatch 23 (Snapshot and its rows, after T3 typed the closing pull requests, the pause flag, the limit, the start order, the host's approvals, the branch check, the push fault, the lists of issues and pull requests and the parks owed a retry or a refine), cycle 7, ops 5, attach, contractor, core and the console 3 each, mcp, plugin, proxy and store 1 each. T3 types Snapshot; T7 the rest, or a written floor."
 
 [[report]]

@@ -212,4 +212,166 @@ mod tests {
     fn a_body_of_nothing_is_four_zeros() {
         assert_eq!(of(""), Size::default());
     }
+
+    // Moved from test/sizing_test.sh.
+
+    #[test]
+    fn a_narrow_issue_names_two_files_one_of_them_a_test() {
+        let body = "Give `lib/sizing.sh` one function.
+
+## The change
+
+1. `lib/sizing.sh` holds tehas_issue_size.
+2. the gate lints it.
+
+## Done when
+
+- `test/sizing_test.sh` has a case for it.
+";
+        assert_eq!(of(body), size(2, 1, 2, 1));
+    }
+
+    #[test]
+    fn a_wide_issue_names_six_files_two_tests_and_four_deliverables() {
+        let body = "Size an issue from its body.
+
+## What to change
+
+1. `lib/sizing.sh` with tehas_issue_size.
+2. `test/sizing_test.sh` with the cases.
+3. `docs/specs/sizing.md` says the rules, and the manual says so too.
+4. `console/ops/src/size.rs` is for a later issue.
+
+Not `test/work_test.sh`.
+
+## Done when
+
+- `test/sizing_test.sh` runs.
+- `test/limit_test.sh` still passes.
+- `scripts/verify.sh` passes, and the gate lints it.
+";
+        assert_eq!(of(body), size(6, 2, 4, 3));
+    }
+
+    #[test]
+    fn a_path_named_only_on_a_not_do_not_or_leave_line_is_not_counted() {
+        let body = "Touch `lib/a.sh`.
+
+Not `test/work_test.sh`
+Do not touch `lib/b.sh`
+Leave `instances/example/instance.env` alone
+
+## The change
+
+1. one file.
+";
+        assert_eq!(of(body), size(1, 0, 1, 0));
+    }
+
+    #[test]
+    fn a_path_refused_on_one_line_and_asked_for_on_another_counts_once() {
+        let body = "Not `test/work_test.sh`
+
+## The change
+
+1. `test/work_test.sh` stays as it is and `lib/a.sh` changes.
+2. `lib/a.sh` is the only file written.
+";
+        assert_eq!(of(body), size(2, 1, 2, 0));
+    }
+
+    #[test]
+    fn duplicates_count_once_whatever_the_line() {
+        let body = "`lib/a.sh`, `lib/a.sh` and again `lib/a.sh`.
+
+`bin/tehas` too, and `bin/tehas`.
+";
+        assert_eq!(of(body), size(2, 0, 0, 0));
+    }
+
+    #[test]
+    fn no_slash_and_no_known_extension_or_no_ticks_is_no_path() {
+        let body = "Run tehas work on notes.txt, and read README without the extension.
+
+`tehas work` `notes.txt` `a.SH` `libexec/work`
+";
+        assert_eq!(of(body), size(1, 0, 0, 0));
+    }
+
+    #[test]
+    fn every_extension_the_measure_knows_counts_without_a_slash() {
+        let body = "`a.sh` `b.rs` `c.md` `d.json` `e.toml` `f.yml` `g.txt` `h.py`\n";
+        assert_eq!(of(body), size(6, 0, 0, 0));
+    }
+
+    #[test]
+    fn a_test_path_is_one_that_starts_with_test() {
+        assert_eq!(
+            of("`test/a.sh` `a/test/b.sh` `lib/test/c.sh`\n"),
+            size(3, 1, 0, 0)
+        );
+    }
+
+    #[test]
+    fn deliverables_are_counted_only_under_a_heading_that_names_the_change() {
+        let body = "## Files
+
+1. `lib/a.sh`
+2. `lib/b.sh`
+
+## The change
+
+1. one
+2. two
+
+## Notes
+
+3. three
+";
+        assert_eq!(of(body), size(2, 0, 2, 0));
+    }
+
+    #[test]
+    fn the_headings_the_measure_answers_to_and_the_ones_it_does_not() {
+        for heading in [
+            "The change",
+            "the Change",
+            "Deliverables",
+            "deliverable",
+            "What to change",
+            "WHAT TO CHANGE",
+        ] {
+            let body = format!("## {heading}\n\n1. one\n2. two\n");
+            assert_eq!(of(&body), size(0, 0, 2, 0), "{heading}");
+        }
+        for heading in [
+            "Changes to make",
+            "The changes",
+            "Deliverable list",
+            "How to change it",
+            "Files, and only these",
+            "Done when possible",
+        ] {
+            let body = format!("## {heading}\n\n1. one\n2. two\n\n- a\n");
+            assert_eq!(of(&body), Size::default(), "{heading}");
+        }
+    }
+
+    #[test]
+    fn a_done_when_section_counts_its_bullets_and_ends_at_the_next_heading() {
+        let body = "## Done when\n\n- one\n- two\n- three\n\n## Notes\n\n- four\n- five\n";
+        assert_eq!(of(body), size(0, 0, 0, 3));
+    }
+
+    #[test]
+    fn lists_outside_their_headings_count_for_nothing() {
+        let body = "Intro\n\n- a\n- b\n\n1. one\n2. two\n\n### Done when\n\n- c\n";
+        assert_eq!(of(body), size(0, 0, 0, 1));
+    }
+
+    #[test]
+    fn the_heading_of_another_section_ends_a_done_when_section() {
+        let body = "# Top\n\n## Done when\n\n- one\n\n## The change\n\n1. two\n";
+        assert_eq!(of(body), size(0, 0, 1, 1));
+    }
 }

@@ -803,4 +803,8 @@ of main, each grade.
 | 2026-11-22 | Port main @ abc4afca (a checkout follows pi-rukas's 0.15 line, #2834) | #2836 |
 | 2026-11-22 | T16: every row of the unused features approved; classic stays a driver; T10's rename to tehas-factory confirmed (the owner) | #2838 |
 | 2026-11-22 | T13: lean by default covers issues with a spec block; spec-less issues stay classic in 2.0, the rest is #2839 for 2.1 (work-a7) | #2840 |
-| 2026-11-22 | The pin: the newest pi-rukas on the 0.15 line at readiness, not 0.16 (the trio's program manager) | this pull request |
+| 2026-11-22 | The pin: the newest pi-rukas on the 0.15 line at readiness, not 0.16 (the trio's program manager) | #2844 |
+| 2026-11-22 | T3.13 to T3.15: the demand typed, an explicit plan in place of `_line`, the actions an `enum Action`. T3 is done: `decide` and `Snapshot` carry no `Value` in a type or signature | #2847, #2851, #2852 |
+| 2026-11-22 | T16: removed features' settings load, warn once and are dropped (`IGNORED`) | #2846 |
+| 2026-11-22 | Port main @ 40c97b24 (`xtask lean-test` answers lean's runner probe, #2845) | #2848 |
+| 2026-11-22 | T15: the clean shell tests are Rust tests | #2842 |
