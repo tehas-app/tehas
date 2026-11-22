@@ -464,9 +464,6 @@ pub fn approval_shape(v: &Value) -> Option<Value> {
     if let Some(t) = c.get("title_sha256").filter(|t| !t.is_null()) {
         out["title_sha256"] = t.clone();
     }
-    if let Some(l) = input.get("comment_links") {
-        out["comment_links"] = l.clone();
-    }
     if let Some(d) = input.get("driver").filter(|d| !d.is_null()) {
         out["driver"] = d.clone();
     }

@@ -824,7 +824,6 @@ fn run_of<'a>(dir: &'a str, data: &'a str, record: &'a str) -> IssueRun<'a> {
         approved: "approved",
         record,
         wants: ALL,
-        comments: true,
         allowed: "alice",
         millwright: "",
         data,
@@ -904,6 +903,7 @@ fn a_text_with_no_link_says_so_and_one_with_links_lists_each() {
 
 #[test]
 fn with_a_record_only_its_links_are_taken_and_it_is_named() {
+    // A record written before 2.0 may still carry comment_links: they are ignored.
     let (_scratch, base) = scratch();
     let dir = format!("{base}/images");
     let record = format!("{base}/record.json");
@@ -936,9 +936,8 @@ fn with_a_record_only_its_links_are_taken_and_it_is_named() {
         .iter()
         .map(|(l, _)| l.clone())
         .collect();
-    assert_eq!(fetched, [link, file(2, "b.png")]);
-    assert_eq!(m["leftOut"][0]["link"], file(3, "c.png"));
-    assert_eq!(m["leftOut"].as_array().unwrap().len(), 1);
+    assert_eq!(fetched, [link]);
+    assert_eq!(m["leftOut"].as_array().map_or(0, Vec::len), 0);
 }
 
 #[test]

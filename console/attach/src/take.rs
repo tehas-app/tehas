@@ -756,7 +756,6 @@ pub struct IssueRun<'a> {
     pub approved: &'a str,
     pub record: &'a str,
     pub wants: Wants,
-    pub comments: bool,
     pub allowed: &'a str,
     pub millwright: &'a str,
     /// The answer the caller already read for the issue; empty when it read none.
@@ -822,7 +821,7 @@ pub fn issue(run: &IssueRun, net: &dyn Net) -> Result<(), String> {
             ("by", plain("by")),
             ("how", plain("how")),
         ]);
-        (approval, given::record_links(record, run.comments))
+        (approval, given::record_links(record))
     };
     let unavailable = if links.is_empty() {
         Ordered::text(manifest::NO_LINKS)

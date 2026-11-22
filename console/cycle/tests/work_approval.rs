@@ -816,15 +816,6 @@ fn with_no_start_on_record_the_issue_is_read_as_by_hand() {
 
 // --- Comments ----------------------------------------------------------------
 
-/// Comment links added to the record: (source, link, by).
-fn with_comments(w: &World, links: &[(&str, &str, &str)]) {
-    let add: Vec<Value> = links
-        .iter()
-        .map(|(s, l, b)| json!({"link": l, "source": s, "by": b}))
-        .collect();
-    w.record_edit(|v| v["comment_links"] = Value::from(add));
-}
-
 /// The comments.json the cycle was given, read with `filter`.
 fn blob(w: &World, filter: &str) -> String {
     jq(&w.imgs.join("comments.json"), false, filter)
@@ -873,28 +864,11 @@ fn one_comment_retry(v: &mut Value) {
         "at": "2026-01-01T00:20:00Z", "url": "u", "text": "x"}]);
 }
 
-#[test]
-fn a_record_s_comment_links_are_not_fetched() {
-    let w = world("comments-off");
-    w.images_on(&[]);
-    w.net(&format!("{A}/2222"), JPG);
-    w.issue_is("Words.", "NONE", "");
-    w.record_is("alice", "Words.", &[]);
-    with_comments(&w, &[("comment:51", &format!("{A}/2222"), "alice")]);
-    let r = w.work7();
-    assert_eq!(r.rc, 2, "{}", r.out);
-    assert_eq!(curl(&w), "");
-    assert_eq!(w.manifest("[.images, .leftOut]"), "[[],[]]");
-}
-
-/// A comments retry with a link of a pull request's comment, started. The
-/// link is not fetched: only the comments' words reach the cycle.
+/// A comments retry, started: only the comments' words reach the cycle.
 fn comments_retry(w: &World) -> work::Run {
     w.images_on(&[]);
-    w.net(&format!("{A}/7171"), PNG);
     w.issue_is("Words.", "NONE", "");
     w.record_is("alice", "Words.", &[]);
-    with_comments(w, &[("pr-comment:71", &format!("{A}/7171"), "alice")]);
     w.record_edit(|v| {
         v["how"] = json!("reply");
         v["at"] = json!("2026-01-01T00:30:00Z");
