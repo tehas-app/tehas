@@ -609,31 +609,19 @@ impl Poll<'_> {
             // A row the store gave of a shape it never writes is said, every
             // poll: one with no issue number cannot be spent, and the rest of
             // the list still runs.
-            let Some(n) = p
-                .get("issue")
-                .and_then(Value::as_u64)
-                .filter(|n| (1..=ISSUE_MAX).contains(n))
-            else {
+            let Some(n) = p.issue.filter(|n| (1..=ISSUE_MAX).contains(n)) else {
                 self.log(format!(
                     "WARN: a park owed a refine names no issue tehas can read (issue={})",
-                    p.get("issue").unwrap_or(&Value::Null)
+                    p.issue_said
                 ));
                 continue;
             };
-            let started = p
-                .get("started_at")
-                .and_then(Value::as_u64)
-                .filter(|t| *t <= TIME_MAX);
-            let field = |k: &str| match p.get(k) {
-                None | Some(Value::Null) | Some(Value::Bool(false)) => "-".to_string(),
-                Some(Value::String(s)) => s.clone(),
-                Some(v) => v.to_string(),
-            };
+            let started = p.started_at.filter(|t| *t <= TIME_MAX);
             let (by, reason, qid, sum) = (
-                field("started_by"),
-                field("park_reason"),
-                field("question"),
-                field("body_sha256"),
+                p.started_by.dash(),
+                p.park_reason.dash(),
+                p.question.dash(),
+                p.body_sha256.dash(),
             );
             if let Some(busy) = self.plan_busy {
                 self.log(format!(
@@ -663,7 +651,7 @@ impl Poll<'_> {
                 // Spent like any other refusal, or it is owed every poll.
                 self.log(format!(
                     "skip #{n}: not refined: its park record has no time its cycle began (started_at={})",
-                    p.get("started_at").unwrap_or(&Value::Null)
+                    p.started_said
                 ));
                 if !self.dry {
                     self.act(json!({"park_retry": n, "how": "skipped"}));
