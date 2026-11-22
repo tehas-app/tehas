@@ -454,9 +454,10 @@ off, the change was made and the cycle starts.
 Before it marks an issue, the poll records what the start rests on in the
 state store (`~/tehas/state/tehas.db`, through `libexec/store`
 `approval-record`): `at` and `by`, when and by whom it was approved, `how`
-(`label`, `retry-tick`, `millwright`, `refresh`, `outage-retry` for the one start
+(`label`, `reply` for a retry a person's reply answered, `answer` for one
+`tehas answer` gave, `millwright`, `refresh`, `outage-retry` for the one start
 after a provider outage, or `host` for an approval of `tehas start`, whose `by`
-is `host` too), `body_sha256`, the sha256 of the body that approval
+is `host` too; `retry-tick` is a retry ticked before 2.0), `body_sha256`, the sha256 of the body that approval
 was checked against with carriage returns dropped, `title_sha256`, the sha256
 of the issue's title held the same way (line ends dropped), and as the start's
 inputs `links`, the links to GitHub's attachment storage in that body, and

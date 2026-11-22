@@ -438,8 +438,8 @@ impl Writer<'_> {
                 ));
             }
         }
-        // A park the factory takes up again on its own has nothing for a
-        // person to decide: it says so in a comment, and asks nothing.
+        // A park with nothing for a person to decide (no retry to offer)
+        // says so in a comment, and asks nothing.
         if on_record && p.asks() {
             let (_, body) = p.question(n, self.stuck);
             let body = stamped(&body, self.stamp.as_ref());

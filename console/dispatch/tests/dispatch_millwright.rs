@@ -399,6 +399,33 @@ fn comments_7(w: &World) -> usize {
     count_lines(&w.gh(), "issue comment 7 ")
 }
 
+/// The millwright's marked reply that names an option chooses it, as a
+/// person's reply does; one that names the end runs no turn, which only a
+/// person may.
+#[test]
+fn a_marked_reply_of_the_fixer_s_that_names_an_option_chooses_it() {
+    for (said, chose) in [("1", true), ("Change some", true), ("end", false)] {
+        let w = planning_world(json!([{"turn": 2, "by": "tehas-bot", "fixer": true},
+            {"turn": 3, "by": "alice", "fixer": false}]));
+        w.comments(7, &unticked(), "", freply(&marked(said), 4003));
+        let r = w.poll();
+        if chose {
+            assert!(
+                answer(&w).starts_with("The fixer chose: "),
+                "{said}: {}",
+                answer(&w)
+            );
+            has(
+                &r.out,
+                "planning #7 continues (answer from tehas-bot, the fixer)",
+            );
+        } else {
+            has(&r.out, "the fixer's answer runs no turn");
+            assert_eq!(w.plan_calls(), "", "{said}");
+        }
+    }
+}
+
 #[test]
 fn a_marked_reply_of_the_fixer_s_runs_the_turn_and_the_record_says_the_fixer_answered() {
     let w = planning_world(json!([{"turn": 2, "by": "tehas-bot", "fixer": true},

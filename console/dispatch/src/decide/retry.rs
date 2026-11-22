@@ -177,7 +177,11 @@ impl Poll<'_> {
             return;
         }
         if let (Some(note), false) = (note, self.dry) {
-            self.act(Action::Say { issue: n, say: note.to_string() });
+            let mark = crate::questions::declined_marker(&Given::said(ans.comment.as_ref()));
+            self.act(Action::Say {
+                issue: n,
+                say: format!("{note}\n\n{mark}"),
+            });
         }
     }
 
@@ -507,9 +511,9 @@ impl Poll<'_> {
                 Start {
                     starter: by,
                     verb: "retry answered".into(),
-                    how: "answer".into(),
+                    how: if ans.tick.answered { "answer" } else { "reply" }.into(),
                     given_at: at,
-                    given_how: "answer".into(),
+                    given_how: if ans.tick.answered { "answer" } else { "reply" }.into(),
                     remove,
                     fixer: None,
                     park_lifted: None,

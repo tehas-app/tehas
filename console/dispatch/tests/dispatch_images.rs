@@ -407,7 +407,7 @@ fn a_start_by_the_issue_alone_box_names_no_comment_link_and_no_retry_context() {
     reviewed(&w, "alone", "alice");
     assert_eq!(w.poll().rc, 0);
     assert_eq!(started(&w), "7");
-    assert_eq!(w.at_mark(".how"), "answer");
+    assert_eq!(w.at_mark(".how"), "reply");
     lacks(&w.gh(), "pr list");
     assert_eq!(
         w.at_mark(r#"[has("comment_links"), has("retry_context")]"#),

@@ -402,7 +402,11 @@ pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> S
         Kind::Plan => {
             b += &format!("{ASK_PLAN}\n\n");
             for (k, o) in options[..n].iter().enumerate() {
-                let label = q_clean(&one_line(o.get("label")), 300);
+                let mut label = q_clean(&one_line(o.get("label")), 300);
+                // An agent's option never reads as the end of the session.
+                if label.to_lowercase().starts_with(&BOX_END.to_lowercase()) {
+                    label = format!("Option {}, {label}", k + 1);
+                }
                 let desc = q_clean(&one_line(o.get("description")), 600);
                 b += &if desc.is_empty() {
                     format!("{}. {label}\n", k + 1)
@@ -421,7 +425,7 @@ pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> S
             let comments = out.get("comments") == Some(&Value::Bool(true));
             b += &format!("{ASK_PARK}\n\n");
             for c in park_offers(retry, comments) {
-                b += &format!("- {}: {}. {}\n", c.word(), park_label(c), leads_to(c));
+                b += &format!("- {}: {}. {}.\n", c.word(), park_label(c), leads_to(c));
             }
             b += &format!("\n{ONLY_ALLOWED}\n");
             "park"

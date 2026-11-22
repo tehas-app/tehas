@@ -81,7 +81,7 @@ pub fn comments_said(f: &Facts) -> String {
             c.get("used_by").and_then(Value::as_u64) == Some(f.attempt)
                 && matches!(
                     c.get("how").and_then(Value::as_str),
-                    Some("retry-tick" | "answer")
+                    Some("retry-tick" | "answer" | "reply")
                 )
                 && c.pointer("/input/retry_context")
                     .and_then(Value::as_array)
@@ -201,10 +201,12 @@ impl Park {
         p + &self.repeat
     }
 
-    /// Whether the park asks a person anything: not when the factory takes it
-    /// up again on its own (`auto`), which its comment says instead.
+    /// Whether the park asks a person anything: not when it has nothing to
+    /// decide. That is a park that offers no retry, whose only choice would be
+    /// to leave it parked, and one the factory takes up again on its own
+    /// (`auto`). Its comment says what happens instead.
     pub fn asks(&self) -> bool {
-        self.auto.is_empty()
+        self.auto.is_empty() && !self.no_retry
     }
 
     /// The question of a park on record: the text the question file holds,
@@ -231,9 +233,15 @@ impl Park {
         } else {
             format!("{}\n", self.marker)
         };
+        // A park that offers no retry says what to do instead.
+        let retry = if self.no_retry {
+            ""
+        } else {
+            " To retry, apply `tehas:ready`."
+        };
         let words = q_clean(
             &format!(
-                "{} To retry, apply `tehas:ready`.{}\n\n{}",
+                "{}{retry}{}\n\n{}",
                 self.parked(stuck, on_record),
                 self.handoff_part(),
                 self.usage
@@ -647,7 +655,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     let (handoff, lean_posted, repo_setting) = {
         let b = text(&outcome, "handoffBody");
         let marker = regex::Regex::new(r"\A<!-- pi-rukas:handoff [^\n]*-->\n*").unwrap();
-        let b = for_host(&v(&marker.replace(&b, "")));
+        let b = for_host(&v(&marker.replace(&b, "")), comments_box(f));
         let repo_setting = lean_repo_setting(&b);
         // Lean on the forge channel posted this itself: one comment, not two.
         let posted = lean && !b.is_empty() && text(&outcome, "handoffChannel") == "forge";
@@ -2086,8 +2094,11 @@ fn waits_only_for_a_merge(cap: &str) -> bool {
 
 /// pi-rukas's handoff names its interactive `/work <n> --restart` command,
 /// which a tehas host has no way to run. The comment says what a person does
-/// here instead: change a protected path themselves, then tick a retry box.
-pub fn for_host(body: &str) -> String {
+/// here instead: change a protected path themselves, then reply with the word
+/// of a retry the park offers: `retry` when the image gives a cycle the
+/// comments (`comments`), else `retry-text`.
+pub fn for_host(body: &str, comments: bool) -> String {
+    let word = if comments { "retry" } else { "retry-text" };
     let cmd = regex::Regex::new(
         r"(?i:(re-?run|run)\s+)?`/work \d+ --restart(?: --allow-protected ([^`]*))?[^`]*`",
     )
@@ -2095,9 +2106,9 @@ pub fn for_host(body: &str) -> String {
     cmd.replace_all(body, |c: &regex::Captures| {
         let said = match c.get(2).map(|m| m.as_str().trim()).filter(|p| !p.is_empty()) {
             Some(paths) => format!(
-                "make the change to `{paths}` yourself, since a cycle may not change a protected path, then reply `retry` to this comment"
+                "make the change to `{paths}` yourself, since a cycle may not change a protected path, then reply `{word}` to this comment"
             ),
-            None => "reply `retry` to this comment".to_string(),
+            None => format!("reply `{word}` to this comment"),
         };
         let upper = c
             .get(1)
@@ -2122,15 +2133,26 @@ mod tests {
     #[test]
     fn a_handoff_s_work_command_is_said_as_the_host_s_way() {
         assert_eq!(
-            super::for_host("Run `/work 1435 --restart --allow-protected .pi/verify-cmd` once it is right."),
+            super::for_host("Run `/work 1435 --restart --allow-protected .pi/verify-cmd` once it is right.", true),
             "Make the change to `.pi/verify-cmd` yourself, since a cycle may not change a protected path, then reply `retry` to this comment once it is right."
         );
         assert_eq!(
-            super::for_host("fix the change the evidence names, then re-run `/work 7 --restart`"),
+            super::for_host(
+                "fix the change the evidence names, then re-run `/work 7 --restart`",
+                true
+            ),
             "fix the change the evidence names, then reply `retry` to this comment"
         );
+        // A park that does not offer the comments retry names the one it does.
+        assert_eq!(
+            super::for_host(
+                "fix the change the evidence names, then re-run `/work 7 --restart`",
+                false
+            ),
+            "fix the change the evidence names, then reply `retry-text` to this comment"
+        );
         let plain = "Nothing to run here; `tehas work 7` and `/work` alone stay.";
-        assert_eq!(super::for_host(plain), plain);
+        assert_eq!(super::for_host(plain, false), plain);
     }
 
     use super::*;

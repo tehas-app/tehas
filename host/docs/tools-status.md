@@ -59,14 +59,14 @@ For each ready issue the last poll held on its own while it had room, such as
 one whose last cycle parked on the body it still has:
 
 ```
-held      #21: its last cycle parked on `intent-park` and the body has not changed since; edit the body, or reply `retry` to the park comment
+held      #21: its last cycle parked on `intent-park` and the body has not changed since; edit the body, or reply to the park comment with the word of one of its retries
 ```
 
 When every issue in line is held that way and no cycle runs, the factory line
 is a `warn` that names them instead of `Idle, taking work.`:
 
 ```
-factory   warn: #21 is held: its last cycle parked on `intent-park` and the body has not changed since. Edit the body, or reply `retry` to the park comment. (40 s ago)
+factory   warn: #21 is held: its last cycle parked on `intent-park` and the body has not changed since. Edit the body, or reply to the park comment with the word of one of its retries. (40 s ago)
 ```
 
 While [`tehas:blocked`](/operating#3-what-happens-next) holds issues by the

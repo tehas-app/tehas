@@ -69,7 +69,7 @@
      {
       "issue": 7,
       "park_told": true,
-      "say": "Not started: the last cycle parked on `intent-park` and the issue text has not changed since. Edit the body, or reply `retry` to the park comment."
+      "say": "Not started: the last cycle parked on `intent-park` and the issue text has not changed since. Edit the body, or reply to the park comment with the word of one of its retries."
      }
     ],
     "no_actions": [
@@ -777,9 +777,9 @@
      {
       "start": 7,
       "by": "alice",
-      "how": "answer",
+      "how": "reply",
       "at": "2026-01-01T01:00:00Z",
-      "given": "answer",
+      "given": "reply",
       "comment": 4001,
       "remove": [
        "tehas:question"
@@ -902,9 +902,9 @@
      {
       "start": 7,
       "by": "alice",
-      "how": "answer",
+      "how": "reply",
       "at": "2026-01-01T01:00:00Z",
-      "given": "answer",
+      "given": "reply",
       "comment": 4001,
       "issue_alone": true,
       "remove": [
@@ -932,9 +932,9 @@
      {
       "start": 7,
       "by": "alice",
-      "how": "answer",
+      "how": "reply",
       "at": "2026-01-01T01:00:00Z",
-      "given": "answer",
+      "given": "reply",
       "comment": 4001,
       "remove": [
        "tehas:question",
@@ -1095,8 +1095,8 @@
      {
       "start": 7,
       "by": "alice",
-      "how": "answer",
-      "given": "answer"
+      "how": "reply",
+      "given": "reply"
      }
     ]
    }
@@ -1165,8 +1165,8 @@
      {
       "start": 7,
       "by": "alice",
-      "how": "answer",
-      "given": "answer"
+      "how": "reply",
+      "given": "reply"
      }
     ]
    }

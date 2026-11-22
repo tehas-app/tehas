@@ -1328,8 +1328,11 @@ fn a_develop_timeout_leaves_a_note_of_the_attempt_in_the_issues_body_and_still_o
     assert_eq!(w.park()["reason"], "child-timeout:develop");
 }
 
+/// A stop with nothing to decide asks nothing (#2782): the park offers no
+/// retry, so its comment holds no question, no choice and no question marker,
+/// no question is on record, and `tehas:question` is not put on.
 #[test]
-fn a_second_develop_timeout_on_the_same_text_writes_nothing_offers_no_retry_and_names_tehasplan() {
+fn a_second_develop_timeout_on_the_same_text_writes_nothing_asks_nothing_and_names_tehasplan() {
     let w = World::new("park-timeout-twice");
     let body = noted(&w, "Fix the drain.");
     develop_timeout(&w, &body);
@@ -1337,12 +1340,17 @@ fn a_second_develop_timeout_on_the_same_text_writes_nothing_offers_no_retry_and_
     let gh = w.gh();
     lacks(&gh, "api -X PATCH");
     lacks(&gh, "Retry with the issue text only");
-    has(&gh, "- park: Leave it parked");
+    lacks(&gh, "- park: Leave it parked");
+    lacks(&gh, "Reply in a comment");
+    lacks(&gh, "tehas:question");
+    lacks(&gh, "To retry, apply `tehas:ready`");
     has(
         &gh,
         "ran out of time in develop twice on the same text: split it with `tehas:plan`",
     );
-    assert_eq!(park_q(&w), "4002");
+    has(&gh, "<!-- tehas:park issue=7 step=develop");
+    assert_eq!(park_q(&w), "none");
+    assert_eq!(w.park()["reason"], "child-timeout:develop");
 }
 
 #[test]

@@ -21,7 +21,7 @@
               "committed": 8589934592, "max": 34359738368, "reserve": "ok",
               "free": 0, "awaitRoom": 1, "limitRoom": 1, "refreshRoom": 1,
               "held": [{"issue": 21, "why": "parked", "text": "its last cycle parked on `gate` and the body has not changed since",
-                        "clear": "edit the body, or reply `retry` to the park comment"}]},
+                        "clear": "edit the body, or reply to the park comment with the word of one of its retries"}]},
     "demand": {"time": "2026-10-17T13:59:30Z", "waiting": 2, "oldest": "2026-10-17T12:29:40Z",
                "refreshHold": "refreshes are off on this host", "labelAlone": [12]},
     "limit": {"state": "ok", "cycles": 3, "plan": true, "until": "2026-10-17T15:00:00Z", "reason": "shared with another factory"},

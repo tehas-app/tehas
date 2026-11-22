@@ -188,7 +188,7 @@ Rules, in order:
      tehas:plan from such an account is taken off the same way. The control
      issue that carries tehas:pause is never work: whoever applies
      tehas:ready or tehas:plan to the number TEHAS_CONTROL_ISSUE names, or
-     ticks a retry box on it, starts nothing, and the label stays where it
+     replies retry on it, starts nothing, and the label stays where it
      is. The poll says so once, as it says a label of an account that is not
      allowed. The one exception is the millwright, the app's login or the app
      TEHAS_MILLWRIGHT_APP names:
@@ -289,7 +289,7 @@ TEHAS_PREFLIGHT_WAIT, as a start's own push check is [300].
 
 Before a start changes any label, the poll records what it rests on in the
 state store (libexec/store, approval-record): who approved and when, by the
-label or a retry tick, how, a sha256 of the body that approval was checked
+label or a retry answered, how, a sha256 of the body that approval was checked
 against (carriage returns dropped), a sha256 of the issue's title held the
 same way, and as the start's inputs the links to GitHub's attachment storage
 in that body. An answer that names no title records no title sha256, and
@@ -302,11 +302,11 @@ used starts nothing. tehas work and the cycle read it back in the shape
 below (the store's approval-view). With TEHAS_WORK_COMMENTS=1
 it adds comment_links, [{link, source, by}]: the links in the issue's comments
 that an allowed account wrote and nobody edited after the approval, source
-"comment:<id>". On a retry tick it adds the links of the comments allowed
+"comment:<id>". On a retry answered it adds the links of the comments allowed
 accounts wrote on the parked cycle's pull request between the park and the
-tick, source "pr-comment:<id>", and their text as retry_context, [{source,
-by, at, text}] - both only for a tick on `Retry from a clean start`: the box
-of the issue alone names neither. tehas work fetches no links but those, only
+answer, source "pr-comment:<id>", and their text as retry_context, [{source,
+by, at, text}] - both only for the comments retry (`retry`): the retry of
+the issue text only (`retry-text`) names neither. tehas work fetches no links but those, only
 while the body still has that hash. A start of the fixer's has how "fixer", the
 person's approval it rests on as rests_on {at, by, how, body_sha256}, the
 fixer's starts since that approval as fixer_starts, and, whatever

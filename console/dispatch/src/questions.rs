@@ -241,9 +241,11 @@ pub fn answer_of(
     let m = re.captures(body)?;
     // A comment of before 2.0 lists its choices as boxes, one now as plain
     // lines (`listed`). Either names the choices an answer may pick by its
-    // label. Whether a box is ticked is not read: a tick is no answer.
+    // label. Whether a box is ticked is not read: a tick is no answer. Lines
+    // are read as `lines` reads them, so a body GitHub's web editor saved with
+    // CRLF reads as one saved with LF.
     let box_lines: Vec<&str> = body
-        .split('\n')
+        .lines()
         .filter(|l| l.starts_with("- [") && matches!(l.get(3..6), Some(" ] " | "x] " | "X] ")))
         .collect();
     let labels: Vec<String> = if box_lines.is_empty() {
@@ -255,30 +257,47 @@ pub fn answer_of(
             .collect()
     };
     let after = &c[k + 1..];
-    let reply_at = after.iter().rposition(|x| {
+    let allowed = |x: &Comment| {
         let e = x.editor_login();
         listed(&x.author.login) && (e.is_empty() || listed(e))
-    });
+    };
+    let reply_at = after.iter().rposition(allowed);
     let reply = reply_at.map(|i| &after[i]);
-    // A reply that names one of the choices makes that choice. A park's reply
-    // the factory has answered since (with any comment of its own) is read no
-    // more, so a refusal is said once.
     let kind = &m["kind"];
-    let answered_since = |i: usize| after[i + 1..].iter().any(|x| bots(&x.author));
-    let chosen = reply_at.and_then(|i| {
-        let r = &after[i];
-        if kind == "park" && answered_since(i) {
-            return None;
-        }
-        let text = r.body_text()?;
-        choice_of(text, kind, &labels).map(|index| Tick {
-            status: Status::One,
-            by: r.author.login.clone(),
-            index: Some(index),
-            at: r.created_text().unwrap_or("").to_string(),
-            answered: false,
+    let chose = |i: usize, index: usize| Tick {
+        status: Status::One,
+        by: after[i].author.login.clone(),
+        index: Some(index),
+        at: after[i].created_text().unwrap_or("").to_string(),
+        answered: false,
+    };
+    // A reply that names one of the choices makes that choice. A planning
+    // question's is its newest reply: other words are the answer as they
+    // are. A park's is its newest reply that names a choice, so a later
+    // comment in other words takes nothing away; and once this rule's own
+    // note declined it, it is read no more, so the note is said once. No
+    // other comment of the bot's takes it away.
+    let mark = declined_marker(&Given::said(qv.id.as_ref()));
+    let declined = |i: usize| {
+        after[i + 1..]
+            .iter()
+            .any(|x| bots(&x.author) && x.body_text().is_some_and(|b| b.contains(&mark)))
+    };
+    let chosen = if kind == "park" {
+        after
+            .iter()
+            .enumerate()
+            .rev()
+            .filter(|(_, x)| allowed(x))
+            .find_map(|(i, r)| Some((i, choice_of(r.body_text()?, kind, &labels)?)))
+            .filter(|(i, _)| !declined(*i))
+            .map(|(i, index)| chose(i, index))
+    } else {
+        reply_at.and_then(|i| {
+            let text = after[i].body_text()?;
+            choice_of(text, kind, &labels).map(|index| chose(i, index))
         })
-    });
+    };
     let reply = if chosen.is_some() || kind == "park" {
         None
     } else {
@@ -336,19 +355,29 @@ pub fn answer_of(
 /// The index of the choice a reply names: a planning option by its number
 /// (or `option:<k>`), a park's choice by its word, or either by its label,
 /// the case and a closing full stop aside. None for a reply in other words.
-fn choice_of(text: &str, kind: &str, labels: &[String]) -> Option<usize> {
+/// The choice a reply's text names among `labels`, for a question of `kind`.
+pub fn choice_of(text: &str, kind: &str, labels: &[String]) -> Option<usize> {
     let t = text.trim().trim_end_matches('.').trim();
     let lower = t.to_lowercase();
+    if kind == "plan" {
+        // The end of the session is the last choice, named by `end` or by
+        // its `option:<k>`; a bare number names an option of the question's
+        // own, and a question with none takes it as words.
+        let end = labels.len().checked_sub(1)?;
+        if lower == "end" || lower == labels[end].to_lowercase() {
+            return Some(end);
+        }
+        if let Some(k) = lower.strip_prefix("option:") {
+            let k: usize = k.trim().parse().ok()?;
+            return (1..=labels.len()).contains(&k).then(|| k - 1);
+        }
+        if let Ok(k) = lower.parse::<usize>() {
+            return (1..=end).contains(&k).then(|| k - 1);
+        }
+        return labels[..end].iter().position(|l| l.to_lowercase() == lower);
+    }
     if let Some(i) = labels.iter().position(|l| l.to_lowercase() == lower) {
         return Some(i);
-    }
-    if kind == "plan" {
-        let k: usize = lower
-            .strip_prefix("option:")
-            .unwrap_or(&lower)
-            .parse()
-            .ok()?;
-        return (1..=labels.len()).contains(&k).then(|| k - 1);
     }
     // A park's choice by its word, among the labels of either shape.
     use tehas_core::question::{retry_of, Choice, BOX_PARKED};
@@ -359,6 +388,12 @@ fn choice_of(text: &str, kind: &str, labels: &[String]) -> Option<usize> {
         Choice::Park => l == BOX_PARKED,
         _ => false,
     })
+}
+
+/// The marker of the note that declines a reply's choice to the question
+/// `question`: a reply the note follows is read no more.
+pub fn declined_marker(question: &str) -> String {
+    format!("<!-- tehas:declined question={question} -->")
 }
 
 #[cfg(test)]
@@ -783,7 +818,8 @@ mod tests {
             ("2", 1),
             ("option:1", 0),
             ("change some.", 1),
-            ("3", 2),
+            ("end", 2),
+            ("option:3", 2),
             (BOX_END, 2),
         ] {
             let a = typed!(asked(
@@ -797,7 +833,8 @@ mod tests {
             assert_eq!(a.tick.at, "2026-01-01T04:00:00Z");
             assert_eq!(a.reply, None, "{said}");
         }
-        for words in ["4", "split it in two", "0"] {
+        // A bare number names one of the planner's own options, never the end.
+        for words in ["3", "4", "split it in two", "0"] {
             let a = typed!(asked(
                 &body,
                 "",
@@ -815,8 +852,99 @@ mod tests {
         assert_eq!(a.tick.status, Status::None);
     }
 
-    /// A park's choice is named by its word or its label, once: a reply the
-    /// factory answered since is read no more.
+    /// A planning question with no options of its own takes a bare number as
+    /// words: "how many threads?" answered `1` goes on, and only `end` ends.
+    #[test]
+    fn a_number_answers_a_question_with_no_options_in_words() {
+        let body = q_render(
+            Kind::Plan,
+            7,
+            2,
+            &json!({"question": {"question": "How many threads?", "options": []}}),
+            "",
+        );
+        let a = typed!(asked(
+            &body,
+            "",
+            json!([reply!(7, "alice", "1", "2026-01-01T04:00:00Z")]),
+        ));
+        assert_eq!(a.tick.status, Status::None);
+        assert_eq!(a.reply.map(|r| r.by), Some("alice".to_string()));
+        for end in ["end", "option:1"] {
+            let a = typed!(asked(
+                &body,
+                "",
+                json!([reply!(7, "alice", end, "2026-01-01T04:00:00Z")]),
+            ));
+            assert_eq!(
+                (a.tick.status, a.tick.index),
+                (Status::One, Some(0)),
+                "{end}"
+            );
+        }
+    }
+
+    /// An agent's option worded as the end of the session is listed as an
+    /// option: `End this planning session` still ends it.
+    #[test]
+    fn an_option_worded_as_the_end_does_not_take_its_place() {
+        let body = q_render(
+            Kind::Plan,
+            7,
+            2,
+            &json!({"question": {"question": "Done?", "options": [{"label": "End this planning session and file the rest"}]}}),
+            "",
+        );
+        assert!(body.contains("1. Option 1, End this planning session and file the rest\n"));
+        let a = typed!(asked(
+            &body,
+            "",
+            json!([reply!(7, "alice", BOX_END, "2026-01-01T04:00:00Z")]),
+        ));
+        assert_eq!(a.tick.index, Some(1));
+        assert_eq!(a.labels.last().map(String::as_str), Some(BOX_END));
+    }
+
+    /// A question saved by GitHub's web editor, with CRLF line ends, is read
+    /// as one saved with LF: a reply chooses the same.
+    #[test]
+    fn a_body_saved_by_the_web_interface_reads_the_same() {
+        for (body, said) in [
+            (BODY.to_string(), "2"),
+            (
+                q_render(
+                    Kind::Park,
+                    7,
+                    1,
+                    &json!({"text": "Parked.", "comments": true}),
+                    "",
+                ),
+                "retry",
+            ),
+        ] {
+            let lf = typed!(asked(
+                &body,
+                "",
+                json!([reply!(7, "alice", said, "2026-01-01T04:00:00Z")])
+            ));
+            let crlf = typed!(asked(
+                &body.replace('\n', "\r\n"),
+                "",
+                json!([reply!(7, "alice", said, "2026-01-01T04:00:00Z")]),
+            ));
+            assert_eq!(crlf.tick.status, Status::One, "{said}");
+            assert_eq!(
+                (crlf.tick.index, crlf.boxes, crlf.labels),
+                (lf.tick.index, lf.boxes, lf.labels),
+                "{said}"
+            );
+            assert_eq!(crlf.turn, lf.turn);
+        }
+    }
+
+    /// A park's choice is named by its word or its label. It stands until
+    /// this rule's own note declines it, or a newer reply chooses again: no
+    /// other comment, of the bot's or of a person, takes it away.
     #[test]
     fn a_parks_reply_names_its_choice_once() {
         let body = q_render(
@@ -838,17 +966,54 @@ mod tests {
             ));
             assert_eq!(a.ticked_label(), Some(label), "{said}");
         }
-        let answered = json!([
-            reply!(7, "alice", "retry", "2026-01-01T04:00:00Z"),
-            reply!(
-                8,
-                BOT,
-                "Retry was asked for, but nothing was started.",
-                "2026-01-01T05:00:00Z"
-            )
-        ]);
-        let a = typed!(asked(&body, "", answered));
+        let declined = format!(
+            "Retry was asked for, but nothing was started.\n\n{}",
+            declined_marker("5")
+        );
+        let a = typed!(asked(
+            &body,
+            "",
+            json!([
+                reply!(7, "alice", "retry", "2026-01-01T04:00:00Z"),
+                reply!(8, BOT, declined, "2026-01-01T05:00:00Z")
+            ])
+        ));
         assert_eq!(a.tick.status, Status::None);
+        // The millwright's guidance, the note that clears a stranger's
+        // label, the note of a cleared `tehas:blocked` hold, a decline of
+        // another question, and a person's words after it leave the choice
+        // standing.
+        for (by, later) in [
+            (BOT, format!("{MARK}\nTry a smaller change.")),
+            (BOT, "Tehas took `tehas:ready` off this issue. It was applied by `mallory`, an account that may not authorise work in this factory, so nothing was started and the issue is not queued.".to_string()),
+            (BOT, "Every issue the `tehas:blocked` marker names is closed, so the hold has cleared.\n\n<!-- tehas:hold-cleared -->".to_string()),
+            (BOT, format!("Retry was asked for on another question.\n\n{}", declined_marker("4"))),
+            ("bob", "I see this on main too".to_string()),
+        ] {
+            let a = typed!(asked(
+                &body,
+                "",
+                json!([
+                    reply!(7, "alice", "retry", "2026-01-01T04:00:00Z"),
+                    reply!(8, by, later, "2026-01-01T05:00:00Z")
+                ])
+            ));
+            assert_eq!(a.ticked_label(), Some(BOX_COMMENTS), "{later}");
+            assert_eq!(a.tick.by, "alice");
+        }
+        // A newer reply that chooses again is the choice.
+        let a = typed!(asked(
+            &body,
+            "",
+            json!([
+                reply!(7, "alice", "retry", "2026-01-01T04:00:00Z"),
+                reply!(9, "bob", "park", "2026-01-01T05:00:00Z")
+            ])
+        ));
+        assert_eq!(
+            (a.ticked_label(), a.tick.by.as_str()),
+            (Some(BOX_PARKED), "bob")
+        );
         // Words that name no choice are no answer to a park.
         let a = typed!(asked(
             &body,

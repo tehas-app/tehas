@@ -339,7 +339,7 @@ fn a_park_s_handoff_names_no_work_command_a_host_cannot_run() {
     let body = &gh[at..];
     lacks(body, "/work 7");
     lacks(body, "--allow-protected");
-    has(body, "Make the change to `.pi/verify-cmd` yourself, since a cycle may not change a protected path, then reply `retry` to this comment once it is right.");
+    has(body, "Make the change to `.pi/verify-cmd` yourself, since a cycle may not change a protected path, then reply `retry-text` to this comment once it is right.");
 }
 
 #[test]

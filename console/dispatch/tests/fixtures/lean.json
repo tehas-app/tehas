@@ -613,7 +613,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "answer",
+      "given": "reply",
       "driver": "lean"
      }
     ]
@@ -678,7 +678,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "answer"
+      "given": "reply"
      }
     ],
     "no_actions": [
@@ -913,7 +913,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "answer"
+      "given": "reply"
      }
     ],
     "no_actions": [
@@ -3746,7 +3746,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "answer",
+      "given": "reply",
       "driver": "lean",
       "remove": [
        "tehas:question",
@@ -3815,7 +3815,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "answer",
+      "given": "reply",
       "remove": [
        "tehas:question"
       ]
@@ -3873,7 +3873,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "answer",
+      "given": "reply",
       "driver": "lean"
      }
     ]
@@ -3929,7 +3929,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "answer",
+      "given": "reply",
       "driver": "lean"
      }
     ]
@@ -3997,7 +3997,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "answer"
+      "given": "reply"
      }
     ],
     "no_actions": [
@@ -4120,7 +4120,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "answer",
+      "given": "reply",
       "remove": [
        "tehas:question"
       ]
@@ -4736,7 +4736,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "answer",
+      "given": "reply",
       "remove": [
        "tehas:question"
       ]

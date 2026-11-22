@@ -92,7 +92,7 @@ fn a_retry_tick_writes_the_approval_record_with_the_ticks_time_before_the_label_
     retry_with_labels(&w);
     assert_eq!(
         w.at_mark("[.by, .how, .at, .comment_id] | tostring"),
-        r#"["alice","answer","2026-01-01T01:00:00Z",4001]"#
+        r#"["alice","reply","2026-01-01T01:00:00Z",4001]"#
     );
 }
 
@@ -241,7 +241,7 @@ fn a_box_ticked_on_an_old_comment_does_nothing() {
 }
 
 #[test]
-fn the_issue_alone_answer_by_an_allowed_account_starts_a_cycle_with_how_answer() {
+fn the_issue_alone_reply_by_an_allowed_account_starts_a_cycle_with_how_reply() {
     let w = World::new("park-alone");
     ticked(&w, &[" ", "x", " "], "alice");
     let r = w.poll();
@@ -249,7 +249,7 @@ fn the_issue_alone_answer_by_an_allowed_account_starts_a_cycle_with_how_answer()
     assert_eq!(started(&w), "7");
     assert_eq!(
         w.at_mark("[.by, .how, .at, .comment_id] | tostring"),
-        r#"["alice","answer","2026-01-01T01:00:00Z",4001]"#
+        r#"["alice","reply","2026-01-01T01:00:00Z",4001]"#
     );
     has(
         &w.gh(),
@@ -310,7 +310,7 @@ fn a_park_comment_of_the_old_two_boxes_still_starts_a_clean_start_when_it_is_tic
     ticked(&w, &["x", " "], "alice");
     w.poll();
     assert_eq!(started(&w), "7");
-    assert_eq!(w.at_mark(".how"), "answer");
+    assert_eq!(w.at_mark(".how"), "reply");
 }
 
 #[test]

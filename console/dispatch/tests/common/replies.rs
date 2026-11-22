@@ -37,7 +37,11 @@ pub fn as_reply(
     }
     let i = ticked[0];
     let label = &boxes[i][6..];
-    let words = if body.contains("kind=plan") {
+    // The end of a planning session is named by its word: a bare number
+    // names only one of the planner's own options.
+    let words = if body.contains("kind=plan") && i + 1 == boxes.len() {
+        "end".to_string()
+    } else if body.contains("kind=plan") {
         (i + 1).to_string()
     } else {
         match tehas_core::question::retry_of(label) {

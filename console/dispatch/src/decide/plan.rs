@@ -44,7 +44,6 @@ use crate::text;
 use serde_json::json;
 #[cfg(test)]
 use serde_json::Value;
-use tehas_core::question::BOX_END;
 
 /// The largest issue number and the latest cycle start (epoch seconds) a
 /// park owed a refine is read with.
@@ -222,7 +221,14 @@ impl Poll<'_> {
             }
         }
         let boxes = ans.boxes as u64;
-        let index = ans.tick.index.map(|i| i as u64);
+        let mut index = ans.tick.index.map(|i| i as u64);
+        // The fixer's reply that names a choice makes it, as a person's does.
+        if fixer_said == "reply" {
+            if let Some(i) = crate::questions::choice_of(&reply, "plan", &ans.labels) {
+                index = Some(i as u64);
+                reply.clear();
+            }
+        }
         // As `$(jq -r ...)` leaves it: no final newlines.
         let option = |i: u64| {
             open.and_then(|p| p.options.get(i as usize))
@@ -230,20 +236,7 @@ impl Poll<'_> {
                 .unwrap_or_default()
         };
         let text = if !reply.is_empty() {
-            let mut text = format!("{speaker} replied on the issue:\n\n{reply}");
-            if tick == "one" {
-                let i = index.unwrap_or(u64::MAX);
-                let choice = if i.checked_add(1) == Some(boxes) {
-                    BOX_END.to_string()
-                } else {
-                    Some(option(i))
-                        .filter(|c| !c.is_empty())
-                        .unwrap_or_else(|| "a box that matches no option on record".into())
-                };
-                let chooser = ans.tick.by.as_str();
-                text = format!("{text}\n\nA choice was also made, by {chooser}: {choice}");
-            }
-            text
+            format!("{speaker} replied on the issue:\n\n{reply}")
         } else {
             let i = index.unwrap_or(u64::MAX);
             if i.checked_add(1) == Some(boxes) {

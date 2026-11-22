@@ -855,9 +855,10 @@ polyfill's comments do not reach the repeat-park guard, and the end comment
 says the comments were given to the cycle's agents. With the native reader it
 says how many the runner read, or that it did not and why. A comment posted
 before 2.0 has boxes instead of lines: a box ticked in it does nothing, and
-nothing is said of it. A reply to such a
-comment still names its choices by their words. A label works as well: apply
-`tehas:ready`. `needs-human-attention` does not have to be removed first. A
+nothing is said of it. A label works as well once the body has changed: apply
+`tehas:ready`. While the text is the one the cycle parked on and the question
+is on record, the label is held until a reply answers a retry, as said
+below. `needs-human-attention` does not have to be removed first. A
 cycle started that way takes `tehas:question` off the issue, and the question
 no longer takes an answer.
 
@@ -876,10 +877,12 @@ warning in the log, and the park is posted as before.
 
 When the note is there and the rest of the body has not changed since it was
 written, a second develop timeout does not write it again, and its park
-comment offers no retry at all, only `park`: the
-same text would run into the same bound. The comment says to split the issue
-with `tehas:plan`, or make the body smaller and apply `tehas:ready`. A
-`tehas:ready` on the unchanged text is held as below, the millwright's too.
+comment offers no retry and asks nothing, since leaving it parked is all that
+is left to choose: the same text would run into the same bound. The comment
+says to split the issue with `tehas:plan`, or make the body smaller and apply
+`tehas:ready`. A `tehas:ready` on the unchanged text is held, the millwright's
+too, with one comment that says so; `tehas status` names the hold with "edit
+the body, or split the issue with `tehas:plan`".
 The note and the check need `libexec/tehas-cycle`; without it the park is
 posted as before.
 
@@ -889,7 +892,7 @@ hash of the body that cycle's approval bound, as the state store keeps it for
 the park, with the issue's text now, and when they are equal and the park was
 not a provider outage it starts no cycle, leaves the park and the labels as
 they are, and says so in the poll's log. Once per park it also posts one
-comment: edit the body, or reply `retry` to the park comment. The answer is
+comment: edit the body, or reply to the park comment with the word of one of its retries. The answer is
 the park's own ask and is never held, so a retry on the same text starts as it
 did, and so does a start after any change to the body. A retry answered by an
 allowed account, by a reply or through `tehas answer`, also lifts the hold of a
@@ -1136,8 +1139,9 @@ dispatcher's log says so.
 3. The bot comments that the session has started. Each turn ends in a comment
    with what the planner found. A turn is one run of pi-rukas's headless
    planner and can take many minutes. When it needs a decision, the comment
-   ends in a question with one checkbox per choice, a last box `End this
-   planning session`, and the label `tehas:question` is on the issue. When
+   ends in a question that lists its choices as numbered lines, the last one
+   `End this planning session`, and the label `tehas:question` is on the
+   issue. When
    the agent offers more than 20 choices, the first 20 are listed and a line
    says how many were left out; reply to name another one. The end of the
    session and the label come after every turn, whether or not the agent
@@ -1150,7 +1154,11 @@ dispatcher's log says so.
    `planning #N dropped: the issue is closed`. A state the poll cannot read
    holds the post to the next poll rather than close the session on no answer.
 4. Answer by replying in a comment: the number of one of the choices the
-   comment lists (or its words), or your own words when none fits. A program
+   comment lists (or its words), or your own words when none fits. A bare
+   number names one of the planner's own choices: a question with none takes
+   it as your words. The session ends only on the word `end`, the words `End
+   this planning session`, or `option:<k>` with the number it is listed
+   under. A program
    on the host answers the same way with `tehas answer`, and reads the
    choices with `tehas question` ([the factory API](/api#tehas-answer)). The
    newest answer counts. A box ticked in a comment of before 2.0 is no
@@ -1171,8 +1179,9 @@ dispatcher's log says so.
    [A plan with no open points](#a-plan-with-no-open-points), is shown to you
    before anything is written: one
    comment holds its title and spec and lists its open points with the
-   planner's proposals, and the comment after it holds the question and the
-   boxes, among them **Update this issue**. Reply to change the plan, and
+   planner's proposals, and the comment after it holds the question and its
+   choices, among them **Update this issue**. Reply with its number to take
+   it, or in your own words to change the plan, and
    the next turn drafts it again. Every turn of a session works on the
    commit the session started on.
    - **Update this issue** makes the plan, exactly as shown, proposals
@@ -1189,14 +1198,14 @@ dispatcher's log says so.
      session files once.
    - A plan the checks of the issue's text refuse is not offered at all: the
      comment still shows it, and the question names the rule it failed and
-     lists its open points, with no box but **End this planning session**.
+     lists its open points, with no choice but **End this planning session**.
      Besides the checks under [A plan with no open points](#a-plan-with-no-open-points),
      a plan is refused whose text has lines that end in `[context param]`,
      the request or the briefs echoed back, or whose Acceptance criteria are
      pi-rukas's placeholder for none ("derive the testable outcomes from the
      investigation findings"). Reply to change the plan, or end the session.
 
-   After either box nothing is started on its own: read the plan and apply
+   After either choice nothing is started on its own: read the plan and apply
    `tehas:ready` to the issue you want built. The label approves the text as
    it is when you apply it. A `tehas:ready` from any account outside the list,
    the bot's included, is taken off.
