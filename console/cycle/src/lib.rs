@@ -26,7 +26,6 @@ pub mod apply;
 pub mod caps;
 pub mod clock;
 pub mod conflict;
-pub mod describe;
 pub mod end_failed;
 pub mod facts;
 pub mod finish;

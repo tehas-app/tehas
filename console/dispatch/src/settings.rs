@@ -39,13 +39,10 @@ pub struct Settings {
     pub size_max_files: Option<u64>,
     pub size_max_bytes: usize,
     pub size_max_lines: usize,
+    /// TEHAS_WORK_IMAGES. With it the park's hold of the unchanged body lifts
+    /// for a millwright's comment of guidance, which reaches the cycle in
+    /// `comments.json` (#1130). Without it the hold stays.
     pub work_images: bool,
-    /// TEHAS_WORK_FILES: 1 gives a cycle the text files its issue links, in the
-    /// directory `TEHAS_WORK_IMAGES` uses too. With it or `work_images` the
-    /// park's hold of the unchanged body lifts for a millwright's comment of
-    /// guidance, which reaches the cycle in `comments.json` (#1130). Where
-    /// the instance gives a cycle neither, the hold stays.
-    pub work_files: bool,
     /// PI_ENSEMBLE_SUBAGENT_MODEL and PI_ENSEMBLE_IMAGE.
     pub model: String,
     pub image: String,
@@ -128,7 +125,6 @@ impl Settings {
             size_max_bytes: n("TEHAS_SIZE_MAX_BYTES", 131_072) as usize,
             size_max_lines: n("TEHAS_SIZE_MAX_LINES", 1000) as usize,
             work_images: s("TEHAS_WORK_IMAGES", "0") == "1",
-            work_files: s("TEHAS_WORK_FILES", "0") == "1",
             model: s("PI_ENSEMBLE_SUBAGENT_MODEL", ""),
             image: s("PI_ENSEMBLE_IMAGE", ""),
             refresh_max: n("TEHAS_REFRESH_MAX_PER_PR", 2),
@@ -338,20 +334,15 @@ mod tests {
     }
 
     #[test]
-    fn the_lift_needs_images_or_files_and_no_other_setting_gives_it() {
-        // Neither: a millwright's comment of guidance reaches no cycle, so the
-        // park's hold stays, and the lift is off.
-        let none = Settings::parse(&json!({}));
-        assert!(!(none.work_images || none.work_files));
-        // Either one is enough: both mount the directory comments.json is
-        // written in.
-        let images = Settings::parse(&json!({"TEHAS_WORK_IMAGES": "1"}));
-        assert!(images.work_images && !images.work_files);
-        let files = Settings::parse(&json!({"TEHAS_WORK_FILES": "1"}));
-        assert!(files.work_files && !files.work_images);
+    fn the_lift_needs_images_and_no_other_setting_gives_it() {
+        // Without images a millwright's comment of guidance reaches no cycle,
+        // so the park's hold stays, and the lift is off.
+        assert!(!Settings::parse(&json!({})).work_images);
+        // TEHAS_WORK_FILES left core in 2.0: it lifts nothing.
+        assert!(!Settings::parse(&json!({"TEHAS_WORK_FILES": "1"})).work_images);
+        assert!(Settings::parse(&json!({"TEHAS_WORK_IMAGES": "1"})).work_images);
         // Only `1` is on, as for every setting of this family.
-        let other = Settings::parse(&json!({"TEHAS_WORK_FILES": "yes"}));
-        assert!(!other.work_files);
+        assert!(!Settings::parse(&json!({"TEHAS_WORK_IMAGES": "yes"})).work_images);
     }
 
     #[test]

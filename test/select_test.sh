@@ -108,7 +108,7 @@ t_contains "$picked" "test test/sandbox_argv_test.sh"
 # core through the settings, and stay left to the full gate.
 t_case "the real workspace: a core change selects every shell test"
 picked=$(bash "$T_ROOT/scripts/select-tests.sh" console/core/src/settings/load.rs 2>&1)
-for f in describe_test.sh refresh_test.sh labels_test.sh login_test.sh \
+for f in refresh_test.sh labels_test.sh login_test.sh \
   config_test.sh cycle_front_test.sh tidy_test.sh sandbox_argv_test.sh \
   shim_writes_test.sh; do
   t_contains "$picked" "est test/$f"

@@ -307,8 +307,7 @@
   {
    "case": "an issue whose text says a screenshot goes there and links no attachment starts no cycle, and nothing on it changes: images off",
    "settings": {
-    "TEHAS_WORK_IMAGES": "0",
-    "TEHAS_WORK_FILES": "0"
+    "TEHAS_WORK_IMAGES": "0"
    },
    "snapshot": {
     "endpoint": {
@@ -398,8 +397,7 @@
   {
    "case": "the hold needs neither images for a cycle nor a model that reads one",
    "settings": {
-    "TEHAS_WORK_IMAGES": "0",
-    "TEHAS_WORK_FILES": "0"
+    "TEHAS_WORK_IMAGES": "0"
    },
    "snapshot": {
     "endpoint": {
@@ -422,8 +420,7 @@
   {
    "case": "the words 'SCREENSHOT_GOES_HERE' of a body that links nothing hold the issue",
    "settings": {
-    "TEHAS_WORK_IMAGES": "0",
-    "TEHAS_WORK_FILES": "0"
+    "TEHAS_WORK_IMAGES": "0"
    },
    "snapshot": {
     "endpoint": {
@@ -445,8 +442,7 @@
   {
    "case": "the words 'the image goes here' of a body that links nothing hold the issue",
    "settings": {
-    "TEHAS_WORK_IMAGES": "0",
-    "TEHAS_WORK_FILES": "0"
+    "TEHAS_WORK_IMAGES": "0"
    },
    "snapshot": {
     "endpoint": {
@@ -468,8 +464,7 @@
   {
    "case": "the words 'IMAGE GOES HERE' of a body that links nothing hold the issue",
    "settings": {
-    "TEHAS_WORK_IMAGES": "0",
-    "TEHAS_WORK_FILES": "0"
+    "TEHAS_WORK_IMAGES": "0"
    },
    "snapshot": {
     "endpoint": {
@@ -491,8 +486,7 @@
   {
    "case": "the words 'the mockup goes here' of a body that links nothing hold the issue",
    "settings": {
-    "TEHAS_WORK_IMAGES": "0",
-    "TEHAS_WORK_FILES": "0"
+    "TEHAS_WORK_IMAGES": "0"
    },
    "snapshot": {
     "endpoint": {
@@ -514,8 +508,7 @@
   {
    "case": "'the value goes here in the code' is prose, not a missing file, and the issue starts",
    "settings": {
-    "TEHAS_WORK_IMAGES": "0",
-    "TEHAS_WORK_FILES": "0"
+    "TEHAS_WORK_IMAGES": "0"
    },
    "snapshot": {
     "endpoint": {
@@ -539,8 +532,7 @@
   {
    "case": "'goes here' is prose, not a missing file, and the issue starts",
    "settings": {
-    "TEHAS_WORK_IMAGES": "0",
-    "TEHAS_WORK_FILES": "0"
+    "TEHAS_WORK_IMAGES": "0"
    },
    "snapshot": {
     "endpoint": {
@@ -564,8 +556,7 @@
   {
    "case": "'WORDS GOES HERE' is prose, not a missing file, and the issue starts",
    "settings": {
-    "TEHAS_WORK_IMAGES": "0",
-    "TEHAS_WORK_FILES": "0"
+    "TEHAS_WORK_IMAGES": "0"
    },
    "snapshot": {
     "endpoint": {
@@ -589,8 +580,7 @@
   {
    "case": "'the plan goes here, then the build' is prose, not a missing file, and the issue starts",
    "settings": {
-    "TEHAS_WORK_IMAGES": "0",
-    "TEHAS_WORK_FILES": "0"
+    "TEHAS_WORK_IMAGES": "0"
    },
    "snapshot": {
     "endpoint": {
@@ -614,8 +604,7 @@
   {
    "case": "'Nothing is missing.' is prose, not a missing file, and the issue starts",
    "settings": {
-    "TEHAS_WORK_IMAGES": "0",
-    "TEHAS_WORK_FILES": "0"
+    "TEHAS_WORK_IMAGES": "0"
    },
    "snapshot": {
     "endpoint": {
@@ -670,7 +659,6 @@
    "case": "one issue held by the placeholder does not hold the next one back",
    "settings": {
     "TEHAS_WORK_IMAGES": "0",
-    "TEHAS_WORK_FILES": "0",
     "TEHAS_MAX_CYCLES": 3
    },
    "snapshot": {
@@ -703,8 +691,7 @@
    "case": "a dry run says the hold and changes nothing",
    "dry": true,
    "settings": {
-    "TEHAS_WORK_IMAGES": "0",
-    "TEHAS_WORK_FILES": "0"
+    "TEHAS_WORK_IMAGES": "0"
    },
    "snapshot": {
     "endpoint": {

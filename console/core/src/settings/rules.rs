@@ -307,10 +307,6 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_SITE_INDEXING", SWITCH, "0"),
     always("TEHAS_SITE_CONSOLE", SWITCH, "0"),
     always("TEHAS_WORK_IMAGES", SWITCH, "0"),
-    always("TEHAS_WORK_DESCRIBE", SWITCH, "0"),
-    always("TEHAS_WORK_FILES", SWITCH, "0"),
-    always("TEHAS_WORK_COMMENTS", SWITCH, "0"),
-    always("TEHAS_WORK_ZIPS", SWITCH, "0"),
     always("TEHAS_ANALYTICS", SWITCH, "on"),
     always("TEHAS_SITE_ANALYTICS_COOKIE", SWITCH, "0"),
     always(
@@ -1039,7 +1035,7 @@ mod tests {
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 21);
+        assert_eq!(switches.len(), 17);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);

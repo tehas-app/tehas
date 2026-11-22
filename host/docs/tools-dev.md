@@ -22,8 +22,8 @@ never reset or removed. `--author` is stored in `~/tehas/dev/<name>.author` and
 becomes git's name and email in every session of that clone; without one the
 bot's are used. What follows `--` is passed to `pi`.
 
-`--issue <number>` gives the session the images and text files that issue
-links, with `TEHAS_WORK_IMAGES=on` or `TEHAS_WORK_FILES=on`, by the rules of
+`--issue <number>` gives the session the images that issue links, with
+`TEHAS_WORK_IMAGES=on`, by the rules of
 [tehas work](/tools-work#tehas-work) without an approval record. The person running the
 command approved nothing, so the images are taken when an allowed account
 applied the issue's last `tehas:ready`, or else when an owner, member or
@@ -39,9 +39,9 @@ stops the command before GitHub is called and before anything is written.
 | Exit | Meaning                                                                                   |
 | ---- | ----------------------------------------------------------------------------------------- |
 | any  | The session's own exit status, as Docker reports it                                       |
-| 4    | With `--issue`: an image or file the issue links could not be fetched, or the issue or its label events could not be read; no container |
+| 4    | With `--issue`: an image the issue links could not be fetched, or the issue or its label events could not be read; no container |
 | 64   | A wrong argument, a malformed author, no bot token or no git identity; no container       |
-| 78   | The instance settings are invalid, the clone's directory is not a clone, another session of that clone holds its lock and none is given within five minutes, the clone's cargo target directory cannot be made or is not a directory of the user the session runs as, `tehas.slice` cannot be used, or `--issue` was given and the instance gives no images or files; no container |
+| 78   | The instance settings are invalid, the clone's directory is not a clone, another session of that clone holds its lock and none is given within five minutes, the clone's cargo target directory cannot be made or is not a directory of the user the session runs as, `tehas.slice` cannot be used, or `--issue` was given and the instance gives no images; no container |
 
 Arguments are checked before the settings are read, so `--help` works on a
 host with no instance and a mistyped argument makes no clone.

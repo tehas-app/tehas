@@ -2519,9 +2519,9 @@ impl<'a> Poll<'a> {
         // The way round a park open to the millwright alone: its own guidance
         // comment says the next run is not the run that stopped. The grant was
         // reached before this, and the note reaches a cycle only where the
-        // instance gives it images or files. A read that failed proves no note
+        // instance gives it images. A read that failed proves no note
         // either way: the hold stays, untold, and the next poll asks again.
-        if let Some(at) = fixer_at.filter(|_| self.c.work_images || self.c.work_files) {
+        if let Some(at) = fixer_at.filter(|_| self.c.work_images) {
             let read = self
                 .s
                 .issues

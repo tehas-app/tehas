@@ -152,7 +152,7 @@ Counts T15's ports raised. "Max before" is the max just before that pull request
 | tests-stub-gh | 414 | 416 | #2866 | the same list of tools, counted again in a test file | T1 |
 | untyped-signatures | 1388 | 1389 | #2866 | a test helper that edits a row of GitHub's list, the untyped value preview::choose takes | T7 |
 
-Lowered since by removals, not by these rows' causes: github-rest 870 to 863 (#2862, the product wiki); github-rest to 839, gh-argv to 394, raw-statuses to 256, untyped-signatures to 1300 and tests-stub-gh to 403 (outsource, which 2.0 dropped). The rises above stay to be removed by T4 and T7.
+Lowered since by removals, not by these rows' causes: github-rest 870 to 863 (#2862, the product wiki); github-rest to 837, gh-argv to 394, raw-statuses to 256, untyped-signatures to 1299 and tests-stub-gh to 402 (outsource, which 2.0 dropped). The rises above stay to be removed by T4 and T7.
 
 ### Fork values
 

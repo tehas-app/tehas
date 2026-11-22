@@ -46,7 +46,7 @@ fn imaging(w: &World, input: Value) {
 /// An instance that gives a cycle nothing of what an issue attaches.
 fn offline(w: &World) {
     w.reset();
-    inst(w, &["TEHAS_WORK_IMAGES=0", "TEHAS_WORK_FILES=0"]);
+    inst(w, &["TEHAS_WORK_IMAGES=0"]);
     w.mesh(Some(MODELS));
 }
 
@@ -136,7 +136,7 @@ fn reviewed(w: &World, ticked: &str, login: &str) {
     };
     w.comments(7, &body, "alice", json!([]));
     pictured(w, 7);
-    inst(w, &["TEHAS_WORK_IMAGES=1", "TEHAS_WORK_COMMENTS=1"]);
+    inst(w, &["TEHAS_WORK_IMAGES=1"]);
 }
 
 fn mark(w: &World, filter: &str) -> Value {
@@ -366,10 +366,7 @@ fn a_start_by_the_clean_start_box_carries_the_comment_an_allowed_account_wrote_a
         &w.gh(),
         "pr list --repo acme/widget --author tehas-bot[bot] --state all",
     );
-    assert_eq!(
-        mark(&w, ".comment_links"),
-        json!([{"link": format!("{A}/7171"), "source": "pr-comment:71", "by": "alice"}])
-    );
+    assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
     assert_eq!(w.at_mark(".retry_context | length"), "1");
     has(&w.at_mark(".retry_context[0].text"), "The button goes here");
 }
@@ -395,7 +392,7 @@ fn a_comment_by_a_listed_login_with_another_user_id_is_not_carried() {
             uid("alice")
         ),
     );
-    assert_eq!(w.at_mark(".comment_links | length"), "0");
+    assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
     assert_eq!(w.at_mark(".retry_context | length"), "0");
 }
 
@@ -473,10 +470,7 @@ fn a_park_of_the_old_two_boxes_still_gives_the_clean_start_its_pull_requests_com
         &w.gh(),
         "pr list --repo acme/widget --author tehas-bot[bot] --state all",
     );
-    assert_eq!(
-        mark(&w, ".comment_links"),
-        json!([{"link": format!("{A}/7171"), "source": "pr-comment:71", "by": "alice"}])
-    );
+    assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
     assert_eq!(w.at_mark(".retry_context | length"), "1");
 }
 
@@ -486,7 +480,7 @@ fn under_the_issue_alone_box_a_start_reads_neither_the_issues_comments_nor_the_p
     commented(&w);
     w.parked("failed", "alice");
     reviewed(&w, "alone", "alice");
-    inst(&w, &["TEHAS_WORK_IMAGES=1", "TEHAS_WORK_COMMENTS=0"]);
+    inst(&w, &["TEHAS_WORK_IMAGES=1"]);
     assert_eq!(w.poll().rc, 0);
     assert_eq!(started(&w), "7");
     lacks(&w.gh(), "pr list");
