@@ -269,7 +269,7 @@ parsing.
 
 ## The steps
 
-In this order, T11, T12, T13 and T14 before T9 and T10 last. The owner,
+In this order, T11, T12, T13, T14 and T16 before T9 and T10 last. The owner,
 2026-11-22: the migration of GitHub and its peers behind the ports (the
 moves of T4, with T1's fakes and the tests of T15 that stub `gh`) is
 designed now, in `docs/specs/2026-11-22-ports.md`, and lands after the
@@ -586,12 +586,42 @@ to its new count.
 Done when no shell test tests a Rust program's behaviour that a Rust
 test can, and `test-lines.max` is at its new count.
 
+### T16. Clean house
+
+The owner, 2026-11-22: "no adapters or legacy levers for previous APIs:
+this is our opportunity to clean house from the experimentation from
+v0.x.x leading to the v1.x.x series." Only the current majors of the
+trio are supported, so 2.0 carries no backwards compatibility.
+
+- **No levers for older APIs.** No alias, renamed-command shim,
+  deprecated flag, or setting or environment toggle that brings back an
+  older behaviour. The ports and adapters of T4 are not such levers.
+- **The experiments go.** Settings and feature flags no one uses, dead
+  subcommands, half-finished paths, and stale docs and specs that never
+  became core. Plugins stay as planned: off, their code moved and kept.
+  What was envisioned and may return is parked with a record, as T14
+  parks the Protolab.
+- **The store keeps one migration.** The state store migrates from the
+  schema of 1.4.x to 2.0's, and the owner confirmed that one is needed.
+  Migrations from older schemas, the imports of v0.30 files, and their
+  fixtures and tests go.
+- **T9 has no renames table.** The changes of 2.0 are listed once, in
+  "Changed in 2.0", with no old name kept beside a new one.
+- **Open:** whether `TEHAS_DRIVER=classic`, and T13's fallback to it, is
+  such a lever. It stays as planned until the owner answers.
+
+An inventory comes first, then one pull request per kind of thing
+removed, each green alone, each lowering the counts and ceilings it
+lowers.
+
+Done when the inventory's items are gone or parked, and a final grep for
+the 1.x names, the v0.30 paths and the retired settings finds only the
+parked records and the history in `docs/` and `CHANGELOG.md`.
+
 ### T9. The contract for 2.0
 
 - `host/docs/contract.md` for 2.x, with a section "Changed in 2.0" that
   lists every change and its readers.
-- Each rename as a row, in the way `api/renames-1.0.tsv` held 1.0's, so
-  `tehas update` can list what an instance still uses.
 - The `api/` files for 2.0.
 - A changelog fragment with an adopter action.
 
@@ -667,7 +697,7 @@ All of these, in the last pull request into the branch:
 - `.tehas/coding-standard` says `v2`, and the architecture test passes
   without `--force`, against the base;
 - `scripts/verify.sh --full` passes, and the 2.0 contract is written;
-- T10 to T15 are done, and the trio's gate holds.
+- T10 to T16 are done, and the trio's gate holds.
 
 Then, when the trio is tagged, the pull request into main (a merge
 commit or a fast-forward, as "Finish" says), and the owner's release of
@@ -712,3 +742,4 @@ of main, each grade.
 | 2026-11-22 | T15: shell tests to Rust (#2816 to #2824); the migration behind the ports lands after the rest of the refactor, before v2.0.0 (the owner) | #2826 |
 | 2026-11-22 | T13: the pin is pi-rukas 0.15.0; a crash is no setup refusal, and the fallback clears lean's state of the issue | #2832 |
 | 2026-11-22 | T14: the stage stays as Idea, an open ticket not in line; the Protolab parked, with a record (the owner) | #2835 |
+| 2026-11-22 | T16: clean house, no backwards compatibility, the store keeps only the 1.4.x migration, no renames table in T9 (the owner) | #2837 |
