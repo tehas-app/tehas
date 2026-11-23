@@ -613,7 +613,7 @@ impl GitHub {
 impl GitHub {
     /// Ask GitHub a question of the repository, of one issue of it when
     /// `issue` is given, from `cursor` on.
-    fn ask(
+    pub(crate) fn ask(
         &mut self,
         call: &str,
         question: &str,

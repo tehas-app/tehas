@@ -69,6 +69,13 @@ struct Site {
     issues: BTreeMap<u64, Value>,
     comments: BTreeMap<u64, Vec<Value>>,
     fail: BTreeMap<String, String>,
+    /// The last edit GraphQL answers of a text: `issue-<n>` for a body, the
+    /// node id for a comment. Missing: never edited.
+    edits: BTreeMap<String, Value>,
+    /// Every GraphQL question fails with this reason, or answers this text.
+    graphql: Option<Result<String, String>>,
+    /// Run once, after page 1 of an issue's comments is answered.
+    after_page_1: Vec<Box<dyn FnOnce(&mut Site) + Send>>,
 }
 
 impl Site {
@@ -79,8 +86,63 @@ impl Site {
         v["title"] = title.into();
         v["body"] = body.into();
         v["comments"] = 0.into();
+        // Never touched since it was opened.
+        v["updated_at"] = v["created_at"].clone();
         self.issues.insert(n, v);
         self
+    }
+
+    /// The last edit of a text as GraphQL answers it, by `editor` at `at`.
+    fn edited(mut self, key: &str, editor: Value, at: &str) -> Self {
+        self.edits.insert(
+            key.to_string(),
+            serde_json::json!({"lastEditedAt": at, "editor": editor}),
+        );
+        self
+    }
+
+    /// GitHub's GraphQL answer to the adapter's questions of last edits:
+    /// a body's by its issue number, comments' by node id, in the order
+    /// asked.
+    fn graphql_answer(&self, args: &[&str]) -> Result<String, String> {
+        if let Some(fixed) = &self.graphql {
+            return fixed.clone();
+        }
+        let q = args
+            .iter()
+            .find_map(|a| a.strip_prefix("query="))
+            .ok_or("no query")?;
+        let edit_of = |key: &str| {
+            self.edits
+                .get(key)
+                .cloned()
+                .unwrap_or(serde_json::json!({"lastEditedAt": null, "editor": null}))
+        };
+        if let Some(ids) = q.split("nodes(ids: [").nth(1) {
+            let ids = &ids[..ids.find(']').ok_or("no ids")?];
+            let nodes: Vec<Value> = ids
+                .split(", ")
+                .map(|id| {
+                    let id = id.trim_matches('"');
+                    let mut e = edit_of(id);
+                    e["__typename"] = "IssueComment".into();
+                    e["id"] = id.into();
+                    e
+                })
+                .collect();
+            return Ok(
+                serde_json::json!({"data": {"repository": {"id": "R_kgDOAbCdEf"}, "nodes": nodes}})
+                    .to_string(),
+            );
+        }
+        let n = args
+            .iter()
+            .find_map(|a| a.strip_prefix("number="))
+            .ok_or("no number")?;
+        Ok(
+            serde_json::json!({"data": {"repository": {"issue": edit_of(&format!("issue-{n}"))}}})
+                .to_string(),
+        )
     }
 
     /// Issue 7 as its sample has it, with the comments of its sample.
@@ -113,6 +175,9 @@ impl Site {
         if args.starts_with(&["api", "-X", "GET", "search/issues"]) {
             return Ok(self.search_page(args));
         }
+        if args.starts_with(&["api", "graphql"]) {
+            return self.graphql_answer(args);
+        }
         let [api, path] = args else {
             return Err(format!("no recording of {args:?}"));
         };
@@ -134,7 +199,14 @@ impl Site {
             let all = self.comments.get(&n).cloned().unwrap_or_default();
             let from = ((page - 1) * 100).min(all.len());
             let to = (page * 100).min(all.len());
-            return Ok(Value::Array(all[from..to].to_vec()).to_string());
+            let answer = Value::Array(all[from..to].to_vec()).to_string();
+            if page == 1 {
+                let after = std::mem::take(&mut self.after_page_1);
+                for f in after {
+                    f(self);
+                }
+            }
+            return Ok(answer);
         }
         let n: u64 = rest.parse().map_err(|_| "no recording")?;
         self.issues
@@ -204,7 +276,16 @@ impl GhRunner for Runner {
                 issue[k] = v.clone();
             }
         }
-        Ok(issue.to_string())
+        issue["updated_at"] = "2026-11-23T12:00:00Z".into();
+        let answer = issue.to_string();
+        site.edits.insert(
+            format!("issue-{n}"),
+            serde_json::json!({
+                "lastEditedAt": "2026-11-23T12:00:00Z",
+                "editor": {"__typename": "Bot", "login": "tehas-bot", "databaseId": 100001}
+            }),
+        );
+        Ok(answer)
     }
 }
 
@@ -242,11 +323,31 @@ fn page(n: u64, p: usize) -> String {
     format!("api repos/acme/widget/issues/{n}/comments?per_page=100&page={p}")
 }
 
+/// The GraphQL question of issue `n`'s last body edit, as the runner sees it.
+fn body_edit(n: u64) -> String {
+    format!("api graphql -F owner=acme -F name=widget -F number={n} -f query=query($owner: String!, $name: String!, $number: Int!) {{ repository(owner: $owner, name: $name) {{ issue(number: $number) {{ lastEditedAt editor {{ __typename login ...on User {{ databaseId }} ...on Bot {{ databaseId }} }} }} }} }}")
+}
+
+/// The GraphQL question of the last edits of the comments `ids`.
+fn comment_edits(ids: &[&str]) -> String {
+    let ids: Vec<String> = ids.iter().map(|i| format!("\"{i}\"")).collect();
+    format!("api graphql -F owner=acme -F name=widget -f query=query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) {{ id }} nodes(ids: [{}]) {{ __typename ...on IssueComment {{ id lastEditedAt editor {{ __typename login ...on User {{ databaseId }} ...on Bot {{ databaseId }} }} }} }} }}", ids.join(", "))
+}
+
+/// The node id of the sample's third comment, the one whose `updated_at`
+/// moved.
+const EDITED_COMMENT: &str = "IC_kwDOAbCdEf6VFm0003";
+
 #[test]
-fn a_blueprint_at_cut_0_is_one_read_of_the_issue_its_markers_apart() {
+fn a_blueprint_at_cut_0_is_the_issue_read_its_markers_apart() {
+    // The sample was touched since it was opened: its body edit is asked.
     let (mut gh, _, calls) = adapter(Site::default().seven());
     let b = gh.blueprint(no(7), CUT0).unwrap();
-    assert_eq!(*calls.lock().unwrap(), [ISSUE_7], "no comment request");
+    assert_eq!(
+        *calls.lock().unwrap(),
+        [ISSUE_7.to_string(), body_edit(7)],
+        "no comment request"
+    );
     let raw = json::<Value>("issue-7.json")["body"]
         .as_str()
         .unwrap()
@@ -276,7 +377,7 @@ fn a_blueprint_at_cut_0_is_one_read_of_the_issue_its_markers_apart() {
     assert_eq!(author.login.as_str(), "tehas-bot");
     assert_eq!(author.id.unwrap().as_str(), "100001");
     assert_eq!(author.kind, AccountKind::Bot);
-    // REST names no editor and no time the body was edited.
+    // GraphQL says the body was never edited.
     assert_eq!((b.editor, b.edited), (None, None));
     // No comment taken; the issue holds three.
     assert!(b.comments.items.is_empty());
@@ -303,9 +404,22 @@ fn an_issue_with_no_comment_says_no_more_at_cut_0() {
 
 #[test]
 fn comments_at_each_depth_carry_their_markers_apart_and_their_accounts() {
-    let (mut gh, _, calls) = adapter(Site::default().seven());
+    let alice =
+        serde_json::json!({"__typename": "User", "login": "Alice-Dev", "databaseId": 200002});
+    let site = Site::default()
+        .seven()
+        .edited(EDITED_COMMENT, alice, "2026-11-21T09:15:00Z");
+    let (mut gh, _, calls) = adapter(site);
     let all = gh.blueprint(no(7), Depth::All).unwrap();
-    assert_eq!(*calls.lock().unwrap(), [ISSUE_7.to_string(), page(7, 1)]);
+    assert_eq!(
+        *calls.lock().unwrap(),
+        [
+            ISSUE_7.to_string(),
+            body_edit(7),
+            page(7, 1),
+            comment_edits(&[EDITED_COMMENT])
+        ]
+    );
     assert!(!all.comments.more);
     let c = &all.comments.items;
     assert_eq!(c.len(), 3);
@@ -323,10 +437,17 @@ fn comments_at_each_depth_carry_their_markers_apart_and_their_accounts() {
     assert_eq!(c[1].markers[0].kind(), MarkerKind::Question);
     assert_eq!(c[1].body, "Which defaults: the shipped ones or the site's?");
     assert_eq!(c[1].author.as_ref().unwrap().login.as_str(), "tehas-bot");
-    // A deleted account names nobody; an edited comment says when.
+    // A deleted account names nobody; an edited comment says who and when.
     assert_eq!(c[2].author, None);
-    assert_eq!(c[2].editor, None);
-    assert!(c[2].edited.is_some());
+    let editor = c[2].editor.as_ref().unwrap();
+    assert_eq!(editor.login.as_str(), "alice-dev");
+    assert_eq!(editor.id.as_ref().unwrap().as_str(), "200002");
+    assert_eq!(
+        c[2].edited,
+        Some(At::new(
+            tehas_core::time::from_iso("2026-11-21T09:15:00Z").unwrap()
+        ))
+    );
     assert!(c[2].body.len() > 200);
     // A comment's revision is over its raw text, markers in.
     assert_ne!(c[1].revision, c[0].revision);
@@ -354,7 +475,14 @@ fn comments_at_each_depth_carry_their_markers_apart_and_their_accounts() {
 fn the_comments_of_an_issue_at_a_bound_of_100_carry_what_a_settle_compares() {
     let (mut gh, _, calls) = adapter(Site::default().seven());
     let whole = gh.comments(no(7), Bound::new(100).unwrap()).unwrap();
-    assert_eq!(*calls.lock().unwrap(), [ISSUE_7.to_string(), page(7, 1)]);
+    assert_eq!(
+        *calls.lock().unwrap(),
+        [
+            ISSUE_7.to_string(),
+            page(7, 1),
+            comment_edits(&[EDITED_COMMENT])
+        ]
+    );
     let page_1 = json::<Value>("comments-7-page-1.json");
     let recorded = page_1.as_array().unwrap();
     assert_eq!(whole.items().len(), recorded.len());
@@ -456,7 +584,9 @@ fn the_newest_n_read_only_the_pages_that_hold_them() {
             "api repos/acme/widget/issues/9".to_string(),
             page(9, 1),
             page(9, 2),
-            page(9, 3)
+            page(9, 3),
+            // Read again: more than one page.
+            "api repos/acme/widget/issues/9".to_string()
         ]
     );
     let all = gh.blueprint(no(9), Depth::All).unwrap();
@@ -691,7 +821,8 @@ fn several_answers_each_number_on_its_own_in_the_order_asked() {
     assert_eq!(got[0].1.as_ref().unwrap().title, "Other");
     assert_eq!(got[1], (no(404), Err(Outcome::NotFound)));
     assert_eq!(got[2].1.as_ref().unwrap().markers, [Marker::HoldCleared]);
-    assert_eq!(calls.lock().unwrap().len(), 3);
+    // Issue 7 was touched: its body edit is asked too.
+    assert_eq!(calls.lock().unwrap().len(), 4);
 }
 
 #[test]
@@ -724,9 +855,10 @@ fn a_title_search_then_the_blueprint_of_its_hit_answer_the_same_title_author_and
         .body
         .starts_with("One page for every setting.\r\n\r\n- read them\r\n- save them"));
     let calls = calls.lock().unwrap();
-    assert_eq!(calls.len(), 2);
+    assert_eq!(calls.len(), 3);
     assert!(calls[0].starts_with("api -X GET search/issues"));
     assert_eq!(calls[1], ISSUE_7);
+    assert_eq!(calls[2], body_edit(7));
 }
 
 #[test]

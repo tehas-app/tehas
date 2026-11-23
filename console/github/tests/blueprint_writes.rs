@@ -729,6 +729,12 @@ struct Site {
 
 impl GhRunner for Site {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        // The read's question of the body's last edit: never edited.
+        if args.starts_with(&["api", "graphql"]) && args.contains(&"number=7") {
+            return Ok(
+                r#"{"data":{"repository":{"issue":{"lastEditedAt":null,"editor":null}}}}"#.into(),
+            );
+        }
         if args != ["api", "repos/acme/widget/issues/7"] {
             return Err(format!("no recording of {args:?}"));
         }
