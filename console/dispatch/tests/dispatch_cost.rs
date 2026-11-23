@@ -136,7 +136,7 @@ fn install_shim(w: &World) {
     let console = h.join("libexec/console");
     let _ = fs::remove_file(&console);
     std::os::unix::fs::symlink(w.console(), &console).unwrap();
-    fs::copy(w.t().join("bin/gh"), h.join("bin/gh")).unwrap();
+    tehas_core::testing::copy_exe(w.t().join("bin/gh"), h.join("bin/gh")).unwrap();
 }
 
 #[test]
