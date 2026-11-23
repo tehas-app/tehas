@@ -52,6 +52,8 @@ pub struct Account {
     /// Its name, folded.
     pub login: Login,
     /// None only where the site gives none, as for a deleted account.
+    /// Left out when None, never null.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<AccountId>,
     /// What kind of account it is.
     pub kind: AccountKind,

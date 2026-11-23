@@ -17,7 +17,7 @@ pub mod rfc3339;
 mod samples;
 mod words;
 
-pub use dispatch::{Builder, Dispatcher, Fault, Heard, Raised};
+pub use dispatch::{Builder, Dispatcher, Fault, Heard, Raised, LOG};
 pub use payload::{
     ChangeMerged, ChangeOffered, CycleEnded, CycleParked, CycleStarted, LimitChanged,
     QuestionAsked, TicketActed, TicketClosed,
@@ -67,8 +67,13 @@ macro_rules! names {
             $($(#[$doc])* #[serde(rename = $text)] $name($payload),)+
             /// A name this copy does not know, or a name of its own whose
             /// `data` does not read, so an older reader never fails an
-            /// envelope. Read, never raised, never written.
-            #[serde(untagged, deserialize_with = "read_unknown")]
+            /// envelope, and any event of an envelope whose `api` is not
+            /// this copy's. Read, never raised; writing it is an error.
+            #[serde(
+                untagged,
+                deserialize_with = "read_unknown",
+                serialize_with = "write_unknown"
+            )]
             Unknown,
         }
 
@@ -110,6 +115,13 @@ fn read_unknown<'de, D: serde::Deserializer<'de>>(d: D) -> Result<(), D::Error> 
     crate::unknown::read_any_at(d, "event")
 }
 
+// Unknown is never written: an envelope of it says nothing a reader can use.
+fn write_unknown<S: serde::Serializer>(_: S) -> Result<S::Ok, S::Error> {
+    Err(serde::ser::Error::custom(
+        "an unknown event is read, never written",
+    ))
+}
+
 impl Name {
     /// Whether the point has a `before` side that is raised. None is in
     /// 2.0: the first gate, the `before` side of `cycle.started`, comes in
@@ -144,8 +156,12 @@ pub trait Payload: Serialize + Clone + Into<Event> + 'static {
 }
 
 /// An event as JSON carries it: `api`, `source`, `event`, `when`, `key`,
-/// `at` and the payload as `data`.
+/// `at` and the payload as `data`. An envelope of another `api` reads with
+/// its event as `Unknown`: this copy knows the payloads of its own alone.
+/// serde writes the fields as `api`, `source`, `event`, `data`, `when`,
+/// `key`, `at`, as `event` is flattened: compare envelopes as values.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(from = "EnvelopeWire")]
 pub struct Envelope {
     /// The events' contract version, `API`.
     pub api: u32,
@@ -163,6 +179,36 @@ pub struct Envelope {
     /// When the fact happened.
     #[serde(with = "rfc3339")]
     pub at: At,
+}
+
+#[derive(Deserialize)]
+struct EnvelopeWire {
+    api: u32,
+    #[serde(default)]
+    source: Option<Source>,
+    #[serde(flatten)]
+    event: Event,
+    when: When,
+    key: Key,
+    #[serde(with = "rfc3339")]
+    at: At,
+}
+
+impl From<EnvelopeWire> for Envelope {
+    fn from(w: EnvelopeWire) -> Self {
+        Envelope {
+            event: if w.api == API {
+                w.event
+            } else {
+                Event::Unknown
+            },
+            api: w.api,
+            source: w.source,
+            when: w.when,
+            key: w.key,
+            at: w.at,
+        }
+    }
 }
 
 impl Envelope {

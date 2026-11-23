@@ -30,6 +30,7 @@ mod outcome;
 mod report;
 mod site;
 mod tickets;
+mod variant;
 mod write;
 
 pub use account::*;

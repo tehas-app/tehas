@@ -37,7 +37,7 @@ pub fn samples() -> Vec<Sample> {
                 Name::CycleEnded => pair(cycle_ended(true), cycle_ended(false)),
                 Name::ChangeOffered => pair(change_offered(), change_offered()),
                 Name::FactoryLimitChanged => pair(limit_changed(true), limit_changed(false)),
-                Name::TicketActed => pair(ticket_acted(), ticket_acted()),
+                Name::TicketActed => pair(ticket_acted(true), ticket_acted(false)),
                 Name::TicketClosed => pair(ticket_closed(), ticket_closed()),
                 Name::ChangeMerged => pair(change_merged(true), change_merged(false)),
                 Name::Unknown => return None,
@@ -159,42 +159,31 @@ fn change_offered() -> ChangeOffered {
 
 fn limit_changed(full: bool) -> LimitChanged {
     if full {
-        LimitChanged {
-            set: Some(at(200)),
-            state: LimitState::Ok,
-            cycles: Some(0),
-            plan: Some(false),
-            until: Some(at(320)),
-            reason: Some("draining".to_string()),
-            cleared: Some(at(330)),
-        }
+        let mut l = LimitChanged::written(at(200), LimitState::Ok);
+        l.cycles = Some(0);
+        l.plan = Some(false);
+        l.until = Some(at(320));
+        l.reason = Some("draining".to_string());
+        l
     } else {
-        LimitChanged {
-            set: None,
-            state: LimitState::None,
-            cycles: None,
-            plan: None,
-            until: None,
-            reason: None,
-            cleared: Some(at(330)),
-        }
+        LimitChanged::observed(at(330), LimitState::None)
     }
 }
 
-fn account() -> Account {
+fn account(full: bool) -> Account {
     Account {
         realm: Realm::Tickets,
         login: Login::new("alice"),
-        id: Some(AccountId::new("1001")),
+        id: full.then(|| AccountId::new("1001")),
         kind: AccountKind::Person,
     }
 }
 
-fn ticket_acted() -> TicketActed {
+fn ticket_acted(full: bool) -> TicketActed {
     TicketActed {
         ticket: TicketKey::Number(NonZeroU64::new(12).expect("no zero")),
         act: Act::Approve,
-        by: account(),
+        by: account(full),
         at: at(-10),
     }
 }

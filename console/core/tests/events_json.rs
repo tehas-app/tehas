@@ -69,6 +69,7 @@ fn an_unknown_name_or_unreadable_data_reads_as_unknown_in_json() {
         r#"{"api":1,"event":"ticket.reopened","when":"after","key":"12","at":"2026-11-22T13:20:00Z","data":{"x":[1]}}"#,
         r#"{"api":1,"event":"ticket.reopened","when":"after","key":"12","at":"2026-11-22T13:20:00Z"}"#,
         r#"{"api":1,"event":"NAME","when":"after","key":"12-3","at":"2026-11-22T13:20:00Z","data":{"cycle":"x"}}"#,
+        r#"{"api":1,"event":"NAME","when":"after","key":"12-3","at":"2026-11-22T13:20:00Z"}"#,
     ] {
         let text = named(text, Name::CycleEnded);
         let e: Envelope = serde_json::from_str(&text).unwrap_or_else(|f| panic!("{text}: {f}"));
@@ -76,6 +77,26 @@ fn an_unknown_name_or_unreadable_data_reads_as_unknown_in_json() {
     }
     let bad_time = r#"{"api":1,"event":"ticket.reopened","when":"after","key":"12","at":"2026-11-22T13:20:00+02:00"}"#;
     assert!(serde_json::from_str::<Envelope>(bad_time).is_err());
+    // `event` is one string: given twice or as another type, the envelope
+    // does not read.
+    for text in [
+        r#"{"api":1,"event":"NAME","event":"NAME","when":"after","key":"12-3","at":"2026-11-22T13:20:00Z"}"#,
+        r#"{"api":1,"event":7,"when":"after","key":"12-3","at":"2026-11-22T13:20:00Z"}"#,
+    ] {
+        let text = named(text, Name::CycleEnded);
+        assert!(serde_json::from_str::<Envelope>(&text).is_err(), "{text}");
+    }
+}
+
+#[test]
+fn an_envelope_of_another_api_reads_as_unknown_and_unknown_is_never_written() {
+    let text = named(
+        &ENDED.replace(r#""api": 1"#, r#""api": 2"#),
+        Name::CycleEnded,
+    );
+    let e: Envelope = serde_json::from_str(&text).unwrap_or_else(|f| panic!("{text}: {f}"));
+    assert_eq!((e.api, &e.event), (2, &Event::Unknown));
+    assert!(serde_json::to_string(&e).is_err());
 }
 
 const ACTED: &str = r#"{"api": 1, "event": "NAME", "when": "after",

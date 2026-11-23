@@ -45,6 +45,17 @@ struct Entry {
     f: Listen,
 }
 
+/// The priority of the log listener, reserved for `Builder::log`.
+pub const LOG: i16 = i16::MAX;
+
+// A wiring error, found the first time the program starts.
+fn not_log(listener: &'static str, priority: i16) {
+    assert!(
+        priority != LOG,
+        "listener {listener}: priority {LOG} is the log's alone; register the log with Builder::log"
+    );
+}
+
 /// Listeners by name and priority, made at a program's wiring.
 #[derive(Default)]
 pub struct Builder {
@@ -57,14 +68,36 @@ impl Builder {
         Self::default()
     }
 
+    /// The log listener: it alone takes `LOG`, the top priority, so it
+    /// runs first and a stop never hides an event from it. It cannot stop
+    /// one either.
+    pub fn log(
+        &mut self,
+        listener: &'static str,
+        f: impl Fn(&Envelope) + Send + Sync + 'static,
+    ) -> &mut Self {
+        self.entries.push(Entry {
+            name: None,
+            listener,
+            priority: LOG,
+            f: Box::new(move |e: &Envelope| {
+                f(e);
+                Heard::Go
+            }),
+        });
+        self
+    }
+
     /// Calls `f` for every event of `P`'s name. Higher `priority` runs
-    /// first; equal priorities run in the order registered.
+    /// first; equal priorities run in the order registered. `LOG` is the
+    /// log's alone: a listener that asks for it is refused at wiring.
     pub fn on<P: Payload>(
         &mut self,
         listener: &'static str,
         priority: i16,
         f: impl Fn(&P) -> Heard + Send + Sync + 'static,
     ) -> &mut Self {
+        not_log(listener, priority);
         self.entries.push(Entry {
             name: Some(P::NAME),
             listener,
@@ -75,13 +108,15 @@ impl Builder {
     }
 
     /// Calls `f` for every event, as its envelope: for the bridges that
-    /// take every event as JSON, the log, plugins, a page's stream.
+    /// take every event as JSON, plugins and a page's stream. `LOG` is
+    /// refused, as in `on`.
     pub fn on_any(
         &mut self,
         listener: &'static str,
         priority: i16,
         f: impl Fn(&Envelope) -> Heard + Send + Sync + 'static,
     ) -> &mut Self {
+        not_log(listener, priority);
         self.entries.push(Entry {
             name: None,
             listener,

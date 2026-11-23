@@ -47,10 +47,9 @@ fn listeners_run_by_priority_then_in_the_order_registered() {
         .on::<CycleEnded>("c", 0, note(&calls, "c", Heard::Go))
         .on::<CycleEnded>("d", -1, note(&calls, "d", Heard::Go));
     let log = calls.clone();
-    b.on_any("log", i16::MAX, move |e| {
+    b.log("log", move |e| {
         assert_eq!(e.name(), Name::CycleEnded);
         log.lock().unwrap().push("log");
-        Heard::Go
     });
     // Another name's listener is not called.
     let other = calls.clone();
@@ -185,8 +184,84 @@ fn every_sample_reads_back_as_it_was_written_full_and_bare() {
             keys(&to_node(&s.full).unwrap()),
             keys(&to_node(&s.bare).unwrap()),
         );
-        assert!(bare.iter().all(|k| full.contains(k)), "{:?}", s.name);
+        // A limit change has exactly one of `set` and `observed`: the full
+        // sample `set`, the bare one `observed`.
+        let one = |k: &Node| s.name == Name::FactoryLimitChanged && *k == text("observed");
+        assert!(
+            bare.iter().all(|k| full.contains(k) || one(k)),
+            "{:?}",
+            s.name
+        );
     }
+}
+
+#[test]
+fn the_log_alone_takes_the_top_priority_and_runs_before_a_stop() {
+    let calls: Calls = Arc::default();
+    let mut b = Builder::new();
+    b.on::<CycleEnded>("stop", i16::MAX - 1, note(&calls, "stop", Heard::Stop));
+    let log = calls.clone();
+    b.log("log", move |_| log.lock().unwrap().push("log"));
+    let raised = b.build().raise(ended());
+    assert_eq!(raised.stopped_by, Some("stop"));
+    assert_eq!(*calls.lock().unwrap(), ["log", "stop"]);
+}
+
+#[test]
+#[should_panic(expected = "the log's alone")]
+fn a_typed_listener_at_the_log_priority_is_refused_at_wiring() {
+    let calls: Calls = Arc::default();
+    Builder::new().on::<CycleEnded>("early", LOG, note(&calls, "early", Heard::Go));
+}
+
+#[test]
+#[should_panic(expected = "the log's alone")]
+fn a_listener_of_every_name_at_the_log_priority_is_refused_at_wiring() {
+    Builder::new().on_any("early", LOG, |_| Heard::Go);
+}
+
+#[test]
+fn a_limit_change_has_exactly_one_of_set_and_observed() {
+    let full = sample(Name::FactoryLimitChanged).full;
+    let l: LimitChanged = payload(&sample(Name::FactoryLimitChanged));
+    assert_eq!((l.set(), l.observed_at()), (Some(full.at), None));
+    assert_eq!(l.key().as_str(), "2026-11-22T14:40:00Z");
+    let o = LimitChanged::observed(At::new(1_795_366_200), LimitState::Unreadable);
+    assert_eq!(
+        (o.set(), o.observed_at(), o.at()),
+        (None, Some(o.at()), At::new(1_795_366_200))
+    );
+    let data = |times: Vec<(&'static str, Node)>| {
+        let mut m = times;
+        m.push(("state", text("ok")));
+        map(m)
+    };
+    let t = || text("2026-11-22T14:40:00Z");
+    assert!(from_node::<LimitChanged>(data(vec![])).is_err());
+    assert!(from_node::<LimitChanged>(data(vec![("set", t()), ("observed", t())])).is_err());
+    assert!(from_node::<LimitChanged>(data(vec![("observed", t())])).is_ok());
+}
+
+#[test]
+fn an_unknown_event_is_never_written() {
+    let mut e = sample(Name::CycleEnded).full;
+    e.event = Event::Unknown;
+    assert!(to_node(&e).is_err());
+}
+
+#[test]
+fn an_envelope_of_another_api_reads_its_event_as_unknown() {
+    let full = sample(Name::CycleEnded).full;
+    let Node::Map(mut m) = to_node(&full).unwrap() else {
+        panic!("an envelope is a map")
+    };
+    for (k, v) in m.iter_mut() {
+        if *k == text("api") {
+            *v = Node::Uint(2);
+        }
+    }
+    let e: Envelope = from_node(Node::Map(m)).unwrap();
+    assert_eq!((e.api, e.event, e.key), (2, Event::Unknown, full.key));
 }
 
 fn field<'a>(n: &'a Node, key: &str) -> Option<&'a Node> {

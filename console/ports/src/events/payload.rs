@@ -195,44 +195,144 @@ pub struct ChangeMerged {
 }
 
 /// `tehas limit --json` without `api`, after a write that changed the
-/// limit. The envelope's key and `at` are `set`, or for a clear `cleared`.
+/// limit, or as a consumer observed it. It has exactly one of `set` and
+/// `observed`, which are the envelope's key and `at`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(try_from = "LimitWire", into = "LimitWire")]
 pub struct LimitChanged {
-    /// When the limit was written, left out with no limit.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        with = "rfc3339::option"
-    )]
-    pub set: Option<At>,
+    time: LimitTime,
     /// How the limit stands.
     pub state: LimitState,
     /// The cycles it allows at once.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cycles: Option<u32>,
     /// Whether planning runs.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<bool>,
     /// When it ends.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        with = "rfc3339::option"
-    )]
     pub until: Option<At>,
     /// Why it was set.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
-    /// A clear's own time, on a clear alone, which has no `set`. tehas keys
-    /// the clear on it; a consumer that sees the clear in a poll keys it on
-    /// its poll's time.
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LimitTime {
+    Set(At),
+    Observed(At),
+}
+
+impl LimitChanged {
+    /// A limit written at `set`, the time `tehas limit --json` prints.
+    pub fn written(set: At, state: LimitState) -> Self {
+        Self::with(LimitTime::Set(set), state)
+    }
+
+    /// A change with no `set` to read, observed at `observed`: a clear,
+    /// or a limit that is unreadable or gone. tehas keys a clear on its own
+    /// time; a consumer keys what it sees in a poll on the poll's time.
+    pub fn observed(observed: At, state: LimitState) -> Self {
+        Self::with(LimitTime::Observed(observed), state)
+    }
+
+    fn with(time: LimitTime, state: LimitState) -> Self {
+        LimitChanged {
+            time,
+            state,
+            cycles: None,
+            plan: None,
+            until: None,
+            reason: None,
+        }
+    }
+
+    /// When the limit was written, if the change has it.
+    pub fn set(&self) -> Option<At> {
+        match self.time {
+            LimitTime::Set(at) => Some(at),
+            LimitTime::Observed(_) => None,
+        }
+    }
+
+    /// When a change with no `set` was observed.
+    pub fn observed_at(&self) -> Option<At> {
+        match self.time {
+            LimitTime::Observed(at) => Some(at),
+            LimitTime::Set(_) => None,
+        }
+    }
+
+    fn time(&self) -> At {
+        match self.time {
+            LimitTime::Set(at) | LimitTime::Observed(at) => at,
+        }
+    }
+}
+
+// LimitChanged as JSON carries it, before the rule of exactly one of `set`
+// and `observed` is checked.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LimitWire {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         with = "rfc3339::option"
     )]
-    pub cleared: Option<At>,
+    set: Option<At>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "rfc3339::option"
+    )]
+    observed: Option<At>,
+    state: LimitState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cycles: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    plan: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "rfc3339::option"
+    )]
+    until: Option<At>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+}
+
+impl TryFrom<LimitWire> for LimitChanged {
+    type Error = crate::NotValid;
+    fn try_from(w: LimitWire) -> Result<Self, Self::Error> {
+        let time = match (w.set, w.observed) {
+            (Some(at), None) => LimitTime::Set(at),
+            (None, Some(at)) => LimitTime::Observed(at),
+            _ => {
+                return Err(crate::NotValid {
+                    what: "limit change, which has one of set and observed",
+                })
+            }
+        };
+        Ok(LimitChanged {
+            time,
+            state: w.state,
+            cycles: w.cycles,
+            plan: w.plan,
+            until: w.until,
+            reason: w.reason,
+        })
+    }
+}
+
+impl From<LimitChanged> for LimitWire {
+    fn from(l: LimitChanged) -> Self {
+        LimitWire {
+            set: l.set(),
+            observed: l.observed_at(),
+            state: l.state,
+            cycles: l.cycles,
+            plan: l.plan,
+            until: l.until,
+            reason: l.reason,
+        }
+    }
 }
 
 fn is_false(b: &bool) -> bool {
@@ -303,8 +403,8 @@ payload!(
 payload!(
     LimitChanged,
     FactoryLimitChanged,
-    |p| key_of(&[&time(p.set.or(p.cleared))]),
-    |p| p.set.or(p.cleared).unwrap_or(At::new(0))
+    |p| key_of(&[&time(p.time())]),
+    |p| p.time()
 );
 payload!(
     TicketActed,
@@ -312,14 +412,14 @@ payload!(
     |p| key_of(&[
         &super::words::ticket_text(&p.ticket),
         act_word(p.act),
-        &time(Some(p.at))
+        &time(p.at)
     ]),
     |p| p.at
 );
 payload!(
     TicketClosed,
     TicketClosed,
-    |p| key_of(&[&super::words::ticket_text(&p.ticket), &time(Some(p.at))]),
+    |p| key_of(&[&super::words::ticket_text(&p.ticket), &time(p.at)]),
     |p| p.at
 );
 payload!(
@@ -330,21 +430,11 @@ payload!(
 );
 
 // A time in a key: its RFC 3339 text, or its seconds where it has none.
-fn time(at: Option<At>) -> String {
-    let at = at.unwrap_or(At::new(0));
+fn time(at: At) -> String {
     rfc3339::text(at).unwrap_or_else(|| at.secs().to_string())
 }
 
-// An act in a key: its name as the ports' serde writes it, `Approve`. A
-// test pins that the two agree.
-pub(crate) fn act_word(a: Act) -> &'static str {
-    match a {
-        Act::Approve => "Approve",
-        Act::Plan => "Plan",
-        Act::Refine => "Refine",
-        Act::Finish => "Finish",
-        Act::Block => "Block",
-        Act::Pause => "Pause",
-        _ => "Unknown",
-    }
+// An act in a key: its name as the ports' serde writes it, `Approve`.
+fn act_word(a: Act) -> &'static str {
+    crate::variant::name(&a).unwrap_or("Unknown")
 }
