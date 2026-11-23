@@ -161,6 +161,7 @@ dependencies = [
  "tehas-cycle",
  "tehas-dispatch",
  "tehas-ops",
+ "tehas-ports",
 ]
 
 [[package]]

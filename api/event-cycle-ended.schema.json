@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/event-cycle-ended.schema.json",
+  "title": "The data of cycle.ended",
+  "description": "A cycle's history line is written. Witness: the work line in tehas history --json. Version 1 of the events. host/docs/api.md, \"Events\", says what each field means. The object is closed; a minor release may add an optional field. console/tests/events_contract.rs checks the samples beside this file against it.",
+  "type": "object",
+  "required": [
+    "cycle",
+    "blueprint",
+    "started",
+    "ended",
+    "end",
+    "outcome",
+    "parked"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "cycle": {
+      "description": "The cycle id, <blueprint>-<attempt>, unique within one store.",
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,8}-[1-9][0-9]{0,8}$"
+    },
+    "blueprint": {
+      "description": "The blueprint, the factory API's issue.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 999999999
+    },
+    "ticket": {
+      "description": "The ticket, in the ports' shape. Left out when it is the blueprint.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "Number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "Key": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:/-]{1,128}$"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "Number"
+          ]
+        },
+        {
+          "required": [
+            "Key"
+          ]
+        }
+      ]
+    },
+    "started": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+      "description": "When it started."
+    },
+    "ended": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+      "description": "When it ended; for a lost cycle, when it was last heard from."
+    },
+    "recorded": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+      "description": "When a line written later than ended was written."
+    },
+    "end": {
+      "description": "The end word, from a closed set: a new word is a major change.",
+      "enum": [
+        "offered",
+        "merged",
+        "handoff",
+        "parked",
+        "failed",
+        "refused",
+        "stopped"
+      ]
+    },
+    "outcome": {
+      "description": "History's outcome, the store's status word.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+    },
+    "status": {
+      "description": "History's status, the exit status.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "parked": {
+      "type": "boolean"
+    },
+    "signalled": {
+      "description": "A signal stopped it. Left out when false.",
+      "const": true
+    },
+    "change": {
+      "description": "The change the line names.",
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

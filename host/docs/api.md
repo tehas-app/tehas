@@ -32,8 +32,8 @@ name, stays through 1.x),
 [`tehas state load`](#tehas-state-load),
 [`tehas analytics copy`](#tehas-analytics-copy),
 [`tehasbot clean`](#tehasbot-clean), [`tehas disk`](#tehas-disk),
-[the finish ask](#the-finish-ask), [the host bridge](#the-host-bridge) and
-[the settings rules](#settings-rules). The design of the rest is in
+[the finish ask](#the-finish-ask), [the events](#events), [the host
+bridge](#the-host-bridge) and [the settings rules](#settings-rules). The design of the rest is in
 the spec, `docs/specs/2026-10-17-factories.md` in the source; a command is
 listed here when a release has it.
 
@@ -1519,6 +1519,128 @@ The checks, the list and the file are the console's
 Exit 0 done; 1 the list could not be read or written, or another
 `tehas host-message` held the lock for 10 seconds, which writes nothing; 64 a
 bad argument or a 21st message, which writes nothing; 78 without an instance.
+
+## Events
+
+An event is a fact tehas records once, named and typed: a cycle started, a
+question was asked, a limit changed. Every event is pull first: the factory
+API prints the same fact later, its witness, with the same identity and the
+same values. The design is `docs/specs/2026-11-22-events.md` in the source.
+
+What ships today is the contract: the names, the envelope, a schema and two
+samples per name in `api/`, and the kit's `events.js`. No factory raises an
+event yet, and no page listens to one. A program that runs many factories
+can build the same envelopes from its polls, and a page of its own can raise
+them on the kit.
+
+The names are `api/events.txt`, one per line, in this order:
+
+| Event | The fact | Key | Witness |
+| --- | --- | --- | --- |
+| `cycle.started` | A cycle's start is on record | the cycle id, `12-4` | the cycle in `running` of `tehas status --json`, or its first work line in `tehas history --json` |
+| `cycle.parked` | A cycle's history line says it parked | the cycle id | a work line with `parked` true |
+| `question.asked` | A question is recorded | the store's number of the question, `5` | the question in `tehas question --json --after <id>` |
+| `cycle.ended` | A cycle's history line is written | the cycle id | the work line in `tehas history --json` |
+| `change.offered` | A cycle left a change for review | the cycle id | a work line with a change, no `signalled`, and an end other than `refused` or `merged` |
+| `factory.limit-changed` | A write changed the limit | the limit's `set`, or `observed` when it has none | `tehas limit --json` |
+| `ticket.acted` | An allowed account's act is recorded | `<ticket>@<act>@<at>`, `12@Approve@2026-11-22T11:10:00Z` | the act in the ticket's history |
+| `ticket.closed` | A ticket the factory follows is recorded closed | `<ticket>@<at>` | the close in the ticket's history |
+| `change.merged` | A change linked to a blueprint is recorded merged | the change's number | the merge on the code host |
+
+A reader treats a name it does not know as unknown and skips it. A new name
+or a new optional field is a minor change; a renamed or removed name or
+field is a major one.
+
+### The envelope
+
+```json
+{"api": 1, "event": "cycle.ended", "when": "after", "key": "12-3",
+ "at": "2026-11-22T13:20:00Z",
+ "data": {"cycle": "12-3", "blueprint": 12, "started": "2026-11-22T11:20:00Z",
+          "ended": "2026-11-22T13:20:00Z", "end": "failed", "outcome": "failed",
+          "status": 10, "parked": true, "change": 9}}
+```
+
+`api/event.schema.json` says what it holds, and checks `data` by `event` and
+`when`. `api/event-page.schema.json` is the envelope a page takes: `when`
+`after` alone. `console/tests/events_contract.rs` holds the samples to both.
+
+| Field | Meaning |
+| --- | --- |
+| `api` | The events' contract version, 1 |
+| `source` | The name of the factory the event is from, 1 to 64 lower-case letters, digits and `-`. tehas leaves it out; a program that relays many factories' events sets it |
+| `event` | The name, a line of `api/events.txt` |
+| `when` | `after` a fact. `before` is the side of a gate, an act that waits for an answer |
+| `key` | The event's identity within its name, made from the fact, so a program that builds the event from a witness makes the same key. No white space, at most 200 characters |
+| `at` | When the fact happened, never when it was raised |
+| `data` | The payload, `api/event-<name>.schema.json`, the name's `.` written `-` |
+
+Every time is a whole second in UTC, `2026-11-22T13:20:00Z`: no fraction and
+no offset. A field with no value is left out, never null, and so is a
+`false` its witness leaves out. A port type keeps the ports' own shape: a
+ticket is `{"Number": 12}` or `{"Key": "OPS-12"}`, an act `"Approve"`, a
+question's kind `"Park"` or `"Plan"`. `ticket` is left out when the ticket
+is the blueprint. Within one cycle the order is `cycle.started`, then
+`cycle.parked`, `question.asked`, `cycle.ended` and `change.offered`. Across
+processes the only order is `at`.
+
+### The payloads
+
+Each name has `api/event-<name>.schema.json`, a sample with every field,
+`.full.json`, and one with only the fields it always has, `.bare.json`.
+
+| Field | Of | Meaning |
+| --- | --- | --- |
+| `cycle` | the `cycle.*` names, `change.offered`, `question.asked` | The cycle id, `<blueprint>-<attempt>`, unique within one store. A plan's question has none |
+| `blueprint` | all but the ticket names | The blueprint, the factory API's `issue` |
+| `ticket` | the cycle names, the ticket names, the gate | The ticket |
+| `started` | `cycle.started`, `cycle.ended` | When the cycle started |
+| `how`, `by` | `cycle.started`, the gate | What started it, and who; `by` is left out for a cycle run by hand |
+| `ended`, `recorded` | `cycle.ended` | When it ended, and when a line written later than that was written |
+| `end` | `cycle.ended`, `cycle.parked`, `change.offered` | The end word: `offered`, `merged`, `handoff`, `parked`, `failed`, `refused` or `stopped`. A parked cycle ends `handoff`, `parked`, `failed` or `refused` |
+| `outcome`, `status`, `parked`, `signalled`, `change` | `cycle.ended` | As the history line prints them |
+| `at` | `cycle.parked`, `change.offered`, the ticket names, `change.merged` | When the fact happened |
+| `step`, `cap`, `parkReason`, `failureKind`, `failureCause`, `provider`, `repeat`, `change` | `cycle.parked` | As the history line prints them; `step` is its `progress.step` |
+| `question`, `kind`, `askedAt` | `question.asked` | The store's number of the question, park or plan, and when it was asked |
+| `choices` | `question.asked` | Each `choice` and `label`, in order, while the store has the question's options. A question answered or withdrawn before it was read has none |
+| `set`, `observed` | `factory.limit-changed` | Exactly one: when the limit was written, or when a change with no `set` was observed (a clear, or a limit unreadable or gone) |
+| `state`, `cycles`, `plan`, `until`, `reason` | `factory.limit-changed` | As `tehas limit --json` prints them |
+| `act`, `by` | `ticket.acted` | The act and the account, `realm`, `login`, `id` and `kind` |
+| `reason` | `ticket.closed` | `Done`, `NotPlanned`, or `{"Duplicate": <ticket>}` |
+| `change` | `change.offered`, `change.merged` | The change's number |
+
+### Gates
+
+A gate asks before tehas acts, and waits. The first, the `before` side of
+`cycle.started`, is raised from 2.1; its JSON ships now.
+`api/event-cycle-started-before.schema.json` is its `data`: `blueprint`,
+`ticket`, `how`, `by` and `approval`, the approval's time, which is the
+envelope's `at`. Its key is `<blueprint>@<approval>`. Gates never reach a
+page.
+
+A gate's listener answers with `api/gate-answer.schema.json`:
+
+```json
+{"api": 1, "answer": "refuse", "why": "the disk is nearly full"}
+```
+
+`answer` is `allow` or `refuse`. `why` is at most 140 characters with no
+control character; a refusal has it, an allow may.
+
+### On a page
+
+`host/fun/kit/events.js` exports `events`, an `EventTarget` for the page,
+`names`, the lines of `api/events.txt`, and `raise(envelope)`. `raise`
+dispatches a `CustomEvent` named `tehas:<event>`, such as
+`tehas:cycle.ended`, whose `detail` is the envelope. It does not bubble. It
+throws a `TypeError` on any other name or shape, and on any `when` but
+`after`. `tehas:` is only for the names of `api/events.txt`: a page's own
+events use `<element>:<verb>`.
+
+```js
+import { events, raise } from "./kit/events.js";
+events.addEventListener("tehas:cycle.ended", (e) => show(e.detail.data));
+```
 
 ## Files under live/
 

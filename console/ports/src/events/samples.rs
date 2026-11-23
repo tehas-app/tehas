@@ -1,12 +1,13 @@
 //! One envelope per name and side with every optional field set, and one
-//! with none: the files of `api/` are written from these.
+//! with none: the files of `api/` are written from these. `samples()` is
+//! the `after` side, `gate_samples()` the `before` side of each gate.
 
 use std::num::{NonZeroU32, NonZeroU64};
 
 use super::{
-    ChangeMerged, ChangeOffered, CycleEnded, CycleId, CycleParked, CycleStarted, End, Envelope,
-    How, LimitChanged, LimitState, Name, QuestionAsked, QuestionChoice, QuestionNo, RunnerWord,
-    Stop, TicketActed, TicketClosed, When,
+    Ask, ChangeMerged, ChangeOffered, CycleEnded, CycleId, CycleParked, CycleStarted, End,
+    Envelope, How, LimitChanged, LimitState, Name, QuestionAsked, QuestionChoice, QuestionNo,
+    RunnerWord, StartAsk, Stop, TicketActed, TicketClosed, When,
 };
 use crate::{Account, AccountId, AccountKind, Act, At, BlueprintNo, ChangeNo, CloseReason};
 use crate::{KeyText, Login, QuestionKind, Realm, TicketKey};
@@ -52,6 +53,27 @@ pub fn samples() -> Vec<Sample> {
         .collect()
 }
 
+/// The samples of one gate, the `before` side of a point.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct GateSample {
+    /// The point's name.
+    pub name: Name,
+    /// Every optional field set.
+    pub full: Ask<StartAsk>,
+    /// No optional field set.
+    pub bare: Ask<StartAsk>,
+}
+
+/// The samples of every gate whose JSON ships: the `before` side of
+/// `cycle.started`, raised from 2.1.
+pub fn gate_samples() -> Vec<GateSample> {
+    vec![GateSample {
+        name: Name::CycleStarted,
+        full: Ask::new(start_ask(true)),
+        bare: Ask::new(start_ask(false)),
+    }]
+}
+
 fn pair<P: super::Payload>(full: P, bare: P) -> (Envelope, Envelope) {
     (Envelope::new(full), Envelope::new(bare))
 }
@@ -91,6 +113,16 @@ fn cycle_started(full: bool) -> CycleStarted {
         started: at(5),
         how: How::Approved,
         by: full.then(|| Login::new("alice")),
+    }
+}
+
+fn start_ask(full: bool) -> StartAsk {
+    StartAsk {
+        blueprint: bp(),
+        ticket: ticket(full),
+        how: How::Approved,
+        by: full.then(|| Login::new("alice")),
+        approval: at(-10),
     }
 }
 

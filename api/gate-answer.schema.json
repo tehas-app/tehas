@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/gate-answer.schema.json",
+  "title": "A gate listener's answer",
+  "description": "What a gate's listener writes to /out/_tehas/answer.json, version 1 of the events: allow, or refuse with why. The gate is raised from 2.1. host/docs/api.md, \"Events\", says what each field means. The object is closed. console/tests/events_contract.rs checks the samples beside this file against it.",
+  "type": "object",
+  "required": [
+    "api",
+    "answer"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "api": {
+      "const": 1
+    },
+    "answer": {
+      "enum": [
+        "allow",
+        "refuse"
+      ]
+    },
+    "why": {
+      "description": "Why, at most 140 characters, no control character. A refusal has it; an allow may.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 140,
+      "pattern": "^[^\\p{Cc}]+$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "answer": {
+            "const": "refuse"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "why"
+        ]
+      }
+    }
+  ]
+}

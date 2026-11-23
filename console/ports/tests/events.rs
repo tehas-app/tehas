@@ -445,3 +445,74 @@ fn a_port_type_in_a_payload_keeps_the_ports_own_shape() {
         assert_eq!(to_node(&act).unwrap(), text(&word));
     }
 }
+
+#[test]
+fn a_question_with_no_options_kept_has_no_choices() {
+    let bare = sample(Name::QuestionAsked).bare;
+    let node = to_node(&bare).unwrap();
+    assert!(!keys(&node).contains(&text("choices")), "{node:?}");
+    let back: Envelope = from_node(node).unwrap();
+    let q = QuestionAsked::peek(&back.event).unwrap();
+    assert!(q.choices.is_empty());
+    let full: QuestionAsked = payload(&sample(Name::QuestionAsked));
+    assert!(!full.choices.is_empty());
+}
+
+#[test]
+fn the_start_ask_is_keyed_on_its_blueprint_and_approval_and_waits_before() {
+    let gates = gate_samples();
+    assert_eq!(
+        gates.iter().map(|g| g.name).collect::<Vec<_>>(),
+        [Name::CycleStarted]
+    );
+    for g in &gates {
+        for a in [&g.full, &g.bare] {
+            assert_eq!((a.api, a.when, a.event), (API, When::Before, g.name));
+            assert_eq!(a.key, a.data.key());
+            assert_eq!(a.at, a.data.approval);
+            let node = to_node(a).unwrap();
+            assert_eq!(field(&node, "when"), Some(&text("before")));
+            let back: Ask<StartAsk> = from_node(node).unwrap();
+            assert_eq!(&back, a);
+        }
+    }
+    let full = &gates[0].full;
+    assert_eq!(full.key.as_str(), "12@2026-11-22T11:10:00Z");
+    assert!(full.data.ticket.is_some() && full.data.by.is_some());
+    assert!(gates[0].bare.data.ticket.is_none() && gates[0].bare.data.by.is_none());
+    // An ask is only ever `before`, of its own name.
+    let Node::Map(m) = to_node(full).unwrap() else {
+        panic!("an ask is a map")
+    };
+    let with = |k: &str, v: Node| {
+        let m: Vec<(Node, Node)> = m
+            .iter()
+            .map(|(a, b)| (a.clone(), if *a == text(k) { v.clone() } else { b.clone() }))
+            .collect();
+        Node::Map(m)
+    };
+    assert!(from_node::<Ask<StartAsk>>(with("when", text("after"))).is_err());
+    assert!(from_node::<Ask<StartAsk>>(with("event", text(Name::CycleEnded.as_str()))).is_err());
+}
+
+#[test]
+fn a_gate_answer_allows_or_refuses_with_a_short_why() {
+    let allow = GateAnswer::allow();
+    let node = to_node(&allow).unwrap();
+    assert_eq!(field(&node, "answer"), Some(&text("allow")));
+    assert_eq!(field(&node, "api"), Some(&Node::Uint(1)));
+    assert_eq!(field(&node, "why"), None);
+    let refuse = GateAnswer::refuse(Why::new("the disk is full").unwrap());
+    let node = to_node(&refuse).unwrap();
+    assert_eq!(field(&node, "why"), Some(&text("the disk is full")));
+    assert_eq!(from_node::<GateAnswer>(node).unwrap(), refuse);
+    assert!(Why::new("x".repeat(140)).is_ok());
+    for bad in ["".to_string(), "x".repeat(141), "a\nb".to_string()] {
+        assert!(Why::new(bad.clone()).is_err(), "{bad:?}");
+    }
+    // A refusal says why.
+    let bare = map(vec![("api", Node::Uint(1)), ("answer", text("refuse"))]);
+    assert!(from_node::<GateAnswer>(bare).is_err());
+    let other = map(vec![("api", Node::Uint(1)), ("answer", text("maybe"))]);
+    assert!(from_node::<GateAnswer>(other).is_err());
+}

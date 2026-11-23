@@ -927,6 +927,24 @@ pub fn schema_errors(schema: &str, value: &str) -> String {
 }
 
 #[allow(dead_code)] // each test file uses a part of this module
+/// The ways `value` breaks the schema `schema`, as test/schema.jq prints
+/// them: "" when it fits.
+pub fn schema_value_errors(schema: &Value, value: &str) -> String {
+    let filter = root().join("test/schema.jq");
+    jq_with(
+        &[
+            "-r",
+            "--argjson",
+            "schema",
+            &format!("[{schema}]"),
+            "-f",
+            &filter.to_string_lossy(),
+        ],
+        value,
+    )
+}
+
+#[allow(dead_code)] // each test file uses a part of this module
 /// jq -c `filter` of `input`, its output without the last newline.
 pub fn jq(filter: &str, input: &str) -> String {
     jq_with(&["-c", filter], input)

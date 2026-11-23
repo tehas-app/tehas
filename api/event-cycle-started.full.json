@@ -1,0 +1,17 @@
+{
+  "api": 1,
+  "event": "cycle.started",
+  "data": {
+    "cycle": "12-4",
+    "blueprint": 12,
+    "ticket": {
+      "Key": "OPS-12"
+    },
+    "started": "2026-11-22T11:25:00Z",
+    "how": "approved",
+    "by": "alice"
+  },
+  "when": "after",
+  "key": "12-4",
+  "at": "2026-11-22T11:25:00Z"
+}
