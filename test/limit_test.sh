@@ -60,7 +60,7 @@ reset
 until=$(in_secs 3600)
 t_run "$limit set --cycles 0 --until $until --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c 'del(.set)' <<<"$t_out")" "{\"api\":1,\"state\":\"ok\",\"cycles\":0,\"plan\":false,\"until\":\"$until\"}"
+t_eq "$(jq -c 'del(.set)' <<<"$t_out")" "{\"api\":1,\"state\":\"ok\",\"cycles\":0,\"plan\":true,\"until\":\"$until\"}"
 t_eq "$(jq -r .set <<<"$t_out")" "$(jq -r .set "$file")"
 
 t_case "setting twice with the same arguments leaves the same limit, exit 0 both times"
