@@ -3,6 +3,7 @@
 //! fields the cycle signed; the reason and the failing checks from the run's
 //! result log, masked and cut.
 
+use crate::args::{Args, Shape};
 use crate::logs::{self, Unopened};
 use crate::snapshot::Snapshot;
 use crate::tools::{self, Dirs, ToolError};
@@ -78,14 +79,26 @@ fn bad(why: &str) -> ToolError {
     ToolError::BadArgs(why.to_string())
 }
 
-fn issue_arg(args: &Value) -> Result<u64, ToolError> {
-    let map = args
-        .as_object()
-        .ok_or_else(|| bad("arguments are an object with issue"))?;
-    if let Some(k) = map.keys().find(|k| *k != "issue") {
+/// What `factory_park` takes: the issue's number, and nothing else.
+#[derive(Debug)]
+pub struct ParkArgs {
+    issue: u64,
+}
+
+impl ParkArgs {
+    pub(crate) fn read(args: &Args) -> Result<Self, ToolError> {
+        issue_arg(args).map(|issue| ParkArgs { issue })
+    }
+}
+
+fn issue_arg(args: &Args) -> Result<u64, ToolError> {
+    if args.shape() != Shape::Object {
+        return Err(bad("arguments are an object with issue"));
+    }
+    if let Some(k) = args.keys().find(|k| *k != "issue") {
         return Err(bad(&format!("{k} is not an argument: issue is")));
     }
-    tools::issue_arg(&args["issue"]).map(u64::from)
+    tools::issue_arg(&args.get("issue")).map(u64::from)
 }
 
 /// Masked first, then one line, then cut: a cut never leaves part of a
@@ -184,8 +197,8 @@ fn checks(e: &Value) -> (Vec<String>, bool) {
     (out, cut)
 }
 
-pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let issue = issue_arg(args)?;
+pub(crate) fn call(dirs: &Dirs, asked: &ParkArgs) -> Result<Map<String, Value>, ToolError> {
+    let issue = asked.issue;
     let snap = Snapshot::open(&dirs.sessions, tools::now())?;
     let mut latest = true;
     let mut newest: Option<String> = None;
