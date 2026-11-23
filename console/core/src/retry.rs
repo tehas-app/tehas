@@ -257,24 +257,61 @@ pub fn owed_a_retry(r: &Ran) -> bool {
 /// own, and wins over a 5xx on another line, as `owed_a_retry` reads it. A
 /// failure that says none of these is not GitHub's.
 pub fn githubs_fault(err: &str) -> bool {
-    let low = err.to_ascii_lowercase();
+    matches!(
+        fault_of(err),
+        Fault::Limit | Fault::Server | Fault::Slow | Fault::Down
+    )
+}
+
+/// The words of a call that took too long, and of one whose connection
+/// failed, as gh and git say them.
+const SLOW: [&str; 3] = ["timed out", "timeout", "time out"];
+const DOWN: [&str; 6] = [
+    "connection reset",
+    "connection refused",
+    "connection closed",
+    "could not resolve host",
+    "no such host",
+    "unexpected eof",
+];
+
+/// The kind of failure an error names, as the classes above read it: what
+/// the health check's fixed line is chosen by (`github_fails`). It decides
+/// no retry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fault {
+    /// A rate limit, plain or secondary.
+    Limit,
+    /// A server's own failure.
+    Server,
+    /// A 4xx: GitHub would not do it.
+    Refused,
+    /// No answer in time.
+    Slow,
+    /// No connection, or one that broke.
+    Down,
+    /// An answer that could not be read.
+    Unread,
+    /// None of these.
+    Other,
+}
+
+/// The kind of failure `err` names, as gh or git said it. A status
+/// outranks the words.
+pub fn fault_of(err: &str) -> Fault {
     // git says its status as `The requested URL returned error: 502`.
-    let said = read_of(&low.replace("returned error: ", "http "));
-    match said.class {
-        Class::Limit | Class::Server => true,
-        Class::State | Class::Unknown403 => false,
-        Class::Nothing => [
-            "timed out",
-            "timeout",
-            "connection reset",
-            "connection refused",
-            "connection closed",
-            "could not resolve host",
-            "no such host",
-            "unexpected eof",
-        ]
-        .iter()
-        .any(|w| low.contains(w)),
+    let low = err
+        .to_ascii_lowercase()
+        .replace("returned error: ", "http ");
+    let has = |words: &[&str]| words.iter().any(|w| low.contains(w));
+    match read_of(&low).class {
+        Class::Limit => Fault::Limit,
+        Class::Server => Fault::Server,
+        Class::State | Class::Unknown403 => Fault::Refused,
+        Class::Nothing if has(&SLOW) => Fault::Slow,
+        Class::Nothing if has(&DOWN) => Fault::Down,
+        Class::Nothing if low.contains("could not be read") => Fault::Unread,
+        Class::Nothing => Fault::Other,
     }
 }
 
