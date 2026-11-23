@@ -748,7 +748,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   stays.
   Readers: adopters, the consumer that runs many factories (`flags`).
   Adopter action: take `TEHAS_SPEC_PIPE` out of `instance.env`.
-- **A cycle raises its events.** #2937.
+- **A cycle raises its events.** #2937, #2940.
   `tehas-cycle` raises `cycle.started` once a start is on record, and after
   the report `cycle.parked` (a parked line), `question.asked` (a park's
   question), `cycle.ended` and `change.offered` (a line that names a change,
@@ -760,19 +760,23 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `tehas api --json` gains `events`. The plugins' hook after a cycle is
   asked by a listener of `change.offered`, the plugins' bridge, in place of
   the cycle's own call; its request and the hook's `/run/context.json` carry
-  the envelope as `event` (plugins stay off in 2.0). The other raisers come
-  with T11.9 and T11.10: until then the end of a start refused before its
-  runner, of a cycle `tehas stop` ended and of a lost cycle raises no
-  `cycle.ended`, and a consumer reads `tehas history` for them. A line that
-  ends `refused` by its exit status alone (64, 78 and the rest) is not
-  offered, where the 1.x hook asked on it. `repeat` on a line of
+  the envelope as `event` (plugins stay off in 2.0). Every start gets one
+  `cycle.ended`, raised by the process that wrote its line (T11.9, #2940): the
+  cycle for a start it refused before its runner and for an open record its
+  start ended as lost, `tehas stop` for a record it ended, and the poll for
+  a cycle it ended as lost. One that finds the line written raises
+  nothing, so a late report, stop or poll raises no second end. The poll
+  raises `question.asked` for each question it records, a planning turn's
+  among them. `tehas stop` writes its event lines to `logs/dispatch.log`.
+  A line that ends `refused` by its exit status alone (64, 78 and the
+  rest) is not offered, where the 1.x hook asked on it. `repeat` on a line of
   `tehas history --json` is counted over every line the store keeps,
   before `--after` takes its page, so a page shows the same count as the
   whole history and as the event.
   Readers: the consumer that runs many factories, the end-to-end suite,
   plugins.
-  Adopter action: none. A program that reads a cycle's log sees the
-  `event` lines.
+  Adopter action: none. A program that reads a cycle's log, or
+  `logs/dispatch.log`, sees the `event` lines.
 - **2.0 is supported from 1.4.x.** This page. The update to 2.0 is
   supported from 1.4.x only, and a host upgrades its factories and the
   programs that run them together.
