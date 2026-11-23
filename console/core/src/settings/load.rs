@@ -150,6 +150,10 @@ pub(super) const IGNORED: &[(&str, &str)] = &[
         "TEHAS_WIKI",
         "the product wiki left core in 2.0 and returns as a plugin",
     ),
+    (
+        "TEHAS_SPEC_PIPE",
+        "the spec mark, an issue's `Spec:` line, was dropped in 2.0",
+    ),
     ("TEHAS_OUTSOURCE", "outsource was dropped in 2.0"),
     ("TEHAS_OUTSOURCE_TIMEOUT", "outsource was dropped in 2.0"),
     ("TEHAS_OUTSOURCE_GRACE", "outsource was dropped in 2.0"),
@@ -1337,21 +1341,6 @@ mod tests {
     }
 
     #[test]
-    fn the_spec_pipe_set_on_stops_the_load_and_off_is_the_default() {
-        let got = refused(&["TEHAS_SPEC_PIPE=on"]);
-        assert_eq!(
-            got,
-            format!("TEHAS_SPEC_PIPE is on and spec-pipe is still being built in this release: set it to off or take the line out (see {FILE})")
-        );
-        assert_eq!(loads(&[]).text("TEHAS_SPEC_PIPE"), "0");
-        assert_eq!(loads(&["TEHAS_SPEC_PIPE=off"]).text("TEHAS_SPEC_PIPE"), "0");
-        let mut vars = start(&[(crate::features::TEST_VAR, "spec-pipe")]);
-        let mut host = Fake::with(&["TEHAS_SPEC_PIPE=on"]);
-        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
-        assert_eq!(vars.text("TEHAS_SPEC_PIPE"), "1");
-    }
-
-    #[test]
     fn the_lean_switch_set_on_stops_the_load_and_so_does_a_lean_default() {
         let got = refused(&["TEHAS_LEAN=on"]);
         assert_eq!(
@@ -1528,15 +1517,13 @@ mod tests {
 
     #[test]
     fn a_file_that_sets_the_test_variable_stops_the_load() {
-        let got = refused(&["TEHAS_SPEC_PIPE=on", "TEHAS_TEST_FEATURES=spec-pipe"]);
+        let got = refused(&["TEHAS_LEAN=on", "TEHAS_TEST_FEATURES=lean"]);
         assert_eq!(
             got,
             format!("{FILE} sets TEHAS_TEST_FEATURES: it is for the tests only, take the line out")
         );
-        let mut host = Fake::with(&[]).file(
-            "/h/.config/tehas/env",
-            "export TEHAS_TEST_FEATURES=spec-pipe\n",
-        );
+        let mut host =
+            Fake::with(&[]).file("/h/.config/tehas/env", "export TEHAS_TEST_FEATURES=lean\n");
         let got = load(&mut start(&[]), &mut host, "1000").unwrap_err();
         assert_eq!(
             got,
@@ -1546,11 +1533,11 @@ mod tests {
 
     #[test]
     fn the_test_variable_comes_from_the_environment_and_turns_it_on() {
-        let mut vars = start(&[(crate::features::TEST_VAR, "spec-pipe")]);
-        let mut host = Fake::with(&["TEHAS_SPEC_PIPE=on"]);
+        let mut vars = start(&[(crate::features::TEST_VAR, "lean")]);
+        let mut host = Fake::with(&["TEHAS_LEAN=on"]);
         assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
-        assert_eq!(vars.text("TEHAS_SPEC_PIPE"), "1");
-        assert_eq!(vars.text(crate::features::TEST_VAR), "spec-pipe");
+        assert_eq!(vars.text("TEHAS_LEAN"), "1");
+        assert_eq!(vars.text(crate::features::TEST_VAR), "lean");
     }
 
     #[test]
@@ -2510,6 +2497,18 @@ mod tests {
             ["TEHAS_WIKI is no longer read: the product wiki left core in 2.0 and returns as a plugin; remove it from the instance"]
         );
         assert!(!vars.is_set("TEHAS_WIKI"));
+    }
+
+    #[test]
+    fn a_line_of_the_spec_pipe_loads_warns_and_is_not_read() {
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&["TEHAS_SPEC_PIPE=on"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(
+            host.warned,
+            ["TEHAS_SPEC_PIPE is no longer read: the spec mark, an issue's `Spec:` line, was dropped in 2.0; remove it from the instance"]
+        );
+        assert!(!vars.is_set("TEHAS_SPEC_PIPE"));
     }
 
     #[test]

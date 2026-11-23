@@ -36,7 +36,6 @@
     "question"
   ],
   "flags": {
-    "spec-pipe": false,
     "lean": false,
     "plugins": false
   },

@@ -359,7 +359,7 @@ done
 t_case "each row of a feature still being built says so in its status"
 rows=$(awk -F' \\| ' '/^\| / && tolower($2) ~ /still being built/ {
   status = $3; sub(/ *\|$/, "", status); print status }' "$features")
-[ "$(grep -c . <<<"$rows")" -ge 4 ] || t_bad "fewer than 4 rows of building features: $rows"
+[ "$(grep -c . <<<"$rows")" -ge 3 ] || t_bad "fewer than 3 rows of building features: $rows"
 while IFS= read -r status; do
   case $status in
   'Still being built'*) ;;
