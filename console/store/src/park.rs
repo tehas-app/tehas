@@ -626,7 +626,8 @@ fn asked(
                 &format!("the question is for {derived}"),
             ));
         }
-        match taken(c, issue, id, kind)? {
+        let had = taken(c, issue, id, kind)?;
+        match had {
             None => {
                 return Err(refuse(
                     "taken",
@@ -652,9 +653,14 @@ fn asked(
                 }
             }
         }
+        // `already` for a replay: the call that recorded the question
+        // raises it (T11.9).
         Ok(line(
             "question-asked",
-            &[("question", question_json(c, id)?)],
+            &[
+                ("question", question_json(c, id)?),
+                ("already", j(had == Some(true))),
+            ],
         ))
     })
 }

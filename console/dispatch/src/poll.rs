@@ -316,6 +316,7 @@ fn writer(
     poll_at: i64,
     before: i64,
     retry: &RetryPolicy,
+    events: tehas_ports::events::Dispatcher,
 ) -> Writer {
     // run_poll refused a bound that does not read before it built this.
     let plan = plan_bounds_of_env().unwrap_or(PLAN_DEFAULTS);
@@ -434,6 +435,7 @@ fn writer(
         say_now: Some(say),
         plans_ended: Vec::new(),
         asked_again: false,
+        events,
     }
 }
 
@@ -619,7 +621,12 @@ fn adopt_login(home: &Path, settings: &Settings) -> Option<Settings> {
 }
 
 /// One poll. The exit status the bash poll would end with.
-pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
+pub fn run_poll(
+    home: &Path,
+    settings: &Settings,
+    dry: bool,
+    events: tehas_ports::events::Dispatcher,
+) -> i32 {
     // The poll hands both bounds to the unit of a turn, so a value it cannot
     // read stops it before the lock, a write or any call.
     if let Err(why) = plan_bounds_of_env() {
@@ -702,7 +709,15 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     let first_token = token.get(home);
     let adopted = adopt_login(home, settings);
     let settings = adopted.as_ref().unwrap_or(settings);
-    let mut w = writer(home, settings, "", 0, tehas_core::time::now(), &retry);
+    let mut w = writer(
+        home,
+        settings,
+        "",
+        0,
+        tehas_core::time::now(),
+        &retry,
+        events,
+    );
     // The poll's GitHub token, kept in memory from before its first call: the
     // first gh of the poll asks the host's token program once, and every gh
     // process after it is given the token as TEHAS_GH_TOKEN, so the shim of a
@@ -1559,7 +1574,11 @@ mod tests {
         let again = home.join("state/dispatch.again");
         std::fs::write(&again, "").unwrap();
         let held = held_lock(&home);
-        assert_eq!(run_poll(&home, &Settings::parse(&json!({})), false), 0);
+        let events = crate::events::wiring();
+        assert_eq!(
+            run_poll(&home, &Settings::parse(&json!({})), false, events),
+            0
+        );
         // A cycle ended while a poll ran and asked for another: the ask is
         // the running poll's to take, and one that found the lock held must
         // leave it for `tehas-dispatch.path` to start a poll when it ends.
@@ -1572,7 +1591,12 @@ mod tests {
         let home = poll_home("again-taken");
         let again = home.join("state/dispatch.again");
         std::fs::write(&again, "").unwrap();
-        let _ = run_poll(&home, &Settings::parse(&json!({})), false);
+        let _ = run_poll(
+            &home,
+            &Settings::parse(&json!({})),
+            false,
+            crate::events::wiring(),
+        );
         // This poll is the one that was asked for, so the ask is gone.
         assert!(!again.exists(), "the poll that ran left the ask");
     }
