@@ -339,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn the_fixtures_hold_the_five_misuses_and_the_kit_its_seven_modules() {
+    fn the_fixtures_hold_the_five_misuses_and_the_kit_its_eight_modules() {
         assert_eq!(
             names(&misuses(&root())),
             [
@@ -357,6 +357,7 @@ mod tests {
         assert_eq!(
             names(&modules(&root()).unwrap()),
             [
+                "events.js",
                 "feed.js",
                 "island.js",
                 "parts.js",

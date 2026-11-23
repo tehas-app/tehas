@@ -1389,12 +1389,12 @@ for line in "${surfaces[@]}"; do
   [ "$(surface_line "$line" 1)" = surface ] && known+="$(surface_line "$line" 2) "
 done
 for line in "${pinned[@]}"; do known+="$(surface_line "$line" 1) "; done
-# test/api_test.sh holds api.schema.json itself. Plugins, still being built, are
-# held in Rust: console/core/src/plugin/ and console/ops/src/plugin.rs.
-known+="api plugin plugin-manifest plugin-context plugin-review plugin-skills plugin-verdict "
+# test/api_test.sh holds api.schema.json itself. Plugins and events are held in
+# Rust: console/core/src/plugin/, console/ops/src/plugin.rs, console/tests/events_contract.rs.
+known+="api plugin plugin-manifest plugin-context plugin-review plugin-skills plugin-verdict event gate-answer "
 for file in "$api"/*.schema.json; do
   name=$(basename "$file" .schema.json)
-  case $known in *" $name "*) ;; *) t_bad "api/$name.schema.json is held by no test of this file" ;; esac
+  [[ $name == event-* ]] || case $known in *" $name "*) ;; *) t_bad "api/$name.schema.json is held by no test of this file" ;; esac
 done
 
 manual_all=$(cat "$T_ROOT"/host/docs/*.md)

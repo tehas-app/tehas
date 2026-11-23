@@ -1,0 +1,24 @@
+{
+  "api": 1,
+  "event": "cycle.parked",
+  "data": {
+    "cycle": "12-3",
+    "blueprint": 12,
+    "ticket": {
+      "Key": "OPS-12"
+    },
+    "at": "2026-11-22T13:20:00Z",
+    "end": "failed",
+    "step": "develop",
+    "cap": "step-failed:develop",
+    "parkReason": "verify",
+    "failureKind": "verify-failed",
+    "failureCause": "tests-failed",
+    "provider": true,
+    "repeat": 2,
+    "change": 9
+  },
+  "when": "after",
+  "key": "12-3",
+  "at": "2026-11-22T13:20:00Z"
+}
