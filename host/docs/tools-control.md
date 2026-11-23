@@ -215,7 +215,9 @@ so on stderr.
 A cycle killed outright never reports, so its record in the state store stays
 open. Once the unit is gone and the lock is free, `tehas stop` ends that record
 as stopped, before the lock file goes, and says `ended the record of the cycle
-of #12 as stopped`. An open record counts as something to stop. A record that
+of #12 as stopped`. A cycle quiet for two minutes may have been ended as
+`lost` by the poll in the moment before; then it says `the record of the
+cycle of #12 was already ended as lost`. An open record counts as something to stop. A record that
 cannot be read or ended leaves the lock file and everything else where it is,
 is said on stderr, and exits 1: run it again. A state store that is not
 installed changes nothing, exit 78.
@@ -449,12 +451,10 @@ The client comes from `tehas setup --new-app`, which keeps it beside the
 app's key, or, for an app made before, from `tehas setup --app-client-id <id>
 --app-secret-file <file>` ([A GitHub App](/github-app#the-client-for-the-plugins-sign-in)).
 
-`tehas update` docks each view: for each plugin that is ready at its pin, has
-`view` granted and a `view` in its manifest, it sets the panel `p-<name>`
-with the manifest's `view.label` and the URL `https://plugin-<name>.<domain>/`
-(`plugin-<name>-<sub>.<domain>` with `TEHAS_EDGE_ONE_LEVEL=on`), as
-[`tehas panel set`](/api#tehas-panel) does. A plugin that goes or is refused
-loses its panel, and so does every plugin while the feature is off. Ids that
-start `p-` are kept for this: `tehas panel set p-...` exits 64. A view that
-would be a fifth panel is left out of the dock with a line that says so; the
-update goes on and does not exit 1 for it.
+`tehas update` lists each view in the plugins menu: for each plugin that is
+ready at its pin, has `view` granted and a `view` in its manifest, it lists
+the view `view` in `live/plugins.json` with the manifest's `view.label` and
+the URL `https://plugin-<name>.<domain>/` (`plugin-<name>-<sub>.<domain>`
+with `TEHAS_EDGE_ONE_LEVEL=on`), opening in the dock
+([The plugins menu](/plugins#the-plugins-menu)). A plugin that goes or is
+refused leaves the menu, and so does every plugin while the feature is off.

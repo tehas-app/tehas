@@ -149,10 +149,9 @@ colours the original chipset could show.
 
 The site has two designs, and the instance's `TEHAS_DESIGN` picks one for every
 page. `beesknees26`, the default, names `host/fun/theme-beesknees26.css` on
-every page and puts the business page at `/`. `pixel` names
-`host/fun/theme-pixel.css` on every page and puts the factory floor at `/`; it
-is for a site that is also the factory's demo. `/floor` and `/business` are
-always there. Neither server rewrites a stylesheet path: the pages are
+every page. `pixel` names `host/fun/theme-pixel.css` on every page; it is for
+a site that is also the factory's demo. In both the factory floor is at `/`
+and `/floor`. Neither server rewrites a stylesheet path: the pages are
 templates that name the design's file, logo and share card.
 
 This file describes the pixel design, and the rules below it bind that design.
@@ -163,15 +162,15 @@ page to the theme of the instance's design.
 
 Beesknees26 is the business look: ink and one muted green on a near-white
 ground, white panels with soft shadows, IBM Plex (bundled, under the OFL), a
-light top bar, no motion, and a dark set only where the viewer picks it with
-the business page's mode button (`--modes` names the sets a theme has). The
-business page takes its colours from the theme (`--text-faint` is the third
-text level, `--bar-*` the top bar, `--stage-*` the stages), and its sizes and
-corners too: the drawing's sizes raised to `--type-small` and `--type-big`,
-corners in multiples of `--radius`. The manual and the plain dashboard still
-draw their header and footer from `game-view.css`, which is the
-floor's drawing of a page; redrawing that chrome from the business drawing is
-the open follow-up.
+light top bar, no motion, and a dark set only where a page lets the viewer
+pick it (`--modes` names the sets a theme has). `host/fun/pages.css` takes its
+colours from the theme (`--text-faint` is the third text level, `--bar-*` the
+top bar), and its sizes and corners too: the drawing's sizes raised to
+`--type-small` and `--type-big`, corners in multiples of `--radius`; the
+`--stage-*` tokens are for a page that draws the line. No page of tehas links
+`pages.css`: Obeya and industry's workshop take its rules. The manual and the
+plain dashboard draw their header and footer from `game-view.css`, which is the
+floor's drawing of a page.
 
 The colours below by the role token that carries them:
 
@@ -183,7 +182,7 @@ The colours below by the role token that carries them:
 | Steel | `--surface-head` | Rust | `--text-warm` |
 | Brass | `--accent` | Outline | `--line` (outlines are `--frame`, `--edge` wide) |
 | Brass Light | `--accent-soft` | Hairline | `--rule` |
-| CRT Black, Amber, Dim | `--screen`, `--screen-text`, `--screen-quiet`, and the business bar's `--bar-*` | Green, red tag | `--good`, `--bad` |
+| CRT Black, Amber, Dim | `--screen`, `--screen-text`, `--screen-quiet`, and the top bar's `--bar-*` | Green, red tag | `--good`, `--bad` |
 
 The canvases cannot use `var()`: `host/fun/theme.js` reads their tokens
 (`--band-*`, `--piece-*`, `--game-*`) from the theme.

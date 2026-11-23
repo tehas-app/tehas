@@ -22,6 +22,10 @@ pub const GRANTING: [&str; 7] = [
     "tehas:classic",
 ];
 
+/// The prefix of the labels of plugin phases. No core label takes it, and
+/// none of them grants: core neither pins nor acts on one.
+pub const PLUGIN_PHASE: &str = "tehas:p-";
+
 /// Where the pins are kept, under TEHAS_HOME.
 pub const FILE: &str = crate::home::State::LabelPins.relative();
 

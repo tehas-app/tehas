@@ -147,6 +147,15 @@
             "minLength": 1,
             "maxLength": 40
           },
+          "recorded": {
+            "description": "When a work line was written, on a line written after its end: a lost cycle's, whose ended is when it was last heard from.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "signalled": {
+            "description": "true on a work line when a signal stopped the cycle; left out otherwise.",
+            "const": true
+          },
           "auto": {
             "type": "boolean"
           },

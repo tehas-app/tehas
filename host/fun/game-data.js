@@ -9,8 +9,8 @@
 // factory's queue snapshot. Each piece is cut to a bound here, and the page sets
 // it only through textContent, never as markup.
 
-// Stages follow the labels tehas itself puts on issues; one table, in
-// host/fun/stages.js, answers for the business page too.
+// Stages follow the labels tehas itself puts on issues, from the one table in
+// host/fun/stages.js.
 import { stageOf as stage } from "./stages.js";
 
 export const STAGES = {
@@ -18,7 +18,7 @@ export const STAGES = {
   running: "BUILDING",
   review: "REVIEW",
   stopped: "STOPPED",
-  backlog: "NOT ON THE LINE",
+  idea: "IDEA",
   shipped: "SHIPPED",
 };
 export const LINE = ["ready", "running", "review", "shipped"];
@@ -31,12 +31,10 @@ export const REASON_MAX = 200; // the reason a pause was asked for
 export const WORD_MAX = 40; // the words a round of Buzzword Buster is built from
 export const WORD_LEN = 10; // one word, cleaned
 
-// Which stage a ticket stands at: the one table of host/fun/stages.js, with the
-// plan stage off (the line has no place for a ticket that is only being
-// planned, so tehas:ready wins a ticket that carries both) and "backlog" for a
-// ticket none of the labels names.
+// Which stage a ticket stands at: the one table of host/fun/stages.js, and
+// "idea" for an open ticket none of its labels names.
 export function stageOf(labels, closed) {
-  return stage(labels, closed, { planning: false, shipped: "shipped", none: "backlog" });
+  return stage(labels, closed, { shipped: "shipped", none: "idea" });
 }
 
 // The pause, as tehasbot status writes it: {flag: {at, reason} or null, label}.

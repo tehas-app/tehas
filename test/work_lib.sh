@@ -571,7 +571,7 @@ record_is() {
   local by=$1 body=$2
   shift 2
   record_json=$(jq -c -n --arg by "$by" --arg sum "$(jq -n --arg body "$body" '{body: $body}' | tehas_body_sha256)" '{at: "2026-10-14T00:00:00Z", by: $by,
-    how: "label", body_sha256: $sum, links: $ARGS.positional}' --args "$@")
+    how: "approved", body_sha256: $sum, links: $ARGS.positional}' --args "$@")
   record_put
 }
 # record_binds_title <title>: add the title's hash to the approval record_is

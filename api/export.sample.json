@@ -23,7 +23,7 @@
       "parked": true,
       "pr": "https://github.com/acme/widget/pull/9",
       "by": "alice",
-      "how": "label"
+      "how": "approved"
     },
     {
       "cursor": "1760700060-12-2",
@@ -64,10 +64,24 @@
       "failureCause": "findings-open",
       "provider": false,
       "parked": true,
-      "how": "hand"
+      "how": "hand",
+      "signalled": true
     },
     {
-      "cursor": "1760700300-7-4",
+      "cursor": "1760700020-5-4",
+      "kind": "work",
+      "issue": 5,
+      "ended": "2025-10-17T11:20:20Z",
+      "started": "2025-10-17T11:18:20Z",
+      "outcome": "lost",
+      "provider": false,
+      "parked": false,
+      "by": "alice",
+      "how": "approved",
+      "recorded": "2025-10-17T11:23:00Z"
+    },
+    {
+      "cursor": "1760700300-7-5",
       "kind": "plan",
       "issue": 7,
       "ended": "2025-10-17T11:25:00Z",
@@ -83,6 +97,6 @@
       ]
     }
   ],
-  "next": "1760700300-7-4",
+  "next": "1760700300-7-5",
   "to": "/tmp/archive"
 }

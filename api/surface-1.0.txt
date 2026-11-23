@@ -6,7 +6,8 @@
 # are the flags api/commands.txt marks internal or the fields under those
 # host/docs/contract.md says may change. A name that was here before its
 # feature became building stays, and a release refuses it while the feature
-# is building. The settings of the review loop went in 2.0.
+# is building. The settings of the review loop went in 2.0, and so did
+# `tehas panel` and its fields.
 #
 # Lines are only added, at the end, in the release that brings the name.
 # None is taken out or changed within 1.x. console/tests/surface.rs fails
@@ -49,9 +50,6 @@ command mcp key
 command order
 command order clear
 command order set
-command panel
-command panel clear
-command panel set
 command pause
 command plan
 command refresh
@@ -108,9 +106,6 @@ flag order set --issues
 flag order set --only
 flag order set --reason
 flag order set --until
-flag panel --json
-flag panel set --label
-flag panel set --url
 flag pause --reason
 flag refresh --json
 flag refresh --pr
@@ -426,11 +421,6 @@ field order.only
 field order.reason
 field order.state
 field order.until
-field panel.api
-field panel.panels
-field panel.panels[].id
-field panel.panels[].label
-field panel.panels[].url
 field refresh.api
 field refresh.asked
 field refresh.headSha
@@ -614,3 +604,7 @@ field question.question.choices[].choice
 field question.question.choices[].label
 field question.question.id
 field question.question.kind
+field export.runs[].recorded
+field export.runs[].signalled
+field history.runs[].recorded
+field history.runs[].signalled

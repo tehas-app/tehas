@@ -987,7 +987,7 @@ fn stop_reasons(runs: &[WorkRun]) -> Value {
     let mut by: BTreeMap<String, usize> = BTreeMap::new();
     let mut n = 0;
     for r in runs {
-        if matches!(r.outcome.as_str(), "pr" | "merged" | "stopped") {
+        if matches!(r.outcome.as_str(), "offered" | "merged" | "stopped") {
             continue;
         }
         n += 1;
@@ -1058,7 +1058,7 @@ fn funnel(reached: &BTreeMap<&str, BTreeMap<String, i64>>, runs: &[&WorkRun]) ->
             continue;
         };
         let stop = match run.outcome.as_str() {
-            "pr" | "merged" => None,
+            "offered" | "merged" => None,
             "handoff" | "parked" | "failed" => Some(
                 run.failed_step
                     .as_deref()
@@ -1123,7 +1123,7 @@ fn versions(runs: &[WorkRun]) -> Value {
                 let enough = n >= VERSION_FLOOR;
                 let pr = v
                     .iter()
-                    .filter(|r| matches!(r.outcome.as_str(), "pr" | "merged"))
+                    .filter(|r| matches!(r.outcome.as_str(), "offered" | "merged"))
                     .count();
                 let mut secs: Vec<i64> = v.iter().map(|r| r.seconds.unwrap_or(0)).collect();
                 secs.sort_unstable();
@@ -1136,7 +1136,7 @@ fn versions(runs: &[WorkRun]) -> Value {
                     ("tehas", named(&tv)),
                     ("rukas", named(&rv)),
                     ("n", Some(json!(n))),
-                    ("prShare", pick(share(pr, n).map(Value::from))),
+                    ("changeShare", pick(share(pr, n).map(Value::from))),
                     ("medianSeconds", pick(median(&secs).map(Value::from))),
                     (
                         "medianTokens",
@@ -1206,7 +1206,7 @@ fn tally(sorted: &[i64], per: i64) -> Value {
 /// and version handed the work back. Each is left out when no run is in it.
 fn drivers(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite::Result<Value> {
     let merges = last_merges(conn, to)?;
-    let reaches = |r: &WorkRun| matches!(r.outcome.as_str(), "pr" | "merged");
+    let reaches = |r: &WorkRun| matches!(r.outcome.as_str(), "offered" | "merged");
     let ran_at_all = |r: &WorkRun| !matches!(r.outcome.as_str(), "refused" | "stopped");
     let floor = |part: usize, whole: usize| {
         share(part, whole)
@@ -1268,7 +1268,7 @@ fn drivers(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite:
                 obj(vec![
                     ("n", Some(json!(n))),
                     ("ran", Some(json!(ran))),
-                    ("prShare", floor(reached.len(), ran)),
+                    ("changeShare", floor(reached.len(), ran)),
                     ("parkedShare", floor(parked, ran)),
                     ("minutes", Some(tally(&secs, 60))),
                     ("tokens", Some(tally(&tokens, 1))),
@@ -1285,7 +1285,7 @@ fn drivers(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite:
                         (!firsts.is_empty()).then(|| {
                             obj(vec![
                                 ("n", Some(json!(firsts.len()))),
-                                ("pr", Some(json!(first_pr))),
+                                ("change", Some(json!(first_pr))),
                                 ("share", floor(first_pr, firsts.len())),
                             ])
                         }),
@@ -1565,10 +1565,10 @@ pub fn text(report: &Value) -> String {
             name("rukas"),
             num(&v["n"])
         );
-        if v["prShare"].is_number() {
+        if v["changeShare"].is_number() {
             line.push_str(&format!(
                 "{:>9}{:>8}{:>10}",
-                pct(&v["prShare"]),
+                pct(&v["changeShare"]),
                 dur(&v["medianSeconds"]),
                 num(&v["medianTokens"])
             ));
@@ -1611,7 +1611,7 @@ pub fn text(report: &Value) -> String {
                 version,
                 num(&d["n"]),
                 num(&d["ran"]),
-                pct(&d["prShare"]),
+                pct(&d["changeShare"]),
                 pct(&d["parkedShare"]),
                 num(&d["minutes"]["total"]),
                 tokens,
@@ -1619,7 +1619,7 @@ pub fn text(report: &Value) -> String {
                 num(&pulls["merged"]),
                 format!(
                     "{}/{}",
-                    num(&d["oneAttempt"]["pr"]),
+                    num(&d["oneAttempt"]["change"]),
                     num(&d["oneAttempt"]["n"])
                 )
             ));

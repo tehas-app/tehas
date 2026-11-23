@@ -31,7 +31,7 @@ pub const MOST_LEFT: usize = 100;
 static AT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9T:.Z-]+\z").unwrap());
 static BY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9-]+\z").unwrap());
 static HOW: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(label|outage-retry|millwright|refresh|host|answer|reply)\z").unwrap()
+    Regex::new(r"^(approved|outage-retry|millwright|refresh|host|answer|reply)\z").unwrap()
 });
 
 static NULL: Value = Value::Null;

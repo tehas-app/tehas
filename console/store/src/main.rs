@@ -65,7 +65,8 @@
 //!
 //!   store cycle-start <issue> [--rukas <commit>] [--by-hand]
 //!   store cycle-image <issue> --attempt N --image <id> [--rukas <commit>] [--settings <file>]
-//!   store cycle-end <issue> --attempt N --status <word> [...] | --refused | --stopped
+//!   store cycle-end <issue> --attempt N --status <word> [...] [--signalled]
+//!                | --refused [--rc N] | --stopped | --lost
 //!   store cycle-show <issue> | --running
 //!   store settings-view <issue> [--attempt N]
 //!   store cycle-note <issue> --kind quiet --said-for <key>
@@ -100,7 +101,7 @@
 //!   store question-show <issue>
 //!   store approval-record <issue> --at <unix> --by <account> --how <how> ...
 //!                [--input-file <file>] | --undo --at <unix>
-//!                (the hows are label, refresh, outage-retry, answer, reply,
+//!                (the hows are approved, refresh, outage-retry, answer, reply,
 //!                millwright and host)
 //!   store approval-current <issue>
 //!   store approval-hosts

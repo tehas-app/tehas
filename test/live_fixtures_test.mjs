@@ -11,10 +11,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import "../host/fun/console-tabs.js";
 import "../host/fun/epics-view.js";
-import "../host/fun/panels.js";
 import "../host/fun/versions.js";
 import { analyticsView } from "../host/fun/analytics-data.js";
-import { boardRows, consoleView, lineView } from "../host/fun/business-view.js";
 import { normalize } from "../host/fun/game-data.js";
 import { consoleModel } from "../host/fun/factory/tehas-factory-console.model.js";
 import { daysModel } from "../host/fun/factory/tehas-factory-days.model.js";
@@ -54,15 +52,6 @@ test("the samples are written at one time and name no real repository", () => {
   }
 });
 
-test("status.json draws the business page's line", () => {
-  const v = lineView({ status: read("status.json"), nowMs: NOW });
-  assert.equal(v.source, "live");
-  assert.equal(v.repo, "https://github.com/acme/widget");
-  assert.deepEqual(v.stages.map((s) => [s.key, s.count]),
-    [["line", 2], ["plan", 1], ["build", 1], ["review", 1], ["stop", 1], ["ship", 28]]);
-  assert.deepEqual(boardRows(v).map((r) => r.number), [42, 43, 41, 39, 37]);
-});
-
 test("status.json draws the factory floor's tickets", () => {
   const s = read("status.json");
   // As the floor's fromSnapshot() hands the queue to normalize().
@@ -78,16 +67,11 @@ test("status.json draws the factory floor's tickets", () => {
   assert.ok(data.words.length > 0);
 });
 
-test("running.json draws the console tabs and the business page's console", () => {
+test("running.json draws the console tabs", () => {
   const { view } = globalThis.TEHAS_CONSOLE_TABS;
   const v = view(read("running.json"), null);
   assert.equal(v.running, 1);
   assert.equal(v.shown.cycle.issue, 41);
-  const titles = new Map(read("status.json").running.map((i) => [i.number, i.title]));
-  const c = consoleView(v, titles, T);
-  assert.equal(c.state, "live");
-  assert.equal(c.cycle, "Working on #41  Export the report as CSV");
-  assert.equal(c.file, "console-41.txt");
 });
 
 test("analytics.json draws the ten-day report", () => {
@@ -98,12 +82,10 @@ test("analytics.json draws the ten-day report", () => {
   assert.equal(v.versions.length, 2);
 });
 
-test("epics.json, panels.json and health.json draw their parts", () => {
+test("epics.json and health.json draw their parts", () => {
   const epics = globalThis.TEHAS_EPICS.view(read("epics.json"));
   assert.equal(epics.epics.length, 1);
   assert.equal(epics.epics[0].subs.length, 3);
-  assert.deepEqual(globalThis.TEHAS_PANELS.view(read("panels.json"), "https://example.org"),
-    [{ id: "support", label: "Support", url: "https://support.example.net/" }]);
   const { line, messages } = globalThis.TEHAS_VERSIONS;
   assert.equal(line(read("health.json")), "tehas v1.0.0 · pi-rukas v0.14.84 · manager v0.9.0");
   assert.deepEqual(messages(read("health.json"), NOW).map((m) => m.word), ["Notice"]);

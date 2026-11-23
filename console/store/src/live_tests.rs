@@ -82,7 +82,7 @@ fn fixture_home() -> (TestDir, Vec<Held>) {
             4_102_439_000,
         ),
     ] {
-        let (lock, attempt) = start_by(&home, issue, "alice", "label", started);
+        let (lock, attempt) = start_by(&home, issue, "alice", "approved", started);
         beat(&home, started + 10, issue, true, "running", step, text);
         drop(lock);
         end_at(&home, ended, issue, attempt, status, Some(step));
@@ -97,7 +97,7 @@ fn fixture_home() -> (TestDir, Vec<Held>) {
         ),
         (7, 4_102_441_000, "review", "", 4_102_444_790),
     ] {
-        let (lock, _) = start_by(&home, issue, "alice", "label", started);
+        let (lock, _) = start_by(&home, issue, "alice", "approved", started);
         beat(&home, at, issue, true, "running", step, text);
         locks.push(lock);
     }
@@ -154,7 +154,7 @@ fn publish_writes_the_views_tehas_live_assemble_wrote() {
 #[test]
 fn a_quiet_cycle_whose_lock_is_free_is_lost() {
     let home = home("publish-lost");
-    let (lock, _) = start_by(&home, 20, "alice", "label", 1000);
+    let (lock, _) = start_by(&home, 20, "alice", "approved", 1000);
     beat(&home, 1010, 20, true, "running", "build", "Building");
     // Held: still running, however quiet.
     let later = 1010 + LOST_AFTER + 60;
@@ -189,7 +189,7 @@ fn a_quiet_cycle_whose_lock_is_free_is_lost() {
 #[test]
 fn a_quiet_cycle_whose_lock_file_is_gone_is_not_lost() {
     let home = home("publish-lock-gone");
-    let (lock, _) = start_by(&home, 22, "alice", "label", 1000);
+    let (lock, _) = start_by(&home, 22, "alice", "approved", 1000);
     beat(&home, 1010, 22, true, "running", "build", "Building");
     let later = 1010 + LOST_AFTER + 60;
     let cycles = Home::new(home.path()).cycles_dir();
@@ -220,7 +220,7 @@ fn a_short_end_publishes_the_cycle_as_ended(
     reason: Value,
 ) {
     let home = home(name);
-    let (lock, attempt) = start_by(&home, issue, "alice", "label", 1000);
+    let (lock, attempt) = start_by(&home, issue, "alice", "approved", 1000);
     let (n, a) = (issue.to_string(), attempt.to_string());
     beat(
         &home,
@@ -276,8 +276,13 @@ fn a_short_end_publishes_the_cycle_as_ended(
     assert_eq!(e[0]["status"], word, "{mode}");
     assert_eq!(e[0]["startedAt"], 1000, "{mode}");
     assert_eq!(e[0]["updatedAt"], 1020, "{mode}");
-    // The short ends write no cycle_history row, as they never did.
-    assert_eq!(count(&home, "cycle_history"), 0, "{mode}");
+    // The short end writes its line of history, with the word of the end
+    // (T11.3).
+    assert_eq!(
+        one::<String>(&home, "SELECT group_concat(status) FROM cycle_history"),
+        word,
+        "{mode}"
+    );
 }
 
 #[test]
@@ -312,7 +317,7 @@ fn a_refused_start_is_published_as_refused_and_never_as_lost() {
 #[test]
 fn the_closing_heartbeat_is_never_the_second_the_cycle_was_last_heard_from() {
     let home = home("publish-heard");
-    let (lock, attempt) = start_by(&home, 24, "alice", "label", 1000);
+    let (lock, attempt) = start_by(&home, 24, "alice", "approved", 1000);
     let (n, a) = (24.to_string(), attempt.to_string());
     beat(
         &home,
@@ -338,7 +343,7 @@ fn the_closing_heartbeat_is_never_the_second_the_cycle_was_last_heard_from() {
     // stays where the last heartbeat of the attempt put it.
     // A cycle that never sent a heartbeat: its closing row is the only one the
     // attempt has, and it is no word from the cycle either.
-    let (_lock, attempt) = start_by(&home, 25, "alice", "label", 2000);
+    let (_lock, attempt) = start_by(&home, 25, "alice", "approved", 2000);
     let (n, a) = (25.to_string(), attempt.to_string());
     drop(_lock);
     ok_at(
@@ -356,7 +361,7 @@ fn the_closing_heartbeat_is_never_the_second_the_cycle_was_last_heard_from() {
 #[test]
 fn a_fresh_running_cycle_with_a_free_lock_is_running() {
     let home = home("publish-fresh");
-    let (lock, _) = start_by(&home, 21, "alice", "label", 1000);
+    let (lock, _) = start_by(&home, 21, "alice", "approved", 1000);
     drop(lock);
     beat(&home, 1010, 21, true, "running", "build", "");
     publish(&home, 1010 + LOST_AFTER, &[]).unwrap();
@@ -526,12 +531,12 @@ fn ends_of_a_finished_cycle_are_gone_when_a_write_fails() {
     // only through a heartbeat of its open attempt: with none, it is no view at
     // all, and its file is one publish must remove. The lock is what cycle-start
     // asks for, and it is given up at once.
-    approve(&home, 60, "alice", "label");
+    approve(&home, 60, "alice", "approved");
     let lock = hold(&home, 60);
     ok_at(&home, 1_000_000, &["cycle-start", "60"]);
     drop(lock);
     // #62 is the running cycle, its lock held to the end of the test.
-    let (_held, _) = start_by(&home, 62, "alice", "label", 1_000_200);
+    let (_held, _) = start_by(&home, 62, "alice", "approved", 1_000_200);
     beat(&home, 1_000_250, 62, true, "running", "build", "");
     // The views a running cycle's publish left behind.
     fs::create_dir_all(Home::new(home.path()).live_dir().join("cycles")).unwrap();
@@ -593,11 +598,11 @@ fn ends_of_a_finished_cycle_are_gone_when_a_write_fails() {
 /// attempt, and a view under live/cycles/ for each of 60, 62 and 99.
 fn partial_home(name: &str) -> (TestDir, Held) {
     let home = home(name);
-    approve(&home, 60, "alice", "label");
+    approve(&home, 60, "alice", "approved");
     let lock = hold(&home, 60);
     ok_at(&home, 1_000_000, &["cycle-start", "60"]);
     drop(lock);
-    let (held, _) = start_by(&home, 62, "alice", "label", 1_000_200);
+    let (held, _) = start_by(&home, 62, "alice", "approved", 1_000_200);
     beat(&home, 1_000_250, 62, true, "running", "build", "");
     fs::create_dir_all(Home::new(home.path()).live_dir().join("cycles")).unwrap();
     for n in ["60", "62", "99"] {
@@ -727,7 +732,7 @@ fn heartbeats_keep_the_newest_of_an_issue() {
     // met contention elsewhere does not push this one into the installed seconds.
     short_bounds();
     let home = home("beat-keep");
-    let (_lock, _) = start_by(&home, 31, "alice", "label", 1000);
+    let (_lock, _) = start_by(&home, 31, "alice", "approved", 1000);
     for i in 0..(KEEP + 5) {
         beat(&home, 1001 + i, 31, true, "running", "build", "");
     }
@@ -748,7 +753,7 @@ fn the_notice_loses_control_characters_and_is_cut() {
 #[test]
 fn cycle_show_says_when_the_cycle_was_last_heard_from() {
     let home = home("beat-heard");
-    let (_lock, _) = start_by(&home, 32, "alice", "label", 1000);
+    let (_lock, _) = start_by(&home, 32, "alice", "approved", 1000);
     assert_eq!(
         ok(&home, &["cycle-show", "32"])["cycle"]["heard_at"],
         Value::Null
@@ -763,11 +768,11 @@ fn cycle_show_says_when_the_cycle_was_last_heard_from() {
 #[test]
 fn a_heartbeat_of_an_earlier_attempt_is_not_heard_from() {
     let home = home("beat-earlier");
-    let (lock, attempt) = start_by(&home, 33, "alice", "label", 1000);
+    let (lock, attempt) = start_by(&home, 33, "alice", "approved", 1000);
     beat(&home, 1010, 33, true, "running", "build", "");
     drop(lock);
     end_at(&home, 1020, 33, attempt, "failed", None);
-    let (_lock, _) = start_by(&home, 33, "alice", "label", 2000);
+    let (_lock, _) = start_by(&home, 33, "alice", "approved", 2000);
     assert_eq!(
         ok(&home, &["cycle-show", "33"])["cycle"]["heard_at"],
         Value::Null
@@ -777,7 +782,7 @@ fn a_heartbeat_of_an_earlier_attempt_is_not_heard_from() {
 #[test]
 fn cycle_end_keeps_the_last_notice_and_step() {
     let home = home("beat-end");
-    let (lock, attempt) = start_by(&home, 34, "alice", "label", 1000);
+    let (lock, attempt) = start_by(&home, 34, "alice", "approved", 1000);
     beat(
         &home,
         1010,
@@ -802,11 +807,11 @@ fn cycle_end_keeps_the_last_notice_and_step() {
 #[test]
 fn a_restarted_issue_does_not_show_its_earlier_attempt() {
     let home = home("publish-restart");
-    let (lock, _) = start_by(&home, 40, "alice", "label", 1000);
+    let (lock, _) = start_by(&home, 40, "alice", "approved", 1000);
     beat(&home, 1010, 40, true, "running", "build", "Old notice");
     drop(lock);
     // The attempt died without an end; the next start replaces it.
-    let (_lock, attempt) = start_by(&home, 40, "alice", "label", 2000);
+    let (_lock, attempt) = start_by(&home, 40, "alice", "approved", 2000);
     publish(&home, 2000, &[]).unwrap();
     let v: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
     assert_eq!(v, serde_json::json!({"cycles": [], "last": null}));
@@ -829,7 +834,7 @@ fn a_restarted_issue_does_not_show_its_earlier_attempt() {
 fn ends_of_the_same_second_stay_in_the_order_they_ended() {
     let home = home("publish-ties");
     for issue in [51, 50] {
-        let (lock, attempt) = start_by(&home, issue, "alice", "label", 1000);
+        let (lock, attempt) = start_by(&home, issue, "alice", "approved", 1000);
         drop(lock);
         end_at(&home, 1100, issue, attempt, "merged", None);
     }
@@ -842,7 +847,7 @@ fn ends_of_the_same_second_stay_in_the_order_they_ended() {
 #[test]
 fn where_the_step_is_goes_to_the_view_the_end_and_the_history() {
     let home = home("beat-progress");
-    let (lock, attempt) = start_by(&home, 35, "alice", "label", 1000);
+    let (lock, attempt) = start_by(&home, 35, "alice", "approved", 1000);
     ok_at(
         &home,
         1010,
@@ -925,7 +930,7 @@ fn where_the_step_is_goes_to_the_view_the_end_and_the_history() {
         [7, 9, 3]
     );
     // An end at another step than the last heartbeat's does not borrow it.
-    let (lock, attempt) = start_by(&home, 35, "alice", "label", 2000);
+    let (lock, attempt) = start_by(&home, 35, "alice", "approved", 2000);
     ok_at(
         &home,
         2010,
@@ -960,7 +965,7 @@ fn where_the_step_is_goes_to_the_view_the_end_and_the_history() {
 #[test]
 fn a_heartbeat_refuses_a_step_number_out_of_bounds() {
     let home = home("beat-progress-bounds");
-    let (_lock, _) = start_by(&home, 36, "alice", "label", 1000);
+    let (_lock, _) = start_by(&home, 36, "alice", "approved", 1000);
     for (flag, v) in [
         ("--step-number", "0"),
         ("--round", "1001"),

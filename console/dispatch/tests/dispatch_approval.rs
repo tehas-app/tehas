@@ -178,7 +178,7 @@ fn a_start_writes_the_approval_record_before_the_label_changes_who_when_how_the_
     let filter = "{at, by, how, body_sha256, links, title_sha256}";
     assert_eq!(
         val(&w.at_mark(filter)),
-        json!({"at": "2026-01-01T00:00:00Z", "by": "alice", "how": "label", "body_sha256": sum,
+        json!({"at": "2026-01-01T00:00:00Z", "by": "alice", "how": "approved", "body_sha256": sum,
             "links": [format!("{A}/1111"), format!("{A}/2222")], "title_sha256": sha("Faster search")})
     );
     // The start used the approval it found: the same one, now its readers'.

@@ -396,7 +396,11 @@ pub fn cycles(calls: &mut Calls) -> Result<Vec<Value>, Value> {
                     let c = get(r, "cycle");
                     let num = |x: &Value, k: &str| x.get(k).and_then(Value::as_u64).unwrap_or(0);
                     Some(if c.is_object() && c.get("ended_at").is_none_or(Value::is_null) {
+                        // An open record whose lock no process holds is a
+                        // cycle that died without a word (T11.3).
+                        let lost = r.pointer("/lock/probe_rc").and_then(Value::as_i64) == Some(0);
                         json!({"issue": n, "how": c.get("how").and_then(Value::as_str).unwrap_or(""),
+                            "attempt": num(&c, "attempt"), "lost": lost,
                             "took": num(&c, "started_at"), "heard": num(&c, "heard_at"),
                             "said_for": c.pointer("/quiet/said_for").map(|s| match s { Value::String(s) => s.clone(), v => v.to_string() }).unwrap_or("-".into()),
                             "quiet_at": c.pointer("/quiet/at").and_then(Value::as_u64).unwrap_or(0),
@@ -579,7 +583,7 @@ mod approval_shape_tests {
     use serde_json::{json, Value};
 
     fn shaped(how: &str, input: Value) -> Value {
-        let base = json!({"at": 1, "by": "alice", "how": "label", "body_sha256": "a"});
+        let base = json!({"at": 1, "by": "alice", "how": "approved", "body_sha256": "a"});
         super::approval_shape(&json!({"rests_on": base, "current": {"at": 2, "by": "bot",
             "how": how, "body_sha256": "a", "input": input}}))
         .unwrap()
@@ -589,7 +593,7 @@ mod approval_shape_tests {
     /// with none, as every record before the driver is, names none.
     #[test]
     fn the_driver_of_a_start_is_read_off_its_own_record() {
-        for how in ["label", "reply", "outage-retry", "millwright", "refresh"] {
+        for how in ["approved", "reply", "outage-retry", "millwright", "refresh"] {
             assert_eq!(shaped(how, json!({"driver": "lean"}))["driver"], "lean");
             assert_eq!(shaped(how, json!({})).get("driver"), None);
             assert_eq!(shaped(how, Value::Null).get("driver"), None);
@@ -827,7 +831,7 @@ printf 'store %s %s\\n' \"$*\" \"$(cat \"$0.request\")\" >>\"$0.calls\"\nexec {b
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",

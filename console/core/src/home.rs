@@ -56,8 +56,6 @@ pub enum State {
     Limit,
     /// Held while the MCP server's checkout is fetched.
     McpFetchLock,
-    /// The panels `tehas panel` keeps.
-    Panels,
     /// The flag `tehas pause` sets.
     Pause,
     /// The files of the plugins' tickets, kept for the cycles given them.
@@ -123,7 +121,6 @@ impl State {
             State::LabelPins => "state/labels",
             State::Limit => "state/limit.json",
             State::McpFetchLock => "state/mcp-fetch.lock",
-            State::Panels => "state/panels.json",
             State::Pause => "state/pause.json",
             State::PluginFiles => "state/plugin-files",
             State::PlatformFetch => "state/platform-fetch",
@@ -186,8 +183,6 @@ pub enum Live {
     Epics,
     /// The checks of the host's health.
     Health,
-    /// The panels the front page shows.
-    Panels,
     /// The platform's release, as last fetched.
     Platform,
     /// The plugins granted a menu, and their views.
@@ -212,7 +207,6 @@ impl Live {
             Live::Endings => "endings.json",
             Live::Epics => "epics.json",
             Live::Health => "health.json",
-            Live::Panels => "panels.json",
             Live::Platform => "platform.json",
             Live::Plugins => "plugins.json",
             Live::Previews => "previews.json",
@@ -404,7 +398,6 @@ mod tests {
             (State::LabelPins, "/h/state/labels"),
             (State::Limit, "/h/state/limit.json"),
             (State::McpFetchLock, "/h/state/mcp-fetch.lock"),
-            (State::Panels, "/h/state/panels.json"),
             (State::Pause, "/h/state/pause.json"),
             (State::PluginFiles, "/h/state/plugin-files"),
             (State::PlatformFetch, "/h/state/platform-fetch"),
@@ -459,7 +452,6 @@ mod tests {
             (Live::Endings, "/h/live/endings.json"),
             (Live::Epics, "/h/live/epics.json"),
             (Live::Health, "/h/live/health.json"),
-            (Live::Panels, "/h/live/panels.json"),
             (Live::Platform, "/h/live/platform.json"),
             (Live::Plugins, "/h/live/plugins.json"),
             (Live::Previews, "/h/live/previews.json"),

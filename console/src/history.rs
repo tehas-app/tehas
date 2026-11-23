@@ -229,6 +229,8 @@ fn line_of(row: &J, repo: &str) -> Option<Option<J>> {
                     ("pr", pr),
                     ("by", f("by")),
                     ("how", f("how")),
+                    ("recorded", date(row.get("recorded_at")).unwrap_or(J::Null)),
+                    ("signalled", f("signalled")),
                 ],
                 no_empty,
             ));
@@ -286,10 +288,13 @@ fn above_zero(v: &J) -> bool {
 }
 
 /// The seconds of a line this release can read. A line it cannot is left out,
-/// so an older or a newer row breaks no listing.
+/// so an older or a newer row breaks no listing. A work line may have no exit
+/// status: a stopped, lost or refused start left none (T11.3), and its line
+/// is listed without one.
 fn seconds_of(line: &J) -> Option<i64> {
     let at = line.get("at").as_str()?;
-    let rc = matches!(line.get("rc"), J::Num(_) | J::Str(_));
+    let rc = matches!(line.get("rc"), J::Num(_) | J::Str(_))
+        || (line.get("kind").as_str() == Some("work") && line.get("rc").is_null());
     let readable = above_zero(line.get("issue"))
         && above_zero(line.get("seq"))
         && rc
@@ -377,6 +382,17 @@ fn publish(line: &J, seconds: i64) -> J {
             ("by", word("by")),
             ("how", word("how")),
             ("label", word("label")),
+            // When the line was written, on a line written after its end (a
+            // lost cycle's), and a cycle a signal stopped (T11.3).
+            ("recorded", word("recorded")),
+            (
+                "signalled",
+                if line.get("signalled").is_true() {
+                    J::Bool(true)
+                } else {
+                    J::Null
+                },
+            ),
             (
                 "auto",
                 if line.get("auto").is_true() {
@@ -542,25 +558,26 @@ mod tests {
     // Outputs in this file were captured from the jq of v0.21.0.
     const ROWS: &str = r#"{"api":1,"ok":true,"verb":"history-show","rows":[
 {"kind":"plan","id":1,"issue":12,"turn":1,"at":1760699940,"outcome":"finished","session":"abc","started_at":1760699880,"rc":0,"by":"alice","label":"tehas:refine","seq":1,"filed":["https://github.com/acme/widget/issues/41","not an issue",7,"https://github.com/acme/widget/issues/42\n"],"auto":true},
-{"kind":"cycle","id":1,"issue":12,"attempt":1,"at":1760700000,"status":"failed","step":"develop","by":"alice","how":"label","pr":9,"started_at":1760696400,"rc":10,"cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","provider":false,"parked":true,"seq":2},
+{"kind":"cycle","id":1,"issue":12,"attempt":1,"at":1760700000,"status":"failed","step":"develop","by":"alice","how":"approved","pr":9,"started_at":1760696400,"rc":10,"cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","provider":false,"parked":true,"seq":2},
 {"kind":"cycle","id":2,"issue":7,"attempt":1,"at":1760700060,"status":"merged","step":null,"by":null,"how":"hand","pr":null,"started_at":null,"rc":0,"cap":null,"park_reason":null,"failure_kind":null,"failure_cause":null,"provider":false,"parked":false,"seq":3},
-{"kind":"cycle","id":3,"issue":12,"attempt":2,"at":1760700120,"status":"failed","step":"develop","by":"alice","how":"label","pr":9,"started_at":1760700060,"rc":10,"cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","provider":false,"parked":true,"seq":4},
+{"kind":"cycle","id":3,"issue":12,"attempt":2,"at":1760700120,"status":"failed","step":"develop","by":"alice","how":"approved","pr":9,"started_at":1760700060,"rc":10,"cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","provider":false,"parked":true,"seq":4},
 {"kind":"cycle","id":4,"issue":12,"attempt":3,"at":1760700180,"status":"failed","step":"develop","by":null,"how":"outage-retry","pr":null,"started_at":1760700120,"rc":10,"cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","provider":true,"parked":true,"seq":5},
-{"kind":"cycle","id":5,"issue":12,"attempt":4,"at":1760700240,"status":"failed","step":"develop","by":"alice","how":"label","pr":9,"started_at":1760700180,"rc":10,"cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","provider":false,"parked":true,"seq":6},
+{"kind":"cycle","id":5,"issue":12,"attempt":4,"at":1760700240,"status":"failed","step":"develop","by":"alice","how":"approved","pr":9,"started_at":1760700180,"rc":10,"cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","provider":false,"parked":true,"seq":6},
 {"kind":"plan","id":2,"issue":7,"turn":2,"at":1760700300,"outcome":"not-started","session":null,"started_at":null,"rc":null,"by":"ä\u007f\"\\\t\u0001","label":"tehas:plan","seq":7,"filed":[],"auto":false},
-{"kind":"cycle","id":6,"issue":12,"attempt":5,"at":1760700360,"status":"merged","step":"merge","by":"alice","how":"label","pr":9,"started_at":1760700300,"rc":0,"cap":null,"park_reason":null,"failure_kind":null,"failure_cause":null,"provider":false,"parked":false,"seq":8},
+{"kind":"cycle","id":6,"issue":12,"attempt":5,"at":1760700360,"status":"merged","step":"merge","by":"alice","how":"approved","pr":9,"started_at":1760700300,"rc":0,"cap":null,"park_reason":null,"failure_kind":null,"failure_cause":null,"provider":false,"parked":false,"seq":8},
 {"kind":"cycle","id":7,"issue":12,"attempt":6,"at":1760700420,"status":"failed","step":"develop","by":null,"how":"hand","pr":null,"started_at":1760700360,"rc":null,"cap":null,"park_reason":null,"failure_kind":null,"failure_cause":null,"provider":false,"parked":true,"seq":9}
 ]}"#;
 
-    const CYCLES: [&str; 8] = [
+    const CYCLES: [&str; 9] = [
         r#"{"cursor":"1760699940-12-1","kind":"plan","issue":12,"ended":"2025-10-17T11:19:00Z","started":"2025-10-17T11:18:00Z","status":0,"outcome":"finished","turn":1,"by":"alice","label":"tehas:refine","auto":true,"filed":["https://github.com/acme/widget/issues/41","https://github.com/acme/widget/issues/42\n"]}"#,
-        r#"{"cursor":"1760700000-12-2","kind":"work","issue":12,"ended":"2025-10-17T11:20:00Z","started":"2025-10-17T10:20:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label"}"#,
+        r#"{"cursor":"1760700000-12-2","kind":"work","issue":12,"ended":"2025-10-17T11:20:00Z","started":"2025-10-17T10:20:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"approved"}"#,
         r#"{"cursor":"1760700060-7-3","kind":"work","issue":7,"ended":"2025-10-17T11:21:00Z","status":0,"outcome":"merged","provider":false,"parked":false,"how":"hand"}"#,
-        r#"{"cursor":"1760700120-12-4","kind":"work","issue":12,"ended":"2025-10-17T11:22:00Z","started":"2025-10-17T11:21:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label","repeat":1}"#,
+        r#"{"cursor":"1760700120-12-4","kind":"work","issue":12,"ended":"2025-10-17T11:22:00Z","started":"2025-10-17T11:21:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"approved","repeat":1}"#,
         r#"{"cursor":"1760700180-12-5","kind":"work","issue":12,"ended":"2025-10-17T11:23:00Z","started":"2025-10-17T11:22:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":true,"parked":true,"how":"outage-retry"}"#,
-        r#"{"cursor":"1760700240-12-6","kind":"work","issue":12,"ended":"2025-10-17T11:24:00Z","started":"2025-10-17T11:23:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label","repeat":2}"#,
+        r#"{"cursor":"1760700240-12-6","kind":"work","issue":12,"ended":"2025-10-17T11:24:00Z","started":"2025-10-17T11:23:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"approved","repeat":2}"#,
         r#"{"cursor":"1760700300-7-7","kind":"plan","issue":7,"ended":"2025-10-17T11:25:00Z","outcome":"not-started","turn":2,"by":"ä\u007f\"\\\t\u0001","label":"tehas:plan"}"#,
-        r#"{"cursor":"1760700360-12-8","kind":"work","issue":12,"ended":"2025-10-17T11:26:00Z","started":"2025-10-17T11:25:00Z","status":0,"outcome":"merged","progress":{"step":"merge"},"provider":false,"parked":false,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label"}"#,
+        r#"{"cursor":"1760700360-12-8","kind":"work","issue":12,"ended":"2025-10-17T11:26:00Z","started":"2025-10-17T11:25:00Z","status":0,"outcome":"merged","progress":{"step":"merge"},"provider":false,"parked":false,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"approved"}"#,
+        r#"{"cursor":"1760700420-12-9","kind":"work","issue":12,"ended":"2025-10-17T11:27:00Z","started":"2025-10-17T11:26:00Z","outcome":"failed","progress":{"step":"develop"},"provider":false,"parked":true,"how":"hand"}"#,
     ];
 
     const TEXT: &str = r#"1760699940-12-1  plan  #12  finished  turn 1  refine (auto)  filed https://github.com/acme/widget/issues/41 https://github.com/acme/widget/issues/42
@@ -572,7 +589,38 @@ mod tests {
 1760700240-12-6  work  #12  failed  rc 10  step develop  parked  repeat 2  pr https://github.com/acme/widget/pull/9
 1760700300-7-7  plan  #7  not-started  turn 2
 1760700360-12-8  work  #12  merged  rc 0  step merge  pr https://github.com/acme/widget/pull/9
+1760700420-12-9  work  #12  failed  rc ?  step develop  parked
 "#;
+
+    /// A lost cycle's line is written after a line that ended later, with an
+    /// `ended` before it: `--after` the cursor of that later line lists it,
+    /// once, with `recorded`, and the next page lists nothing (T11.3). A
+    /// signalled line says so.
+    #[test]
+    fn a_line_written_late_is_listed_after_the_cursor_of_the_line_before_it() {
+        let rows = r#"{"api":1,"ok":true,"verb":"history-show","rows":[
+{"kind":"cycle","id":1,"issue":12,"attempt":1,"at":1760700000,"status":"merged","step":null,"by":"alice","how":"approved","pr":null,"started_at":1760699000,"rc":0,"cap":null,"park_reason":null,"failure_kind":null,"failure_cause":null,"provider":false,"parked":false,"seq":1,"signalled":true},
+{"kind":"cycle","id":2,"issue":7,"attempt":3,"at":1760699500,"status":"lost","step":null,"by":"alice","how":"approved","pr":null,"started_at":1760699300,"rc":null,"cap":null,"park_reason":null,"failure_kind":null,"failure_cause":null,"provider":false,"parked":false,"seq":2,"recorded_at":1760700100}
+]}"#;
+        let answer = J::parse(rows).unwrap();
+        let page = |after: &str| {
+            let after = Cursor::parse(after).unwrap();
+            listed(lines(&answer, "acme/widget"), Some(&after))
+        };
+        let first = listed(lines(&answer, "acme/widget"), None);
+        assert_eq!(first.runs[0].get("signalled"), &J::Bool(true));
+        assert!(first.runs[1].get("signalled").is_null());
+        let after = first.runs[0].get("cursor").text();
+        let next = page(&after);
+        assert_eq!(next.runs.len(), 1);
+        let lost = &next.runs[0];
+        assert_eq!(lost.get("outcome").as_str(), Some("lost"));
+        assert_eq!(lost.get("ended").as_str(), Some("2025-10-17T11:11:40Z"));
+        assert_eq!(lost.get("recorded").as_str(), Some("2025-10-17T11:21:40Z"));
+        assert!(lost.get("cursor").text().ends_with("-7-2"));
+        assert!(page(&next.next.clone().unwrap()).runs.is_empty());
+        assert!(first.runs[0].get("recorded").is_null());
+    }
 
     fn listed_after(after: Option<&str>) -> Listing {
         let answer = J::parse(ROWS).unwrap();
@@ -606,7 +654,7 @@ mod tests {
         let got: Vec<String> = listing.runs.iter().map(J::dump).collect();
         assert_eq!(got, CYCLES);
         let want = format!(
-            "{{\"api\":1,\"runs\":[{}],\"next\":\"1760700360-12-8\"}}",
+            "{{\"api\":1,\"runs\":[{}],\"next\":\"1760700420-12-9\"}}",
             CYCLES.join(",")
         );
         assert_eq!(listing.object().dump(), want);
@@ -650,10 +698,12 @@ mod tests {
         );
     }
 
+    /// A work line with no exit status is listed: a stopped, lost or
+    /// refused start leaves none, and has its line (T11.3).
     #[test]
-    fn a_park_with_no_exit_status_is_a_line_left_out() {
+    fn a_work_line_with_no_exit_status_is_listed() {
         assert!(ROWS.contains(r#""seq":9"#));
-        assert!(!cursors(&listed_after(None))
+        assert!(cursors(&listed_after(None))
             .iter()
             .any(|c| c.ends_with("-9")));
     }
@@ -663,16 +713,16 @@ mod tests {
         let all = repeats(&listed_after(None));
         assert_eq!(
             all,
-            ["null", "null", "null", "1", "null", "2", "null", "null"]
+            ["null", "null", "null", "1", "null", "2", "null", "null", "null"]
         );
         assert_eq!(
             repeats(&listed_after(Some("1760700000-12-4"))),
-            ["null", "null", "null", "null"]
+            ["null", "null", "null", "null", "null"]
         );
         let from_two = listed_after(Some("1-1-1"));
         assert_eq!(
             repeats(&from_two),
-            ["null", "null", "1", "null", "2", "null", "null"]
+            ["null", "null", "1", "null", "2", "null", "null", "null"]
         );
     }
 
@@ -689,7 +739,7 @@ mod tests {
         ] {
             let listing = listed_after(Some(cursor));
             assert_eq!(cursors(&listing), all[skipped..], "{cursor}");
-            assert_eq!(listing.next.as_deref(), Some("1760700360-12-8"), "{cursor}");
+            assert_eq!(listing.next.as_deref(), Some("1760700420-12-9"), "{cursor}");
         }
     }
 

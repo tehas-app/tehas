@@ -160,7 +160,7 @@ cycle_files() { # <issue>
   for ext in "${GO[@]}" "${KEEP[@]}"; do printf '%s\n' "$n $ext" >"$state/$n.$ext"; done
   printf '%s %s\n' "$(date +%s)" "$whoami_here" >"$state/$n.stopped"
   # Its last cycle, on alice's label, parked with the question 42<issue> on record.
-  t_ended "$th" "$n" alice label --parked
+  t_ended "$th" "$n" alice approved --parked
   t_park "$th" "$n" failed "42$n"
   printf 'console line\n' >"$th/live/console-$n.txt"
   printf 'transcript\n' >"$runs/issue-$n/a-1-coder.json"
@@ -732,8 +732,8 @@ t_eq "$(t_row cycle-show 5 -- '[(.cycle.ended_at != null), .cycle.end_reason] | 
 t_eq "$(cat "$T/lock-seen")" 1
 t_eq "$(find "$state/5.lock" 2>/dev/null | wc -l)" 0
 rm -f "$T/lock-seen" "$T/store-answers.n"
-# No history is written for it: tehas stop writes none.
-t_eq "$(t_row history-show 5 -- '.rows | length')" 0
+# Its one line of history says it was stopped (T11.3).
+t_eq "$(t_row history-show 5 -- '[.rows[].status] | tostring')" '["stopped"]'
 
 t_case "a second stop finds nothing to do and asks the store to end nothing"
 rm -f "$T"/calls/*
@@ -759,7 +759,7 @@ t_eq "$(t_row cycle-show 5 -- .cycle.ended_at)" null
 
 t_case "a stop spends the retry a provider outage left owed, and the dispatcher starts nothing on its own"
 reset
-t_ended "$th" 5 alice label --provider --parked
+t_ended "$th" 5 alice approved --provider --parked
 t_park "$th" 5 provider-outage
 t_eq "$(t_row park-show 5 -- '.park.automatic')" true
 t_run "$stop_cmd 5"

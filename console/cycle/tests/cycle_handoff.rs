@@ -90,7 +90,7 @@ fn a_cycle_that_never_ran_is_reported_from_the_approval_record_and_the_record_go
     let mut w = World::new("ho-never");
     w.env("TEHAS_CYCLE_FROM", "unit");
     // 2026-01-01T00:00:00Z
-    w.approve("alice", "label", 1_767_225_600, &[]);
+    w.approve("alice", "approved", 1_767_225_600, &[]);
     w.work("exit 4");
     let r = w.run7();
     assert_eq!(r.rc, 0);
@@ -121,7 +121,7 @@ fn a_cycle_that_never_ran_is_reported_from_the_approval_record_and_the_record_go
     let h = w.history0();
     assert_eq!(
         json!([h["rc"], h["status"], h["step"], h["how"], h["by"]]),
-        json!([4, "refused", "-", "label", "alice"])
+        json!([4, "refused", "-", "approved", "alice"])
     );
 }
 
@@ -382,7 +382,7 @@ fn each_end_of_a_cycle_leaves_a_line_of_history_for_the_millwright_a_park_and_it
 ) {
     let mut w = World::new("ho-history");
     w.env("TEHAS_CYCLE_FROM", "unit");
-    w.approve("alice", "label", 1_760_000_000, &[]);
+    w.approve("alice", "approved", 1_760_000_000, &[]);
     w.ended("handoff", "explore", "", "intent-park");
     w.entry(|e| e["parkReason"] = json!("too-large"));
     w.fx("rc", "11\n");
@@ -408,11 +408,11 @@ fn each_end_of_a_cycle_leaves_a_line_of_history_for_the_millwright_a_park_and_it
             "too-large",
             false,
             "alice",
-            "label",
+            "approved",
             11
         ])
     );
-    w.approve("alice", "label", 1_760_000_100, &[]);
+    w.approve("alice", "approved", 1_760_000_100, &[]);
     w.ended("handoff", "commit-pr", "feature/x", "");
     pr9(&w);
     w.run7();
