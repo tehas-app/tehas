@@ -553,7 +553,9 @@ The start comment on the issue, [`tehas history`](#tehas-history) (`"how":
 "host"`) and `tehas status` say the cycle was started from the host. A cycle
 killed before it reported keeps its record open with its lock free; `tehas
 status` says so, `killed before it reported: tehas stop N ends its record`,
-in place of `running`. The
+in place of `running`. Once it has not been heard from for two minutes, the
+next poll ends the record as `lost`, with its line in
+[`tehas history`](#tehas-history). The
 millwright may ask for its finish as for one a person's label started.
 
 Exit 0 recorded, taken back or nothing to take back; 1 GitHub did not answer,

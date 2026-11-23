@@ -538,8 +538,9 @@ impl Writer {
 
     /// lost_cycle: the open record of a cycle that died without a word, ended
     /// as lost with its line of history. The store takes it only with the
-    /// lock free: a cycle that took the lock since is running, and nothing is
-    /// said of it.
+    /// lock free and the cycle quiet: a cycle that took the lock since is
+    /// running, and one heard from just now is not lost yet; nothing is said
+    /// of either.
     fn lost(&mut self, n: u64, a: &Value, log: &mut Vec<String>) {
         let (issue, attempt) = (
             n.to_string(),
@@ -549,7 +550,7 @@ impl Writer {
             Ok(_) => log.push(format!(
                 "lost #{n}: attempt {attempt} died without a word and no cycle holds its lock; ended as lost"
             )),
-            Err(f) if matches!(word(&f).as_str(), "running" | "attempt") => {}
+            Err(f) if matches!(word(&f).as_str(), "running" | "attempt" | "heard") => {}
             Err(f) => log.push(format!(
                 "WARN: the lost cycle of #{n} could not be ended ({})",
                 word(&f)

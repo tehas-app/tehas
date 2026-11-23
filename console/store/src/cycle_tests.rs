@@ -1496,6 +1496,13 @@ fn a_lost_end_needs_a_free_lock_and_writes_its_line_late() {
         (1, "running".into())
     );
     drop(l);
+    // Heard from within LOST_AFTER: not lost yet, as publish does not show it
+    // lost, so the end `tehas stop` writes next is not taken from it.
+    let heard = NOW + 30 + crate::live::LOST_AFTER - 1;
+    let (code, line) = call_at(&home, heard, &["cycle-end", &n, "--attempt", &at, "--lost"])
+        .expect_err("a cycle heard from just now is not lost");
+    assert_eq!((code, word(&line)), (1, "heard".into()));
+    assert_eq!(count(&home, "cycle_history"), 0);
     let later = NOW + 1000;
     let v = ok_at(&home, later, &["cycle-end", &n, "--attempt", &at, "--lost"]);
     let ended = NOW + 30 + crate::live::LOST_AFTER;
@@ -1565,7 +1572,11 @@ fn every_ending_has_its_line_of_history() {
     let (l, a) = start(&home, 73);
     drop(l);
     let (n, at) = attempt_args(73, a);
-    ok(&home, &["cycle-end", &n, "--attempt", &at, "--lost"]);
+    ok_at(
+        &home,
+        NOW + 1000,
+        &["cycle-end", &n, "--attempt", &at, "--lost"],
+    );
     let (l, _) = start(&home, 74);
     drop(l);
     let (_l, _) = start_by(&home, 74, "alice", "approved", NOW + 10);

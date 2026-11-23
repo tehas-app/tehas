@@ -968,7 +968,17 @@ fn end_short(home: &Path, issue: i64, attempt: i64, end: &End, now: i64) -> Resu
                 }
                 End::Lost => {
                     locked(home, issue, true, 0)?;
+                    // Lost only once publish shows it lost: quiet for
+                    // LOST_AFTER, which also leaves `tehas stop` the end of
+                    // a cycle it just stopped.
                     let ended = lost_at(c, issue, row.started_at, now)?;
+                    if ended >= now {
+                        return Err(refuse(
+                            "heard",
+                            issue,
+                            "the cycle was heard from within the time a cycle is lost after",
+                        ));
+                    }
                     c.execute(
                         "UPDATE cycles SET ended_at = ?2, end_reason = 'lost' WHERE issue = ?1",
                         params![issue, ended],

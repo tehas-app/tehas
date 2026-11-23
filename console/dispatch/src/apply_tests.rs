@@ -1149,6 +1149,12 @@ fn a_lost_cycle_is_ended_through_the_store_and_a_running_one_is_left_alone() {
         .log
         .is_empty());
     let mut t = world();
+    t.fail("store", "cycle-end 7|heard");
+    assert!(t
+        .apply(json!([{"lost_cycle": 7, "attempt": 3}]))
+        .log
+        .is_empty());
+    let mut t = world();
     t.fail("store", "cycle-end 7");
     assert_eq!(
         t.apply(json!([{"lost_cycle": 7, "attempt": 3}])).log,
