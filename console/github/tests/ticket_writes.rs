@@ -958,18 +958,6 @@ fn a_runner_that_takes_no_input_edits_nothing() {
 
 const PARK_LINE: &str = "<!-- tehas:park issue=7 step=review kind= provider=0 sig=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->";
 
-/// The text and markers a question of core's q_render is posted with:
-/// q_render's body without a park, its question's marker and the line ends
-/// before it taken off, as the cycle's q_parts takes them.
-fn q_text(rendered: &str, kind: &str, turn: u64) -> String {
-    let marker = tehas_core::question::question_marker(kind, 7, turn);
-    rendered
-        .strip_suffix(&marker)
-        .unwrap()
-        .trim_end_matches('\n')
-        .to_string()
-}
-
 /// The body `note` posts for `text` and `markers` on #7.
 fn posted(text: &str, markers: &[Marker]) -> String {
     let (mut gh, calls) = adapter(vec![
@@ -982,7 +970,10 @@ fn posted(text: &str, markers: &[Marker]) -> String {
 
 #[test]
 fn a_park_question_posts_exactly_the_body_core_s_q_render_makes() {
-    use tehas_core::question::{q_render, Kind};
+    use tehas_core::question::{q_parts, q_render, Kind};
+    let Marker::Park(p) = park() else {
+        unreachable!()
+    };
     for (marker, line) in [
         ("<!-- pi-rukas:handoff issue=7 cap=x -->", ""),
         ("", "The host's own line."),
@@ -992,23 +983,29 @@ fn a_park_question_posts_exactly_the_body_core_s_q_render_makes() {
                 "marker": marker, "park": park, "retry": true, "comments": true})
         };
         let with_park = q_render(Kind::Park, 7, 1, &out(PARK_LINE), line);
-        let text = q_text(&q_render(Kind::Park, 7, 1, &out(""), line), "park", 1);
-        assert_eq!(posted(&text, &[park(), question(1)]), with_park);
+        let without = q_render(Kind::Park, 7, 1, &out(""), line);
+        let (text, markers) = q_parts(&without, Kind::Park, 7, 1, Some(p.clone())).unwrap();
+        assert_eq!(markers, [park(), question(1)]);
+        assert_eq!(posted(&text, &markers), with_park);
     }
 }
 
 #[test]
 fn a_planning_question_posts_exactly_the_body_core_s_q_render_makes() {
-    use tehas_core::question::{q_render, Kind};
+    use tehas_core::question::{q_parts, q_render, Kind};
     let out = serde_json::json!({"text": "- [ ] a plan", "question": {"question": "Which?",
         "options": [{"label": "Adopt all", "description": "Apply all five"}, {"label": "Change some"}]}});
     let rendered = q_render(Kind::Plan, 7, 2, &out, "");
-    let plan = Marker::Question {
-        kind: QuestionKind::Plan,
-        blueprint: BlueprintNo::new(7).unwrap(),
-        turn: NonZeroU32::new(2).unwrap(),
-    };
-    assert_eq!(posted(&q_text(&rendered, "plan", 2), &[plan]), rendered);
+    let (text, markers) = q_parts(&rendered, Kind::Plan, 7, 2, None).unwrap();
+    assert_eq!(
+        markers,
+        [Marker::Question {
+            kind: QuestionKind::Plan,
+            blueprint: BlueprintNo::new(7).unwrap(),
+            turn: NonZeroU32::new(2).unwrap(),
+        }]
+    );
+    assert_eq!(posted(&text, &markers), rendered);
 }
 
 #[test]
