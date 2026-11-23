@@ -277,6 +277,10 @@ line is one of three:
   - a value for a setting of a feature still being built, which names the
     feature.
 
+Settings of features removed in 2.0 stay dropped with a warning
+(`IGNORED`) through 2.x, never refused (`RETIRED`), so 2.1 can move them
+into plugin grants and a 2.0 `instance.env` loads under 2.1 unchanged.
+
 ## The commands of other parts
 
 `tehas <part> [words]` runs `tehas-<part>` from `PATH`, by
@@ -920,6 +924,13 @@ The plugin API as 2.0 holds it, for the work of 2.1:
   `pass` and a gate grant with none is refused with 78. After T11.8, 2.0
   takes one, `hook:after:change.offered`, and refuses every other `hook:`
   word as not in this release. The first gate, `hook:before:cycle.started`, comes in 2.1.
+- **What plugins read of an approved body.** `start.approval.bodySha256`
+  of `tehas start --json` and the reader of lean's `pi-spec v1` block,
+  `spec_block` in `console/core/src/plan.rs`, stay through 2.x: the
+  `goldfish` plugin reads the spec from the approved body through them.
+  `bodySha256` is the sha256 of the body with its carriage returns dropped,
+  as `body_sum` in `console/core/src/approval.rs` takes it, so a reader that
+  hashes the body itself drops them too.
 - **Revision 1.6.0** of the plugin specification
   (`docs/specs/2026-11-22-plugins-1.6.md`) and the plugin surfaces for 2.1
   (`docs/specs/2026-11-22-plugin-surfaces-2.1.md`) are built after 2.0.
