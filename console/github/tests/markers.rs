@@ -471,3 +471,20 @@ fn a_block_runs_to_its_close_line_and_one_without_it_is_unreadable() {
     );
     assert_eq!(got.text, "Between.");
 }
+
+#[test]
+fn a_block_that_does_not_read_is_taken_out_to_its_close_line() {
+    let close = "<!-- /tehas:last-attempt -->";
+    for open in [
+        "<!-- tehas:last-attempt base=zz -->".to_string(),
+        "<!-- tehas:last-attempt -->".to_string(),
+        format!("<!-- tehas:last-attempt base={} extra=1 -->", sha('c')),
+    ] {
+        let got = read(
+            &format!("Task.\n{open}\nsecret note\n{close}\nEnd.\n"),
+            item(),
+        );
+        assert_eq!(got.markers, [unreadable(MarkerKind::LastAttempt)], "{open}");
+        assert_eq!(got.text, "Task.\nEnd.", "{open}");
+    }
+}

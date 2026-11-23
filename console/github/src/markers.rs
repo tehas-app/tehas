@@ -242,7 +242,8 @@ fn wrapped(
                     (Some(_), None) => None,
                     _ => values.and_then(|v| build(row, &v, note, item)),
                 };
-                if let (Some(_), Some(shut)) = (&read, block) {
+                // A block runs to its close line whether or not it reads.
+                if let Some(shut) = block {
                     span = (line.start, shut.next);
                 }
                 read.unwrap_or(Marker::Unreadable {
