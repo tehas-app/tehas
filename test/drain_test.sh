@@ -95,7 +95,7 @@ t_case "--json: one object with the running cycles and the limit"
 reset
 t_run "$drain --json"
 t_eq "$t_rc" 0
-t_eq "$t_out" '{"api":1,"drained":true,"running":[],"limit":{"state":"ok","cycles":0,"plan":false,"reason":"draining"}}'
+t_eq "$(jq -c --arg at "$(jq -r .set "$file")" '.limit.set |= (. == $at)' <<<"$t_out")" '{"api":1,"drained":true,"running":[],"limit":{"state":"ok","cycles":0,"plan":false,"reason":"draining","set":true}}'
 
 t_case "a cycle still running without a wait: exit 3, and it is named"
 reset
@@ -175,7 +175,7 @@ start=$(date +%s)
 t_run "$drain --wait 4 --json"
 poll_end
 t_eq "$t_rc" 0
-t_eq "$t_out" '{"api":1,"drained":true,"running":[],"limit":{"state":"ok","cycles":0,"plan":false,"reason":"draining"}}'
+t_eq "$(jq -c 'del(.limit.set)' <<<"$t_out")" '{"api":1,"drained":true,"running":[],"limit":{"state":"ok","cycles":0,"plan":false,"reason":"draining"}}'
 # It waited for the poll, which held the lock a second, and not for its --wait.
 t_eq "$(( $(date +%s) - start < 4 ))" 1
 poll_end

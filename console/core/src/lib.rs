@@ -51,6 +51,8 @@ pub mod plugin;
 #[cfg(feature = "mask")]
 pub mod question;
 pub mod queue_lists;
+#[cfg(feature = "mask")]
+pub mod raise;
 pub mod read_only;
 pub mod release;
 #[cfg(feature = "mask")]

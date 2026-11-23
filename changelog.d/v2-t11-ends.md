@@ -1,0 +1,3 @@
+### Changes
+
+- A cycle's `cycle.ended` is now raised also when its start is refused before its runner runs, when `tehas stop` ends the record, and when a cycle is ended as lost by the poll or by the next start. The process that wrote the cycle's line of history raises it, so a late report or stop raises no second end. The dispatcher raises `question.asked` for each question it records, a planning turn's among them. Each end and question is raised at most once: one whose write was retried after its answer was lost is not raised, and `tehas history` and `tehas question --after` stay the record a consumer reads for what it missed. `tehas stop` writes its event line to `logs/dispatch.log` (#2940).

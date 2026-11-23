@@ -1815,6 +1815,7 @@ dependencies = [
  "attach",
  "libc",
  "regex",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "tehas-ports",
@@ -1827,7 +1828,6 @@ dependencies = [
  "attach",
  "regex",
  "rustix",
- "serde",
  "serde_json",
  "sha2 0.10.9",
  "signal-hook",
@@ -1853,6 +1853,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tehas-core",
+ "tehas-ports",
 ]
 
 [[package]]
@@ -1921,6 +1922,7 @@ dependencies = [
  "tehas-cycle",
  "tehas-dispatch",
  "tehas-github",
+ "tehas-ports",
 ]
 
 [[package]]

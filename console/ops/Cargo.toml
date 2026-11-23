@@ -29,6 +29,8 @@ tehas-cycle = { path = "../cycle" }
 # The GitHub adapter, which tehas resume asks (src/holds.rs) until it moves
 # behind the ports.
 tehas-github = { path = "../github" }
+# The dispatcher of the events `tehas stop` raises (src/stop.rs).
+tehas-ports = { path = "../ports" }
 
 [dev-dependencies]
 # The dispatcher's read of the limit, which a test holds to the console's.
