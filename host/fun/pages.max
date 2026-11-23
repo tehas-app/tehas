@@ -20,7 +20,8 @@
 # floor 146222 68698.
 # Energy use left core in 2.0, and the business and floor lines went down.
 # The business page left core in 2.0: its line went, and the floor's went down.
-page floor 124449 53738
+# The floor names an open ticket with no state label Idea, and went down again.
+page floor 123744 53708
 page dashboard 88967 53986
 page manual 0 49838
 island factory/tehas-factory-console 4156
