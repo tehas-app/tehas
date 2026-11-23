@@ -325,8 +325,8 @@ fn plan_answer_keeps_the_session_and_brief() {
     assert_eq!(p["running"], true);
     assert_eq!(p["pending"], false);
     assert_eq!(p["started_at"], NOW + 30);
-    // The answer's mark has one name: `fixer` is gone from plan-show, and
-    // from the plan.json of tehas export that copies it.
+    // The answer's mark has one name, in plan-show and in the plan.json of
+    // tehas export that copies it.
     assert_eq!(
         p["answers"],
         json!([{"turn":2,"by":"bob","millwright":true}])
@@ -370,13 +370,13 @@ fn the_millwright_is_marked_by_its_flag_and_notes_are_written_as_one_kind() {
             "--turn",
             "3",
             "--by",
-            "tehas-fixer",
+            "tehas-millwright",
             "--millwright",
         ],
     );
     assert_eq!(
         v["planning"]["answers"][1],
-        json!({"turn":3,"by":"tehas-fixer","millwright":true})
+        json!({"turn":3,"by":"tehas-millwright","millwright":true})
     );
 }
 
@@ -396,7 +396,7 @@ fn plan_show_marks_a_millwright_answer_under_its_one_key() {
             "--turn",
             "2",
             "--by",
-            "tehas-fixer",
+            "tehas-millwright",
             "--millwright",
             "--text-file",
             &text,
@@ -405,27 +405,24 @@ fn plan_show_marks_a_millwright_answer_under_its_one_key() {
     let v = ok(&home, &["plan-show", "8"]);
     let answer = &v["planning"]["answers"][0];
     assert_eq!(answer["millwright"], true);
-    assert_eq!(answer.get("fixer"), None);
+    assert_eq!(answer.as_object().map(|a| a.len()), Some(3), "{answer}");
 }
 
 #[test]
-fn a_refused_note_is_written_as_one_kind_whichever_way_it_is_spelled() {
+fn a_refused_note_has_one_kind() {
     let noted = home("plan-millwright-note");
     begin(&noted, 46);
     finished(&noted, 46, 1);
-    note(&noted, 46, "fixer-refused", 910).unwrap();
     note(&noted, 46, "millwright-refused", 911).unwrap();
     assert_eq!(
         show(&noted, 46)["notes"],
-        json!({"millwright_refused":[910,911],"held":[]})
+        json!({"millwright_refused":[911],"held":[]})
     );
-    assert_eq!(
-        count(&noted, "planning_notes WHERE kind = 'millwright-refused'"),
-        2
-    );
-    assert_eq!(
-        count(&noted, "planning_notes WHERE kind = 'fixer-refused'"),
-        0
+    let (rc, line) = note(&noted, 46, "fixer-refused", 910).unwrap_err();
+    assert_eq!(rc, 64);
+    assert!(
+        line.contains("--kind is not one of millwright-refused, held"),
+        "{line}"
     );
 }
 
@@ -1138,10 +1135,13 @@ fn plan_note_says_once_and_plan_show_lists_the_notes() {
         json!({"millwright_refused":[],"held":[900]})
     );
     assert_eq!(note(&home, 60, "held", 900).unwrap()["said"], false);
-    note(&home, 60, "fixer-refused", 902).unwrap();
-    note(&home, 60, "fixer-refused", 901).unwrap();
+    note(&home, 60, "millwright-refused", 902).unwrap();
+    note(&home, 60, "millwright-refused", 901).unwrap();
     // The same id under the other kind is another note.
-    assert_eq!(note(&home, 60, "fixer-refused", 900).unwrap()["said"], true);
+    assert_eq!(
+        note(&home, 60, "millwright-refused", 900).unwrap()["said"],
+        true
+    );
     assert_eq!(
         show(&home, 60)["notes"],
         json!({"millwright_refused":[902,901,900],"held":[900]})
@@ -1180,7 +1180,7 @@ fn plan_notes_go_with_the_session() {
     );
     // Closed.
     finished(&home, 62, 1);
-    note(&home, 62, "fixer-refused", 2).unwrap();
+    note(&home, 62, "millwright-refused", 2).unwrap();
     ok(&home, &["plan-end", "62", "--close"]);
     assert_eq!(count(&home, "planning_notes"), 0);
     // Ended by a turn that left no session.
@@ -1417,7 +1417,7 @@ fn a_view_is_the_record_file_key_for_key_and_in_its_order() {
         "session": "s", "turns": 2, "options": ["a"], "pending": false, "failed": false,
         "running": true, "started_at": 1792497600, "comment_id": 5, "lost": true,
         "by": "alice", "label": "tehas:plan",
-        "answers": [{"turn": 2, "by": "bob", "millwright": true, "fixer": true}],
+        "answers": [{"turn": 2, "by": "bob", "millwright": true}],
         "filed": ["u"], "notes": {"millwright_refused": [1], "held": [2]}
     });
     assert_eq!(
@@ -1425,8 +1425,8 @@ fn a_view_is_the_record_file_key_for_key_and_in_its_order() {
         concat!(
             r#"{"session":"s","turns":2,"options":["a"],"pending":false,"failed":false,"#,
             r#""running":true,"startedAt":"2026-10-20T12:00:00Z","comment":5,"lost":true,"#,
-            r#""by":"alice","label":"tehas:plan","answers":[{"turn":2,"by":"bob","fixer":true}],"#,
-            r#""filed":["u"],"fixer_refused":[1],"held":[2]}"#
+            r#""by":"alice","label":"tehas:plan","answers":[{"turn":2,"by":"bob","millwright":true}],"#,
+            r#""filed":["u"],"millwright_refused":[1],"held":[2]}"#
         )
     );
 }

@@ -68,13 +68,11 @@ pub fn an_end(word: &str) -> bool {
     !NOT_ENDS.contains(&word)
 }
 
-/// The two spellings of the millwright's word. The store writes `millwright`;
-/// a record or a row written before #686 part 1 still says `fixer`, and the
-/// two name one class. Every program that reads a record's `how` matches this
-/// pair: the store's rows and its filters, analytics' marks on a planning
-/// answer, and the MCP server's filter of `factory_sessions`. Part 5 of #686
-/// removes the old word, and with it the arm of each match that needs it.
-pub const MILLWRIGHT_WORDS: [&str; 2] = ["millwright", "fixer"];
+/// The millwright's word in a record's `how` and a planning answer's mark.
+/// Every program that reads one matches this word: the store's rows and its
+/// filters, analytics' marks on a planning answer, and the MCP server's filter
+/// of `factory_sessions`.
+pub const MILLWRIGHT: &str = "millwright";
 
 /// The fewest characters an MCP API key has.
 pub const MCP_KEY_MIN: usize = 32;
@@ -378,10 +376,10 @@ mod tests {
     }
 
     #[test]
-    fn the_millwright_pair_is_the_new_word_and_the_old_one() {
-        // The one list the store, analytics and the MCP server all read. Each
-        // of them has a test of its own that its words are these two.
-        assert_eq!(MILLWRIGHT_WORDS, ["millwright", "fixer"]);
+    fn the_millwright_has_one_word() {
+        // The one word the store, analytics and the MCP server all read. Each
+        // of them has a test of its own that its word is this one.
+        assert_eq!(MILLWRIGHT, "millwright");
     }
 
     #[test]

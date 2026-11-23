@@ -32,7 +32,7 @@ mod retry;
 mod starts;
 
 pub(crate) use crate::snapshot::{
-    base_approver, base_stands, fixer_base, fixer_starts, named_blockers, shape,
+    base_approver, base_stands, fixer_starts, named_blockers, record_base, shape,
 };
 pub use action::{
     Action, CommentRef, CycleStart, LabelChange, NoteKind, QuietDue, RefreshOf, RetryTick, SpecPin,
@@ -1515,7 +1515,7 @@ impl<'a> Poll<'a> {
     }
 
     /// order_label: tehas:blocked stands when an allowed account
-    /// or the fixer applied it last and nobody took it off since.
+    /// or the millwright applied it last and nobody took it off since.
     fn order_label(&mut self, n: u64, label: &str) -> Step<bool> {
         let ev = self.events(n)?;
         let state = label_state(&ev, label);
@@ -1659,7 +1659,7 @@ impl<'a> Poll<'a> {
     }
 
     /// Whether the issue's text is the text of a record on the state store, as
-    /// `fixer_base` reads one: the base approval a fixer's or a refresh's start
+    /// `record_base` reads one: the base approval a fixer's or a refresh's start
     /// rests on, or the record itself, and the sum of the body it bound, asked
     /// of the same `edit` record `fixer_ok` summed. Nothing on record, or a
     /// record that cannot be read, is no record: the question falls back to
@@ -2353,7 +2353,7 @@ impl<'a> Poll<'a> {
 
     /// epic_ready: the millwright's tehas:ready, applied at `at`, on the
     /// first cycle of an approved epic's sub-issue. None when no epic stands
-    /// over it or a cycle of it was approved before, which the fixer's grant
+    /// over it or a cycle of it was approved before, which the millwright's grant
     /// decides as for any issue; Some(None) with the label off and the
     /// reason said.
     fn epic_ready(&mut self, n: u64, who: &str, at: &str) -> Step<Option<Option<EpicGrant>>> {
@@ -2363,7 +2363,7 @@ impl<'a> Poll<'a> {
         match self.epic_part(n)? {
             EpicPart::None => Ok(None),
             EpicPart::Refused(why) => {
-                self.fixer_refused(n, &why);
+                self.millwright_refused(n, &why);
                 Ok(Some(None))
             }
             EpicPart::Granted(g) => {
@@ -2371,8 +2371,8 @@ impl<'a> Poll<'a> {
                     n,
                     at,
                     who,
-                    "the fixer applied tehas:ready",
-                    "the fixer or a person applies it again",
+                    "the millwright applied tehas:ready",
+                    "the millwright or a person applies it again",
                 )? {
                     return Ok(Some(None));
                 }
@@ -2730,21 +2730,21 @@ impl<'a> Poll<'a> {
             }
             Err((why, false)) => why,
         };
-        self.fixer_refused(n, &why);
+        self.millwright_refused(n, &why);
         Ok(None)
     }
 
-    /// The fixer's tehas:ready comes off, and the issue says why.
-    fn fixer_refused(&mut self, n: u64, why: &str) {
+    /// The millwright's tehas:ready comes off, and the issue says why.
+    fn millwright_refused(&mut self, n: u64, why: &str) {
         self.log(format!(
-            "skip #{n}: tehas:ready from the fixer starts nothing: {why}"
+            "skip #{n}: tehas:ready from the millwright starts nothing: {why}"
         ));
         if self.dry {
             self.log(format!("would take tehas:ready off #{n}"));
         } else {
             self.act(Action::Label(
                 LabelChange::new(n, &["tehas:ready"], Self::label_fail(n, &["tehas:ready"], &[]))
-                    .say(format!("Tehas took `tehas:ready` off this issue and started nothing. The fixer applied it, and the fixer may not start this issue: {why}. A person decides now: an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to start a cycle.")),
+                    .say(format!("Tehas took `tehas:ready` off this issue and started nothing. The millwright applied it, and the millwright may not start this issue: {why}. A person decides now: an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to start a cycle.")),
             ));
         }
     }
@@ -2795,7 +2795,7 @@ impl<'a> Poll<'a> {
             undone.map(|who| format!("{who} took `tehas:ready` off it before"))
         };
         if let Some(why) = why {
-            self.fixer_refused(n, &why);
+            self.millwright_refused(n, &why);
             return Ok(None);
         }
         if !self.unchanged_since(
@@ -3157,12 +3157,12 @@ impl<'a> Poll<'a> {
                 st.fixer = Some((base, count));
             }
             // The start is recorded as the person's label: their tehas:ready
-            // on the epic approved this issue, and a retry of the fixer's
+            // on the epic approved this issue, and a retry of the millwright's
             // rests on it as on any person's approval.
             if let Some(g) = &epic {
-                st.verb = format!("approved on epic #{}, labelled by the fixer,", g.epic);
+                st.verb = format!("approved on epic #{}, labelled by the millwright,", g.epic);
                 st.how = format!(
-                    "`tehas:ready` label on epic #{} at {}, which the fixer carried to this sub-issue",
+                    "`tehas:ready` label on epic #{} at {}, which the millwright carried to this sub-issue",
                     g.epic, g.at
                 );
             }
@@ -3416,8 +3416,8 @@ mod spec_tests {
 }
 
 #[cfg(test)]
-mod fixer_tests {
-    use super::{base_approver, base_stands, fixer_base, fixer_starts};
+mod millwright_tests {
+    use super::{base_approver, base_stands, fixer_starts, record_base};
     use serde_json::{json, Value};
 
     const SUM: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -3426,8 +3426,8 @@ mod fixer_tests {
         json!({"at": "2026-10-01T00:00:00Z", "by": by, "how": "label", "body_sha256": SUM, "links": []})
     }
 
-    fn by_fixer(starts: Value, rests_on: Value) -> Value {
-        json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-fixer", "how": "fixer", "body_sha256": SUM,
+    fn by_millwright(starts: Value, rests_on: Value) -> Value {
+        json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-millwright", "how": "millwright", "body_sha256": SUM,
             "links": [], "fixer_starts": starts, "rests_on": rests_on})
     }
 
@@ -3439,36 +3439,36 @@ mod fixer_tests {
     #[test]
     fn a_base_is_the_persons_approval_a_record_rests_on() {
         let want = json!({"at": "2026-10-01T00:00:00Z", "by": "alice", "how": "label", "body_sha256": SUM});
-        assert_eq!(fixer_base(&person("alice")), Some(want.clone()));
+        assert_eq!(record_base(&person("alice")), Some(want.clone()));
         assert_eq!(
-            fixer_base(&by_fixer(json!(1), person("alice"))),
+            record_base(&by_millwright(json!(1), person("alice"))),
             Some(want.clone())
         );
-        assert_eq!(fixer_base(&by_refresh(json!(1))), Some(want));
+        assert_eq!(record_base(&by_refresh(json!(1))), Some(want));
     }
 
     #[test]
-    fn a_fixers_record_that_rests_on_no_person_is_no_base() {
-        assert_eq!(fixer_base(&by_fixer(json!(1), Value::Null)), None);
-        let twice = by_fixer(json!(1), by_fixer(json!(1), person("alice")));
-        assert_eq!(fixer_base(&twice), None);
+    fn a_millwrights_record_that_rests_on_no_person_is_no_base() {
+        assert_eq!(record_base(&by_millwright(json!(1), Value::Null)), None);
+        let twice = by_millwright(json!(1), by_millwright(json!(1), person("alice")));
+        assert_eq!(record_base(&twice), None);
         let mut own = person("alice");
-        own["how"] = json!("fixer");
-        assert_eq!(fixer_base(&own), None);
+        own["how"] = json!("millwright");
+        assert_eq!(record_base(&own), None);
     }
 
-    /// #1967: the host's approval is a base the fixer and a finish may rest
+    /// #1967: the host's approval is a base the millwright and a finish may rest
     /// on, whatever the list of accounts names; a person's needs the list.
     #[test]
     fn the_hosts_approval_stands_as_a_base_with_no_account_on_the_list() {
         let c = crate::Settings::parse(&json!({"TEHAS_ALLOWED_LABELERS": "alice"}));
         let mut host = person("host");
         host["how"] = json!("host");
-        let base = fixer_base(&by_fixer(json!(1), host)).unwrap();
+        let base = record_base(&by_millwright(json!(1), host)).unwrap();
         assert_eq!(base["how"], "host");
         assert!(base_stands(&c, &base));
-        assert!(base_stands(&c, &fixer_base(&person("alice")).unwrap()));
-        assert!(!base_stands(&c, &fixer_base(&person("host")).unwrap()));
+        assert!(base_stands(&c, &record_base(&person("alice")).unwrap()));
+        assert!(!base_stands(&c, &record_base(&person("host")).unwrap()));
     }
 
     /// #2571: the host's approval names no account, so a change in its second
@@ -3477,7 +3477,7 @@ mod fixer_tests {
     fn the_hosts_approval_has_no_approver_to_excuse_a_change_in_its_second() {
         let mut host = person("host");
         host["how"] = json!("host");
-        let base = fixer_base(&host).unwrap();
+        let base = record_base(&host).unwrap();
         assert_eq!(base_approver(&base), "");
         let at = base["at"].as_str().unwrap();
         assert!(tehas_core::events::changed_after(
@@ -3486,7 +3486,7 @@ mod fixer_tests {
             at,
             base_approver(&base)
         ));
-        let own = fixer_base(&person("host")).unwrap();
+        let own = record_base(&person("host")).unwrap();
         assert_eq!(base_approver(&own), "host");
         assert!(!tehas_core::events::changed_after(
             at,
@@ -3498,13 +3498,16 @@ mod fixer_tests {
 
     #[test]
     fn an_approval_whose_account_has_a_newline_on_the_end_is_no_base() {
-        assert_eq!(fixer_base(&person("alice\n")), None);
+        assert_eq!(record_base(&person("alice\n")), None);
     }
 
     #[test]
     fn a_record_counts_its_fixer_starts_and_a_refresh_carries_them_on() {
         assert_eq!(fixer_starts(&person("alice")), Some(0));
-        assert_eq!(fixer_starts(&by_fixer(json!(2), person("alice"))), Some(2));
+        assert_eq!(
+            fixer_starts(&by_millwright(json!(2), person("alice"))),
+            Some(2)
+        );
         assert_eq!(fixer_starts(&by_refresh(json!(1))), Some(1));
         assert_eq!(fixer_starts(&by_refresh(json!(0))), Some(0));
         assert_eq!(fixer_starts(&by_refresh(Value::Null)), Some(0));
@@ -3512,9 +3515,18 @@ mod fixer_tests {
 
     #[test]
     fn a_count_that_is_no_whole_number_is_no_count() {
-        assert_eq!(fixer_starts(&by_fixer(json!(0), person("alice"))), None);
-        assert_eq!(fixer_starts(&by_fixer(json!(1.5), person("alice"))), None);
-        assert_eq!(fixer_starts(&by_fixer(json!("1"), person("alice"))), None);
+        assert_eq!(
+            fixer_starts(&by_millwright(json!(0), person("alice"))),
+            None
+        );
+        assert_eq!(
+            fixer_starts(&by_millwright(json!(1.5), person("alice"))),
+            None
+        );
+        assert_eq!(
+            fixer_starts(&by_millwright(json!("1"), person("alice"))),
+            None
+        );
         assert_eq!(fixer_starts(&by_refresh(json!(-1))), None);
     }
 }

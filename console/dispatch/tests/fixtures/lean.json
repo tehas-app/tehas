@@ -188,17 +188,17 @@
    ],
    "label_events": {
     "7": [
-     "tehas:lean=tehas-fixer"
+     "tehas:lean=tehas-millwright"
     ]
    },
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "expect": {
     "exit": 0,
     "picked": [],
     "log": [
-     "skip #7: tehas:lean was applied by 'tehas-fixer', not an allowed account"
+     "skip #7: tehas:lean was applied by 'tehas-millwright', not an allowed account"
     ],
     "no_actions": [
      {
@@ -279,9 +279,9 @@
    }
   },
   {
-   "case": "the fixer's retry keeps the driver of the start it rests on",
+   "case": "the millwright's retry keeps the driver of the start it rests on",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -309,7 +309,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-01T00:01:00Z"
        },
@@ -362,9 +362,9 @@
    }
   },
   {
-   "case": "a fixer start on a fixer start keeps it too",
+   "case": "a millwright start on a millwright start keeps it too",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -392,7 +392,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-01T00:01:00Z"
        },
@@ -445,9 +445,9 @@
    }
   },
   {
-   "case": "the fixer's retry with the label off is classic",
+   "case": "the millwright's retry with the label off is classic",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -472,7 +472,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-01T00:01:00Z"
        }
@@ -519,9 +519,9 @@
    }
   },
   {
-   "case": "the fixer's retry of a classic start stays classic: a label added since changes nothing",
+   "case": "the millwright's retry of a classic start stays classic: a label added since changes nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -549,7 +549,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-01T00:01:00Z"
        },
@@ -2086,7 +2086,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-01T00:02:00Z"
        }
@@ -2857,10 +2857,10 @@
    }
   },
   {
-   "note": "A millwright's feed is the one fixer start that rests on no sum check: `feed_ok` credits the issue's author rather than comparing the body with a record, so `fixer` is Some while nothing has bound the text to an approval. It is therefore asked for its block like any other new start: the exemption `spec_ok` gives a start that follows a record is earned by a sum check, not by the flag alone.",
+   "note": "A millwright's feed is the one millwright start that rests on no sum check: `feed_ok` credits the issue's author rather than comparing the body with a record, so `millwright` is Some while nothing has bound the text to an approval. It is therefore asked for its block like any other new start: the exemption `spec_ok` gives a start that follows a record is earned by a sum check, not by the flag alone.",
    "case": "a millwright's fed lean start with no block is asked for it: the feed checks no sum",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_FEED": "1"
    },
    "snapshot": {
@@ -2886,7 +2886,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        },
