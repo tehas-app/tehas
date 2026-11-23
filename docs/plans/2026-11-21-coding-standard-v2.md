@@ -446,6 +446,15 @@ Findings:
   per host, holder and pool and never drops one, so each anonymous
   holder adds a row for good. The step whose caller first writes budgets
   bounds them, for one by dropping rows whose `resets` is long past.
+- Eleven unit tests make their scratch directory by hand, as
+  `temp_dir()/tehas-<name>-<pid>`, beside `TestDir`, which owns that
+  (core `accounts`, `journal`, `read_only`, `sandbox`, `starts`;
+  `mesh-feed`; the console's `wake`; github's `vouch` and
+  `identity_vouch` tests; ops `ids`). None can be shared between runs, but
+  one whose test panics stays behind, and verify's "nothing left in the
+  TMPDIR of cargo test" then fails beside the real failure. They move to
+  `TestDir` once T4.7 and T4.10 have left those files (#3045 moved the
+  ones a second run could share).
 
 ### T5. Deep homes for files
 
