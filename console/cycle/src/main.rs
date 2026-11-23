@@ -496,8 +496,10 @@ fn read_text(
     repo: &str,
     gh: Box<dyn tehas_core::forge::GhRunner>,
     issue: u64,
-) -> Result<String, tehas_core::forge::ForgeError> {
-    tehas_github::GitHub::new(repo, gh).text_revision(issue)
+) -> Result<String, String> {
+    tehas_github::GitHub::new(repo, gh)
+        .text_revision(issue)
+        .map_err(|e| e.why)
 }
 
 /// The words of tehas work.

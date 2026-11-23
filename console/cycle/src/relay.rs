@@ -68,7 +68,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tehas_core::call::gh_why;
-use tehas_core::forge::{ForgeError, GhRunner};
+use tehas_core::forge::GhRunner;
 use tehas_core::text::has_marker;
 
 /// The most a body file, or the arguments, may hold.
@@ -294,9 +294,9 @@ pub fn created_number(out: &str, repo: &str) -> Option<u64> {
 }
 
 /// The read of an issue's title and body as one revision, asked through the
-/// gh runner given. The program's wiring gives it, so the relay never names
-/// the adapter.
-pub type ReadText = fn(repo: &str, gh: Box<dyn GhRunner>, issue: u64) -> Result<String, ForgeError>;
+/// gh runner given, or the reason it could not be read, in tehas's words. The
+/// program's wiring gives it, so the relay never names the adapter.
+pub type ReadText = fn(repo: &str, gh: Box<dyn GhRunner>, issue: u64) -> Result<String, String>;
 
 /// What the relay runs: gh, the command that prints the app's token with the
 /// seconds it may take, and the read an edit is held to.
@@ -625,10 +625,9 @@ fn edit(via: &Via, repo: &str, argv: &[String], input: Option<&str>) -> (String,
             gh: via.gh.clone(),
             token: token.clone(),
         };
-        (via.read_text)(repo, Box::new(gh), issue).map_err(|e| {
+        (via.read_text)(repo, Box::new(gh), issue).map_err(|why| {
             no(&format!(
-                "could not read #{issue} before the edit, and did not edit it: {}\n",
-                e.why
+                "could not read #{issue} before the edit, and did not edit it: {why}\n"
             ))
         })
     };
@@ -655,13 +654,8 @@ fn edit(via: &Via, repo: &str, argv: &[String], input: Option<&str>) -> (String,
 /// A read for tests: the stub gh's answer to `api <issue>`, whole, as the
 /// revision.
 #[cfg(test)]
-pub(crate) fn read_raw(
-    _: &str,
-    mut gh: Box<dyn GhRunner>,
-    issue: u64,
-) -> Result<String, ForgeError> {
+pub(crate) fn read_raw(_: &str, mut gh: Box<dyn GhRunner>, issue: u64) -> Result<String, String> {
     gh.run(&["api", &issue.to_string()])
-        .map_err(|why| ForgeError::new("the issue", why))
 }
 
 /// gh run with `token` for at most `wait` seconds: its output, its error
