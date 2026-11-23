@@ -1124,6 +1124,16 @@ fn copy_writes_the_store_to_the_named_file_and_changes_nothing_else() {
         })
         .unwrap();
     assert_eq!(n, 1);
+    // The copy `tehas state pack` packs keeps the store's id and its
+    // attempts, so an unpacked factory keeps its `store` and gives no cycle
+    // id twice (T11.5).
+    for sql in [
+        "SELECT value FROM meta WHERE key = 'store'",
+        "SELECT attempt FROM cycles WHERE issue = 7",
+    ] {
+        let theirs: rusqlite::types::Value = c.query_row(sql, [], |r| r.get(0)).unwrap();
+        assert_eq!(theirs, one::<rusqlite::types::Value>(&home, sql), "{sql}");
+    }
     assert!(!Home::new(home.path()).state(State::Backups).exists());
     // A name that is taken is not overwritten.
     let (code, _) = refused(&home, &["copy", "--to", to.to_str().unwrap()]);

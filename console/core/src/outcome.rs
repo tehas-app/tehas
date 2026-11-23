@@ -116,6 +116,18 @@ pub const FAILED: [&str; 7] = [
     "killed", "stalled", "timeout", "aborted", UNKNOWN, "failed", "lost",
 ];
 
+/// The greatest blueprint or attempt a cycle id holds: nine digits.
+const ID_PART_MAX: i64 = 999_999_999;
+
+/// The cycle id, `<blueprint>-<attempt>` (`12-3`): the identity of one
+/// cycle within a store, which `tehas status` prints on a running cycle and
+/// `tehas history` on its work line. `None` for a part out of 1 to
+/// 999999999.
+pub fn cycle_id(blueprint: i64, attempt: i64) -> Option<String> {
+    let part = |n: i64| (1..=ID_PART_MAX).contains(&n);
+    (part(blueprint) && part(attempt)).then(|| format!("{blueprint}-{attempt}"))
+}
+
 /// What decides a work line's end. `outcome` is the status word, `None`
 /// when the line has none, which counts as `unknown`; `status` the exit
 /// status; `change` whether the line names a change.

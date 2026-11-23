@@ -71,8 +71,8 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr"
 for gone in store-copy host-message-health refresh-pr-starts refresh-pr-lane refresh-pr-json; do
   t_eq "$gone $(jq --arg w "$gone" '.features | index($w)' <<<"$t_out")" "$gone null"
 done
-t_eq "$(jq -r '.features | last' <<<"$t_out")" "question"
-t_eq "$(jq -r '.features | length' <<<"$t_out")" 30
+t_eq "$(jq -r '.features | last' <<<"$t_out")" "cycle-ids"
+t_eq "$(jq -r '.features | length' <<<"$t_out")" 31
 t_eq "$(jq -r '.features | index("host-bridge-tokens")' <<<"$t_out")" null
 # Every word of features is in the manual's example and has its own entry,
 # with what it is, in the manual's row of features.
@@ -330,7 +330,7 @@ t_eq "$(jq -c '.flags | keys_unsorted' "$T_ROOT/api/api.sample.json")" "$(jq -c 
 t_case "api.schema.json refuses a field it does not name, a flag that is no boolean and a word of another form"
 reset
 t_eq "$(jq '.zz = 1 | .flags.lean = "on" | .features += ["Two words"]' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
-  "$(printf '%s\n' '.zz: not in the schema' '.features[30]: "Two words" does not match "^[a-z][a-z0-9-]*$"' '.flags.lean: string, not boolean')"
+  "$(printf '%s\n' '.zz: not in the schema' '.features[31]: "Two words" does not match "^[a-z][a-z0-9-]*$"' '.flags.lean: string, not boolean')"
 t_eq "$(jq 'del(.poll.last.ageMin) | .poll.hour.polls = -1' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
   "$(printf '%s\n' '.poll.last: ageMin is missing' '.poll.hour.polls: -1 is under 0')"
 
@@ -353,8 +353,8 @@ t_case "api --json prints the samples: no poll on record, a poll with no writes 
 # The clock and the wall time of the last poll are the run's, so the samples
 # keep their own; every other value is what the command printed.
 # TEHAS_SAMPLES_WRITE=1 writes the samples from the command instead.
-steady() { # <json text>: the object with the clock of its poll as the samples hold it
-  jq 'if .poll then .poll.last |= (.at = 1761400000 | .wallMs = 24000 | .ageMin = 0) else . end' <<<"$1"
+steady() { # <json text>: the object with the clock of its poll and its store's random id as the samples hold them
+  jq 'if .poll then .poll.last |= (.at = 1761400000 | .wallMs = 24000 | .ageMin = 0) else . end | .store |= if . then "8f14e45fceea167a5a36dedd4bea2543" else . end' <<<"$1"
 }
 sample_is() { # <name> <json text>: the object is api/api.<name>.json, but for the clock
   t_eq "$(fits_text "$2")" ""

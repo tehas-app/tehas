@@ -164,3 +164,15 @@ fn every_combination_the_analytics_ran_ends_as_before_or_by_one_of_the_four_move
     }
     assert_eq!(moves.len(), 4, "each of the four moves is seen: {moves:?}");
 }
+
+#[test]
+fn a_cycle_id_is_the_blueprint_and_the_attempt() {
+    assert_eq!(cycle_id(12, 3).as_deref(), Some("12-3"));
+    assert_eq!(
+        cycle_id(999_999_999, 1).as_deref(),
+        Some("999999999-1")
+    );
+    for (b, a) in [(0, 1), (1, 0), (-1, 2), (1_000_000_000, 1), (1, 1_000_000_000)] {
+        assert_eq!(cycle_id(b, a), None, "{b}-{a}");
+    }
+}

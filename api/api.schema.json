@@ -4,7 +4,7 @@
   "title": "tehas api --json",
   "description": "What tehas api --json prints, version 1: what this factory speaks, for a program to ask first. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too. The words of features are api/features.txt, only added within 2.x; flags names every optional feature of the release, a building one as false; only a shipped feature's key is required, and a building one's may change or go until the release that ships it. test/api_test.sh checks the samples beside this file against it and what the command prints.",
   "type": "object",
-  "required": ["api", "tehas", "commit", "repo", "features", "flags", "millwright", "poll"],
+  "required": ["api", "tehas", "commit", "repo", "features", "flags", "millwright", "poll", "store"],
   "additionalProperties": false,
   "properties": {
     "api": {"const": 1},
@@ -23,6 +23,7 @@
       }
     },
     "millwright": {"type": ["string", "null"], "minLength": 1},
+    "store": {"description": "The id of the state store, made once when it was first laid and kept by pack, unpack and load; a cycle id is unique within one store. null when the store cannot answer.", "type": ["string", "null"], "pattern": "^[0-9a-f]{32}$"},
     "poll": {
       "type": ["object", "null"],
       "required": ["last", "hour"],

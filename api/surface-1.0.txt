@@ -608,3 +608,13 @@ field export.runs[].recorded
 field export.runs[].signalled
 field history.runs[].recorded
 field history.runs[].signalled
+field api.store
+field status.running[].cycle
+field status.running[].how
+field status.running[].by
+field history.runs[].cycle
+field history.runs[].end
+field history.runs[].change
+field export.runs[].cycle
+field export.runs[].end
+field export.runs[].change
