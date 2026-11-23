@@ -116,7 +116,7 @@ fn change(no: u64, state: ChangeState, closes: Vec<Ref<BlueprintNo>>) -> ChangeD
         author: None,
         from_fork: false,
         draft: false,
-        mergeable: Mergeable::Unknown,
+        merge_state: Mergeable::Unknown,
         marks: vec![],
         closes,
         size: None,

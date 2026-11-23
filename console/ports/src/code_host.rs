@@ -115,7 +115,7 @@ pub struct ChangeDigest {
     /// It is a draft.
     pub draft: bool,
     /// Whether it can merge now.
-    pub mergeable: Mergeable,
+    pub merge_state: Mergeable,
     /// The marks it carries.
     pub marks: Vec<Mark>,
     /// The blueprints this change says it closes, as the site records it.

@@ -1081,7 +1081,7 @@ fn change_digest() -> ChangeDigest {
         author: None,
         from_fork: false,
         draft: true,
-        mergeable: Mergeable::No(NotMergeable::Behind),
+        merge_state: Mergeable::No(NotMergeable::Behind),
         marks: vec![Mark::State(State::Refreshing)],
         closes: vec![Ref::Here(bp(7)), elsewhere()],
         size: Some(Size {
