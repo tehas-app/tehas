@@ -370,8 +370,8 @@ fn takes(f: &ChangeFilter, me: Option<&AccountId>, l: &Lead) -> bool {
 /// outside its type, is `Unread(Malformed)`; one whose labels or closed
 /// issues are more than one page holds is `Unread(Cut)`. A page with
 /// errors, or a page that says more follows and holds none, is
-/// `Unread(Inconsistent)`. A bot's login is written as REST writes it,
-/// `name[bot]`, so one account has one login whichever read named it.
+/// `Unread(Inconsistent)`. A bot's login is written as GraphQL writes it,
+/// `name`, so one account has one login whichever read named it.
 fn read_page(out: &str, me: bool, f: &ChangeFilter) -> Got<Page> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
@@ -404,13 +404,11 @@ fn read_page(out: &str, me: bool, f: &ChangeFilter) -> Got<Page> {
             None | Some(Value::Null) => None,
             Some(i) => Some(i.as_u64().ok_or(malformed.clone())?),
         };
-        let login = match kind {
-            Some("Bot") if !login.ends_with("[bot]") => format!("{login}[bot]"),
-            _ => login.to_string(),
-        };
         Ok(Some(Account {
             realm: Realm::CodeHost,
-            login: Login::new(tehas_core::accounts::folded(&login)),
+            login: Login::new(tehas_core::accounts::folded(
+                tehas_core::accounts::account(login),
+            )),
             id: id.map(|i| AccountId::new(i.to_string())),
             kind: match kind {
                 Some("User") => AccountKind::Person,
