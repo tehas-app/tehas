@@ -445,7 +445,8 @@ fn images(given: &Words) -> Result<(), u8> {
     let devs = format!("{}/dev", env::var("TEHAS_HOME").unwrap_or_default());
     fs::create_dir_all(&devs).map_err(|_| 78u8)?;
     let dir = format!("{devs}/{}.images", given.name);
-    let approved = match label::allowed_issue(&given.issue, "tehas:ready") {
+    let ready = tehas_ports::Mark::Act(tehas_ports::Act::Approve);
+    let approved = match label::allowed_issue(&given.issue, Some(&ready)) {
         0 => Ok("approved"),
         2 => Err("the issue's label events could not be read for its images".to_string()),
         _ => Ok(""),

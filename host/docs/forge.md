@@ -1,32 +1,47 @@
 ---
-title: The forge trait
-description: "How tehas asks GitHub about labels through one internal trait: each term, what it returns and how GitHub answers it. Internal: tehas 1.0 promises no forge interface."
+title: The forge
+description: "How tehas asks GitHub about labels: the tickets port its commands take, and the GitHub adapter's terms behind it, each with what it returns and how GitHub answers it. Internal: tehas 2.0 promises no forge interface."
 ---
 
-# The forge trait
+# The forge
 
 The forge is the site an instance's issues live on. tehas asks it a few
 things in its own terms: the labels an issue carries, the newest event of one
 label, who applied the label that approves work, and putting a label on or
-taking it off. The trait that holds those terms is `Forge` in
-`console/core/src/forge.rs`. Its GitHub adapter, the `GitHub` type, is in its
-own crate, `tehas-github` in `console/github/`, with the table of labels in
-`console/github/src/table.rs`. This page describes them for a person who
-reads or changes that code.
+taking it off. A command asks through the tickets port, the `Tickets` and
+`TicketWrites` traits of `tehas-ports` (`console/ports/`). The GitHub
+adapter, the `GitHub` type in its own crate, `tehas-github` in
+`console/github/`, answers the port over the terms below, with the table of
+labels in `console/github/src/table.rs`. This page describes them for a
+person who reads or changes that code.
 
-The trait is internal. tehas 1.0 promises no forge interface: GitHub is the
-only forge, nothing on a host chooses another, and the trait may change in any
-1.x release. What tehas writes to GitHub, and the labels it reads, are what
-the [contract](/contract) freezes. Every term is backed by labels. The trait names no
-endpoint, no field and no JSON shape, so an adapter is free to answer a term
-from a label or from a native field of its site. A caller never names the
-site's own fields.
+The port is internal. tehas 2.0 promises no forge interface: GitHub is the
+only forge, nothing on a host chooses another, and the port may change in any
+release. What tehas writes to GitHub, and the labels it reads, are
+what the [contract](/contract) freezes. Every term is backed by labels. The
+port names no endpoint, no field and no JSON shape, so an adapter is free to
+answer a call from a label or from a native field of its site. A caller never
+names the site's own fields.
 
-The trait does not yet hold every question tehas asks of GitHub. Blockers,
+The port does not yet hold every question tehas asks of GitHub. Blockers,
 priority, comments, pull requests and the dispatcher's own reads still go to
-GitHub directly; see [Outside the trait today](#outside-the-trait-today).
+GitHub directly; see [Outside the port today](#outside-the-port-today).
 
-## Terms
+## The tickets port today
+
+Only a program's wiring names the adapter: the console's is a module of
+`console/src/main.rs`, and each command takes its handle from there. A
+method no command asks yet answers `Refused(Unsupported)` before any call.
+
+| Method | Asked by | GitHub mapping |
+| --- | --- | --- |
+| `several(keys)` | `tehas resume`, for the marks on the control issue | `GET repos/<owner>/<name>/issues/<n>` per key: the title, state and its reason, type, labels, milestone, author, times and link. An answer without one of the fields every issue has is `Unread(Malformed)`. |
+| `history(key, window, kinds)` | `tehas resume` and `console label allowed` | The paginated events call below, marks going on and off alone. A login is folded to lower case by `accounts::folded`, the fold the user id check uses too, so it matches the allowed list in any case. |
+| `prepare()` | `tehas labels` | `gh label create <name> --repo <owner>/<name> --color <c> --description <d> --force` for each row of `host/labels.tsv`, compiled into the adapter. A label that cannot be made stops none of the others; the first that failed is the answer, with its name (`Unprepared`). |
+| `ensure_mark(spec)` | nothing yet | The same call for one label, with the colour and text the spec gives. |
+| `mark(key, mark)`, `unmark(key, mark)` | nothing yet | `add_label` and `remove_label` below, of the mark's label. |
+
+## The adapter's terms
 
 `issue` is the issue's number in every term, a positive integer. Every term
 answers a value or a `ForgeError`. An empty value is the site's answer, not a
@@ -67,8 +82,8 @@ GitHub documents no order for an issue's events, so the adapter sorts them:
 Only `labeled` and `unlabeled` events count. A `renamed` event that names the
 label in passing is not a label on the issue. The pause is the
 one reader that breaks the tie the other way, so a pause lifted in the second
-it was applied still holds. It is no term of the trait: its rule reads the
-events itself.
+it was applied still holds. It is no term of the adapter: its rule, in
+`console/core/src/events.rs`, reads the history itself.
 
 ### Writes and label names
 
@@ -83,14 +98,14 @@ result.
 `ForgeError` holds `call`, the term that stopped, and `why`, the runner's
 reason. The reason comes from a fixed list of error words and never from the
 site's whole answer, which may name a host or carry a token. Its line is
-`ERROR: <call> failed: <why>`. Nothing in the trait panics.
+`ERROR: <call> failed: <why>`. Nothing in the adapter panics.
 
 ## Who made a change
 
 Authorisation is the account that applied a label, and only an allowed account
 counts ([AGENTS.md](https://github.com/tehas-app/tehas-factory/blob/main/AGENTS.md)
-rule 5). The forge answers who; it never answers whether that account may start
-anything. The caller compares the account with `TEHAS_ALLOWED_LABELERS`.
+rule 5). The adapter answers who; it never answers whether that account may
+start anything. The caller compares the account with `TEHAS_ALLOWED_LABELERS`.
 
 These terms must name the account behind the change:
 
@@ -107,7 +122,8 @@ bot as its account and the next read of the events says so.
 
 ## What a second forge would need
 
-No second forge is planned. If one were added, it would need at least:
+No second forge is planned. An adapter for one would answer the port, and
+would need at least:
 
 - **Labels on issues**, which a token can add and remove one at a time.
 - **A full history of label changes** for each issue, each event naming the
@@ -119,14 +135,14 @@ No second forge is planned. If one were added, it would need at least:
   account's.
 
 Optional: native fields for what tehas keeps in labels today, such as blocked
-by links, a priority field or issue types. The trait has no term for them
+by links, a priority field or issue types. No caller asks the port for them
 today, so no adapter reads them. A term an adapter answers from such a field
 keeps the label as its fallback, so a forge without the field still answers
 it from labels alone.
 
-## Outside the trait today
+## Outside the port today
 
-These still reach GitHub without the trait, through `gh` in the bash or the
+These still reach GitHub without the port, through `gh` in the bash or the
 dispatcher:
 
 - blockers: `tehas:blocked` and the `<!-- tehas:blocked by=... -->` comment
@@ -136,7 +152,9 @@ dispatcher:
   approval of a changed text and the question flow read;
 - the pull requests of a cycle: opening, reading and refreshing them;
 - the dispatcher's poll, which reads the queue through GitHub's GraphQL API
-  in `console/dispatch`.
+  in `console/dispatch`;
+- the pins of `tehas labels`: each granting label's node id and when it was
+  made, which the port has no call for.
 
 ## The runner
 
@@ -154,6 +172,8 @@ The GitHub adapter's tests, in `console/github/tests/forge.rs`, run it
 against a stub runner that answers from fixtures, so no test needs a network,
 a token or a repository: the stub returns the site's answers, and each case
 checks the term's answer and the call the adapter made.
+`console/github/tests/port.rs` does the same for the tickets port's
+methods, and the commands' own tests run on the ports' fake.
 
 The adapter also answers the tickets port's marks and the history of marks
 going on and off, in the ports' types. `console/github/tests/samples.rs`
