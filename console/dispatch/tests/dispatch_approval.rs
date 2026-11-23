@@ -102,6 +102,42 @@ fn a_label_from_a_listed_login_with_another_user_id_does_not_count_and_is_warned
     lacks(&r.out, "would run a cycle");
 }
 
+/// Until T4.7 makes the two one rule, the dispatcher matches the allowed
+/// list in exact case, stricter than `console label allowed`: a case
+/// variant of a listed login with the recorded id gets no here.
+#[test]
+fn until_t4_7_a_case_variant_of_a_listed_login_gets_no_from_the_dispatcher() {
+    let w = World::new("ap-uid-case");
+    ready_by(&w, json!({"login": "Alice", "id": uid("alice")}));
+    let r = w.dispatch(&["--dry-run"]);
+    lacks(&r.out, "does not count");
+    has(
+        &r.out,
+        "skip #7: tehas:ready was applied by 'Alice', not an allowed account",
+    );
+    lacks(&r.out, "would run a cycle");
+}
+
+/// The vouch folds case: a case variant with another id is doubted.
+#[test]
+fn a_case_variant_of_a_listed_login_with_another_user_id_is_warned_about() {
+    let w = World::new("ap-uid-case-other");
+    ready_by(&w, json!({"login": "Alice", "id": 99}));
+    let r = w.dispatch(&["--dry-run"]);
+    has(
+        &r.out,
+        &format!(
+            "tehas: Alice acted with the user id 99, not the recorded {}, so it does not count",
+            uid("alice")
+        ),
+    );
+    has(
+        &r.out,
+        "skip #7: tehas:ready was applied by 'Alice#99', not an allowed account",
+    );
+    lacks(&r.out, "would run a cycle");
+}
+
 #[test]
 fn a_label_event_whose_account_carries_no_user_id_does_not_count() {
     let w = World::new("ap-uid-none");
