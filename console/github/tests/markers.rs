@@ -553,6 +553,15 @@ impl Tickets for Notes {
     fn what_is(&mut self, _: NonZeroU64) -> Got<Item> {
         unreachable!()
     }
+    fn recent(&mut self, _: &Filter, _: NonZeroU32) -> Got<Took<TicketDigest>> {
+        unreachable!()
+    }
+    fn recently_closed(&mut self, _: NonZeroU32) -> Got<Took<ClosedTicket>> {
+        unreachable!()
+    }
+    fn count(&mut self, _: &Filter) -> Got<u64> {
+        unreachable!()
+    }
     fn what_are(&mut self, _: &[NonZeroU64]) -> Vec<(NonZeroU64, Got<Item>)> {
         unreachable!()
     }

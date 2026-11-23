@@ -205,6 +205,15 @@ impl Tickets for StubTickets {
         listed.extend(self.unread.iter().map(|k| digest(k.clone(), true)));
         Ok(Whole::new(listed))
     }
+    fn recent(&mut self, _: &Filter, _: NonZeroU32) -> Got<Took<TicketDigest>> {
+        unreachable!()
+    }
+    fn recently_closed(&mut self, _: NonZeroU32) -> Got<Took<ClosedTicket>> {
+        unreachable!()
+    }
+    fn count(&mut self, _: &Filter) -> Got<u64> {
+        unreachable!()
+    }
     fn several(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<TicketDigest>)> {
         keys.iter()
             .map(|k| (k.clone(), self.find(k).map(|t| t.digest)))
@@ -610,6 +619,7 @@ fn ask() -> BoardAsk {
             notes: NonZeroU32::new(2).unwrap(),
         },
         history: Some(Window::Last(NonZeroU32::new(100).unwrap())),
+        history_by_kind: vec![],
         changes: Some((ChangeStates::All, Window::Whole(bound()))),
         filter: Filter::default(),
         control: Some(key("CTRL-1")),
@@ -697,6 +707,7 @@ fn a_cheap_ask_reads_no_changes_notes_or_history() {
     let cheap = BoardAsk {
         depth: Depth::Cut { notes: 0 },
         history: None,
+        history_by_kind: vec![],
         changes: None,
         filter: Filter::default(),
         control: None,

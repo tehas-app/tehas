@@ -69,9 +69,153 @@ fn got<T>(law: &str, what: &str, answer: crate::Got<T>) -> Result<T, Broken> {
 /// Laws of the tickets port.
 pub mod tickets {
     use super::{got, hold, Law};
+    use std::num::NonZeroU32;
+
     use crate::{
-        Bound, Depth, Filter, Mark, MarkHeld, TicketKey, TicketWrites, Tickets, WithCloser,
+        At, Bound, Depth, Filter, Mark, MarkHeld, TicketDigest, TicketKey, TicketWrites, Tickets,
+        Took, WithCloser,
     };
+
+    /// A newest-first page against the whole list it is cut from: each
+    /// held once and listed, `updated` never rising, none left out newer
+    /// than the last held, as many as fit, and `more` exactly when some
+    /// were left out.
+    fn newest_of(
+        law: &str,
+        page: &Took<TicketDigest>,
+        whole: &[TicketDigest],
+        first: NonZeroU32,
+    ) -> super::Law {
+        let n = first.get() as usize;
+        let held: Vec<&TicketKey> = page.items.iter().map(|d| &d.key).collect();
+        hold(
+            page.items.len() == whole.len().min(n) && page.more == (whole.len() > n),
+            law,
+            || {
+                format!(
+                    "{} held, more {}, of {} with room for {n}",
+                    page.items.len(),
+                    page.more,
+                    whole.len()
+                )
+            },
+        )?;
+        hold(
+            page.items.windows(2).all(|w| w[0].updated >= w[1].updated),
+            law,
+            || format!("not newest updated first: {held:?}"),
+        )?;
+        for d in &page.items {
+            hold(
+                whole.iter().filter(|w| w.key == d.key).count() == 1,
+                law,
+                || format!("{:?} is not once in the list", d.key),
+            )?;
+            hold(
+                held.iter().filter(|k| ***k == d.key).count() == 1,
+                law,
+                || format!("{:?} is held twice", d.key),
+            )?;
+        }
+        if let Some(last) = page.items.last() {
+            let newer = whole
+                .iter()
+                .find(|w| !held.contains(&&w.key) && w.updated > last.updated);
+            hold(newer.is_none(), law, || {
+                format!("{newer:?} is left out, newer than the last held")
+            })?;
+        }
+        Ok(())
+    }
+
+    /// `recent` holds the newest `first` tickets the filter takes, newest
+    /// `updated` first, with `more` exact, as the whole list orders them.
+    /// The fixture holds more tickets than `first` that `filter` takes,
+    /// with more than one `updated`, within `bound`.
+    pub fn recent_is_newest_updated_first(
+        h: &mut dyn Tickets,
+        filter: &Filter,
+        first: NonZeroU32,
+        bound: Bound,
+    ) -> Law {
+        const LAW: &str = "tickets::recent_is_newest_updated_first";
+        let whole = got(LAW, "the list", h.list(filter, bound))?.into_items();
+        let page = got(LAW, "recent", h.recent(filter, first))?;
+        newest_of(LAW, &page, &whole, first)?;
+        let room = NonZeroU32::new(bound.get()).unwrap_or(first);
+        let all = got(LAW, "recent, all of it", h.recent(filter, room))?;
+        newest_of(LAW, &all, &whole, room)
+    }
+
+    /// `recently_closed` holds the newest `first` closed tickets, newest
+    /// `updated` first, with `more` exact, each as `closed_since` answers
+    /// it. The fixture holds more closed tickets than `first`, within
+    /// `bound`.
+    pub fn recently_closed_is_newest_updated_first(
+        h: &mut dyn Tickets,
+        first: NonZeroU32,
+        bound: Bound,
+    ) -> Law {
+        const LAW: &str = "tickets::recently_closed_is_newest_updated_first";
+        let since = got(LAW, "closed_since", h.closed_since(At::new(0), bound))?.into_items();
+        let page = got(LAW, "recently_closed", h.recently_closed(first))?;
+        for c in &page.items {
+            hold(since.contains(c), LAW, || {
+                format!("{:?} is not as closed_since gives it", c.digest.key)
+            })?;
+        }
+        let whole: Vec<TicketDigest> = since.into_iter().map(|c| c.digest).collect();
+        let digests = Took {
+            items: page.items.into_iter().map(|c| c.digest).collect(),
+            more: page.more,
+        };
+        newest_of(LAW, &digests, &whole, first)
+    }
+
+    /// `count` is the length of the list the filter takes, for each
+    /// filter. The fixture's lists fit in `bound`.
+    pub fn count_is_the_lists_length(h: &mut dyn Tickets, filters: &[Filter], bound: Bound) -> Law {
+        const LAW: &str = "tickets::count_is_the_lists_length";
+        for f in filters {
+            let listed = got(LAW, "the list", h.list(f, bound))?.into_items().len() as u64;
+            let counted = got(LAW, "count", h.count(f))?;
+            hold(counted == listed, LAW, || {
+                format!("{f:?} counts {counted}, its list holds {listed}")
+            })?;
+        }
+        Ok(())
+    }
+
+    /// A ticket's target names the target as `targets` holds it: its id,
+    /// its title, whether it is open and its due date, where the read
+    /// says. The fixture's `key` has a target.
+    pub fn a_ticket_names_its_target_as_targets_does(
+        h: &mut dyn Tickets,
+        key: &TicketKey,
+        bound: Bound,
+    ) -> Law {
+        const LAW: &str = "tickets::a_ticket_names_its_target_as_targets_does";
+        let digest = got(
+            LAW,
+            "the ticket",
+            h.ticket(key, Depth::Cut { notes: 0 }, None),
+        )?
+        .digest;
+        let Some(named) = digest.target else {
+            return super::broken(LAW, format!("{key:?} has no target"));
+        };
+        let targets = got(LAW, "targets", h.targets(bound))?.into_items();
+        let Some(t) = targets.iter().find(|t| t.id == named.id) else {
+            return super::broken(LAW, format!("{:?} is not among the targets", named.id));
+        };
+        hold(
+            named.title == t.title
+                && named.open.is_none_or(|o| o == t.open)
+                && (named.due.is_none() || named.due == t.due),
+            LAW,
+            || format!("{key:?} names {named:?}, targets hold {t:?}"),
+        )
+    }
 
     /// `Filter.carrying_any` takes the tickets that carry any one of the
     /// marks: the tickets each mark's own `carrying` list takes, together,
@@ -886,7 +1030,7 @@ pub mod lists {
 /// Laws of the joined reads.
 pub mod board {
     use super::{got, hold, Law};
-    use crate::{Board, BoardAsk, Bound, Outcome, TicketKey};
+    use crate::{Board, BoardAsk, Bound, Outcome, TicketKey, Tickets};
 
     /// One ticket past a bound is `Unread` for that item, and the rest are
     /// answered. The fixture's open tickets include `big`, past the ask's
@@ -917,6 +1061,56 @@ pub mod board {
         })?;
         hold(rest.iter().all(|(_, a)| a.is_ok()), LAW, || {
             "another item failed with it".into()
+        })
+    }
+
+    /// Asked a window of history per kind, an item's history holds, of
+    /// each kind named, what `Tickets::history` gives for that kind and
+    /// window, and no event of a kind not named, so a busy kind cuts no
+    /// other. `more` is set when any kind's window held more. The
+    /// fixture's `key` has events of a named kind past another's window.
+    pub fn a_window_per_kind_cuts_no_other(
+        b: &mut dyn Board,
+        t: &mut dyn Tickets,
+        key: &TicketKey,
+        ask: &BoardAsk,
+    ) -> Law {
+        const LAW: &str = "board::a_window_per_kind_cuts_no_other";
+        hold(!ask.history_by_kind.is_empty(), LAW, || {
+            "the ask names no kind".into()
+        })?;
+        let item = got(LAW, "the work item", b.work_item(key, ask))?;
+        let history = &item.ticket.history;
+        let mut more = false;
+        for (kind, window) in &ask.history_by_kind {
+            let want = got(
+                LAW,
+                "the kind's history",
+                t.history(key, *window, Some(std::slice::from_ref(kind))),
+            )?;
+            more |= want.more;
+            let have: Vec<_> = history
+                .items
+                .iter()
+                .filter(|e| e.what.kind() == *kind)
+                .cloned()
+                .collect();
+            hold(have == want.items, LAW, || {
+                format!(
+                    "{kind:?}: held {have:?}, the history gives {:?}",
+                    want.items
+                )
+            })?;
+        }
+        let stray = history
+            .items
+            .iter()
+            .find(|e| !ask.history_by_kind.iter().any(|(k, _)| *k == e.what.kind()));
+        hold(stray.is_none(), LAW, || {
+            format!("{stray:?} is of a kind not named")
+        })?;
+        hold(history.more == more, LAW, || {
+            format!("more is {}, the windows say {more}", history.more)
         })
     }
 }

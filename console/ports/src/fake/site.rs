@@ -435,7 +435,7 @@ impl Handle {
             self.report(o.clone());
             return Err(o);
         }
-        self.count(pool);
+        self.meter_call(pool);
         let answer = {
             let mut s = self.world.lock();
             s.sent.push(self.actor.clone());
@@ -537,7 +537,7 @@ impl Handle {
             self.report(o.clone());
             return keys.iter().map(|k| (k.clone(), Err(o.clone()))).collect();
         }
-        self.count(Pool::Calls);
+        self.meter_call(Pool::Calls);
         let answers: Vec<(K, Got<T>)> = {
             let mut s = self.world.lock();
             s.sent.push(self.actor.clone());
@@ -569,7 +569,7 @@ impl Handle {
             })
     }
 
-    fn count(&self, pool: Pool) {
+    fn meter_call(&self, pool: Pool) {
         let mut meter = lock(&self.meter);
         match meter
             .iter_mut()
@@ -618,7 +618,7 @@ impl Handle {
         if self.keyless {
             return Err(Outcome::SignedOut);
         }
-        self.count(Pool::Calls);
+        self.meter_call(Pool::Calls);
         let n = {
             let mut s = self.world.lock();
             s.sent.push(self.actor.clone());
@@ -1026,14 +1026,14 @@ pub(crate) fn digest(s: &State, item: &ItemRec) -> Option<TicketDigest> {
             crate::TicketState::Closed(reason.clone().unwrap_or(crate::CloseReason::Done))
         }
     };
-    let target = item.target.as_ref().map(|id| crate::TargetName {
-        id: id.clone(),
-        title: s
-            .targets
-            .iter()
-            .find(|t| t.id == *id)
-            .map(|t| t.title.clone())
-            .unwrap_or_default(),
+    let target = item.target.as_ref().map(|id| {
+        let held = s.targets.iter().find(|t| t.id == *id);
+        crate::TargetName {
+            id: id.clone(),
+            title: held.map(|t| t.title.clone()).unwrap_or_default(),
+            open: held.map(|t| t.open),
+            due: held.and_then(|t| t.due),
+        }
     });
     let parent = s
         .items

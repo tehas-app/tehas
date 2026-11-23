@@ -1705,6 +1705,7 @@ fn the_boards_asks_and_answers_read_back() {
     let ask = BoardAsk {
         depth: Depth::Last { notes: nz32(100) },
         history: Some(Window::Last(nz32(100))),
+        history_by_kind: vec![],
         changes: Some((ChangeStates::All, Window::Last(nz32(5)))),
         filter: Filter::default(),
         control: Some(tkey(9)),

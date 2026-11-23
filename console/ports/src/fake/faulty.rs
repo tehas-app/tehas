@@ -58,6 +58,12 @@ pub enum TicketsOp {
     Parts,
     /// `Tickets::closed_since`.
     ClosedSince,
+    /// `Tickets::recent`.
+    Recent,
+    /// `Tickets::recently_closed`.
+    RecentlyClosed,
+    /// `Tickets::count`.
+    Count,
     /// `Tickets::search`.
     Search,
     /// `Tickets::filed_by`.
@@ -1088,6 +1094,17 @@ impl<H: Tickets + ?Sized> Tickets for Wrap<H> {
     }
     fn list(&mut self, filter: &Filter, bound: Bound) -> Got<Whole<TicketDigest>> {
         self.call(Op::Tickets(T::List), Err, |h| h.list(filter, bound))
+    }
+    fn recent(&mut self, filter: &Filter, first: NonZeroU32) -> Got<Took<TicketDigest>> {
+        self.call(Op::Tickets(T::Recent), Err, |h| h.recent(filter, first))
+    }
+    fn recently_closed(&mut self, first: NonZeroU32) -> Got<Took<ClosedTicket>> {
+        self.call(Op::Tickets(T::RecentlyClosed), Err, |h| {
+            h.recently_closed(first)
+        })
+    }
+    fn count(&mut self, filter: &Filter) -> Got<u64> {
+        self.call(Op::Tickets(T::Count), Err, |h| h.count(filter))
     }
     fn several(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<TicketDigest>)> {
         let fail = |o: Outcome| keys.iter().map(|k| (k.clone(), Err(o.clone()))).collect();

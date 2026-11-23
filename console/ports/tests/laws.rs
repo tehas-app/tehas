@@ -262,6 +262,154 @@ fn tickets_a_parent_holds_its_parts() {
 }
 
 #[test]
+fn tickets_recent_and_recently_closed_are_newest_updated_first() {
+    for w in both() {
+        let w = w.ticket(1, |t| t.title("oldest").mark(Mark::Epic));
+        w.advance(10);
+        let w = w.ticket(2, |t| t.title("second").closed(CloseReason::Done));
+        w.advance(10);
+        let w = w
+            .ticket(3, |t| t.title("third").mark(Mark::Epic))
+            .ticket(4, |t| {
+                t.title("same second").closed(CloseReason::NotPlanned)
+            });
+        w.advance(10);
+        let w = w.ticket(5, |t| t.title("newest").closed(CloseReason::Done));
+        w.advance(10);
+        // Touched now: the oldest filed is the newest updated.
+        let w = w.ticket(1, |t| t.title("oldest, edited"));
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let epic = Filter {
+            carrying: vec![Mark::Epic],
+            ..Filter::default()
+        };
+        for (filter, first) in [(Filter::default(), 2), (epic, 1)] {
+            ok(laws::tickets::recent_is_newest_updated_first(
+                h.as_mut(),
+                &filter,
+                n32(first),
+                b(50),
+            ));
+        }
+        ok(laws::tickets::recently_closed_is_newest_updated_first(
+            h.as_mut(),
+            n32(2),
+            b(50),
+        ));
+        let page = h.recent(&Filter::default(), n32(2)).unwrap();
+        assert_eq!(
+            page.items.iter().map(|d| d.key.clone()).collect::<Vec<_>>(),
+            [w.key(1), w.key(5)]
+        );
+        assert!(page.more);
+        // Ties in one second come in the same order on every read.
+        let again = h.recent(&Filter::default(), n32(5)).unwrap();
+        assert_eq!(again, h.recent(&Filter::default(), n32(5)).unwrap());
+    }
+}
+
+#[test]
+fn tickets_count_is_the_lists_length() {
+    for w in both() {
+        let w = w
+            .ticket(1, |t| t.title("a").mark(Mark::Epic))
+            .ticket(2, |t| t.title("b").closed(CloseReason::Done))
+            .ticket(3, |t| t.title("c"));
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let filters = [
+            Filter::default(),
+            Filter {
+                open: Some(true),
+                ..Filter::default()
+            },
+            Filter {
+                carrying: vec![Mark::Epic],
+                ..Filter::default()
+            },
+        ];
+        ok(laws::tickets::count_is_the_lists_length(
+            h.as_mut(),
+            &filters,
+            b(50),
+        ));
+        assert_eq!(h.count(&Filter::default()), Ok(3));
+    }
+}
+
+#[test]
+fn tickets_a_ticket_names_its_target_as_targets_does() {
+    for w in both() {
+        let due = At::new(1_900_000_000);
+        let w = w
+            .target("t1", "spring", Some(due))
+            .ticket(1, |t| t.title("aimed").target("t1"));
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        ok(laws::tickets::a_ticket_names_its_target_as_targets_does(
+            h.as_mut(),
+            &w.key(1),
+            b(50),
+        ));
+        let named = h.several(&[w.key(1)])[0].1.clone().unwrap().target.unwrap();
+        assert_eq!((named.open, named.due), (Some(true), Some(due)));
+    }
+}
+
+#[test]
+fn board_a_window_per_kind_cuts_no_other() {
+    for w in both() {
+        let at = w.now();
+        let w = w.ticket(1, |t| {
+            t.title("busy")
+                .events(8, at)
+                .event(
+                    Happened::Retitled {
+                        from: "a".into(),
+                        to: "b".into(),
+                    },
+                    Some("alice"),
+                    Some(At::new(at.secs() + 3)),
+                )
+                .act(Act::Approve, "alice")
+        });
+        let site = FakeSite::new(&w);
+        let mut board = site.board(&full(), C).unwrap();
+        let mut t = site.tickets(&full(), C).unwrap();
+        let ask = BoardAsk {
+            depth: Depth::Cut { notes: 0 },
+            history: Some(Window::Last(n32(2))),
+            history_by_kind: vec![
+                (HappenedKind::Marked, Window::Whole(b(50))),
+                (HappenedKind::Unmarked, Window::Last(n32(1))),
+                (HappenedKind::Retitled, Window::Whole(b(50))),
+            ],
+            changes: None,
+            filter: Filter::default(),
+            control: None,
+        };
+        ok(laws::board::a_window_per_kind_cuts_no_other(
+            board.as_mut(),
+            t.as_mut(),
+            &w.key(1),
+            &ask,
+        ));
+        let item = board.work_item(&w.key(1), &ask).unwrap();
+        let marked = item
+            .ticket
+            .history
+            .items
+            .iter()
+            .filter(|e| e.what.kind() == HappenedKind::Marked)
+            .count();
+        // Four of the turns and the approval: none cut by the busy kind.
+        assert_eq!(marked, 5);
+        assert!(item.ticket.history.more);
+    }
+}
+
+#[test]
 fn tickets_several_carries_each_closer() {
     for w in both() {
         let w = w
@@ -744,6 +892,7 @@ fn board_one_item_fails_alone() {
         let ask = BoardAsk {
             depth: Depth::Cut { notes: 0 },
             history: Some(Window::Whole(b(3))),
+            history_by_kind: vec![],
             changes: None,
             filter: Filter::default(),
             control: None,
@@ -2668,6 +2817,7 @@ fn a_split_world_keeps_its_three_number_spaces_apart() {
             &BoardAsk {
                 depth: Depth::All,
                 history: None,
+                history_by_kind: vec![],
                 changes: None,
                 filter: Filter::default(),
                 control: None,
@@ -3038,6 +3188,7 @@ fn board_ask() -> BoardAsk {
     BoardAsk {
         depth: Depth::Cut { notes: 0 },
         history: None,
+        history_by_kind: vec![],
         changes: None,
         filter: Filter::default(),
         control: None,

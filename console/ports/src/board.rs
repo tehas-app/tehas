@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     At, Blueprint, BlueprintNo, Blueprints, Bound, ChangeDigest, ChangeEvent, ChangeFilter,
-    ChangeState, ChangeStates, ChangedFile, CodeHost, Comment, Depth, Filter, Got, Links, Outcome,
-    Ref, Report, Reports, TargetId, Ticket, TicketDigest, TicketKey, Tickets, Took, Unread, Whole,
-    Window,
+    ChangeState, ChangeStates, ChangedFile, CodeHost, Comment, Depth, Filter, Got, HappenedKind,
+    Links, Outcome, Ref, Report, Reports, TargetId, Ticket, TicketDigest, TicketEvent, TicketKey,
+    Tickets, Took, Unread, Whole, Window,
 };
 
 /// What a joined read asks for, so a cheap poll asks less.
@@ -26,6 +26,15 @@ pub struct BoardAsk {
     /// `Window::Whole`; a queue read may ask `Window::Last` with
     /// `Depth::Last`, and reads a `more` as possibly cut.
     pub history: Option<Window>,
+    /// A window of each ticket's history for each kind named, so a busy
+    /// kind cannot cut another out: a poll asks its marks whole beside the
+    /// newest few of every other kind. Not empty, the history is each
+    /// kind's own window, merged oldest first; a kind not named is not
+    /// read, and `history` and the depth's window give no history. `more`
+    /// is set when any window held more. Empty, the history is as
+    /// `history` says. Missing, it reads as empty.
+    #[serde(default)]
+    pub history_by_kind: Vec<(HappenedKind, Window)>,
     /// The changes that close each item's blueprints: the states taken and
     /// how many, in the order `Board` gives. None reads none.
     pub changes: Option<(ChangeStates, Window)>,
@@ -205,6 +214,23 @@ fn ended(change: &ChangeDigest) -> Option<At> {
     }
 }
 
+/// Histories read apart, as one, oldest first: of two events in one
+/// second an addition sorts before a removal, and events of one list keep
+/// their order; one with no time sorts first. `more` when any list held
+/// more.
+fn merged(each: Vec<Took<TicketEvent>>) -> Took<TicketEvent> {
+    let more = each.iter().any(|t| t.more);
+    let mut items: Vec<TicketEvent> = each.into_iter().flat_map(|t| t.items).collect();
+    let removal = |e: &TicketEvent| {
+        matches!(
+            e.what.kind(),
+            HappenedKind::Unmarked | HappenedKind::BlockerRemoved | HappenedKind::Unassigned
+        )
+    };
+    items.sort_by_key(|e| (e.at, removal(e)));
+    Took { items, more }
+}
+
 /// The changes in the board's order, as much as `window` takes.
 fn ordered(changes: Vec<ChangeDigest>, window: Window) -> Got<Took<ChangeDigest>> {
     let (mut open, mut rest): (Vec<_>, Vec<_>) =
@@ -333,7 +359,17 @@ impl Board for Join {
     /// `Depth::Cut`'s cut of each note's text is the site's own read's;
     /// this join does not apply it.
     fn work_item(&mut self, key: &TicketKey, ask: &BoardAsk) -> Got<WorkItem> {
-        let ticket = self.tickets.ticket(key, ask.depth, ask.history)?;
+        let mut ticket = self.tickets.ticket(key, ask.depth, ask.history)?;
+        if !ask.history_by_kind.is_empty() {
+            let mut each = Vec::with_capacity(ask.history_by_kind.len());
+            for (kind, window) in &ask.history_by_kind {
+                each.push(
+                    self.tickets
+                        .history(key, *window, Some(std::slice::from_ref(kind)))?,
+                );
+            }
+            ticket.history = merged(each);
+        }
         let notes = match ask.depth.notes() {
             Some(window) => self.tickets.notes(key, window)?,
             None => not_read(),

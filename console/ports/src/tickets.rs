@@ -8,9 +8,10 @@ use serde::{Deserialize, Serialize};
 use crate::mark::unknown_tag;
 use crate::{
     unknown, Account, AccountId, Applied, At, Body, Bound, ChangeDigest, ChangeNo, ChangeToken,
-    Cites, Comment, CommentId, CommitId, Cursor, Depth, Did, Edit, Got, Item, Kind, Mark, MarkId,
-    MarkName, MarkSpec, Marker, MarkerEdit, MarkerKey, MarkerKind, Outcome, Posted, Priority, Ref,
-    Reports, Revision, TargetId, TicketKey, Took, WebLink, Whole, Window, Within,
+    Cites, Comment, CommentId, CommitId, Cursor, Depth, Did, Edit, Got, Item, ItemName, Kind, Mark,
+    MarkId, MarkName, MarkSpec, Marker, MarkerEdit, MarkerKey, MarkerKind, Outcome, Posted,
+    Priority, ProjectName, Ref, Reports, Revision, TargetId, TicketKey, Took, WebLink, Whole,
+    Window, Within,
 };
 
 /// Whether a ticket is open, and why it closed.
@@ -87,7 +88,8 @@ new!(
     parent
 );
 
-/// A target by its id, with its title as the site names it now.
+/// A ticket's target as the site names it now: its id, its title, whether
+/// it is open and when it is due. No number: `TargetId` is opaque.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct TargetName {
@@ -95,12 +97,24 @@ pub struct TargetName {
     pub id: TargetId,
     /// Its title.
     pub title: String,
+    /// It is open; None where the read did not say. Missing, it reads as
+    /// None.
+    #[serde(default)]
+    pub open: Option<bool>,
+    /// When it is due; None when it has no date or the read did not say.
+    /// Missing, it reads as None.
+    #[serde(default)]
+    pub due: Option<At>,
 }
 
-new!(TargetName {
-    id: TargetId,
-    title: String
-});
+new!(
+    TargetName {
+        id: TargetId,
+        title: String
+    },
+    open,
+    due
+);
 
 /// A ticket, read whole to the depth asked.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -187,8 +201,10 @@ pub enum BlockerState {
     Merged,
 }
 
-/// Who or what closed a ticket.
+/// Who or what closed a ticket. It may grow: a match on it outside this
+/// crate has an arm for the rest, and that arm names no closer.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Closer {
     /// A merged change that said it closes it.
     Change {
@@ -201,6 +217,24 @@ pub enum Closer {
     Commit(CommitId),
     /// An account, by hand.
     Account(Account),
+    /// A change of another project that said it closes it: no number of
+    /// this project names it, so it is named as the site names it there,
+    /// with its link.
+    ChangeElsewhere {
+        /// The other project.
+        project: ProjectName,
+        /// The change there, for display.
+        item: ItemName,
+        /// Where a person opens it.
+        link: WebLink,
+    },
+    /// A closer this copy does not know: it names no closer.
+    #[serde(
+        untagged,
+        deserialize_with = "unknown::read_external",
+        serialize_with = "unknown::write_external"
+    )]
+    Unknown,
 }
 
 /// One event of a ticket's history.
@@ -583,6 +617,20 @@ pub trait Tickets: Reports + Cites {
     /// The tickets the filter takes, whole. In list order: oldest filed
     /// first, ties broken by key.
     fn list(&mut self, filter: &Filter, bound: Bound) -> Got<Whole<TicketDigest>>;
+    /// The newest `first` tickets the filter takes, with `more`: newest
+    /// `updated` first, ties in the site's order. This order differs from
+    /// `Window::Last`'s, which gives the newest oldest first, and from
+    /// `list`'s: a snapshot reads the tickets that moved last without
+    /// listing every one, so it never ends `Unread(Cut)` on a big project.
+    fn recent(&mut self, filter: &Filter, first: NonZeroU32) -> Got<Took<TicketDigest>>;
+    /// The newest `first` closed tickets, with `more`, newest `updated`
+    /// first as in `recent`: a page now, the rest later, never
+    /// `Unread(Cut)`.
+    fn recently_closed(&mut self, first: NonZeroU32) -> Got<Took<ClosedTicket>>;
+    /// How many tickets the filter takes, as the site counts them: the
+    /// figure keeps rising past any list's bound. `Unread(Inconsistent)`
+    /// where the site cannot say for this filter.
+    fn count(&mut self, filter: &Filter) -> Got<u64>;
     /// Several tickets' digests. A key whose number names a change, where
     /// they share one number space, is `NotFound`: it is no ticket. A
     /// caller that may hold either asks `what_are` first; an adapter may
