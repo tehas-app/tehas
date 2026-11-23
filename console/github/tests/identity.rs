@@ -10,8 +10,8 @@ use std::rc::Rc;
 use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 use tehas_ports::{
-    Account, AccountId, AccountKind, Actor, Got, Identity, Login, Outcome, ProjectName, Refusal,
-    Scope, SignInCode, SignInState, Standing, Unread,
+    Account, AccountId, AccountKind, Actor, At, Got, Identity, Login, Outcome, Passing, Pool,
+    ProjectName, Refusal, Scope, Sent, SignInCode, SignInState, Standing, Unread,
 };
 
 const PROJECT: &str = "acme/widget";
@@ -206,7 +206,7 @@ fn a_missing_account_and_one_with_no_access_are_two_answers() {
 #[test]
 fn a_failure_is_never_no_standing() {
     for id in [
-        "112", "113", "114", "115", "116", "117", "118", "119", "120",
+        "112", "113", "114", "115", "116", "117", "118", "119", "120", "130",
     ] {
         let (got, _) = standing_of(id);
         assert!(got.is_err(), "{id}: {got:?}");
@@ -215,17 +215,176 @@ fn a_failure_is_never_no_standing() {
 
 #[test]
 fn an_organisation_and_an_app_are_answered_from_the_account_read_alone() {
-    assert_eq!(
-        standing_of("108"),
-        (Ok(Standing::None), vec!["api user/108".to_string()])
-    );
-    assert_eq!(
-        standing_of("900"),
+    for id in ["108", "900", "901"] {
+        assert_eq!(
+            standing_of(id),
+            (Ok(Standing::None), vec![format!("api user/{id}")]),
+            "{id}"
+        );
+    }
+}
+
+#[test]
+fn a_bot_account_read_that_fails_stays_its_failure() {
+    let bot = recorded("user-901.json");
+    let now = At::new(replay_now());
+    for (answer, failure) in [
         (
-            Err(Outcome::Refused(Refusal::Unsupported)),
-            vec!["api user/900".to_string()]
-        )
+            Err(": HTTP 429".to_string()),
+            Outcome::Spent {
+                pool: Pool::Calls,
+                until: now,
+            },
+        ),
+        (
+            Err(": secondary rate limit".to_string()),
+            Outcome::Spent {
+                pool: Pool::Calls,
+                until: now,
+            },
+        ),
+        (
+            Err("gh ran out of its 30s bound".to_string()),
+            Outcome::Unavailable {
+                why: Passing::Timeout,
+                sent: Sent::Maybe,
+            },
+        ),
+        (Err(": HTTP 401".to_string()), Outcome::SignedOut),
+        (Err(": HTTP 403".to_string()), Outcome::Forbidden),
+        (
+            Ok(bot[..bot.len() / 2].to_string()),
+            Outcome::Unread(Unread::Malformed),
+        ),
+        (
+            Ok(bot.replace("\"login\":\"other-app[bot]\",", "")),
+            Outcome::Unread(Unread::Malformed),
+        ),
+        (
+            Ok(bot.replace("\"type\":\"Bot\"", "\"type\":\"Robot\"")),
+            Outcome::Unread(Unread::Malformed),
+        ),
+        (
+            Ok(bot.replace("\"id\":901", "\"id\":902")),
+            Outcome::Unread(Unread::Inconsistent),
+        ),
+    ] {
+        let asked = Asked::default();
+        let stub = Stub {
+            answers: vec![answer.clone(), answer.clone()],
+            asked: Rc::clone(&asked),
+        };
+        let mut gh = GitHub::new(PROJECT, Box::new(stub)).on_clock(replay_now);
+        assert_eq!(
+            gh.standing(&AccountId::new("901")),
+            Err(failure),
+            "{answer:?}"
+        );
+        assert!(
+            asked.borrow().iter().all(|a| a == "api user/901"),
+            "{answer:?}"
+        );
+    }
+}
+
+/// The standing of the permission answer `permission`, given as the answer
+/// about the account 124.
+fn standing_answered(permission: &str) -> Got<Standing> {
+    let stub = Stub {
+        answers: vec![Ok(recorded("user-124.json")), Ok(permission.to_string())],
+        asked: Asked::default(),
+    };
+    GitHub::new(PROJECT, Box::new(stub)).standing(&AccountId::new("124"))
+}
+
+#[test]
+fn the_role_name_is_read_first_and_the_permission_word_only_without_one() {
+    let user = r#""user":{"login":"peggy","id":124}"#;
+    let of = |rest: &str| standing_answered(&format!("{{{user}{rest}}}"));
+    // GitHub's documented disagreements: the role is named, the word folds
+    // it. The role wins, as in the dispatcher's may_write.
+    assert_eq!(
+        of(r#","role_name":"maintain","permission":"write""#),
+        Ok(Standing::Write)
     );
+    assert_eq!(
+        of(r#","role_name":"triage","permission":"read""#),
+        Ok(Standing::Read)
+    );
+    // A base role the word contradicts is still the role.
+    assert_eq!(
+        of(r#","role_name":"read","permission":"admin""#),
+        Ok(Standing::Read)
+    );
+    assert_eq!(
+        of(r#","role_name":"none","permission":"write""#),
+        Ok(Standing::None)
+    );
+    // No role, or a null one: the word.
+    assert_eq!(of(r#","permission":"admin""#), Ok(Standing::Admin));
+    assert_eq!(
+        of(r#","role_name":null,"permission":"read""#),
+        Ok(Standing::Read)
+    );
+    assert_eq!(
+        of(r#","role_name":null"#),
+        Err(Outcome::Unread(Unread::Malformed))
+    );
+    assert_eq!(
+        of(r#","permission":"superuser""#),
+        Err(Outcome::Unread(Unread::Malformed))
+    );
+    // A role that is no string is no answer.
+    assert_eq!(
+        of(r#","role_name":7,"permission":"write""#),
+        Err(Outcome::Unread(Unread::Malformed))
+    );
+}
+
+#[test]
+fn a_custom_role_is_never_write_whatever_its_permission_word() {
+    let user = r#""user":{"login":"peggy","id":124}"#;
+    for role in ["deployer", "", "Write", "ADMIN"] {
+        let of = |word: &str| {
+            standing_answered(&format!(
+                r#"{{{user},"role_name":"{role}","permission":"{word}"}}"#
+            ))
+        };
+        for word in ["admin", "maintain", "write", "triage", "read"] {
+            assert_eq!(of(word), Ok(Standing::Read), "{role:?} {word}");
+        }
+        assert_eq!(of("none"), Ok(Standing::None), "{role:?}");
+        assert_eq!(
+            of("superuser"),
+            Err(Outcome::Unread(Unread::Malformed)),
+            "{role:?}"
+        );
+    }
+    assert_eq!(
+        standing_answered(&format!(r#"{{{user},"role_name":"deployer"}}"#)),
+        Err(Outcome::Unread(Unread::Malformed))
+    );
+}
+
+#[test]
+fn each_role_reads_as_the_recorded_answers_say() {
+    for (id, standing) in [
+        ("101", Ok(Standing::Admin)),
+        ("102", Ok(Standing::Write)),
+        ("103", Ok(Standing::Write)),
+        ("104", Ok(Standing::Read)),
+        ("105", Ok(Standing::Read)),
+        ("106", Ok(Standing::None)),
+        ("124", Ok(Standing::Read)),
+        ("125", Ok(Standing::Read)),
+        ("126", Ok(Standing::None)),
+        ("127", Ok(Standing::Read)),
+        ("128", Ok(Standing::Write)),
+        ("129", Ok(Standing::Admin)),
+        ("130", Err(Outcome::Unread(Unread::Malformed))),
+    ] {
+        assert_eq!(standing_of(id).0, standing, "{id}");
+    }
 }
 
 #[test]

@@ -61,6 +61,13 @@ impl Identity for GitHub {
     /// `Read`). The second answer must name the id asked. A login renamed
     /// between the two reads, to a free login or a taken one, is read once
     /// more, then `Unread(Inconsistent)`.
+    ///
+    /// An App's bot account answers `Standing::None` from the account read
+    /// alone: an App is no collaborator, so it holds no collaborator
+    /// permission, and its access is its installation's. The factory's own
+    /// App cannot be told apart yet, since `GitHub::new` carries no actor, so
+    /// until the handle factory gives the adapter its actor every bot
+    /// answers `None`; the factory's own App will then answer from `Ours`.
     fn standing(&mut self, who: &AccountId) -> Got<Standing> {
         let id = id_of(who)?;
         match self.standing_once(id) {
@@ -136,9 +143,9 @@ impl GitHub {
             Ok(Holder::User(login)) => login,
             // An organisation holds no standing of its own on a repository.
             Ok(Holder::Organisation) => return Pass::Answer(Ok(Standing::None)),
-            // An App's standing is its installation's permissions, which
-            // `Standing` does not hold.
-            Ok(Holder::Bot) => return Pass::Answer(unsupported()),
+            // Another App holds no collaborator permission. The factory's
+            // own is not told apart until the adapter carries its actor.
+            Ok(Holder::Bot) => return Pass::Answer(Ok(Standing::None)),
             Err(o) => return Pass::Answer(Err(o)),
         };
         let path = format!(
@@ -259,10 +266,16 @@ fn read_user(out: &str, id: u64) -> Got<Holder> {
     })
 }
 
-/// The standing of the permission answer, held to `id`. GitHub's word is
-/// one of four, and folds its two roles between them into them: `maintain`
-/// answers `write` and `triage` answers `read`. Either word given as it is
-/// reads the same way. Any other word is no answer to read.
+/// The standing of the permission answer, held to `id`, by the rule of the
+/// dispatcher's `may_write`: `role_name` first, the legacy `permission` word
+/// only when `role_name` is missing or null.
+///
+/// A base role maps as it is named. `maintain` folds into `Write` and
+/// `triage` into `Read` until ports P1 adds `Standing::Maintain` and
+/// `Standing::Triage`. Any other `role_name`, a custom role or an empty
+/// one, is never `Write` or `Admin`, since the dispatcher lets no such
+/// account write: it is `Read` when the `permission` word shows any access,
+/// `None` when it says none, and no answer to read without a word.
 fn read_permission(out: &str, id: u64) -> Got<Standing> {
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
     let said = v
@@ -272,12 +285,22 @@ fn read_permission(out: &str, id: u64) -> Got<Standing> {
     if said != id {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
-    match v.get("permission").and_then(Value::as_str) {
-        Some("admin") => Ok(Standing::Admin),
-        Some("maintain" | "write") => Ok(Standing::Write),
-        Some("triage" | "read") => Ok(Standing::Read),
-        Some("none") => Ok(Standing::None),
-        _ => Err(MALFORMED),
+    let word = v.get("permission").and_then(Value::as_str);
+    let role = match v.get("role_name") {
+        None | Some(Value::Null) => word.ok_or(MALFORMED)?,
+        Some(Value::String(role)) => role.as_str(),
+        Some(_) => return Err(MALFORMED),
+    };
+    match role {
+        "admin" => Ok(Standing::Admin),
+        "maintain" | "write" => Ok(Standing::Write),
+        "triage" | "read" => Ok(Standing::Read),
+        "none" => Ok(Standing::None),
+        _ => match word {
+            Some("admin" | "maintain" | "write" | "triage" | "read") => Ok(Standing::Read),
+            Some("none") => Ok(Standing::None),
+            _ => Err(MALFORMED),
+        },
     }
 }
 

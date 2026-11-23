@@ -92,11 +92,9 @@
       "Ours": "Full"
     },
     "answer": {
-      "Err": {
-        "Refused": "Unsupported"
-      }
+      "Ok": "None"
     },
-    "fixture": "The id 900 is the factory's App, whose standing is its installation's permissions.",
+    "fixture": "The id 900 is the factory's App. Until the adapter carries its actor it cannot tell its own App apart, so it answers as for any App: no collaborator permission.",
     "op": "Identity::standing",
     "who": "900"
   },
@@ -282,5 +280,95 @@
     "fixture": "abc is no id GitHub gives: refused with no request.",
     "op": "Identity::standing",
     "who": "abc"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "None"
+    },
+    "fixture": "The id 901 is another App's bot account: an App is no collaborator, so it holds no permission on acme/widget.",
+    "op": "Identity::standing",
+    "who": "901"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Read"
+    },
+    "fixture": "peggy holds the custom role deployer, based on write: GitHub's permission word says write, and the dispatcher lets no custom role write, so she reads.",
+    "op": "Identity::standing",
+    "who": "124"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Read"
+    },
+    "fixture": "quinn holds the custom role auditor, based on read.",
+    "op": "Identity::standing",
+    "who": "125"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "None"
+    },
+    "fixture": "rupert holds a custom role whose permission word says none.",
+    "op": "Identity::standing",
+    "who": "126"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Read"
+    },
+    "fixture": "sybil's role_name is empty and her permission word says write: an empty role is no base role, so she reads.",
+    "op": "Identity::standing",
+    "who": "127"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Write"
+    },
+    "fixture": "trent's answer has no role_name, as before GitHub added it: his permission word, write, is read.",
+    "op": "Identity::standing",
+    "who": "128"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Admin"
+    },
+    "fixture": "ursula's role_name is null: her permission word, admin, is read.",
+    "op": "Identity::standing",
+    "who": "129"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    },
+    "fixture": "victor holds the custom role deployer and the answer carries no permission word: nothing says what the role is based on.",
+    "op": "Identity::standing",
+    "who": "130"
   }
 ]
