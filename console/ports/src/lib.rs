@@ -22,6 +22,7 @@ pub mod fake;
 mod health;
 mod identity;
 mod ids;
+pub mod laws;
 mod ledger;
 mod links;
 mod mark;
