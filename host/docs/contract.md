@@ -936,6 +936,9 @@ The plugin API as 2.0 holds it, for the work of 2.1:
   `bodySha256` is the sha256 of the body with its carriage returns dropped,
   as `body_sum` in `console/core/src/approval.rs` takes it, so a reader that
   hashes the body itself drops them too.
+- **A tool's typed blocks.** A tool's answer may carry typed blocks from
+  2.1; their schema will live in `api/`, so the block vocabulary has one
+  owner, as the events have.
 - **Revision 1.6.0** of the plugin specification
   (`docs/specs/2026-11-22-plugins-1.6.md`) and the plugin surfaces for 2.1
   (`docs/specs/2026-11-22-plugin-surfaces-2.1.md`) are built after 2.0.
