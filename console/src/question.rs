@@ -409,4 +409,61 @@ mod tests {
         assert!(object(&Which::After(0), &asked).contains(r#""comment":4002,"id":1,"#));
         assert!(object(&Which::Issue(12), &asked).contains(r#""comment":4002,"id":1,"#));
     }
+
+    /// Each choice in the words `tehas answer` takes, with what a person sees.
+    fn listed(o: &[Offered]) -> Vec<(String, String)> {
+        o.iter()
+            .map(|o| (answer_word(o), o.label.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn a_planning_question_offers_its_options_then_the_end() {
+        let options = vec!["Adopt all".to_string(), UPDATE.to_string()];
+        assert_eq!(
+            listed(&choices("plan", None, options)),
+            [
+                ("option:1".into(), "Adopt all".into()),
+                ("update".into(), UPDATE.into()),
+                ("end".into(), BOX_END.into())
+            ]
+        );
+    }
+
+    #[test]
+    fn a_park_offers_what_it_was_asked_with_or_every_choice_when_unknown() {
+        let asked = Some(vec!["retry-text".to_string(), "park".to_string()]);
+        assert_eq!(
+            listed(&choices("park", asked, vec![])),
+            [
+                ("retry-text".into(), BOX_ALONE.into()),
+                ("park".into(), BOX_PARKED.into())
+            ]
+        );
+        assert_eq!(
+            listed(&choices("park", None, vec![])),
+            [
+                ("retry".into(), BOX_COMMENTS.into()),
+                ("retry-text".into(), BOX_ALONE.into()),
+                ("park".into(), BOX_PARKED.into())
+            ]
+        );
+    }
+
+    /// Every choice listed is a word `tehas answer` takes.
+    #[test]
+    fn every_choice_listed_is_one_tehas_answer_takes() {
+        let options: Vec<String> = (1..=25).map(|i| format!("Option {i}")).collect();
+        let all = [
+            choices("plan", None, options),
+            choices("park", None, vec![]),
+        ]
+        .concat();
+        assert_eq!(all.len(), 20 + 1 + 3);
+        for o in &all {
+            let word = answer_word(o);
+            let args = w(&["12", &word, "--by", "alice"]);
+            assert!(crate::answer::words(&args).is_ok(), "{word}");
+        }
+    }
 }
