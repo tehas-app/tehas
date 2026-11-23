@@ -200,8 +200,8 @@ pub enum Marker {
         /// The kind it names.
         kind: MarkerKind,
         /// Its payload when the rest of its line reads as the wrapped form's
-        /// would, for a reader that reports what was meant; never one to act
-        /// on.
+        /// would: never one to hold or start on; a reader may use it to keep
+        /// a fact it would otherwise drop.
         read: Option<Box<Marker>>,
     },
     /// A kind this copy does not know. It holds what it sits on.
