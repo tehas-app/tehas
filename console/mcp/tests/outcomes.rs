@@ -48,7 +48,7 @@ fn dirs(name: &str) -> (TestDir, Dirs) {
 }
 
 fn call(dir: &Dirs, args: Value) -> Result<Value, ToolError> {
-    match mcp::tools::call(dir, "factory_outcomes", &args)? {
+    match mcp::tools::call(dir, "factory_outcomes", &args.into())? {
         Output::Json(v) => Ok(common::conforms("factory_outcomes", v)),
         other => panic!("not JSON: {other:?}"),
     }

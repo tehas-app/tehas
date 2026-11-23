@@ -66,7 +66,7 @@ impl Env {
     }
 
     fn call(&self, name: &str, args: Value) -> Result<Value, ToolError> {
-        match mcp::tools::call(&self.dirs, name, &args)? {
+        match mcp::tools::call(&self.dirs, name, &args.into())? {
             Output::Json(v) => Ok(common::conforms(name, v)),
             other => panic!("{name} gave {other:?}"),
         }
@@ -374,7 +374,7 @@ fn bad_ids() {
         logs: "/nonexistent/logs".into(),
     };
     for id in ["work-1-1/../x", "work-01-123456789", "plan-1-12", ""] {
-        match mcp::tools::call(&dirs, "factory_session", &json!({"id": id})) {
+        match mcp::tools::call(&dirs, "factory_session", &json!({"id": id}).into()) {
             Err(ToolError::BadArgs(_)) => {}
             other => panic!("{id:?}: {other:?}"),
         }
@@ -1072,7 +1072,7 @@ fn an_issue_being_planned() {
         sessions: snap,
         logs: root.join("no-logs"),
     };
-    let out = match mcp::tools::call(&dirs, "factory_issue", &json!({"issue": 6})) {
+    let out = match mcp::tools::call(&dirs, "factory_issue", &json!({"issue": 6}).into()) {
         Ok(Output::Json(v)) => common::conforms("factory_issue", v),
         other => panic!("not JSON: {other:?}"),
     };
@@ -1142,7 +1142,7 @@ fn the_issue_argument_is_checked() {
         logs: "/nonexistent/logs".into(),
     };
     assert!(matches!(
-        mcp::tools::call(&dirs, "factory_delete", &json!({})),
+        mcp::tools::call(&dirs, "factory_delete", &json!({}).into()),
         Err(ToolError::Unknown(_))
     ));
 }

@@ -59,7 +59,7 @@ impl Env {
     }
 
     fn call(&self, args: Value) -> Result<Value, ToolError> {
-        match mcp::tools::call(&self.dirs, "factory_park", &args)? {
+        match mcp::tools::call(&self.dirs, "factory_park", &args.into())? {
             Output::Json(v) => Ok(common::conforms("factory_park", v)),
             other => panic!("factory_park gave {other:?}"),
         }

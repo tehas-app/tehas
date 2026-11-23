@@ -6,6 +6,7 @@
 //! `initialize` is answered, then the client's requests carry the header
 //! `MCP-Protocol-Version: 2025-11-25`. No session is kept for either.
 
+use crate::args::Args;
 use crate::git;
 use crate::keys::{Authenticated, Keys};
 use crate::logs::LogGuard;
@@ -277,8 +278,10 @@ pub fn answer_in(
             }
             if let Some(n) = name.and_then(|n| tickets::NAMES.into_iter().find(|t| *t == n)) {
                 if tickets::serves(key.scope(), n) {
-                    let args = params.get("arguments").cloned().unwrap_or(json!({}));
-                    let result = match tickets::call(&dirs.sessions, n, &args) {
+                    let args = Args::from(params.get("arguments").cloned().unwrap_or(json!({})));
+                    let result = match tickets::Call::read(n, &args)
+                        .and_then(|call| tickets::run(&dirs.sessions, &call))
+                    {
                         Ok(v) => json!({
                             "resultType": "complete",
                             "content": [{"type": "text", "text": v.to_string()}],
@@ -300,13 +303,14 @@ pub fn answer_in(
                 Some(_) => "?".into(),
                 None => "-".into(),
             });
-            let args = params.get("arguments").cloned().unwrap_or(json!({}));
+            let args = Args::from(params.get("arguments").cloned().unwrap_or(json!({})));
             // A tool outside the key's scope is answered exactly as one the
             // server does not have, so the scope is not probeable tool by
-            // tool. The arguments above are read for either answer.
+            // tool. Its arguments are not looked at: only a tool the key may
+            // call reads them, and refuses them before it runs.
             let asked = name.unwrap_or("");
             let called = if key.may_call(asked) {
-                tools::call_held(dirs, asked, &args)
+                tools::Call::read(asked, &args).and_then(|call| tools::call_held(dirs, &call))
             } else {
                 Err(ToolError::Unknown(asked.to_string()))
             };
