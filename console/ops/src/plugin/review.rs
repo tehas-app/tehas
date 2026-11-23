@@ -346,7 +346,7 @@ mod tests {
         let get = vars(&[
             (
                 "TEHAS_PLUGIN_GRANTS_FLOORPLAN",
-                &format!("{C} product model:2000000 hook:after:work"),
+                &format!("{C} product model:2000000 hook:after:change.offered"),
             ),
             ("PI_ENSEMBLE_SUBAGENT_PROVIDER", "local"),
             ("PI_ENSEMBLE_SUBAGENT_MODEL", "qwen"),
@@ -370,7 +370,8 @@ mod tests {
         let text = r.text();
         assert!(text.contains(&"  view (not granted): its /out is served behind the sign-in, and a view in the plugins menu that opens in the dock: everyone the sign-in lets in sees it".to_string()), "{text:#?}");
         assert!(text.contains(
-            &"  hook:after:work is granted and not asked for: it gives nothing".to_string()
+            &"  hook:after:change.offered is granted and not asked for: it gives nothing"
+                .to_string()
         ));
         assert!(text.contains(&"model: provider local at 127.0.0.1, on this host".to_string()));
         assert!(!text.iter().any(|l| l.contains("provider far")));

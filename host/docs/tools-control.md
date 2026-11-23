@@ -337,7 +337,7 @@ and two in all run at once, and a request for the same pull request written
 while one runs, even at the same head, runs after it. A hook takes its
 request before it runs, and reads the plugin's pin, grants and state again
 before each run: a plugin no longer ready at its pin or no longer granted
-`hook:after:work` runs nothing and posts nothing. With `product` granted the
+`hook:after:change.offered` runs nothing and posts nothing. With `product` granted the
 hook fetches the pull request's head into the mirror as
 `refs/tehas/plugin-pr/<name>/<pr>`, one ref for each plugin, and when that
 head moved since the request it asks GitHub for the head and base together
@@ -349,7 +349,7 @@ history line; a line that names a pull request, was not stopped by a signal,
 and did not end `refused` or `merged` raises `change.offered`, a refresh's
 too. The plugins' bridge, a listener of the cycle's events while plugins are
 on, then reads that pull request from GitHub. For each plugin granted
-`hook:after:work` and ready at its pin it writes
+`hook:after:change.offered` and ready at its pin it writes
 `~/tehas/plugins/<name>/hooks/<pr>.json` (the pull request, its head as
 GitHub gave it, its base, the issue and the event's envelope) and starts
 `tehas-plugin-hook@<name>-<pr>.service`. It waits for none of them. A hook

@@ -138,8 +138,8 @@ pub fn tar(top: &str, files: &[(&str, &str)]) -> Vec<u8> {
 }
 
 pub fn manifest(asks: &str) -> String {
-    let hooks = if asks.contains("hook:after:work") {
-        r#", "hooks": [{"at": "after:work", "timeout": 300}]"#
+    let hooks = if asks.contains("hook:after:change.offered") {
+        r#", "hooks": [{"at": "after:change.offered", "timeout": 300}]"#
     } else {
         ""
     };
@@ -613,7 +613,12 @@ fn ask_hook_on(w: &World, h: &mut Fake, head: &str) {
 #[test]
 fn a_hook_reads_its_pull_request_and_keeps_its_verdict() {
     let mut h = Fake::new();
-    let w = world("plugin-run-hook", &mut h, "", "product hook:after:work");
+    let w = world(
+        "plugin-run-hook",
+        &mut h,
+        "",
+        "product hook:after:change.offered",
+    );
     ask_hook_on(&w, &mut h, H);
     h.x.on(
         "refs/tehas/plugin-pr/demo/42^{commit}",
@@ -658,7 +663,12 @@ fn a_hook_reads_its_pull_request_and_keeps_its_verdict() {
 #[test]
 fn a_hook_with_a_bad_verdict_did_not_finish() {
     let mut h = Fake::new();
-    let w = world("plugin-run-hook-bad", &mut h, "", "hook:after:work");
+    let w = world(
+        "plugin-run-hook-bad",
+        &mut h,
+        "",
+        "hook:after:change.offered",
+    );
     ask_hook_on(&w, &mut h, H);
     h.tars.insert(
         "tehas-plugin-demo-7:/out/_tehas".into(),
@@ -676,7 +686,12 @@ fn a_hook_with_a_bad_verdict_did_not_finish() {
 #[test]
 fn a_newer_request_that_came_during_a_hook_runs_after_it() {
     let mut h = Fake::new();
-    let w = world("plugin-run-hook-again", &mut h, "", "hook:after:work");
+    let w = world(
+        "plugin-run-hook-again",
+        &mut h,
+        "",
+        "hook:after:change.offered",
+    );
     ask_hook_on(&w, &mut h, H);
     h.tars.insert(
         "tehas-plugin-demo-7:/out/_tehas".into(),
@@ -721,7 +736,12 @@ fn a_newer_request_that_came_during_a_hook_runs_after_it() {
 #[test]
 fn a_hook_with_no_request_or_grant_does_not_run() {
     let mut h = Fake::new();
-    let w = world("plugin-run-hook-none", &mut h, "", "hook:after:work");
+    let w = world(
+        "plugin-run-hook-none",
+        &mut h,
+        "",
+        "hook:after:change.offered",
+    );
     assert_eq!(go(&mut h, &w, &hook_ask()), 3);
     let mut h = Fake::new();
     let w = world("plugin-run-hook-ungranted", &mut h, "", "product");
@@ -733,7 +753,12 @@ fn a_hook_with_no_request_or_grant_does_not_run() {
 #[test]
 fn a_hook_reads_the_plugin_again_after_its_waits() {
     let mut h = Fake::new();
-    let w = on_github("plugin-run-hook-revoked", &mut h, "hook:after:work", H);
+    let w = on_github(
+        "plugin-run-hook-revoked",
+        &mut h,
+        "hook:after:change.offered",
+        H,
+    );
     ask_hook_on(&w, &mut h, H);
     // A refresh holds the lock while the plugin is refused, then lets go.
     let held = File::create(runs::refresh_lock(&w.home, "demo")).unwrap();
@@ -758,7 +783,12 @@ fn a_hook_reads_the_plugin_again_after_its_waits() {
 #[test]
 fn a_request_that_came_during_a_hook_is_not_run_once_the_pin_moved() {
     let mut h = Fake::new();
-    let w = on_github("plugin-run-hook-moved-pin", &mut h, "hook:after:work", H);
+    let w = on_github(
+        "plugin-run-hook-moved-pin",
+        &mut h,
+        "hook:after:change.offered",
+        H,
+    );
     ask_hook_on(&w, &mut h, H);
     // During the first run another head is asked for, and tehas update
     // leaves the plugin built at another commit.
@@ -788,7 +818,12 @@ fn a_request_that_came_during_a_hook_is_not_run_once_the_pin_moved() {
 #[test]
 fn a_request_written_while_its_hook_runs_at_the_same_head_runs_after_it() {
     let mut h = Fake::new();
-    let w = on_github("plugin-run-hook-same", &mut h, "hook:after:work", H);
+    let w = on_github(
+        "plugin-run-hook-same",
+        &mut h,
+        "hook:after:change.offered",
+        H,
+    );
     ask_hook_on(&w, &mut h, H);
     let home = w.home.to_path_buf();
     let mut first = true;
@@ -825,7 +860,7 @@ fn a_head_fetched_new_runs_with_the_base_github_gives_it() {
     let w = on_github(
         "plugin-run-hook-base",
         &mut h,
-        "product hook:after:work",
+        "product hook:after:change.offered",
         H2,
     );
     h.pull.as_mut().unwrap()["base"]["sha"] = json!(B2);
@@ -851,7 +886,7 @@ fn a_head_fetched_new_runs_with_the_base_github_gives_it() {
     let w = on_github(
         "plugin-run-hook-base-moved",
         &mut h,
-        "product hook:after:work",
+        "product hook:after:change.offered",
         B2,
     );
     ask_hook_on(&w, &mut h, H);
@@ -962,7 +997,7 @@ fn a_hook_granted_the_model_gets_no_socket() {
         "plugin-run-hook-model",
         &mut h,
         "",
-        "model:2000 hook:after:work",
+        "model:2000 hook:after:change.offered",
     );
     ask_hook_on(&w, &mut h, H);
     h.tars.insert(
@@ -988,7 +1023,12 @@ fn a_hook_granted_the_model_gets_no_socket() {
 #[test]
 fn a_hook_an_event_asked_for_is_told_the_envelope() {
     let mut h = Fake::new();
-    let w = world("plugin-run-hook-event", &mut h, "", "hook:after:work");
+    let w = world(
+        "plugin-run-hook-event",
+        &mut h,
+        "",
+        "hook:after:change.offered",
+    );
     let envelope = tehas_ports::events::samples()
         .into_iter()
         .find(|s| s.name == tehas_ports::events::Name::ChangeOffered)
@@ -1055,7 +1095,12 @@ fn on_github(name: &str, h: &mut Fake, grants: &str, head: &str) -> World {
 #[test]
 fn a_hooks_end_posts_one_status_on_the_head_it_read() {
     let mut h = Fake::new();
-    let w = on_github("plugin-run-status", &mut h, "view hook:after:work", H);
+    let w = on_github(
+        "plugin-run-status",
+        &mut h,
+        "view hook:after:change.offered",
+        H,
+    );
     ask_hook_on(&w, &mut h, H);
     assert_eq!(go(&mut h, &w, &hook_ask()), 0);
     let post = format!("api -X POST repos/acme/widget/statuses/{H} -f state=success -f context=tehas/plugin/demo -f description=One new finding at @\u{200b}octocat. -f target_url=https://plugin-demo.example.org/_hooks/42");
@@ -1067,7 +1112,12 @@ fn a_hooks_end_posts_one_status_on_the_head_it_read() {
 #[test]
 fn a_hook_that_did_not_finish_is_an_error_with_no_target_without_a_view() {
     let mut h = Fake::new();
-    let w = on_github("plugin-run-status-error", &mut h, "hook:after:work", H);
+    let w = on_github(
+        "plugin-run-status-error",
+        &mut h,
+        "hook:after:change.offered",
+        H,
+    );
     ask_hook_on(&w, &mut h, H);
     h.ended = Ended::Killed;
     assert_eq!(go(&mut h, &w, &hook_ask()), 1);
@@ -1080,7 +1130,12 @@ fn a_hook_that_did_not_finish_is_an_error_with_no_target_without_a_view() {
 #[test]
 fn a_head_that_moved_while_the_hook_ran_is_asked_for_again() {
     let mut h = Fake::new();
-    let w = on_github("plugin-run-status-moved", &mut h, "hook:after:work", H2);
+    let w = on_github(
+        "plugin-run-status-moved",
+        &mut h,
+        "hook:after:change.offered",
+        H2,
+    );
     ask_hook_on(&w, &mut h, H);
     assert_eq!(go(&mut h, &w, &hook_ask()), 0);
     // The verdict of H is posted on H, then H2 is asked for and run.
@@ -1107,7 +1162,12 @@ fn a_head_that_moved_while_the_hook_ran_is_asked_for_again() {
 #[test]
 fn a_status_github_refuses_the_app_is_kept_for_tehas_plugin() {
     let mut h = Fake::new();
-    let w = on_github("plugin-run-status-refused", &mut h, "hook:after:work", H);
+    let w = on_github(
+        "plugin-run-status-refused",
+        &mut h,
+        "hook:after:change.offered",
+        H,
+    );
     ask_hook_on(&w, &mut h, H);
     h.statuses = Err(": HTTP 403".into());
     assert_eq!(go(&mut h, &w, &hook_ask()), 0);
