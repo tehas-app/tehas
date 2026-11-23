@@ -76,6 +76,11 @@ pub enum Action {
         issue: u64,
         why: String,
     },
+    /// An open record no process holds the lock of, ended as lost.
+    Lost {
+        issue: u64,
+        attempt: u64,
+    },
     Sweep {
         issue: u64,
         log: String,
@@ -395,6 +400,10 @@ impl From<&Action> for Value {
             Action::RefreshDrop(n) => put("refresh_drop", json!(n)),
             Action::RefreshHeld(h) => put("refresh_held", json!(h)),
             Action::BranchNote(s) => put("branch_note", json!(s)),
+            Action::Lost { issue, attempt } => {
+                put("lost_cycle", json!(issue));
+                put("attempt", json!(attempt));
+            }
             Action::Reap { name, why } => {
                 put("reap", json!(name));
                 put("why", json!(why));

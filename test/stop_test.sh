@@ -732,8 +732,8 @@ t_eq "$(t_row cycle-show 5 -- '[(.cycle.ended_at != null), .cycle.end_reason] | 
 t_eq "$(cat "$T/lock-seen")" 1
 t_eq "$(find "$state/5.lock" 2>/dev/null | wc -l)" 0
 rm -f "$T/lock-seen" "$T/store-answers.n"
-# No history is written for it: tehas stop writes none.
-t_eq "$(t_row history-show 5 -- '.rows | length')" 0
+# Its one line of history says it was stopped (T11.3).
+t_eq "$(t_row history-show 5 -- '[.rows[].status] | tostring')" '["stopped"]'
 
 t_case "a second stop finds nothing to do and asks the store to end nothing"
 rm -f "$T"/calls/*

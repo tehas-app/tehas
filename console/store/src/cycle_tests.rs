@@ -1417,18 +1417,28 @@ fn history_keeps_fifty_per_issue() {
 }
 
 #[test]
-fn a_refused_start_ends_the_row_with_no_history() {
+fn a_refused_start_ends_the_row_with_its_line_of_history() {
     let home = home("end-refused");
     let (lock_file, a) = start(&home, 65);
     let (n, at) = attempt_args(65, a);
-    let v = ok(&home, &["cycle-end", &n, "--attempt", &at, "--refused"]);
+    let v = ok(
+        &home,
+        &["cycle-end", &n, "--attempt", &at, "--refused", "--rc", "65"],
+    );
     assert_eq!(v["already"], false);
     assert_eq!(v["cycle"]["ended_at"], NOW);
     assert_eq!(v["cycle"]["end_reason"], Value::Null);
-    // The refused start is ended like any cycle: no history, and the closing
-    // ending and heartbeat that `--refused` has written since #1748. Neither
-    // can hold a step: the start never ran, so no heartbeat came before it.
-    assert_eq!(count(&home, "cycle_history"), 0);
+    // The refused start is ended like any cycle: its line of history (T11.3),
+    // with the exit status the unit left, and the closing ending and
+    // heartbeat that `--refused` has written since #1748. Neither can hold a
+    // step: the start never ran, so no heartbeat came before it.
+    assert_eq!(
+        one::<String>(
+            &home,
+            "SELECT status || ' ' || rc || ' ' || attempt || ' ' || started_at FROM cycle_history"
+        ),
+        format!("refused 65 {a} {NOW}")
+    );
     assert_eq!(count(&home, "endings"), 1);
     assert_eq!(
         one::<String>(
@@ -1457,6 +1467,175 @@ fn a_refused_start_ends_the_row_with_no_history() {
     );
 }
 
+/// `--lost` (T11.3): the poll's end of an open record no process holds the
+/// lock of. Refused while the lock is held; with it free, the cycle ends as
+/// lost when it was last heard from, quiet for LOST_AFTER, and its line of
+/// history says so with when it was written. A second ask is done.
+#[test]
+fn a_lost_end_needs_a_free_lock_and_writes_its_line_late() {
+    let home = home("end-lost");
+    let (l, a) = start(&home, 68);
+    let (n, at) = attempt_args(68, a);
+    ok_at(
+        &home,
+        NOW + 30,
+        &[
+            "cycle-heartbeat",
+            &n,
+            "--attempt",
+            &at,
+            "--running",
+            "--status",
+            "running",
+            "--step",
+            "develop",
+        ],
+    );
+    assert_eq!(
+        refused(&home, &["cycle-end", &n, "--attempt", &at, "--lost"]),
+        (1, "running".into())
+    );
+    drop(l);
+    // Heard from within LOST_AFTER: not lost yet, as publish does not show it
+    // lost, so the end `tehas stop` writes next is not taken from it.
+    let heard = NOW + 30 + crate::live::LOST_AFTER - 1;
+    let (code, line) = call_at(&home, heard, &["cycle-end", &n, "--attempt", &at, "--lost"])
+        .expect_err("a cycle heard from just now is not lost");
+    assert_eq!((code, word(&line)), (1, "heard".into()));
+    assert_eq!(count(&home, "cycle_history"), 0);
+    let later = NOW + 1000;
+    let v = ok_at(&home, later, &["cycle-end", &n, "--attempt", &at, "--lost"]);
+    let ended = NOW + 30 + crate::live::LOST_AFTER;
+    assert_eq!(v["cycle"]["end_reason"], "lost");
+    assert_eq!(v["cycle"]["ended_at"], ended);
+    assert_eq!(
+        one::<String>(
+            &home,
+            "SELECT status || ' ' || at || ' ' || recorded_at || ' ' || started_at FROM cycle_history"
+        ),
+        format!("lost {ended} {later} {NOW}")
+    );
+    assert_eq!(
+        one::<String>(&home, "SELECT status || ' ' || ended_at FROM endings"),
+        format!("lost {ended}")
+    );
+    let again = ok_at(
+        &home,
+        later + 5,
+        &["cycle-end", &n, "--attempt", &at, "--lost"],
+    );
+    assert_eq!(again["already"], true);
+    assert_eq!(count(&home, "cycle_history"), 1);
+    assert!(
+        usage(&["cycle-end", "1", "--attempt", "1", "--lost", "--stopped"])
+            .contains("is not taken with")
+    );
+}
+
+/// A start over an open record that never ended writes the lost cycle's line
+/// of history (T11.3), with its end when it was last heard from and the time
+/// of the start that wrote it.
+#[test]
+fn a_start_over_an_open_record_writes_the_lost_cycles_line() {
+    let home = home("start-lost");
+    let (l, a) = start(&home, 69);
+    drop(l);
+    let later = NOW + 5000;
+    let (_l2, b) = start_by(&home, 69, "alice", "approved", later);
+    assert_eq!(b, a + 1);
+    // Never heard from: it ended LOST_AFTER after its start.
+    let ended = NOW + crate::live::LOST_AFTER;
+    assert_eq!(
+        one::<String>(
+            &home,
+            "SELECT attempt || ' ' || status || ' ' || at || ' ' || recorded_at FROM cycle_history"
+        ),
+        format!("{a} lost {ended} {later}")
+    );
+}
+
+/// Every end of the ten `endings` keeps has its line of history, whatever
+/// ended it: a report, a refusal, `tehas stop`, the poll's lost end, and a
+/// start over a lost cycle (T11.3).
+#[test]
+fn every_ending_has_its_line_of_history() {
+    let home = home("endings-history");
+    let (_l, a) = start(&home, 70);
+    end(&home, 70, a, "merged");
+    let (_l, a) = start(&home, 71);
+    let (n, at) = attempt_args(71, a);
+    ok(&home, &["cycle-end", &n, "--attempt", &at, "--refused"]);
+    let (l, a) = start(&home, 72);
+    drop(l);
+    let (n, at) = attempt_args(72, a);
+    ok(&home, &["cycle-end", &n, "--attempt", &at, "--stopped"]);
+    let (l, a) = start(&home, 73);
+    drop(l);
+    let (n, at) = attempt_args(73, a);
+    ok_at(
+        &home,
+        NOW + 1000,
+        &["cycle-end", &n, "--attempt", &at, "--lost"],
+    );
+    let (l, _) = start(&home, 74);
+    drop(l);
+    let (_l, _) = start_by(&home, 74, "alice", "approved", NOW + 10);
+    assert_eq!(count(&home, "endings"), 5);
+    assert_eq!(
+        count(
+            &home,
+            "endings e WHERE NOT EXISTS (SELECT 1 FROM cycle_history h
+               WHERE h.issue = e.issue AND h.started_at = e.started_at)"
+        ),
+        0
+    );
+}
+
+/// An attempt is never given twice for an issue, also after its history has
+/// dropped every line past the newest 50; and the trim keeps the lines of
+/// the greatest `seq`, so a line written late with an end before the others
+/// is not the one dropped (T11.3).
+#[test]
+fn the_trim_keeps_the_newest_writes_and_no_attempt_is_given_twice() {
+    let home = home("trim-seq");
+    let mut attempts = Vec::new();
+    for i in 0..55 {
+        let (_l, a) = start_by(&home, 75, "alice", "approved", NOW + i * 10);
+        end(&home, 75, a, "failed");
+        attempts.push(a);
+    }
+    assert_eq!(count(&home, "cycle_history WHERE issue = 75"), 50);
+    let (l, a) = start_by(&home, 75, "alice", "approved", NOW + 600);
+    attempts.push(a);
+    drop(l);
+    // The lost line is written last but ends first: it is kept.
+    let (n, at) = attempt_args(75, a);
+    ok_at(
+        &home,
+        NOW + 9000,
+        &["cycle-end", &n, "--attempt", &at, "--lost"],
+    );
+    let greatest: i64 = one(&home, "SELECT max(seq) FROM cycle_history");
+    assert_eq!(count(&home, "cycle_history WHERE issue = 75"), 50);
+    assert_eq!(
+        one::<i64>(
+            &home,
+            "SELECT attempt FROM cycle_history WHERE status = 'lost'"
+        ),
+        a
+    );
+    assert_eq!(
+        one::<i64>(&home, "SELECT seq FROM cycle_history WHERE status = 'lost'"),
+        greatest
+    );
+    let (_l, next) = start_by(&home, 75, "alice", "approved", NOW + 9500);
+    attempts.push(next);
+    let mut seen = attempts.clone();
+    seen.sort_unstable();
+    seen.dedup();
+    assert_eq!(seen.len(), attempts.len(), "{attempts:?}");
+}
+
 #[test]
 fn a_stopped_end_needs_a_free_lock() {
     let home = home("end-stopped");
@@ -1469,7 +1648,15 @@ fn a_stopped_end_needs_a_free_lock() {
     drop(l);
     let v = ok(&home, &["cycle-end", &n, "--attempt", &at, "--stopped"]);
     assert_eq!(v["cycle"]["end_reason"], "stopped");
-    assert_eq!(count(&home, "cycle_history"), 0);
+    // Its line of history (T11.3): stopped, the start's time, written now.
+    assert_eq!(
+        one::<String>(
+            &home,
+            "SELECT status || ' ' || started_at || ' ' || at || ' ' || recorded_at || ' '
+               || how || ' ' || by_account FROM cycle_history"
+        ),
+        format!("stopped {NOW} {NOW} {NOW} approved alice")
+    );
     // The closing rows of #1748: the end publish reads, and no step for a
     // cycle that never sent a heartbeat to take one from. One heartbeat row is
     // on record: `cycle-heartbeat` refuses a cycle whose end is, so the

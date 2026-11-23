@@ -833,7 +833,9 @@ no cycle on the host behind it. It takes `tehas:running` off, adds
 `needs-human-attention` and says so in a plain comment without boxes. Look for
 a pull request the cycle may have opened, then apply `tehas:ready` to retry.
 The poll starts nothing for it by itself. A closed issue in that state only
-loses `tehas:running`.
+loses `tehas:running`. Once the cycle has not been heard from for two minutes,
+the poll also ends its record as `lost`, from when it was last heard from,
+and `tehas history` has its line.
 
 An answer counts only from an allowed labeller, and only while the issue is
 parked and open: it carries `needs-human-attention` and neither

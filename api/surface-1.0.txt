@@ -604,3 +604,7 @@ field question.question.choices[].choice
 field question.question.choices[].label
 field question.question.id
 field question.question.kind
+field export.runs[].recorded
+field export.runs[].signalled
+field history.runs[].recorded
+field history.runs[].signalled

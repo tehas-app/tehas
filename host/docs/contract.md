@@ -93,7 +93,7 @@ other issue the poll takes it off, as it does an outsider's.
 | Commands | The `tehas` commands, their subcommands and the flags of each, but the flags marked `internal` | `api/commands.txt`, held to the commands tehas knows and to the synopsis lines of each command's text by the tests of `console/src/front.rs` |
 | Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
 | Labels | The rows of `host/labels.tsv`: the name, what the dispatcher does with it, and the word of the ports it is (the fourth column, such as `State::Running`) | The dispatcher's and the tidy's tests, and the table's own test in `console/src/labels.rs` |
-| Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 30 | The store's migration tests |
+| Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 31 | The store's migration tests |
 | analytics.db | `user_version` 7, tables and columns only added | `console/analytics/src/schema.pinned` |
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints, and the tests of `console/src/front.rs`, which fail when a public `--json` row of `api/commands.txt` has no schema |
@@ -189,15 +189,20 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
 2. **Run `tehas update`.** It stops and removes the units and files of the
    features 2.0 took out of core, and migrates the state store and analytics.
 3. **The state store** (`state/tehas.db`) goes from schema 23, 1.4.x's, to
-   30 in one run, step by step: 24 adds the answers of `tehas answer`, 25
+   31 in one run, step by step: 24 adds the answers of `tehas answer`, 25
    keeps a stop's question with its choices, 26 lets a cycle's `how` say
    `reply`, 27 rewrites every `retry-tick` to `reply` and marks a question
    open at the upgrade to be asked again, 28 rewrites `fixer` to
    `millwright` and drops `comment_links` from an approval's input, 29 drops
-   the tables of outsource and keeps every other row, and 30 rewrites the
-   how word `label` to `approved`, numbers each question in the store's own
-   order, keeps a withdrawn question with when it was withdrawn, keeps when
-   each history line was written, and gives the store an id.
+   the tables of outsource and keeps every other row, 30 rewrites the how
+   `label` to `approved`, gives each question the store's own number and
+   keeps a withdrawn question with when it was withdrawn instead of deleting
+   it, keeps when each history line was written and whether a signal stopped
+   the cycle, and gives the store its id (`store` of `tehas api`; the step
+   is `STEP_30` in `console/store/src/db.rs`), and 31 adds
+   `cycle_history.reported`, 1 on every row there, as a report wrote each.
+   The analytics' own step at the same update says `offered` where its
+   `runs.outcome` said `pr`.
    `tehas state check --json` prints the schema.
 4. **Analytics** (`state/analytics.db`) goes from schema 4 to 7 the first
    time it is opened after the update: it drops `samples.watts` and
@@ -695,13 +700,13 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: `tehas update` removes the last `live/panels.json`.
   Leave `~/tehas/state/panels.json` in place: 2.0 no longer reads it, and
   the 2.1 `panels` plugin migrates its pages into its grant.
-- **The state store is at schema 30.**
-  #2794, #2830, #2843, #2867, #2889, #2886, #2911.
-  The steps 24 to 30 are listed under [Upgrading to 2.0](#upgrading-to-20).
-  `tehas state check --json` prints `schema` 30, and `rows` counts the new
-  table `answers` and no longer the tables of outsource. Later 2.x
-  releases migrate the store forward by numbered steps, so a new table in
-  2.1 is an ordinary step.
+- **The state store is at schema 31.**
+  #2794, #2830, #2843, #2867, #2889, #2886, #2911, #2926.
+  The steps 24 to 31 are listed under [Upgrading to 2.0](#upgrading-to-20).
+  `tehas state check --json` prints `schema` 31, and `rows` counts the new
+  table `answers` and no longer the tables of outsource. Later 2.x releases
+  migrate the store forward by numbered steps in the same way, so a new
+  table in 2.1 is an ordinary step.
   Readers: `tehas update`, readers of `tehas state check` and of a state
   copy, the end-to-end suite.
   Adopter action: `tehas update` migrates the store.
