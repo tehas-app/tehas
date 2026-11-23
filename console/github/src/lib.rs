@@ -16,6 +16,7 @@ pub mod gh;
 pub mod markers;
 mod port;
 pub mod table;
+mod ticket;
 mod tickets;
 
 pub use forge::{read_events, Approval, ForgeError, GitHub, LabelEvent};

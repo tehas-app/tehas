@@ -1,0 +1,469 @@
+[
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": {
+        "items": [
+          {
+            "at": 1769936405,
+            "by": {
+              "id": "101",
+              "kind": "Person",
+              "login": "alice",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "Project",
+                "value": "bug"
+              }
+            }
+          },
+          {
+            "at": 1769936410,
+            "by": {
+              "id": "101",
+              "kind": "Person",
+              "login": "alice",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Kind",
+              "value": {
+                "type": "Feature"
+              }
+            }
+          },
+          {
+            "at": 1769936460,
+            "by": {
+              "id": "101",
+              "kind": "Person",
+              "login": "alice",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Unknown"
+            }
+          },
+          {
+            "at": 1769936520,
+            "by": {
+              "id": "101",
+              "kind": "Person",
+              "login": "alice",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Targeted",
+              "value": null
+            }
+          },
+          {
+            "at": 1769936580,
+            "by": {
+              "id": "101",
+              "kind": "Person",
+              "login": "alice",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Targeted",
+              "value": "3"
+            }
+          },
+          {
+            "at": 1769936640,
+            "by": {
+              "id": "101",
+              "kind": "Person",
+              "login": "alice",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Assigned",
+              "value": {
+                "id": "102",
+                "kind": "Person",
+                "login": "bob",
+                "realm": "CodeHost"
+              }
+            }
+          },
+          {
+            "at": 1769936700,
+            "by": {
+              "id": "102",
+              "kind": "Person",
+              "login": "bob",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Retitled",
+              "value": {
+                "from": "Ship importer",
+                "to": "Ship the importer"
+              }
+            }
+          },
+          {
+            "at": 1769936760,
+            "by": {
+              "id": "101",
+              "kind": "Person",
+              "login": "alice",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "BlockerAdded",
+              "value": {
+                "Here": {
+                  "Ticket": {
+                    "Number": 23
+                  }
+                }
+              }
+            }
+          },
+          {
+            "at": 1770019200,
+            "by": {
+              "id": "900",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "State",
+                "value": "Running"
+              }
+            }
+          },
+          {
+            "at": 1770116400,
+            "by": {
+              "id": "900",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "State",
+                "value": "Shipped"
+              }
+            }
+          },
+          {
+            "at": 1770116400,
+            "by": {
+              "id": "900",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Closed",
+              "value": {
+                "closer": {
+                  "Change": {
+                    "merged": true,
+                    "no": 31
+                  }
+                },
+                "reason": "Done"
+              }
+            }
+          },
+          {
+            "at": 1770116400,
+            "by": {
+              "id": "900",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Unmarked",
+              "value": {
+                "type": "State",
+                "value": "Running"
+              }
+            }
+          }
+        ],
+        "more": false
+      }
+    },
+    "fixture": "Ticket 20 is closed as done by the merged change 31. It is a feature of the target v2, filed by alice and assigned to alice and bob, and carries the project's mark bug, the shipped state and a name no mark can have. Its text quotes a blocked marker, names one bare and holds one wrapped. It waits on the open ticket 23; its parts are the open ticket 21, the closed ticket 22 and an open ticket of another project; the change 31 names it twice, a ticket once and a change of another project once. Its history: bug on, the type set, a target that is gone set and taken off, the target v2 set, bob assigned, a new title, the wait on 23, the running state on, then in one second the running state off, the shipped state on and the close, and last a mark no name can have, put on by an account that is gone.",
+    "only": null,
+    "op": "Tickets::history",
+    "ticket": {
+      "Number": 20
+    },
+    "window": {
+      "Whole": 1000
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": {
+        "items": [
+          {
+            "at": 1770116400,
+            "by": {
+              "id": "900",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "State",
+                "value": "Shipped"
+              }
+            }
+          },
+          {
+            "at": 1770116400,
+            "by": {
+              "id": "900",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Closed",
+              "value": {
+                "closer": {
+                  "Change": {
+                    "merged": true,
+                    "no": 31
+                  }
+                },
+                "reason": "Done"
+              }
+            }
+          },
+          {
+            "at": 1770116400,
+            "by": {
+              "id": "900",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Unmarked",
+              "value": {
+                "type": "State",
+                "value": "Running"
+              }
+            }
+          }
+        ],
+        "more": true
+      }
+    },
+    "fixture": "Ticket 20 is closed as done by the merged change 31. It is a feature of the target v2, filed by alice and assigned to alice and bob, and carries the project's mark bug, the shipped state and a name no mark can have. Its text quotes a blocked marker, names one bare and holds one wrapped. It waits on the open ticket 23; its parts are the open ticket 21, the closed ticket 22 and an open ticket of another project; the change 31 names it twice, a ticket once and a change of another project once. Its history: bug on, the type set, a target that is gone set and taken off, the target v2 set, bob assigned, a new title, the wait on 23, the running state on, then in one second the running state off, the shipped state on and the close, and last a mark no name can have, put on by an account that is gone.",
+    "only": null,
+    "op": "Tickets::history",
+    "ticket": {
+      "Number": 20
+    },
+    "window": {
+      "Last": 3
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Cut"
+      }
+    },
+    "fixture": "Ticket 20 is closed as done by the merged change 31. It is a feature of the target v2, filed by alice and assigned to alice and bob, and carries the project's mark bug, the shipped state and a name no mark can have. Its text quotes a blocked marker, names one bare and holds one wrapped. It waits on the open ticket 23; its parts are the open ticket 21, the closed ticket 22 and an open ticket of another project; the change 31 names it twice, a ticket once and a change of another project once. Its history: bug on, the type set, a target that is gone set and taken off, the target v2 set, bob assigned, a new title, the wait on 23, the running state on, then in one second the running state off, the shipped state on and the close, and last a mark no name can have, put on by an account that is gone.",
+    "only": null,
+    "op": "Tickets::history",
+    "ticket": {
+      "Number": 20
+    },
+    "window": {
+      "Whole": 11
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": {
+        "items": [
+          {
+            "at": 1770116400,
+            "by": {
+              "id": "900",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Closed",
+              "value": {
+                "closer": {
+                  "Change": {
+                    "merged": true,
+                    "no": 31
+                  }
+                },
+                "reason": "Done"
+              }
+            }
+          }
+        ],
+        "more": false
+      }
+    },
+    "fixture": "Ticket 20 is closed as done by the merged change 31. It is a feature of the target v2, filed by alice and assigned to alice and bob, and carries the project's mark bug, the shipped state and a name no mark can have. Its text quotes a blocked marker, names one bare and holds one wrapped. It waits on the open ticket 23; its parts are the open ticket 21, the closed ticket 22 and an open ticket of another project; the change 31 names it twice, a ticket once and a change of another project once. Its history: bug on, the type set, a target that is gone set and taken off, the target v2 set, bob assigned, a new title, the wait on 23, the running state on, then in one second the running state off, the shipped state on and the close, and last a mark no name can have, put on by an account that is gone.",
+    "only": [
+      "Closed",
+      "Reopened"
+    ],
+    "op": "Tickets::history",
+    "ticket": {
+      "Number": 20
+    },
+    "window": {
+      "Whole": 1000
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": {
+        "items": [],
+        "more": false
+      }
+    },
+    "fixture": "Ticket 20 is closed as done by the merged change 31. It is a feature of the target v2, filed by alice and assigned to alice and bob, and carries the project's mark bug, the shipped state and a name no mark can have. Its text quotes a blocked marker, names one bare and holds one wrapped. It waits on the open ticket 23; its parts are the open ticket 21, the closed ticket 22 and an open ticket of another project; the change 31 names it twice, a ticket once and a change of another project once. Its history: bug on, the type set, a target that is gone set and taken off, the target v2 set, bob assigned, a new title, the wait on 23, the running state on, then in one second the running state off, the shipped state on and the close, and last a mark no name can have, put on by an account that is gone.",
+    "only": [
+      "Priority"
+    ],
+    "op": "Tickets::history",
+    "ticket": {
+      "Number": 20
+    },
+    "window": {
+      "Whole": 1000
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "NotFound"
+    },
+    "fixture": "Ticket 9 does not exist.",
+    "only": null,
+    "op": "Tickets::history",
+    "ticket": {
+      "Number": 9
+    },
+    "window": {
+      "Whole": 1000
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "sent": "Maybe",
+          "why": "Timeout"
+        }
+      }
+    },
+    "fixture": "No answer comes in time when ticket 10's history is read.",
+    "only": null,
+    "op": "Tickets::history",
+    "ticket": {
+      "Number": 10
+    },
+    "window": {
+      "Whole": 1000
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Calls",
+          "until": 1767225600
+        }
+      }
+    },
+    "fixture": "The site answers that the rate is limited when ticket 12's history is read.",
+    "only": null,
+    "op": "Tickets::history",
+    "ticket": {
+      "Number": 12
+    },
+    "window": {
+      "Whole": 1000
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "Forbidden"
+    },
+    "fixture": "The actor may not read ticket 14.",
+    "only": null,
+    "op": "Tickets::history",
+    "ticket": {
+      "Number": 14
+    },
+    "window": {
+      "Whole": 1000
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "NotFound"
+    },
+    "fixture": "The number 30 names a change, where tickets and changes share one number space.",
+    "only": null,
+    "op": "Tickets::history",
+    "ticket": {
+      "Number": 30
+    },
+    "window": {
+      "Last": 5
+    }
+  }
+]

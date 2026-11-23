@@ -1,10 +1,10 @@
 //! The tickets port, `Tickets` and `TicketWrites`, answered by [`GitHub`]
-//! over the forge's terms. What the port's callers ask today is answered:
-//! a ticket's digest (`several`), its marks going on and off (`history`),
-//! the factory's labels made (`prepare`), a project's own label
-//! (`ensure_mark`), and a mark put on or taken off. Every other method
-//! answers `Refused(Unsupported)` before any request, until the step of the
-//! ports' order that moves its first caller.
+//! over the forge's terms. Answered: one ticket to a depth (`ticket`), the
+//! tickets a filter takes (`list`), a ticket's digest (`several`), its
+//! history (`history`), its parts (`parts`), the factory's labels made
+//! (`prepare`), a project's own label (`ensure_mark`), and a mark put on or
+//! taken off. Every other method answers `Refused(Unsupported)` before any
+//! request, until its group of the adapter's order is built.
 
 use std::num::{NonZeroU32, NonZeroU64};
 
@@ -71,8 +71,10 @@ impl Cites for GitHub {
 }
 
 impl Tickets for GitHub {
-    fn ticket(&mut self, _: &TicketKey, _: Depth, _: Option<Window>) -> Got<Ticket> {
-        unsupported()
+    /// The issue's REST read, and one question for the rest of it with
+    /// the first page of its history.
+    fn ticket(&mut self, key: &TicketKey, depth: Depth, history: Option<Window>) -> Got<Ticket> {
+        GitHub::ticket(self, key, depth, history)
     }
 
     fn what_is(&mut self, _: NonZeroU64) -> Got<Item> {
@@ -83,8 +85,9 @@ impl Tickets for GitHub {
         numbers.iter().map(|n| (*n, unsupported())).collect()
     }
 
-    fn list(&mut self, _: &Filter, _: Bound) -> Got<Whole<TicketDigest>> {
-        unsupported()
+    /// The repository's issues, a question a page.
+    fn list(&mut self, filter: &Filter, bound: Bound) -> Got<Whole<TicketDigest>> {
+        GitHub::list(self, filter, bound)
     }
 
     /// One REST read of each issue, in the order asked.
@@ -113,8 +116,8 @@ impl Tickets for GitHub {
         unsupported()
     }
 
-    fn parts(&mut self, _: &TicketKey) -> Got<Whole<Part>> {
-        unsupported()
+    fn parts(&mut self, key: &TicketKey) -> Got<Whole<Part>> {
+        GitHub::parts(self, key)
     }
 
     fn closed_since(&mut self, _: At, _: Bound) -> Got<Whole<ClosedTicket>> {

@@ -224,6 +224,15 @@ pub(crate) fn parse_labels(out: &str) -> Option<Vec<String>> {
     )
 }
 
+/// Whether the REST issue read answered a pull request: GitHub answers one
+/// at an issue's path, with a `pull_request` beside its fields.
+pub(crate) fn is_pull(out: &str) -> bool {
+    serde_json::from_str::<Value>(out.trim())
+        .ok()
+        .and_then(|v| v.get("pull_request").map(|p| !p.is_null()))
+        .unwrap_or(false)
+}
+
 /// The question of the issue types the repository's owner has.
 pub(crate) const ISSUE_TYPES: &str = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { issueTypes(first: 50) { nodes { name } } } }";
 
