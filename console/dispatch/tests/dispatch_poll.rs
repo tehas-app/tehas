@@ -340,7 +340,7 @@ fn the_polls_token_reaches_the_real_tidy_status_and_health_the_token_program_run
     // counts its runs. Only the poll itself asks for a token.
     fs::create_dir_all(w.home.join("shim")).unwrap();
     fs::create_dir_all(w.home.join("libexec")).unwrap();
-    fs::copy(root().join("host/shim/gh"), w.home.join("shim/gh")).unwrap();
+    tehas_core::testing::copy_exe(root().join("host/shim/gh"), w.home.join("shim/gh")).unwrap();
     fs::create_dir_all(w.home.join("bin")).unwrap();
     std::os::unix::fs::symlink(w.t().join("bin/gh"), w.home.join("bin/gh")).unwrap();
     let runs = w.t().join("token-runs");

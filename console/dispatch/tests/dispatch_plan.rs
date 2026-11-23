@@ -313,7 +313,8 @@ fn without_the_refine_brief_on_the_host_no_session_starts_and_it_is_logged() {
         tehas_core::testing::copy_exe(e.path(), short.join("libexec").join(e.file_name())).unwrap();
     }
     for verb in ["tehas", "tehasbot"] {
-        fs::copy(root().join("bin").join(verb), short.join("bin").join(verb)).unwrap();
+        tehas_core::testing::copy_exe(root().join("bin").join(verb), short.join("bin").join(verb))
+            .unwrap();
     }
     tehas_core::testing::copy_exe(w.console(), short.join("libexec/console")).unwrap();
     // The Rust poll finds the brief beside its own program, as on a host.

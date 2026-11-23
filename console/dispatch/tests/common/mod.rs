@@ -755,7 +755,7 @@ impl World {
             std::os::unix::fs::symlink(&lib, t.join(tree).join("lib")).unwrap();
         }
         for verb in ["tehas", "tehasbot"] {
-            fs::copy(
+            tehas_core::testing::copy_exe(
                 root().join("bin").join(verb),
                 t.join("front/bin").join(verb),
             )

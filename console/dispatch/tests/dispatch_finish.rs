@@ -43,7 +43,7 @@ fn bare_tree(w: &World) -> PathBuf {
         }
     }
     for verb in ["tehas", "tehasbot"] {
-        fs::copy(
+        tehas_core::testing::copy_exe(
             root().join("bin").join(verb),
             tree.join("bin").join(format!("{verb}.real")),
         )
