@@ -1,5 +1,6 @@
 //! The ports of tehas, in tehas's own words: tickets, blueprints and the
-//! code host, identity and the joined reads, and the types they share.
+//! code host, identity and the joined reads, the types they share, and the
+//! ledger and health that report a supplier's failures once.
 //!
 //! A `Site` is `Send + Sync`, takes `&self` and makes the handles of one
 //! realm of one project. A handle is made per pass, takes `&mut self`, owns
@@ -19,6 +20,7 @@ mod bound;
 mod code_host;
 mod identity;
 mod ids;
+mod ledger;
 mod links;
 mod mark;
 mod marker;
@@ -36,6 +38,7 @@ pub use bound::*;
 pub use code_host::*;
 pub use identity::*;
 pub use ids::*;
+pub use ledger::*;
 pub use links::*;
 pub use mark::*;
 pub use marker::*;
