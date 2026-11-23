@@ -823,7 +823,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   read the issue again. It guards the moment of the edit, not an earlier
   edit by a person.
   Readers: the agents of a cycle.
-- **The relay answers in tehas's words.** T4.5. A write the relay makes
+- **The relay answers in tehas's words.** #3013. A write the relay makes
   answers the cycle's `gh` with its link, as before. A write GitHub refuses
   or cannot take answers with status 1 and one line of tehas's words,
   `gh-shim: the relay could not <verb> #<n>: <reason>`, never GitHub's own
