@@ -982,7 +982,7 @@ fn a_list_of_issues_that_cannot_be_read_keeps_the_lists_of_work_and_says_why() {
         .lines()
         .map(|l| l.split('\t').nth(1).unwrap_or(l).to_string())
         .collect();
-    assert_eq!(failures.join("\n"), "WARN status: gh issue list failed");
+    assert_eq!(failures.join("\n"), "a call to GitHub failed");
     assert_eq!(hr(&w, ".checks.github.failed"), "1");
 }
 
@@ -1035,7 +1035,7 @@ fn with_github_down_the_lists_are_kept_and_health_names_the_failed_calls() {
     assert_eq!(hr(&w, ".status"), "warn");
     has(
         &hr(&w, ".output"),
-        "GitHub failed 6 calls in the last 10 min, the last: WARN status: gh ",
+        "GitHub failed 6 calls in the last 10 min, the last: a call to GitHub failed",
     );
     has(
         &r.out,

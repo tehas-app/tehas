@@ -37,7 +37,7 @@ allowed = [
   "console/tests/top_view.rs",
 ]
 comment = "//"
-max = 788
+max = 783
 why = "Re-measured at T0's follow-up, with tests in files counted and GitHub's JSON fields, --json and --jq added: the console 240, dispatch 225, ops 98, cycle 93, the front pages 69, mcp 38, store 37, core 21 outside the forge, analytics 8, xtask 6, the sandbox 4, the rest 1 or 2. 219 are in test files. Some field names (createdAt, updatedAt) are also tehas's own JSON keys where it copied GitHub's: T4 and T7 rename or own them. T4 moves the rest behind the three ports. T15's ports added 33 matches. Test files whose every match is tehas's own word are allowed: console/cycle/tests/headless_caps.rs (the pi-rukas runner's --json flag given to tehascycle's caps check), console/tests/top_snapshot.rs and console/tests/top_view.rs (tehas top's --json), console/tests/top_frame.rs (tehas top's --json and the updatedAt key of tehas's own running.json). Still counted from those ports: the updatedAt and closedAt of the items of live/status.json in console/tests/top/mod.rs, GitHub's names that the queue copies through unchanged, which T4/T7 rename or own; and the --json of tehas order in console/tests/console_run.rs, in a file with gh stubs; both are findings in T4's Done in the plan. Below its fork value (846) by 27. Each allowed test file is listed in `allowed` with a comment saying what it covers. T16's drop of the millwright's grant takes out 6, the drop of All hands 3. T16's drop of the Spec mark takes out 2. T4.2 moves the forge's GitHub side into the adapter, console/github/ (tehas-github), and the allowed with it: console/github/** in place of console/core/src/forge/**. console/core/src/forge.rs stays allowed while Bounded and GhRunner are in it, until T4.11. The count is unchanged."
 
 [[check]]
@@ -55,7 +55,7 @@ allowed = [
   "console/core/src/testing.rs",
 ]
 comment = "//"
-max = 375
+max = 363
 why = "Re-measured at T0's follow-up, with tests in files counted: dispatch 207, cycle 67, the console 62, ops 34, core 13, store 11, mcp and xtask 4 each, the rest 1 or 2. 255 are in test files, which T1 moves onto the ports' fakes. The security shims that decide whether a gh call writes are among the rest: whether they stay separate is the owner's (T4), and those that stay become a written floor. console/core/src/testing.rs is allowed: it owns DENIED and UNREACHED, the lists of tools every test stubs to fail; nothing runs them. Eight harnesses had their own copy of the deny list and three tests their own list of tools stubbed to fail; they use the two lists now, which takes out 10 (5 of them from T15's ports, 5 older), and console_run reads the calls of each tool in UNREACHED in place of calls(\"gh\"). Still counted from T15's ports: the short name \"gh\" of a process in a fixture of /proc in console/tests/top_snapshot.rs, a false positive kept as a written floor of 1 in docs/architecture.md, because a pattern that skipped it would be fragile. Below its fork value (408) by 22. Each allowed test file is listed in `allowed` with a comment saying what it covers. T16's drop of the Spec mark takes out 2. T4.2 moves the forge's GitHub side into the adapter, console/github/ (tehas-github), and the allowed with it: console/github/** in place of console/core/src/forge/**. console/core/src/forge.rs stays allowed while Bounded and GhRunner are in it, until T4.11. The count is unchanged."
 
 [[check]]
@@ -172,7 +172,7 @@ allowed = [
   "console/tests/host_bridge.rs",
 ]
 comment = "//"
-max = 252
+max = 248
 why = "The map at T0: core 92 outside the forge (end_fault, journal, retry, call read gh's error text), dispatch 51, the console 46, ops 31, cycle 26, plugin 6, the rest 1 or 2. 55 are in test files. T4 turns them into the ports' named outcomes, read in the adapter. console/tests/host_bridge.rs is allowed: its one match is the docs server's own 404 for /host, which tehas serves, not GitHub's status. At its fork value (259). Each allowed test file is listed in `allowed` with a comment saying what it covers. T16's drop of the Spec mark takes out 3. T4.2 moves the forge's GitHub side into the adapter, console/github/ (tehas-github), and the allowed with it: console/github/** in place of console/core/src/forge/**. console/core/src/forge.rs stays allowed while Bounded and GhRunner are in it, until T4.11: its one status is the 404 of says_not_found, which reads the reason Bounded makes. The count is unchanged."
 
 # R7: tests drive the ports' fakes, not gh's argument lists.
@@ -188,7 +188,7 @@ allowed = [
   "console/github/**",
 ]
 comment = "#"
-max = 388
+max = 386
 why = "The map at T0: dispatch's tests 191, the shell tests of test/ 123 (84 of them t_stub gh), cycle 45, the console 31, store 17, core, mcp 4 each, ops 2, analytics, attach 1 each. T1 moves each crate's tests onto the ports' fakes, with the same answers, before its calls move; the forge's own pins stay. The test harnesses take the lists of tools every test stubs to fail from console/core/src/testing.rs, which is not in this check's files, in place of eight copies of the deny list and three lists of their own; that takes out 10 (5 of them from T15's ports, 5 older), console_run's calls(\"gh\") among them. Still counted from T15's ports: the short name \"gh\" of a process in a fixture of /proc in console/tests/top_snapshot.rs, a false positive kept as a written floor of 1 in docs/architecture.md. Below its fork value (419) by 18. T16's drop of the Spec mark takes out 2. T4.2 moves the forge's tests to the adapter's, console/github/tests/, and the allowed with them: console/github/** in place of console/core/src/forge/**. The count is unchanged. T15's port of test/state_test.sh takes out 1, its t_stub gh."
 
 # The ports' crate (T4.1): std and serde alone, no supplier, no effects, as
