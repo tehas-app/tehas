@@ -1,5 +1,5 @@
 -- The schema of state/analytics.db as v1.4.0 wrote it (user_version 4, with
--- the columns of db::ADDED), for the test that a file of 1.x migrates to 5.
+-- runs.contractor_id), for the test that a file of 1.x migrates to 6.
 
 -- The schema of state/analytics.db. Its version is SCHEMA_VERSION in db.rs,
 -- kept in PRAGMA user_version. Within one version columns are only added; a

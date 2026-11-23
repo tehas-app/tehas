@@ -564,10 +564,7 @@ impl Poll<'_> {
                     given_at: at,
                     given_how: if ans.tick.answered { "answer" } else { "reply" }.into(),
                     remove,
-                    fixer: None,
-                    park_lifted: None,
                     extra,
-                    placed: None,
                 },
             );
             // The answer of `tehas answer` is spent; a reply needs nothing: its
@@ -715,10 +712,7 @@ impl Poll<'_> {
                     given_at: iso(started),
                     given_how: "outage-retry".into(),
                     remove,
-                    fixer: None,
-                    park_lifted: None,
                     extra,
-                    placed: None,
                 },
             );
             return Err(End(0));
@@ -983,10 +977,7 @@ impl Poll<'_> {
             given_at: at,
             given_how: "refresh".into(),
             remove,
-            fixer: None,
-            park_lifted: None,
             extra,
-            placed: None,
         }))
     }
 }

@@ -13,7 +13,10 @@
 # when the surface loses a name of this file, and when it has one this file
 # does not list yet. The settings of energy use went in 2.0, and so did
 # the Protolab's setting and its status field, TEHAS_WORK_DESCRIBE,
-# TEHAS_WORK_FILES, TEHAS_WORK_ZIPS, TEHAS_WORK_COMMENTS and TEHAS_TOP.
+# TEHAS_WORK_FILES, TEHAS_WORK_ZIPS and TEHAS_WORK_COMMENTS, and so did
+# the label tehas:all-hands and status.allHands, and so did the
+# millwright's grant: TEHAS_MILLWRIGHT_FEED, TEHAS_MILLWRIGHT_MAX_FEEDS and
+# TEHAS_MILLWRIGHT_MAX_RETRIES, and so did the host panel's TEHAS_TOP.
 
 command analytics
 command analytics copy
@@ -183,10 +186,7 @@ setting TEHAS_MCP_DASHBOARD_KEYS
 setting TEHAS_MCP_KEYS
 setting TEHAS_MILLWRIGHT_APP
 setting TEHAS_MILLWRIGHT_EPICS
-setting TEHAS_MILLWRIGHT_FEED
-setting TEHAS_MILLWRIGHT_MAX_FEEDS
 setting TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
-setting TEHAS_MILLWRIGHT_MAX_RETRIES
 setting TEHAS_MODEL_KEY_<NAME>
 setting TEHAS_PLAN_MAX_TURNS
 setting TEHAS_PLAN_TIMEOUT
@@ -228,7 +228,6 @@ role EXPLORE
 role OPS
 label epic
 label needs-human-attention
-label tehas:all-hands
 label tehas:awaiting-merge
 label tehas:blocked
 label tehas:classic
@@ -239,7 +238,6 @@ label tehas:millwright-escalated
 label tehas:pause
 label tehas:plan
 label tehas:planning
-label tehas:prototype
 label tehas:question
 label tehas:ready
 label tehas:refine
@@ -482,7 +480,6 @@ field state-load.rows
 field state-load.schema
 field state-load.source
 field status.age
-field status.allHands
 field status.api
 field status.demand
 field status.demand.labelAlone

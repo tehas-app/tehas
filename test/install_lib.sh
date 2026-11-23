@@ -146,7 +146,6 @@ files="./.bashrc
 ./tehas/sandbox/gh-shim
 ./tehas/sandbox/npm/playwright/package-lock.json
 ./tehas/sandbox/npm/playwright/package.json
-./tehas/sandbox/vipune-shim
 ./tehas/shim/gh
 ./tehas/versions.env"
 # Left out of the exact comparison and checked on their own: the manual and the

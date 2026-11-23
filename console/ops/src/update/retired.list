@@ -1,7 +1,8 @@
 # The files an older tehas installed that this one does not, as paths under
 # $TEHAS_HOME. install.sh finds each one there and removes it once systemd has
 # the new units (console update retired, src/update/report.rs). One path a
-# line, in the order --check names them; a line from # is a comment.
+# line, in the order --check names them; a line from # is a comment. A path
+# that ends with a slash is a directory, removed with what it holds.
 #
 # The commands of before bin/tehas, one file each in bin/, and the console of
 # before it was a compiled program. The libraries the bash poll sourced. The
@@ -96,6 +97,24 @@ live/energy.json
 # The host panel's file, which left core in 2.0: nothing writes or reads it,
 # and the docs server would serve the last one for ever.
 live/top.json
+# What outsource installed while a test turned it on: its two programs, their
+# stamps, and the file of its contractors. Outsource was dropped in 2.0.
+libexec/tehas-proxy
+libexec/tehas-proxy.stamp
+libexec/tehas-contractor
+libexec/tehas-contractor.stamp
+live/contractors.json
+# The stand-in for vipune in the sandbox image, which sent a cycle's memory
+# calls to the factory while outsource was on.
+sandbox/vipune-shim
+# The two directories of state/ only outsource wrote, and only while a test
+# turned it on: a contractor's job files with the proxy's downloads, and the
+# factory's memory of the cycles, one database a cycle, which went with each
+# cycle. A cycle's own memory is in its workspace and stays. state/memory
+# itself and state/images are left alone. A path that ends with a slash is a
+# directory.
+state/outsource/
+state/memory/cycles/
 # The Protolab's list of its pages and its log, parked in 2.0: nothing writes,
 # reads or rotates them any more.
 live/protolab.json

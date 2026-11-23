@@ -49,9 +49,7 @@ t_eq "$(jq -r 'has("fixer")' <<<"$t_out")" false
 t_eq "$(jq -r '.features | type' <<<"$t_out")" array
 t_eq "$(jq -r '.features | all(type == "string")' <<<"$t_out")" true
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "status"
-t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "millwright-grant"
 t_eq "$(jq -r '.features | index("fixer-grant")' <<<"$t_out")" null
-t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "all-hands"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "limit"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "drain"
 t_eq "$(jq '.features | index("refresh-conflicts")' <<<"$t_out")" "null"
@@ -75,7 +73,7 @@ for gone in store-copy host-message-health refresh-pr-starts refresh-pr-lane ref
   t_eq "$gone $(jq --arg w "$gone" '.features | index($w)' <<<"$t_out")" "$gone null"
 done
 t_eq "$(jq -r '.features | last' <<<"$t_out")" "question"
-t_eq "$(jq -r '.features | length' <<<"$t_out")" 33
+t_eq "$(jq -r '.features | length' <<<"$t_out")" 31
 t_eq "$(jq -r '.features | index("host-bridge-tokens")' <<<"$t_out")" null
 # Every word of features is in the manual's example and has its own entry,
 # with what it is, in the manual's row of features.
@@ -100,7 +98,7 @@ t_run "$api --json"
 t_eq "$t_rc" 0
 renames=$T_ROOT/api/renames-1.0.tsv
 # What v0.30.6, the last 0.30 release, printed: the base 1.0 updates from.
-for word in status millwright-grant fixer-grant all-hands limit drain history export \
+for word in status limit drain history export \
   refresh-conflicts analytics state-move mcp-dashboard-keys clean disk panels state-check \
   finish status-versions store-copy state-load freeze host-bridge cycle-writes settings-rules \
   start-order host-message refresh-pr host-message-health refresh-pr-starts refresh-pr-lane \
@@ -127,31 +125,30 @@ reset
 installed v0.8.0+cb6912a
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.flags' <<<"$t_out")" '{"outsource":false,"spec-pipe":false,"lean":false,"plugins":false}'
-t_eq "$(jq -r '.features | index("outsource")' <<<"$t_out")" null
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"spec-pipe":false,"lean":false,"plugins":false}'
 t_eq "$(jq -r '.features | index("spec-pipe")' <<<"$t_out")" null
 t_eq "$(jq -r '.features | index("lean")' <<<"$t_out")" null
 t_eq "$(jq -r 'keys_unsorted | join(" ")' <<<"$t_out")" "api tehas commit repo features flags millwright poll"
 t_run "$api"
-t_contains "$t_out" "flags       outsource=off spec-pipe=off lean=off plugins=off"
+t_contains "$t_out" "flags       spec-pipe=off lean=off plugins=off"
 
 t_case "api --json: a test that turns a building feature on sees it on in flags only"
 reset
 installed v0.8.0+cb6912a
-t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on
-T_ENV=(TEHAS_TEST_FEATURES=outsource)
+t_instance "${T_MINIMAL[@]}" TEHAS_SPEC_PIPE=on
+T_ENV=(TEHAS_TEST_FEATURES=spec-pipe)
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.flags' <<<"$t_out")" '{"outsource":true,"spec-pipe":false,"lean":false,"plugins":false}'
-t_eq "$(jq -r '.features | index("outsource")' <<<"$t_out")" null
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"spec-pipe":true,"lean":false,"plugins":false}'
+t_eq "$(jq -r '.features | index("spec-pipe")' <<<"$t_out")" null
 
 t_case "api: a building feature switched on is refused with 78 and its name"
 reset
 installed v0.8.0+cb6912a
-t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on
+t_instance "${T_MINIMAL[@]}" TEHAS_SPEC_PIPE=on
 t_run "$api --json"
 t_eq "$t_rc" 78
-t_contains "$t_out" "outsource is still being built"
+t_contains "$t_out" "spec-pipe is still being built"
 
 t_case "api --json: the millwright is the app's login when the factory has one"
 reset
@@ -333,13 +330,13 @@ t_eq "$(jq -c '.flags | keys_unsorted' "$T_ROOT/api/api.sample.json")" "$(jq -c 
 t_case "api.schema.json refuses a field it does not name, a flag that is no boolean and a word of another form"
 reset
 t_eq "$(jq '.zz = 1 | .flags.lean = "on" | .features += ["Two words"]' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
-  "$(printf '%s\n' '.zz: not in the schema' '.features[33]: "Two words" does not match "^[a-z][a-z0-9-]*$"' '.flags.lean: string, not boolean')"
+  "$(printf '%s\n' '.zz: not in the schema' '.features[31]: "Two words" does not match "^[a-z][a-z0-9-]*$"' '.flags.lean: string, not boolean')"
 t_eq "$(jq 'del(.poll.last.ageMin) | .poll.hour.polls = -1' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
   "$(printf '%s\n' '.poll.last: ageMin is missing' '.poll.hour.polls: -1 is under 0')"
 
 t_case "api.schema.json: a building feature's key is not required in flags"
 reset
-t_eq "$(jq 'del(.flags.outsource, .flags.lean)' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" ""
+t_eq "$(jq 'del(.flags.plugins, .flags.lean)' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" ""
 
 t_case "api --json: features is api/features.txt, word for word and in its order"
 reset

@@ -107,17 +107,19 @@ fn a_link_is_cut_at_512_and_counted_once() {
 }
 
 #[test]
-fn a_comments_link_says_where_it_came_from() {
-    let mut rec = record();
-    rec["links"] = json!([]);
-    rec["comment_links"] = json!([
-        {"link": LINK, "source": "comment:5", "by": "bob"},
-        {"link": LINK, "source": "pr-comment:6", "by": "bob"},
-        {"link": "https://github.com/user-attachments/assets/2", "source": "answer:1", "by": "bob"},
-    ]);
-    let (manifest, _) = compose(&rec);
-    assert_eq!(manifest["leftOut"].as_array().unwrap().len(), 1);
-    assert_eq!(manifest["leftOut"][0]["source"], "comment:5");
+fn a_record_s_comment_links_are_ignored_whatever_they_hold() {
+    for held in [
+        json!([{"link": LINK, "source": "comment:5", "by": "bob"}]),
+        json!("x"),
+    ] {
+        let mut rec = record();
+        rec["links"] = json!([]);
+        rec["comment_links"] = held;
+        assert_eq!(
+            left_out_manifest(&json!(7), &rec, "r", "g", None).unwrap(),
+            None
+        );
+    }
 }
 
 #[test]

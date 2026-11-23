@@ -42,9 +42,7 @@ test("the state says working, paused, finishing or idle", () => {
   assert.equal(m.all, "https://github.com/acme/widget/issues");
 });
 
-test("all-hands and read-only are shown beside the state only while the snapshot says so", () => {
-  assert.equal(stateModel(status({ allHands: true }), null, NOW).allHands, true);
-  for (const allHands of [false, null, undefined, "yes"]) assert.equal(stateModel(status({ allHands }), null, NOW).allHands, false);
+test("read-only is shown beside the state only while the snapshot says so", () => {
   assert.equal(stateModel(status({ readOnly: { on: true } }), null, NOW).readOnly, true);
   assert.equal(stateModel(status(), null, NOW).readOnly, false);
 });

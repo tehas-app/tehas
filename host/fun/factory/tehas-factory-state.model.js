@@ -1,5 +1,5 @@
-// The state row of the plain dashboard: the factory's state, the all-hands and
-// read-only marks, how old the queue is and the link to all issues, from
+// The state row of the plain dashboard: the factory's state, the read-only
+// mark, how old the queue is and the link to all issues, from
 // live/status.json and live/running.json. Pure: the clock is nowMs.
 import "../console-tabs.js";
 import { ago, webHref } from "../page-data.js";
@@ -20,8 +20,6 @@ export function stateModel(status, running, nowMs) {
   return {
     pill: "pill " + pill[0],
     state: pill[1],
-    // Reported only: all-hands changes nothing in this factory.
-    allHands: s.allHands === true,
     readOnly: Boolean(obj(s.readOnly).on),
     fresh: "queue read " + ago(s.generatedAt, nowMs),
     all: webHref(obj(s.links).all),

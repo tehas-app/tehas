@@ -816,15 +816,6 @@ fn with_no_start_on_record_the_issue_is_read_as_by_hand() {
 
 // --- Comments ----------------------------------------------------------------
 
-/// Comment links added to the record: (source, link, by).
-fn with_comments(w: &World, links: &[(&str, &str, &str)]) {
-    let add: Vec<Value> = links
-        .iter()
-        .map(|(s, l, b)| json!({"link": l, "source": s, "by": b}))
-        .collect();
-    w.record_edit(|v| v["comment_links"] = Value::from(add));
-}
-
 /// The comments.json the cycle was given, read with `filter`.
 fn blob(w: &World, filter: &str) -> String {
     jq(&w.imgs.join("comments.json"), false, filter)
@@ -873,28 +864,11 @@ fn one_comment_retry(v: &mut Value) {
         "at": "2026-01-01T00:20:00Z", "url": "u", "text": "x"}]);
 }
 
-#[test]
-fn a_record_s_comment_links_are_not_fetched() {
-    let w = world("comments-off");
-    w.images_on(&[]);
-    w.net(&format!("{A}/2222"), JPG);
-    w.issue_is("Words.", "NONE", "");
-    w.record_is("alice", "Words.", &[]);
-    with_comments(&w, &[("comment:51", &format!("{A}/2222"), "alice")]);
-    let r = w.work7();
-    assert_eq!(r.rc, 2, "{}", r.out);
-    assert_eq!(curl(&w), "");
-    assert_eq!(w.manifest("[.images, .leftOut]"), "[[],[]]");
-}
-
-/// A comments retry with a link of a pull request's comment, started. The
-/// link is not fetched: only the comments' words reach the cycle.
+/// A comments retry, started: only the comments' words reach the cycle.
 fn comments_retry(w: &World) -> work::Run {
     w.images_on(&[]);
-    w.net(&format!("{A}/7171"), PNG);
     w.issue_is("Words.", "NONE", "");
     w.record_is("alice", "Words.", &[]);
-    with_comments(w, &[("pr-comment:71", &format!("{A}/7171"), "alice")]);
     w.record_edit(|v| {
         v["how"] = json!("reply");
         v["at"] = json!("2026-01-01T00:30:00Z");
@@ -1090,7 +1064,7 @@ fn millwright_record(w: &World, by: &str) {
     w.record_edit(|v| {
         let old = v.clone();
         *v = json!({"at": "2026-10-15T00:00:00Z", "by": "tehas-bot", "how": "millwright",
-            "body_sha256": old["body_sha256"], "links": old["links"], "fixer_starts": 1,
+            "body_sha256": old["body_sha256"], "links": old["links"],
             "rests_on": {"at": old["at"], "how": old["how"], "body_sha256": old["body_sha256"], "by": by}});
     });
 }
@@ -1121,78 +1095,6 @@ fn a_millwright_s_record_that_rests_on_no_allowed_account_takes_no_link() {
     millwright_record(&w, "mallory");
     w.work7();
     assert_eq!(w.manifest(".images | length"), "0");
-}
-
-#[test]
-fn the_millwright_s_note_reaches_the_retry_without_comments_on_and_nothing_else_of_the_record() {
-    let w = world("millwright-note");
-    w.images_on(&[]);
-    w.issue_is("Words.", "NONE", "");
-    w.record_is("alice", "Words.", &[]);
-    millwright_record(&w, "alice");
-    w.record_edit(|v| {
-        v["retry_context"] = json!([
-            {"source": "fixer:81", "by": "tehas-bot", "at": "2026-10-15T00:00:00Z",
-                "text": "Run the gate before review."},
-            {"source": "pr-comment:71", "by": "alice", "at": "2026-01-01T00:20:00Z",
-                "text": "not a retry tick"}
-        ])
-    });
-    w.work7();
-    assert_eq!(w.manifest(".comments.file"), r#""comments.json""#);
-    assert_eq!(
-        blob(&w, ".items"),
-        r#"[{"at":"2026-10-15T00:00:00Z","by":"tehas-bot","id":81,"source":"fixer","text":"Run the gate before review.","url":"https://github.com/acme/widget/issues/7#issuecomment-81"}]"#
-    );
-}
-
-// The polls write millwright:<id>. A record of before the rename says
-// fixer:<id>.
-#[test]
-fn the_note_the_dispatcher_records_under_the_millwright_s_source_reaches_a_cycle_given_no_images() {
-    let w = world("millwright-source");
-    w.images_off();
-    w.issue_is("Words.", "NONE", "");
-    w.record_is("alice", "Words.", &[]);
-    millwright_record(&w, "alice");
-    w.record_edit(|v| {
-        v["retry_context"] = json!([{"source": "millwright:81", "by": "tehas-bot",
-            "at": "2026-10-15T00:00:00Z", "text": "Run only the named tests."}])
-    });
-    w.work7();
-    assert_eq!(w.manifest(".comments.file"), r#""comments.json""#);
-    assert_eq!(
-        blob(&w, ".items | map([.source, .id, .by, .text])"),
-        r#"[["fixer",81,"tehas-bot","Run only the named tests."]]"#
-    );
-}
-
-// REST names an App <slug>[bot] and GraphQL <slug>: either form of the
-// setting takes the note of either form, and no other account's.
-#[test]
-fn the_app_s_own_note_reaches_the_retry_in_either_form_of_its_login_and_no_other_account_s() {
-    let w = world("millwright-app");
-    for by in ["tehas-bot[bot]", "tehas-bot"] {
-        w.images_on(&[]);
-        w.issue_is("Words.", "NONE", "");
-        w.record_is("alice", "Words.", &[]);
-        millwright_record(&w, "alice");
-        w.record_edit(|v| {
-            v["by"] = json!("tehas-bot");
-            v["retry_context"] = json!([
-                {"source": "fixer:82", "by": "tehas-bot2[bot]", "at": "2026-10-15T00:00:00Z",
-                    "text": "Not the millwright."},
-                {"source": "fixer:81", "by": by, "at": "2026-10-15T00:00:00Z",
-                    "text": "Run the gate before review."}
-            ]);
-        });
-        w.work7();
-        assert_eq!(w.manifest(".comments.file"), r#""comments.json""#, "{by}");
-        assert_eq!(
-            blob(&w, ".items | map([.id, .by])"),
-            format!("[[81,\"{by}\"]]")
-        );
-    }
 }
 
 #[test]

@@ -2,7 +2,6 @@
 <tehas-factory-state data-tehas-island="contents" src="/live/status.json" running="/live/running.json">
 <div class="dash-top">
   <span id="state" class="pill idle">loading</span>
-  <span id="allhands" class="pill pause" title="tehas:all-hands is on the control issue" hidden>all hands</span>
   <span id="readonly" class="pill pause" title="TEHAS_READ_ONLY=1: this factory writes nothing to GitHub" hidden>read-only</span>
   <span id="fresh" class="muted"></span>
   <a id="all" class="muted" href="#">all issues on GitHub</a>
