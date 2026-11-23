@@ -8,6 +8,7 @@
 
 use std::collections::BTreeSet;
 
+use super::mergeable::mergeable;
 use super::unsupported;
 use crate::forge::uri;
 use crate::{ForgeError, GitHub};
@@ -16,9 +17,9 @@ use tehas_ports::{
     Access, Account, AccountId, AccountKind, At, Author, BlueprintNo, Bound, Branch, Change,
     ChangeDelta, ChangeDigest, ChangeEvent, ChangeFilter, ChangeNo, ChangeState, ChangeStates,
     ChangeToken, ChangedFile, Check, CheckStatus, Checks, CodeHost, CommitId, Compared, Conclusion,
-    Cursor, Did, Facts, FileName, Got, ItemName, Login, Mark, MarkName, Mergeable, NotMergeable,
-    Outcome, Overall, Pool, ProjectName, Realm, Ref, Release, Remote, RepoPath, Rev, Size, Tag,
-    TagName, Took, Unread, WebLink, Whole, Window, ALL_MAX,
+    Cursor, Did, Facts, FileName, Got, ItemName, Login, Mark, MarkName, Outcome, Overall, Pool,
+    ProjectName, Realm, Ref, Release, Remote, RepoPath, Rev, Size, Tag, TagName, Took, Unread,
+    WebLink, Whole, Window, ALL_MAX,
 };
 
 impl CodeHost for GitHub {
@@ -28,7 +29,7 @@ impl CodeHost for GitHub {
         let out = self
             .call("the repository", &["api", &path])
             .map_err(|e| self.outcome(&e))?;
-        read_facts(&out).ok_or(Outcome::Unread(Unread::Malformed))
+        read_facts(&out, &self.repo).ok_or(Outcome::Unread(Unread::Malformed))
     }
 
     fn branch(&mut self, _: &Branch) -> Got<Option<CommitId>> {
@@ -45,17 +46,24 @@ impl CodeHost for GitHub {
 
     /// One GraphQL question a page of the repository's pull requests, oldest
     /// first, so a change opened while the pages are read lands on a later
-    /// page and none moves past the cursor. The states and the branch narrow
-    /// the question; the author (by account id), the blueprints closed, the
-    /// numbers and the times narrow what it answers. Read to the end, or to
+    /// page and none moves past the cursor. The states, the branch and the
+    /// labels of the marks carried narrow the question; the author (by
+    /// account id), the blueprints closed, the numbers, the times and every
+    /// mark carried narrow what it answers. A mark no label can be is
+    /// `Refused(Invalid)` before any request. Read to the end, or to
     /// one past the bound, or `PAGES_MAX` pages: past those, `Unread(Cut)`.
     /// In the order of their numbers.
     fn changes(&mut self, filter: &ChangeFilter, bound: Bound) -> Got<Whole<ChangeDigest>> {
         if filter.bodies {
             return unsupported();
         }
+        let labels = filter
+            .carrying
+            .iter()
+            .map(|m| super::label_of(m).map(|l| Value::String(l).to_string()))
+            .collect::<Got<Vec<String>>>()?;
         let me = matches!(filter.author, Some(Author::Me));
-        let query = format!("query={}", changes_query(filter.states, me));
+        let query = format!("query={}", changes_query(filter.states, me, &labels));
         let (owner, name) = self.repo.split_once('/').unwrap_or((&self.repo, ""));
         let (owner, name) = (format!("owner={owner}"), format!("name={name}"));
         let head = filter.head.as_ref().map(|h| format!("head={}", h.as_str()));
@@ -83,6 +91,9 @@ impl CodeHost for GitHub {
             for pull in page.pulls {
                 let mut digest = pull.digest;
                 digest.marks = self.marks_of(&pull.labels);
+                if !filter.carrying.iter().all(|m| digest.marks.contains(m)) {
+                    continue;
+                }
                 taken.push(digest);
                 if taken.len() > bound.get() as usize {
                     return Err(Outcome::Unread(Unread::Cut));
@@ -114,11 +125,9 @@ impl CodeHost for GitHub {
         unsupported()
     }
 
-    /// The commit's latest check runs, REST, a page of 100 at a time, read
-    /// whole up to `ALL_MAX`. The overall is `Fail` when a run failed, was
-    /// cancelled or ended in a conclusion this adapter does not fold,
-    /// `Pending` while one has not finished, `Pass` when every run passed or
-    /// was skipped, and `None` with no run.
+    /// The commit's check runs, the newest of each name alone
+    /// (`filter=latest`), REST, a page of 100 at a time, read whole up to
+    /// `ALL_MAX`. The overall is `Overall::of` them.
     fn checks(&mut self, at: &CommitId, name: Option<&str>) -> Got<Checks> {
         let named = name.map(|n| format!("&check_name={}", uri(n)));
         let mut runs = Vec::new();
@@ -126,7 +135,7 @@ impl CodeHost for GitHub {
         let mut total = None;
         for page in 1u32.. {
             let path = format!(
-                "repos/{}/commits/{}/check-runs?per_page=100&page={page}{}",
+                "repos/{}/commits/{}/check-runs?filter=latest&per_page=100&page={page}{}",
                 self.repo,
                 at.as_str(),
                 named.as_deref().unwrap_or("")
@@ -156,7 +165,7 @@ impl CodeHost for GitHub {
                 return Err(Outcome::Unread(Unread::Inconsistent));
             }
         }
-        let overall = overall(&runs);
+        let overall = Overall::of(&runs);
         let mut checks = Checks::default();
         checks.runs = runs;
         checks.overall = overall;
@@ -271,13 +280,21 @@ impl GitHub {
 }
 
 /// The facts of the repository's REST read. None for an answer that lacks
-/// a field every repository has. An internal repository is not public.
-fn read_facts(out: &str) -> Option<Facts> {
+/// a field every repository has. An internal repository is not public. The
+/// name is `repo`, the configured spelling, where GitHub's differs from it
+/// in case alone, and GitHub's where the project moved.
+fn read_facts(out: &str, repo: &str) -> Option<Facts> {
     let v: Value = serde_json::from_str(out.trim()).ok()?;
     let flag = |k: &str| v.get(k).and_then(Value::as_bool);
     let text = |k: &str| v.get(k).and_then(Value::as_str);
+    let name = text("full_name")?;
+    let name = if name.eq_ignore_ascii_case(repo) {
+        repo
+    } else {
+        name
+    };
     let mut facts = Facts::new(
-        ProjectName::new(text("full_name")?),
+        ProjectName::new(name),
         Branch::new(text("default_branch")?).ok()?,
     );
     facts.public = !flag("private")?;
@@ -286,9 +303,10 @@ fn read_facts(out: &str) -> Option<Facts> {
     Some(facts)
 }
 
-/// The GraphQL question of one page of pull requests in `states`, with the
-/// account asking when `me`.
-fn changes_query(states: ChangeStates, me: bool) -> String {
+/// The GraphQL question of one page of pull requests in `states`, carrying
+/// one of `labels` (each a GraphQL string) when given, with the account
+/// asking when `me`.
+fn changes_query(states: ChangeStates, me: bool, labels: &[String]) -> String {
     let states = match states {
         ChangeStates::Open => "OPEN",
         ChangeStates::Merged => "MERGED",
@@ -296,9 +314,13 @@ fn changes_query(states: ChangeStates, me: bool) -> String {
         ChangeStates::All => "OPEN, CLOSED, MERGED",
     };
     let viewer = if me { "viewer { databaseId } " } else { "" };
+    let labels = match labels.is_empty() {
+        true => String::new(),
+        false => format!(", labels: [{}]", labels.join(", ")),
+    };
     let account = "{ __typename login ... on User { databaseId } ... on Bot { databaseId } }";
     format!(
-        "query($owner: String!, $name: String!, $head: String, $after: String) {{ {viewer}repository(owner: $owner, name: $name) {{ databaseId pullRequests(first: 100, after: $after, headRefName: $head, states: [{states}], orderBy: {{field: CREATED_AT, direction: ASC}}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ number title state isDraft isCrossRepository headRefName headRefOid baseRefName createdAt updatedAt mergedAt closedAt lastEditedAt additions deletions changedFiles mergeable mergeStateStatus url author {account} editor {account} mergedBy {account} mergeCommit {{ oid }} labels(first: 100) {{ totalCount nodes {{ name }} }} closingIssuesReferences(first: 100) {{ totalCount nodes {{ number repository {{ databaseId nameWithOwner }} }} }} }} }} }} }}"
+        "query($owner: String!, $name: String!, $head: String, $after: String) {{ {viewer}repository(owner: $owner, name: $name) {{ databaseId pullRequests(first: 100, after: $after, headRefName: $head{labels}, states: [{states}], orderBy: {{field: CREATED_AT, direction: ASC}}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ number title state isDraft isCrossRepository headRefName headRefOid baseRefName baseRefOid createdAt updatedAt mergedAt closedAt lastEditedAt additions deletions changedFiles mergeable mergeStateStatus url author {account} editor {account} mergedBy {account} mergeCommit {{ oid }} labels(first: 100) {{ totalCount nodes {{ name }} }} closingIssuesReferences(first: 100) {{ totalCount nodes {{ number repository {{ databaseId nameWithOwner }} }} }} }} }} }} }}"
     )
 }
 
@@ -557,15 +579,7 @@ fn read_page(out: &str, me: bool, f: &ChangeFilter) -> Got<Page> {
                 at: at("closedAt")?.ok_or(malformed.clone())?,
             },
         };
-        let merge_state = match (text("mergeable")?, text("mergeStateStatus")?) {
-            ("CONFLICTING", _) | ("MERGEABLE", "DIRTY") => Mergeable::No(NotMergeable::Conflict),
-            ("UNKNOWN", _) | ("MERGEABLE", "UNKNOWN") => Mergeable::Unknown,
-            ("MERGEABLE", "CLEAN" | "HAS_HOOKS" | "UNSTABLE") => Mergeable::Yes,
-            ("MERGEABLE", "BEHIND") => Mergeable::No(NotMergeable::Behind),
-            ("MERGEABLE", "BLOCKED") => Mergeable::No(NotMergeable::Blocked),
-            ("MERGEABLE", "DRAFT") => Mergeable::No(NotMergeable::Draft),
-            _ => Mergeable::No(NotMergeable::Unknown),
-        };
+        let merge_state = mergeable(text("mergeable")?, text("mergeStateStatus")?);
         let labels = whole("labels")?
             .into_iter()
             .map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
@@ -578,7 +592,9 @@ fn read_page(out: &str, me: bool, f: &ChangeFilter) -> Got<Page> {
             Branch::new(text("headRefName")?).map_err(|_| malformed.clone())?,
             CommitId::new(text("headRefOid")?).map_err(|_| malformed.clone())?,
             Branch::new(text("baseRefName")?).map_err(|_| malformed.clone())?,
+            CommitId::new(text("baseRefOid")?).map_err(|_| malformed.clone())?,
             at("createdAt")?.ok_or(malformed.clone())?,
+            at("updatedAt")?.ok_or(malformed.clone())?,
             WebLink::new(text("url")?).map_err(|_| malformed.clone())?,
         );
         digest.title = text("title")?.to_string();
@@ -597,7 +613,6 @@ fn read_page(out: &str, me: bool, f: &ChangeFilter) -> Got<Page> {
             Some(_) => who("editor")?,
             None => None,
         };
-        at("updatedAt")?.ok_or(malformed.clone())?;
         pulls.push(Pull { digest, labels });
     }
     Ok(Page {
@@ -610,9 +625,10 @@ fn read_page(out: &str, me: bool, f: &ChangeFilter) -> Got<Page> {
 
 /// A page of the check runs read: the count the site says it holds, and
 /// each run with its id. None for an answer that lacks a field every run
-/// has. A conclusion is folded into the port's words: `neutral` is a skip,
-/// `timed_out` and `startup_failure` failures, and any other word, a
-/// finished run with none among them, `Unknown`. A status that is not
+/// has. A conclusion is folded into the port's words: `success` and
+/// `neutral` pass, `skipped` is a skip, `failure`, `timed_out` and
+/// `startup_failure` fail, `cancelled` is cancelled, and any other word, or
+/// a finished run that names none, `Unknown`. A status that is not
 /// `in_progress` or `completed` is queued.
 fn read_runs(out: &str) -> Option<(u64, Vec<(u64, Check)>)> {
     let v: Value = serde_json::from_str(out.trim()).ok()?;
@@ -622,8 +638,8 @@ fn read_runs(out: &str) -> Option<(u64, Vec<(u64, Check)>)> {
         let text = |k: &str| r.get(k).and_then(Value::as_str);
         let status = match text("status")? {
             "completed" => CheckStatus::Done(match text("conclusion") {
-                Some("success") => Conclusion::Passed,
-                Some("skipped" | "neutral") => Conclusion::Skipped,
+                Some("success" | "neutral") => Conclusion::Passed,
+                Some("skipped") => Conclusion::Skipped,
                 Some("failure" | "timed_out" | "startup_failure") => Conclusion::Failed,
                 Some("cancelled") => Conclusion::Cancelled,
                 _ => Conclusion::Unknown,
@@ -635,27 +651,4 @@ fn read_runs(out: &str) -> Option<(u64, Vec<(u64, Check)>)> {
         runs.push((r.get("id")?.as_u64()?, check));
     }
     Some((count, runs))
-}
-
-/// What the runs add up to. Never `Pass` but when every run passed or was
-/// skipped.
-fn overall(runs: &[Check]) -> Overall {
-    let failed = runs.iter().any(|r| {
-        matches!(
-            r.status,
-            CheckStatus::Done(Conclusion::Failed | Conclusion::Cancelled | Conclusion::Unknown)
-        )
-    });
-    let pending = runs
-        .iter()
-        .any(|r| !matches!(r.status, CheckStatus::Done(_)));
-    if runs.is_empty() {
-        Overall::None
-    } else if failed {
-        Overall::Fail
-    } else if pending {
-        Overall::Pending
-    } else {
-        Overall::Pass
-    }
 }

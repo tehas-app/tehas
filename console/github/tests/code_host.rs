@@ -15,8 +15,9 @@ use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 use tehas_ports::laws;
 use tehas_ports::{
-    Access, Actor, Author, Bound, ChangeDigest, ChangeFilter, ChangeNo, ChangeStates, Checks,
-    CodeHost, CommitId, Facts, Got, Outcome, Refusal, Unread, Whole, Window,
+    Access, Actor, Author, Bound, ChangeDigest, ChangeFilter, ChangeNo, ChangeStates, CheckStatus,
+    Checks, CodeHost, CommitId, Conclusion, Facts, Got, Mark, MarkName, Outcome, Overall, Refusal,
+    State, Unread, Whole, Window,
 };
 
 fn here() -> PathBuf {
@@ -70,7 +71,8 @@ fn recording(args: &[&str]) -> Option<(String, String)> {
             }
             Some((project, rest)) => {
                 let rest = rest.strip_prefix("commits/")?;
-                let (commit, query) = rest.split_once("/check-runs?per_page=100&page=")?;
+                let (commit, query) =
+                    rest.split_once("/check-runs?filter=latest&per_page=100&page=")?;
                 let (page, name) = match query.split_once("&check_name=") {
                     Some((page, name)) => (page, format!("-name={name}")),
                     None => (query, String::new()),
@@ -422,4 +424,140 @@ fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
     assert_eq!(gh.remote(Access::Fetch).map(|_| ()), unsupported);
     assert_eq!(gh.tags(bound).map(|_| ()), unsupported);
     assert_eq!(gh.latest_release().map(|_| ()), unsupported);
+}
+
+/// A runner that answers every call with `answer`, writing each down.
+struct Answers {
+    answer: String,
+    asked: Asked,
+}
+
+impl GhRunner for Answers {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        self.asked.lock().unwrap().push(args.join(" "));
+        Ok(self.answer.clone())
+    }
+}
+
+fn answering(project: &str, answer: &str) -> (GitHub, Asked) {
+    let asked = Asked::default();
+    let runner = Answers {
+        answer: answer.to_string(),
+        asked: Arc::clone(&asked),
+    };
+    (GitHub::new(project, Box::new(runner)), asked)
+}
+
+fn runs(json: &str) -> Checks {
+    let (mut gh, _) = answering("acme/widget", json);
+    gh.checks(&CommitId::new("e".repeat(40)).unwrap(), None)
+        .unwrap()
+}
+
+fn statuses(c: &Checks) -> Vec<CheckStatus> {
+    c.runs.iter().map(|r| r.status).collect()
+}
+
+#[test]
+fn a_cancelled_run_beside_one_running_is_pending() {
+    let c = runs(
+        r#"{"total_count":2,"check_runs":[{"id":1,"name":"e2e","status":"completed","conclusion":"cancelled"},{"id":2,"name":"build","status":"in_progress","conclusion":null}]}"#,
+    );
+    assert_eq!(c.overall, Overall::Pending);
+}
+
+#[test]
+fn runs_all_done_cancelled_or_unknown_with_none_failed_are_unknown_never_a_fail_or_a_pass() {
+    let c = runs(
+        r#"{"total_count":3,"check_runs":[{"id":1,"name":"build","status":"completed","conclusion":"success"},{"id":2,"name":"e2e","status":"completed","conclusion":"cancelled"},{"id":3,"name":"deploy","status":"completed","conclusion":"stale"}]}"#,
+    );
+    assert_eq!(
+        statuses(&c),
+        [
+            CheckStatus::Done(Conclusion::Passed),
+            CheckStatus::Done(Conclusion::Cancelled),
+            CheckStatus::Done(Conclusion::Unknown)
+        ]
+    );
+    assert_eq!(c.overall, Overall::Unknown);
+    assert_eq!(c.overall, Overall::of(&c.runs));
+}
+
+#[test]
+fn a_neutral_run_passes() {
+    let c = runs(
+        r#"{"total_count":1,"check_runs":[{"id":1,"name":"advice","status":"completed","conclusion":"neutral"}]}"#,
+    );
+    assert_eq!(statuses(&c), [CheckStatus::Done(Conclusion::Passed)]);
+    assert_eq!(c.overall, Overall::Pass);
+}
+
+#[test]
+fn the_checks_ask_the_newest_run_of_each_name_alone() {
+    let (mut gh, asked) = answering("acme/widget", r#"{"total_count":0,"check_runs":[]}"#);
+    let at = CommitId::new("e".repeat(40)).unwrap();
+    gh.checks(&at, Some("test")).unwrap();
+    assert_eq!(
+        *asked.lock().unwrap(),
+        [format!(
+            "api repos/acme/widget/commits/{}/check-runs?filter=latest&per_page=100&page=1&check_name=test",
+            at.as_str()
+        )]
+    );
+}
+
+const REPO: &str = r#"{"full_name":"ACME/Widget","private":false,"has_issues":true,"archived":false,"default_branch":"main"}"#;
+
+#[test]
+fn the_facts_name_the_configured_spelling_where_github_differs_in_case_alone() {
+    let (mut gh, _) = answering("acme/widget", REPO);
+    assert_eq!(gh.facts().unwrap().name.as_str(), "acme/widget");
+}
+
+#[test]
+fn the_facts_name_githubs_spelling_where_the_project_moved() {
+    let (mut gh, _) = answering("acme/gadget", REPO);
+    assert_eq!(gh.facts().unwrap().name.as_str(), "ACME/Widget");
+}
+
+fn every_change() -> String {
+    let at = here().join("tests/recorded/code-host/widget/changes-OPEN_CLOSED_MERGED.json");
+    std::fs::read_to_string(at).unwrap()
+}
+
+#[test]
+fn a_filter_carrying_marks_asks_their_labels_and_takes_the_changes_carrying_every_one() {
+    let (mut gh, asked) = answering("acme/widget", &every_change());
+    let bug = Mark::Project(MarkName::new("bug").unwrap());
+    let filter = ChangeFilter {
+        states: ChangeStates::All,
+        carrying: vec![bug.clone()],
+        ..ChangeFilter::default()
+    };
+    let got = gh.changes(&filter, Bound::new(10).unwrap()).unwrap();
+    let nos: Vec<u64> = got.items().iter().map(|d| d.no.get()).collect();
+    assert_eq!(nos, [22]);
+    assert!(asked.lock().unwrap()[0].contains(r#"labels: ["bug"]"#));
+
+    let (mut gh, _) = answering("acme/widget", &every_change());
+    let both = ChangeFilter {
+        states: ChangeStates::All,
+        carrying: vec![bug, Mark::State(State::Refreshing)],
+        ..ChangeFilter::default()
+    };
+    let got = gh.changes(&both, Bound::new(10).unwrap()).unwrap();
+    assert!(got.items().is_empty(), "{:?}", got.items());
+}
+
+#[test]
+fn a_filter_carrying_a_mark_no_label_can_be_is_invalid_before_any_request() {
+    let mut gh = GitHub::new("acme/widget", Box::new(Unasked));
+    let filter = ChangeFilter {
+        carrying: vec![Mark::Unknown],
+        ..ChangeFilter::default()
+    };
+    assert_eq!(
+        gh.changes(&filter, Bound::new(10).unwrap()).map(|_| ()),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
 }
