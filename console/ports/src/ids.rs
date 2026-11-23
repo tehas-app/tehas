@@ -84,6 +84,8 @@ macro_rules! checked {
     };
 }
 
+pub(crate) use checked;
+
 /// A number newtype that is never zero.
 macro_rules! number {
     ($(#[$doc:meta])* $name:ident) => {
