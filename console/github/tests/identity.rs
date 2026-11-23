@@ -305,11 +305,11 @@ fn the_role_name_is_read_first_and_the_permission_word_only_without_one() {
     // it. The role wins, as in the dispatcher's may_write.
     assert_eq!(
         of(r#","role_name":"maintain","permission":"write""#),
-        Ok(Standing::Write)
+        Ok(Standing::Maintain)
     );
     assert_eq!(
         of(r#","role_name":"triage","permission":"read""#),
-        Ok(Standing::Read)
+        Ok(Standing::Triage)
     );
     // A base role the word contradicts is still the role.
     assert_eq!(
@@ -334,6 +334,15 @@ fn the_role_name_is_read_first_and_the_permission_word_only_without_one() {
         of(r#","permission":"superuser""#),
         Err(Outcome::Unread(Unread::Malformed))
     );
+    // The legacy word is one of GitHub's four: it never names maintain or
+    // triage, so read alone it never answers them.
+    for word in ["maintain", "triage", "Write", ""] {
+        assert_eq!(
+            of(&format!(r#","permission":"{word}""#)),
+            Err(Outcome::Unread(Unread::Malformed)),
+            "{word}"
+        );
+    }
     // A role that is no string is no answer.
     assert_eq!(
         of(r#","role_name":7,"permission":"write""#),
@@ -371,8 +380,8 @@ fn each_role_reads_as_the_recorded_answers_say() {
     for (id, standing) in [
         ("101", Ok(Standing::Admin)),
         ("102", Ok(Standing::Write)),
-        ("103", Ok(Standing::Write)),
-        ("104", Ok(Standing::Read)),
+        ("103", Ok(Standing::Maintain)),
+        ("104", Ok(Standing::Triage)),
         ("105", Ok(Standing::Read)),
         ("106", Ok(Standing::None)),
         ("124", Ok(Standing::Read)),

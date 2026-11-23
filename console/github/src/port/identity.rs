@@ -45,12 +45,9 @@ impl Identity for GitHub {
             Holder::Bot => AccountKind::Bot,
             Holder::Organisation => AccountKind::Unknown,
         };
-        Ok(Account {
-            realm: Realm::CodeHost,
-            login,
-            id: Some(AccountId::new(id.to_string())),
-            kind,
-        })
+        let mut account = Account::new(Realm::CodeHost, login, kind);
+        account.id = Some(AccountId::new(id.to_string()));
+        Ok(account)
     }
 
     /// GitHub's account by its id, then its permission on the repository by
@@ -270,12 +267,12 @@ fn read_user(out: &str, id: u64) -> Got<Holder> {
 /// dispatcher's `may_write`: `role_name` first, the legacy `permission` word
 /// only when `role_name` is missing or null.
 ///
-/// A base role maps as it is named. `maintain` folds into `Write` and
-/// `triage` into `Read` until ports P1 adds `Standing::Maintain` and
-/// `Standing::Triage`. Any other `role_name`, a custom role or an empty
-/// one, is never `Write` or `Admin`, since the dispatcher lets no such
-/// account write: it is `Read` when the `permission` word shows any access,
-/// `None` when it says none, and no answer to read without a word.
+/// A base role is its own rank. The legacy word is one of GitHub's four,
+/// which folds maintain into `write` and triage into `read`, so read alone
+/// it never answers `Maintain` or `Triage`. Any other `role_name`, a custom role or an empty one, is never
+/// above `Read`, since the dispatcher lets no such account write: it is
+/// `Read` when the word shows any access, `None` when it says none, and no
+/// answer to read without a word.
 fn read_permission(out: &str, id: u64) -> Got<Standing> {
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
     let said = v
@@ -287,14 +284,24 @@ fn read_permission(out: &str, id: u64) -> Got<Standing> {
     }
     let word = v.get("permission").and_then(Value::as_str);
     let role = match v.get("role_name") {
-        None | Some(Value::Null) => word.ok_or(MALFORMED)?,
+        None | Some(Value::Null) => {
+            return match word {
+                Some("admin") => Ok(Standing::Admin),
+                Some("write") => Ok(Standing::Write),
+                Some("read") => Ok(Standing::Read),
+                Some("none") => Ok(Standing::None),
+                _ => Err(MALFORMED),
+            }
+        }
         Some(Value::String(role)) => role.as_str(),
         Some(_) => return Err(MALFORMED),
     };
     match role {
         "admin" => Ok(Standing::Admin),
-        "maintain" | "write" => Ok(Standing::Write),
-        "triage" | "read" => Ok(Standing::Read),
+        "maintain" => Ok(Standing::Maintain),
+        "write" => Ok(Standing::Write),
+        "triage" => Ok(Standing::Triage),
+        "read" => Ok(Standing::Read),
         "none" => Ok(Standing::None),
         _ => match word {
             Some("admin" | "maintain" | "write" | "triage" | "read") => Ok(Standing::Read),

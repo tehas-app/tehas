@@ -26,9 +26,9 @@
       "Ours": "Full"
     },
     "answer": {
-      "Ok": "Write"
+      "Ok": "Maintain"
     },
-    "fixture": "carol maintains acme/widget: until the ports name the role, it reads as write, as GitHub's own word folds it.",
+    "fixture": "carol maintains acme/widget: her role_name says maintain, which GitHub's legacy word folds into write.",
     "op": "Identity::standing",
     "who": "103"
   },
@@ -37,9 +37,9 @@
       "Ours": "Full"
     },
     "answer": {
-      "Ok": "Read"
+      "Ok": "Triage"
     },
-    "fixture": "dave triages acme/widget: until the ports name the role, it reads as read, as GitHub's own word folds it.",
+    "fixture": "dave triages acme/widget: his role_name says triage, which GitHub's legacy word folds into read.",
     "op": "Identity::standing",
     "who": "104"
   },
