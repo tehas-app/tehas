@@ -11,10 +11,10 @@ mod replay;
 
 use replay::{adapter_of, PROJECT};
 use serde::Deserialize;
-use std::cell::RefCell;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::Mutex;
 use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 use tehas_ports::laws;
@@ -287,7 +287,10 @@ fn a_history_is_paged_to_its_end_or_one_past_its_bound() {
     let whole = |b: Bound| {
         let (mut gh, asked) = adapter_of(PROJECT);
         let got = gh.history(&key(25), Window::Whole(b), None);
-        (got.map(|t| (t.items.len(), t.more)), asked.get())
+        (
+            got.map(|t| (t.items.len(), t.more)),
+            asked.load(std::sync::atomic::Ordering::SeqCst),
+        )
     };
     assert_eq!(whole(bound(103)), (Ok((103, false)), 2));
     assert_eq!(whole(bound(102)), (Err(Outcome::Unread(Unread::Cut)), 2));
@@ -298,7 +301,11 @@ fn a_history_is_paged_to_its_end_or_one_past_its_bound() {
     let newest = |n: u32| {
         let (mut gh, asked) = adapter_of(PROJECT);
         let got = gh.history(&key(25), last(n), None).unwrap();
-        (got.items.len(), got.more, asked.get())
+        (
+            got.items.len(),
+            got.more,
+            asked.load(std::sync::atomic::Ordering::SeqCst),
+        )
     };
     // The newest page holds them, and says so alone.
     assert_eq!(newest(3), (3, true, 1));
@@ -314,7 +321,11 @@ fn a_ticket_costs_the_issues_read_and_one_question_a_page() {
     let read = |depth, history| {
         let (mut gh, asked) = adapter_of(PROJECT);
         let t = gh.ticket(&key(25), depth, history).unwrap();
-        (t.history.items.len(), t.history.more, asked.get())
+        (
+            t.history.items.len(),
+            t.history.more,
+            asked.load(std::sync::atomic::Ordering::SeqCst),
+        )
     };
     assert_eq!(read(Depth::Cut { notes: 0 }, None), (0, true, 2));
     assert_eq!(read(Depth::All, None), (103, false, 3));
@@ -343,7 +354,7 @@ fn a_list_of_more_than_a_page_is_whole_and_oldest_first() {
     };
     let (mut gh, asked) = adapter_of(BUSY);
     let all = gh.list(&open, bound(102)).unwrap();
-    assert_eq!(asked.get(), 2);
+    assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 2);
     let keys: Vec<TicketKey> = all.items().iter().map(|d| d.key.clone()).collect();
     assert_eq!(keys, (100..202).map(key).collect::<Vec<_>>());
     // One under: the second page is what shows it.
@@ -352,14 +363,14 @@ fn a_list_of_more_than_a_page_is_whole_and_oldest_first() {
         gh.list(&open, bound(101)),
         Err(Outcome::Unread(Unread::Cut))
     );
-    assert_eq!(asked.get(), 2);
+    assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 2);
     // Under the first page: no second page is asked.
     let (mut gh, asked) = adapter_of(BUSY);
     assert_eq!(gh.list(&open, bound(99)), Err(Outcome::Unread(Unread::Cut)));
-    assert_eq!(asked.get(), 1);
+    assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
-type Asked = Rc<RefCell<Vec<String>>>;
+type Asked = Arc<Mutex<Vec<String>>>;
 
 /// Answers each call from the list in turn; a call past it fails.
 struct Stub {
@@ -369,7 +380,7 @@ struct Stub {
 
 impl GhRunner for Stub {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        let mut asked = self.asked.borrow_mut();
+        let mut asked = self.asked.lock().unwrap();
         asked.push(args.join(" "));
         self.answers
             .get(asked.len() - 1)
@@ -385,7 +396,7 @@ fn stub(answers: Vec<Result<String, &str>>) -> (GitHub, Asked) {
             .into_iter()
             .map(|a| a.map_err(str::to_string))
             .collect(),
-        asked: Rc::clone(&asked),
+        asked: Arc::clone(&asked),
     };
     let gh = GitHub::new(PROJECT, Box::new(stub)).on_clock(|| 1_767_225_600);
     (gh, asked)
@@ -421,7 +432,7 @@ const SERVER: Outcome = Outcome::Unavailable {
 fn whole_history(answers: Vec<Result<String, &str>>) -> (Got<usize>, usize) {
     let (mut gh, asked) = stub(answers);
     let got = gh.history(&key(7), Window::Whole(ALL_MAX), None);
-    let calls = asked.borrow().len();
+    let calls = asked.lock().unwrap().len();
     (got.map(|t| t.items.len()), calls)
 }
 
@@ -437,7 +448,7 @@ fn pages_that_disagree_are_inconsistent_and_never_a_part_as_the_whole() {
             .map(|t| t.items.len()),
         Ok(2)
     );
-    let asked = asked.borrow();
+    let asked = asked.lock().unwrap();
     assert!(asked[0].starts_with("api graphql -F owner=acme -F name=widget -F number=7 -f query="));
     assert!(!asked[0].contains("cursor="));
     assert!(asked[1].ends_with(" -f cursor=A"), "{}", asked[1]);
@@ -575,8 +586,8 @@ fn the_newest_n_are_read_back_until_no_event_of_their_second_can_be_older() {
         events(&back(false, "A"), &older),
     ]);
     let got = gh.history(&key(7), last(1), None).unwrap();
-    assert_eq!(asked.borrow().len(), 2);
-    assert!(asked.borrow()[1].ends_with(" -f cursor=B"));
+    assert_eq!(asked.lock().unwrap().len(), 2);
+    assert!(asked.lock().unwrap()[1].ends_with(" -f cursor=B"));
     assert!(got.more);
     assert!(matches!(
         got.items[..],
@@ -590,7 +601,7 @@ fn the_newest_n_are_read_back_until_no_event_of_their_second_can_be_older() {
     let (mut gh, asked) = stub(vec![events(&back(true, "B"), &apart)]);
     let got = gh.history(&key(7), last(1), None).unwrap();
     assert_eq!(
-        (got.items.len(), got.more, asked.borrow().len()),
+        (got.items.len(), got.more, asked.lock().unwrap().len()),
         (1, true, 1)
     );
 }
@@ -601,7 +612,7 @@ fn a_question_gh_gives_no_reason_for_is_settled_by_the_issues_read() {
     // Not there.
     let (mut gh, asked) = stub(vec![Err(": gh exited 1"), Err(": HTTP 404")]);
     assert_eq!(gh.history(&key(7), whole, None), Err(Outcome::NotFound));
-    assert_eq!(asked.borrow()[1], "api repos/acme/widget/issues/7");
+    assert_eq!(asked.lock().unwrap()[1], "api repos/acme/widget/issues/7");
     // A change's number.
     let pull = r#"{"number":7,"pull_request":{"url":"x"}}"#.to_string();
     let (mut gh, _) = stub(vec![Err(": gh exited 1"), Ok(pull)]);
@@ -643,7 +654,7 @@ fn a_question_gh_gives_no_reason_for_is_settled_by_the_issues_read() {
     ] {
         let (mut gh, asked) = stub(vec![Err(why)]);
         assert_eq!(gh.history(&key(7), whole, None), Err(want.clone()), "{why}");
-        assert_eq!(asked.borrow().len(), 1, "{why}");
+        assert_eq!(asked.lock().unwrap().len(), 1, "{why}");
         let (mut gh, _) = stub(vec![Err(why)]);
         assert_eq!(gh.parts(&key(7)), Err(want.clone()), "{why}");
         let (mut gh, _) = stub(vec![Err(why)]);
@@ -657,7 +668,7 @@ fn a_question_gh_gives_no_reason_for_is_settled_by_the_issues_read() {
         gh.ticket(&named, Depth::All, None).map(|_| ()),
         Err(Outcome::Refused(Refusal::Invalid))
     );
-    assert!(asked.borrow().is_empty());
+    assert!(asked.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -667,7 +678,7 @@ fn a_kind_github_keeps_no_event_of_asks_no_question_and_settles_the_issue() {
     // There: nothing happened of that kind, from the issue's read alone.
     let (mut gh, asked) = stub(vec![Ok(REST.to_string())]);
     assert_eq!(gh.history(&key(7), whole, priority), Ok(Took::default()));
-    assert_eq!(*asked.borrow(), ["api repos/acme/widget/issues/7"]);
+    assert_eq!(*asked.lock().unwrap(), ["api repos/acme/widget/issues/7"]);
     let (mut gh, _) = stub(vec![Ok(REST.to_string())]);
     assert_eq!(gh.history(&key(7), last(3), priority), Ok(Took::default()));
     // Not there, a change's number, a failure, an answer that is no issue.
@@ -682,7 +693,7 @@ fn a_kind_github_keeps_no_event_of_asks_no_question_and_settles_the_issue() {
         let shown = format!("{answer:?}");
         let (mut gh, asked) = stub(vec![answer]);
         assert_eq!(gh.history(&key(7), whole, priority), Err(want), "{shown}");
-        assert_eq!(asked.borrow().len(), 1, "{shown}");
+        assert_eq!(asked.lock().unwrap().len(), 1, "{shown}");
     }
 }
 
@@ -707,7 +718,7 @@ fn the_parts_are_paged_whole_and_counted() {
     ]);
     let got = gh.parts(&key(7)).unwrap();
     assert_eq!(got.items().len(), 3);
-    assert!(asked.borrow()[1].ends_with(" -f cursor=P"));
+    assert!(asked.lock().unwrap()[1].ends_with(" -f cursor=P"));
     // A count that does not add up, a part with no number, an empty entry,
     // a part that does not say whether it is open.
     let parts = |answers| stub(answers).0.parts(&key(7)).map(|w| w.items().len());
@@ -746,7 +757,7 @@ const NO_MENTIONS: &str = r#"{"pageInfo":{"hasNextPage":false,"endCursor":null},
 fn cut_ticket(answers: Vec<Result<String, &str>>) -> (Got<Ticket>, usize) {
     let (mut gh, asked) = stub(answers);
     let got = gh.ticket(&key(7), Depth::Cut { notes: 0 }, None);
-    let calls = asked.borrow().len();
+    let calls = asked.lock().unwrap().len();
     (got, calls)
 }
 
@@ -787,7 +798,7 @@ fn what_stands_beside_a_ticket_is_whole_or_the_ticket_is_unread() {
     ]);
     let t = gh.ticket(&key(7), Depth::Cut { notes: 0 }, None).unwrap();
     assert_eq!(t.mentioned_by.len(), 2);
-    assert!(asked.borrow()[2].ends_with(" -f cursor=M"));
+    assert!(asked.lock().unwrap()[2].ends_with(" -f cursor=M"));
     // That page failing fails the ticket.
     assert_eq!(
         cut_ticket(vec![
@@ -872,7 +883,7 @@ fn a_list_asks_githubs_filter_and_holds_every_ticket_to_the_callers() {
     // filter does not take is left out.
     let (mut gh, asked) = stub(vec![page(end, &[node(1, bug, 1)])]);
     assert_eq!(gh.list(&filter, bound(5)).map(|w| w.items().len()), Ok(0));
-    let asked = asked.borrow();
+    let asked = asked.lock().unwrap();
     assert!(asked[0].starts_with("api graphql -F owner=acme -F name=widget -f query="));
     assert!(
         asked[0].contains(
@@ -888,7 +899,7 @@ fn a_list_asks_githubs_filter_and_holds_every_ticket_to_the_callers() {
             .map(|w| w.items().len()),
         Ok(0)
     );
-    assert!(!asked.borrow()[0].contains("filterBy"));
+    assert!(!asked.lock().unwrap()[0].contains("filterBy"));
 
     let list = |answers| {
         stub(answers)
@@ -978,7 +989,7 @@ fn a_filter_githubs_list_cannot_take_is_refused_before_any_request() {
             invalid,
             "{filter:?}"
         );
-        assert!(asked.borrow().is_empty());
+        assert!(asked.lock().unwrap().is_empty());
     }
 }
 

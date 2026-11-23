@@ -7,10 +7,10 @@
 
 use serde::Deserialize;
 use serde_json::Value;
-use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::Mutex;
 use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 use tehas_ports::laws;
@@ -50,7 +50,7 @@ struct Call {
     input: Option<String>,
 }
 
-type Calls = Rc<RefCell<Vec<Call>>>;
+type Calls = Arc<Mutex<Vec<Call>>>;
 
 /// Answers each call from the list in turn and writes every call down. A
 /// call past the list fails.
@@ -61,7 +61,7 @@ struct Script {
 
 impl Script {
     fn next(&mut self, args: &[&str], input: Option<&str>) -> Result<String, String> {
-        self.calls.borrow_mut().push(Call {
+        self.calls.lock().unwrap().push(Call {
             args: args.iter().map(|a| a.to_string()).collect(),
             input: input.map(str::to_string),
         });
@@ -85,7 +85,7 @@ fn adapter(answers: Vec<Result<String, String>>) -> (GitHub, Calls) {
     let calls = Calls::default();
     let script = Script {
         answers: answers.into(),
-        calls: Rc::clone(&calls),
+        calls: Arc::clone(&calls),
     };
     let gh = GitHub::new(PROJECT, Box::new(script)).on_clock(now);
     (gh, calls)
@@ -173,7 +173,7 @@ fn an_open_sends_a_200_kib_body_and_its_title_on_standard_input_alone() {
         got.link.as_str(),
         "https://github.com/acme/widget/issues/42"
     );
-    let calls = calls.borrow();
+    let calls = calls.lock().unwrap();
     assert_eq!(calls.len(), 1);
     assert_eq!(
         calls[0].args,
@@ -205,7 +205,7 @@ fn a_comment_sends_a_200_kib_body_on_standard_input_and_answers_the_comments_lin
         got.link.as_str(),
         "https://github.com/acme/widget/issues/7#issuecomment-2501234567"
     );
-    let calls = calls.borrow();
+    let calls = calls.lock().unwrap();
     assert_eq!(calls.len(), 2);
     // The issue is read first, so a pull request's number gets no comment.
     assert_eq!(
@@ -246,7 +246,7 @@ fn an_edit_reads_the_issue_then_sends_a_200_kib_body_and_title_on_standard_input
         )
         .unwrap();
     assert_eq!(got.as_str(), "https://github.com/acme/widget/issues/7");
-    let calls = calls.borrow();
+    let calls = calls.lock().unwrap();
     assert_eq!(calls.len(), 2);
     assert_eq!(
         calls[0],
@@ -284,7 +284,10 @@ fn an_edit_sends_only_what_it_is_given() {
         &since,
     )
     .unwrap();
-    assert_eq!(input(&calls.borrow()[1]), sent(None, Some("New body.")));
+    assert_eq!(
+        input(&calls.lock().unwrap()[1]),
+        sent(None, Some("New body."))
+    );
 }
 
 #[test]
@@ -301,7 +304,7 @@ fn an_edit_of_an_issue_changed_since_its_revision_is_a_conflict_and_sends_nothin
         let (mut gh, calls) = adapter(vec![Ok(changed)]);
         let got = gh.edit(no(7), Some("x"), Some("y"), &MarkerEdit::default(), &since);
         assert_eq!(got, Err(Outcome::Conflict(Lost::Changed)));
-        assert_eq!(calls.borrow().len(), 1, "only the read");
+        assert_eq!(calls.lock().unwrap().len(), 1, "only the read");
     }
 }
 
@@ -316,7 +319,7 @@ fn a_label_or_a_comment_does_not_move_the_revision() {
     let (mut gh, calls) = adapter(vec![Ok(v.to_string()), Ok(read)]);
     let got = gh.edit(no(7), Some("x"), None, &MarkerEdit::default(), &since);
     assert!(got.is_ok(), "{got:?}");
-    assert_eq!(calls.borrow().len(), 2);
+    assert_eq!(calls.lock().unwrap().len(), 2);
 }
 
 #[test]
@@ -371,11 +374,11 @@ fn the_read_before_an_edit_or_a_comment_fails_with_no_write_and_says_it_was_not_
             &since,
         );
         assert_eq!(got, Err(want.clone()), "edit: {why}");
-        assert_eq!(calls.borrow().len(), 1, "edit: {why}");
+        assert_eq!(calls.lock().unwrap().len(), 1, "edit: {why}");
         let (mut gh, calls) = adapter(vec![Err(why.clone())]);
         let got = gh.comment(no(7), "b", &[]).map(|_| ());
         assert_eq!(got, Err(want), "comment: {why}");
-        assert_eq!(calls.borrow().len(), 1, "comment: {why}");
+        assert_eq!(calls.lock().unwrap().len(), 1, "comment: {why}");
     }
 }
 
@@ -387,7 +390,7 @@ fn an_issue_answer_with_no_title_is_unread_not_a_conflict() {
     let (mut gh, calls) = adapter(vec![Ok(v.to_string())]);
     let got = gh.edit(no(7), Some("x"), None, &MarkerEdit::default(), &since);
     assert_eq!(got, Err(Outcome::Unread(Unread::Malformed)));
-    assert_eq!(calls.borrow().len(), 1);
+    assert_eq!(calls.lock().unwrap().len(), 1);
 }
 
 #[test]
@@ -395,7 +398,7 @@ fn a_comment_on_a_pull_requests_number_is_not_found_and_sends_nothing() {
     let (mut gh, calls) = adapter(vec![Ok(sample("pull-8.json"))]);
     let got = gh.comment(no(8), "b", &[]);
     assert_eq!(got, Err(Outcome::NotFound));
-    let calls = calls.borrow();
+    let calls = calls.lock().unwrap();
     assert_eq!(calls.len(), 1);
     assert!(calls[0].input.is_none(), "no POST");
 }
@@ -407,7 +410,7 @@ fn an_edit_of_a_pull_request_is_not_found_and_sends_nothing() {
     let (mut gh, calls) = adapter(vec![Ok(read)]);
     let got = gh.edit(no(8), Some("x"), None, &MarkerEdit::default(), &since);
     assert_eq!(got, Err(Outcome::NotFound));
-    assert_eq!(calls.borrow().len(), 1);
+    assert_eq!(calls.lock().unwrap().len(), 1);
 }
 
 #[test]
@@ -420,7 +423,7 @@ fn an_edit_that_would_drop_a_marker_is_refused_and_a_title_alone_is_made() {
     let (mut gh, calls) = adapter(vec![Ok(marked.clone())]);
     let got = gh.edit(no(7), None, Some("New."), &MarkerEdit::default(), &since);
     assert_eq!(got, Err(Outcome::Refused(Refusal::Unsupported)));
-    assert_eq!(calls.borrow().len(), 1, "only the read");
+    assert_eq!(calls.lock().unwrap().len(), 1, "only the read");
 
     let (mut gh, calls) = adapter(vec![Ok(marked.clone()), Ok(marked)]);
     let got = gh.edit(
@@ -431,7 +434,10 @@ fn an_edit_that_would_drop_a_marker_is_refused_and_a_title_alone_is_made() {
         &since,
     );
     assert!(got.is_ok(), "{got:?}");
-    assert_eq!(input(&calls.borrow()[1]), sent(Some("Retitled"), None));
+    assert_eq!(
+        input(&calls.lock().unwrap()[1]),
+        sent(Some("Retitled"), None)
+    );
 }
 
 #[test]
@@ -444,7 +450,7 @@ fn an_edit_with_nothing_to_change_reads_and_writes_nothing() {
         got.unwrap().as_str(),
         "https://github.com/acme/widget/issues/7"
     );
-    assert_eq!(calls.borrow().len(), 1);
+    assert_eq!(calls.lock().unwrap().len(), 1);
 }
 
 #[test]
@@ -481,7 +487,7 @@ fn markers_and_marked_texts_are_refused_before_any_request() {
         markers: Vec::new(),
     };
     assert_eq!(gh.open(&summed).map(|_| ()), invalid);
-    assert!(calls.borrow().is_empty());
+    assert!(calls.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -498,7 +504,7 @@ fn a_repository_that_is_no_owner_and_name_gets_no_write() {
         let calls = Calls::default();
         let script = Script {
             answers: VecDeque::new(),
-            calls: Rc::clone(&calls),
+            calls: Arc::clone(&calls),
         };
         let mut gh = GitHub::new(repo, Box::new(script));
         let invalid = Err(Outcome::Refused(Refusal::Invalid));
@@ -516,7 +522,7 @@ fn a_repository_that_is_no_owner_and_name_gets_no_write() {
             &Revision::new("r"),
         );
         assert_eq!(edit.map(|_| ()), invalid, "{repo}");
-        assert!(calls.borrow().is_empty(), "{repo}");
+        assert!(calls.lock().unwrap().is_empty(), "{repo}");
     }
 }
 
@@ -527,10 +533,10 @@ fn each_write(fail: &Result<String, String>) -> Vec<(&'static str, Got<()>, Vec<
     let since = revision_of(&read);
     let (mut gh, calls) = adapter(vec![fail.clone()]);
     let open = gh.open(&new_blueprint(TITLE, &big_body())).map(|_| ());
-    let open_calls = calls.borrow().clone();
+    let open_calls = calls.lock().unwrap().clone();
     let (mut gh, calls) = adapter(vec![Ok(read.clone()), fail.clone()]);
     let comment = gh.comment(no(7), &big_body(), &[]).map(|_| ());
-    let comment_calls = calls.borrow().clone();
+    let comment_calls = calls.lock().unwrap().clone();
     let (mut gh, calls) = adapter(vec![Ok(read), fail.clone()]);
     let edit = gh
         .edit(
@@ -541,7 +547,7 @@ fn each_write(fail: &Result<String, String>) -> Vec<(&'static str, Got<()>, Vec<
             &since,
         )
         .map(|_| ());
-    let edit_calls = calls.borrow().clone();
+    let edit_calls = calls.lock().unwrap().clone();
     vec![
         ("open", open, open_calls),
         ("comment", comment, comment_calls),
@@ -670,7 +676,7 @@ struct NoInput {
 
 impl GhRunner for NoInput {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        self.calls.borrow_mut().push(Call {
+        self.calls.lock().unwrap().push(Call {
             args: args.iter().map(|a| a.to_string()).collect(),
             input: None,
         });
@@ -682,7 +688,7 @@ impl GhRunner for NoInput {
 fn a_runner_that_takes_no_input_sends_nothing_and_never_puts_the_text_in_an_argument() {
     let calls = Calls::default();
     let runner = NoInput {
-        calls: Rc::clone(&calls),
+        calls: Arc::clone(&calls),
     };
     let mut gh = GitHub::new(PROJECT, Box::new(runner));
     let unsupported = Err(Outcome::Refused(Refusal::Unsupported));
@@ -690,7 +696,7 @@ fn a_runner_that_takes_no_input_sends_nothing_and_never_puts_the_text_in_an_argu
     assert_eq!(gh.comment(no(7), "b", &[]).map(|_| ()), unsupported);
     // The comment's read alone: no write went out.
     assert_eq!(
-        *calls.borrow(),
+        *calls.lock().unwrap(),
         [Call {
             args: args(&["api", "repos/acme/widget/issues/7"]),
             input: None
@@ -706,7 +712,7 @@ fn the_unbuilt_writes_are_refused_before_any_request() {
     let edit = gh.edit_comment(&id, "b", &MarkerEdit::default(), &Revision::new("r"));
     assert_eq!(edit.map(|_| ()), unsupported);
     assert_eq!(gh.close(no(7), true), unsupported);
-    assert!(calls.borrow().is_empty());
+    assert!(calls.lock().unwrap().is_empty());
 }
 
 /// Issue 7 as a site keeps it: a read answers its title and body, a
@@ -718,7 +724,7 @@ struct Kept {
 }
 
 struct Site {
-    kept: Rc<RefCell<Kept>>,
+    kept: Arc<Mutex<Kept>>,
 }
 
 impl GhRunner for Site {
@@ -726,7 +732,7 @@ impl GhRunner for Site {
         if args != ["api", "repos/acme/widget/issues/7"] {
             return Err(format!("no recording of {args:?}"));
         }
-        let k = self.kept.borrow();
+        let k = self.kept.lock().unwrap();
         Ok(issue_7(&k.title, &k.body))
     }
 
@@ -744,7 +750,7 @@ impl GhRunner for Site {
             return Err(format!("no recording of {args:?}"));
         }
         let sent: Input = serde_json::from_str(input).map_err(|_| "no JSON".to_string())?;
-        let mut k = self.kept.borrow_mut();
+        let mut k = self.kept.lock().unwrap();
         if let Some(t) = sent.title {
             k.title = t;
         }
@@ -757,16 +763,19 @@ impl GhRunner for Site {
 
 #[test]
 fn the_law_an_edit_moves_the_revision_holds_over_the_adapters_edit() {
-    let kept = Rc::new(RefCell::new(Kept {
+    let kept = Arc::new(Mutex::new(Kept {
         title: "Plan: the widget's settings page".into(),
         body: "One page for every setting.".into(),
     }));
     let site = Site {
-        kept: Rc::clone(&kept),
+        kept: Arc::clone(&kept),
     };
     let mut h = GitHub::new(PROJECT, Box::new(site)).on_clock(now);
     laws::blueprints::an_edit_moves_the_revision(&mut h, no(7)).unwrap();
-    assert_eq!(kept.borrow().body, "One page for every setting.\n\nEdited.");
+    assert_eq!(
+        kept.lock().unwrap().body,
+        "One page for every setting.\n\nEdited."
+    );
 }
 
 /// An edit whose `PATCH` failed with `why`, then settled by one read that
@@ -782,7 +791,7 @@ fn settled(why: &str, again: Result<String, String>) -> (Got<WebLink>, Vec<Call>
         &MarkerEdit::default(),
         &since,
     );
-    let calls = calls.borrow().clone();
+    let calls = calls.lock().unwrap().clone();
     (got, calls)
 }
 
@@ -919,12 +928,12 @@ fn the_law_an_unreadable_marker_is_kept_answers_unsupported_and_writes_nothing()
     // Today's honest answer: with no marker writer, an edit of a body that
     // holds markers is refused, nothing is written, and the markers stay.
     // The marker writer will replace the refusal, and the law then holds.
-    let kept = Rc::new(RefCell::new(Kept {
+    let kept = Arc::new(Mutex::new(Kept {
         title: "Plan".into(),
         body: MARKED.into(),
     }));
     let site = Site {
-        kept: Rc::clone(&kept),
+        kept: Arc::clone(&kept),
     };
     let mut h = GitHub::new(PROJECT, Box::new(site)).on_clock(now);
     let law = laws::markers::an_unreadable_marker_is_kept(&mut h, no(7));
@@ -938,7 +947,7 @@ fn the_law_an_unreadable_marker_is_kept_answers_unsupported_and_writes_nothing()
             ),
         })
     );
-    assert_eq!(kept.borrow().body, MARKED);
+    assert_eq!(kept.lock().unwrap().body, MARKED);
 }
 
 #[test]
@@ -978,7 +987,7 @@ fn every_way(why: &str) -> Vec<(&'static str, Got<()>, Vec<Call>)> {
     let read = gh
         .edit(no(7), Some(TITLE), None, &MarkerEdit::default(), &since)
         .map(|_| ());
-    all.push(("the edit's read", read, calls.borrow().clone()));
+    all.push(("the edit's read", read, calls.lock().unwrap().clone()));
     all
 }
 

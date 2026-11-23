@@ -7,11 +7,11 @@
 //! adapter as `Bounded` would give it. No test calls GitHub.
 
 use serde_json::Value;
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::Mutex;
 use tehas_core::forge::GhRunner;
 use tehas_github::markers;
 use tehas_github::GitHub;
@@ -57,8 +57,8 @@ const CUT_TEXT: usize = 200;
 
 const CUT0: Depth = Depth::Cut { notes: 0 };
 
-type Calls = Rc<RefCell<Vec<String>>>;
-type Kept = Rc<RefCell<Site>>;
+type Calls = Arc<Mutex<Vec<String>>>;
+type Kept = Arc<Mutex<Site>>;
 
 /// The issues a site keeps, by number, and each one's comments, oldest
 /// first. A read answers the issue, a page of comments its slice, and a
@@ -180,12 +180,12 @@ struct Runner {
 
 impl GhRunner for Runner {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        self.calls.borrow_mut().push(args.join(" "));
-        self.site.borrow_mut().answer(args)
+        self.calls.lock().unwrap().push(args.join(" "));
+        self.site.lock().unwrap().answer(args)
     }
 
     fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
-        self.calls.borrow_mut().push(args.join(" "));
+        self.calls.lock().unwrap().push(args.join(" "));
         let [_, _, method, path, _, _] = args else {
             return Err(format!("no recording of {args:?}"));
         };
@@ -197,7 +197,7 @@ impl GhRunner for Runner {
             return Err(format!("no recording of {args:?}"));
         }
         let sent: Value = serde_json::from_str(input).map_err(|_| "no JSON")?;
-        let mut site = self.site.borrow_mut();
+        let mut site = self.site.lock().unwrap();
         let issue = site.issues.get_mut(&n).ok_or("no recording")?;
         for k in ["title", "body"] {
             if let Some(v) = sent.get(k) {
@@ -209,11 +209,11 @@ impl GhRunner for Runner {
 }
 
 fn adapter(site: Site) -> (GitHub, Kept, Calls) {
-    let kept = Rc::new(RefCell::new(site));
+    let kept = Arc::new(Mutex::new(site));
     let calls = Calls::default();
     let runner = Runner {
-        site: Rc::clone(&kept),
-        calls: Rc::clone(&calls),
+        site: Arc::clone(&kept),
+        calls: Arc::clone(&calls),
     };
     (
         GitHub::new(PROJECT, Box::new(runner)).on_clock(now),
@@ -227,12 +227,12 @@ fn answering(answer: Result<String, String>) -> (GitHub, Calls) {
     struct One(Option<Result<String, String>>, Calls);
     impl GhRunner for One {
         fn run(&mut self, args: &[&str]) -> Result<String, String> {
-            self.1.borrow_mut().push(args.join(" "));
+            self.1.lock().unwrap().push(args.join(" "));
             self.0.take().unwrap_or_else(|| Err("no answer".into()))
         }
     }
     let calls = Calls::default();
-    let gh = GitHub::new(PROJECT, Box::new(One(Some(answer), Rc::clone(&calls)))).on_clock(now);
+    let gh = GitHub::new(PROJECT, Box::new(One(Some(answer), Arc::clone(&calls)))).on_clock(now);
     (gh, calls)
 }
 
@@ -246,7 +246,7 @@ fn page(n: u64, p: usize) -> String {
 fn a_blueprint_at_cut_0_is_one_read_of_the_issue_its_markers_apart() {
     let (mut gh, _, calls) = adapter(Site::default().seven());
     let b = gh.blueprint(no(7), CUT0).unwrap();
-    assert_eq!(*calls.borrow(), [ISSUE_7], "no comment request");
+    assert_eq!(*calls.lock().unwrap(), [ISSUE_7], "no comment request");
     let raw = json::<Value>("issue-7.json")["body"]
         .as_str()
         .unwrap()
@@ -296,13 +296,7 @@ impl GhRunner for Echo {
 fn an_issue_with_no_comment_says_no_more_at_cut_0() {
     let (mut gh, _, _) = adapter(Site::default().issue(9, "Plan", "Text."));
     let b = gh.blueprint(no(9), CUT0).unwrap();
-    assert_eq!(
-        b.comments,
-        Took {
-            items: Vec::new(),
-            more: false
-        }
-    );
+    assert_eq!(b.comments, Took::default());
     assert!(b.markers.is_empty());
     assert_eq!(b.body, "Text.");
 }
@@ -311,7 +305,7 @@ fn an_issue_with_no_comment_says_no_more_at_cut_0() {
 fn comments_at_each_depth_carry_their_markers_apart_and_their_accounts() {
     let (mut gh, _, calls) = adapter(Site::default().seven());
     let all = gh.blueprint(no(7), Depth::All).unwrap();
-    assert_eq!(*calls.borrow(), [ISSUE_7.to_string(), page(7, 1)]);
+    assert_eq!(*calls.lock().unwrap(), [ISSUE_7.to_string(), page(7, 1)]);
     assert!(!all.comments.more);
     let c = &all.comments.items;
     assert_eq!(c.len(), 3);
@@ -364,10 +358,10 @@ fn the_newest_n_read_only_the_pages_that_hold_them() {
     assert_eq!(b.comments.items[0].body, "Comment 200.");
     assert_eq!(b.comments.items[4].body, "Comment 204.");
     assert_eq!(
-        *calls.borrow(),
+        *calls.lock().unwrap(),
         ["api repos/acme/widget/issues/9".to_string(), page(9, 3)]
     );
-    calls.borrow_mut().clear();
+    calls.lock().unwrap().clear();
     // Across a page boundary: the newest 106 start on page 1's last item.
     let b = gh
         .blueprint(no(9), Depth::Last { notes: n32(106) })
@@ -376,7 +370,7 @@ fn the_newest_n_read_only_the_pages_that_hold_them() {
     assert_eq!(b.comments.items[0].body, "Comment 99.");
     assert!(b.comments.more);
     assert_eq!(
-        *calls.borrow(),
+        *calls.lock().unwrap(),
         [
             "api repos/acme/widget/issues/9".to_string(),
             page(9, 1),
@@ -429,7 +423,7 @@ fn more_comments_than_all_takes_is_cut_with_no_page_read() {
         gh.blueprint(no(9), Depth::All),
         Err(Outcome::Unread(Unread::Cut))
     );
-    assert_eq!(calls.borrow().len(), 1);
+    assert_eq!(calls.lock().unwrap().len(), 1);
 }
 
 #[test]
@@ -481,14 +475,14 @@ fn a_pull_requests_number_is_not_found_with_no_further_request() {
     for depth in [CUT0, Depth::All, Depth::Last { notes: n32(3) }] {
         let (mut gh, calls) = answering(Ok(sample("pull-request-8.json")));
         assert_eq!(gh.blueprint(no(8), depth), Err(Outcome::NotFound));
-        assert_eq!(calls.borrow().len(), 1);
+        assert_eq!(calls.lock().unwrap().len(), 1);
     }
     let (mut gh, calls) = answering(Ok(sample("pull-request-8.json")));
     assert_eq!(
         gh.comments(no(8), Bound::new(10).unwrap()).map(|_| ()),
         Err(Outcome::NotFound)
     );
-    assert_eq!(calls.borrow().len(), 1);
+    assert_eq!(calls.lock().unwrap().len(), 1);
 }
 
 #[test]
@@ -539,7 +533,7 @@ fn every_failure_of_the_read_is_its_named_outcome_never_an_empty_blueprint() {
     for (answer, want) in cases {
         let (mut gh, calls) = answering(answer.clone());
         assert_eq!(gh.blueprint(no(7), CUT0), Err(want.clone()), "{answer:?}");
-        assert_eq!(calls.borrow().len(), 1, "{answer:?}");
+        assert_eq!(calls.lock().unwrap().len(), 1, "{answer:?}");
         let (mut gh, _) = answering(answer.clone());
         assert_eq!(gh.several(&[no(7)], CUT0), [(no(7), Err(want.clone()))]);
         let (mut gh, _) = answering(answer.clone());
@@ -616,7 +610,7 @@ fn several_answers_each_number_on_its_own_in_the_order_asked() {
     assert_eq!(got[0].1.as_ref().unwrap().title, "Other");
     assert_eq!(got[1], (no(404), Err(Outcome::NotFound)));
     assert_eq!(got[2].1.as_ref().unwrap().markers, [Marker::HoldCleared]);
-    assert_eq!(calls.borrow().len(), 3);
+    assert_eq!(calls.lock().unwrap().len(), 3);
 }
 
 #[test]
@@ -648,7 +642,7 @@ fn a_title_search_then_the_blueprint_of_its_hit_answer_the_same_title_author_and
     assert!(b
         .body
         .starts_with("One page for every setting.\r\n\r\n- read them\r\n- save them"));
-    let calls = calls.borrow();
+    let calls = calls.lock().unwrap();
     assert_eq!(calls.len(), 2);
     assert!(calls[0].starts_with("api -X GET search/issues"));
     assert_eq!(calls[1], ISSUE_7);
@@ -680,7 +674,7 @@ fn an_edit_at_the_reads_revision_goes_through_on_an_unchanged_issue() {
         &b.revision,
     );
     assert!(got.is_ok(), "{got:?}");
-    assert_eq!(kept.borrow().issues[&7]["body"], "Two pages.");
+    assert_eq!(kept.lock().unwrap().issues[&7]["body"], "Two pages.");
 }
 
 #[test]
@@ -699,7 +693,7 @@ fn an_edit_at_the_reads_revision_of_a_marked_body_meets_the_edits_marker_refusal
         &b.revision,
     );
     assert_eq!(got, Err(Outcome::Refused(Refusal::Unsupported)));
-    assert_eq!(kept.borrow().issues[&7]["body"], raw);
+    assert_eq!(kept.lock().unwrap().issues[&7]["body"], raw);
     // A title alone goes through at the read's revision: not a conflict.
     let got = gh.edit(
         no(7),
@@ -709,10 +703,11 @@ fn an_edit_at_the_reads_revision_of_a_marked_body_meets_the_edits_marker_refusal
         &b.revision,
     );
     assert!(got.is_ok(), "{got:?}");
-    assert_eq!(kept.borrow().issues[&7]["title"], "Retitled");
+    assert_eq!(kept.lock().unwrap().issues[&7]["title"], "Retitled");
     assert_eq!(
         calls
-            .borrow()
+            .lock()
+            .unwrap()
             .iter()
             .filter(|c| c.contains("PATCH"))
             .count(),
@@ -739,8 +734,8 @@ fn a_body_read_back_with_another_items_marker_words_is_refused_by_the_edits_text
         &b.revision,
     );
     assert_eq!(got, Err(Outcome::Refused(Refusal::Invalid)));
-    assert_eq!(kept.borrow().issues[&7]["body"], raw.as_str());
-    assert!(!calls.borrow().iter().any(|c| c.contains("PATCH")));
+    assert_eq!(kept.lock().unwrap().issues[&7]["body"], raw.as_str());
+    assert!(!calls.lock().unwrap().iter().any(|c| c.contains("PATCH")));
 }
 
 #[test]
@@ -751,7 +746,7 @@ fn an_edit_at_the_reads_revision_after_the_issue_changed_is_a_conflict() {
             adapter(Site::default().issue(7, "Plan", &marked("hold-cleared")));
         let b = gh.blueprint(no(7), CUT0).unwrap();
         {
-            let mut site = kept.borrow_mut();
+            let mut site = kept.lock().unwrap();
             let issue = site.issues.get_mut(&7).unwrap();
             match change {
                 "body" => issue["body"] = "Another account's body.".into(),
@@ -774,7 +769,7 @@ fn an_edit_at_the_reads_revision_after_the_issue_changed_is_a_conflict() {
         );
         assert_eq!(got, Err(Outcome::Conflict(Lost::Changed)), "{change}");
         assert!(
-            !calls.borrow().iter().any(|c| c.contains("PATCH")),
+            !calls.lock().unwrap().iter().any(|c| c.contains("PATCH")),
             "{change}"
         );
     }
@@ -791,7 +786,7 @@ fn the_law_an_edit_moves_the_revision_holds_over_the_adapters_read_and_edit() {
     ));
     laws::blueprints::an_edit_moves_the_revision(&mut gh, no(7)).unwrap();
     assert_eq!(
-        kept.borrow().issues[&7]["body"],
+        kept.lock().unwrap().issues[&7]["body"],
         "One page for every setting.\n\nEdited."
     );
 }
@@ -813,7 +808,7 @@ fn the_law_an_unreadable_marker_is_kept_meets_the_edits_refusal_and_writes_nothi
             ),
         })
     );
-    assert_eq!(kept.borrow().issues[&7]["body"], body);
+    assert_eq!(kept.lock().unwrap().issues[&7]["body"], body);
 }
 
 #[test]

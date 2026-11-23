@@ -3,9 +3,9 @@
 //! answer and `<item>/<read>.fail` the reason the call failed. A call with
 //! no recording fails. It counts the calls it was asked.
 
-use std::cell::Cell;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 
@@ -14,7 +14,7 @@ pub const PROJECT: &str = "acme/widget";
 
 pub struct Replay {
     repo: String,
-    asked: Rc<Cell<usize>>,
+    asked: Arc<AtomicUsize>,
 }
 
 /// The words of `text` between `open` and the next `close`.
@@ -89,7 +89,7 @@ fn question(repo: &str, args: &[&str]) -> (String, String) {
 
 impl GhRunner for Replay {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        self.asked.set(self.asked.get() + 1);
+        self.asked.fetch_add(1, Ordering::SeqCst);
         let none = || format!("no recording of {args:?}");
         let (dir, name) = match args {
             ["api", "graphql", ..] => question(&self.repo, args),
@@ -134,11 +134,11 @@ fn replay_now() -> i64 {
 
 /// The adapter of a fixture project over its recordings, and the count of
 /// the calls it made.
-pub fn adapter_of(repo: &str) -> (GitHub, Rc<Cell<usize>>) {
-    let asked = Rc::new(Cell::new(0));
+pub fn adapter_of(repo: &str) -> (GitHub, Arc<AtomicUsize>) {
+    let asked = Arc::new(AtomicUsize::new(0));
     let replay = Replay {
         repo: repo.to_string(),
-        asked: Rc::clone(&asked),
+        asked: Arc::clone(&asked),
     };
     (
         GitHub::new(repo, Box::new(replay)).on_clock(replay_now),
