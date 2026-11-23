@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::home::{Home, Live};
+use tehas_core::testdir::TestDir;
 
 const ANALYTICS: &str = env!("CARGO_BIN_EXE_analytics");
 
@@ -19,13 +20,13 @@ const ANALYTICS: &str = env!("CARGO_BIN_EXE_analytics");
 /// rather than written here, so the version is named in one place: an export
 /// of an empty home prints `PRAGMA user_version` of a database it just made.
 fn schema_version() -> i64 {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("command-schema");
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(Home::new(&dir).state_dir()).unwrap();
+    let scratch = TestDir::new("analytics-command-schema");
+    let dir = scratch.path();
+    fs::create_dir_all(Home::new(dir).state_dir()).unwrap();
     let copy = dir.join("copy.db");
     let out = Command::new(ANALYTICS)
         .args(["copy", "--to", copy.to_str().unwrap(), "--json"])
-        .env("TEHAS_HOME", &dir)
+        .env("TEHAS_HOME", dir)
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(0), "{out:?}");
@@ -57,6 +58,8 @@ fn iso(t: i64) -> String {
 }
 
 struct Host {
+    /// Removed when the host drops.
+    _scratch: TestDir,
     dir: PathBuf,
     home: PathBuf,
     instance: PathBuf,
@@ -67,8 +70,8 @@ impl Host {
     // A scratch host: TEHAS_HOME with this program as libexec/analytics, an
     // instance, and gh, docker, git and curl that record a call and fail.
     fn new(name: &str) -> Host {
-        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("command-{name}"));
-        let _ = fs::remove_dir_all(&dir);
+        let scratch = TestDir::new(&format!("analytics-command-{name}"));
+        let dir = scratch.path().to_path_buf();
         let home = dir.join("tehas");
         fs::create_dir_all(Home::new(&home).cycles_dir()).unwrap();
         for sub in ["logs", "docs", "libexec"] {
@@ -105,6 +108,7 @@ impl Host {
         )
         .unwrap();
         Host {
+            _scratch: scratch,
             dir,
             home,
             instance,
@@ -423,13 +427,13 @@ fn the_copy_prints_the_object_its_schema_and_samples_describe() {
     assert_eq!(code, 0, "{err}");
     let ran: Value = serde_json::from_str(&out).unwrap();
 
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("command-copy-schema-new");
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(Home::new(&dir).state_dir()).unwrap();
+    let scratch = TestDir::new("analytics-command-copy-schema-new");
+    let dir = scratch.path();
+    fs::create_dir_all(Home::new(dir).state_dir()).unwrap();
     let copy = dir.join("copy.db");
     let new = Command::new(ANALYTICS)
         .args(["copy", "--to", copy.to_str().unwrap(), "--json"])
-        .env("TEHAS_HOME", &dir)
+        .env("TEHAS_HOME", dir)
         .output()
         .unwrap();
     assert_eq!(new.status.code(), Some(0), "{new:?}");
