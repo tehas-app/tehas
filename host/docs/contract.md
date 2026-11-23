@@ -63,8 +63,10 @@ Internal:
 
 ## Starting work for a person
 
-A program on the host starts work for a person in one way: `tehas start
-<issue>`, called for a person who is signed in to that program. The program
+A program on the host starts work for a person with `tehas start <issue>`,
+called for a person who is signed in to that program. In 2.0 it is the one
+way; until [#2894](https://github.com/tehas-app/tehas/pull/2894) lands, the
+millwright's grant below is a second. The program
 answers for who the person is and that they may approve work; tehas records
 the approval as the host's (`how: host`), binds the issue's title and text,
 and the next poll starts it under the rules every start passes. [tehas
@@ -80,10 +82,12 @@ A program answers a question an issue waits on for a person with
 `TEHAS_ALLOWED_LABELERS`, and reads the question and its choices with
 [tehas question](/api#tehas-question).
 
-No other path starts work for a person. The millwright's own `tehas:ready`
-starts only an epic's sub-issues under `TEHAS_MILLWRIGHT_EPICS=on`; the grant
-by which it also retried and fed work goes with
-[#2894](https://github.com/tehas-app/tehas/pull/2894) (Pending).
+Today the millwright's own `tehas:ready` also starts work, by its grant: it
+retries a cycle a person approved before (`TEHAS_MILLWRIGHT_MAX_RETRIES`)
+and feeds an issue a person wrote (`TEHAS_MILLWRIGHT_FEED`). The grant is
+coming out in 2.0 with #2894 (Pending). After it, the millwright's
+`tehas:ready` starts only an epic's sub-issues under
+`TEHAS_MILLWRIGHT_EPICS=on`.
 
 ## What is frozen and how
 
@@ -168,9 +172,9 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
 1. **Check the settings first.** 2.0 rewrites no setting. Each line of
    `instance.env` is kept, dropped with one warning, or refused with 78, as
    [what 2.0 does with a setting](#what-20-does-with-a-setting) lists.
-   `cargo xtask config-check --settings <instance dir>`, run in a checkout of
-   the 2.0 release, says which, before anyone updates the host (#2885,
-   Pending). Fix every refused line before the update.
+   Fix every refused line before the update. A check that says which,
+   `cargo xtask config-check --settings <instance dir>`, is coming in 2.0
+   with [#2885](https://github.com/tehas-app/tehas/pull/2885) (Pending).
 2. **Run `tehas update`.** It stops and removes the units and files of the
    features 2.0 took out of core, and migrates the state store and analytics.
 3. **The state store** (`state/tehas.db`) goes from schema 23, 1.4.x's, to
@@ -189,7 +193,7 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
 5. **pi-rukas.** A checkout follows pi-rukas's 0.15 line
    (`PI_RUKAS_FOLLOW=release:0.15`). 2.0 needs pi-rukas v0.15.6 or later.
 
-`tehas update` reaches 2.0 from 1.4.x only. A host on an older release
+The update to 2.0 is supported from 1.4.x only. A host on an older release
 updates to the newest 1.4.x first.
 
 ## Settings and the knob rule
@@ -517,16 +521,8 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: `tehas update`, readers of `tehas state check` and of a state
   copy, the end-to-end suite.
   Adopter action: `tehas update` migrates the store.
-- **`tehas start` is the one way a program starts work for a person.**
-  This page. A program on the host calls it for a person signed in to that
-  program, as [Starting work for a person](#starting-work-for-a-person)
-  says.
-  Readers: the consumer that runs many factories, Obeya, the end-to-end
-  suite.
-  Adopter action: a program that applied `tehas:ready` as the millwright to
-  start or retry work for a person runs `tehas start` instead.
-- **2.0 is reached from 1.4.x, as the trio.** This page. `tehas update`
-  reaches 2.0 from 1.4.x only, and a host upgrades its industry, Obeya and
+- **2.0 is supported from 1.4.x, as the trio.** This page. The update to
+  2.0 is supported from 1.4.x only, and a host upgrades its industry, Obeya and
   factories together.
   Readers: adopters, the consumer that runs many factories.
   Adopter action: update a host on an older release to the newest 1.4.x
@@ -542,7 +538,8 @@ Planned or in review, not merged. Each moves to
 [Changed in 2.0](#changed-in-20) when it lands, with its readers and
 adopter action as the pull request states them.
 
-- **The millwright's grant goes.**
+- **The millwright's grant goes, and `tehas start` is the one way a
+  program starts work for a person.**
   [#2894](https://github.com/tehas-app/tehas/pull/2894). The bot's
   `tehas:ready` no longer retries a cycle a person approved before, and the
   feed no longer starts an issue a person wrote; the poll takes the label
@@ -553,6 +550,9 @@ adopter action as the pull request states them.
   and `action=finish` work as before.
   Readers: the consumer that runs many factories, Obeya, the end-to-end
   suite, plugins.
+  Adopter action: a program that applied `tehas:ready` as the millwright to
+  start or retry work for a person runs `tehas start` for a signed-in
+  person instead.
 - **The All hands label goes.**
   [#2881](https://github.com/tehas-app/tehas/pull/2881). `tehas:all-hands`
   leaves `host/labels.tsv`; `allHands` leaves `tehas status --json`;
@@ -656,7 +656,7 @@ What each registered feature leaves visible while its flag is off:
 
 ### outsource
 
-Building. Dropped in 2.0 by [#2886](https://github.com/tehas-app/tehas/pull/2886)
+Building. Coming out in 2.0 with [#2886](https://github.com/tehas-app/tehas/pull/2886)
 (Pending). Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
 78 and says `outsource` is still being built.
 
@@ -674,7 +674,7 @@ Building. Dropped in 2.0 by [#2886](https://github.com/tehas-app/tehas/pull/2886
 
 ### spec-pipe
 
-Building. Dropped in 2.0 by [#2892](https://github.com/tehas-app/tehas/pull/2892)
+Building. Coming out in 2.0 with [#2892](https://github.com/tehas-app/tehas/pull/2892)
 (Pending). Off by default; `TEHAS_SPEC_PIPE=on` stops every command with exit
 78 and says `spec-pipe` is still being built.
 

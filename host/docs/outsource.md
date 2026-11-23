@@ -19,9 +19,9 @@ In this release outsource is a feature still being built. It cannot be
 switched on: `TEHAS_OUTSOURCE=on` stops every command with exit 78 and says
 that `outsource` is still being built, and so does a line that gives a value
 to any `TEHAS_OUTSOURCE_*` setting below. `tehas api --json` lists it in
-`flags` as `false`. Outsource is dropped in 2.0, as
-[the contract](/contract#outsource) says. This page
-says what the proxy did while it was being built.
+`flags` as `false`. Outsource is coming out in 2.0, as
+[the contract](/contract#outsource) says. Until then this page
+says what the proxy does while it is being built.
 
 This page covers how the feature is switched on and installed, the model
 proxy, the job channel on the same listener, the contractor program, the
