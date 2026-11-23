@@ -3297,7 +3297,7 @@
   }
  },
  {
-  "case": "each end of a cycle leaves a line of history for the fixer: a park and its reason, a waiting merge",
+  "case": "each end of a cycle leaves a line of history for the millwright: a park and its reason, a waiting merge",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3457,7 +3457,7 @@
   }
  },
  {
-  "case": "each end of a cycle leaves a line of history for the fixer: a park and its reason, a waiting merge (2)",
+  "case": "each end of a cycle leaves a line of history for the millwright: a park and its reason, a waiting merge (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",

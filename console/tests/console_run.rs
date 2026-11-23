@@ -72,7 +72,7 @@ impl Host {
             instance: RefCell::new(false),
             env: RefCell::new(vec![]),
         };
-        for name in ["docker", "gh", "systemctl", "curl", "ssh"] {
+        for name in tehas_core::testing::DENIED {
             write_exe(
                 h.t.join("deny").join(name),
                 format!(
@@ -82,7 +82,7 @@ impl Host {
             )
             .unwrap();
         }
-        for tool in ["gh", "docker", "git"] {
+        for tool in tehas_core::testing::UNREACHED {
             h.stub(tool, "exit 1");
         }
         h.reset();
@@ -200,15 +200,11 @@ impl Host {
     /// Nothing outside was asked and nothing was written.
     #[track_caller]
     fn untouched(&self) {
-        assert_eq!(
-            format!(
-                "{}{}{}",
-                self.calls("gh"),
-                self.calls("docker"),
-                self.calls("git")
-            ),
-            ""
-        );
+        let calls: String = tehas_core::testing::UNREACHED
+            .iter()
+            .map(|tool| self.calls(tool))
+            .collect();
+        assert_eq!(calls, "");
         assert_eq!(entries(&self.home), 0, "the home holds files");
     }
 

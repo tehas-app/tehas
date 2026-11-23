@@ -104,7 +104,7 @@ fn a_cycle_that_never_ran_is_reported_from_the_approval_record_and_the_record_go
     lacks(&gh, "min,");
     lacks(&gh, "total, all dispatches");
     has(&gh, "- retry-text: Retry with the issue text only");
-    // The approval goes with the report: no later start, the fixer's or a
+    // The approval goes with the report: no later start, the millwright's or a
     // refresh, rests on an approval that started nothing.
     let a = w.row(&["approval-current", "7"]);
     assert_eq!(
@@ -378,7 +378,7 @@ fn a_cycle_that_reached_its_deadline_says_so_and_an_intent_park_says_its_reason(
 }
 
 #[test]
-fn each_end_of_a_cycle_leaves_a_line_of_history_for_the_fixer_a_park_and_its_reason_a_waiting_merge(
+fn each_end_of_a_cycle_leaves_a_line_of_history_for_the_millwright_a_park_and_its_reason_a_waiting_merge(
 ) {
     let mut w = World::new("ho-history");
     w.env("TEHAS_CYCLE_FROM", "unit");
