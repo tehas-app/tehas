@@ -44,6 +44,9 @@ impl Forge for Fake {
     fn applied_by(&mut self, _: u64, _: &str) -> Result<Option<Approval>, ForgeError> {
         Err(fails("the issue's label events"))
     }
+    fn approval(&mut self, _: u64) -> Result<Option<Approval>, ForgeError> {
+        Err(fails("the issue's label events"))
+    }
     fn issue_types(&mut self) -> Result<Vec<String>, ForgeError> {
         self.types.clone().ok_or_else(|| fails("the issue types"))
     }

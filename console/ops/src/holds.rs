@@ -92,7 +92,6 @@
 //! 64 a bad argument, which writes nothing.
 
 use crate::account;
-use crate::forge::CALL_BOUND;
 use serde_json::Value;
 use std::env;
 use std::fs::{self, OpenOptions, TryLockError};
@@ -102,7 +101,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 use tehas_core::events::{pause_holds, UNKNOWN_ACTOR};
 use tehas_core::file::Temp;
-use tehas_core::forge::{Bounded, Forge, GitHub};
+use tehas_core::forge::Forge;
 use tehas_core::home::{Home, Live, State};
 use tehas_core::limit::{self as limit_file, leading_number};
 pub use tehas_core::limit::{epoch, oneline, REASON};
@@ -572,7 +571,7 @@ pub fn resume_words(given: &[String]) -> Result<(), u8> {
 /// host's own is off: a line for standard output, one for standard error, or
 /// nothing when it holds nothing. Only an allowed account can lift the label
 /// (AGENTS.md rule 5).
-fn other_switch(
+pub fn other_switch(
     forge: &mut dyn Forge,
     control: u64,
     allowed: &dyn Fn(&str) -> bool,
@@ -606,8 +605,9 @@ fn other_switch(
 }
 
 /// `tehas resume`: the host's own switch comes off first, whatever GitHub then
-/// says, and the exit status is that of the flag alone.
-pub fn resume(given: &[String]) -> u8 {
+/// says, and the exit status is that of the flag alone. `forge` reads the
+/// control issue; the console's wiring makes it.
+pub fn resume(given: &[String], forge: &mut dyn Forge) -> u8 {
     if let Err(rc) = resume_words(given) {
         return rc;
     }
@@ -619,15 +619,9 @@ pub fn resume(given: &[String]) -> u8 {
     if pause(&["clear".to_string()]) != 0 {
         return 1;
     }
-    // gh of `PATH`: `host/env.sh` puts the shim first there where the instance
-    // has one, and a person's shell without it reads with their own gh.
-    let mut forge = GitHub::new(
-        setting("TEHAS_REPO"),
-        Box::new(Bounded::new("gh", CALL_BOUND)),
-    );
     let list = setting("TEHAS_ALLOWED_LABELERS");
     let allowed = |who: &str| tehas_core::events::allowed_in(&list, who);
-    match other_switch(&mut forge, control, &allowed) {
+    match other_switch(forge, control, &allowed) {
         Some(Ok(line)) => tehas_core::outln!("{line}"),
         Some(Err(line)) => eprintln!("{line}"),
         None => {}
@@ -1139,7 +1133,6 @@ fn owned_regular(path: &Path, me: Option<u32>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use std::fs::File;
     use std::os::unix::fs::{symlink, PermissionsExt};
     use tehas_core::testdir::TestDir;
@@ -1925,107 +1918,6 @@ mod tests {
         assert_eq!(
             read(&file, NOW).text(),
             r#"{"state":"ok","cycles":1,"plan":true}"#
-        );
-    }
-
-    struct Answers {
-        labels: Result<String, String>,
-        events: Result<String, String>,
-    }
-
-    impl tehas_core::forge::GhRunner for Answers {
-        fn run(&mut self, args: &[&str]) -> Result<String, String> {
-            if args[1].contains("/events") {
-                self.events.clone()
-            } else {
-                self.labels.clone()
-            }
-        }
-    }
-
-    fn other(
-        labels: Result<&str, &str>,
-        events: Result<&str, &str>,
-    ) -> Option<Result<String, String>> {
-        let owned = |r: Result<&str, &str>| r.map(String::from).map_err(String::from);
-        let runner = Answers {
-            labels: owned(labels),
-            events: owned(events),
-        };
-        let mut forge = GitHub::new("acme/widget", Box::new(runner));
-        other_switch(&mut forge, 1, &|who| who == "alice")
-    }
-
-    const NONE: &str = r#"{"labels":[]}"#;
-
-    fn pause_event(kind: &str, by: &str) -> String {
-        json!([{"event": kind, "label": {"name": "tehas:pause"}, "actor": {"login": by},
-                "created_at": "2026-01-02T00:00:00Z"}])
-        .to_string()
-    }
-
-    #[test]
-    fn the_label_on_the_issue_holds_the_factory() {
-        let on = r#"{"labels":[{"name":"bug"},{"name":"tehas:pause"}]}"#;
-        assert_eq!(
-            other(Ok(on), Err("not asked")),
-            Some(Ok(
-                "the factory stays paused: tehas:pause is still on issue #1".to_string()
-            ))
-        );
-    }
-
-    #[test]
-    fn who_took_the_label_off_decides() {
-        let stranger = pause_event("unlabeled", "mallory");
-        assert_eq!(
-            other(Ok(NONE), Ok(&stranger)),
-            Some(Ok("the factory stays paused: tehas:pause was taken off #1 by 'mallory', who may not authorise work here".to_string()))
-        );
-        let nobody =
-            json!([{"event": "unlabeled", "label": {"name": "tehas:pause"}, "actor": null}]);
-        assert_eq!(
-            other(Ok(NONE), Ok(&nobody.to_string())),
-            Some(Ok("the factory stays paused: tehas:pause was taken off #1 by 'unknown', who may not authorise work here".to_string()))
-        );
-        assert_eq!(
-            other(Ok(NONE), Ok(&pause_event("unlabeled", "alice"))),
-            None
-        );
-        assert_eq!(other(Ok(NONE), Ok("[]")), None);
-    }
-
-    #[test]
-    fn an_application_nothing_took_back_holds_the_factory_whoever_made_it() {
-        for by in ["mallory", "alice"] {
-            assert_eq!(
-                other(Ok(NONE), Ok(&pause_event("labeled", by))),
-                Some(Ok("the factory stays paused: tehas:pause is not on issue #1, but its last tehas:pause event only applied it".to_string()))
-            );
-        }
-    }
-
-    #[test]
-    fn an_answer_that_cannot_be_read_is_said_on_standard_error() {
-        assert_eq!(
-            other(Err("HTTP 502"), Ok("[]")),
-            Some(Err("tehas resume: the labels of issue #1 could not be read: check tehas:pause there yourself".to_string()))
-        );
-        assert_eq!(
-            other(Ok("{}"), Ok("[]")),
-            Some(Err("tehas resume: the labels of issue #1 could not be read: check tehas:pause there yourself".to_string()))
-        );
-        assert_eq!(
-            other(Ok(NONE), Err("HTTP 502")),
-            Some(Err(
-                "tehas resume: the label events of issue #1 could not be read".to_string()
-            ))
-        );
-        assert_eq!(
-            other(Ok(NONE), Ok("{}")),
-            Some(Err(
-                "tehas resume: the label events of issue #1 could not be read".to_string()
-            ))
         );
     }
 
