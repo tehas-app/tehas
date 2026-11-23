@@ -192,7 +192,7 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
    `millwright` in `runs.how`, and with 7 rewrites `label` to `approved` in
    `runs.how` and `pr` to `offered` in `runs.outcome`.
 5. **pi-rukas.** A checkout follows pi-rukas's 0.15 line
-   (`PI_RUKAS_FOLLOW=release:0.15`). 2.0 needs pi-rukas v0.15.7 or later.
+   (`PI_RUKAS_FOLLOW=release:0.15`). 2.0 needs pi-rukas v0.15.9 or later.
 
 The update to 2.0 is supported from 1.4.x only. A host on an older release
 updates to the newest 1.4.x first.
@@ -744,7 +744,7 @@ adopter action as the pull request states them.
   runs the lean driver; an issue without one runs classic. When lean is
   only the default and refuses the repository's setup, the same cycle runs
   classic, with a host message and one comment on the issue. A lean start
-  on a sandbox image with pi-rukas older than v0.15.7 is refused.
+  on a sandbox image with pi-rukas older than v0.15.9 is refused.
   Readers: adopters, the consumer that runs many factories.
   Adopter action: set `verify.roster`, or `TEHAS_DRIVER=classic`.
 - **The rest of clean house.** T16. Panels and the Business page leave
