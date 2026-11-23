@@ -163,7 +163,7 @@ console and no checkout to build one from.
 ## tehas labels
 
 ```
-tehas labels        # one line per label
+tehas labels        # one line for the labels, one per label pinned
 ```
 
 Creates the twenty labels tehas uses in the product repository: `tehas:ready`,
@@ -178,12 +178,14 @@ pull request a [refresh](/operating#refreshes) works on),
 and `tehas:improvement` (a proposal the factory files).
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. The labels are
-the lines of `~/tehas/lib/labels.tsv`, which `install.sh` copies from
-`host/labels.tsv`: a change to that file owes the `labels` step of an update, and
-a new console does not. It needs `TEHAS_REPO` and no other setting. Exit 0 when
-every label is there, 1 when one could not be made, 64 on any argument, 78 when
-the repository is not set or the table is missing or holds a line that is no
-label, before any label is made.
+the rows of `host/labels.tsv`, compiled into the console: the copy that
+`install.sh` puts in `~/tehas/lib/labels.tsv` is not read. A change to that
+file comes with a new console, and owes the `labels` step of the same update.
+It says `made the tehas labels`, or names the first label it could not make
+and why, and a label that cannot be made stops none of the others. Its words
+are not contract; its exit status is. It needs `TEHAS_REPO` and no other
+setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
+any argument, 78 when the repository is not set, before any label is made.
 
 ## tehas check-product
 
