@@ -105,6 +105,13 @@ impl Journal<'_> {
     /// row keeps the write with its bodies summed, and `writes` is sent the
     /// write as given. A read-only writer is sent nothing and no row is
     /// recorded.
+    ///
+    /// The row settles by the answer: `ok`; `unknown` for one the site may
+    /// have taken, `Unavailable { sent: Maybe }` (a time-out too) or an
+    /// answer that could not be read (`Unread`), which a read settles next;
+    /// `timed-out` for a time-out that sent nothing; `read-failed`, the 1.x
+    /// word for a failed call, for every other error (`Refused`,
+    /// `Conflict`, `NotFound`, `Spent`, ...).
     pub fn send(
         &mut self,
         store: Store,
@@ -133,6 +140,7 @@ impl Journal<'_> {
         let answer = writes.send(write, files);
         let result = match &answer {
             Ok(_) => "ok",
+            // Before the time-out: one that may have been sent is unknown.
             Err(Outcome::Unavailable {
                 sent: Sent::Maybe, ..
             }) => "unknown",
@@ -140,7 +148,16 @@ impl Journal<'_> {
                 why: Passing::Timeout,
                 ..
             }) => "timed-out",
-            Err(_) => "read-failed",
+            Err(Outcome::Unread(_)) => "unknown",
+            Err(
+                Outcome::Unavailable { .. }
+                | Outcome::NotFound
+                | Outcome::Conflict(_)
+                | Outcome::Refused(_)
+                | Outcome::Forbidden
+                | Outcome::SignedOut
+                | Outcome::Spent { .. },
+            ) => "read-failed",
         };
         let _ = store(&["journal-settle", "--action", &id, "--result", result]);
         Journaled::Answered(answer)
@@ -264,7 +281,7 @@ fn sha256(text: &str) -> String {
 mod tests {
     use super::*;
     use crate::call::GRACE;
-    use tehas_ports::{Body, NoBlobs, Passing, Sent, Sha256, Sum, TicketKey};
+    use tehas_ports::{Body, NoBlobs, Passing, Sent, Sha256, Sum, TicketKey, Unread};
 
     fn journal<'a>(
         poll_at: &'a mut i64,
@@ -554,7 +571,8 @@ mod tests {
     }
 
     /// The settle each answer of the site is given, and the caller hears
-    /// the answer itself.
+    /// the answer itself. An answer that may have landed stays unknown,
+    /// whether it timed out or could not be read.
     #[test]
     fn each_answer_settles_by_its_outcome() {
         let maybe = Outcome::Unavailable {
@@ -565,6 +583,10 @@ mod tests {
             why: Passing::Timeout,
             sent: Sent::No,
         };
+        let late_maybe = Outcome::Unavailable {
+            why: Passing::Timeout,
+            sent: Sent::Maybe,
+        };
         let down = Outcome::Unavailable {
             why: Passing::Unreachable,
             sent: Sent::No,
@@ -572,6 +594,9 @@ mod tests {
         for (answer, result) in [
             (Ok(Receipt::Done), "ok"),
             (Err(maybe), "unknown"),
+            (Err(late_maybe), "unknown"),
+            (Err(Outcome::Unread(Unread::Malformed)), "unknown"),
+            (Err(Outcome::Unread(Unread::Inconsistent)), "unknown"),
             (Err(late), "timed-out"),
             (Err(down), "read-failed"),
             (Err(Outcome::NotFound), "read-failed"),
