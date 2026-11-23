@@ -4,7 +4,7 @@
     "fast": "scripts/verify.sh --changed",
     "full": "scripts/verify.sh",
     "test": "scripts/lean-test.sh {file}",
-    "format": "rustfmt --edition 2021 {file}",
+    "format": "scripts/lean-format.sh {file}",
     "roster": "scripts/lean-roster.sh {dir} {report}",
     "testDirs": [
       "console/tests",
@@ -18,5 +18,27 @@
       "console/store/tests"
     ],
     "testGlob": "*.rs"
+  },
+  "budgets": {
+    "specify": {
+      "turns": 800,
+      "tokens": 150000000,
+      "minutes": 45
+    },
+    "build": {
+      "turns": 800,
+      "tokens": 150000000,
+      "minutes": 90
+    },
+    "challenge": {
+      "turns": 800,
+      "tokens": 150000000,
+      "minutes": 30
+    },
+    "review": {
+      "turns": 800,
+      "tokens": 150000000,
+      "minutes": 45
+    }
   }
 }
