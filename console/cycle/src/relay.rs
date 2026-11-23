@@ -71,7 +71,8 @@ use tehas_core::call::gh_why;
 use tehas_core::forge::GhRunner;
 use tehas_core::text::has_marker;
 use tehas_ports::{
-    BlueprintNo, BlueprintWrites, Body, Depth, Lost, MarkerEdit, NewBlueprint, Outcome,
+    AccountKind, At, BlueprintNo, BlueprintWrites, Body, Depth, Lost, MarkerEdit, NewBlueprint,
+    Outcome, Sent, WebLink, Within,
 };
 
 /// The most a body file, or the arguments, may hold.
@@ -557,16 +558,34 @@ fn answer_request(
 /// scope's.
 fn make(writes: &mut dyn BlueprintWrites, ask: &Ask, scope: &mut Scope) -> (String, String, i32) {
     let made = match ask {
-        Ask::Open { title, body } => writes
-            .open(&NewBlueprint {
+        Ask::Open { title, body } => {
+            let since = At::new(tehas_core::time::now());
+            let new = NewBlueprint {
                 title: title.clone(),
                 body: Body::Text(body.clone()),
                 markers: Vec::new(),
-            })
-            .map(|p| {
-                scope.created.insert(p.id.get());
-                p.link
-            }),
+            };
+            match writes.open(&new) {
+                Ok(p) => {
+                    scope.created.insert(p.id.get());
+                    Ok(p.link)
+                }
+                Err(e) if maybe_sent(&e) => match opened(writes, title, body, since, scope) {
+                    Some(Some((n, link))) => {
+                        scope.created.insert(n);
+                        Ok(link)
+                    }
+                    Some(None) => Err(e),
+                    None => {
+                        return failed(&format!(
+                            "may have created the issue but could not read it back: {}. List this cycle's issues before you create it again",
+                            e.line()
+                        ))
+                    }
+                },
+                Err(e) => Err(e),
+            }
+        }
         Ask::Comment { no, body } => writes.comment(*no, body, &[]).map(|p| p.link),
         Ask::Edit { no, title, body } => {
             let read = match writes.blueprint(*no, Depth::Cut { notes: 0 }) {
@@ -586,6 +605,12 @@ fn make(writes: &mut dyn BlueprintWrites, ask: &Ask, scope: &mut Scope) -> (Stri
                 &MarkerEdit::default(),
                 &read.revision,
             );
+            if matches!(edited, Err(Outcome::Refused(_))) && !read.markers.is_empty() {
+                return failed(&format!(
+                    "did not edit #{}: its body holds a tehas marker, which a cycle may not rewrite",
+                    no.get()
+                ));
+            }
             if edited == Err(Outcome::Conflict(Lost::Changed)) {
                 return failed(&format!(
                     "did not edit #{}: another account changed its title or body after the relay read it. Read it again",
@@ -605,6 +630,50 @@ fn make(writes: &mut dyn BlueprintWrites, ask: &Ask, scope: &mut Scope) -> (Stri
             e.line()
         )),
     }
+}
+
+/// The site may have taken a write that did not answer as made.
+fn maybe_sent(e: &Outcome) -> bool {
+    matches!(
+        e,
+        Outcome::Unavailable {
+            sent: Sent::Maybe,
+            ..
+        } | Outcome::Unread(_)
+    )
+}
+
+/// Whether an open the site may have taken is there: an open issue of the
+/// factory's own account with `title` and `body`, made since `since` and not
+/// one this cycle has already (the ports spec, "How a row left unknown is
+/// settled", `OpenBlueprint`). Some(Some) is the one, with its link; Some(None)
+/// is none, so it was not made; None is a read that cannot tell.
+fn opened(
+    writes: &mut dyn BlueprintWrites,
+    title: &str,
+    body: &str,
+    since: At,
+    scope: &Scope,
+) -> Option<Option<(u64, WebLink)>> {
+    let first = std::num::NonZeroU32::new(20).expect("20 is no zero");
+    let hits = writes
+        .search(title, Within::Titles, Some(true), first)
+        .ok()?;
+    for hit in hits.items.iter().filter(|h| h.title == title) {
+        if scope.created.contains(&hit.no.get()) {
+            continue;
+        }
+        let b = writes.blueprint(hit.no, Depth::Cut { notes: 0 }).ok()?;
+        let ours = b
+            .author
+            .as_ref()
+            .is_some_and(|a| a.kind == AccountKind::Ours);
+        let fresh = b.created.secs() >= since.secs().saturating_sub(60);
+        if ours && fresh && b.body.trim_end() == body.trim_end() {
+            return Some(Some((hit.no.get(), b.link)));
+        }
+    }
+    (!hits.more).then_some(None)
 }
 
 /// The answer of a write not made: one line in our words.
@@ -1756,6 +1825,147 @@ mod tests {
             )
         );
         assert_eq!(wrote(&w), vec![]);
+    }
+
+    fn open_ask() -> Ask {
+        Ask::Open {
+            title: "A new issue".to_string(),
+            body: "Its text.".to_string(),
+        }
+    }
+
+    fn faulty_handle(
+        w: &World,
+        op: tehas_ports::fake::Op,
+        fault: tehas_ports::fake::Fault,
+    ) -> Box<dyn BlueprintWrites> {
+        use tehas_ports::fake::Faulty;
+        Faulty::new(FakeSite::new(w))
+            .on(op, fault)
+            .blueprint_writes(
+                &Actor::Ours(tehas_ports::Scope::Cycle),
+                Caller::new("relay"),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn an_open_that_may_have_been_made_and_was_joins_the_scope() {
+        use tehas_ports::fake::{BlueprintsOp, Clock, Fault, Op};
+        // The site's clock reads the host's: the issue is made after the ask.
+        let w = world().on_clock(Clock::new(At::new(tehas_core::time::now())));
+        let mut scope = Scope::new(3);
+        let mut writes = faulty_handle(
+            &w,
+            Op::Blueprints(BlueprintsOp::Open),
+            Fault::TimeoutMaybe { applied: true },
+        );
+        let (out, err, rc) = make(&mut *writes, &open_ask(), &mut scope);
+        assert_eq!((rc, err.as_str()), (0, ""));
+        let n = *scope
+            .created
+            .iter()
+            .next()
+            .expect("the issue joined the scope");
+        assert!(out.trim_end().ends_with(&format!("/{n}")), "{out}");
+        let opens = wrote(&w)
+            .into_iter()
+            .filter(|w| matches!(w, Write::OpenBlueprint(_)))
+            .count();
+        assert_eq!(opens, 1);
+    }
+
+    #[test]
+    fn an_older_issue_of_ours_with_the_same_text_does_not_join_the_scope() {
+        use tehas_ports::fake::{BlueprintsOp, Fault, Op};
+        // The fake's clock is long before the host's: what it makes is older
+        // than the ask, as an issue another cycle made would be.
+        let w = world().blueprint(50, |b| b.title("A new issue").body("Its text."));
+        let mut scope = Scope::new(3);
+        let mut writes = faulty_handle(
+            &w,
+            Op::Blueprints(BlueprintsOp::Open),
+            Fault::TimeoutMaybe { applied: false },
+        );
+        let (_, _, rc) = make(&mut *writes, &open_ask(), &mut scope);
+        assert_eq!(rc, 1);
+        assert!(scope.created.is_empty());
+    }
+
+    #[test]
+    fn an_open_that_may_have_been_made_and_was_not_says_it_failed() {
+        use tehas_ports::fake::{BlueprintsOp, Fault, Op};
+        let w = world();
+        let mut scope = Scope::new(3);
+        let mut writes = faulty_handle(
+            &w,
+            Op::Blueprints(BlueprintsOp::Open),
+            Fault::TimeoutMaybe { applied: false },
+        );
+        let (out, err, rc) = make(&mut *writes, &open_ask(), &mut scope);
+        assert_eq!((out.as_str(), rc), ("", 1));
+        assert!(
+            err.starts_with("gh-shim: the relay could not create the issue: "),
+            "{err}"
+        );
+        assert!(scope.created.is_empty());
+    }
+
+    #[test]
+    fn an_open_no_read_can_settle_says_to_look_before_trying_again() {
+        use tehas_ports::fake::{BlueprintsOp, Fault, Faulty, Op};
+        let w = world();
+        let mut scope = Scope::new(3);
+        let mut writes = Faulty::new(FakeSite::new(&w))
+            .on(
+                Op::Blueprints(BlueprintsOp::Open),
+                Fault::TimeoutMaybe { applied: true },
+            )
+            .on(Op::Blueprints(BlueprintsOp::Search), Fault::Unreachable)
+            .blueprint_writes(
+                &Actor::Ours(tehas_ports::Scope::Cycle),
+                Caller::new("relay"),
+            )
+            .unwrap();
+        let (_, err, rc) = make(&mut *writes, &open_ask(), &mut scope);
+        assert_eq!(rc, 1);
+        assert!(
+            err.contains("may have created the issue but could not read it back")
+                && err.contains("before you create it again"),
+            "{err}"
+        );
+        assert!(scope.created.is_empty());
+    }
+
+    #[test]
+    fn an_edit_refused_of_a_body_with_a_marker_says_why() {
+        use tehas_ports::fake::{BlueprintsOp, Fault, Op};
+        use tehas_ports::Refusal;
+        let w = World::new().blueprint(99, |b| {
+            b.title("t")
+                .body("b")
+                .marker(tehas_ports::Marker::HoldCleared)
+        });
+        let mut scope = Scope::new(3);
+        scope.created.insert(99);
+        let mut writes = faulty_handle(
+            &w,
+            Op::Blueprints(BlueprintsOp::Edit),
+            Fault::Refused(Refusal::Unsupported),
+        );
+        let edit = Ask::Edit {
+            no: no(99),
+            title: None,
+            body: text("new"),
+        };
+        assert_eq!(
+            make(&mut *writes, &edit, &mut scope),
+            (
+                String::new(),
+                "gh-shim: the relay did not edit #99: its body holds a tehas marker, which a cycle may not rewrite\n".to_string(),
+                1
+            )
+        );
     }
 
     #[test]

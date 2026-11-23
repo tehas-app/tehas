@@ -829,6 +829,12 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `gh-shim: the relay could not <verb> #<n>: <reason>`, never GitHub's own
   error text. A create without both a title and a body, a comment without a
   body or with a title, and an edit with neither are refused before any call.
+  An edit of an issue whose body holds a tehas marker is not made: 1.x
+  overwrote the marker, and the answer now says why. A create GitHub may
+  have taken without answering is looked for first: found, it answers its
+  link and the cycle may edit it; not found, it failed; when no read can
+  tell, the answer asks the agent to list the cycle's issues before it
+  creates one again.
   Readers: the agents of a cycle.
 - **The merge is no plugin's grant.** #2943.
   The grant and the ask `merge` are refused with 78, saying the merge is a
