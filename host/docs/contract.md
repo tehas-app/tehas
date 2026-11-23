@@ -168,7 +168,7 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
    refused by 1.4.0: `RETIRED` holds the same twelve names, and
    `api/renames-1.0.tsv` is unchanged. Every setting that left
    `api/settings-rules.json` since 1.4.0 is dropped with a warning, not
-   refused: twenty-five of its instance settings and two of its host settings,
+   refused: twenty-six of its instance settings and two of its host settings,
    `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, which `~/.config/tehas/env`
    held. `api/settings-1.4.0.txt` lists every setting 1.4.0 accepted, 101
    instance and 10 host settings, and the test
@@ -239,6 +239,7 @@ line is one of three:
     `TEHAS_OUTSOURCE_PROXY_IDLE` (outsource);
   - `TEHAS_MILLWRIGHT_MAX_RETRIES`, `TEHAS_MILLWRIGHT_FEED`,
     `TEHAS_MILLWRIGHT_MAX_FEEDS` (the millwright's grant);
+  - `TEHAS_TOP` (the host panel);
   - a `prototype=` pair of `TEHAS_ISSUE_TYPES` (the Protolab): the pair is
     dropped and the rest of the value kept.
 - **Refused.** The line stops every command with 78 and says what to do:
@@ -635,6 +636,18 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   the update allows for the four moves: runs that counted as `parked` now
   count as `stopped` or `failed`, and parked runs that counted as `merged`
   or `stopped` now count as `handoff`, `failed` or `parked`.
+- **The host panel leaves core.**
+  #2898.
+  Gone: the verb `top` of tehasbot, `tehas-top.service` and `live/top.json`,
+  and with them the Host section, menu link and head chip of the factory
+  floor and the host section of the plain dashboard. `tehas top` in a
+  terminal stays as it was. `TEHAS_TOP` is dropped with a warning. It
+  returns in 2.1 as the `hoststats` plugin, fed by the host's host feed.
+  Readers: adopters, people on the factory's pages, the consumer that runs
+  many factories, which provisions `tehas-top.service`.
+  Adopter action: run `tehas update`, which stops and removes
+  `tehas-top.service` and the last `live/top.json`, then take `TEHAS_TOP` out
+  of `instance.env`. A program that provisions `tehas-top.service` drops it.
 - **The state store is at schema 29.**
   #2794, #2830, #2843, #2867, #2889, #2886.
   The steps 24 to 29 are listed under [Upgrading to 2.0](#upgrading-to-20).
@@ -701,11 +714,9 @@ adopter action as the pull request states them.
   on a sandbox image with pi-rukas older than v0.15.6 is refused.
   Readers: adopters, the consumer that runs many factories.
   Adopter action: set `verify.roster`, or `TEHAS_DRIVER=classic`.
-- **The rest of clean house.** T16. Panels, the Business page and the Host
-  panel (`TEHAS_TOP`) leave core for plugins (`tehas top` stays); the store
-  keeps only the migration from 1.4.x.
-  Readers: the consumer that runs many factories, which starts
-  `tehas-top.service`.
+- **The rest of clean house.** T16. Panels and the Business page leave
+  core for plugins; the store keeps only the migration from 1.4.x.
+  Readers: as each pull request names them.
 - **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
   The ports themselves. Two settings choose the adapters:
   `TEHAS_CODE_HOST` and `TEHAS_TICKETS`. In 2.0 each accepts only
