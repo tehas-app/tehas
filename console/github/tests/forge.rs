@@ -6,9 +6,9 @@
 //! case decides is the rule, not the site.
 
 use serde_json::Value;
-use std::cell::RefCell;
 use std::cmp::Ordering;
-use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::Mutex;
 use tehas_core::forge::GhRunner;
 use tehas_github::gh;
 use tehas_github::table::APPROVAL_LABEL;
@@ -29,13 +29,13 @@ fn reason(words: &str) -> String {
 /// program, so what a case asserts is the words after it.
 struct Stub {
     answers: Vec<Result<String, String>>,
-    asked: Rc<RefCell<Vec<Vec<String>>>>,
+    asked: Arc<Mutex<Vec<Vec<String>>>>,
 }
 
 impl GhRunner for Stub {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
         let index = {
-            let mut asked = self.asked.borrow_mut();
+            let mut asked = self.asked.lock().unwrap();
             asked.push(args.iter().map(|a| (*a).to_string()).collect());
             asked.len() - 1
         };
@@ -46,12 +46,12 @@ impl GhRunner for Stub {
     }
 }
 
-fn forge(answers: Vec<Result<String, String>>) -> (GitHub, Rc<RefCell<Vec<Vec<String>>>>) {
+fn forge(answers: Vec<Result<String, String>>) -> (GitHub, Arc<Mutex<Vec<Vec<String>>>>) {
     let stub = Stub {
         answers,
-        asked: Rc::new(RefCell::new(Vec::new())),
+        asked: Arc::new(Mutex::new(Vec::new())),
     };
-    let asked = Rc::clone(&stub.asked);
+    let asked = Arc::clone(&stub.asked);
     (GitHub::new("acme/widget", Box::new(stub)), asked)
 }
 
@@ -112,7 +112,7 @@ fn an_approval_is_read_from_two_pages_of_events() {
             at: "2026-01-03T00:00:00Z".to_string(),
         })
     );
-    let asked = asked.borrow();
+    let asked = asked.lock().unwrap();
     assert_eq!(
         asked[0],
         [
@@ -323,7 +323,7 @@ fn a_removal_of_what_is_not_there_is_the_state_wanted() {
     assert!(f.remove_label(7, "tehas:running").is_ok());
     // The path named the issue and the label, so the 404 was the label's.
     assert_eq!(
-        asked.borrow()[0],
+        asked.lock().unwrap()[0],
         [
             "api".to_string(),
             "-X".to_string(),
@@ -383,7 +383,7 @@ fn the_writes_are_asked_of_the_rest_endpoints() {
     let (mut f, asked) = forge(vec![Ok("[]".to_string()), Ok("[]".to_string())]);
     f.add_label(7, "tehas:running").unwrap();
     f.remove_label(8, "tehas:ready").unwrap();
-    let asked = asked.borrow();
+    let asked = asked.lock().unwrap();
     assert_eq!(
         asked[0],
         [
@@ -429,14 +429,14 @@ fn a_label_that_is_no_label_name_is_refused_before_the_call() {
             .expect_err(&format!("{bad:?} was accepted by remove_label"));
         assert_eq!(e.call, "the label change", "{bad:?} was accepted");
         assert!(!e.why.is_empty(), "{bad:?} answered no reason");
-        assert!(asked.borrow().is_empty(), "{bad:?} reached gh");
+        assert!(asked.lock().unwrap().is_empty(), "{bad:?} reached gh");
         let (mut f, asked) = forge(vec![Ok("[]".to_string())]);
         assert_eq!(
             f.add_label(7, bad).unwrap_err().call,
             "the label change",
             "{bad:?} was accepted"
         );
-        assert!(asked.borrow().is_empty(), "{bad:?} reached gh");
+        assert!(asked.lock().unwrap().is_empty(), "{bad:?} reached gh");
     }
     // The last segment of a removal's path is encoded, so a name of any
     // characters stays inside it and moves the DELETE nowhere: a `:` becomes
@@ -445,7 +445,7 @@ fn a_label_that_is_no_label_name_is_refused_before_the_call() {
     let (mut f, asked) = forge(vec![Ok("[]".to_string()), Ok("[]".to_string())]);
     f.remove_label(7, "tehas:ready").unwrap();
     f.add_label(7, "tehas:ready").unwrap();
-    let asked = asked.borrow();
+    let asked = asked.lock().unwrap();
     assert_eq!(
         asked[0][3],
         "repos/acme/widget/issues/7/labels/tehas%3Aready"
@@ -529,7 +529,7 @@ fn the_labels_of_an_issue_come_from_its_rest_read() {
     )]);
     assert_eq!(f.labels(7).unwrap(), ["tehas:ready", "bug"]);
     assert_eq!(
-        asked.borrow()[0],
+        asked.lock().unwrap()[0],
         ["api".to_string(), "repos/acme/widget/issues/7".to_string()]
     );
     // An entry of the list that names no label is no label and is dropped, as
@@ -966,7 +966,7 @@ fn the_type_is_given_by_the_newest_change_that_set_it() {
         let (mut f, asked) = forge(vec![Ok(answer.clone())]);
         let got = f.typed_by(7, "Prototype").unwrap();
         assert_eq!(got.map(|a| a.actor).as_deref(), want, "{answer}");
-        let call = &asked.borrow()[0];
+        let call = &asked.lock().unwrap()[0];
         assert_eq!(&call[..2], ["api", "graphql"]);
         assert!(call.contains(&"number=7".to_string()));
         assert!(
@@ -1066,7 +1066,10 @@ fn an_issues_text_revision_moves_with_its_title_or_body_and_nothing_else() {
         f.text_revision(7).unwrap_err().line(),
         "ERROR: the issue failed: HTTP 502"
     );
-    assert_eq!(asked.borrow()[0], ["api", "repos/acme/widget/issues/7"]);
+    assert_eq!(
+        asked.lock().unwrap()[0],
+        ["api", "repos/acme/widget/issues/7"]
+    );
 }
 
 #[test]
