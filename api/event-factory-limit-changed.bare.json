@@ -1,0 +1,11 @@
+{
+  "api": 1,
+  "event": "factory.limit-changed",
+  "data": {
+    "observed": "2026-11-22T16:50:00Z",
+    "state": "none"
+  },
+  "when": "after",
+  "key": "2026-11-22T16:50:00Z",
+  "at": "2026-11-22T16:50:00Z"
+}

@@ -1,0 +1,302 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/event.schema.json",
+  "title": "An event of tehas",
+  "description": "The envelope of an event, version 1 of the events: api, source, event, when, key, at and the payload as data. host/docs/api.md, \"Events\", says what each field means. The object is closed. data is checked by event and when: one rule per name for after, one per gate for before, and a name with no before side refuses before. console/tests/events_contract.rs checks the samples against it.",
+  "type": "object",
+  "required": [
+    "api",
+    "event",
+    "when",
+    "key",
+    "at",
+    "data"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "api": {
+      "description": "The events' contract version.",
+      "const": 1
+    },
+    "source": {
+      "description": "The factory the event is from, set by a consumer that relays many factories' events. tehas leaves it out.",
+      "type": "string",
+      "pattern": "^[a-z0-9-]{1,64}$"
+    },
+    "event": {
+      "description": "The name, one line of api/events.txt.",
+      "enum": [
+        "cycle.started",
+        "cycle.parked",
+        "question.asked",
+        "cycle.ended",
+        "change.offered",
+        "factory.limit-changed",
+        "ticket.acted",
+        "ticket.closed",
+        "change.merged"
+      ]
+    },
+    "when": {
+      "description": "after a fact, or before an act that waits on a gate.",
+      "enum": [
+        "after",
+        "before"
+      ]
+    },
+    "key": {
+      "description": "The event's identity within its name, made from the fact.",
+      "type": "string",
+      "pattern": "^[^\\s]{1,200}$"
+    },
+    "at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$",
+      "description": "When the fact happened, never when it was raised."
+    },
+    "data": {
+      "description": "The payload, api/event-<name>.schema.json, or api/event-<name>-before.schema.json for a gate.",
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "cycle.started"
+          },
+          "when": {
+            "const": "after"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "key": {
+            "pattern": "^[1-9][0-9]{0,8}-[1-9][0-9]{0,8}$"
+          },
+          "data": {
+            "$ref": "event-cycle-started.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "cycle.parked"
+          },
+          "when": {
+            "const": "after"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "key": {
+            "pattern": "^[1-9][0-9]{0,8}-[1-9][0-9]{0,8}$"
+          },
+          "data": {
+            "$ref": "event-cycle-parked.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "question.asked"
+          },
+          "when": {
+            "const": "after"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "key": {
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "data": {
+            "$ref": "event-question-asked.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "cycle.ended"
+          },
+          "when": {
+            "const": "after"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "key": {
+            "pattern": "^[1-9][0-9]{0,8}-[1-9][0-9]{0,8}$"
+          },
+          "data": {
+            "$ref": "event-cycle-ended.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "change.offered"
+          },
+          "when": {
+            "const": "after"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "key": {
+            "pattern": "^[1-9][0-9]{0,8}-[1-9][0-9]{0,8}$"
+          },
+          "data": {
+            "$ref": "event-change-offered.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "factory.limit-changed"
+          },
+          "when": {
+            "const": "after"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "key": {
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+          },
+          "data": {
+            "$ref": "event-factory-limit-changed.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "ticket.acted"
+          },
+          "when": {
+            "const": "after"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "key": {
+            "pattern": "^[A-Za-z0-9._:/-]{1,128}@[A-Z][A-Za-z]{0,63}@[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+          },
+          "data": {
+            "$ref": "event-ticket-acted.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "ticket.closed"
+          },
+          "when": {
+            "const": "after"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "key": {
+            "pattern": "^[A-Za-z0-9._:/-]{1,128}@[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+          },
+          "data": {
+            "$ref": "event-ticket-closed.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "change.merged"
+          },
+          "when": {
+            "const": "after"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "key": {
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "data": {
+            "$ref": "event-change-merged.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "cycle.started"
+          },
+          "when": {
+            "const": "before"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "key": {
+            "pattern": "^[1-9][0-9]{0,8}@[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+          },
+          "data": {
+            "$ref": "event-cycle-started-before.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "when": {
+            "const": "before"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "event": {
+            "enum": [
+              "cycle.started"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

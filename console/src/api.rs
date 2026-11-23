@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 /// brings it, and taken out only with the feature itself. The shipped features
 /// of the registry (core/src/features.rs) follow these; a building one is not
 /// a word of `features`.
-const FEATURES: [&str; 31] = [
+const FEATURES: [&str; 32] = [
     "status",
     "limit",
     "drain",
