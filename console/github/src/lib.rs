@@ -13,6 +13,7 @@
 
 mod forge;
 pub mod gh;
+pub mod markers;
 mod port;
 pub mod table;
 mod tickets;
