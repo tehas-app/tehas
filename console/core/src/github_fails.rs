@@ -172,7 +172,10 @@ mod tests {
         let slow = "WARN status: gh issue list failed: time out";
         assert_eq!(fault_of(slow), Fault::Slow);
         assert!(githubs_fault(slow));
-        for said in ["ERROR: gh issue list failed", "its answer could not be read"] {
+        for said in [
+            "ERROR: gh issue list failed",
+            "its answer could not be read",
+        ] {
             assert!(!githubs_fault(said), "{said}");
         }
     }

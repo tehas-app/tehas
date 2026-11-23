@@ -300,7 +300,9 @@ pub enum Fault {
 /// outranks the words.
 pub fn fault_of(err: &str) -> Fault {
     // git says its status as `The requested URL returned error: 502`.
-    let low = err.to_ascii_lowercase().replace("returned error: ", "http ");
+    let low = err
+        .to_ascii_lowercase()
+        .replace("returned error: ", "http ");
     let has = |words: &[&str]| words.iter().any(|w| low.contains(w));
     match read_of(&low).class {
         Class::Limit => Fault::Limit,
