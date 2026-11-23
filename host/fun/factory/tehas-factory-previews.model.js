@@ -1,7 +1,7 @@
 // The previews of pull requests, from live/previews.json (tehasbot preview).
 // A host without previews has no such file: present is false. The address is
 // checked before it becomes a link. Pure: the clock is nowMs.
-import { ago } from "../host-data.js";
+import { ago } from "../page-data.js";
 
 const STATES = {
   building: "building",

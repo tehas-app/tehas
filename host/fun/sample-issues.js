@@ -328,9 +328,6 @@ window.TEHAS_SAMPLE_ISSUES = {
    "state": "OPEN",
    "labels": [
     {
-     "name": "tehas:prototype"
-    },
-    {
      "name": "enhancement"
     },
     {
@@ -346,9 +343,6 @@ window.TEHAS_SAMPLE_ISSUES = {
    "state": "OPEN",
    "labels": [
     {
-     "name": "tehas:prototype"
-    },
-    {
      "name": "console"
     }
    ],
@@ -360,9 +354,6 @@ window.TEHAS_SAMPLE_ISSUES = {
    "title": "Try a compact factory health map",
    "state": "OPEN",
    "labels": [
-    {
-     "name": "tehas:prototype"
-    },
     {
      "name": "dashboard"
     },

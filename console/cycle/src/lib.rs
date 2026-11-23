@@ -18,7 +18,6 @@
 //! to its end. `progress` summarises what the runner wrote.
 //! `supervise` starts a cycle, runs tehas work and sees to its report, and
 //! `hook` then asks for the plugins' hooks on the pull request it left.
-//! `memory` answers a cycle's vipune calls that come through the relay.
 //! `lock` takes the locks of a cycle, tehas work and the index, and hands them
 //! down to what they start.
 
@@ -37,7 +36,6 @@ pub mod host;
 pub mod index;
 pub mod last_attempt;
 pub mod lock;
-pub mod memory;
 pub mod pin;
 pub mod prepare;
 pub mod progress;
@@ -48,7 +46,6 @@ pub mod report;
 pub mod runner;
 pub mod sandbox;
 pub mod scratch;
-pub mod stamp;
 pub mod start;
 pub mod supervise;
 pub mod watch;

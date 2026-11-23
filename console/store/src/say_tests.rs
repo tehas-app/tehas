@@ -52,7 +52,6 @@ fn init_says_it_made_the_database() {
         Verb::Init {
             force: false,
             settings: settings(),
-            outsource: false,
         },
     );
     let file = db::path(&h);
@@ -70,7 +69,6 @@ fn init_says_it_made_the_database() {
         Verb::Init {
             force: false,
             settings: settings(),
-            outsource: false,
         },
     );
     assert_ne!(said.code, 0);
@@ -88,7 +86,6 @@ fn migrate_says_its_schema_and_backup() {
         Verb::Migrate {
             backup: backup.clone(),
             settings: settings(),
-            outsource: false,
         },
     );
     assert_eq!(said.code, 0, "{said:?}");
@@ -108,7 +105,6 @@ fn migrate_says_its_schema_and_backup() {
         Verb::Migrate {
             backup,
             settings: settings(),
-            outsource: false,
         },
     );
     assert_eq!(said.code, 78);
@@ -122,7 +118,6 @@ fn an_answer_with_no_schema_or_backup_says_so() {
     let verb = Verb::Migrate {
         backup: Home::new(h.path()).state(State::Backups),
         settings: settings(),
-        outsource: false,
     };
     let said = say(&h, &verb, Ok("{}".to_string()));
     assert_eq!(

@@ -164,7 +164,6 @@ fn a_millwright_start_rests_on_the_person_and_is_a_base_of_its_own() {
     assert_eq!(v["current"]["how"], "refresh");
     assert_eq!(v["rests_on"]["by"], "alice");
     assert_eq!(v["rests_on"]["used_by"], a);
-    assert_eq!(v["millwright_starts"], 1);
     assert_eq!(b, a + 1);
 }
 
@@ -365,7 +364,7 @@ fn approval_current_approval_is_null_once_used() {
     assert_eq!(
         current(&home, 23),
         json!({"api":1,"verb":"approval-current","ok":true,"approval":null,"current":null,
-               "rests_on":null,"millwright_starts":0,"fixer_starts":0,"refreshes":0,"easy":false})
+               "rests_on":null,"refreshes":0,"easy":false})
     );
     approve(&home, 23, "alice", "label");
     let v = current(&home, 23);
@@ -395,7 +394,6 @@ fn approval_current_rests_only_on_used_rows() {
     assert_eq!(v["current"]["used_by"], c);
     assert_eq!(v["rests_on"]["how"], "label");
     assert_eq!(v["rests_on"]["used_by"], a);
-    assert_eq!(v["fixer_starts"], 1);
     assert_eq!(v["refreshes"], 1);
 }
 
@@ -409,7 +407,6 @@ fn an_unused_label_approval_is_never_a_base() {
     let v = current(&home, 25);
     assert_eq!(v["rests_on"], Value::Null);
     assert_eq!(v["approval"]["by"], "mallory");
-    assert_eq!(v["fixer_starts"], 1);
 }
 
 #[test]
@@ -543,10 +540,7 @@ fn approvals_keep_only_the_base_and_its_starts() {
     );
     let v = current(&home, 26);
     assert_eq!(v["rests_on"]["by"], "bob");
-    assert_eq!(
-        (v["fixer_starts"].clone(), v["refreshes"].clone()),
-        (json!(1), json!(1))
-    );
+    assert_eq!(v["refreshes"], 1);
     // A start with no base keeps only itself.
     let (l, a) = start_by(&home, 27, "millbot", "millwright", NOW);
     end(&home, 27, a, "failed");
@@ -557,7 +551,7 @@ fn approvals_keep_only_the_base_and_its_starts() {
 
 // --- inputs ----------------------------------------------------------------------
 
-const INPUT: &str = r#"{"links":["https://github.com/user-attachments/assets/1"],"comment_links":[{"link":"https://example.test/a","source":"comment:5","by":"alice"}],"retry_context":[{"source":"pr-comment:9","text":"fix the test"}],"refresh_of":{"pr":40,"head_sha":"0123456789abcdef0123456789abcdef01234567","base_sha":"89abcdef0123456789abcdef0123456789abcdef","branch":"feature/issue-30"}}"#;
+const INPUT: &str = r#"{"links":["https://github.com/user-attachments/assets/1"],"retry_context":[{"source":"pr-comment:9","text":"fix the test"}],"refresh_of":{"pr":40,"head_sha":"0123456789abcdef0123456789abcdef01234567","base_sha":"89abcdef0123456789abcdef0123456789abcdef","branch":"feature/issue-30"}}"#;
 
 fn record_with(home: &Path, issue: i64, at: i64, input: &Path) -> Result<Value, (u8, String)> {
     call(
@@ -640,6 +634,14 @@ fn approval_record_refuses_an_input_file_it_cannot_take() {
             "holds a key it may not: \"branch\"",
         ),
         (
+            write_file(
+                &home,
+                "comments.json",
+                br#"{"links":[],"comment_links":[]}"#,
+            ),
+            "holds a key it may not: \"comment_links\"",
+        ),
+        (
             write_file(&home, "type.json", br#"{"links":"a"}"#),
             "holds links of another type",
         ),
@@ -648,56 +650,12 @@ fn approval_record_refuses_an_input_file_it_cannot_take() {
             "holds refresh_of of another type",
         ),
         (
-            write_file(&home, "lift-list.json", br#"{"park_lifted":[]}"#),
-            "holds park_lifted of another type",
-        ),
-        (
-            write_file(&home, "lift-null.json", br#"{"park_lifted":null}"#),
-            "holds park_lifted of another type",
-        ),
-        (
-            write_file(&home, "lift-empty.json", br#"{"park_lifted":{}}"#),
-            "holds park_lifted of another type",
-        ),
-        (
-            write_file(
-                &home,
-                "lift-source.json",
-                br#"{"park_lifted":{"source":"comment:9","by":"a","at":"b","text":"c"}}"#,
-            ),
-            "holds park_lifted of another type",
-        ),
-        (
-            write_file(
-                &home,
-                "lift-more.json",
-                br#"{"park_lifted":{"source":"millwright:9","by":"a","at":"b","text":"c","x":1}}"#,
-            ),
-            "holds park_lifted of another type",
-        ),
-        (
-            write_file(
-                &home,
-                "lift-text.json",
-                br#"{"park_lifted":{"source":"millwright:9","by":"a","at":"b","text":1}}"#,
-            ),
-            "holds park_lifted of another type",
-        ),
-        (
             write_file(&home, "driver.json", br#"{"driver":"classic"}"#),
             "holds driver of another type",
         ),
         (
             write_file(&home, "number.json", br#"{"driver":1}"#),
             "holds driver of another type",
-        ),
-        (
-            write_file(&home, "contractor.json", br#"{"contractor":"-box"}"#),
-            "holds contractor of another type",
-        ),
-        (
-            write_file(&home, "contractor-n.json", br#"{"contractor":7}"#),
-            "holds contractor of another type",
         ),
     ];
     for (file, says) in cases {
@@ -713,9 +671,11 @@ fn approval_record_refuses_an_input_file_it_cannot_take() {
     let note =
         json!({"park_lifted": {"source": "millwright:9", "by": "a", "at": "b", "text": "c"}});
     let lifted = write_file(&home, "lifted.json", note.to_string().as_bytes());
-    assert_eq!(
-        record_with(&home, 42, 5, &lifted).unwrap()["approval"]["input"],
-        note
+    let (code, line) = record_with(&home, 42, 5, &lifted).unwrap_err();
+    assert_eq!(code, 1);
+    assert!(
+        line.contains(r#"holds a key it may not: "park_lifted""#),
+        "{line}"
     );
 }
 
@@ -824,19 +784,6 @@ fn the_driver_is_kept_with_the_inputs_and_a_record_without_one_names_none() {
     assert_eq!(current(&home, 44)["approval"]["input"].get("driver"), None);
     record(&home, 45, 5, "alice", "label");
     assert_eq!(current(&home, 45)["approval"]["input"], Value::Null);
-}
-
-/// The contractor an outsourced start was placed on lives in the inputs too,
-/// as the driver does.
-#[test]
-fn the_contractor_is_kept_with_the_inputs() {
-    let home = home("approval-contractor");
-    let out = write_file(&home, "out.json", br#"{"links":[],"contractor":"box-1"}"#);
-    record_with(&home, 43, 5, &out).unwrap();
-    assert_eq!(
-        current(&home, 43)["approval"]["input"]["contractor"],
-        "box-1"
-    );
 }
 
 #[test]
@@ -988,15 +935,15 @@ fn a_view_is_the_record_file_key_for_key_and_in_its_order() {
         "current": {"at": 1792497600, "by": "alice", "how": "label", "body_sha256": "s",
             "title_sha256": "t", "used_by": 1,
             "input": {"links": ["l"], "comment_links": null, "driver": "lean",
-                "retry_context": ["r"], "park_lifted": {"id": 1}}},
-        "rests_on": null, "millwright_starts": 0, "fixer_starts": 0, "refreshes": 0
+                "retry_context": ["r"]}},
+        "rests_on": null, "refreshes": 0
     });
     assert_eq!(
         crate::approval::view_of(&answer, None).unwrap(),
         concat!(
             r#"{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":"s","#,
-            r#""links":["l"],"title_sha256":"t","comment_links":null,"driver":"lean","#,
-            r#""retry_context":["r"],"park_lifted":{"id":1}}"#
+            r#""links":["l"],"title_sha256":"t","driver":"lean","#,
+            r#""retry_context":["r"]}"#
         )
     );
 }
@@ -1049,7 +996,6 @@ fn a_millwright_start_in_a_view_says_millwright_and_rests_on_the_person() {
     assert_eq!(v["how"], "millwright");
     assert_eq!(v["by"], "tehas-millwright");
     assert_eq!(v["at"], "2026-10-21T12:00:00Z");
-    assert_eq!(v["fixer_starts"], 1);
     assert_eq!(
         v["rests_on"],
         json!({"at": "2026-10-20T12:00:00Z", "by": "alice", "how": "label", "body_sha256": SHA})
@@ -1063,14 +1009,14 @@ fn a_refresh_in_a_view_names_the_person_s_approval() {
             "used_by": 2, "input": {"links": []}},
         "rests_on": {"at": 1792497600, "by": "alice", "how": "label", "body_sha256": "p",
             "used_by": 1},
-        "millwright_starts": 0, "fixer_starts": 0, "refreshes": 1
+        "refreshes": 1
     });
     assert_eq!(
         crate::approval::view_of(&answer, None).unwrap(),
         concat!(
             r#"{"at":"2026-10-20T12:00:00Z","by":"alice","how":"refresh","body_sha256":"s","#,
             r#""links":[],"rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","#,
-            r#""body_sha256":"p"},"fixer_starts":0,"refreshes":1,"refresh_of":null}"#
+            r#""body_sha256":"p"},"refreshes":1,"refresh_of":null}"#
         )
     );
 }
@@ -1196,14 +1142,6 @@ fn a_host_start_whose_cycle_was_killed_is_listed_with_its_lock_free() {
 
 // --- moved from test/store_approval_test.sh ------------------------------------
 
-/// The named keys of a view, as one object.
-macro_rules! picked {
-    ($v:expr, $($k:literal),+) => {{
-        let v: Value = $v;
-        json!({ $($k: v[$k].clone()),+ })
-    }};
-}
-
 #[test]
 fn a_view_names_the_driver_on_record_and_no_driver_when_none() {
     let home = home("approval-view-driver");
@@ -1234,8 +1172,7 @@ fn a_view_of_a_person_s_label_is_field_for_field_what_the_dispatcher_wrote() {
     let home = home("approval-view-label");
     let file = input(
         &home,
-        r#"{"links":["https://github.com/user-attachments/assets/1"],
-  "comment_links":[{"link":"https://github.com/user-attachments/assets/2","source":"comment:5","by":"alice"}]}"#,
+        r#"{"links":["https://github.com/user-attachments/assets/1"]}"#,
     );
     record_extra(
         &home,
@@ -1250,12 +1187,11 @@ fn a_view_of_a_person_s_label_is_field_for_field_what_the_dispatcher_wrote() {
     assert_eq!(
         v,
         json!({"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":SHA,
-            "links":["https://github.com/user-attachments/assets/1"],"title_sha256":SHA_B,
-            "comment_links":[{"link":"https://github.com/user-attachments/assets/2","source":"comment:5","by":"alice"}]})
+            "links":["https://github.com/user-attachments/assets/1"],"title_sha256":SHA_B})
     );
     assert_eq!(v.get("driver"), None);
 
-    // The millwright's start rests on the person's approval and counts itself.
+    // The millwright's start rests on the person's approval.
     let file = input(
         &home,
         r#"{"links":[],"retry_context":[{"source":"comment:9","by":"tehas-millwright","at":"2026-10-21T11:59:00Z","text":"Try the other way."}]}"#,
@@ -1273,56 +1209,6 @@ fn a_view_of_a_person_s_label_is_field_for_field_what_the_dispatcher_wrote() {
         view(&home, 7, Some(2)),
         json!({"at":"2026-10-21T12:00:00Z","by":"tehas-millwright","how":"millwright","body_sha256":SHA,
             "links":[],"retry_context":[{"source":"comment:9","by":"tehas-millwright","at":"2026-10-21T11:59:00Z","text":"Try the other way."}],
-            "rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":SHA},"fixer_starts":1})
-    );
-}
-
-/// #1130: a start a park's lift let through keeps rests_on as the person's
-/// approval and names the millwright's note under its own key.
-#[test]
-fn a_view_names_the_note_that_lifted_a_park_s_hold_and_none_is_no_key() {
-    let home = home("approval-view-lifted");
-    let note = r#"{"source":"millwright:81","by":"tehas-millwright","at":"2026-10-21T11:55:00Z","text":"Do not run the whole suite."}"#;
-    let file = input(
-        &home,
-        &format!(r#"{{"links":[],"retry_context":[{note}],"park_lifted":{note}}}"#),
-    );
-    record(&home, 7, 1792497600, "alice", "label");
-    used(&home, 7);
-    record_extra(
-        &home,
-        7,
-        1792584000,
-        "tehas-millwright",
-        "millwright",
-        &["--input-file", &file],
-    );
-    used(&home, 7);
-    let note: Value = serde_json::from_str(note).unwrap();
-    assert_eq!(
-        picked!(
-            view(&home, 7, Some(2)),
-            "park_lifted",
-            "retry_context",
-            "rests_on"
-        ),
-        json!({"park_lifted":note,"retry_context":[note],
             "rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":SHA}})
     );
-
-    let home = crate::verbs_tests::home("approval-view-not-lifted");
-    let file = input(&home, r#"{"links":[]}"#);
-    record(&home, 7, 1792497600, "alice", "label");
-    record_extra(
-        &home,
-        7,
-        1792584000,
-        "tehas-millwright",
-        "millwright",
-        &["--input-file", &file],
-    );
-    used(&home, 7);
-    let v = view(&home, 7, Some(1));
-    assert!(v.is_object(), "no view of issue 7, attempt 1: {v}");
-    assert_eq!(v.get("park_lifted"), None);
 }

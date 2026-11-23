@@ -1,7 +1,7 @@
 // The models of the plain dashboard's islands (host/fun/factory/*.model.js):
 // what each makes of the file it is given, with no document and no Solid. The
-// state row, the issue lists, the read-only results, the previews, the host
-// and the last ten days. What the islands draw from them is checked in a
+// state row, the issue lists, the read-only results, the previews and the
+// last ten days. What the islands draw from them is checked in a
 // browser (test/browser/dashboard-check.mjs).
 //
 //   node --test test/dashboard_host_test.mjs
@@ -9,7 +9,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { consoleModel, duration } from "../host/fun/factory/tehas-factory-console.model.js";
 import { daysModel } from "../host/fun/factory/tehas-factory-days.model.js";
-import { hostModel, serverNow } from "../host/fun/factory/tehas-factory-host.model.js";
 import { MAX, chips, emptyText, issuesModel } from "../host/fun/factory/tehas-factory-issues.model.js";
 import { previewWhy, previewsModel } from "../host/fun/factory/tehas-factory-previews.model.js";
 import { readonlyModel } from "../host/fun/factory/tehas-factory-readonly.model.js";
@@ -18,28 +17,6 @@ import { stateModel } from "../host/fun/factory/tehas-factory-state.model.js";
 const T = 1791526545;
 const NOW = T * 1000;
 const at = (secs = 0) => new Date((T - secs) * 1000).toISOString();
-
-function top(over = {}) {
-  return {
-    generatedAt: at(),
-    host: {
-      cpus: 4,
-      load: [0.1, 0.2, 0.3],
-      cpuPercent: 12.5,
-      memory: { totalMb: 6400, usedMb: 1600, percent: 25 },
-      processes: [
-        { pid: 300, name: "pi-rukas", cpuPercent: 40, memPercent: 7.32, upSeconds: 989 },
-        { pid: 200, name: "tehas-cycle", cpuPercent: 2, memPercent: 4.9, upSeconds: 61 },
-        { pid: 100, name: "systemd", cpuPercent: null, memPercent: 1.8, upSeconds: 86500 },
-      ],
-    },
-    units: [
-      { id: "tehas-dispatch.timer", activeState: "active", unitFileState: "enabled", next: "10:00:00" },
-      { id: "tehas-cycle@12.service", activeState: "active", unitFileState: "", next: "" },
-    ],
-    ...over,
-  };
-}
 
 function status(over = {}) {
   return {
@@ -53,47 +30,6 @@ function status(over = {}) {
 
 const running = (issues) => ({ cycles: issues.map((issue) => ({ issue, running: true, startedAt: T - 600, step: "develop", console: `console-${issue}.txt` })), last: null });
 
-test("the host is a list of its processes and units, with a note of its readings", () => {
-  const m = hostModel(top(), NOW);
-  assert.equal(m.present, true);
-  assert.deepEqual(m.rows.map((r) => r.name + " " + r.text), [
-    "pi-rukas pid 300  cpu 40%  mem 7.3%  up 16 min",
-    "tehas-cycle pid 200  cpu 2%  mem 4.9%  up 1 min",
-    "systemd pid 100  cpu --  mem 1.8%  up 1 d",
-  ]);
-  assert.deepEqual(m.units.map((u) => u.name + " " + u.text), [
-    "tehas-dispatch.timer enabled  active  next 10:00:00",
-    "tehas-cycle@12.service -  active",
-  ]);
-  assert.deepEqual([m.n, m.nUnits], ["(3)", "(2)"]);
-  assert.equal(m.note, "4 CPUs, load 0.10 0.20 0.30, 12.5% of the cpus in use, memory 1600 of 6400 MB, snapshot written just now.");
-});
-
-test("the snapshot's age is judged by the server's clock, not the viewer's", () => {
-  // The viewer's clock runs two hours ahead of the host's; the file is new.
-  const viewer = NOW + 7200 * 1000;
-  const meta = { status: 200, headers: {}, date: NOW, at: viewer };
-  assert.equal(serverNow(meta, viewer), NOW);
-  assert.match(hostModel(top(), serverNow(meta, viewer)).note, /, snapshot written just now\.$/);
-  assert.match(hostModel(top(), viewer).note, /, snapshot is 2 h ago\.$/, "by the viewer's clock it would be stale");
-  // The clock moves on from the answer by the time the viewer's has run.
-  assert.equal(serverNow(meta, viewer + 40000), NOW + 40000);
-  // A clock read older than the answer does not take the present back.
-  assert.equal(serverNow(meta, viewer - 30000), NOW);
-  // No Date header, no answer yet: the viewer's clock.
-  assert.equal(serverNow({ status: 200, headers: {}, date: null, at: viewer }, viewer), viewer);
-  assert.equal(serverNow(undefined, viewer), viewer);
-});
-
-test("an old snapshot is said to be old, and a host with no file has no section", () => {
-  assert.match(hostModel(top({ generatedAt: at(7200) }), NOW).note, /, snapshot is 2 h ago\.$/);
-  assert.match(hostModel(top({ generatedAt: "no" }), NOW).note, /, snapshot unreadable\.$/);
-  assert.equal(hostModel(null, NOW).present, false);
-  assert.equal(hostModel({ units: [] }, NOW).present, false);
-  const empty = hostModel(top({ host: { cpus: 1 }, units: [] }), NOW);
-  assert.deepEqual([empty.rows, empty.units, empty.n, empty.nUnits], [[], [], "", ""]);
-});
-
 test("the state says working, paused, finishing or idle", () => {
   assert.deepEqual([stateModel(status(), null, NOW).pill, stateModel(status(), null, NOW).state], ["pill idle", "idle"]);
   assert.equal(stateModel(status(), running([41]), NOW).state, "working");
@@ -106,9 +42,7 @@ test("the state says working, paused, finishing or idle", () => {
   assert.equal(m.all, "https://github.com/acme/widget/issues");
 });
 
-test("all-hands and read-only are shown beside the state only while the snapshot says so", () => {
-  assert.equal(stateModel(status({ allHands: true }), null, NOW).allHands, true);
-  for (const allHands of [false, null, undefined, "yes"]) assert.equal(stateModel(status({ allHands }), null, NOW).allHands, false);
+test("read-only is shown beside the state only while the snapshot says so", () => {
   assert.equal(stateModel(status({ readOnly: { on: true } }), null, NOW).readOnly, true);
   assert.equal(stateModel(status(), null, NOW).readOnly, false);
 });

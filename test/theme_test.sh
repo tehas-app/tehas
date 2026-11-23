@@ -13,7 +13,7 @@ fun=$T_ROOT/host/fun
 themes=$(cd "$fun" && ls theme-*.css)
 # The stylesheets that draw the pages, and the files that write their markup or
 # paint their canvases.
-sheets=(game-view.css manual.css host-view.css business.css)
+sheets=(game-view.css manual.css business.css)
 markup=("$fun/index.html" "$fun/business.html" "$T_ROOT/host/docs/_layout.html" "$T_ROOT/host/docs/dashboard.frag" "$T_ROOT/console/items/src/page.rs")
 
 # The tokens a file sets: every custom property declared in it.
@@ -151,7 +151,7 @@ t_eq "$(grep -oE '"/live/[a-z]+\.json"' "$fun/business-view.js" | tr -d '"' | so
 t_case "the plain dashboard loads the host bridge before its islands, which hold the page's script"
 frag=$T_ROOT/host/docs/dashboard.frag
 order=$(grep -oE 'src="/fun/[a-z/-]+\.js"' "$frag" | sed 's/src="\/fun\///; s/"//' | xargs)
-t_eq "$order" "host-bridge.js factory/tehas-factory-state.js factory/tehas-factory-console.js factory/tehas-factory-issues.js factory/tehas-factory-readonly.js factory/tehas-factory-days.js factory/tehas-factory-previews.js factory/tehas-factory-host.js"
+t_eq "$order" "host-bridge.js factory/tehas-factory-state.js factory/tehas-factory-console.js factory/tehas-factory-issues.js factory/tehas-factory-readonly.js factory/tehas-factory-days.js factory/tehas-factory-previews.js"
 t_contains "$(cat "$frag")" '<script type="module" src="/fun/factory/tehas-factory-state.js"></script>'
 t_eq "$(grep -c '<script type="module">' "$frag")" 0
 

@@ -17,7 +17,6 @@
       "required": [],
       "additionalProperties": false,
       "properties": {
-        "outsource": {"type": "boolean"},
         "spec-pipe": {"type": "boolean"},
         "lean": {"type": "boolean"},
         "plugins": {"type": "boolean"}

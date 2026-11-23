@@ -20,14 +20,11 @@
 //! After it, a cycle that was not stopped and left an open pull request asks
 //! for the plugins' hooks on it (src/hook.rs), and waits for none of them.
 //!
-//! The --work program is the runner seam. tehas work runs the cycle on this
-//! host. A job waiter (`--runner job`) waits on a cycle run on a contractor and
-//! leaves the same notes and exit status; the start and the report then read
-//! no image and no workspace of this host.
+//! The --work program is tehas work, which runs the cycle on this host.
 
 use crate::after::log;
 use crate::apply;
-use crate::host::{self, Refused, Runner, Start};
+use crate::host::{self, Refused, Start};
 use crate::runner;
 use crate::start::attempt_shaped;
 use serde_json::Value;
@@ -49,7 +46,6 @@ pub struct Given {
     /// tehas work: the program and the words before the issue's number.
     pub work: String,
     pub work_args: Vec<String>,
-    pub runner: Runner,
     pub status_cmd: String,
     pub status_args: Vec<String>,
     pub console: String,
@@ -168,8 +164,8 @@ fn commit_of(cmd: &[&str], image: &str, bound: Duration) -> Option<String> {
 }
 
 /// The start on record, or the status to exit with.
-fn start_on_record(home: &Path, n: &str, runner: Runner) -> Result<Value, i32> {
-    let rukas = runner.on_host().then(rukas_commit).flatten();
+fn start_on_record(home: &Path, n: &str) -> Result<Value, i32> {
+    let rukas = rukas_commit();
     let mut args = vec!["cycle-start", n];
     if let Some(r) = &rukas {
         args.extend(["--rukas", r]);
@@ -383,7 +379,7 @@ fn supervise(
 /// A cycle's start, its supervision and its report. Its exit status.
 pub fn run(home: &Path, g: &Given) -> i32 {
     let n = g.issue.to_string();
-    let answer = match start_on_record(home, &n, g.runner) {
+    let answer = match start_on_record(home, &n) {
         Ok(a) => a,
         Err(rc) => return rc,
     };
@@ -459,11 +455,6 @@ pub fn run(home: &Path, g: &Given) -> i32 {
             return 78;
         }
     }
-    // A contractor pushes to the branch: the report checks the trailers of
-    // only what it added over the heads as they are now.
-    if g.runner == Runner::Job {
-        crate::stamp::note_heads(home, g.issue, &repo);
-    }
     // The container cannot take the label off: the relay refuses a label
     // change. Left on, the report would park a pull request that waits only
     // for a merge.
@@ -489,7 +480,6 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         console: g.console.clone(),
         status_cmd: g.status_cmd.clone(),
         status_args: g.status_args.clone(),
-        runner: g.runner,
     };
     let reported = apply::reported(home, &start);
     let ending = Ending {

@@ -380,11 +380,10 @@ mod feed_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kinds::Kind;
     use attach::link::links;
 
-    const LABEL: &str = Kind::Prototype.label();
-    const STAGE: &str = "the prototype stage";
+    const LABEL: &str = crate::kinds::Kind::Improvement.label();
+    const STAGE: &str = "the marked stage";
 
     fn alice(who: &str) -> bool {
         who == "alice"
@@ -633,7 +632,7 @@ mod tests {
         assert_eq!(refusal(LABEL, STAGE, Some("LA_p"), "LA_p"), None);
         assert_eq!(
             refusal(LABEL, STAGE, Some("LA_p"), "LA_bug").unwrap(),
-            format!("refused: the label {LABEL} is not the one pinned in state/labels (pinned LA_p, now LA_bug): no ticket is at the prototype stage")
+            format!("refused: the label {LABEL} is not the one pinned in state/labels (pinned LA_p, now LA_bug): no ticket is at {STAGE}")
         );
         assert!(refusal(LABEL, STAGE, None, "LA_p")
             .unwrap()

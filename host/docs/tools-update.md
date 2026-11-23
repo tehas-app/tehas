@@ -64,6 +64,11 @@ nothing reads it: take it out. The update stops and removes
 `tehas-review.timer` and `tehas-review.service` where an earlier release left
 them.
 
+The host panel left core in 2.0 and returns as a plugin; `tehas top` stays.
+A line of `TEHAS_TOP` still loads, with one warning, and nothing reads it:
+take it out. The update stops and removes `tehas-top.service` and the last
+`~/tehas/live/top.json` where an earlier release left them.
+
 ### Before updating to 2.0: check the settings
 
 2.0 rewrites no setting. Each line of `instance.env` is either kept, dropped
@@ -83,6 +88,11 @@ each finding, `fail <NAME>: <why>`, then `pass` or `fail`. It exits 0 on a
 pass and 78 on a fail, and 78 before it reads anything when `--settings` is
 missing or names no directory. It reads only the instance directory: no
 GitHub, Docker or git, and no writes.
+
+A required `PI_ENSEMBLE_*` setting that is not set fails, and its line adds
+that a manager which renders `instance.env` for the factories it runs
+supplies it: for such a factory, check the `instance.env` the manager pushes,
+not its raw instance directory.
 
 A pass does not promise the update goes through:
 
@@ -545,7 +555,7 @@ production host.
 
    ```
    cd ~/tehas/platform
-   TEHAS_TEST_FEATURES=outsource ./install.sh --lab-build
+   TEHAS_TEST_FEATURES=plugins ./install.sh --lab-build
    ```
 
    Every program is built with `TEHAS_LAB_BUILD=on`, a marker the programs
@@ -554,7 +564,7 @@ production host.
    assertions, so it does not read the tests' other hooks, such as
    `TEHAS_TEST_STORE_ANSWERS`. `TEHAS_TEST_FEATURES` on the command line is
    for this run only: it lets the install see the feature, so a feature with
-   programs or units of its own, as outsource has, gets them. The run prints
+   programs or units of its own, as plugins have, gets them. The run prints
    `note: a lab build`.
 
 2. Put the variable in the units' environment. The settings load refuses it
@@ -564,23 +574,23 @@ production host.
 
    ```
    mkdir -p ~/.config/environment.d
-   echo 'TEHAS_TEST_FEATURES=outsource' > ~/.config/environment.d/tehas-lab.conf
+   echo 'TEHAS_TEST_FEATURES=plugins' > ~/.config/environment.d/tehas-lab.conf
    systemctl --user daemon-reload
-   systemctl --user restart tehas-mcp.service tehas-top.service   # the long-running units that are active
+   systemctl --user restart tehas-mcp.service   # the long-running units that are active
    ```
 
    Names are separated by spaces. A word that is no building feature is
    ignored.
 
-3. Switch the feature on in `instance.env` (`TEHAS_OUTSOURCE=on`) and prove
+3. Switch the feature on in `instance.env` (`TEHAS_PLUGIN=on`) and prove
    it. A shell of the tehas user does not read `environment.d`, so a command
    typed there, such as `tehas api --json`, needs
-   `TEHAS_TEST_FEATURES=outsource` in front of it, or it stops with 78.
+   `TEHAS_TEST_FEATURES=plugins` in front of it, or it stops with 78.
 
 Health warns on a lab build whether the variable is set or not. Set, it says
-`A lab build: TEHAS_TEST_FEATURES names outsource, still being built. No
+`A lab build: TEHAS_TEST_FEATURES names plugins, still being built. No
 release reads it.` and `checks.testFeatures` says `{"read": true, "features":
-["outsource"], "lab": true}`. Unset, it says `A lab build: TEHAS_TEST_FEATURES
+["plugins"], "lab": true}`. Unset, it says `A lab build: TEHAS_TEST_FEATURES
 is unset, so no building feature is on. ./install.sh without --lab-build goes
 back.` and `features` is empty. `tehas status` prints a `features` line either
 way.

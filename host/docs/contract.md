@@ -34,7 +34,7 @@ Public:
   store and analytics migrated;
 - [the cycle inputs rule](#cycle-inputs);
 - the host namespace `/host/` and [the host bridge](/api#the-host-bridge);
-- [analytics.db at schema 5](#analyticsdb);
+- [analytics.db at schema 6](#analyticsdb);
 - [the commands of other parts](#the-commands-of-other-parts): the rule by
   which `tehas <part>` runs `tehas-<part>`, the words kept for the parts,
   and the front asset of a release.
@@ -43,8 +43,8 @@ Internal:
 
 - `tehasbot`, the units' command, every verb of it;
 - the `console` program and its subcommands;
-- `store`, `attach`, `analytics`, `tehas-dispatch`, `tehas-cycle`, `tehas-mcp`
-  and `tehas-proxy` as programs, and their verbs and statuses;
+- `store`, `attach`, `analytics`, `tehas-dispatch`, `tehas-cycle` and
+  `tehas-mcp` as programs, and their verbs and statuses;
 - everything under `~/tehas/live/`, `~/tehas/state/` and `~/tehas/logs/`. The
   dashboard reads `live/`; a program asks a command;
 - the environment names the settings load keeps for the units and the tests
@@ -97,9 +97,9 @@ coming out in 2.0 with #2894 (Pending). After it, the millwright's
 | Switch grammar | Every switch takes `on`, `off`, `1` and `0`. The manual writes `on` and `off` | The Rust tests of the settings rules |
 | Commands | The `tehas` commands, their subcommands and the flags of each, but the flags marked `internal` | `api/commands.txt`, held to the commands tehas knows and to the synopsis lines of each command's text by the tests of `console/src/front.rs` |
 | Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
-| Labels | The rows of `host/labels.tsv`: the name and what the dispatcher does with it | The dispatcher's and the tidy's tests |
-| Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 28 | The store's migration tests |
-| analytics.db | `user_version` 5, tables and columns only added | `console/analytics/src/schema.pinned` |
+| Labels | The rows of `host/labels.tsv`: the name, what the dispatcher does with it, and the word of the ports it is (the fourth column, such as `State::Running`) | The dispatcher's and the tidy's tests, and the table's own test in `console/src/labels.rs` |
+| Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 29 | The store's migration tests |
+| analytics.db | `user_version` 6, tables and columns only added | `console/analytics/src/schema.pinned` |
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints, and the tests of `console/src/front.rs`, which fail when a public `--json` row of `api/commands.txt` has no schema |
 | MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
@@ -115,9 +115,7 @@ the surface gains a name the list does not have yet. What a building feature
 adds is not in it.
 
 In `tehas status --json` the fields of `running[].progress` describe one
-driver's steps and may change. The fields of `contractors` may change while
-outsource is still being built, and so may `api/status.outsourced.json`, the
-sample that shows them.
+driver's steps and may change.
 
 `testFeatures` in `tehas status --json`, with `read`, `features` and `lab`,
 reports a lab build, and that a release reads no `TEHAS_TEST_FEATURES`, so a
@@ -175,23 +173,27 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
    refused by 1.4.0: `RETIRED` holds the same twelve names, and
    `api/renames-1.0.tsv` is unchanged. Every setting that left
    `api/settings-rules.json` since 1.4.0 is dropped with a warning, not
-   refused: twelve of its instance settings and two of its host settings,
+   refused: twenty-two of its instance settings and two of its host settings,
    `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, which `~/.config/tehas/env`
-   held.
+   held. `api/settings-1.4.0.txt` lists every setting 1.4.0 accepted, 101
+   instance and 10 host settings, and the test
+   `every_setting_v1_4_0_accepted_is_kept_or_dropped_with_a_warning_never_refused`
+   in `console/core/src/settings/load.rs` holds each to today's load: in
+   its table or dropped with a warning, never refused. The names it drops
+   are exactly those `IGNORED` holds.
 2. **Run `tehas update`.** It stops and removes the units and files of the
    features 2.0 took out of core, and migrates the state store and analytics.
 3. **The state store** (`state/tehas.db`) goes from schema 23, 1.4.x's, to
-   28 in one run, step by step: 24 adds the answers of `tehas answer`, 25
+   29 in one run, step by step: 24 adds the answers of `tehas answer`, 25
    keeps a stop's question with its choices, 26 lets a cycle's `how` say
    `reply`, 27 rewrites every `retry-tick` to `reply` and marks a question
    open at the upgrade to be asked again, 28 rewrites `fixer` to
-   `millwright` and drops `comment_links` from an approval's input. Schema
-   29, which drops the tables of outsource, comes with
-   #2886 (Pending).
+   `millwright` and drops `comment_links` from an approval's input, 29 drops
+   the tables of outsource and keeps every other row.
    `tehas state check --json` prints the schema.
-4. **Analytics** (`state/analytics.db`) goes from schema 4 to 5 the first
-   time it is opened after the update: it drops `samples.watts`, keeps every
-   other column and row, and rewrites `retry-tick` to `reply` and `fixer` to
+4. **Analytics** (`state/analytics.db`) goes from schema 4 to 6 the first
+   time it is opened after the update: it drops `samples.watts` and
+   `runs.contractor_id`, keeps every other column and row, and rewrites `retry-tick` to `reply` and `fixer` to
    `millwright` in `runs.how`.
 5. **pi-rukas.** A checkout follows pi-rukas's 0.15 line
    (`PI_RUKAS_FOLLOW=release:0.15`). 2.0 needs pi-rukas v0.15.6 or later.
@@ -234,7 +236,12 @@ line is one of three:
     `TEHAS_PROTOTYPE_FILE` (the Protolab);
   - `TEHAS_WORK_DESCRIBE`, `TEHAS_WORK_FILES`, `TEHAS_WORK_ZIPS`,
     `TEHAS_WORK_COMMENTS` (a cycle's describe, text files, zips and
-    comments).
+    comments);
+  - `TEHAS_OUTSOURCE`, `TEHAS_OUTSOURCE_TIMEOUT`, `TEHAS_OUTSOURCE_GRACE`,
+    `TEHAS_OUTSOURCE_RETRIES`, `TEHAS_OUTSOURCE_REST`,
+    `TEHAS_OUTSOURCE_REPOS`, `TEHAS_OUTSOURCE_CONTRACTORS`,
+    `TEHAS_OUTSOURCE_JOIN_TTL`, `TEHAS_OUTSOURCE_PROXY_ADDR`,
+    `TEHAS_OUTSOURCE_PROXY_IDLE` (outsource).
 - **Refused.** The line stops every command with 78 and says what to do:
   - a name an earlier release retired (`RETIRED` in the same file):
     `TEHAS_FIXER_LOGIN`, `TEHAS_FIXER_MAX_RETRIES`,
@@ -246,13 +253,10 @@ line is one of three:
   - a value for a setting of a feature still being built, which names the
     feature.
 
-Pending: #2894 drops
-`TEHAS_MILLWRIGHT_MAX_RETRIES`, `TEHAS_MILLWRIGHT_FEED` and
-`TEHAS_MILLWRIGHT_MAX_FEEDS` with a warning,
-#2892 `TEHAS_SPEC_PIPE`,
-and #2886 `TEHAS_OUTSOURCE`
-and its nine `TEHAS_OUTSOURCE_*` settings. Until they land, a value for one
-of the last eleven is refused as a building feature's.
+Pending: #2894 drops `TEHAS_MILLWRIGHT_MAX_RETRIES`,
+`TEHAS_MILLWRIGHT_FEED` and `TEHAS_MILLWRIGHT_MAX_FEEDS` with a warning, and
+#2892 `TEHAS_SPEC_PIPE`. Until #2892 lands, a value for `TEHAS_SPEC_PIPE` is
+refused as a building feature's.
 
 ## The commands of other parts
 
@@ -321,10 +325,11 @@ and a change to them is a security change.
 
 ## analytics.db
 
-`~/tehas/state/analytics.db` is at `user_version` 5. Within it tables and
+`~/tehas/state/analytics.db` is at `user_version` 6. Within it tables and
 columns are only added, never renamed, retyped or removed. A file of schema 4,
-from 1.4.x, is migrated to 5 in place as it is opened. A new version comes
-only with a major release. [Analytics](/analytics) has the schema;
+from 1.4.x, is migrated to 6 in place as it is opened: it loses
+`samples.watts` and `runs.contractor_id`, and keeps every row. A new version
+comes only with a major release. [Analytics](/analytics) has the schema;
 [`tehas analytics copy`](/api#tehas-analytics-copy) is how a program takes a
 consistent copy.
 
@@ -488,13 +493,13 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   lists.
 - **Panels leave core; the dock stays.**
   #2900.
-  Gone: `tehas panel`, `live/panels.json` and `/panels.json` on the docs
-  server, and the feature word `panels` in `tehas api --json`. The dock
-  stays and is renamed: `host/fun/panels.js` and `panels.css` are
-  `host/fun/dock.js` and `dock.css`, the page's global `TEHAS_PANELS` is
-  `TEHAS_DOCK`, and the classes `panel-*` are `dock-*`. A plugin granted
-  only v1's `view` is listed in the plugins menu in place of a panel
-  `p-<name>`. Outside pages return in 2.1 as the plugin `panels`.
+  Gone: the command `panel` of tehas, `live/panels.json` and
+  `/panels.json` on the docs server, and the feature word `panels` in
+  `tehas api --json`. The dock stays and is renamed: `host/fun/panels.js`
+  and `panels.css` are `host/fun/dock.js` and `dock.css`, the page's
+  global `TEHAS_PANELS` is `TEHAS_DOCK`, and the classes `panel-*` are
+  `dock-*`. A plugin granted only v1's `view` is listed in the plugins
+  menu in place of a panel `p-<name>`. Outside pages return in 2.1 as the plugin `panels`.
   Readers: the consumer that runs many factories, Obeya (it vendors
   `host/fun` and the dock, so the file and global renames reach it),
   plugins.
@@ -502,13 +507,14 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `~/tehas/state/panels.json` stays: copy its entries whose id does not
   start with `p-` (the operator's own pages) for the 2.1 `panels` grant,
   then delete it, and `~/tehas/state/panel.lock` with it.
-- **analytics.db is at schema 5.**
-  #2869.
+- **analytics.db is at schema 6.**
+  #2869, #2886.
   The migration drops `samples.watts`, which nothing writes since energy
-  use left core, and keeps every other column and row.
-  `tehas analytics copy --json` reports schema 5.
+  use left core, and `runs.contractor_id`, which no release wrote a value
+  in, and keeps every other column and row. A file of schema 4 or 5 is
+  migrated in place. `tehas analytics copy --json` reports schema 6.
   Readers: the consumer that reads the analytics copies.
-  Adopter action: a program that reads the copies pins `user_version` 5 and
+  Adopter action: a program that reads the copies pins `user_version` 6 and
   `console/analytics/src/schema.pinned` of this release.
 - **A cycle is given the issue's images alone.**
   #2875.
@@ -544,11 +550,58 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   an instance's settings.
   Adopter action: run it before the update, and again after each fix,
   until it passes.
-- **The state store is at schema 28.**
-  #2794, #2830, #2843, #2867, #2889.
-  The steps 24 to 28 are listed under [Upgrading to 2.0](#upgrading-to-20).
-  `tehas state check --json` prints `schema` 28, and `rows` counts the new
-  table `answers`.
+- **Outsource is removed, with the model proxy and the contractor.**
+  #2886.
+  It was still being built: no release could turn it on. Gone: the command
+  `outsource` of tehas and the verb `outsource-proxy` of tehasbot, the
+  programs `tehas-proxy` and `tehas-contractor`,
+  `tehas-outsource-proxy.service`, the key `outsource` of `flags` in
+  `tehas api --json`, `contractors` in `tehas status --json` with the sample
+  `api/status.outsourced.json`, the MCP tool `factory_contractors`,
+  `live/contractors.json`, and the vipune stand-in of the sandbox image. Its
+  ten settings are dropped with a warning. The state store's step to 29
+  drops its tables, and analytics 6 drops `runs.contractor_id`.
+  Readers: adopters, the consumer that runs many factories, the consumer
+  that reads the analytics copies, MCP clients, the end-to-end suite.
+  Adopter action: run `tehas update`, which stops and removes
+  `tehas-outsource-proxy.service` and removes `libexec/tehas-proxy`,
+  `libexec/tehas-contractor`, `live/contractors.json` and
+  `sandbox/vipune-shim`. Then take any `TEHAS_OUTSOURCE` and
+  `TEHAS_OUTSOURCE_*` lines out of `instance.env`.
+- **The All hands label is removed.**
+  #2881.
+  `tehas:all-hands` on the control issue is no longer read, and
+  `tehas labels` no longer creates it. `tehas status` prints no `all-hands`
+  line; `tehas status --json`, `live/status.json` and `checks` of the health
+  file have no `allHands`; the dashboard shows no "all hands" mark.
+  `features` in `tehas api --json` no longer lists `all-hands`.
+  Readers: the consumer that runs many factories, Obeya, the end-to-end
+  suite, plugins.
+  Adopter action: none. A `tehas:all-hands` label left on a control issue
+  does nothing; delete it on GitHub if you like, and remove
+  `~/tehas/state/all-hands.ignored` where an earlier version wrote it. A
+  program that read `allHands` or checked `features` for `all-hands` finds
+  them gone.
+- **`host/markers.tsv`, and a fourth field in `host/labels.tsv`.**
+  #2901.
+  `host/markers.tsv` is new: one row per kind of marker, the machine-read
+  notes tehas writes inside a comment or a body, with its open text, its
+  close text for a block, and its fields and their types. It adds the text
+  of two markers new in 2.0, `tehas:ticket-of` and `tehas:link`, which
+  nothing writes yet. A marker with a field missing, repeated, out of order
+  or not of its row, or a value outside its type, reads as unreadable and
+  is never acted on. No program reads the file at run time: the adapters
+  compile it in. `tehas labels` takes a line of `host/labels.tsv` with three
+  fields or four; the fourth, a word of the ports such as `State::Running`,
+  is checked and not used, and no row has one yet.
+  Readers: the consumer that runs many factories, which reads tehas's
+  markers and takes the table with the ports at the tag.
+  Adopter action: none.
+- **The state store is at schema 29.**
+  #2794, #2830, #2843, #2867, #2889, #2886.
+  The steps 24 to 29 are listed under [Upgrading to 2.0](#upgrading-to-20).
+  `tehas state check --json` prints `schema` 29, and `rows` counts the new
+  table `answers` and no longer the tables of outsource.
   Readers: `tehas update`, readers of `tehas state check` and of a state
   copy, the end-to-end suite.
   Adopter action: `tehas update` migrates the store.
@@ -584,27 +637,12 @@ adopter action as the pull request states them.
   Adopter action: a program that applied `tehas:ready` as the millwright to
   start or retry work for a person runs `tehas start` for a signed-in
   person instead.
-- **The All hands label goes.**
-  #2881. `tehas:all-hands`
-  leaves `host/labels.tsv`; `allHands` leaves `tehas status --json`;
-  `features` drops `all-hands`.
-  Readers: the consumer that runs many factories, the end-to-end suite.
 - **The spec mark goes.**
   #2892. A `Spec:` line is
   plain text, no pull request is checked for a spec block, the key
   `spec-pipe` leaves `flags`, and `TEHAS_SPEC_PIPE` is dropped with a
   warning. Lean's `pi-spec v1` block stays.
   Readers: adopters, the consumer that runs many factories (`flags`).
-- **Outsource goes, with the model proxy and the contractor.**
-  #2886. Gone:
-  the command `outsource` of tehas, `tehas-proxy`, `tehas-contractor`,
-  `tehas-outsource-proxy.service`, the key `outsource` of `flags`,
-  `contractors` in `tehas status --json` and `api/status.outsourced.json`,
-  the MCP tool `factory_contractors`. Its ten settings are dropped with a
-  warning. The state store goes to schema 29, which drops outsource's
-  tables; analytics goes to schema 6, which drops `runs.contractor_id`.
-  Readers: adopters, the consumer that runs many factories, the consumer
-  that reads the analytics copies, MCP clients, the end-to-end suite.
 - **The approval record refuses `comment_links`.**
   #2888. A new approval that
   names the key is refused; a stored one loads with it ignored.
@@ -634,6 +672,18 @@ adopter action as the pull request states them.
   analytics step carry the words.
   Readers: the consumer that runs many factories, the consumer that reads
   the analytics copies, MCP clients, the end-to-end suite, plugins.
+- **Four work-run ends move.** #2903. One function,
+  `tehas_core::outcome::end`, decides a work run's end, and four ends
+  change: a run `tehas stop` stopped ends `stopped` and a lost run
+  `failed`, both `parked` before; a parked run that claimed `merged` and a
+  parked `closed` or `interrupted` run end by the later rows (`handoff`,
+  `failed` or `parked`), not `merged` or `stopped`. A parked run never ends
+  `merged`, `stopped` or `pr`. Runs recorded before the update keep their
+  outcome.
+  Readers: the consumer that reads the analytics copies, the consumer that
+  runs many factories.
+  Adopter action: a program that compares counts of `runs.outcome` across
+  the update allows for the four moves. The words are the same.
 - **The plugin hook is named by its event.** T11.8. The grant
   `hook:after:work` becomes `hook:after:change.offered`, with no alias.
   Readers: plugins.
@@ -652,13 +702,14 @@ adopter action as the pull request states them.
   `tehas:prototype` in its queue and starts `tehas-top.service`, and parts
   that read the label.
 - **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
-  `host/labels.tsv` gains a fourth column, `word`, and `host/markers.tsv`
-  is new. Two settings choose the adapters: `TEHAS_CODE_HOST` and
+  Each row of `host/labels.tsv` gains its fourth field, `word`, once the
+  label drops have taken their rows out. The ports themselves. Two settings choose the adapters: `TEHAS_CODE_HOST` and
   `TEHAS_TICKETS`. In 2.0 each accepts only `github`; a missing setting
   means `github`, so a 1.4.x instance still loads, and any other value is
   refused with 78.
   Readers: adopters, the consumer that runs many factories where it keeps
-  an instance's settings.
+  an instance's settings, and, for the `word` field, any program that
+  splits `host/labels.tsv` by its fields.
 - **The rename.** T10. tehas becomes tehas-factory. The `$id` of every
   schema in `api/`, the release repository and the manual move with it.
 - **The surface list for 2.x.** T9's last update: `api/surface-1.0.txt`
@@ -686,24 +737,6 @@ no release does: see [proving a building feature on a lab
 host](/tools-update#proving-a-building-feature-on-a-lab-host).
 
 What each registered feature leaves visible while its flag is off:
-
-### outsource
-
-Building. Coming out in 2.0 with #2886
-(Pending). Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
-78 and says `outsource` is still being built.
-
-- `tehas api --json` has `"outsource": false` in `flags`, and no word
-  `outsource` in `features`.
-- The settings `TEHAS_OUTSOURCE_*` are in `api/settings-rules.json`, but they
-  are not contract: a line that gives one a value stops every command with
-  exit 78 and names `outsource`.
-- `tehas-proxy` ends at once with exit 0 and opens no port.
-- No command, no label, no `contractors` in `tehas status --json`, no MCP
-  tool, nothing in `live/`. The fields of `contractors` may change while
-  outsource is still being built.
-- The state store has its tables for contractors and jobs, which are internal.
-- `analytics.db` has the column `contractor_id` of `runs`, NULL on every run.
 
 ### spec-pipe
 

@@ -88,7 +88,7 @@ t_eq "$(real_pick console/mcp/src/tools.rs)" "crate analytics
 crate tehas-mcp"
 
 t_case "the real workspace: a store change selects the crates that run the store"
-t_eq "$(real_pick console/store/src/db.rs)" "$(printf 'crate %s\n' console store tehas-contractor tehas-cycle tehas-dispatch tehas-ops tehas-plugin tehas-plugin-gate tehas-proxy tehas-xtask)"
+t_eq "$(real_pick console/store/src/db.rs)" "$(printf 'crate %s\n' console store tehas-cycle tehas-dispatch tehas-ops tehas-plugin tehas-plugin-gate tehas-xtask)"
 
 t_case "the real workspace: a core change selects the whole workspace"
 t_eq "$(real_pick console/core/src/lib.rs)" "cargo"
@@ -150,7 +150,7 @@ t_case "the real workspace: a change to the selector asks for the full gate"
 t_eq "$(bash "$T_ROOT/scripts/select-tests.sh" console/xtask/src/select.rs)" "full console/xtask/src/select.rs is part of the gate itself"
 
 t_case "the real checkout: a model of the plain dashboard selects the node tests that run it"
-picked=$(bash "$T_ROOT/scripts/select-tests.sh" host/fun/factory/tehas-factory-host.model.js 2>&1 | grep '^node ')
+picked=$(bash "$T_ROOT/scripts/select-tests.sh" host/fun/factory/tehas-factory-state.model.js 2>&1 | grep '^node ')
 t_contains "$picked" "node test/dashboard_view_test.mjs"
 t_contains "$picked" "node test/dashboard_host_test.mjs"
 

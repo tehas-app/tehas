@@ -194,7 +194,6 @@ const SETTINGS: &[(&str, &str)] = &[
     ("TEHAS_LEAN", "0"),
     ("TEHAS_MAX_CYCLES", "127"),
     ("TEHAS_MILLWRIGHT_LOGIN", "tehas-bot[bot]"),
-    ("TEHAS_OUTSOURCE", "0"),
     ("TEHAS_READ_ONLY", "0"),
     ("TEHAS_REPO", "acme/widget"),
     ("TEHAS_RUKAS_WORKAROUNDS", ""),

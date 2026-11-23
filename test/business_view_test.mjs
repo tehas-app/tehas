@@ -83,7 +83,7 @@ test("a repository name that is not owner/name gives no links", () => {
 test("the sample is staged by its labels, and only where there is no queue", () => {
   const sample = { issues: [
     { number: 1, title: "Ready", labels: [{ name: "tehas:ready" }] },
-    { number: 2, title: "Running prototype", labels: ["tehas:running", "tehas:prototype"] },
+    { number: 2, title: "Running", labels: ["tehas:running"] },
     { number: 3, title: "Stuck", labels: [{ name: "needs-human-attention" }, { name: "tehas:ready" }] },
     { number: 4, title: "Done", state: "CLOSED", labels: [] },
     { number: 5, title: "Backlog", labels: [{ name: "bug" }] },

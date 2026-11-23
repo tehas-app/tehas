@@ -30,8 +30,8 @@ for pair in 1:on 0:off; do
 done
 
 t_case "every switch takes on and off, and exports the form its readers compare with"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_SITE_INDEXING=on TEHAS_READ_ONLY=off TEHAS_TOP=1 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_SITE_INDEXING][\$TEHAS_READ_ONLY][\$TEHAS_TOP]\""
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_SITE_INDEXING=on TEHAS_READ_ONLY=off TEHAS_SITE_CONSOLE=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_SITE_INDEXING][\$TEHAS_READ_ONLY][\$TEHAS_SITE_CONSOLE]\""
 t_eq "$t_out" "[1][0][1]"
 
 for bad in TEHAS_ANALYTICS=On TEHAS_ANALYTICS=yes TEHAS_ANALYTICS=2 "TEHAS_ANALYTICS=on off"; do
@@ -222,11 +222,10 @@ t_eq "$t_out" "192.0.2.7"
 t_case "the worked example takes its private addresses from a file on the host"
 t_stub nproc 'echo 12'
 # A copy with the renames of api/renames-1.0.tsv: a running factory's instance.
+# awk keeps an empty field in place, where read would close the gap of tabs.
 cp -R "$T_ROOT/instances/tehas-tehas" "$T/worked"
-while IFS=$'\t' read -r kind old new _; do
-  [ "$kind" = setting ] && [ -n "$new" ] || continue
-  sed -i "s/^$old=/$new=/" "$T/worked/instance.env"
-done <"$T_ROOT/api/renames-1.0.tsv"
+awk -F'\t' '$1 == "setting" && $3 != "" { print $2, $3 }' "$T_ROOT/api/renames-1.0.tsv" |
+  while read -r old new; do sed -i "s/^$old=/$new=/" "$T/worked/instance.env"; done
 TEHAS_INSTANCE_DIR=$T/worked
 mkdir -p "$T/home/.config/tehas"
 echo TEHAS_GITHUB_APP_ID=1 >"$T/home/.config/tehas/private.env"
@@ -270,12 +269,12 @@ after=$(find "$T/home" "$T/instance" "$T/watch" | sort)
 t_eq "$after" "$before"
 T_ENV=()
 
-t_case "loading the outsource settings of an on instance writes nothing"
-# The load of an instance with outsource on reaches only its own environment.
+t_case "loading the settings of outsource, gone, writes nothing"
+# The warning goes to standard error: the load reaches only its own environment.
 mkdir -p "$T/outsource/cwd" "$T/outsource/tmp"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 TEHAS_OUTSOURCE_REPOS=acme/widget >"$TEHAS_INSTANCE_DIR/instance.env"
 before=$(find "$T/home" "$TEHAS_INSTANCE_DIR" "$T/outsource" | sort)
-T_ENV=(${T_ENV[@]+"${T_ENV[@]}"} TEHAS_TEST_FEATURES=outsource "TMPDIR=$T/outsource/tmp")
+T_ENV=(${T_ENV[@]+"${T_ENV[@]}"} "TMPDIR=$T/outsource/tmp")
 t_run "cd '$T/outsource/cwd' && $load"
 after=$(find "$T/home" "$TEHAS_INSTANCE_DIR" "$T/outsource" | sort)
 t_eq "$after" "$before"
@@ -309,9 +308,9 @@ t_case "TEHAS_ISSUE_TYPES: unset stays unset, kind=Type pairs are kept, another 
 t_instance "${T_MINIMAL[@]}"
 t_run "$load && echo \"[\${TEHAS_ISSUE_TYPES-unset}]\""
 t_eq "$t_out" "[unset]"
-printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ISSUE_TYPES='improvement=Improvement prototype=Prototype'" >"$TEHAS_INSTANCE_DIR/instance.env"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ISSUE_TYPES=improvement=Improvement >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_ISSUE_TYPES]\""
-t_eq "$t_out" "[improvement=Improvement prototype=Prototype]"
+t_eq "$t_out" "[improvement=Improvement]"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ISSUE_TYPES=bug=Bug >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
@@ -503,22 +502,11 @@ t_case "loading sets no cgroup root of its own"
 t_run "$load && echo \"[\${TEHAS_CGROUP_ROOT:-}]\""
 t_eq "$t_out" "[]"
 
-t_case "the host section is published only when the instance asks for it"
-t_instance "${T_MINIMAL[@]}"
-t_run "$load && echo \"\$TEHAS_TOP\""
-t_eq "$t_out" "0"
+t_case "a TEHAS_TOP line of a 1.4 instance loads with a warning and is not read"
 t_instance "${T_MINIMAL[@]}" TEHAS_TOP=1
-t_run "$load && echo \"\$TEHAS_TOP\""
-t_eq "$t_out" "1"
-t_instance "${T_MINIMAL[@]}" TEHAS_TOP=0
-t_run "$load && echo \"\$TEHAS_TOP\""
-t_eq "$t_out" "0"
-# A line in the environment is not the instance asking for it.
-t_instance "${T_MINIMAL[@]}"
-T_ENV=(TEHAS_TOP=1)
-t_run "$load && echo \"\$TEHAS_TOP\""
-t_eq "$t_out" "0"
-T_ENV=()
+t_run "$load; echo \"rc=\$? [\${TEHAS_TOP:-}]\""
+t_contains "$t_out" "TEHAS_TOP is no longer read: the host panel left core in 2.0"
+t_contains "$t_out" "rc=0 []"
 
 t_case "the energy settings a 1.4 host left in ~/.config/tehas/env load and are not read"
 t_instance "${T_MINIMAL[@]}"
@@ -676,66 +664,6 @@ t_instance "${T_MINIMAL[@]}"
 t_case "the example instance documents the budget the health check warns at"
 t_contains "$(grep ^#TEHAS_POLL_BUDGET= "$T_ROOT/instances/example/optional.env")" "=cpu=5,wall=30,writes=0"
 
-# The model proxy of outsource. The load checks its idle bound against the
-# check-in timeout, so no stream is cut off before the job that waits on it.
-t_case "the model proxy listens on the loopback port of the platform"
-t_instance "${T_MINIMAL[@]}"
-t_run "$load && set -u && echo \"[\$TEHAS_OUTSOURCE_PROXY_ADDR] [\$TEHAS_OUTSOURCE_PROXY_IDLE]\""
-t_eq "$t_rc" 0
-t_eq "$t_out" "[127.0.0.1:8090] [900]"
-
-t_case "the proxy's address and its idle bound can be set"
-T_ENV=(TEHAS_TEST_FEATURES=outsource)
-t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 TEHAS_OUTSOURCE_PROXY_ADDR=192.0.2.7:8091 \
-  TEHAS_OUTSOURCE_TIMEOUT=1800 TEHAS_OUTSOURCE_PROXY_IDLE=7200
-t_run "$load && echo \"\$TEHAS_OUTSOURCE_PROXY_ADDR \$TEHAS_OUTSOURCE_PROXY_IDLE\""
-t_eq "$t_rc" 0
-t_eq "$t_out" "192.0.2.7:8091 7200"
-
-for bad in "127.0.0.1" "127.0.0.1:0" "127.0.0.1:65536" "not an address:8090"; do
-  t_case "loading rejects a TEHAS_OUTSOURCE_PROXY_ADDR of '$bad'"
-  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_OUTSOURCE_PROXY_ADDR='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
-  t_run "$load; echo rc=\$?"
-  t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "TEHAS_OUTSOURCE_PROXY_ADDR is not valid: expected an address or host name and a port"
-done
-
-t_case "an idle bound not longer than the check-in timeout is refused"
-for pair in "TEHAS_OUTSOURCE_PROXY_IDLE=600" "TEHAS_OUTSOURCE_PROXY_IDLE=60 TEHAS_OUTSOURCE_TIMEOUT=61"; do
-  # shellcheck disable=SC2086 # two settings in one word, split on purpose
-  t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 $pair
-  t_run "$load; echo rc=\$?"
-  t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "is not longer than TEHAS_OUTSOURCE_TIMEOUT"
-done
-t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 TEHAS_OUTSOURCE_PROXY_IDLE=3600 TEHAS_OUTSOURCE_TIMEOUT=3599
-t_run "$load && echo ok"
-t_eq "$t_out" "ok"
-T_ENV=()
-
-t_case "with outsource off the idle bound is not checked"
-T_ENV=(TEHAS_TEST_FEATURES=outsource)
-t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE_TIMEOUT=1800
-t_run "$load && echo ok"
-t_eq "$t_out" "ok"
-T_ENV=()
-t_instance "${T_MINIMAL[@]}"
-
-t_case "a building feature's own setting stops a command with 78 before it calls GitHub"
-for line in TEHAS_OUTSOURCE_TIMEOUT=1800 TEHAS_OUTSOURCE_REPOS=acme/widget; do
-  t_instance "${T_MINIMAL[@]}" "$line"
-  t_run "$load; echo rc=\$?"
-  t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "tehas: ${line%%=*} is set and"
-  t_contains "$t_out" "is still being built in this release: take the line out"
-done
-t_instance "${T_MINIMAL[@]}"
-
-t_case "the example instance documents the proxy's settings as the table has them"
-for line in '#TEHAS_OUTSOURCE_PROXY_ADDR=127.0.0.1:8090' '#TEHAS_OUTSOURCE_PROXY_IDLE=900'; do
-  t_contains "$(cat "$T_ROOT/instances/example/optional.env")" "$line"
-done
-
 # The two bounds of the measure of an approved body, asked of head -c and head
 # -n, so a sign, a fraction or an exponent is no bound. Lines and bytes each hold
 # a body the other does not, so both are settings.
@@ -861,18 +789,18 @@ names=(PI_ENSEMBLE_MODEL_ PI_ENSEMBLE_PROVIDER_ PI_ENSEMBLE_SUBAGENT_MODEL PI_EN
   TEHAS_CYCLE_RESERVE TEHAS_DESIGN TEHAS_DOMAIN TEHAS_GITHUB_APP_ID TEHAS_HOME
   TEHAS_HOST_ADDR
   TEHAS_SITE_INDEXING TEHAS_INSTANCE_DIR TEHAS_MAX_AWAITING
-  TEHAS_MILLWRIGHT_EPICS TEHAS_MILLWRIGHT_FEED TEHAS_MILLWRIGHT_MAX_FEEDS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
-  TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT TEHAS_POLL_BUDGET TEHAS_PREVIEWS TEHAS_PREVIEW_MAX
+  TEHAS_MILLWRIGHT_EPICS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
+  TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT TEHAS_POLL_BUDGET TEHAS_PREVIEWS TEHAS_PREVIEW_MAX
   TEHAS_PREVIEW_MIN_FREE TEHAS_READ_ONLY TEHAS_REFRESH_MAX_PER_PR
   TEHAS_REFRESH_SLOTS TEHAS_RELEASE_REPO TEHAS_REPO TEHAS_RUKAS_WORKAROUNDS
   TEHAS_SCRATCH_DIR TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_FILES TEHAS_SIZE_MAX_LINES TEHAS_SLICE_CONTAINERS
-  TEHAS_MAX_CYCLES TEHAS_TOP TEHAS_UPDATE_FROM TEHAS_VERIFY_TIMEOUT
+  TEHAS_MAX_CYCLES TEHAS_UPDATE_FROM TEHAS_VERIFY_TIMEOUT
   TEHAS_WORK_IMAGES TEHAS_WORK_REPO TEHAS_WORK_STALL TEHAS_WORK_TIMEOUT)
 for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "8933acd0eebd22025aaac7aa08d5259c2cf527b8ef8025ba1415d9dff7ea5d78"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "7637314c7a02592293d965dc40b0af4e3b4b0b5fb244b17d7627a210641ee83c"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"
@@ -928,10 +856,10 @@ TEHAS_WORK_CPUS=3
 TEHAS_WORK_MEMORY=8g
 TEHAS_CLONES=1|TEHAS_WORK_CPUS=4
 TEHAS_THEME=neon
-TEHAS_THEME=neon|TEHAS_TOP=9
+TEHAS_THEME=neon|TEHAS_READ_ONLY=9
 TEHAS_DESIGN=pixel
 TEHAS_DESIGN=paper
-TEHAS_TOP=9|TEHAS_BRANCH='a b'
+TEHAS_READ_ONLY=9|TEHAS_BRANCH='a b'
 TEHAS_CYCLE_MIN_FREE=010g
 TEHAS_CYCLE_MIN_FREE=08m
 TEHAS_CYCLE_MIN_FREE=0
@@ -942,6 +870,7 @@ TEHAS_RUKAS_WORKAROUNDS=TEHAS_RUKAS_WORKAROUNDS@1.2
 TEHAS_GITHUB_APP_ID=7
 TEHAS_SITE_ANALYTICS_SRC=https://a.example/x.js
 TEHAS_REVIEW=on|TEHAS_REVIEW_REPO=Acme/Widget
+TEHAS_OUTSOURCE=off|TEHAS_OUTSOURCE_REPOS=|TEHAS_OUTSOURCE_TIMEOUT=600
 TEHAS_WORK_DESCRIBE=1
 TEHAS_WORK_COMMENTS=1
 TEHAS_WORK_ZIPS=1
@@ -970,7 +899,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "45a8233fe88a095c0cb891b2117f2c8675b2507bc3d28a49aecb579892af8637"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "9d2c95d605161593912182d5c104ae4836667f43e40952f86f5c907d39a6190c"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"
@@ -1010,8 +939,8 @@ t_contains "$t_out" "rc=78"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "what instance.env prints is not read as settings"
-t_instance "${T_MINIMAL[@]}" "echo 'export TEHAS_REPO=evil/repo'" "TEHAS_TOP=1"
-t_run "$load; echo rc=\$? \$TEHAS_TOP \$TEHAS_REPO"
+t_instance "${T_MINIMAL[@]}" "echo 'export TEHAS_REPO=evil/repo'" "TEHAS_MAX_CYCLES=1"
+t_run "$load; echo rc=\$? \$TEHAS_MAX_CYCLES \$TEHAS_REPO"
 t_contains "$t_out" "rc=0 1 acme/widget"
 t_contains "$t_out" "export TEHAS_REPO=evil/repo"
 
@@ -1027,8 +956,8 @@ t_run "cd \"\$T\" && $load; echo rc=\$? \"\$PWD\""
 t_eq "$t_out" "rc=0 $T"
 
 t_case "instance.env sees the environment, and the name of a host's setting is gone from it"
-t_instance "${T_MINIMAL[@]}" 'TEHAS_ASSIGNEE=${TEHAS_TOP:-seen-${HOME##*/}}'
-T_ENV=(TEHAS_TOP=1)
+t_instance "${T_MINIMAL[@]}" 'TEHAS_ASSIGNEE=${TEHAS_READ_ONLY:-seen-${HOME##*/}}'
+T_ENV=(TEHAS_READ_ONLY=1)
 t_run "$load && echo \"\$TEHAS_ASSIGNEE\""
 T_ENV=()
 t_eq "$t_out" "seen-home"

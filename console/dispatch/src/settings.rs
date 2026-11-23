@@ -34,25 +34,18 @@ pub struct Settings {
     /// holds as `tehas:improvement` does. None: the label alone. A malformed
     /// setting is no None: [`Settings::refused`] stops the poll first.
     pub improvement_type: Option<String>,
-    pub fixer_max_retries: i64,
     /// TEHAS_SIZE_MAX_FILES, None when unset, and the measure's bounds.
     pub size_max_files: Option<u64>,
     pub size_max_bytes: usize,
     pub size_max_lines: usize,
-    /// TEHAS_WORK_IMAGES. With it the park's hold of the unchanged body lifts
-    /// for a millwright's comment of guidance, which reaches the cycle in
-    /// `comments.json` (#1130). Without it the hold stays.
+    /// TEHAS_WORK_IMAGES=1: image_ok holds an issue that links an attachment
+    /// while the sandbox or the model cannot read one.
     pub work_images: bool,
     /// PI_ENSEMBLE_SUBAGENT_MODEL and PI_ENSEMBLE_IMAGE.
     pub model: String,
     pub image: String,
     pub refresh_max: i64,
     pub millwright_max_plan_answers: i64,
-    /// TEHAS_MILLWRIGHT_FEED: the millwright's tehas:ready may start the first
-    /// cycle of an issue a person wrote. TEHAS_MILLWRIGHT_MAX_FEEDS: how many
-    /// cycles so started may run at once.
-    pub millwright_feed: bool,
-    pub millwright_max_feeds: i64,
     /// TEHAS_MILLWRIGHT_EPICS: a person's tehas:ready on an epic approves its
     /// open sub-issues, so the millwright's tehas:ready or tehas:plan on one
     /// stands on that person's approval.
@@ -70,9 +63,6 @@ pub struct Settings {
     /// The `lean` feature is on. Off, a start that would run lean starts
     /// nothing and says why; classic never runs in its place.
     pub lean: bool,
-    /// The outsource feature's settings, None while it is off: every start
-    /// then runs on this host, as before the feature.
-    pub outsource: Option<crate::place::Rules>,
 }
 
 impl Settings {
@@ -121,7 +111,6 @@ impl Settings {
                 &s(tehas_core::kinds::SETTING, ""),
                 tehas_core::kinds::Kind::Improvement,
             ),
-            fixer_max_retries: n("TEHAS_MILLWRIGHT_MAX_RETRIES", 2),
             size_max_files: v
                 .get("TEHAS_SIZE_MAX_FILES")
                 .and_then(|x| x.as_u64().or_else(|| x.as_str()?.parse().ok())),
@@ -132,19 +121,12 @@ impl Settings {
             image: s("PI_ENSEMBLE_IMAGE", ""),
             refresh_max: n("TEHAS_REFRESH_MAX_PER_PR", 2),
             millwright_max_plan_answers: n("TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS", 3),
-            millwright_feed: s("TEHAS_MILLWRIGHT_FEED", "0") == "1",
-            millwright_max_feeds: n("TEHAS_MILLWRIGHT_MAX_FEEDS", 2),
             millwright_epics: s("TEHAS_MILLWRIGHT_EPICS", "0") == "1",
             libexec: s("libexec", "/home/tehas/tehas/libexec"),
             keep_days: n("TEHAS_WORKSPACE_KEEP_DAYS", 7).max(1) as u64,
             driver_default: Driver::default_of(&s("TEHAS_DRIVER", "classic")),
             spec_pipe: tehas_core::features::on_in("spec-pipe", &|k| s(k, "")),
             lean: tehas_core::features::on_in("lean", &|k| s(k, "")),
-            outsource: crate::place::Rules::of(&|k| {
-                v.get(k).map_or(String::new(), |x| {
-                    x.as_str().map_or(x.to_string(), str::to_string)
-                })
-            }),
         }
     }
 
@@ -218,9 +200,6 @@ mod tests {
         let unset = json!({});
         assert_eq!(Settings::parse(&unset).improvement_type, None);
         assert_eq!(Settings::refused(&unset), None);
-        let other = json!({k: "prototype=Prototype"});
-        assert_eq!(Settings::parse(&other).improvement_type, None);
-        assert_eq!(Settings::refused(&other), None);
         let typed = json!({k: "improvement=Improvement"});
         assert_eq!(
             Settings::parse(&typed).improvement_type.as_deref(),
@@ -230,9 +209,7 @@ mod tests {
         let bad = json!({k: "bug=Bug"});
         assert_eq!(
             Settings::refused(&bad).as_deref(),
-            Some(
-                "TEHAS_ISSUE_TYPES is not valid: bug is no kind: expected improvement or prototype"
-            )
+            Some("TEHAS_ISSUE_TYPES is not valid: bug is no kind: expected improvement")
         );
     }
 
@@ -310,16 +287,11 @@ mod tests {
     fn the_millwrights_settings_take_only_the_new_names() {
         let new = Settings::parse(&json!({
             "TEHAS_MILLWRIGHT_LOGIN": "mill-bot",
-            "TEHAS_MILLWRIGHT_MAX_RETRIES": "5",
             "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS": 4,
         }));
         assert_eq!(
-            (
-                new.millwright.as_str(),
-                new.fixer_max_retries,
-                new.millwright_max_plan_answers
-            ),
-            ("mill-bot", 5, 4)
+            (new.millwright.as_str(), new.millwright_max_plan_answers),
+            ("mill-bot", 4)
         );
         let old = Settings::parse(&json!({
             "TEHAS_FIXER_LOGIN": "mill-bot",
@@ -327,57 +299,20 @@ mod tests {
             "TEHAS_FIXER_MAX_PLAN_ANSWERS": "6",
         }));
         assert_eq!(
-            (
-                old.millwright.as_str(),
-                old.fixer_max_retries,
-                old.millwright_max_plan_answers
-            ),
-            ("", 2, 3)
+            (old.millwright.as_str(), old.millwright_max_plan_answers),
+            ("", 3)
         );
         let none = Settings::parse(&json!({}));
-        assert_eq!(
-            (none.fixer_max_retries, none.millwright_max_plan_answers),
-            (2, 3)
-        );
+        assert_eq!(none.millwright_max_plan_answers, 3);
     }
 
     #[test]
-    fn the_lift_needs_images_and_no_other_setting_gives_it() {
-        // Without images a millwright's comment of guidance reaches no cycle,
-        // so the park's hold stays, and the lift is off.
+    fn images_are_off_unless_it_is_1() {
         assert!(!Settings::parse(&json!({})).work_images);
-        // TEHAS_WORK_FILES left core in 2.0: it lifts nothing.
+        // TEHAS_WORK_FILES left core in 2.0: it turns on no images.
         assert!(!Settings::parse(&json!({"TEHAS_WORK_FILES": "1"})).work_images);
         assert!(Settings::parse(&json!({"TEHAS_WORK_IMAGES": "1"})).work_images);
-        // Only `1` is on, as for every setting of this family.
         assert!(!Settings::parse(&json!({"TEHAS_WORK_IMAGES": "yes"})).work_images);
-    }
-
-    #[test]
-    fn outsource_is_off_unless_the_registry_says_on() {
-        assert_eq!(Settings::parse(&json!({})).outsource, None);
-        let asked = json!({"TEHAS_OUTSOURCE": "on", "TEHAS_OUTSOURCE_REPOS": "acme/widget"});
-        assert_eq!(Settings::parse(&asked).outsource, None);
-        let mut tested = asked.clone();
-        tested["TEHAS_TEST_FEATURES"] = json!("outsource");
-        let rules = Settings::parse(&tested).outsource.unwrap();
-        assert_eq!(rules.repos, ["acme/widget"]);
-    }
-
-    #[test]
-    fn the_feed_is_off_unless_it_is_1() {
-        let none = Settings::parse(&json!({}));
-        assert_eq!(
-            (none.millwright_feed, none.millwright_max_feeds),
-            (false, 2)
-        );
-        let on = Settings::parse(&json!({
-            "TEHAS_MILLWRIGHT_FEED": "1",
-            "TEHAS_MILLWRIGHT_MAX_FEEDS": "3",
-        }));
-        assert_eq!((on.millwright_feed, on.millwright_max_feeds), (true, 3));
-        let other = Settings::parse(&json!({"TEHAS_MILLWRIGHT_FEED": "yes"}));
-        assert!(!other.millwright_feed);
     }
 
     #[test]
