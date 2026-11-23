@@ -246,9 +246,23 @@ error. With no id recorded for a login, nothing of it counts until
 - A login that does not resolve stops `install.sh` and `tehas update` with 78
   and names it. Take it out of the settings or correct it.
 - A login whose id is not the recorded one stops them with 78 and names both
-  ids. If the account was renamed and is still the person the settings mean,
+  ids: the login may have changed hands. If it is the same person,
   `tehas update --accept-id <login>` records the new id. If not, take the login
   out of the settings.
+- A file whose lines only end in spaces, tabs or carriage returns is read as
+  the pairs it holds. The ids are checked against those pairs as above, and
+  only when the check passes is the file written back in its plain form.
+- A file that cannot be read with certainty stops them with 78 before GitHub
+  is asked, and nothing is written. That is a line that is not
+  `<login> <id>` with one space between, an id that is not a number, a login
+  given two ids, text that is not UTF-8, a link or other file that is not a
+  regular one, a file over 64 KiB, or one that cannot be opened. The message
+  names the file, the line and what is wrong. Fix or remove that line, or
+  for a whole-file fault make it a regular file of `<login> <id>` lines or
+  remove it, then run `tehas update`. A removed file is recorded afresh, as
+  on a first install. Until the file is repaired no listed login counts: the
+  dispatcher and the cycles say on standard error that the file cannot be
+  read.
 - GitHub that cannot be asked stops them with 78 as well, before anything is
   installed.
 - The ids are asked with the app's token, made from its key as

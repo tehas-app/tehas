@@ -8,6 +8,7 @@
 //! through `vouch` first: a listed login whose object does not carry the
 //! recorded id is renamed `<login>#<id>`, or `<login>#` when it carries none,
 //! which no check of the list matches. A login of no list is left as it is.
+//! While the file cannot be read with certainty no listed login counts.
 //!
 //! The key of a pair is the login as GraphQL gives it: REST names a GitHub
 //! App `<slug>[bot]` and GraphQL `<slug>`, one account.
@@ -61,15 +62,114 @@ pub fn own_pull(p: &Value, repo: &str, bot: &str, allowed: impl Fn(&str) -> bool
         && (factorys(author, bot) || allowed(account(author)))
 }
 
-/// The pairs of a file's text. None when a line is not `<login> <id>`.
-pub fn parse(text: &str) -> Option<BTreeMap<String, u64>> {
-    let mut ids = BTreeMap::new();
-    for line in text.lines().filter(|l| !l.is_empty()) {
-        let (login, id) = line.split_once(' ')?;
-        let id = id.parse::<u64>().ok().filter(|_| !login.is_empty())?;
-        ids.insert(account(login).to_string(), id);
+/// Why the file cannot be read with certainty: the line it is on, if one,
+/// and what is wrong.
+#[derive(Debug, PartialEq)]
+pub struct Unreadable {
+    pub line: Option<usize>,
+    pub what: String,
+}
+
+impl Unreadable {
+    fn at(line: usize, what: impl Into<String>) -> Unreadable {
+        Unreadable {
+            line: Some(line),
+            what: what.into(),
+        }
     }
-    Some(ids)
+
+    fn whole(what: impl Into<String>) -> Unreadable {
+        Unreadable {
+            line: None,
+            what: what.into(),
+        }
+    }
+
+    /// The line that names `file`, what is wrong and how to repair it.
+    pub fn says(&self, file: &str) -> String {
+        match self.line {
+            Some(n) => format!(
+                "tehas: {file} cannot be read: line {n} {}. Fix or remove that line, then run tehas update",
+                self.what
+            ),
+            None => format!(
+                "tehas: {file} cannot be read: {}. Make it a regular file of `<login> <id>` lines, or remove it, then run tehas update",
+                self.what
+            ),
+        }
+    }
+}
+
+/// The pairs a file holds, and whether its bytes are already as `text`
+/// writes them.
+#[derive(Debug, PartialEq)]
+pub struct Pairs {
+    pub ids: BTreeMap<String, u64>,
+    pub tidy: bool,
+}
+
+/// The pairs of a file's bytes. A line may end in spaces, tabs or a carriage
+/// return; anything else that is not `<login> <id>` is unreadable, and so is
+/// a login given two ids.
+pub fn parse_bytes(bytes: &[u8]) -> Result<Pairs, Unreadable> {
+    let text = std::str::from_utf8(bytes).map_err(|e| {
+        let n = bytes[..e.valid_up_to()]
+            .iter()
+            .filter(|b| **b == b'\n')
+            .count();
+        Unreadable::at(n + 1, "is not UTF-8")
+    })?;
+    let mut ids = BTreeMap::new();
+    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    for (i, raw) in text.split('\n').enumerate() {
+        let n = i + 1;
+        let line = raw.trim_end_matches([' ', '\t', '\r']);
+        if line.is_empty() {
+            continue;
+        }
+        let (login, id) = pair(line).map_err(|what| Unreadable::at(n, what))?;
+        let key = account(login).to_string();
+        match ids.insert(key.clone(), id) {
+            Some(was) if was != id => {
+                return Err(Unreadable::at(
+                    n,
+                    format!("gives {key} another id than line {}", seen[&key]),
+                ))
+            }
+            _ => {
+                seen.entry(key).or_insert(n);
+            }
+        }
+    }
+    let tidy = text == self::text(&ids);
+    Ok(Pairs { ids, tidy })
+}
+
+/// The login and id of a line with its end trimmed, or what is wrong.
+fn pair(line: &str) -> Result<(&str, u64), &'static str> {
+    let Some((login, id)) = line.split_once(' ') else {
+        return Err("is not `<login> <id>`: it has no space");
+    };
+    if login.is_empty() {
+        return Err("is not `<login> <id>`: it starts with a space");
+    }
+    if id.starts_with(' ') {
+        return Err("is not `<login> <id>`: more than one space");
+    }
+    if login.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err("is not `<login> <id>`: the login holds a tab or control character");
+    }
+    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) {
+        return Err("is not `<login> <id>`: the id is not a number");
+    }
+    id.parse::<u64>()
+        .map(|id| (login, id))
+        .map_err(|_| "is not `<login> <id>`: the id is too large")
+}
+
+/// The pairs of a file's text, as `parse_bytes` reads them.
+pub fn parse(text: &str) -> Result<BTreeMap<String, u64>, Unreadable> {
+    parse_bytes(text.as_bytes()).map(|p| p.ids)
 }
 
 /// The file's text for these pairs.
@@ -93,13 +193,39 @@ pub fn carried(ids: &BTreeMap<String, u64>, old: &str, new: &str) -> Option<BTre
     Some(out)
 }
 
-/// The pairs recorded in `home`. An absent or unreadable file is no pairs, so
-/// every listed login fails to count until one is recorded.
+/// The pairs recorded in `home`. An absent file is no pairs, as before the
+/// first record.
+pub fn load(home: &Path) -> Result<Pairs, Unreadable> {
+    use crate::file::ReadError;
+    match crate::file::read_regular(&home.join(FILE), BOUND) {
+        Ok((bytes, _)) => parse_bytes(&bytes),
+        Err(ReadError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(Pairs {
+            ids: BTreeMap::new(),
+            tidy: true,
+        }),
+        Err(ReadError::Io(e)) => Err(Unreadable::whole(format!("it could not be opened: {e}"))),
+        Err(ReadError::NotRegular) => Err(Unreadable::whole("it is not a regular file")),
+        Err(ReadError::Replaced) => Err(Unreadable::whole("it was replaced while it was read")),
+        Err(ReadError::TooLarge) => Err(Unreadable::whole(format!(
+            "it is larger than {} KiB",
+            BOUND / 1024
+        ))),
+    }
+}
+
+/// The line a reader says of a file it cannot read.
+fn unread(u: &Unreadable) -> String {
+    format!("{}. Until then no listed login counts", u.says(FILE))
+}
+
+/// The pairs recorded in `home`, for a reader that vouches. A file that
+/// cannot be read is said on standard error and gives no pairs, so no listed
+/// login counts until it is repaired.
 pub fn read(home: &Path) -> BTreeMap<String, u64> {
-    crate::file::read_regular(&home.join(FILE), BOUND)
-        .ok()
-        .and_then(|(b, _)| parse(&String::from_utf8_lossy(&b)))
-        .unwrap_or_default()
+    load(home).map(|p| p.ids).unwrap_or_else(|u| {
+        say_once(unread(&u));
+        BTreeMap::new()
+    })
 }
 
 /// The logins of the two settings, as `account` gives them.
@@ -131,15 +257,31 @@ pub enum Doubt {
 pub struct Accounts {
     listed: Vec<String>,
     ids: BTreeMap<String, u64>,
+    /// The file could not be read: what a doubt says instead of its own line.
+    unread: Option<String>,
 }
 
 impl Accounts {
     pub fn new(listed: Vec<String>, ids: BTreeMap<String, u64>) -> Accounts {
-        Accounts { listed, ids }
+        Accounts {
+            listed,
+            ids,
+            unread: None,
+        }
+    }
+
+    /// The listed logins of a home whose file cannot be read: none counts.
+    pub fn unreadable(listed: Vec<String>, u: &Unreadable) -> Accounts {
+        Accounts {
+            listed,
+            ids: BTreeMap::new(),
+            unread: Some(unread(u)),
+        }
     }
 
     /// The settings and the pairs this process was given: TEHAS_ALLOWED_LABELERS,
-    /// TEHAS_MILLWRIGHT_LOGIN and the file under TEHAS_HOME.
+    /// TEHAS_MILLWRIGHT_LOGIN and the file under TEHAS_HOME. A file that
+    /// cannot be read counts no listed login and says so.
     pub fn from_env() -> Accounts {
         let var = |k: &str| std::env::var(k).unwrap_or_default();
         let listed = listed(
@@ -150,12 +292,13 @@ impl Accounts {
             return Accounts::default();
         }
         let home = var("TEHAS_HOME");
-        let ids = if home.is_empty() {
-            BTreeMap::new()
-        } else {
-            read(Path::new(&home))
-        };
-        Accounts { listed, ids }
+        if home.is_empty() {
+            return Accounts::new(listed, BTreeMap::new());
+        }
+        match load(Path::new(&home)) {
+            Ok(p) => Accounts::new(listed, p.ids),
+            Err(u) => Accounts::unreadable(listed, &u),
+        }
     }
 
     /// Whether `login` with `id` counts as the listed account it names. A
@@ -195,7 +338,10 @@ impl Accounts {
                         .and_then(Value::as_u64)
                         .or_else(|| o.get("id").and_then(Value::as_u64));
                     if let Some(doubt) = self.doubt(&login, id) {
-                        warn(&login, id, &doubt);
+                        match &self.unread {
+                            Some(line) => say_once(line.clone()),
+                            None => say_once(says(&login, id, &doubt)),
+                        }
                         let name = grant::counted(&self.actor(&login, id), true)
                             .text()
                             .into_owned();
@@ -222,15 +368,15 @@ pub fn says(login: &str, id: Option<u64>, doubt: &Doubt) -> String {
             "tehas: no user id is recorded for {login} in {FILE}, so its actions do not count; run tehas update"
         ),
         Doubt::Other { recorded } => format!(
-            "tehas: {login} acted with the user id {}, not the recorded {recorded}, so it does not count; if the account was renamed, run tehas update --accept-id {login}",
+            "tehas: {login} acted with the user id {}, not the recorded {recorded}, so it does not count: the login may have changed hands. If it is the same person, run tehas update --accept-id {login}",
             id.unwrap_or_default()
         ),
     }
 }
 
-fn warn(login: &str, id: Option<u64>, doubt: &Doubt) {
+/// Says `line` on standard error, once a process.
+fn say_once(line: String) {
     static SAID: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
-    let line = says(login, id, doubt);
     if SAID
         .lock()
         .map(|mut s| s.insert(line.clone()))
@@ -369,10 +515,102 @@ mod tests {
     fn the_file_is_one_pair_a_line() {
         let ids = parse("alice 1001\nmill[bot] 3001\n").unwrap();
         assert_eq!(text(&ids), "alice 1001\nmill 3001\n");
-        assert_eq!(parse("alice\n"), None);
-        assert_eq!(parse("alice x\n"), None);
-        assert_eq!(parse(" 5\n"), None);
-        assert_eq!(parse(""), Some(BTreeMap::new()));
+        assert!(parse("alice\n").is_err());
+        assert!(parse("alice x\n").is_err());
+        assert!(parse(" 5\n").is_err());
+        assert_eq!(parse(""), Ok(BTreeMap::new()));
+        assert!(parse_bytes(b"alice 1001\nmill 3001\n").unwrap().tidy);
+    }
+
+    #[test]
+    fn trailing_spaces_and_crlf_read_as_the_same_pairs_not_tidy() {
+        let clean = parse("alice 1001\nbob 1002\n").unwrap();
+        for text in [
+            "alice 1001\r\nbob 1002\r\n",
+            "alice 1001  \nbob 1002\t\n",
+            "alice 1001 \r\n\r\nbob 1002",
+        ] {
+            let p = parse_bytes(text.as_bytes()).unwrap();
+            assert_eq!(p.ids, clean, "{text:?}");
+            assert!(!p.tidy, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_line_that_cannot_be_read_with_certainty_is_named() {
+        for (text, line, what) in [
+            ("alice 1001\nbob\n", 2, "no space"),
+            ("alice 1001\nbob  1002\n", 2, "more than one space"),
+            ("alice 1001\nbob x1\n", 2, "not a number"),
+            ("alice 1001\nbob +1\n", 2, "not a number"),
+            ("alice 1001\n\n bob 1\n", 3, "starts with a space"),
+            ("alice 1001\nb\tob 1\n", 2, "tab or control"),
+            (
+                "alice 1001\nbob 1002\nalice 7\n",
+                3,
+                "another id than line 1",
+            ),
+        ] {
+            let u = parse_bytes(text.as_bytes()).unwrap_err();
+            assert_eq!(u.line, Some(line), "{text:?}");
+            assert!(u.what.contains(what), "{text:?}: {}", u.what);
+        }
+        let u = parse_bytes(b"alice 1001\nbob 10\xff2\n").unwrap_err();
+        assert_eq!(u.line, Some(2));
+        assert!(u.what.contains("UTF-8"));
+        // The same pair twice says nothing new.
+        assert!(parse("alice 1001\nalice 1001\n").is_ok());
+        let said = Unreadable::at(2, "is not `<login> <id>`").says(FILE);
+        assert!(said.contains(FILE) && said.contains("line 2"));
+        assert!(said.contains("Fix or remove that line, then run tehas update"));
+    }
+
+    fn home(name: &str) -> std::path::PathBuf {
+        let h = std::env::temp_dir().join(format!("tehas-accounts-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&h);
+        std::fs::create_dir_all(h.join("state")).unwrap();
+        h
+    }
+
+    #[test]
+    fn an_absent_file_is_no_pairs_and_a_damaged_one_is_unreadable() {
+        let h = home("load");
+        assert_eq!(
+            load(&h),
+            Ok(Pairs {
+                ids: BTreeMap::new(),
+                tidy: true
+            })
+        );
+        let file = h.join(FILE);
+        std::fs::write(&file, vec![b'a'; BOUND as usize + 1]).unwrap();
+        assert!(load(&h).unwrap_err().what.contains("larger than"));
+        std::fs::remove_file(&file).unwrap();
+        std::fs::write(h.join("other"), "alice 1001\n").unwrap();
+        std::os::unix::fs::symlink(h.join("other"), &file).unwrap();
+        let u = load(&h).unwrap_err();
+        assert_eq!(u.line, None);
+        assert!(u.what.contains("not a regular file"));
+        assert!(u.says(FILE).contains("or remove it, then run tehas update"));
+        std::fs::remove_dir_all(&h).unwrap();
+    }
+
+    #[test]
+    fn nothing_counts_while_the_file_cannot_be_read() {
+        let h = home("vouch");
+        std::fs::write(h.join(FILE), "alice 1001\nbob  1002\n").unwrap();
+        let u = load(&h).unwrap_err();
+        assert!(read(&h).is_empty());
+        let a = Accounts::unreadable(listed("alice bob", ""), &u);
+        assert_eq!(a.doubt("alice", Some(1001)), Some(Doubt::Unrecorded));
+        let mut v = json!({"actor": {"login": "alice", "id": 1001}});
+        a.vouch(&mut v);
+        assert_eq!(v["actor"]["login"], "alice#1001");
+        assert!(unread(&u).contains("no listed login counts"));
+        // A file with only trailing damage vouches as its pairs say.
+        std::fs::write(h.join(FILE), "alice 1001 \r\n").unwrap();
+        assert_eq!(read(&h).get("alice"), Some(&1001));
+        std::fs::remove_dir_all(&h).unwrap();
     }
 
     #[test]
@@ -398,6 +636,7 @@ mod tests {
     fn a_doubt_names_the_login_and_both_ids() {
         let line = says("alice", Some(66), &Doubt::Other { recorded: 1001 });
         assert!(line.contains("alice") && line.contains("66") && line.contains("1001"));
-        assert!(line.contains("tehas update --accept-id alice"));
+        assert!(line.contains("may have changed hands"));
+        assert!(line.contains("If it is the same person, run tehas update --accept-id alice"));
     }
 }
