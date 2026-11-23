@@ -64,12 +64,16 @@ impl Limit {
 
     /// The `set` a write of these cycles, plan and reason carries: the one
     /// there when it is the same limit, even if that is none, and `now`
-    /// for any other.
+    /// for any other. Two limits never share a `set`, which is a whole
+    /// second: another limit written in the second of the one there, or
+    /// before it by a clock set back, takes the second after it.
     pub fn set_of(&self, cycles: &str, plan: bool, reason: &str, now: i64) -> Option<String> {
         if self.same(cycles, plan, reason) {
             return self.set.clone();
         }
-        Some(crate::time::iso(now))
+        let there = self.set.as_deref().and_then(crate::time::from_iso);
+        let at = there.map_or(now, |there| now.max(there.saturating_add(1)));
+        Some(crate::time::iso(at))
     }
 
     /// The reading as one compact object, `state` first: the object
@@ -638,6 +642,26 @@ mod tests {
         let old = parse(br#"{"v":1,"cycles":2,"plan":false,"reason":"r"}"#, NOW);
         assert_eq!(old.set_of("2", false, "r", NOW), None);
         assert_eq!(old.set_of("1", false, "r", NOW).as_deref(), Some(now));
+    }
+
+    #[test]
+    fn another_limit_in_the_second_of_the_one_there_takes_the_next() {
+        let at = epoch(SET).unwrap();
+        let l = held("r", "null");
+        let next = "2026-10-17T13:30:01Z";
+        assert_eq!(l.set_of("3", false, "r", at).as_deref(), Some(next));
+        // A clock set back does not give a key that was given before.
+        assert_eq!(l.set_of("3", false, "r", at - 60).as_deref(), Some(next));
+        assert_eq!(
+            l.set_of("3", false, "r", at + 1).as_deref(),
+            Some("2026-10-17T13:30:01Z")
+        );
+        assert_eq!(
+            l.set_of("3", false, "r", at + 2).as_deref(),
+            Some("2026-10-17T13:30:02Z")
+        );
+        // The same limit in the same second is still the same limit.
+        assert_eq!(l.set_of("2", false, "r", at).as_deref(), Some(SET));
     }
 
     #[test]

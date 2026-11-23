@@ -9,7 +9,7 @@ description: "An outside cap, a drain, the records of what ended, and stopping a
 
 ```
 tehas limit [--json]
-tehas limit set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT]
+tehas limit set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] [--json]
 tehas limit clear
 ```
 

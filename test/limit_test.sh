@@ -58,10 +58,10 @@ t_eq "$(jq -r '(.until | fromdateiso8601) - now | . > 290 and . <= 300' <<<"$t_o
 t_case "set --until a time"
 reset
 until=$(in_secs 3600)
-t_run "$limit set --cycles 0 --until $until"
+t_run "$limit set --cycles 0 --until $until --json"
 t_eq "$t_rc" 0
-show
-t_eq "$(jq -r .until <<<"$t_out")" "$until"
+t_eq "$(jq -c 'del(.set)' <<<"$t_out")" "{\"api\":1,\"state\":\"ok\",\"cycles\":0,\"plan\":false,\"until\":\"$until\"}"
+t_eq "$(jq -r .set <<<"$t_out")" "$(jq -r .set "$file")"
 
 t_case "setting twice with the same arguments leaves the same limit, exit 0 both times"
 reset
@@ -103,7 +103,7 @@ for args in "set" "set --cycles" "set --cycles -1" "set --cycles 1.5" "set --cyc
   "set --cycles 1 --cycles 2" "set --cycles 1 --plan maybe" "set --cycles 1 --for 0" "set --cycles 1 --for 5s" \
   "set --cycles 1 --for 60 --until $(in_secs 600)" "set --cycles 1 --until tomorrow" \
   "set --cycles 1 --until $(in_secs -60)" "set --cycles 1 --bogus" "set --cycles 1 extra" \
-  "clear now" "clear --json" "set --json --cycles 2" "set --cycles 2 --json" \
+  "clear now" "clear --json" "set --json --json --cycles 2" "set --cycles 2 --json x" \
   "--json extra" "bogus" "--jsn"; do
   reset
   t_run "$limit $args"
@@ -125,7 +125,7 @@ t_run "$limit clear"
 t_eq "$t_rc" 1
 t_contains "$t_out" "tehas limit: could not remove"
 
-t_case "set takes no --json, so --json after --reason is the reason"
+t_case "--json after --reason is the reason, not the ask for the object"
 reset
 t_run "$limit set --cycles 1 --reason --json"
 t_eq "$t_rc" 0

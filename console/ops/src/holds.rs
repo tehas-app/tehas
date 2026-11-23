@@ -31,7 +31,8 @@
 //!   limit     1 cycle at once, planning off, until 2026-10-17T14:05:00Z: held for alpha
 //!   {"api":1,"state":"ok","cycles":1,"plan":false,"until":"...","reason":"...","set":"..."}
 //!
-//! `tehas drain --json` prints the limit with its `set` too.
+//! `tehas drain --json` prints the limit with its `set` too, and so does
+//! `set --json`, in place of its words.
 //! `read` prints the same reading as one object with no `api` and no `set`: the object
 //! `tehas status --json` publishes, so it keeps
 //! exactly the fields it has today; with `--line` it prints the words of that
@@ -46,7 +47,8 @@
 //! limit as it then is. Setting the same limit twice leaves the same file, so
 //! a program which sets it on every poll changes nothing. The same limit is
 //! the same `cycles`, `plan` and `reason`: it keeps its `set`, also when
-//! `until` moves, and any other limit takes the moment it is written at
+//! `until` moves, and any other limit takes the moment it is written at, or
+//! the second after the `set` there when that is no earlier
 //! (`tehas_core::limit`). A limit is written
 //! through `limit.json.new`, mode 0600, and put in place by a rename: what is
 //! there is always a whole limit, never the half of one.
@@ -307,7 +309,7 @@ const PAUSE_USAGE: &str = "       console flags pause set [--reason TEXT] | clea
 
 fn usage(why: &str) -> u8 {
     eprintln!("console flags: {why}");
-    eprintln!("usage: console flags limit show [--json] | set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] | clear | read [--now <epoch seconds>]");
+    eprintln!("usage: console flags limit show [--json] | set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] [--json] | clear | read [--now <epoch seconds>]");
     eprintln!("{PAUSE_USAGE}");
     64
 }
@@ -343,7 +345,7 @@ fn limit(given: &[String]) -> u8 {
         "show" => {
             let mut words = false;
             for arg in rest {
-                if arg != "--json" || words {
+                if arg != JSON || words {
                     return usage("--json, once, after show");
                 }
                 words = true;
@@ -385,8 +387,8 @@ fn limit(given: &[String]) -> u8 {
             tehas_core::outln!("{}", if line { out.said() } else { out.text() });
             0
         }
-        // set and clear print the limit as it then is, in words: the object is
-        // `tehas limit --json`'s.
+        // set and clear print the limit as it then is, in words; set with
+        // --json prints the object `tehas limit --json` prints.
         "set" => match set_args(rest) {
             Ok(want) => set(&file, &want),
             Err(bad) => usage(bad),
@@ -907,6 +909,9 @@ fn reading_of_pause(p: tehas_core::pause::Pause) -> Reading {
     out
 }
 
+/// The word that asks `show` or `set` for the object in place of the words.
+const JSON: &str = "--json";
+
 /// What `tehas limit set` was asked for, in the words it was asked in.
 #[derive(Default)]
 struct Wanted {
@@ -915,6 +920,8 @@ struct Wanted {
     for_: Option<String>,
     until: Option<String>,
     reason: Option<String>,
+    /// Print the object `tehas limit --json` prints, not the words.
+    json: bool,
 }
 
 fn set_args(rest: &[String]) -> Result<Wanted, &'static str> {
@@ -928,6 +935,15 @@ fn set_args(rest: &[String]) -> Result<Wanted, &'static str> {
     };
     let mut i = 0;
     while i < rest.len() {
+        // The one word with no value: after --reason it is the reason.
+        if rest[i] == JSON {
+            if want.json {
+                return Err("an option given twice");
+            }
+            want.json = true;
+            i += 1;
+            continue;
+        }
         let Some(value) = rest.get(i + 1) else {
             return Err("an option without its value");
         };
@@ -994,7 +1010,7 @@ fn set(file: &Path, want: &Wanted) -> u8 {
         Ok(()) => {
             let out = read(file, now());
             poll_if_raised(file, &before, &out);
-            tehas_core::outln!("{}", out.said());
+            tehas_core::outln!("{}", if want.json { api(out) } else { out.said() });
             0
         }
         Err(rc) => rc,
@@ -1502,6 +1518,46 @@ mod tests {
     }
 
     #[test]
+    fn set_takes_json_anywhere_but_as_the_value_of_another_option() {
+        for given in [
+            &["--json", "--cycles", "2"][..],
+            &["--cycles", "2", "--json"],
+        ] {
+            let want = set_args(&args(given)).unwrap();
+            assert!(want.json, "{given:?}");
+            assert_eq!(want.cycles.as_deref(), Some("2"));
+        }
+        let want = set_args(&args(&["--cycles", "2", "--reason", JSON])).unwrap();
+        assert!(!want.json);
+        assert_eq!(want.reason.as_deref(), Some(JSON));
+        assert!(!set_args(&args(&["--cycles", "2"])).unwrap().json);
+    }
+
+    #[test]
+    fn two_different_limits_written_in_one_second_do_not_share_a_set() {
+        let d = dir("set-second");
+        let file = written(&d);
+        // The limit there was written a second from now, as a write in this
+        // second would look to the next whatever second the test crosses.
+        let there = now() + 1;
+        fs::write(
+            &file,
+            format!(
+                "{{\"v\":1,\"cycles\":3,\"plan\":false,\"until\":null,\"reason\":\"r\",\"set\":\"{}\"}}\n",
+                time::iso(there)
+            ),
+        )
+        .unwrap();
+        set_in(&d, &["--cycles", "4"]);
+        assert_eq!(set_of(&file), Some(time::iso(there + 1)));
+        set_in(&d, &["--cycles", "5"]);
+        assert_eq!(set_of(&file), Some(time::iso(there + 2)));
+        // The same limit again stays where it is.
+        set_in(&d, &["--cycles", "5"]);
+        assert_eq!(set_of(&file), Some(time::iso(there + 2)));
+    }
+
+    #[test]
     fn a_clear_and_an_unreadable_limit_print_no_set() {
         let d = dir("set-cleared");
         let file = held_since_set(&d, "null");
@@ -1556,8 +1612,8 @@ mod tests {
             args(&["--cycles", "1", "extra", "x"]),
             args(&["--cycles", "1", "--reason"]),
             args(&["--reason", "said without a limit"]),
-            args(&["--json", "--cycles", "2"]),
-            args(&["--cycles", "2", "--json"]),
+            args(&["--cycles", "2", JSON, JSON]),
+            args(&["--cycles", "2", JSON, "x"]),
         ] {
             assert!(set_args(&bad).is_err(), "{bad:?} was taken");
         }
