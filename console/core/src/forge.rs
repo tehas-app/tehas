@@ -33,6 +33,25 @@ pub trait GhRunner: Send {
         let _ = (args, input);
         Err("this runner takes no input".to_string())
     }
+
+    /// [`GhRunner::run`], and on a failure what gh answered on its standard
+    /// output beside the reason. gh exits 1 on any GraphQL `errors` and
+    /// prints them there, so an adapter reads the error's type from
+    /// `answer`. A runner that keeps no answer gives None.
+    fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
+        self.run(args).map_err(|why| Failed { why, answer: None })
+    }
+}
+
+/// A gh call that failed: the runner's reason, and what gh answered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Failed {
+    /// The runner's own words for the failure, as [`GhRunner::run`] gives
+    /// them: never gh's answer, which a host writes and may carry a token.
+    pub why: String,
+    /// gh's standard output when it exited non-zero and said something,
+    /// for the adapter alone to read the error's type from. Never logged.
+    pub answer: Option<String>,
 }
 
 /// Given to every gh call of tehas's own, by `Bounded` and by `call`'s
@@ -83,18 +102,23 @@ impl Bounded {
 
 impl GhRunner for Bounded {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        self.call(args, None)
+        self.call(args, None).map_err(|f| f.why)
     }
 
     /// The input is written on a pipe of its own thread, closed once written,
     /// within the call's bound: a gh that stops reading is stopped with it.
     fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
-        self.call(args, Some(input))
+        self.call(args, Some(input)).map_err(|f| f.why)
+    }
+
+    fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
+        self.call(args, None)
     }
 }
 
 impl Bounded {
-    fn call(&mut self, args: &[&str], input: Option<&str>) -> Result<String, String> {
+    fn call(&mut self, args: &[&str], input: Option<&str>) -> Result<String, Failed> {
+        let failed = |why: String| Failed { why, answer: None };
         use std::io::{Read, Write};
         use std::os::unix::process::CommandExt;
         use std::process::{Command, Stdio};
@@ -111,7 +135,7 @@ impl Bounded {
             .stderr(Stdio::piped())
             .process_group(0)
             .spawn()
-            .map_err(|e| format!("{} could not be run: {e}", self.program))?;
+            .map_err(|e| failed(format!("{} could not be run: {e}", self.program)))?;
         // Both pipes are drained on their own thread: a child that fills one
         // while the other is still being read would never get to its end.
         let out = child.stdout.take().expect("piped");
@@ -141,15 +165,20 @@ impl Bounded {
         let out = reading.join().ok().flatten();
         let err = reading_err.join().ok().flatten().unwrap_or_default();
         match code {
-            Some(0) => out.ok_or_else(|| format!("{}'s answer could not be read", self.program)),
+            Some(0) => {
+                out.ok_or_else(|| failed(format!("{}'s answer could not be read", self.program)))
+            }
             // Outlived its bound: a call that says nothing of itself still
             // says what stopped it.
-            None => Err(format!(
+            None => Err(failed(format!(
                 "{} ran out of its {}s bound",
                 self.program,
                 self.bound.as_secs()
-            )),
-            Some(c) => Err(why(&err, Some(c))),
+            ))),
+            Some(c) => Err(Failed {
+                why: why(&err, Some(c)),
+                answer: out.filter(|o| !o.is_empty()),
+            }),
         }
     }
 }
@@ -315,7 +344,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&kept).unwrap(), "0\n");
     }
 
-    use super::{Bounded, GhRunner};
+    use super::{Bounded, Failed, GhRunner};
     use std::time::{Duration, Instant};
 
     /// A runner whose program writes each argument on a line of `args` and
@@ -398,6 +427,48 @@ mod tests {
             began.elapsed()
         );
         assert!(got.unwrap_err().contains("ran out of its 1s bound"));
+    }
+
+    #[test]
+    fn a_failed_call_hands_back_gh_s_answer_and_keeps_its_reason_to_fixed_words() {
+        let d = crate::testdir::TestDir::new("forge-run-answer");
+        let body = r#"{"data":null,"errors":[{"type":"NOT_FOUND","message":"ghp_secret"}]}"#;
+        let mut runner = recording(&d, &format!("printf '%s' '{body}'\nexit 1"));
+        let got = runner.run_answer(&["api", "graphql"]);
+        let failed = got.unwrap_err();
+        assert_eq!(failed.answer.as_deref(), Some(body));
+        assert_eq!(failed.why, ": gh exited 1");
+        assert_eq!(
+            runner.run(&["api", "graphql"]),
+            Err(": gh exited 1".to_string())
+        );
+    }
+
+    #[test]
+    fn a_failed_call_that_answered_nothing_has_no_answer() {
+        let d = crate::testdir::TestDir::new("forge-run-no-answer");
+        let mut runner = recording(&d, "echo 'HTTP 403: Forbidden' >&2\nexit 1");
+        let failed = runner.run_answer(&["api", "x"]).unwrap_err();
+        assert_eq!(failed.answer, None);
+        assert_eq!(failed.why, ": HTTP 403");
+    }
+
+    #[test]
+    fn a_runner_that_keeps_no_answer_gives_none() {
+        struct Plain;
+        impl GhRunner for Plain {
+            fn run(&mut self, _: &[&str]) -> Result<String, String> {
+                Err(": gh exited 1".to_string())
+            }
+        }
+        let failed = Plain.run_answer(&["api"]).unwrap_err();
+        assert_eq!(
+            failed,
+            Failed {
+                why: ": gh exited 1".to_string(),
+                answer: None
+            }
+        );
     }
 
     #[test]
