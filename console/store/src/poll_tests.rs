@@ -225,6 +225,18 @@ fn api(home: &Path, now: i64) -> Value {
     )
 }
 
+/// The API shape names the store's id from `meta` (T11.5), whether or not
+/// a poll is on record: `tehas api` prints it as `store`.
+#[test]
+fn the_api_shape_names_the_store() {
+    let home = home("poll-store");
+    let v = api(&home, NOW);
+    let id = one::<String>(&home, "SELECT value FROM meta WHERE key = 'store'");
+    assert_eq!(v["store"], Value::from(id.clone()));
+    assert_eq!(v["last"], Value::Null);
+    assert_eq!(id.len(), 32);
+}
+
 #[test]
 fn a_poll_records_wall_cpu_calls_and_writes() {
     let home = home("poll-record");

@@ -193,6 +193,15 @@ fn date(v: &J) -> Option<J> {
     Some(J::str(time::iso(v.as_f64()?.floor() as i64)))
 }
 
+/// The cycle id, `<blueprint>-<attempt>` (`12-3`), as the events' `CycleId`
+/// writes it: what `tehas status` prints on a running cycle and this listing
+/// on its work line. `None` for a part out of 1 to 999999999.
+pub fn cycle_id(blueprint: i64, attempt: i64) -> Option<String> {
+    let blueprint = tehas_ports::BlueprintNo::new(u64::try_from(blueprint).ok()?)?;
+    let attempt = std::num::NonZeroU32::new(u32::try_from(attempt).ok()?)?;
+    tehas_ports::events::CycleId::new(blueprint, attempt).map(|c| c.to_string())
+}
+
 /// A row of the store in the shape its line had before the store. A row of
 /// neither kind is no line, and an `at` that is no time none of the rows is:
 /// the read stops there.
@@ -231,6 +240,8 @@ fn line_of(row: &J, repo: &str) -> Option<Option<J>> {
                     ("how", f("how")),
                     ("recorded", date(row.get("recorded_at")).unwrap_or(J::Null)),
                     ("signalled", f("signalled")),
+                    ("attempt", f("attempt")),
+                    ("change", f("pr")),
                 ],
                 no_empty,
             ));
@@ -331,7 +342,33 @@ fn publish(line: &J, seconds: i64) -> J {
         J::Bool(_) => f(key),
         _ => J::Null,
     };
-    let started = whole(line.get("started")).and_then(|t| Some(J::str(time::iso(t.parse().ok()?))));
+    let work = line.get("kind").as_str() == Some("work");
+    // A work line always has its start: one the store holds none for (a
+    // ledger of v0.30) started when it ended, as the store's step to 30 says.
+    let started = whole(line.get("started"))
+        .and_then(|t| Some(J::str(time::iso(t.parse().ok()?))))
+        .or_else(|| work.then(|| f("at")));
+    let cycle = match (whole(line.get("issue")), whole(line.get("attempt"))) {
+        (Some(i), Some(a)) if work => i
+            .parse()
+            .ok()
+            .zip(a.parse().ok())
+            .and_then(|(i, a)| cycle_id(i, a))
+            .map_or(J::Null, J::Str),
+        _ => J::Null,
+    };
+    let change = whole(line.get("change")).and_then(|n| n.parse::<i64>().ok());
+    let end = if work {
+        J::str(tehas_core::outcome::end(&tehas_core::outcome::Line {
+            outcome: line.get("status").as_str(),
+            status: whole(line.get("rc")).and_then(|n| n.parse().ok()),
+            change: change.is_some(),
+            parked: line.get("parked").is_true(),
+            failure_kind: line.get("failure_kind").as_str().filter(|k| !k.is_empty()),
+        }))
+    } else {
+        J::Null
+    };
     let filed: Vec<J> = line
         .get("filed")
         .items()
@@ -366,10 +403,12 @@ fn publish(line: &J, seconds: i64) -> J {
             ),
             ("kind", f("kind")),
             ("issue", f("issue")),
+            ("cycle", cycle),
             ("ended", f("at")),
             ("started", started.unwrap_or(J::Null)),
             ("status", number("rc")),
             ("outcome", f("status")),
+            ("end", end),
             ("turn", number("turn")),
             ("progress", progress),
             ("cap", word("cap")),
@@ -379,6 +418,7 @@ fn publish(line: &J, seconds: i64) -> J {
             ("provider", boolean("provider")),
             ("parked", boolean("parked")),
             ("pr", word("pr")),
+            ("change", if work { number("change") } else { J::Null }),
             ("by", word("by")),
             ("how", word("how")),
             ("label", word("label")),
@@ -570,14 +610,14 @@ mod tests {
 
     const CYCLES: [&str; 9] = [
         r#"{"cursor":"1760699940-12-1","kind":"plan","issue":12,"ended":"2025-10-17T11:19:00Z","started":"2025-10-17T11:18:00Z","status":0,"outcome":"finished","turn":1,"by":"alice","label":"tehas:refine","auto":true,"filed":["https://github.com/acme/widget/issues/41","https://github.com/acme/widget/issues/42\n"]}"#,
-        r#"{"cursor":"1760700000-12-2","kind":"work","issue":12,"ended":"2025-10-17T11:20:00Z","started":"2025-10-17T10:20:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"approved"}"#,
-        r#"{"cursor":"1760700060-7-3","kind":"work","issue":7,"ended":"2025-10-17T11:21:00Z","status":0,"outcome":"merged","provider":false,"parked":false,"how":"hand"}"#,
-        r#"{"cursor":"1760700120-12-4","kind":"work","issue":12,"ended":"2025-10-17T11:22:00Z","started":"2025-10-17T11:21:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"approved","repeat":1}"#,
-        r#"{"cursor":"1760700180-12-5","kind":"work","issue":12,"ended":"2025-10-17T11:23:00Z","started":"2025-10-17T11:22:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":true,"parked":true,"how":"outage-retry"}"#,
-        r#"{"cursor":"1760700240-12-6","kind":"work","issue":12,"ended":"2025-10-17T11:24:00Z","started":"2025-10-17T11:23:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"approved","repeat":2}"#,
+        r#"{"cursor":"1760700000-12-2","kind":"work","issue":12,"cycle":"12-1","ended":"2025-10-17T11:20:00Z","started":"2025-10-17T10:20:00Z","status":10,"outcome":"failed","end":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","change":9,"by":"alice","how":"approved"}"#,
+        r#"{"cursor":"1760700060-7-3","kind":"work","issue":7,"cycle":"7-1","ended":"2025-10-17T11:21:00Z","started":"2025-10-17T11:21:00Z","status":0,"outcome":"merged","end":"merged","provider":false,"parked":false,"how":"hand"}"#,
+        r#"{"cursor":"1760700120-12-4","kind":"work","issue":12,"cycle":"12-2","ended":"2025-10-17T11:22:00Z","started":"2025-10-17T11:21:00Z","status":10,"outcome":"failed","end":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","change":9,"by":"alice","how":"approved","repeat":1}"#,
+        r#"{"cursor":"1760700180-12-5","kind":"work","issue":12,"cycle":"12-3","ended":"2025-10-17T11:23:00Z","started":"2025-10-17T11:22:00Z","status":10,"outcome":"failed","end":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":true,"parked":true,"how":"outage-retry"}"#,
+        r#"{"cursor":"1760700240-12-6","kind":"work","issue":12,"cycle":"12-4","ended":"2025-10-17T11:24:00Z","started":"2025-10-17T11:23:00Z","status":10,"outcome":"failed","end":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","change":9,"by":"alice","how":"approved","repeat":2}"#,
         r#"{"cursor":"1760700300-7-7","kind":"plan","issue":7,"ended":"2025-10-17T11:25:00Z","outcome":"not-started","turn":2,"by":"ä\u007f\"\\\t\u0001","label":"tehas:plan"}"#,
-        r#"{"cursor":"1760700360-12-8","kind":"work","issue":12,"ended":"2025-10-17T11:26:00Z","started":"2025-10-17T11:25:00Z","status":0,"outcome":"merged","progress":{"step":"merge"},"provider":false,"parked":false,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"approved"}"#,
-        r#"{"cursor":"1760700420-12-9","kind":"work","issue":12,"ended":"2025-10-17T11:27:00Z","started":"2025-10-17T11:26:00Z","outcome":"failed","progress":{"step":"develop"},"provider":false,"parked":true,"how":"hand"}"#,
+        r#"{"cursor":"1760700360-12-8","kind":"work","issue":12,"cycle":"12-5","ended":"2025-10-17T11:26:00Z","started":"2025-10-17T11:25:00Z","status":0,"outcome":"merged","end":"merged","progress":{"step":"merge"},"provider":false,"parked":false,"pr":"https://github.com/acme/widget/pull/9","change":9,"by":"alice","how":"approved"}"#,
+        r#"{"cursor":"1760700420-12-9","kind":"work","issue":12,"cycle":"12-6","ended":"2025-10-17T11:27:00Z","started":"2025-10-17T11:26:00Z","outcome":"failed","end":"failed","progress":{"step":"develop"},"provider":false,"parked":true,"how":"hand"}"#,
     ];
 
     const TEXT: &str = r#"1760699940-12-1  plan  #12  finished  turn 1  refine (auto)  filed https://github.com/acme/widget/issues/41 https://github.com/acme/widget/issues/42
@@ -618,8 +658,27 @@ mod tests {
         assert_eq!(lost.get("ended").as_str(), Some("2025-10-17T11:11:40Z"));
         assert_eq!(lost.get("recorded").as_str(), Some("2025-10-17T11:21:40Z"));
         assert!(lost.get("cursor").text().ends_with("-7-2"));
+        // The same cycle id and the end a lost line is given (T11.5).
+        assert_eq!(lost.get("cycle").as_str(), Some("7-3"));
+        assert_eq!(lost.get("end").as_str(), Some("failed"));
+        assert_eq!(first.runs[0].get("end").as_str(), Some("merged"));
         assert!(page(&next.next.clone().unwrap()).runs.is_empty());
         assert!(first.runs[0].get("recorded").is_null());
+    }
+
+    #[test]
+    fn a_cycle_id_is_the_blueprint_and_the_attempt() {
+        assert_eq!(cycle_id(12, 3).as_deref(), Some("12-3"));
+        assert_eq!(cycle_id(999_999_999, 1).as_deref(), Some("999999999-1"));
+        for (b, a) in [
+            (0, 1),
+            (1, 0),
+            (-1, 2),
+            (1_000_000_000, 1),
+            (1, 1_000_000_000),
+        ] {
+            assert_eq!(cycle_id(b, a), None, "{b}-{a}");
+        }
     }
 
     fn listed_after(after: Option<&str>) -> Listing {
@@ -675,8 +734,8 @@ mod tests {
         assert_eq!(
             got,
             [
-                r#"{"cursor":"1760700000-12-1","kind":"work","issue":12,"ended":"2025-10-17T11:20:00Z","status":10,"outcome":"failed","progress":{"step":"lens-review","stepNumber":7,"stepTotal":9,"round":3},"provider":false,"parked":true}"#,
-                r#"{"cursor":"1760700060-13-2","kind":"work","issue":13,"ended":"2025-10-17T11:21:00Z","status":10,"outcome":"failed","progress":{"step":"ci"},"provider":false,"parked":true}"#,
+                r#"{"cursor":"1760700000-12-1","kind":"work","issue":12,"cycle":"12-1","ended":"2025-10-17T11:20:00Z","started":"2025-10-17T11:20:00Z","status":10,"outcome":"failed","end":"failed","progress":{"step":"lens-review","stepNumber":7,"stepTotal":9,"round":3},"provider":false,"parked":true}"#,
+                r#"{"cursor":"1760700060-13-2","kind":"work","issue":13,"cycle":"13-1","ended":"2025-10-17T11:21:00Z","started":"2025-10-17T11:21:00Z","status":10,"outcome":"failed","end":"failed","progress":{"step":"ci"},"provider":false,"parked":true}"#,
             ]
         );
     }

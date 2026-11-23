@@ -829,10 +829,20 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
         .items()
         .iter()
         .map(|c| {
-            let mut f = vec![
-                ("issue", c.get("issue").clone()),
-                ("since", c.get("startedAt").clone()),
-            ];
+            let mut f = vec![("issue", c.get("issue").clone())];
+            let part = |k: &str| c.get(k).as_f64().filter(|n| n.fract() == 0.0);
+            if let Some(id) = part("issue")
+                .zip(part("attempt"))
+                .and_then(|(i, a)| crate::history::cycle_id(i as i64, a as i64))
+            {
+                f.push(("cycle", J::Str(id)));
+            }
+            f.push(("since", c.get("startedAt").clone()));
+            for k in ["how", "by"] {
+                if matches!(c.get(k), J::Str(_)) {
+                    f.push((k, c.get(k).clone()));
+                }
+            }
             // Where the step is, each only when known. Driver-specific, so it
             // is one object the contract marks "may change".
             let mut p = Vec::new();
@@ -1476,6 +1486,21 @@ mod tests {
         assert_eq!(
             status_json(&health, NOW, false).get("running").dump(),
             r#"[{"issue":12,"since":"2026-10-17T13:50:20Z","progress":{"step":"lens-review","stepNumber":7,"stepTotal":9,"round":2,"roundLimit":3,"stepSince":"2026-10-17T13:58:00Z"}},{"issue":13,"since":"2026-10-17T13:50:20Z","progress":{"step":"develop"}},{"issue":14,"since":"2026-10-17T13:50:20Z"}]"#
+        );
+    }
+
+    /// A running cycle's id, how and by (T11.5), from the health file's
+    /// attempt, how and by; an attempt the file does not hold gives no id,
+    /// and a cycle run by hand no `by`.
+    #[test]
+    fn a_running_cycle_says_its_id_how_and_by() {
+        let health = h(r#"{"status":"pass","checks":{"cycles":[
+              {"issue":12,"startedAt":"2026-10-17T13:50:20Z","attempt":3,"how":"approved","by":"alice"},
+              {"issue":13,"startedAt":"2026-10-17T13:50:20Z","attempt":1,"how":"hand"},
+              {"issue":14,"startedAt":"2026-10-17T13:50:20Z","attempt":"2","how":7}]}}"#);
+        assert_eq!(
+            status_json(&health, NOW, false).get("running").dump(),
+            r#"[{"issue":12,"cycle":"12-3","since":"2026-10-17T13:50:20Z","how":"approved","by":"alice"},{"issue":13,"cycle":"13-1","since":"2026-10-17T13:50:20Z","how":"hand"},{"issue":14,"since":"2026-10-17T13:50:20Z"}]"#
         );
     }
 

@@ -1519,6 +1519,14 @@ fn brief(c: &J) -> J {
     if matches!(c.get("stepSince"), J::Num(_)) {
         f.push(("stepSince", iso(c.get("stepSince"))));
     }
+    if matches!(c.get("attempt"), J::Num(_)) {
+        f.push(("attempt", c.get("attempt").clone()));
+    }
+    for k in ["how", "by"] {
+        if matches!(c.get(k), J::Str(_)) {
+            f.push((k, c.get(k).clone()));
+        }
+    }
     obj(f)
 }
 
@@ -2384,6 +2392,27 @@ mod tests {
         assert_eq!(c[0].get("stepSince").text(), "1970-01-01T00:06:00Z");
         assert!(c[0].get("roundLimit").is_null());
         assert!(c[1].get("round").is_null());
+    }
+
+    /// The start's attempt, how and account go into the health file, so
+    /// `tehas status` prints the cycle's id with them (T11.5); a value of
+    /// another shape is left out, and a cycle run by hand has no `by`.
+    #[test]
+    fn a_running_cycle_keeps_its_attempt_how_and_by() {
+        let h = home("ids");
+        h.write(
+            Live::Running,
+            r#"{"cycles":[{"issue":8,"running":true,"startedAt":300,"attempt":3,"how":"approved","by":"alice"},{"issue":9,"running":true,"startedAt":300,"attempt":"3","how":"hand"}],"last":null}"#,
+        );
+        let r = h.report(&Given::default());
+        let c = r.at(&["checks", "cycles"]).items();
+        assert_eq!(
+            [c[0].get("attempt"), c[0].get("how"), c[0].get("by")].map(J::text),
+            ["3", "approved", "alice"]
+        );
+        assert!(c[1].get("attempt").is_null());
+        assert_eq!(c[1].get("how").text(), "hand");
+        assert!(c[1].get("by").is_null());
     }
 
     #[test]
