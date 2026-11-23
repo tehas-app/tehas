@@ -454,7 +454,7 @@ impl Handle {
                 s.accounts
                     .iter()
                     .find(|a| a.login == login)
-                    .is_none_or(|a| matches!(a.standing, Standing::Read | Standing::None))
+                    .is_none_or(|a| a.standing < Standing::Write)
             });
         Ctx {
             now: self.world.now(),

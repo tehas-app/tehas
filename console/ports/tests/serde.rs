@@ -1348,10 +1348,12 @@ fn the_code_host_reads_back() {
 #[test]
 fn identity_and_reports_read_back() {
     for s in [
-        Standing::Admin,
-        Standing::Write,
-        Standing::Read,
         Standing::None,
+        Standing::Read,
+        Standing::Triage,
+        Standing::Write,
+        Standing::Maintain,
+        Standing::Admin,
     ] {
         round(s);
     }

@@ -602,3 +602,19 @@ fn the_fakes_and_the_laws_values_read_back_from_json() {
         what: "more".into(),
     });
 }
+
+#[test]
+fn a_standing_is_its_name_and_the_old_words_still_read() {
+    for (s, word) in [
+        (Standing::None, "None"),
+        (Standing::Read, "Read"),
+        (Standing::Triage, "Triage"),
+        (Standing::Write, "Write"),
+        (Standing::Maintain, "Maintain"),
+        (Standing::Admin, "Admin"),
+    ] {
+        let json = format!("\"{word}\"");
+        assert_eq!(serde_json::to_string(&s).unwrap(), json);
+        assert_eq!(serde_json::from_str::<Standing>(&json).unwrap(), s);
+    }
+}

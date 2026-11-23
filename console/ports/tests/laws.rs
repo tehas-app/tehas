@@ -3288,6 +3288,28 @@ fn a_batch_is_answered_when_the_site_answered() {
 }
 
 #[test]
+fn triage_is_below_write_and_maintain_is_not() {
+    let w = World::split()
+        .person("tia-key", "tia")
+        .person("max-key", "max")
+        .with_account("tia", AccountKind::Person, Standing::Triage)
+        .with_account("max", AccountKind::Person, Standing::Maintain)
+        .blueprint(101, |b| b.title("theirs").author("alice"))
+        .blueprint(102, |b| b.title("also theirs").author("alice"));
+    let site = FakeSite::new(&w);
+    let tia = Actor::Person(PersonKey::new("tia-key"));
+    let max = Actor::Person(PersonKey::new("max-key"));
+    let mut bl = site.blueprint_writes(&tia, C).unwrap();
+    assert_eq!(bl.close(bp(101), true), Err(Outcome::Forbidden));
+    let mut bl = site.blueprint_writes(&max, C).unwrap();
+    assert_eq!(bl.close(bp(102), true), Ok(()));
+    let mut id = site.identity(&full(), C).unwrap();
+    let tia = id.account_by_login(&Login::new("tia")).unwrap();
+    let standing = id.standing(tia.id.as_ref().unwrap()).unwrap();
+    assert_eq!(standing, Standing::Triage);
+}
+
+#[test]
 fn a_person_below_write_comments_files_and_edits_their_own() {
     let w = World::split()
         .person("bob-key", "bob")
