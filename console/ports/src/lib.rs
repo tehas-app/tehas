@@ -17,6 +17,9 @@
 //! empty, false or None, set after by name. So a field added later breaks
 //! no adapter. An enum that may grow is `#[non_exhaustive]`: a match on one
 //! outside this crate has an arm for the rest, and that arm fails closed.
+//! A trait method added after the freeze has a default body that fails
+//! closed (`Refused(Unsupported)` for a call, `""` or empty for a name),
+//! so it breaks no implementer either.
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
