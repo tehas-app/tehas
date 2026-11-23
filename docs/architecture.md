@@ -59,9 +59,10 @@ v2 adds three ports, with GitHub as their one adapter (T4): **tickets**
 
 Their types are in a crate of their own, `console/ports/` (`tehas-ports`),
 which a consumer vendors at the tag: std and serde alone, no supplier word,
-no effects. T4.1 lands it in four parts: the shared types first (ids,
-bodies, bounds, accounts, outcomes, marks and markers), then the traits
-and the rest of the spec's file table.
+no effects. T4.1 lands it in four parts. T4.1a: the data types (ids,
+bodies, bounds, accounts, outcomes, marks and markers). T4.1b: the traits,
+the board, the site, the links and the write. T4.1c: the ledger, health
+and the report. T4.1d: the fakes and the laws.
 
 ## Checks of the core (R3, R8)
 
@@ -78,10 +79,16 @@ process runner. T6 settles where the core ends.
 
 Three checks hold `console/ports/` at 0, as the ports spec's "The crate"
 asks. `ports-deps`: its manifest holds its package keys and serde alone,
-so no other dependency, feature or build script. `ports-words`: no
-supplier name, `repos/`, `api.`, `graphql` or label word in its source or
-manifest, doc lines included. `ports-effects`: no file, network, process,
-environment, thread or clock in its source. The crate's tests round-trip
+so no other dependency, feature or build script, and serde only on the
+spec's exact line (version 1, default features off, `std` and `derive`);
+any other serde line counts. `ports-words`: no supplier name, `repos/`,
+`api.`, `graphql` or label word in its source or manifest, doc lines
+included. `ports-effects`: no file, network, process, environment, thread
+or clock in its source, whether reached by a path, a grouped import
+(`use std::{fs, ...}`, also spread over lines) or an alias
+(`use std::{env as e}`, `std as`); no standard stream (`stdin`,
+`stdout`, `stderr`); and no `print!`, `println!`, `eprint!`, `eprintln!`
+or `dbg!`. The crate's tests round-trip
 its types through a small serde format of their own, since the crate takes
 no serde_json; `untyped-signatures` allows that one file by name, as its
 matches are serde's own `Visitor::Value`.

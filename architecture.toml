@@ -184,11 +184,11 @@ why = "The map at T0: dispatch's tests 191, the shell tests of test/ 123 (84 of 
 [[check]]
 id = "ports-deps"
 rule = "R8"
-what = "console/ports/Cargo.toml holds its package keys and serde alone: no other dependency, no dev or build dependency, no feature, no build script"
-pattern = '^(?!\s*($|#|\[package\]\s*$|\[dependencies\]\s*$|(name|edition|publish|serde)\s*=))'
+what = "console/ports/Cargo.toml holds its package keys and serde alone, on its one exact line: no other dependency, no dev or build dependency, no feature, no build script"
+pattern = '^(?!\s*($|#|\[package\]\s*$|\[dependencies\]\s*$|(name|edition|publish)\s*=|serde = \{ version = "1", default-features = false, features = \["std", "derive"\] \}\s*$))'
 files = ["console/ports/Cargo.toml"]
 max = 0
-why = "New at T4.1. tehas-ports is vendored by a consumer at the tag, so it takes std and serde alone: no serde_json, so no Value reaches a port (R4), no workspace crate, no feature to get wrong, no build script. The pattern counts every line of the manifest that is not blank, a comment, the [package] or [dependencies] header, or the name, edition, publish or serde key."
+why = "New at T4.1. tehas-ports is vendored by a consumer at the tag, so it takes std and serde alone: no serde_json, so no Value reaches a port (R4), no workspace crate, no feature to get wrong, no build script. The pattern counts every line of the manifest that is not blank, a comment, the [package] or [dependencies] header, the name, edition or publish key, or serde's one line exactly as the spec gives it: version 1, default features off, std and derive. Any other serde line counts: other features, default features on, another version, a table form. Tightened at T4.1a's review."
 
 [[check]]
 id = "ports-words"
@@ -202,9 +202,9 @@ why = "New at T4.1. The ports speak tehas's words alone; what each supplier does
 [[check]]
 id = "ports-effects"
 rule = "R3"
-what = "the ports read no file, network, process, environment or clock"
-pattern = 'std::(fs|net|process|env|thread)\b|\b(fs|net|process|env|thread)::|Command::new|SystemTime|Instant::now'
+what = "the ports read no file, network, process, environment, clock or standard stream, and print nothing"
+pattern = 'std::(fs|net|process|env|thread)\b|\b(fs|net|process|env|thread)::|\bstd::\{.*\b(fs|net|process|env|thread)\b|^\s*(fs|net|process|env|thread)\b\s*(,|\}|as\b|$)|\bstd\s+as\b|\b(stdin|stdout|stderr)\b|\b(e?print(ln)?|dbg)!|Command::new|SystemTime|Instant::now'
 files = ["console/ports/src/**"]
 comment = "//"
 max = 0
-why = "New at T4.1. The ports are data and pure functions; the fake that comes with them keeps a clock of its own."
+why = "New at T4.1. The ports are data and pure functions; the fake that comes with them keeps a clock of its own. Tightened at T4.1a's review: besides a path through std or a module, the pattern counts a grouped or aliased import of an effect module (use std::{fs, ...}, use std::{env as e}, a module alone on a line of a group spread over lines, std itself aliased), the standard streams (stdin, stdout, stderr, through io:: or not) and the print macros (print!, println!, eprint!, eprintln!, dbg!)."
