@@ -260,6 +260,22 @@ fn the_ports_values_read_back_from_json() {
 }
 
 #[test]
+fn a_delta_stored_without_more_reads_as_not_more() {
+    let ticket = read!(TicketDelta, r#"{"tickets":[],"notes":[],"next":"c1"}"#);
+    assert_eq!(ticket, TicketDelta::new(Cursor::new("c1")));
+    assert!(!ticket.more);
+    let blueprint = read!(
+        BlueprintDelta,
+        r#"{"blueprints":[],"comments":[],"next":"c2"}"#
+    );
+    assert_eq!(blueprint, BlueprintDelta::new(Cursor::new("c2")));
+    assert!(!blueprint.more);
+    let change = read!(ChangeDelta, r#"{"changes":[],"comments":[],"next":"c3"}"#);
+    assert_eq!(change, ChangeDelta::new(Cursor::new("c3")));
+    assert!(!change.more);
+}
+
+#[test]
 fn an_old_spec_marker_reads_as_unknown() {
     // The Spec marker left with the Spec marks (#2892): a record that still
     // holds one reads under the one rule, as a tag this copy does not know.

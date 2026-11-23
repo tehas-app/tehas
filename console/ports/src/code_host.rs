@@ -371,7 +371,9 @@ pub struct ChangeDelta {
     pub comments: Vec<(ChangeNo, Comment)>,
     /// Where the next delta starts: after the last change it holds.
     pub next: Cursor,
-    /// More changes wait past `next`: the bound cut this delta.
+    /// More changes wait past `next`: the bound cut this delta. Missing,
+    /// it reads as false, as `new` leaves it.
+    #[serde(default)]
     pub more: bool,
 }
 

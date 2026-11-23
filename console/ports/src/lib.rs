@@ -17,7 +17,9 @@
 //! the rest empty, false or None. Every answer is `#[non_exhaustive]`, so
 //! outside this crate a struct literal, `..Default::default()` among them,
 //! does not compile, and a pattern on one ends in `..`. So a field added
-//! later breaks no adapter. An enum that may grow is `#[non_exhaustive]`: a match on one
+//! later breaks no adapter. A field added after the freeze carries
+//! `#[serde(default)]`, with the same empty value `new` gives it, so a
+//! value stored before it still reads. An enum that may grow is `#[non_exhaustive]`: a match on one
 //! outside this crate has an arm for the rest, and that arm fails closed.
 //! A trait method added after the freeze has a default body that fails
 //! closed (`Refused(Unsupported)` for a call, `""` or empty for a name),
