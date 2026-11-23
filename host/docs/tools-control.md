@@ -243,15 +243,16 @@ nothing of 120. Nothing is removed while a cycle holds that issue's lock, and a
 cycle that still holds it after the stop is left whole and said.
 
 Its last step is the issue's own. When it stopped or removed something on this
-host, and nothing of that failed, it reads the labels of issue 12
-(`gh issue view 12 --repo <repo> --json labels --jq '.labels[].name'`) and takes
-`tehas:running` off when it is there and no cycle of issue 12 holds its lock
-again (`gh issue edit 12 --repo <repo> --remove-label tehas:running`), said as
-`removed tehas:running from #12`. It adds no other label and writes no comment.
+host, and nothing of that failed, it reads issue 12 through the tickets port
+(`several`, see [the forge](forge.md)) and takes `tehas:running` off when it is
+there and no cycle of issue 12 holds its lock again (`unmark`), said as
+`removed tehas:running from #12`. Both go through the `gh` on `PATH`. It adds
+no other label and writes no comment.
 A run that found nothing to do here makes no GitHub call, and a stop whose host
 part failed leaves the label where it is: while a container still works on with
 the bot's token, `tehas:running` is what the poll needs to park the issue. Each
-call gets 10 seconds. A label it cannot read is said as `WARN: the labels of #12
+call gets 10 seconds, and one that has not ended 5 seconds after it is asked
+to stop is killed. A label it cannot read is said as `WARN: the labels of #12
 could not be read, so tehas:running stays on the issue`, one it cannot take off
 as `WARN: tehas:running could not be taken off #12`, and a cycle that took this
 issue's lock again while the host was cleared as `WARN: a cycle for #12 holds
