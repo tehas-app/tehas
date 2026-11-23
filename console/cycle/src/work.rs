@@ -356,6 +356,8 @@ pub struct Given {
     pub driver: Option<Driver>,
     /// The console beside the script, which the watch runs.
     pub console: String,
+    /// The read the relay holds an edit to.
+    pub read_text: relay::ReadText,
 }
 
 fn env(name: &str) -> String {
@@ -1076,7 +1078,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         &relay_dir,
         &env("TEHAS_REPO"),
         n,
-        relay::Via::from_env(home),
+        relay::Via::from_env(home, g.read_text),
         RELAY_END_WAIT,
     );
     let given = watch::Given {
@@ -1257,6 +1259,7 @@ mod tests {
                 token: bot.clone(),
                 token_args: vec!["github-token".to_string()],
                 token_wait: 10,
+                read_text: relay::read_raw,
             },
             Duration::from_secs(10),
         );
@@ -1314,6 +1317,7 @@ mod tests {
                 token,
                 token_args: vec![],
                 token_wait: 30,
+                read_text: relay::read_raw,
             },
             Duration::from_secs(1),
         );
