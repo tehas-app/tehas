@@ -720,20 +720,16 @@ impl<H: ?Sized> Wrap<H> {
             .map(|r| r.fault)
     }
 
-    /// Give the answer of a request that went out to the host, the holder
-    /// and the pool, and raise each notice whose swap wins. A ledger that
-    /// fails fails toward reporting.
+    /// Give the answer of an attempt to reach the site to each state
+    /// `health::keys` names (the host, the holder, the pool drawn on, and a
+    /// Spent's own pool), and raise each notice whose swap wins. A ledger
+    /// that fails fails toward reporting.
     fn observe(&mut self, pool: Pool, seen: &Result<(), Outcome>) {
         let Some(w) = self.shared.watch.clone() else {
             return;
         };
         let now = w.clock.now();
-        let all = [
-            Whose::Host,
-            Whose::Holder(self.holder.clone()),
-            Whose::Pool(self.holder.clone(), pool),
-        ];
-        for whose in all {
+        for whose in health::keys(&self.holder, seen, &[pool]) {
             match w.ledger.health(&w.host, &whose) {
                 Ok(was) => {
                     let (new, notice) = health::next(&w.host, &whose, w.realm, now, &was, seen);

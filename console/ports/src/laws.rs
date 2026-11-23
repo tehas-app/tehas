@@ -944,8 +944,9 @@ pub mod identity {
     }
 }
 
-/// Laws of health: `health::next` takes only the answer of a request that
-/// went out, so an answer the adapter makes without one raises nothing.
+/// Laws of health: `health::next` takes every attempt the adapter made to
+/// reach the site, one that could not connect included, and never an answer
+/// it made without trying, so such an answer raises nothing.
 pub mod health {
     use super::{hold, Law};
     use crate::fake::Notices;

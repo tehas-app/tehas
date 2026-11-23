@@ -1849,6 +1849,44 @@ fn a_spent_pool_holds_its_holder_on_every_project_and_recovers_once() {
 }
 
 #[test]
+fn a_spent_named_for_another_pool_holds_that_pool() {
+    // A read in the Calls pool answered with a spent Priced pool: the spend
+    // goes to the pool the answer names (`health::keys`), so the next
+    // Priced read is held with no request.
+    let wired = Wired::new(World::new().ticket(1, |t| t.title("one")));
+    let until = At::new(wired.world.now().secs() + 600);
+    let faulty = Faulty::new(FakeSite::new(&wired.world))
+        .on(
+            Op::Tickets(TicketsOp::Ticket),
+            Fault::Spent {
+                pool: Pool::Priced,
+                until,
+            },
+        )
+        .times(1)
+        .watch(wired.watch(None));
+    let mut t = faulty.tickets(&full(), C).unwrap();
+    assert!(t.ticket(&wired.world.key(1), Depth::All, None).is_err());
+    assert_eq!(faulty.requests(), 1);
+    let mut board = faulty.board(&full(), C).unwrap();
+    assert_eq!(
+        board.open_work(&board_ask(), b(5)).map(drop),
+        Err(Outcome::Spent {
+            pool: Pool::Priced,
+            until
+        })
+    );
+    assert_eq!(faulty.requests(), 1);
+    assert_eq!(
+        wired.told(),
+        vec![Health::Spent {
+            pool: Pool::Priced,
+            until
+        }]
+    );
+}
+
+#[test]
 fn a_sign_out_is_reported_once_and_cleared_by_a_good_call() {
     let wired = Wired::new(World::new().ticket(1, |t| t.title("one")));
     for _ in 0..2 {
