@@ -1,0 +1,42 @@
+# The markers of tehas: machine-read notes inside a comment or a body, one
+# row per kind of the ports' MarkerKind but Project. Read by the adapters'
+# tests and compiled into each adapter; no program reads this file at run
+# time, and it is vendored with tehas-ports at the tag.
+#
+# Columns, a tab between each: the kind; the open text; the close text, for
+# a block, else empty; the fields. In a text, {name} stands for that field's
+# value. A field marked ? is optional, and is left out with the space before
+# it. Every other field is there once, in the row's order. A field missing,
+# repeated, out of order or not of the row, or a value outside its type,
+# makes the marker Unreadable of the row's kind: reported, never acted on.
+#
+# Field types:
+#   blueprint        the blueprint's number, decimal, no leading zero; a
+#                    marker of another blueprint than the item read does
+#                    not read
+#   number(n)        decimal, no leading zero, at most n digits
+#   numbers(a-b,n)   a to b of number(n), commas between, no space
+#   words(a|b)       one of the words listed
+#   word(n)          at most n of a-z, 0-9 and -, maybe empty
+#   hex(n)           exactly n lower-case hex digits
+#   key(n)           1 to n of A-Z, a-z, 0-9, ., _, :, / and -: a number,
+#                    a KEY-123, a path-like key; no white space and never
+#                    -->
+#   link             one word. A Spec block's first enclosed line is
+#                    `Spec: {link} sha256:{sha256}`
+#   requirements(1-) the block's lines `- <id> met: <note>` or
+#                    `- <id> not met: <note>`, at least one, each id once,
+#                    no backquote in an id, a note never empty
+#   text             the block's enclosed text, its payload, never the body
+#
+# A 1.x Millwright marker named fixer reads as Unreadable of Millwright.
+Question	<!-- tehas:question kind={kind} issue={issue} turn={turn} -->		kind words(plan|park); issue blueprint; turn number(9)
+Blocked	<!-- tehas:blocked by={by} -->		by numbers(1-20,9)
+HoldCleared	<!-- tehas:hold-cleared -->		
+Park	<!-- tehas:park issue={issue} step={step} kind={kind} provider={provider} sig={sig} -->		issue blueprint; step word(40); kind word(40); provider words(0|1); sig hex(64)
+Finish	<!-- tehas:finish issue={issue} result={result} by={by} -->		issue blueprint; result words(opened|refused|stopped); by? words(poll)
+Spec	<!-- tehas:spec v{version} -->	<!-- /tehas:spec -->	version words(1); link link; sha256 hex(64); requirements requirements(1-)
+LastAttempt	<!-- tehas:last-attempt base={base} -->	<!-- /tehas:last-attempt -->	base hex(64); note text
+Millwright	<!-- tehas:millwright issue={issue} action={action} -->		issue blueprint; action words(retry|change|answer|finish|person|ask)
+TicketOf	<!-- tehas:ticket-of ticket={ticket} -->		ticket key(128)
+Link	<!-- tehas:link blueprint={blueprint} remove={remove} -->		blueprint number(9); remove? words(1)
