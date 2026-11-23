@@ -56,7 +56,8 @@ pub enum Act {
     Refine,
     /// Ask for a stopped cycle's work to be finished.
     Finish,
-    /// Hold the ticket.
+    /// Start once every ticket its Blocked marker names is closed; hold
+    /// until then.
     Block,
     /// Pause the factory.
     Pause,
