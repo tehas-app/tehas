@@ -9,6 +9,7 @@
 
 mod blueprints;
 mod code_host;
+mod faulty;
 mod ledger;
 mod notices;
 mod site;
@@ -18,6 +19,7 @@ mod tickets;
 mod tokens;
 mod world;
 
+pub use faulty::*;
 pub use ledger::*;
 pub use notices::*;
 pub use site::*;
