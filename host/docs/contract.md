@@ -615,6 +615,23 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   them. A program that applied `tehas:ready` as the millwright to start or
   retry work for a person runs `tehas start` for a signed-in person
   instead; one that checks `features` for `millwright-grant` finds it gone.
+- **Four work-run ends move.**
+  #2903.
+  One function, `tehas_core::outcome::end`, decides a work run's end, and
+  four ends change: a run `tehas stop` stopped ends `stopped` and a lost
+  run `failed`, both `parked` before; a parked run that claimed `merged`,
+  and a parked `closed` or `interrupted` run, end by the later rows
+  (`handoff`, `failed` or `parked`), not `merged` or `stopped`. A parked
+  run never ends `merged`, `stopped` or `pr`. Runs recorded before the
+  update keep their outcome. The words are the same.
+  Readers: the consumer that reads the analytics copies (counts of
+  `runs.outcome`, the report's `runs`), the consumer that runs many
+  factories, MCP clients (the counts of `factory_sessions`,
+  `factory_outcomes` and `factory_stats`).
+  Adopter action: a program that compares counts of `runs.outcome` across
+  the update allows for the four moves: runs that counted as `parked` now
+  count as `stopped` or `failed`, and parked runs that counted as `merged`
+  or `stopped` now count as `handoff`, `failed` or `parked`.
 - **The state store is at schema 29.**
   #2794, #2830, #2843, #2867, #2889, #2886.
   The steps 24 to 29 are listed under [Upgrading to 2.0](#upgrading-to-20).
@@ -675,18 +692,6 @@ adopter action as the pull request states them.
   analytics step carry the words.
   Readers: the consumer that runs many factories, the consumer that reads
   the analytics copies, MCP clients, the end-to-end suite, plugins.
-- **Four work-run ends move.** #2903. One function,
-  `tehas_core::outcome::end`, decides a work run's end, and four ends
-  change: a run `tehas stop` stopped ends `stopped` and a lost run
-  `failed`, both `parked` before; a parked run that claimed `merged` and a
-  parked `closed` or `interrupted` run end by the later rows (`handoff`,
-  `failed` or `parked`), not `merged` or `stopped`. A parked run never ends
-  `merged`, `stopped` or `pr`. Runs recorded before the update keep their
-  outcome.
-  Readers: the consumer that reads the analytics copies, the consumer that
-  runs many factories.
-  Adopter action: a program that compares counts of `runs.outcome` across
-  the update allows for the four moves. The words are the same.
 - **The plugin hook is named by its event.** T11.8. The grant
   `hook:after:work` becomes `hook:after:change.offered`, with no alias.
   Readers: plugins.
