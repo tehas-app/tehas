@@ -12,7 +12,6 @@
     "slice": null,
     "demand": null,
     "limit": {"state": "none"},
-    "allHands": null,
     "pause": {"flag": null, "label": false, "lifted": false},
     "platform": null,
     "testFeatures": {"read": true, "features": ["plugins"], "lab": true}

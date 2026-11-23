@@ -166,12 +166,12 @@ console and no checkout to build one from.
 tehas labels        # one line per label
 ```
 
-Creates the twenty-two labels tehas uses in the product repository: `tehas:ready`,
+Creates the twenty-one labels tehas uses in the product repository: `tehas:ready`,
 `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:refine`, `tehas:planning`,
 `tehas:replaced` and `tehas:refined` (an issue a [refine](/operating#refining-a-request)
 filed a ticket for), `tehas:millwright-escalated`, `tehas:blocked`, `tehas:refreshing` (on a
-pull request a [refresh](/operating#refreshes) works on), `tehas:all-hands`,
+pull request a [refresh](/operating#refreshes) works on),
 `tehas:lean` and `tehas:classic` (see [choosing the driver](/operating#choosing-the-driver)),
 `epic` (see [epics](/operating#3-what-happens-next)), `tehas:finish` (see
 [finishing a stopped cycle](/operating#finishing-a-stopped-cycle)),
