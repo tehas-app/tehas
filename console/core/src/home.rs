@@ -56,6 +56,11 @@ pub enum State {
     HostMessages,
     /// The pins of the state labels to their node ids.
     LabelPins,
+    /// The budgets, health states and failed calls of the code host's
+    /// ledger (`ledger::FileLedger`).
+    Ledger,
+    /// Held while the ledger is written.
+    LedgerLock,
     /// The limit `tehas limit` sets.
     Limit,
     /// Held while the MCP server's checkout is fetched.
@@ -131,6 +136,8 @@ impl State {
             State::GithubWrites => "state/github-writes.log",
             State::HostMessages => "state/host-messages.json",
             State::LabelPins => "state/labels",
+            State::Ledger => "state/ledger.json",
+            State::LedgerLock => "state/ledger.lock",
             State::Limit => "state/limit.json",
             State::McpFetchLock => "state/mcp-fetch.lock",
             State::Pause => "state/pause.json",
@@ -437,6 +444,8 @@ mod tests {
             (State::GithubWrites, "/h/state/github-writes.log"),
             (State::HostMessages, "/h/state/host-messages.json"),
             (State::LabelPins, "/h/state/labels"),
+            (State::Ledger, "/h/state/ledger.json"),
+            (State::LedgerLock, "/h/state/ledger.lock"),
             (State::Limit, "/h/state/limit.json"),
             (State::McpFetchLock, "/h/state/mcp-fetch.lock"),
             (State::Pause, "/h/state/pause.json"),
