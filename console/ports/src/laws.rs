@@ -672,31 +672,36 @@ pub mod marks {
     use super::{got, hold, Law};
     use crate::{Act, BlueprintNo, BlueprintWrites, Choice, Cite, Mark, Site, State};
 
+    /// The variants listed, every one of the enum but `Unknown`. The match
+    /// has no arm for the rest, so a variant added to the enum stops the
+    /// build here until it is listed.
+    macro_rules! every {
+        ($ty:ident: $($v:ident),+ $(,)?) => {{
+            let _ = |w: $ty| match w {
+                $($ty::$v)|+ | $ty::Unknown => (),
+            };
+            [$($ty::$v),+]
+        }};
+    }
+
     /// Every word of the factory this copy knows, as a mark: each act,
     /// state and choice, and the epic mark.
     pub fn factory_marks() -> Vec<Mark> {
-        let acts = [
-            Act::Approve,
-            Act::Plan,
-            Act::Refine,
-            Act::Finish,
-            Act::Block,
-            Act::Pause,
-        ];
-        let states = [
-            State::Running,
-            State::Planning,
-            State::Refreshing,
-            State::AwaitingMerge,
-            State::Shipped,
-            State::Question,
-            State::NeedsPerson,
-            State::Replaced,
-            State::Refined,
-            State::Escalated,
-            State::Proposal,
-        ];
-        let choices = [Choice::Lean, Choice::Classic];
+        let acts = every!(Act: Approve, Plan, Refine, Finish, Block, Pause);
+        let states = every!(
+            State: Running,
+            Planning,
+            Refreshing,
+            AwaitingMerge,
+            Shipped,
+            Question,
+            NeedsPerson,
+            Replaced,
+            Refined,
+            Escalated,
+            Proposal
+        );
+        let choices = every!(Choice: Lean, Classic);
         let mut all: Vec<Mark> = acts.into_iter().map(Mark::Act).collect();
         all.extend(states.into_iter().map(Mark::State));
         all.extend(choices.into_iter().map(Mark::Choice));
@@ -1042,14 +1047,17 @@ pub mod markers {
         hold(markers.is_empty(), LAW, || format!("read {markers:?}"))
     }
 
-    /// A cited marker is no marker: `Cite::Marker` of a writable marker is
-    /// text, written in a comment on the blueprint `no`, that reads back
-    /// holding that text and no marker. A marker that is not writable
-    /// (unknown, unreadable or bare of its kind) cites as `""`.
+    /// A cited marker is no marker to the port's reader, which skips
+    /// quotes and code: `Cite::Marker` of a writable marker holds `typed`,
+    /// the text a person types to make it as the site's adapter writes it,
+    /// and, written in a comment on the blueprint `no`, reads back holding
+    /// that text and no marker. A marker that is not writable (unknown,
+    /// unreadable or bare of its kind) cites as `""`.
     pub fn a_cited_marker_is_no_marker(
         h: &mut dyn BlueprintWrites,
         no: BlueprintNo,
         marker: &Marker,
+        typed: &str,
     ) -> Law {
         const LAW: &str = "markers::a_cited_marker_is_no_marker";
         hold(marker.writable(), LAW, || {
@@ -1067,8 +1075,11 @@ pub mod markers {
             })?;
         }
         let text = h.cite(&Cite::Marker(marker.clone()));
-        hold(!text.trim().is_empty(), LAW, || {
-            format!("{marker:?} cites as nothing")
+        hold(!typed.trim().is_empty(), LAW, || {
+            format!("the fixture types {marker:?} as nothing")
+        })?;
+        hold(text.contains(typed), LAW, || {
+            format!("{marker:?} cites as {text:?}, without {typed:?}")
         })?;
         let posted = got(LAW, "the comment", h.comment(no, &text, &[]))?;
         let mut answers = h.comments_by_id(std::slice::from_ref(&posted.id));
@@ -1079,7 +1090,7 @@ pub mod markers {
         hold(c.markers.is_empty(), LAW, || {
             format!("{text:?} read as {:?}", c.markers)
         })?;
-        hold(c.body.contains(text.trim()), LAW, || {
+        hold(c.body.contains(typed), LAW, || {
             format!("{text:?} read back as {:?}", c.body)
         })
     }

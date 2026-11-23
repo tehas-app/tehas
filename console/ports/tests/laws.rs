@@ -340,7 +340,7 @@ fn deltas_page_oldest_first_past_the_bound() {
         let mut c = site.code_host(&full(), C).unwrap();
         for page in [1, 2] {
             ok(laws::delta::tickets_page_on(t.as_mut(), None, b(page)));
-            ok(laws::delta::blueprints_page_on(bl.as_mut(), None, b(1)));
+            ok(laws::delta::blueprints_page_on(bl.as_mut(), None, b(page)));
             ok(laws::delta::changes_page_on(c.as_mut(), None, b(page)));
         }
         let first = t.delta(None, b(1)).unwrap();
@@ -641,7 +641,15 @@ fn marker_laws() {
             action: MillwrightAction::Finish,
         }),
     ] {
-        ok(m::a_cited_marker_is_no_marker(h.as_mut(), bp(101), &marker));
+        let typed = tehas_ports::fake::marker_text(&marker);
+        ok(m::a_cited_marker_is_no_marker(
+            h.as_mut(),
+            bp(101),
+            &marker,
+            &typed,
+        ));
+        let wrong = m::a_cited_marker_is_no_marker(h.as_mut(), bp(101), &marker, "<!-- x -->");
+        assert!(wrong.is_err(), "a cite without the typed text passed");
     }
 }
 

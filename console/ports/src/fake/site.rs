@@ -641,13 +641,26 @@ impl Cites for Handle {
             Cite::Blueprint(r) => named("blueprint", r, |n| n.get().to_string()),
             Cite::Change(r) => named("change", r, |n| n.get().to_string()),
             Cite::Account(login) => format!("account {}", login.as_str()),
-            Cite::Marker(m) if m.writable() => format!("`{:?} marker`", m.kind()),
-            Cite::Marker(_) => String::new(),
+            Cite::Marker(m) => match marker_text(m) {
+                text if text.is_empty() => text,
+                text => format!("`{text}`"),
+            },
             Cite::Mark(m) => match mark_name(m) {
                 name if name.is_empty() => name,
                 name => format!("`{name}`"),
             },
         }
+    }
+}
+
+/// The text a person types to make a marker on the fake: the marker as
+/// Rust writes it for debugging, such as `HoldCleared`; `""` for one that is
+/// not writable. The fake reads no marker from text, so it is never live.
+pub fn marker_text(marker: &crate::Marker) -> String {
+    if marker.writable() {
+        format!("{marker:?}")
+    } else {
+        String::new()
     }
 }
 

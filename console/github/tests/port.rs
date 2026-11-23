@@ -80,11 +80,10 @@ fn a_tickets_digest_is_the_issues_rest_read() {
     assert_eq!(d.target.as_ref().unwrap().title, "v2");
     assert_eq!(
         d.author,
-        Some(Account {
-            realm: Realm::CodeHost,
-            login: Login::new("alice"),
-            id: Some(AccountId::new("5")),
-            kind: AccountKind::Person,
+        Some({
+            let mut a = Account::new(Realm::CodeHost, Login::new("alice"), AccountKind::Person);
+            a.id = Some(AccountId::new("5"));
+            a
         })
     );
     assert_eq!(d.created, at("2026-01-02T03:04:05Z"));
@@ -262,7 +261,10 @@ fn a_cite_is_githubs_reference_and_a_new_ticket_link_its_page() {
         gh.cite(&Cite::Marker(finish.clone())),
         table::cite_marker(&finish)
     );
-    assert!(gh.cite(&Cite::Marker(finish)).starts_with('`'));
+    assert_eq!(
+        gh.cite(&Cite::Marker(finish)),
+        "`<!-- tehas:millwright issue=12 action=finish -->`"
+    );
     assert_eq!(gh.cite(&Cite::Marker(tehas_ports::Marker::Unknown)), "");
     assert_eq!(
         gh.new_ticket_link("A b", "c&d").as_str(),

@@ -48,8 +48,11 @@ pub enum Cite {
     /// An account.
     Account(Login),
     /// The text a person types to make this marker, quoted as the site
-    /// shows code, so it is no live marker: what a reply tells a person to
-    /// write. A marker that is not [`Marker::writable`] cites as `""`.
+    /// shows code: what a reply tells a person to write. The port's reader
+    /// skips quotes and code, so reads no marker in it; a reader that does
+    /// not skip them still finds one, so no body cites a marker until T2
+    /// moves those readers. A marker that is not [`Marker::writable`]
+    /// cites as `""`.
     Marker(Marker),
     /// A mark as the site spells it in a body, the word `Site::mark_name`
     /// gives, shown so a reader knows it for a mark. `Mark::Unknown` cites
@@ -60,7 +63,8 @@ pub enum Cite {
 /// `Tickets`, `Blueprints` and `CodeHost` have it. The text that names
 /// `what` in a body written through this handle, as its site links or
 /// mentions it. No request. A body that holds a cited marker holds no
-/// marker (`laws::markers::a_cited_marker_is_no_marker`).
+/// marker to the port's reader
+/// (`laws::markers::a_cited_marker_is_no_marker`).
 pub trait Cites {
     /// The text that names `what` in a body written through this handle.
     fn cite(&self, what: &Cite) -> String;
