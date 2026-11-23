@@ -623,7 +623,7 @@ mod tests {
 
     #[test]
     fn every_line_of_a_building_feature_in_a_file_is_found() {
-        let text = b"TEHAS_REPO=acme/widget\nexport TEHAS_PLUGIN=on\nTEHAS_PLUGINS='floorplan'\nTEHAS_LEAN=off\nTEHAS_SPEC_PIPE=\n";
+        let text = b"TEHAS_REPO=acme/widget\nexport TEHAS_PLUGIN=on\nTEHAS_PLUGINS='floorplan'\nTEHAS_LEAN=off\n";
         assert_eq!(
             found_in_with(text, "/i/instance.env", &vars(&[])),
             [

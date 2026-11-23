@@ -1632,7 +1632,7 @@ impl World {
         }
         let mut input =
             json!({"links": j.get("links").cloned().filter(|v| !v.is_null()).unwrap_or(json!([]))});
-        for k in ["comment_links", "retry_context", "driver", "spec"] {
+        for k in ["comment_links", "retry_context", "driver"] {
             if let Some(v) = j.get(k) {
                 input[k] = v.clone();
             }
