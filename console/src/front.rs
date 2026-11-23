@@ -138,8 +138,8 @@ fn tehasbot(words: &[String]) -> Go {
     match words.first().map(String::as_str) {
         None | Some("help" | "-h" | "--help") => Go::Usage,
         Some(
-            "health" | "status" | "top" | "refresh" | "clean" | "preview" | "dispatch"
-            | "github-token" | "cycle" | "outsource-proxy" | "plugin" | "plugin-gate",
+            "health" | "status" | "refresh" | "clean" | "preview" | "dispatch" | "github-token"
+            | "cycle" | "outsource-proxy" | "plugin" | "plugin-gate",
         ) => Go::Run,
         Some("mcp") if words.get(1).map(String::as_str) == Some("serve") => Go::Run,
         Some("mcp" | "github-writes") => Go::Verb,
@@ -421,7 +421,6 @@ mod tests {
         for c in [
             "health",
             "status",
-            "top",
             "refresh",
             "clean",
             "preview",
@@ -433,8 +432,10 @@ mod tests {
         }
         // The improvement loop is gone, and so is its command.
         assert_eq!(b(&["improve"]), Go::Unknown("improve".into()));
-        // The review loop and the product wiki left core in 2.0.
+        // The review loop, the product wiki and the host panel's publisher
+        // left core in 2.0.
         assert_eq!(b(&["review"]), Go::Unknown("review".into()));
+        assert_eq!(b(&["top"]), Go::Unknown("top".into()));
         assert_eq!(t(&["wiki"]), Go::Unknown("wiki".into()));
         assert_eq!(b(&["wiki"]), Go::Unknown("wiki".into()));
         // The Protolab is parked (docs/specs/parked-protolab.md), and so is its command.

@@ -92,19 +92,6 @@
       "reason": "expected beesknees26 or pixel"
     },
     {
-      "name": "TEHAS_TOP",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "on",
-        "off",
-        "1",
-        "0"
-      ],
-      "reason": "expected on or off"
-    },
-    {
       "name": "TEHAS_DRIVER",
       "rule": "one-of",
       "when": "always",

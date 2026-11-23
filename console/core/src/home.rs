@@ -220,8 +220,6 @@ pub enum Live {
     Running,
     /// The queue and the cycles of the product.
     Status,
-    /// The host's load, as `tehas top` publishes it.
-    Top,
 }
 
 impl Live {
@@ -242,7 +240,6 @@ impl Live {
             Live::Rukas => "rukas.json",
             Live::Running => "running.json",
             Live::Status => "status.json",
-            Live::Top => "top.json",
         }
     }
 }
@@ -497,7 +494,6 @@ mod tests {
             (Live::Rukas, "/h/live/rukas.json"),
             (Live::Running, "/h/live/running.json"),
             (Live::Status, "/h/live/status.json"),
-            (Live::Top, "/h/live/top.json"),
         ];
         for (l, want) in cases {
             assert_eq!(at(h().live(l)), want, "{l:?}");

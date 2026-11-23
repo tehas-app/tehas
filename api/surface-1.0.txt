@@ -13,7 +13,7 @@
 # when the surface loses a name of this file, and when it has one this file
 # does not list yet. The settings of energy use went in 2.0, and so did
 # the Protolab's setting and its status field, TEHAS_WORK_DESCRIBE,
-# TEHAS_WORK_FILES, TEHAS_WORK_ZIPS and TEHAS_WORK_COMMENTS.
+# TEHAS_WORK_FILES, TEHAS_WORK_ZIPS, TEHAS_WORK_COMMENTS and TEHAS_TOP.
 
 command analytics
 command analytics copy
@@ -212,7 +212,6 @@ setting TEHAS_SIZE_MAX_BYTES
 setting TEHAS_SIZE_MAX_FILES
 setting TEHAS_SIZE_MAX_LINES
 setting TEHAS_SLICE_CONTAINERS
-setting TEHAS_TOP
 setting TEHAS_UPDATE_FROM
 setting TEHAS_UPDATE_LOCK_WAIT
 setting TEHAS_VERIFY_TIMEOUT

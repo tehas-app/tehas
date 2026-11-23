@@ -176,9 +176,9 @@ reset
 for arg in "" help -h --help; do
   t_run "$bot $arg"
   t_eq "$t_rc" 0
-  t_contains "$t_out" "tehasbot top [--every]"
+  t_contains "$t_out" "tehasbot health"
 done
-for name in work plan dev index update labels summary bogus "''"; do
+for name in work plan dev index update labels summary top bogus "''"; do
   t_run "$bot $name 2>/dev/null"
   t_eq "$t_rc" 64
   t_eq "$t_out" ""

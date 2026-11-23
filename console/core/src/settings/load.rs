@@ -154,6 +154,10 @@ pub(super) const IGNORED: &[(&str, &str)] = &[
         "TEHAS_WIKI",
         "the product wiki left core in 2.0 and returns as a plugin",
     ),
+    (
+        "TEHAS_TOP",
+        "the host panel left core in 2.0 and returns as a plugin; tehas top stays",
+    ),
     ("TEHAS_PROTOLAB_URL", PROTOLAB),
     ("TEHAS_PROTOLAB_ZIP_URL", PROTOLAB),
     ("TEHAS_PROTOLAB_ZIP_HOSTS", PROTOLAB),
@@ -1571,7 +1575,6 @@ mod tests {
         let vars = loads(&[
             "TEHAS_SITE_INDEXING=on",
             "TEHAS_PREVIEWS=off",
-            "TEHAS_TOP=1",
             "TEHAS_ANALYTICS=0",
         ]);
         assert_eq!(vars.text("TEHAS_SITE_INDEXING"), "1");
@@ -1582,7 +1585,6 @@ mod tests {
             "1"
         );
         assert_eq!(vars.text("TEHAS_PREVIEWS"), "0");
-        assert_eq!(vars.text("TEHAS_TOP"), "1");
         assert_eq!(vars.text("TEHAS_ANALYTICS"), "off");
         assert_eq!(loads(&["TEHAS_ANALYTICS=1"]).text("TEHAS_ANALYTICS"), "on");
         assert_eq!(loads(&[]).text("TEHAS_ANALYTICS"), "on");
@@ -2015,10 +2017,9 @@ mod tests {
 
     #[test]
     fn the_first_setting_of_the_table_is_the_one_told() {
-        assert!(
-            refused(&["TEHAS_SITE_INDEXING=2", "TEHAS_TOP=9"]).starts_with("TEHAS_SITE_INDEXING")
-        );
-        assert!(refused(&["TEHAS_TOP=9", "TEHAS_BRANCH=a b"]).starts_with("TEHAS_TOP"));
+        assert!(refused(&["TEHAS_SITE_INDEXING=2", "TEHAS_READ_ONLY=9"])
+            .starts_with("TEHAS_SITE_INDEXING"));
+        assert!(refused(&["TEHAS_READ_ONLY=9", "TEHAS_BRANCH=a b"]).starts_with("TEHAS_READ_ONLY"));
     }
 
     #[test]
@@ -2514,6 +2515,20 @@ mod tests {
             ["TEHAS_WIKI is no longer read: the product wiki left core in 2.0 and returns as a plugin; remove it from the instance"]
         );
         assert!(!vars.is_set("TEHAS_WIKI"));
+    }
+
+    #[test]
+    fn a_line_of_the_host_panel_loads_warns_and_is_not_read() {
+        for value in ["1", "on", "0", "9"] {
+            let mut vars = start(&[]);
+            let mut host = Fake::with(&[&format!("TEHAS_TOP={value}")]);
+            assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()), "{value}");
+            assert_eq!(
+                host.warned,
+                ["TEHAS_TOP is no longer read: the host panel left core in 2.0 and returns as a plugin; tehas top stays; remove it from the instance"]
+            );
+            assert!(!vars.is_set("TEHAS_TOP"), "{value}");
+        }
     }
 
     #[test]

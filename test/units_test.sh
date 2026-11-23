@@ -111,9 +111,7 @@ for unit in "$units"/*.service; do
   t_eq "${unit##*/}:$(grep -c '^NoNewPrivileges=yes$' "$unit")" "${unit##*/}:1"
 done
 
-t_case "the services that never end have a memory ceiling"
-for name in mcp top; do
-  t_eq "$name:$(sed -n 's/^MemoryMax=//p' "$units/tehas-$name.service")" "$name:256M"
-done
+t_case "the MCP server, which never ends, has a memory ceiling"
+t_eq "$(sed -n 's/^MemoryMax=//p' "$units/tehas-mcp.service")" "256M"
 
 t_done

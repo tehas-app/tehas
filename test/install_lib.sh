@@ -99,7 +99,6 @@ files="./.bashrc
 ./.config/systemd/user/tehas-preview-sweep.timer
 ./.config/systemd/user/tehas-preview.service
 ./.config/systemd/user/tehas-preview.timer
-./.config/systemd/user/tehas-top.service
 ./.pi/agent/mcp.json
 ./.pi/agent/models.json
 ./.pi/agent/settings.json
@@ -168,7 +167,7 @@ next_steps() {
   "$T_CONSOLE" update steps for systemd/tehas-cycle@.service systemd/tehas-clean.service systemd/tehas-clean.timer \
     systemd/tehas-dispatch.path systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
     systemd/tehas-preview.service \
-    systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-top.service sandbox/Dockerfile sandbox/base.Dockerfile sandbox/build.sh \
+    systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer sandbox/Dockerfile sandbox/base.Dockerfile sandbox/build.sh \
     sandbox/npm/playwright/package.json sandbox/npm/playwright/package-lock.json \
     npm/pi/package.json npm/pi/package-lock.json npm/ctx7/package.json npm/ctx7/package-lock.json \
     npm/parallel-web-cli/package.json npm/parallel-web-cli/package-lock.json versions.env \
