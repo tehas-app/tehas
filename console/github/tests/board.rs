@@ -153,13 +153,14 @@ fn open_changes_answers_as_each_sample_says() {
 #[test]
 fn a_sample_for_every_failure_the_lane_names() {
     let answers: Vec<Got<Whole<ChangeItem>>> = samples().into_iter().map(|s| s.answer).collect();
+    // NotFound is not named from a query yet: gh exits non-zero on the
+    // error that says so, and the runner keeps only its exit status.
     for want in [
-        Outcome::NotFound,
         Outcome::Forbidden,
         Outcome::Unread(Unread::Malformed),
         Outcome::Unread(Unread::Inconsistent),
         Outcome::Unread(Unread::Cut),
-        Outcome::Refused(Refusal::Unsupported),
+        Outcome::Unread(Unread::TooLarge),
     ] {
         assert!(answers.contains(&Err(want.clone())), "{want:?}");
     }
@@ -340,6 +341,10 @@ fn what_needs_a_ticket_a_blueprint_or_a_body_is_unsupported_before_any_request()
             numbers: vec![tehas_ports::ChangeNo::new(21).unwrap()],
             ..ChangeFilter::default()
         },
+        ChangeFilter {
+            bodies: true,
+            ..ChangeFilter::default()
+        },
     ] {
         let ask = ChangeAsk {
             filter: narrow.clone(),
@@ -349,6 +354,226 @@ fn what_needs_a_ticket_a_blueprint_or_a_body_is_unsupported_before_any_request()
             gh.open_changes(&ask, bound(10)).err(),
             unsupported(),
             "{narrow:?}"
+        );
+    }
+    let open = open_changes(None, None);
+    let asks = [
+        ChangeAsk {
+            closing: true,
+            ..open.clone()
+        },
+        ChangeAsk {
+            activity: Some(tehas_ports::Window::Last(
+                std::num::NonZeroU32::new(50).unwrap(),
+            )),
+            ..open.clone()
+        },
+        ChangeAsk {
+            filter: ChangeFilter {
+                head: Some(tehas_ports::Branch::new("feature/issue-21").unwrap()),
+                ..ChangeFilter::default()
+            },
+            ..open_changes(None, Some(5))
+        },
+    ];
+    for ask in asks {
+        assert_eq!(
+            gh.open_changes(&ask, bound(10)).err(),
+            unsupported(),
+            "{ask:?}"
+        );
+    }
+}
+
+/// A runner that answers each question by `answer`, counting them.
+struct Scripted<F: FnMut(usize) -> Result<String, String>> {
+    answer: F,
+    asked: Rc<RefCell<usize>>,
+}
+
+impl<F: FnMut(usize) -> Result<String, String>> GhRunner for Scripted<F> {
+    fn run(&mut self, _: &[&str]) -> Result<String, String> {
+        let n = *self.asked.borrow();
+        *self.asked.borrow_mut() += 1;
+        (self.answer)(n)
+    }
+}
+
+fn scripted(
+    answer: impl FnMut(usize) -> Result<String, String> + 'static,
+) -> (GitHub, Rc<RefCell<usize>>) {
+    let asked = Rc::new(RefCell::new(0));
+    let runner = Scripted {
+        answer,
+        asked: Rc::clone(&asked),
+    };
+    let gh = GitHub::new(PROJECT, Box::new(runner)).on_clock(replay_now);
+    (gh, asked)
+}
+
+/// The open change 30 of the recording of every state, as a page's node.
+fn change_30() -> serde_json::Value {
+    let at = here().join("tests/recorded/board/every-state/pulls-first.json");
+    let page: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(at).unwrap()).unwrap();
+    page["data"]["repository"]["pullRequests"]["nodes"][0].clone()
+}
+
+#[test]
+fn a_failed_query_is_the_failed_calls_outcome_never_a_partial_or_empty_list() {
+    // gh exits 1 on a GraphQL answer with an error in it and prints no
+    // listed word or status: a project gone, a page with an error beside
+    // its data, a change gone between the list and its files.
+    let server = Err(Outcome::Unavailable {
+        why: tehas_ports::Passing::Server,
+        sent: tehas_ports::Sent::Maybe,
+    });
+    for (state, files) in [
+        ("not-found", None),
+        ("data-and-errors", None),
+        ("files-gone", Some(200)),
+    ] {
+        let (mut gh, _) = adapter(state);
+        assert_eq!(
+            gh.open_changes(&open_changes(files, None), bound(5)),
+            server,
+            "{state}"
+        );
+    }
+}
+
+#[test]
+fn an_answer_carrying_an_error_beside_its_data_gives_no_partial_list() {
+    let body = serde_json::json!({
+        "data": {"repository": {"pullRequests": {
+            "totalCount": 1,
+            "pageInfo": {"hasNextPage": false, "endCursor": "Y3Vyc29yOnYyOpHOAAAAAQ=="},
+            "nodes": [change_30()],
+        }}},
+        "errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}],
+    })
+    .to_string();
+    let (mut gh, _) = scripted(move |_| Ok(body.clone()));
+    assert_eq!(
+        gh.open_changes(&open_changes(None, None), bound(5)),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+}
+
+#[test]
+fn a_count_that_changes_between_pages_does_not_add_up() {
+    let (mut gh, asked) = adapter("count-changes");
+    assert_eq!(
+        gh.open_changes(&open_changes(None, None), bound(10)),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    assert_eq!(asked.borrow().len(), 2);
+}
+
+#[test]
+fn the_same_change_on_two_pages_does_not_add_up() {
+    let (mut gh, asked) = adapter("same-twice");
+    assert_eq!(
+        gh.open_changes(&open_changes(None, None), bound(10)),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    assert_eq!(asked.borrow().len(), 2);
+}
+
+#[test]
+fn a_null_change_in_a_page_does_not_add_up() {
+    let (mut gh, _) = adapter("null-node");
+    assert_eq!(
+        gh.open_changes(&open_changes(None, None), bound(10)),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+}
+
+#[test]
+fn files_asked_and_not_in_the_answer_are_malformed() {
+    let (mut gh, _) = adapter("three-open-bare");
+    assert_eq!(
+        gh.open_changes(&open_changes(Some(10), None), bound(10)),
+        Err(Outcome::Unread(Unread::Malformed))
+    );
+}
+
+#[test]
+fn past_fifty_pages_the_list_is_too_large() {
+    let node = change_30();
+    let (mut gh, asked) = scripted(move |n| {
+        let mut node = node.clone();
+        node["number"] = serde_json::json!(n + 1);
+        Ok(serde_json::json!({"data": {"repository": {"pullRequests": {
+            "totalCount": 60,
+            "pageInfo": {"hasNextPage": true, "endCursor": format!("Y3Vyc29yOnYyOp{n:04}")},
+            "nodes": [node],
+        }}}})
+        .to_string())
+    });
+    assert_eq!(
+        gh.open_changes(&open_changes(None, None), bound(1000)),
+        Err(Outcome::Unread(Unread::TooLarge))
+    );
+    assert_eq!(*asked.borrow(), 50);
+}
+
+#[test]
+fn past_fifty_closes_or_a_hundred_labels_a_change_is_too_large() {
+    for state in ["too-many-closes", "too-many-labels"] {
+        let (mut gh, _) = adapter(state);
+        assert_eq!(
+            gh.open_changes(&open_changes(None, None), bound(10)),
+            Err(Outcome::Unread(Unread::TooLarge)),
+            "{state}"
+        );
+    }
+}
+
+#[test]
+fn merged_alone_and_closed_alone_are_asked_and_read_as_in_every_state() {
+    let mut all = open_changes(None, None);
+    all.filter.states = tehas_ports::ChangeStates::All;
+    let every = adapter("every-state")
+        .0
+        .open_changes(&all, bound(5))
+        .unwrap();
+    for (states, state, word, no) in [
+        (
+            tehas_ports::ChangeStates::Merged,
+            "merged-only",
+            "MERGED",
+            31,
+        ),
+        (
+            tehas_ports::ChangeStates::Closed,
+            "closed-only",
+            "CLOSED",
+            32,
+        ),
+    ] {
+        let mut ask = open_changes(None, None);
+        ask.filter.states = states;
+        let (mut gh, asked) = adapter(state);
+        let got = gh.open_changes(&ask, bound(5)).unwrap();
+        let want: Vec<&ChangeItem> = every
+            .items()
+            .iter()
+            .filter(|i| i.change.no.get() == no)
+            .collect();
+        assert_eq!(got.items().iter().collect::<Vec<_>>(), want, "{state}");
+        let query = field(&strs(&asked.borrow()[0]), "query")
+            .unwrap()
+            .to_string();
+        assert!(query.contains(&format!("states: [{word}]")), "{query}");
+
+        // The recording of every state holds an open change, which
+        // neither ask takes.
+        let (mut gh, _) = adapter("every-state");
+        assert_eq!(
+            gh.open_changes(&ask, bound(5)),
+            Err(Outcome::Unread(Unread::Inconsistent)),
+            "{state}"
         );
     }
 }

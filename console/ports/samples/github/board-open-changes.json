@@ -539,64 +539,6 @@
     "actor": {
       "Ours": "Full"
     },
-    "fixture": "Change 40 is gone when its second page of files is asked: the two answers disagree.",
-    "state": "files-gone",
-    "ask": {
-      "filter": {
-        "states": "Open",
-        "author": null,
-        "head": null,
-        "closing": [],
-        "merged_since": null,
-        "updated_since": null,
-        "numbers": [],
-        "bodies": false
-      },
-      "files": 200,
-      "closing": false,
-      "siblings": null,
-      "activity": null
-    },
-    "bound": 5,
-    "answer": {
-      "Err": {
-        "Unread": "Inconsistent"
-      }
-    }
-  },
-  {
-    "op": "Board::open_changes",
-    "actor": {
-      "Ours": "Full"
-    },
-    "fixture": "The project is not there, or not visible to the factory.",
-    "state": "not-found",
-    "ask": {
-      "filter": {
-        "states": "Open",
-        "author": null,
-        "head": null,
-        "closing": [],
-        "merged_since": null,
-        "updated_since": null,
-        "numbers": [],
-        "bodies": false
-      },
-      "files": null,
-      "closing": false,
-      "siblings": null,
-      "activity": null
-    },
-    "bound": 10,
-    "answer": {
-      "Err": "NotFound"
-    }
-  },
-  {
-    "op": "Board::open_changes",
-    "actor": {
-      "Ours": "Full"
-    },
     "fixture": "The factory's account may not read the project.",
     "state": "forbidden",
     "ask": {
@@ -847,36 +789,6 @@
     "actor": {
       "Ours": "Full"
     },
-    "fixture": "A page answers one change and an error for the other.",
-    "state": "data-and-errors",
-    "ask": {
-      "filter": {
-        "states": "Open",
-        "author": null,
-        "head": null,
-        "closing": [],
-        "merged_since": null,
-        "updated_since": null,
-        "numbers": [],
-        "bodies": false
-      },
-      "files": null,
-      "closing": false,
-      "siblings": null,
-      "activity": null
-    },
-    "bound": 10,
-    "answer": {
-      "Err": {
-        "Unread": "Inconsistent"
-      }
-    }
-  },
-  {
-    "op": "Board::open_changes",
-    "actor": {
-      "Ours": "Full"
-    },
     "fixture": "The second of two pages fails with a server error: no partial list.",
     "state": "second-page-fails",
     "ask": {
@@ -910,68 +822,8 @@
     "actor": {
       "Ours": "Full"
     },
-    "fixture": "The blueprints each change closes are asked: this adapter does not read them yet.",
-    "state": null,
-    "ask": {
-      "filter": {
-        "states": "Open",
-        "author": null,
-        "head": null,
-        "closing": [],
-        "merged_since": null,
-        "updated_since": null,
-        "numbers": [],
-        "bodies": false
-      },
-      "files": null,
-      "closing": true,
-      "siblings": null,
-      "activity": null
-    },
-    "bound": 10,
-    "answer": {
-      "Err": {
-        "Refused": "Unsupported"
-      }
-    }
-  },
-  {
-    "op": "Board::open_changes",
-    "actor": {
-      "Ours": "Full"
-    },
-    "fixture": "Bodies are asked: this adapter does not read them yet.",
-    "state": null,
-    "ask": {
-      "filter": {
-        "states": "Open",
-        "author": null,
-        "head": null,
-        "closing": [],
-        "merged_since": null,
-        "updated_since": null,
-        "numbers": [],
-        "bodies": true
-      },
-      "files": null,
-      "closing": false,
-      "siblings": null,
-      "activity": null
-    },
-    "bound": 10,
-    "answer": {
-      "Err": {
-        "Refused": "Unsupported"
-      }
-    }
-  },
-  {
-    "op": "Board::open_changes",
-    "actor": {
-      "Ours": "Full"
-    },
-    "fixture": "Each change's events are asked: this adapter does not read them yet.",
-    "state": null,
+    "fixture": "Change 30 closes 51 blueprints, past the 50 a change's closes are read to.",
+    "state": "too-many-closes",
     "ask": {
       "filter": {
         "states": "Open",
@@ -986,44 +838,12 @@
       "files": null,
       "closing": false,
       "siblings": null,
-      "activity": {
-        "Last": 50
-      }
-    },
-    "bound": 10,
-    "answer": {
-      "Err": {
-        "Refused": "Unsupported"
-      }
-    }
-  },
-  {
-    "op": "Board::open_changes",
-    "actor": {
-      "Ours": "Full"
-    },
-    "fixture": "Siblings beside a list narrowed to one branch: not read from that list.",
-    "state": null,
-    "ask": {
-      "filter": {
-        "states": "Open",
-        "author": null,
-        "head": "feature/issue-21",
-        "closing": [],
-        "merged_since": null,
-        "updated_since": null,
-        "numbers": [],
-        "bodies": false
-      },
-      "files": null,
-      "closing": false,
-      "siblings": 5,
       "activity": null
     },
     "bound": 10,
     "answer": {
       "Err": {
-        "Refused": "Unsupported"
+        "Unread": "TooLarge"
       }
     }
   }

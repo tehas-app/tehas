@@ -15,7 +15,7 @@ use crate::{gh, GitHub};
 use tehas_ports::{
     Account, At, BlueprintNo, Board, BoardAsk, Bound, Branch, ChangeAsk, ChangeDigest,
     ChangeFilter, ChangeItem, ChangeNo, ChangeState, ChangeStates, ChangedFile, CommitId, Got,
-    ItemName, Mergeable, NotMergeable, OpenWork, Outcome, Pool, ProjectName, Ref, RepoPath, Size,
+    ItemName, Mergeable, NotMergeable, OpenWork, Outcome, ProjectName, Ref, RepoPath, Size,
     TargetId, TicketKey, Unread, WebLink, Whole, WorkItem,
 };
 
@@ -237,7 +237,7 @@ impl GitHub {
             let out = self
                 .call("the open changes", &args)
                 .map_err(|e| self.outcome(&e))?;
-            let page = self.answer::<PullsRepo>(&out)?.pull_requests;
+            let page = answer::<PullsRepo>(&out)?.pull_requests;
             if *total.get_or_insert(page.total_count) != page.total_count {
                 return Err(Outcome::Unread(Unread::Inconsistent));
             }
@@ -303,39 +303,15 @@ impl GitHub {
                     ],
                 )
                 .map_err(|e| self.outcome(&e))?;
-            // The list named this change: gone since, the two answers
-            // disagree.
-            page = self
-                .answer::<OnePull>(&out)?
+            // The list named this change: none here, the two answers
+            // disagree. One gone since fails the call itself, as gh exits
+            // non-zero on the error that says so.
+            page = answer::<OnePull>(&out)?
                 .pull_request
                 .ok_or(Outcome::Unread(Unread::Inconsistent))?
                 .files;
         }
         Err(Outcome::Unread(Unread::Inconsistent))
-    }
-
-    /// The repository of a GraphQL answer, read whole. A repository the
-    /// actor cannot see is `NotFound`; an answer with an error in it is the
-    /// error's outcome, never a partial list.
-    fn answer<T: DeserializeOwned>(&self, out: &str) -> Got<T> {
-        let mut v: serde_json::Value = serde_json::from_str(out.trim()).map_err(|_| malformed())?;
-        tehas_core::accounts::vouch(&mut v);
-        let a: Answer<T> = serde_json::from_value(v).map_err(|_| malformed())?;
-        let repo = a.data.and_then(|d| d.repository);
-        let kinds: Vec<&str> = a.errors.iter().filter_map(|e| e.kind.as_deref()).collect();
-        if kinds.contains(&"RATE_LIMITED") {
-            return Err(Outcome::Spent {
-                pool: Pool::Calls,
-                until: At::new((self.now)()),
-            });
-        }
-        match (repo, a.errors.is_empty()) {
-            (Some(repo), true) => Ok(repo),
-            (None, _) if kinds.contains(&"NOT_FOUND") => Err(Outcome::NotFound),
-            (_, _) if kinds.contains(&"FORBIDDEN") => Err(Outcome::Forbidden),
-            (None, true) => Err(malformed()),
-            (_, false) => Err(Outcome::Unread(Unread::Inconsistent)),
-        }
     }
 
     /// A pull request as a change's digest, in the states asked. A node of
@@ -441,6 +417,19 @@ impl GitHub {
     }
 }
 
+/// The repository of a GraphQL answer, read whole. gh exits non-zero on
+/// an answer that carries an error, so its outcome is the failed call's;
+/// an error in an answer handed over anyway still gives no partial list.
+fn answer<T: DeserializeOwned>(out: &str) -> Got<T> {
+    let mut v: serde_json::Value = serde_json::from_str(out.trim()).map_err(|_| malformed())?;
+    tehas_core::accounts::vouch(&mut v);
+    let a: Answer<T> = serde_json::from_value(v).map_err(|_| malformed())?;
+    if !a.errors.is_empty() {
+        return Err(Outcome::Unread(Unread::Inconsistent));
+    }
+    a.data.and_then(|d| d.repository).ok_or_else(malformed)
+}
+
 /// The cursor of the next page, None after the last. A page that says
 /// there is more and names no cursor, or names one read before, does not
 /// add up.
@@ -519,18 +508,12 @@ fn count(n: u64) -> Got<u32> {
 struct Answer<T> {
     data: Option<Data<T>>,
     #[serde(default)]
-    errors: Vec<GraphError>,
+    errors: Vec<serde::de::IgnoredAny>,
 }
 
 #[derive(Deserialize)]
 struct Data<T> {
     repository: Option<T>,
-}
-
-#[derive(Deserialize)]
-struct GraphError {
-    #[serde(rename = "type")]
-    kind: Option<String>,
 }
 
 #[derive(Deserialize)]
