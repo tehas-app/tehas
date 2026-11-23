@@ -47,6 +47,11 @@
 //! created when gh's answer to `issue create` names its URL under TEHAS_REPO.
 //! A cycle has at most 50 writes run.
 //!
+//! An edit is conditional, as a port's edit at a revision is: the issue's
+//! title and body are read, then read again just before the write, and the
+//! edit is not made when they differ. Its answer is then status 1 and one
+//! line asking the agent to read the issue again.
+//!
 //! The token is asked of `tehasbot github-token` for every request, bounded
 //! to 60 seconds: the one the start had runs out after an hour, and that
 //! command keeps a token with at least ten minutes left. gh is given it as
@@ -62,6 +67,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+use tehas_core::call::gh_why;
+use tehas_core::forge::GhRunner;
 use tehas_core::text::has_marker;
 
 /// The most a body file, or the arguments, may hold.
@@ -77,6 +84,10 @@ const POLL: Duration = Duration::from_millis(500);
 
 /// How long one gh may take. The shim waits 120 s.
 const GH_WAIT: u64 = 100;
+
+/// How long each of an edit's two reads may take. Its write takes what is left
+/// of GH_WAIT.
+const READ_WAIT: u64 = 20;
 
 /// How long the token command may take.
 pub const TOKEN_WAIT: u64 = 60;
@@ -282,19 +293,25 @@ pub fn created_number(out: &str, repo: &str) -> Option<u64> {
     })
 }
 
-/// What the relay runs: gh, and the command that prints the app's token
-/// with the seconds it may take.
+/// The read of an issue's title and body as one revision, asked through the
+/// gh runner given, or the reason it could not be read, in tehas's words. The
+/// program's wiring gives it, so the relay never names the adapter.
+pub type ReadText = fn(repo: &str, gh: Box<dyn GhRunner>, issue: u64) -> Result<String, String>;
+
+/// What the relay runs: gh, the command that prints the app's token with the
+/// seconds it may take, and the read an edit is held to.
 pub struct Via {
     pub gh: PathBuf,
     pub token: PathBuf,
     pub token_args: Vec<String>,
     pub token_wait: u64,
+    pub read_text: ReadText,
 }
 
 impl Via {
     /// gh from PATH (TEHAS_GH_BIN in tests) and `<home>/bin/tehasbot
     /// github-token`, the command the renewer asks too.
-    pub fn from_env(home: &Path) -> Via {
+    pub fn from_env(home: &Path, read_text: ReadText) -> Via {
         let gh = std::env::var_os("TEHAS_GH_BIN")
             .filter(|v| !v.is_empty())
             .map_or_else(|| PathBuf::from("gh"), PathBuf::from);
@@ -303,17 +320,13 @@ impl Via {
             token: home.join("bin/tehasbot"),
             token_args: vec!["github-token".to_string()],
             token_wait: TOKEN_WAIT,
+            read_text,
         }
     }
 }
 
 /// Serves the relay directory `dir` of the cycle of issue `issue` for `repo`
 /// until `stop` is set, then answers what is left with 1.
-pub fn serve(dir: &Path, repo: &str, issue: u64, stop: &AtomicBool) {
-    let home = PathBuf::from(std::env::var_os("TEHAS_HOME").unwrap_or_default());
-    serve_via(dir, repo, issue, stop, &Via::from_env(&home));
-}
-
 pub fn serve_via(dir: &Path, repo: &str, issue: u64, stop: &AtomicBool, via: &Via) {
     let mut scope = Scope::new(issue);
     while !stop.load(Ordering::SeqCst) {
@@ -498,7 +511,11 @@ fn answer_request(
     let (argv, input) = plan(args, body, repo)?;
     scope.permits(&argv)?;
     scope.run += 1;
-    let (out, err, rc) = run(via, &argv, input.as_deref());
+    let (out, err, rc) = if argv[1] == "edit" {
+        edit(via, repo, &argv, input.as_deref())
+    } else {
+        run(via, &argv, input.as_deref())
+    };
     if rc == 0 && argv[1] == "create" {
         if let Some(n) = created_number(&out, repo) {
             scope.created.insert(n);
@@ -549,23 +566,111 @@ fn bounded(seconds: u64, program: &Path, args: &[String]) -> Command {
     cmd
 }
 
-/// gh with the app's token: its output, its error stream and its status.
-fn run(via: &Via, argv: &[String], input: Option<&str>) -> (String, String, i32) {
-    let token = bounded(via.token_wait, &via.token, &via.token_args)
+/// The app's token, asked of the host's token command.
+fn token(via: &Via) -> Option<String> {
+    bounded(via.token_wait, &via.token, &via.token_args)
         .stdin(Stdio::null())
         .stderr(Stdio::inherit())
         .output()
         .ok()
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .filter(|t| !t.is_empty());
-    let Some(token) = token else {
-        return (String::new(), no("has no GitHub token from the host"), 1);
+        .filter(|t| !t.is_empty())
+}
+
+const NO_TOKEN: &str = "has no GitHub token from the host";
+
+/// gh with the app's token: its output, its error stream and its status.
+fn run(via: &Via, argv: &[String], input: Option<&str>) -> (String, String, i32) {
+    let Some(token) = token(via) else {
+        return (String::new(), no(NO_TOKEN), 1);
     };
+    run_gh(&via.gh, &token, GH_WAIT, argv, input)
+}
+
+/// gh asked by the forge, with the relay's token and bound.
+struct RelayGh {
+    gh: PathBuf,
+    token: String,
+}
+
+impl GhRunner for RelayGh {
+    /// gh's output, or one line in our words: gh's error stream is the
+    /// site's text, which goes back into the container, so only the words
+    /// of `gh_why`'s fixed list are kept.
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        let argv: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+        match run_gh(&self.gh, &self.token, READ_WAIT, &argv, None) {
+            (out, _, 0) => Ok(out),
+            (_, err, rc) => Err(format!("gh exited {rc}{}", gh_why(&err))),
+        }
+    }
+}
+
+/// An edit made only if the issue's title and body are unchanged between a
+/// read and the write: the revision read first is compared with one read just
+/// before the write, as a port's `edit` at a revision compares. gh cannot make
+/// the write itself conditional, so the window that stays is the moment
+/// between the second read and the write. It guards no edit made before the
+/// first read.
+fn edit(via: &Via, repo: &str, argv: &[String], input: Option<&str>) -> (String, String, i32) {
+    let Some(token) = token(via) else {
+        return (String::new(), no(NO_TOKEN), 1);
+    };
+    let issue = argv[2]
+        .parse::<u64>()
+        .expect("Scope::permits ran no edit whose number is not a u64");
+    let read = || {
+        let gh = RelayGh {
+            gh: via.gh.clone(),
+            token: token.clone(),
+        };
+        (via.read_text)(repo, Box::new(gh), issue).map_err(|why| {
+            no(&format!(
+                "could not read #{issue} before the edit, and did not edit it: {why}\n"
+            ))
+        })
+    };
+    let since = match read() {
+        Ok(r) => r,
+        Err(why) => return (String::new(), why, 1),
+    };
+    match read() {
+        Ok(now) if now == since => {}
+        Ok(_) => {
+            return (
+                String::new(),
+                no(&format!(
+                    "did not edit #{issue}: another account changed its title or body after the relay read it. Read it again\n"
+                )),
+                1,
+            )
+        }
+        Err(why) => return (String::new(), why, 1),
+    }
+    run_gh(&via.gh, &token, GH_WAIT - 2 * READ_WAIT, argv, input)
+}
+
+/// A read for tests: the stub gh's answer to `api <issue>`, whole, as the
+/// revision.
+#[cfg(test)]
+pub(crate) fn read_raw(_: &str, mut gh: Box<dyn GhRunner>, issue: u64) -> Result<String, String> {
+    gh.run(&["api", &issue.to_string()])
+}
+
+/// gh run with `token` for at most `wait` seconds: its output, its error
+/// stream and its status.
+fn run_gh(
+    gh: &Path,
+    token: &str,
+    wait: u64,
+    argv: &[String],
+    input: Option<&str>,
+) -> (String, String, i32) {
     // The host's shim takes TEHAS_GH_TOKEN over asking for one of its own.
-    let child = bounded(GH_WAIT, &via.gh, argv)
-        .env("GH_TOKEN", &token)
-        .env("TEHAS_GH_TOKEN", &token)
+    let child = bounded(wait, gh, argv)
+        .env("GH_TOKEN", token)
+        .env("TEHAS_GH_TOKEN", token)
         .env("GH_PROMPT_DISABLED", "1")
         .current_dir("/")
         .stdin(if input.is_some() {
@@ -596,7 +701,7 @@ fn run(via: &Via, argv: &[String], input: Option<&str>) -> (String, String, i32)
     let mut err = String::from_utf8_lossy(&done.stderr).into_owned();
     let status = done.status.code().unwrap_or(1);
     if status == 124 {
-        err.push_str(&no(&format!("stopped gh after {GH_WAIT} s\n")));
+        err.push_str(&no(&format!("stopped gh after {wait} s\n")));
     }
     (out, err, status)
 }
@@ -1113,8 +1218,9 @@ mod tests {
         tehas_core::testing::write_exe(
             &gh,
             format!(
-                "#!/bin/sh\nprintf '%s|' \"$@\" >>'{l}'\nprintf 'token=%s,%s\\n' \"$GH_TOKEN\" \"$TEHAS_GH_TOKEN\" >>'{l}'\ncat >>'{l}'\nif [ \"$2\" = create ]; then echo https://github.com/acme/widget/issues/99; else echo posted; fi\n",
-                l = log.display()
+                "#!/bin/sh\nprintf '%s|' \"$@\" >>'{l}'\nprintf 'token=%s,%s\\n' \"$GH_TOKEN\" \"$TEHAS_GH_TOKEN\" >>'{l}'\ncat >>'{l}'\nif [ \"$1\" = api ]; then if [ \"$(cat '{i}' 2>/dev/null)\" = fail ]; then printf 'dial tcp: connection refused\\nhttps://ghe.example/api\\nmore\\n' >&2; exit 1; fi; if [ -f '{i}' ]; then cat '{i}'; else echo '{{\"title\":\"t\",\"body\":\"b\"}}'; fi; [ -f '{i}.next' ] && mv '{i}.next' '{i}'; exit 0; fi\nif [ \"$2\" = create ]; then echo https://github.com/acme/widget/issues/99; else echo posted; fi\n",
+                l = log.display(),
+                i = d.join("issue.json").display()
             ),
         )
         .unwrap();
@@ -1161,6 +1267,7 @@ mod tests {
             token: stub_token(d, "ghs_full"),
             token_args: vec![],
             token_wait: 10,
+            read_text: read_raw,
         };
         let stop = Arc::new(AtomicBool::new(false));
         let (r, s) = (relay.clone(), stop.clone());
@@ -1363,7 +1470,68 @@ mod tests {
         );
         assert_eq!(rc("5"), "0\n");
         assert_eq!(rc("6"), "0\n");
-        assert_eq!(read(d.join("gh.log")).matches("token=").count(), 3);
+        // The edit reads the issue twice before it writes.
+        assert_eq!(read(d.join("gh.log")).matches("token=").count(), 5);
+        assert_eq!(read(d.join("gh.log")).matches("api|99|").count(), 2);
+    }
+
+    #[test]
+    fn an_edit_of_an_issue_another_account_changed_after_the_read_is_not_made() {
+        let d = TestDir::new("relay-edit-changed");
+        fs::write(d.join("issue.json"), r#"{"title":"t","body":"b"}"#).unwrap();
+        fs::write(
+            d.join("issue.json.next"),
+            r#"{"title":"t","body":"edited"}"#,
+        )
+        .unwrap();
+        let (relay, stop, t) = served(&d);
+        request(
+            &relay,
+            "1",
+            &["issue", "create", "--title", "t", "--body", "b"],
+            None,
+        );
+        assert!(wait_done(&relay, "1"));
+        request(&relay, "2", &["issue", "edit", "99", "--title", "x"], None);
+        assert!(wait_done(&relay, "2"));
+        // Unchanged between its two reads now: the retry is made.
+        request(&relay, "3", &["issue", "edit", "99", "--title", "x"], None);
+        assert!(wait_done(&relay, "3"));
+        stop.store(true, Ordering::SeqCst);
+        t.join().unwrap();
+        assert_eq!(read(relay.join("res.2/rc")), "1\n");
+        assert_eq!(
+            read(relay.join("res.2/err")),
+            "gh-shim: the relay did not edit #99: another account changed its title or body after the relay read it. Read it again\n"
+        );
+        assert_eq!(read(relay.join("res.3/rc")), "0\n");
+        let log = read(d.join("gh.log"));
+        assert_eq!(log.matches("issue|edit|").count(), 1, "{log}");
+    }
+
+    #[test]
+    fn an_edit_whose_read_fails_is_not_made() {
+        let d = TestDir::new("relay-edit-unread");
+        fs::write(d.join("issue.json"), "fail").unwrap();
+        let (relay, stop, t) = served(&d);
+        request(
+            &relay,
+            "1",
+            &["issue", "create", "--title", "t", "--body", "b"],
+            None,
+        );
+        assert!(wait_done(&relay, "1"));
+        request(&relay, "2", &["issue", "edit", "99", "--title", "x"], None);
+        assert!(wait_done(&relay, "2"));
+        stop.store(true, Ordering::SeqCst);
+        t.join().unwrap();
+        assert_eq!(read(relay.join("res.2/rc")), "1\n");
+        // gh's three lines of error become one, in our words.
+        assert_eq!(
+            read(relay.join("res.2/err")),
+            "gh-shim: the relay could not read #99 before the edit, and did not edit it: gh exited 1: connection refused\n"
+        );
+        assert!(!read(d.join("gh.log")).contains("issue|edit|"));
     }
 
     #[test]
@@ -1378,6 +1546,7 @@ mod tests {
             token,
             token_args: vec![],
             token_wait: 1,
+            read_text: read_raw,
         };
         let stop = Arc::new(AtomicBool::new(false));
         let (r, s) = (relay.clone(), stop.clone());
@@ -1418,6 +1587,7 @@ mod tests {
             token: stub_token(&d, "ghs_full"),
             token_args: vec![],
             token_wait: 10,
+            read_text: read_raw,
         };
         serve_via(&relay, REPO, 3, &AtomicBool::new(true), &via);
         assert_eq!(read(relay.join("res.5/rc")), "1\n");
@@ -1438,6 +1608,7 @@ mod tests {
             token,
             token_args: Vec::new(),
             token_wait: 5,
+            read_text: read_raw,
         };
         let mut scope = Scope::new(3);
         let args: Vec<String> = ["issue", "comment", "4", "--body", "x"]

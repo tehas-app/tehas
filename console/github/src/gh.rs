@@ -224,6 +224,14 @@ pub(crate) fn parse_labels(out: &str) -> Option<Vec<String>> {
     )
 }
 
+/// An issue's title and body as one revision, or None when the answer is no
+/// issue with a title.
+pub(crate) fn text_revision(out: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(out.trim()).ok()?;
+    let title = tehas_core::approval::title_sha256(&v)?;
+    Some(format!("{title}:{}", tehas_core::approval::body_sha256(&v)))
+}
+
 /// The question of the issue types the repository's owner has.
 pub(crate) const ISSUE_TYPES: &str = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { issueTypes(first: 50) { nodes { name } } } }";
 
