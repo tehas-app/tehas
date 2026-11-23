@@ -5,11 +5,10 @@
 //! answer yet is refused before any request.
 
 use serde::Deserialize;
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 use tehas_ports::laws;
@@ -24,7 +23,7 @@ fn here() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-type Asked = Rc<RefCell<Vec<String>>>;
+type Asked = Arc<Mutex<Vec<String>>>;
 
 /// A runner that answers each page of a search from its recording:
 /// `index.json` lists the recorded pages of each question, in order; a
@@ -36,7 +35,7 @@ struct Replay {
 
 impl GhRunner for Replay {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        self.asked.borrow_mut().push(args.join(" "));
+        self.asked.lock().unwrap().push(args.join(" "));
         let field = |name: &str| {
             args.iter()
                 .find_map(|a| a.strip_prefix(&format!("{name}=")))
@@ -72,7 +71,7 @@ fn replay_now() -> i64 {
 fn adapter() -> (GitHub, Asked) {
     let asked = Asked::default();
     let replay = Replay {
-        asked: Rc::clone(&asked),
+        asked: Arc::clone(&asked),
     };
     let gh = GitHub::new(PROJECT, Box::new(replay)).on_clock(replay_now);
     (gh, asked)
@@ -183,7 +182,7 @@ fn a_search_asks_for_this_projects_issues_with_each_word_quoted() {
     let _ = gh.search("Fix \"label:bug\"  now", Within::Titles, Some(true), n(5));
     let _ = gh.search("alpha", Within::Everything, Some(false), n(5));
     assert_eq!(
-        *asked.borrow(),
+        *asked.lock().unwrap(),
         [
             r#"api -X GET search/issues -f q=repo:acme/widget is:issue in:title "fix" "label:bug" "now" is:open -f per_page=100 -f page=1"#,
             r#"api -X GET search/issues -f q=repo:acme/widget is:issue in:title,body "alpha" is:closed -f per_page=100 -f page=1"#,
@@ -196,7 +195,7 @@ fn a_search_reads_the_next_page_only_when_it_needs_one_more_hit() {
     for (first, pages) in [(1, 1), (99, 1), (100, 2), (103, 2), (500, 2)] {
         let (mut gh, asked) = adapter();
         gh.search("report", Within::Titles, None, n(first)).unwrap();
-        assert_eq!(asked.borrow().len(), pages, "first {first}");
+        assert_eq!(asked.lock().unwrap().len(), pages, "first {first}");
     }
 }
 
@@ -205,10 +204,7 @@ fn a_search_with_no_words_or_words_github_cannot_search_asks_nothing() {
     let (mut gh, asked) = adapter();
     assert_eq!(
         gh.search(" \n ", Within::Everything, None, n(5)),
-        Ok(Took {
-            items: Vec::new(),
-            more: false
-        })
+        Ok(Took::default())
     );
     assert_eq!(
         gh.search(&"long ".repeat(60), Within::Titles, None, n(5)),
@@ -218,7 +214,7 @@ fn a_search_with_no_words_or_words_github_cannot_search_asks_nothing() {
         gh.search("\" \"\"", Within::Titles, None, n(5)),
         Err(Outcome::Refused(Refusal::Invalid))
     );
-    assert!(asked.borrow().is_empty());
+    assert!(asked.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -277,7 +273,7 @@ struct Wide {
 
 impl GhRunner for Wide {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        self.asked.borrow_mut().push(args.join(" "));
+        self.asked.lock().unwrap().push(args.join(" "));
         let page: usize = args
             .iter()
             .find_map(|a| a.strip_prefix("page="))
@@ -306,7 +302,7 @@ fn past_githubs_reach_a_search_that_cannot_tell_is_inconsistent() {
     let wide = |title| Wide {
         total: 1500,
         title,
-        asked: Rc::clone(&asked),
+        asked: Arc::clone(&asked),
     };
     // No hit holds the word: past the thousandth item, one might.
     let mut gh = GitHub::new(PROJECT, Box::new(wide("Other")));
@@ -314,11 +310,11 @@ fn past_githubs_reach_a_search_that_cannot_tell_is_inconsistent() {
         gh.search("report", Within::Titles, None, n(5)),
         Err(Outcome::Unread(Unread::Inconsistent))
     );
-    assert_eq!(asked.borrow().len(), 10);
+    assert_eq!(asked.lock().unwrap().len(), 10);
     // Hits enough within reach: the first n, and more.
-    asked.borrow_mut().clear();
+    asked.lock().unwrap().clear();
     let mut gh = GitHub::new(PROJECT, Box::new(wide("Report")));
     let took = gh.search("report", Within::Titles, None, n(150)).unwrap();
     assert_eq!((took.items.len(), took.more), (150, true));
-    assert_eq!(asked.borrow().len(), 2);
+    assert_eq!(asked.lock().unwrap().len(), 2);
 }

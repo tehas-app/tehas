@@ -161,6 +161,7 @@ fn pool_next(mine: Pool, now: At, was: HealthState, seen: &Result<(), Outcome>) 
 /// the first estimate; the ledger and each call's outcome carry the
 /// current one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Notice {
     /// The host it is about.
     pub host: HostId,
@@ -173,6 +174,14 @@ pub struct Notice {
     /// When it was seen.
     pub at: At,
 }
+
+new!(Notice {
+    host: HostId,
+    whose: Whose,
+    realm: Realm,
+    what: Health,
+    at: At
+});
 
 /// What a notice says. `TokenNotDropped`: a refused token could not be
 /// dropped from the `TokenStore`, so another process may still read it
