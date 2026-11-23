@@ -6,8 +6,8 @@ use crate::{gh, table, ForgeError, GitHub};
 use serde_json::Value;
 use tehas_ports::{
     Account, AccountId, AccountKind, At, CloseReason, Got, Happened, HappenedKind, Kind, Login,
-    Mark, MarkName, Outcome, Passing, Pool, Priority, Realm, Refusal, Revision, Sent, TargetId,
-    TargetName, TicketDigest, TicketEvent, TicketKey, TicketState, Took, Unread, WebLink, Window,
+    Mark, MarkName, Outcome, Passing, Pool, Realm, Refusal, Revision, Sent, TargetId, TargetName,
+    TicketDigest, TicketEvent, TicketKey, TicketState, Took, Unread, WebLink, Window,
 };
 
 impl GitHub {
@@ -73,11 +73,10 @@ impl GitHub {
                     tehas_core::time::from_iso(t).ok_or(Outcome::Unread(Unread::Malformed))?,
                 )),
             };
-            items.push(TicketEvent {
-                what,
-                by: account(&e.actor, &facts),
-                at,
-            });
+            let mut event = TicketEvent::new(what);
+            event.by = account(&e.actor, &facts);
+            event.at = at;
+            items.push(event);
         }
         take(items, window)
     }
@@ -154,10 +153,10 @@ fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDige
     };
     let target = match v.get("milestone").filter(|m| !m.is_null()) {
         None => None,
-        Some(m) => Some(TargetName {
-            id: TargetId::new(m.get("number")?.as_u64()?.to_string()),
-            title: m.get("title")?.as_str()?.to_string(),
-        }),
+        Some(m) => Some(TargetName::new(
+            TargetId::new(m.get("number")?.as_u64()?.to_string()),
+            m.get("title")?.as_str()?.to_string(),
+        )),
     };
     let author = v.get("user").and_then(|u| {
         let facts = gh::Facts {
@@ -166,20 +165,20 @@ fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDige
         };
         account(u.get("login")?.as_str()?, &facts)
     });
-    Some(TicketDigest {
+    let mut digest = TicketDigest::new(
         key,
-        title: text("title")?.to_string(),
         state,
-        kind,
-        priority: Priority::Normal,
-        marks,
-        target,
-        author,
-        created: time("created_at")?,
-        updated: time("updated_at")?,
-        revision: Revision::new(text("updated_at")?),
-        link: WebLink::new(text("html_url")?).ok()?,
-    })
+        time("created_at")?,
+        time("updated_at")?,
+        Revision::new(text("updated_at")?),
+        WebLink::new(text("html_url")?).ok()?,
+    );
+    digest.title = text("title")?.to_string();
+    digest.kind = kind;
+    digest.marks = marks;
+    digest.target = target;
+    digest.author = author;
+    Some(digest)
 }
 
 /// The account of an event, None where it names nobody. The login is folded
@@ -188,16 +187,15 @@ fn account(login: &str, facts: &gh::Facts) -> Option<Account> {
     if login.is_empty() {
         return None;
     }
-    Some(Account {
-        realm: Realm::CodeHost,
-        login: Login::new(tehas_core::accounts::folded(login)),
-        id: facts.id.map(|id| AccountId::new(id.to_string())),
-        kind: match facts.kind.as_deref() {
-            Some("User") => AccountKind::Person,
-            Some("Bot") => AccountKind::Bot,
-            _ => AccountKind::Unknown,
-        },
-    })
+    let kind = match facts.kind.as_deref() {
+        Some("User") => AccountKind::Person,
+        Some("Bot") => AccountKind::Bot,
+        _ => AccountKind::Unknown,
+    };
+    let login = Login::new(tehas_core::accounts::folded(login));
+    let mut account = Account::new(Realm::CodeHost, login, kind);
+    account.id = facts.id.map(|id| AccountId::new(id.to_string()));
+    Some(account)
 }
 
 /// What a window takes of a list, oldest first.
@@ -206,13 +204,18 @@ fn take<T>(mut items: Vec<T>, window: Window) -> Got<Took<T>> {
         Window::Whole(bound) if items.len() > bound.get() as usize => {
             Err(Outcome::Unread(Unread::Cut))
         }
-        Window::Whole(_) => Ok(Took { items, more: false }),
+        Window::Whole(_) => Ok(Took {
+            items,
+            ..Default::default()
+        }),
         Window::Last(n) => {
             let skip = items.len().saturating_sub(n.get() as usize);
-            Ok(Took {
-                more: skip > 0,
+            let mut took = Took {
                 items: items.split_off(skip),
-            })
+                ..Default::default()
+            };
+            took.more = skip > 0;
+            Ok(took)
         }
     }
 }

@@ -203,8 +203,8 @@ impl TicketWrites for GitHub {
             None
         };
         let applied = Applied {
-            done: Vec::new(),
             stopped: first.map(|p| (p, Outcome::Refused(Refusal::Unsupported))),
+            ..Default::default()
         };
         (applied, None)
     }
