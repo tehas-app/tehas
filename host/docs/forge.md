@@ -1,6 +1,6 @@
 ---
 title: The forge
-description: "How tehas asks GitHub about labels: the tickets port its commands take, and the GitHub adapter's terms behind it, each with what it returns and how GitHub answers it. Internal: tehas 1.0 promises no forge interface."
+description: "How tehas asks GitHub about labels: the tickets port its commands take, and the GitHub adapter's terms behind it, each with what it returns and how GitHub answers it. Internal: tehas 2.0 promises no forge interface."
 ---
 
 # The forge
@@ -15,9 +15,9 @@ adapter, the `GitHub` type in its own crate, `tehas-github` in
 labels in `console/github/src/table.rs`. This page describes them for a
 person who reads or changes that code.
 
-The port is internal. tehas 1.0 promises no forge interface: GitHub is the
+The port is internal. tehas 2.0 promises no forge interface: GitHub is the
 only forge, nothing on a host chooses another, and the port may change in any
-release before 2.0. What tehas writes to GitHub, and the labels it reads, are
+release. What tehas writes to GitHub, and the labels it reads, are
 what the [contract](/contract) freezes. Every term is backed by labels. The
 port names no endpoint, no field and no JSON shape, so an adapter is free to
 answer a call from a label or from a native field of its site. A caller never
@@ -36,8 +36,8 @@ method no command asks yet answers `Refused(Unsupported)` before any call.
 | Method | Asked by | GitHub mapping |
 | --- | --- | --- |
 | `several(keys)` | `tehas resume`, for the marks on the control issue | `GET repos/<owner>/<name>/issues/<n>` per key: the title, state and its reason, type, labels, milestone, author, times and link. An answer without one of the fields every issue has is `Unread(Malformed)`. |
-| `history(key, window, kinds)` | `tehas resume` and `console label allowed` | The paginated events call below, marks going on and off alone. A login is folded to lower case, so it matches the allowed list in any case. |
-| `prepare()` | `tehas labels` | `gh label create <name> --repo <owner>/<name> --color <c> --description <d> --force` for each row of `host/labels.tsv`, compiled into the adapter. A label that cannot be made stops none of the others; the first failure is the answer. |
+| `history(key, window, kinds)` | `tehas resume` and `console label allowed` | The paginated events call below, marks going on and off alone. A login is folded to lower case by `accounts::folded`, the fold the user id check uses too, so it matches the allowed list in any case. |
+| `prepare()` | `tehas labels` | `gh label create <name> --repo <owner>/<name> --color <c> --description <d> --force` for each row of `host/labels.tsv`, compiled into the adapter. A label that cannot be made stops none of the others; the first that failed is the answer, with its name (`Unprepared`). |
 | `ensure_mark(spec)` | nothing yet | The same call for one label, with the colour and text the spec gives. |
 | `mark(key, mark)`, `unmark(key, mark)` | nothing yet | `add_label` and `remove_label` below, of the mark's label. |
 

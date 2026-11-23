@@ -181,8 +181,9 @@ label. Run again, it puts their colours and descriptions back. The labels are
 the rows of `host/labels.tsv`, compiled into the console: the copy that
 `install.sh` puts in `~/tehas/lib/labels.tsv` is not read. A change to that
 file comes with a new console, and owes the `labels` step of the same update.
-It says `made the tehas labels`, or which outcome stopped one, and a label that
-cannot be made stops none of the others. It needs `TEHAS_REPO` and no other
+It says `made the tehas labels`, or names the first label it could not make
+and why, and a label that cannot be made stops none of the others. Its words
+are not contract; its exit status is. It needs `TEHAS_REPO` and no other
 setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
 any argument, 78 when the repository is not set, before any label is made.
 
