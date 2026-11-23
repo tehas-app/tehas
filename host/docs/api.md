@@ -126,7 +126,7 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
-  "features": ["status", "limit", "drain", "history", "export", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "state-check", "finish", "status-versions", "state-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-start", "flags", "status-previews", "wake", "start-reasons", "blockers", "answer", "question"],
+  "features": ["status", "limit", "drain", "history", "export", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "state-check", "finish", "status-versions", "state-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-start", "flags", "status-previews", "wake", "start-reasons", "blockers", "answer", "question", "cycle-ids"],
   "flags": {"lean": false, "plugins": false},
   "millwright": null,
   "poll": {
@@ -141,7 +141,8 @@ tehas api [--json]
       "ageMin": 4
     },
     "hour": {"polls": 14, "cpuMs": 41000, "writes": 2}
-  }
+  },
+  "store": "8f14e45fceea167a5a36dedd4bea2543"
 }
 ```
 
@@ -151,10 +152,11 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` or `v1.0.0-alpha.1` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status` ([`tehas status --json`](#tehas-status---json)), `limit` ([`tehas limit`](#tehas-limit)), `drain` ([`tehas drain`](#tehas-drain)), `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `analytics` ([`tehas analytics copy --json`](#tehas-analytics-copy)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` (the hourly cleaner runs on this host, [`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)), `state-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)), `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message), shown by health, `tehas status`, the MCP server and the dashboard), `refresh-pr` ([`tehas refresh --pr N`](/tools-github#tehas-refresh) asks for the refresh of one pull request, `--json` prints what it asked as one object, and the dispatcher starts it in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `host-start` ([`tehas start`](#tehas-start) approves an issue from the host), `flags` (the object below is there), `status-previews` (`previews` in [`tehas status --json`](#tehas-status---json)), `wake` ([`tehas wake`](#tehas-wake) asks for a poll now), `start-reasons` (`starts` in [`tehas order --json`](#tehas-order)), `blockers` ([`tehas blockers`](#tehas-blockers)), `answer` ([`tehas answer`](#tehas-answer)) and `question` ([`tehas question`](#tehas-question)). A shipped optional feature adds its name of `flags` here; a building one does not |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status` ([`tehas status --json`](#tehas-status---json)), `limit` ([`tehas limit`](#tehas-limit)), `drain` ([`tehas drain`](#tehas-drain)), `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `analytics` ([`tehas analytics copy --json`](#tehas-analytics-copy)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` (the hourly cleaner runs on this host, [`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)), `state-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)), `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message), shown by health, `tehas status`, the MCP server and the dashboard), `refresh-pr` ([`tehas refresh --pr N`](/tools-github#tehas-refresh) asks for the refresh of one pull request, `--json` prints what it asked as one object, and the dispatcher starts it in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `host-start` ([`tehas start`](#tehas-start) approves an issue from the host), `flags` (the object below is there), `status-previews` (`previews` in [`tehas status --json`](#tehas-status---json)), `wake` ([`tehas wake`](#tehas-wake) asks for a poll now), `start-reasons` (`starts` in [`tehas order --json`](#tehas-order)), `blockers` ([`tehas blockers`](#tehas-blockers)), `answer` ([`tehas answer`](#tehas-answer)), `question` ([`tehas question`](#tehas-question)) and `cycle-ids` (`store` here; `cycle`, `how` and `by` on `running` in [`tehas status --json`](#tehas-status---json); `cycle`, `end`, `change`, `signalled` and `recorded` on the work lines of [`tehas history`](#tehas-history), each with its `started`, a line for every start, paged by write order). A shipped optional feature adds its name of `flags` here; a building one does not |
 | `flags` | Every optional feature of the release and whether this instance has it on, `true` or `false`. A feature still being built is always `false` and its switch set to `on` stops every command with exit 78. Only a shipped feature's key is contract: a building feature's key may change or go until the release that ships it, and `api/api.schema.json` requires only the keys of shipped features. Today `lean` (`TEHAS_LEAN`, still being built: [choosing the driver](/operating#choosing-the-driver)) and `plugins` (`TEHAS_PLUGIN`, still being built: [what it leaves visible](/contract#plugins)) |
 | `millwright` | The app's login, or `null` before it is known |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
+| `store` | The id of this factory's state store, 32 lower-case hex digits, made once when the store was first laid and kept by `tehas state pack`, `unpack` and `load`. A cycle id is unique within one `store`: a program that keeps the cycle ids it has seen keeps them per factory and `store`, and forgets them when `store` changes. `null` when the state store cannot answer. With the feature `cycle-ids` |
 
 `poll` in two objects, in milliseconds and in whole numbers:
 
@@ -196,7 +198,8 @@ tehas status --json
   "reasons": ["The factory is paused."],
   "paused": {"local": true, "label": false},
   "limit": {"state": "none"},
-  "running": [{"issue": 12, "since": "2026-10-17T11:20:00Z",
+  "running": [{"issue": 12, "cycle": "12-3", "since": "2026-10-17T11:20:00Z",
+               "how": "approved", "by": "alice",
                "progress": {"step": "lens-review", "stepNumber": 7, "stepTotal": 9, "round": 2,
                             "stepSince": "2026-10-17T13:41:00Z"}}],
   "planning": [{"issue": 7, "turn": 2, "since": "2026-10-17T13:47:00Z"}],
@@ -231,7 +234,7 @@ tehas status --json
 | `pushFault.line` | git's first line of why the push was refused |
 | `limit` | The limit, as [`tehas limit --json`](#tehas-limit) prints it without `api` and `reason`: `{"state": "none"}` when none is set |
 | `order` | The start order, as [`tehas order --json`](#tehas-order) prints it without `api` and `starts`, or `{"state": "unreadable"}` when the store did not answer. Left out by a factory that predates `start-order` |
-| `running` | The running cycles: `issue`, `since` (when it started) and `progress`, where the cycle is as its driver reports it: `step`, `stepNumber` (the step the cycle is on, from 1, as the driver counts it), `stepTotal` (how many steps the cycle has), `round` (the round of a step that has run before in this cycle, from 2, or the round the driver gave), `roundLimit` (the most rounds the step may run, when the driver gives a limit) and `stepSince` (when the step started). Each is left out when not known yet, and `progress` is left out when none is known. `stepNumber`, `stepTotal` and `roundLimit` are there only when the driver puts them on its `step-started` lines. `progress` is driver-specific and may change in a minor release: show it, do not decide on it |
+| `running` | The running cycles: `issue`, `cycle` (the cycle id, `<issue>-<attempt>` such as `12-3`, which the cycle's line in [`tehas history`](#tehas-history) carries too, unique within one `store` of [`tehas api`](#tehas-api)), `since` (when it started, the second the cycle's history line prints as `started`), `how` and `by` (how and by whom it was asked for, in the words of `tehas history`; `by` is left out for a cycle run by hand), and `progress`, where the cycle is as its driver reports it: `step`, `stepNumber` (the step the cycle is on, from 1, as the driver counts it), `stepTotal` (how many steps the cycle has), `round` (the round of a step that has run before in this cycle, from 2, or the round the driver gave), `roundLimit` (the most rounds the step may run, when the driver gives a limit) and `stepSince` (when the step started). Each is left out when not known yet, and `progress` is left out when none is known. `stepNumber`, `stepTotal` and `roundLimit` are there only when the driver puts them on its `step-started` lines. `progress` is driver-specific and may change in a minor release: show it, do not decide on it |
 | `planning` | The planning turns in flight: `issue`, `turn` (the session's turn that runs, from 1) and `since` (when it started; left out for a turn started before this was kept). A session whose last turn ended in error and waits for a person is not in flight and is not here; the text summary has a line for it |
 | `demand.waiting` | Open issues that would start if there were room: `tehas:ready` applied last by an account in `TEHAS_ALLOWED_LABELERS` or the millwright, with no cycle and no planning session open, the parked issues where an allowed labeller answered `retry` to the park comment, by a reply or through `tehas answer`, and the refresh requests waiting, unless refreshes are held |
 | `demand.oldestWait` | Seconds since the oldest of them was labelled or asked for; left out when none waits |
@@ -841,9 +844,10 @@ tehas history [--json] [--after CURSOR] [--issue N]
 
 ```json
 {"api": 1, "runs": [
-   {"cursor": "1760700000-12-41", "kind": "work", "issue": 12,
+   {"cursor": "1760700000-12-41", "kind": "work", "issue": 12, "cycle": "12-3",
     "started": "2026-10-17T11:20:00Z", "ended": "2026-10-17T13:20:00Z",
-    "status": 10, "outcome": "handoff", "pr": "https://github.com/acme/widget/pull/9",
+    "status": 10, "outcome": "handoff", "end": "handoff",
+    "pr": "https://github.com/acme/widget/pull/9", "change": 9,
     "progress": {"step": "review", "stepNumber": 9, "stepTotal": 9},
     "cap": "awaiting-human-merge", "parkReason": "merge",
     "failureKind": "review", "failureCause": "findings open",
@@ -916,10 +920,12 @@ schema names it, under `runs` for a field of a line.
 | `runs.cursor` | The seconds of the end, the issue, and the line's place in the order the store wrote the ends, as `1760700000-12-41` |
 | `runs.kind` | `work` for a cycle, `plan` for a planning turn |
 | `runs.issue` | The issue the line is about |
+| `runs.cycle` | The cycle id, `<issue>-<attempt>` such as `12-3`, on a work line: the same as `cycle` of the running cycle in [`tehas status --json`](#tehas-status---json), unique within one `store` of [`tehas api`](#tehas-api). A program keys cycles on it and lines on `cursor`. With the feature `cycle-ids` |
 | `runs.ended` | When the cycle or the turn ended |
-| `runs.started` | When it started; left out when the record holds no start |
+| `runs.started` | When it started, the second `since` of `tehas status` said while it ran. Always on a work line: a line the store holds no start for (one from the ledgers of v0.30) has its end here. On a plan line, left out when the record holds no start |
 | `runs.status` | Its exit status; left out when the unit left no readable one, as a stopped or lost cycle leaves none |
 | `runs.outcome` | What it reported: for a cycle the status of its end, for a turn `finished`, `failed`, `interrupted`, `not-started`, `not-readable` or `lost` |
+| `runs.end` | The word a program decides on, on a work line, one of a closed set: `offered` (it left an open change and did not park), `merged`, `handoff`, `parked`, `failed`, `refused` or `stopped`. It comes from `outcome`, `status`, `change`, `parked` and `failureKind` by the table of [the end word](#the-end-word); `outcome` keeps the store's status word. A new word is a major change. With the feature `cycle-ids` |
 | `runs.turn` | The turn's number in its session, from 1. A field of a plan line |
 | `runs.progress` | Where the step a cycle ended in was, as its driver reported it. Driver-specific and may change in a minor release. Left out when nothing of it is known. A field of a work line |
 | `runs.progress.step` | The step a cycle ended in |
@@ -934,6 +940,7 @@ schema names it, under `runs` for a field of a line.
 | `runs.parked` | Whether the cycle parked. A field of a work line |
 | `runs.repeat` | The parks in a row that stopped exactly as this one did, this one not counted, so 1 on the first repeat. On the park of a run of parks only. A field of a work line |
 | `runs.pr` | The pull request, as an address of the repository the instance names. A field of a work line that had one |
+| `runs.change` | The number of the change a work line names, so a program reads no address; `pr` is its address. With the feature `cycle-ids` |
 | `runs.by` | Who asked for it. Left out for a cycle run by hand, which names no account |
 | `runs.how` | How it was asked for: `approved` (a label an allowed account applied), `refresh`, `outage-retry`, `millwright`, `host` ([`tehas start`](#tehas-start)), `reply` (a retry a person's reply answered), `answer` (a retry answered through [`tehas answer`](#tehas-answer)) or `hand`. A retry ticked before 2.0 was recorded `retry-tick`: the step of the state store to schema 27 rewrites it to `reply` in `state/tehas.db` (cycles, approvals and the cycle history), and analytics rewrites it in `runs.how` of `state/analytics.db` each time it opens the file. A start approved by a label was recorded `label` before 2.0: the state store's step to schema 30 rewrites it to `approved` there, and the analytics' step to schema 7 in `runs.how` |
 | `runs.label` | The label that started the turn's session, `tehas:plan` or `tehas:refine`. A field of a plan line |
@@ -941,6 +948,24 @@ schema names it, under `runs` for a field of a line.
 | `runs.signalled` | `true` on a work line when a signal stopped the cycle; left out otherwise |
 | `runs.auto` | `true` for a refine the factory started on its own when a cycle parked as underspecified or too-large. Left out otherwise. A field of a plan line |
 | `runs.filed` | The issues the turn filed, when it filed any. A field of a plan line |
+
+### The end word
+
+`end` takes the first row that matches, top to bottom, from the line's
+`outcome`, `status`, `change`, `parked` and `failureKind`. `cap`,
+`parkReason` and `signalled` decide no end. A parked line never ends
+`merged`, `stopped` or `offered`.
+
+| # | When | End |
+| --- | --- | --- |
+| 1 | `outcome` is `merged` and `parked` is false | `merged` |
+| 2 | `outcome` is `closed`, `interrupted` or `stopped`, and `parked` is false | `stopped` |
+| 3 | `outcome` is `refused` | `refused` |
+| 4 | `status` is 3, 4, 5, 40, 64 or 78 | `refused` |
+| 5 | the line has a `change` and `parked` is false | `offered` |
+| 6 | `outcome` is `handoff` | `handoff` |
+| 7 | `outcome` is `killed`, `stalled`, `timeout`, `aborted`, `unknown`, `failed` or `lost`, or `failureKind` is set and is not `cap` | `failed` |
+| 8 | any other line | `parked` |
 
 Exit 0 when it printed, also with nothing to list; 1 when the state store was
 busy, which prints nothing; 64 on a bad argument, which reads nothing; 78
@@ -955,7 +980,8 @@ tehas export [--json] --after CURSOR <dir>
 
 ```json
 {"api": 1, "version": 1, "runs": [{"cursor": "1760700000-12-41", "kind": "work", "issue": 12,
-  "ended": "2026-10-17T13:20:00Z", "status": 0, "outcome": "merged"}],
+  "cycle": "12-3", "ended": "2026-10-17T13:20:00Z", "started": "2026-10-17T12:40:00Z",
+  "status": 0, "outcome": "merged", "end": "merged"}],
  "next": "1760700000-12-41", "to": "/home/boss/archive"}
 ```
 
@@ -1031,6 +1057,10 @@ set -o pipefail
 ssh <source> '. ~/tehas/env.sh && tehas state pack -' |
   ssh <target> '. ~/tehas/env.sh && tehas state unpack -'
 ```
+
+The tar holds the whole store, so the moved factory keeps its `store` of
+[`tehas api`](#tehas-api) and its attempts: a cycle id it gave before the
+move is never given again after it.
 
 The tar holds `tehas-state.json` first,
 `{"api": 1, "tag": "v1.0.0", "schema": 18}`, then `state/`, `repos/`, `live/`
@@ -1184,7 +1214,8 @@ tehas state load --from <file> [--json]
 
 The inverse of [`tehas state copy`](#tehas-state-copy): fills the factory's
 store from a copy that `tehas state copy` made, to restore a factory on a new
-host. Run it as the factory's user, on a factory that is drained, with
+host. It takes the copy's `store` of [`tehas api`](#tehas-api) and its
+attempts with it, so the cycle ids of the copy stay its own. Run it as the factory's user, on a factory that is drained, with
 [`tehas drain`](#tehas-drain), and whose store is new or empty. A relative
 name is taken from the working directory.
 

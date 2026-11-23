@@ -358,6 +358,51 @@ fn the_closing_heartbeat_is_never_the_second_the_cycle_was_last_heard_from() {
     );
 }
 
+/// A running cycle's view names its attempt, how and by (T11.5), so `tehas
+/// status` can print its cycle id; a cycle run by hand names no by. Its
+/// start is the one its line of history prints as `started`, and the line
+/// has the same attempt, how and by.
+#[test]
+fn a_running_view_names_the_cycle_its_line_of_history_names() {
+    let home = home("publish-ids");
+    let (lock, a) = start_by(&home, 23, "alice", "approved", 1000);
+    beat(&home, 1010, 23, true, "running", "build", "");
+    let hand = hold(&home, 24);
+    ok_at(&home, 1005, &["cycle-start", "24", "--by-hand"]);
+    beat(&home, 1012, 24, true, "running", "build", "");
+    publish(&home, 1020, &[]).unwrap();
+    let v: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
+    let c = &v["cycles"];
+    assert_eq!(
+        (&c[0]["issue"], &c[0]["attempt"], &c[0]["how"], &c[0]["by"]),
+        (
+            &Value::from(23),
+            &Value::from(a),
+            &Value::from("approved"),
+            &Value::from("alice")
+        )
+    );
+    assert_eq!(
+        (&c[1]["issue"], &c[1]["how"]),
+        (&Value::from(24), &Value::from("hand"))
+    );
+    assert!(c[1].get("by").is_none(), "{}", c[1]);
+    let since = c[0]["startedAt"].clone();
+    drop(lock);
+    end_at(&home, 1030, 23, a, "merged", None);
+    drop(hand);
+    let rows = ok(&home, &["history-show", "23"])["rows"].clone();
+    assert_eq!(
+        (
+            &rows[0]["started_at"],
+            &rows[0]["attempt"],
+            &rows[0]["how"],
+            &rows[0]["by"]
+        ),
+        (&since, &c[0]["attempt"], &c[0]["how"], &c[0]["by"])
+    );
+}
+
 #[test]
 fn a_fresh_running_cycle_with_a_free_lock_is_running() {
     let home = home("publish-fresh");
