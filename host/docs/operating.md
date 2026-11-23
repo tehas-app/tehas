@@ -260,7 +260,9 @@ compute on the issue.
   written by `tehas labels` when it makes the labels, and an application of a
   label with another id, or of a granting label with no pin, counts as
   nobody's. The poll logs each refusal with the
-  label's name and both ids. See [label pins](/github-app#label-pins).
+  label's name and both ids. If the file is there and cannot be read, no
+  granting label counts until a person repairs it. See
+  [label pins](/github-app#label-pins).
 - An allowed account is its login and its GitHub user id, as `install.sh`
   and `tehas update` recorded them. A label from the login with another id,
   after the login changed hands, counts as nobody's; so do a tick, an answer

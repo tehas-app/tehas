@@ -192,8 +192,7 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
                 ));
                 return 0;
             };
-            let pins = tehas_core::label_pins::load(&lab.home);
-            refusal(pins.get(LABEL).map(String::as_str), &id)
+            pin_refusal(&lab.home, &id)
         }
     };
     if let Some(line) = &refused {
@@ -402,6 +401,15 @@ fn refusal(pin: Option<&str>, id: &str) -> Option<String> {
         None => Some(format!(
             "refused: the label {LABEL} ({id}) has no pin in {file}: no ticket is at the prototype stage until a person pins it (see tehas labels)"
         )),
+    }
+}
+
+/// [`refusal`] against the pins of `home`, and a refusal when the pins
+/// cannot be read.
+fn pin_refusal(home: &Path, id: &str) -> Option<String> {
+    match tehas_core::label_pins::load(home) {
+        Ok(r) => refusal(r.pins().get(LABEL).map(String::as_str), id),
+        Err(u) => Some(format!("refused: {u}")),
     }
 }
 
@@ -1082,6 +1090,25 @@ mod tests {
         assert!(refusal(None, "LA_p")
             .unwrap()
             .starts_with("refused: the label tehas:prototype (LA_p) has no pin in state/labels"));
+    }
+
+    #[test]
+    fn pins_that_cannot_be_read_put_no_ticket_at_the_stage() {
+        let home = scratch("pins-unreadable");
+        let file = home.join(tehas_core::label_pins::FILE);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, format!("{LABEL}\tLA_p\n")).unwrap();
+        assert_eq!(pin_refusal(&home, "LA_p"), None);
+        fs::remove_file(&file).unwrap();
+        std::os::unix::fs::symlink(home.join("gone"), &file).unwrap();
+        let refused = pin_refusal(&home, "LA_p");
+        assert!(
+            refused.as_deref().is_some_and(|l| l.starts_with(&format!(
+                "refused: the label pins in {} cannot be read",
+                tehas_core::label_pins::FILE
+            ))),
+            "{refused:?}"
+        );
     }
 
     #[test]

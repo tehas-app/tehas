@@ -16,7 +16,8 @@
 //! names later grants nothing. Once the file exists it
 //! pins only a label it made this run, and never changes a pin: a label with
 //! no pin that was already there, or one that is not the pinned one, is said,
-//! and the command fails.
+//! and the command fails. A pins file that is there and cannot be read stops
+//! it with 78 before it asks GitHub anything, and it never writes over one.
 
 use std::collections::BTreeMap;
 use std::env;
@@ -173,7 +174,10 @@ fn pin(
             }
         })
         .collect();
-    let (said, whole) = tehas_core::label_pins::pin_made(home, &seen);
+    let (said, whole) = match tehas_core::label_pins::pin_made(home, &seen) {
+        Ok(r) => r,
+        Err(u) => return unreadable(&u),
+    };
     for l in &said {
         if l.starts_with("pinned ") {
             tehas_core::outln!("{l}");
@@ -182,6 +186,21 @@ fn pin(
         }
     }
     u8::from(!whole)
+}
+
+/// 78 with the line: pins that cannot be read stop the command, and
+/// nothing is written over them.
+fn unreadable(u: &tehas_core::label_pins::Unreadable) -> u8 {
+    eprintln!("tehas labels: {u}");
+    78
+}
+
+/// Err(78) when the pins are there and cannot be read: checked before any
+/// label is asked about or made.
+fn readable(home: &Path) -> Result<(), u8> {
+    tehas_core::label_pins::load(home)
+        .map(drop)
+        .map_err(|u| unreadable(&u))
 }
 
 fn run(labels: &[Label], made: &mut dyn FnMut(&Label) -> bool) -> u8 {
@@ -217,6 +236,9 @@ pub fn main(given: &[String]) -> u8 {
             return 78;
         }
     };
+    if let Err(rc) = readable(Path::new(&home)) {
+        return rc;
+    }
     let repo = env::var("TEHAS_REPO").unwrap_or_default();
     let before = ids(&mut |name| node_id(&repo, name));
     let made = run(&labels, &mut |label| make(&repo, label));
@@ -363,7 +385,7 @@ mod tests {
         );
         assert_eq!(rc, 0);
         assert_eq!(asked.len(), tehas_core::label_pins::PINNED.len());
-        let pins = tehas_core::label_pins::load(d.path());
+        let pins = tehas_core::label_pins::load(d.path()).unwrap().pins();
         assert_eq!(pins["tehas:ready"], "LA_ready");
         assert_eq!(pins["tehas:prototype"], "LA_prototype");
         assert_eq!(pins.len(), tehas_core::label_pins::PINNED.len());
@@ -376,7 +398,108 @@ mod tests {
             &BTreeMap::new(),
         );
         assert_eq!(rc, 1);
-        assert!(!tehas_core::label_pins::load(d.path()).contains_key("tehas:plan"));
+        assert!(!tehas_core::label_pins::load(d.path())
+            .unwrap()
+            .pins()
+            .contains_key("tehas:plan"));
+    }
+
+    // A link (dangling or not), a line of another shape, or a file tehas may
+    // not read: the command stops with 78 before it asks GitHub, and after
+    // making the labels it writes nothing over the file.
+    #[test]
+    fn pins_that_cannot_be_read_stop_the_command_and_are_kept_as_they_are() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        use tehas_core::label_pins::{FILE, PINNED};
+        const READY: &str = PINNED[0];
+        type Case = (&'static str, fn(&Path));
+        let mut cases: Vec<Case> = vec![
+            ("a dangling link", |h| {
+                symlink(h.join("gone"), h.join(FILE)).unwrap()
+            }),
+            ("a live link", |h| {
+                fs::write(h.join("elsewhere"), format!("{READY}\tLA_ready\n")).unwrap();
+                symlink(h.join("elsewhere"), h.join(FILE)).unwrap();
+            }),
+            ("a line of another shape", |h| {
+                fs::write(
+                    h.join(FILE),
+                    format!("{READY}\tLA_ready\n{READY}x LA_plan\n"),
+                )
+                .unwrap()
+            }),
+        ];
+        let probe = tehas_core::testdir::TestDir::new("labels-probe");
+        fs::write(probe.path().join("f"), "x").unwrap();
+        fs::set_permissions(probe.path().join("f"), fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read(probe.path().join("f")).is_err() {
+            cases.push(("permission denied", |h| {
+                fs::write(h.join(FILE), format!("{READY}\tLA_ready\n")).unwrap();
+                fs::set_permissions(h.join(FILE), fs::Permissions::from_mode(0o000)).unwrap();
+            }));
+        }
+        // What is at the path, without following a link.
+        let as_is = |h: &Path| -> (Option<std::path::PathBuf>, Option<Vec<u8>>) {
+            let f = h.join(FILE);
+            if let Ok(to) = fs::read_link(&f) {
+                return (Some(to), fs::read(h.join("elsewhere")).ok());
+            }
+            let mode = fs::metadata(&f).unwrap().permissions().mode();
+            fs::set_permissions(&f, fs::Permissions::from_mode(0o600)).unwrap();
+            let bytes = fs::read(&f).unwrap();
+            fs::set_permissions(&f, fs::Permissions::from_mode(mode)).unwrap();
+            (None, Some(bytes))
+        };
+        for (why, make) in cases {
+            let d = tehas_core::testdir::TestDir::new("labels-pin-unreadable");
+            fs::create_dir_all(d.path().join(FILE).parent().unwrap()).unwrap();
+            make(d.path());
+            let was = as_is(d.path());
+            assert_eq!(readable(d.path()), Err(78), "{why}");
+            let rc = pin(
+                d.path(),
+                vec![None; PINNED.len()],
+                &mut |n| Some(format!("LA_{}", n.replace(':', "_"))),
+                &BTreeMap::new(),
+            );
+            assert_eq!(rc, 78, "{why}");
+            assert_eq!(as_is(d.path()), was, "{why}");
+            assert!(!d.path().join(FILE).with_extension("new").exists(), "{why}");
+        }
+        let bare = tehas_core::testdir::TestDir::new("labels-pin-absent");
+        assert_eq!(readable(bare.path()), Ok(()));
+    }
+
+    // CRLF line ends, spaces or tabs after an id and blank lines: the
+    // command goes on, keeps the pins and writes the file plain.
+    #[test]
+    fn pins_with_trailing_damage_pass_and_are_written_plain() {
+        use tehas_core::label_pins::{FILE, PINNED};
+        let (ready, plan) = (PINNED[0], PINNED[1]);
+        let id = |n: &str| format!("LA_{}", n.replace(':', "_"));
+        let fill = |t: &str| {
+            t.replace("{R}", &format!("{ready}\t{}", id(ready)))
+                .replace("{P}", &format!("{plan}\t{}", id(plan)))
+        };
+        for text in ["{P}\r\n{R}\r\n", "{P} \n{R}\t\n", "\n{P}\n\n{R}\n\n"] {
+            let d = tehas_core::testdir::TestDir::new("labels-pin-lenient");
+            fs::create_dir_all(d.path().join(FILE).parent().unwrap()).unwrap();
+            fs::write(d.path().join(FILE), fill(text)).unwrap();
+            assert_eq!(readable(d.path()), Ok(()), "{text:?}");
+            let before: Vec<Option<String>> = PINNED
+                .iter()
+                .map(|n| [ready, plan].contains(n).then(|| id(n)))
+                .collect();
+            let rc = pin(d.path(), before, &mut |n| Some(id(n)), &BTreeMap::new());
+            assert_eq!(rc, 0, "{text:?}");
+            let got = fs::read_to_string(d.path().join(FILE)).unwrap();
+            assert!(
+                !got.contains(['\r', ' ']) && !got.contains("\n\n"),
+                "{got:?}"
+            );
+            assert!(got.contains(&fill("{P}\n")), "{got:?}");
+            assert!(got.contains(&fill("{R}\n")), "{got:?}");
+        }
     }
 
     #[test]
