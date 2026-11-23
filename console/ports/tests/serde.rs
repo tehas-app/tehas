@@ -146,19 +146,17 @@ fn accounts_read_back() {
         AccountKind::Person,
         AccountKind::Unknown,
     ] {
-        round(Account {
-            realm: Realm::CodeHost,
-            login: Login::new("someone"),
-            id: Some(AccountId::new("42")),
-            kind,
+        round({
+            let mut account = Account::new(Realm::CodeHost, Login::new("someone"), kind);
+            account.id = Some(AccountId::new("42"));
+            account
         });
     }
-    round(Account {
-        realm: Realm::Tickets,
-        login: Login::new("ghost"),
-        id: None,
-        kind: AccountKind::Unknown,
-    });
+    round(Account::new(
+        Realm::Tickets,
+        Login::new("ghost"),
+        AccountKind::Unknown,
+    ));
     for scope in [
         Scope::Full,
         Scope::Cycle,
@@ -280,18 +278,19 @@ fn outcomes_read_back() {
         round(o.clone());
     }
     round(Whole::new(vec![bp(1), bp(2)]));
-    round(Took {
-        items: vec![Login::new("a")],
-        more: true,
+    round({
+        let mut took = Took::default();
+        took.items = vec![Login::new("a")];
+        took.more = true;
+        took
     });
-    round(Applied {
-        done: vec![bp(1)],
-        stopped: Some((bp(2), Outcome::Forbidden)),
+    round({
+        let mut applied = Applied::default();
+        applied.done = vec![bp(1)];
+        applied.stopped = Some((bp(2), Outcome::Forbidden));
+        applied
     });
-    round(Applied::<BlueprintNo> {
-        done: vec![],
-        stopped: None,
-    });
+    round(Applied::<BlueprintNo>::default());
     let got: Got<BlueprintNo> = Err(Outcome::NotFound);
     assert!(got.is_err());
     let did: Did = Ok(());
@@ -363,12 +362,12 @@ fn marks_read_back() {
 }
 
 fn every_marker() -> Vec<Marker> {
-    let park = ParkMarker {
-        blueprint: bp(7),
-        step: MarkerWord::new("").unwrap(),
-        kind: MarkerWord::new("timeout").unwrap(),
-        provider: true,
-        sig: sha('a'),
+    let park = {
+        let mut park_marker = ParkMarker::new(bp(7), sha('a'));
+        park_marker.step = MarkerWord::new("").unwrap();
+        park_marker.kind = MarkerWord::new("timeout").unwrap();
+        park_marker.provider = true;
+        park_marker
     };
     let mut markers = vec![
         Marker::Question {
@@ -391,9 +390,10 @@ fn every_marker() -> Vec<Marker> {
         },
         Marker::HoldCleared,
         Marker::Park(park),
-        Marker::LastAttempt(LastAttemptMarker {
-            base: sha('c'),
-            note: "ran out of time at step 3".into(),
+        Marker::LastAttempt({
+            let mut last_attempt_marker = LastAttemptMarker::new(sha('c'));
+            last_attempt_marker.note = "ran out of time at step 3".into();
+            last_attempt_marker
         }),
         Marker::TicketOf(Ref::Here(TicketKey::Key(KeyText::new("ABC-1").unwrap()))),
         Marker::Link {
@@ -428,20 +428,17 @@ fn every_marker() -> Vec<Marker> {
         MillwrightAction::Person,
         MillwrightAction::Ask,
     ] {
-        markers.push(Marker::Millwright(MillwrightMarker {
-            blueprint: bp(7),
-            action,
-        }));
+        markers.push(Marker::Millwright(MillwrightMarker::new(bp(7), action)));
     }
     for (result, by_poll) in [
         (FinishResult::Opened, false),
         (FinishResult::Refused, false),
         (FinishResult::Stopped, true),
     ] {
-        markers.push(Marker::Finish(FinishMarker {
-            blueprint: bp(7),
-            result,
-            by_poll,
+        markers.push(Marker::Finish({
+            let mut finish_marker = FinishMarker::new(bp(7), result);
+            finish_marker.by_poll = by_poll;
+            finish_marker
         }));
     }
     markers
@@ -738,10 +735,7 @@ fn unknown_is_written_as_its_tag_alone() {
 fn a_secret_is_no_data_type() {
     // Secret, Token and DeployCredential derive no Serialize: this test
     // only holds that they still build and print nothing of the secret.
-    let t = Token {
-        secret: Secret::new("s3cret"),
-        until: At::new(0),
-    };
+    let t = Token::new(Secret::new("s3cret"), At::new(0));
     assert!(!format!("{t:?}").contains("s3cret"));
 }
 
@@ -750,11 +744,10 @@ fn link() -> WebLink {
 }
 
 fn account() -> Account {
-    Account {
-        realm: Realm::CodeHost,
-        login: Login::new("someone"),
-        id: Some(AccountId::new("42")),
-        kind: AccountKind::Person,
+    {
+        let mut account = Account::new(Realm::CodeHost, Login::new("someone"), AccountKind::Person);
+        account.id = Some(AccountId::new("42"));
+        account
     }
 }
 
@@ -782,36 +775,34 @@ fn markers() -> Vec<Marker> {
 }
 
 fn digest() -> TicketDigest {
-    TicketDigest {
-        key: tkey(1),
-        title: "a ticket".into(),
-        state: TicketState::Closed(CloseReason::Duplicate(tkey(2))),
-        kind: Some(Kind::Bug),
-        priority: Priority::Urgent,
-        marks: vec![Mark::Act(Act::Approve)],
-        target: Some(TargetName {
-            id: TargetId::new("t1"),
-            title: "2.0".into(),
-        }),
-        author: Some(account()),
-        created: At::new(1),
-        updated: At::new(2),
-        revision: Revision::new("r1"),
-        link: link(),
+    {
+        let mut ticket_digest = TicketDigest::new(
+            tkey(1),
+            TicketState::Closed(CloseReason::Duplicate(tkey(2))),
+            At::new(1),
+            At::new(2),
+            Revision::new("r1"),
+            link(),
+        );
+        ticket_digest.title = "a ticket".into();
+        ticket_digest.kind = Some(Kind::Bug);
+        ticket_digest.priority = Priority::Urgent;
+        ticket_digest.marks = vec![Mark::Act(Act::Approve)];
+        ticket_digest.target = Some(TargetName::new(TargetId::new("t1"), "2.0".into()));
+        ticket_digest.author = Some(account());
+        ticket_digest
     }
 }
 
 fn comment() -> Comment {
-    Comment {
-        id: CommentId::new("c1"),
-        author: Some(account()),
-        editor: None,
-        created: At::new(1),
-        edited: Some(At::new(2)),
-        body: "a comment".into(),
-        markers: markers(),
-        revision: Revision::new("r"),
-        link: link(),
+    {
+        let mut new_comment =
+            Comment::new(CommentId::new("c1"), At::new(1), Revision::new("r"), link());
+        new_comment.author = Some(account());
+        new_comment.edited = Some(At::new(2));
+        new_comment.body = "a comment".into();
+        new_comment.markers = markers();
+        new_comment
     }
 }
 
@@ -843,42 +834,37 @@ fn every_happened() -> Vec<Happened> {
 }
 
 fn ticket() -> Ticket {
-    Ticket {
-        digest: digest(),
-        text: "text".into(),
-        closed: Some(At::new(3)),
-        closer: Some(Closer::Change {
+    {
+        let mut ticket = Ticket::new(digest());
+        ticket.text = "text".into();
+        ticket.closed = Some(At::new(3));
+        ticket.closer = Some(Closer::Change {
             no: ChangeNo::new(4).unwrap(),
             merged: true,
-        }),
-        parts: vec![Part {
-            key: Ref::Here(tkey(5)),
-            open: true,
-        }],
-        blockers: vec![
-            Blocker {
-                on: Ref::Here(Item::Ticket(tkey(6))),
-                state: BlockerState::Open,
-            },
-            Blocker {
-                on: elsewhere(),
-                state: BlockerState::Merged,
-            },
-        ],
-        assignees: vec![account()],
-        markers: markers(),
-        mentioned_by: vec![Ref::Here(ChangeNo::new(4).unwrap())],
-        history: Took {
-            items: every_happened()
+        });
+        ticket.parts = vec![Part::new(Ref::Here(tkey(5)), true)];
+        ticket.blockers = vec![
+            Blocker::new(Ref::Here(Item::Ticket(tkey(6))), BlockerState::Open),
+            Blocker::new(elsewhere(), BlockerState::Merged),
+        ];
+        ticket.assignees = vec![account()];
+        ticket.markers = markers();
+        ticket.mentioned_by = vec![Ref::Here(ChangeNo::new(4).unwrap())];
+        ticket.history = {
+            let mut took = Took::default();
+            took.items = every_happened()
                 .into_iter()
-                .map(|what| TicketEvent {
-                    what,
-                    by: Some(account()),
-                    at: Some(At::new(1)),
+                .map(|what| {
+                    let mut ticket_event = TicketEvent::new(what);
+                    ticket_event.by = Some(account());
+                    ticket_event.at = Some(At::new(1));
+                    ticket_event
                 })
-                .collect(),
-            more: true,
-        },
+                .collect();
+            took.more = true;
+            took
+        };
+        ticket
     }
 }
 
@@ -903,19 +889,14 @@ fn tickets_read_back() {
     let mut kinds: Vec<HappenedKind> = every_happened().iter().map(Happened::kind).collect();
     kinds.dedup();
     assert_eq!(kinds.len(), 13, "one kind for each event");
-    round(TicketEvent {
-        what: Happened::Reopened,
-        by: None,
-        at: None,
-    });
-    round(Target {
-        id: TargetId::new("t"),
-        title: "2.0".into(),
-        due: Some(At::new(9)),
-        created: At::new(1),
-        open: true,
-        open_count: 3,
-        closed_count: 4,
+    round(TicketEvent::new(Happened::Reopened));
+    round({
+        let mut target = Target::new(TargetId::new("t"), "2.0".into(), At::new(1));
+        target.due = Some(At::new(9));
+        target.open = true;
+        target.open_count = 3;
+        target.closed_count = 4;
+        target
     });
     for e in [
         TargetEdit::Retitle("x".into()),
@@ -954,19 +935,18 @@ fn tickets_read_back() {
         close: Some(CloseReason::Done),
     });
     round((
-        Applied {
-            done: vec![StepPart::Note, StepPart::Close],
-            stopped: None,
+        {
+            let mut applied = Applied::default();
+            applied.done = vec![StepPart::Note, StepPart::Close];
+            applied
         },
-        Some(Posted {
-            id: CommentId::new("c1"),
-            link: link(),
-        }),
+        Some(Posted::new(CommentId::new("c1"), link())),
     ));
     round((
-        Applied {
-            done: vec![],
-            stopped: Some((StepPart::Note, Outcome::Forbidden)),
+        {
+            let mut applied = Applied::default();
+            applied.stopped = Some((StepPart::Note, Outcome::Forbidden));
+            applied
         },
         None::<Posted<CommentId>>,
     ));
@@ -978,48 +958,46 @@ fn tickets_read_back() {
     ] {
         round(p);
     }
-    round(ClosedTicket {
-        digest: digest(),
-        closed: At::new(3),
-        closer: None,
-        part_count: 2,
-        merged: vec![change_digest()],
+    round({
+        let mut closed_ticket = ClosedTicket::new(digest(), At::new(3));
+        closed_ticket.part_count = 2;
+        closed_ticket.merged = vec![change_digest()];
+        closed_ticket
     });
-    round(TicketDelta {
-        tickets: vec![TicketChange {
-            digest: digest(),
-            text: "t".into(),
-            closed: None,
-        }],
-        notes: vec![(tkey(1), comment())],
-        next: Cursor::new("next"),
-        more: true,
+    round({
+        let mut ticket_delta = TicketDelta::new(Cursor::new("next"));
+        ticket_delta.tickets = vec![{
+            let mut ticket_change = TicketChange::new(digest());
+            ticket_change.text = "t".into();
+            ticket_change
+        }];
+        ticket_delta.notes = vec![(tkey(1), comment())];
+        ticket_delta.more = true;
+        ticket_delta
     });
-    round(Filed {
-        key: tkey(1),
-        title: "t".into(),
-        first_line: "first".into(),
-        link: link(),
+    round({
+        let mut filed = Filed::new(tkey(1), link());
+        filed.title = "t".into();
+        filed.first_line = "first".into();
+        filed
     });
 }
 
 fn blueprint() -> Blueprint {
-    Blueprint {
-        no: bp(7),
-        title: "b".into(),
-        body: "body".into(),
-        open: true,
-        author: Some(account()),
-        editor: Some(account()),
-        created: At::new(1),
-        edited: None,
-        revision: Revision::new("r"),
-        markers: markers(),
-        comments: Took {
-            items: vec![comment()],
-            more: false,
-        },
-        link: link(),
+    {
+        let mut blueprint = Blueprint::new(bp(7), At::new(1), Revision::new("r"), link());
+        blueprint.title = "b".into();
+        blueprint.body = "body".into();
+        blueprint.open = true;
+        blueprint.author = Some(account());
+        blueprint.editor = Some(account());
+        blueprint.markers = markers();
+        blueprint.comments = {
+            let mut took = Took::default();
+            took.items = vec![comment()];
+            took
+        };
+        blueprint
     }
 }
 
@@ -1027,77 +1005,72 @@ fn blueprint() -> Blueprint {
 fn blueprints_read_back() {
     round(blueprint());
     round(comment());
-    round(Edit {
-        by: None,
-        at: At::new(1),
-        after: "after".into(),
-        markers: markers(),
+    round({
+        let mut edit = Edit::new(At::new(1));
+        edit.after = "after".into();
+        edit.markers = markers();
+        edit
     });
-    round(Attachment {
-        id: AttachmentId::new("a"),
-        link: link(),
-        name: Some("shot.png".into()),
-        size: Some(10),
+    round({
+        let mut attachment = Attachment::new(AttachmentId::new("a"), link());
+        attachment.name = Some("shot.png".into());
+        attachment.size = Some(10);
+        attachment
     });
-    round(Attachment {
-        id: AttachmentId::new("b"),
-        link: link(),
-        name: None,
-        size: None,
-    });
+    round(Attachment::new(AttachmentId::new("b"), link()));
     round(NewBlueprint {
         title: "b".into(),
         body: Body::Summed(sum()),
         markers: vec![],
     });
-    round(BlueprintHit {
-        no: bp(7),
-        title: "b".into(),
-        open: false,
+    round({
+        let mut blueprint_hit = BlueprintHit::new(bp(7));
+        blueprint_hit.title = "b".into();
+        blueprint_hit
     });
-    round(BlueprintDelta {
-        blueprints: vec![BlueprintChange {
-            no: bp(7),
-            title: "b".into(),
-            body: "body".into(),
-            open: false,
-            closed: Some(At::new(2)),
-            revision: Revision::new("r"),
-        }],
-        comments: vec![(bp(7), comment())],
-        next: Cursor::new("c"),
-        more: false,
+    round({
+        let mut blueprint_delta = BlueprintDelta::new(Cursor::new("c"));
+        blueprint_delta.blueprints = vec![{
+            let mut blueprint_change = BlueprintChange::new(bp(7), Revision::new("r"));
+            blueprint_change.title = "b".into();
+            blueprint_change.body = "body".into();
+            blueprint_change.closed = Some(At::new(2));
+            blueprint_change
+        }];
+        blueprint_delta.comments = vec![(bp(7), comment())];
+        blueprint_delta
     });
 }
 
 fn change_digest() -> ChangeDigest {
-    ChangeDigest {
-        no: ChangeNo::new(4).unwrap(),
-        title: "c".into(),
-        state: ChangeState::Merged {
-            at: At::new(1),
-            by: Some(account()),
-            commit: commit(),
-        },
-        head: branch("work"),
-        head_commit: commit(),
-        base: branch("main"),
-        author: None,
-        from_fork: false,
-        draft: true,
-        merge_state: Mergeable::No(NotMergeable::Behind),
-        marks: vec![Mark::State(State::Refreshing)],
-        closes: vec![Ref::Here(bp(7)), elsewhere()],
-        size: Some(Size {
-            files: 1,
-            added: 2,
-            deleted: 3,
-        }),
-        body: Some("body".into()),
-        created: At::new(1),
-        edited: None,
-        editor: None,
-        link: link(),
+    {
+        let mut change_digest = ChangeDigest::new(
+            ChangeNo::new(4).unwrap(),
+            ChangeState::Merged {
+                at: At::new(1),
+                by: Some(account()),
+                commit: commit(),
+            },
+            branch("work"),
+            commit(),
+            branch("main"),
+            At::new(1),
+            link(),
+        );
+        change_digest.title = "c".into();
+        change_digest.draft = true;
+        change_digest.merge_state = Mergeable::No(NotMergeable::Behind);
+        change_digest.marks = vec![Mark::State(State::Refreshing)];
+        change_digest.closes = vec![Ref::Here(bp(7)), elsewhere()];
+        change_digest.size = Some({
+            let mut size = Size::default();
+            size.files = 1;
+            size.added = 2;
+            size.deleted = 3;
+            size
+        });
+        change_digest.body = Some("body".into());
+        change_digest
     }
 }
 
@@ -1124,13 +1097,7 @@ fn proposal(takeover: Takeover) -> Proposal {
 }
 
 fn proposed() -> Proposed {
-    Proposed {
-        change: Posted {
-            id: ChangeNo::new(4).unwrap(),
-            link: link(),
-        },
-        head: commit(),
-    }
+    Proposed::new(Posted::new(ChangeNo::new(4).unwrap(), link()), commit())
 }
 
 fn every_takeover() -> Vec<Takeover> {
@@ -1160,12 +1127,11 @@ fn every_change_happened() -> Vec<ChangeHappened> {
 
 #[test]
 fn the_code_host_reads_back() {
-    round(Facts {
-        name: ProjectName::new("p"),
-        public: true,
-        tracker_on: true,
-        archived: false,
-        default_branch: branch("main"),
+    round({
+        let mut facts = Facts::new(ProjectName::new("p"), branch("main"));
+        facts.public = true;
+        facts.tracker_on = true;
+        facts
     });
     round(Mergeable::Yes);
     round(Mergeable::Unknown);
@@ -1190,35 +1156,37 @@ fn the_code_host_reads_back() {
         Verdict::Commented,
         Verdict::Unknown,
     ];
-    round(Change {
-        digest: change_digest(),
-        body: "body".into(),
-        files: vec![ChangedFile {
-            path: RepoPath::new("src/lib.rs").unwrap(),
-            added: 1,
-            deleted: 2,
-        }],
-        reviews: verdicts
+    round({
+        let mut change = Change::new(change_digest());
+        change.body = "body".into();
+        change.files = vec![{
+            let mut changed_file = ChangedFile::new(RepoPath::new("src/lib.rs").unwrap());
+            changed_file.added = 1;
+            changed_file.deleted = 2;
+            changed_file
+        }];
+        change.reviews = verdicts
             .iter()
-            .map(|v| Review {
-                by: Some(account()),
-                verdict: *v,
-                at: At::new(1),
-                notes: vec![ReviewNote {
-                    by: None,
-                    path: Some(RepoPath::new("a").unwrap()),
-                    body: "note".into(),
-                }],
+            .map(|v| {
+                let mut review = Review::new(*v, At::new(1));
+                review.by = Some(account());
+                review.notes = vec![{
+                    let mut review_note = ReviewNote::default();
+                    review_note.path = Some(RepoPath::new("a").unwrap());
+                    review_note.body = "note".into();
+                    review_note
+                }];
+                review
             })
-            .collect(),
-        comments: vec![comment()],
+            .collect();
+        change.comments = vec![comment()];
+        change
     });
     for what in every_change_happened() {
-        round(ChangeEvent {
-            what,
-            by: None,
-            at: At::new(1),
-            committed: Some(At::new(0)),
+        round({
+            let mut change_event = ChangeEvent::new(what, At::new(1));
+            change_event.committed = Some(At::new(0));
+            change_event
         });
     }
     for s in [
@@ -1241,11 +1209,12 @@ fn the_code_host_reads_back() {
         bodies: true,
     });
     round(Author::Me);
-    round(ChangeDelta {
-        changes: vec![change_digest()],
-        comments: vec![(ChangeNo::new(4).unwrap(), comment())],
-        next: Cursor::new("c"),
-        more: true,
+    round({
+        let mut change_delta = ChangeDelta::new(Cursor::new("c"));
+        change_delta.changes = vec![change_digest()];
+        change_delta.comments = vec![(ChangeNo::new(4).unwrap(), comment())];
+        change_delta.more = true;
+        change_delta
     });
     let conclusions = [
         Conclusion::Passed,
@@ -1256,28 +1225,21 @@ fn the_code_host_reads_back() {
     ];
     let mut runs: Vec<Check> = conclusions
         .iter()
-        .map(|c| Check {
-            name: "ci".into(),
-            status: CheckStatus::Done(*c),
-        })
+        .map(|c| Check::new("ci".into(), CheckStatus::Done(*c)))
         .collect();
-    runs.push(Check {
-        name: "q".into(),
-        status: CheckStatus::Queued,
-    });
-    runs.push(Check {
-        name: "r".into(),
-        status: CheckStatus::Running,
-    });
+    runs.push(Check::new("q".into(), CheckStatus::Queued));
+    runs.push(Check::new("r".into(), CheckStatus::Running));
     for overall in [
         Overall::Pass,
         Overall::Fail,
         Overall::Pending,
         Overall::None,
     ] {
-        round(Checks {
-            runs: runs.clone(),
-            overall,
+        round({
+            let mut checks = Checks::default();
+            checks.runs = runs.clone();
+            checks.overall = overall;
+            checks
         });
     }
     for state in [
@@ -1316,24 +1278,18 @@ fn the_code_host_reads_back() {
         round(p);
     }
     round(proposed());
-    round(Tag {
-        name: TagName::new("v2.0.0").unwrap(),
-        commit: commit(),
-        at: None,
-        annotated: true,
+    round({
+        let mut tag = Tag::new(TagName::new("v2.0.0").unwrap(), commit());
+        tag.annotated = true;
+        tag
     });
-    round(Release {
-        id: ReleaseId::new("r"),
-        tag: TagName::new("v2.0.0").unwrap(),
-        title: "2.0.0".into(),
-        draft: false,
-        prerelease: false,
-        published: Some(At::new(1)),
-        files: vec![ReleaseFile {
-            name: FileName::new("tehas.tar.gz").unwrap(),
-            size: 10,
-        }],
-        link: link(),
+    round({
+        let mut release =
+            Release::new(ReleaseId::new("r"), TagName::new("v2.0.0").unwrap(), link());
+        release.title = "2.0.0".into();
+        release.published = Some(At::new(1));
+        release.files = vec![ReleaseFile::new(FileName::new("tehas.tar.gz").unwrap(), 10)];
+        release
     });
     round(NewRelease {
         tag: TagName::new("v2.0.0").unwrap(),
@@ -1369,18 +1325,18 @@ fn identity_and_reports_read_back() {
         PortName::Unknown,
     ] {
         round(port);
-        round(Report {
-            port,
-            outcome: Outcome::Forbidden,
-            calls: 2,
+        round({
+            let mut report = Report::new(port, Outcome::Forbidden);
+            report.calls = 2;
+            report
         });
     }
-    let row = MeterRow {
-        caller: Caller::new("dispatch.poll"),
-        port: PortName::Board,
-        pool: Pool::Priced,
-        calls: 3,
-        points: 12,
+    let row = {
+        let mut meter_row =
+            MeterRow::new(Caller::new("dispatch.poll"), PortName::Board, Pool::Priced);
+        meter_row.calls = 3;
+        meter_row.points = 12;
+        meter_row
     };
     let node = to_node(&row).unwrap();
     let Node::Map(entries) = node else {
@@ -1571,28 +1527,16 @@ fn every_write() -> Vec<Write> {
 }
 
 fn every_receipt() -> Vec<Receipt> {
-    let posted = |id| Posted { id, link: link() };
+    let posted = |id| Posted::new(id, link());
     vec![
         Receipt::Done,
         Receipt::Comment(posted(CommentId::new("c"))),
-        Receipt::Ticket(Posted {
-            id: tkey(1),
-            link: link(),
-        }),
-        Receipt::Blueprint(Posted {
-            id: bp(7),
-            link: link(),
-        }),
-        Receipt::Change(Posted {
-            id: ChangeNo::new(4).unwrap(),
-            link: link(),
-        }),
+        Receipt::Ticket(Posted::new(tkey(1), link())),
+        Receipt::Blueprint(Posted::new(bp(7), link())),
+        Receipt::Change(Posted::new(ChangeNo::new(4).unwrap(), link())),
         Receipt::Proposed(proposed()),
         Receipt::Target(TargetId::new("t")),
-        Receipt::Release(Posted {
-            id: ReleaseId::new("r"),
-            link: link(),
-        }),
+        Receipt::Release(Posted::new(ReleaseId::new("r"), link())),
         Receipt::Edited(link()),
         Receipt::Unknown,
     ]
@@ -1619,10 +1563,7 @@ fn every_write_and_receipt_reads_back() {
     for r in every_receipt() {
         round(r);
     }
-    round(Posted {
-        id: bp(7),
-        link: link(),
-    });
+    round(Posted::new(bp(7), link()));
 }
 
 #[test]
@@ -1727,17 +1668,22 @@ fn a_body_whose_sum_is_not_given_refuses_the_write() {
 }
 
 fn work_item() -> WorkItem {
-    WorkItem {
-        ticket: ticket(),
-        notes: Took {
-            items: vec![comment()],
-            more: true,
-        },
-        blueprints: vec![blueprint()],
-        changes: Took {
-            items: vec![change_digest()],
-            more: true,
-        },
+    {
+        let mut work_item = WorkItem::new(ticket());
+        work_item.notes = {
+            let mut took = Took::default();
+            took.items = vec![comment()];
+            took.more = true;
+            took
+        };
+        work_item.blueprints = vec![blueprint()];
+        work_item.changes = {
+            let mut took = Took::default();
+            took.items = vec![change_digest()];
+            took.more = true;
+            took
+        };
+        work_item
     }
 }
 
@@ -1758,16 +1704,20 @@ fn the_boards_asks_and_answers_read_back() {
         ..ask
     });
     round(work_item());
-    round(OpenWork {
-        items: Whole::new(vec![
+    round({
+        let mut open_work = OpenWork::default();
+        open_work.items = Whole::new(vec![
             (tkey(1), Ok(work_item())),
             (tkey(2), Err(Outcome::Unread(Unread::Cut))),
-        ]),
-        control: Some(Ok(ticket())),
+        ]);
+        open_work.control = Some(Ok(ticket()));
+        open_work
     });
-    round(OpenWork {
-        items: Whole::new(vec![]),
-        control: Some(Err(Outcome::Unread(Unread::Cut))),
+    round({
+        let mut open_work = OpenWork::default();
+        open_work.items = Whole::new(vec![]);
+        open_work.control = Some(Err(Outcome::Unread(Unread::Cut)));
+        open_work
     });
     round(ChangeAsk {
         filter: ChangeFilter::default(),
@@ -1776,15 +1726,13 @@ fn the_boards_asks_and_answers_read_back() {
         siblings: None,
         activity: Some(Window::Last(nz32(50))),
     });
-    round(ChangeItem {
-        change: change_digest(),
-        files: Some(Whole::new(vec![])),
-        closing: vec![(blueprint(), Some(digest())), (blueprint(), None)],
-        siblings: vec![change_digest()],
-        activity: Some(Took {
-            items: vec![],
-            more: false,
-        }),
+    round({
+        let mut change_item = ChangeItem::new(change_digest());
+        change_item.files = Some(Whole::new(vec![]));
+        change_item.closing = vec![(blueprint(), Some(digest())), (blueprint(), None)];
+        change_item.siblings = vec![change_digest()];
+        change_item.activity = Some(Took::default());
+        change_item
     });
 }
 
@@ -2015,41 +1963,38 @@ fn the_ledger_and_health_read_back() {
         }
     }
     round(Whose::Host);
-    round(Budget {
-        left: 4999,
-        resets: At::new(3600),
-    });
+    round(Budget::new(4999, At::new(3600)));
     for state in every_health_state() {
         round(state);
     }
-    round(Failure {
-        at: At::new(1),
-        site: SiteId::new("project"),
-        outcome: Outcome::Unavailable {
+    round(Failure::new(
+        At::new(1),
+        SiteId::new("project"),
+        Outcome::Unavailable {
             why: Passing::Server,
             sent: Sent::No,
         },
-    });
+    ));
     round(LedgerDown);
     for word in every_word() {
         round(word);
     }
     for what in every_health() {
         round(what);
-        round(Notice {
-            host: HostId::new("code-host"),
-            whose: Whose::Holder(Holder::Ours(HolderId::new("grant-1"))),
-            realm: Realm::Tickets,
+        round(Notice::new(
+            HostId::new("code-host"),
+            Whose::Holder(Holder::Ours(HolderId::new("grant-1"))),
+            Realm::Tickets,
             what,
-            at: At::new(2),
-        });
-        round(Notice {
-            host: HostId::new("code-host"),
-            whose: Whose::Pool(Holder::Ours(HolderId::new("grant-1")), Pool::Writes),
-            realm: Realm::CodeHost,
+            At::new(2),
+        ));
+        round(Notice::new(
+            HostId::new("code-host"),
+            Whose::Pool(Holder::Ours(HolderId::new("grant-1")), Pool::Writes),
+            Realm::CodeHost,
             what,
-            at: At::new(3),
-        });
+            At::new(3),
+        ));
     }
 }
 

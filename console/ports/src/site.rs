@@ -50,6 +50,7 @@ pub trait Site: Send + Sync {
 
 /// One line of the meter. `Serialize` only: `Caller` is a `&'static str`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[non_exhaustive]
 pub struct MeterRow {
     /// Who made the calls.
     pub caller: Caller,

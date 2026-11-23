@@ -38,6 +38,7 @@ pub struct BoardAsk {
 /// One ticket with its notes, its blueprints and their changes. A list the
 /// ask did not read is empty, with `more`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct WorkItem {
     /// The ticket.
     pub ticket: Ticket,
@@ -71,6 +72,7 @@ impl WorkItem {
 /// ticket past a bound, or unread, is `Unread` for that item alone and
 /// fails closed alone. The others are still answered.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct OpenWork {
     /// Each open ticket, with its own answer, in list order.
     pub items: Whole<(TicketKey, Got<WorkItem>)>,
@@ -99,6 +101,7 @@ pub struct ChangeAsk {
 
 /// One change with what the ask named.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ChangeItem {
     /// The change.
     pub change: ChangeDigest,

@@ -253,10 +253,10 @@ fn a_cite_is_githubs_reference_and_a_new_ticket_link_its_page() {
         format!("`{}`", table::APPROVAL_LABEL)
     );
     assert_eq!(gh.cite(&Cite::Mark(Mark::Unknown)), "");
-    let finish = tehas_ports::Marker::Millwright(tehas_ports::MillwrightMarker {
-        blueprint: tehas_ports::BlueprintNo::new(12).unwrap(),
-        action: tehas_ports::MillwrightAction::Finish,
-    });
+    let finish = tehas_ports::Marker::Millwright(tehas_ports::MillwrightMarker::new(
+        tehas_ports::BlueprintNo::new(12).unwrap(),
+        tehas_ports::MillwrightAction::Finish,
+    ));
     assert_eq!(
         gh.cite(&Cite::Marker(finish.clone())),
         table::cite_marker(&finish)

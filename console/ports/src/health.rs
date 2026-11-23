@@ -161,6 +161,7 @@ fn pool_next(mine: Pool, now: At, was: HealthState, seen: &Result<(), Outcome>) 
 /// the first estimate; the ledger and each call's outcome carry the
 /// current one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Notice {
     /// The host it is about.
     pub host: HostId,

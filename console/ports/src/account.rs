@@ -46,6 +46,7 @@ pub enum AccountKind {
 
 /// An account, with its realm and the supplier's stable id.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Account {
     /// The supplier it belongs to.
     pub realm: Realm,
@@ -161,6 +162,7 @@ impl fmt::Debug for Secret {
 
 /// A token and when it stops being good.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Token {
     /// The credential.
     pub secret: Secret,

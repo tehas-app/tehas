@@ -14,6 +14,7 @@ pub type Did = Result<(), Outcome>;
 /// A list the adapter vouches is all there is.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
+#[non_exhaustive]
 pub struct Whole<T>(Vec<T>);
 
 impl<T> Default for Whole<T> {
@@ -45,6 +46,7 @@ impl<T> Whole<T> {
 /// that cannot tell answers `Unread(Inconsistent)`, never a guess. Read with
 /// `Window::Whole` or `Depth::All`, `more` is false.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Took<T> {
     /// The items taken.
     pub items: Vec<T>,
@@ -240,6 +242,7 @@ impl Outcome {
 
 /// A write of several parts, applied in order, that says how far it got.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Applied<P> {
     /// The parts applied, in order.
     pub done: Vec<P>,

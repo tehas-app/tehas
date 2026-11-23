@@ -16,6 +16,7 @@ use crate::{
 /// own tracker is on, so it can hold blueprints (and tickets, where they
 /// come from it).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Facts {
     /// The project, as the site names it.
     pub name: ProjectName,
@@ -95,6 +96,7 @@ pub enum ChangeState {
 
 /// The size of a change.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Size {
     /// How many files it changes.
     pub files: u32,
@@ -106,6 +108,7 @@ pub struct Size {
 
 /// A change's fields without its files, reviews or comments.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ChangeDigest {
     /// The change.
     pub no: ChangeNo,
@@ -172,6 +175,7 @@ new!(
 
 /// A change, read whole.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Change {
     /// Its fields.
     pub digest: ChangeDigest,
@@ -197,6 +201,7 @@ new!(
 
 /// One file a change changes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ChangedFile {
     /// The file.
     pub path: RepoPath,
@@ -210,6 +215,7 @@ new!(ChangedFile { path: RepoPath }, added, deleted);
 
 /// A review of a change.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Review {
     /// Who reviewed; None where the site names nobody.
     pub by: Option<Account>,
@@ -247,6 +253,7 @@ pub enum Verdict {
 
 /// One note of a review, on a file or on the whole change.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ReviewNote {
     /// Who wrote it; None where the site names nobody.
     pub by: Option<Account>,
@@ -258,6 +265,7 @@ pub struct ReviewNote {
 
 /// One event of a change.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ChangeEvent {
     /// What happened.
     pub what: ChangeHappened,
@@ -355,6 +363,7 @@ pub struct ChangeFilter {
 
 /// Changes and their comments changed since a cursor, with their bodies.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ChangeDelta {
     /// The changes that changed.
     pub changes: Vec<ChangeDigest>,
@@ -370,6 +379,7 @@ new!(ChangeDelta { next: Cursor }, changes, comments, more);
 
 /// The checks on a commit, and what they add up to.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Checks {
     /// Each check.
     pub runs: Vec<Check>,
@@ -379,6 +389,7 @@ pub struct Checks {
 
 /// One check on a commit.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Check {
     /// Its name.
     pub name: String,
@@ -577,6 +588,7 @@ pub enum Takeover {
 /// What `propose` made: the change, and the head commit it opened at, so a
 /// caller merges at that head without a read that races an outside push.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Proposed {
     /// The change.
     pub change: Posted<ChangeNo>,
@@ -588,6 +600,7 @@ new!(Proposed { change: Posted<ChangeNo>, head: CommitId });
 
 /// A tag of the project.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Tag {
     /// Its name.
     pub name: TagName,
@@ -610,6 +623,7 @@ new!(
 
 /// A release of a tag.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Release {
     /// The release.
     pub id: ReleaseId,
@@ -644,6 +658,7 @@ new!(
 
 /// One file of a release.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ReleaseFile {
     /// Its name.
     pub name: FileName,
@@ -683,6 +698,7 @@ pub enum Access {
 /// Where git fetches or pushes, and a credential narrowed to it. None for an
 /// anonymous fetch. Holds a credential, so it is no data type.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Remote {
     /// The remote.
     pub url: GitRemote,

@@ -35,6 +35,7 @@ pub enum CloseReason {
 
 /// A ticket's fields without its text, notes or history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct TicketDigest {
     /// The ticket.
     pub key: TicketKey,
@@ -82,6 +83,7 @@ new!(
 
 /// A target by its id, with its title as the site names it now.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct TargetName {
     /// The target.
     pub id: TargetId,
@@ -96,6 +98,7 @@ new!(TargetName {
 
 /// A ticket, read whole to the depth asked.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Ticket {
     /// Its fields.
     pub digest: TicketDigest,
@@ -142,6 +145,7 @@ new!(
 
 /// A part of a ticket, and whether it is open.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Part {
     /// The part.
     pub key: Ref<TicketKey>,
@@ -153,6 +157,7 @@ new!(Part { key: Ref<TicketKey>, open: bool });
 
 /// A blocker may be a change where the site lets a ticket wait on one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Blocker {
     /// What the ticket waits on.
     pub on: Ref<Item>,
@@ -191,6 +196,7 @@ pub enum Closer {
 
 /// One event of a ticket's history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct TicketEvent {
     /// What happened.
     pub what: Happened,
@@ -308,6 +314,7 @@ pub enum HappenedKind {
 
 /// A target: a set of tickets with a title and maybe a due date.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Target {
     /// The target.
     pub id: TargetId,
@@ -418,6 +425,7 @@ pub enum StepPart {
 
 /// A ticket that closed, with what closed it and its size of work.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ClosedTicket {
     /// Its fields.
     pub digest: TicketDigest,
@@ -444,6 +452,7 @@ new!(
 
 /// A ticket's change since a cursor: its digest, its text and its close.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct TicketChange {
     /// Its fields.
     pub digest: TicketDigest,
@@ -463,6 +472,7 @@ new!(
 
 /// Tickets and notes changed since a cursor, and where to read on from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct TicketDelta {
     /// The tickets that changed.
     pub tickets: Vec<TicketChange>,
@@ -478,6 +488,7 @@ new!(TicketDelta { next: Cursor }, tickets, notes, more);
 
 /// A ticket an account filed, as a lost press finds it again.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Filed {
     /// The ticket.
     pub key: TicketKey,

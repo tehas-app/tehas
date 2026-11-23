@@ -27,10 +27,8 @@ impl TicketWrites for GitHub {
         } else {
             None
         };
-        let applied = Applied {
-            stopped: first.map(|p| (p, Outcome::Refused(Refusal::Unsupported))),
-            ..Default::default()
-        };
+        let mut applied = Applied::default();
+        applied.stopped = first.map(|p| (p, Outcome::Refused(Refusal::Unsupported)));
         (applied, None)
     }
 

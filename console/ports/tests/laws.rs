@@ -529,12 +529,11 @@ fn search_laws_over_both_ports() {
 }
 
 fn park(no: u64) -> Marker {
-    Marker::Park(ParkMarker {
-        blueprint: bp(no),
-        step: MarkerWord::new("build").unwrap(),
-        kind: MarkerWord::new("tests").unwrap(),
-        provider: false,
-        sig: sha('b'),
+    Marker::Park({
+        let mut park_marker = ParkMarker::new(bp(no), sha('b'));
+        park_marker.step = MarkerWord::new("build").unwrap();
+        park_marker.kind = MarkerWord::new("tests").unwrap();
+        park_marker
     })
 }
 
@@ -636,10 +635,7 @@ fn marker_laws() {
     for marker in [
         park(101),
         Marker::HoldCleared,
-        Marker::Millwright(MillwrightMarker {
-            blueprint: bp(101),
-            action: MillwrightAction::Finish,
-        }),
+        Marker::Millwright(MillwrightMarker::new(bp(101), MillwrightAction::Finish)),
     ] {
         let typed = tehas_ports::fake::marker_text(&marker);
         ok(m::a_cited_marker_is_no_marker(
@@ -713,17 +709,11 @@ fn identity_a_token_covers_its_set_alone() {
 fn identity_a_given_token_is_never_minted() {
     let w = World::new();
     let now = w.now();
-    let given = Token {
-        secret: Secret::new("handed-in"),
-        until: At::new(now.secs() + 1200),
-    };
+    let given = Token::new(Secret::new("handed-in"), At::new(now.secs() + 1200));
     let w = w.given("fresh", Scope::Cycle, given.clone()).given(
         "old",
         Scope::Cycle,
-        Token {
-            secret: Secret::new("stale"),
-            until: At::new(now.secs() - 1),
-        },
+        Token::new(Secret::new("stale"), At::new(now.secs() - 1)),
     );
     let tokens = Arc::new(MemoryTokens::new(w.clock()));
     let site = FakeSite::new(&w).with_tokens(tokens.clone());
@@ -796,17 +786,11 @@ impl Identity for AnyScope {
 fn the_given_token_law_breaks_where_a_wider_scope_is_answered() {
     let w = World::new();
     let now = w.now();
-    let given = Token {
-        secret: Secret::new("handed-in"),
-        until: At::new(now.secs() + 1200),
-    };
+    let given = Token::new(Secret::new("handed-in"), At::new(now.secs() + 1200));
     let w = w.given("fresh", Scope::Cycle, given.clone()).given(
         "old",
         Scope::Cycle,
-        Token {
-            secret: Secret::new("stale"),
-            until: At::new(now.secs() - 1),
-        },
+        Token::new(Secret::new("stale"), At::new(now.secs() - 1)),
     );
     let tokens = Arc::new(MemoryTokens::new(w.clock()));
     let site = FakeSite::new(&w).with_tokens(tokens.clone());
@@ -836,17 +820,11 @@ fn the_given_token_law_breaks_where_a_wider_scope_is_answered() {
 fn the_given_token_law_breaks_where_a_sign_out_is_told_every_time() {
     let w = World::new();
     let now = w.now();
-    let given = Token {
-        secret: Secret::new("handed-in"),
-        until: At::new(now.secs() + 1200),
-    };
+    let given = Token::new(Secret::new("handed-in"), At::new(now.secs() + 1200));
     let w = w.given("fresh", Scope::Cycle, given.clone()).given(
         "old",
         Scope::Cycle,
-        Token {
-            secret: Secret::new("stale"),
-            until: At::new(now.secs() - 1),
-        },
+        Token::new(Secret::new("stale"), At::new(now.secs() - 1)),
     );
     let tokens = Arc::new(MemoryTokens::new(w.clock()));
     let site = FakeSite::new(&w).with_tokens(tokens.clone());
@@ -892,10 +870,7 @@ fn identity_a_keyless_site_never_mints() {
     ));
     // A token kept elsewhere is answered from the store.
     let covers = Covers::Site(SiteId::new("fake/project"));
-    let kept = Token {
-        secret: Secret::new("kept"),
-        until: At::new(w.now().secs() + 3600),
-    };
+    let kept = Token::new(Secret::new("kept"), At::new(w.now().secs() + 3600));
     tokens.seed(covers, Scope::Cycle, kept);
     assert_eq!(h.token(Scope::Cycle).unwrap().secret.expose(), "kept");
 }
@@ -1341,10 +1316,7 @@ fn calls(site: &FakeSite) -> u32 {
 
 /// A token good for an hour, as the store keeps it.
 fn good_token(w: &World, secret: &str) -> Token {
-    Token {
-        secret: Secret::new(secret),
-        until: At::new(w.now().secs() + 3600),
-    }
+    Token::new(Secret::new(secret), At::new(w.now().secs() + 3600))
 }
 
 /// A `Faulty` `FakeSite` whose tokens are `tokens`, watched by `wired`.
@@ -1396,10 +1368,7 @@ fn health_an_expired_token_raises_no_recovered() {
     let wired = Wired::new(World::new());
     let tokens = Arc::new(MemoryTokens::new(wired.world.clock()));
     let covers = Covers::Site(SiteId::new("fake/project"));
-    let old = Token {
-        secret: Secret::new("old"),
-        until: At::new(wired.world.now().secs() - 1),
-    };
+    let old = Token::new(Secret::new("old"), At::new(wired.world.now().secs() - 1));
     tokens.seed(covers, Scope::Cycle, old);
     let site = FakeSite::new(&wired.world)
         .with_tokens(tokens.clone())
@@ -2739,10 +2708,10 @@ fn a_fault_answers_its_calls_then_lets_them_through() {
     let reports = t.take_reports();
     assert_eq!(
         reports,
-        vec![Report {
-            port: PortName::Tickets,
-            outcome: Outcome::Unread(Unread::Malformed),
-            calls: 1
+        vec![{
+            let mut report = Report::new(PortName::Tickets, Outcome::Unread(Unread::Malformed));
+            report.calls = 1;
+            report
         }]
     );
 }
@@ -2996,18 +2965,11 @@ fn the_memory_ledger_swaps_only_from_the_state_expected() {
     );
     assert!(ledger.states().is_empty(), "a healthy state is not kept");
     let holder = Holder::Ours(HolderId::new("g"));
-    let b1 = Budget {
-        left: 5,
-        resets: At::new(9),
-    };
+    let b1 = Budget::new(5, At::new(9));
     ledger.put_budget(&host, &holder, Pool::Search, b1).unwrap();
     assert_eq!(ledger.budget(&host, &holder, Pool::Search), Ok(Some(b1)));
     assert_eq!(ledger.budget(&host, &holder, Pool::Calls), Ok(None));
-    let f = |at: i64| Failure {
-        at: At::new(at),
-        site: SiteId::new("p"),
-        outcome: Outcome::SignedOut,
-    };
+    let f = |at: i64| Failure::new(At::new(at), SiteId::new("p"), Outcome::SignedOut);
     ledger.failed(&host, f(10), 600).unwrap();
     ledger.failed(&host, f(700), 600).unwrap();
     assert_eq!(
@@ -3022,10 +2984,7 @@ fn memory_tokens_keep_and_forget_by_what_they_cover() {
     let clock = fake::Clock::new(At::new(100));
     let tokens = MemoryTokens::new(clock.clone());
     let site = Covers::Site(SiteId::new("p"));
-    let t = Token {
-        secret: Secret::new("s"),
-        until: At::new(800),
-    };
+    let t = Token::new(Secret::new("s"), At::new(800));
     assert!(tokens.keep(&site, Scope::Cycle, &t));
     assert!(tokens.kept(&site, Scope::Cycle, 600).is_some());
     assert!(tokens.kept(&site, Scope::Session, 600).is_none());
@@ -3475,9 +3434,11 @@ fn a_law_breaks_where_its_rule_does() {
     assert_eq!(e.law, "health::held_calls_raise_no_recovered");
     // A list that says more where it holds no more.
     let wrong = |w: Window| -> Got<Took<u32>> {
-        Ok(Took {
-            items: vec![1, 2],
-            more: matches!(w, Window::Last(_)),
+        Ok({
+            let mut took = Took::default();
+            took.items = vec![1, 2];
+            took.more = matches!(w, Window::Last(_));
+            took
         })
     };
     assert!(laws::lists::more_is_exact(wrong, 2).is_err());

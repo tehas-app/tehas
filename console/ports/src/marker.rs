@@ -277,6 +277,7 @@ pub enum QuestionKind {
 
 /// A stopped cycle's park, for the millwright to decide on.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ParkMarker {
     /// The blueprint that parked. A park of another blueprint than the item
     /// it is read from does not read.
@@ -304,6 +305,7 @@ new!(
 
 /// A millwright's decision on a blueprint.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct MillwrightMarker {
     /// The blueprint it decides on. One of another blueprint than the item
     /// it is read from does not read.
@@ -341,6 +343,7 @@ pub enum MillwrightAction {
 
 /// What a finish of a stopped cycle did.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct FinishMarker {
     /// The blueprint it finished. One of another blueprint than the item it
     /// is read from does not read.
@@ -374,6 +377,7 @@ pub enum FinishResult {
 /// What a cycle stopped for time learned, for the next cycle on the same
 /// text. A block: what it encloses is its payload, never the body's.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LastAttemptMarker {
     /// The sha-256 of the text it sits in, without this block. The same
     /// text with the same `base` is a repeat.

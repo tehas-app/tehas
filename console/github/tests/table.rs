@@ -85,43 +85,37 @@ fn written() -> Vec<(Marker, &'static str)> {
         ),
         (Marker::HoldCleared, "<!-- tehas:hold-cleared -->"),
         (
-            Marker::Park(ParkMarker {
-                blueprint: bp(12),
-                step: MarkerWord::new("gate").unwrap(),
-                kind: MarkerWord::new("").unwrap(),
-                provider: true,
-                sig: sha('a'),
-            }),
+            Marker::Park({
+let mut park_marker = ParkMarker::new(bp(12), sha('a'));
+park_marker.step = MarkerWord::new("gate").unwrap();
+park_marker.kind = MarkerWord::new("").unwrap();
+park_marker.provider = true;
+park_marker
+}),
             "<!-- tehas:park issue=12 step=gate kind= provider=1 sig=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->",
         ),
         (
-            Marker::Finish(FinishMarker {
-                blueprint: bp(12),
-                result: FinishResult::Refused,
-                by_poll: false,
-            }),
+            Marker::Finish(FinishMarker::new(bp(12), FinishResult::Refused)),
             "<!-- tehas:finish issue=12 result=refused -->",
         ),
         (
-            Marker::Finish(FinishMarker {
-                blueprint: bp(12),
-                result: FinishResult::Stopped,
-                by_poll: true,
-            }),
+            Marker::Finish({
+let mut finish_marker = FinishMarker::new(bp(12), FinishResult::Stopped);
+finish_marker.by_poll = true;
+finish_marker
+}),
             "<!-- tehas:finish issue=12 result=stopped by=poll -->",
         ),
         (
-            Marker::LastAttempt(LastAttemptMarker {
-                base: sha('b'),
-                note: "it ran out of time".into(),
-            }),
+            Marker::LastAttempt({
+let mut last_attempt_marker = LastAttemptMarker::new(sha('b'));
+last_attempt_marker.note = "it ran out of time".into();
+last_attempt_marker
+}),
             "<!-- tehas:last-attempt base=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -->\nit ran out of time\n<!-- /tehas:last-attempt -->",
         ),
         (
-            Marker::Millwright(MillwrightMarker {
-                blueprint: bp(12),
-                action: MillwrightAction::Finish,
-            }),
+            Marker::Millwright(MillwrightMarker::new(bp(12), MillwrightAction::Finish)),
             "<!-- tehas:millwright issue=12 action=finish -->",
         ),
         (Marker::TicketOf(n(7)), "<!-- tehas:ticket-of ticket=7 -->"),
@@ -163,17 +157,18 @@ fn each_marker_writes_its_row_of_host_markers_tsv() {
 
 #[test]
 fn a_cited_marker_is_quoted_as_code() {
-    let finish = Marker::Millwright(tehas_ports::MillwrightMarker {
-        blueprint: bp(12),
-        action: tehas_ports::MillwrightAction::Finish,
-    });
+    let finish = Marker::Millwright(tehas_ports::MillwrightMarker::new(
+        bp(12),
+        tehas_ports::MillwrightAction::Finish,
+    ));
     assert_eq!(
         table::cite_marker(&finish),
         "`<!-- tehas:millwright issue=12 action=finish -->`"
     );
-    let block = Marker::LastAttempt(tehas_ports::LastAttemptMarker {
-        base: sha('b'),
-        note: "a ```fenced``` note".into(),
+    let block = Marker::LastAttempt({
+        let mut last_attempt_marker = tehas_ports::LastAttemptMarker::new(sha('b'));
+        last_attempt_marker.note = "a ```fenced``` note".into();
+        last_attempt_marker
     });
     let cited = table::cite_marker(&block);
     assert!(

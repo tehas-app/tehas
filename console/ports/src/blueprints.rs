@@ -13,6 +13,7 @@ use crate::{
 
 /// A blueprint, read to the depth asked.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Blueprint {
     /// The blueprint.
     pub no: BlueprintNo,
@@ -61,6 +62,7 @@ new!(
 
 /// A comment, or a note on a ticket, with its author and last editor.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Comment {
     /// The comment.
     pub id: CommentId,
@@ -99,6 +101,7 @@ new!(
 /// One edit of a body or a comment: who, when, the text after it without
 /// our markers, and the markers after it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Edit {
     /// Who edited; None where the site names nobody.
     pub by: Option<Account>,
@@ -114,6 +117,7 @@ new!(Edit { at: At }, by, after, markers);
 
 /// A file a blueprint's text links to on the site's own store.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Attachment {
     /// The attachment.
     pub id: AttachmentId,
@@ -150,6 +154,7 @@ pub struct NewBlueprint {
 
 /// One hit of a search of blueprints.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct BlueprintHit {
     /// The blueprint.
     pub no: BlueprintNo,
@@ -163,6 +168,7 @@ new!(BlueprintHit { no: BlueprintNo }, title, open);
 
 /// A blueprint's change since a cursor, whole but for its comments.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct BlueprintChange {
     /// The blueprint.
     pub no: BlueprintNo,
@@ -192,6 +198,7 @@ new!(
 /// Blueprints and comments changed since a cursor, and where to read on
 /// from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct BlueprintDelta {
     /// The blueprints that changed.
     pub blueprints: Vec<BlueprintChange>,

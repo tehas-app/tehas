@@ -204,16 +204,15 @@ fn take<T>(mut items: Vec<T>, window: Window) -> Got<Took<T>> {
         Window::Whole(bound) if items.len() > bound.get() as usize => {
             Err(Outcome::Unread(Unread::Cut))
         }
-        Window::Whole(_) => Ok(Took {
-            items,
-            ..Default::default()
-        }),
+        Window::Whole(_) => {
+            let mut took = Took::default();
+            took.items = items;
+            Ok(took)
+        }
         Window::Last(n) => {
             let skip = items.len().saturating_sub(n.get() as usize);
-            let mut took = Took {
-                items: items.split_off(skip),
-                ..Default::default()
-            };
+            let mut took = Took::default();
+            took.items = items.split_off(skip);
             took.more = skip > 0;
             Ok(took)
         }

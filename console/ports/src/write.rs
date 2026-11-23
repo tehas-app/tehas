@@ -279,6 +279,7 @@ pub enum Write {
 
 /// A write's answer: what it made, and where a person opens it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Posted<T> {
     /// What it made.
     pub id: T,

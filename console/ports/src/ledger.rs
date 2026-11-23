@@ -34,6 +34,7 @@ opaque!(
 
 /// What is left of one holder's pool, and when it is full again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Budget {
     /// How many calls or points are left.
     pub left: u32,
@@ -76,6 +77,7 @@ pub enum HealthState {
 /// its outcome, whose fixed line is `outcome.line()`. Read back whole by
 /// another process.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Failure {
     /// When the call failed.
     pub at: At,

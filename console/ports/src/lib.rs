@@ -10,12 +10,14 @@
 //! effects: no file, network, process, environment or clock. It is vendored
 //! at a tehas tag, which `VERSION` names.
 //!
-//! An implementer builds a port's answer one of two ways, never as a whole
-//! struct literal: a struct whose every field has an honest empty value
-//! derives `Default` and is built with `..Default::default()`; any other has
-//! `new`, which takes the fields an answer always has and leaves the rest
-//! empty, false or None, set after by name. So a field added later breaks
-//! no adapter. An enum that may grow is `#[non_exhaustive]`: a match on one
+//! An implementer builds a port's answer one of two ways, then sets the
+//! rest by name: a struct whose every field has an honest empty value
+//! derives `Default` (`let mut s = Size::default(); s.files = 3;`); any
+//! other has `new`, which takes the fields an answer always has and leaves
+//! the rest empty, false or None. Every answer is `#[non_exhaustive]`, so
+//! outside this crate a struct literal, `..Default::default()` among them,
+//! does not compile, and a pattern on one ends in `..`. So a field added
+//! later breaks no adapter. An enum that may grow is `#[non_exhaustive]`: a match on one
 //! outside this crate has an arm for the rest, and that arm fails closed.
 //! A trait method added after the freeze has a default body that fails
 //! closed (`Refused(Unsupported)` for a call, `""` or empty for a name),
