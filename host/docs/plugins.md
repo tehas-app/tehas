@@ -83,7 +83,7 @@ each setting.
 A new commit grants nothing until both lines name it again. Run `tehas
 plugin review <name> <commit>` on it first: it says what changed since the
 pin. A grant taken away applies at the next `tehas update`. A plugin taken
-out of `TEHAS_PLUGINS` loses its images, its view, its panel and its
+out of `TEHAS_PLUGINS` loses its images, its view, its menu entry and its
 directory at the next update; its rows in the state store stay.
 
 ### What the model costs
@@ -136,9 +136,9 @@ the line of this table. Read it before you write the grant.
 
 | Capability | What it lets the plugin do |
 | --- | --- |
-| `view` | Its /out is served behind the sign-in, and a panel in the dock: everyone the sign-in lets in sees it |
+| `view` | Its /out is served behind the sign-in, and a view in the plugins menu that opens in the dock: everyone the sign-in lets in sees it |
 | `view:<id>` | One of its views, the part of its /out at that view's path, is served behind the sign-in and opens from the plugins menu: everyone the sign-in lets in sees it |
-| `menu` | Its granted views are listed in the plugins menu of both front pages, by its name and their labels, in place of a panel in the dock: names and labels are public, as live/ is |
+| `menu` | Its granted views are listed in the plugins menu of both front pages, by its name and their labels, each in the dock or a new tab: names and labels are public, as live/ is |
 | `product` | Reads all of the product's code, read only, in every run |
 | `model:<tokens>` | Chat completions through a socket, up to the tokens of the grant a run |
 | `model:images` | Images in its model requests, each carried in the request and never fetched: what it sends of the product's pages goes to the model |
@@ -261,7 +261,7 @@ refuses the status, `tehas plugin` says "the status could not be written"
 until one is written. The tick removes a hook's findings when its head is in
 the default branch, or after 30 days.
 
-### The gate and the panel
+### The gate and the menu
 
 `tehas-plugin-gate.service` runs the gate, `tehasbot plugin-gate`. It listens
 on `TEHAS_PLUGIN_GATE_ADDR`, by default `TEHAS_HOST_ADDR`'s address on port
@@ -269,22 +269,17 @@ on `TEHAS_PLUGIN_GATE_ADDR`, by default `TEHAS_HOST_ADDR`'s address on port
 again, when a setting or the App's client files are missing.
 [The gate of the views](/tools-control#the-gate-of-the-views) has the rest.
 
-`tehas update` docks each ready view as the panel `p-<name>`, labelled from
-the manifest, and takes it away when the plugin goes or is refused. A view
-takes one of the dashboard's four panels; one that would be a fifth is left
-out of the dock and the update says so. `tehas panel set` refuses an id that
-starts `p-`.
-
 ### The plugins menu
 
-A plugin granted `menu` takes no panel in the dock. `tehas update` lists it
-in `live/plugins.json` instead: its name, its label, and each of its views it
-is granted, with the view's label, its address and whether it opens in the
-dock or a new tab. Both front pages read the file and show each plugin's
-label in the menu, after the person's panels, with its views as links under
-it. `live/` is public, so a plugin's name and labels are, as a panel's are;
-what a view shows is behind the sign-in. A plugin without `menu` keeps the
-one panel of its `view`, as before.
+`tehas update` lists each ready plugin with a view granted in
+`live/plugins.json`: its name, its label, and each of its views it is
+granted, with the view's label, its address and whether it opens in the dock
+or a new tab. v1's `view` is the view `view`, labelled from the manifest,
+and opens in the dock. A plugin that goes or is refused leaves the file.
+Both front pages read the file and show each plugin's label in the menu,
+after the host bridge's items, with its views as links under it. `live/` is
+public, so a plugin's name and labels are; what a view shows is behind the
+sign-in.
 
 ## Before you turn it on
 

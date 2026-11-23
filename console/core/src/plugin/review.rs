@@ -18,9 +18,9 @@ pub struct Row {
 /// manual's page `host/docs/plugins.md` holds it as [`markdown`] writes it.
 /// A new capability is a new row here.
 pub const TABLE: [Row; 11] = [
-    Row { word: "view", does: "its /out is served behind the sign-in, and a panel in the dock: everyone the sign-in lets in sees it" },
+    Row { word: "view", does: "its /out is served behind the sign-in, and a view in the plugins menu that opens in the dock: everyone the sign-in lets in sees it" },
     Row { word: "view:<id>", does: "one of its views, the part of its /out at that view's path, is served behind the sign-in and opens from the plugins menu: everyone the sign-in lets in sees it" },
-    Row { word: "menu", does: "its granted views are listed in the plugins menu of both front pages, by its name and their labels, in place of a panel in the dock: names and labels are public, as live/ is" },
+    Row { word: "menu", does: "its granted views are listed in the plugins menu of both front pages, by its name and their labels, each in the dock or a new tab: names and labels are public, as live/ is" },
     Row { word: "product", does: "reads all of the product's code, read only, in every run" },
     Row { word: "model:<tokens>", does: "chat completions through a socket, up to the tokens of the grant a run" },
     Row { word: "model:images", does: "images in its model requests, each carried in the request and never fetched: what it sends of the product's pages goes to the model" },

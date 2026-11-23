@@ -1,11 +1,11 @@
-// Tests the page half of host/fun/panels.js with the host bridge: an item of
+// Tests the page half of host/fun/dock.js with the host bridge: an item of
 // the bridge's menu is drawn in the front pages' menu and a press opens its
-// page in the dock, framed as a panel is, not in this tab. An item that asks
+// page in the dock, sandboxed, not in this tab. An item that asks
 // for a page of its own is a plain link to a new tab, with no dock or frame. A
 // stub document stands for the page; see "The host bridge" in
 // host/docs/api.md.
 //
-//   node --test test/panels_dock_test.mjs
+//   node --test test/dock_test.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -53,16 +53,16 @@ globalThis.TEHAS_HOST_BRIDGE = {
   onChange: (f) => { changed = f; },
 };
 await import("../host/fun/dom.js");
-await import("../host/fun/panels.js");
+await import("../host/fun/dock.js");
 await new Promise((r) => setTimeout(r, 0));
 
-const links = () => nav.querySelectorAll(".panel-link");
-const dock = () => body.querySelector(".panel-dock");
+const links = () => nav.querySelectorAll(".dock-link");
+const dock = () => body.querySelector(".dock");
 
 test("the bridge's menu item is a link in the menu that names the dock, with no frame until a press", () => {
   const [item, page] = sample.menu;
   assert.deepEqual(links().map((l) => [l.textContent, l.href]), [[item.label, item.url], [page.label, page.url]]);
-  assert.equal(links()[0].attrs["aria-controls"], "panel-dock");
+  assert.equal(links()[0].attrs["aria-controls"], "dock");
   assert.equal(links()[0].attrs["aria-expanded"], "false");
   assert.equal(made.filter((n) => n.tag === "iframe").length, 0);
   assert.equal(dock(), null);
@@ -73,7 +73,7 @@ test("a press opens the item's page in the dock, sandboxed, and not in this tab"
   const link = links()[0];
   assert.equal(press(link), true);
   assert.equal(dock().hidden, false);
-  assert.equal(dock().querySelector(".panel-dock-title").textContent, item.label);
+  assert.equal(dock().querySelector(".dock-title").textContent, item.label);
   const frames = made.filter((n) => n.tag === "iframe");
   assert.equal(frames.length, 1);
   assert.equal(frames[0].src, item.url);
@@ -84,7 +84,7 @@ test("a press opens the item's page in the dock, sandboxed, and not in this tab"
   assert.equal(dock().hidden, true);
 });
 
-test("a press with a modifier or another button is left to the browser, as for a panel", () => {
+test("a press with a modifier or another button is left to the browser", () => {
   const link = links()[0];
   for (const over of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }]) {
     assert.equal(press(link, over), false, JSON.stringify(over));
@@ -108,7 +108,7 @@ test("an item that turns from the dock to a page closes the dock and drops its f
   assert.equal(dock().hidden, false);
   changed({ menu: [{ ...item, open: "page" }] });
   assert.equal(dock().hidden, true);
-  assert.equal(dock().querySelector(".panel-dock-body").kids.length, 0);
+  assert.equal(dock().querySelector(".dock-body").kids.length, 0);
   assert.equal(links()[0].attrs["aria-controls"], undefined);
   changed({ menu: sample.menu });
 });
@@ -119,5 +119,5 @@ test("an item that goes from the answer goes from the menu, and a dock showing i
   changed(null);
   assert.equal(links().length, 0);
   assert.equal(dock().hidden, true);
-  assert.equal(dock().querySelector(".panel-dock-body").kids.length, 0);
+  assert.equal(dock().querySelector(".dock-body").kids.length, 0);
 });
