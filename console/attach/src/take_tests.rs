@@ -826,7 +826,6 @@ fn run_of<'a>(dir: &'a str, data: &'a str, record: &'a str) -> IssueRun<'a> {
         wants: ALL,
         comments: true,
         allowed: "alice",
-        millwright: "",
         data,
     }
 }
@@ -1007,7 +1006,6 @@ fn with_no_images_and_no_files_the_directory_holds_the_manifest_and_the_blob() {
         dir: &dir,
         record: &record,
         repo: "acme/widget",
-        millwright: "",
     };
     assert_eq!(comments_only(&run), Ok((1, 0)));
     assert_eq!(listing(&dir), ["comments.json", "manifest.json"]);

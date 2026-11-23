@@ -877,3 +877,11 @@ of main, each grade.
 | 2026-11-23 | T16: the millwright's old name goes, and #686's alias with it | #2889 |
 | 2026-11-23 | T16: `cargo xtask config-check` shows which settings 2.0 keeps, drops or refuses | #2885 |
 | 2026-11-22 | T16: Outsource is dropped, with the model proxy and the contractor; the state store drops its five tables, and analytics goes to schema 6 without `runs.contractor_id`, pinned by the consumer that reads the analytics copies before the merge | #2886 |
+| 2026-11-22 | T15: gate tests stop reading the host they run on | #2874 |
+| 2026-11-22 | T15: six more slow shell test files run in parts | #2883 |
+| 2026-11-23 | T15: the preview build, main, network, remove and settle shell tests are Rust tests | #2893 |
+| 2026-11-23 | T9: the contract for 2.x, with what changed in 2.0 and for whom | #2895 |
+| 2026-11-23 | The plan says 2.0 rewrites no setting; the ports spec records the owner's adapter settings | #2896 |
+| 2026-11-23 | T16: every setting v1.4.0 accepted still loads on 2.0, pinned by a test | #2897 |
+| 2026-11-23 | T16: the All hands label is dropped | #2881 |
+| 2026-11-23 | T4: `tehas labels` reads a fourth field, and `host/markers.tsv` | #2901 |
