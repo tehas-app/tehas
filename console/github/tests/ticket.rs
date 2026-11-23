@@ -13,8 +13,7 @@ use replay::{adapter_of, PROJECT};
 use serde::Deserialize;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 use tehas_ports::laws;
@@ -287,10 +286,7 @@ fn a_history_is_paged_to_its_end_or_one_past_its_bound() {
     let whole = |b: Bound| {
         let (mut gh, asked) = adapter_of(PROJECT);
         let got = gh.history(&key(25), Window::Whole(b), None);
-        (
-            got.map(|t| (t.items.len(), t.more)),
-            asked.load(std::sync::atomic::Ordering::SeqCst),
-        )
+        (got.map(|t| (t.items.len(), t.more)), asked.get())
     };
     assert_eq!(whole(bound(103)), (Ok((103, false)), 2));
     assert_eq!(whole(bound(102)), (Err(Outcome::Unread(Unread::Cut)), 2));
@@ -301,11 +297,7 @@ fn a_history_is_paged_to_its_end_or_one_past_its_bound() {
     let newest = |n: u32| {
         let (mut gh, asked) = adapter_of(PROJECT);
         let got = gh.history(&key(25), last(n), None).unwrap();
-        (
-            got.items.len(),
-            got.more,
-            asked.load(std::sync::atomic::Ordering::SeqCst),
-        )
+        (got.items.len(), got.more, asked.get())
     };
     // The newest page holds them, and says so alone.
     assert_eq!(newest(3), (3, true, 1));
@@ -321,11 +313,7 @@ fn a_ticket_costs_the_issues_read_and_one_question_a_page() {
     let read = |depth, history| {
         let (mut gh, asked) = adapter_of(PROJECT);
         let t = gh.ticket(&key(25), depth, history).unwrap();
-        (
-            t.history.items.len(),
-            t.history.more,
-            asked.load(std::sync::atomic::Ordering::SeqCst),
-        )
+        (t.history.items.len(), t.history.more, asked.get())
     };
     assert_eq!(read(Depth::Cut { notes: 0 }, None), (0, true, 2));
     assert_eq!(read(Depth::All, None), (103, false, 3));
@@ -354,7 +342,7 @@ fn a_list_of_more_than_a_page_is_whole_and_oldest_first() {
     };
     let (mut gh, asked) = adapter_of(BUSY);
     let all = gh.list(&open, bound(102)).unwrap();
-    assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(asked.get(), 2);
     let keys: Vec<TicketKey> = all.items().iter().map(|d| d.key.clone()).collect();
     assert_eq!(keys, (100..202).map(key).collect::<Vec<_>>());
     // One under: the second page is what shows it.
@@ -363,11 +351,11 @@ fn a_list_of_more_than_a_page_is_whole_and_oldest_first() {
         gh.list(&open, bound(101)),
         Err(Outcome::Unread(Unread::Cut))
     );
-    assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(asked.get(), 2);
     // Under the first page: no second page is asked.
     let (mut gh, asked) = adapter_of(BUSY);
     assert_eq!(gh.list(&open, bound(99)), Err(Outcome::Unread(Unread::Cut)));
-    assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(asked.get(), 1);
 }
 
 type Asked = Arc<Mutex<Vec<String>>>;
