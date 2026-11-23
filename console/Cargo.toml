@@ -3,7 +3,7 @@
 # of the workspace, so the gate's cargo commands on this manifest cover the
 # analytics program in analytics/, the store in store/, the MCP server in
 # mcp/, the attachment checker in attach/, the library they share in core/,
-# the dispatcher's decisions in dispatch/, the words of an image's
+# the dispatcher's decisions in dispatch/, the GitHub adapter in github/, the words of an image's
 # description in describe/, a cycle's report in cycle/, the files of an item
 # and their page in items/, the operations modules in ops/, the cut of the
 # 2.1 `feed:host` in host-feed/, the mesh read of the 2.1 `feed:mesh` in
@@ -13,8 +13,8 @@
 # collector in wiki-collect/, and the development tasks behind scripts/ in
 # xtask/ as well.
 [workspace]
-members = ["analytics", "attach", "core", "cycle", "describe", "dispatch", "front", "host-feed", "items", "mcp", "mesh-feed", "ops", "plugin", "plugin-gate", "ports", "review-render", "store", "wiki-collect", "wiki-render", "xtask"]
-default-members = [".", "analytics", "attach", "core", "cycle", "describe", "dispatch", "front", "host-feed", "items", "mcp", "mesh-feed", "ops", "plugin", "plugin-gate", "ports", "review-render", "store", "wiki-collect", "wiki-render", "xtask"]
+members = ["analytics", "attach", "core", "cycle", "describe", "dispatch", "front", "github", "host-feed", "items", "mcp", "mesh-feed", "ops", "plugin", "plugin-gate", "ports", "review-render", "store", "wiki-collect", "wiki-render", "xtask"]
+default-members = [".", "analytics", "attach", "core", "cycle", "describe", "dispatch", "front", "github", "host-feed", "items", "mcp", "mesh-feed", "ops", "plugin", "plugin-gate", "ports", "review-render", "store", "wiki-collect", "wiki-render", "xtask"]
 
 [package]
 name = "console"
@@ -37,6 +37,9 @@ signal-hook = "0.3"
 store = { path = "store" }
 tehas-core = { path = "core", features = ["mask"] }
 tehas-cycle = { path = "cycle" }
+# The GitHub adapter, which tehas label asks (src/label.rs) until it moves
+# behind the ports.
+tehas-github = { path = "github" }
 # The operations modules (ops/src), which main.rs takes by one use line.
 tehas-ops = { path = "ops" }
 # The cycle id of status and history (src/history.rs), the events' own word.

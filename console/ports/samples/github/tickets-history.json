@@ -1,0 +1,420 @@
+[
+  {
+    "op": "Tickets::history",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Ticket 7 carries the project's mark bug, the approval and the running state, and a name no mark can have. Its marks went on and off five times, read in two parts: bug and the approval by alice, then in one second the running state on and the approval off by the factory's bot, then the approval by an account that is gone. A title change sits among them.",
+    "ticket": {
+      "Number": 7
+    },
+    "window": {
+      "Whole": 1000
+    },
+    "only": [
+      "Marked",
+      "Unmarked"
+    ],
+    "answer": {
+      "Ok": {
+        "items": [
+          {
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "Project",
+                "value": "bug"
+              }
+            },
+            "by": {
+              "realm": "CodeHost",
+              "login": "alice",
+              "id": "101",
+              "kind": "Person"
+            },
+            "at": 1767225600
+          },
+          {
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "Act",
+                "value": "Approve"
+              }
+            },
+            "by": {
+              "realm": "CodeHost",
+              "login": "alice",
+              "id": "101",
+              "kind": "Person"
+            },
+            "at": 1767225660
+          },
+          {
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "State",
+                "value": "Running"
+              }
+            },
+            "by": {
+              "realm": "CodeHost",
+              "login": "tehas-bot[bot]",
+              "id": "900",
+              "kind": "Bot"
+            },
+            "at": 1767225720
+          },
+          {
+            "what": {
+              "type": "Unmarked",
+              "value": {
+                "type": "Act",
+                "value": "Approve"
+              }
+            },
+            "by": {
+              "realm": "CodeHost",
+              "login": "tehas-bot[bot]",
+              "id": "900",
+              "kind": "Bot"
+            },
+            "at": 1767225720
+          },
+          {
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "Act",
+                "value": "Approve"
+              }
+            },
+            "by": null,
+            "at": 1767225780
+          }
+        ],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "Tickets::history",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Ticket 7 carries the project's mark bug, the approval and the running state, and a name no mark can have. Its marks went on and off five times, read in two parts: bug and the approval by alice, then in one second the running state on and the approval off by the factory's bot, then the approval by an account that is gone. A title change sits among them.",
+    "ticket": {
+      "Number": 7
+    },
+    "window": {
+      "Last": 2
+    },
+    "only": [
+      "Marked",
+      "Unmarked"
+    ],
+    "answer": {
+      "Ok": {
+        "items": [
+          {
+            "what": {
+              "type": "Unmarked",
+              "value": {
+                "type": "Act",
+                "value": "Approve"
+              }
+            },
+            "by": {
+              "realm": "CodeHost",
+              "login": "tehas-bot[bot]",
+              "id": "900",
+              "kind": "Bot"
+            },
+            "at": 1767225720
+          },
+          {
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "Act",
+                "value": "Approve"
+              }
+            },
+            "by": null,
+            "at": 1767225780
+          }
+        ],
+        "more": true
+      }
+    }
+  },
+  {
+    "op": "Tickets::history",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Ticket 7 carries the project's mark bug, the approval and the running state, and a name no mark can have. Its marks went on and off five times, read in two parts: bug and the approval by alice, then in one second the running state on and the approval off by the factory's bot, then the approval by an account that is gone. A title change sits among them.",
+    "ticket": {
+      "Number": 7
+    },
+    "window": {
+      "Last": 5
+    },
+    "only": [
+      "Marked",
+      "Unmarked"
+    ],
+    "answer": {
+      "Ok": {
+        "items": [
+          {
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "Project",
+                "value": "bug"
+              }
+            },
+            "by": {
+              "realm": "CodeHost",
+              "login": "alice",
+              "id": "101",
+              "kind": "Person"
+            },
+            "at": 1767225600
+          },
+          {
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "Act",
+                "value": "Approve"
+              }
+            },
+            "by": {
+              "realm": "CodeHost",
+              "login": "alice",
+              "id": "101",
+              "kind": "Person"
+            },
+            "at": 1767225660
+          },
+          {
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "State",
+                "value": "Running"
+              }
+            },
+            "by": {
+              "realm": "CodeHost",
+              "login": "tehas-bot[bot]",
+              "id": "900",
+              "kind": "Bot"
+            },
+            "at": 1767225720
+          },
+          {
+            "what": {
+              "type": "Unmarked",
+              "value": {
+                "type": "Act",
+                "value": "Approve"
+              }
+            },
+            "by": {
+              "realm": "CodeHost",
+              "login": "tehas-bot[bot]",
+              "id": "900",
+              "kind": "Bot"
+            },
+            "at": 1767225720
+          },
+          {
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "Act",
+                "value": "Approve"
+              }
+            },
+            "by": null,
+            "at": 1767225780
+          }
+        ],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "Tickets::history",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Ticket 7 carries the project's mark bug, the approval and the running state, and a name no mark can have. Its marks went on and off five times, read in two parts: bug and the approval by alice, then in one second the running state on and the approval off by the factory's bot, then the approval by an account that is gone. A title change sits among them.",
+    "ticket": {
+      "Number": 7
+    },
+    "window": {
+      "Whole": 1000
+    },
+    "only": [
+      "Unmarked"
+    ],
+    "answer": {
+      "Ok": {
+        "items": [
+          {
+            "what": {
+              "type": "Unmarked",
+              "value": {
+                "type": "Act",
+                "value": "Approve"
+              }
+            },
+            "by": {
+              "realm": "CodeHost",
+              "login": "tehas-bot[bot]",
+              "id": "900",
+              "kind": "Bot"
+            },
+            "at": 1767225720
+          }
+        ],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "Tickets::history",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Ticket 7 carries the project's mark bug, the approval and the running state, and a name no mark can have. Its marks went on and off five times, read in two parts: bug and the approval by alice, then in one second the running state on and the approval off by the factory's bot, then the approval by an account that is gone. A title change sits among them.",
+    "ticket": {
+      "Number": 7
+    },
+    "window": {
+      "Whole": 4
+    },
+    "only": [
+      "Marked",
+      "Unmarked"
+    ],
+    "answer": {
+      "Err": {
+        "Unread": "Cut"
+      }
+    }
+  },
+  {
+    "op": "Tickets::history",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Ticket 7 carries the project's mark bug, the approval and the running state, and a name no mark can have. Its marks went on and off five times, read in two parts: bug and the approval by alice, then in one second the running state on and the approval off by the factory's bot, then the approval by an account that is gone. A title change sits among them.",
+    "ticket": {
+      "Number": 7
+    },
+    "window": {
+      "Whole": 1000
+    },
+    "only": null,
+    "answer": {
+      "Err": {
+        "Refused": "Unsupported"
+      }
+    }
+  },
+  {
+    "op": "Tickets::history",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Ticket 7 carries the project's mark bug, the approval and the running state, and a name no mark can have. Its marks went on and off five times, read in two parts: bug and the approval by alice, then in one second the running state on and the approval off by the factory's bot, then the approval by an account that is gone. A title change sits among them.",
+    "ticket": {
+      "Number": 7
+    },
+    "window": {
+      "Whole": 1000
+    },
+    "only": [
+      "Marked",
+      "Closed"
+    ],
+    "answer": {
+      "Err": {
+        "Refused": "Unsupported"
+      }
+    }
+  },
+  {
+    "op": "Tickets::history",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Ticket 8's events come back cut off part way.",
+    "ticket": {
+      "Number": 8
+    },
+    "window": {
+      "Whole": 1000
+    },
+    "only": [
+      "Marked",
+      "Unmarked"
+    ],
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    }
+  },
+  {
+    "op": "Tickets::history",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Ticket 9 does not exist.",
+    "ticket": {
+      "Number": 9
+    },
+    "window": {
+      "Whole": 1000
+    },
+    "only": [
+      "Marked",
+      "Unmarked"
+    ],
+    "answer": {
+      "Err": "NotFound"
+    }
+  },
+  {
+    "op": "Tickets::history",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "The site fails on its side when ticket 10's events are read.",
+    "ticket": {
+      "Number": 10
+    },
+    "window": {
+      "Whole": 1000
+    },
+    "only": [
+      "Marked",
+      "Unmarked"
+    ],
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "why": "Server",
+          "sent": "Maybe"
+        }
+      }
+    }
+  }
+]

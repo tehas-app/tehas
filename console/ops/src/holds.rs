@@ -94,7 +94,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 use tehas_core::events::{pause_holds, UNKNOWN_ACTOR};
 use tehas_core::file::Temp;
-use tehas_core::forge::{Bounded, Forge, GitHub};
+use tehas_core::forge::{Bounded, Forge};
 use tehas_core::home::{Home, Live, State};
 use tehas_core::limit::{self as limit_file, leading_number};
 pub use tehas_core::limit::{epoch, oneline, REASON};
@@ -594,7 +594,7 @@ pub fn resume(given: &[String]) -> u8 {
     }
     // gh of `PATH`: `host/env.sh` puts the shim first there where the instance
     // has one, and a person's shell without it reads with their own gh.
-    let mut forge = GitHub::new(
+    let mut forge = tehas_github::GitHub::new(
         setting("TEHAS_REPO"),
         Box::new(Bounded::new("gh", CALL_BOUND)),
     );
@@ -1710,7 +1710,7 @@ mod tests {
             labels: owned(labels),
             events: owned(events),
         };
-        let mut forge = GitHub::new("acme/widget", Box::new(runner));
+        let mut forge = tehas_github::GitHub::new("acme/widget", Box::new(runner));
         other_switch(&mut forge, 1, &|who| who == "alice")
     }
 

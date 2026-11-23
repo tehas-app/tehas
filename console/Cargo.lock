@@ -160,6 +160,7 @@ dependencies = [
  "tehas-core",
  "tehas-cycle",
  "tehas-dispatch",
+ "tehas-github",
  "tehas-ops",
  "tehas-ports",
 ]
@@ -1862,6 +1863,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tehas-github"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tehas-core",
+ "tehas-ports",
+]
+
+[[package]]
 name = "tehas-host-feed"
 version = "0.1.0"
 dependencies = [
@@ -1909,6 +1920,7 @@ dependencies = [
  "tehas-core",
  "tehas-cycle",
  "tehas-dispatch",
+ "tehas-github",
 ]
 
 [[package]]
