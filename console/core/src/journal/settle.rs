@@ -12,8 +12,9 @@
 use super::{sha256, Found};
 use tehas_ports::{AccountKind, At, Body, Comment, Write};
 
-/// A comment made this long before the row still counts, for the clocks of
-/// the host and the site.
+/// A comment made this long before the row still counts: the host's clock
+/// and the site's may be this far apart, and a write the site took is not
+/// sent again for it.
 const SKEW: i64 = 60;
 
 fn found(there: bool) -> Found {
@@ -72,13 +73,11 @@ fn sum_of(body: &Body) -> Option<(String, u64)> {
 mod tests {
     use super::*;
     use std::num::NonZeroU64;
-    use tehas_ports::Marker;
+    use tehas_ports::fake::{FakeSite, World, FACTORY};
     use tehas_ports::{
-        Account, AccountKind, ChangeNo, CommentId, Login, Mark, Realm, Revision, Sha256, State,
-        Sum, TicketKey, WebLink,
+        AccountKind, Actor, BlueprintNo, Bound, Caller, ChangeNo, Mark, Marker, Sha256, Site,
+        Standing, State, Sum, TicketKey,
     };
-
-    const AT: i64 = 2_000_000_000;
 
     fn ticket() -> TicketKey {
         TicketKey::Number(NonZeroU64::new(7).unwrap())
@@ -92,27 +91,27 @@ mod tests {
         Mark::State(State::Running)
     }
 
-    fn account(kind: AccountKind) -> Account {
-        Account {
-            realm: Realm::CodeHost,
-            login: Login::new("tehas-bot"),
-            id: None,
-            kind,
-        }
+    /// The notes of ticket 7 as the fake site gives them: on a site where a
+    /// ticket is its own blueprint, its blueprint's comments.
+    fn notes(world: &World) -> Vec<Comment> {
+        let site = FakeSite::new(world);
+        let mut b = site
+            .blueprints(&Actor::Operator, Caller::new("test"))
+            .unwrap();
+        b.comments(BlueprintNo::new(7).unwrap(), Bound::new(50).unwrap())
+            .unwrap()
+            .items()
+            .to_vec()
     }
 
-    fn comment(body: &str, kind: AccountKind, at: i64) -> Comment {
-        Comment {
-            id: CommentId::new("c1"),
-            author: Some(account(kind)),
-            editor: None,
-            created: At::new(at),
-            edited: None,
-            body: body.to_string(),
-            markers: vec![],
-            revision: Revision::new("r1"),
-            link: WebLink::new("https://site.example/c1").unwrap(),
-        }
+    /// Ticket 7 with a note `body` by `login`, the row sent `ago` seconds
+    /// after it: the row's time.
+    fn noted(login: &str, body: &str, ago: i64) -> (Vec<Comment>, At) {
+        let world = World::new()
+            .with_account("other-bot", AccountKind::Bot, Standing::Read)
+            .ticket(7, |t| t.comment(login, body));
+        world.advance(ago);
+        (notes(&world), world.now())
     }
 
     fn note(body: &str) -> Write {
@@ -154,14 +153,9 @@ mod tests {
             no: change(),
             mark: refreshing.clone(),
         };
-        assert_eq!(
-            by_marks(&on, std::slice::from_ref(&refreshing)),
-            Some(Found::Landed)
-        );
-        assert_eq!(
-            by_marks(&off, std::slice::from_ref(&refreshing)),
-            Some(Found::NotSent)
-        );
+        let carried = std::slice::from_ref(&refreshing);
+        assert_eq!(by_marks(&on, carried), Some(Found::Landed));
+        assert_eq!(by_marks(&off, carried), Some(Found::NotSent));
         assert_eq!(by_marks(&off, &[running()]), Some(Found::Landed));
     }
 
@@ -172,53 +166,35 @@ mod tests {
             ticket: ticket(),
             mark: running(),
         };
-        assert_eq!(by_comments(&mark, &[], At::new(AT)), None);
+        assert_eq!(by_comments(&mark, &[], At::new(0)), None);
     }
 
     #[test]
     fn a_note_of_ours_with_the_rows_text_since_its_time_is_there() {
-        let read = [
-            comment("Other.", AccountKind::Ours, AT + 5),
-            comment("Hello.", AccountKind::Ours, AT + 5),
-        ];
-        assert_eq!(
-            by_comments(&note("Hello."), &read, At::new(AT)),
-            Some(Found::Landed)
-        );
-        assert_eq!(
-            by_comments(&note("Bye."), &read, At::new(AT)),
-            Some(Found::NotSent)
-        );
+        let (read, at) = noted(FACTORY, "Hello.", 0);
+        assert_eq!(by_comments(&note("Hello."), &read, at), Some(Found::Landed));
+        assert_eq!(by_comments(&note("Bye."), &read, at), Some(Found::NotSent));
     }
 
     #[test]
     fn a_note_with_the_rows_text_by_another_account_is_not_ours() {
-        for kind in [AccountKind::Person, AccountKind::Bot, AccountKind::Unknown] {
-            let read = [comment("Hello.", kind, AT + 5)];
+        for login in ["alice", "other-bot"] {
+            let (read, at) = noted(login, "Hello.", 0);
             assert_eq!(
-                by_comments(&note("Hello."), &read, At::new(AT)),
+                by_comments(&note("Hello."), &read, at),
                 Some(Found::NotSent),
-                "{kind:?}"
+                "{login}"
             );
         }
-        let mut nobody = comment("Hello.", AccountKind::Ours, AT + 5);
-        nobody.author = None;
-        assert_eq!(
-            by_comments(&note("Hello."), &[nobody], At::new(AT)),
-            Some(Found::NotSent)
-        );
     }
 
     #[test]
     fn a_note_older_than_the_row_is_not_it_but_a_minute_of_clock_counts() {
-        let old = [comment("Hello.", AccountKind::Ours, AT - 600)];
+        let (old, at) = noted(FACTORY, "Hello.", 600);
+        assert_eq!(by_comments(&note("Hello."), &old, at), Some(Found::NotSent));
+        let (skewed, at) = noted(FACTORY, "Hello.", SKEW);
         assert_eq!(
-            by_comments(&note("Hello."), &old, At::new(AT)),
-            Some(Found::NotSent)
-        );
-        let skewed = [comment("Hello.", AccountKind::Ours, AT - 60)];
-        assert_eq!(
-            by_comments(&note("Hello."), &skewed, At::new(AT)),
+            by_comments(&note("Hello."), &skewed, at),
             Some(Found::Landed)
         );
     }
@@ -230,15 +206,13 @@ mod tests {
             body: Body::Text("Hello.".into()),
             markers: vec![Marker::HoldCleared],
         };
-        let read = [comment("Hello.", AccountKind::Ours, AT)];
+        let (plain, at) = noted(FACTORY, "Hello.", 0);
+        assert_eq!(by_comments(&marked, &plain, at), Some(Found::NotSent));
+        let world = World::new().ticket(7, |t| {
+            t.comment_marked(FACTORY, "Hello.", vec![Marker::HoldCleared])
+        });
         assert_eq!(
-            by_comments(&marked, &read, At::new(AT)),
-            Some(Found::NotSent)
-        );
-        let mut with = comment("Hello.", AccountKind::Ours, AT);
-        with.markers = vec![Marker::HoldCleared];
-        assert_eq!(
-            by_comments(&marked, &[with], At::new(AT)),
+            by_comments(&marked, &notes(&world), world.now()),
             Some(Found::Landed)
         );
     }
@@ -253,15 +227,9 @@ mod tests {
             }),
             markers: vec![],
         };
-        let read = [comment("Hello.", AccountKind::Ours, AT)];
-        assert_eq!(
-            by_comments(&summed, &read, At::new(AT)),
-            Some(Found::Landed)
-        );
-        let short = [comment("Hello", AccountKind::Ours, AT)];
-        assert_eq!(
-            by_comments(&summed, &short, At::new(AT)),
-            Some(Found::NotSent)
-        );
+        let (read, at) = noted(FACTORY, "Hello.", 0);
+        assert_eq!(by_comments(&summed, &read, at), Some(Found::Landed));
+        let (short, at) = noted(FACTORY, "Hello", 0);
+        assert_eq!(by_comments(&summed, &short, at), Some(Found::NotSent));
     }
 }
