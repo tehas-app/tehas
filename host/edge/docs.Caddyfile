@@ -31,6 +31,10 @@
         # host bridge" in api.md. Bare /host is the manual's page "The host".
         @host path /host/*
         respond @host 404
+        # /pages and /pages/ are reserved for plugins from 2.1. See "Plugin
+        # pages namespace" in contract.md.
+        @pages path /pages /pages/*
+        respond @pages 404
         # Dashboard data: the queue snapshot and the running cycle's console.
         # Plain files written by the dispatcher; the page polls them, the
         # console with Range requests so it only fetches what is new.
