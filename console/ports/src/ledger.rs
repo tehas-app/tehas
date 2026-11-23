@@ -91,8 +91,7 @@ new!(Failure {
     outcome: Outcome
 });
 
-/// The ledger could not be read or written: its file is missing, locked
-/// past its wait, or not whole.
+/// The ledger could not be read or written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct LedgerDown;
 
@@ -150,7 +149,12 @@ pub trait Ledger: Send + Sync {
         new: &HealthState,
     ) -> Result<bool, LedgerDown>;
     /// Keep one failed call, with the project it was for. Failures older
-    /// than `f.at - keep` are dropped, `keep` in seconds.
+    /// than `f.at - keep` are dropped, `keep` in seconds. It keeps what it is
+    /// given: the adapter chooses which failures count. It hands over only a
+    /// failure of the supplier: `Unavailable` but `Broken`, `Spent`, and the
+    /// factory's own `SignedOut`; an odd answer (`Unread`, `Cut` and
+    /// `TooLarge` among them) and another holder's sign-out are not handed
+    /// over.
     fn failed(&self, host: &HostId, f: Failure, keep: u32) -> Result<(), LedgerDown>;
     /// The failed calls on a host at or after `since`, oldest first.
     fn failures(&self, host: &HostId, since: At) -> Result<Vec<Failure>, LedgerDown>;

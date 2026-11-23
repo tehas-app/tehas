@@ -3474,3 +3474,13 @@ fn a_law_breaks_where_its_rule_does() {
     };
     assert!(laws::lists::more_is_exact(wrong, 2).is_err());
 }
+
+#[test]
+fn a_memory_ledger_keeps_the_ledgers_laws() {
+    let l = tehas_ports::fake::MemoryLedger::new();
+    ok(laws::ledger::all(
+        &l,
+        &HostId::new("github.com"),
+        At::new(1_000_000),
+    ));
+}

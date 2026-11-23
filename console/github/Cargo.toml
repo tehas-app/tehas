@@ -15,7 +15,8 @@ path = "src/lib.rs"
 
 [dependencies]
 serde_json = "1"
-tehas-core = { path = "../core" }
+# approval's text sums, for the relay's read before an edit.
+tehas-core = { path = "../core", features = ["mask"] }
 tehas-ports = { path = "../ports" }
 
 [dev-dependencies]
