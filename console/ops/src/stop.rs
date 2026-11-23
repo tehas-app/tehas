@@ -507,9 +507,7 @@ impl Names {
             let already = answer["already"].as_bool().unwrap_or(false);
             let reason = answer.pointer("/cycle/end_reason").and_then(|r| r.as_str());
             say(&ended_line(n, already, reason));
-            if !already {
-                raise_stopped(home, n, &open_at, events);
-            }
+            raise_stopped(home, n, &open_at, &answer.to_string(), events);
         }
         if !held.as_ref().is_ok_and(|f| f.try_lock().is_ok()) {
             eprintln!("tehas stop: a cycle for #{n} holds its lock, so nothing was removed.");
@@ -635,11 +633,14 @@ fn wiring(home: &Path) -> Dispatcher {
     let log = Home::new(home).factory_log();
     raise::logged(move |line| {
         let at = tehas_core::time::iso(tehas_core::time::now());
+        // One write of the whole line, so O_APPEND keeps it whole beside the
+        // other writers of the log.
+        let whole = format!("{at} {line}\n");
         let wrote = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&log)
-            .and_then(|mut f| writeln!(f, "{at} {line}"));
+            .and_then(|mut f| f.write_all(whole.as_bytes()));
         if wrote.is_err() {
             eprintln!("tehas stop: {line}");
         }
@@ -647,10 +648,13 @@ fn wiring(home: &Path) -> Dispatcher {
     .build()
 }
 
-/// The end this run wrote of attempt `attempt` of issue `n`, raised. A read
-/// that fails raises nothing, and says so.
-fn raise_stopped(home: &Path, n: &str, attempt: &str, events: &Dispatcher) {
-    let (Ok(issue), Ok(attempt)) = (n.parse(), attempt.parse()) else {
+/// The end of attempt `attempt` of issue `n`, raised when `answer`, the
+/// store's answer to `cycle-end --stopped`, says this run wrote its line. A
+/// record ended before, by a report, the poll or a refused start, is its
+/// writer's to raise. A read that fails raises nothing, and says so.
+fn raise_stopped(home: &Path, n: &str, attempt: &str, answer: &str, events: &Dispatcher) {
+    let wrote = serde_json::from_str::<raise::EndAnswer>(answer).is_ok_and(|a| !a.already);
+    let (true, Ok(issue), Ok(attempt)) = (wrote, n.parse(), attempt.parse()) else {
         return;
     };
     let warn = |line: &str| eprintln!("tehas stop: {line}");
@@ -735,9 +739,11 @@ mod tests {
         let h = Arc::clone(&heard);
         let events = raise::logged(move |l| h.lock().unwrap().push(l.to_string())).build();
         started(&home);
-        let end = ["cycle-end", "5", "--attempt", "1", "--stopped"];
-        assert_eq!(store::call(&home, &end).unwrap()["already"], false);
-        raise_stopped(&home, "5", "1", &events);
+        let stop = |attempt: &str| {
+            let end = ["cycle-end", "5", "--attempt", attempt, "--stopped"];
+            store::call(&home, &end).unwrap().to_string()
+        };
+        raise_stopped(&home, "5", "1", &stop("1"), &events);
         let lines = heard.lock().unwrap().clone();
         assert_eq!(lines.len(), 1, "{lines:?}");
         let e: Envelope = serde_json::from_str(lines[0].strip_prefix("event ").unwrap()).unwrap();
@@ -749,7 +755,33 @@ mod tests {
         started(&home);
         let report = ["cycle-end", "5", "--attempt", "2", "--status", "failed"];
         store::call(&home, &report).unwrap();
-        raise_stopped(&home, "5", "2", &events);
+        raise_stopped(&home, "5", "2", &stop("2"), &events);
+        assert_eq!(heard.lock().unwrap().len(), 1);
+        // A record a refused start ended has a line no report wrote, as the
+        // stop's would be: the store's `already` alone keeps this run from
+        // raising it a second time.
+        let lock = File::create(Home::new(&*home).cycle_note(5, "lock")).unwrap();
+        lock.try_lock().unwrap();
+        store::call(&home, &["cycle-start", "5", "--by-hand"]).unwrap();
+        let refused = [
+            "cycle-end",
+            "5",
+            "--attempt",
+            "3",
+            "--refused",
+            "--rc",
+            "65",
+        ];
+        store::call(&home, &refused).unwrap();
+        drop(lock);
+        let rows = store::call(&home, &["history-show", "5"]).unwrap()["rows"].clone();
+        assert_eq!(rows[2]["reported"], false);
+        let answer = stop("3");
+        assert!(answer.contains("\"already\":true"), "{answer}");
+        raise_stopped(&home, "5", "3", &answer, &events);
+        assert_eq!(heard.lock().unwrap().len(), 1);
+        // An answer that does not say who wrote raises nothing.
+        raise_stopped(&home, "5", "3", "{}", &events);
         assert_eq!(heard.lock().unwrap().len(), 1);
     }
 

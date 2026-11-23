@@ -416,7 +416,6 @@ pub fn recorded(answer: &str) -> Option<u64> {
     #[derive(Deserialize)]
     struct A {
         question: Q,
-        #[serde(default)]
         already: bool,
     }
     let a: A = serde_json::from_str(answer).ok()?;
@@ -645,6 +644,9 @@ mod tests {
         let replay = a.replace("\"already\":false", "\"already\":true");
         assert_eq!(recorded(&replay), None);
         assert_eq!(recorded("{}"), None);
+        // An answer that does not say whether it recorded raises nothing.
+        let unsaid = r#"{"api":1,"verb":"question-asked","ok":true,"question":{"id":5}}"#;
+        assert_eq!(recorded(unsaid), None);
     }
 
     #[test]
