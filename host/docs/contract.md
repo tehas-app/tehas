@@ -661,9 +661,8 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `host/fun` and the dock, so the file and global renames reach it),
   plugins.
   Adopter action: `tehas update` removes the last `live/panels.json`.
-  `~/tehas/state/panels.json` stays: copy its entries whose id does not
-  start with `p-` (the operator's own pages) for the 2.1 `panels` grant,
-  then delete it, and `~/tehas/state/panel.lock` with it.
+  Leave `~/tehas/state/panels.json` in place: 2.0 no longer reads it, and
+  the 2.1 `panels` plugin migrates its pages into its grant.
 - **The state store is at schema 29.**
   #2794, #2830, #2843, #2867, #2889, #2886.
   The steps 24 to 29 are listed under [Upgrading to 2.0](#upgrading-to-20).
