@@ -1984,6 +1984,7 @@ fn every_word() -> Vec<Word> {
         Word::Takeover,
         Word::Health,
         Word::PortName,
+        Word::EventName,
         Word::Unknown,
     ]
 }

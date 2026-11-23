@@ -18,6 +18,7 @@ mod board;
 mod body;
 mod bound;
 mod code_host;
+pub mod events;
 mod health;
 mod identity;
 mod ids;

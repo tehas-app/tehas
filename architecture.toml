@@ -208,3 +208,15 @@ files = ["console/ports/src/**"]
 comment = "//"
 max = 0
 why = "New at T4.1. The ports are data and pure functions; the fake that comes with them keeps a clock of its own. Tightened at T4.1a's review: besides a path through std or a module, the pattern counts a grouped or aliased import of an effect module (use std::{fs, ...}, use std::{env as e}, a module alone on a line of a group spread over lines, std itself aliased), the standard streams (stdin, stdout, stderr, through io:: or not) and the print macros (print!, println!, eprint!, eprintln!, dbg!)."
+
+# The events (T11.1): each name is written once, in the events module.
+
+[[check]]
+id = "event-names"
+rule = "R1"
+what = "a string literal that equals an event name is written only in the ports' events module; elsewhere code names Name::CycleEnded"
+pattern = '"(cycle\.(started|parked|ended)|question\.asked|change\.(offered|merged)|ticket\.(acted|closed)|factory\.limit-changed)"'
+files = ["console/**/*.rs"]
+allowed = ["console/ports/src/events/**"]
+max = 0
+why = "New at T11.1, as docs/specs/2026-11-22-events.md says in \"Why it cannot drift\". A new name joins the pattern in the pull request that adds it. No comment prefix is set, so a name quoted in a comment counts too."
