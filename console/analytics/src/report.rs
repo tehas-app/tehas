@@ -987,7 +987,7 @@ fn stop_reasons(runs: &[WorkRun]) -> Value {
     let mut by: BTreeMap<String, usize> = BTreeMap::new();
     let mut n = 0;
     for r in runs {
-        if matches!(r.outcome.as_str(), "pr" | "merged" | "stopped") {
+        if matches!(r.outcome.as_str(), "offered" | "merged" | "stopped") {
             continue;
         }
         n += 1;
@@ -1058,7 +1058,7 @@ fn funnel(reached: &BTreeMap<&str, BTreeMap<String, i64>>, runs: &[&WorkRun]) ->
             continue;
         };
         let stop = match run.outcome.as_str() {
-            "pr" | "merged" => None,
+            "offered" | "merged" => None,
             "handoff" | "parked" | "failed" => Some(
                 run.failed_step
                     .as_deref()
@@ -1123,7 +1123,7 @@ fn versions(runs: &[WorkRun]) -> Value {
                 let enough = n >= VERSION_FLOOR;
                 let pr = v
                     .iter()
-                    .filter(|r| matches!(r.outcome.as_str(), "pr" | "merged"))
+                    .filter(|r| matches!(r.outcome.as_str(), "offered" | "merged"))
                     .count();
                 let mut secs: Vec<i64> = v.iter().map(|r| r.seconds.unwrap_or(0)).collect();
                 secs.sort_unstable();
@@ -1206,7 +1206,7 @@ fn tally(sorted: &[i64], per: i64) -> Value {
 /// and version handed the work back. Each is left out when no run is in it.
 fn drivers(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite::Result<Value> {
     let merges = last_merges(conn, to)?;
-    let reaches = |r: &WorkRun| matches!(r.outcome.as_str(), "pr" | "merged");
+    let reaches = |r: &WorkRun| matches!(r.outcome.as_str(), "offered" | "merged");
     let ran_at_all = |r: &WorkRun| !matches!(r.outcome.as_str(), "refused" | "stopped");
     let floor = |part: usize, whole: usize| {
         share(part, whole)

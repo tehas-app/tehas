@@ -249,7 +249,7 @@ fn every_stop_outcome_counts_and_the_others_do_not() {
         assert!(out.get("checks").is_none());
         assert_eq!(out["sig"], park_sig("lens-review", "", "", "", ""));
     }
-    for outcome in ["merged", "pr", "stopped"] {
+    for outcome in ["merged", "offered", "stopped"] {
         let env = Env::new(&format!("go-{outcome}"), &[run("work", 7, t, outcome)]);
         let e = err_text(env.call(json!({"issue": 7})).unwrap_err());
         assert!(e.contains("issue 7"), "{e}");

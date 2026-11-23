@@ -901,7 +901,7 @@ fn every_key_is_listed() {
                 "runs",
                 "runs.n",
                 "runs.merged",
-                "runs.pr",
+                "runs.offered",
                 "runs.handoff",
                 "runs.parked",
                 "runs.failed",

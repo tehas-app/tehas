@@ -148,7 +148,7 @@ call; one that a caller killed during the call leaves is removed by
 | `how` | What started it: `label`, `reply` (a retry a person's reply answered), `answer` (a retry `tehas answer` gave), `outage-retry`, `millwright`, `host` (an approval of `tehas start`) or `refresh`, from the approval the start used, else the history line, which says `hand` for a cycle run by hand. A planning turn: `label` for the first turn, `refine` for the first turn of a session `tehas:refine` started, `answer` or `millwright` for a later one. A run a retry ticked before 2.0 started said `retry-tick`: analytics rewrites it to `reply` in `runs.how` of `state/analytics.db` each time it opens the file, and the state store's step to schema 27 does the same in `state/tehas.db`. A run recorded under the millwright's old name said `fixer`: analytics rewrites it to `millwright` the same way, and the state store's step to schema 28 takes `fixer` from what its rows may say | 1 |
 | `started`, `ended`, `seconds` | The run's start, its end and the wall time between: the history line's `started` and `at`. A planning turn ends when the poll collects it | 1 |
 | `queue_wait` | `started` less when `tehas:ready` was accepted (the approval the start used) | 1 |
-| `outcome` | `pr`, `merged`, `handoff`, `parked`, `failed`, `refused` or `stopped`, below | 1 |
+| `outcome` | `offered`, `merged`, `handoff`, `parked`, `failed`, `refused` or `stopped`, below | 1 |
 | `status`, `exit_code` | The runner's status and exit code, or tehas's own (`killed`, `stalled`, `timeout`), from the history and the result | 1 |
 | `last_step`, `failed_step` | The step it was in last, and the step that failed, from the result and the history | 1 |
 | `cap` | The cap that stopped it, from the result or the history | 1 |
@@ -181,12 +181,12 @@ The outcome of a work run, the first row that matches, top to bottom.
 | `merged` | The issue's pull request was merged within the run, and the run did not park. A runner that claimed a merge the report did not find parks, and ends by a later row |
 | `stopped` | The issue was closed while it ran, it was interrupted, or `tehas stop` stopped it, and the run did not park |
 | `refused` | No cycle ran: the runner refused, or `tehas work` started none |
-| `pr` | It left an open pull request and was not parked |
+| `offered` | It left an open pull request and was not parked |
 | `handoff` | The runner handed off to a person |
 | `failed` | tehas stopped it, the runner aborted, it was lost (it died without a word), or a failure other than a cap stopped it |
 | `parked` | Any other end that needs a person, such as a cap |
 
-A run that parked never has `merged`, `stopped` or `pr`.
+A run that parked never has `merged`, `stopped` or `offered`.
 
 A planning turn is `handoff` when it asked its question, `stopped` when Pi no
 longer had the session, `refused` when no turn ran, and `failed` otherwise.
@@ -359,7 +359,7 @@ apart. A run with no driver on record is classic. Each entry gives:
 | --- | --- |
 | `n` | The work runs of the pair, refused and stopped ones with them |
 | `ran` | Those of `n` that ran: not refused, not stopped. Neither says anything of the driver |
-| `prShare` | The share of `ran` that ended in a pull request a person could merge: outcome `pr` or `merged` |
+| `prShare` | The share of `ran` that ended in a pull request a person could merge: outcome `offered` or `merged` |
 | `parkedShare` | The share of `ran` handed to a person: outcome `handoff` or `parked`, as `handoffRate` counts them, since a run tehas parks with its pull request open has outcome `handoff` |
 | `minutes` | `n` runs of `ran` with a length, their `total` and `median`, whole minutes |
 | `tokens` | `n` runs that reported usage, their `total` and `median` (input, output and cache read) |

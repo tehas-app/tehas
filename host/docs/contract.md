@@ -623,12 +623,13 @@ adopter action as the pull request states them.
   `failed`, both `parked` before; a parked run that claimed `merged` and a
   parked `closed` or `interrupted` run end by the later rows (`handoff`,
   `failed` or `parked`), not `merged` or `stopped`. A parked run never ends
-  `merged`, `stopped` or `pr`. Runs recorded before the update keep their
-  outcome.
+  `merged`, `stopped` or `offered`. Runs recorded before the update keep
+  their outcome. The end `pr` is `offered`, in the analytics, the report's
+  `runs` and the MCP server's outcome words, with no alias.
   Readers: the consumer that reads the analytics copies, the consumer that
-  runs many factories.
+  runs many factories, MCP clients, the end-to-end suite.
   Adopter action: a program that compares counts of `runs.outcome` across
-  the update allows for the four moves. The words are the same.
+  the update allows for the four moves; a reader of `pr` reads `offered`.
 - **The plugin hook is named by its event.** T11.8. The grant
   `hook:after:work` becomes `hook:after:change.offered`, with no alias.
   Readers: plugins.

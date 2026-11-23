@@ -952,7 +952,7 @@ fn outcomes_follow_how_the_cycle_ended() {
         ),
         (
             json!({"status": "handoff", "rc": 10, "pr": "https://github.com/o/r/pull/42", "parked": false}),
-            "pr",
+            "offered",
             Some(42),
         ),
         (
@@ -3560,7 +3560,7 @@ fn report_data(conn: &Connection, day0: i64, to: i64) {
             2,
             day0 + 3000,
             1800,
-            "pr",
+            "offered",
             Some(2000),
             Some(500),
             None,
@@ -3776,7 +3776,7 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
         "to": to,
         "shipped": {"n": 3},
         "planned": {"n": 6, "inLine": 5, "planning": 1, "trend": trend},
-        "runs": {"n": 6, "pr": 1, "merged": 1, "handoff": 1, "parked": 0, "failed": 2,
+        "runs": {"n": 6, "offered": 1, "merged": 1, "handoff": 1, "parked": 0, "failed": 2,
                  "refused": 1, "stopped": 0},
         "planningTurns": {"n": 1},
         "handoffRate": {"n": 6, "share": 0.167},
@@ -3946,12 +3946,12 @@ fn the_report_splits_by_driver_and_counts_a_null_row_as_classic() {
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     // Classic: two pull requests, one merged by the driver, one parked run.
     driver_run(&conn, "a", 1, day0, "merged", Some(100), None);
-    driver_run(&conn, "b", 2, day0, "pr", Some(200), Some("classic"));
+    driver_run(&conn, "b", 2, day0, "offered", Some(200), Some("classic"));
     driver_run(&conn, "c", 3, day0, "parked", Some(300), None);
     driver_run(&conn, "d", 4, day0, "failed", Some(400), None);
     // Lean: no usage yet. One pull request a person merged later, one not.
-    driver_run(&conn, "e", 5, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "f", 6, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "e", 5, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "f", 6, day0, "offered", None, Some("lean"));
     driver_run(&conn, "g", 7, day0, "parked", None, Some("lean"));
     db::event(&conn, 5, "merged", day0 + 3600).unwrap();
     let got = crate::report::build(&conn, to).unwrap();
@@ -3988,11 +3988,11 @@ fn a_merge_is_credited_to_the_version_of_the_run_that_reached_the_pull_request()
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     // One issue, two releases: the older reached a pull request first, the
     // newer last, and the merge followed both.
-    lean_run(&conn, "a", 5, day0, "pr", "0.14.49");
-    lean_run(&conn, "b", 5, day0 + 1000, "pr", "0.14.50");
+    lean_run(&conn, "a", 5, day0, "offered", "0.14.49");
+    lean_run(&conn, "b", 5, day0 + 1000, "offered", "0.14.50");
     db::event(&conn, 5, "merged", day0 + 2000).unwrap();
     // The newer version needs enough runs for its own share to be published.
-    for (id, issue, outcome) in [("c", 6, "pr"), ("d", 7, "failed"), ("e", 8, "pr")] {
+    for (id, issue, outcome) in [("c", 6, "offered"), ("d", 7, "failed"), ("e", 8, "offered")] {
         lean_run(&conn, id, issue, day0, outcome, "0.14.50");
     }
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
@@ -4025,11 +4025,11 @@ fn a_drivers_shares_are_of_its_runs_that_ran() {
     let home = scratch("report-driver-ran");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
     driver_run(&conn, "b", 2, day0, "failed", None, Some("lean"));
     driver_run(&conn, "c", 3, day0, "refused", None, Some("lean"));
     driver_run(&conn, "d", 4, day0, "stopped", None, Some("lean"));
-    driver_run(&conn, "e", 5, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "e", 5, day0, "offered", None, Some("lean"));
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
     let lean = &got["drivers"]["lean"]["none"];
     assert_eq!(lean["n"], 5);
@@ -4058,8 +4058,8 @@ fn a_run_handed_off_to_a_person_counts_as_parked_for_its_driver() {
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     driver_run(&conn, "a", 1, day0, "handoff", None, Some("lean"));
     driver_run(&conn, "b", 2, day0, "parked", None, Some("lean"));
-    driver_run(&conn, "c", 3, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "d", 4, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "c", 3, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "d", 4, day0, "offered", None, Some("lean"));
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
     assert_eq!(got["drivers"]["lean"]["none"]["parkedShare"], 0.5);
     assert_eq!(got["handoffRate"]["share"], 0.5);
@@ -4073,12 +4073,12 @@ fn a_shipped_issue_whose_runs_reported_no_usage_is_no_zero_in_tokens_per_shipped
     let tokens =
         |conn: &Connection| crate::report::build(conn, day0 + DAY).unwrap()["tokens"].clone();
     driver_run(&conn, "a", 1, day0, "merged", Some(1_000_000), None);
-    driver_run(&conn, "b", 2, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "b", 2, day0, "offered", None, Some("lean"));
     db::event(&conn, 2, "merged", day0 + 3600).unwrap();
     assert_eq!(tokens(&conn)["perShipped"], 1_000_000);
     assert_eq!(tokens(&conn)["shipped"], 1);
     // One run with a figure is enough for the issue to count.
-    driver_run(&conn, "c", 2, day0 + 1, "pr", Some(0), Some("lean"));
+    driver_run(&conn, "c", 2, day0 + 1, "offered", Some(0), Some("lean"));
     assert_eq!(tokens(&conn)["perShipped"], 500_000);
     assert_eq!(tokens(&conn)["shipped"], 2);
     // No run here at all: no driver left a gap, so the issue counts as it did.
@@ -4104,9 +4104,9 @@ fn empty_tokens_are_left_out_of_a_drivers_sum_and_not_counted() {
     let home = scratch("report-part-tokens");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    driver_run(&conn, "a", 1, day0, "pr", Some(0), Some("lean"));
-    driver_run(&conn, "b", 2, day0, "pr", Some(400), Some("lean"));
-    driver_run(&conn, "c", 3, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "a", 1, day0, "offered", Some(0), Some("lean"));
+    driver_run(&conn, "b", 2, day0, "offered", Some(400), Some("lean"));
+    driver_run(&conn, "c", 3, day0, "offered", None, Some("lean"));
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
     // A reported 0 is a figure; an empty run is not in the median either.
     assert_eq!(
@@ -4123,14 +4123,14 @@ fn a_pull_request_counts_once_and_only_a_merge_after_it_was_reached() {
     let to = day0 + DAY;
     let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
     // Two runs of one pull request, the second a follow-up by another how.
-    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "b", 1, day0 + 1000, "pr", None, Some("lean"));
+    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "b", 1, day0 + 1000, "offered", None, Some("lean"));
     db::event(&conn, 1, "merged", day0 + 2000).unwrap();
     // Merged before this cycle of the issue: an earlier pull request's.
     db::event(&conn, 2, "merged", day0 - 8 * DAY).unwrap();
-    driver_run(&conn, "c", 2, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "c", 2, day0, "offered", None, Some("lean"));
     // Merged after the report's end: not yet, in this report.
-    driver_run(&conn, "d", 3, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "d", 3, day0, "offered", None, Some("lean"));
     db::event(&conn, 3, "merged", to + 1).unwrap();
     // No pull request, so it is in no count of them, merged or not.
     driver_run(&conn, "e", 4, day0, "failed", None, Some("lean"));
@@ -4148,14 +4148,14 @@ fn a_merge_is_of_the_driver_that_last_reached_a_pull_request_before_it() {
     let to = day0 + DAY;
     let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
     // Lean's pull request was closed, classic's merged.
-    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "b", 1, day0 + 1000, "pr", None, None);
+    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "b", 1, day0 + 1000, "offered", None, None);
     db::event(&conn, 1, "merged", day0 + 2000).unwrap();
     // The other way round, and a classic run after the merge changes nothing.
-    driver_run(&conn, "c", 2, day0, "pr", None, None);
-    driver_run(&conn, "d", 2, day0 + 1000, "pr", None, Some("lean"));
+    driver_run(&conn, "c", 2, day0, "offered", None, None);
+    driver_run(&conn, "d", 2, day0 + 1000, "offered", None, Some("lean"));
     db::event(&conn, 2, "merged", day0 + 2000).unwrap();
-    driver_run(&conn, "e", 2, day0 + 3000, "pr", None, None);
+    driver_run(&conn, "e", 2, day0 + 3000, "offered", None, None);
     let report = crate::report::build(&conn, to).unwrap();
     // Two pull requests are under VERSION_FLOOR: the counts, and no share.
     assert_eq!(
@@ -4173,7 +4173,7 @@ fn a_refused_run_is_in_no_minutes_of_its_driver() {
     let home = scratch("report-minutes-ran");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
-    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
     driver_run(&conn, "b", 2, day0, "refused", None, Some("lean"));
     driver_run(&conn, "c", 3, day0, "stopped", None, Some("lean"));
     let report = crate::report::build(&conn, day0 + DAY).unwrap();
@@ -4210,11 +4210,11 @@ fn each_drivers_entry_carries_the_keys_the_terminal_prints() {
     let home = scratch("report-drivers-shape");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    lean_run(&conn, "a", 1, day0, "pr", "0.14.50");
+    lean_run(&conn, "a", 1, day0, "offered", "0.14.50");
     // A classic run of the same version that reached a pull request.
     conn.execute(
         "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, rukas_version)
-         VALUES ('c', 'work', 2, ?1, ?1 + 600, 600, 'pr', '0.14.50')",
+         VALUES ('c', 'work', 2, ?1, ?1 + 600, 600, 'offered', '0.14.50')",
         rusqlite::params![day0],
     )
     .unwrap();
@@ -4272,12 +4272,12 @@ fn the_drivers_section_never_pools_two_pi_rukas_versions() {
     let home = scratch("report-drivers-versions");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    lean_run(&conn, "a", 1, day0, "pr", "0.14.49");
-    lean_run(&conn, "b", 2, day0, "pr", "0.14.49");
+    lean_run(&conn, "a", 1, day0, "offered", "0.14.49");
+    lean_run(&conn, "b", 2, day0, "offered", "0.14.49");
     lean_run(&conn, "c", 3, day0, "parked", "0.14.49");
     // The next release, one run: it stands on its own with its own count, and
     // one run is too few for a share, as in `versions`.
-    lean_run(&conn, "d", 4, day0, "pr", "0.14.50");
+    lean_run(&conn, "d", 4, day0, "offered", "0.14.50");
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
     let lean = &got["drivers"]["lean"];
     assert_eq!(lean["0.14.49"]["n"], json!(3));
@@ -4301,7 +4301,7 @@ fn two_versions_the_report_cannot_name_are_one_other_entry_whose_runs_are_summed
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     // One past the length a version may hold, and one with a word no release
     // carries: both are rejected, and both are the same entry.
-    lean_run(&conn, "a", 1, day0, "pr", &"0".repeat(41));
+    lean_run(&conn, "a", 1, day0, "offered", &"0".repeat(41));
     lean_run(&conn, "b", 2, day0, "parked", "v0.14.50$");
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
     let lean = got["drivers"]["lean"].clone();
@@ -4322,10 +4322,10 @@ fn a_drivers_entry_gives_the_one_attempt_success_and_the_hand_back_by_step() {
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     // Issue 1: the first attempt parked at verify, the second reached a PR.
     lean_run(&conn, "a", 1, day0, "parked", "0.14.50");
-    lean_run(&conn, "b", 1, day0 + 1000, "pr", "0.14.50");
+    lean_run(&conn, "b", 1, day0 + 1000, "offered", "0.14.50");
     // Issues 2 and 3: first attempts that reached a PR; issue 4: one refused.
-    lean_run(&conn, "c", 2, day0, "pr", "0.14.50");
-    lean_run(&conn, "d", 3, day0, "pr", "0.14.50");
+    lean_run(&conn, "c", 2, day0, "offered", "0.14.50");
+    lean_run(&conn, "d", 3, day0, "offered", "0.14.50");
     lean_run(&conn, "e", 4, day0, "refused", "0.14.50");
     for (id, attempt) in [("a", 1), ("b", 2), ("c", 1), ("d", 1), ("e", 1)] {
         conn.execute(
@@ -4377,15 +4377,15 @@ fn a_run_with_no_usage_is_no_zero_in_a_version_pairs_median() {
         let row = &got["versions"][0];
         (row["medianTokens"].clone(), row["tokensN"].clone())
     };
-    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "b", 2, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "c", 3, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "b", 2, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "c", 3, day0, "offered", None, Some("lean"));
     assert_eq!(pair(&conn), (Value::Null, Value::Null));
     // The floor holds for the runs behind the figure, not the pair's.
-    driver_run(&conn, "d", 4, day0, "pr", Some(500), None);
-    driver_run(&conn, "e", 5, day0, "pr", Some(600), None);
+    driver_run(&conn, "d", 4, day0, "offered", Some(500), None);
+    driver_run(&conn, "e", 5, day0, "offered", Some(600), None);
     assert_eq!(pair(&conn), (Value::Null, Value::Null));
-    driver_run(&conn, "f", 6, day0, "pr", Some(700), None);
+    driver_run(&conn, "f", 6, day0, "offered", Some(700), None);
     assert_eq!(pair(&conn), (json!(600), json!(3)));
 }
 
@@ -4397,13 +4397,13 @@ fn v_versions_leaves_runs_with_no_usage_out_of_its_median_tokens() {
     let (fresh, _) = db::open(&db::path(&new), 1_792_022_400).unwrap();
     {
         let conn = &fresh;
-        driver_run(conn, "a", 1, 1_792_022_400, "pr", None, Some("lean"));
-        driver_run(conn, "b", 2, 1_792_022_400, "pr", None, Some("lean"));
+        driver_run(conn, "a", 1, 1_792_022_400, "offered", None, Some("lean"));
+        driver_run(conn, "b", 2, 1_792_022_400, "offered", None, Some("lean"));
         assert_eq!(median(conn), None);
-        driver_run(conn, "c", 3, 1_792_022_400, "pr", Some(500), None);
+        driver_run(conn, "c", 3, 1_792_022_400, "offered", Some(500), None);
         assert_eq!(median(conn), Some(500.0));
         // A reported 0 is a figure.
-        driver_run(conn, "d", 4, 1_792_022_400, "pr", Some(0), None);
+        driver_run(conn, "d", 4, 1_792_022_400, "offered", Some(0), None);
         assert_eq!(median(conn), Some(250.0));
     }
 }
@@ -4415,7 +4415,7 @@ fn a_version_pair_reaches_its_figures_at_three_runs() {
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     let pair =
         |conn: &Connection| crate::report::build(conn, day0 + DAY).unwrap()["versions"][0].clone();
-    for (i, outcome) in ["pr", "failed", "pr"].iter().enumerate() {
+    for (i, outcome) in ["offered", "failed", "offered"].iter().enumerate() {
         conn.execute(
             "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input,
                                tehas_version, rukas_version)
@@ -4521,7 +4521,7 @@ fn ten_days_of_data_report_well_inside_the_time_limit() {
                 i / 2,
                 started,
                 started + 600,
-                if i % 3 == 0 { "failed" } else { "pr" },
+                if i % 3 == 0 { "failed" } else { "offered" },
                 format!("0.{}.0", i % 7)
             ],
         )
@@ -4602,7 +4602,7 @@ fn the_text_report_says_the_figures_with_their_counts() {
         "Last 10 days, 2026-10-15 to 2026-10-24 (UTC)\n",
         "\nShipped            3 issues\n",
         "\nPlanned            6 now: 5 in line, 1 in planning\n",
-        "\nRuns               6: 1 pr, 1 merged, 1 handoff, 0 parked, 2 failed, 1 refused, 0 stopped\n",
+        "\nRuns               6: 1 offered, 1 merged, 1 handoff, 0 parked, 2 failed, 1 refused, 0 stopped\n",
         "\nHandoff rate       16.7%  (n=6)\n",
         "\nFirst-pass yield   50%  (n=2)\n",
         "\nLead time          median 12h03m, p90 23h13m  (n=2)\n",
@@ -4811,7 +4811,7 @@ fn a_wrong_typed_samples_cell_no_longer_ends_the_published_report() {
 
 fn add_run(conn: &Connection, id: &str, issue: i64, started: i64) {
     conn.execute(
-        "INSERT INTO runs (id, kind, issue, started, ended, outcome) VALUES (?1, 'work', ?2, ?3, ?3 + 600, 'pr')",
+        "INSERT INTO runs (id, kind, issue, started, ended, outcome) VALUES (?1, 'work', ?2, ?3, ?3 + 600, 'offered')",
         rusqlite::params![id, issue, started],
     )
     .unwrap();
@@ -6050,7 +6050,7 @@ fn the_build_time_options_are_read() {
 /// carries the kind, so a test that runs both commands adds one run each.
 fn one_ended_run(conn: &Connection, id: &str, at: i64) {
     conn.execute(
-        "INSERT INTO runs (id, kind, issue, started, ended, outcome) VALUES (?1, ?2, 1, ?3, ?3, 'pr')",
+        "INSERT INTO runs (id, kind, issue, started, ended, outcome) VALUES (?1, ?2, 1, ?3, ?3, 'offered')",
         rusqlite::params![id, if id.starts_with("plan") { "plan" } else { "work" }, at],
     )
     .unwrap();

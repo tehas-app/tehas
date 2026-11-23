@@ -750,7 +750,7 @@ fn failures_per_version_pair() {
             "work",
             5,
             50,
-            json!({"outcome": "pr", "tehasVersion": "v0.7.30", "rukasVersion": null, "rukasCommit": "abc"}),
+            json!({"outcome": "offered", "tehasVersion": "v0.7.30", "rukasVersion": null, "rukasCommit": "abc"}),
         ),
         s(
             "plan",
@@ -783,7 +783,7 @@ fn failures_per_version_pair() {
     assert_eq!(v[1]["tehasVersion"], "v0.7.30");
     assert_eq!(v[1]["rukasVersion"], "abc");
     assert_eq!(v[1]["runs"], 2);
-    assert_eq!(v[1]["outcomes"], json!({"failed": 1, "pr": 1}));
+    assert_eq!(v[1]["outcomes"], json!({"failed": 1, "offered": 1}));
 }
 
 #[test]
@@ -886,7 +886,7 @@ fn an_issue_with_several_attempts() {
             "work",
             7,
             t - 200,
-            json!({"attempt": 2, "how": "reply", "outcome": "pr", "pr": 21}),
+            json!({"attempt": 2, "how": "reply", "outcome": "offered", "pr": 21}),
         ),
         sess_at(
             "work",
