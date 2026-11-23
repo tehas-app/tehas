@@ -1042,6 +1042,34 @@ fn a_gh_answer_with_a_byte_that_is_not_utf8_is_kept_and_not_emptied() {
 }
 
 #[test]
+fn an_issues_text_revision_moves_with_its_title_or_body_and_nothing_else() {
+    let issue = |title: &str, body: &str, label: &str| {
+        Ok(
+            serde_json::json!({"title": title, "body": body, "labels": [{"name": label}]})
+                .to_string(),
+        )
+    };
+    let (mut f, asked) = forge(vec![
+        issue("T", "b", "x"),
+        issue("T", "b\r", "y"),
+        issue("T2", "b", "x"),
+        issue("T", "b2", "x"),
+        Ok(r#"{"body":"b"}"#.into()),
+        Err("HTTP 502".into()),
+    ]);
+    let first = f.text_revision(7).unwrap();
+    assert_eq!(f.text_revision(7).unwrap(), first);
+    assert_ne!(f.text_revision(7).unwrap(), first);
+    assert_ne!(f.text_revision(7).unwrap(), first);
+    assert!(f.text_revision(7).is_err());
+    assert_eq!(
+        f.text_revision(7).unwrap_err().line(),
+        "ERROR: the issue failed: HTTP 502"
+    );
+    assert_eq!(asked.borrow()[0], ["api", "repos/acme/widget/issues/7"]);
+}
+
+#[test]
 fn a_bounded_call_turns_the_shims_retry_off() {
     let mut gh = tehas_core::forge::Bounded::new("printenv", std::time::Duration::from_secs(10));
     assert_eq!(gh.run(&["TEHAS_GH_RETRY"]), Ok("0\n".to_string()));
