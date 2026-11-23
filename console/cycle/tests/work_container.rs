@@ -330,10 +330,17 @@ fn the_console_is_the_program_beside_this_one_given_the_cycles_log_the_transcrip
 fn a_console_that_fails_is_named_with_its_exit_status_and_where_it_wrote_why() {
     let (w, r) = ran("console-fails");
     lacks(&r.out, "the console ended");
+    // The console ends with 1 on its own: TERM is caught first, and the
+    // container ends only once the console has said why.
+    let said = w.path("console.said");
     w.fs(
         "tree/libexec/console",
-        "#!/usr/bin/env bash\necho \"cannot write\" >&2\nexit 1\n",
+        format!(
+            "#!/usr/bin/env bash\ntrap 'exit 1' TERM\necho \"cannot write\" >&2\n: >'{}'\nexit 1\n",
+            said.display()
+        ),
     );
+    w.docker_runs_until(&said);
     let r = w.work7();
     ok2(&r);
     has(

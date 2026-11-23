@@ -9,8 +9,8 @@ use std::rc::Rc;
 use tehas_core::forge::GhRunner;
 use tehas_github::{table, GitHub};
 use tehas_ports::{
-    Account, AccountId, AccountKind, Act, At, Cite, Cites, CloseReason, Colour, Depth, Kind, Login,
-    Mark, MarkName, MarkSpec, Outcome, Passing, Realm, Ref, Refusal, Sent, TicketKey, TicketState,
+    Account, AccountId, AccountKind, Act, At, Cite, Cites, CloseReason, Colour, Kind, Login, Mark,
+    MarkName, MarkSpec, Outcome, Passing, Realm, Ref, Refusal, Sent, TicketKey, TicketState,
     TicketWrites, Tickets, Unprepared, Unread,
 };
 
@@ -234,7 +234,7 @@ fn a_mark_goes_on_and_comes_off_as_its_label() {
 fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
     let (mut gh, asked) = adapter(vec![]);
     assert_eq!(
-        gh.ticket(&key(7), Depth::Cut { notes: 0 }, None),
+        gh.blockers(&key(7)),
         Err(Outcome::Refused(Refusal::Unsupported))
     );
     assert_eq!(

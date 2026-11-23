@@ -172,7 +172,7 @@ impl GitHub {
     }
 
     /// The `-F` fields of a GraphQL question of the repository.
-    fn owner_name(&self) -> (String, String) {
+    pub(crate) fn owner_name(&self) -> (String, String) {
         let (o, n) = self.repo.split_once('/').unwrap_or((&self.repo, ""));
         (format!("owner={o}"), format!("name={n}"))
     }

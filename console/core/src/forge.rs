@@ -282,6 +282,20 @@ fn find_http(line: &str) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    /// The GitHub adapter (console/github, `ask_issue` in `ticket.rs`)
+    /// reads this form: a question that fails with no reason of the list
+    /// is settled by one more REST read. Change it there too.
+    #[test]
+    fn a_failure_with_no_reason_of_the_list_is_the_exit_status() {
+        for err in [
+            "",
+            "GraphQL: Could not resolve to an Issue with the number of 9.",
+        ] {
+            assert_eq!(super::why(err, Some(1)), ": gh exited 1", "{err}");
+        }
+        assert_eq!(super::why("", Some(4)), ": gh exited 4");
+    }
+
     #[test]
     fn a_gh_call_of_call_turns_the_shims_retry_off_and_another_program_is_left_alone() {
         use crate::call::{run, run_grace_env, GRACE};

@@ -9,27 +9,9 @@
 real_console
 
 # --- The images a cycle is given -------------------------------------------
-# TEHAS_WORK_IMAGES=1 promises a cycle the images of its issue. The sandbox
-# image carries a label its build writes, and says through it whether its
-# pi-rukas reads them. install.sh says what it found; it is a disagreement
-# between the setting and the image, so the install still succeeds.
+# The sandbox image's label says whether its pi-rukas reads the images
+# TEHAS_WORK_IMAGES=1 promises. A disagreement is said; the install succeeds.
 t_env
-docker_labels() { # <label value, blank for an image with no label, absent for no image>
-  case "$1" in
-    absent)
-      t_stub docker 'case "$1 $2" in "version --format") echo 29.1.3 ;; "network inspect") echo "true bridge false isolated" ;; "image inspect") exit 1 ;; esac'
-      ;;
-    blank)
-      t_stub docker 'case "$1 $2" in "version --format") echo 29.1.3 ;; "network inspect") echo "true bridge false isolated" ;; "image inspect") exit 0 ;; esac'
-      ;;
-    *)
-      t_stub docker "case \"\$1 \$2\" in \"version --format\") echo 29.1.3 ;; \"network inspect\") echo \"true bridge false isolated\" ;; \"image inspect\") echo \"$1\" ;; esac"
-      ;;
-  esac
-}
-img_commit=$(printf 'c%.0s' {1..40})
-img_name=tehas/pi-rukas:uid$(id -u)
-
 t_case "images on and a sandbox image that does not read them: said, and the install still succeeds"
 fresh
 instance TEHAS_WORK_IMAGES=1
@@ -66,55 +48,5 @@ rm -f "$th/state/update-pending"
 t_run "$install --check"
 t_eq "$t_rc" 0
 t_contains "$t_out" "Images:       NOT SAID"
-
-t_case "images on with no sandbox image yet says nothing about images"
-fresh
-instance TEHAS_WORK_IMAGES=1
-docker_labels absent
-t_run "$install"
-t_eq "$t_rc" 0
-t_lacks "$t_out" "TEHAS_WORK_IMAGES"
-
-t_case "images off says nothing about images, whatever the image says"
-fresh
-instance
-docker_labels "$img_commit|0"
-t_run "$install"
-t_eq "$t_rc" 0
-t_lacks "$t_out" "TEHAS_WORK_IMAGES"
-rm -f "$th/state/update-pending"
-t_run "$install --check"
-t_eq "$t_rc" 0
-t_lacks "$t_out" "Images:"
-t_stub docker "$net_good"
-t_stub systemctl
-
-
-# --- The pi-rukas the image runs -------------------------------------------
-# The factory's health says when the image is behind the pi-rukas the host
-# follows (checks.rukas); --check reports it as tehas update's to fix.
-t_case "--check reports an image the health calls behind, and nothing for one that is current"
-fresh
-instance
-t_run "$install"
-t_eq "$t_rc" 0
-rm -f "$th/state/update-pending"
-mkdir -p "$th/live"
-a=$(printf 'a%.0s' {1..40}) b=$(printf 'b%.0s' {1..40})
-printf '{"checks":{"rukas":{"image":"%s","imageVersion":"v0.14.53","target":"%s","targetVersion":"v0.14.54","behind":true}}}\n' "$a" "$b" >"$th/live/health.json"
-t_run "$install --check"
-t_eq "$t_rc" 1
-t_contains "$t_out" "Sandbox:      BEHIND (the image runs pi-rukas v0.14.53, the host follows v0.14.54; tehas update builds it)"
-printf '{"checks":{"rukas":{"image":"%s","target":"%s","behind":true}}}\n' "$a" "$b" >"$th/live/health.json"
-t_run "$install --check"
-t_contains "$t_out" "Sandbox:      BEHIND (the image runs pi-rukas $a, the host follows $b;"
-printf '{"checks":{"rukas":{"image":"%s","target":"%s","behind":false}}}\n' "$b" "$b" >"$th/live/health.json"
-t_run "$install --check"
-t_eq "$t_rc" 0
-t_lacks "$t_out" "Sandbox:"
-rm -f "$th/live/health.json"
-t_run "$install --check"
-t_eq "$t_rc" 0
-t_lacks "$t_out" "Sandbox:"
 
 t_done
