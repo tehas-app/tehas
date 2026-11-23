@@ -3,7 +3,7 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use super::{Envelope, Name, Payload};
+use super::{Envelope, Event, Name, Payload, When};
 
 /// A listener's answer.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -33,6 +33,17 @@ pub struct Raised {
     pub stopped_by: Option<&'static str>,
     /// The listeners that failed or panicked, in the order called.
     pub faults: Vec<Fault>,
+    /// Why the envelope reached no listener, when it is one no raise makes.
+    pub refused: Option<Refused>,
+}
+
+/// An envelope `raise_envelope` refuses: one `Envelope::new` never makes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Refused {
+    /// Its event is `Unknown`, which is read, never raised.
+    Unknown,
+    /// Its side is `before` and its point has no gate that is raised.
+    Before,
 }
 
 type Listen = Box<dyn Fn(&Envelope) -> Heard + Send + Sync>;
@@ -146,14 +157,28 @@ impl Dispatcher {
     /// until one stops it. A listener's failure or panic is a fault, and
     /// the next listener is called.
     pub fn raise<P: Payload>(&self, p: P) -> Raised {
-        let envelope = Envelope::new(p);
+        self.raise_envelope(&Envelope::new(p))
+    }
+
+    /// Raises an envelope as it is, its `source` with it: for a consumer
+    /// that relays many factories' events. The rules are `raise`'s. An
+    /// envelope that `Envelope::new` never makes, of an `Unknown` event or
+    /// a `before` side with no gate, is refused and reaches no listener.
+    pub fn raise_envelope(&self, envelope: &Envelope) -> Raised {
+        let name = envelope.name();
+        if matches!(envelope.event, Event::Unknown) {
+            return refused(Refused::Unknown);
+        }
+        if envelope.when == When::Before && !name.gate() {
+            return refused(Refused::Before);
+        }
         let mut raised = Raised::default();
         for e in self
             .entries
             .iter()
-            .filter(|e| e.name.is_none_or(|n| n == P::NAME))
+            .filter(|e| e.name.is_none_or(|n| n == name))
         {
-            match catch_unwind(AssertUnwindSafe(|| (e.f)(&envelope))) {
+            match catch_unwind(AssertUnwindSafe(|| (e.f)(envelope))) {
                 Ok(Heard::Go) => {}
                 Ok(Heard::Stop) => {
                     raised.stopped_by = Some(e.listener);
@@ -170,6 +195,13 @@ impl Dispatcher {
             }
         }
         raised
+    }
+}
+
+fn refused(why: Refused) -> Raised {
+    Raised {
+        refused: Some(why),
+        ..Raised::default()
     }
 }
 
