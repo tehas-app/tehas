@@ -158,6 +158,7 @@ fn step_sql(to: i64) -> &'static str {
         28 => db::STEP_28,
         db::DROP_OUTSOURCE_STEP => db::DROP_OUTSOURCE,
         30 => db::STEP_30,
+        31 => db::STEP_31,
         _ => unreachable!("no step to {to}"),
     }
 }
@@ -297,13 +298,13 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_30() {
-    assert_eq!(db::SCHEMA_VERSION, 30);
-    let home = home("schema-30");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 30);
+fn init_writes_schema_31() {
+    assert_eq!(db::SCHEMA_VERSION, 31);
+    let home = home("schema-31");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 31);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "30"
+        "31"
     );
     // Schema 30: the store's id; `approved` in place of `label`; the history's
     // recorded_at and signalled; the store's own numbers of the questions.
@@ -312,7 +313,11 @@ fn init_writes_schema_30() {
     assert!(how.iter().any(|c| c.contains("'approved'")), "{how:?}");
     assert!(how.iter().all(|c| !c.contains("'label'")), "{how:?}");
     let history = columns(&conn(&home), "cycle_history");
-    assert_eq!(history[history.len() - 2..], ["recorded_at", "signalled"]);
+    // Schema 31: whether a report wrote the line.
+    assert_eq!(
+        history[history.len() - 3..],
+        ["recorded_at", "signalled", "reported"]
+    );
     assert_eq!(
         columns(&conn(&home), "questions"),
         [
@@ -1213,7 +1218,7 @@ fn the_step_to_30_rewrites_label_numbers_the_questions_and_gives_the_store_an_id
     let meta = count(&home, "meta");
     assert_eq!(count(&home, "meta WHERE key = 'store'"), 0);
     migrate(&home).unwrap();
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 30);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
     assert_eq!(host_rows(&conn(&home)), rows);
     // Every `label` is `approved`, and none is left.
     assert_eq!(one::<i64>(&home, &format!("SELECT {label}")), 0);
@@ -1310,6 +1315,34 @@ fn the_step_to_30_rewrites_label_numbers_the_questions_and_gives_the_store_an_id
     crate::tests::assert_store_id(&conn(&home));
     let made = crate::verbs_tests::home("step-30-shape");
     same_shape_as_init(&home, &conn(&made), "29");
+}
+
+/// The step to 31 from a store at 30: every line of the history was written by
+/// a report, as every line before 2.0 was, so each says `reported` 1; the
+/// column takes 0 and 1 alone; and the store has the shape init lays.
+#[test]
+fn the_step_to_31_says_every_line_there_was_reported() {
+    let home = at_29("step-31");
+    let mut c = conn(&home);
+    for (to, run) in db::STEPS {
+        if *to == 30 {
+            run(&mut c).unwrap();
+        }
+    }
+    drop(c);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 30);
+    let lines = count(&home, "cycle_history");
+    assert!(lines > 0);
+    let rows = host_rows(&conn(&home));
+    migrate(&home).unwrap();
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 31);
+    assert_eq!(host_rows(&conn(&home)), rows);
+    assert_eq!(count(&home, "cycle_history WHERE reported = 1"), lines);
+    assert!(conn(&home)
+        .execute("UPDATE cycle_history SET reported = 2", [])
+        .is_err());
+    let made = crate::verbs_tests::home("step-31-shape");
+    same_shape_as_init(&home, &conn(&made), "30");
 }
 
 /// Two stores laid apart have two ids, and a migrate run again keeps the id.

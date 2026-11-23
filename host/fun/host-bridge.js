@@ -10,7 +10,7 @@
 // that breaks a rule is dropped, a link is used only when it passes its rule,
 // and every word is set with textContent.
 //
-// The front pages and /dashboard load this file before the views, and it
+// The front page and /dashboard load this file before the views, and it
 // unregisters any service worker on the origin: tehas registers none, and one
 // left there would answer for pages it does not own.
 (() => {

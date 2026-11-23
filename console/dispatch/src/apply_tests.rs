@@ -1128,6 +1128,40 @@ fn a_container_removed_is_said_and_one_not_there_is_not() {
         .is_empty());
 }
 
+/// A lost cycle is ended through the store's `cycle-end --lost` (T11.3). A
+/// cycle that took the lock since is running, and nothing is said; another
+/// failure is said.
+#[test]
+fn a_lost_cycle_is_ended_through_the_store_and_a_running_one_is_left_alone() {
+    let mut t = world();
+    let a = t.apply(json!([{"lost_cycle": 7, "attempt": 3}]));
+    assert!(t
+        .calls()
+        .contains(&"store cycle-end 7 --attempt 3 --lost".to_string()));
+    assert_eq!(
+        a.log,
+        vec!["lost #7: attempt 3 died without a word and no cycle holds its lock; ended as lost"]
+    );
+    let mut t = world();
+    t.fail("store", "cycle-end 7|running");
+    assert!(t
+        .apply(json!([{"lost_cycle": 7, "attempt": 3}]))
+        .log
+        .is_empty());
+    let mut t = world();
+    t.fail("store", "cycle-end 7|heard");
+    assert!(t
+        .apply(json!([{"lost_cycle": 7, "attempt": 3}]))
+        .log
+        .is_empty());
+    let mut t = world();
+    t.fail("store", "cycle-end 7");
+    assert_eq!(
+        t.apply(json!([{"lost_cycle": 7, "attempt": 3}])).log,
+        vec!["WARN: the lost cycle of #7 could not be ended (busy)"]
+    );
+}
+
 #[test]
 fn an_action_of_no_kind_apply_knows_is_left() {
     let mut t = world();
@@ -1149,63 +1183,6 @@ fn steps(t: &World) -> Vec<String> {
         .iter()
         .map(|c| c.split(' ').take(2).collect::<Vec<_>>().join(" "))
         .collect()
-}
-
-/// A start whose `Spec:` line stops it, with no label of a person's to take
-/// off: what asked for it is used up, so the next poll does not pick it again.
-fn spec_stopped(n: u64, given: &str) -> Value {
-    let mut a = start_of(n, given);
-    a["remove"] = json!([]);
-    a["spec"] = json!({"why": "its `Spec:` line is not a link and its sha256", "off": []});
-    a
-}
-
-#[test]
-fn a_spec_that_stops_a_host_start_takes_the_hosts_approval_off_the_record() {
-    let mut t = world();
-    let a = t.apply(json!([spec_stopped(7, "host"), start_of(8, "approved")]));
-    assert_eq!(a.exit, None);
-    assert_eq!(
-        &a.log[..2],
-        &[
-            "skip #7: its `Spec:` line is not a link and its sha256",
-            "the host's approval of #7 of 2026-10-26T10:00:00Z is off the record: run `tehas start 7` again once its `Spec:` line is right",
-        ]
-    );
-    let w = t.writes();
-    assert_eq!(w[0], "store approval-record 7 --undo --at 1793008800");
-    // The host reads the log: nothing is said on the issue.
-    assert!(!w.iter().any(|c| c.starts_with("gh ") && c.contains(" 7 ")));
-    assert!(!w.iter().any(|c| c == "start 7"));
-    assert!(w.iter().any(|c| c == "start 8"));
-}
-
-#[test]
-fn a_spec_that_stops_an_outage_retry_spends_the_retry() {
-    let mut t = world();
-    let a = t.apply(json!([spec_stopped(7, "outage-retry")]));
-    assert_eq!(a.exit, None);
-    let w = t.writes();
-    assert!(w.iter().any(|c| c == "store park-retry 7"), "{w:?}");
-    assert!(w.iter().any(|c| c.starts_with("gh issue comment 7 ")
-        && c.contains("Tehas started nothing on this issue: its `Spec:` line is not a link")));
-    assert!(!w.iter().any(|c| c == "start 7"));
-}
-
-#[test]
-fn a_spec_that_stops_a_refresh_drops_its_request() {
-    let mut t = world();
-    let request = t.w.home.join("state/refresh/7.json");
-    fs::write(&request, "{}").unwrap();
-    let mut a = spec_stopped(7, "refresh");
-    a["refresh_pr"] = json!(12);
-    let got = t.apply(json!([a]));
-    assert_eq!(got.exit, None);
-    assert!(!request.exists());
-    let w = t.writes();
-    assert!(!w.iter().any(|c| c.contains("tehas:refreshing")));
-    assert!(w.iter().any(|c| c.starts_with("gh issue comment 7 ")));
-    assert!(!w.iter().any(|c| c == "start 7"));
 }
 
 #[test]

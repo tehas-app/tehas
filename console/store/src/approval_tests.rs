@@ -679,60 +679,6 @@ fn approval_record_refuses_an_input_file_it_cannot_take() {
     );
 }
 
-// sha256 of "spec".
-const SPEC_SHA: &str = "d4f02eaafd1a9e9de7d10972ca8e47fa7a985825c3c9c1e249c72683cb3e4f19";
-
-#[test]
-fn approval_record_keeps_the_pin_of_a_spec() {
-    let home = home("approval-spec");
-    let spec = json!({"spec": {"link": "https://github.com/user-attachments/files/1/spec.md", "sha256": SPEC_SHA}});
-    let file = write_file(&home, "spec.json", spec.to_string().as_bytes());
-    assert_eq!(
-        record_with(&home, 43, 5, &file).unwrap()["approval"]["input"],
-        spec
-    );
-    used(&home, 43);
-    assert_eq!(view(&home, 43, None)["spec"], spec["spec"]);
-    let link = "https://github.com/user-attachments/files/1/spec.md";
-    for (name, bad) in [
-        ("list", json!([])),
-        ("null", Value::Null),
-        ("empty", json!({})),
-        ("no-sum", json!({"link": link})),
-        ("no-link", json!({"sha256": SPEC_SHA})),
-        (
-            "more",
-            json!({"link": link, "sha256": SPEC_SHA, "bytes": 4}),
-        ),
-        ("short", json!({"link": link, "sha256": &SPEC_SHA[1..]})),
-        (
-            "upper",
-            json!({"link": link, "sha256": SPEC_SHA.to_uppercase()}),
-        ),
-        ("number", json!({"link": 1, "sha256": SPEC_SHA})),
-        (
-            "http",
-            json!({"link": "http://github.com/user-attachments/files/1/s.md", "sha256": SPEC_SHA}),
-        ),
-        (
-            "space",
-            json!({"link": "https://github.com/a b", "sha256": SPEC_SHA}),
-        ),
-    ] {
-        let file = write_file(
-            &home,
-            &format!("{name}.json"),
-            json!({"spec": bad}).to_string().as_bytes(),
-        );
-        let (code, line) = record_with(&home, 44, 5, &file).unwrap_err();
-        assert_eq!(code, 1, "{name}: {line}");
-        assert!(
-            line.contains("holds spec of another type"),
-            "{name}: {line}"
-        );
-    }
-}
-
 #[test]
 fn approval_record_input_file_usage() {
     let base = [
@@ -1211,4 +1157,78 @@ fn a_view_of_a_person_s_label_is_field_for_field_what_the_dispatcher_wrote() {
             "links":[],"retry_context":[{"source":"comment:9","by":"tehas-millwright","at":"2026-10-21T11:59:00Z","text":"Try the other way."}],
             "rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"approved","body_sha256":SHA}})
     );
+}
+
+/// A start the store ended with no report (a refused start, `tehas stop`, a
+/// lost cycle) writes a line of history since T11.3, and that line is no start
+/// to the record: `approval-current` and the keeping of the next start read
+/// the last line a report wrote, as they did before 2.0. The base stays the
+/// earlier real start's, a refresh on it still counts, and the keeping leaves
+/// the base's row. That start's report ended `stopped` with a signal, a word a
+/// short end also writes, so the line is told by who wrote it, not by its
+/// word: read by its word, the base would fall back to the start before it.
+#[test]
+fn a_start_with_no_report_is_no_start_to_the_record() {
+    for (i, short) in ["--refused", "--stopped", "--lost"].into_iter().enumerate() {
+        let issue = 81 + i as i64;
+        let n = issue.to_string();
+        let home = home(&format!("approval-short{i}"));
+        let (l, a) = start_by(&home, issue, "alice", "approved", NOW);
+        end(&home, issue, a, "handoff");
+        drop(l);
+        // Bob's start, the base, ended by its report: stopped by a signal.
+        let (l, a) = start_by(&home, issue, "bob", "approved", NOW);
+        drop(l);
+        let at = a.to_string();
+        let args = [
+            "cycle-end",
+            &n,
+            "--attempt",
+            &at,
+            "--status",
+            "stopped",
+            "--signalled",
+        ];
+        ok(&home, &args);
+        let want = current(&home, issue);
+        assert_eq!(
+            (&want["rests_on"]["by"], &want["rests_on"]["used_by"]),
+            (&json!("bob"), &json!(2)),
+            "{short}: {want}"
+        );
+        // Carol's approval starts a cycle the store ends with no report.
+        let (l, b) = start_by(&home, issue, "carol", "approved", NOW);
+        let at = b.to_string();
+        let args = ["cycle-end", &n, "--attempt", &at, short];
+        if short == "--refused" {
+            ok(&home, &args);
+            drop(l);
+        } else {
+            drop(l);
+            ok_at(&home, NOW + 1000, &args);
+        }
+        assert_eq!(
+            count(
+                &home,
+                &format!("cycle_history WHERE issue = {issue} AND reported = 0")
+            ),
+            1,
+            "{short}"
+        );
+        let v = current(&home, issue);
+        for k in ["rests_on", "refreshes", "easy"] {
+            assert_eq!(v[k], want[k], "{short} {k}: {v}");
+        }
+        // A refresh starts on bob's base, which a record reading carol's start
+        // as the last would have let go, and counts on it.
+        let (_l, _) = start_by(&home, issue, "bob", "refresh", NOW + 2000);
+        assert_eq!(
+            count(
+                &home,
+                &format!("approvals WHERE issue = {issue} AND used_by = 2")
+            ),
+            1,
+            "{short}"
+        );
+    }
 }

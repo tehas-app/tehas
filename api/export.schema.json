@@ -47,11 +47,17 @@
             "minimum": 1,
             "maximum": 999999999
           },
+          "cycle": {
+            "description": "The cycle id, <issue>-<attempt>, on a work line: a running cycle in tehas status has the same. Unique within one store (store in tehas api). With the feature cycle-ids.",
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,8}-[1-9][0-9]{0,8}$"
+          },
           "ended": {
             "type": "string",
             "format": "date-time"
           },
           "started": {
+            "description": "When it started. Always on a work line: one the store holds no start for started when it ended.",
             "type": "string",
             "format": "date-time"
           },
@@ -64,6 +70,18 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 40
+          },
+          "end": {
+            "description": "The word a program decides on, on a work line, from a closed set: tehas_core::outcome::end of the line's outcome, status, change, parked and failureKind. With the feature cycle-ids.",
+            "enum": [
+              "offered",
+              "merged",
+              "handoff",
+              "parked",
+              "failed",
+              "refused",
+              "stopped"
+            ]
           },
           "turn": {
             "type": "integer",
@@ -132,6 +150,11 @@
             "type": "string",
             "maxLength": 200
           },
+          "change": {
+            "description": "The number of the change the work line names, on a line that names one; pr is its address. With the feature cycle-ids.",
+            "type": "integer",
+            "minimum": 1
+          },
           "by": {
             "type": "string",
             "minLength": 1,
@@ -146,6 +169,15 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 40
+          },
+          "recorded": {
+            "description": "When a work line was written, on a line written after its end: a lost cycle's, whose ended is when it was last heard from.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "signalled": {
+            "description": "true on a work line when a signal stopped the cycle; left out otherwise.",
+            "const": true
           },
           "auto": {
             "type": "boolean"

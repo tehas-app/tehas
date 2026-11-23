@@ -22,9 +22,11 @@
 # The host panel left core in 2.0, and the floor, dashboard and manual lines
 # went down.
 # Panels left core in 2.0, and the business and floor lines went down again.
-page business 77003 37026
-page floor 113114 49305
-page dashboard 78977 51741
+# The business page left core in 2.0: its line went, and the floor and
+# dashboard lines went down.
+# The floor names an open ticket with no state label Idea.
+page floor 112261 49092
+page dashboard 78498 51741
 page manual 0 47910
 island factory/tehas-factory-console 4156
 island factory/tehas-factory-days 4684

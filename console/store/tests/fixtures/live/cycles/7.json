@@ -6,5 +6,8 @@
   "statusText": "",
   "startedAt": 4102441000,
   "updatedAt": 4102444790,
-  "console": "console-7.txt"
+  "console": "console-7.txt",
+  "attempt": 1,
+  "how": "approved",
+  "by": "alice"
 }

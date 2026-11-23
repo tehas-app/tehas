@@ -230,12 +230,12 @@ t_eq "$(printf '%s\n' "$handler" | grep -c 'root \* /srv/live')" 1
 # is seen here.
 t_case "the preview's sample running.json is the live view, and its cycle has the keys the store publishes, but for the console"
 written=$(sed -n '/fn pairs/,/^    }/p' "$T_ROOT/console/store/src/live.rs" | grep -oE '\("[A-Za-z]+", j\(' | cut -d'"' -f2 | LC_ALL=C sort | tr '\n' ' ')
-t_eq "$written" "console issue running startedAt status statusText step updatedAt "
+t_eq "$written" "attempt by console how issue running startedAt status statusText step updatedAt "
 # The view: no cycle runs in a preview, and one finished last.
 t_eq "$(jq -c '[keys, .cycles]' "$T_ROOT/preview/live/running.json")" '[["cycles","last"],[]]'
 # A preview has no console file to show, so the sample names none.
 t_eq "$(jq -r '.last | keys_unsorted | join(" ")' "$T_ROOT/preview/live/running.json" | tr ' ' '\n' | LC_ALL=C sort | tr '\n' ' ')" \
-  "${written#console }"
+  "${written/console /}"
 
 t_case "the preview's sample health.json has the keys tehasbot health writes from the samples beside it"
 sample=$T/home/sample
@@ -362,12 +362,11 @@ done
 t_eq "$(printf '%s\n' "$fun" | awk '/respond @backup 404/ {r = NR} /header @hashed / {h = NR} END {print (r && h && r < h) ? "before" : "after"}')" before
 
 t_case "the pages are never cached, so a new install is seen at once"
-for handler in '@business' '@front'; do
-  body=$(awk -v want="        handle $handler {" 'index($0, want) == 1 {on = 1}
-    on {print} on && /^        \}$/ {exit}' "$docs_caddy")
-  [ -n "$body" ] || t_bad "no handler of $handler in $docs_caddy"
-  t_eq "$(printf '%s\n' "$body" | grep -c -F 'header Cache-Control "no-cache"')" 1
-done
+handler=@front
+body=$(awk -v want="        handle $handler {" 'index($0, want) == 1 {on = 1}
+  on {print} on && /^        \}$/ {exit}' "$docs_caddy")
+[ -n "$body" ] || t_bad "no handler of $handler in $docs_caddy"
+t_eq "$(printf '%s\n' "$body" | grep -c -F 'header Cache-Control "no-cache"')" 1
 # The closing handler is the layout every manual page is read through, and it
 # answers after the rewrite of the path, where a matcher of the page's own name
 # would no longer match.

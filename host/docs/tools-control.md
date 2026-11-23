@@ -215,7 +215,9 @@ so on stderr.
 A cycle killed outright never reports, so its record in the state store stays
 open. Once the unit is gone and the lock is free, `tehas stop` ends that record
 as stopped, before the lock file goes, and says `ended the record of the cycle
-of #12 as stopped`. An open record counts as something to stop. A record that
+of #12 as stopped`. A cycle quiet for two minutes may have been ended as
+`lost` by the poll in the moment before; then it says `the record of the
+cycle of #12 was already ended as lost`. An open record counts as something to stop. A record that
 cannot be read or ended leaves the lock file and everything else where it is,
 is said on stderr, and exits 1: run it again. A state store that is not
 installed changes nothing, exit 78.

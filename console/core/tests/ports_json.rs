@@ -345,6 +345,15 @@ fn a_known_tag_of_another_enum_whose_content_does_not_read_is_unknown_in_json() 
     // A value with no tag is no record of the enum.
     assert!(serde_json::from_str::<Mark>("3").is_err());
     assert!(serde_json::from_str::<Mark>(r#"{"value":3}"#).is_err());
+    // The tag is a map's one string `type`: a sequence, a tag of another
+    // type and a tag given twice are no record of the enum.
+    for json in [
+        r#"["Act"]"#,
+        r#"{"type":3}"#,
+        r#"{"type":"Future","type":"Other"}"#,
+    ] {
+        assert!(serde_json::from_str::<Mark>(json).is_err(), "{json}");
+    }
 }
 
 #[test]

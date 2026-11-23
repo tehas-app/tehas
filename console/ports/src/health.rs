@@ -293,6 +293,8 @@ pub enum Word {
     Health,
     /// `PortName`.
     PortName,
+    /// `events::Name`.
+    EventName,
     /// A word this copy does not know.
     #[serde(other)]
     Unknown,
