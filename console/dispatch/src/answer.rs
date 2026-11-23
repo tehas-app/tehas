@@ -33,6 +33,26 @@ pub enum Choice {
     Text(String),
 }
 
+/// Who gave an answer, as the store's `how` names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum How {
+    /// `answer`: a person, through `tehas answer`.
+    Person,
+    /// `plugin`: a plugin under an `answer:<kind>` grant. Reserved for 2.1:
+    /// nothing in 2.0 writes it, and it is never a person's act.
+    Plugin,
+}
+
+impl How {
+    pub fn of(word: &str) -> Option<How> {
+        match word {
+            "answer" => Some(How::Person),
+            "plugin" => Some(How::Plugin),
+            _ => None,
+        }
+    }
+}
+
 /// One answer on record, of the question on record of its issue.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Answer {
@@ -44,6 +64,7 @@ pub struct Answer {
     pub by: String,
     /// When it was given, as GitHub writes a time.
     pub at: String,
+    pub how: How,
 }
 
 impl Answer {
@@ -80,6 +101,7 @@ impl Answer {
             choice,
             by: by.to_string(),
             at: tehas_core::time::iso(at),
+            how: How::Person,
         })
     }
 
@@ -125,6 +147,13 @@ pub fn overlay(ans: &mut Asked, a: Option<&Answer>, allowed: impl Fn(&str) -> bo
     let Some(a) = a.filter(of) else {
         return Overlay::None;
     };
+    // A plugin's answer is never taken for a person's tick or reply.
+    if a.how == How::Plugin {
+        return Overlay::Refused(format!(
+            "the answer of {} is a plugin's, and no plugin answers a question in this release",
+            a.by
+        ));
+    }
     if !allowed(&a.by) {
         return Overlay::Refused(format!(
             "the answer of {} is no answer: the account may not authorise work for this factory",
@@ -193,6 +222,7 @@ mod tests {
             choice,
             by: "alice".into(),
             at: "2026-01-01T02:00:00Z".into(),
+            how: How::Person,
         }
     }
 
@@ -353,6 +383,32 @@ mod tests {
         let got = overlay(&mut ans, Some(&answer("park", Choice::Retry)), |_| false);
         assert!(matches!(got, Overlay::Refused(_)), "{got:?}");
         assert_eq!(ans, before);
+    }
+
+    #[test]
+    fn a_plugins_answer_is_never_a_persons_act() {
+        assert_eq!(How::of("answer"), Some(How::Person));
+        assert_eq!(How::of("plugin"), Some(How::Plugin));
+        assert_eq!(How::of("approved"), None);
+        let by_plugin = |kind: &str, choice| Answer {
+            by: "tehas-bot".into(),
+            how: How::Plugin,
+            ..answer(kind, choice)
+        };
+        for (mut ans, a) in [
+            (park!(), by_plugin("park", Choice::Retry)),
+            (plan!(None), by_plugin("plan", Choice::Option(1))),
+            (plan!(None), by_plugin("plan", Choice::Text("Split it.".into()))),
+        ] {
+            let before = ans.clone();
+            let got = overlay(&mut ans, Some(&a), anyone);
+            assert!(
+                matches!(got, Overlay::Refused(ref why) if why.contains("a plugin's")),
+                "{got:?}"
+            );
+            assert_eq!(ans, before);
+            assert_eq!(ans.tick.status, Status::None);
+        }
     }
 
     #[test]
