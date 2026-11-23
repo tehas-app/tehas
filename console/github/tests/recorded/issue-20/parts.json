@@ -1,0 +1,1 @@
+{"data":{"repository":{"issue":{"number":20,"subIssues":{"totalCount":3,"pageInfo":{"hasNextPage":false,"endCursor":"Y3Vyc29yOnYyOjM"},"nodes":[{"number":21,"state":"OPEN","repository":{"nameWithOwner":"acme/widget"}},{"number":22,"state":"CLOSED","repository":{"nameWithOwner":"acme/widget"}},{"number":5,"state":"OPEN","repository":{"nameWithOwner":"octo/tools"}}]}}}}}
