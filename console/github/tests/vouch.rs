@@ -11,10 +11,11 @@ use tehas_ports::{Bound, Depth, Filter, Happened, TicketKey, Tickets, Window, AL
 #[test]
 fn a_listed_login_without_its_recorded_id_is_vouched_for_nowhere() {
     let home = std::env::temp_dir().join(format!("tehas-github-vouch-{}", std::process::id()));
-    std::fs::create_dir_all(home.join("state")).unwrap();
+    let ids = home.join(tehas_core::accounts::FILE);
+    std::fs::create_dir_all(ids.parent().unwrap()).unwrap();
     // alice is listed with another id than the recordings carry; bob with
     // his own.
-    std::fs::write(home.join("state/account-ids"), "alice 999\nbob 102\n").unwrap();
+    std::fs::write(&ids, "alice 999\nbob 102\n").unwrap();
     std::env::set_var("TEHAS_ALLOWED_LABELERS", "Alice bob");
     std::env::set_var("TEHAS_MILLWRIGHT_LOGIN", "");
     std::env::set_var("TEHAS_HOME", &home);
