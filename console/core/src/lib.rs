@@ -35,6 +35,7 @@ pub mod journal;
 pub mod jq;
 pub mod kinds;
 pub mod label_pins;
+pub mod ledger;
 pub mod limit;
 pub mod lock;
 #[cfg(feature = "mask")]

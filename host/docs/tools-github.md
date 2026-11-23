@@ -173,7 +173,8 @@ the container). A comment goes only on the cycle's own issue or one the cycle
 created, an edit only on an issue the cycle created during that cycle, and a
 cycle has at most 50 such writes. Labels, assignees, milestones, projects,
 state changes, another repository and any text with `<!-- tehas:` in it are
-refused with the reason (see [the relay](/github-app#the-relay-is-a-security-channel)).
+refused with the reason. An edit is made only if the issue's title and body
+did not change while the host read it (see [the relay](/github-app#the-relay-is-a-security-channel)).
 What it posts is masked as the console masks a log, and its `@` mentions
 notify nobody.
 
