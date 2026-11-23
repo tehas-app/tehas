@@ -294,8 +294,6 @@ fn marks_read_back() {
         Act::Finish,
         Act::Block,
         Act::Pause,
-        Act::AllHands,
-        Act::Prototype,
         Act::Unknown,
     ];
     let states = [

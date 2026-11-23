@@ -60,10 +60,6 @@ pub enum Act {
     Block,
     /// Pause the factory.
     Pause,
-    /// Ask for every hand on it.
-    AllHands,
-    /// Ask for a prototype.
-    Prototype,
     /// An act this copy does not know. It authorises nothing.
     #[serde(other)]
     Unknown,
