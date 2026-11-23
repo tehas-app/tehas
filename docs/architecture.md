@@ -242,7 +242,7 @@ The owner, 2026-11-23: T8 does not rewrite the bash that is left. It is
 frozen at its count of that day, as a written floor. A count here may
 only fall. A pull request that adds a match in bash takes out as many,
 and the one that takes a match out lowers the number here and the
-check's `max`. The numbers are ceilings measured on 5c112a145 with #2981,
+check's `max`. The numbers are ceilings measured on 54942c9c2 with #2981,
 by `scripts/architecture.py`'s count over the files named. #2981 was the
 one small change that could lower a count: `install.sh` now writes each
 path under `state/` once.
