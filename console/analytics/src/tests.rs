@@ -931,19 +931,12 @@ fn every_outcome_of_a_run_is_an_outcome_word() {
                             failure_kind: kind.map(str::to_string),
                             ..run::Run::default()
                         };
-                        let o = run::outcome(&r, parked);
+                        let o = tehas_core::outcome::end(&r.line(parked));
                         assert!(OUTCOMES.contains(&o), "{o} from {status:?}");
                     }
                 }
             }
         }
-    }
-}
-
-#[test]
-fn every_failed_status_is_a_cycle_status() {
-    for s in run::FAILED {
-        assert!(tehas_core::outcome::STATUSES.contains(&s), "{s}");
     }
 }
 
@@ -985,6 +978,19 @@ fn outcomes_follow_how_the_cycle_ended() {
         ),
         (
             json!({"status": "parked", "rc": 10, "cap": "intent-park", "failure_kind": "cap", "parked": true}),
+            "parked",
+            None,
+        ),
+        // The four ends that moved in 2.0.
+        (json!({"status": "stopped", "rc": 143}), "stopped", None),
+        (json!({"status": "lost", "rc": 10}), "failed", None),
+        (
+            json!({"status": "merged", "rc": 0, "cap": "merged-claimed", "parked": true}),
+            "parked",
+            None,
+        ),
+        (
+            json!({"status": "interrupted", "rc": 21, "parked": true}),
             "parked",
             None,
         ),
