@@ -264,7 +264,7 @@ pub fn answer_in(
             }
             if let Some(n) = name.and_then(|n| git::NAMES.into_iter().find(|g| *g == n)) {
                 if git::serves(key.scope(), n) {
-                    let args = Args::from(params.get("arguments").cloned().unwrap_or(json!({})));
+                    let args = params.get("arguments").cloned().unwrap_or(json!({}));
                     let result = match git::call(n, &args) {
                         Ok(v) => json!({
                             "resultType": "complete",
@@ -279,7 +279,9 @@ pub fn answer_in(
             if let Some(n) = name.and_then(|n| tickets::NAMES.into_iter().find(|t| *t == n)) {
                 if tickets::serves(key.scope(), n) {
                     let args = Args::from(params.get("arguments").cloned().unwrap_or(json!({})));
-                    let result = match tickets::call(&dirs.sessions, n, &args) {
+                    let result = match tickets::Call::read(n, &args)
+                        .and_then(|call| tickets::run(&dirs.sessions, &call))
+                    {
                         Ok(v) => json!({
                             "resultType": "complete",
                             "content": [{"type": "text", "text": v.to_string()}],
@@ -307,7 +309,7 @@ pub fn answer_in(
             // tool. The arguments above are read for either answer.
             let asked = name.unwrap_or("");
             let called = if key.may_call(asked) {
-                tools::call_held(dirs, asked, &args)
+                tools::Call::read(asked, &args).and_then(|call| tools::call_held(dirs, &call))
             } else {
                 Err(ToolError::Unknown(asked.to_string()))
             };

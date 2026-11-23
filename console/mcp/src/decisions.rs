@@ -268,26 +268,39 @@ fn file_error(why: &str) -> ToolError {
     }
 }
 
-pub(crate) fn call(dirs: &Dirs, args: &Args) -> Result<Map<String, Value>, ToolError> {
-    let limit = match args.shape() {
-        Shape::Nothing => LIMIT_DEFAULT,
-        Shape::Object => {
-            if let Some(k) = args.keys().find(|k| *k != "limit") {
-                return Err(bad(&format!(
-                    "{k} is not an argument; limit is the only one"
-                )));
+/// What `factory_decisions` takes: the most decisions of an answer.
+#[derive(Debug)]
+pub struct DecisionsArgs {
+    limit: u64,
+}
+
+impl DecisionsArgs {
+    pub(crate) fn read(args: &Args) -> Result<Self, ToolError> {
+        let limit = match args.shape() {
+            Shape::Nothing => LIMIT_DEFAULT,
+            Shape::Object => {
+                if let Some(k) = args.keys().find(|k| *k != "limit") {
+                    return Err(bad(&format!(
+                        "{k} is not an argument; limit is the only one"
+                    )));
+                }
+                if args.has("limit") {
+                    args.get("limit")
+                        .whole()
+                        .filter(|n| (1..=LIMIT_MAX).contains(n))
+                        .ok_or_else(|| bad(&format!("limit is from 1 to {LIMIT_MAX}")))?
+                } else {
+                    LIMIT_DEFAULT
+                }
             }
-            if args.has("limit") {
-                args.get("limit")
-                    .whole()
-                    .filter(|n| (1..=LIMIT_MAX).contains(n))
-                    .ok_or_else(|| bad(&format!("limit is from 1 to {LIMIT_MAX}")))?
-            } else {
-                LIMIT_DEFAULT
-            }
-        }
-        Shape::Other => return Err(bad("the arguments are an object")),
-    };
+            Shape::Other => return Err(bad("the arguments are an object")),
+        };
+        Ok(DecisionsArgs { limit })
+    }
+}
+
+pub(crate) fn call(dirs: &Dirs, asked: &DecisionsArgs) -> Result<Map<String, Value>, ToolError> {
+    let limit = asked.limit;
     let (text, whole) = tail(&dirs.logs.join(FILE))?;
     let mut last: VecDeque<Decision> = VecDeque::new();
     for d in text.split('\n').filter_map(parse) {

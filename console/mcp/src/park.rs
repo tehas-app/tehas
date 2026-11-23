@@ -79,6 +79,18 @@ fn bad(why: &str) -> ToolError {
     ToolError::BadArgs(why.to_string())
 }
 
+/// What `factory_park` takes: the issue's number, and nothing else.
+#[derive(Debug)]
+pub struct ParkArgs {
+    issue: u64,
+}
+
+impl ParkArgs {
+    pub(crate) fn read(args: &Args) -> Result<Self, ToolError> {
+        issue_arg(args).map(|issue| ParkArgs { issue })
+    }
+}
+
 fn issue_arg(args: &Args) -> Result<u64, ToolError> {
     if args.shape() != Shape::Object {
         return Err(bad("arguments are an object with issue"));
@@ -185,8 +197,8 @@ fn checks(e: &Value) -> (Vec<String>, bool) {
     (out, cut)
 }
 
-pub(crate) fn call(dirs: &Dirs, args: &Args) -> Result<Map<String, Value>, ToolError> {
-    let issue = issue_arg(args)?;
+pub(crate) fn call(dirs: &Dirs, asked: &ParkArgs) -> Result<Map<String, Value>, ToolError> {
+    let issue = asked.issue;
     let snap = Snapshot::open(&dirs.sessions, tools::now())?;
     let mut latest = true;
     let mut newest: Option<String> = None;

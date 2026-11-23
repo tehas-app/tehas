@@ -1103,50 +1103,120 @@ fn entries() -> &'static [Value] {
     ENTRIES.as_array().map_or(&[], Vec::as_slice)
 }
 
-/// The structured content of one call, with "api": 1.
+/// One call of a tool, its arguments read and checked: what a `tools/call`
+/// is once the request is past `Call::read`. A tool is given its own
+/// arguments as its own type and never the client's JSON.
+#[derive(Debug)]
+pub enum Call {
+    Log(logs::LogArgs),
+    Search(logs::SearchArgs),
+    Status,
+    Issues(IssuesArgs),
+    Endings,
+    Console(ConsoleArgs),
+    Stats,
+    Issue(sessions::IssueArgs),
+    Sessions(sessions::ListArgs),
+    Session(sessions::OneArgs),
+    Failures(sessions::FailuresArgs),
+    Events(events::EventsArgs),
+    Outcomes(outcomes::OutcomesArgs),
+    Park(park::ParkArgs),
+    Decisions(decisions::DecisionsArgs),
+    Disk,
+}
+
+impl Call {
+    /// The call of the tool `name` with these arguments, or the tool's own
+    /// refusal of them. Nothing is read from disk here.
+    pub fn read(name: &str, args: &Args) -> Result<Call, ToolError> {
+        // A name outside `CALLED` is refused here, before any arm is reached.
+        // The test beside `call_held` holds a list of these arms and compares
+        // it with `CALLED`, so the guard and the arms answer the same set.
+        if !known(name) {
+            return Err(ToolError::Unknown(name.to_string()));
+        }
+        Ok(match name {
+            "factory_log" => Call::Log(logs::LogArgs::read(args)?),
+            "factory_search" => Call::Search(logs::SearchArgs::read(args)?),
+            "factory_status" => Call::Status,
+            "factory_issues" => Call::Issues(IssuesArgs::read(args)?),
+            "factory_endings" => Call::Endings,
+            "factory_console" => Call::Console(ConsoleArgs::read(args)?),
+            "factory_stats" => Call::Stats,
+            "factory_issue" => Call::Issue(sessions::IssueArgs::read(args)?),
+            "factory_sessions" => Call::Sessions(sessions::ListArgs::read(args)?),
+            "factory_session" => Call::Session(sessions::OneArgs::read(args)?),
+            "factory_failures" => Call::Failures(sessions::FailuresArgs::read(args)?),
+            "factory_events" => Call::Events(events::EventsArgs::read(args)?),
+            "factory_outcomes" => Call::Outcomes(outcomes::OutcomesArgs::read(args)?),
+            "factory_park" => Call::Park(park::ParkArgs::read(args)?),
+            "factory_decisions" => Call::Decisions(decisions::DecisionsArgs::read(args)?),
+            "factory_disk" => Call::Disk,
+            // The guard above admits only the names of `CALLED` and every one
+            // of them has an arm, which the test beside it proves name by name.
+            _ => unreachable!("known admits only the names matched above"),
+        })
+    }
+
+    /// The tool's name, a word of `CALLED`.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Call::Log(_) => "factory_log",
+            Call::Search(_) => "factory_search",
+            Call::Status => "factory_status",
+            Call::Issues(_) => "factory_issues",
+            Call::Endings => "factory_endings",
+            Call::Console(_) => "factory_console",
+            Call::Stats => "factory_stats",
+            Call::Issue(_) => "factory_issue",
+            Call::Sessions(_) => "factory_sessions",
+            Call::Session(_) => "factory_session",
+            Call::Failures(_) => "factory_failures",
+            Call::Events(_) => "factory_events",
+            Call::Outcomes(_) => "factory_outcomes",
+            Call::Park(_) => "factory_park",
+            Call::Decisions(_) => "factory_decisions",
+            Call::Disk => "factory_disk",
+        }
+    }
+}
+
+/// The structured content of one call, with "api": 1: the arguments read
+/// as `Call::read` reads them, then the tool. For a caller with no key to
+/// check between the two, as a test is.
 pub fn call(dirs: &Dirs, name: &str, args: &Args) -> Result<Output, ToolError> {
-    call_held(dirs, name, args).map(|(out, _)| out)
+    let call = Call::read(name, args)?;
+    call_held(dirs, &call).map(|(out, _)| out)
 }
 
 /// As `call`, with the place of a log being sent, to keep until the answer
 /// is written. Crate-private: a request reaches it only past
 /// `Authenticated::may_call`.
-pub(crate) fn call_held(
-    dirs: &Dirs,
-    name: &str,
-    args: &Args,
-) -> Result<(Output, Option<LogGuard>), ToolError> {
-    // A name outside `CALLED` is refused here, before any arm is reached. The
-    // test beside `call_held` holds a list of these arms and compares it with
-    // `CALLED`, so the guard and the arms answer the same set.
-    if !known(name) {
-        return Err(ToolError::Unknown(name.to_string()));
-    }
-    if name == "factory_log" {
-        return logs::call(dirs, args).map(|(out, place)| (out, Some(place)));
-    }
-    if name == "factory_search" {
-        return logs::search_call(dirs, args).map(|(out, place)| (out, Some(place)));
-    }
+pub(crate) fn call_held(dirs: &Dirs, call: &Call) -> Result<(Output, Option<LogGuard>), ToolError> {
+    let name = call.name();
     let live = dirs.live.as_path();
-    let mut out = match name {
-        "factory_status" => status(live)?,
-        "factory_issues" => issues(live, args)?,
-        "factory_endings" => endings(live)?,
-        "factory_console" => console(live, args)?,
-        "factory_stats" => stats(live)?,
-        "factory_issue" => sessions::issue(dirs, args)?,
-        "factory_sessions" => sessions::list(dirs, args)?,
-        "factory_session" => sessions::one(dirs, args)?,
-        "factory_failures" => sessions::failures(dirs, args)?,
-        "factory_events" => events::call(&dirs.logs, args)?,
-        "factory_outcomes" => outcomes::call(dirs, args)?,
-        "factory_park" => park::call(dirs, args)?,
-        "factory_decisions" => decisions::call(dirs, args)?,
-        "factory_disk" => disk::call(dirs)?,
-        // The guard above admits only the names of `CALLED` and every one of
-        // them has an arm, which the test beside it proves name by name.
-        _ => unreachable!("known admits only the names matched above"),
+    let mut out = match call {
+        Call::Log(asked) => {
+            return logs::call(dirs, asked).map(|(out, place)| (out, Some(place)));
+        }
+        Call::Search(asked) => {
+            return logs::search_call(dirs, asked).map(|(out, place)| (out, Some(place)));
+        }
+        Call::Status => status(live)?,
+        Call::Issues(asked) => issues(live, asked)?,
+        Call::Endings => endings(live)?,
+        Call::Console(asked) => console(live, asked)?,
+        Call::Stats => stats(live)?,
+        Call::Issue(asked) => sessions::issue(dirs, asked)?,
+        Call::Sessions(asked) => sessions::list(dirs, asked)?,
+        Call::Session(asked) => sessions::one(dirs, asked)?,
+        Call::Failures(asked) => sessions::failures(dirs, asked)?,
+        Call::Events(asked) => events::call(&dirs.logs, asked)?,
+        Call::Outcomes(asked) => outcomes::call(dirs, asked)?,
+        Call::Park(asked) => park::call(dirs, asked)?,
+        Call::Decisions(asked) => decisions::call(dirs, asked)?,
+        Call::Disk => disk::call(dirs)?,
     };
     out.insert("api".into(), json!(1));
     let out = Value::Object(out);
@@ -1563,17 +1633,30 @@ fn held(report: &Value) -> Option<Held> {
     })
 }
 
-fn issues(live: &Path, args: &Args) -> Result<Map<String, Value>, ToolError> {
-    let want = match args.get("stage") {
-        Arg::Absent => None,
-        Arg::Text(s) if STAGES.contains(&s) => Some(s),
-        _ => {
-            return Err(ToolError::BadArgs(format!(
-                "stage is one of {}",
-                STAGES.join(", ")
-            )))
-        }
-    };
+/// What `factory_issues` takes: the one stage to list, or every stage.
+#[derive(Debug)]
+pub struct IssuesArgs {
+    stage: Option<String>,
+}
+
+impl IssuesArgs {
+    fn read(args: &Args) -> Result<Self, ToolError> {
+        let stage = match args.get("stage") {
+            Arg::Absent => None,
+            Arg::Text(s) if STAGES.contains(&s) => Some(s.to_string()),
+            _ => {
+                return Err(ToolError::BadArgs(format!(
+                    "stage is one of {}",
+                    STAGES.join(", ")
+                )))
+            }
+        };
+        Ok(IssuesArgs { stage })
+    }
+}
+
+fn issues(live: &Path, asked: &IssuesArgs) -> Result<Map<String, Value>, ToolError> {
+    let want = asked.stage.as_deref();
     let st = read(live, "status.json")?;
     let spec = spec_of("factory_issues").expect("a known tool");
     let mut out = Map::new();
@@ -1630,15 +1713,30 @@ fn endings(live: &Path) -> Result<Map<String, Value>, ToolError> {
     Ok(out)
 }
 
-fn console(live: &Path, args: &Args) -> Result<Map<String, Value>, ToolError> {
-    let issue = u64::from(issue_arg(&args.get("issue"))?);
-    let bytes = match args.get("bytes") {
-        Arg::Absent => CONSOLE_MAX,
-        v => v
-            .whole()
-            .filter(|n| (1..=CONSOLE_MAX).contains(n))
-            .ok_or_else(|| ToolError::BadArgs(format!("bytes is from 1 to {CONSOLE_MAX}")))?,
-    };
+/// What `factory_console` takes: the issue of a running cycle and the most
+/// bytes of its console to answer with.
+#[derive(Debug)]
+pub struct ConsoleArgs {
+    issue: u64,
+    bytes: u64,
+}
+
+impl ConsoleArgs {
+    fn read(args: &Args) -> Result<Self, ToolError> {
+        let issue = u64::from(issue_arg(&args.get("issue"))?);
+        let bytes = match args.get("bytes") {
+            Arg::Absent => CONSOLE_MAX,
+            v => v
+                .whole()
+                .filter(|n| (1..=CONSOLE_MAX).contains(n))
+                .ok_or_else(|| ToolError::BadArgs(format!("bytes is from 1 to {CONSOLE_MAX}")))?,
+        };
+        Ok(ConsoleArgs { issue, bytes })
+    }
+}
+
+fn console(live: &Path, asked: &ConsoleArgs) -> Result<Map<String, Value>, ToolError> {
+    let ConsoleArgs { issue, bytes } = *asked;
     let running = read(live, "running.json")?;
     let cycle = running["cycles"]
         .as_array()
@@ -1859,7 +1957,7 @@ mod tests {
             assert!(spec_of(name).is_none(), "{name} has an answer allowlist");
             assert!(
                 matches!(
-                    call_held(&fixture_dirs(), name, &json!({}).into()),
+                    Call::read(name, &json!({}).into()),
                     Err(ToolError::Unknown(_))
                 ),
                 "{name} is dispatched by an arm"
@@ -1898,7 +1996,7 @@ mod tests {
             );
             assert!(
                 !matches!(
-                    call_held(&fixture_dirs(), name, &json!({}).into()),
+                    Call::read(name, &json!({}).into()),
                     Err(ToolError::Unknown(_))
                 ),
                 "{name} is dispatched by no arm"
@@ -1956,6 +2054,71 @@ mod tests {
     // no arm answers a name the allowlist does not admit. The arms and
     // `CALLED` are written out twice on purpose: reading them apart is the
     // point, and a name in one and not the other fails here.
+    // A call is refused by its arguments before a tool runs: `Call::read`
+    // has no directory to read from, and the refusal is the tool's own.
+    #[test]
+    fn bad_arguments_are_refused_where_the_call_is_read() {
+        for (name, args, why) in [
+            (
+                "factory_console",
+                json!({"issue": 0}),
+                "issue is an integer from 1 to 999999999",
+            ),
+            (
+                "factory_console",
+                json!({"issue": 7, "bytes": 0}),
+                "bytes is from 1 to 65536",
+            ),
+            (
+                "factory_session",
+                json!({"id": "../x"}),
+                "id is like work-12-1792485967",
+            ),
+            (
+                "factory_sessions",
+                json!({"before": 3}),
+                "before is a session id",
+            ),
+            ("factory_log", json!({}), "give id or issue"),
+            (
+                "factory_search",
+                json!("hit"),
+                "arguments are an object of text, issue or ids, files and limit",
+            ),
+            ("factory_events", json!([]), "the arguments are an object"),
+            (
+                "factory_decisions",
+                json!({"limit": null}),
+                "limit is from 1 to 200",
+            ),
+            (
+                "factory_park",
+                json!({"issue": 7, "x": 1}),
+                "x is not an argument: issue is",
+            ),
+            (
+                "factory_outcomes",
+                json!({"by": "day"}),
+                "by is one of version, week",
+            ),
+        ] {
+            match Call::read(name, &args.clone().into()) {
+                Err(ToolError::BadArgs(got)) => assert_eq!(got, why, "{name} {args}"),
+                other => panic!("{name} {args}: {other:?}"),
+            }
+        }
+        // The tools that take no argument take any: nothing of theirs is read.
+        for name in [
+            "factory_status",
+            "factory_endings",
+            "factory_stats",
+            "factory_disk",
+        ] {
+            let call = Call::read(name, &json!("anything").into()).unwrap();
+            assert_eq!(call.name(), name);
+        }
+    }
+
     #[test]
     fn arms_agree_with_the_called_list() {
         // The names of the match arms of `call_held`, in its order: the guard
@@ -1991,7 +2154,7 @@ mod tests {
         for name in ARMS {
             assert!(
                 !matches!(
-                    call_held(&dirs, name, &json!({}).into()),
+                    Call::read(name, &json!({}).into()).and_then(|c| call_held(&dirs, &c)),
                     Err(ToolError::Unknown(_))
                 ),
                 "{name} is dispatched by no arm"
