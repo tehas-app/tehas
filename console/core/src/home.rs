@@ -257,6 +257,12 @@ impl Home {
         &self.root
     }
 
+    /// `logs/dispatch.log`: the factory's log, where the dispatcher, each
+    /// cycle and `tehas stop` write their lines and their events.
+    pub fn factory_log(&self) -> PathBuf {
+        self.root.join("logs").join("dispatch.log")
+    }
+
     /// `state/`, for code that makes, mounts or sweeps the directory. A name
     /// in it is a `State`.
     pub fn state_dir(&self) -> PathBuf {
