@@ -257,19 +257,15 @@ pub fn owed_a_retry(r: &Ran) -> bool {
 /// own, and wins over a 5xx on another line, as `owed_a_retry` reads it. A
 /// failure that says none of these is not GitHub's.
 pub fn githubs_fault(err: &str) -> bool {
-    // git says its status as `The requested URL returned error: 502`.
-    let low = err
-        .to_ascii_lowercase()
-        .replace("returned error: ", "http ");
     matches!(
-        fault_of(&low),
+        fault_of(err),
         Fault::Limit | Fault::Server | Fault::Slow | Fault::Down
     )
 }
 
 /// The words of a call that took too long, and of one whose connection
 /// failed, as gh and git say them.
-const SLOW: [&str; 2] = ["timed out", "timeout"];
+const SLOW: [&str; 3] = ["timed out", "timeout", "time out"];
 const DOWN: [&str; 6] = [
     "connection reset",
     "connection refused",
@@ -300,10 +296,11 @@ pub enum Fault {
     Other,
 }
 
-/// The kind of failure `err` names. A status outranks the words, and the
-/// words are read as `githubs_fault` reads them.
+/// The kind of failure `err` names, as gh or git said it. A status
+/// outranks the words.
 pub fn fault_of(err: &str) -> Fault {
-    let low = err.to_ascii_lowercase();
+    // git says its status as `The requested URL returned error: 502`.
+    let low = err.to_ascii_lowercase().replace("returned error: ", "http ");
     let has = |words: &[&str]| words.iter().any(|w| low.contains(w));
     match read_of(&low).class {
         Class::Limit => Fault::Limit,

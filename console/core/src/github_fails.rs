@@ -164,6 +164,20 @@ mod tests {
     }
 
     #[test]
+    fn the_line_and_githubs_fault_read_a_failure_alike() {
+        use crate::retry::{fault_of, githubs_fault};
+        let git = "fatal: unable to access: The requested URL returned error: 502";
+        assert_eq!(fault_of(git), Fault::Server);
+        assert!(githubs_fault(git));
+        let slow = "WARN status: gh issue list failed: time out";
+        assert_eq!(fault_of(slow), Fault::Slow);
+        assert!(githubs_fault(slow));
+        for said in ["ERROR: gh issue list failed", "its answer could not be read"] {
+            assert!(!githubs_fault(said), "{said}");
+        }
+    }
+
+    #[test]
     fn a_damaged_line_is_skipped() {
         let h = home("clean");
         note(&h, 1000, "ERROR: x");
