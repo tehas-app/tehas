@@ -168,7 +168,7 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
    refused by 1.4.0: `RETIRED` holds the same twelve names, and
    `api/renames-1.0.tsv` is unchanged. Every setting that left
    `api/settings-rules.json` since 1.4.0 is dropped with a warning, not
-   refused: twenty-six of its instance settings and two of its host settings,
+   refused: twenty-seven of its instance settings and two of its host settings,
    `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, which `~/.config/tehas/env`
    held. `api/settings-1.4.0.txt` lists every setting 1.4.0 accepted, 101
    instance and 10 host settings, and the test
@@ -240,6 +240,7 @@ line is one of three:
   - `TEHAS_MILLWRIGHT_MAX_RETRIES`, `TEHAS_MILLWRIGHT_FEED`,
     `TEHAS_MILLWRIGHT_MAX_FEEDS` (the millwright's grant);
   - `TEHAS_TOP` (the host panel);
+  - `TEHAS_SPEC_PIPE` (the spec mark);
   - a `prototype=` pair of `TEHAS_ISSUE_TYPES` (the Protolab): the pair is
     dropped and the rest of the value kept.
 - **Refused.** The line stops every command with 78 and says what to do:
@@ -252,9 +253,6 @@ line is one of three:
     replaced it or why it went;
   - a value for a setting of a feature still being built, which names the
     feature.
-
-Pending: #2892 drops `TEHAS_SPEC_PIPE` with a warning. Until it lands, a
-value for `TEHAS_SPEC_PIPE` is refused as a building feature's.
 
 ## The commands of other parts
 
@@ -673,6 +671,13 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: `tehas update`, readers of `tehas state check` and of a state
   copy, the end-to-end suite.
   Adopter action: `tehas update` migrates the store.
+- **The spec mark goes.** #2892. The building feature `spec-pipe` is
+  removed. A `Spec:` line in an issue body is plain text, no pull request
+  is checked for a spec block, the key `spec-pipe` leaves `flags`, and
+  `TEHAS_SPEC_PIPE` is dropped with a warning. Lean's `pi-spec v1` block
+  stays.
+  Readers: adopters, the consumer that runs many factories (`flags`).
+  Adopter action: take `TEHAS_SPEC_PIPE` out of `instance.env`.
 - **2.0 is supported from 1.4.x.** This page. The update to 2.0 is
   supported from 1.4.x only, and a host upgrades its factories and the
   programs that run them together.
@@ -690,12 +695,6 @@ Planned or in review, not merged. Each moves to
 [Changed in 2.0](#changed-in-20) when it lands, with its readers and
 adopter action as the pull request states them.
 
-- **The spec mark goes.**
-  #2892. A `Spec:` line is
-  plain text, no pull request is checked for a spec block, the key
-  `spec-pipe` leaves `flags`, and `TEHAS_SPEC_PIPE` is dropped with a
-  warning. Lean's `pi-spec v1` block stays.
-  Readers: adopters, the consumer that runs many factories (`flags`).
 - **Events.** T11, spec `docs/specs/2026-11-22-events.md`
   (#2878, merged); the build
   is to come. Notify events, each with a schema in `api/` and a witness in
@@ -770,87 +769,6 @@ no release does: see [proving a building feature on a lab
 host](/tools-update#proving-a-building-feature-on-a-lab-host).
 
 What each registered feature leaves visible while its flag is off:
-
-### spec-pipe
-
-Building. Coming out in 2.0 with #2892
-(Pending). Off by default; `TEHAS_SPEC_PIPE=on` stops every command with exit
-78 and says `spec-pipe` is still being built.
-
-- `tehas api --json` has `"spec-pipe": false` in `flags`, and no word
-  `spec-pipe` in `features`.
-- The poll asks an issue's body nothing more: a `Spec:` line is text, and a
-  body with one starts as any other.
-- A start fetches no spec and its approval keeps no pin.
-- A cycle is given no `spec` and no `approved.json`, and its manifest names
-  neither.
-- No pull request is checked for [the pull request spec
-  block](#the-pull-request-spec-block): a handoff waits for a merge as
-  before.
-- No command, no label, no `--json` field, no MCP tool.
-
-
-#### The pull request spec block
-
-Part of `spec-pipe`, so it is not part of the frozen surface. A pull request
-built from an approved spec answers it with this block in its body, version
-1:
-
-```
-<!-- tehas:spec v1 -->
-Spec: <link> sha256:<64 lower-case hex>
-- <id> met: <where>
-- <id> not met: <why>
-<!-- /tehas:spec -->
-```
-
-For example:
-
-```
-<!-- tehas:spec v1 -->
-Spec: https://github.com/user-attachments/files/123/spec.md sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
-- R1 met: src/search.rs, search() with tests in tests/search.rs
-- R2 not met: the export needs an API the backend does not have yet
-<!-- /tehas:spec -->
-```
-
-The rules (`spec_block` in `console/core/src/grammar.rs`):
-
-- The open line is exactly `<!-- tehas:spec v1 -->` and the close line exactly
-  `<!-- /tehas:spec -->`, each on a line of its own. Spaces around a line do
-  not count, and LF and CRLF line ends are both read.
-- Only lines outside fenced code blocks count, as for the issue's `Spec:` line.
-  A block quoted inside a fence is text.
-- The first line inside that is not blank is the `Spec:` line, in the form of
-  the issue's: the link of the spec, not its file name, and the sha256 of the
-  manifest's `spec` entry.
-- One or more requirement lines follow, blank lines allowed between them:
-  `- <id> met: <text>` or `- <id> not met: <text>`. A line splits at its first
-  `:`. What comes before must end in ` not met` or ` met`, and what precedes
-  that is the id. The id is not empty and holds no `:` and no backtick. The
-  text is not empty.
-- The id is the spec's own requirement id, such as `R1` or `FR-3`. A spec
-  with no ids uses the text of each top heading instead, without the `#`s and
-  any `:`.
-
-A body with no block has none. A body tehas cannot read: no close line, a
-second block, an open line of another version (named) or one that starts
-`<!-- tehas:spec v` and is not exactly the open line, a missing or malformed
-`Spec:` line, a line inside of neither form, no requirement line, or an id
-named twice. The manifest's `spec` entry says in `block` which version the
-cycle writes.
-
-What tehas checks (`spec_answered`, and the cycle's report): with the feature
-on, a start not run by hand whose approval pins a spec, a pull request waits
-only for a merge when its body holds one block tehas can read and the block's
-`Spec:` line names the sha256 of that pin. The link is not compared. A body
-with no block, a block of another sha256 or one tehas cannot read parks the
-issue with `needs-human-attention` and the park reason `spec-block`; so does an
-approval that cannot be read. The pull request stays open and gets no
-comment.
-
-The lines are for the person who reviews. This block is not lean's `pi-spec v1`
-block, which goes in an issue body.
 
 ### lean
 
