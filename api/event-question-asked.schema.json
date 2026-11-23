@@ -41,7 +41,7 @@
       "description": "When it was asked."
     },
     "choices": {
-      "description": "The choices, in order, while the store has the question's options. Left out on a question answered or withdrawn before it was read: a consumer needs no options to act on an answered question.",
+      "description": "The choices, in order, while the store keeps the question's options: a planning question's options are kept only while the issue waits on it, so a planning question the issue no longer waits on has no choices.",
       "type": "array",
       "items": {
         "type": "object",

@@ -492,6 +492,8 @@ fn the_start_ask_is_keyed_on_its_blueprint_and_approval_and_waits_before() {
         Node::Map(m)
     };
     assert!(from_node::<Ask<StartAsk>>(with("when", text("after"))).is_err());
+    // Another api is refused, as this copy knows only its own asks.
+    assert!(from_node::<Ask<StartAsk>>(with("api", Node::Uint(2))).is_err());
     assert!(from_node::<Ask<StartAsk>>(with("event", text(Name::CycleEnded.as_str()))).is_err());
 }
 
@@ -507,7 +509,14 @@ fn a_gate_answer_allows_or_refuses_with_a_short_why() {
     assert_eq!(field(&node, "why"), Some(&text("the disk is full")));
     assert_eq!(from_node::<GateAnswer>(node).unwrap(), refuse);
     assert!(Why::new("x".repeat(140)).is_ok());
-    for bad in ["".to_string(), "x".repeat(141), "a\nb".to_string()] {
+    for bad in [
+        "".to_string(),
+        "x".repeat(141),
+        "a\nb".to_string(),
+        "a\u{7f}b".to_string(),
+        "a\u{85}b".to_string(),
+        "a\u{9f}b".to_string(),
+    ] {
         assert!(Why::new(bad.clone()).is_err(), "{bad:?}");
     }
     // A refusal says why.
@@ -515,4 +524,10 @@ fn a_gate_answer_allows_or_refuses_with_a_short_why() {
     assert!(from_node::<GateAnswer>(bare).is_err());
     let other = map(vec![("api", Node::Uint(1)), ("answer", text("maybe"))]);
     assert!(from_node::<GateAnswer>(other).is_err());
+    let later = map(vec![("api", Node::Uint(2)), ("answer", text("allow"))]);
+    assert!(from_node::<GateAnswer>(later).is_err());
+    assert!(
+        Why::new("a\u{a0}b").is_ok(),
+        "a no-break space is no control"
+    );
 }

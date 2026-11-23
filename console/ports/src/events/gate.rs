@@ -55,7 +55,8 @@ impl GatePayload for StartAsk {
 }
 
 /// A gate's envelope: the fields of `Envelope`, `when` always `before`,
-/// `event` the payload's name. It reads only as that.
+/// `event` the payload's name. It reads only as that, and only with `api`
+/// this copy's.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "AskWire<P>", bound = "P: GatePayload")]
 pub struct Ask<P: GatePayload> {
@@ -94,9 +95,9 @@ struct AskWire<P> {
 impl<P: GatePayload> TryFrom<AskWire<P>> for Ask<P> {
     type Error = crate::NotValid;
     fn try_from(w: AskWire<P>) -> Result<Self, Self::Error> {
-        if w.event != P::NAME || w.when != When::Before {
+        if w.api != API || w.event != P::NAME || w.when != When::Before {
             return Err(crate::NotValid {
-                what: "gate ask, which is before its own point",
+                what: "gate ask, which is of this api and before its own point",
             });
         }
         Ok(Ask {
@@ -150,7 +151,7 @@ pub enum Verdict {
 
 /// What a gate's listener answers, `/out/_tehas/answer.json`:
 /// `{"api": 1, "answer": "allow" | "refuse", "why": "..."}`. A refusal
-/// says why; an allow may.
+/// says why; an allow may. It reads only with `api` this copy's.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "AnswerWire")]
 pub struct GateAnswer {
@@ -174,6 +175,11 @@ struct AnswerWire {
 impl TryFrom<AnswerWire> for GateAnswer {
     type Error = crate::NotValid;
     fn try_from(w: AnswerWire) -> Result<Self, Self::Error> {
+        if w.api != API {
+            return Err(crate::NotValid {
+                what: "gate answer of this api",
+            });
+        }
         if w.answer == Verdict::Refuse && w.why.is_none() {
             return Err(crate::NotValid {
                 what: "gate answer, whose refusal says why",

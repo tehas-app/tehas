@@ -1633,7 +1633,7 @@ Each name has `api/event-<name>.schema.json`, a sample with every field,
 | `at` | `cycle.parked`, `change.offered`, the ticket names, `change.merged` | When the fact happened |
 | `step`, `cap`, `parkReason`, `failureKind`, `failureCause`, `provider`, `repeat`, `change` | `cycle.parked` | As the history line prints them; `step` is its `progress.step` |
 | `question`, `kind`, `askedAt` | `question.asked` | The store's number of the question, park or plan, and when it was asked |
-| `choices` | `question.asked` | Each `choice` and `label`, in order, while the store has the question's options. A question answered or withdrawn before it was read has none |
+| `choices` | `question.asked` | Each `choice` and `label`, in order, while the store keeps the question's options. A planning question's options are kept only while the issue waits on it, so one the issue no longer waits on has none |
 | `set`, `observed` | `factory.limit-changed` | Exactly one: when the limit was written, or when a change with no `set` was observed (a clear, or a limit unreadable or gone) |
 | `state`, `cycles`, `plan`, `until`, `reason` | `factory.limit-changed` | As `tehas limit --json` prints them |
 | `act`, `by` | `ticket.acted` | The act and the account, `realm`, `login`, `id` and `kind` |
@@ -1664,8 +1664,9 @@ control character; a refusal has it, an allow may.
 `names`, the lines of `api/events.txt`, and `raise(envelope)`. `raise`
 dispatches a `CustomEvent` named `tehas:<event>`, such as
 `tehas:cycle.ended`, whose `detail` is the envelope. It does not bubble. It
-throws a `TypeError` on any other name or shape, and on any `when` but
-`after`. `tehas:` is only for the names of `api/events.txt`: a page's own
+throws a `TypeError` on a name not in the list, an envelope field missing
+or of another shape, or any `when` but `after`. It does not check each
+name's `data` or the shape of its key: `api/event-page.schema.json` does. `tehas:` is only for the names of `api/events.txt`: a page's own
 events use `<element>:<verb>`.
 
 ```js

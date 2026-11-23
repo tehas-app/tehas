@@ -71,35 +71,35 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 80,
-      "pattern": "^[^\\p{Cc}]+$"
+      "pattern": "^[^\u0000-\u001f\u007f-\u009f]+$"
     },
     "cap": {
       "description": "The cap that stopped it. A runner's word: 1 to 80 characters, no control character.",
       "type": "string",
       "minLength": 1,
       "maxLength": 80,
-      "pattern": "^[^\\p{Cc}]+$"
+      "pattern": "^[^\u0000-\u001f\u007f-\u009f]+$"
     },
     "parkReason": {
       "description": "Why it parked. A runner's word: 1 to 80 characters, no control character.",
       "type": "string",
       "minLength": 1,
       "maxLength": 80,
-      "pattern": "^[^\\p{Cc}]+$"
+      "pattern": "^[^\u0000-\u001f\u007f-\u009f]+$"
     },
     "failureKind": {
       "description": "The kind of failure. A runner's word: 1 to 80 characters, no control character.",
       "type": "string",
       "minLength": 1,
       "maxLength": 80,
-      "pattern": "^[^\\p{Cc}]+$"
+      "pattern": "^[^\u0000-\u001f\u007f-\u009f]+$"
     },
     "failureCause": {
       "description": "The failure's cause. A runner's word: 1 to 80 characters, no control character.",
       "type": "string",
       "minLength": 1,
       "maxLength": 80,
-      "pattern": "^[^\\p{Cc}]+$"
+      "pattern": "^[^\u0000-\u001f\u007f-\u009f]+$"
     },
     "provider": {
       "description": "Whether the failure was the model provider's.",

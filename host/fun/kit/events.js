@@ -4,7 +4,10 @@
 //
 //   import { events, raise } from "./kit/events.js";
 //   events.addEventListener("tehas:cycle.ended", (e) => show(e.detail.data));
-//   raise(envelope);   // throws a TypeError on another name, shape or when
+//   raise(envelope);   // throws a TypeError on another name, field or when
+//
+// raise checks the envelope's fields and the name. It does not check each
+// name's `data` or the shape of its key: api/event-page.schema.json does.
 //
 // Only an `after` envelope reaches a page: gates never do. tehas's own pages
 // raise nothing on it until 2.1; a page that learns a factory fact from its

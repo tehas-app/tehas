@@ -139,11 +139,14 @@ fn errors(schema: &str, value: &str) -> Vec<String> {
     }
     if let Some(cond) = rest.remove("if") {
         let (then, other) = (rest.remove("then"), rest.remove("else"));
-        let branch = if errors(&cond.to_string(), &v).is_empty() {
-            then
-        } else {
-            other
-        };
+        let held = errors(&cond.to_string(), &v);
+        assert!(
+            !held
+                .iter()
+                .any(|e| e.contains("does not know") || e.contains("is not checked")),
+            "an if this cannot read: {held:?}"
+        );
+        let branch = if held.is_empty() { then } else { other };
         if let Some(b) = branch {
             out.extend(errors(&b.to_string(), &v));
         }
@@ -544,13 +547,41 @@ fn a_gate_answer_refuses_with_a_short_why() {
         &json!({"api": 1, "answer": "refuse"}),
         "a refusal with no why",
     );
-    for why in ["x".repeat(141), "a\nb".to_string(), String::new()] {
+    // The schema refuses what Rust's char::is_control does, and no more.
+    for c in (0..=0x10ffffu32)
+        .filter_map(char::from_u32)
+        .filter(|c| c.is_control())
+    {
+        assert!(Why::new(format!("a{c}b")).is_err());
+        assert!(matches!(c as u32, 0..=0x1f | 0x7f..=0x9f), "{c:?}");
+    }
+    assert!((0..=0x1fu32)
+        .chain(0x7f..=0x9f)
+        .all(|n| char::from_u32(n).is_some_and(char::is_control)));
+    for ok in ["a\u{a0}b", "a\u{2028}b", "é"] {
+        let v = json!({"api": 1, "answer": "refuse", "why": ok});
+        assert_eq!(fits!("gate-answer.schema.json", v), Vec::<String>::new());
+        assert!(Why::new(ok).is_ok());
+    }
+    for why in [
+        "x".repeat(141),
+        "a\nb".to_string(),
+        String::new(),
+        "a\u{7f}b".to_string(),
+        "a\u{85}b".to_string(),
+        "a\u{9f}b".to_string(),
+    ] {
         refused!(
             "gate-answer.schema.json",
             &json!({"api": 1, "answer": "refuse", "why": why}),
             "a why of another shape",
         );
     }
+    refused!(
+        "gate-answer.schema.json",
+        &json!({"api": 2, "answer": "allow"}),
+        "another api"
+    );
     refused!(
         "gate-answer.schema.json",
         &json!({"api": 1, "answer": "maybe"}),
