@@ -325,14 +325,14 @@ fn b4_a_new_tehas_plan_replaces_a_session_with_its_answers_what_it_filed_and_its
     w.t_plan(
         7,
         json!({"turns": 2, "options": ["Adopt all"], "comment": 4001,
-            "answers": [{"turn": 2, "by": "bob", "fixer": false}],
+            "answers": [{"turn": 2, "by": "bob", "millwright": false}],
             "filed": ["https://github.com/acme/widget/issues/41"], "held": [4001],
-            "fixer_refused": [4003]}),
+            "millwright_refused": [4003]}),
     );
     assert_eq!(
         rec_jq(
             &w,
-            "[.held, .fixer_refused, (.filed | length), (.answers | length)]"
+            "[.held, .millwright_refused, (.filed | length), (.answers | length)]"
         ),
         json!([[4001], [4003], 1, 1])
     );
@@ -341,7 +341,7 @@ fn b4_a_new_tehas_plan_replaces_a_session_with_its_answers_what_it_filed_and_its
     assert_eq!(
         rec_jq(
             &w,
-            "[.turns, .answers, .filed, .held, .fixer_refused, .comment]"
+            "[.turns, .answers, .filed, .held, .millwright_refused, .comment]"
         ),
         json!([1, [], null, null, null, 4002])
     );

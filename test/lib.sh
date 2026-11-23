@@ -63,7 +63,7 @@
 #                                    dispatcher records it: at AT [1760000000],
 #                                    the body hash of "Words." ($T_WSUM) unless
 #                                    ARGS give one, tehas:ready for label and
-#                                    fixer
+#                                    millwright
 #   t_started HOME N [ARGS...]       a cycle start of issue N on record, made
 #                                    under the issue's lock as the cycle makes
 #                                    it; TEHAS_STORE_TEST_NOW sets its time
@@ -76,7 +76,7 @@
 #                                    describes in the shape the record file had
 #                                    (approval-view's), used by a start of
 #                                    issue N: with the person's approval it rests
-#                                    on, and the fixer's and the refreshes'
+#                                    on, and the millwright's and the refreshes'
 #                                    starts it counts, as ended starts before it
 #   t_history_end HOME N END [FIELDS]
 #                                    one end of a cycle of issue N on the store
@@ -108,8 +108,9 @@
 #                                    failed, pending, comment (the open
 #                                    question), running (a turn after the
 #                                    last), lost, answers (who answered each
-#                                    later turn, and whether the fixer did),
-#                                    fixer_refused, held and auto; startedAt is when
+#                                    later turn, and whether the millwright
+#                                    did), millwright_refused, held and auto;
+#                                    startedAt is when
 #                                    the turn that runs began
 #   t_plan_end HOME N END [FIELDS]   one end of a first planning turn of issue N
 #                                    on the store at END (epoch seconds), with
@@ -422,7 +423,7 @@ t_calls() { cat "$T/calls/$1" 2>/dev/null || true; }
 t_uid() { jq -rn --arg l "$1" '$l | sub("\\[bot\\]$"; "") | explode | add'; }
 # t_ids <home> [<login>...]: the user ids install.sh and tehas update record,
 # in <home>/state/account-ids, of every login the tests list unless named.
-T_LOGINS=(tehas-bot alice bob bob-2 carol boss tehas-fixer tehas-mill millbot mill-bot acme-millwright acme-app-millwright)
+T_LOGINS=(tehas-bot alice bob bob-2 carol boss tehas-millwright tehas-mill millbot mill-bot acme-millwright acme-app-millwright)
 t_ids() {
   local home=$1 l
   shift
@@ -675,7 +676,7 @@ t_console_source() {
   local member from=${2:-$T_ROOT}
   mkdir -p "$1/console"
   cp -R "$from/console/Cargo.toml" "$from/console/Cargo.lock" "$from/console/src" "$1/console/"
-  for member in analytics attach contractor core cycle describe dispatch front items mcp mesh-feed ops plugin plugin-gate proxy review-render store wiki-collect wiki-render xtask; do
+  for member in analytics attach core cycle describe dispatch front items mcp mesh-feed ops plugin plugin-gate review-render store wiki-collect wiki-render xtask; do
     mkdir -p "$1/console/$member"
     cp -R "$from/console/$member/Cargo.toml" "$from/console/$member/src" "$1/console/$member/"
     [ ! -d "$from/console/$member/assets" ] || cp -R "$from/console/$member/assets" "$1/console/$member/"
@@ -1013,7 +1014,7 @@ t_approve() { # <home> <issue> <by> <how> [<at>] [<approval-record args>...]
   local t_home=$1 t_n=$2 t_by=$3 t_how=$4 t_when=${5:-1760000000} t_args
   if [ "$#" -ge 5 ]; then shift 5; else shift "$#"; fi
   t_args=(approval-record "$t_n" --at "$t_when" --by "$t_by" --how "$t_how")
-  case $t_how in label | fixer) t_args+=(--label tehas:ready) ;; esac
+  case $t_how in label | millwright) t_args+=(--label tehas:ready) ;; esac
   case " $* " in *" --body-sha "*) ;; *) t_args+=(--body-sha "$T_WSUM") ;; esac
   TEHAS_HOME=$t_home "$T_STORE" "${t_args[@]}" "$@" >/dev/null ||
     t_bad "t_approve: the store refused ${t_args[*]} $*"
@@ -1071,12 +1072,12 @@ t_record() { # <home> <issue> <JSON>
       --status handoff >/dev/null || t_bad "t_record: the store refused the end of an earlier start"
     t_last=$3
   }
-  if { [ "$t_how" = fixer ] || [ "$t_how" = refresh ]; } && [ -n "$t_base" ]; then
+  if { [ "$t_how" = millwright ] || [ "$t_how" = refresh ]; } && [ -n "$t_base" ]; then
     _t_used "$(jq -r .by <<<"$t_base")" "$(jq -r .how <<<"$t_base")" "$(date -u -d "$(jq -r .at <<<"$t_base")" +%s)" \
       --body-sha "$(jq -r .body_sha256 <<<"$t_base")"
     t_count=$(jq -r '.fixer_starts // 0' <<<"$t_j")
-    [ "$t_how" != fixer ] || t_count=$((t_count - 1))
-    for ((t_k = 0; t_k < t_count; t_k++)); do _t_used tehas-fixer fixer $((t_last + 10)); done
+    [ "$t_how" != millwright ] || t_count=$((t_count - 1))
+    for ((t_k = 0; t_k < t_count; t_k++)); do _t_used tehas-millwright millwright $((t_last + 10)); done
     if [ "$t_how" = refresh ]; then
       t_count=$(jq -r '.refreshes // 1' <<<"$t_j")
       for ((t_k = 1; t_k < t_count; t_k++)); do
@@ -1090,7 +1091,7 @@ t_record() { # <home> <issue> <JSON>
     + (if $how == "refresh" then {refresh_of: (.refresh_of // null)} else {} end)' <<<"$t_j" >"$t_in"
   t_args=(approval-record "$t_n" --at "$t_at" --by "$(jq -r .by <<<"$t_j")" --how "$t_how"
     --body-sha "$(jq -r .body_sha256 <<<"$t_j")" --input-file "$t_in")
-  case $t_how in label | fixer) t_args+=(--label tehas:ready) ;; esac
+  case $t_how in label | millwright) t_args+=(--label tehas:ready) ;; esac
   t_k=$(jq -r '.title_sha256 // ""' <<<"$t_j")
   [ -z "$t_k" ] || t_args+=(--title-sha "$t_k")
   [ "$t_how" != refresh ] ||
@@ -1154,7 +1155,7 @@ t_plan() { # <home> <issue> <JSON>
   _t_answer() {
     t_by=$(jq -r --argjson t "$1" '[(.answers // [])[] | select(.turn == $t)][0].by // "alice"' <<<"$t_j")
     t_args=(plan-answer "$t_n" --turn "$1" --by "$t_by" --text-file "$t_brief")
-    [ "$(jq -r --argjson t "$1" '[(.answers // [])[] | select(.turn == $t)][0].fixer // false' <<<"$t_j")" != true ] ||
+    [ "$(jq -r --argjson t "$1" '[(.answers // [])[] | select(.turn == $t)][0].millwright // false' <<<"$t_j")" != true ] ||
       t_args+=(--millwright)
     _t_when "${2:-}" "${t_args[@]}"
   }
@@ -1183,8 +1184,8 @@ t_plan() { # <home> <issue> <JSON>
   [ "$(jq -r '.lost // false' <<<"$t_j")" != true ] ||
     _t_s plan-end "$t_n" --turn $((t_turns + 1)) --outcome lost --rc 2
   while read -r t_by; do
-    [ -z "$t_by" ] || _t_s plan-note "$t_n" --kind fixer-refused --id "$t_by"
-  done < <(jq -r '(.fixer_refused // [])[]' <<<"$t_j")
+    [ -z "$t_by" ] || _t_s plan-note "$t_n" --kind millwright-refused --id "$t_by"
+  done < <(jq -r '(.millwright_refused // [])[]' <<<"$t_j")
   while read -r t_by; do
     [ -z "$t_by" ] || _t_s plan-note "$t_n" --kind held --id "$t_by"
   done < <(jq -r '(.held // [])[]' <<<"$t_j")

@@ -12,9 +12,7 @@
 -- tool_calls and tool_errors are the tool calls the run's children started and
 -- those that ended in an error, as the result's usage counts them, and
 -- result_driver is the driver the result says ran it; all three are NULL where
--- the result has none, which is no count rather than none. contractor_id is
--- the contractor that ran the cycle, NULL for a cycle run in-house; it was
--- added within schema 4, so db::open adds it to a file of 0.30.x that lacks it.
+-- the result has none, which is no count rather than none.
 CREATE TABLE runs (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL CHECK (kind IN ('work', 'plan')),
@@ -60,8 +58,7 @@ CREATE TABLE runs (
   driver TEXT CHECK (driver IN ('classic', 'lean')),
   tool_calls INTEGER,
   tool_errors INTEGER,
-  result_driver TEXT CHECK (result_driver IN ('classic', 'lean')),
-  contractor_id TEXT
+  result_driver TEXT CHECK (result_driver IN ('classic', 'lean'))
 );
 CREATE INDEX runs_ended ON runs (ended);
 CREATE INDEX runs_issue ON runs (issue, started);
@@ -150,9 +147,11 @@ CREATE TABLE samples (
 -- schema 4: tool_calls, tool_errors and result_driver on runs, tool_calls and
 -- tool_errors on run_roles. v0.30.0 wrote 4 already, so a database of schema 2
 -- or 3 is moved aside whole under its version too, as schema 1 is. Within 4,
--- v1.0.0 adds contractor_id on runs (db::ADDED).
--- schema 5: watts on samples goes; energy use left core in 2.0. db::open
--- migrates a database of schema 4 in place, the only version it migrates.
+-- v1.0.0 added contractor_id on runs.
+-- schema 5: watts on samples goes; energy use left core in 2.0.
+-- schema 6: contractor_id on runs goes; outsource was dropped in 2.0. db::open
+-- migrates a database of schema 4 or 5 in place, the only versions it
+-- migrates.
 
 -- schema, retention_days and created. Nothing about the host.
 CREATE TABLE meta (

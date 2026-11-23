@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use tehas_core::driver::Driver;
 use tehas_core::events::{EditRecord, Events};
+use tehas_core::grammar::MILLWRIGHT;
 
 /// A list GitHub gave, or a call that failed.
 #[derive(Clone, Debug, Default)]
@@ -245,19 +246,19 @@ pub struct Planning {
     pub view: PlanView,
 }
 
-/// What the rules read of `shape`'s session: who started it, the fixer
+/// What the rules read of `shape`'s session: who started it, the millwright
 /// flags of its answers and the ids its notes hold. A list that is not one
 /// is None.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlanView {
     /// Empty when it is not text.
     pub by: String,
-    pub fixers: Option<Vec<bool>>,
+    pub millwrights: Option<Vec<bool>>,
     pub refused: Option<Vec<u64>>,
     pub held: Option<Vec<u64>>,
 }
 
-/// The session `shape` gives, as the fixer's rules read it; None when it is
+/// The session `shape` gives, as the millwright's rules read it; None when it is
 /// no object.
 pub(crate) fn plan_view(view: &Value) -> Option<PlanView> {
     let ids = |k: &str| match view.get(k) {
@@ -271,22 +272,22 @@ pub(crate) fn plan_view(view: &Value) -> Option<PlanView> {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string(),
-        fixers: match view.get("answers") {
+        millwrights: match view.get("answers") {
             None | Some(Value::Null) => Some(Vec::new()),
             Some(Value::Array(a)) => a
                 .iter()
-                .map(|x| x.get("fixer").and_then(Value::as_bool))
+                .map(|x| x.get("millwright").and_then(Value::as_bool))
                 .collect(),
             Some(_) => None,
         },
-        refused: ids("fixer_refused"),
+        refused: ids("millwright_refused"),
         held: ids("held"),
     })
 }
 
 /// The shape of `store plan-view`: the session as plan_view gives it, from plan-show's
-/// `.planning`: the refused replies of both names and the held ticks from
-/// the notes, and an answer's millwright as fixer.
+/// `.planning`: the refused replies and the held ticks from the notes, and
+/// each answer's turn, account and millwright mark.
 pub(crate) fn shape(row: &Value) -> Value {
     if !row.is_object() {
         return Value::Null;
@@ -297,8 +298,7 @@ pub(crate) fn shape(row: &Value) -> Value {
             .cloned()
             .unwrap_or_default()
     };
-    let mut refused = notes("millwright_refused");
-    refused.extend(notes("fixer_refused"));
+    let refused = notes("millwright_refused");
     let answers: Vec<Value> = row
         .get("answers")
         .and_then(Value::as_array)
@@ -306,7 +306,9 @@ pub(crate) fn shape(row: &Value) -> Value {
         .unwrap_or_default()
         .into_iter()
         .map(|a| match a.get("millwright") {
-            Some(Value::Bool(m)) => json!({"turn": a.get("turn"), "by": a.get("by"), "fixer": m}),
+            Some(Value::Bool(m)) => {
+                json!({"turn": a.get("turn"), "by": a.get("by"), "millwright": m})
+            }
             _ => a,
         })
         .collect();
@@ -317,7 +319,7 @@ pub(crate) fn shape(row: &Value) -> Value {
         }
     }
     if !refused.is_empty() {
-        v["fixer_refused"] = json!(refused);
+        v["millwright_refused"] = json!(refused);
     }
     let held = notes("held");
     if !held.is_empty() {
@@ -915,7 +917,7 @@ pub struct Approval {
     pub refreshes: RefreshCount,
 }
 
-/// The record's rests_on: the approval a fixer's or a refresh's start rests
+/// The record's rests_on: the approval a millwright's or a refresh's start rests
 /// on.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RestsOn {
@@ -996,12 +998,12 @@ impl Approval {
         }
     }
 
-    /// A fixer's or a refresh's record rests on another approval.
+    /// A millwright's or a refresh's record rests on another approval.
     fn rests(&self) -> bool {
-        matches!(self.how.as_str(), "fixer" | "refresh")
+        matches!(self.how.as_str(), MILLWRIGHT | "refresh")
     }
 
-    /// The base it rests on: rests_on for a fixer's or a refresh's, the
+    /// The base it rests on: rests_on for a millwright's or a refresh's, the
     /// record itself for any other.
     pub fn base(&self) -> Option<Base> {
         if !self.rests() {
@@ -1019,7 +1021,7 @@ impl Approval {
     }
 
     /// The sum of the body the record binds, by the rule of [`Approval::base`]:
-    /// a fixer's or a refresh's with no rests_on binds its own.
+    /// a millwright's or a refresh's with no rests_on binds its own.
     pub fn bound_sum(&self) -> Option<&str> {
         if !self.rests() {
             return self.body_sha256.as_deref();
@@ -1035,8 +1037,8 @@ impl Approval {
     pub fn fixer_starts(&self) -> Option<u64> {
         let whole = |f: f64, min: f64| (f >= min && f.fract() == 0.0).then_some(f);
         let n = match (self.how.as_str(), self.fixer_starts) {
-            ("fixer", Starts::Num(f)) => whole(f, 1.0)?,
-            ("fixer", _) => return None,
+            (MILLWRIGHT, Starts::Num(f)) => whole(f, 1.0)?,
+            (MILLWRIGHT, _) => return None,
             ("refresh", Starts::None) => 0.0,
             ("refresh", Starts::Num(f)) => whole(f, 0.0)?,
             ("refresh", Starts::Other) => return None,
@@ -1124,7 +1126,7 @@ fn approver<'a>(how: &str, by: &'a str) -> &'a str {
 }
 
 /// [`Approval::base`] of a record, {at, by, how, body_sha256}.
-pub(crate) fn fixer_base(record: &Value) -> Option<Value> {
+pub(crate) fn record_base(record: &Value) -> Option<Value> {
     Approval::of(record).base().map(|b| {
         Value::Object(
             b.pairs()
@@ -1135,7 +1137,7 @@ pub(crate) fn fixer_base(record: &Value) -> Option<Value> {
     })
 }
 
-/// [`Base::stands`] of a base of `fixer_base`.
+/// [`Base::stands`] of a base of `record_base`.
 pub(crate) fn base_stands(c: &Settings, base: &Value) -> bool {
     let s = |k: &str| {
         base.get(k)
@@ -1152,7 +1154,7 @@ pub(crate) fn base_stands(c: &Settings, base: &Value) -> bool {
     .stands(c)
 }
 
-/// [`Base::approver`] of a base of `fixer_base`.
+/// [`Base::approver`] of a base of `record_base`.
 pub(crate) fn base_approver(base: &Value) -> &str {
     let s = |k: &str| base.get(k).and_then(Value::as_str).unwrap_or("");
     approver(s("how"), s("by"))
@@ -1443,8 +1445,6 @@ pub struct Snapshot {
     /// numbers would hold an issue back on nothing.
     pub pulls_name: BTreeMap<u64, Vec<u64>>,
     pub leftovers: Option<Vec<Leftover>>,
-    /// What the outsource feature reads, present only while it is on.
-    pub outsource: Option<crate::place::Outsourcing>,
 }
 
 fn failed(v: &Value) -> bool {
@@ -2174,7 +2174,6 @@ impl Snapshot {
                         .collect()
                 })
                 .unwrap_or_default(),
-            outsource: v.get("outsource").map(crate::place::Outsourcing::parse),
         }
     }
 }

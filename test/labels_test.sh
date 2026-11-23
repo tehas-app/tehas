@@ -94,9 +94,6 @@ t_lacks "$(cat "$pins")" "tehas:blocked"
 T_ENV=()
 rm -f "$pins"
 
-t_case "it creates the all-hands label"
-t_contains "$(t_calls gh)" "label create tehas:all-hands "
-
 t_case "it creates the question label"
 t_contains "$(t_calls gh)" "label create tehas:question "
 

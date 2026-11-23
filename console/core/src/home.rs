@@ -16,8 +16,6 @@ pub struct Home {
 pub enum State {
     /// The ids of the accounts the lists name.
     AccountIds,
-    /// Who set all-hands without being allowed to, and when.
-    AllHandsIgnored,
     /// The analytics program's database.
     AnalyticsDb,
     /// The store's backups.
@@ -38,8 +36,6 @@ pub enum State {
     CodeIndexLock,
     /// The commit and indexer image the code index was made from.
     CodeIndexState,
-    /// The memory of the cycles, `memory/cycles`.
-    CycleMemory,
     /// The ask a poll is started on.
     DispatchAgain,
     /// Held while a poll reads.
@@ -54,20 +50,12 @@ pub enum State {
     GithubWrites,
     /// The messages `tehas host-message` keeps.
     HostMessages,
-    /// The images a contractor runs, kept by the proxy.
-    Images,
     /// The pins of the state labels to their node ids.
     LabelPins,
     /// The limit `tehas limit` sets.
     Limit,
     /// Held while the MCP server's checkout is fetched.
     McpFetchLock,
-    /// A contractor's files of the job it runs.
-    Outsource,
-    /// The proxy's index, bundles and jobs' files for contractors.
-    OutsourceDownloads,
-    /// The scratch of the stamp of an outsourced cycle's heads.
-    OutsourceStamp,
     /// The panels `tehas panel` keeps.
     Panels,
     /// The flag `tehas pause` sets.
@@ -115,7 +103,6 @@ impl State {
     pub const fn relative(self) -> &'static str {
         match self {
             State::AccountIds => "state/account-ids",
-            State::AllHandsIgnored => "state/all-hands.ignored",
             State::AnalyticsDb => "state/analytics.db",
             State::Backups => "state/backup",
             State::BotLogin => "state/github/login",
@@ -126,7 +113,6 @@ impl State {
             State::CodeIndexFailed => "state/index.failed",
             State::CodeIndexLock => "state/index.lock",
             State::CodeIndexState => "state/index.json",
-            State::CycleMemory => "state/memory/cycles",
             State::DispatchAgain => "state/dispatch.again",
             State::DispatchLock => "state/dispatch.lock",
             State::EgressLock => "state/egress.lock",
@@ -134,13 +120,9 @@ impl State {
             State::GithubFailures => "state/github-failures",
             State::GithubWrites => "state/github-writes.log",
             State::HostMessages => "state/host-messages.json",
-            State::Images => "state/images",
             State::LabelPins => "state/labels",
             State::Limit => "state/limit.json",
             State::McpFetchLock => "state/mcp-fetch.lock",
-            State::Outsource => "state/outsource",
-            State::OutsourceDownloads => "state/outsource/downloads",
-            State::OutsourceStamp => "state/outsource/stamp",
             State::Panels => "state/panels.json",
             State::Pause => "state/pause.json",
             State::PluginFiles => "state/plugin-files",
@@ -192,8 +174,6 @@ impl TokenDir {
 /// A view the factory publishes under `live/`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Live {
-    /// The contractors of outsource.
-    Contractors,
     /// What waits for a start, and why.
     Demand,
     /// The disk the factory uses.
@@ -228,7 +208,6 @@ impl Live {
     /// The file's name in `live/`, for a writer that joins it to the directory.
     pub const fn name(self) -> &'static str {
         match self {
-            Live::Contractors => "contractors.json",
             Live::Demand => "demand.json",
             Live::Disk => "disk.json",
             Live::Dispatch => "dispatch.json",
@@ -408,7 +387,6 @@ mod tests {
     fn each_state_name_is_its_file() {
         let cases = [
             (State::AccountIds, "/h/state/account-ids"),
-            (State::AllHandsIgnored, "/h/state/all-hands.ignored"),
             (State::AnalyticsDb, "/h/state/analytics.db"),
             (State::Backups, "/h/state/backup"),
             (State::BotLogin, "/h/state/github/login"),
@@ -419,7 +397,6 @@ mod tests {
             (State::CodeIndexFailed, "/h/state/index.failed"),
             (State::CodeIndexLock, "/h/state/index.lock"),
             (State::CodeIndexState, "/h/state/index.json"),
-            (State::CycleMemory, "/h/state/memory/cycles"),
             (State::DispatchAgain, "/h/state/dispatch.again"),
             (State::DispatchLock, "/h/state/dispatch.lock"),
             (State::EgressLock, "/h/state/egress.lock"),
@@ -427,13 +404,9 @@ mod tests {
             (State::GithubFailures, "/h/state/github-failures"),
             (State::GithubWrites, "/h/state/github-writes.log"),
             (State::HostMessages, "/h/state/host-messages.json"),
-            (State::Images, "/h/state/images"),
             (State::LabelPins, "/h/state/labels"),
             (State::Limit, "/h/state/limit.json"),
             (State::McpFetchLock, "/h/state/mcp-fetch.lock"),
-            (State::Outsource, "/h/state/outsource"),
-            (State::OutsourceDownloads, "/h/state/outsource/downloads"),
-            (State::OutsourceStamp, "/h/state/outsource/stamp"),
             (State::Panels, "/h/state/panels.json"),
             (State::Pause, "/h/state/pause.json"),
             (State::PluginFiles, "/h/state/plugin-files"),
@@ -483,7 +456,6 @@ mod tests {
     #[test]
     fn each_live_view_is_its_file() {
         let cases = [
-            (Live::Contractors, "/h/live/contractors.json"),
             (Live::Demand, "/h/live/demand.json"),
             (Live::Disk, "/h/live/disk.json"),
             (Live::Dispatch, "/h/live/dispatch.json"),

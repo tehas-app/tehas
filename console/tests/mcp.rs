@@ -37,9 +37,6 @@ const DOCKER: &str = r#"case "$*" in "network inspect"*) echo false ;; esac
 [ "$1" != run ] || printf "%s\n%s\n" "${TEHAS_MCP_KEYS:-none}" "${TEHAS_MCP_DASHBOARD_KEYS:-none}" >"$T/keys.seen"
 [ "$1" != run ] || printf "%s\n" "${TEHAS_MCP_MASK:-none}" >"$T/mask.seen""#;
 
-/// The programs no stub may leave to the host's own.
-const DENIED: &str = "docker gh systemctl curl ssh";
-
 fn digest() -> String {
     format!("sha256:{}", "a".repeat(64))
 }
@@ -143,7 +140,7 @@ impl Host {
             instance_on: RefCell::new(false),
             env: RefCell::new(vec![]),
         };
-        for name in DENIED.split(' ') {
+        for name in tehas_core::testing::DENIED {
             write_exe(
                 h.t.join("deny").join(name),
                 format!(
@@ -545,34 +542,6 @@ run --rm --init --name tehas-mcp --user {}:{} --network tehas-mcp --read-only --
     assert_eq!(h.docker(), want);
     lacks(&h.docker(), KEY1);
     lacks(&h.docker(), KEY2);
-}
-
-#[test]
-fn with_outsource_on_in_a_test_build_the_server_is_told_to_serve_factory_contractors_and_only_then()
-{
-    let h = Host::new("outsource");
-    h.minimal(&["TEHAS_OUTSOURCE=on"]);
-    h.set_env(&[
-        "TEHAS_MCP=1",
-        &format!("TEHAS_MCP_KEYS={KEY1}"),
-        "TEHAS_TEST_FEATURES=outsource",
-    ]);
-    let r = h.serve();
-    rc(&r, 0);
-    assert_eq!(
-        h.run_tail("--server-version "),
-        "--server-version v0.7.30+abc1234 --outsource"
-    );
-    h.reset();
-    h.minimal(&["TEHAS_OUTSOURCE=off"]);
-    h.set_env(&[
-        "TEHAS_MCP=1",
-        &format!("TEHAS_MCP_KEYS={KEY1}"),
-        "TEHAS_TEST_FEATURES=outsource",
-    ]);
-    let r = h.serve();
-    rc(&r, 0);
-    lacks(&h.docker(), "--outsource");
 }
 
 #[test]

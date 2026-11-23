@@ -16,9 +16,14 @@ fn reset(w: &World) {
     // The shell's reset removed the whole home, so World::reset's store home
     // (libexec/store, state/tehas.db, the account ids, a backup) is not there.
     let _ = fs::remove_dir_all(&w.home);
-    for tool in ["gh", "docker", "git", "curl"] {
+    for tool in outside_tools() {
         w.stub(tool, "exit 1");
     }
+}
+
+/// gh, docker, git and curl.
+fn outside_tools() -> impl Iterator<Item = &'static str> {
+    tehas_core::testing::UNREACHED.into_iter().chain(["curl"])
 }
 
 fn world(name: &str) -> World {
@@ -37,8 +42,7 @@ fn analytics(w: &World, args: &str) -> Run {
 
 /// What the calls of gh, docker, git and curl say: nothing when none ran.
 fn outside(w: &World) -> String {
-    ["gh", "docker", "git", "curl"]
-        .iter()
+    outside_tools()
         .map(|tool| w.calls(tool).trim_end().to_string())
         .collect()
 }

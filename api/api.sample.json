@@ -6,7 +6,6 @@
   "features": [
     "status",
     "millwright-grant",
-    "all-hands",
     "limit",
     "drain",
     "history",
@@ -39,7 +38,6 @@
     "question"
   ],
   "flags": {
-    "outsource": false,
     "spec-pipe": false,
     "lean": false,
     "plugins": false

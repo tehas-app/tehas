@@ -424,7 +424,7 @@ fn a_refine_is_owed_once_and_never_to_an_issue_that_was_planned() {
     let home = home("park-refine-once");
     intent_parked(&home, 64, "label", "underspecified");
     intent_parked(&home, 65, "label", "underspecified");
-    intent_parked(&home, 66, "fixer", "underspecified");
+    intent_parked(&home, 66, "millwright", "underspecified");
     // A session whose first turn still runs has no history yet.
     intent_parked(&home, 69, "label", "too-large");
     let brief = write_file(&home, "brief-69.md", b"brief");

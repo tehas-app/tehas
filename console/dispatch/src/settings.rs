@@ -47,7 +47,7 @@ pub struct Settings {
     pub model: String,
     pub image: String,
     pub refresh_max: i64,
-    pub fixer_max_plan_answers: i64,
+    pub millwright_max_plan_answers: i64,
     /// TEHAS_MILLWRIGHT_FEED: the millwright's tehas:ready may start the first
     /// cycle of an issue a person wrote. TEHAS_MILLWRIGHT_MAX_FEEDS: how many
     /// cycles so started may run at once.
@@ -70,9 +70,6 @@ pub struct Settings {
     /// The `lean` feature is on. Off, a start that would run lean starts
     /// nothing and says why; classic never runs in its place.
     pub lean: bool,
-    /// The outsource feature's settings, None while it is off: every start
-    /// then runs on this host, as before the feature.
-    pub outsource: Option<crate::place::Rules>,
 }
 
 impl Settings {
@@ -131,7 +128,7 @@ impl Settings {
             model: s("PI_ENSEMBLE_SUBAGENT_MODEL", ""),
             image: s("PI_ENSEMBLE_IMAGE", ""),
             refresh_max: n("TEHAS_REFRESH_MAX_PER_PR", 2),
-            fixer_max_plan_answers: n("TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS", 3),
+            millwright_max_plan_answers: n("TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS", 3),
             millwright_feed: s("TEHAS_MILLWRIGHT_FEED", "0") == "1",
             millwright_max_feeds: n("TEHAS_MILLWRIGHT_MAX_FEEDS", 2),
             millwright_epics: s("TEHAS_MILLWRIGHT_EPICS", "0") == "1",
@@ -140,11 +137,6 @@ impl Settings {
             driver_default: Driver::default_of(&s("TEHAS_DRIVER", "classic")),
             spec_pipe: tehas_core::features::on_in("spec-pipe", &|k| s(k, "")),
             lean: tehas_core::features::on_in("lean", &|k| s(k, "")),
-            outsource: crate::place::Rules::of(&|k| {
-                v.get(k).map_or(String::new(), |x| {
-                    x.as_str().map_or(x.to_string(), str::to_string)
-                })
-            }),
         }
     }
 
@@ -312,7 +304,7 @@ mod tests {
             (
                 new.millwright.as_str(),
                 new.fixer_max_retries,
-                new.fixer_max_plan_answers
+                new.millwright_max_plan_answers
             ),
             ("mill-bot", 5, 4)
         );
@@ -325,13 +317,13 @@ mod tests {
             (
                 old.millwright.as_str(),
                 old.fixer_max_retries,
-                old.fixer_max_plan_answers
+                old.millwright_max_plan_answers
             ),
             ("", 2, 3)
         );
         let none = Settings::parse(&json!({}));
         assert_eq!(
-            (none.fixer_max_retries, none.fixer_max_plan_answers),
+            (none.fixer_max_retries, none.millwright_max_plan_answers),
             (2, 3)
         );
     }
@@ -346,17 +338,6 @@ mod tests {
         assert!(Settings::parse(&json!({"TEHAS_WORK_IMAGES": "1"})).work_images);
         // Only `1` is on, as for every setting of this family.
         assert!(!Settings::parse(&json!({"TEHAS_WORK_IMAGES": "yes"})).work_images);
-    }
-
-    #[test]
-    fn outsource_is_off_unless_the_registry_says_on() {
-        assert_eq!(Settings::parse(&json!({})).outsource, None);
-        let asked = json!({"TEHAS_OUTSOURCE": "on", "TEHAS_OUTSOURCE_REPOS": "acme/widget"});
-        assert_eq!(Settings::parse(&asked).outsource, None);
-        let mut tested = asked.clone();
-        tested["TEHAS_TEST_FEATURES"] = json!("outsource");
-        let rules = Settings::parse(&tested).outsource.unwrap();
-        assert_eq!(rules.repos, ["acme/widget"]);
     }
 
     #[test]

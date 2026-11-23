@@ -1,6 +1,5 @@
 //! What tehas status prints of the health file tehasbot status wrote: the
-//! lines of the summary, the object of --json, the holds on a factory and
-//! tehas:all-hands on the control issue.
+//! lines of the summary, the object of --json and the holds on a factory.
 
 mod common;
 
@@ -89,7 +88,6 @@ fn shape(out: &str) {
             "paused",
             v["paused"]["local"].is_boolean() && v["paused"]["label"].is_boolean(),
         ),
-        ("allHands", v["allHands"].is_boolean()),
         ("limit", v["limit"]["state"].is_string()),
         (
             "running",
@@ -241,12 +239,9 @@ fn status_json_a_fresh_idle_factory_one_object_of_the_promised_shape() {
     assert_eq!(
         field(
             &v,
-            &[
-                "state", "stale", "reasons", "paused", "allHands", "limit", "running", "demand",
-                "hold"
-            ]
+            &["state", "stale", "reasons", "paused", "limit", "running", "demand", "hold"]
         ),
-        json!({"state":"pass","stale":false,"reasons":[],"paused":{"local":false,"label":false},"allHands":false,"limit":{"state":"none"},"running":[],"demand":{"waiting":0},"hold":null})
+        json!({"state":"pass","stale":false,"reasons":[],"paused":{"local":false,"label":false},"limit":{"state":"none"},"running":[],"demand":{"waiting":0},"hold":null})
     );
     assert!(v["age"].as_f64().unwrap() < 60.0, "{v}");
 }
@@ -508,116 +503,4 @@ fn status_json_reads_nothing_but_the_health_file_no_settings_no_gh_no_write() {
     lacks(&r.out, "settings were read");
     assert_eq!(w.gh(), "");
     assert_eq!(sums(&w.live), before);
-}
-
-// tehas:all-hands on the control issue: reported, and nothing else.
-
-/// The label's last event, by `login` (none for ""), and the label on the
-/// issue unless the event is `unlabeled`.
-fn all_hands(w: &World, login: &str, event: &str) {
-    if event != "unlabeled" {
-        w.touch("allhands");
-    }
-    let actor = if login.is_empty() {
-        Value::Null
-    } else {
-        json!({"login": login})
-    };
-    let events = json!([{"event": event, "label": {"name": "tehas:all-hands"},
-        "actor": actor, "created_at": "2026-10-17T10:00:00Z"}]);
-    w.fx("events.json", &format!("{events}\n"));
-}
-
-#[test]
-fn all_hands_applied_by_an_allowed_account_it_is_reported_and_changes_nothing_else() {
-    let w = World::new("all-hands-on");
-    all_hands(&w, "alice", "labeled");
-    let r = status_then(&w, &[]);
-    assert_eq!(r.rc, 0, "{}", r.out);
-    assert_eq!(w.live_json("status.json")["allHands"], true);
-    let h = w.live_json("health.json");
-    assert_eq!(h["checks"]["allHands"], true);
-    assert_eq!(h["status"], "pass");
-    has(&r.out, "all-hands tehas:all-hands is on the control issue");
-    let v = json_of(&w.summary(&["--json"]));
-    assert_eq!(
-        json!([v["allHands"], v["state"], v["hold"]]),
-        json!([true, "pass", null])
-    );
-}
-
-#[test]
-fn all_hands_applied_by_anyone_else_it_is_ignored_and_said_once() {
-    let w = World::new("all-hands-other");
-    all_hands(&w, "mallory", "labeled");
-    let r = w.status();
-    assert_eq!(w.live_json("status.json")["allHands"], false);
-    has(
-        &r.out,
-        "tehas:all-hands on #1 was applied by 'mallory', not an allowed account: ignored",
-    );
-    let r = w.status();
-    assert_eq!(r.out, "");
-    let r = w.summary(&[]);
-    lacks(&r.out, "all-hands");
-}
-
-#[test]
-fn all_hands_not_on_the_issue_is_off_whatever_its_last_event_says() {
-    let w = World::new("all-hands-off");
-    all_hands(&w, "alice", "unlabeled");
-    w.status();
-    assert_eq!(w.live_json("status.json")["allHands"], false);
-    w.reset();
-    all_hands(&w, "alice", "labeled");
-    w.rm_fx("allhands");
-    w.status();
-    assert_eq!(w.live_json("status.json")["allHands"], false);
-}
-
-#[test]
-fn all_hands_on_the_issue_with_events_that_cannot_be_read_is_unknown_and_left_out_of_json() {
-    let w = World::new("all-hands-unknown");
-    all_hands(&w, "alice", "labeled");
-    w.rm_fx("events.json");
-    let r = w.status();
-    has(
-        &r.out,
-        "WARN status: gh api repos/acme/widget/issues/1/events?per_page=100 failed",
-    );
-    let r = w.summary(&["--json"]);
-    assert_eq!(w.live_json("status.json")["allHands"], Value::Null);
-    assert!(json_of(&r).get("allHands").is_none(), "{}", r.out);
-    w.reset();
-    w.touch("control-down");
-    w.status();
-    assert_eq!(w.live_json("status.json")["allHands"], Value::Null);
-}
-
-#[test]
-fn all_hands_a_snapshot_older_than_ten_minutes_does_not_say_it() {
-    let w = World::new("all-hands-old");
-    all_hands(&w, "alice", "labeled");
-    w.status();
-    edit(&w, "status.json", |v| {
-        v["generatedAt"] = json!(iso(now() - 20 * 60))
-    });
-    w.health();
-    assert_eq!(
-        w.live_json("health.json")["checks"]["allHands"],
-        Value::Null
-    );
-}
-
-#[test]
-fn all_hands_a_paused_factory_still_reports_it() {
-    let w = World::new("all-hands-paused");
-    all_hands(&w, "alice", "labeled");
-    w.fx("paused", "true\n");
-    let r = status_then(&w, &["--json"]);
-    let v = json_of(&r);
-    assert_eq!(
-        json!([v["allHands"], v["paused"]["label"]]),
-        json!([true, true])
-    );
 }

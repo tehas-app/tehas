@@ -39,7 +39,6 @@ pub fn home(name: &str) -> TestDir {
                 instance: "tehas-tehas".to_string(),
                 repo: "example-owner/example-product".to_string(),
             },
-            outsource: false,
         },
         NOW,
     )
@@ -56,15 +55,8 @@ pub fn call_at(home: &Path, now: i64, args: &[&str]) -> Result<Value, (u8, Strin
     call_word_at(home, now, args, args[0])
 }
 
-/// `call_at` where the answer names its own verb, which the outsource verbs do:
-/// the word of what happened (`added`, `offered`, `stale`) is what the caller
-/// reads, and the argument's verb says only what was asked.
-pub fn call_word_at(
-    home: &Path,
-    now: i64,
-    args: &[&str],
-    word: &str,
-) -> Result<Value, (u8, String)> {
+/// `call_at` where the answer names `word` in place of the verb asked.
+fn call_word_at(home: &Path, now: i64, args: &[&str], word: &str) -> Result<Value, (u8, String)> {
     match verbs::parse(&strings(args)) {
         Some(Ok(c)) => execute(home, &Verb::Record(c), now).map(|line| {
             assert_eq!(line.lines().count(), 1, "{line}");
@@ -325,8 +317,6 @@ fn every_64_names_the_flag_and_an_enumerated_word() {
             &[
                 "approval-record", "1", "--at", "5", "--by", "a", "--how", "bogus", "--body-sha", SHA,
             ][..],
-            // The old `fixer` is taken but not advertised: the refusal names
-            // only the words of this release.
             "usage approval-record: --how is not one of millwright, label, refresh, outage-retry, host, answer, reply: \"bogus\"",
         ),
         (

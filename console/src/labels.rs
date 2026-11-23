@@ -238,7 +238,7 @@ mod tests {
     #[test]
     fn the_table_of_the_repository_is_read_whole() {
         let labels = table(THE_TABLE).unwrap();
-        assert_eq!(labels.len(), 21);
+        assert_eq!(labels.len(), 20);
         assert_eq!(labels[0].name, "tehas:ready");
         assert_eq!(labels[0].color, "0e8a16");
         assert_eq!(
@@ -252,7 +252,7 @@ mod tests {
         let mut names: Vec<&str> = labels.iter().map(|l| l.name).collect();
         names.sort_unstable();
         names.dedup();
-        assert_eq!(names.len(), 21, "a name twice");
+        assert_eq!(names.len(), 20, "a name twice");
     }
 
     /// The labels a program names without the `tehas:` prefix.

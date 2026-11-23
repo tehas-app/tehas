@@ -76,14 +76,15 @@ beside it. It is not under `live/` and is not served. Times are UTC Unix
 seconds and durations are seconds, as integers, except `runner_ms` and
 `run_roles.ms`, which are milliseconds.
 
-`PRAGMA user_version` is the schema version, today 5. Within one version
+`PRAGMA user_version` is the schema version, today 6. Within one version
 columns are only added. A change of a column's meaning, or a column removed,
-raises the version. Schema 5 removes `samples.watts`, which nothing writes
-since energy use left core in 2.0.
+raises the version. Schema 5 removed `samples.watts`, which nothing writes
+since energy use left core in 2.0. Schema 6 removes `runs.contractor_id`:
+outsource was dropped in 2.0, and no release ever wrote a value there.
 
-A file at 4 is migrated in place the first time it is opened: one that lacks a
-column added within 4, `runs.contractor_id` from v1.0.0, gains it, empty;
-`samples.watts` is dropped; every other column and row stays. Two programs
+A file at 4 or 5 is migrated in place the first time it is opened:
+`samples.watts` and `runs.contractor_id` are dropped where the file has them;
+every other column and row stays. Two programs
 that open it at once do not both migrate it. v0.30.0 wrote 4 already, so this
 release migrates no older file: a file at 1, 2 or 3 is kept aside under its
 version, as any other version is, and a new one is made.
@@ -94,9 +95,9 @@ version, as any other version is, and a new one is made.
   `analytics.db.schema-<version>`, where a reader can still fetch it, and a new
   one is made. It is deleted 365 days after its last write. That goes for a
   version newer than the program too: after a rollback to a 1.x release, of
-  schema 4, the file at 5 goes aside whole. Move it back by hand before going
+  schema 4, the file at 6 goes aside whole. Move it back by hand before going
   forward again: nothing says it is still aside, and a second rollback renames
-  the file then at 5 over it, which loses the runs it held.
+  the file then at 6 over it, which loses the runs it held.
 - Any other failure, a full disk or a lock held too long, leaves the file as
   it is.
 
@@ -120,8 +121,7 @@ the cycle, which gathers them into a private file for the call
 attempt the state store gave its start, and from the state store `at`, `how`
 and `driver` of the approval that start used, read before the end goes on record
 because a start that never ran takes its approval with it, the run's `settings`
-snapshot, the image's pi-rukas commit and, for a cycle run on a contractor, the
-contractor's name. It reads the rest from the host: the
+snapshot and the image's pi-rukas commit. It reads the rest from the host: the
 headless runner's result, `progress.json`, the preflight log,
 `state/cycles/<n>.lean-state.json` for a lean run, and `docs/version.txt`. The
 lean note is the cycle's copy of the driver's own record of its steps, and its
@@ -145,7 +145,7 @@ call; one that a caller killed during the call leaves is removed by
 | `kind` | `work` or `plan` | 1 |
 | `issue` | The issue number | 1 |
 | `attempt` | The run's number for this issue: the attempt the state store gave its start, counting from 1, a start refused or by hand included. Work runs only | 1 |
-| `how` | What started it: `label`, `reply` (a retry a person's reply answered), `answer` (a retry `tehas answer` gave), `outage-retry`, `millwright` (`fixer` on a run recorded before the rename), `host` (an approval of `tehas start`) or `refresh`, from the approval the start used, else the history line, which says `hand` for a cycle run by hand. A planning turn: `label` for the first turn, `refine` for the first turn of a session `tehas:refine` started, `answer` or `millwright` for a later one. A run a retry ticked before 2.0 started said `retry-tick`: analytics rewrites it to `reply` in `runs.how` of `state/analytics.db` each time it opens the file, and the state store's step to schema 27 does the same in `state/tehas.db` | 1 |
+| `how` | What started it: `label`, `reply` (a retry a person's reply answered), `answer` (a retry `tehas answer` gave), `outage-retry`, `millwright`, `host` (an approval of `tehas start`) or `refresh`, from the approval the start used, else the history line, which says `hand` for a cycle run by hand. A planning turn: `label` for the first turn, `refine` for the first turn of a session `tehas:refine` started, `answer` or `millwright` for a later one. A run a retry ticked before 2.0 started said `retry-tick`: analytics rewrites it to `reply` in `runs.how` of `state/analytics.db` each time it opens the file, and the state store's step to schema 27 does the same in `state/tehas.db`. A run recorded under the millwright's old name said `fixer`: analytics rewrites it to `millwright` the same way, and the state store's step to schema 28 takes `fixer` from what its rows may say | 1 |
 | `started`, `ended`, `seconds` | The run's start, its end and the wall time between: the history line's `started` and `at`. A planning turn ends when the poll collects it | 1 |
 | `queue_wait` | `started` less when `tehas:ready` was accepted (the approval the start used) | 1 |
 | `outcome` | `pr`, `merged`, `handoff`, `parked`, `failed`, `refused` or `stopped`, below | 1 |
@@ -172,7 +172,6 @@ call; one that a caller killed during the call leaves is removed by
 | `driver` | The driver the start's approval bound: `classic` or `lean`. NULL where the approval holds no driver or another word, on every run from before the column, and on a planning turn. NULL reads as classic | 3 |
 | `tool_calls`, `tool_errors` | The result's `usage.toolCalls` and `usage.toolErrors`: the tool calls the run's children started, a codemode script's nested calls included, and those that ended in an error. NULL where the result has none: a pi-rukas before v0.14.66 (`features.usageTools`), a result that could not count them, a planning turn | 4 |
 | `result_driver` | The result's `driver`: the engine that ran the issue, `classic` or `lean`, beside `driver`, the one the approval bound. NULL where the result names none or another word | 4 |
-| `contractor_id` | The name of the contractor that ran the cycle, from the facts the cycle gives. NULL for a cycle run in-house, on every run of an instance with outsource off, on a planning turn and on every run from before the column. Outsource is still being built, so no instance writes one yet. The column is frozen with schema 4 | 4, v1.0.0 |
 
 The outcome of a work run:
 

@@ -713,37 +713,6 @@ pub fn record_approves(record: &str) -> bool {
     allowed(&by) || (millwright_is(&by) && millwright_base(record).is_some())
 }
 
-/// The issue's images and files for a contractor's job, made in <dir> on the
-/// factory as an in-house start makes them: the dispatcher's latest record of
-/// the issue, its approval, the issue read once, and [`issue_images`] with the
-/// instance's own settings. Err is why the job may not start; an issue with no
-/// recorded approval is one.
-pub fn for_job(home: &Path, issue: u64, dir: &Path) -> Result<(), String> {
-    let recorded = crate::start::record(home, issue, "", None)
-        .map_err(|_| "the approval of this issue could not be read".to_string())?;
-    let Some(file) = recorded.file else {
-        return Err("no approval is recorded for this issue".to_string());
-    };
-    let record = file.to_string_lossy().into_owned();
-    let word = if record_approves(&record) {
-        "approved"
-    } else {
-        ""
-    };
-    let args = [
-        "api".to_string(),
-        format!("repos/{}/issues/{issue}", env("TEHAS_REPO")),
-    ];
-    let read = call::run("gh", &args, call::GH_BOUND);
-    let made = if read.ok() {
-        issue_images(home, issue, dir, word, &record, &read.out)
-    } else {
-        Err("the issue could not be read for its images".to_string())
-    };
-    let _ = fs::remove_file(&file);
-    made
-}
-
 /// Whether <login> is one of TEHAS_ALLOWED_LABELERS.
 pub fn allowed(login: &str) -> bool {
     events::allowed_in(&env("TEHAS_ALLOWED_LABELERS"), login)
@@ -783,7 +752,7 @@ pub fn millwright_base(record: &str) -> Option<Value> {
 
 fn base(r: &Value, allowed: &str) -> Option<Value> {
     let how = r.get("how").and_then(Value::as_str);
-    let base = if matches!(how, Some("fixer" | "refresh")) {
+    let base = if matches!(how, Some("millwright" | "refresh")) {
         r.get("rests_on")?
     } else {
         r
@@ -1031,24 +1000,6 @@ mod tests {
         assert!(take(&f).unwrap_err().starts_with(FILES_CHANGED));
     }
 
-    #[test]
-    fn a_job_s_files_are_refused_for_an_issue_with_no_approval_and_nothing_is_made() {
-        let d = TestDir::new("gives-for-job");
-        let store = d.path().join("libexec/store");
-        fs::create_dir_all(store.parent().unwrap()).unwrap();
-        tehas_core::testing::write_exe(&store, "#!/bin/sh\necho '{\"view\":null}'\n").unwrap();
-        let dir = d.path().join("files");
-        assert_eq!(
-            for_job(d.path(), 7, &dir),
-            Err("no approval is recorded for this issue".to_string())
-        );
-        assert!(!dir.exists());
-        // A store that does not answer is no approval either.
-        tehas_core::testing::write_exe(&store, "#!/bin/sh\nexit 3\n").unwrap();
-        assert!(for_job(d.path(), 7, &dir).is_err());
-        assert!(!dir.exists());
-    }
-
     fn person(by: &str) -> Value {
         json!({"at": "2026-10-01T00:00:00Z", "by": by, "how": "label",
             "body_sha256": "a".repeat(64), "links": []})
@@ -1056,11 +1007,11 @@ mod tests {
 
     #[test]
     fn a_record_rests_on_the_persons_approval_in_each_shape_a_start_has() {
-        let fixer = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-fixer", "how": "fixer",
+        let millwright = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-millwright", "how": "millwright",
             "body_sha256": "a".repeat(64), "fixer_starts": 1, "rests_on": person("alice")});
         let refresh = json!({"at": "2026-10-01T00:00:00Z", "by": "alice", "how": "refresh",
             "body_sha256": "a".repeat(64), "refreshes": 1, "rests_on": person("alice")});
-        for mut shape in [person("alice"), fixer, refresh] {
+        for mut shape in [person("alice"), millwright, refresh] {
             shape["driver"] = json!("lean");
             let got = base(&shape, "alice bob").expect("an approval");
             assert_eq!(got["by"], "alice");
@@ -1073,9 +1024,9 @@ mod tests {
     fn the_hosts_approval_is_a_base_without_an_allowed_account() {
         let mut host = person("host");
         host["how"] = json!("host");
-        let fixer = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-fixer", "how": "fixer",
+        let millwright = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-millwright", "how": "millwright",
             "body_sha256": "a".repeat(64), "fixer_starts": 1, "rests_on": host.clone()});
-        for shape in [host, fixer] {
+        for shape in [host, millwright] {
             let got = base(&shape, "alice").expect("an approval");
             assert_eq!(got["how"], "host");
         }
@@ -1087,9 +1038,14 @@ mod tests {
         assert!(base(&person("alice"), "bob").is_none());
         assert!(base(&person("alice\n"), "alice").is_none());
         assert!(base(&person("al ice"), "al ice").is_none());
-        assert!(base(&json!({"how": "fixer", "rests_on": null}), "alice").is_none());
+        assert!(base(&json!({"how": "millwright", "rests_on": null}), "alice").is_none());
+        assert!(base(
+            &json!({"how": "fixer", "rests_on": person("alice")}),
+            "alice"
+        )
+        .is_none());
         let mut odd = person("alice");
-        odd["how"] = json!("fixer-tick");
+        odd["how"] = json!("millwright-tick");
         assert!(base(&odd, "alice").is_none());
         let mut short = person("alice");
         short["body_sha256"] = json!("abc");
