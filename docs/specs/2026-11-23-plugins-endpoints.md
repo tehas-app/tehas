@@ -103,7 +103,8 @@ TEHAS_PLUGIN_MODEL_DAY_PROVIDERS="claude=2000000 fleet=20000000"
   request that would pass any of them is 429 and is not sent.
 - `Tehas-Tokens-Left` (1.6.0) is the least of the three.
 - `~/tehas/plugins/model-day` keeps the day's total and one total per
-  provider. `plugin_runs` gains `provider`, the provider the run's socket
+  provider. A file from before 1.7.0 has no provider totals, and each reads
+  as zero, so the day's total carries over the update (R9). `plugin_runs` gains `provider`, the provider the run's socket
   sent to.
 - The cycles' own use of a provider is not counted here. A provider shared
   with the cycles shares its capacity with them, as today.
@@ -155,7 +156,7 @@ request as today, then translates it. A request that cannot be carried is
 | `tool` messages | `tool_result` blocks in a `user` turn, `tool_call_id` as `tool_use_id`, the text as content. Tool messages in a row go into one turn |
 | Image parts, with `model:images` | `image` blocks, `source.type: base64`, the media type the first bytes gave |
 | `max_tokens` | `max_tokens` |
-| `temperature` | `temperature`. Above 1: 400 |
+| `temperature` | `temperature`. Above 1: 400. With `top_p` too, both are sent: a model that refuses the pair answers with its own error, passed back. The socket drops neither |
 | `top_p` | `top_p` |
 | `stop` | `stop_sequences`, a string made a list |
 | `tools` | `name`, `description` and `parameters` as `input_schema`. A tool whose `type` is not `function`: 400 |
@@ -173,8 +174,8 @@ request as today, then translates it. A request that cannot be carried is
   none; each `tool_use` block becomes a `tool_calls` entry with its `input`
   as JSON text. Other blocks are dropped.
 - `finish_reason`: `end_turn` and `stop_sequence` are `stop`, `max_tokens`
-  is `length`, `tool_use` is `tool_calls`, `refusal` is `content_filter`.
-  Any other `stop_reason` is 502, "the answer could not be read".
+  is `length`, `model_context_window_exceeded` is `length`, `tool_use` is
+  `tool_calls`, `refusal` is `content_filter`. `pause_turn` and any other `stop_reason` is 502, "the answer could not be read".
 - `usage`: `prompt_tokens` is `input_tokens` plus
   `cache_creation_input_tokens` and `cache_read_input_tokens`;
   `completion_tokens` is `output_tokens`. It replaces the reserve, as
@@ -228,13 +229,18 @@ not pinned in a factory".
 | `label`, `license` | As v1 |
 | `build` | Only when an endpoint is served (below), and then required. As v1 |
 | `endpoints` | 1 to 4 |
-| `endpoints[].id` | The provider's name in `models.json`, by the rule of 1. Unique in the plugin |
+| `endpoints[].id` | The provider's name in `models.json`, by the rule of 1. Unique in the plugin. Not the name of a provider the factory's `models.json` already has: industry refuses it at registration (industry's spec, "The table's name"), so an endpoint never takes the place of the provider the cycles use |
 | `endpoints[].label` | One line, 1 to 32 characters, control characters refused |
 | `endpoints[].api` | `openai-completions` or `anthropic-messages` |
 | `endpoints[].baseUrl` | A hosted endpoint: `https://`, a host name, an optional port and path. No user, query or fragment, not an IP literal. As that API's clients expect it: with `/v1` for `openai-completions`, without for `anthropic-messages` |
 | `endpoints[].serve` | An endpoint the plugin serves itself, instead of `baseUrl`: `{"health": "<path>"}`. Exactly one of `baseUrl` and `serve` |
 | `endpoints[].models` | 1 to 16. Each `id` (1 to 128 of `A-Za-z0-9._:/-`, unique in the endpoint), and optionally `name` (1 to 64, one line), `contextWindow` and `maxTokens` (1 to 10000000), `input` (`["text"]` or `["text", "image"]`), `reasoning` (boolean) |
 
+- A hosted endpoint is `https://` to a named host. An endpoint on `http://`
+  or at an address, such as a model on the operator's own network, is not an
+  endpoint plugin: its provider is written into `models.json` by hand, as
+  today, and a grant may still name it (1). The socket reaches either, as the
+  security part says.
 - A field not in the table is refused, as everywhere. So are `asks`,
   `timeout`, `ui`, `view`, `views`, `actions`, `hooks`, `model`, `skills`,
   `tools` and every later surface: an endpoint plugin is that and nothing
