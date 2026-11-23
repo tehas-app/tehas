@@ -2,7 +2,8 @@
 //! ports' recorded samples in `console/ports/samples/github/` and the laws
 //! of searches, answered from the adapter's recordings of the fixture
 //! project's issue search under `tests/recorded/search/`. What it does not
-//! answer yet is refused before any request.
+//! answer yet is refused before any request; one blueprint's reads are in
+//! `blueprint_read.rs`.
 
 use serde::Deserialize;
 use std::cell::RefCell;
@@ -249,12 +250,6 @@ fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
     let bound = Bound::new(10).unwrap();
     let id = CommentId::new("1");
     let unsupported = Outcome::Refused(Refusal::Unsupported);
-    assert_eq!(
-        gh.blueprint(no, Depth::Cut { notes: 0 }),
-        Err(unsupported.clone())
-    );
-    assert_eq!(gh.several(&[no], Depth::All)[0].1, Err(unsupported.clone()));
-    assert_eq!(gh.comments(no, bound), Err(unsupported.clone()));
     assert_eq!(
         gh.comments_by_id(std::slice::from_ref(&id))[0].1,
         Err(unsupported.clone())

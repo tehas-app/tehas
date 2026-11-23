@@ -717,8 +717,6 @@ fn the_unbuilt_writes_are_refused_before_any_request() {
 struct Kept {
     title: String,
     body: String,
-    /// The markers `blueprint` answers the body holds.
-    markers: Vec<Marker>,
 }
 
 struct Site {
@@ -759,161 +757,16 @@ impl GhRunner for Site {
     }
 }
 
-/// The adapter, with `blueprint` at `Depth::Cut { notes: 0 }` answered from
-/// the issue the site keeps and the revision the adapter reads
-/// (`GitHub::text_revision`), for the law: the adapter answers no
-/// `blueprint` yet. Every other call is the adapter's own.
-struct WithRead {
-    gh: GitHub,
-    kept: Rc<RefCell<Kept>>,
-}
-
-impl Reports for WithRead {
-    fn take_reports(&mut self) -> Vec<Report> {
-        self.gh.take_reports()
-    }
-}
-
-impl Cites for WithRead {
-    fn cite(&self, what: &Cite) -> String {
-        self.gh.cite(what)
-    }
-}
-
-impl Blueprints for WithRead {
-    fn blueprint(&mut self, n: BlueprintNo, depth: Depth) -> Got<Blueprint> {
-        assert_eq!(depth, Depth::Cut { notes: 0 });
-        let revision = Revision::new(
-            self.gh
-                .text_revision(n.get())
-                .map_err(|_| Outcome::NotFound)?,
-        );
-        let k = self.kept.borrow();
-        Ok(Blueprint {
-            no: n,
-            title: k.title.clone(),
-            body: k
-                .body
-                .lines()
-                .filter(|l| !l.starts_with("<!--"))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            open: true,
-            author: None,
-            editor: None,
-            created: At::new(now()),
-            edited: None,
-            revision,
-            markers: k.markers.clone(),
-            comments: Took {
-                items: Vec::new(),
-                more: false,
-            },
-            link: WebLink::new("https://github.com/acme/widget/issues/7").unwrap(),
-        })
-    }
-
-    fn several(&mut self, nos: &[BlueprintNo], depth: Depth) -> Vec<(BlueprintNo, Got<Blueprint>)> {
-        self.gh.several(nos, depth)
-    }
-
-    fn comments(&mut self, n: BlueprintNo, bound: Bound) -> Got<Whole<Comment>> {
-        self.gh.comments(n, bound)
-    }
-
-    fn comments_by_id(&mut self, ids: &[CommentId]) -> Vec<(CommentId, Got<Comment>)> {
-        self.gh.comments_by_id(ids)
-    }
-
-    fn body_edits(&mut self, n: BlueprintNo, bound: Bound) -> Got<Whole<Edit>> {
-        self.gh.body_edits(n, bound)
-    }
-
-    fn comment_edits(&mut self, id: &CommentId, bound: Bound) -> Got<Whole<Edit>> {
-        self.gh.comment_edits(id, bound)
-    }
-
-    fn search(
-        &mut self,
-        words: &str,
-        within: Within,
-        open: Option<bool>,
-        first: std::num::NonZeroU32,
-    ) -> Got<Took<BlueprintHit>> {
-        self.gh.search(words, within, open, first)
-    }
-
-    fn attachments(&mut self, n: BlueprintNo) -> Got<Whole<Attachment>> {
-        self.gh.attachments(n)
-    }
-
-    fn fetch(&mut self, a: &AttachmentId, limit: u64, into: &mut dyn std::io::Write) -> Did {
-        self.gh.fetch(a, limit, into)
-    }
-
-    fn changed(&mut self, since: Option<&ChangeToken>) -> Got<(bool, ChangeToken)> {
-        self.gh.changed(since)
-    }
-
-    fn delta(&mut self, from: Option<&Cursor>, bound: Bound) -> Got<BlueprintDelta> {
-        self.gh.delta(from, bound)
-    }
-}
-
-impl BlueprintWrites for WithRead {
-    fn open(&mut self, new: &NewBlueprint) -> Got<Posted<BlueprintNo>> {
-        self.gh.open(new)
-    }
-
-    fn edit(
-        &mut self,
-        n: BlueprintNo,
-        title: Option<&str>,
-        body: Option<&str>,
-        markers: &MarkerEdit,
-        since: &Revision,
-    ) -> Got<WebLink> {
-        self.gh.edit(n, title, body, markers, since)
-    }
-
-    fn comment(
-        &mut self,
-        n: BlueprintNo,
-        body: &str,
-        markers: &[Marker],
-    ) -> Got<Posted<CommentId>> {
-        self.gh.comment(n, body, markers)
-    }
-
-    fn edit_comment(
-        &mut self,
-        id: &CommentId,
-        body: &str,
-        markers: &MarkerEdit,
-        since: &Revision,
-    ) -> Got<WebLink> {
-        self.gh.edit_comment(id, body, markers, since)
-    }
-
-    fn close(&mut self, n: BlueprintNo, done: bool) -> Did {
-        self.gh.close(n, done)
-    }
-}
-
 #[test]
 fn the_law_an_edit_moves_the_revision_holds_over_the_adapters_edit() {
     let kept = Rc::new(RefCell::new(Kept {
         title: "Plan: the widget's settings page".into(),
         body: "One page for every setting.".into(),
-        markers: Vec::new(),
     }));
     let site = Site {
         kept: Rc::clone(&kept),
     };
-    let mut h = WithRead {
-        gh: GitHub::new(PROJECT, Box::new(site)).on_clock(now),
-        kept: Rc::clone(&kept),
-    };
+    let mut h = GitHub::new(PROJECT, Box::new(site)).on_clock(now);
     laws::blueprints::an_edit_moves_the_revision(&mut h, no(7)).unwrap();
     assert_eq!(kept.borrow().body, "One page for every setting.\n\nEdited.");
 }
@@ -1071,20 +924,11 @@ fn the_law_an_unreadable_marker_is_kept_answers_unsupported_and_writes_nothing()
     let kept = Rc::new(RefCell::new(Kept {
         title: "Plan".into(),
         body: MARKED.into(),
-        markers: vec![
-            Marker::HoldCleared,
-            Marker::Unreadable {
-                kind: tehas_ports::MarkerKind::Park,
-            },
-        ],
     }));
     let site = Site {
         kept: Rc::clone(&kept),
     };
-    let mut h = WithRead {
-        gh: GitHub::new(PROJECT, Box::new(site)).on_clock(now),
-        kept: Rc::clone(&kept),
-    };
+    let mut h = GitHub::new(PROJECT, Box::new(site)).on_clock(now);
     let law = laws::markers::an_unreadable_marker_is_kept(&mut h, no(7));
     assert_eq!(
         law,
