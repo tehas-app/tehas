@@ -3331,7 +3331,7 @@
   {
    "case": "the millwright's action=change comment of the ten minutes before its label lifts the hold, and the record says so",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -3365,7 +3365,7 @@
             {
              "databaseId": 81,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
              "createdAt": "2026-10-30T23:55:00Z",
@@ -3387,7 +3387,7 @@
    },
    "ready_at": {
     "7": [
-     "tehas-fixer",
+     "tehas-millwright",
      "2026-10-30T23:58:00Z"
     ]
    },
@@ -3433,7 +3433,7 @@
     ],
     "log": [
      "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment",
-     "start #7 (labelled by the fixer by tehas-fixer)"
+     "start #7 (labelled by the fixer by tehas-millwright)"
     ],
     "log_lacks": [
      "hold #7: its last cycle parked on intent-park and the body has not changed since"
@@ -3449,7 +3449,7 @@
       },
       "park_lifted": {
        "source": "millwright:81",
-       "by": "tehas-fixer",
+       "by": "tehas-millwright",
        "at": "2026-10-30T23:55:00Z",
        "text": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite."
       }
@@ -3460,7 +3460,7 @@
   {
    "case": "the lift needs the instance to give a cycle the note: images lift it too",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -3494,7 +3494,7 @@
             {
              "databaseId": 81,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
              "createdAt": "2026-10-30T23:55:00Z",
@@ -3516,7 +3516,7 @@
    },
    "ready_at": {
     "7": [
-     "tehas-fixer",
+     "tehas-millwright",
      "2026-10-30T23:58:00Z"
     ]
    },
@@ -3568,7 +3568,7 @@
   {
    "case": "without images the note reaches no cycle, so the hold stays",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "0"
    },
    "snapshot": {
@@ -3602,7 +3602,7 @@
             {
              "databaseId": 81,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
              "createdAt": "2026-10-30T23:55:00Z",
@@ -3624,7 +3624,7 @@
    },
    "ready_at": {
     "7": [
-     "tehas-fixer",
+     "tehas-millwright",
      "2026-10-30T23:58:00Z"
     ]
    },
@@ -3676,7 +3676,7 @@
   {
    "case": "an action=retry comment of the same window lifts nothing: that ask is the run again",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -3710,7 +3710,7 @@
             {
              "databaseId": 81,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=retry -->\nOnce more, the same.",
              "createdAt": "2026-10-30T23:55:00Z",
@@ -3732,7 +3732,7 @@
    },
    "ready_at": {
     "7": [
-     "tehas-fixer",
+     "tehas-millwright",
      "2026-10-30T23:58:00Z"
     ]
    },
@@ -3784,7 +3784,7 @@
   {
    "case": "two change notes of the window: the newest of them is the one the record names",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -3818,7 +3818,7 @@
             {
              "databaseId": 81,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
              "createdAt": "2026-10-30T23:55:00Z",
@@ -3832,7 +3832,7 @@
             {
              "databaseId": 82,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=change -->\nRun only the named tests.",
              "createdAt": "2026-10-30T23:57:00Z",
@@ -3854,7 +3854,7 @@
    },
    "ready_at": {
     "7": [
-     "tehas-fixer",
+     "tehas-millwright",
      "2026-10-30T23:58:00Z"
     ]
    },
@@ -3906,7 +3906,7 @@
       "start": 7,
       "park_lifted": {
        "source": "millwright:82",
-       "by": "tehas-fixer",
+       "by": "tehas-millwright",
        "at": "2026-10-30T23:57:00Z",
        "text": "<!-- tehas:millwright issue=7 action=change -->\nRun only the named tests."
       }
@@ -3917,7 +3917,7 @@
   {
    "case": "a change note of another account, or one saved after the label, lifts nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -3965,13 +3965,13 @@
             {
              "databaseId": 82,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
              "createdAt": "2026-10-30T23:56:00Z",
              "lastEditedAt": "2026-10-31T01:00:00Z",
              "editor": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "userContentEdits": {
               "totalCount": 0,
@@ -3989,7 +3989,7 @@
    },
    "ready_at": {
     "7": [
-     "tehas-fixer",
+     "tehas-millwright",
      "2026-10-30T23:58:00Z"
     ]
    },
@@ -4038,7 +4038,7 @@
   {
    "case": "a person's tehas:ready on the parked body is held whatever comments exist",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -4072,7 +4072,7 @@
             {
              "databaseId": 81,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
              "createdAt": "2026-10-30T23:55:00Z",
@@ -4146,7 +4146,7 @@
   {
    "case": "with no person's approval behind the park the grant refuses, so no note lifts the hold",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -4180,7 +4180,7 @@
             {
              "databaseId": 81,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
              "createdAt": "2026-10-30T23:55:00Z",
@@ -4202,7 +4202,7 @@
    },
    "ready_at": {
     "7": [
-     "tehas-fixer",
+     "tehas-millwright",
      "2026-10-30T23:58:00Z"
     ]
    },
@@ -4247,7 +4247,7 @@
   {
    "case": "at the cap of retries the grant refuses the start, so no note lifts the hold",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -4281,7 +4281,7 @@
             {
              "databaseId": 81,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
              "createdAt": "2026-10-30T23:55:00Z",
@@ -4303,7 +4303,7 @@
    },
    "ready_at": {
     "7": [
-     "tehas-fixer",
+     "tehas-millwright",
      "2026-10-30T23:58:00Z"
     ]
    },
@@ -4356,7 +4356,7 @@
   {
    "case": "comments that cannot be read hold the issue, as an unreadable park does",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -4389,7 +4389,7 @@
    },
    "ready_at": {
     "7": [
-     "tehas-fixer",
+     "tehas-millwright",
      "2026-10-30T23:58:00Z"
     ]
    },
@@ -4444,7 +4444,7 @@
   {
    "case": "an answer that is no list of comments holds the issue too, untold",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -4481,7 +4481,7 @@
    },
    "ready_at": {
     "7": [
-     "tehas-fixer",
+     "tehas-millwright",
      "2026-10-30T23:58:00Z"
     ]
    },
@@ -4536,7 +4536,7 @@
   {
    "case": "a newer action=retry comment takes the lift away: the note on the record would ask for the same run",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -4570,7 +4570,7 @@
             {
              "databaseId": 81,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=change -->\nGuidance.",
              "createdAt": "2026-10-30T23:53:00Z",
@@ -4584,7 +4584,7 @@
             {
              "databaseId": 82,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=retry -->\nOnce more.",
              "createdAt": "2026-10-30T23:56:00Z",
@@ -4606,7 +4606,7 @@
    },
    "ready_at": {
     "7": [
-     "tehas-fixer",
+     "tehas-millwright",
      "2026-10-30T23:58:00Z"
     ]
    },
@@ -4665,7 +4665,7 @@
   {
    "case": "a change note whose marker names another issue lifts nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -4699,7 +4699,7 @@
             {
              "databaseId": 81,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=77 action=change -->\nGuidance.",
              "createdAt": "2026-10-30T23:55:00Z",
@@ -4721,7 +4721,7 @@
    },
    "ready_at": {
     "7": [
-     "tehas-fixer",
+     "tehas-millwright",
      "2026-10-30T23:58:00Z"
     ]
    },
@@ -4780,7 +4780,7 @@
   {
    "case": "a change note older than the ten minutes before the label lifts nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -4814,7 +4814,7 @@
             {
              "databaseId": 81,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=change -->\nOut of its time.",
              "createdAt": "2026-10-30T23:47:59Z",
@@ -4836,7 +4836,7 @@
    },
    "ready_at": {
     "7": [
-     "tehas-fixer",
+     "tehas-millwright",
      "2026-10-30T23:58:00Z"
     ]
    },
@@ -4895,7 +4895,7 @@
   {
    "case": "a change note another account saved before the label lifts nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -4929,7 +4929,7 @@
             {
              "databaseId": 81,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=change -->\nWords of mallory.",
              "createdAt": "2026-10-30T23:55:00Z",
@@ -4953,7 +4953,7 @@
    },
    "ready_at": {
     "7": [
-     "tehas-fixer",
+     "tehas-millwright",
      "2026-10-30T23:58:00Z"
     ]
    },
@@ -5012,7 +5012,7 @@
   {
    "case": "a change note its own account saved again before the label lifts the hold",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -5046,13 +5046,13 @@
             {
              "databaseId": 81,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=change -->\nSecond thoughts.",
              "createdAt": "2026-10-30T23:55:00Z",
              "lastEditedAt": "2026-10-30T23:56:00Z",
              "editor": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "userContentEdits": {
               "totalCount": 0,
@@ -5070,7 +5070,7 @@
    },
    "ready_at": {
     "7": [
-     "tehas-fixer",
+     "tehas-millwright",
      "2026-10-30T23:58:00Z"
     ]
    },
@@ -5122,7 +5122,7 @@
   {
    "case": "a marker past what a cycle is given lifts nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -5156,7 +5156,7 @@
             {
              "databaseId": 81,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx<!-- tehas:millwright issue=7 action=change -->\nGuidance.",
              "createdAt": "2026-10-30T23:55:00Z",
@@ -5178,7 +5178,7 @@
    },
    "ready_at": {
     "7": [
-     "tehas-fixer",
+     "tehas-millwright",
      "2026-10-30T23:58:00Z"
     ]
    },
@@ -5237,7 +5237,7 @@
   {
    "case": "a dry run of the lift says it, starts nothing and writes nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -5271,7 +5271,7 @@
             {
              "databaseId": 81,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
              "createdAt": "2026-10-30T23:55:00Z",
@@ -5293,7 +5293,7 @@
    },
    "ready_at": {
     "7": [
-     "tehas-fixer",
+     "tehas-millwright",
      "2026-10-30T23:58:00Z"
     ]
    },

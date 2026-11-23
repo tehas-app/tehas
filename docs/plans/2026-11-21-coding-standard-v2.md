@@ -56,7 +56,7 @@ and the 2.0.0 and 1.0.0 of the two repositories that read it. For tehas:
    refuses it today, and finishing it is 2.1 work. The refactor moves
    the plugin code with its behaviour kept, and builds no new plugin
    features.
-6. **pi-rukas v0.15.5 or later.** 2.0.0 needs pi-rukas v0.15.5 at the
+6. **pi-rukas v0.15.6 or later.** 2.0.0 needs pi-rukas v0.15.6 at the
    least (the trio's program manager, 2026-11-22). T13's proof found two
    faults: on 0.15.1 a roster that exits 0 reports no exit, so lean hands
    back on every pass (fixed in 0.15.2), and lean verify's base probes
@@ -64,7 +64,9 @@ and the 2.0.0 and 1.0.0 of the two repositories that read it. For tehas:
    (fixed in 0.15.4, which checks them out under the repository's
    `.worktrees/`). 0.15.5 adds `.worktrees/` to each clone's
    `.git/info/exclude`, so nothing that stages at the repository's root
-   sees lean's trees. tehas refuses a lean start on a
+   sees lean's trees. 0.15.6 deletes lean's roster report before and after
+   each run and excludes it, so a stale report cannot pass a verify tier.
+   tehas refuses a lean start on a
    sandbox image whose pi-rukas is older, saying why. At the trio's
    readiness review the newest pi-rukas release on the 0.15 line is the one
    pinned (`PI_RUKAS_FOLLOW=release:0.15`): pi-rukas 0.16, which moves it
@@ -512,7 +514,8 @@ driver in 2.0 (the owner).
    #2403 (the lens review is not recorded), #2501 (the rest of #2410)
    and #2511 (a typed setup refusal, for part 4). All are merged and
    ship in 0.15.0, and the roster fix of 0.15.2, the base-probe fix of
-   0.15.4 and the exclude of 0.15.5 join them, so the pin is 0.15.5 or later
+   0.15.4, the exclude of 0.15.5 and the roster report of 0.15.6 join them,
+   so the pin is 0.15.6 or later
    on the 0.15 line
    (`PI_RUKAS_FOLLOW=release:0.15`). Each release
    candidate checks this as it checks the pin.
@@ -855,3 +858,7 @@ of main, each grade.
 | 2026-11-22 | The minimum pi-rukas is v0.15.4, for lean's base probes in a cycle container (found by T13's proof) | #2873 |
 | 2026-11-22 | T16: describe, text files, zips and comment links leave core | #2875 |
 | 2026-11-22 | The minimum pi-rukas is v0.15.5, so lean's trees stay out of a product's commits | #2882 |
+| 2026-11-23 | T14: the Protolab is parked, and the first stage is Idea | #2877 |
+| 2026-11-23 | The events spec for T11 | #2878 |
+| 2026-11-23 | Port main @ 9a83945c (`.gitignore` ignores lean's roster report, #2884) | 6625b5f2 |
+| 2026-11-23 | The minimum pi-rukas is v0.15.6, so a stale roster report cannot pass a verify tier | #2891 |

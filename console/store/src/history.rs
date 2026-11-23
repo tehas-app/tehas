@@ -19,11 +19,9 @@ pub struct Call {
 }
 
 /// The `how` words a cycle row can hold: `cycles.how`, in the words of this
-/// release, in the order a refusal prints them. Each pair is one word and its
-/// old spelling: `fixer` is matched and never printed, and a filter of either
-/// word keeps the rows of both. #686: part 5 drops the alias of the pair.
+/// release, in the order a refusal prints them.
 pub const HOWS: [(&str, &str); 8] = [
-    (crate::approval::MILLWRIGHT, crate::approval::FIXER),
+    (crate::approval::MILLWRIGHT, crate::approval::MILLWRIGHT),
     ("label", "label"),
     ("refresh", "refresh"),
     ("outage-retry", "outage-retry"),
@@ -54,22 +52,6 @@ fn args(rest: &[String]) -> Result<Call, String> {
         return Err(a.usage("--how", "is not taken with --kind plan"));
     }
     Ok(Call { issue, kind, how })
-}
-
-/// The words a history read filters on. `HOWS` pairs each word with the
-/// spelling it replaces, so a filter of either word of the millwright pair
-/// keeps the rows of both: a row written before the rename still says `fixer`.
-/// A filter of any other word is the one word given, and a read with no filter
-/// is None.
-fn how_words(how: Option<&'static str>) -> Option<[Option<&'static str>; 2]> {
-    match how {
-        Some(w) if crate::approval::is_millwright(w) => Some([
-            Some(crate::approval::MILLWRIGHT),
-            Some(crate::approval::FIXER),
-        ]),
-        Some(w) => Some([Some(w), Some(w)]),
-        None => None,
-    }
 }
 
 const CYCLE_NAMES: [&str; 19] = [
@@ -132,7 +114,6 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
     // NULL is the filter of no word: no row's `how` is NULL, and the empty
     // string is no word of `HOWS`, so neither stands for a filter it does not
     // mean.
-    let [first, second] = how_words(how).unwrap_or([None, None]);
     let mut q = c
         .prepare(
             // The mark of an easy merge lives on the approval of the start that ran
@@ -150,11 +131,11 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
                h.seq, h.step_number, h.step_total, h.round
              FROM cycle_history h
              WHERE (?1 IS NULL OR h.issue = ?1)
-               AND (?2 IS NULL OR h.how = ?2 OR h.how = ?3)",
+               AND (?2 IS NULL OR h.how = ?2)",
         )
         .q()?;
     let rows = q
-        .query_map(rusqlite::params![issue, first, second], |r| {
+        .query_map(rusqlite::params![issue, how], |r| {
             let n = CYCLE_NAMES.len();
             let at: [Option<i64>; 3] = [r.get(n)?, r.get(n + 1)?, r.get(n + 2)?];
             Ok((r.get(n - 1)?, row_json(r, &CYCLE_NAMES)?, at))

@@ -1,5 +1,5 @@
 2026-10-20T08:40:12Z skip #316: its question is not among the last 100 comments; tehas:question is set and no comment carries the question, so the issue waits until its open points are answered or the label is taken off
-2026-10-20T08:40:12Z wait #462: tehas:blocked holds it: no comment of an allowed account or the fixer names its blockers
+2026-10-20T08:40:12Z wait #462: tehas:blocked holds it: no comment of an allowed account or the millwright names its blockers
 2026-10-20T08:40:13Z start #41 (labelled by alice)
 2026-10-20T08:40:20Z tehas-cycle: #41 runs from /home/tehas/tehas/run/cycle-41-1856126
 2026-10-20T08:42:14Z holding: the limit allows 0 cycles at once and 1 are running: draining

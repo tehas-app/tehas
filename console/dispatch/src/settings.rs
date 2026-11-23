@@ -47,7 +47,7 @@ pub struct Settings {
     pub model: String,
     pub image: String,
     pub refresh_max: i64,
-    pub fixer_max_plan_answers: i64,
+    pub millwright_max_plan_answers: i64,
     /// TEHAS_MILLWRIGHT_FEED: the millwright's tehas:ready may start the first
     /// cycle of an issue a person wrote. TEHAS_MILLWRIGHT_MAX_FEEDS: how many
     /// cycles so started may run at once.
@@ -131,7 +131,7 @@ impl Settings {
             model: s("PI_ENSEMBLE_SUBAGENT_MODEL", ""),
             image: s("PI_ENSEMBLE_IMAGE", ""),
             refresh_max: n("TEHAS_REFRESH_MAX_PER_PR", 2),
-            fixer_max_plan_answers: n("TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS", 3),
+            millwright_max_plan_answers: n("TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS", 3),
             millwright_feed: s("TEHAS_MILLWRIGHT_FEED", "0") == "1",
             millwright_max_feeds: n("TEHAS_MILLWRIGHT_MAX_FEEDS", 2),
             millwright_epics: s("TEHAS_MILLWRIGHT_EPICS", "0") == "1",
@@ -317,7 +317,7 @@ mod tests {
             (
                 new.millwright.as_str(),
                 new.fixer_max_retries,
-                new.fixer_max_plan_answers
+                new.millwright_max_plan_answers
             ),
             ("mill-bot", 5, 4)
         );
@@ -330,13 +330,13 @@ mod tests {
             (
                 old.millwright.as_str(),
                 old.fixer_max_retries,
-                old.fixer_max_plan_answers
+                old.millwright_max_plan_answers
             ),
             ("", 2, 3)
         );
         let none = Settings::parse(&json!({}));
         assert_eq!(
-            (none.fixer_max_retries, none.fixer_max_plan_answers),
+            (none.fixer_max_retries, none.millwright_max_plan_answers),
             (2, 3)
         );
     }
