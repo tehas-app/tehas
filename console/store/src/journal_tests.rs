@@ -306,10 +306,21 @@ fn an_action_never_attempted_has_no_result_and_is_only_abandoned() {
 }
 
 #[test]
-fn the_kinds_of_a_planning_sessions_end_are_taken() {
+fn the_kinds_of_a_planning_sessions_end_and_of_a_changes_mark_are_taken() {
     let home = home("journal-kinds");
     ok_at(&home, 7000, &["poll-begin"]);
-    for kind in ["issue-edit", "sub-issue-add", "issue-close"] {
+    // refresh-begin and refresh-end are the 1.x words of change-mark and
+    // change-unmark, kept for the rows written before the update.
+    let kinds = [
+        "issue-edit",
+        "sub-issue-add",
+        "issue-close",
+        "change-mark",
+        "change-unmark",
+        "refresh-begin",
+        "refresh-end",
+    ];
+    for kind in kinds {
         let v = ok_at(
             &home,
             7000,
@@ -329,7 +340,7 @@ fn the_kinds_of_a_planning_sessions_end_are_taken() {
         );
         assert!(v["action"].as_i64().is_some(), "{kind}");
     }
-    assert_eq!(count(&home, "actions"), 3);
+    assert_eq!(count(&home, "actions"), kinds.len() as i64);
 }
 
 #[test]
