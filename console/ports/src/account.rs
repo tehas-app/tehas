@@ -46,6 +46,7 @@ pub enum AccountKind {
 
 /// An account, with its realm and the supplier's stable id.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Account {
     /// The supplier it belongs to.
     pub realm: Realm,
@@ -58,6 +59,15 @@ pub struct Account {
     /// What kind of account it is.
     pub kind: AccountKind,
 }
+
+new!(
+    Account {
+        realm: Realm,
+        login: Login,
+        kind: AccountKind
+    },
+    id
+);
 
 /// Who a handle acts as. Minting, keeping and renewing tokens is the
 /// adapter's; a caller names the kind of actor, never a token.
@@ -152,12 +162,18 @@ impl fmt::Debug for Secret {
 
 /// A token and when it stops being good.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Token {
     /// The credential.
     pub secret: Secret,
     /// When it stops being good.
     pub until: At,
 }
+
+new!(Token {
+    secret: Secret,
+    until: At
+});
 
 /// The caller's store of person and deploy credentials, in memory. The
 /// adapter asks it per handle and keeps the answer no longer than the
