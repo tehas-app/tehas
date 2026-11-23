@@ -67,6 +67,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+use tehas_core::call::gh_why;
+use tehas_core::forge::{ForgeError, GhRunner};
 use tehas_core::text::has_marker;
 
 /// The most a body file, or the arguments, may hold.
@@ -291,19 +293,25 @@ pub fn created_number(out: &str, repo: &str) -> Option<u64> {
     })
 }
 
-/// What the relay runs: gh, and the command that prints the app's token
-/// with the seconds it may take.
+/// The read of an issue's title and body as one revision, asked through the
+/// gh runner given. The program's wiring gives it, so the relay never names
+/// the adapter.
+pub type ReadText = fn(repo: &str, gh: Box<dyn GhRunner>, issue: u64) -> Result<String, ForgeError>;
+
+/// What the relay runs: gh, the command that prints the app's token with the
+/// seconds it may take, and the read an edit is held to.
 pub struct Via {
     pub gh: PathBuf,
     pub token: PathBuf,
     pub token_args: Vec<String>,
     pub token_wait: u64,
+    pub read_text: ReadText,
 }
 
 impl Via {
     /// gh from PATH (TEHAS_GH_BIN in tests) and `<home>/bin/tehasbot
     /// github-token`, the command the renewer asks too.
-    pub fn from_env(home: &Path) -> Via {
+    pub fn from_env(home: &Path, read_text: ReadText) -> Via {
         let gh = std::env::var_os("TEHAS_GH_BIN")
             .filter(|v| !v.is_empty())
             .map_or_else(|| PathBuf::from("gh"), PathBuf::from);
@@ -312,17 +320,13 @@ impl Via {
             token: home.join("bin/tehasbot"),
             token_args: vec!["github-token".to_string()],
             token_wait: TOKEN_WAIT,
+            read_text,
         }
     }
 }
 
 /// Serves the relay directory `dir` of the cycle of issue `issue` for `repo`
 /// until `stop` is set, then answers what is left with 1.
-pub fn serve(dir: &Path, repo: &str, issue: u64, stop: &AtomicBool) {
-    let home = PathBuf::from(std::env::var_os("TEHAS_HOME").unwrap_or_default());
-    serve_via(dir, repo, issue, stop, &Via::from_env(&home));
-}
-
 pub fn serve_via(dir: &Path, repo: &str, issue: u64, stop: &AtomicBool, via: &Via) {
     let mut scope = Scope::new(issue);
     while !stop.load(Ordering::SeqCst) {
@@ -590,12 +594,15 @@ struct RelayGh {
     token: String,
 }
 
-impl tehas_core::forge::GhRunner for RelayGh {
+impl GhRunner for RelayGh {
+    /// gh's output, or one line in our words: gh's error stream is the
+    /// site's text, which goes back into the container, so only the words
+    /// of `gh_why`'s fixed list are kept.
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
         let argv: Vec<String> = args.iter().map(|a| a.to_string()).collect();
         match run_gh(&self.gh, &self.token, READ_WAIT, &argv, None) {
             (out, _, 0) => Ok(out),
-            (_, err, rc) => Err(format!("gh exited {rc}: {}", err.trim())),
+            (_, err, rc) => Err(format!("gh exited {rc}{}", gh_why(&err))),
         }
     }
 }
@@ -610,25 +617,26 @@ fn edit(via: &Via, repo: &str, argv: &[String], input: Option<&str>) -> (String,
     let Some(token) = token(via) else {
         return (String::new(), no(NO_TOKEN), 1);
     };
-    let issue = argv[2].parse::<u64>().unwrap_or_default();
-    let runner = RelayGh {
-        gh: via.gh.clone(),
-        token: token.clone(),
-    };
-    let mut forge = tehas_core::forge::GitHub::new(repo, Box::new(runner));
-    let read = |forge: &mut tehas_core::forge::GitHub| {
-        forge.text_revision(issue).map_err(|e| {
+    let issue = argv[2]
+        .parse::<u64>()
+        .expect("Scope::permits ran no edit whose number is not a u64");
+    let read = || {
+        let gh = RelayGh {
+            gh: via.gh.clone(),
+            token: token.clone(),
+        };
+        (via.read_text)(repo, Box::new(gh), issue).map_err(|e| {
             no(&format!(
                 "could not read #{issue} before the edit, and did not edit it: {}\n",
                 e.why
             ))
         })
     };
-    let since = match read(&mut forge) {
+    let since = match read() {
         Ok(r) => r,
         Err(why) => return (String::new(), why, 1),
     };
-    match read(&mut forge) {
+    match read() {
         Ok(now) if now == since => {}
         Ok(_) => {
             return (
@@ -642,6 +650,18 @@ fn edit(via: &Via, repo: &str, argv: &[String], input: Option<&str>) -> (String,
         Err(why) => return (String::new(), why, 1),
     }
     run_gh(&via.gh, &token, GH_WAIT - 2 * READ_WAIT, argv, input)
+}
+
+/// A read for tests: the stub gh's answer to `api <issue>`, whole, as the
+/// revision.
+#[cfg(test)]
+pub(crate) fn read_raw(
+    _: &str,
+    mut gh: Box<dyn GhRunner>,
+    issue: u64,
+) -> Result<String, ForgeError> {
+    gh.run(&["api", &issue.to_string()])
+        .map_err(|why| ForgeError::new("the issue", why))
 }
 
 /// gh run with `token` for at most `wait` seconds: its output, its error
@@ -1204,7 +1224,7 @@ mod tests {
         tehas_core::testing::write_exe(
             &gh,
             format!(
-                "#!/bin/sh\nprintf '%s|' \"$@\" >>'{l}'\nprintf 'token=%s,%s\\n' \"$GH_TOKEN\" \"$TEHAS_GH_TOKEN\" >>'{l}'\ncat >>'{l}'\nif [ \"$1\" = api ]; then if [ -f '{i}' ]; then cat '{i}'; else echo '{{\"title\":\"t\",\"body\":\"b\"}}'; fi; [ -f '{i}.next' ] && mv '{i}.next' '{i}'; exit 0; fi\nif [ \"$2\" = create ]; then echo https://github.com/acme/widget/issues/99; else echo posted; fi\n",
+                "#!/bin/sh\nprintf '%s|' \"$@\" >>'{l}'\nprintf 'token=%s,%s\\n' \"$GH_TOKEN\" \"$TEHAS_GH_TOKEN\" >>'{l}'\ncat >>'{l}'\nif [ \"$1\" = api ]; then if [ \"$(cat '{i}' 2>/dev/null)\" = fail ]; then printf 'dial tcp: connection refused\\nhttps://ghe.example/api\\nmore\\n' >&2; exit 1; fi; if [ -f '{i}' ]; then cat '{i}'; else echo '{{\"title\":\"t\",\"body\":\"b\"}}'; fi; [ -f '{i}.next' ] && mv '{i}.next' '{i}'; exit 0; fi\nif [ \"$2\" = create ]; then echo https://github.com/acme/widget/issues/99; else echo posted; fi\n",
                 l = log.display(),
                 i = d.join("issue.json").display()
             ),
@@ -1253,6 +1273,7 @@ mod tests {
             token: stub_token(d, "ghs_full"),
             token_args: vec![],
             token_wait: 10,
+            read_text: read_raw,
         };
         let stop = Arc::new(AtomicBool::new(false));
         let (r, s) = (relay.clone(), stop.clone());
@@ -1457,12 +1478,7 @@ mod tests {
         assert_eq!(rc("6"), "0\n");
         // The edit reads the issue twice before it writes.
         assert_eq!(read(d.join("gh.log")).matches("token=").count(), 5);
-        assert_eq!(
-            read(d.join("gh.log"))
-                .matches("api|repos/acme/widget/issues/99|")
-                .count(),
-            2
-        );
+        assert_eq!(read(d.join("gh.log")).matches("api|99|").count(), 2);
     }
 
     #[test]
@@ -1502,7 +1518,7 @@ mod tests {
     #[test]
     fn an_edit_whose_read_fails_is_not_made() {
         let d = TestDir::new("relay-edit-unread");
-        fs::write(d.join("issue.json"), "not an issue").unwrap();
+        fs::write(d.join("issue.json"), "fail").unwrap();
         let (relay, stop, t) = served(&d);
         request(
             &relay,
@@ -1516,9 +1532,11 @@ mod tests {
         stop.store(true, Ordering::SeqCst);
         t.join().unwrap();
         assert_eq!(read(relay.join("res.2/rc")), "1\n");
-        assert!(read(relay.join("res.2/err")).starts_with(
-            "gh-shim: the relay could not read #99 before the edit, and did not edit it"
-        ));
+        // gh's three lines of error become one, in our words.
+        assert_eq!(
+            read(relay.join("res.2/err")),
+            "gh-shim: the relay could not read #99 before the edit, and did not edit it: gh exited 1: connection refused\n"
+        );
         assert!(!read(d.join("gh.log")).contains("issue|edit|"));
     }
 
@@ -1534,6 +1552,7 @@ mod tests {
             token,
             token_args: vec![],
             token_wait: 1,
+            read_text: read_raw,
         };
         let stop = Arc::new(AtomicBool::new(false));
         let (r, s) = (relay.clone(), stop.clone());
@@ -1574,6 +1593,7 @@ mod tests {
             token: stub_token(&d, "ghs_full"),
             token_args: vec![],
             token_wait: 10,
+            read_text: read_raw,
         };
         serve_via(&relay, REPO, 3, &AtomicBool::new(true), &via);
         assert_eq!(read(relay.join("res.5/rc")), "1\n");
@@ -1594,6 +1614,7 @@ mod tests {
             token,
             token_args: Vec::new(),
             token_wait: 5,
+            read_text: read_raw,
         };
         let mut scope = Scope::new(3);
         let args: Vec<String> = ["issue", "comment", "4", "--body", "x"]
