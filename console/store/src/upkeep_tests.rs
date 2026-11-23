@@ -571,6 +571,39 @@ fn prune_keeps_every_plan_row_of_an_issue_whose_cycle_wrote_no_history() {
     assert_eq!(rows(&home, HistoryTable::PlanHistory, 31), 4);
 }
 
+/// Since 2.0 `cycle-end --stopped` and `--refused` write a line of history, one
+/// no report wrote (`reported` 0). The guard reads only reported lines, so the
+/// plan rows of such an issue are kept, as 1.4.0 kept them with no line at all:
+/// without it, three of the four would go.
+#[test]
+fn prune_keeps_every_plan_row_of_an_issue_whose_only_line_is_unreported() {
+    let home = home("prune-unreported");
+    ended_without_history(&home, 31, 4);
+    // Its cycle, started and ended by `tehas stop` long ago: the one line of
+    // history it has is the store's own.
+    let end = NOW - WINDOW - 10;
+    let (lock, a) = start_by(&home, 31, "alice", "approved", end - 45);
+    drop(lock);
+    let a = a.to_string();
+    ok_at(
+        &home,
+        end,
+        &["cycle-end", "31", "--attempt", &a, "--stopped"],
+    );
+    assert_eq!(
+        count(&home, "cycle_history WHERE issue = 31 AND reported = 0"),
+        1
+    );
+    // Another issue of the same store, ended long ago with its history on
+    // record, so the delete has rows to take.
+    ended_long_ago(&home, 30, 10, 5, 3);
+
+    let (cycle_history, plan_history) = pruned_rows(&home);
+    assert_eq!((cycle_history, plan_history), (4, 2));
+    assert_eq!(rows(&home, HistoryTable::CycleHistory, 31), 1);
+    assert_eq!(rows(&home, HistoryTable::PlanHistory, 31), 4);
+}
+
 /// The plan rows of an issue whose cycle ended long ago with no cycle history
 /// of its own, and one cycle history row of another issue: the guard is the only
 /// thing between those rows and the delete, so it is asked about with the rest
@@ -1381,9 +1414,10 @@ fn the_prune_delete_names_its_table_and_its_four_clauses() {
         let said = |what: &str| assert!(sql.contains(what), "{name}: no {what} in\n{sql}");
         said(&format!("DELETE FROM {name} WHERE"));
         said("issue IN (SELECT issue FROM cycles WHERE ended_at < ?1)");
-        // `cycle-end --stopped` and `--refused` write no cycle_history row, so
-        // this guard is the only thing keeping those issues' plan rows.
-        said("issue IN (SELECT issue FROM cycle_history)");
+        // `cycle-end --stopped` and `--refused` write no reported
+        // cycle_history row, so this guard is the only thing keeping those
+        // issues' plan rows.
+        said("issue IN (SELECT issue FROM cycle_history WHERE reported = 1)");
         said(&format!(
             "(at, id) NOT IN\n             (SELECT at, id FROM {name} h WHERE h.issue = {name}.issue\n                ORDER BY at DESC, id DESC LIMIT 1)"
         ));
