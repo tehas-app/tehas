@@ -765,7 +765,10 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   runner, of a cycle `tehas stop` ended and of a lost cycle raises no
   `cycle.ended`, and a consumer reads `tehas history` for them. A line that
   ends `refused` by its exit status alone (64, 78 and the rest) is not
-  offered, where the 1.x hook asked on it.
+  offered, where the 1.x hook asked on it. `repeat` on a line of
+  `tehas history --json` is counted over every line the store keeps,
+  before `--after` takes its page, so a page shows the same count as the
+  whole history and as the event.
   Readers: the consumer that runs many factories, the end-to-end suite,
   plugins.
   Adopter action: none. A program that reads a cycle's log sees the
