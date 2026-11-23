@@ -8,12 +8,10 @@
     "testDirs": [
       "console/tests",
       "console/analytics/tests",
-      "console/contractor/tests",
       "console/core/tests",
       "console/cycle/tests",
       "console/dispatch/tests",
       "console/front/tests",
-      "console/proxy/tests",
       "console/store/tests"
     ],
     "testGlob": "*.rs"

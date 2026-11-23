@@ -27,7 +27,6 @@ when a person pulls and runs `install.sh` there.
 | `console/attach/` | The link rule, the fetch of an issue's files and their manifest |
 | `console/analytics/` | The analytics program: the factory's runs in `state/analytics.db` |
 | `console/mcp/` | The read-only MCP server for outside agents |
-| `console/proxy/`, `console/contractor/` | The model proxy and the contractor of outsource, a building feature |
 | `console/xtask/` | The development tasks behind `scripts/` |
 | `lib/config.sh` | Loads and validates instance settings. Every command sources it |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual in `host/docs/` |
