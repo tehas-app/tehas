@@ -845,7 +845,7 @@ mod tests {
         ("order", None, &["order"]),
         ("order", Some("clear"), &["order"]),
         ("order", Some("set"), &["order"]),
-        ("question", None, &["question"]),
+        ("question", None, &["question", "questions"]),
         ("refresh", None, &["refresh"]),
         ("start", None, &["start"]),
         ("state", Some("check"), &["state-check"]),

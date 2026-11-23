@@ -33,7 +33,8 @@
     "start-reasons",
     "blockers",
     "answer",
-    "question"
+    "question",
+    "questions"
   ],
   "flags": {
     "spec-pipe": false,

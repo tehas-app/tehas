@@ -1,0 +1,67 @@
+{
+  "api": 1,
+  "questions": [
+    {
+      "askedAt": "2026-10-17T14:00:20Z",
+      "choices": [
+        {
+          "choice": "retry-text",
+          "label": "Retry with the issue text only"
+        },
+        {
+          "choice": "park",
+          "label": "Leave it parked"
+        }
+      ],
+      "cycle": "12-1",
+      "id": 1,
+      "issue": 12,
+      "kind": "park",
+      "withdrawnAt": "2026-10-17T14:00:50Z"
+    },
+    {
+      "answeredAt": "2026-10-17T14:01:20Z",
+      "askedAt": "2026-10-17T14:00:20Z",
+      "id": 2,
+      "issue": 12,
+      "kind": "plan"
+    },
+    {
+      "askedAt": "2026-10-17T14:02:20Z",
+      "choices": [
+        {
+          "choice": "option:1",
+          "label": "Ship it"
+        },
+        {
+          "choice": "end",
+          "label": "End this planning session"
+        }
+      ],
+      "id": 3,
+      "issue": 12,
+      "kind": "plan"
+    },
+    {
+      "askedAt": "2026-10-17T14:03:20Z",
+      "choices": [
+        {
+          "choice": "retry",
+          "label": "Retry with the issue and all its comments"
+        },
+        {
+          "choice": "retry-text",
+          "label": "Retry with the issue text only"
+        },
+        {
+          "choice": "park",
+          "label": "Leave it parked"
+        }
+      ],
+      "cycle": "13-1",
+      "id": 4,
+      "issue": 13,
+      "kind": "park"
+    }
+  ]
+}

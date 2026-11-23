@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/questions.schema.json",
+  "title": "tehas question --json, with no issue",
+  "description": "What tehas question --json prints with no issue, version 1: the question each issue waits on, or with --after <id> every question whose number is greater than <id>, the answered and the withdrawn among them, in number order. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. console/tests/answer.rs checks that the command prints the samples beside this file, and test/json_contract_test.sh that they fit it.",
+  "type": "object",
+  "required": ["api", "questions"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "issue", "kind", "askedAt"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"description": "The state store's own number of the question, given in order and never reused.", "type": "integer", "minimum": 1},
+          "issue": {"type": "integer", "minimum": 1},
+          "kind": {"enum": ["park", "plan"]},
+          "cycle": {"description": "The id of the cycle that stopped, <issue>-<attempt>: a park's question alone.", "type": "string", "pattern": "^[1-9][0-9]*-[1-9][0-9]*$"},
+          "askedAt": {"type": "string", "format": "date-time"},
+          "answeredAt": {"description": "When it was answered: an answered question alone.", "type": "string", "format": "date-time"},
+          "withdrawnAt": {"description": "When the host withdrew it: a withdrawn question alone.", "type": "string", "format": "date-time"},
+          "choices": {
+            "description": "Exactly the choices the question offers, in the order it lists them. Left out for a planning question the issue no longer waits on: its options are kept only while it waits.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["label", "choice"],
+              "additionalProperties": false,
+              "properties": {
+                "label": {"type": "string", "minLength": 1},
+                "choice": {"type": "string", "pattern": "^(retry|retry-text|park|update|end|option:([1-9]|1[0-9]|20))$"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

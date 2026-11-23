@@ -98,6 +98,7 @@
 //!                update, end, text with --text-file)
 //!   store answer-drop <issue> --id <id>
 //!   store question-show <issue>
+//!   store question-list [--after <id>]
 //!   store approval-record <issue> --at <unix> --by <account> --how <how> ...
 //!                [--input-file <file>] | --undo --at <unix>
 //!                (the hows are approved, refresh, outage-retry, answer, reply,

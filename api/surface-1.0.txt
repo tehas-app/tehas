@@ -7,7 +7,8 @@
 # host/docs/contract.md says may change. A name that was here before its
 # feature became building stays, and a release refuses it while the feature
 # is building. The settings of the review loop went in 2.0, and so did
-# `tehas panel` and its fields.
+# `tehas panel` and its fields; `question.question.asked_at` became
+# `askedAt`.
 #
 # Lines are only added, at the end, in the release that brings the name.
 # None is taken out or changed within 1.x. console/tests/surface.rs fails
@@ -598,9 +599,22 @@ flag question --json
 field question.api
 field question.issue
 field question.question
-field question.question.asked_at
 field question.question.choices
 field question.question.choices[].choice
 field question.question.choices[].label
 field question.question.id
 field question.question.kind
+flag question --after
+field question.question.askedAt
+field questions.api
+field questions.questions
+field questions.questions[].answeredAt
+field questions.questions[].askedAt
+field questions.questions[].choices
+field questions.questions[].choices[].choice
+field questions.questions[].choices[].label
+field questions.questions[].cycle
+field questions.questions[].id
+field questions.questions[].issue
+field questions.questions[].kind
+field questions.questions[].withdrawnAt

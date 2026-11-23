@@ -32,6 +32,7 @@ tehas blockers [--json]          # which issues hold which, as the last poll rea
 tehas start <issue> [--clear]    # approve an issue for a start, from the host
 tehas answer <issue> <choice> --by LOGIN  # answer a stop or a planning question, for a person
 tehas question <issue> [--json]  # the question an issue waits on, and its choices
+tehas question [--after ID] [--json]  # every question that waits, or every one after a number
 tehas refresh --pr N [--json]    # ask for the refresh of pull request N
 tehas wake [--json]              # ask for a poll now, return at once
 tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles

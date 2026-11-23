@@ -1087,7 +1087,7 @@ error, when its reader goes away, as in `tehas status | head -1`.
 
 | Status | When |
 | --- | --- |
-| 0 | A question waits, and it is printed |
+| 0 | A question waits, and it is printed; or, with no issue, the list is printed, an empty one too |
 | 1 | The state store refused or is not installed |
 | 3 | No question waits on the issue |
 | 64 | A bad argument |

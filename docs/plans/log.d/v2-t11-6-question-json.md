@@ -1,0 +1,1 @@
+| 2026-11-23 | T11.6: `tehas question --json` with no issue lists every question that waits and `--after <id>` every question after a number, with `askedAt`, `answeredAt`, `withdrawnAt` and `cycle`; `asked_at` is `askedAt`; the feature word `questions` | this pull request |

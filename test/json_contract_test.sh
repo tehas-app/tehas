@@ -1362,11 +1362,10 @@ $changes"
   done
 done
 
-# The objects whose samples the test of their own command holds to what it
-# prints, and that test: here each schema is held to the rules of the table's,
-# and its samples to the schema. A third word `open` is a file the docs server
-# serves rather than a --json object, which the schema leaves open; `own` is
-# an object whose own test walks its fields and the manual's names for them.
+# The objects whose samples their own command's test holds to what it prints,
+# and that test: here each schema is held to the table's rules and its samples
+# to the schema. A third word `open` is a file the docs server serves, whose
+# schema is left open; `own` is an object whose own test walks its fields.
 pinned=(
   'status	console/tests/status_contract.rs	own'
   'refresh	test/refresh_test.sh'
@@ -1381,6 +1380,7 @@ pinned=(
   'host-bridge	console/tests/host_bridge.rs	open'
   'answer	console/tests/answer.rs	'
   'question	console/tests/answer.rs	'
+  'questions	console/tests/answer.rs	'
 )
 
 t_case "every schema in api/ is a surface of the table or pinned by its own test"
