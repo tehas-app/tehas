@@ -436,7 +436,7 @@ fn read_comments(out: &str, repo: &str, no: BlueprintNo) -> Got<Vec<Comment>> {
             link,
         };
         comment.author = author(c.user.as_ref());
-        // REST keeps no edit time apart: a comment changes only by an edit.
+        // REST keeps no edit time apart; an edit moves `updated_at`.
         comment.edited = (updated != created).then_some(updated);
         comment.body = read.text;
         comment.markers = read.markers;
