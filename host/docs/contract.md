@@ -241,7 +241,9 @@ line is one of three:
     `TEHAS_OUTSOURCE_RETRIES`, `TEHAS_OUTSOURCE_REST`,
     `TEHAS_OUTSOURCE_REPOS`, `TEHAS_OUTSOURCE_CONTRACTORS`,
     `TEHAS_OUTSOURCE_JOIN_TTL`, `TEHAS_OUTSOURCE_PROXY_ADDR`,
-    `TEHAS_OUTSOURCE_PROXY_IDLE` (outsource).
+    `TEHAS_OUTSOURCE_PROXY_IDLE` (outsource);
+  - a `prototype=` pair of `TEHAS_ISSUE_TYPES` (the Protolab): the pair is
+    dropped and the rest of the value kept.
 - **Refused.** The line stops every command with 78 and says what to do:
   - a name an earlier release retired (`RETIRED` in the same file):
     `TEHAS_FIXER_LOGIN`, `TEHAS_FIXER_MAX_RETRIES`,
@@ -581,6 +583,19 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: the consumer that runs many factories, which reads tehas's
   markers and takes the table with the ports at the tag.
   Adopter action: none.
+- **The `tehas:prototype` label and the `prototype` kind are removed.**
+  #2899.
+  `tehas labels` no longer makes or pins `tehas:prototype`, and nothing
+  reads it. `TEHAS_ISSUE_TYPES` maps only `improvement`; a `prototype=`
+  pair loads, warns once and is dropped. Neither `tehas update` nor
+  `tehas setup` deletes the label from a repository: where it is still
+  there it does nothing. A ticket not yet in line is still an Idea.
+  Readers: adopters, the consumer that runs many factories, whose queue
+  holds the label as a constant and which may write the pair, parts that
+  tell people to apply the label, the end-to-end suite (one label fewer).
+  Adopter action: take any `prototype=` pair out of `TEHAS_ISSUE_TYPES` in
+  `instance.env`. Delete the `tehas:prototype` label from the product
+  repository, or leave it.
 - **The state store is at schema 29.**
   #2794, #2830, #2843, #2867, #2889, #2886.
   The steps 24 to 29 are listed under [Upgrading to 2.0](#upgrading-to-20).
@@ -667,12 +682,10 @@ adopter action as the pull request states them.
   Readers: adopters, the consumer that runs many factories.
   Adopter action: set `verify.roster`, or `TEHAS_DRIVER=classic`.
 - **The rest of clean house.** T16. Panels, the Business page and the Host
-  panel (`TEHAS_TOP`) leave core for plugins (`tehas top` stays); the
-  `tehas:prototype` label and the `prototype` kind of `TEHAS_ISSUE_TYPES`
-  go; the store keeps only the migration from 1.4.x.
-  Readers: the consumer that runs many factories, which holds
-  `tehas:prototype` in its queue and starts `tehas-top.service`, and parts
-  that read the label.
+  panel (`TEHAS_TOP`) leave core for plugins (`tehas top` stays); the store
+  keeps only the migration from 1.4.x.
+  Readers: the consumer that runs many factories, which starts
+  `tehas-top.service`.
 - **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
   Each row of `host/labels.tsv` gains its fourth field, `word`, once the
   label drops have taken their rows out. The ports themselves. Two settings choose the adapters: `TEHAS_CODE_HOST` and
