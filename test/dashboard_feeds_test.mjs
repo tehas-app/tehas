@@ -1,15 +1,13 @@
 // What the plain dashboard asks the server for, with a stubbed fetch and
-// fake timers: the host island's two periods (hostFeed of
-// host/fun/factory/tehas-factory-host.render.js) and the console's tail
-// (host/fun/factory/tehas-factory-tail.js), on a minimal element.
+// fake timers: the console's tail (host/fun/factory/tehas-factory-tail.js),
+// on a minimal element.
 //
 //   node --test test/dashboard_feeds_test.mjs
 import { setHidden } from "./kit_stub.mjs";
 import { test, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import { createEffect, createRoot, flush } from "../host/fun/kit/vendor/solid.js";
+import { flush } from "../host/fun/kit/vendor/solid.js";
 import { resetPage } from "../host/fun/kit/state.js";
-import { hostFeed } from "../host/fun/factory/tehas-factory-host.render.js";
 
 // What a custom element needs of the DOM: attributes, the <pre>, the note
 // and the checkbox inside it.
@@ -73,89 +71,6 @@ const after = async (ms) => {
   mock.timers.tick(ms);
   await settle();
 };
-const missing = () => ({ ok: false, status: 404, statusText: "Not Found" });
-const host = () => createRoot((dispose) => (hostFeed("/live/top.json"), dispose));
-
-test("the host file is asked for every ten seconds while it is there", async () => {
-  host();
-  await settle();
-  assert.equal(calls.length, 1);
-  await after(10000);
-  assert.equal(calls.length, 2);
-  await after(10000);
-  assert.equal(calls.length, 3);
-});
-
-test("a host with no file is asked once a minute, not every ten seconds", async () => {
-  answer = missing;
-  host();
-  await settle();
-  assert.equal(calls.length, 1);
-  await after(50000);
-  assert.equal(calls.length, 1);
-  await after(10000);
-  assert.equal(calls.length, 2);
-});
-
-test("a file that comes after a first miss is then read every ten seconds", async () => {
-  answer = missing;
-  host();
-  await settle();
-  answer = () => ({ ok: true, status: 200, text: async () => '{"n":1}' });
-  await after(60000);
-  assert.equal(calls.length, 2);
-  await after(10000);
-  assert.equal(calls.length, 3);
-});
-
-test("a file that goes away is asked for once a minute again", async () => {
-  host();
-  await settle();
-  answer = missing;
-  await after(10000);
-  assert.equal(calls.length, 2);
-  await after(50000);
-  assert.equal(calls.length, 2);
-  await after(10000);
-  assert.equal(calls.length, 3);
-});
-
-test("the host file is not asked for while the page is hidden", async () => {
-  host();
-  await settle();
-  setHidden(true);
-  await after(60000);
-  assert.equal(calls.length, 1);
-  setHidden(false);
-  await settle();
-  assert.equal(calls.length, 2);
-});
-
-test("the host feed gives the server's Date for the snapshot's age", async () => {
-  const date = "Thu, 19 Nov 2026 10:00:00 GMT";
-  answer = () => ({ ok: true, status: 200, headers: new Headers({ Date: date }), text: async () => '{"generatedAt":"x"}' });
-  let meta;
-  createRoot(() => {
-    const live = hostFeed("/live/top.json");
-    createEffect(
-      () => live.meta(),
-      (m) => {
-        meta = m;
-      },
-    );
-  });
-  await settle();
-  assert.equal(meta.date, Date.parse(date));
-});
-
-test("the island gone, nothing is asked for", async () => {
-  const dispose = host();
-  await settle();
-  dispose();
-  await after(120000);
-  assert.equal(calls.length, 1);
-});
-
 // A console file of `text` as the server answers a Range request.
 const bytes = (s) => new TextEncoder().encode(s);
 function served(files) {

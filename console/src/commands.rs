@@ -28,7 +28,6 @@
 //!   console tehas|tehasbot mcp serve|key
 //!   console tehasbot health
 //!   console tehasbot status
-//!   console tehasbot top [--every]
 //!   console tehasbot github-token [--cycle | --session] [--check]
 //!   console tehasbot github-writes
 //!
@@ -237,13 +236,12 @@ pub fn tehasbot(given: &[String]) -> u8 {
     match given.first().map(String::as_str) {
         Some("health") => health::loaded(),
         Some("status") => queue::main(),
-        Some("top") => top::publish(&given[1..]),
         Some("mcp") => mcp::main(&given[1..]),
         Some("github-token") => github::main(&given[1..]),
         Some("github-writes") => crate::gh_writes::main(&given[1..]),
         _ => {
             eprintln!(
-                "console tehasbot: usage: health | status | top [--every] | mcp | github-token [--cycle | --session] [--check] | github-writes"
+                "console tehasbot: usage: health | status | mcp | github-token [--cycle | --session] [--check] | github-writes"
             );
             64
         }
