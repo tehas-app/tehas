@@ -12,7 +12,7 @@
 //! with the one line `<dir>/<name>.stamp` holds, and `stamp` writes that line
 //! after a write. A match leaves the file and its mtime alone.
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -48,7 +48,9 @@ pub fn stamp_name(name: &str) -> String {
 /// What the two files answer to: the runs of the database, and the day their
 /// window ends on. The count and the largest `ended` answer a run that starts
 /// or ends, and today's date because the 30-day window of the sessions moves
-/// on its own: a snapshot of a day is not a snapshot of the next one.
+/// on its own: a snapshot of a day is not a snapshot of the next one. The
+/// count of the rewrites of old hows (`db::HOWS_REWRITTEN`), when there was
+/// one, answers a run whose words changed with no run starting or ending.
 ///
 /// It answers nothing when any run has no `ended`, because the size of a live
 /// run's logs changes with no row of the database changing to say so - there
@@ -65,8 +67,16 @@ pub fn fingerprint(conn: &Connection, now: i64) -> rusqlite::Result<Option<Strin
     let rows = counts("SELECT count(*) FROM runs")?;
     let ended = counts("SELECT max(ended) FROM runs")?;
     let live = counts("SELECT count(*) FROM runs WHERE ended IS NULL")?;
+    let rewritten: Option<String> = conn
+        .query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            [crate::db::HOWS_REWRITTEN],
+            |r| r.get(0),
+        )
+        .optional()?;
     let (y, m, d) = civil_from_days(now.div_euclid(86_400));
-    Ok((live == 0).then(|| format!("runs={rows};ended={ended};day={y:04}-{m:02}-{d:02}")))
+    let words = rewritten.map_or(String::new(), |n| format!(";rewritten={n}"));
+    Ok((live == 0).then(|| format!("runs={rows};ended={ended};day={y:04}-{m:02}-{d:02}{words}")))
 }
 
 /// True when `dir` already holds the file `name` as the fingerprint describes

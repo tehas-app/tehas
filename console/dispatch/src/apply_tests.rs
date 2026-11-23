@@ -1212,19 +1212,19 @@ fn a_spec_that_stops_a_refresh_drops_its_request() {
 fn a_start_on_an_epics_approval_is_recorded_as_the_persons_label() {
     let mut t = world();
     let mut st = start_of(7, "label");
-    st["verb"] = json!("approved on epic #5, labelled by the fixer,");
-    st["how"] = json!("`tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the fixer carried to this sub-issue");
+    st["verb"] = json!("approved on epic #5, labelled by the millwright,");
+    st["how"] = json!("`tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the millwright carried to this sub-issue");
     let a = t.apply(json!([st]));
     assert_eq!(a.exit, None);
     assert_eq!(
         a.log,
-        vec!["start #7 (approved on epic #5, labelled by the fixer, by alice)"]
+        vec!["start #7 (approved on epic #5, labelled by the millwright, by alice)"]
     );
     let c = t.writes();
     assert!(c[0].contains("approval-record 7 --at 1793008800 --by alice --how label"));
     assert!(c[0].contains("--label tehas:ready"));
     assert!(c[4].contains(
-        "(authorized by @alice's `tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the fixer carried to this sub-issue)."
+        "(authorized by @alice's `tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the millwright carried to this sub-issue)."
     ));
 }
 
@@ -4399,7 +4399,7 @@ fn the_plan_view_is_the_whole_shape_the_analytics_reads() {
         v,
         json!({"session": "s-1", "turns": 2, "options": ["A"], "pending": false, "failed": false,
         "running": true, "startedAt": "2026-10-26T07:33:20Z", "comment": 55, "by": "alice", "label": "tehas:plan",
-        "answers": [{"turn": 2, "by": "mill-bot", "fixer": true}], "held": [1]})
+        "answers": [{"turn": 2, "by": "mill-bot", "millwright": true}], "held": [1]})
     );
     assert_eq!(plan_view(&json!(null)), json!(null));
 }
@@ -4447,7 +4447,7 @@ fn a_turns_end_gives_the_analytics_the_session_in_the_shape_its_record_had() {
         facts,
         json!({"session": "s", "turns": 1, "options": [], "pending": false, "failed": false,
         "running": true, "startedAt": "2026-10-26T07:33:20Z", "by": "alice", "label": "tehas:refine",
-        "answers": [{"turn": 2, "by": "alice", "fixer": false}]})
+        "answers": [{"turn": 2, "by": "alice", "millwright": false}]})
     );
     let events = fs::read_to_string(t.dir.join("events")).unwrap();
     let path = events.split(' ').nth(3).unwrap();
@@ -4956,12 +4956,12 @@ fn a_next_turn_is_given_the_answer_on_record_with_what_was_filed() {
     fs::write(t.dir.join("works/.tehas-workspaces"), "").unwrap();
     let a = t.apply(
         json!([{"plan_turn": 7, "kind": "next", "answer": "Do A.", "by": "mill-bot", "reply": 55,
-        "log": "planning #7 continues (answer from mill-bot, the fixer)"}]),
+        "log": "planning #7 continues (answer from mill-bot, the millwright)"}]),
     );
     assert_eq!(
         a.log,
         vec![
-            "planning #7 continues (answer from mill-bot, the fixer)",
+            "planning #7 continues (answer from mill-bot, the millwright)",
             "planning #7: turn 3 runs as tehas-plan-7.service"
         ]
     );

@@ -752,7 +752,7 @@ pub fn millwright_base(record: &str) -> Option<Value> {
 
 fn base(r: &Value, allowed: &str) -> Option<Value> {
     let how = r.get("how").and_then(Value::as_str);
-    let base = if matches!(how, Some("fixer" | "refresh")) {
+    let base = if matches!(how, Some("millwright" | "refresh")) {
         r.get("rests_on")?
     } else {
         r
@@ -1007,11 +1007,11 @@ mod tests {
 
     #[test]
     fn a_record_rests_on_the_persons_approval_in_each_shape_a_start_has() {
-        let fixer = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-fixer", "how": "fixer",
+        let millwright = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-millwright", "how": "millwright",
             "body_sha256": "a".repeat(64), "fixer_starts": 1, "rests_on": person("alice")});
         let refresh = json!({"at": "2026-10-01T00:00:00Z", "by": "alice", "how": "refresh",
             "body_sha256": "a".repeat(64), "refreshes": 1, "rests_on": person("alice")});
-        for mut shape in [person("alice"), fixer, refresh] {
+        for mut shape in [person("alice"), millwright, refresh] {
             shape["driver"] = json!("lean");
             let got = base(&shape, "alice bob").expect("an approval");
             assert_eq!(got["by"], "alice");
@@ -1024,9 +1024,9 @@ mod tests {
     fn the_hosts_approval_is_a_base_without_an_allowed_account() {
         let mut host = person("host");
         host["how"] = json!("host");
-        let fixer = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-fixer", "how": "fixer",
+        let millwright = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-millwright", "how": "millwright",
             "body_sha256": "a".repeat(64), "fixer_starts": 1, "rests_on": host.clone()});
-        for shape in [host, fixer] {
+        for shape in [host, millwright] {
             let got = base(&shape, "alice").expect("an approval");
             assert_eq!(got["how"], "host");
         }
@@ -1038,9 +1038,14 @@ mod tests {
         assert!(base(&person("alice"), "bob").is_none());
         assert!(base(&person("alice\n"), "alice").is_none());
         assert!(base(&person("al ice"), "al ice").is_none());
-        assert!(base(&json!({"how": "fixer", "rests_on": null}), "alice").is_none());
+        assert!(base(&json!({"how": "millwright", "rests_on": null}), "alice").is_none());
+        assert!(base(
+            &json!({"how": "fixer", "rests_on": person("alice")}),
+            "alice"
+        )
+        .is_none());
         let mut odd = person("alice");
-        odd["how"] = json!("fixer-tick");
+        odd["how"] = json!("millwright-tick");
         assert!(base(&odd, "alice").is_none());
         let mut short = person("alice");
         short["body_sha256"] = json!("abc");

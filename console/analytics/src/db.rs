@@ -249,10 +249,17 @@ pub(crate) fn settle(conn: &mut Connection, seen: i64, now: i64) -> Result<(), U
 
 /// The hows of before 2.0 in their words of 2.0, on every open: a retry
 /// ticked before 2.0 (`retry-tick`) is a retry a person's reply asked for
-/// (`reply`), as the state store's step to 27 has it (#2782). Data only, on
-/// any schema: read first without a lock, so an open with none to rewrite
-/// writes nothing, and done again under the write lock.
-pub const OLD_HOWS: [(&str, &str); 1] = [("retry-tick", "reply")];
+/// (`reply`), as the state store's step to 27 has it (#2782), and a run
+/// recorded under the millwright's old name (`fixer`) is the millwright's, as
+/// the step to 28 has it. Data only, on any schema: read first without a
+/// lock, so an open with none to rewrite writes nothing, and done again under
+/// the write lock. A rewrite counts itself in meta under [`HOWS_REWRITTEN`],
+/// which `publish::fingerprint` reads: the runs' count and ends do not move,
+/// so without it the published sessions would keep the old words.
+pub const OLD_HOWS: [(&str, &str); 2] = [("retry-tick", "reply"), ("fixer", "millwright")];
+
+/// The meta key that counts the rewrites of [`OLD_HOWS`].
+pub const HOWS_REWRITTEN: &str = "hows_rewritten";
 
 fn rewrite_hows(conn: &mut Connection) -> Result<(), Unusable> {
     let some = |c: &Connection| -> rusqlite::Result<bool> {
@@ -270,9 +277,19 @@ fn rewrite_hows(conn: &mut Connection) -> Result<(), Unusable> {
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(classify)?;
+    let mut changed = 0;
     for (old, new) in OLD_HOWS {
-        tx.execute("UPDATE runs SET how = ?2 WHERE how = ?1", params![old, new])
+        changed += tx
+            .execute("UPDATE runs SET how = ?2 WHERE how = ?1", params![old, new])
             .map_err(classify)?;
+    }
+    if changed > 0 {
+        tx.execute(
+            "INSERT INTO meta (key, value) VALUES (?1, '1')
+             ON CONFLICT (key) DO UPDATE SET value = CAST(value AS INTEGER) + 1",
+            [HOWS_REWRITTEN],
+        )
+        .map_err(classify)?;
     }
     tx.commit().map_err(classify)
 }

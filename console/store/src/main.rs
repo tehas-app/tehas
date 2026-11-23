@@ -101,8 +101,7 @@
 //!   store approval-record <issue> --at <unix> --by <account> --how <how> ...
 //!                [--input-file <file>] | --undo --at <unix>
 //!                (the hows are label, refresh, outage-retry, answer, reply,
-//!                millwright and host; the old `fixer` is taken too, and is
-//!                written as `millwright` until the shell stops sending it)
+//!                millwright and host)
 //!   store approval-current <issue>
 //!   store approval-hosts
 //!   store approval-view <issue> [--attempt N]
@@ -112,8 +111,6 @@
 //!                | --turn N --undo
 //!   store plan-end <issue> --turn N --outcome <o> [...] | --posted | --close
 //!   store plan-note <issue> --kind millwright-refused|held --id <id>
-//!                (the old `fixer-refused` is taken too, and is written as
-//!                `millwright-refused`)
 //!   store plan-show <issue> | --open
 //!   store plan-view <issue> [--open]
 //!   store history-show [<issue>] [--kind cycle|plan] [--how <how>]

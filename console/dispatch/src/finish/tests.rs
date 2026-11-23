@@ -126,7 +126,7 @@ fn the_millwright_asks_within_its_grant() {
     // The last start the cap allowed may still be finished.
     let mut a = ask("acme-millwright[bot]");
     let mut r = approved();
-    r = json!({"at": "2026-10-31T10:00:00Z", "by": "acme-millwright", "how": "fixer",
+    r = json!({"at": "2026-10-31T10:00:00Z", "by": "acme-millwright", "how": "millwright",
         "fixer_starts": 2, "rests_on": r});
     a.approval = Ok(Some(r));
     a.comments = comments(vec![ask_comment("acme-millwright[bot]")]);
@@ -145,7 +145,7 @@ fn a_change_in_the_second_of_a_host_approval_by_an_account_called_host_refuses()
         let mut r = approved();
         r["by"] = json!("host");
         r["how"] = json!("host");
-        json!({"at": "2026-10-31T10:00:00Z", "by": "acme-millwright", "how": "fixer",
+        json!({"at": "2026-10-31T10:00:00Z", "by": "acme-millwright", "how": "millwright",
             "fixer_starts": 1, "rests_on": r})
     };
     let edited = |at: &str| {
@@ -335,7 +335,7 @@ fn a_rule_not_met_takes_the_label_off_runs_nothing_and_says_why() {
             Ask {
                 approval: Ok(Some(
                     json!({"at": "2026-10-31T10:00:00Z", "by": "acme-millwright",
-                    "how": "fixer", "fixer_starts": 3, "rests_on": approved()}),
+                    "how": "millwright", "fixer_starts": 3, "rests_on": approved()}),
                 )),
                 ..ask("acme-millwright")
             },

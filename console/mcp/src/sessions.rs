@@ -18,9 +18,7 @@ use tehas_core::queue_lists::{AWAITING, COMPLETED, QUEUED, RUNNING, STOPPED};
 pub const OUTCOMES: [&str; 7] = tehas_core::outcome::OUTCOMES;
 pub const KINDS: [&str; 2] = ["work", "plan"];
 // Every word a record's `how` can hold, work and plan words alike: the words
-// the store's verbs take and the plan words analytics' `plan::how` writes. An
-// old record that says `fixer` is read as `millwright` (`Snapshot::sessions`),
-// so the tool answers and filters one word for the millwright. The tool's
+// the store's verbs take and the plan words analytics' `plan::how` writes. The tool's
 // schema enum and its filter both read this list, and nothing else in the
 // crate names it; the test of the filter reads it here, so it pins the tool to
 // what it says rather than to a list written twice.

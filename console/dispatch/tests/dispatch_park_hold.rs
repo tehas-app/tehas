@@ -240,7 +240,7 @@ fn the_millwrights_action_change_comment_of_the_ten_minutes_before_its_label_lif
     has(&r.out, "start #7 (labelled by the fixer by tehas-bot)");
     assert_eq!(
         w.approval("[.by, .how, .fixer_starts, .rests_on.by, .rests_on.how]", 7),
-        r#"["tehas-bot","fixer",1,"alice","label"]"#
+        r#"["tehas-bot","millwright",1,"alice","label"]"#
     );
     // The lift is its own field: rests_on keeps naming alice's approval, and
     // the note is the comment the cycle is given.

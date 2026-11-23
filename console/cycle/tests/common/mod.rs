@@ -212,7 +212,7 @@ const LOGINS: &[&str] = &[
     "bob-2",
     "carol",
     "boss",
-    "tehas-fixer",
+    "tehas-millwright",
     "tehas-mill",
     "millbot",
     "mill-bot",
@@ -680,7 +680,7 @@ impl World {
             "--how",
             how,
         ];
-        if matches!(how, "label" | "fixer") {
+        if matches!(how, "label" | "millwright") {
             a.extend(["--label", "tehas:ready"]);
         }
         let sum = wsum();

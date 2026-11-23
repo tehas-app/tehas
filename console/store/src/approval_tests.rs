@@ -117,73 +117,36 @@ fn approval_record_stores_every_field() {
         "outage-retry"
     );
     assert_eq!(
-        record(&home, 14, 5, "bob", "fixer")["approval"]["label"],
+        record(&home, 14, 5, "bob", "millwright")["approval"]["label"],
         "tehas:ready"
     );
     assert_eq!(count(&home, "issues"), 5);
 }
 
 #[test]
-fn a_millwright_start_is_written_under_the_new_word_and_counted_by_both() {
+fn a_millwright_start_is_written_under_its_word_and_the_old_one_is_refused() {
     let home = home("approval-millwright");
-    // The dispatcher of this release still sends the old word; part 5 sends the
-    // new one. Both rows say `millwright`, and both need the person's label.
-    let v = record(&home, 40, 5, "tehas-fixer", "fixer");
+    let v = record(&home, 41, 5, "tehas-millwright", "millwright");
     assert_eq!(v["approval"]["how"], "millwright");
     assert_eq!(v["approval"]["label"], "tehas:ready");
-    let v = record(&home, 41, 5, "tehas-fixer", "millwright");
-    assert_eq!(v["approval"]["how"], "millwright");
-    assert_eq!(v["approval"]["label"], "tehas:ready");
-    // A row written before the rename still counts toward the starts.
-    ok(
+    let (rc, line) = call(
         &home,
         &[
             "approval-record",
             "42",
             "--at",
-            "4",
+            "5",
             "--by",
-            "oldbot",
+            "tehas-millwright",
             "--how",
-            "label",
-            "--label",
-            "tehas:ready",
+            "fixer",
             "--body-sha",
             SHA,
         ],
-    );
-    let c = conn(&home);
-    c.execute(
-        "UPDATE approvals SET how = 'fixer', used_at = at, used_by = 1
-         WHERE issue = 42",
-        [],
     )
-    .unwrap();
-    drop(c);
-    let v = current(&home, 42);
-    assert_eq!(v["millwright_starts"], 1, "an old fixer row is a start");
-    assert_eq!(v["fixer_starts"], 1, "the answer keeps the old key too");
-}
-
-#[test]
-fn the_two_spellings_of_the_millwright_are_the_same_starts() {
-    // The starts of both spellings count together, above the base.
-    let counted = home("approval-millwright-counts");
-    let (l, a) = start_by(&counted, 43, "alice", "label", NOW);
-    end(&counted, 43, a, "failed");
-    drop(l);
-    let (l, b) = start_by(&counted, 43, "tehas-fixer", "fixer", NOW);
-    end(&counted, 43, b, "failed");
-    drop(l);
-    let (_l, c) = start_by(&counted, 43, "tehas-fixer", "millwright", NOW);
-    end(&counted, 43, c, "failed");
-    let v = current(&counted, 43);
-    assert_eq!(
-        (v["millwright_starts"].clone(), v["fixer_starts"].clone()),
-        (json!(2), json!(2)),
-        "the two spellings are the same starts"
-    );
-    assert_eq!(v["rests_on"]["by"], "alice");
+    .unwrap_err();
+    assert_eq!(rc, 64);
+    assert!(line.contains("--how is not one of millwright,"), "{line}");
 }
 
 #[test]
@@ -193,7 +156,7 @@ fn a_millwright_start_rests_on_the_person_and_is_a_base_of_its_own() {
     let (l, a) = start_by(&home, 44, "alice", "label", NOW);
     end(&home, 44, a, "failed");
     drop(l);
-    let (l, b) = start_by(&home, 44, "tehas-fixer", "millwright", NOW);
+    let (l, b) = start_by(&home, 44, "tehas-millwright", "millwright", NOW);
     end(&home, 44, b, "failed");
     drop(l);
     let (_l, _) = start_by(&home, 44, "alice", "refresh", NOW);
@@ -242,7 +205,7 @@ fn approval_record_refuses_bad_arguments() {
     .contains("exactly with --how refresh"));
     assert!(with(&[
         "--how",
-        "fixer",
+        "millwright",
         "--label",
         "tehas:ready",
         "--comment-id",
@@ -251,7 +214,7 @@ fn approval_record_refuses_bad_arguments() {
     .contains("--comment-id"));
     assert!(with(&[
         "--how",
-        "fixer",
+        "millwright",
         "--label",
         "tehas:ready",
         "--title-sha",
@@ -423,7 +386,7 @@ fn approval_current_rests_only_on_used_rows() {
     let (l, a) = start_by(&home, 24, "alice", "label", NOW);
     end(&home, 24, a, "failed");
     drop(l);
-    let (l, b) = start_by(&home, 24, "fixerbot", "fixer", NOW);
+    let (l, b) = start_by(&home, 24, "millbot", "millwright", NOW);
     end(&home, 24, b, "failed");
     drop(l);
     let (_l, c) = start_by(&home, 24, "alice", "refresh", NOW);
@@ -439,7 +402,7 @@ fn approval_current_rests_only_on_used_rows() {
 #[test]
 fn an_unused_label_approval_is_never_a_base() {
     let home = home("approval-unused-base");
-    let (l, a) = start_by(&home, 25, "fixerbot", "fixer", NOW);
+    let (l, a) = start_by(&home, 25, "millbot", "millwright", NOW);
     end(&home, 25, a, "failed");
     drop(l);
     approve(&home, 25, "mallory", "label");
@@ -550,16 +513,16 @@ fn approvals_keep_only_the_base_and_its_starts() {
     let home = home("approval-retain");
     for (by, how) in [
         ("alice", "label"),
-        ("fixerbot", "fixer"),
+        ("millbot", "millwright"),
         ("bob", "label"),
-        ("fixerbot", "fixer"),
+        ("millbot", "millwright"),
         ("alice", "refresh"),
     ] {
         let (l, a) = start_by(&home, 26, by, how, NOW);
         end(&home, 26, a, "failed");
         drop(l);
     }
-    // What stays: bob's label (used_by 3) and the fixer and refresh on it.
+    // What stays: bob's label (used_by 3) and the millwright's and refresh on it.
     let rows: Vec<(i64, String)> = {
         let c = conn(&home);
         let mut q = c
@@ -585,10 +548,10 @@ fn approvals_keep_only_the_base_and_its_starts() {
         (json!(1), json!(1))
     );
     // A start with no base keeps only itself.
-    let (l, a) = start_by(&home, 27, "fixerbot", "fixer", NOW);
+    let (l, a) = start_by(&home, 27, "millbot", "millwright", NOW);
     end(&home, 27, a, "failed");
     drop(l);
-    let (_l, _) = start_by(&home, 27, "fixerbot", "fixer", NOW);
+    let (_l, _) = start_by(&home, 27, "millbot", "millwright", NOW);
     assert_eq!(count(&home, "approvals WHERE issue = 27"), 1);
 }
 
@@ -1054,16 +1017,16 @@ fn a_view_takes_only_the_number_of_a_start() {
 }
 
 #[test]
-fn a_millwright_start_in_a_view_says_fixer_and_rests_on_the_person() {
+fn a_millwright_start_in_a_view_says_millwright_and_rests_on_the_person() {
     let home = home("approval-view-millwright");
     record(&home, 7, 1792497600, "alice", "label");
     let first = used(&home, 7);
     end(&home, 7, first, "merged");
-    record(&home, 7, 1792584000, "tehas-fixer", "millwright");
+    record(&home, 7, 1792584000, "tehas-millwright", "millwright");
     used(&home, 7);
     let v = view(&home, 7, None);
-    assert_eq!(v["how"], "fixer");
-    assert_eq!(v["by"], "tehas-fixer");
+    assert_eq!(v["how"], "millwright");
+    assert_eq!(v["by"], "tehas-millwright");
     assert_eq!(v["at"], "2026-10-21T12:00:00Z");
     assert_eq!(v["fixer_starts"], 1);
     assert_eq!(
@@ -1271,24 +1234,24 @@ fn a_view_of_a_person_s_label_is_field_for_field_what_the_dispatcher_wrote() {
     );
     assert_eq!(v.get("driver"), None);
 
-    // The fixer's start rests on the person's approval and counts itself.
+    // The millwright's start rests on the person's approval and counts itself.
     let file = input(
         &home,
-        r#"{"links":[],"retry_context":[{"source":"comment:9","by":"tehas-fixer","at":"2026-10-21T11:59:00Z","text":"Try the other way."}]}"#,
+        r#"{"links":[],"retry_context":[{"source":"comment:9","by":"tehas-millwright","at":"2026-10-21T11:59:00Z","text":"Try the other way."}]}"#,
     );
     record_extra(
         &home,
         7,
         1792584000,
-        "tehas-fixer",
-        "fixer",
+        "tehas-millwright",
+        "millwright",
         &["--input-file", &file],
     );
     assert_eq!(used(&home, 7), 2);
     assert_eq!(
         view(&home, 7, Some(2)),
-        json!({"at":"2026-10-21T12:00:00Z","by":"tehas-fixer","how":"fixer","body_sha256":SHA,
-            "links":[],"retry_context":[{"source":"comment:9","by":"tehas-fixer","at":"2026-10-21T11:59:00Z","text":"Try the other way."}],
+        json!({"at":"2026-10-21T12:00:00Z","by":"tehas-millwright","how":"millwright","body_sha256":SHA,
+            "links":[],"retry_context":[{"source":"comment:9","by":"tehas-millwright","at":"2026-10-21T11:59:00Z","text":"Try the other way."}],
             "rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":SHA},"fixer_starts":1})
     );
 }
@@ -1298,7 +1261,7 @@ fn a_view_of_a_person_s_label_is_field_for_field_what_the_dispatcher_wrote() {
 #[test]
 fn a_view_names_the_note_that_lifted_a_park_s_hold_and_none_is_no_key() {
     let home = home("approval-view-lifted");
-    let note = r#"{"source":"millwright:81","by":"tehas-fixer","at":"2026-10-21T11:55:00Z","text":"Do not run the whole suite."}"#;
+    let note = r#"{"source":"millwright:81","by":"tehas-millwright","at":"2026-10-21T11:55:00Z","text":"Do not run the whole suite."}"#;
     let file = input(
         &home,
         &format!(r#"{{"links":[],"retry_context":[{note}],"park_lifted":{note}}}"#),
@@ -1309,8 +1272,8 @@ fn a_view_names_the_note_that_lifted_a_park_s_hold_and_none_is_no_key() {
         &home,
         7,
         1792584000,
-        "tehas-fixer",
-        "fixer",
+        "tehas-millwright",
+        "millwright",
         &["--input-file", &file],
     );
     used(&home, 7);
@@ -1333,8 +1296,8 @@ fn a_view_names_the_note_that_lifted_a_park_s_hold_and_none_is_no_key() {
         &home,
         7,
         1792584000,
-        "tehas-fixer",
-        "fixer",
+        "tehas-millwright",
+        "millwright",
         &["--input-file", &file],
     );
     used(&home, 7);

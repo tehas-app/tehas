@@ -10,7 +10,7 @@
 -- started_* columns of approvals (db::STEP_13). Schema 14 lets cycles.how say
 -- 'host', a start `tehas start` approved (db::STEP_14). Schemas 15, 17 and 18
 -- held the five tables of outsource (db::STEP_15, STEP_17, STEP_18), which
--- schema 28 drops (db::DROP_OUTSOURCE): init lays none of them. Schema 16 lets
+-- schema 29 drops (db::DROP_OUTSOURCE): init lays none of them. Schema 16 lets
 -- actions.state say 'unknown', a write GitHub may have taken, and writes
 -- 'millwright' in every row that still said 'fixer' (db::STEP_16). Schema 19
 -- adds plugin_runs, one row per run of a plugin (db::STEP_19). Schema 24 adds answers, an answer `tehas answer` gave to the
@@ -22,8 +22,10 @@
 -- longer takes 'retry-tick' (every one stored became 'reply', in cycles,
 -- approvals and cycle_history), and questions.reask marks a question open at
 -- the upgrade, which the first poll asks again in 2.0's words
--- (db::STEP_27, db::STEP_27_INIT at init).
--- Schema 28 drops the outsource tables (db::DROP_OUTSOURCE).
+-- (db::STEP_27, db::STEP_27_INIT at init). Schema 28: cycles.how no longer
+-- takes 'fixer' and planning_notes.kind no longer takes 'fixer-refused'
+-- (db::STEP_28).
+-- Schema 29 drops the outsource tables (db::DROP_OUTSOURCE).
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
@@ -70,15 +72,12 @@ CREATE INDEX issues_checked ON issues (checked_at);
 -- end_reason is the union of what the two writers can say; cycle-end stores
 -- a word outside it as 'unknown'. An ended row with end_reason NULL is a start
 -- the cycle refused. A run by hand has how 'hand' and no started_by.
--- 'millwright' (v4) is the new name of 'fixer'; both are accepted until the
--- verbs write only the new one. #686: part 5 drops 'fixer' from this list, with
--- the aliases in console/store.
 CREATE TABLE cycles (
   issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
   attempt        INTEGER NOT NULL DEFAULT 1,
   started_at     INTEGER NOT NULL,
   started_by     TEXT,
-  how            TEXT NOT NULL CHECK (how IN ('label','refresh','outage-retry','fixer','millwright','hand','host','answer','reply')),
+  how            TEXT NOT NULL CHECK (how IN ('label','refresh','outage-retry','millwright','hand','host','answer','reply')),
   requeued       INTEGER NOT NULL DEFAULT 0,
   rukas_commit   TEXT,
   image          TEXT,
@@ -215,12 +214,10 @@ CREATE TABLE planning_filed (
 );
 -- (v2) The comments the poll spoke about once in this session: a millwright's
 -- reply it refused, and a question whose tick it held. They go with the
--- session. 'millwright-refused' (v4) is the new name of 'fixer-refused'; both
--- are accepted until the verbs write only the new one. #686: part 5 drops
--- 'fixer-refused' from this list, with the aliases in console/store.
+-- session.
 CREATE TABLE planning_notes (
   issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
-  kind  TEXT NOT NULL CHECK (kind IN ('fixer-refused','millwright-refused','held')),
+  kind  TEXT NOT NULL CHECK (kind IN ('millwright-refused','held')),
   comment_id INTEGER NOT NULL,
   at INTEGER NOT NULL,
   PRIMARY KEY (issue, kind, comment_id)
