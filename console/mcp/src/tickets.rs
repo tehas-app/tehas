@@ -7,6 +7,7 @@
 //! people and agents: each answer is masked as a log is and says it is
 //! third-party text.
 
+use crate::args::{Arg, Args, Shape};
 use crate::tools::{self, Scope};
 use serde_json::{json, Map, Value};
 use std::fs;
@@ -78,18 +79,17 @@ pub fn entries(scope: Scope) -> Vec<Value> {
 }
 
 /// One call of a tool `serves` admits, over the sessions directory.
-pub fn call(sessions: &Path, name: &str, args: &Value) -> Result<Value, String> {
+pub fn call(sessions: &Path, name: &str, args: &Args) -> Result<Value, String> {
     let known: &[&str] = match name {
         ONE => &["number"],
         SEARCH => &["grep", "kind", "state", "limit"],
         _ => return Err(format!("{name} is no ticket tool")),
     };
-    if let Some(o) = args.as_object() {
-        if let Some(k) = o.keys().find(|k| !known.contains(&k.as_str())) {
-            return Err(format!("{k} is not an argument of {name}"));
-        }
-    } else if !args.is_null() {
+    if args.shape() == Shape::Other {
         return Err("the arguments are not an object".into());
+    }
+    if let Some(k) = args.keys().find(|k| !known.contains(k)) {
+        return Err(format!("{k} is not an argument of {name}"));
     }
     let dir = sessions.join(DIR);
     let mut out = if name == ONE {
@@ -130,8 +130,8 @@ fn word(v: &Value) -> Option<Value> {
         .map(|s| json!(s))
 }
 
-fn one(dir: &Path, args: &Value) -> Result<Map<String, Value>, String> {
-    let n = tools::issue_arg(&args["number"]).map_err(|e| match e {
+fn one(dir: &Path, args: &Args) -> Result<Map<String, Value>, String> {
+    let n = tools::issue_arg(&args.get("number")).map_err(|e| match e {
         tools::ToolError::BadArgs(why) => why.replace("issue", "number"),
         _ => "number is an integer from 1 to 999999999".to_string(),
     })?;
@@ -230,27 +230,28 @@ fn one(dir: &Path, args: &Value) -> Result<Map<String, Value>, String> {
     Ok(o)
 }
 
-fn search(dir: &Path, args: &Value) -> Result<Map<String, Value>, String> {
-    let grep = args["grep"]
-        .as_str()
+fn search(dir: &Path, args: &Args) -> Result<Map<String, Value>, String> {
+    let grep = args
+        .get("grep")
+        .text()
         .filter(|g| (GREP_MIN..=GREP_MAX).contains(&g.chars().count()))
         .ok_or(format!(
             "grep is text of {GREP_MIN} to {GREP_MAX} characters"
         ))?
         .to_lowercase();
     let pick = |k: &str, words: &[&str]| -> Result<Option<String>, String> {
-        match &args[k] {
-            Value::Null => Ok(None),
-            Value::String(s) if words.contains(&s.as_str()) => Ok(Some(s.clone())),
+        match args.get(k) {
+            Arg::Absent => Ok(None),
+            Arg::Text(s) if words.contains(&s) => Ok(Some(s.to_string())),
             _ => Err(format!("{k} is one of {}", words.join(", "))),
         }
     };
     let kind = pick("kind", &["issue", "pull"])?;
     let state = pick("state", &["open", "closed", "merged"])?;
-    let limit = match &args["limit"] {
-        Value::Null => LIMIT_DEFAULT,
+    let limit = match args.get("limit") {
+        Arg::Absent => LIMIT_DEFAULT,
         v => v
-            .as_u64()
+            .whole()
             .filter(|n| (1..=LIMIT_MAX).contains(n))
             .ok_or(format!("limit is a whole number from 1 to {LIMIT_MAX}"))?,
     } as usize;

@@ -28,7 +28,7 @@ fn call(live: &Path, name: &str, args: &Value) -> Result<Value, ToolError> {
         sessions: empty_snapshot(),
         logs: live.join("no-logs"),
     };
-    match mcp::tools::call(&dirs, name, args)? {
+    match mcp::tools::call(&dirs, name, &args.clone().into())? {
         Output::Json(v) => Ok(common::conforms(name, v)),
         other => panic!("{name} gave {other:?}"),
     }

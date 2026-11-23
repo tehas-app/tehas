@@ -5,6 +5,7 @@
 //! gives no path. Only its last `TAIL_BYTES` are read. A decision's time, word
 //! and issue are checked shapes; its reason is free text, masked, then cut.
 
+use crate::args::{Args, Shape};
 use crate::tools::{Dirs, ToolError};
 use serde_json::{json, Map, Value};
 use std::collections::VecDeque;
@@ -267,24 +268,25 @@ fn file_error(why: &str) -> ToolError {
     }
 }
 
-pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let limit = match args {
-        Value::Null => LIMIT_DEFAULT,
-        Value::Object(m) => {
-            if let Some(k) = m.keys().find(|k| *k != "limit") {
+pub(crate) fn call(dirs: &Dirs, args: &Args) -> Result<Map<String, Value>, ToolError> {
+    let limit = match args.shape() {
+        Shape::Nothing => LIMIT_DEFAULT,
+        Shape::Object => {
+            if let Some(k) = args.keys().find(|k| *k != "limit") {
                 return Err(bad(&format!(
                     "{k} is not an argument; limit is the only one"
                 )));
             }
-            match m.get("limit") {
-                None => LIMIT_DEFAULT,
-                Some(v) => v
-                    .as_u64()
+            if args.has("limit") {
+                args.get("limit")
+                    .whole()
                     .filter(|n| (1..=LIMIT_MAX).contains(n))
-                    .ok_or_else(|| bad(&format!("limit is from 1 to {LIMIT_MAX}")))?,
+                    .ok_or_else(|| bad(&format!("limit is from 1 to {LIMIT_MAX}")))?
+            } else {
+                LIMIT_DEFAULT
             }
         }
-        _ => return Err(bad("the arguments are an object")),
+        Shape::Other => return Err(bad("the arguments are an object")),
     };
     let (text, whole) = tail(&dirs.logs.join(FILE))?;
     let mut last: VecDeque<Decision> = VecDeque::new();

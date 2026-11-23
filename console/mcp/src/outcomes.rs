@@ -5,6 +5,7 @@
 //! file holds no issue number, title, failure cause or log content, and this
 //! tool would not serve one if it did.
 
+use crate::args::{Arg, Args};
 use crate::tools::{self, bad, word, Dirs, ToolError};
 use regex::Regex;
 use serde_json::{json, Map, Value};
@@ -78,11 +79,11 @@ pub static BOUND: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)?$").unwrap()
 });
 
-fn bound(args: &Value, key: &str) -> Result<Option<i64>, ToolError> {
+fn bound(args: &Args, key: &str) -> Result<Option<i64>, ToolError> {
     let why = || bad(&format!("{key} is YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ"));
-    match &args[key] {
-        Value::Null => Ok(None),
-        Value::String(s) if BOUND.is_match(s) => seconds(s).map(Some).ok_or_else(why),
+    match args.get(key) {
+        Arg::Absent => Ok(None),
+        Arg::Text(s) if BOUND.is_match(s) => seconds(s).map(Some).ok_or_else(why),
         _ => Err(why()),
     }
 }
@@ -190,10 +191,10 @@ impl File_ {
     }
 }
 
-pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let by = match &args["by"] {
-        Value::Null => "version",
-        Value::String(s) if BYS.contains(&s.as_str()) => s.as_str(),
+pub(crate) fn call(dirs: &Dirs, args: &Args) -> Result<Map<String, Value>, ToolError> {
+    let by = match args.get("by") {
+        Arg::Absent => "version",
+        Arg::Text(s) if BYS.contains(&s) => s,
         _ => return Err(bad(&format!("by is one of {}", BYS.join(", ")))),
     };
     let tehas = word(args, "tehasVersion")?;

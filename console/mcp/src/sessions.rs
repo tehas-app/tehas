@@ -3,6 +3,7 @@
 //! time and copy only the fields of the contract in `tehas_core::snapshot`,
 //! which the analytics writer reads too. A log's file name is never returned.
 
+use crate::args::{Arg, Args};
 use crate::snapshot::Snapshot;
 use crate::tools::{self, Dirs, ToolError};
 use regex::Regex;
@@ -409,18 +410,18 @@ fn session_links(repo: &Option<String>, s: &Value) -> (Option<String>, Option<St
     }
 }
 
-fn word(args: &Value, key: &str) -> Result<Option<String>, ToolError> {
-    match &args[key] {
-        Value::Null => Ok(None),
-        Value::String(s) if WORD.is_match(s) => Ok(Some(s.clone())),
+fn word(args: &Args, key: &str) -> Result<Option<String>, ToolError> {
+    match args.get(key) {
+        Arg::Absent => Ok(None),
+        Arg::Text(s) if WORD.is_match(s) => Ok(Some(s.to_string())),
         _ => Err(bad(&format!("{key} is 1 to 64 of A-Za-z0-9._+-"))),
     }
 }
 
-fn one_of(args: &Value, key: &str, allowed: &[&str]) -> Result<Option<String>, ToolError> {
-    match &args[key] {
-        Value::Null => Ok(None),
-        Value::String(s) if allowed.contains(&s.as_str()) => Ok(Some(s.clone())),
+fn one_of(args: &Args, key: &str, allowed: &[&str]) -> Result<Option<String>, ToolError> {
+    match args.get(key) {
+        Arg::Absent => Ok(None),
+        Arg::Text(s) if allowed.contains(&s) => Ok(Some(s.to_string())),
         _ => Err(bad(&format!("{key} is one of {}", allowed.join(", ")))),
     }
 }
@@ -433,16 +434,16 @@ fn open(dirs: &Dirs) -> Result<Snapshot, ToolError> {
     Snapshot::open(&dirs.sessions, tools::now())
 }
 
-pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
+pub(crate) fn list(dirs: &Dirs, args: &Args) -> Result<Map<String, Value>, ToolError> {
     let outcome = one_of(args, "outcome", &OUTCOMES)?;
     let kind = one_of(args, "kind", &KINDS)?;
     let how = one_of(args, "how", &HOWS)?;
     let failure_kind = word(args, "failureKind")?;
     let tehas = word(args, "tehasVersion")?;
     let rukas = word(args, "rukasVersion")?;
-    let image = match &args["image"] {
-        Value::Null => None,
-        Value::String(s) if IMAGE.is_match(s) => {
+    let image = match args.get("image") {
+        Arg::Absent => None,
+        Arg::Text(s) if IMAGE.is_match(s) => {
             Some(s.strip_prefix("sha256:").unwrap_or(s).to_string())
         }
         _ => {
@@ -451,20 +452,20 @@ pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
             ))
         }
     };
-    let issue = match &args["issue"] {
-        Value::Null => None,
-        v => Some(i64::from(tools::issue_arg(v)?)),
+    let issue = match args.get("issue") {
+        Arg::Absent => None,
+        v => Some(i64::from(tools::issue_arg(&v)?)),
     };
-    let limit = match &args["limit"] {
-        Value::Null => DEFAULT_LIMIT,
+    let limit = match args.get("limit") {
+        Arg::Absent => DEFAULT_LIMIT,
         v => v
-            .as_u64()
+            .whole()
             .filter(|n| (1..=MAX_LIMIT).contains(n))
             .ok_or_else(|| bad(&format!("limit is from 1 to {MAX_LIMIT}")))?,
     } as usize;
-    let before = match &args["before"] {
-        Value::Null => None,
-        Value::String(s) if ID.is_match(s) => Some(s.as_str()),
+    let before = match args.get("before") {
+        Arg::Absent => None,
+        Arg::Text(s) if ID.is_match(s) => Some(s),
         _ => return Err(bad("before is a session id")),
     };
 
@@ -571,9 +572,10 @@ fn pick_object(src: &Value, spec: &Value) -> Map<String, Value> {
     }
 }
 
-pub(crate) fn one(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let id = args["id"]
-        .as_str()
+pub(crate) fn one(dirs: &Dirs, args: &Args) -> Result<Map<String, Value>, ToolError> {
+    let id = args
+        .get("id")
+        .text()
         .ok_or_else(|| bad("id is a string like work-12-1792485967"))?;
     if !ID.is_match(id) {
         return Err(bad("id is like work-12-1792485967"));
@@ -630,7 +632,7 @@ struct Cause {
     issues: Vec<i64>,
 }
 
-pub(crate) fn failures(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
+pub(crate) fn failures(dirs: &Dirs, args: &Args) -> Result<Map<String, Value>, ToolError> {
     let by_image = one_of(args, "by", &GROUPS)?.as_deref() == Some("image");
     let only = word(args, "rukasVersion")?;
     let snap = open(dirs)?;
@@ -773,8 +775,8 @@ pub(crate) fn issue_spec() -> Value {
 /// One issue's story: the stage the dashboard lists it under, the cycle that
 /// owns it now, and its runs of the snapshot's window. The caller does not
 /// join `factory_issues`, `factory_sessions` and `factory_session`.
-pub(crate) fn issue(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let issue = i64::from(tools::issue_arg(&args["issue"])?);
+pub(crate) fn issue(dirs: &Dirs, args: &Args) -> Result<Map<String, Value>, ToolError> {
+    let issue = i64::from(tools::issue_arg(&args.get("issue"))?);
     // The snapshot first: its header is the one file this tool must read, and
     // a host without it has nothing to answer with.
     let snap = open(dirs)?;

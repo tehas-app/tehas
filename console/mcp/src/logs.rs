@@ -8,6 +8,7 @@
 //! never gives a path, and the search opens no file the snapshot does not
 //! name.
 
+use crate::args::{Arg, Args, Shape};
 use crate::sessions;
 use crate::snapshot::Snapshot;
 use crate::tools::{self, Dirs, Output, ToolError};
@@ -406,13 +407,13 @@ enum Asked<'a> {
     Issue(u64),
 }
 
-fn asked(args: &Value) -> Result<Asked<'_>, ToolError> {
-    match (&args["id"], &args["issue"]) {
-        (Value::Null, Value::Null) => Err(bad("give id or issue")),
-        (Value::Null, v) => tools::issue_arg(v).map(|n| Asked::Issue(u64::from(n))),
-        (v, Value::Null) => {
+fn asked(args: &Args) -> Result<Asked<'_>, ToolError> {
+    match (args.get("id"), args.get("issue")) {
+        (Arg::Absent, Arg::Absent) => Err(bad("give id or issue")),
+        (Arg::Absent, v) => tools::issue_arg(&v).map(|n| Asked::Issue(u64::from(n))),
+        (v, Arg::Absent) => {
             let id = v
-                .as_str()
+                .text()
                 .ok_or_else(|| bad("id is a string like work-12-1792485967"))?;
             if !sessions::ID.is_match(id) {
                 return Err(bad("id is like work-12-1792485967"));
@@ -485,30 +486,30 @@ fn session_of(dirs: &Dirs, asked: &Asked) -> Result<Value, ToolError> {
     }
 }
 
-pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard), ToolError> {
+pub(crate) fn call(dirs: &Dirs, args: &Args) -> Result<(Output, LogGuard), ToolError> {
     let asked = asked(args)?;
-    let word = match args["file"].as_str() {
+    let word = match args.get("file").text() {
         Some(w) if WORDS.contains(&w) => w,
         _ => return Err(bad(&format!("file is one of {}", WORDS.join(", ")))),
     };
-    let gzip = match &args["gzip"] {
-        Value::Null => false,
-        Value::Bool(b) => *b,
+    let gzip = match args.get("gzip") {
+        Arg::Absent => false,
+        Arg::Flag(b) => b,
         _ => return Err(bad("gzip is true or false")),
     };
-    if gzip && (!args["offset"].is_null() || !args["bytes"].is_null()) {
+    if gzip && (!args.get("offset").is_absent() || !args.get("bytes").is_absent()) {
         return Err(bad("offset and bytes are for plain reads, not gzip"));
     }
-    let offset = match &args["offset"] {
-        Value::Null => 0,
+    let offset = match args.get("offset") {
+        Arg::Absent => 0,
         v => v
-            .as_u64()
+            .whole()
             .ok_or_else(|| bad("offset is an integer of at least 0"))?,
     };
-    let bytes = match &args["bytes"] {
-        Value::Null => PLAIN_MAX,
+    let bytes = match args.get("bytes") {
+        Arg::Absent => PLAIN_MAX,
         v => v
-            .as_u64()
+            .whole()
             .filter(|n| (1..=PLAIN_MAX).contains(n))
             .ok_or_else(|| bad(&format!("bytes is from 1 to {PLAIN_MAX}")))?,
     };
@@ -626,7 +627,7 @@ fn listed_of(s: &Value) -> Vec<&Value> {
 /// answer holds, as it is for `factory_log`, whose `next` is past the last byte
 /// it answered: of a log the reading could not reach at all the call says
 /// nothing, because it has answered nothing of it.
-pub(crate) fn search_call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard), ToolError> {
+pub(crate) fn search_call(dirs: &Dirs, args: &Args) -> Result<(Output, LogGuard), ToolError> {
     // The arguments first: a call that asks for nothing to search reads no
     // file, so it takes no place of the two that are sent at a time. An argument
     // the tool does not have is refused rather than left out, so a caller that
@@ -636,42 +637,42 @@ pub(crate) fn search_call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard
     // them by indexing, which reads `null` for anything that is not a member of
     // an object: a `tools/call` whose arguments are `"hit"` or `null` answers a
     // tool error here and does not unwind the request.
-    let Some(map) = args.as_object() else {
+    if args.shape() != Shape::Object {
         return Err(bad(
             "arguments are an object of text, issue or ids, files and limit",
         ));
-    };
-    for key in map.keys() {
-        if !["text", "issue", "ids", "files", "limit"].contains(&key.as_str()) {
+    }
+    for key in args.keys() {
+        if !["text", "issue", "ids", "files", "limit"].contains(&key) {
             return Err(bad(&format!(
                 "{key} is not an argument: text, issue or ids, files and limit are"
             )));
         }
     }
-    let text = match args["text"].as_str() {
+    let text = match args.get("text").text() {
         Some(t) => t,
         None => return Err(bad("text is a string of 3 to 200 characters")),
     };
-    let (issue, ids) = (&args["issue"], &args["ids"]);
-    if !issue.is_null() && !ids.is_null() {
+    let (issue, ids) = (args.get("issue"), args.get("ids"));
+    if !issue.is_absent() && !ids.is_absent() {
         return Err(bad("give issue or ids, not both"));
     }
-    let issue = if issue.is_null() {
+    let issue = if issue.is_absent() {
         None
     } else {
-        Some(u64::from(tools::issue_arg(issue)?))
+        Some(u64::from(tools::issue_arg(&issue)?))
     };
     let ids: Option<Vec<&str>> = match ids {
-        Value::Null => None,
-        Value::Array(a) if a.is_empty() => None,
-        Value::Array(a) => {
+        Arg::Absent => None,
+        Arg::List(a) if a.is_empty() => None,
+        Arg::List(a) => {
             if a.len() > IDS_MAX {
                 return Err(bad(&format!("ids is at most {IDS_MAX} session ids")));
             }
             let mut some = Vec::with_capacity(a.len());
             for id in a {
                 let id = id
-                    .as_str()
+                    .text()
                     .filter(|s| sessions::ID.is_match(s))
                     .ok_or_else(|| bad("ids are ids like work-12-1792485967"))?;
                 some.push(id);
@@ -686,13 +687,13 @@ pub(crate) fn search_call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard
         // and found none. The caller is told which of the two it has to give.
         return Err(bad("give issue or ids"));
     }
-    let files: Option<Vec<&str>> = match &args["files"] {
-        Value::Null => None,
-        Value::Array(a) => {
+    let files: Option<Vec<&str>> = match args.get("files") {
+        Arg::Absent => None,
+        Arg::List(a) => {
             let mut some = Vec::with_capacity(a.len());
             for w in a {
                 let w = w
-                    .as_str()
+                    .text()
                     .filter(|w| WORDS.contains(w))
                     .ok_or_else(|| bad(&format!("files are words of {}", WORDS.join(", "))))?;
                 some.push(w);
@@ -701,10 +702,10 @@ pub(crate) fn search_call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard
         }
         _ => return Err(bad("files is a list of log words")),
     };
-    let limit = match &args["limit"] {
-        Value::Null => DEFAULT_LIMIT,
+    let limit = match args.get("limit") {
+        Arg::Absent => DEFAULT_LIMIT,
         v => v
-            .as_u64()
+            .whole()
             .filter(|n| (1..=MATCHES_MAX).contains(n))
             .ok_or_else(|| bad(&format!("limit is from 1 to {MATCHES_MAX}")))?,
     };

@@ -59,7 +59,7 @@ fn fixture(name: &str) -> (TestDir, Vec<String>) {
 
 fn ask_tool(dir: &Path, tool: &str, args: Value) -> Result<Value, String> {
     let repo = open(dir).unwrap();
-    call_in(&repo, tool, &args)
+    call_in(&repo, tool, &args.into())
 }
 
 fn ids(v: &Value) -> Vec<String> {

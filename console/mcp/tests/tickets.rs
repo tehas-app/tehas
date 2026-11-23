@@ -47,7 +47,7 @@ fn fixture(name: &str) -> TestDir {
 #[test]
 fn a_ticket_is_served_masked_with_its_links() {
     let d = fixture("mcp-ticket-one");
-    let v = call(&d, ONE, &json!({"number": 5})).unwrap();
+    let v = call(&d, ONE, &json!({"number": 5}).into()).unwrap();
     assert_eq!(v["kind"], "issue");
     assert_eq!(v["title"], "Why the gate is slow");
     assert_eq!(v["parent"], 2);
@@ -60,10 +60,10 @@ fn a_ticket_is_served_masked_with_its_links() {
     assert_eq!(v["comments"][0]["author"], "bob");
     assert_eq!(v["readUpTo"], "2026-11-04T00:00:00Z");
     assert!(v["untrusted"].as_str().unwrap().contains("third-party"));
-    let p = call(&d, ONE, &json!({"number": 8})).unwrap();
+    let p = call(&d, ONE, &json!({"number": 8}).into()).unwrap();
     assert_eq!(p["closes"], json!([5]));
     assert_eq!(p["mergeCommit"], "abc123");
-    let why = call(&d, ONE, &json!({"number": 6})).unwrap_err();
+    let why = call(&d, ONE, &json!({"number": 6}).into()).unwrap_err();
     assert!(why.contains("#6 has not been read"), "{why}");
     for bad in [
         json!({}),
@@ -71,7 +71,7 @@ fn a_ticket_is_served_masked_with_its_links() {
         json!({"number": "5"}),
         json!({"number": 5, "x": 1}),
     ] {
-        assert!(call(&d, ONE, &bad).is_err(), "{bad}");
+        assert!(call(&d, ONE, &bad.clone().into()).is_err(), "{bad}");
     }
 }
 
@@ -83,7 +83,7 @@ fn a_long_body_is_cut_and_says_so() {
         3,
         json!({"kind": "issue", "number": 3, "state": "open", "body": "x".repeat(30_000)}),
     );
-    let v = call(&d, ONE, &json!({"number": 3})).unwrap();
+    let v = call(&d, ONE, &json!({"number": 3}).into()).unwrap();
     assert_eq!(v["body"].as_str().unwrap().len(), 20_000);
     assert_eq!(v["bodyCut"], true);
 }
@@ -91,7 +91,7 @@ fn a_long_body_is_cut_and_says_so() {
 #[test]
 fn a_search_finds_the_text_in_any_case_newest_change_first() {
     let d = fixture("mcp-ticket-search");
-    let v = call(&d, SEARCH, &json!({"grep": "cache"})).unwrap();
+    let v = call(&d, SEARCH, &json!({"grep": "cache"}).into()).unwrap();
     let got: Vec<(u64, Value)> = v["tickets"]
         .as_array()
         .unwrap()
@@ -101,17 +101,22 @@ fn a_search_finds_the_text_in_any_case_newest_change_first() {
     assert_eq!(got, vec![(8, json!(["title"])), (5, json!(["comments"]))]);
     assert_eq!(v["read"], 3);
     assert_eq!(v["more"], false);
-    let v = call(&d, SEARCH, &json!({"grep": "gate", "kind": "pull"})).unwrap();
+    let v = call(&d, SEARCH, &json!({"grep": "gate", "kind": "pull"}).into()).unwrap();
     assert_eq!(v["tickets"].as_array().unwrap().len(), 1);
-    let v = call(&d, SEARCH, &json!({"grep": "gate", "state": "closed"})).unwrap();
+    let v = call(
+        &d,
+        SEARCH,
+        &json!({"grep": "gate", "state": "closed"}).into(),
+    )
+    .unwrap();
     assert_eq!(v["tickets"][0]["number"], 5);
-    let v = call(&d, SEARCH, &json!({"grep": "gate", "limit": 1})).unwrap();
+    let v = call(&d, SEARCH, &json!({"grep": "gate", "limit": 1}).into()).unwrap();
     assert_eq!(v["more"], true);
     // A masked secret is not found by its value.
     let v = call(
         &d,
         SEARCH,
-        &json!({"grep": "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ"}),
+        &json!({"grep": "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ"}).into(),
     )
     .unwrap();
     assert_eq!(v["tickets"], json!([]), "a secret is found by its value");
@@ -121,10 +126,10 @@ fn a_search_finds_the_text_in_any_case_newest_change_first() {
         json!({"grep": "gate", "kind": "pr"}),
         json!({"grep": "gate", "limit": 51}),
     ] {
-        assert!(call(&d, SEARCH, &bad).is_err(), "{bad}");
+        assert!(call(&d, SEARCH, &bad.clone().into()).is_err(), "{bad}");
     }
     let empty = TestDir::new("mcp-ticket-none");
-    assert!(call(&empty, SEARCH, &json!({"grep": "gate"}))
+    assert!(call(&empty, SEARCH, &json!({"grep": "gate"}).into())
         .unwrap_err()
         .contains("no ticket has been read"));
 }

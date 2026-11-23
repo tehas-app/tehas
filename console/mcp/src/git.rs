@@ -10,6 +10,7 @@
 //! Commit messages, diffs and lines of code were written by people and
 //! agents: each answer is masked as a log is and says it is third-party text.
 
+use crate::args::{Arg, Args, Shape};
 use crate::tools::Scope;
 use gix::bstr::{BStr, ByteSlice};
 use gix::diff::blob::unified_diff::{ConsumeBinaryHunk, ContextSize};
@@ -208,7 +209,7 @@ fn entries_in(scope: Scope, checkout: bool) -> Vec<Value> {
 }
 
 /// One call of a tool `serves` admits. The error is the tool error's text.
-pub fn call(name: &str, args: &Value) -> Result<Value, String> {
+pub fn call(name: &str, args: &Args) -> Result<Value, String> {
     let dir = CHECKOUT.get().ok_or("the server has no checkout")?;
     let repo = open(dir).map_err(|_| "the checkout cannot be read now".to_string())?;
     let mut v = call_in(&repo, name, args)?;
@@ -218,19 +219,18 @@ pub fn call(name: &str, args: &Value) -> Result<Value, String> {
     Ok(v)
 }
 
-pub fn call_in(repo: &gix::Repository, name: &str, args: &Value) -> Result<Value, String> {
+pub fn call_in(repo: &gix::Repository, name: &str, args: &Args) -> Result<Value, String> {
     let known: &[&str] = match name {
         LOG => &["path", "grep", "limit", "after", "seen"],
         SHOW => &["commit", "seen"],
         BLAME => &["path", "start", "end", "seen"],
         _ => return Err(format!("{name} is no tool of the checkout")),
     };
-    if let Some(o) = args.as_object() {
-        if let Some(k) = o.keys().find(|k| !known.contains(&k.as_str())) {
-            return Err(format!("{k} is not an argument of {name}"));
-        }
-    } else if !args.is_null() {
+    if args.shape() == Shape::Other {
         return Err("the arguments are not an object".into());
+    }
+    if let Some(k) = args.keys().find(|k| !known.contains(k)) {
+        return Err(format!("{k} is not an argument of {name}"));
     }
     let head = repo
         .head_id()
@@ -241,16 +241,14 @@ pub fn call_in(repo: &gix::Repository, name: &str, args: &Value) -> Result<Value
         SHOW => show(repo, args)?,
         _ => blame(repo, head, args)?,
     };
-    if !args["seen"].is_null() {
-        if !args["seen"].as_str().is_some_and(hex_id) {
+    let given = args.get("seen");
+    if !given.is_absent() {
+        let Some(text) = given.text().filter(|s| hex_id(s)) else {
             return Err("seen is a commit id of 7 to 40 lowercase hex digits".into());
-        }
-        let seen = commit_id(repo, &args["seen"], "seen").ok();
+        };
+        let seen = commit_id(repo, &given, "seen").ok();
         if seen != Some(head) {
-            out.insert(
-                "checkoutUpdated".into(),
-                updated(repo, head, seen, &args["seen"]),
-            );
+            out.insert("checkoutUpdated".into(), updated(repo, head, seen, text));
         }
     }
     out.insert("api".into(), json!(1));
@@ -261,11 +259,11 @@ pub fn call_in(repo: &gix::Repository, name: &str, args: &Value) -> Result<Value
 
 /// The checkout moved from the `seen` a client gave to `head`: how many
 /// commits came since, when `seen` is among the last `SEEN_MAX` of them.
-fn updated(repo: &gix::Repository, head: ObjectId, seen: Option<ObjectId>, given: &Value) -> Value {
+fn updated(repo: &gix::Repository, head: ObjectId, seen: Option<ObjectId>, given: &str) -> Value {
     let mut o = Map::new();
     o.insert(
         "from".into(),
-        json!(seen.map_or_else(|| cut(given.as_str().unwrap_or(""), 40), |s| s.to_string())),
+        json!(seen.map_or_else(|| cut(given, 40), |s| s.to_string())),
     );
     o.insert("to".into(), json!(head.to_string()));
     if let Some(seen) = seen {
@@ -288,23 +286,23 @@ fn updated(repo: &gix::Repository, head: ObjectId, seen: Option<ObjectId>, given
     Value::Object(o)
 }
 
-fn log(repo: &gix::Repository, head: ObjectId, args: &Value) -> Result<Map<String, Value>, String> {
+fn log(repo: &gix::Repository, head: ObjectId, args: &Args) -> Result<Map<String, Value>, String> {
     let path = opt_path(args)?;
-    let grep = match &args["grep"] {
-        Value::Null => None,
-        Value::String(s) if !s.is_empty() && s.chars().count() <= GREP_MAX => Some(s.as_str()),
+    let grep = match args.get("grep") {
+        Arg::Absent => None,
+        Arg::Text(s) if !s.is_empty() && s.chars().count() <= GREP_MAX => Some(s),
         _ => return Err(format!("grep is text of 1 to {GREP_MAX} characters")),
     };
-    let limit = match &args["limit"] {
-        Value::Null => LOG_DEFAULT,
+    let limit = match args.get("limit") {
+        Arg::Absent => LOG_DEFAULT,
         v => v
-            .as_u64()
+            .whole()
             .filter(|n| (1..=LOG_MAX).contains(n))
             .ok_or(format!("limit is a whole number from 1 to {LOG_MAX}"))?,
     } as usize;
-    let after = match &args["after"] {
-        Value::Null => None,
-        v => Some(commit_id(repo, v, "after")?),
+    let after = match args.get("after") {
+        Arg::Absent => None,
+        v => Some(commit_id(repo, &v, "after")?),
     };
 
     let walk = repo
@@ -428,8 +426,8 @@ fn describe(commit: &gix::Commit<'_>) -> Map<String, Value> {
     o
 }
 
-fn show(repo: &gix::Repository, args: &Value) -> Result<Map<String, Value>, String> {
-    let id = commit_id(repo, &args["commit"], "commit")?;
+fn show(repo: &gix::Repository, args: &Args) -> Result<Map<String, Value>, String> {
+    let id = commit_id(repo, &args.get("commit"), "commit")?;
     let commit = repo
         .find_commit(id)
         .map_err(|_| format!("commit {id} could not be read"))?;
@@ -581,14 +579,14 @@ fn file_diff(
 fn blame(
     repo: &gix::Repository,
     head: ObjectId,
-    args: &Value,
+    args: &Args,
 ) -> Result<Map<String, Value>, String> {
     let path = opt_path(args)?.ok_or("path is required")?;
     let line = |k: &str| -> Result<Option<u32>, String> {
-        match &args[k] {
-            Value::Null => Ok(None),
+        match args.get(k) {
+            Arg::Absent => Ok(None),
             v => v
-                .as_u64()
+                .whole()
                 .filter(|n| *n >= 1)
                 .and_then(|n| u32::try_from(n).ok())
                 .map(Some)
@@ -668,10 +666,10 @@ fn blame(
 }
 
 /// A path argument: relative, no `.` or `..` part, no NUL or backslash.
-fn opt_path(args: &Value) -> Result<Option<String>, String> {
-    let p = match &args["path"] {
-        Value::Null => return Ok(None),
-        Value::String(p) => p,
+fn opt_path(args: &Args) -> Result<Option<String>, String> {
+    let p = match args.get("path") {
+        Arg::Absent => return Ok(None),
+        Arg::Text(p) => p,
         _ => return Err("path is text".into()),
     };
     let ok = !p.is_empty()
@@ -684,13 +682,13 @@ fn opt_path(args: &Value) -> Result<Option<String>, String> {
             "path is a path in the repository, relative to its top, such as src/main.rs".into(),
         );
     }
-    Ok(Some(p.clone()))
+    Ok(Some(p.to_string()))
 }
 
 /// A commit argument: 7 to 40 hex digits, and nothing a revision could
 /// otherwise say, such as `HEAD~2` or `@{1}`.
-fn commit_id(repo: &gix::Repository, v: &Value, key: &str) -> Result<ObjectId, String> {
-    let s = v.as_str().filter(|s| hex_id(s)).ok_or(format!(
+fn commit_id(repo: &gix::Repository, v: &Arg, key: &str) -> Result<ObjectId, String> {
+    let s = v.text().filter(|s| hex_id(s)).ok_or(format!(
         "{key} is a commit id of 7 to 40 lowercase hex digits"
     ))?;
     let id = repo
@@ -763,12 +761,12 @@ mod tests {
             "a\\b",
             "a\0b",
         ] {
-            assert!(opt_path(&json!({"path": bad})).is_err(), "{bad:?}");
+            assert!(opt_path(&json!({"path": bad}).into()).is_err(), "{bad:?}");
         }
         assert_eq!(
-            opt_path(&json!({"path": "console/mcp/src/git.rs"})).unwrap(),
+            opt_path(&json!({"path": "console/mcp/src/git.rs"}).into()).unwrap(),
             Some("console/mcp/src/git.rs".into())
         );
-        assert_eq!(opt_path(&json!({})).unwrap(), None);
+        assert_eq!(opt_path(&json!({}).into()).unwrap(), None);
     }
 }

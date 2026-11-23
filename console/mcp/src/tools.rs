@@ -4,6 +4,7 @@
 //! its spec below names. A key the dashboard's files gain later is not served
 //! until it is named here. Null values are left out.
 
+use crate::args::{Arg, Args};
 use crate::decisions;
 use crate::disk;
 use crate::events;
@@ -1103,7 +1104,7 @@ fn entries() -> &'static [Value] {
 }
 
 /// The structured content of one call, with "api": 1.
-pub fn call(dirs: &Dirs, name: &str, args: &Value) -> Result<Output, ToolError> {
+pub fn call(dirs: &Dirs, name: &str, args: &Args) -> Result<Output, ToolError> {
     call_held(dirs, name, args).map(|(out, _)| out)
 }
 
@@ -1113,7 +1114,7 @@ pub fn call(dirs: &Dirs, name: &str, args: &Value) -> Result<Output, ToolError> 
 pub(crate) fn call_held(
     dirs: &Dirs,
     name: &str,
-    args: &Value,
+    args: &Args,
 ) -> Result<(Output, Option<LogGuard>), ToolError> {
     // A name outside `CALLED` is refused here, before any arm is reached. The
     // test beside `call_held` holds a list of these arms and compares it with
@@ -1562,10 +1563,10 @@ fn held(report: &Value) -> Option<Held> {
     })
 }
 
-fn issues(live: &Path, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let want = match &args["stage"] {
-        Value::Null => None,
-        Value::String(s) if STAGES.contains(&s.as_str()) => Some(s.as_str()),
+fn issues(live: &Path, args: &Args) -> Result<Map<String, Value>, ToolError> {
+    let want = match args.get("stage") {
+        Arg::Absent => None,
+        Arg::Text(s) if STAGES.contains(&s) => Some(s),
         _ => {
             return Err(ToolError::BadArgs(format!(
                 "stage is one of {}",
@@ -1629,12 +1630,12 @@ fn endings(live: &Path) -> Result<Map<String, Value>, ToolError> {
     Ok(out)
 }
 
-fn console(live: &Path, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let issue = u64::from(issue_arg(&args["issue"])?);
-    let bytes = match &args["bytes"] {
-        Value::Null => CONSOLE_MAX,
+fn console(live: &Path, args: &Args) -> Result<Map<String, Value>, ToolError> {
+    let issue = u64::from(issue_arg(&args.get("issue"))?);
+    let bytes = match args.get("bytes") {
+        Arg::Absent => CONSOLE_MAX,
         v => v
-            .as_u64()
+            .whole()
             .filter(|n| (1..=CONSOLE_MAX).contains(n))
             .ok_or_else(|| ToolError::BadArgs(format!("bytes is from 1 to {CONSOLE_MAX}")))?,
     };
@@ -1745,8 +1746,8 @@ pub(crate) const ISSUE_MAX: u32 = 999_999_999;
 
 /// An issue argument, the one reader of every tool that takes one. It fits a
 /// u32, so the caller widens it to u64 or i64 without a cast.
-pub(crate) fn issue_arg(v: &Value) -> Result<u32, ToolError> {
-    v.as_u64()
+pub(crate) fn issue_arg(v: &Arg) -> Result<u32, ToolError> {
+    v.whole()
         .filter(|n| (1..=u64::from(ISSUE_MAX)).contains(n))
         .and_then(|n| u32::try_from(n).ok())
         .ok_or_else(|| bad(&format!("issue is an integer from 1 to {ISSUE_MAX}")))
@@ -1762,10 +1763,10 @@ pub static WORD: LazyLock<Regex> =
 
 /// One word argument of a call: None when it was not given, and an error that
 /// names the key and the shape when it is not a word.
-pub(crate) fn word(args: &Value, key: &str) -> Result<Option<String>, ToolError> {
-    match &args[key] {
-        Value::Null => Ok(None),
-        Value::String(s) if WORD.is_match(s) => Ok(Some(s.clone())),
+pub(crate) fn word(args: &Args, key: &str) -> Result<Option<String>, ToolError> {
+    match args.get(key) {
+        Arg::Absent => Ok(None),
+        Arg::Text(s) if WORD.is_match(s) => Ok(Some(s.to_string())),
         _ => Err(bad(&format!("{key} is 1 to 64 of A-Za-z0-9._+-"))),
     }
 }
@@ -1858,7 +1859,7 @@ mod tests {
             assert!(spec_of(name).is_none(), "{name} has an answer allowlist");
             assert!(
                 matches!(
-                    call_held(&fixture_dirs(), name, &json!({})),
+                    call_held(&fixture_dirs(), name, &json!({}).into()),
                     Err(ToolError::Unknown(_))
                 ),
                 "{name} is dispatched by an arm"
@@ -1897,7 +1898,7 @@ mod tests {
             );
             assert!(
                 !matches!(
-                    call_held(&fixture_dirs(), name, &json!({})),
+                    call_held(&fixture_dirs(), name, &json!({}).into()),
                     Err(ToolError::Unknown(_))
                 ),
                 "{name} is dispatched by no arm"
@@ -1990,7 +1991,7 @@ mod tests {
         for name in ARMS {
             assert!(
                 !matches!(
-                    call_held(&dirs, name, &json!({})),
+                    call_held(&dirs, name, &json!({}).into()),
                     Err(ToolError::Unknown(_))
                 ),
                 "{name} is dispatched by no arm"
