@@ -22,14 +22,17 @@
 //! - `until`: when it expires, `2026-10-17T14:05:00Z`, or null while it lasts
 //!   until cleared
 //! - `reason`: one line of at most 200 characters, shown as the hold's reason
+//! - `set`: when the limit was written, `2026-10-17T14:05:00Z`. A file
+//!   written before tehas kept the time has none
 //!
 //! `show` prints the limit as it then is, in the words `tehas status` prints,
 //! or with `--json` the object `tehas limit --json` prints:
 //!
 //!   limit     1 cycle at once, planning off, until 2026-10-17T14:05:00Z: held for alpha
-//!   {"api":1,"state":"ok","cycles":1,"plan":false,"until":"...","reason":"..."}
+//!   {"api":1,"state":"ok","cycles":1,"plan":false,"until":"...","reason":"...","set":"..."}
 //!
-//! `read` prints the same reading as one object with no `api`: the object
+//! `tehas drain --json` prints the limit with its `set` too.
+//! `read` prints the same reading as one object with no `api` and no `set`: the object
 //! `tehas status --json` publishes, so it keeps
 //! exactly the fields it has today; with `--line` it prints the words of that
 //! reading instead, which is how the shell prints the line of a limit it has
@@ -41,7 +44,10 @@
 //!
 //! `set` replaces the whole limit and `clear` takes it off; each prints the
 //! limit as it then is. Setting the same limit twice leaves the same file, so
-//! a program which sets it on every poll changes nothing. A limit is written
+//! a program which sets it on every poll changes nothing. The same limit is
+//! the same `cycles`, `plan` and `reason`: it keeps its `set`, also when
+//! `until` moves, and any other limit takes the moment it is written at
+//! (`tehas_core::limit`). A limit is written
 //! through `limit.json.new`, mode 0600, and put in place by a rename: what is
 //! there is always a whole limit, never the half of one.
 //!
@@ -127,9 +133,10 @@ const MAX_FOR: u64 = 999_999_999;
 /// The limit as every command which honours it reads it: the reading of
 /// `tehas_core::limit`, which the dispatcher and the health file take too.
 pub fn read(file: &Path, now: i64) -> Reading {
-    let limit_file::Limit { state, fields } = limit_file::read(file, now);
+    let limit_file::Limit { state, fields, set } = limit_file::read(file, now);
     Reading {
         fields,
+        set,
         ..Reading::of(state)
     }
 }
@@ -148,6 +155,9 @@ pub struct Reading {
     /// The fields in the order they print, with the number already printed as
     /// jq prints it. `state` is not in here: it prints first, always.
     fields: Vec<(String, String)>,
+    /// When the limit was written. `tehas limit --json` and `tehas drain
+    /// --json` print it; `read`, the health file and `tehas status` do not.
+    set: Option<String>,
     /// The words of the reading, whole: the line of the flag as its command
     /// and its readers print it, and the name of the flag in front of them.
     line: String,
@@ -160,6 +170,7 @@ impl Reading {
         Reading {
             state: state.to_string(),
             fields: Vec::new(),
+            set: None,
             line: String::new(),
             flag: "limit",
         }
@@ -231,6 +242,20 @@ impl Reading {
                 .map(|(name, value)| format!("\"{name}\":{value}")),
         );
         format!("{{{}}}", parts.join(","))
+    }
+
+    /// The reading with `set` last: the limit as `tehas limit --json` and
+    /// `tehas drain --json` print it.
+    fn with_set(&self) -> String {
+        let text = self.text();
+        match &self.set {
+            Some(set) => format!(
+                "{},\"set\":{}}}",
+                &text[..text.len() - 1],
+                Value::String(set.clone())
+            ),
+            None => text,
+        }
     }
 }
 
@@ -770,7 +795,7 @@ pub fn drain(given: &[String]) -> u8 {
         }
         sleep(Duration::from_secs(1));
     };
-    let limit = read(&file, now()).text();
+    let limit = read(&file, now()).with_set();
     tehas_core::outln!(
         "{}",
         drain_report(&said, &running, passed, &limit, asked.json)
@@ -956,7 +981,7 @@ fn whole(s: &str, min: u64, max: u64) -> bool {
 
 /// The reading with `api` first: the object `tehas limit --json` prints.
 fn api(out: Reading) -> String {
-    let printed = out.text();
+    let printed = out.with_set();
     format!("{{\"api\":1,{}", &printed[1..])
 }
 
@@ -1023,18 +1048,23 @@ fn write_limit(file: &Path, want: &Wanted) -> Result<(), u8> {
         (None, Some(u)) => u.to_string(),
         (None, None) => String::new(),
     };
+    let plan = want.plan.as_deref() != Some("off");
+    let reason = oneline(want.reason.as_deref().unwrap_or(""));
     // The three values are what a JSON document holds them as: a boolean, a
     // string or null, and a string with its escapes.
     let held = |text: &str| Value::String(text.to_string()).to_string();
+    let set = match limit_file::read(file, now()).set_of(&cycles, plan, &reason, now()) {
+        Some(set) => format!(",\"set\":{}", held(&set)),
+        None => String::new(),
+    };
     let doc = format!(
-        "{{\"v\":1,\"cycles\":{cycles},\"plan\":{},\"until\":{},\"reason\":{}}}\n",
-        want.plan.as_deref() != Some("off"),
+        "{{\"v\":1,\"cycles\":{cycles},\"plan\":{plan},\"until\":{},\"reason\":{}{set}}}\n",
         if until.is_empty() {
             "null".to_string()
         } else {
             held(&until)
         },
-        held(&oneline(want.reason.as_deref().unwrap_or("")).to_string()),
+        held(&reason),
     );
     let dir = match file.parent() {
         Some(d) => d,
@@ -1217,13 +1247,19 @@ mod tests {
     #[test]
     fn a_set_writes_the_file_and_reads_back_as_ok() {
         let d = dir("set");
+        let before = now();
         let (rc, out) = set_in(&d, &["--cycles", "2"]);
+        let after = now();
         assert_eq!(rc, 0);
         assert_eq!(out, r#"{"state":"ok","cycles":2,"plan":true}"#);
         let file = written(&d);
+        let doc = fs::read_to_string(&file).unwrap();
         assert_eq!(
-            fs::read_to_string(&file).unwrap(),
-            "{\"v\":1,\"cycles\":2,\"plan\":true,\"until\":null,\"reason\":\"\"}\n"
+            doc,
+            format!(
+                "{{\"v\":1,\"cycles\":2,\"plan\":true,\"until\":null,\"reason\":\"\",\"set\":\"{}\"}}\n",
+                iso_in(time_of(&doc, "set"), before, after),
+            )
         );
         assert_eq!(
             fs::metadata(&file).unwrap().permissions().mode() & 0o777,
@@ -1328,14 +1364,159 @@ mod tests {
         // comes from the file, not from `read` at `NOW`, which would make any
         // `until` agree with itself.
         let doc = fs::read_to_string(written(&d)).unwrap();
-        let until = until_of(&doc);
+        let until = time_of(&doc, "until");
         assert_eq!(
             doc,
             format!(
-                "{{\"v\":1,\"cycles\":1,\"plan\":true,\"until\":\"{}\",\"reason\":\"\"}}\n",
+                "{{\"v\":1,\"cycles\":1,\"plan\":true,\"until\":\"{}\",\"reason\":\"\",\"set\":\"{}\"}}\n",
                 iso_in(until, before + 300, after + 300),
+                iso_in(time_of(&doc, "set"), before, after),
             )
         );
+    }
+
+    /// A limit as tehas wrote it at `SET`, long before these tests run.
+    const SET: &str = "2026-10-01T00:00:00Z";
+    const HELD: &[&str] = &["--cycles", "3", "--plan", "off", "--reason", "r"];
+
+    fn held_since_set(d: &TestDir, until: &str) -> PathBuf {
+        let file = written(d);
+        let doc = format!(
+            "{{\"v\":1,\"cycles\":3,\"plan\":false,\"until\":{until},\"reason\":\"r\",\"set\":\"{SET}\"}}\n"
+        );
+        fs::write(&file, doc).unwrap();
+        file
+    }
+
+    fn set_of(file: &Path) -> Option<String> {
+        limit_file::read(file, NOW).set
+    }
+
+    #[test]
+    fn the_same_limit_set_again_keeps_its_set() {
+        let d = dir("set-kept");
+        let file = held_since_set(&d, "null");
+        let first = fs::read_to_string(&file).unwrap();
+        assert_eq!(set_in(&d, HELD).0, 0);
+        assert_eq!(fs::read_to_string(&file).unwrap(), first);
+    }
+
+    #[test]
+    fn a_renewal_that_only_moves_until_keeps_set() {
+        let d = dir("set-renewed");
+        let file = held_since_set(&d, "\"2036-01-01T14:05:00Z\"");
+        for until in [
+            &["--until", "2037-01-01T14:05:00Z"][..],
+            &["--for", "60"],
+            &[],
+        ] {
+            set_in(&d, &[HELD, until].concat());
+            assert_eq!(set_of(&file).as_deref(), Some(SET), "{until:?}");
+        }
+        // An expired limit set again is renewed too.
+        let file = held_since_set(&d, "\"2026-10-02T00:00:00Z\"");
+        assert_eq!(read(&file, now()).state(), "expired");
+        set_in(&d, HELD);
+        assert_eq!(read(&file, now()).state(), "ok");
+        assert_eq!(set_of(&file).as_deref(), Some(SET));
+    }
+
+    #[test]
+    fn another_cycles_plan_or_reason_takes_the_moment_it_is_written_at() {
+        for other in [
+            &["--cycles", "4", "--plan", "off", "--reason", "r"][..],
+            &["--cycles", "3", "--plan", "on", "--reason", "r"],
+            &["--cycles", "3", "--plan", "off", "--reason", "other"],
+            &["--cycles", "3", "--plan", "off"],
+        ] {
+            let d = dir("set-moved");
+            let file = held_since_set(&d, "null");
+            let before = now();
+            set_in(&d, other);
+            let after = now();
+            let doc = fs::read_to_string(&file).unwrap();
+            let set = iso_in(time_of(&doc, "set"), before, after);
+            assert_eq!(set_of(&file), Some(set), "{other:?}");
+        }
+    }
+
+    #[test]
+    fn a_limit_over_one_that_cannot_be_read_takes_the_moment() {
+        let d = dir("set-unreadable");
+        let file = written(&d);
+        fs::write(&file, format!("{{\"v\":2,\"set\":\"{SET}\"}}")).unwrap();
+        let before = now();
+        set_in(&d, HELD);
+        let doc = fs::read_to_string(&file).unwrap();
+        let set = iso_in(time_of(&doc, "set"), before, now());
+        assert_eq!(set_of(&file), Some(set));
+    }
+
+    #[test]
+    fn a_file_of_1_4_loads_and_stays_as_it_is_until_the_limit_changes() {
+        let d = dir("set-1-4");
+        let file = written(&d);
+        let old = "{\"v\":1,\"cycles\":3,\"plan\":false,\"until\":null,\"reason\":\"r\"}\n";
+        fs::write(&file, old).unwrap();
+        assert_eq!(
+            api(read(&file, NOW)),
+            r#"{"api":1,"state":"ok","cycles":3,"plan":false,"reason":"r"}"#
+        );
+        // The same limit again is the same bytes: no set appears on a limit
+        // nobody changed.
+        set_in(&d, HELD);
+        assert_eq!(fs::read_to_string(&file).unwrap(), old);
+        let before = now();
+        set_in(&d, &["--cycles", "1"]);
+        let doc = fs::read_to_string(&file).unwrap();
+        let set = iso_in(time_of(&doc, "set"), before, now());
+        assert_eq!(set_of(&file), Some(set));
+    }
+
+    #[test]
+    fn set_is_printed_last_and_not_by_read() {
+        let d = dir("set-printed");
+        let file = held_since_set(&d, "\"2036-01-01T14:05:00Z\"");
+        assert_eq!(
+            api(read(&file, NOW)),
+            format!(
+                r#"{{"api":1,"state":"ok","cycles":3,"plan":false,"until":"2036-01-01T14:05:00Z","reason":"r","set":"{SET}"}}"#
+            )
+        );
+        assert_eq!(
+            read(&file, NOW).with_set(),
+            format!(
+                r#"{{"state":"ok","cycles":3,"plan":false,"until":"2036-01-01T14:05:00Z","reason":"r","set":"{SET}"}}"#
+            )
+        );
+        assert_eq!(
+            read(&file, NOW).text(),
+            r#"{"state":"ok","cycles":3,"plan":false,"until":"2036-01-01T14:05:00Z","reason":"r"}"#
+        );
+    }
+
+    #[test]
+    fn a_clear_and_an_unreadable_limit_print_no_set() {
+        let d = dir("set-cleared");
+        let file = held_since_set(&d, "null");
+        assert_eq!(clear(&file), 0);
+        assert_eq!(api(read(&file, NOW)), r#"{"api":1,"state":"none"}"#);
+        fs::write(&file, format!("{{\"v\":2,\"set\":\"{SET}\"}}")).unwrap();
+        assert_eq!(api(read(&file, NOW)), r#"{"api":1,"state":"unreadable"}"#);
+    }
+
+    #[test]
+    fn a_drain_over_a_drain_keeps_its_set() {
+        let d = dir("set-drain");
+        let file = written(&d);
+        let drain = ["--cycles", "0", "--plan", "off", "--reason", "draining"];
+        fs::write(
+            &file,
+            format!("{{\"v\":1,\"cycles\":0,\"plan\":false,\"until\":null,\"reason\":\"draining\",\"set\":\"{SET}\"}}\n"),
+        )
+        .unwrap();
+        set_in(&d, &drain);
+        assert_eq!(set_of(&file).as_deref(), Some(SET));
     }
 
     #[test]
@@ -1955,8 +2136,15 @@ mod tests {
             text,
             r#"{"state":"ok","cycles":1,"plan":false,"reason":"r"}"#
         );
+        let d = dir("shown");
+        let file = written(&d);
+        fs::write(
+            &file,
+            r#"{"v":1,"cycles":1,"plan":false,"until":null,"reason":"r"}"#,
+        )
+        .unwrap();
         assert_eq!(
-            &format!("{{\"api\":1,{}", &text[1..]),
+            api(read(&file, NOW)),
             r#"{"api":1,"state":"ok","cycles":1,"plan":false,"reason":"r"}"#
         );
     }
@@ -1978,16 +2166,16 @@ mod tests {
         read_pause_bytes(doc.as_bytes()).said()
     }
 
-    /// The `until` of a written limit document as the seconds since the epoch
-    /// it names.
-    fn until_of(doc: &str) -> i64 {
-        let until = serde_json::from_str::<Value>(doc)
+    /// The `until` or the `set` of a written limit document as the seconds
+    /// since the epoch it names.
+    fn time_of(doc: &str, key: &str) -> i64 {
+        let time = serde_json::from_str::<Value>(doc)
             .unwrap()
-            .get("until")
+            .get(key)
             .and_then(Value::as_str)
-            .expect("the limit document holds no until")
+            .expect("the limit document holds no such time")
             .to_string();
-        epoch(&until).expect("the until of a limit is no time")
+        epoch(&time).expect("the time of a limit is no time")
     }
 
     /// The `at` of a pause document as the seconds since the epoch it names.

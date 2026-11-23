@@ -28,13 +28,16 @@ Usage:
                  on pages that may be public
 
 Setting replaces the whole limit; setting it twice the same way leaves the
-same file. Each command prints the limit as it then is:
+same file. The limit keeps the time it was set at while its cycles, plan
+and reason stay the same, also when only its expiry moves. Each command
+prints the limit as it then is:
 
   limit     1 cycle at once, planning off, until 2026-10-17T14:05:00Z: held for alpha
 
 With --json, {"api": 1, "state": "ok", "cycles": 1, "plan": false,
-"until": "...", "reason": "..."}: state is none, ok, expired or unreadable,
-and a field without a value is left out.
+"until": "...", "reason": "...", "set": "..."}: state is none, ok, expired
+or unreadable, set is when the limit was set, and a field without a value
+is left out. A limit set by tehas 1.4 or older has no set until it changes.
 
 The settings are loaded here, and the arguments of set, the
 reading, the writing and the printing are the console's (console/ops/src/holds.rs).

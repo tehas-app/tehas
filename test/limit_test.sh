@@ -41,7 +41,7 @@ t_run "$limit set --cycles 2"
 t_eq "$t_rc" 0
 t_eq "$t_out" "limit     2 cycles at once, planning on, until cleared"
 show
-t_eq "$t_out" '{"api":1,"state":"ok","cycles":2,"plan":true}'
+t_eq "$(jq -c --arg at "$(jq -r .set "$file")" '.set |= (. == $at)' <<<"$t_out")" '{"api":1,"state":"ok","cycles":2,"plan":true,"set":true}'
 t_eq "$(stat -c %a "$file")" 600
 t_eq "$(find "$T/home/tehas/state" -name '*.new' | wc -l)" 0
 
@@ -77,7 +77,7 @@ reset
 t_run "$limit set --cycles 1 --plan off --for 60 --reason old"
 t_run "$limit set --cycles 4"
 show
-t_eq "$t_out" '{"api":1,"state":"ok","cycles":4,"plan":true}'
+t_eq "$(jq -c 'del(.set)' <<<"$t_out")" '{"api":1,"state":"ok","cycles":4,"plan":true}'
 
 t_case "clear: none again, and clearing twice is fine"
 reset
@@ -136,7 +136,7 @@ reset
 mkdir -p "${file%/*}"
 jq -nc --arg u "$(in_secs -60)" '{v: 1, cycles: 2, plan: true, until: $u, reason: "r"}' >"$file"
 show
-t_eq "$(jq -c '{state, cycles, plan}' <<<"$t_out")" '{"state":"expired","cycles":2,"plan":true}'
+t_eq "$(jq -c '{state, cycles, plan, set}' <<<"$t_out")" '{"state":"expired","cycles":2,"plan":true,"set":null}'
 t_run "$limit"
 t_contains "$t_out" "limit     expired at "
 t_contains "$t_out" "nothing starts until it is set again or cleared"

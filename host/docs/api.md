@@ -298,7 +298,7 @@ tehas limit clear
 ```
 
 ```json
-{"api": 1, "state": "ok", "cycles": 1, "plan": false, "until": "2026-10-17T14:05:00Z", "reason": "held for alpha"}
+{"api": 1, "state": "ok", "cycles": 1, "plan": false, "until": "2026-10-17T14:05:00Z", "reason": "held for alpha", "set": "2026-10-17T13:05:00Z"}
 ```
 
 An outside cap on what the factory starts. Every command prints the limit as
@@ -308,8 +308,8 @@ it then is, and `--json` works with the show form only.
 `api/limit.sample.json`, `api/limit.expired.json`, `api/limit.empty.json` and
 `api/limit.unreadable.json` are samples of it, one for each `state`. The four
 are what the command prints, so an expired limit prints `api`, `state`,
-`cycles`, `plan`, `until` and `reason`, and an unreadable one prints only `api`
-and `state`.
+`cycles`, `plan`, `until`, `reason` and `set`, and an unreadable one prints
+only `api` and `state`.
 
 | Field | Meaning |
 | --- | --- |
@@ -318,6 +318,7 @@ and `state`.
 | `plan` | `false`: no new planning session. An answer to a planning question still runs: someone is waiting on it |
 | `until` | When it expires, in the form `2026-10-17T15:00:20Z`: 20 characters, the month 01 to 12, the day 01 to 31, the hour to 23, the minute and second to 59, or 60 for the second. Left out when it lasts until cleared. An `until` of another shape makes the limit `unreadable` |
 | `reason` | Shown as the hold's reason. One line of at most 200 characters, counted as characters; control characters become spaces. Left out when empty |
+| `set` | When the limit was written, in the form of `until`. The same limit set again keeps it: the same limit is the same `cycles`, `plan` and `reason`, so a `set` that only moves `until` keeps it too, and so does setting an expired limit again. Any other limit takes the time it is written at. Left out with no limit, with an unreadable one, and for a limit tehas 1.4 or older wrote, until that limit changes. `tehas limit --json` and [`tehas drain --json`](#tehas-drain) print it; the `limit` of `tehas status --json` does not. A `set` in the file that is not such a time makes the limit `unreadable` |
 
 - **An expired or unreadable limit holds every start**: no cycle, planning
   turn or answer. `tehas status` warns and says why. A file
@@ -329,7 +330,8 @@ and `state`.
 - **Running cycles are never stopped.** A lower limit only holds new starts.
 - **Pause is separate.** A paused factory stays paused under any limit.
 - `set` replaces the whole limit. The same arguments twice leave the same
-  limit, and `clear` without a limit is fine.
+  limit, and `clear` without a limit is fine. After a `clear` there is no
+  `set` to read.
 - **A raise asks for a poll.** A `set` or `clear` that lets more cycles run
   than before, while the last poll's demand has an issue waiting, writes
   `state/dispatch.again` as [`tehas wake`](#tehas-wake) does. The poll that
@@ -720,7 +722,7 @@ tehas drain [--wait SECONDS] [--json]
 ```
 
 ```json
-{"api": 1, "drained": false, "running": [12], "limit": {"state": "ok", "cycles": 0, "plan": false, "reason": "draining"}}
+{"api": 1, "drained": false, "running": [12], "limit": {"state": "ok", "cycles": 0, "plan": false, "reason": "draining", "set": "2026-10-17T14:05:00Z"}}
 ```
 
 The same as `tehas limit set --cycles 0 --plan off --reason draining`, a limit
@@ -742,6 +744,7 @@ running, and one cycle's still running.
 | `limit.plan` | `false`: no new planning session |
 | `limit.until` | Left out: a drain's limit lasts until `tehas limit clear` |
 | `limit.reason` | `draining` |
+| `limit.set` | When the limit was written, as [`set`](#tehas-limit) of `tehas limit --json`. A drain over a drain keeps the first one's |
 
 Exit 0 when no cycle is running; 3 when some still are at the end of the
 wait, or a poll held its lock for the whole of it; 64 on a bad argument; 78
