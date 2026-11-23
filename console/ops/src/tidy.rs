@@ -572,7 +572,7 @@ mod tests {
             "a request a person applies; the finish reads it, not tidy",
         ),
         (
-            "tehas:improvement",
+            tehas_core::kinds::Kind::Improvement.label(),
             "a mark the factory puts on a proposal it files",
         ),
     ];
@@ -744,6 +744,39 @@ mod tests {
                 .to_string(),
         ];
         assert_eq!(rows(&items, 100)[0].off, ["tehas:running"]);
+    }
+
+    /// A plugin phase's label: the tidy never takes one off, never searches
+    /// for one, and an issue that carries only one is no work.
+    #[test]
+    fn a_plugin_phase_label_is_never_taken_off_or_searched_for() {
+        use tehas_core::label_pins::PLUGIN_PHASE;
+        let phase = format!("{PLUGIN_PHASE}x");
+        assert!(STATES.iter().all(|s| !s.starts_with(PLUGIN_PHASE)));
+        assert!(!search().contains(PLUGIN_PHASE));
+        let items = [
+            issue(60, "CLOSED", &[STATES[0], &phase]),
+            issue(61, "CLOSED", &[&phase]),
+        ];
+        let rows = rows(&items, 100);
+        assert_eq!(numbers(&rows), [60]);
+        assert_eq!(rows[0].off, [STATES[0]]);
+        let mut gh = Stub::new(&items, &closed(&[60, 61], &[]));
+        let (rc, log) = poll(&mut gh, false, &[]);
+        assert_eq!(rc, 0);
+        assert_eq!(
+            gh.edits(),
+            [format!(
+                "issue edit 60 --repo acme/widget --remove-label {} --add-label {SHIPPED}",
+                STATES[0]
+            )]
+        );
+        assert!(log.iter().all(|l| !l.contains(PLUGIN_PHASE)), "{log:?}");
+        assert!(
+            gh.calls.iter().all(|c| !c.contains(PLUGIN_PHASE)),
+            "{:?}",
+            gh.calls
+        );
     }
 
     #[test]

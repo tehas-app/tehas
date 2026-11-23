@@ -317,8 +317,10 @@ mod tests {
         named.sort_unstable();
         named.dedup();
         assert!(named.len() > 10, "{named:?}");
+        // The plugins' prefix is named, and is no label of the table.
         let missing: Vec<&String> = named
             .iter()
+            .filter(|n| *n != tehas_core::label_pins::PLUGIN_PHASE)
             .filter(|n| !table.contains(&n.as_str()))
             .collect();
         assert!(missing.is_empty(), "not in host/labels.tsv: {missing:?}");
@@ -446,6 +448,43 @@ mod tests {
         );
         assert_eq!(rc, 1);
         assert!(!tehas_core::label_pins::load(d.path()).contains_key("tehas:plan"));
+    }
+
+    /// A plugin phase's label: no core label takes the prefix, and `tehas
+    /// labels` neither makes, recolours nor pins one. It writes only the
+    /// table's labels and pins only `GRANTING`, so a phase label the
+    /// repository has, its creation time read beside the others, is never
+    /// asked about.
+    #[test]
+    fn a_plugin_phase_label_is_neither_made_nor_pinned() {
+        use tehas_core::label_pins::{GRANTING, PLUGIN_PHASE};
+        let phase = |n: &str| n.starts_with(PLUGIN_PHASE);
+        let labels = table(THE_TABLE).unwrap();
+        assert!(!labels.iter().any(|l| phase(l.name)));
+        let mut made = Vec::new();
+        let rc = run(&labels, &mut |l| {
+            made.push(l.name.to_string());
+            true
+        });
+        assert_eq!(rc, 0);
+        assert!(!made.iter().any(|n| phase(n)), "{made:?}");
+        let d = tehas_core::testdir::TestDir::new("labels-pin-phase");
+        let mut asked = Vec::new();
+        let at = times("LA_px\t2026-10-19T18:16:01Z\nLA_0\t2026-10-19T18:16:02Z\n");
+        let none = vec![None; GRANTING.len()];
+        pin(
+            d.path(),
+            none,
+            &mut |n| {
+                asked.push(n.to_string());
+                Some(format!("LA_{}", GRANTING.iter().position(|g| *g == n)?))
+            },
+            &at,
+        );
+        assert!(!asked.iter().any(|n| phase(n)), "{asked:?}");
+        let pins = tehas_core::label_pins::load(d.path());
+        assert!(!pins.keys().any(|n| phase(n)), "{pins:?}");
+        assert!(!pins.values().any(|id| id == "LA_px"), "{pins:?}");
     }
 
     #[test]
