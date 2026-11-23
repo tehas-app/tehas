@@ -952,3 +952,188 @@ fn a_runner_that_takes_no_input_edits_nothing() {
     assert_eq!(got, Err(Outcome::Refused(Refusal::Unsupported)));
     assert_eq!(taken(&calls), [read_7()]);
 }
+
+// The layouts the cycle's writes need, byte for byte: the store keeps the
+// sum of the whole body a question posts.
+
+const PARK_LINE: &str = "<!-- tehas:park issue=7 step=review kind= provider=0 sig=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->";
+
+/// The text and markers a question of core's q_render is posted with:
+/// q_render's body without a park, its question's marker and the line ends
+/// before it taken off, as the cycle's q_parts takes them.
+fn q_text(rendered: &str, kind: &str, turn: u64) -> String {
+    let marker = tehas_core::question::question_marker(kind, 7, turn);
+    rendered
+        .strip_suffix(&marker)
+        .unwrap()
+        .trim_end_matches('\n')
+        .to_string()
+}
+
+/// The body `note` posts for `text` and `markers` on #7.
+fn posted(text: &str, markers: &[Marker]) -> String {
+    let (mut gh, calls) = adapter(vec![
+        Ok(sample("issue-7.json")),
+        Ok(sample("comment-posted.json")),
+    ]);
+    gh.note(&key(7), text, markers).unwrap();
+    sent_body(&taken(&calls)[1])
+}
+
+#[test]
+fn a_park_question_posts_exactly_the_body_core_s_q_render_makes() {
+    use tehas_core::question::{q_render, Kind};
+    for (marker, line) in [
+        ("<!-- pi-rukas:handoff issue=7 cap=x -->", ""),
+        ("", "The host's own line."),
+    ] {
+        let out = |park: &str| {
+            serde_json::json!({"text": "Tehas cycle stopped.\n\nIt ran out of time.", "question": null,
+                "marker": marker, "park": park, "retry": true, "comments": true})
+        };
+        let with_park = q_render(Kind::Park, 7, 1, &out(PARK_LINE), line);
+        let text = q_text(&q_render(Kind::Park, 7, 1, &out(""), line), "park", 1);
+        assert_eq!(posted(&text, &[park(), question(1)]), with_park);
+    }
+}
+
+#[test]
+fn a_planning_question_posts_exactly_the_body_core_s_q_render_makes() {
+    use tehas_core::question::{q_render, Kind};
+    let out = serde_json::json!({"text": "- [ ] a plan", "question": {"question": "Which?",
+        "options": [{"label": "Adopt all", "description": "Apply all five"}, {"label": "Change some"}]}});
+    let rendered = q_render(Kind::Plan, 7, 2, &out, "");
+    let plan = Marker::Question {
+        kind: QuestionKind::Plan,
+        blueprint: BlueprintNo::new(7).unwrap(),
+        turn: NonZeroU32::new(2).unwrap(),
+    };
+    assert_eq!(posted(&q_text(&rendered, "plan", 2), &[plan]), rendered);
+}
+
+#[test]
+fn a_parks_comment_is_its_words_a_blank_line_and_the_park_line() {
+    // console/cycle/src/report.rs Park::comment: the handoff's marker, the
+    // words (q_clean, no line end at their end), then "\n\n" and the park's
+    // marker.
+    let words = tehas_core::question::q_clean(
+        "Tehas cycle stopped. To retry, apply `tehas:ready`.\n\nUsage: 3 calls.\n",
+        60000,
+    );
+    let text = format!("<!-- pi-rukas:handoff issue=7 cap=x -->\n{words}");
+    assert_eq!(
+        posted(&text, &[park()]),
+        format!("<!-- pi-rukas:handoff issue=7 cap=x -->\nTehas cycle stopped. To retry, apply `tehas:ready`.\n\nUsage: 3 calls.\n\n{PARK_LINE}")
+    );
+}
+
+#[test]
+fn a_notes_id_is_github_s_numeric_rest_id_never_its_node_id() {
+    let (mut gh, _) = adapter(vec![
+        Ok(sample("issue-7.json")),
+        Ok(sample("comment-posted.json")),
+    ]);
+    let got = gh.note(&key(7), "b", &[]).unwrap();
+    let v: Value = serde_json::from_str(&sample("comment-posted.json")).unwrap();
+    assert_eq!(got.id.as_str().parse::<u64>().ok(), v["id"].as_u64());
+    assert_ne!(got.id.as_str(), v["node_id"].as_str().unwrap());
+    // An id GitHub gives as a string is no REST id: unread.
+    let mut s = v.clone();
+    s["id"] = "IC_kwDOAbCdEf6VeQ8x".into();
+    assert_eq!(
+        note_against(Ok(s.to_string())).0,
+        Err(Outcome::Unread(Unread::Malformed))
+    );
+}
+
+#[test]
+fn a_last_attempt_set_goes_at_the_end_in_place_of_an_older_one_and_keeps_the_text() {
+    let base = "0".repeat(64);
+    // An older block before a hold: the new one goes last, the hold stays.
+    let body = format!(
+        "Fix it.\r\n\r\n- one\r\n- two\n\n<!-- tehas:last-attempt base={base} -->\nOld note.\n<!-- /tehas:last-attempt -->\n<!-- tehas:blocked by=3 -->"
+    );
+    let read = issue_7("Fix", &body, "2026-11-22T14:30:00Z");
+    let (mut gh, calls) = adapter(vec![Ok(read), Ok(issue_7("Fix", "x", EDITED))]);
+    let edit = MarkerEdit {
+        set: vec![last_attempt("New note.")],
+        drop: Vec::new(),
+    };
+    gh.edit(&key(7), None, None, &edit, &since()).unwrap();
+    assert_eq!(
+        edited(&taken(&calls)[1]).body.unwrap(),
+        format!(
+            "Fix it.\r\n\r\n- one\r\n- two\n\n<!-- tehas:blocked by=3 -->\n<!-- tehas:last-attempt base={base} -->\nNew note.\n<!-- /tehas:last-attempt -->"
+        )
+    );
+}
+
+/// gh's answers for issue 21 of the recordings, its REST read with `body`
+/// and `updated` in place of its own.
+fn recorded_21(body: Option<&str>, updated: Option<&str>) -> String {
+    let at = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/recorded/issue-21/issue.json");
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(at).unwrap()).unwrap();
+    if let Some(b) = body {
+        v["body"] = b.into();
+    }
+    if let Some(u) = updated {
+        v["updated_at"] = u.into();
+    }
+    v.to_string()
+}
+
+fn recorded_21_cut() -> String {
+    let at =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/recorded/issue-21/ticket-cut.json");
+    std::fs::read_to_string(at).unwrap()
+}
+
+#[test]
+fn a_ticket_read_after_a_last_attempts_edit_gives_the_text_and_the_block_back() {
+    use tehas_ports::Depth;
+    let k = key(21);
+    let text = "Fix the importer.\r\n\r\nIt drops   the last row.  \r\n";
+    let note = "### The last attempt ran out of time\n\n- Steps: develop 90m00s";
+    let la = last_attempt(note);
+    // The read the cycle makes first: its revision is the one the edit is
+    // held to.
+    let (mut gh, calls) = adapter(vec![
+        Ok(recorded_21(Some(text), None)),
+        Ok(recorded_21_cut()),
+    ]);
+    let before = gh.ticket(&k, Depth::Cut { notes: 0 }, None).unwrap();
+    assert_eq!(taken(&calls).len(), 2);
+    assert_eq!(before.text, text);
+    let edit = MarkerEdit {
+        set: vec![la.clone()],
+        drop: Vec::new(),
+    };
+    let (mut gh, calls) = adapter(vec![
+        Ok(recorded_21(Some(text), None)),
+        Ok(recorded_21(Some("x"), Some(EDITED))),
+    ]);
+    gh.edit(&k, None, None, &edit, &before.digest.revision)
+        .unwrap();
+    let stored = serde_json::from_str::<Edited>(taken(&calls)[1].input.as_deref().unwrap())
+        .unwrap()
+        .body
+        .unwrap();
+    // The issue's text, its white space at the end alone taken off, then the
+    // block.
+    assert_eq!(
+        stored,
+        format!(
+            "Fix the importer.\r\n\r\nIt drops   the last row.\n\n<!-- tehas:last-attempt base={} -->\n{note}\n<!-- /tehas:last-attempt -->",
+            "0".repeat(64)
+        )
+    );
+    let (mut gh, _) = adapter(vec![
+        Ok(recorded_21(Some(&stored), Some(EDITED))),
+        Ok(recorded_21_cut()),
+    ]);
+    let after = gh.ticket(&k, Depth::Cut { notes: 0 }, None).unwrap();
+    assert_eq!(after.text, text.trim_end());
+    assert_eq!(after.text.trim(), before.text.trim());
+    assert_eq!(after.markers, [la]);
+    assert_eq!(after.digest.revision, Revision::new(EDITED));
+}

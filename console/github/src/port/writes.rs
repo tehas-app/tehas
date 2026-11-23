@@ -14,8 +14,8 @@ use crate::{markers, table, GitHub};
 use serde_json::Value;
 use tehas_ports::{
     Applied, At, CloseReason, CommentId, Did, Got, Item, Kind, Lost, Mark, MarkSpec, Marker,
-    MarkerEdit, NewTicket, Outcome, Pool, Posted, Priority, Refusal, Revision, Sent, Step,
-    StepPart, TargetEdit, TargetId, TicketKey, TicketWrites, Unprepared, Unread, WebLink,
+    MarkerEdit, MarkerKind, NewTicket, Outcome, Pool, Posted, Priority, Refusal, Revision, Sent,
+    Step, StepPart, TargetEdit, TargetId, TicketKey, TicketWrites, Unprepared, Unread, WebLink,
 };
 
 /// What `GhRunner::run_input`'s default answers: the runner sends nothing.
@@ -124,7 +124,8 @@ impl TicketWrites for GitHub {
     ///
     /// The body is the text given, or the text as it reads now, with the
     /// markers `markers` leaves, as [`markers::write`] makes it: every
-    /// marker it does not name is kept, in its order, after the text. A
+    /// marker it does not name is kept, in its order, after the text; a
+    /// last attempt's block set goes last, in place of an older one. A
     /// body with a marker that does not read (unreadable, bare or of no
     /// kind) is `Refused(Unsupported)` when the body would be written: the
     /// writer writes no such marker, and dropping it is no one's ask. A
@@ -337,7 +338,9 @@ impl Issue {
 
 /// Apply a `MarkerEdit` as the ports' fake does: a marker set replaces one
 /// of its kind and key, or is added at the end; one named in `drop` is
-/// taken off; the rest keep their order. Every marker here reads.
+/// taken off; the rest keep their order. Every marker here reads. A last
+/// attempt's block set goes last, in place of an older one, as 1.x's
+/// `last_attempt::decide` put the note at the end of the body.
 fn edit_markers(markers: &mut Vec<Marker>, edit: &MarkerEdit) {
     markers.retain(|m| {
         !edit
@@ -346,11 +349,15 @@ fn edit_markers(markers: &mut Vec<Marker>, edit: &MarkerEdit) {
             .any(|(k, key)| m.kind() == *k && m.key() == *key)
     });
     for set in &edit.set {
-        match markers
+        let at = markers
             .iter()
-            .position(|m| m.kind() == set.kind() && m.key() == set.key())
-        {
-            Some(at) => markers[at] = set.clone(),
+            .position(|m| m.kind() == set.kind() && m.key() == set.key());
+        match at {
+            Some(at) if set.kind() != MarkerKind::LastAttempt => markers[at] = set.clone(),
+            Some(at) => {
+                markers.remove(at);
+                markers.push(set.clone());
+            }
             None => markers.push(set.clone()),
         }
     }
