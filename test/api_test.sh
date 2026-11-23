@@ -57,7 +57,6 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "analytics"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "state-move"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "clean"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "mcp-dashboard-keys"
-t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "panels"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "state-check"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "finish"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "status-versions"
@@ -72,7 +71,7 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr"
 for gone in store-copy host-message-health refresh-pr-starts refresh-pr-lane refresh-pr-json; do
   t_eq "$gone $(jq --arg w "$gone" '.features | index($w)' <<<"$t_out")" "$gone null"
 done
-t_eq "$(jq -r '.features | last' <<<"$t_out")" "question"
+t_eq "$(jq -r '.features | last' <<<"$t_out")" "cycle-ids"
 t_eq "$(jq -r '.features | length' <<<"$t_out")" 31
 t_eq "$(jq -r '.features | index("host-bridge-tokens")' <<<"$t_out")" null
 # Every word of features is in the manual's example and has its own entry,
@@ -98,8 +97,9 @@ t_run "$api --json"
 t_eq "$t_rc" 0
 renames=$T_ROOT/api/renames-1.0.tsv
 # What v0.30.6, the last 0.30 release, printed: the base 1.0 updates from.
+# panels left core in 2.0, with no renames row, so it is not here.
 for word in status limit drain history export \
-  refresh-conflicts analytics state-move mcp-dashboard-keys clean disk panels state-check \
+  refresh-conflicts analytics state-move mcp-dashboard-keys clean disk state-check \
   finish status-versions store-copy state-load freeze host-bridge cycle-writes settings-rules \
   start-order host-message refresh-pr host-message-health refresh-pr-starts refresh-pr-lane \
   refresh-pr-sweep refresh-pr-json host-start; do
@@ -125,30 +125,29 @@ reset
 installed v0.8.0+cb6912a
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.flags' <<<"$t_out")" '{"spec-pipe":false,"lean":false,"plugins":false}'
-t_eq "$(jq -r '.features | index("spec-pipe")' <<<"$t_out")" null
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"lean":false,"plugins":false}'
 t_eq "$(jq -r '.features | index("lean")' <<<"$t_out")" null
-t_eq "$(jq -r 'keys_unsorted | join(" ")' <<<"$t_out")" "api tehas commit repo features flags millwright poll"
+t_eq "$(jq -r 'keys_unsorted | join(" ")' <<<"$t_out")" "api tehas commit repo features flags millwright poll store"
 t_run "$api"
-t_contains "$t_out" "flags       spec-pipe=off lean=off plugins=off"
+t_contains "$t_out" "flags       lean=off plugins=off"
 
 t_case "api --json: a test that turns a building feature on sees it on in flags only"
 reset
 installed v0.8.0+cb6912a
-t_instance "${T_MINIMAL[@]}" TEHAS_SPEC_PIPE=on
-T_ENV=(TEHAS_TEST_FEATURES=spec-pipe)
+t_instance "${T_MINIMAL[@]}" TEHAS_LEAN=on
+T_ENV=(TEHAS_TEST_FEATURES=lean)
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.flags' <<<"$t_out")" '{"spec-pipe":true,"lean":false,"plugins":false}'
-t_eq "$(jq -r '.features | index("spec-pipe")' <<<"$t_out")" null
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"lean":true,"plugins":false}'
+t_eq "$(jq -r '.features | index("lean")' <<<"$t_out")" null
 
 t_case "api: a building feature switched on is refused with 78 and its name"
 reset
 installed v0.8.0+cb6912a
-t_instance "${T_MINIMAL[@]}" TEHAS_SPEC_PIPE=on
+t_instance "${T_MINIMAL[@]}" TEHAS_LEAN=on
 t_run "$api --json"
 t_eq "$t_rc" 78
-t_contains "$t_out" "spec-pipe is still being built"
+t_contains "$t_out" "lean is still being built"
 
 t_case "api --json: the millwright is the app's login when the factory has one"
 reset
@@ -353,8 +352,8 @@ t_case "api --json prints the samples: no poll on record, a poll with no writes 
 # The clock and the wall time of the last poll are the run's, so the samples
 # keep their own; every other value is what the command printed.
 # TEHAS_SAMPLES_WRITE=1 writes the samples from the command instead.
-steady() { # <json text>: the object with the clock of its poll as the samples hold it
-  jq 'if .poll then .poll.last |= (.at = 1761400000 | .wallMs = 24000 | .ageMin = 0) else . end' <<<"$1"
+steady() { # <json text>: the object with the clock of its poll and its store's random id as the samples hold them
+  jq 'if .poll then .poll.last |= (.at = 1761400000 | .wallMs = 24000 | .ageMin = 0) else . end | .store |= if . then "8f14e45fceea167a5a36dedd4bea2543" else . end' <<<"$1"
 }
 sample_is() { # <name> <json text>: the object is api/api.<name>.json, but for the clock
   t_eq "$(fits_text "$2")" ""

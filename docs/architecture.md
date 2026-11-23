@@ -66,8 +66,11 @@ the traits take (`Reports`, `Report`, `Caller`, `PortName`).
 T4.1c: the ledger and health: `Ledger`, the budget and health state
 shared across processes, keyed by `HostId` and `Whose` (the host, one
 `Holder` on it, or one pool of a holder), and `health::next`, the pure step from one outcome to the
-next state and the `Notice`, if the state changed. T4.1d: the fakes, the
-laws and the `Writer`. A handle takes `&mut self` and is `Send`; a `Site` and the
+next state and the `Notice`, if the state changed. T4.1d: the fakes
+(`tehas_ports::fake`: `World`, `FakeSite`, `Faulty`, the `NoticeLog` sink,
+`MemoryLedger`, `MemoryTokens`), the laws (`tehas_ports::laws`, the
+contract test of any adapter) and the `Writer`; with it the crate holds
+what step T4.1 names. A handle takes `&mut self` and is `Send`; a `Site` and the
 caller's stores (`Links`, `Keyring`, `TokenStore`) are `Send + Sync` and
 take `&self`. `Join` is the board of a split setup: pure code over three
 owned read handles and the links, each ticket answered alone.
@@ -96,10 +99,18 @@ or clock in its source, whether reached by a path, a grouped import
 (`use std::{fs, ...}`, also spread over lines) or an alias
 (`use std::{env as e}`, `std as`); no standard stream (`stdin`,
 `stdout`, `stderr`); and no `print!`, `println!`, `eprint!`, `eprintln!`
-or `dbg!`. The crate's tests round-trip
+or `dbg!`; no `thread_local!`, state kept per thread being hidden global
+state. In-process sharing (`std::sync`), which the fakes use for
+`Send + Sync`, is no effect and is not counted. The crate's tests round-trip
 its types through a small serde format of their own, since the crate takes
 no serde_json; `untyped-signatures` allows that one file by name, as its
 matches are serde's own `Visitor::Value`.
+
+`event-names` (R1, T11.1) holds an event name's string to the ports'
+events module: a string literal equal to a name, quotes included, counts
+anywhere else in `console/`, comments too. Code names `Name::CycleEnded`;
+a test that needs a name in JSON takes it from `Name::as_str`. A new name
+joins the pattern in the pull request that adds it.
 
 ## Write guards
 
@@ -142,6 +153,32 @@ parameter.
 The direction is not checked in CI yet. core itself mixes the pure
 rules with effects (`sandbox.rs`, `access.rs`, `call.rs`, `retry.rs`):
 T6 settles where the core ends.
+
+## Kept for the 2.1 plugins
+
+Some crates have no caller in 2.0 on purpose. They hold the plumbing of the
+features 2.0 took out of core (T14, T16), kept for the 2.1 plugins that bring
+those features back
+(`docs/specs/2026-11-22-plugin-lab.md`,
+`docs/specs/2026-11-22-plugin-surfaces-2.1.md`). A dead-code pass of 2.0.x
+leaves them alone.
+
+| Crate | Kept for |
+| --- | --- |
+| `console/items` | the lab plugin's issue feed and page writer |
+| `console/attach` | the `files:` grant and the plugin mode of attachments; 2.0's cycles use it too |
+| `console/describe` | the `given` plugin's image descriptions |
+| `console/review-render` | the `review` plugin's issue body |
+| `console/wiki-collect` | the `history:` grant's raw sources |
+| `console/wiki-render` | the `wiki` plugin's check, render and keep rules |
+| `console/mesh-feed` | the host-made `feed:mesh` |
+| `console/host-feed` | the host-made `feed:host` |
+
+`console/xtask/tests/kept_for_plugins.rs` fails when one of them leaves the
+workspace or loses its tests, and when this table does not name it. A crate
+leaves the list only with the plugin specification change that drops its
+use. core's `outside.rs`, the rules of an outside page for the `frame`
+surface, is kept too, but it is live: `tehas host-message` calls it.
 
 ## Grouping (R5)
 

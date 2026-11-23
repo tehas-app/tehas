@@ -103,7 +103,8 @@
     "0",
     "--forks",
     "0",
-    "--parked"
+    "--parked",
+    "--signalled"
    ],
    "park": [
     "7",
@@ -375,7 +376,8 @@
     "0",
     "--branch",
     "feature/x",
-    "--parked"
+    "--parked",
+    "--signalled"
    ],
    "park": [
     "7",
@@ -643,7 +645,8 @@
     "0",
     "--forks",
     "0",
-    "--parked"
+    "--parked",
+    "--signalled"
    ],
    "park": [
     "7",

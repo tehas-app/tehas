@@ -14,7 +14,6 @@
     "mcp-dashboard-keys",
     "clean",
     "disk",
-    "panels",
     "state-check",
     "finish",
     "status-versions",
@@ -34,10 +33,10 @@
     "start-reasons",
     "blockers",
     "answer",
-    "question"
+    "question",
+    "cycle-ids"
   ],
   "flags": {
-    "spec-pipe": false,
     "lean": false,
     "plugins": false
   },
@@ -58,5 +57,6 @@
       "cpuMs": 3100,
       "writes": null
     }
-  }
+  },
+  "store": "8f14e45fceea167a5a36dedd4bea2543"
 }

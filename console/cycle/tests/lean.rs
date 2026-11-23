@@ -53,10 +53,10 @@ fn read(case: &str, result: &str, rc: i64, prs: Value, driver: &str) -> Report {
         "signalled": false,
         "started": 1000,
         "now": 1600,
-        "start": {"attempt": 2, "by": "alice", "how": "label"},
+        "start": {"attempt": 2, "by": "alice", "how": "approved"},
         "files": {"result.json": result, "progress.json": progress, "runner_exit": format!("{rc}\n")},
         "record": {"cycle": {"attempt": 2}},
-        "approval": {"current": {"used_by": 2, "how": "label", "input": {"links": [], "driver": driver}}},
+        "approval": {"current": {"used_by": 2, "how": "approved", "input": {"links": [], "driver": driver}}},
         "github": {"prs": prs, "attention": false},
     });
     let f = Facts::from_json(&facts).expect("the facts read");

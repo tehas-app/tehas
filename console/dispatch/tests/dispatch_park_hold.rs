@@ -265,7 +265,7 @@ fn the_retry_rests_on_who_started_the_parked_cycle_not_on_a_later_approval_of_an
     let w = World::new("hold-outage-bob");
     outage_parked(&w, "alice");
     // bob's approval, later and never used: the retry is alice's.
-    w.t_approve(7, "bob", "label", 1_767_300_000, &[]);
+    w.t_approve(7, "bob", "approved", 1_767_300_000, &[]);
     let r = w.poll();
     assert_eq!(started(&w), "7");
     has(&r.out, "start #7 (requeued by alice)");

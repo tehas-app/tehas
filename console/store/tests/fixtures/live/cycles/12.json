@@ -6,5 +6,8 @@
   "statusText": "Running the gate",
   "startedAt": 4102440000,
   "updatedAt": 4102444800,
-  "console": "console-12.txt"
+  "console": "console-12.txt",
+  "attempt": 1,
+  "how": "approved",
+  "by": "alice"
 }

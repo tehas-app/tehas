@@ -83,12 +83,12 @@ pub fn end_reason(word: &str) -> &str {
     }
 }
 
-/// How a run ended, in the words of the runs table: `pr` an open
+/// How a run ended, in the words of the runs table: `offered` an open
 /// change, not parked; `merged`; `handoff` to a person; `parked`; `failed`;
 /// `refused`, no cycle ran; `stopped`, closed, interrupted or stopped. `end`
 /// decides which. The set is closed: a new word is a major change.
 pub const OUTCOMES: [&str; 7] = [
-    "pr", "merged", "handoff", "parked", "failed", "refused", "stopped",
+    "offered", "merged", "handoff", "parked", "failed", "refused", "stopped",
 ];
 
 /// The outcomes of a run that stopped for a person: the ones a park comment
@@ -135,12 +135,12 @@ pub struct Line<'a> {
 /// 2. `closed`, `interrupted` or `stopped`, not parked: `stopped`
 /// 3. `refused`: `refused`
 /// 4. an exit status of `REFUSED_EXITS`: `refused`
-/// 5. a change, not parked: `pr`
+/// 5. a change, not parked: `offered`
 /// 6. `handoff`: `handoff`
 /// 7. a word of `FAILED`, or a failure kind other than `cap`: `failed`
 /// 8. any other line: `parked`
 ///
-/// A parked line never ends `merged`, `stopped` or `pr`, so every
+/// A parked line never ends `merged`, `stopped` or `offered`, so every
 /// parked line ends with a word of `STOPS`.
 pub fn end(line: &Line) -> &'static str {
     let outcome = line.outcome.unwrap_or(UNKNOWN);
@@ -156,7 +156,7 @@ pub fn end(line: &Line) -> &'static str {
     {
         "refused"
     } else if line.change && free {
-        "pr"
+        "offered"
     } else if outcome == "handoff" {
         "handoff"
     } else if FAILED.contains(&outcome)
@@ -225,9 +225,9 @@ mod tests {
     // A new outcome word is a stop or not by a decision, not by being left out
     // of the stops: the outcomes that are no stop are exactly these three.
     #[test]
-    fn the_outcomes_that_are_no_stop_are_a_pull_request_a_merge_and_stopped() {
+    fn the_outcomes_that_are_no_stop_are_an_offer_a_merge_and_stopped() {
         let rest: BTreeSet<_> = set(&OUTCOMES).difference(&set(&STOPS)).copied().collect();
-        assert_eq!(rest, set(&["pr", "merged", "stopped"]));
+        assert_eq!(rest, set(&["offered", "merged", "stopped"]));
     }
 
     #[test]

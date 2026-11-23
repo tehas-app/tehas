@@ -132,9 +132,9 @@ fn history_show_with_nothing_is_an_empty_list() {
 #[test]
 fn history_show_lists_every_column_in_the_order_written() {
     let home = home("history-order");
-    cycle(&home, 11, "label", NOW + 30);
+    cycle(&home, 11, "approved", NOW + 30);
     turn(&home, 10, NOW + 20);
-    cycle(&home, 10, "label", NOW + 20);
+    cycle(&home, 10, "approved", NOW + 20);
     cycle(&home, 10, "millwright", NOW + 40);
     let all = rows(&home, &[]);
     // In the order the ends were written, whatever their times and issues:
@@ -155,7 +155,7 @@ fn history_show_lists_every_column_in_the_order_written() {
     assert_eq!(
         c,
         json!({"kind":"cycle","id":id,"issue":10,"attempt":1,"at":NOW + 20,"status":"failed",
-               "step":"review","by":"alice","how":"label","pr":40,"started_at":NOW + 10,"rc":3,
+               "step":"review","by":"alice","how":"approved","pr":40,"started_at":NOW + 10,"rc":3,
                "cap":null,"park_reason":null,"failure_kind":null,"failure_cause":null,
                "provider":true,"parked":false,"easy":false,"seq":3})
     );
@@ -172,7 +172,7 @@ fn history_show_lists_every_column_in_the_order_written() {
 #[test]
 fn history_show_takes_an_issue_a_kind_and_a_how() {
     let home = home("history-filter");
-    cycle(&home, 10, "label", NOW + 20);
+    cycle(&home, 10, "approved", NOW + 20);
     cycle(&home, 10, "refresh", NOW + 30);
     cycle(&home, 11, "refresh", NOW + 35);
     turn(&home, 10, NOW + 25);
@@ -209,7 +209,7 @@ fn history_show_takes_the_millwright_under_its_word() {
     let home = home("history-millwright");
     // A person's label and two millwright starts: a read of the millwright's
     // word keeps the two and no other, and the old word is no filter.
-    cycle(&home, 12, "label", NOW);
+    cycle(&home, 12, "approved", NOW);
     cycle(&home, 12, "millwright", NOW + 30);
     cycle(&home, 12, "millwright", NOW + 60);
     assert_eq!(
@@ -223,7 +223,10 @@ fn history_show_takes_the_millwright_under_its_word() {
         ]
     );
     assert_eq!(
-        keys(&rows(&home, &["12", "--kind", "cycle", "--how", "label"])),
+        keys(&rows(
+            &home,
+            &["12", "--kind", "cycle", "--how", "approved"]
+        )),
         vec![("cycle".to_string(), 12, NOW)]
     );
     let (rc, line) = call(&home, &["history-show", "12", "--how", "fixer"]).unwrap_err();
@@ -246,7 +249,7 @@ fn history_show_refuses_bad_arguments() {
             "--how is not one of",
         ),
         (
-            &["history-show", "--kind", "plan", "--how", "label"][..],
+            &["history-show", "--kind", "plan", "--how", "approved"][..],
             "--how is not taken with --kind plan",
         ),
         (&["history-show", "--kind"][..], "--kind needs a value"),
