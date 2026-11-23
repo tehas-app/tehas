@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
+use super::site::answered_locally;
 use super::state::lock;
 use super::world::Clock;
 use crate::{
@@ -293,9 +294,44 @@ impl Op {
         match *self {
             Op::Tickets(T::Search) | Op::Blueprints(B::Search) => Pool::Search,
             Op::Board(_) => Pool::Priced,
-            Op::Tickets(t) if t as u8 >= T::Apply as u8 => Pool::Writes,
-            Op::Blueprints(b) if b as u8 >= B::Open as u8 => Pool::Writes,
-            Op::CodeHost(c) if c as u8 >= C::OpenChange as u8 => Pool::Writes,
+            Op::Tickets(
+                T::Apply
+                | T::Prepare
+                | T::EnsureMark
+                | T::Mark
+                | T::Unmark
+                | T::Close
+                | T::Note
+                | T::File
+                | T::Edit
+                | T::Reopen
+                | T::SetKind
+                | T::SetPriority
+                | T::WaitOn
+                | T::StopWaiting
+                | T::Assign
+                | T::AddPart
+                | T::RemovePart
+                | T::NewTarget
+                | T::EditTarget
+                | T::SetTarget,
+            )
+            | Op::Blueprints(B::Open | B::Edit | B::Comment | B::EditComment | B::Close)
+            | Op::CodeHost(
+                C::OpenChange
+                | C::EditChange
+                | C::MarkChange
+                | C::UnmarkChange
+                | C::CommentChange
+                | C::CloseChange
+                | C::Merge
+                | C::Propose
+                | C::Tag
+                | C::SetStatus
+                | C::NewRelease
+                | C::Upload
+                | C::PublishRelease,
+            ) => Pool::Writes,
             _ => Pool::Calls,
         }
     }
@@ -432,7 +468,9 @@ struct Shared {
 /// method are counted across every handle the wrapper made. Given a
 /// `Watch`, it holds a spent pool's calls with no request, answers past the
 /// deadline with no request, and gives every other answer to
-/// `health::next`, raising a notice only when its swap wins.
+/// `health::next`, raising a notice only when its swap wins. An answer its
+/// site made with no request (`FakeSite`'s kept or given token, or a
+/// token refused before any mint) is not given to `health::next`.
 pub struct Faulty<S: Site> {
     site: S,
     shared: Arc<Shared>,
@@ -502,8 +540,8 @@ impl<S: Site> Faulty<S> {
     }
 
     /// How many calls went out: those the site answered and those a fault
-    /// answered in its place. A held call and one past the deadline are
-    /// not counted.
+    /// answered in its place. A held call, one past the deadline, and one
+    /// the site answered with no request are not counted.
     pub fn requests(&self) -> u32 {
         *lock(&self.shared.requests)
     }
@@ -659,7 +697,7 @@ impl<H: ?Sized> Wrap<H> {
             return fail(o);
         }
         let fault = self.fault(op);
-        *lock(&self.shared.requests) += 1;
+        let local = answered_locally();
         let answer = match fault {
             None => f(&mut self.inner),
             Some(fault) => {
@@ -670,7 +708,12 @@ impl<H: ?Sized> Wrap<H> {
             }
         };
         let seen = answer.seen();
-        self.observe(pool, &seen);
+        // A fault stands for an answer of the site; an answer the site made
+        // with no request is neither counted nor seen.
+        if fault.is_some() || answered_locally() == local {
+            *lock(&self.shared.requests) += 1;
+            self.observe(pool, &seen);
+        }
         if let Err(o) = &seen {
             self.report(o);
         }

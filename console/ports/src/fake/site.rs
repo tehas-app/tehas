@@ -2,6 +2,7 @@
 //! would check it, applied, and recorded as a `Wrote` naming the handle's
 //! account. Its handles count their calls in the site's meter.
 
+use std::cell::Cell;
 use std::sync::{Arc, Mutex};
 
 use super::state::{lock, CommentRec, ItemRec, State};
@@ -22,6 +23,22 @@ pub const TOKEN_LIFE: i64 = 3600;
 pub const TOKEN_LEFT: u32 = 600;
 /// How many characters of a text `Depth::Cut` keeps.
 pub const CUT_TEXT: usize = 200;
+
+thread_local! {
+    static LOCAL: Cell<u64> = const { Cell::new(0) };
+}
+
+/// How many answers the fake's handles made on this thread with no
+/// request: a kept or given token, or a token refused before any mint. A
+/// call runs on its caller's thread, so `Faulty` reads this before and
+/// after it and gives no such answer to `health::next`.
+pub(crate) fn answered_locally() -> u64 {
+    LOCAL.with(Cell::get)
+}
+
+fn answer_locally() {
+    LOCAL.with(|c| c.set(c.get() + 1));
+}
 
 /// A `Site` over a `World`. Its handles answer from the world and write to
 /// it; a read handle has no write method to call. Minted tokens are kept in
@@ -378,14 +395,18 @@ impl Handle {
     }
 
     /// A kept token of the factory's, or a new one kept for the next
-    /// caller. A keyless site mints none: none kept is `SignedOut`.
+    /// caller. A keyless site mints none: none kept is `SignedOut`. Only a
+    /// mint is a request, counted in the meter.
     fn token_for(&self, covers: &Covers, scope: Scope, now: At) -> Got<Token> {
         if let Some(t) = self.tokens.kept(covers, scope, TOKEN_LEFT) {
+            answer_locally();
             return Ok(t);
         }
         if self.keyless {
+            answer_locally();
             return Err(Outcome::SignedOut);
         }
+        self.count(Pool::Calls);
         let n = {
             let mut s = self.world.lock();
             s.fresh_id("minted")
@@ -493,20 +514,27 @@ impl Identity for Handle {
     }
 
     /// The factory's token for this project: kept, or minted and kept. A
-    /// given token is answered as it was handed in, never minted.
+    /// given token is answered as it was handed in, never minted. Only a
+    /// mint is a request; every other answer is made with no request.
     fn token(&mut self, scope: Scope) -> Got<Token> {
-        self.count(Pool::Calls);
         let now = self.world.now();
         let answer = match self.actor.clone() {
             Actor::Given(key) => match crate::Keyring::given(&self.world, &key) {
-                Some(t) if t.until > now => Ok(t),
+                Some(t) if t.until > now => {
+                    answer_locally();
+                    Ok(t)
+                }
                 _ => {
+                    answer_locally();
                     crate::Keyring::signed_out(&self.world, &key);
                     Err(Outcome::SignedOut)
                 }
             },
             Actor::Ours(_) if self.scope_ok(scope) => self.token_for(&self.covers(), scope, now),
-            _ => Err(Outcome::Forbidden),
+            _ => {
+                answer_locally();
+                Err(Outcome::Forbidden)
+            }
         };
         if let Err(o) = &answer {
             self.report(o.clone());
@@ -518,7 +546,6 @@ impl Identity for Handle {
     /// project among them. A project outside the grant, or a set without
     /// this project, is `Forbidden` before any mint.
     fn token_over(&mut self, scope: Scope, projects: &[ProjectName]) -> Got<Token> {
-        self.count(Pool::Calls);
         let now = self.world.now();
         let (grant, covered) = {
             let s = self.world.lock();
@@ -530,11 +557,15 @@ impl Identity for Handle {
             || !projects.contains(&own)
             || projects.iter().any(|p| !covered.contains(p))
         {
+            answer_locally();
             Err(Outcome::Forbidden)
         } else {
             match Covers::projects(grant, projects.to_vec()) {
                 Ok(covers) => self.token_for(&covers, scope, now),
-                Err(_) => Err(Outcome::Forbidden),
+                Err(_) => {
+                    answer_locally();
+                    Err(Outcome::Forbidden)
+                }
             }
         };
         if let Err(o) = &answer {
