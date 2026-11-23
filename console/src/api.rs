@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 /// brings it, and taken out only with the feature itself. The shipped features
 /// of the registry (core/src/features.rs) follow these; a building one is not
 /// a word of `features`.
-const FEATURES: [&str; 31] = [
+const FEATURES: [&str; 32] = [
     "status",
     "limit",
     "drain",
@@ -45,6 +45,7 @@ const FEATURES: [&str; 31] = [
     "answer",
     "question",
     "cycle-ids",
+    "questions",
 ];
 
 /// The longest version text read, which `head -c` kept it to.
@@ -255,7 +256,7 @@ mod tests {
             r#"{"api":1,"tehas":"v1.2.3","commit":null,"repo":"acme/widget","features":["status","#
         ));
         assert!(printed.ends_with(
-            r#""disk","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags","status-previews","wake","start-reasons","blockers","answer","question","cycle-ids"],"flags":{"plugins":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2},"store":"0123456789abcdef0123456789abcdef"}"#
+            r#""disk","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags","status-previews","wake","start-reasons","blockers","answer","question","cycle-ids","questions"],"flags":{"plugins":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2},"store":"0123456789abcdef0123456789abcdef"}"#
         ));
     }
 

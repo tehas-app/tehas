@@ -34,7 +34,8 @@
     "blockers",
     "answer",
     "question",
-    "cycle-ids"
+    "cycle-ids",
+    "questions"
   ],
   "flags": {
     "lean": false,

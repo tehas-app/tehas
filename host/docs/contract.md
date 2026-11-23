@@ -381,10 +381,15 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: a program that answered for a person by ticking a box
   calls `tehas answer`.
 - **`tehas question`, the question an issue waits on.**
-  #2830.
+  #2830, #2929.
   `tehas question <issue> [--json]` prints the question and its choices, each
   in the words `tehas answer` takes. The object is
-  `api/question.schema.json`, the feature word `question`.
+  `api/question.schema.json`, the feature word `question`. `question.comment`
+  is the id of the comment on the issue that asked the question, left out
+  when the store has no comment for it and never null. With no issue it
+  lists the question each issue waits on, and with `--after <id>` every
+  question after that number, answered and withdrawn ones too: the object is
+  `api/questions.schema.json`, the feature word `questions`.
   Readers: the consumer that runs many factories, Obeya, the end-to-end
   suite.
   Adopter action: none.
@@ -1094,7 +1099,7 @@ error, when its reader goes away, as in `tehas status | head -1`.
 
 | Status | When |
 | --- | --- |
-| 0 | A question waits, and it is printed |
+| 0 | A question waits, and it is printed; or, with no issue, the list is printed, an empty one too |
 | 1 | The state store refused or is not installed |
 | 3 | No question waits on the issue |
 | 64 | A bad argument |
