@@ -45,7 +45,7 @@ pub const USAGE: &str = include_str!("../../src/usage/stop.txt");
 
 /// How long each call of the tickets port may take, the bound of `timeout`
 /// the label's calls had in bash.
-pub const BOUND: Duration = Duration::from_secs(10);
+const BOUND: Duration = Duration::from_secs(10);
 
 /// What the words of a run asked for.
 #[derive(Debug, PartialEq, Eq)]

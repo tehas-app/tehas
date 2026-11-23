@@ -208,6 +208,8 @@ t_contains "$t_out" "removed tehas:running from #5"
 t_eq "$(tail -n 1 <<<"$t_out")" "removed tehas:running from #5"
 t_eq "$(t_calls systemctl | sed -n '/ stop /p' | wc -l)" 1
 t_eq "$(gh_views)" "api repos/acme/widget/issues/5"
+# Nothing else is asked of GitHub: no other label, no comment.
+t_eq "$(t_calls gh | wc -l)" 2
 t_eq "$(gh_edits)" "api -X DELETE repos/acme/widget/issues/5/labels/tehas%3Arunning"
 
 t_case "the marker of a stop goes with the leftovers of the cycle it ended"
