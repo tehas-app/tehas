@@ -88,11 +88,21 @@ const CLOSED: &str = r#"{"api": 1, "event": "NAME", "when": "after",
  "key": "12@2026-11-22T15:20:00Z", "at": "2026-11-22T15:20:00Z",
  "data": {"ticket": {"Number": 12}, "reason": "Done", "at": "2026-11-22T15:20:00Z"}}"#;
 
+const ASKED: &str = r#"{"api": 1, "event": "NAME", "when": "after", "key": "5",
+ "at": "2026-11-22T13:20:00Z",
+ "data": {"question": 5, "kind": "Park", "blueprint": 12, "cycle": "12-3",
+          "askedAt": "2026-11-22T13:20:00Z",
+          "choices": [{"choice": "retry", "label": "Run the cycle again"}]}}"#;
+
 // The spec's envelopes with port types are the samples, port types in the
 // ports' own shape.
 #[test]
 fn the_specs_envelopes_with_port_types_are_the_samples() {
-    for (text, name) in [(ACTED, Name::TicketActed), (CLOSED, Name::TicketClosed)] {
+    for (text, name) in [
+        (ACTED, Name::TicketActed),
+        (CLOSED, Name::TicketClosed),
+        (ASKED, Name::QuestionAsked),
+    ] {
         let text = named(text, name);
         let e: Envelope = serde_json::from_str(&text).unwrap_or_else(|f| panic!("{text}: {f}"));
         let sample = samples().into_iter().find(|s| s.name == name).unwrap();

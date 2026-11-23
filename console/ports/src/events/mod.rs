@@ -61,13 +61,14 @@ macro_rules! names {
 
         /// One variant per name, the payload as `data`.
         #[non_exhaustive]
-        #[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+        #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
         #[serde(tag = "event", content = "data")]
         pub enum Event {
             $($(#[$doc])* #[serde(rename = $text)] $name($payload),)+
             /// A name this copy does not know, or a name of its own whose
             /// `data` does not read, so an older reader never fails an
             /// envelope. Read, never raised, never written.
+            #[serde(untagged, deserialize_with = "read_unknown")]
             Unknown,
         }
 
@@ -78,31 +79,6 @@ macro_rules! names {
                     $(Event::$name(_) => Name::$name,)+
                     Event::Unknown => Name::Unknown,
                 }
-            }
-        }
-
-        #[derive(Deserialize)]
-        #[serde(tag = "event", content = "data")]
-        enum Known {
-            $(#[serde(rename = $text)] $name($payload),)+
-        }
-
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Wire {
-            Known(Known),
-            Other {
-                #[allow(dead_code)]
-                event: serde::de::IgnoredAny,
-            },
-        }
-
-        impl<'de> Deserialize<'de> for Event {
-            fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-                Ok(match Wire::deserialize(d)? {
-                    $(Wire::Known(Known::$name(p)) => Event::$name(p),)+
-                    Wire::Other { .. } => Event::Unknown,
-                })
             }
         }
     };
@@ -127,6 +103,11 @@ names! {
     TicketClosed(TicketClosed) = "ticket.closed",
     /// A change linked to a blueprint is recorded merged.
     ChangeMerged(ChangeMerged) = "change.merged",
+}
+
+// The ports' one read rule for an enum that may grow, on the tag `event`.
+fn read_unknown<'de, D: serde::Deserializer<'de>>(d: D) -> Result<(), D::Error> {
+    crate::unknown::read_any_at(d, "event")
 }
 
 impl Name {

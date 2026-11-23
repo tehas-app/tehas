@@ -120,16 +120,10 @@ fn question_asked(full: bool) -> QuestionAsked {
         cycle: full.then(|| cycle(3)),
         asked_at: at(120),
         choices: if full {
-            vec![
-                QuestionChoice {
-                    choice: "retry".to_string(),
-                    label: "Run the cycle again".to_string(),
-                },
-                QuestionChoice {
-                    choice: "park".to_string(),
-                    label: "Leave it for a person".to_string(),
-                },
-            ]
+            vec![QuestionChoice {
+                choice: "retry".to_string(),
+                label: "Run the cycle again".to_string(),
+            }]
         } else {
             Vec::new()
         },

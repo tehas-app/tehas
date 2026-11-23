@@ -63,7 +63,7 @@ pub const VERSION: &str = "v2.0.0";
 /// of its own whose content does not read as `Unreadable` instead, as its
 /// text does: it asks [`read`], which refuses its own tags.
 mod unknown {
-    use serde::de::Error as _;
+    use serde::de::{Error as _, IgnoredAny, MapAccess, Visitor};
     use serde::ser::SerializeMap;
     use serde::{Deserialize, Deserializer, Serializer};
 
@@ -91,11 +91,42 @@ mod unknown {
     /// of the enum's own whose content does not read. A value with no tag is
     /// no record of the enum, and stays an error.
     pub(crate) fn read_any<'de, D: Deserializer<'de>>(d: D) -> Result<(), D::Error> {
-        #[derive(Deserialize)]
-        struct Tag {
-            r#type: String,
+        read_any_at(d, TAG)
+    }
+
+    /// [`read_any`] for an enum whose tag has a key of its own, as the
+    /// events' `event`.
+    pub(crate) fn read_any_at<'de, D: Deserializer<'de>>(
+        d: D,
+        tag: &'static str,
+    ) -> Result<(), D::Error> {
+        struct Tagged(&'static str);
+        impl<'de> Visitor<'de> for Tagged {
+            type Value = ();
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "a map with `{}`", self.0)
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
+                let mut seen = false;
+                while let Some(key) = map.next_key::<String>()? {
+                    if key == self.0 {
+                        if seen {
+                            return Err(A::Error::duplicate_field(self.0));
+                        }
+                        map.next_value::<String>()?;
+                        seen = true;
+                    } else {
+                        map.next_value::<IgnoredAny>()?;
+                    }
+                }
+                if seen {
+                    Ok(())
+                } else {
+                    Err(A::Error::missing_field(self.0))
+                }
+            }
         }
-        Tag::deserialize(d).map(|tag| drop(tag.r#type))
+        d.deserialize_map(Tagged(tag))
     }
 
     /// `Unknown` as its tag alone, so it reads back as `Unknown`.
