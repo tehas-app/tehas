@@ -15,6 +15,7 @@ mod site;
 mod tickets;
 mod writes;
 
+pub(crate) use site::PAST_DEADLINE;
 pub use site::{GitHubSite, MakeRunner};
 
 use crate::{table, GitHub};

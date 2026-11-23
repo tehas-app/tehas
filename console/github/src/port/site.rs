@@ -11,7 +11,7 @@ use crate::tickets::Bot;
 use crate::{table, GitHub};
 use tehas_core::forge::{Failed, GhRunner};
 use tehas_ports::{
-    Actor, BlueprintWrites, Blueprints, Board, Caller, CodeHost, CodeHostWrites, Got, Identity,
+    Actor, At, BlueprintWrites, Blueprints, Board, Caller, CodeHost, CodeHostWrites, Got, Identity,
     Mark, MeterRow, Outcome, Pool, PortName, Realm, Scope, Site, TicketWrites, Tickets,
 };
 
@@ -21,12 +21,20 @@ use tehas_ports::{
 pub type MakeRunner = Arc<dyn Fn(&Actor) -> Got<Box<dyn GhRunner>> + Send + Sync>;
 
 /// GitHub as a `Site`: the code host and its own tracker, both realms.
+#[derive(Clone)]
 pub struct GitHubSite {
     repo: String,
     bot: Bot,
     make: MakeRunner,
     meter: Arc<Mutex<Vec<MeterRow>>>,
+    /// The time its handles stop at, if a view of `Site::until`.
+    deadline: Option<At>,
+    now: fn() -> i64,
 }
+
+/// The reason a handle's runner gives for a call it did not send because
+/// the handle's deadline had passed: read as `Unavailable { Timeout, No }`.
+pub(crate) const PAST_DEADLINE: &str = "past the handle's deadline, not sent";
 
 impl GitHubSite {
     /// The site of `repo` (`owner/name`), whose runners `make` gives.
@@ -51,7 +59,15 @@ impl GitHubSite {
             bot: Bot::new(bot_login, bot_user_id),
             make,
             meter: Arc::new(Mutex::new(Vec::new())),
+            deadline: None,
+            now: tehas_core::time::now,
         }
+    }
+
+    /// The same site reading the time from `now`: its handles' deadline
+    /// and a spent budget's time, so a test answers a fixed time.
+    pub fn on_clock(self, now: fn() -> i64) -> GitHubSite {
+        GitHubSite { now, ..self }
     }
 
     /// A handle of `port` acting as `by`, or the outcome that stops its
@@ -73,8 +89,10 @@ impl GitHubSite {
             caller,
             port,
             write,
+            deadline: self.deadline,
+            now: self.now,
         };
-        let mut gh = GitHub::new(self.repo.clone(), Box::new(runner));
+        let mut gh = GitHub::new(self.repo.clone(), Box::new(runner)).on_clock(self.now);
         gh.bot = Some(self.bot.clone());
         Ok(gh)
     }
@@ -106,9 +124,13 @@ impl Site for GitHubSite {
         )?))
     }
 
-    /// Not built in this adapter yet.
-    fn blueprints(&self, _: &Actor, _: Caller) -> Got<Box<dyn Blueprints + Send>> {
-        unsupported()
+    fn blueprints(&self, by: &Actor, caller: Caller) -> Got<Box<dyn Blueprints + Send>> {
+        Ok(Box::new(self.handle(
+            by,
+            caller,
+            PortName::Blueprints,
+            false,
+        )?))
     }
 
     /// Not built in this adapter yet.
@@ -148,6 +170,14 @@ impl Site for GitHubSite {
     fn mark_name(&self, mark: &Mark) -> String {
         table::mark_name(mark)
     }
+
+    /// A clone sharing the meter and the runner maker. A view of a view
+    /// keeps the earlier deadline.
+    fn until(&self, until: At) -> Arc<dyn Site> {
+        let mut view = self.clone();
+        view.deadline = Some(self.deadline.map_or(until, |d| d.min(until)));
+        Arc::new(view)
+    }
 }
 
 /// The meter, whole even after a handle panicked while it held the lock:
@@ -160,21 +190,31 @@ fn lock(meter: &Mutex<Vec<MeterRow>>) -> std::sync::MutexGuard<'_, Vec<MeterRow>
 
 /// A runner that counts each call it sends in the site's meter: one call
 /// and one point a request. A write handle's calls are `Writes`; a read
-/// handle's GraphQL questions are `Priced`, as the adapter reads their
-/// spent budget, and its REST reads `Calls`.
+/// handle's GraphQL questions are `Priced` and its searches `Search`, the
+/// pools the adapter reads their spent budget in, and its other REST reads
+/// `Calls`.
 struct Metered {
     inner: Box<dyn GhRunner>,
     meter: Arc<Mutex<Vec<MeterRow>>>,
     caller: Caller,
     port: PortName,
     write: bool,
+    deadline: Option<At>,
+    now: fn() -> i64,
 }
 
 impl Metered {
+    /// Whether the handle's deadline has passed: a call then is not sent
+    /// and not counted.
+    fn past(&self) -> bool {
+        self.deadline.is_some_and(|d| (self.now)() >= d.secs())
+    }
+
     fn count(&self, args: &[&str]) {
         let pool = match (self.write, args) {
             (true, _) => Pool::Writes,
             (false, ["api", "graphql", ..]) => Pool::Priced,
+            (false, args) if args.contains(&"search/issues") => Pool::Search,
             (false, _) => Pool::Calls,
         };
         let mut meter = lock(&self.meter);
@@ -198,16 +238,28 @@ impl Metered {
 
 impl GhRunner for Metered {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        if self.past() {
+            return Err(PAST_DEADLINE.to_string());
+        }
         self.count(args);
         self.inner.run(args)
     }
 
     fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
+        if self.past() {
+            return Err(PAST_DEADLINE.to_string());
+        }
         self.count(args);
         self.inner.run_input(args, input)
     }
 
     fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
+        if self.past() {
+            return Err(Failed {
+                why: PAST_DEADLINE.to_string(),
+                answer: None,
+            });
+        }
         self.count(args);
         self.inner.run_answer(args)
     }

@@ -2,7 +2,7 @@
 //! before any request, the ports it does not serve yet, a mark named with
 //! no handle, and the meter. Which accounts are `Ours` is `site_ours.rs`.
 
-use std::num::NonZeroU64;
+use std::num::{NonZeroU32, NonZeroU64};
 use std::sync::{Arc, Mutex};
 
 use tehas_core::forge::GhRunner;
@@ -64,21 +64,18 @@ fn refused<T>(got: tehas_ports::Got<T>) -> Option<Outcome> {
 const UNSUPPORTED: Outcome = Outcome::Refused(Refusal::Unsupported);
 
 #[test]
-fn the_factorys_account_and_the_operator_get_handles_of_both_ticket_ports() {
+fn the_factorys_account_and_the_operator_get_handles_of_each_port_built() {
     let (site, asked) = site(&[]);
     for by in [Actor::Ours(Scope::Full), Actor::Operator] {
         assert!(site.tickets(&by, CALLER).is_ok(), "{by:?}");
         assert!(site.ticket_writes(&by, CALLER).is_ok(), "{by:?}");
+        assert!(site.blueprints(&by, CALLER).is_ok(), "{by:?}");
+        assert!(site.identity(&by, CALLER).is_ok(), "{by:?}");
     }
-    assert_eq!(
-        *asked.lock().unwrap(),
-        [
-            Actor::Ours(Scope::Full),
-            Actor::Ours(Scope::Full),
-            Actor::Operator,
-            Actor::Operator
-        ]
-    );
+    let asked = asked.lock().unwrap();
+    assert_eq!(asked.len(), 8);
+    assert!(asked[..4].iter().all(|a| *a == Actor::Ours(Scope::Full)));
+    assert!(asked[4..].iter().all(|a| *a == Actor::Operator));
     assert_eq!(site.realms(), [Realm::CodeHost, Realm::Tickets]);
 }
 
@@ -114,6 +111,16 @@ fn an_actor_the_factory_cannot_run_is_unsupported_before_a_runner_is_made() {
             Some(want),
             "{by:?}"
         );
+        assert_eq!(
+            refused(site.blueprints(by, CALLER)),
+            Some(UNSUPPORTED),
+            "{by:?}"
+        );
+        assert_eq!(
+            refused(site.identity(by, CALLER)),
+            Some(UNSUPPORTED),
+            "{by:?}"
+        );
     }
     assert!(asked.lock().unwrap().is_empty());
 }
@@ -122,7 +129,6 @@ fn an_actor_the_factory_cannot_run_is_unsupported_before_a_runner_is_made() {
 fn a_port_not_built_here_is_unsupported_and_makes_no_runner() {
     let (site, asked) = site(&[]);
     let by = Actor::Ours(Scope::Full);
-    assert_eq!(refused(site.blueprints(&by, CALLER)), Some(UNSUPPORTED));
     assert_eq!(
         refused(site.blueprint_writes(&by, CALLER)),
         Some(UNSUPPORTED)
@@ -184,6 +190,13 @@ fn the_meter_counts_each_call_by_caller_port_and_pool() {
     let mut read = site.tickets(&by, CALLER).unwrap();
     let _ = read.several(&[key(1), key(2)]);
     let _ = read.history(&key(1), Window::Whole(ALL_MAX), None);
+    let mut search = site.blueprints(&by, CALLER).unwrap();
+    let _ = search.search(
+        "importer",
+        tehas_ports::Within::Everything,
+        None,
+        NonZeroU32::new(5).unwrap(),
+    );
     let mut write = site.ticket_writes(&by, Caller::new("test.writes")).unwrap();
     let _ = write.mark(&key(1), &Mark::Epic);
     let meter: Vec<_> = site
@@ -194,10 +207,59 @@ fn the_meter_counts_each_call_by_caller_port_and_pool() {
     let want = [
         ("test.site", PortName::Tickets, Pool::Calls, 2, 2),
         ("test.site", PortName::Tickets, Pool::Priced, 1, 1),
+        ("test.site", PortName::Blueprints, Pool::Search, 1, 1),
         ("test.writes", PortName::Tickets, Pool::Writes, 1, 1),
     ];
     assert_eq!(meter.len(), want.len(), "{meter:?}");
     for row in want {
         assert!(meter.contains(&row), "{row:?} in {meter:?}");
     }
+}
+
+/// The site's clock in the deadline tests.
+const NOW: i64 = 1_767_225_600;
+
+fn deadline_site(answers: &[&str]) -> GitHubSite {
+    site(answers).0.on_clock(|| NOW)
+}
+
+const TIMEOUT: Outcome = Outcome::Unavailable {
+    why: tehas_ports::Passing::Timeout,
+    sent: tehas_ports::Sent::No,
+};
+
+#[test]
+fn a_call_past_the_views_deadline_is_a_timeout_never_sent_nor_counted() {
+    let site = deadline_site(&[]);
+    let by = Actor::Ours(Scope::Full);
+    let mut before = site.tickets(&by, CALLER).unwrap();
+    for until in [NOW, NOW - 1] {
+        let view = site.until(tehas_ports::At::new(until));
+        let mut h = view.tickets(&by, CALLER).unwrap();
+        let (_, got) = h.several(&[key(7)]).pop().unwrap();
+        assert_eq!(got.err(), Some(TIMEOUT), "until {until}");
+        let mut w = view.ticket_writes(&by, CALLER).unwrap();
+        assert_eq!(w.mark(&key(7), &Mark::Epic), Err(TIMEOUT));
+    }
+    assert!(site.meter().is_empty(), "{:?}", site.meter());
+    // A handle made before the view sends, and the view shares its meter.
+    let _ = before.several(&[key(7)]);
+    assert_eq!(site.meter().len(), 1);
+}
+
+#[test]
+fn a_view_before_its_deadline_sends_and_a_view_of_a_view_keeps_the_earlier() {
+    let site = deadline_site(&[]);
+    let by = Actor::Ours(Scope::Full);
+    let later = site.until(tehas_ports::At::new(NOW + 60));
+    let mut h = later.tickets(&by, CALLER).unwrap();
+    let (_, got) = h.several(&[key(7)]).pop().unwrap();
+    assert_ne!(got.err(), Some(TIMEOUT));
+    assert_eq!(later.meter().len(), 1);
+    assert_eq!(site.meter(), later.meter());
+    let earlier = later.until(tehas_ports::At::new(NOW));
+    let again = earlier.until(tehas_ports::At::new(NOW + 600));
+    let mut h = again.tickets(&by, CALLER).unwrap();
+    let (_, got) = h.several(&[key(7)]).pop().unwrap();
+    assert_eq!(got.err(), Some(TIMEOUT));
 }

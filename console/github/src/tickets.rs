@@ -159,7 +159,10 @@ fn read_digest(
         ("closed", _) => TicketState::Closed(CloseReason::Done),
         _ => return None,
     };
-    let kind = v.pointer("/type/name").and_then(Value::as_str).map(kind_of);
+    let kind = v
+        .pointer("/type/name")
+        .and_then(Value::as_str)
+        .map(Kind::named);
     let target = match v.get("milestone").filter(|m| !m.is_null()) {
         None => None,
         Some(m) => Some(TargetName::new(
@@ -224,17 +227,6 @@ impl Bot {
     }
 }
 
-/// The kind an issue type of GitHub's is, by its name.
-pub(crate) fn kind_of(name: &str) -> Kind {
-    match name {
-        "Feature" => Kind::Feature,
-        "Bug" => Kind::Bug,
-        "Task" => Kind::Task,
-        "Epic" => Kind::Epic,
-        other => MarkName::new(other).map_or(Kind::Unknown, Kind::Other),
-    }
-}
-
 /// The account of an event, None where it names nobody. The login is folded
 /// to lower case, as GitHub compares logins, and an app's spellings
 /// (`x[bot]` in REST, `x` in GraphQL, `app/x`) to one, as the spec's `Login`
@@ -281,6 +273,12 @@ pub(crate) fn take<T>(mut items: Vec<T>, window: Window) -> Got<Took<T>> {
 /// [`GitHub::outcome`] at the time `now`. A 410 is an issue deleted or
 /// issues turned off: `NotFound`, as the ports spec's table says.
 fn outcome(e: &ForgeError, now: i64) -> Outcome {
+    if e.why == crate::port::PAST_DEADLINE {
+        return Outcome::Unavailable {
+            why: Passing::Timeout,
+            sent: Sent::No,
+        };
+    }
     if gh::says_not_found(&e.why) {
         return Outcome::NotFound;
     }
