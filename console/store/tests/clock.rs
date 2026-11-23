@@ -5,9 +5,10 @@
 
 #![cfg(debug_assertions)]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
 use tehas_core::home::{Home, State};
+use tehas_core::testdir::TestDir;
 
 const STORE: &str = env!("CARGO_BIN_EXE_store");
 
@@ -20,11 +21,8 @@ fn store(home: &Path, now: Option<&str>, args: &[&str]) -> Output {
     cmd.output().unwrap()
 }
 
-fn home(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("clock-{name}"));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn home(name: &str) -> TestDir {
+    TestDir::new(&format!("clock-{name}"))
 }
 
 const INIT: [&str; 9] = [
@@ -49,7 +47,7 @@ fn seen_at(out: &Output) -> i64 {
 fn a_debug_build_reads_its_clock_from_the_variable() {
     let home = home("read");
     assert!(store(&home, Some("1700000123"), &INIT).status.success());
-    let c = rusqlite::Connection::open(Home::new(&home).state(State::StoreDb)).unwrap();
+    let c = rusqlite::Connection::open(Home::new(home.path()).state(State::StoreDb)).unwrap();
     let made: String = c
         .query_row("SELECT value FROM meta WHERE key = 'created_at'", [], |r| {
             r.get(0)
