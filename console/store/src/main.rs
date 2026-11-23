@@ -140,6 +140,7 @@
 //!   store poll-begin
 //!   store journal-record --poll <at> --kind <kind> --issue <n> --args <json>
 //!                --before <at>
+//!   store journal-record --poll <at> --write <json> --args <json> --before <at>
 //!   store journal-attempt --action N
 //!   store journal-settle --action N (--result <result> | --abandoned)
 //!                [--evidence <json>]

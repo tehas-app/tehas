@@ -1,0 +1,1 @@
+| 2026-11-23 | Merge train 4, tested as #2977 (verify run 45241199420), tree 5747dc195013d84928ce5ca5bb9ea1297ee89dd4, the tip after its last member: #2962 (code, T4.3), #2967 (tests), #2970 (contract row, edge config and tests), #2976 (docs) | #2977 |

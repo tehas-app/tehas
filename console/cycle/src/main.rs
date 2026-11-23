@@ -491,6 +491,17 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     std::process::exit(supervise::run(home, &g, &raised));
 }
 
+/// The relay's read of an issue's title and body, from the GitHub adapter.
+fn read_text(
+    repo: &str,
+    gh: Box<dyn tehas_core::forge::GhRunner>,
+    issue: u64,
+) -> Result<String, String> {
+    tehas_github::GitHub::new(repo, gh)
+        .text_revision(issue)
+        .map_err(|e| e.why)
+}
+
 /// The words of tehas work.
 fn work_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     let mut g = work::Given {
@@ -498,6 +509,7 @@ fn work_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         restart: false,
         driver: None,
         console: String::new(),
+        read_text,
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
