@@ -433,7 +433,7 @@ fn before(file: &Path, now: i64) -> J {
 
 /// The figure of the Shipped stage, published only as a whole number of
 /// issues: nothing negative, fractional or beyond what a JavaScript number
-/// holds exactly, 2^53 - 1 the largest. The reader, host/fun/business-view.js,
+/// holds exactly, 2^53 - 1 the largest. A reader, the business plugin's page,
 /// shows what this publishes and rejects the rest, so the bound is stated once.
 fn count(answer: &str) -> Option<J> {
     let doc = J::parse(answer)?;

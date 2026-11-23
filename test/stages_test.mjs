@@ -1,6 +1,6 @@
 // Tests stageOf() of host/fun/stages.js: the one label table the factory floor
-// and the business page ask, so one ticket cannot read as two stages. The two
-// settings are `planning` (does the plan stage count) and the names each page
+// and any page that draws the line ask, so one ticket cannot read as two
+// stages. The two settings are `planning` (does the plan stage count) and the names each page
 // gives a closed ticket and a ticket that carries no tehas label.
 //
 //   node --test test/stages_test.mjs
@@ -8,10 +8,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { LABEL_STAGES, stageOf } from "../host/fun/stages.js";
 
-// The two pages, as their callers ask them: the stage each page has for a closed
+// Two pages, as their callers ask them: the stage each page has for a closed
 // ticket, and for one that carries none of these labels. The names the table
 // itself answers with - stopped, review, running, plan, ready - are the labels'
-// own; a page that calls a stage otherwise maps it (host/fun/business-view.js).
+// own; a page that calls a stage otherwise maps it. BOARD is a line with a
+// Planning column that ends at Shipped, as the business plugin's.
 const FLOOR = { shipped: "shipped", none: "backlog" };
 const BOARD = { planning: true, shipped: "ship", none: "ship" };
 
@@ -46,10 +47,9 @@ test("a label from anywhere else says nothing", () => {
   assert.equal(stageOf([], false), null);
 });
 
-// Both callers normalise their file first (host/fun/business-view.js, the
-// normalize() of host/fun/game-data.js), so this is the shared function's own
-// bound: a ticket whose labels are missing reads as an unlabelled one, which is
-// what the two pages answer for that file, rather than throwing.
+// A caller normalises its file first (the normalize() of host/fun/game-data.js),
+// so this is the shared function's own bound: a ticket whose labels are missing
+// reads as an unlabelled one, rather than throwing.
 test("labels that are not a list name no stage", () => {
   for (const labels of [undefined, null, "tehas:ready", {}, 0]) {
     assert.equal(stageOf(labels, false, FLOOR), "backlog", String(labels));
@@ -74,7 +74,7 @@ test("the worst label answers first, whichever order the ticket lists them in", 
   }
 });
 
-test("planning is a stage on the business page and not on the factory floor", () => {
+test("planning is a stage on a line with a Planning column and not on the factory floor", () => {
   // With planning on, a ticket that is being planned stands in the Planning
   // column; with it off the line has no place for it, so tehas:ready wins.
   const both = ["tehas:plan", "tehas:ready"];

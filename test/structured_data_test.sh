@@ -43,7 +43,7 @@ t_contains "$(cat "$page")" $'\n## Questions\n'
 questions=$(awk '/^## / {on = ($0 == "## Questions")} on && /^### / {n++} END {print n + 0}' "$page")
 [ "$questions" -ge 1 ] || t_bad "the Questions section of lean-software-factory.md has no ### question"
 
-for front in index.html business.html; do
+for front in index.html; do
   text=$(cat "$T_ROOT/host/fun/$front")
   t_case "$front: one software block with licence, author and repository"
   t_eq "$(grep -c 'application/ld+json' "$T_ROOT/host/fun/$front")" 1

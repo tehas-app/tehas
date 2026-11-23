@@ -486,6 +486,20 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   A program that stops `tehas-energy.service` when it adopts a factory, or
   starts it when it creates or restores one, drops the unit from both
   lists.
+- **The business page leaves core.**
+  T16.
+  Gone: the page at `/business`, `fun/business.html`, `business-view.js`,
+  `business.css` and `mode.js`. The front page `/` is the factory floor in
+  both designs, as `/floor` is; `TEHAS_DESIGN=beesknees26` draws it in the
+  beesknees26 theme. `TEHAS_DESIGN` keeps both values. The rules other pages
+  pick from `business.css` by selector, the base, the top bar, the mark, the
+  panels and the foot, are in `fun/pages.css`, the same 17 rules with the same
+  text. It returns in 2.1 as the plugin `business` over `live:`.
+  Readers: adopters, visitors with a link to `/business`, Obeya and
+  industry's workshop (they take `pages.css` in place of `business.css`),
+  plugins.
+  Adopter action: none. `/` shows the factory floor; a link to `/business`
+  answers 404.
 - **analytics.db is at schema 5.**
   #2869.
   The migration drops `samples.watts`, which nothing writes since energy
@@ -628,7 +642,7 @@ adopter action as the pull request states them.
   on a sandbox image with pi-rukas older than v0.15.6 is refused.
   Readers: adopters, the consumer that runs many factories.
   Adopter action: set `verify.roster`, or `TEHAS_DRIVER=classic`.
-- **The rest of clean house.** T16. Panels, the Business page and the Host
+- **The rest of clean house.** T16. Panels and the Host
   panel (`TEHAS_TOP`) leave core for plugins (`tehas top` stays); the
   `tehas:prototype` label and the `prototype` kind of `TEHAS_ISSUE_TYPES`
   go; the store keeps only the migration from 1.4.x.

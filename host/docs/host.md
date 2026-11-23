@@ -502,8 +502,8 @@ The manual and the front page are not copied from `host/` as they stand.
 `install.sh` first asks the console to stage them (`console update assets`,
 `console/ops/src/update/assets.rs`), which copies `host/fun` and `host/docs` to a
 scratch directory and, for each `<script src="/fun/X.js">` and each
-`<link rel="stylesheet" href="/fun/X.css">` of `fun/index.html`,
-`fun/business.html` and `docs/dashboard.frag`, puts a copy of that file beside
+`<link rel="stylesheet" href="/fun/X.css">` of `fun/index.html` and
+`docs/dashboard.frag`, puts a copy of that file beside
 it under the name `X.<hash>.<ext>`, where `<hash>` is the first 12 hex digits
 of the sha256 of its bytes, and rewrites the tag to name it. A file in a
 subfolder is copied and named in that subfolder: `/fun/factory/X.js` becomes
@@ -2076,8 +2076,8 @@ The live console of a running cycle shows what its agents did, the commands
 they ran and the start of each result. It is masked, but it is still the
 factory's logs, and the docs server has no sign-in. So by default the server
 does not serve it: `/live/console-<n>.txt` and `/live/console-<n>.txt.now`
-answer 404, and the console panels of the dashboard, the business page and
-the factory floor stay empty; the dashboard and the floor still mark the
+answer 404, and the console panels of the dashboard and the factory floor
+stay empty; the dashboard and the floor still mark the
 cycle live or ended. Everything else under `/live/` is served as before.
 `TEHAS_SITE_CONSOLE=on` in `instance.env` serves the console to anyone who can
 reach the site, for an instance whose site is also its demo. A full key of
@@ -2089,25 +2089,24 @@ applies after a change.
 
 The site has two designs, and the instance picks one for all of it with
 `TEHAS_DESIGN`. A page's colours, typefaces, sizes, outlines and shadows come
-from the design's theme file, and the design also picks the page at `/`:
+from the design's theme file. The front page, `/`, is the factory floor in
+both, and so is `/floor`:
 
-| `TEHAS_DESIGN`             | The front page, `/` | Every page names        | Logo and share card             |
-| -------------------------- | ------------------- | ----------------------- | ------------------------------- |
-| `beesknees26`, the default | The business page   | `theme-beesknees26.css` | `favicon.svg`, `tehas-logotype.svg`, `share-logo.png` |
-| `pixel`                    | The factory floor   | `theme-pixel.css`       | `factory.svg`, `share.png`      |
+| `TEHAS_DESIGN`             | Every page names        | Logo and share card             |
+| -------------------------- | ----------------------- | ------------------------------- |
+| `beesknees26`, the default | `theme-beesknees26.css` | `favicon.svg`, `tehas-logotype.svg`, `share-logo.png` |
+| `pixel`                    | `theme-pixel.css`       | `factory.svg`, `share.png`      |
 
 `beesknees26` is ink and one muted green on a near-white ground, white panels
-with soft shadows, IBM Plex, and no motion: light, with a dark set only where
-the viewer picks it with the business page's mode button, kept in their browser.
-`pixel` is the factory as a 16-bit game, in the Topaz bitmap typeface. It is
-meant for a factory whose site is also its demo; a factory that sets nothing is
-drawn in `beesknees26` everywhere, `/` included.
+with soft shadows, IBM Plex, and no motion. It has a dark set for a page that
+lets the viewer pick it; no page of tehas does. `pixel` is the factory as a
+16-bit game, in the Topaz bitmap typeface. It is meant for a factory whose site
+is also its demo; a factory that sets nothing is drawn in `beesknees26`
+everywhere, `/` included.
 
-The design draws every page: `/`, `/floor`, `/business`, `/dashboard`, every
-manual page. The docs server reads `TEHAS_DESIGN` when its
-container is created, so run its `docker compose ... up -d` line again after a
-change. The edge
-router is given no setting about looks: it serves the files the pages name.
+The design draws every page: `/`, `/floor`, `/dashboard`, every manual page.
+The docs server reads `TEHAS_DESIGN` when its container is created, so run its
+`docker compose ... up -d` line again after a change. The edge router is given no setting about looks: it serves the files the pages name.
 
 Any value but `beesknees26` or `pixel` stops every tehas command with 78.
 `TEHAS_THEME` and `TEHAS_LAYOUT` are retired. A line that asks for the default
@@ -2116,14 +2115,11 @@ loads and is dropped. Any other value, `TEHAS_THEME=pixel` and
 `TEHAS_LAYOUT=floor` among them, stops every command with 78 and names the line
 to take out of `instance.env`: set `TEHAS_DESIGN=pixel` instead.
 
-Both pages are always there, at `/floor` and `/business`. The business page
-reads the
-same files as the floor: `live/status.json`, `live/running.json` and the
-cycles' consoles, `live/analytics.json` and `live/epics.json`. Its console
-follows the running cycle's output, with a tab for each cycle when there are
-several, as on the floor. Its 10 days show only once there is a report. With
-no queue file it shows the floor's sample tickets and says so.
-Both pages list the open epics from `live/epics.json`, one row each with a
+The business page of 1.x at `/business`, a summary over the live files, left
+core in 2.0 and returns in 2.1 as the plugin `business`. `/business` is no
+longer served.
+
+The floor lists the open epics from `live/epics.json`, one row each with a
 block per sub-issue, filled when it is closed; a row opens to list the
 sub-issues, open or closed, each linked, and a link to the epic. The panel
 shows only where the file is there.

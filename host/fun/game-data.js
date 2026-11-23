@@ -9,8 +9,8 @@
 // factory's queue snapshot. Each piece is cut to a bound here, and the page sets
 // it only through textContent, never as markup.
 
-// Stages follow the labels tehas itself puts on issues; one table, in
-// host/fun/stages.js, answers for the business page too.
+// Stages follow the labels tehas itself puts on issues, from the one table in
+// host/fun/stages.js.
 import { stageOf as stage } from "./stages.js";
 
 export const STAGES = {

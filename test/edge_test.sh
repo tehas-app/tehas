@@ -362,7 +362,7 @@ done
 t_eq "$(printf '%s\n' "$fun" | awk '/respond @backup 404/ {r = NR} /header @hashed / {h = NR} END {print (r && h && r < h) ? "before" : "after"}')" before
 
 t_case "the pages are never cached, so a new install is seen at once"
-for handler in '@business' '@front'; do
+for handler in '@front'; do
   body=$(awk -v want="        handle $handler {" 'index($0, want) == 1 {on = 1}
     on {print} on && /^        \}$/ {exit}' "$docs_caddy")
   [ -n "$body" ] || t_bad "no handler of $handler in $docs_caddy"

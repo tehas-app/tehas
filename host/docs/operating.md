@@ -14,9 +14,8 @@ Optional. An open issue that carries none of tehas's queue labels
 (`tehas:ready`, `tehas:plan`, `tehas:running` and the others of the
 [line](#3-what-happens-next)) is an idea: it is not in line yet. Work on it can
 happen anywhere, with other tools and systems, for as long as it takes.
-tehas does not act on it. The business page shows such tickets as its Idea
-stage when it draws the bundled sample, and the factory floor counts them as
-not on the line.
+tehas does not act on it. The factory floor counts such tickets as not on
+the line.
 
 This version has no Protolab: the site that kept a page of the files
 attached to each prototype is parked, to come back as a plugin.
@@ -330,7 +329,7 @@ guess: its state labels still come off and the tidy line says no merged pull
 request was read as the closer, or, when the whole read failed, that the read
 failed once for the poll.
 
-The pages' **Shipped** figure counts the closed issues that carry
+The **Shipped** figure of the business plugin's page counts the closed issues that carry
 `tehas:shipped`, and not the hundred most recent items of the queue's list: an
 issue a person closes as completed without a merged pull request does not carry
 the label and is not counted. The count is the `completedCount` of the queue

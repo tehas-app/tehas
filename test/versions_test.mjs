@@ -104,8 +104,8 @@ test("an empty list, no list or an unreadable file is no message, and the banner
   assert.deepEqual(el.kids, []);
 });
 
-test("both front pages have the banner at the top, hidden until there is a message, and load this module", () => {
-  for (const page of ["index.html", "business.html"]) {
+test("the front page has the banner at the top, hidden until there is a message, and loads this module", () => {
+  for (const page of ["index.html"]) {
     const html = readFileSync(new URL(`../host/fun/${page}`, import.meta.url), "utf8");
     const banner = html.match(/<section class="host-messages[^"]*" id="host-messages"[^>]*>/);
     assert.ok(banner, page);

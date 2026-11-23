@@ -46,7 +46,7 @@ pause flag, all-hands and the words are this run's. `planned` lists the open iss
 them. `completedCount` is a count, not a list: a whole number from 0 of the closed issues that
 carry `tehas:shipped`, counted by a search of its own, so it keeps rising past
 the hundred `completed` holds. The figure of the Shipped stage of the business
-layout is that count where the file has one, and the length of the list where
+plugin's page is that count where the file has one, and the length of the list where
 it has none. The call for that count may take 60 seconds, the same limit the
 platform reads go under; a call that fails or runs out of time leaves the key
 out of the snapshot. The key is absent whenever the search gave no such number, so
