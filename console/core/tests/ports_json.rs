@@ -81,26 +81,24 @@ fn every_marker() -> Vec<Marker> {
             by: vec![here(3), elsewhere()],
         },
         Marker::HoldCleared,
-        Marker::Park(ParkMarker {
-            blueprint: bp(7),
-            step: MarkerWord::new("").unwrap(),
-            kind: MarkerWord::new("timeout").unwrap(),
-            provider: true,
-            sig: sha('a'),
+        Marker::Park({
+            let mut park_marker = ParkMarker::new(bp(7), sha('a'));
+            park_marker.step = MarkerWord::new("").unwrap();
+            park_marker.kind = MarkerWord::new("timeout").unwrap();
+            park_marker.provider = true;
+            park_marker
         }),
-        Marker::Finish(FinishMarker {
-            blueprint: bp(7),
-            result: FinishResult::Stopped,
-            by_poll: true,
+        Marker::Finish({
+            let mut finish_marker = FinishMarker::new(bp(7), FinishResult::Stopped);
+            finish_marker.by_poll = true;
+            finish_marker
         }),
-        Marker::LastAttempt(LastAttemptMarker {
-            base: sha('c'),
-            note: "ran out of time".into(),
+        Marker::LastAttempt({
+            let mut last_attempt_marker = LastAttemptMarker::new(sha('c'));
+            last_attempt_marker.note = "ran out of time".into();
+            last_attempt_marker
         }),
-        Marker::Millwright(MillwrightMarker {
-            blueprint: bp(7),
-            action: MillwrightAction::Ask,
-        }),
+        Marker::Millwright(MillwrightMarker::new(bp(7), MillwrightAction::Ask)),
         Marker::TicketOf(Ref::Here(TicketKey::Key(KeyText::new("ABC-1").unwrap()))),
         Marker::Link {
             blueprint: bp(9),
@@ -191,11 +189,10 @@ fn the_ports_values_read_back_from_json() {
     round!(TicketKey::Key(KeyText::new("ABC-12").unwrap()));
     round!(Item::Change(ChangeNo::new(2).unwrap()));
     round!(Rev::Branch(Branch::new("fix/typo").unwrap()));
-    round!(Account {
-        realm: Realm::Tickets,
-        login: Login::new("someone"),
-        id: Some(AccountId::new("42")),
-        kind: AccountKind::Person,
+    round!({
+        let mut account = Account::new(Realm::Tickets, Login::new("someone"), AccountKind::Person);
+        account.id = Some(AccountId::new("42"));
+        account
     });
     round!(Covers::Site(SiteId::new("s")));
     round!(Covers::projects(
@@ -211,41 +208,34 @@ fn the_ports_values_read_back_from_json() {
         why: Passing::Timeout,
         sent: Sent::Maybe,
     });
-    round!(Applied {
-        done: vec![bp(1)],
-        stopped: Some((bp(2), Outcome::Refused(Refusal::Unknown))),
+    round!({
+        let mut applied = Applied::default();
+        applied.done = vec![bp(1)];
+        applied.stopped = Some((bp(2), Outcome::Refused(Refusal::Unknown)));
+        applied
     });
     round!(MarkName::read_list(["area: docs", "a#b"]));
     round!(HappenedKind::BlockerAdded);
     round!(HappenedKind::Unknown);
     let link = WebLink::new("https://example.test/c").unwrap();
     round!((
-        Applied {
-            done: vec![StepPart::Note],
-            stopped: Some((StepPart::Close, Outcome::Forbidden)),
+        {
+            let mut applied = Applied::default();
+            applied.done = vec![StepPart::Note];
+            applied.stopped = Some((StepPart::Close, Outcome::Forbidden));
+            applied
         },
-        Some(Posted {
-            id: CommentId::new("c1"),
-            link: link.clone(),
-        }),
+        Some(Posted::new(CommentId::new("c1"), link.clone())),
     ));
-    round!(ChangeDelta {
-        changes: vec![],
-        comments: vec![(
-            ChangeNo::new(4).unwrap(),
-            Comment {
-                id: CommentId::new("c2"),
-                author: None,
-                editor: None,
-                created: At::new(1),
-                edited: None,
-                body: "seen".into(),
-                markers: vec![],
-                revision: Revision::new("r"),
-                link,
-            },
-        )],
-        next: Cursor::new("next"),
+    round!({
+        let mut change_delta = ChangeDelta::new(Cursor::new("next"));
+        change_delta.comments = vec![(ChangeNo::new(4).unwrap(), {
+            let mut comment =
+                Comment::new(CommentId::new("c2"), At::new(1), Revision::new("r"), link);
+            comment.body = "seen".into();
+            comment
+        })];
+        change_delta
     });
     round!(BoardAsk {
         depth: Depth::Cut { notes: 0 },
@@ -254,9 +244,11 @@ fn the_ports_values_read_back_from_json() {
         filter: Filter::default(),
         control: Some(TicketKey::Number(nz(1))),
     });
-    round!(OpenWork {
-        items: Whole::new(vec![]),
-        control: Some(Err(Outcome::Unread(Unread::Cut))),
+    round!({
+        let mut open_work = OpenWork::default();
+        open_work.items = Whole::new(vec![]);
+        open_work.control = Some(Err(Outcome::Unread(Unread::Cut)));
+        open_work
     });
     round!(ChangeAsk {
         filter: ChangeFilter::default(),
@@ -265,6 +257,22 @@ fn the_ports_values_read_back_from_json() {
         siblings: Some(Bound::new(20).unwrap()),
         activity: None,
     });
+}
+
+#[test]
+fn a_delta_stored_without_more_reads_as_not_more() {
+    let ticket = read!(TicketDelta, r#"{"tickets":[],"notes":[],"next":"c1"}"#);
+    assert_eq!(ticket, TicketDelta::new(Cursor::new("c1")));
+    assert!(!ticket.more);
+    let blueprint = read!(
+        BlueprintDelta,
+        r#"{"blueprints":[],"comments":[],"next":"c2"}"#
+    );
+    assert_eq!(blueprint, BlueprintDelta::new(Cursor::new("c2")));
+    assert!(!blueprint.more);
+    let change = read!(ChangeDelta, r#"{"changes":[],"comments":[],"next":"c3"}"#);
+    assert_eq!(change, ChangeDelta::new(Cursor::new("c3")));
+    assert!(!change.more);
 }
 
 #[test]
@@ -469,10 +477,7 @@ fn the_ledger_and_health_read_back_from_json() {
         r#"{"Pool":[{"Ours":"grant-1"},"Writes"]}"#
     );
     round!(Holder::Anonymous(HolderId::new("addr-sum")));
-    round!(Budget {
-        left: 0,
-        resets: At::new(3600),
-    });
+    round!(Budget::new(0, At::new(3600)));
     round!(HealthState::Failing {
         since: At::new(5),
         why: Passing::Broken,
@@ -482,14 +487,14 @@ fn the_ledger_and_health_read_back_from_json() {
         until: At::new(9),
     });
     round!(HealthState::SignedOut { since: At::new(7) });
-    round!(Failure {
-        at: At::new(1),
-        site: SiteId::new("project"),
-        outcome: Outcome::Spent {
+    round!(Failure::new(
+        At::new(1),
+        SiteId::new("project"),
+        Outcome::Spent {
             pool: Pool::Writes,
             until: At::new(60),
-        },
-    });
+        }
+    ));
     round!(LedgerDown);
     for what in [
         Health::Unavailable(Passing::Timeout),
@@ -505,13 +510,13 @@ fn the_ledger_and_health_read_back_from_json() {
         Health::Unknown(Word::Unknown),
     ] {
         round!(what);
-        round!(Notice {
-            host: HostId::new("code-host"),
-            whose: Whose::Holder(ours.clone()),
-            realm: Realm::CodeHost,
+        round!(Notice::new(
+            HostId::new("code-host"),
+            Whose::Holder(ours.clone()),
+            Realm::CodeHost,
             what,
-            at: At::new(2),
-        });
+            At::new(2)
+        ));
     }
     for word in [
         Word::HappenedKind,
@@ -574,11 +579,10 @@ fn a_health_or_word_the_reader_cannot_read_is_unknown_in_json() {
 #[test]
 fn the_fakes_and_the_laws_values_read_back_from_json() {
     use tehas_ports::fake::{Asked, BoardOp, Fault, Op, TicketsOp, Wrote};
-    let factory = Account {
-        realm: Realm::CodeHost,
-        login: Login::new("factory"),
-        id: Some(AccountId::new("id-factory")),
-        kind: AccountKind::Ours,
+    let factory = {
+        let mut account = Account::new(Realm::CodeHost, Login::new("factory"), AccountKind::Ours);
+        account.id = Some(AccountId::new("id-factory"));
+        account
     };
     round!(Wrote {
         by: factory,
@@ -600,4 +604,20 @@ fn the_fakes_and_the_laws_values_read_back_from_json() {
         law: "lists::more_is_exact".into(),
         what: "more".into(),
     });
+}
+
+#[test]
+fn a_standing_is_its_name_and_the_old_words_still_read() {
+    for (s, word) in [
+        (Standing::None, "None"),
+        (Standing::Read, "Read"),
+        (Standing::Triage, "Triage"),
+        (Standing::Write, "Write"),
+        (Standing::Maintain, "Maintain"),
+        (Standing::Admin, "Admin"),
+    ] {
+        let json = format!("\"{word}\"");
+        assert_eq!(serde_json::to_string(&s).unwrap(), json);
+        assert_eq!(serde_json::from_str::<Standing>(&json).unwrap(), s);
+    }
 }
