@@ -589,9 +589,10 @@ pub trait Tickets: Reports + Cites {
     /// conditional requests or pushes events.
     fn changed(&mut self, since: Option<&ChangeToken>) -> Got<(bool, ChangeToken)>;
     /// Tickets and notes changed since the cursor, with their text and
-    /// close. Oldest change first. Past `bound`, the first `bound` changes,
-    /// with `more` and a `next` that resumes after them: never
-    /// `Unread(Cut)`, so a long history spreads over passes.
+    /// close, each list oldest first. `bound` counts both lists together.
+    /// Past it, the first `bound` changes, with `more`, and a `next` that
+    /// resumes after the last change of either list: never `Unread(Cut)`,
+    /// so a long history spreads over passes.
     fn delta(&mut self, from: Option<&Cursor>, bound: Bound) -> Got<TicketDelta>;
     /// A link a visitor opens to file a ticket with this text filled in.
     fn new_ticket_link(&self, title: &str, text: &str) -> WebLink;

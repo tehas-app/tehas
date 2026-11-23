@@ -764,9 +764,10 @@ pub trait CodeHost: Reports + Cites {
     fn archive(&mut self, at: &CommitId, limit: u64, into: &mut dyn std::io::Write) -> Did;
     /// Has anything changed since this token.
     fn changed(&mut self, since: Option<&ChangeToken>) -> Got<(bool, ChangeToken)>;
-    /// Changes and their comments changed since the cursor, with bodies.
-    /// Oldest change first. Past `bound`, the first `bound` changes, with
-    /// `more` and a `next` that resumes after them: never `Unread(Cut)`.
+    /// Changes and their comments changed since the cursor, with bodies,
+    /// each list oldest first. `bound` counts both lists together. Past
+    /// it, the first `bound` changes, with `more`, and a `next` that
+    /// resumes after the last change of either list: never `Unread(Cut)`.
     fn delta(&mut self, from: Option<&Cursor>, bound: Bound) -> Got<ChangeDelta>;
     /// The remote for git, with a credential for this handle's actor.
     fn remote(&mut self, access: Access) -> Got<Remote>;

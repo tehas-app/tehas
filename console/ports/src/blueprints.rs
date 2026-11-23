@@ -245,9 +245,10 @@ pub trait Blueprints: Reports + Cites {
     fn fetch(&mut self, a: &AttachmentId, limit: u64, into: &mut dyn std::io::Write) -> Did;
     /// Has anything changed since this token.
     fn changed(&mut self, since: Option<&ChangeToken>) -> Got<(bool, ChangeToken)>;
-    /// Blueprints and comments changed since the cursor. Oldest change
-    /// first. Past `bound`, the first `bound` changes, with `more` and a
-    /// `next` that resumes after them: never `Unread(Cut)`.
+    /// Blueprints and comments changed since the cursor, each list oldest
+    /// first. `bound` counts both lists together. Past it, the first
+    /// `bound` changes, with `more`, and a `next` that resumes after the
+    /// last change of either list: never `Unread(Cut)`.
     fn delta(&mut self, from: Option<&Cursor>, bound: Bound) -> Got<BlueprintDelta>;
 }
 
