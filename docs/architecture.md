@@ -106,6 +106,12 @@ its types through a small serde format of their own, since the crate takes
 no serde_json; `untyped-signatures` allows that one file by name, as its
 matches are serde's own `Visitor::Value`.
 
+`event-names` (R1, T11.1) holds an event name's string to the ports'
+events module: a string literal equal to a name, quotes included, counts
+anywhere else in `console/`, comments too. Code names `Name::CycleEnded`;
+a test that needs a name in JSON takes it from `Name::as_str`. A new name
+joins the pattern in the pull request that adds it.
+
 ## Write guards
 
 Each of these decides whether a GitHub call writes. They are kept
