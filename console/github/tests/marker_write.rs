@@ -9,8 +9,8 @@ use tehas_github::markers::{read, write};
 use tehas_github::table;
 use tehas_ports::{
     BlueprintNo, FinishMarker, FinishResult, KeyText, LastAttemptMarker, MarkName, Marker,
-    MarkerKind, MarkerWord, MillwrightAction, MillwrightMarker, Outcome, ParkMarker,
-    QuestionKind, Ref, Refusal, Sha256, TicketKey,
+    MarkerKind, MarkerWord, MillwrightAction, MillwrightMarker, Outcome, ParkMarker, QuestionKind,
+    Ref, Refusal, Sha256, TicketKey,
 };
 
 const ITEM: u64 = 7;
@@ -65,7 +65,9 @@ fn every_marker() -> Vec<Marker> {
     let mut all = vec![
         question(QuestionKind::Plan, 1),
         question(QuestionKind::Park, 999_999_999),
-        Marker::Blocked { by: vec![ticket(3)] },
+        Marker::Blocked {
+            by: vec![ticket(3)],
+        },
         Marker::Blocked {
             by: (1..=20).map(|n| ticket(n * 49_999_999)).collect(),
         },
@@ -94,7 +96,7 @@ fn every_marker() -> Vec<Marker> {
         FinishResult::Refused,
         FinishResult::Stopped,
     ] {
-        all.push(finish(result.clone(), false));
+        all.push(finish(result, false));
         all.push(finish(result, true));
     }
     for action in [
@@ -259,11 +261,7 @@ fn a_whole_that_would_not_read_back_is_refused() {
     // A note that holds its close line, or a marker.
     let close = "<!-- /tehas:last-attempt -->";
     assert_eq!(
-        write(
-            "Text.",
-            &[last_attempt(&format!("a\n{close}\nb"))],
-            item()
-        ),
+        write("Text.", &[last_attempt(&format!("a\n{close}\nb"))], item()),
         invalid
     );
     assert_eq!(
@@ -305,7 +303,11 @@ fn a_marker_that_is_not_writable_is_refused_and_a_projects_own_unsupported() {
             remove: false,
         },
     ] {
-        assert_eq!(write("Text.", &[m.clone()], item()), invalid, "{m:?}");
+        assert_eq!(
+            write("Text.", std::slice::from_ref(&m), item()),
+            invalid,
+            "{m:?}"
+        );
     }
     let own = Marker::Project {
         name: MarkName::new("acme-hold").unwrap(),

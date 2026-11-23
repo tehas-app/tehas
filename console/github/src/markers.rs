@@ -108,7 +108,8 @@ pub fn write(text: &str, markers: &[Marker], item: Option<BlueprintNo>) -> Got<S
         .map(|m| table::marker_text(m).ok_or(Outcome::Refused(Refusal::Unsupported)))
         .collect::<Got<Vec<String>>>()?;
     let text = kept(text);
-    let mut body = String::with_capacity(text.len() + 2 + lines.iter().map(String::len).sum::<usize>());
+    let mut body =
+        String::with_capacity(text.len() + 2 + lines.iter().map(String::len).sum::<usize>());
     if !text.is_empty() {
         body.push_str(text);
         body.push_str("\n\n");
@@ -122,7 +123,7 @@ pub fn write(text: &str, markers: &[Marker], item: Option<BlueprintNo>) -> Got<S
 }
 
 /// Whether [`read`] finds any marker in `text`, of any item.
-fn holds_marker(text: &str) -> bool {
+pub fn holds_marker(text: &str) -> bool {
     !read(text, None).markers.is_empty()
 }
 

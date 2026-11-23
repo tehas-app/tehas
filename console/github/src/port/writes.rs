@@ -1,14 +1,25 @@
 //! The tickets port's writes, `TicketWrites`. Answered: the factory's
-//! labels made (`prepare`), a project's own label (`ensure_mark`), and a
-//! mark put on or taken off.
+//! labels made (`prepare`), a project's own label (`ensure_mark`), a mark
+//! put on or taken off, a note with its markers (`note`), and the
+//! ticket's own title and text edited at a revision (`edit`).
+//!
+//! A write that carries text is one request, sent once and never again:
+//! the text goes as JSON on gh's standard input, never in an argument,
+//! which holds at most 128 KiB and is seen by every process on the host.
+//! It reads the issue first, so a pull request's number is `NotFound` with
+//! nothing sent.
 
 use super::{label_of, number, unsupported};
-use crate::{table, GitHub};
+use crate::{markers, table, GitHub};
+use serde_json::Value;
 use tehas_ports::{
-    Applied, At, CloseReason, CommentId, Did, Got, Item, Kind, Mark, MarkSpec, MarkerEdit,
-    NewTicket, Outcome, Posted, Priority, Refusal, Revision, Step, StepPart, TargetEdit, TargetId,
-    TicketKey, TicketWrites, Unprepared, WebLink,
+    Applied, At, CloseReason, CommentId, Did, Got, Item, Kind, Lost, Mark, MarkSpec, Marker,
+    MarkerEdit, NewTicket, Outcome, Pool, Posted, Priority, Refusal, Revision, Sent, Step,
+    StepPart, TargetEdit, TargetId, TicketKey, TicketWrites, Unprepared, Unread, WebLink,
 };
+
+/// What `GhRunner::run_input`'s default answers: the runner sends nothing.
+const NO_INPUT: &str = "this runner takes no input";
 
 impl TicketWrites for GitHub {
     fn apply(
@@ -82,28 +93,116 @@ impl TicketWrites for GitHub {
         unsupported()
     }
 
-    fn note(
-        &mut self,
-        _: &TicketKey,
-        _: &str,
-        _: &[tehas_ports::Marker],
-    ) -> Got<Posted<CommentId>> {
-        unsupported()
+    /// The issue read, then a comment on it: one `POST` of the text and
+    /// its markers as [`markers::write`] makes them. Its id is the
+    /// comment's REST id and its link the issue's with
+    /// `#issuecomment-<id>`. A time limit or a server's error after the
+    /// `POST` went out is `sent: Maybe`, and stays so: the adapter has no
+    /// read that tells its comment apart, so the caller settles it from the
+    /// item's comments (`Blueprints::comments`).
+    fn note(&mut self, key: &TicketKey, body: &str, markers: &[Marker]) -> Got<Posted<CommentId>> {
+        let issue = number(key)?;
+        let text = markers::write(body, markers, key.same_item())?;
+        let path = format!("{}/issues/{issue}/comments", rest_repo(&self.repo)?);
+        read_first(self, issue)?;
+        let input = serde_json::json!({ "body": text }).to_string();
+        let out = send(self, "POST", &path, &input)?;
+        comment_of(&out, &self.repo, issue)
     }
 
     fn file(&mut self, _: &NewTicket) -> Got<Posted<TicketKey>> {
         unsupported()
     }
 
+    /// The issue read, its revision compared with `since`, then one
+    /// `PATCH` of what is given. The revision is the read's own
+    /// (`TicketDigest.revision`): the time GitHub last saw the issue change,
+    /// from the same REST answer, so a revision a read gave is the one an
+    /// edit is held to. GitHub has no conditional update of an issue, so
+    /// the moment between the read and the write stays open: another
+    /// account's edit in it is overwritten.
+    ///
+    /// The body is the text given, or the text as it reads now, with the
+    /// markers `markers` leaves, as [`markers::write`] makes it: every
+    /// marker it does not name is kept, in its order, after the text. A
+    /// body with a marker that does not read (unreadable, bare or of no
+    /// kind) is `Refused(Unsupported)` when the body would be written: the
+    /// writer writes no such marker, and dropping it is no one's ask. A
+    /// title alone leaves the body as it is.
+    ///
+    /// A `PATCH` that may have landed is settled by one read, never sent
+    /// again: the title and body sent there is done, the issue still at
+    /// `since` was not sent, else it stays `sent: Maybe`.
     fn edit(
         &mut self,
-        _: &TicketKey,
-        _: Option<&str>,
-        _: Option<&str>,
-        _: &MarkerEdit,
-        _: &Revision,
+        key: &TicketKey,
+        title: Option<&str>,
+        text: Option<&str>,
+        markers: &MarkerEdit,
+        since: &Revision,
     ) -> Got<WebLink> {
-        unsupported()
+        let issue = number(key)?;
+        markers.check()?;
+        if title.into_iter().chain(text).any(markers::holds_marker) {
+            return Err(Outcome::Refused(Refusal::Invalid));
+        }
+        let path = format!("{}/issues/{issue}", rest_repo(&self.repo)?);
+        let now = read_first(self, issue)?;
+        if now.revision()? != *since {
+            return Err(Outcome::Conflict(Lost::Changed));
+        }
+        let body = if text.is_some() || *markers != MarkerEdit::default() {
+            let read = markers::read(&now.body, key.same_item());
+            if !read.markers.iter().all(Marker::writable) {
+                return unsupported();
+            }
+            let mut kept = read.markers;
+            edit_markers(&mut kept, markers);
+            Some(markers::write(
+                text.unwrap_or(&read.text),
+                &kept,
+                key.same_item(),
+            )?)
+        } else {
+            None
+        };
+        let mut fields = serde_json::Map::new();
+        if let Some(t) = title {
+            fields.insert("title".into(), t.into());
+        }
+        if let Some(b) = &body {
+            fields.insert("body".into(), b.as_str().into());
+        }
+        if fields.is_empty() {
+            return Ok(now.link);
+        }
+        let failed = match send(self, "PATCH", &path, &Value::Object(fields).to_string()) {
+            Ok(out) => {
+                let edited = issue_of(&out, &self.repo)?;
+                if edited.number != issue {
+                    return Err(Outcome::Unread(Unread::Inconsistent));
+                }
+                return Ok(edited.link);
+            }
+            Err(o) => o,
+        };
+        let Outcome::Unavailable {
+            why,
+            sent: Sent::Maybe,
+        } = failed
+        else {
+            return Err(failed);
+        };
+        let title = title.unwrap_or(&now.title);
+        let body = body.as_deref().unwrap_or(&now.body);
+        match read_first(self, issue) {
+            Ok(again) if again.title == title && again.body == body => Ok(again.link),
+            Ok(again) if again.revision().as_ref() == Ok(since) => Err(Outcome::Unavailable {
+                why,
+                sent: Sent::No,
+            }),
+            _ => Err(failed),
+        }
     }
 
     fn reopen(&mut self, _: &TicketKey) -> Did {
@@ -149,4 +248,173 @@ impl TicketWrites for GitHub {
     fn set_target(&mut self, _: &TicketKey, _: Option<&TargetId>) -> Did {
         unsupported()
     }
+}
+
+/// The REST path of the adapter's repository, the one place its writes
+/// go. A name that is no `owner/name` of GitHub's characters is
+/// `Refused(Invalid)`: it would aim the request somewhere else.
+fn rest_repo(repo: &str) -> Got<String> {
+    let (owner, name) = repo
+        .split_once('/')
+        .ok_or(Outcome::Refused(Refusal::Invalid))?;
+    let ok = |s: &str, max: usize, extra: &[u8]| {
+        !s.is_empty()
+            && s.len() <= max
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || extra.contains(&b))
+    };
+    if ok(owner, 39, b"") && ok(name, 100, b"._") && name != "." && name != ".." {
+        Ok(format!("repos/{owner}/{name}"))
+    } else {
+        Err(Outcome::Refused(Refusal::Invalid))
+    }
+}
+
+/// One write, its JSON on gh's standard input, sent once. A failure is its
+/// named outcome: a 422 is GitHub refusing the input, a spent budget is the
+/// writes' pool, and a runner that sends no input sent nothing. No word of
+/// gh's answer, or of the input, is kept.
+fn send(gh: &mut GitHub, method: &str, path: &str, input: &str) -> Got<String> {
+    let args = ["api", "-X", method, path, "--input", "-"];
+    let e = match gh.call_input("the write", &args, input) {
+        Ok(out) => return Ok(out),
+        Err(e) => e,
+    };
+    if e.why == NO_INPUT {
+        return Err(Outcome::Refused(Refusal::Unsupported));
+    }
+    if e.why.contains("HTTP 422") {
+        return Err(Outcome::Refused(Refusal::Invalid));
+    }
+    Err(match gh.outcome(&e) {
+        Outcome::Spent { until, .. } => Outcome::Spent {
+            pool: Pool::Writes,
+            until,
+        },
+        other => other,
+    })
+}
+
+/// The issue's REST read before a write, held to be this project's issue
+/// `issue`. A failure of the read is its outcome, with nothing sent; a pull
+/// request is `NotFound`.
+fn read_first(gh: &mut GitHub, issue: u64) -> Got<Issue> {
+    let out = gh.issue_answer(issue).map_err(|e| match gh.outcome(&e) {
+        Outcome::Unavailable { why, .. } => Outcome::Unavailable {
+            why,
+            sent: Sent::No,
+        },
+        other => other,
+    })?;
+    let read = issue_of(&out, &gh.repo)?;
+    if read.number != issue {
+        return Err(Outcome::Unread(Unread::Inconsistent));
+    }
+    Ok(read)
+}
+
+/// An issue of this project as a read or a write answers it.
+struct Issue {
+    number: u64,
+    title: String,
+    body: String,
+    link: WebLink,
+    updated: Option<String>,
+}
+
+impl Issue {
+    /// The revision a read of the issue gives, `TicketDigest.revision`:
+    /// the time GitHub last saw it change. `Unread(Malformed)` without it.
+    fn revision(&self) -> Got<Revision> {
+        self.updated
+            .as_deref()
+            .map(Revision::new)
+            .ok_or(Outcome::Unread(Unread::Malformed))
+    }
+}
+
+/// Apply a `MarkerEdit` as the ports' fake does: a marker set replaces one
+/// of its kind and key, or is added at the end; one named in `drop` is
+/// taken off; the rest keep their order. Every marker here reads.
+fn edit_markers(markers: &mut Vec<Marker>, edit: &MarkerEdit) {
+    markers.retain(|m| {
+        !edit
+            .drop
+            .iter()
+            .any(|(k, key)| m.kind() == *k && m.key() == *key)
+    });
+    for set in &edit.set {
+        match markers
+            .iter()
+            .position(|m| m.kind() == set.kind() && m.key() == set.key())
+        {
+            Some(at) => markers[at] = set.clone(),
+            None => markers.push(set.clone()),
+        }
+    }
+}
+
+/// The issue in gh's answer. An answer that does not parse or lacks a
+/// field every issue has is `Unread(Malformed)`; a pull request is
+/// `NotFound`, no ticket; a link that is not this project's issue of that
+/// number is `Unread(Inconsistent)`.
+fn issue_of(out: &str, repo: &str) -> Got<Issue> {
+    let malformed = Outcome::Unread(Unread::Malformed);
+    let v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
+    let number = v
+        .get("number")
+        .and_then(Value::as_u64)
+        .filter(|n| *n > 0)
+        .ok_or(malformed.clone())?;
+    let url = v
+        .get("html_url")
+        .and_then(Value::as_str)
+        .ok_or(malformed.clone())?;
+    let body = match v.get("body") {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::String(s)) => s.clone(),
+        Some(_) => return Err(malformed),
+    };
+    let text = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
+    if v.get("pull_request").is_some_and(|p| !p.is_null()) {
+        return Err(Outcome::NotFound);
+    }
+    if !ends_with_folded(url, &format!("/{repo}/issues/{number}")) {
+        return Err(Outcome::Unread(Unread::Inconsistent));
+    }
+    Ok(Issue {
+        number,
+        title: text("title").unwrap_or_default(),
+        body,
+        link: WebLink::new(url).map_err(|_| malformed)?,
+        updated: text("updated_at"),
+    })
+}
+
+/// The comment in gh's answer: its REST id, and its link, which must be the
+/// comment's on this project's issue `issue`.
+fn comment_of(out: &str, repo: &str, issue: u64) -> Got<Posted<CommentId>> {
+    let malformed = Outcome::Unread(Unread::Malformed);
+    let v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
+    let id = v
+        .get("id")
+        .and_then(Value::as_u64)
+        .ok_or(malformed.clone())?;
+    let url = v
+        .get("html_url")
+        .and_then(Value::as_str)
+        .ok_or(malformed.clone())?;
+    if !ends_with_folded(url, &format!("/{repo}/issues/{issue}#issuecomment-{id}")) {
+        return Err(Outcome::Unread(Unread::Inconsistent));
+    }
+    let link = WebLink::new(url).map_err(|_| malformed)?;
+    Ok(Posted::new(CommentId::new(id.to_string()), link))
+}
+
+/// `text` ends with `tail`, ASCII case folded: GitHub names a project in
+/// any case.
+fn ends_with_folded(text: &str, tail: &str) -> bool {
+    text.len() >= tail.len()
+        && text.is_char_boundary(text.len() - tail.len())
+        && text[text.len() - tail.len()..].eq_ignore_ascii_case(tail)
 }
