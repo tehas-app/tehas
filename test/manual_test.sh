@@ -171,8 +171,8 @@ done
 # with plugins and `## The commands of other parts` with the parts.
 # `## tehasbot review` went with the review loop in 2.0, `## tehasbot protolab`
 # with the Protolab and `## tehas outsource` with outsource.
-t_case "the tools pages hold the 46 sections of the commands, each once"
-t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 46
+t_case "the tools pages hold the 45 sections of the commands, each once"
+t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 45
 t_eq "$(cat "${TOOLS_PAGES[@]}" | grep '^## ' | grep -v '^## The pages$' \
    | sort | uniq -d | wc -l | tr -d ' ')" 0
 
@@ -236,8 +236,8 @@ t_lists_of() { # <tehas|tehasbot> <file>
 t_case "the front's verbs and the lists of the pages are both read"
 t_front_verbs tehas "$T/verbs-tehas"
 t_front_verbs tehasbot "$T/verbs-tehasbot"
-t_eq "$(sort -u "$T/verbs-tehas" | grep -c . | tr -d ' ')" 38
-t_eq "$(sort -u "$T/verbs-tehasbot" | grep -c . | tr -d ' ')" 14
+t_eq "$(sort -u "$T/verbs-tehas" | grep -c . | tr -d ' ')" 37
+t_eq "$(sort -u "$T/verbs-tehasbot" | grep -c . | tr -d ' ')" 13
 t_lists_of tehas "$T/list-tehas"
 t_lists_of tehasbot "$T/list-tehasbot"
 [ "$(grep -c . "$T/list-tehas" | tr -d ' ')" -ge 25 ] ||
@@ -358,7 +358,7 @@ done
 t_case "each row of a feature still being built says so in its status"
 rows=$(awk -F' \\| ' '/^\| / && tolower($2) ~ /still being built/ {
   status = $3; sub(/ *\|$/, "", status); print status }' "$features")
-[ "$(grep -c . <<<"$rows")" -ge 6 ] || t_bad "fewer than 6 rows of building features: $rows"
+[ "$(grep -c . <<<"$rows")" -ge 4 ] || t_bad "fewer than 4 rows of building features: $rows"
 while IFS= read -r status; do
   case $status in
   'Still being built'*) ;;

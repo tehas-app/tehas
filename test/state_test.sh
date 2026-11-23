@@ -118,6 +118,9 @@ t_eq "$(cat "$T/err")" ""
 
 t_case "pack holds the listed paths and not the logs, the work or the settings"
 reset
+# What outsource left in state/ before 2.0 dropped it is not carried.
+mkdir -p "$src/state/outsource/downloads" "$src/state/memory/cycles"
+echo x >"$src/state/outsource/downloads/a" && echo x >"$src/state/memory/cycles/issue-7.db"
 pack
 t_eq "$t_rc" 0
 t_eq "$(tar -tf "$tar_file" | head -n 1)" tehas-state.json
@@ -133,6 +136,8 @@ t_lacks "$list" "work"
 t_lacks "$list" ".config"
 t_lacks "$list" "tehas.db-wal"
 t_lacks "$list" "tehas.db-shm"
+t_lacks "$list" "state/outsource"
+t_lacks "$list" "state/memory/cycles"
 
 t_case "pack takes the store from a copy the store made, one that reads as the store"
 reset

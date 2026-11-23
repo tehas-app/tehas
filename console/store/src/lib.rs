@@ -45,7 +45,6 @@ mod load_tests;
 #[cfg(test)]
 mod lock_tests;
 #[cfg(test)]
-#[cfg(test)]
 mod park_tests;
 #[cfg(test)]
 mod plan_tests;

@@ -164,14 +164,14 @@ t_contains "$t_out" "removed: $units/tehas-energy.service"
 t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-energy.service
 --user daemon-reload"
 
-t_case "what outsource left in the home goes: its programs, its files and its directories of state"
+t_case "what outsource left in the home goes: its programs, its files and its two directories of state"
 left=(libexec/tehas-proxy libexec/tehas-proxy.stamp libexec/tehas-contractor libexec/tehas-contractor.stamp
   live/contractors.json sandbox/vipune-shim)
-left_dirs=(state/outsource state/images state/memory)
+left_dirs=(state/outsource state/memory/cycles)
 for f in "${left[@]}"; do mkdir -p "$th/${f%/*}" && echo "# old" >"$th/$f"; done
 mkdir -p "$th/state/outsource/downloads/jobs" "$th/state/outsource/stamp" "$th/state/images" "$th/state/memory/cycles"
 echo "x" >"$th/state/outsource/downloads/jobs/a" && echo "x" >"$th/state/memory/cycles/issue-7.db"
-echo "kept" >"$th/state/beside"
+echo "kept" >"$th/state/beside" && echo "kept" >"$th/state/images/beside" && echo "kept" >"$th/state/memory/beside"
 t_run "$install --check"
 for f in "${left[@]}"; do t_contains "$t_out" "stale: $th/$f"; done
 for d in "${left_dirs[@]}"; do t_contains "$t_out" "stale: $th/$d/"; done
@@ -188,7 +188,7 @@ for d in "${left_dirs[@]}"; do
   t_eq "$d: $([ -e "$th/$d" ] && echo there)" "$d: "
 done
 # What is beside them in state/ stays, and a second run finds nothing left.
-t_eq "$(cat "$th/state/beside")" "kept"
+t_eq "$(cat "$th/state/beside" "$th/state/images/beside" "$th/state/memory/beside" | tr '\n' ' ')" "kept kept kept "
 t_run "$install --check"
 t_lacks "$t_out" "stale: $th/state/"
 

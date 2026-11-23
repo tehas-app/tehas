@@ -189,13 +189,11 @@ fn tehas_status_json_prints_what_the_sample_holds_but_for_the_clock() {
             w.live_file("health.json"),
         )
         .unwrap();
-        for beside in ["previews"] {
-            let to = w.live_file(&format!("{beside}.json"));
-            let _ = fs::remove_file(&to);
-            let from = fixtures().join(format!("{name}.{beside}.json"));
-            if from.exists() {
-                fs::copy(from, to).unwrap();
-            }
+        let to = w.live_file("previews.json");
+        let _ = fs::remove_file(&to);
+        let from = fixtures().join(format!("{name}.previews.json"));
+        if from.exists() {
+            fs::copy(from, to).unwrap();
         }
         let r = w.summary(&["--json"]);
         // The health file is days old: stale, so the exit status is 3.

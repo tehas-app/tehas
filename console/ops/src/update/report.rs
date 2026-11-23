@@ -606,10 +606,13 @@ mod tests {
             "live/contractors.json",
             "sandbox/vipune-shim",
             "state/outsource/",
-            "state/images/",
-            "state/memory/",
+            "state/memory/cycles/",
         ] {
             assert!(seen.contains(gone), "{gone} is not retired");
+        }
+        // Not outsource's alone to remove: left where they are.
+        for kept in ["state/memory/", "state/images/"] {
+            assert!(!seen.contains(kept), "{kept} is retired");
         }
         // The Protolab's list and log, which nothing writes or rotates now.
         let list = Home::new(Path::new("")).live_dir().join("protolab.json");

@@ -104,12 +104,14 @@ live/contractors.json
 # The stand-in for vipune in the sandbox image, which sent a cycle's memory
 # calls to the factory while outsource was on.
 sandbox/vipune-shim
-# The directories of state/ only outsource wrote: a contractor's job files and
-# the proxy's downloads, the images the proxy kept, and the factory's memory of
-# the cycles. A path that ends with a slash is a directory.
+# The two directories of state/ only outsource wrote, and only while a test
+# turned it on: a contractor's job files with the proxy's downloads, and the
+# factory's memory of the cycles, one database a cycle, which went with each
+# cycle. A cycle's own memory is in its workspace and stays. state/memory
+# itself and state/images are left alone. A path that ends with a slash is a
+# directory.
 state/outsource/
-state/images/
-state/memory/
+state/memory/cycles/
 # The Protolab's list of its pages and its log, parked in 2.0: nothing writes,
 # reads or rotates them any more.
 live/protolab.json

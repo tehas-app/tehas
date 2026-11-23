@@ -1145,20 +1145,6 @@ fn mounts(tree: &str, state_dir: &str, runs: &str) -> Option<Vec<String>> {
         .map(|()| words)
 }
 
-/// The host folders the container writes: the sources of its read-write
-/// mounts ([`sandbox::mount_options`]).
-pub fn writable(tree: &str, state_dir: &str, runs: &str) -> Vec<String> {
-    let state = |d: &str| format!("{state_dir}/{d}");
-    vec![
-        tree.to_string(),
-        state("cache"),
-        state("memory"),
-        state("sessions"),
-        runs.to_string(),
-        state("relay"),
-    ]
-}
-
 /// The account the cycle's container runs as, its `--user`.
 fn container_user() -> String {
     sandbox::user()
@@ -1710,23 +1696,6 @@ fn run_words(
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
-
-    #[test]
-    fn the_folders_handed_over_are_every_read_write_mount_source_of_the_cycle() {
-        let paths = Paths {
-            tree: "/in/work/widget",
-            host: "/h/work/widget-7",
-            state: "/h/work/widget-7.state",
-            runs: "/u/.pi/agent/ensemble-runs/issue-7",
-        };
-        let words = sandbox::mount_options(Kind::Cycle, &paths, "/u/.pi/agent", Some("/h/app"));
-        let rw: Vec<String> = words
-            .chunks(2)
-            .filter(|w| w[0] == "-v" && !w[1].ends_with(":ro"))
-            .map(|w| w[1].split(':').next().unwrap().to_string())
-            .collect();
-        assert_eq!(writable(paths.host, paths.state, paths.runs), rw);
-    }
 
     /// The tests that call `push_fault` read and set the process's
     /// `TEHAS_CYCLE_ATTEMPT`, `TEHAS_FAULT_CALLS` and `TEHAS_REPO`: one at a time,
