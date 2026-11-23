@@ -37,9 +37,6 @@ const DOCKER: &str = r#"case "$*" in "network inspect"*) echo false ;; esac
 [ "$1" != run ] || printf "%s\n%s\n" "${TEHAS_MCP_KEYS:-none}" "${TEHAS_MCP_DASHBOARD_KEYS:-none}" >"$T/keys.seen"
 [ "$1" != run ] || printf "%s\n" "${TEHAS_MCP_MASK:-none}" >"$T/mask.seen""#;
 
-/// The programs no stub may leave to the host's own.
-const DENIED: &str = "docker gh systemctl curl ssh";
-
 fn digest() -> String {
     format!("sha256:{}", "a".repeat(64))
 }
@@ -143,7 +140,7 @@ impl Host {
             instance_on: RefCell::new(false),
             env: RefCell::new(vec![]),
         };
-        for name in DENIED.split(' ') {
+        for name in tehas_core::testing::DENIED {
             write_exe(
                 h.t.join("deny").join(name),
                 format!(
