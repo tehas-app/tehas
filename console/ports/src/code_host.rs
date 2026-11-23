@@ -2,7 +2,7 @@
 //! releases and the git remote, and its two traits, `CodeHost` and
 //! `CodeHostWrites`.
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::mark::unknown_tag;
 use crate::{
@@ -238,26 +238,10 @@ pub enum ChangeHappened {
     /// An event this copy does not know.
     #[serde(
         untagged,
-        deserialize_with = "change_happened_unknown",
+        deserialize_with = "unknown::read_any",
         serialize_with = "unknown_tag"
     )]
     Unknown,
-}
-
-/// The tags of `ChangeHappened` but `Unknown`.
-const CHANGE_HAPPENED_TAGS: &[&str] = &[
-    "Pushed",
-    "Commented",
-    "Reviewed",
-    "Marked",
-    "Unmarked",
-    "Merged",
-    "Closed",
-    "Reopened",
-];
-
-fn change_happened_unknown<'de, D: Deserializer<'de>>(d: D) -> Result<(), D::Error> {
-    unknown::read(d, CHANGE_HAPPENED_TAGS)
 }
 
 /// Which states of change a filter takes.
@@ -508,17 +492,10 @@ pub enum Takeover {
     /// A rule this copy does not know: `Refused(Invalid)` before any request.
     #[serde(
         untagged,
-        deserialize_with = "takeover_unknown",
+        deserialize_with = "unknown::read_any",
         serialize_with = "unknown_tag"
     )]
     Unknown,
-}
-
-/// The tags of `Takeover` but `Unknown`.
-const TAKEOVER_TAGS: &[&str] = &["Never", "OwnWithoutChange", "SameShape"];
-
-fn takeover_unknown<'de, D: Deserializer<'de>>(d: D) -> Result<(), D::Error> {
-    unknown::read(d, TAKEOVER_TAGS)
 }
 
 /// What `propose` made: the change, and the head commit it opened at, so a

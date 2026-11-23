@@ -296,6 +296,61 @@ fn a_known_tag_of_another_enum_whose_content_does_not_read_is_unknown_in_json() 
 }
 
 #[test]
+fn a_journal_record_the_reader_cannot_read_is_unknown_in_json() {
+    for json in [
+        r#"{"type":"Future"}"#,
+        r#"{"type":"Future","value":3}"#,
+        r#"{"type":"Future","value":"x"}"#,
+        r#"{"type":"Future","value":[true,null]}"#,
+        r#"{"type":"Future","value":{"field":{"deep":1}}}"#,
+    ] {
+        assert_eq!(read!(Write, json), Write::Unknown, "{json}");
+        assert_eq!(read!(Receipt, json), Receipt::Unknown, "{json}");
+        assert_eq!(read!(Happened, json), Happened::Unknown, "{json}");
+        assert_eq!(
+            read!(ChangeHappened, json),
+            ChangeHappened::Unknown,
+            "{json}"
+        );
+        assert_eq!(read!(Takeover, json), Takeover::Unknown, "{json}");
+    }
+    // A known tag whose content does not read: an older copy reading a
+    // newer row never fails it.
+    for json in [
+        r#"{"type":"Mark","value":3}"#,
+        r#"{"type":"Mark","value":{"ticket":1,"mark":{"type":"Act","value":3}}}"#,
+        r#"{"type":"Merge","value":{"no":7}}"#,
+        r#"{"type":"Prepare","value":[true]}"#,
+        r#"{"type":"Upload"}"#,
+    ] {
+        assert_eq!(read!(Write, json), Write::Unknown, "{json}");
+    }
+    for json in [
+        r#"{"type":"Done","value":3}"#,
+        r#"{"type":"Change","value":"x"}"#,
+        r#"{"type":"Edited","value":"http://example.test"}"#,
+        r#"{"type":"Release"}"#,
+    ] {
+        assert_eq!(read!(Receipt, json), Receipt::Unknown, "{json}");
+    }
+    assert_eq!(
+        read!(Happened, r#"{"type":"Closed","value":[true]}"#),
+        Happened::Unknown
+    );
+    assert_eq!(
+        read!(
+            ChangeHappened,
+            r#"{"type":"Marked","value":{"type":"Act","value":3}}"#
+        ),
+        ChangeHappened::Unknown
+    );
+    assert_eq!(
+        read!(Takeover, r#"{"type":"SameShape","value":7}"#),
+        Takeover::Unknown
+    );
+}
+
+#[test]
 fn a_blocked_of_21_reads_as_unreadable_in_json() {
     let over = Marker::Blocked {
         by: (1..=21).map(here).collect(),

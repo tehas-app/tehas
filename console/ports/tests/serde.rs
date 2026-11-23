@@ -1808,42 +1808,68 @@ fn the_ports_enums_that_may_grow_read_an_unknown_tag_as_unknown() {
     assert_eq!(to_node(&WriteKind::Unknown).unwrap(), text("Unknown"));
 }
 
+/// An older reader never fails a record: a tag `T` does not know reads as
+/// `unknown` whatever its content, and so does a tag of `samples` whose
+/// content does not read.
+fn reads_what_it_cannot_as_unknown<T>(samples: &[T], unknown: T)
+where
+    T: Serialize + for<'de> Deserialize<'de> + PartialEq + Debug,
+{
+    let name = std::any::type_name::<T>();
+    let tagged = |tag: &str, content: Option<Node>| {
+        let mut entries = vec![("type", text(tag))];
+        entries.extend(content.map(|c| ("value", c)));
+        map(entries)
+    };
+    let any = [
+        None,
+        Some(Node::Null),
+        Some(Node::Bool(true)),
+        Some(Node::Int(-1)),
+        Some(text("x")),
+        Some(Node::Seq(vec![Node::Bool(true)])),
+        Some(map(vec![("field", text("x"))])),
+    ];
+    for content in any {
+        let node = tagged("Future", content);
+        assert_eq!(
+            from_node::<T>(node.clone()).unwrap(),
+            unknown,
+            "{name} {node:?}"
+        );
+    }
+    let bad = [
+        Node::Bool(true),
+        Node::Float(0.5),
+        Node::Seq(vec![Node::Bool(true), Node::Bool(false)]),
+    ];
+    for v in samples.iter().filter(|v| **v != unknown) {
+        let node = to_node(v).unwrap();
+        let tag = tag_of(&node);
+        for content in bad.iter().cloned() {
+            let node = tagged(&tag, Some(content));
+            assert_eq!(
+                from_node::<T>(node.clone()).unwrap(),
+                unknown,
+                "{name} {node:?}"
+            );
+        }
+        // A tag that takes content, given none: Unknown, or None where its
+        // content is optional, never an error.
+        if matches!(&node, Node::Map(entries) if entries.len() > 1) {
+            let none = from_node::<T>(tagged(&tag, None));
+            assert!(none.is_ok(), "{name} {tag}: {none:?}");
+        }
+    }
+}
+
 #[test]
-fn the_ports_known_tags_whose_content_does_not_read_are_errors() {
-    let bad = || Node::Seq(vec![Node::Bool(true), Node::Bool(false)]);
-    let tagged = |tag: &str| map(vec![("type", text(tag)), ("value", bad())]);
-    for h in every_happened().iter().filter(|h| **h != Happened::Unknown) {
-        let tag = tag_of(&to_node(h).unwrap());
-        assert!(
-            from_node::<Happened>(tagged(&tag)).is_err(),
-            "Happened {tag}"
-        );
-    }
-    for h in every_change_happened()
-        .iter()
-        .filter(|h| **h != ChangeHappened::Unknown)
-    {
-        let tag = tag_of(&to_node(h).unwrap());
-        assert!(
-            from_node::<ChangeHappened>(tagged(&tag)).is_err(),
-            "ChangeHappened {tag}"
-        );
-    }
-    for w in every_write().iter().filter(|w| **w != Write::Unknown) {
-        let tag = tag_of(&to_node(w).unwrap());
-        assert!(from_node::<Write>(tagged(&tag)).is_err(), "Write {tag}");
-    }
-    for r in every_receipt().iter().filter(|r| **r != Receipt::Unknown) {
-        let tag = tag_of(&to_node(r).unwrap());
-        assert!(from_node::<Receipt>(tagged(&tag)).is_err(), "Receipt {tag}");
-    }
-    for t in every_takeover().iter().filter(|t| **t != Takeover::Unknown) {
-        let tag = tag_of(&to_node(t).unwrap());
-        assert!(
-            from_node::<Takeover>(tagged(&tag)).is_err(),
-            "Takeover {tag}"
-        );
-    }
+fn a_record_the_reader_cannot_read_is_unknown_never_an_error() {
+    reads_what_it_cannot_as_unknown(&every_happened(), Happened::Unknown);
+    reads_what_it_cannot_as_unknown(&every_change_happened(), ChangeHappened::Unknown);
+    reads_what_it_cannot_as_unknown(&every_write(), Write::Unknown);
+    reads_what_it_cannot_as_unknown(&every_receipt(), Receipt::Unknown);
+    reads_what_it_cannot_as_unknown(&every_takeover(), Takeover::Unknown);
 }
 
 #[test]

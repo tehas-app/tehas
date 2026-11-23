@@ -3,7 +3,7 @@
 //! method of every port, each one request to the site but `Prepare` and
 //! `Propose`. `TicketWrites::apply` is no write of its own: it is its parts.
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::mark::unknown_tag;
 use crate::{
@@ -270,55 +270,10 @@ pub enum Write {
     /// A row this copy does not know: never sent.
     #[serde(
         untagged,
-        deserialize_with = "write_unknown",
+        deserialize_with = "unknown::read_any",
         serialize_with = "unknown_tag"
     )]
     Unknown,
-}
-
-/// The tags of `Write` but `Unknown`.
-const WRITE_TAGS: &[&str] = &[
-    "Mark",
-    "Unmark",
-    "Close",
-    "Reopen",
-    "TicketNote",
-    "FileTicket",
-    "EditTicket",
-    "SetKind",
-    "SetPriority",
-    "WaitOn",
-    "StopWaiting",
-    "Assign",
-    "AddPart",
-    "RemovePart",
-    "NewTarget",
-    "EditTarget",
-    "SetTarget",
-    "Prepare",
-    "EnsureMark",
-    "OpenBlueprint",
-    "EditBlueprint",
-    "Comment",
-    "EditComment",
-    "CloseBlueprint",
-    "OpenChange",
-    "EditChange",
-    "MarkChange",
-    "UnmarkChange",
-    "CommentChange",
-    "CloseChange",
-    "Merge",
-    "Propose",
-    "Tag",
-    "SetStatus",
-    "NewRelease",
-    "Upload",
-    "PublishRelease",
-];
-
-fn write_unknown<'de, D: Deserializer<'de>>(d: D) -> Result<(), D::Error> {
-    unknown::read(d, WRITE_TAGS)
 }
 
 /// A write's answer: what it made, and where a person opens it.
@@ -356,27 +311,10 @@ pub enum Receipt {
     /// An answer this copy does not know.
     #[serde(
         untagged,
-        deserialize_with = "receipt_unknown",
+        deserialize_with = "unknown::read_any",
         serialize_with = "unknown_tag"
     )]
     Unknown,
-}
-
-/// The tags of `Receipt` but `Unknown`.
-const RECEIPT_TAGS: &[&str] = &[
-    "Done",
-    "Comment",
-    "Ticket",
-    "Blueprint",
-    "Change",
-    "Proposed",
-    "Target",
-    "Release",
-    "Edited",
-];
-
-fn receipt_unknown<'de, D: Deserializer<'de>>(d: D) -> Result<(), D::Error> {
-    unknown::read(d, RECEIPT_TAGS)
 }
 
 /// The kind of a write, in our words, one per variant. The store maps each

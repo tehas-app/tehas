@@ -3,7 +3,7 @@
 
 use std::num::{NonZeroU32, NonZeroU64};
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::mark::unknown_tag;
 use crate::{
@@ -199,30 +199,10 @@ pub enum Happened {
     /// An event this copy does not know.
     #[serde(
         untagged,
-        deserialize_with = "happened_unknown",
+        deserialize_with = "unknown::read_any",
         serialize_with = "unknown_tag"
     )]
     Unknown,
-}
-
-/// The tags of `Happened` but `Unknown`.
-const HAPPENED_TAGS: &[&str] = &[
-    "Marked",
-    "Unmarked",
-    "Kind",
-    "Priority",
-    "BlockerAdded",
-    "BlockerRemoved",
-    "Assigned",
-    "Unassigned",
-    "Targeted",
-    "Retitled",
-    "Closed",
-    "Reopened",
-];
-
-fn happened_unknown<'de, D: Deserializer<'de>>(d: D) -> Result<(), D::Error> {
-    unknown::read(d, HAPPENED_TAGS)
 }
 
 /// A target: a set of tickets with a title and maybe a due date.
