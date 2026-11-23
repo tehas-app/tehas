@@ -113,17 +113,6 @@ impl Host {
             .unwrap()
     }
 
-    /// The store answers that this attempt's start was a refresh of pull
-    /// request #9.
-    fn approve_refresh(&self) {
-        let store = self.dir.join("libexec/store");
-        let body = fs::read_to_string(&store).unwrap().replace(
-            r#"  approval-current) echo '{"api":1,"verb":"approval-current","ok":true,"current":null}' ;;"#,
-            r#"  approval-current) echo '{"api":1,"verb":"approval-current","ok":true,"current":{"at":"900","how":"refresh","used_by":1,"refresh_pr":9}}' ;;"#,
-        );
-        exe(&store, &body);
-    }
-
     /// The store answers that the approval of the start bound the lean driver.
     fn approve_lean(&self) {
         let store = self.dir.join("libexec/store");
