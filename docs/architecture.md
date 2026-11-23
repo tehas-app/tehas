@@ -145,7 +145,8 @@ From `cargo metadata`. Tests' own dependencies are in the last column.
 | --- | --- | --- |
 | tehas-ports | nothing of the workspace, serde alone | |
 | tehas-core | nothing of the workspace | attach |
-| store, attach, tehas-front, tehas-mcp, tehas-xtask | tehas-core | |
+| attach, tehas-front, tehas-mcp, tehas-xtask | tehas-core | |
+| store | tehas-core, tehas-ports | |
 | analytics | tehas-core | tehas-mcp |
 | tehas-cycle | attach, tehas-core | |
 | tehas-items | attach, tehas-core | |
