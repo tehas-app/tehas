@@ -680,7 +680,8 @@ adopter action as the pull request states them.
   means `github`, so a 1.4.x instance still loads, and any other value is
   refused with 78.
   Readers: adopters, the consumer that runs many factories where it keeps
-  an instance's settings.
+  an instance's settings, and, for the `word` field, any program that
+  splits `host/labels.tsv` by its fields.
 - **The rename.** T10. tehas becomes tehas-factory. The `$id` of every
   schema in `api/`, the release repository and the manual move with it.
 - **The surface list for 2.x.** T9's last update: `api/surface-1.0.txt`
