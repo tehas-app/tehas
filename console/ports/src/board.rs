@@ -260,7 +260,7 @@ impl Board for Join {
     fn work_item(&mut self, key: &TicketKey, ask: &BoardAsk) -> Got<WorkItem> {
         let mut ticket = self.tickets.ticket(key, ask.depth)?;
         if let Some(window) = ask.history {
-            ticket.history = self.tickets.history(key, window)?;
+            ticket.history = self.tickets.history(key, window, None)?;
         }
         let notes = deep(
             self.tickets.notes(key, ITEM_MAX.into())?.into_items(),

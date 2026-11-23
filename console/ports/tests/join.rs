@@ -202,7 +202,12 @@ impl Tickets for StubTickets {
             .map(|k| (k.clone(), self.find(k).map(|t| t.digest)))
             .collect()
     }
-    fn history(&mut self, _: &TicketKey, window: Window) -> Got<Took<TicketEvent>> {
+    fn history(
+        &mut self,
+        _: &TicketKey,
+        window: Window,
+        _: Option<&[HappenedKind]>,
+    ) -> Got<Took<TicketEvent>> {
         Ok(Took {
             items: vec![TicketEvent {
                 what: Happened::Reopened,
@@ -254,13 +259,19 @@ impl Tickets for StubTickets {
     fn filed_by(&mut self, _: &AccountId, _: At, _: Bound) -> Got<Whole<Filed>> {
         Err(unsupported())
     }
-    fn find_marked(&mut self, _: &Mark, _: &MarkerKind, _: &MarkerKey) -> Got<Whole<TicketKey>> {
+    fn find_marked(
+        &mut self,
+        _: &Mark,
+        _: &MarkerKind,
+        _: &MarkerKey,
+        _: Option<bool>,
+    ) -> Got<Whole<TicketKey>> {
         Err(unsupported())
     }
     fn kinds(&mut self) -> Got<Whole<Kind>> {
         Err(unsupported())
     }
-    fn targets(&mut self) -> Got<Whole<Target>> {
+    fn targets(&mut self, _: Bound) -> Got<Whole<Target>> {
         Err(unsupported())
     }
     fn members(&mut self, _: &TargetId, _: Bound) -> Got<Whole<TicketDigest>> {

@@ -923,8 +923,12 @@ fn tickets_read_back() {
     }
     round(Closer::Account(account()));
     for h in every_happened() {
-        round(h);
+        round(h.clone());
+        round(h.kind());
     }
+    let mut kinds: Vec<HappenedKind> = every_happened().iter().map(Happened::kind).collect();
+    kinds.dedup();
+    assert_eq!(kinds.len(), 13, "one kind for each event");
     round(TicketEvent {
         what: Happened::Reopened,
         by: None,
@@ -1819,7 +1823,14 @@ fn the_ports_enums_that_may_grow_read_an_unknown_tag_as_unknown() {
         from_node::<Verdict>(word.clone()).unwrap(),
         Verdict::Unknown
     );
-    assert_eq!(from_node::<PortName>(word).unwrap(), PortName::Unknown);
+    assert_eq!(
+        from_node::<PortName>(word.clone()).unwrap(),
+        PortName::Unknown
+    );
+    assert_eq!(
+        from_node::<HappenedKind>(word).unwrap(),
+        HappenedKind::Unknown
+    );
     let alone = map(vec![("type", text("Unknown"))]);
     assert_eq!(to_node(&Write::Unknown).unwrap(), alone);
     assert_eq!(to_node(&Receipt::Unknown).unwrap(), alone);

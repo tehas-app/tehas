@@ -178,6 +178,7 @@ fn the_ports_values_read_back_from_json() {
         round!(Actor::Ours(s));
     }
     round!(QuestionKind::Unknown);
+    assert_eq!(read!(HappenedKind, r#""Later""#), HappenedKind::Unknown);
     round!(Refusal::Unknown);
     round!(Unread::Unknown);
     round!(Pool::Unknown);
@@ -226,6 +227,8 @@ fn the_ports_values_read_back_from_json() {
         stopped: Some((bp(2), Outcome::Refused(Refusal::Unknown))),
     });
     round!(MarkName::read_list(["area: docs", "a#b"]));
+    round!(HappenedKind::BlockerAdded);
+    round!(HappenedKind::Unknown);
     let link = WebLink::new("https://example.test/c").unwrap();
     round!((
         Applied {

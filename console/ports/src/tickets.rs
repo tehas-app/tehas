@@ -205,6 +205,62 @@ pub enum Happened {
     Unknown,
 }
 
+impl Happened {
+    /// The kind of this event, as a history read's filter names it.
+    pub fn kind(&self) -> HappenedKind {
+        match self {
+            Happened::Marked(_) => HappenedKind::Marked,
+            Happened::Unmarked(_) => HappenedKind::Unmarked,
+            Happened::Kind(_) => HappenedKind::Kind,
+            Happened::Priority(_) => HappenedKind::Priority,
+            Happened::BlockerAdded(_) => HappenedKind::BlockerAdded,
+            Happened::BlockerRemoved(_) => HappenedKind::BlockerRemoved,
+            Happened::Assigned(_) => HappenedKind::Assigned,
+            Happened::Unassigned(_) => HappenedKind::Unassigned,
+            Happened::Targeted(_) => HappenedKind::Targeted,
+            Happened::Retitled { .. } => HappenedKind::Retitled,
+            Happened::Closed { .. } => HappenedKind::Closed,
+            Happened::Reopened => HappenedKind::Reopened,
+            Happened::Unknown => HappenedKind::Unknown,
+        }
+    }
+}
+
+/// The kind of a `Happened`, without its content: what a history read
+/// takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum HappenedKind {
+    /// A mark went on.
+    Marked,
+    /// A mark came off.
+    Unmarked,
+    /// The type was set, or taken off.
+    Kind,
+    /// The priority was set.
+    Priority,
+    /// It began to wait on something.
+    BlockerAdded,
+    /// It stopped waiting on something.
+    BlockerRemoved,
+    /// An account was assigned.
+    Assigned,
+    /// An account was unassigned.
+    Unassigned,
+    /// The target was set, or taken off.
+    Targeted,
+    /// The title changed.
+    Retitled,
+    /// It closed.
+    Closed,
+    /// It was reopened.
+    Reopened,
+    /// An event this copy does not know: it takes the events read as
+    /// `Happened::Unknown`.
+    #[serde(other)]
+    Unknown,
+}
+
 /// A target: a set of tickets with a title and maybe a due date.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Target {
@@ -314,7 +370,8 @@ pub struct ClosedTicket {
     pub closer: Option<Closer>,
     /// How many parts it has.
     pub part_count: u32,
-    /// The merged changes that closed it, with their size.
+    /// The merged changes that closed it, with their size. Empty where
+    /// tickets are not on the code host: `Board::closed_work` joins them.
     pub merged: Vec<ChangeDigest>,
 }
 
@@ -370,8 +427,14 @@ pub trait Tickets: Reports + Cites {
     /// caller that may hold either asks `what_are` first; an adapter may
     /// answer both from one question and keep the answer for the pass.
     fn several(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<TicketDigest>)>;
-    /// A ticket's history, oldest first.
-    fn history(&mut self, key: &TicketKey, window: Window) -> Got<Took<TicketEvent>>;
+    /// A ticket's history, oldest first: the events of the kinds in
+    /// `only`, or every event for None. The window counts the events taken.
+    fn history(
+        &mut self,
+        key: &TicketKey,
+        window: Window,
+        only: Option<&[HappenedKind]>,
+    ) -> Got<Took<TicketEvent>>;
     /// Notes on the ticket itself. Where ticket and blueprint are one item,
     /// empty: the item's comments are the blueprint's.
     fn notes(&mut self, key: &TicketKey, bound: Bound) -> Got<Whole<Comment>>;
@@ -400,20 +463,22 @@ pub trait Tickets: Reports + Cites {
     ) -> Got<Took<TicketDigest>>;
     /// Tickets an account filed since a time: a lost press found again.
     fn filed_by(&mut self, by: &AccountId, since: At, bound: Bound) -> Got<Whole<Filed>>;
-    /// Open tickets carrying `mark` with our marker of `kind` and `key` in
-    /// any place a ticket marker can be: the ticket's own text, its notes,
-    /// and, where ticket and blueprint are one item, the item's body and
-    /// comments.
+    /// Tickets carrying `mark` with our marker of `kind` and `key` in any
+    /// place a ticket marker can be: the ticket's own text, its notes, and,
+    /// where ticket and blueprint are one item, the item's body and
+    /// comments. `open` takes open or closed tickets alone, None both: a
+    /// caller that must not file a report twice asks None.
     fn find_marked(
         &mut self,
         mark: &Mark,
         kind: &MarkerKind,
         key: &MarkerKey,
+        open: Option<bool>,
     ) -> Got<Whole<TicketKey>>;
     /// The site's types of ticket.
     fn kinds(&mut self) -> Got<Whole<Kind>>;
-    /// The project's targets.
-    fn targets(&mut self) -> Got<Whole<Target>>;
+    /// The project's targets, open and closed, whole.
+    fn targets(&mut self, bound: Bound) -> Got<Whole<Target>>;
     /// The tickets of a target.
     fn members(&mut self, target: &TargetId, bound: Bound) -> Got<Whole<TicketDigest>>;
     /// Has anything changed since this token. Free on a site that answers
