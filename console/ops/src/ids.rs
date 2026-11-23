@@ -12,13 +12,18 @@
 //! one: the login may have changed hands, and only a person who knows it did
 //! not confirms the new id with --accept-id. Nothing is written then.
 //!
+//! A file whose lines only end in spaces or carriage returns is read as its
+//! pairs say, checked as above, and written back in its plain form. A file
+//! that cannot be read with certainty stops with 78 before GitHub is asked,
+//! names the line, and is left as it is.
+//!
 //! With an app named and no GH_TOKEN, gh is given the app's token, made from
 //! its key as `tehasbot github-token` makes it (console/ops/src/github.rs). A first
 //! install runs this before the shim is in place, so gh has no other token. A
 //! token that cannot be had stops with 78.
 //!
 //! Exit: 0 recorded, 64 bad words or an --accept-id of no listed login, 78 as
-//! above or TEHAS_HOME unset or the file cannot be written.
+//! above or TEHAS_HOME unset or the file cannot be read or written.
 
 use crate::forge::CALL_BOUND;
 use std::collections::BTreeMap;
@@ -134,9 +139,15 @@ fn write(home: &Path, ids: &BTreeMap<String, u64>) -> std::io::Result<()> {
 /// Records the user id of `old` under `new` in `home` when the app's slug
 /// changed (`accounts::carried`), and says so on standard error. Ok(true)
 /// when the file was written, Ok(false) when there was nothing to add; a
-/// write that failed is said and is the error.
+/// file that cannot be read, or a write that failed, is said and is the
+/// error.
 pub fn carry(home: &Path, old: &str, new: &str) -> std::io::Result<bool> {
-    let Some(ids) = accounts::carried(&accounts::read(home), old, new) else {
+    let had = accounts::load(home).map_err(|u| {
+        let line = u.says(&home.join(accounts::FILE).display().to_string());
+        eprintln!("{line}");
+        std::io::Error::other(line)
+    })?;
+    let Some(ids) = accounts::carried(&had.ids, old, new) else {
         return Ok(false);
     };
     if let Err(e) = write(home, &ids) {
@@ -192,6 +203,11 @@ pub fn record_here(accept: &[String]) -> u8 {
         );
         return 64;
     }
+    // Checked before a token is made: nothing is asked of GitHub for a file
+    // that cannot be recorded into.
+    if let Err(code) = loaded(Path::new(&home)) {
+        return code;
+    }
     if env::var("GH_TOKEN").unwrap_or_default().is_empty() {
         let Ok(token) = crate::github::token_env() else {
             eprintln!("tehas: ids record: no GitHub token for the app, so no user id was recorded");
@@ -203,16 +219,42 @@ pub fn record_here(accept: &[String]) -> u8 {
     // gh by PATH, as `tehas labels` runs it: a login shell has the app's shim
     // first, and an install from a checkout has the person's own.
     let mut gh = Bounded::new("gh", CALL_BOUND);
-    let home = Path::new(&home);
-    let had = accounts::read(home);
-    match record(&logins, &had, accept, &mut |l| ask_github(&mut gh, l)) {
+    record_in(Path::new(&home), &logins, accept, &mut |l| {
+        ask_github(&mut gh, l)
+    })
+}
+
+/// The pairs of `home`, or 78 said when its file cannot be read.
+fn loaded(home: &Path) -> Result<accounts::Pairs, u8> {
+    accounts::load(home).map_err(|u| {
+        eprintln!(
+            "{}",
+            u.says(&home.join(accounts::FILE).display().to_string())
+        );
+        eprintln!("tehas: no user id was recorded");
+        78
+    })
+}
+
+/// `record` against the file of `home`, and the file written when the pairs
+/// or its form changed. A file that cannot be read with certainty stops
+/// before GitHub is asked and is left as it is.
+fn record_in(
+    home: &Path,
+    logins: &[String],
+    accept: &[String],
+    ask: &mut dyn FnMut(&str) -> Asked,
+) -> u8 {
+    let file = home.join(accounts::FILE);
+    let had = match loaded(home) {
+        Ok(p) => p,
+        Err(code) => return code,
+    };
+    match record(logins, &had.ids, accept, ask) {
         Ok((ids, said)) => {
-            if ids != had {
+            if ids != had.ids || !had.tidy {
                 if let Err(e) = write(home, &ids) {
-                    eprintln!(
-                        "tehas: could not write {}: {e}",
-                        home.join(accounts::FILE).display()
-                    );
+                    eprintln!("tehas: could not write {}: {e}", file.display());
                     return 78;
                 }
             }
@@ -354,6 +396,143 @@ mod tests {
             .unwrap()
             .contains("acme-other"));
         fs::remove_dir_all(&home).unwrap();
+    }
+
+    fn home(name: &str) -> std::path::PathBuf {
+        let h = std::env::temp_dir().join(format!("tehas-ids-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&h);
+        fs::create_dir_all(h.join(accounts::FILE).parent().unwrap()).unwrap();
+        h
+    }
+
+    /// Records alice into `home` and says whether GitHub was asked.
+    fn record_alice(home: &Path) -> (u8, bool) {
+        let mut asked = false;
+        let code = record_in(home, &logins(&["alice"]), &[], &mut |l| {
+            asked = true;
+            github(l)
+        });
+        (code, asked)
+    }
+
+    #[test]
+    fn an_absent_file_is_recorded() {
+        let h = home("absent");
+        assert_eq!(record_alice(&h), (0, true));
+        assert_eq!(
+            fs::read_to_string(h.join(accounts::FILE)).unwrap(),
+            "alice 1001\n"
+        );
+        fs::remove_dir_all(&h).unwrap();
+    }
+
+    #[test]
+    fn trailing_spaces_and_crlf_are_checked_then_written_plain() {
+        for text in ["alice 1001\r\nbob 1002\r\n", "alice 1001 \nbob 1002\t\n"] {
+            let h = home("tidy");
+            fs::write(h.join(accounts::FILE), text).unwrap();
+            assert_eq!(record_alice(&h), (0, true));
+            assert_eq!(
+                fs::read_to_string(h.join(accounts::FILE)).unwrap(),
+                "alice 1001\nbob 1002\n"
+            );
+            fs::remove_dir_all(&h).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_crlf_file_whose_id_changed_hands_stops_and_is_kept() {
+        let h = home("crlf-hands");
+        let text = "alice 999\r\n";
+        fs::write(h.join(accounts::FILE), text).unwrap();
+        assert_eq!(record_alice(&h), (78, true));
+        assert_eq!(fs::read_to_string(h.join(accounts::FILE)).unwrap(), text);
+        fs::remove_dir_all(&h).unwrap();
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_stops_before_github_and_is_kept() {
+        let cases: [&[u8]; 5] = [
+            b"alice 999\nbob\n",
+            b"alice 999\nbob  1002\n",
+            b"alice 999\nbob x\n",
+            b"alice 999\nbob 10\xff\n",
+            b"alice 999\nalice 7\n",
+        ];
+        for text in cases {
+            let h = home("unreadable");
+            fs::write(h.join(accounts::FILE), text).unwrap();
+            assert_eq!(accounts::load(&h).unwrap_err().line, Some(2), "{text:?}");
+            assert_eq!(record_alice(&h), (78, false), "{text:?}");
+            assert_eq!(fs::read(h.join(accounts::FILE)).unwrap(), text);
+            fs::remove_dir_all(&h).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_login_github_would_not_give_stops_and_is_kept() {
+        for text in ["\u{feff}alice 999\nbob 1002\n", "al\u{200b}ice 999\n"] {
+            let h = home("not-login");
+            fs::write(h.join(accounts::FILE), text).unwrap();
+            let u = accounts::load(&h).unwrap_err();
+            assert_eq!(u.line, Some(1), "{text:?}");
+            assert!(u.says(accounts::FILE).contains("line 1"));
+            assert_eq!(record_alice(&h), (78, false), "{text:?}");
+            assert_eq!(fs::read_to_string(h.join(accounts::FILE)).unwrap(), text);
+            fs::remove_dir_all(&h).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_file_that_is_there_with_no_pairs_stops_and_is_kept() {
+        for text in ["", "  \n"] {
+            let h = home("no-pairs");
+            fs::write(h.join(accounts::FILE), text).unwrap();
+            assert_eq!(record_alice(&h), (78, false), "{text:?}");
+            assert_eq!(fs::read_to_string(h.join(accounts::FILE)).unwrap(), text);
+            fs::remove_dir_all(&h).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_link_an_oversized_or_closed_file_stops_and_is_kept() {
+        use std::os::unix::fs::PermissionsExt;
+        let h = home("whole");
+        let file = h.join(accounts::FILE);
+        fs::write(h.join("other"), "alice 999\n").unwrap();
+        std::os::unix::fs::symlink(h.join("other"), &file).unwrap();
+        assert_eq!(record_alice(&h), (78, false));
+        assert!(fs::symlink_metadata(&file)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read_to_string(h.join("other")).unwrap(), "alice 999\n");
+        fs::remove_file(&file).unwrap();
+
+        let big = vec![b'a'; 64 * 1024 + 1];
+        fs::write(&file, &big).unwrap();
+        assert_eq!(record_alice(&h), (78, false));
+        assert_eq!(fs::read(&file).unwrap(), big);
+
+        fs::write(&file, "alice 999\n").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+        // A process that reads past permissions has nothing to show here.
+        if fs::read(&file).is_err() {
+            assert_eq!(record_alice(&h), (78, false));
+        }
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(fs::read_to_string(&file).unwrap(), "alice 999\n");
+        fs::remove_dir_all(&h).unwrap();
+    }
+
+    #[test]
+    fn a_carry_into_a_file_that_cannot_be_read_writes_nothing() {
+        let h = home("carry-unreadable");
+        let text = "acme-old 4242\nbob  1\n";
+        fs::write(h.join(accounts::FILE), text).unwrap();
+        assert!(carry(&h, "acme-old[bot]", "acme-new[bot]").is_err());
+        assert_eq!(fs::read_to_string(h.join(accounts::FILE)).unwrap(), text);
+        fs::remove_dir_all(&h).unwrap();
     }
 
     #[test]

@@ -199,9 +199,31 @@ error. With no id recorded for a login, nothing of it counts until
 - A login that does not resolve stops `install.sh` and `tehas update` with 78
   and names it. Take it out of the settings or correct it.
 - A login whose id is not the recorded one stops them with 78 and names both
-  ids. If the account was renamed and is still the person the settings mean,
+  ids: the login may have changed hands. If it is the same person,
   `tehas update --accept-id <login>` records the new id. If not, take the login
   out of the settings.
+- A file whose lines only end in spaces, tabs or carriage returns is read as
+  the pairs it holds. The ids are checked against those pairs as above, and
+  only when the check passes is the file written back in its plain form.
+- A file that cannot be read with certainty stops them with 78 before GitHub
+  is asked, and nothing is written. The message names the file, the line if
+  there is one, what is wrong and how to repair it:
+  - A line that is not `<login> <id>` with one space between, a login that
+    is not a GitHub login, an id that is not a number, a login given two ids
+    or text that is not UTF-8: fix or remove that line, then run
+    `tehas update`.
+  - A link or other file that is not a regular one, a file over 64 KiB, or
+    a file that is there but holds no pairs: make it a regular file of
+    `<login> <id>` lines, or remove it, then run `tehas update`. A removed
+    file is recorded afresh, as on a first install, with no recorded id to
+    check against.
+  - A file the factory's user cannot read: give it back read and write for
+    that user, then run `tehas update`. Do not remove it; its pairs are what
+    the ids are checked against.
+- Until the file is repaired no listed login counts: the dispatcher and the
+  cycles say on standard error that the file cannot be read. The dispatcher
+  still knows its own questions by the bot's login, as it does before the
+  first record.
 - GitHub that cannot be asked stops them with 78 as well, before anything is
   installed.
 - The ids are asked with the app's token, made from its key as
