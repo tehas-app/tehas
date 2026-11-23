@@ -525,7 +525,7 @@ impl Writer<'_> {
     /// that fails all its tries stops the rest.
     fn relabel(&mut self, remove: &[Mark], add: &[Mark]) -> bool {
         let warn = format!(
-            "WARN: the marks of #{} did not change: {}",
+            "WARN: label change on #{} failed: {}",
             self.issue,
             said(remove, add)
         );
@@ -753,7 +753,7 @@ impl Writer<'_> {
     fn refresh_off(&mut self, pr: &str) {
         let Some(no) = change_no(pr) else {
             log(&format!(
-                "WARN: the refreshing mark of pull request #{pr} did not come off: it names no pull request"
+                "WARN: label change on pull request #{pr} failed: it names no pull request"
             ));
             return;
         };
@@ -761,7 +761,8 @@ impl Writer<'_> {
             no,
             mark: Mark::State(State::Refreshing),
         };
-        let warn = format!("WARN: the refreshing mark of pull request #{pr} did not come off");
+        let warn =
+            format!("WARN: label change on pull request #{pr} failed: off State(Refreshing)");
         self.tried_send(&warn, no.get(), &off);
     }
 }
