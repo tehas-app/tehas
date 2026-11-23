@@ -2,8 +2,9 @@
 //! its lock, a lock that is no lock file, a container that will not go, the
 //! words it refuses, and the state store that cannot end, clear or read the
 //! cycle's record. systemctl and docker are stubs; gh is not, so a call to it
-//! fails the case. The cases whose stop goes on to the issue's label are in
-//! test/stop_test.sh until ops moves onto the ports' fakes.
+//! fails the case. The cases of the issue's running mark are on the ports'
+//! fake in console/ops/src/stop.rs, and the stops that go on to it end to end
+//! in test/stop_test.sh.
 
 mod common;
 

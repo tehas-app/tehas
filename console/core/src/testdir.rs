@@ -47,6 +47,20 @@ impl TestDir {
         TestDir { path }
     }
 
+    /// A new, empty directory with a short path, `/tmp/tehas-s<pid>-<n>`, for
+    /// a test that serves a Unix socket in it. A socket's path holds at most
+    /// 108 bytes, and one under `$TMPDIR`, a test's name and a counter can be
+    /// longer, or not, as the counter grows. Not under the root, so the root's
+    /// check of `$TMPDIR` does not see it.
+    pub fn short() -> TestDir {
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let path = PathBuf::from(format!("/tmp/tehas-s{}-{n}", std::process::id()));
+        if let Err(e) = fs::create_dir_all(&path) {
+            panic!("cannot create {}: {e}", path.display());
+        }
+        TestDir { path }
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }
