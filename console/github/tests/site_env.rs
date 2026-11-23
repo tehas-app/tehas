@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use tehas_core::forge::GhRunner;
 use tehas_core::home::{Home, State};
+use tehas_core::testdir::TestDir;
 use tehas_github::{GitHubSite, MakeRunner};
 use tehas_ports::{AccountKind, Actor, Caller, Scope, Site, TicketKey};
 
@@ -44,7 +45,8 @@ fn site(answer: String) -> GitHubSite {
 
 #[test]
 fn the_bot_login_comes_from_the_caller_not_from_disk_or_the_environment() {
-    let home = std::env::temp_dir().join(format!("tehas-github-site-env-{}", std::process::id()));
+    let dir = TestDir::new("github-site-env");
+    let home = dir.to_path_buf();
     let login = Home::new(&home).state(State::BotLogin);
     std::fs::create_dir_all(login.parent().unwrap()).unwrap();
     std::fs::write(&login, "impostor[bot]\n").unwrap();
@@ -54,7 +56,6 @@ fn the_bot_login_comes_from_the_caller_not_from_disk_or_the_environment() {
     std::env::set_var("TEHAS_CYCLE_LOGIN", "impostor[bot]");
     let given = author_kind(&site(issue("tehas-bot[bot]", 42)));
     let kept = author_kind(&site(issue("impostor[bot]", 43)));
-    std::fs::remove_dir_all(&home).unwrap();
     assert_eq!(given, AccountKind::Ours);
     assert_eq!(kept, AccountKind::Bot);
 }
