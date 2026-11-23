@@ -36,6 +36,7 @@ pub struct FakeSite {
     meter: Arc<Mutex<Vec<MeterRow>>>,
     tokens: Arc<dyn TokenStore>,
     keyless: bool,
+    deadline: Option<At>,
 }
 
 impl FakeSite {
@@ -57,6 +58,7 @@ impl FakeSite {
             meter: Arc::new(Mutex::new(Vec::new())),
             tokens: Arc::new(MemoryTokens::new(world.clock())),
             keyless: false,
+            deadline: None,
         }
     }
 
@@ -123,6 +125,7 @@ impl FakeSite {
             keyless: self.keyless,
             scope,
             told_signed_out: false,
+            deadline: self.deadline,
         })
     }
 
@@ -269,6 +272,14 @@ impl Site for FakeSite {
         mark_name(mark)
     }
 
+    /// A clone that shares the meter, the tokens and the world. A view of
+    /// a view keeps the earlier deadline.
+    fn until(&self, until: At) -> Arc<dyn Site> {
+        let mut site = self.clone();
+        site.deadline = Some(self.deadline.map_or(until, |d| d.min(until)));
+        Arc::new(site)
+    }
+
     fn tickets(&self, by: &Actor, caller: Caller) -> Got<Box<dyn Tickets + Send>> {
         Ok(Box::new(self.handle(
             by,
@@ -367,6 +378,8 @@ pub(crate) struct Handle {
     /// The scope it acts with: its own for `Ours`, its token's for `Given`.
     pub scope: Option<Scope>,
     told_signed_out: bool,
+    /// At or past it, a call answers a timeout with no request.
+    deadline: Option<At>,
 }
 
 /// What a call of a handle knows besides the world's state.
@@ -418,6 +431,10 @@ impl Handle {
     /// Count one call in the meter, run it over the world, and keep its
     /// outcome for the reports.
     pub fn run<T>(&mut self, pool: Pool, f: impl FnOnce(&mut State, &Ctx) -> Got<T>) -> Got<T> {
+        if let Some(o) = self.past_deadline() {
+            self.report(o.clone());
+            return Err(o);
+        }
         self.count(pool);
         let answer = {
             let mut s = self.world.lock();
@@ -516,6 +533,10 @@ impl Handle {
         keys: &[K],
         mut f: impl FnMut(&mut State, &Ctx, &K) -> Got<T>,
     ) -> Vec<(K, Got<T>)> {
+        if let Some(o) = self.past_deadline() {
+            self.report(o.clone());
+            return keys.iter().map(|k| (k.clone(), Err(o.clone()))).collect();
+        }
         self.count(Pool::Calls);
         let answers: Vec<(K, Got<T>)> = {
             let mut s = self.world.lock();
@@ -535,6 +556,17 @@ impl Handle {
             }
         }
         answers
+    }
+
+    /// The timeout a call past the handle's deadline answers, with no
+    /// request and nothing metered.
+    fn past_deadline(&self) -> Option<Outcome> {
+        self.deadline
+            .is_some_and(|d| self.world.now() >= d)
+            .then_some(Outcome::Unavailable {
+                why: crate::Passing::Timeout,
+                sent: crate::Sent::No,
+            })
     }
 
     fn count(&self, pool: Pool) {
@@ -747,6 +779,10 @@ impl Identity for Handle {
     /// given token is answered as it was handed in, never minted. Only a
     /// mint is a request; every other answer is made with no request.
     fn token(&mut self, scope: Scope) -> Got<Token> {
+        if let Some(o) = self.past_deadline() {
+            self.report(o.clone());
+            return Err(o);
+        }
         let now = self.world.now();
         let answer = match self.actor.clone() {
             Actor::Given(key) => match crate::Keyring::given(&self.world, &key) {
@@ -779,6 +815,10 @@ impl Identity for Handle {
     /// project among them. A project outside the grant, or a set without
     /// this project, is `Forbidden` before any mint.
     fn token_over(&mut self, scope: Scope, projects: &[ProjectName]) -> Got<Token> {
+        if let Some(o) = self.past_deadline() {
+            self.report(o.clone());
+            return Err(o);
+        }
         let now = self.world.now();
         let (grant, covered) = {
             let s = self.world.lock();
@@ -995,8 +1035,15 @@ pub(crate) fn digest(s: &State, item: &ItemRec) -> Option<TicketDigest> {
             .map(|t| t.title.clone())
             .unwrap_or_default(),
     });
+    let parent = s
+        .items
+        .iter()
+        .find(|i| i.parts.contains(&key))
+        .and_then(|i| i.ticket.clone())
+        .map(Ref::Here);
     Some(TicketDigest {
         link: s.ticket_link(&key),
+        parent,
         key,
         title: item.title.clone(),
         state,

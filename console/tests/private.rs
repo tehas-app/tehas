@@ -3,10 +3,10 @@
 
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tehas_core::testdir::TestDir;
 
 const CONSOLE: &str = env!("CARGO_BIN_EXE_console");
 
@@ -73,8 +73,7 @@ fn a_private_without_a_value_or_another_flag_is_a_usage_error() {
 
 #[test]
 fn entries_and_the_speaker_are_masked_of_the_names_given() {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("private");
-    let _ = fs::remove_dir_all(&dir);
+    let dir = TestDir::new("console-private");
     let today = Command::new("date").args(["-u", "+%F"]).output().unwrap();
     let today = String::from_utf8(today.stdout).unwrap();
     let day = dir.join("runs").join(today.trim());

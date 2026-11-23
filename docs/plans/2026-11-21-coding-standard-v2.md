@@ -446,6 +446,27 @@ Findings:
   per host, holder and pool and never drops one, so each anonymous
   holder adds a row for good. The step whose caller first writes budgets
   bounds them, for one by dropping rows whose `resets` is long past.
+- Eleven unit tests make their scratch directory by hand, as
+  `temp_dir()/tehas-<name>-<pid>`, beside `TestDir`, which owns that
+  (core `accounts`, `journal`, `read_only`, `sandbox`, `starts`;
+  `mesh-feed`; the console's `wake`; github's `vouch` and
+  `identity_vouch` tests; ops `ids`). None can be shared between runs, but
+  one whose test panics stays behind, and verify's "nothing left in the
+  TMPDIR of cargo test" then fails beside the real failure. They move to
+  `TestDir` once T4.7 and T4.10 have left those files (#3045 moved the
+  ones a second run could share).
+- The GitHub adapter reads a pull request into a `ChangeDigest` twice:
+  `CodeHost::changes` (#2993) and `Board::open_changes` (#2990), each
+  with its own GraphQL fields, editor and limits, so the two ports can
+  answer one pull request differently. The editor (the body's last edit,
+  or the newer of it and a retitle), the overflow (`Cut` against
+  `TooLarge`, 10 pages against 50) and how a closed issue is told to be
+  this project's (database id against name) differ. One reader of a
+  pull request node owns them all; the mergeable map is already one
+  function in those pull requests.
+- A GraphQL error makes gh exit 1. #2993 settles it with a second REST
+  read and #2990 with the plain outcome. Both read the error's type from
+  `GhRunner::run_answer` (#3018) instead.
 
 ### T5. Deep homes for files
 

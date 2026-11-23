@@ -1,0 +1,935 @@
+[
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Three issues hold alpha in their titles, #24 ALPHA docs, #21 and #23, closed; #22 holds it in its text alone. The site ranks #24 first.",
+    "words": "alpha",
+    "within": "Titles",
+    "open": null,
+    "first": 10,
+    "answer": {
+      "Ok": {
+        "items": [
+          {"no": 24, "title": "ALPHA docs", "open": true},
+          {"no": 21, "title": "Alpha release checklist", "open": true},
+          {"no": 23, "title": "alpha follow-up", "open": false}
+        ],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Three issues hold alpha in their titles, #24 ALPHA docs, #21 and #23, closed; #22 holds it in its text alone. The site ranks #24 first.",
+    "words": "Alpha",
+    "within": "Titles",
+    "open": null,
+    "first": 2,
+    "answer": {
+      "Ok": {
+        "items": [
+          {"no": 24, "title": "ALPHA docs", "open": true},
+          {"no": 21, "title": "Alpha release checklist", "open": true}
+        ],
+        "more": true
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Three issues hold alpha in their titles, #24 ALPHA docs, #21 and #23, closed; #22 holds it in its text alone. The site ranks #24 first.",
+    "words": "alpha",
+    "within": "Everything",
+    "open": null,
+    "first": 10,
+    "answer": {
+      "Ok": {
+        "items": [
+          {"no": 24, "title": "ALPHA docs", "open": true},
+          {"no": 21, "title": "Alpha release checklist", "open": true},
+          {"no": 22, "title": "Beta notes", "open": true},
+          {"no": 23, "title": "alpha follow-up", "open": false}
+        ],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Three issues hold alpha in their titles, #24 ALPHA docs, #21 and #23, closed; #22 holds it in its text alone. The site ranks #24 first.",
+    "words": "alpha",
+    "within": "Everything",
+    "open": null,
+    "first": 3,
+    "answer": {
+      "Ok": {
+        "items": [
+          {"no": 24, "title": "ALPHA docs", "open": true},
+          {"no": 21, "title": "Alpha release checklist", "open": true},
+          {"no": 22, "title": "Beta notes", "open": true}
+        ],
+        "more": true
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Three issues hold alpha in their titles, #24 ALPHA docs, #21 and #23, closed; #22 holds it in its text alone. The site ranks #24 first.",
+    "words": "alpha",
+    "within": "Titles",
+    "open": true,
+    "first": 10,
+    "answer": {
+      "Ok": {
+        "items": [
+          {"no": 24, "title": "ALPHA docs", "open": true},
+          {"no": 21, "title": "Alpha release checklist", "open": true}
+        ],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Three issues hold alpha in their titles, #24 ALPHA docs, #21 and #23, closed; #22 holds it in its text alone. The site ranks #24 first.",
+    "words": "alpha",
+    "within": "Everything",
+    "open": false,
+    "first": 1,
+    "answer": {
+      "Ok": {
+        "items": [
+          {"no": 23, "title": "alpha follow-up", "open": false}
+        ],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "#26 holds label:bug, is:pr and repo:acme/other in its title and #27 in its text. The site also answers #28, which carries the bug mark, another project's issue, and #29, a change: none holds the words as an issue of this project.",
+    "words": "label:bug",
+    "within": "Titles",
+    "open": null,
+    "first": 10,
+    "answer": {
+      "Ok": {
+        "items": [
+          {"no": 26, "title": "Search for label:bug and is:pr words, repo:acme/other too", "open": true}
+        ],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "#26 holds label:bug, is:pr and repo:acme/other in its title and #27 in its text. The site also answers #28, which carries the bug mark, another project's issue, and #29, a change: none holds the words as an issue of this project.",
+    "words": "label:bug",
+    "within": "Everything",
+    "open": null,
+    "first": 10,
+    "answer": {
+      "Ok": {
+        "items": [
+          {"no": 26, "title": "Search for label:bug and is:pr words, repo:acme/other too", "open": true},
+          {"no": 27, "title": "Body words", "open": true}
+        ],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "#26 holds label:bug, is:pr and repo:acme/other in its title and #27 in its text. The site also answers #28, which carries the bug mark, another project's issue, and #29, a change: none holds the words as an issue of this project.",
+    "words": "repo:acme/other",
+    "within": "Everything",
+    "open": null,
+    "first": 10,
+    "answer": {
+      "Ok": {
+        "items": [
+          {"no": 26, "title": "Search for label:bug and is:pr words, repo:acme/other too", "open": true},
+          {"no": 27, "title": "Body words", "open": true}
+        ],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "#26 holds label:bug, is:pr and repo:acme/other in its title and #27 in its text. The site also answers #28, which carries the bug mark, another project's issue, and #29, a change: none holds the words as an issue of this project.",
+    "words": "is:pr",
+    "within": "Titles",
+    "open": null,
+    "first": 10,
+    "answer": {
+      "Ok": {
+        "items": [
+          {"no": 26, "title": "Search for label:bug and is:pr words, repo:acme/other too", "open": true}
+        ],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "#26 holds label:bug, is:pr and repo:acme/other in its title and #27 in its text. The site also answers #28, which carries the bug mark, another project's issue, and #29, a change: none holds the words as an issue of this project.",
+    "words": "is:pr",
+    "within": "Everything",
+    "open": null,
+    "first": 1,
+    "answer": {
+      "Ok": {
+        "items": [
+          {"no": 26, "title": "Search for label:bug and is:pr words, repo:acme/other too", "open": true}
+        ],
+        "more": true
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "No issue holds the word.",
+    "words": "nothing",
+    "within": "Everything",
+    "open": null,
+    "first": 5,
+    "answer": {
+      "Ok": {
+        "items": [],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "A search with no words asks nothing.",
+    "words": "  ",
+    "within": "Everything",
+    "open": null,
+    "first": 5,
+    "answer": {
+      "Ok": {
+        "items": [],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "103 issues titled Nightly report, #101 to #203, ranked in that order: the site gives them in pages of 100.",
+    "words": "report",
+    "within": "Titles",
+    "open": null,
+    "first": 100,
+    "answer": {
+      "Ok": {
+        "items": [
+          {"no": 101, "title": "Nightly report 1", "open": true},
+          {"no": 102, "title": "Nightly report 2", "open": true},
+          {"no": 103, "title": "Nightly report 3", "open": true},
+          {"no": 104, "title": "Nightly report 4", "open": true},
+          {"no": 105, "title": "Nightly report 5", "open": true},
+          {"no": 106, "title": "Nightly report 6", "open": true},
+          {"no": 107, "title": "Nightly report 7", "open": true},
+          {"no": 108, "title": "Nightly report 8", "open": true},
+          {"no": 109, "title": "Nightly report 9", "open": true},
+          {"no": 110, "title": "Nightly report 10", "open": true},
+          {"no": 111, "title": "Nightly report 11", "open": true},
+          {"no": 112, "title": "Nightly report 12", "open": true},
+          {"no": 113, "title": "Nightly report 13", "open": true},
+          {"no": 114, "title": "Nightly report 14", "open": true},
+          {"no": 115, "title": "Nightly report 15", "open": true},
+          {"no": 116, "title": "Nightly report 16", "open": true},
+          {"no": 117, "title": "Nightly report 17", "open": true},
+          {"no": 118, "title": "Nightly report 18", "open": true},
+          {"no": 119, "title": "Nightly report 19", "open": true},
+          {"no": 120, "title": "Nightly report 20", "open": true},
+          {"no": 121, "title": "Nightly report 21", "open": true},
+          {"no": 122, "title": "Nightly report 22", "open": true},
+          {"no": 123, "title": "Nightly report 23", "open": true},
+          {"no": 124, "title": "Nightly report 24", "open": true},
+          {"no": 125, "title": "Nightly report 25", "open": true},
+          {"no": 126, "title": "Nightly report 26", "open": true},
+          {"no": 127, "title": "Nightly report 27", "open": true},
+          {"no": 128, "title": "Nightly report 28", "open": true},
+          {"no": 129, "title": "Nightly report 29", "open": true},
+          {"no": 130, "title": "Nightly report 30", "open": true},
+          {"no": 131, "title": "Nightly report 31", "open": true},
+          {"no": 132, "title": "Nightly report 32", "open": true},
+          {"no": 133, "title": "Nightly report 33", "open": true},
+          {"no": 134, "title": "Nightly report 34", "open": true},
+          {"no": 135, "title": "Nightly report 35", "open": true},
+          {"no": 136, "title": "Nightly report 36", "open": true},
+          {"no": 137, "title": "Nightly report 37", "open": true},
+          {"no": 138, "title": "Nightly report 38", "open": true},
+          {"no": 139, "title": "Nightly report 39", "open": true},
+          {"no": 140, "title": "Nightly report 40", "open": true},
+          {"no": 141, "title": "Nightly report 41", "open": true},
+          {"no": 142, "title": "Nightly report 42", "open": true},
+          {"no": 143, "title": "Nightly report 43", "open": true},
+          {"no": 144, "title": "Nightly report 44", "open": true},
+          {"no": 145, "title": "Nightly report 45", "open": true},
+          {"no": 146, "title": "Nightly report 46", "open": true},
+          {"no": 147, "title": "Nightly report 47", "open": true},
+          {"no": 148, "title": "Nightly report 48", "open": true},
+          {"no": 149, "title": "Nightly report 49", "open": true},
+          {"no": 150, "title": "Nightly report 50", "open": true},
+          {"no": 151, "title": "Nightly report 51", "open": true},
+          {"no": 152, "title": "Nightly report 52", "open": true},
+          {"no": 153, "title": "Nightly report 53", "open": true},
+          {"no": 154, "title": "Nightly report 54", "open": true},
+          {"no": 155, "title": "Nightly report 55", "open": true},
+          {"no": 156, "title": "Nightly report 56", "open": true},
+          {"no": 157, "title": "Nightly report 57", "open": true},
+          {"no": 158, "title": "Nightly report 58", "open": true},
+          {"no": 159, "title": "Nightly report 59", "open": true},
+          {"no": 160, "title": "Nightly report 60", "open": true},
+          {"no": 161, "title": "Nightly report 61", "open": true},
+          {"no": 162, "title": "Nightly report 62", "open": true},
+          {"no": 163, "title": "Nightly report 63", "open": true},
+          {"no": 164, "title": "Nightly report 64", "open": true},
+          {"no": 165, "title": "Nightly report 65", "open": true},
+          {"no": 166, "title": "Nightly report 66", "open": true},
+          {"no": 167, "title": "Nightly report 67", "open": true},
+          {"no": 168, "title": "Nightly report 68", "open": true},
+          {"no": 169, "title": "Nightly report 69", "open": true},
+          {"no": 170, "title": "Nightly report 70", "open": true},
+          {"no": 171, "title": "Nightly report 71", "open": true},
+          {"no": 172, "title": "Nightly report 72", "open": true},
+          {"no": 173, "title": "Nightly report 73", "open": true},
+          {"no": 174, "title": "Nightly report 74", "open": true},
+          {"no": 175, "title": "Nightly report 75", "open": true},
+          {"no": 176, "title": "Nightly report 76", "open": true},
+          {"no": 177, "title": "Nightly report 77", "open": true},
+          {"no": 178, "title": "Nightly report 78", "open": true},
+          {"no": 179, "title": "Nightly report 79", "open": true},
+          {"no": 180, "title": "Nightly report 80", "open": true},
+          {"no": 181, "title": "Nightly report 81", "open": true},
+          {"no": 182, "title": "Nightly report 82", "open": true},
+          {"no": 183, "title": "Nightly report 83", "open": true},
+          {"no": 184, "title": "Nightly report 84", "open": true},
+          {"no": 185, "title": "Nightly report 85", "open": true},
+          {"no": 186, "title": "Nightly report 86", "open": true},
+          {"no": 187, "title": "Nightly report 87", "open": true},
+          {"no": 188, "title": "Nightly report 88", "open": true},
+          {"no": 189, "title": "Nightly report 89", "open": true},
+          {"no": 190, "title": "Nightly report 90", "open": true},
+          {"no": 191, "title": "Nightly report 91", "open": true},
+          {"no": 192, "title": "Nightly report 92", "open": true},
+          {"no": 193, "title": "Nightly report 93", "open": true},
+          {"no": 194, "title": "Nightly report 94", "open": true},
+          {"no": 195, "title": "Nightly report 95", "open": true},
+          {"no": 196, "title": "Nightly report 96", "open": true},
+          {"no": 197, "title": "Nightly report 97", "open": true},
+          {"no": 198, "title": "Nightly report 98", "open": true},
+          {"no": 199, "title": "Nightly report 99", "open": true},
+          {"no": 200, "title": "Nightly report 100", "open": true}
+        ],
+        "more": true
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "103 issues titled Nightly report, #101 to #203, ranked in that order: the site gives them in pages of 100.",
+    "words": "report",
+    "within": "Titles",
+    "open": null,
+    "first": 101,
+    "answer": {
+      "Ok": {
+        "items": [
+          {"no": 101, "title": "Nightly report 1", "open": true},
+          {"no": 102, "title": "Nightly report 2", "open": true},
+          {"no": 103, "title": "Nightly report 3", "open": true},
+          {"no": 104, "title": "Nightly report 4", "open": true},
+          {"no": 105, "title": "Nightly report 5", "open": true},
+          {"no": 106, "title": "Nightly report 6", "open": true},
+          {"no": 107, "title": "Nightly report 7", "open": true},
+          {"no": 108, "title": "Nightly report 8", "open": true},
+          {"no": 109, "title": "Nightly report 9", "open": true},
+          {"no": 110, "title": "Nightly report 10", "open": true},
+          {"no": 111, "title": "Nightly report 11", "open": true},
+          {"no": 112, "title": "Nightly report 12", "open": true},
+          {"no": 113, "title": "Nightly report 13", "open": true},
+          {"no": 114, "title": "Nightly report 14", "open": true},
+          {"no": 115, "title": "Nightly report 15", "open": true},
+          {"no": 116, "title": "Nightly report 16", "open": true},
+          {"no": 117, "title": "Nightly report 17", "open": true},
+          {"no": 118, "title": "Nightly report 18", "open": true},
+          {"no": 119, "title": "Nightly report 19", "open": true},
+          {"no": 120, "title": "Nightly report 20", "open": true},
+          {"no": 121, "title": "Nightly report 21", "open": true},
+          {"no": 122, "title": "Nightly report 22", "open": true},
+          {"no": 123, "title": "Nightly report 23", "open": true},
+          {"no": 124, "title": "Nightly report 24", "open": true},
+          {"no": 125, "title": "Nightly report 25", "open": true},
+          {"no": 126, "title": "Nightly report 26", "open": true},
+          {"no": 127, "title": "Nightly report 27", "open": true},
+          {"no": 128, "title": "Nightly report 28", "open": true},
+          {"no": 129, "title": "Nightly report 29", "open": true},
+          {"no": 130, "title": "Nightly report 30", "open": true},
+          {"no": 131, "title": "Nightly report 31", "open": true},
+          {"no": 132, "title": "Nightly report 32", "open": true},
+          {"no": 133, "title": "Nightly report 33", "open": true},
+          {"no": 134, "title": "Nightly report 34", "open": true},
+          {"no": 135, "title": "Nightly report 35", "open": true},
+          {"no": 136, "title": "Nightly report 36", "open": true},
+          {"no": 137, "title": "Nightly report 37", "open": true},
+          {"no": 138, "title": "Nightly report 38", "open": true},
+          {"no": 139, "title": "Nightly report 39", "open": true},
+          {"no": 140, "title": "Nightly report 40", "open": true},
+          {"no": 141, "title": "Nightly report 41", "open": true},
+          {"no": 142, "title": "Nightly report 42", "open": true},
+          {"no": 143, "title": "Nightly report 43", "open": true},
+          {"no": 144, "title": "Nightly report 44", "open": true},
+          {"no": 145, "title": "Nightly report 45", "open": true},
+          {"no": 146, "title": "Nightly report 46", "open": true},
+          {"no": 147, "title": "Nightly report 47", "open": true},
+          {"no": 148, "title": "Nightly report 48", "open": true},
+          {"no": 149, "title": "Nightly report 49", "open": true},
+          {"no": 150, "title": "Nightly report 50", "open": true},
+          {"no": 151, "title": "Nightly report 51", "open": true},
+          {"no": 152, "title": "Nightly report 52", "open": true},
+          {"no": 153, "title": "Nightly report 53", "open": true},
+          {"no": 154, "title": "Nightly report 54", "open": true},
+          {"no": 155, "title": "Nightly report 55", "open": true},
+          {"no": 156, "title": "Nightly report 56", "open": true},
+          {"no": 157, "title": "Nightly report 57", "open": true},
+          {"no": 158, "title": "Nightly report 58", "open": true},
+          {"no": 159, "title": "Nightly report 59", "open": true},
+          {"no": 160, "title": "Nightly report 60", "open": true},
+          {"no": 161, "title": "Nightly report 61", "open": true},
+          {"no": 162, "title": "Nightly report 62", "open": true},
+          {"no": 163, "title": "Nightly report 63", "open": true},
+          {"no": 164, "title": "Nightly report 64", "open": true},
+          {"no": 165, "title": "Nightly report 65", "open": true},
+          {"no": 166, "title": "Nightly report 66", "open": true},
+          {"no": 167, "title": "Nightly report 67", "open": true},
+          {"no": 168, "title": "Nightly report 68", "open": true},
+          {"no": 169, "title": "Nightly report 69", "open": true},
+          {"no": 170, "title": "Nightly report 70", "open": true},
+          {"no": 171, "title": "Nightly report 71", "open": true},
+          {"no": 172, "title": "Nightly report 72", "open": true},
+          {"no": 173, "title": "Nightly report 73", "open": true},
+          {"no": 174, "title": "Nightly report 74", "open": true},
+          {"no": 175, "title": "Nightly report 75", "open": true},
+          {"no": 176, "title": "Nightly report 76", "open": true},
+          {"no": 177, "title": "Nightly report 77", "open": true},
+          {"no": 178, "title": "Nightly report 78", "open": true},
+          {"no": 179, "title": "Nightly report 79", "open": true},
+          {"no": 180, "title": "Nightly report 80", "open": true},
+          {"no": 181, "title": "Nightly report 81", "open": true},
+          {"no": 182, "title": "Nightly report 82", "open": true},
+          {"no": 183, "title": "Nightly report 83", "open": true},
+          {"no": 184, "title": "Nightly report 84", "open": true},
+          {"no": 185, "title": "Nightly report 85", "open": true},
+          {"no": 186, "title": "Nightly report 86", "open": true},
+          {"no": 187, "title": "Nightly report 87", "open": true},
+          {"no": 188, "title": "Nightly report 88", "open": true},
+          {"no": 189, "title": "Nightly report 89", "open": true},
+          {"no": 190, "title": "Nightly report 90", "open": true},
+          {"no": 191, "title": "Nightly report 91", "open": true},
+          {"no": 192, "title": "Nightly report 92", "open": true},
+          {"no": 193, "title": "Nightly report 93", "open": true},
+          {"no": 194, "title": "Nightly report 94", "open": true},
+          {"no": 195, "title": "Nightly report 95", "open": true},
+          {"no": 196, "title": "Nightly report 96", "open": true},
+          {"no": 197, "title": "Nightly report 97", "open": true},
+          {"no": 198, "title": "Nightly report 98", "open": true},
+          {"no": 199, "title": "Nightly report 99", "open": true},
+          {"no": 200, "title": "Nightly report 100", "open": true},
+          {"no": 201, "title": "Nightly report 101", "open": true}
+        ],
+        "more": true
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "103 issues titled Nightly report, #101 to #203, ranked in that order: the site gives them in pages of 100.",
+    "words": "report",
+    "within": "Titles",
+    "open": null,
+    "first": 103,
+    "answer": {
+      "Ok": {
+        "items": [
+          {"no": 101, "title": "Nightly report 1", "open": true},
+          {"no": 102, "title": "Nightly report 2", "open": true},
+          {"no": 103, "title": "Nightly report 3", "open": true},
+          {"no": 104, "title": "Nightly report 4", "open": true},
+          {"no": 105, "title": "Nightly report 5", "open": true},
+          {"no": 106, "title": "Nightly report 6", "open": true},
+          {"no": 107, "title": "Nightly report 7", "open": true},
+          {"no": 108, "title": "Nightly report 8", "open": true},
+          {"no": 109, "title": "Nightly report 9", "open": true},
+          {"no": 110, "title": "Nightly report 10", "open": true},
+          {"no": 111, "title": "Nightly report 11", "open": true},
+          {"no": 112, "title": "Nightly report 12", "open": true},
+          {"no": 113, "title": "Nightly report 13", "open": true},
+          {"no": 114, "title": "Nightly report 14", "open": true},
+          {"no": 115, "title": "Nightly report 15", "open": true},
+          {"no": 116, "title": "Nightly report 16", "open": true},
+          {"no": 117, "title": "Nightly report 17", "open": true},
+          {"no": 118, "title": "Nightly report 18", "open": true},
+          {"no": 119, "title": "Nightly report 19", "open": true},
+          {"no": 120, "title": "Nightly report 20", "open": true},
+          {"no": 121, "title": "Nightly report 21", "open": true},
+          {"no": 122, "title": "Nightly report 22", "open": true},
+          {"no": 123, "title": "Nightly report 23", "open": true},
+          {"no": 124, "title": "Nightly report 24", "open": true},
+          {"no": 125, "title": "Nightly report 25", "open": true},
+          {"no": 126, "title": "Nightly report 26", "open": true},
+          {"no": 127, "title": "Nightly report 27", "open": true},
+          {"no": 128, "title": "Nightly report 28", "open": true},
+          {"no": 129, "title": "Nightly report 29", "open": true},
+          {"no": 130, "title": "Nightly report 30", "open": true},
+          {"no": 131, "title": "Nightly report 31", "open": true},
+          {"no": 132, "title": "Nightly report 32", "open": true},
+          {"no": 133, "title": "Nightly report 33", "open": true},
+          {"no": 134, "title": "Nightly report 34", "open": true},
+          {"no": 135, "title": "Nightly report 35", "open": true},
+          {"no": 136, "title": "Nightly report 36", "open": true},
+          {"no": 137, "title": "Nightly report 37", "open": true},
+          {"no": 138, "title": "Nightly report 38", "open": true},
+          {"no": 139, "title": "Nightly report 39", "open": true},
+          {"no": 140, "title": "Nightly report 40", "open": true},
+          {"no": 141, "title": "Nightly report 41", "open": true},
+          {"no": 142, "title": "Nightly report 42", "open": true},
+          {"no": 143, "title": "Nightly report 43", "open": true},
+          {"no": 144, "title": "Nightly report 44", "open": true},
+          {"no": 145, "title": "Nightly report 45", "open": true},
+          {"no": 146, "title": "Nightly report 46", "open": true},
+          {"no": 147, "title": "Nightly report 47", "open": true},
+          {"no": 148, "title": "Nightly report 48", "open": true},
+          {"no": 149, "title": "Nightly report 49", "open": true},
+          {"no": 150, "title": "Nightly report 50", "open": true},
+          {"no": 151, "title": "Nightly report 51", "open": true},
+          {"no": 152, "title": "Nightly report 52", "open": true},
+          {"no": 153, "title": "Nightly report 53", "open": true},
+          {"no": 154, "title": "Nightly report 54", "open": true},
+          {"no": 155, "title": "Nightly report 55", "open": true},
+          {"no": 156, "title": "Nightly report 56", "open": true},
+          {"no": 157, "title": "Nightly report 57", "open": true},
+          {"no": 158, "title": "Nightly report 58", "open": true},
+          {"no": 159, "title": "Nightly report 59", "open": true},
+          {"no": 160, "title": "Nightly report 60", "open": true},
+          {"no": 161, "title": "Nightly report 61", "open": true},
+          {"no": 162, "title": "Nightly report 62", "open": true},
+          {"no": 163, "title": "Nightly report 63", "open": true},
+          {"no": 164, "title": "Nightly report 64", "open": true},
+          {"no": 165, "title": "Nightly report 65", "open": true},
+          {"no": 166, "title": "Nightly report 66", "open": true},
+          {"no": 167, "title": "Nightly report 67", "open": true},
+          {"no": 168, "title": "Nightly report 68", "open": true},
+          {"no": 169, "title": "Nightly report 69", "open": true},
+          {"no": 170, "title": "Nightly report 70", "open": true},
+          {"no": 171, "title": "Nightly report 71", "open": true},
+          {"no": 172, "title": "Nightly report 72", "open": true},
+          {"no": 173, "title": "Nightly report 73", "open": true},
+          {"no": 174, "title": "Nightly report 74", "open": true},
+          {"no": 175, "title": "Nightly report 75", "open": true},
+          {"no": 176, "title": "Nightly report 76", "open": true},
+          {"no": 177, "title": "Nightly report 77", "open": true},
+          {"no": 178, "title": "Nightly report 78", "open": true},
+          {"no": 179, "title": "Nightly report 79", "open": true},
+          {"no": 180, "title": "Nightly report 80", "open": true},
+          {"no": 181, "title": "Nightly report 81", "open": true},
+          {"no": 182, "title": "Nightly report 82", "open": true},
+          {"no": 183, "title": "Nightly report 83", "open": true},
+          {"no": 184, "title": "Nightly report 84", "open": true},
+          {"no": 185, "title": "Nightly report 85", "open": true},
+          {"no": 186, "title": "Nightly report 86", "open": true},
+          {"no": 187, "title": "Nightly report 87", "open": true},
+          {"no": 188, "title": "Nightly report 88", "open": true},
+          {"no": 189, "title": "Nightly report 89", "open": true},
+          {"no": 190, "title": "Nightly report 90", "open": true},
+          {"no": 191, "title": "Nightly report 91", "open": true},
+          {"no": 192, "title": "Nightly report 92", "open": true},
+          {"no": 193, "title": "Nightly report 93", "open": true},
+          {"no": 194, "title": "Nightly report 94", "open": true},
+          {"no": 195, "title": "Nightly report 95", "open": true},
+          {"no": 196, "title": "Nightly report 96", "open": true},
+          {"no": 197, "title": "Nightly report 97", "open": true},
+          {"no": 198, "title": "Nightly report 98", "open": true},
+          {"no": 199, "title": "Nightly report 99", "open": true},
+          {"no": 200, "title": "Nightly report 100", "open": true},
+          {"no": 201, "title": "Nightly report 101", "open": true},
+          {"no": 202, "title": "Nightly report 102", "open": true},
+          {"no": 203, "title": "Nightly report 103", "open": true}
+        ],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "103 issues titled Nightly report, #101 to #203, ranked in that order: the site gives them in pages of 100.",
+    "words": "report",
+    "within": "Titles",
+    "open": null,
+    "first": 500,
+    "answer": {
+      "Ok": {
+        "items": [
+          {"no": 101, "title": "Nightly report 1", "open": true},
+          {"no": 102, "title": "Nightly report 2", "open": true},
+          {"no": 103, "title": "Nightly report 3", "open": true},
+          {"no": 104, "title": "Nightly report 4", "open": true},
+          {"no": 105, "title": "Nightly report 5", "open": true},
+          {"no": 106, "title": "Nightly report 6", "open": true},
+          {"no": 107, "title": "Nightly report 7", "open": true},
+          {"no": 108, "title": "Nightly report 8", "open": true},
+          {"no": 109, "title": "Nightly report 9", "open": true},
+          {"no": 110, "title": "Nightly report 10", "open": true},
+          {"no": 111, "title": "Nightly report 11", "open": true},
+          {"no": 112, "title": "Nightly report 12", "open": true},
+          {"no": 113, "title": "Nightly report 13", "open": true},
+          {"no": 114, "title": "Nightly report 14", "open": true},
+          {"no": 115, "title": "Nightly report 15", "open": true},
+          {"no": 116, "title": "Nightly report 16", "open": true},
+          {"no": 117, "title": "Nightly report 17", "open": true},
+          {"no": 118, "title": "Nightly report 18", "open": true},
+          {"no": 119, "title": "Nightly report 19", "open": true},
+          {"no": 120, "title": "Nightly report 20", "open": true},
+          {"no": 121, "title": "Nightly report 21", "open": true},
+          {"no": 122, "title": "Nightly report 22", "open": true},
+          {"no": 123, "title": "Nightly report 23", "open": true},
+          {"no": 124, "title": "Nightly report 24", "open": true},
+          {"no": 125, "title": "Nightly report 25", "open": true},
+          {"no": 126, "title": "Nightly report 26", "open": true},
+          {"no": 127, "title": "Nightly report 27", "open": true},
+          {"no": 128, "title": "Nightly report 28", "open": true},
+          {"no": 129, "title": "Nightly report 29", "open": true},
+          {"no": 130, "title": "Nightly report 30", "open": true},
+          {"no": 131, "title": "Nightly report 31", "open": true},
+          {"no": 132, "title": "Nightly report 32", "open": true},
+          {"no": 133, "title": "Nightly report 33", "open": true},
+          {"no": 134, "title": "Nightly report 34", "open": true},
+          {"no": 135, "title": "Nightly report 35", "open": true},
+          {"no": 136, "title": "Nightly report 36", "open": true},
+          {"no": 137, "title": "Nightly report 37", "open": true},
+          {"no": 138, "title": "Nightly report 38", "open": true},
+          {"no": 139, "title": "Nightly report 39", "open": true},
+          {"no": 140, "title": "Nightly report 40", "open": true},
+          {"no": 141, "title": "Nightly report 41", "open": true},
+          {"no": 142, "title": "Nightly report 42", "open": true},
+          {"no": 143, "title": "Nightly report 43", "open": true},
+          {"no": 144, "title": "Nightly report 44", "open": true},
+          {"no": 145, "title": "Nightly report 45", "open": true},
+          {"no": 146, "title": "Nightly report 46", "open": true},
+          {"no": 147, "title": "Nightly report 47", "open": true},
+          {"no": 148, "title": "Nightly report 48", "open": true},
+          {"no": 149, "title": "Nightly report 49", "open": true},
+          {"no": 150, "title": "Nightly report 50", "open": true},
+          {"no": 151, "title": "Nightly report 51", "open": true},
+          {"no": 152, "title": "Nightly report 52", "open": true},
+          {"no": 153, "title": "Nightly report 53", "open": true},
+          {"no": 154, "title": "Nightly report 54", "open": true},
+          {"no": 155, "title": "Nightly report 55", "open": true},
+          {"no": 156, "title": "Nightly report 56", "open": true},
+          {"no": 157, "title": "Nightly report 57", "open": true},
+          {"no": 158, "title": "Nightly report 58", "open": true},
+          {"no": 159, "title": "Nightly report 59", "open": true},
+          {"no": 160, "title": "Nightly report 60", "open": true},
+          {"no": 161, "title": "Nightly report 61", "open": true},
+          {"no": 162, "title": "Nightly report 62", "open": true},
+          {"no": 163, "title": "Nightly report 63", "open": true},
+          {"no": 164, "title": "Nightly report 64", "open": true},
+          {"no": 165, "title": "Nightly report 65", "open": true},
+          {"no": 166, "title": "Nightly report 66", "open": true},
+          {"no": 167, "title": "Nightly report 67", "open": true},
+          {"no": 168, "title": "Nightly report 68", "open": true},
+          {"no": 169, "title": "Nightly report 69", "open": true},
+          {"no": 170, "title": "Nightly report 70", "open": true},
+          {"no": 171, "title": "Nightly report 71", "open": true},
+          {"no": 172, "title": "Nightly report 72", "open": true},
+          {"no": 173, "title": "Nightly report 73", "open": true},
+          {"no": 174, "title": "Nightly report 74", "open": true},
+          {"no": 175, "title": "Nightly report 75", "open": true},
+          {"no": 176, "title": "Nightly report 76", "open": true},
+          {"no": 177, "title": "Nightly report 77", "open": true},
+          {"no": 178, "title": "Nightly report 78", "open": true},
+          {"no": 179, "title": "Nightly report 79", "open": true},
+          {"no": 180, "title": "Nightly report 80", "open": true},
+          {"no": 181, "title": "Nightly report 81", "open": true},
+          {"no": 182, "title": "Nightly report 82", "open": true},
+          {"no": 183, "title": "Nightly report 83", "open": true},
+          {"no": 184, "title": "Nightly report 84", "open": true},
+          {"no": 185, "title": "Nightly report 85", "open": true},
+          {"no": 186, "title": "Nightly report 86", "open": true},
+          {"no": 187, "title": "Nightly report 87", "open": true},
+          {"no": 188, "title": "Nightly report 88", "open": true},
+          {"no": 189, "title": "Nightly report 89", "open": true},
+          {"no": 190, "title": "Nightly report 90", "open": true},
+          {"no": 191, "title": "Nightly report 91", "open": true},
+          {"no": 192, "title": "Nightly report 92", "open": true},
+          {"no": 193, "title": "Nightly report 93", "open": true},
+          {"no": 194, "title": "Nightly report 94", "open": true},
+          {"no": 195, "title": "Nightly report 95", "open": true},
+          {"no": 196, "title": "Nightly report 96", "open": true},
+          {"no": 197, "title": "Nightly report 97", "open": true},
+          {"no": 198, "title": "Nightly report 98", "open": true},
+          {"no": 199, "title": "Nightly report 99", "open": true},
+          {"no": 200, "title": "Nightly report 100", "open": true},
+          {"no": 201, "title": "Nightly report 101", "open": true},
+          {"no": 202, "title": "Nightly report 102", "open": true},
+          {"no": 203, "title": "Nightly report 103", "open": true}
+        ],
+        "more": false
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "103 issues titled Nightly report, #101 to #203, ranked in that order: the site gives them in pages of 100. The second page repeats the last of the first.",
+    "words": "report",
+    "within": "Everything",
+    "open": null,
+    "first": 103,
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "103 issues titled Nightly report, #101 to #203, ranked in that order: the site gives them in pages of 100. The site's total moves between the pages.",
+    "words": "report",
+    "within": "Titles",
+    "open": true,
+    "first": 103,
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "103 issues titled Nightly report, #101 to #203, ranked in that order: the site gives them in pages of 100. The second page ends with the total unread.",
+    "words": "report",
+    "within": "Everything",
+    "open": true,
+    "first": 103,
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "The site says it did not finish the search.",
+    "words": "unfinished",
+    "within": "Everything",
+    "open": null,
+    "first": 5,
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "The answer comes back cut off part way.",
+    "words": "cut",
+    "within": "Everything",
+    "open": null,
+    "first": 5,
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "The site will not search the project: it is gone, or this actor may not see it.",
+    "words": "hidden",
+    "within": "Everything",
+    "open": null,
+    "first": 5,
+    "answer": {
+      "Err": "NotFound"
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "This actor may not read the project.",
+    "words": "private",
+    "within": "Everything",
+    "open": null,
+    "first": 5,
+    "answer": {
+      "Err": "Forbidden"
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "The site answers that too many requests came.",
+    "words": "busy",
+    "within": "Everything",
+    "open": null,
+    "first": 5,
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Search",
+          "until": 1767225600
+        }
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "The site says the rate of requests is limited.",
+    "words": "limited",
+    "within": "Everything",
+    "open": null,
+    "first": 5,
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Search",
+          "until": 1767225600
+        }
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "The site fails on its side.",
+    "words": "outage",
+    "within": "Everything",
+    "open": null,
+    "first": 5,
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "why": "Server",
+          "sent": "Maybe"
+        }
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "No answer comes in time.",
+    "words": "slow",
+    "within": "Everything",
+    "open": null,
+    "first": 5,
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "why": "Timeout",
+          "sent": "Maybe"
+        }
+      }
+    }
+  },
+  {
+    "op": "Blueprints::search",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Words longer than the site takes are refused before any request.",
+    "words": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+    "within": "Everything",
+    "open": null,
+    "first": 5,
+    "answer": {
+      "Err": {
+        "Refused": "Invalid"
+      }
+    }
+  }
+]
