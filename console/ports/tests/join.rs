@@ -4,7 +4,7 @@
 //! its realm. And every trait the spec uses as `dyn` is object safe.
 
 use std::num::{NonZeroU32, NonZeroU64};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tehas_ports::*;
 
@@ -136,6 +136,17 @@ fn merged() -> ChangeState {
     }
 }
 
+/// What the join asked of the tickets handle.
+#[derive(Default)]
+struct Asked {
+    /// The history window of each `ticket` read.
+    windows: Vec<Option<Window>>,
+    /// How many `history` reads.
+    history: usize,
+    /// How many `notes` reads.
+    notes: usize,
+}
+
 /// A tickets handle over a few tickets. A ticket in `unread` reads as
 /// `Unread(Cut)`. Its list refuses an ask that is not for open tickets.
 #[derive(Clone, Default)]
@@ -144,6 +155,15 @@ struct StubTickets {
     notes: Vec<(TicketKey, Comment)>,
     unread: Vec<TicketKey>,
     list_fails: bool,
+    asked: Arc<Mutex<Asked>>,
+}
+
+fn reopened() -> TicketEvent {
+    TicketEvent {
+        what: Happened::Reopened,
+        by: None,
+        at: None,
+    }
 }
 
 impl StubTickets {
@@ -173,8 +193,21 @@ impl Cites for StubTickets {
 }
 
 impl Tickets for StubTickets {
-    fn ticket(&mut self, key: &TicketKey, _: Depth) -> Got<Ticket> {
-        self.find(key)
+    fn ticket(&mut self, key: &TicketKey, depth: Depth, history: Option<Window>) -> Got<Ticket> {
+        let window = history.or(depth.history());
+        self.asked.lock().unwrap().windows.push(window);
+        let mut ticket = self.find(key)?;
+        ticket.history = match window {
+            None => Took {
+                items: vec![],
+                more: true,
+            },
+            Some(w) => Took {
+                items: vec![reopened()],
+                more: matches!(w, Window::Last(_)),
+            },
+        };
+        Ok(ticket)
     }
     fn what_is(&mut self, _: NonZeroU64) -> Got<Item> {
         Err(unsupported())
@@ -208,18 +241,30 @@ impl Tickets for StubTickets {
         window: Window,
         _: Option<&[HappenedKind]>,
     ) -> Got<Took<TicketEvent>> {
+        self.asked.lock().unwrap().history += 1;
         Ok(Took {
-            items: vec![TicketEvent {
-                what: Happened::Reopened,
-                by: None,
-                at: None,
-            }],
+            items: vec![reopened()],
             more: matches!(window, Window::Last(_)),
         })
     }
-    fn notes(&mut self, key: &TicketKey, _: Bound) -> Got<Whole<Comment>> {
-        let mine = self.notes.iter().filter(|(k, _)| k == key);
-        Ok(Whole::new(mine.map(|(_, c)| c.clone()).collect()))
+    fn notes(&mut self, key: &TicketKey, window: Window) -> Got<Took<Comment>> {
+        self.asked.lock().unwrap().notes += 1;
+        let mut mine: Vec<Comment> = self
+            .notes
+            .iter()
+            .filter(|(k, _)| k == key)
+            .map(|(_, c)| c.clone())
+            .collect();
+        let n = match window {
+            Window::Whole(b) if mine.len() > b.get() as usize => {
+                return Err(Outcome::Unread(Unread::Cut))
+            }
+            Window::Whole(_) => mine.len(),
+            Window::Last(n) => n.get() as usize,
+        };
+        let more = mine.len() > n;
+        let items = mine.split_off(mine.len().saturating_sub(n));
+        Ok(Took { items, more })
     }
     fn note_edits(&mut self, _: &CommentId, _: Bound) -> Got<Whole<Edit>> {
         Err(unsupported())
@@ -496,6 +541,7 @@ fn handles() -> (StubTickets, StubBlueprints, StubCodeHost, StubLinks) {
             .collect(),
         unread: vec![key("PROJ-3")],
         list_fails: false,
+        asked: Arc::default(),
     };
     let blueprints = StubBlueprints {
         blueprints: vec![
@@ -532,14 +578,18 @@ fn handles() -> (StubTickets, StubBlueprints, StubCodeHost, StubLinks) {
     (tickets, blueprints, code_host, links)
 }
 
-fn join() -> Join {
-    let (t, b, c, l) = handles();
+fn join_of(t: StubTickets, b: StubBlueprints, c: StubCodeHost, l: StubLinks) -> Join {
     Join {
         tickets: Box::new(t),
         blueprints: Box::new(b),
         code_host: Box::new(c),
         links: Arc::new(l),
     }
+}
+
+fn join() -> Join {
+    let (t, b, c, l) = handles();
+    join_of(t, b, c, l)
 }
 
 fn ask() -> BoardAsk {
@@ -556,6 +606,10 @@ fn ask() -> BoardAsk {
 
 fn nos(items: &[ChangeDigest]) -> Vec<u64> {
     items.iter().map(|c| c.no.get()).collect()
+}
+
+fn n32(n: u32) -> NonZeroU32 {
+    NonZeroU32::new(n).unwrap()
 }
 
 #[test]
@@ -626,7 +680,7 @@ fn a_whole_list_or_a_control_ticket_that_fails_fails_the_read() {
 }
 
 #[test]
-fn a_cheap_ask_reads_no_changes_and_keeps_the_tickets_history() {
+fn a_cheap_ask_reads_no_changes_notes_or_history() {
     let cheap = BoardAsk {
         depth: Depth::Cut { notes: 0 },
         history: None,
@@ -637,7 +691,51 @@ fn a_cheap_ask_reads_no_changes_and_keeps_the_tickets_history() {
     let item = join().work_item(&key("PROJ-1"), &cheap).unwrap();
     assert!(item.changes.is_empty());
     assert!(item.notes.items.is_empty() && item.notes.more);
-    assert!(item.ticket.history.items.is_empty());
+    assert!(item.ticket.history.items.is_empty() && item.ticket.history.more);
+}
+
+#[test]
+fn a_ticket_and_its_history_are_one_read_as_the_ask_or_its_depth_names() {
+    let (t, b, c, l) = handles();
+    let asked = t.asked.clone();
+    let mut board = join_of(t, b, c, l);
+    let item = board.work_item(&key("PROJ-1"), &ask()).unwrap();
+    assert!(item.ticket.history.more, "the ask's window, Last");
+    let by_depth = BoardAsk {
+        depth: Depth::All,
+        history: None,
+        ..ask()
+    };
+    let item = board.work_item(&key("PROJ-1"), &by_depth).unwrap();
+    assert!(!item.ticket.history.more, "the depth's window, Whole");
+    let asked = asked.lock().unwrap();
+    assert_eq!(asked.history, 0, "history is never read a second time");
+    assert_eq!(
+        asked.windows,
+        [Some(Window::Last(n32(100))), Some(Window::Whole(ALL_MAX))]
+    );
+}
+
+#[test]
+fn notes_are_read_as_deep_as_asked_and_not_at_all_for_none() {
+    let (t, b, c, l) = handles();
+    let asked = t.asked.clone();
+    let mut board = join_of(t, b, c, l);
+    let none = BoardAsk {
+        depth: Depth::Cut { notes: 0 },
+        ..ask()
+    };
+    board.work_item(&key("PROJ-1"), &none).unwrap();
+    assert_eq!(asked.lock().unwrap().notes, 0);
+    let one = BoardAsk {
+        depth: Depth::Cut { notes: 1 },
+        ..ask()
+    };
+    let item = board.work_item(&key("PROJ-1"), &one).unwrap();
+    assert_eq!(asked.lock().unwrap().notes, 1);
+    let ids: Vec<&str> = item.notes.items.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(ids, ["n3"]);
+    assert!(item.notes.more);
 }
 
 #[test]

@@ -97,7 +97,9 @@ pub struct Ticket {
     pub mentioned_by: Vec<Ref<ChangeNo>>,
     /// Oldest first. Of two events in one second an addition sorts before a
     /// removal; of two of one kind the later in the site's answer wins.
-    /// Read with `Window::Last`, the newest n with `more`.
+    /// As much as the read asked: the window its `Depth` gives
+    /// (`Depth::history`), or the one given beside it. `Depth::Cut` takes
+    /// none: empty, with `more`.
     pub history: Took<TicketEvent>,
 }
 
@@ -413,8 +415,9 @@ pub struct Filed {
 /// The tickets port's reads. A handle is bound to one project, one actor
 /// and one caller name.
 pub trait Tickets: Reports + Cites {
-    /// One ticket, to the depth asked.
-    fn ticket(&mut self, key: &TicketKey, depth: Depth) -> Got<Ticket>;
+    /// One ticket, to the depth asked, in one read. Its history is the
+    /// window `depth` gives (`Depth::history`), or `history` when given.
+    fn ticket(&mut self, key: &TicketKey, depth: Depth, history: Option<Window>) -> Got<Ticket>;
     /// Whether a number names a ticket or a change, where they share one
     /// number space. `NotFound` where neither.
     fn what_is(&mut self, number: NonZeroU64) -> Got<Item>;
@@ -435,9 +438,10 @@ pub trait Tickets: Reports + Cites {
         window: Window,
         only: Option<&[HappenedKind]>,
     ) -> Got<Took<TicketEvent>>;
-    /// Notes on the ticket itself. Where ticket and blueprint are one item,
-    /// empty: the item's comments are the blueprint's.
-    fn notes(&mut self, key: &TicketKey, bound: Bound) -> Got<Whole<Comment>>;
+    /// Notes on the ticket itself, oldest first, as much as `window` takes.
+    /// Where ticket and blueprint are one item, empty: the item's comments
+    /// are the blueprint's.
+    fn notes(&mut self, key: &TicketKey, window: Window) -> Got<Took<Comment>>;
     /// The edits of a ticket note, oldest first: how a link or a hold is
     /// vouched. Where ticket and blueprint are one item, the same answer as
     /// `Blueprints::comment_edits` for that comment.

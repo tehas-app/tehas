@@ -18,9 +18,11 @@ use crate::{
 /// What a joined read asks for, so a cheap poll asks less.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BoardAsk {
-    /// How much of each ticket, its notes and its blueprints to read.
+    /// How much of each ticket, its notes and its blueprints to read. It
+    /// gives each ticket's history too (`Depth::history`).
     pub depth: Depth,
-    /// Each ticket's history. A poll that must not miss an approval asks
+    /// Each ticket's history in place of the depth's, read with the ticket
+    /// in one read. A poll that must not miss an approval asks
     /// `Window::Whole`; a queue read may ask `Window::Last` with
     /// `Depth::Last`, and reads a `more` as possibly cut.
     pub history: Option<Window>,
@@ -147,33 +149,12 @@ pub struct Join {
     pub links: Arc<dyn Links>,
 }
 
-/// The most notes of a ticket, or changes of its blueprints, the join reads
-/// for one item. Past it, that item is `Unread(Cut)`.
+/// The most changes of an item's blueprints the join reads. Past it, that
+/// item is `Unread(Cut)`.
 const ITEM_MAX: NonZeroU32 = NonZeroU32::new(1000).unwrap();
 
 /// An answer the join cannot match to what it asked.
 const MISMATCH: Outcome = Outcome::Unread(Unread::Inconsistent);
-
-/// The notes as deep as `depth`: the newest n, with `more`, or every one.
-fn deep(mut notes: Vec<Comment>, depth: Depth) -> Took<Comment> {
-    let n = match depth {
-        Depth::Cut { notes } => usize::from(notes),
-        Depth::Last { notes } => usize::try_from(notes.get()).unwrap_or(usize::MAX),
-        Depth::All => usize::MAX,
-    };
-    if notes.len() > n {
-        let newest = notes.split_off(notes.len() - n);
-        Took {
-            items: newest,
-            more: true,
-        }
-    } else {
-        Took {
-            items: notes,
-            more: false,
-        }
-    }
-}
 
 impl Join {
     fn items(&mut self, keys: Vec<TicketKey>, ask: &BoardAsk) -> Whole<(TicketKey, Got<WorkItem>)> {
@@ -242,7 +223,7 @@ impl Board for Join {
         };
         let listed = self.tickets.list(&filter, bound)?;
         let control = match &ask.control {
-            Some(key) => Some(self.tickets.ticket(key, Depth::All)?),
+            Some(key) => Some(self.tickets.ticket(key, Depth::All, None)?),
             None => None,
         };
         let keys = listed.into_items().into_iter().map(|d| d.key).collect();
@@ -252,20 +233,20 @@ impl Board for Join {
         })
     }
 
-    /// The notes are read whole, at most `ITEM_MAX` (1000) of them, before
-    /// the ask's depth cuts them: a ticket of more notes than that is
-    /// `Unread(Cut)` whatever the depth, `Depth::Last` too, which fails
-    /// closed. `Depth::Cut`'s cut of each note's text is the site's to apply
-    /// in its own read; this join does not apply it.
+    /// The ticket and its history in one read. The notes are read as
+    /// `Depth::notes` gives, none at `Depth::Cut { notes: 0 }`; `Depth::All`
+    /// takes at most `ALL_MAX` (1000), past it `Unread(Cut)`.
+    /// `Depth::Cut`'s cut of each note's text is the site's own read's;
+    /// this join does not apply it.
     fn work_item(&mut self, key: &TicketKey, ask: &BoardAsk) -> Got<WorkItem> {
-        let mut ticket = self.tickets.ticket(key, ask.depth)?;
-        if let Some(window) = ask.history {
-            ticket.history = self.tickets.history(key, window, None)?;
-        }
-        let notes = deep(
-            self.tickets.notes(key, ITEM_MAX.into())?.into_items(),
-            ask.depth,
-        );
+        let ticket = self.tickets.ticket(key, ask.depth, ask.history)?;
+        let notes = match ask.depth.notes() {
+            Some(window) => self.tickets.notes(key, window)?,
+            None => Took {
+                items: Vec::new(),
+                more: true,
+            },
+        };
         let nos = self.links.blueprints_of(key)?;
         let blueprints = self.blueprints_of(&nos, ask.depth)?;
         let mut changes = Vec::new();
@@ -369,44 +350,5 @@ impl Board for Join {
             });
         }
         Ok(Whole::new(items))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn comments(n: usize) -> Vec<Comment> {
-        (0..n)
-            .map(|i| Comment {
-                id: crate::CommentId::new(i.to_string()),
-                author: None,
-                editor: None,
-                created: At::new(i as i64),
-                edited: None,
-                body: String::new(),
-                markers: vec![],
-                revision: crate::Revision::new("r"),
-                link: crate::WebLink::new("https://example.test/c").unwrap(),
-            })
-            .collect()
-    }
-
-    #[test]
-    fn notes_as_deep_as_asked_keep_the_newest() {
-        let three = NonZeroU32::new(3).unwrap();
-        let took = deep(comments(5), Depth::Last { notes: three });
-        assert!(took.more);
-        let ids: Vec<&str> = took.items.iter().map(|c| c.id.as_str()).collect();
-        assert_eq!(ids, ["2", "3", "4"]);
-        let took = deep(comments(2), Depth::Cut { notes: 3 });
-        assert!(!took.more);
-        assert_eq!(took.items.len(), 2);
-        let took = deep(comments(5), Depth::Cut { notes: 0 });
-        assert!(took.more);
-        assert!(took.items.is_empty());
-        let took = deep(comments(5), Depth::All);
-        assert!(!took.more);
-        assert_eq!(took.items.len(), 5);
     }
 }
