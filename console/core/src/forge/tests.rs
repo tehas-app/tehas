@@ -1037,3 +1037,27 @@ fn a_gh_answer_with_a_byte_that_is_not_utf8_is_kept_and_not_emptied() {
     let mut gh = super::Bounded::new("printf", std::time::Duration::from_secs(10));
     assert_eq!(gh.run(&["[1]\\377"]), Ok("[1]\u{fffd}".to_string()));
 }
+
+#[test]
+fn a_bounded_call_turns_the_shims_retry_off() {
+    let mut gh = super::Bounded::new("printenv", std::time::Duration::from_secs(10));
+    assert_eq!(gh.run(&["TEHAS_GH_RETRY"]), Ok("0\n".to_string()));
+}
+
+#[test]
+fn a_gh_call_of_call_turns_the_shims_retry_off_and_another_program_is_left_alone() {
+    use crate::call::{run, run_grace_env, GRACE};
+    let d = crate::testdir::TestDir::new("gh-no-retry");
+    let says = "#!/bin/sh\necho \"${TEHAS_GH_RETRY-unset}\"\n";
+    let (gh, other) = (d.join("gh"), d.join("not-gh"));
+    crate::testing::write_exe(&gh, says).unwrap();
+    crate::testing::write_exe(&other, says).unwrap();
+    let bound = std::time::Duration::from_secs(10);
+    assert_eq!(run(gh.to_str().unwrap(), &[], bound).out, "0\n");
+    assert_eq!(run(other.to_str().unwrap(), &[], bound).out, "unset\n");
+    let kept = d.join("out");
+    let f = std::fs::File::create(&kept).unwrap();
+    let rc = run_grace_env(gh.to_str().unwrap(), &[], Some(f), bound, GRACE, &[]);
+    assert_eq!(rc, Some(0));
+    assert_eq!(std::fs::read_to_string(&kept).unwrap(), "0\n");
+}

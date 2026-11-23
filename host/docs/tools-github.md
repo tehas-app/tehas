@@ -205,7 +205,10 @@ for a minute when it names none. Both attempts are lines of the log. A write
 that reads standard input is sent once. So is a write typed at a terminal:
 gh's output stays the terminal, so `gh pr create` and the other commands that
 ask still ask, and a rate limit shows at once. Nothing is shared between calls, so a
-call that waits holds up no other. A caller with a time limit of its own, such
+call that waits holds up no other. tehas's own calls (the poll's, a cycle's,
+the console's) set `TEHAS_GH_RETRY=0` and are sent once: a rate-limited write
+of theirs fails at once and is not sent again after the minute. A `gh` you
+run on the host keeps the retry. A caller with a time limit of its own, such
 as the poll's 30 seconds a call, ends the call at its limit; the poll's action
 journal settles that write on a later poll. A write that ended at its limit,
 that GitHub answered with a 5xx, or whose connection broke after it was made

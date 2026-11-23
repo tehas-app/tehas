@@ -30,7 +30,9 @@
 //! output stays the terminal, so gh can still prompt, open an editor and print
 //! as it goes, and a person sees a rate limit at once. Only a write whose output
 //! is no terminal has that output held until the last attempt. Nothing is
-//! shared between calls, so a call that waits holds up no other.
+//! shared between calls, so a call that waits holds up no other. A caller
+//! with TEHAS_GH_RETRY=0 has every write sent once: tehas's own Rust runners
+//! set it, so their bound is never spent in this wait.
 //!
 //! Exit: gh's own; 64 no real gh or no log named; 127 gh cannot be run.
 
@@ -345,6 +347,12 @@ pub fn may_resend(args: &[String], stdin_tty: bool, stdout_tty: bool) -> bool {
     !stdin_tty && !stdout_tty && !reads_stdin(args)
 }
 
+/// Whether the caller lets a rate-limited write be sent again: not when
+/// TEHAS_GH_RETRY is 0.
+pub fn retry_on(given: Option<&str>) -> bool {
+    given.map(str::trim) != Some("0")
+}
+
 /// The pause before the second attempt: TEHAS_GH_RETRY_WAIT in seconds, or a
 /// minute when it is unset or no number.
 pub fn retry_wait(given: Option<&str>) -> Duration {
@@ -421,7 +429,8 @@ pub fn main(given: &[OsString]) -> u8 {
         let _ = writeln!(io::stderr(), "gh: {}: {e}", Path::new(gh).display());
         127
     };
-    let again = may_resend(&args, io::stdin().is_terminal(), io::stdout().is_terminal());
+    let again = retry_on(std::env::var("TEHAS_GH_RETRY").ok().as_deref())
+        && may_resend(&args, io::stdin().is_terminal(), io::stdout().is_terminal());
     let (mut rc, mut out, mut logged) = match attempt(gh, words, &w, log, again) {
         Ok(first) => first,
         Err(e) => return cannot(e),
@@ -862,6 +871,15 @@ mod tests {
             false,
             false
         ));
+    }
+
+    #[test]
+    fn a_caller_with_tehas_gh_retry_0_has_its_write_sent_once() {
+        assert!(retry_on(None));
+        assert!(retry_on(Some("1")));
+        assert!(retry_on(Some("")));
+        assert!(!retry_on(Some("0")));
+        assert!(!retry_on(Some(" 0\n")));
     }
 
     #[test]

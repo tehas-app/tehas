@@ -429,8 +429,20 @@ impl Forge for GitHub {
     }
 }
 
+/// Given to every gh call of tehas's own, by `Bounded` and by `call`'s
+/// runners: the host's shim then sends a rate-limited write once, so a
+/// call's bound is not spent in the shim's minute of waiting. An operator's
+/// or a plugin's gh keeps the retry.
+pub const GH_NO_RETRY: (&str, &str) = ("TEHAS_GH_RETRY", "0");
+
+/// A program is gh by its file name: `gh` on the PATH, or a shim's path.
+pub fn is_gh(program: &str) -> bool {
+    std::path::Path::new(program).file_name() == Some("gh".as_ref())
+}
+
 /// The runner a host uses: gh of its own, in a bound of its own. One call per
-/// [`GhRunner::run`], so nothing one call set is seen by the next.
+/// [`GhRunner::run`], so nothing one call set is seen by the next. The call
+/// has the shim's retry off ([`GH_NO_RETRY`]).
 ///
 /// The child leads a process group and the group is signalled, as `timeout -k`
 /// does: TERM first, KILL after the grace, so gh and what it started are
@@ -471,6 +483,7 @@ impl GhRunner for Bounded {
 
         let mut child = Command::new(&self.program)
             .args(args)
+            .env(GH_NO_RETRY.0, GH_NO_RETRY.1)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
