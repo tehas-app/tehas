@@ -5,12 +5,15 @@
 //! fixtures, so no case needs gh, a token, a network or a repository: what a
 //! case decides is the rule, not the site.
 
-use super::gh;
-use super::{Approval, Forge, GhRunner, GitHub, LabelEvent, APPROVAL_LABEL};
 use serde_json::Value;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::rc::Rc;
+use tehas_core::forge::GhRunner;
+use tehas_github::gh;
+use tehas_github::table::APPROVAL_LABEL;
+use tehas_github::GitHub;
+use tehas_github::{Approval, LabelEvent};
 
 /// The words of a fixture's failure. A runner gives a reason that carries no
 /// separator; the line of the error adds `": "`, so a fixture reads as gh's
@@ -294,18 +297,18 @@ fn a_failed_gh_call_is_an_error_value() {
     // one still reads as one sentence, and one that has nothing to say leaves
     // no dangling colon.
     assert_eq!(
-        super::ForgeError::new("the issue", reason(": HTTP 403")).line(),
+        tehas_github::ForgeError::new("the issue", reason(": HTTP 403")).line(),
         "ERROR: the issue failed: HTTP 403"
     );
     assert_eq!(
-        super::ForgeError::new("the issue", "").line(),
+        tehas_github::ForgeError::new("the issue", "").line(),
         "ERROR: the issue failed"
     );
     // The same line through Display, so a caller can format it or `?` it.
     assert_eq!(
         format!(
             "{}",
-            super::ForgeError::new("the issue", reason(": HTTP 403"))
+            tehas_github::ForgeError::new("the issue", reason(": HTTP 403"))
         ),
         "ERROR: the issue failed: HTTP 403"
     );
@@ -657,11 +660,11 @@ fn read_events_and_parse_refuse_the_same_numeric_stamp() {
         "actor": {"login": "mallory"},
         "created_at": stamp,
     })]);
-    let e = super::read_events(&out).expect_err("a numeric stamp was read as a time");
+    let e = tehas_github::read_events(&out).expect_err("a numeric stamp was read as a time");
     assert!(!e.is_empty(), "the refusal carried no reason");
     assert_eq!(
-        crate::events::Events::parse(&serde_json::from_str::<Value>(&out).unwrap()),
-        crate::events::Events::Unreadable,
+        tehas_core::events::Events::parse(&serde_json::from_str::<Value>(&out).unwrap()),
+        tehas_core::events::Events::Unreadable,
     );
     // What both readers refuse, both read: absent and null are the site's own
     // ways of saying nothing of the time.
@@ -672,12 +675,12 @@ fn read_events_and_parse_refuse_the_same_numeric_stamp() {
             "actor": {"login": "mallory"},
             "created_at": at,
         })]);
-        assert!(super::read_events(&out).is_ok(), "{at} was refused");
+        assert!(tehas_github::read_events(&out).is_ok(), "{at} was refused");
         let v = serde_json::from_str::<Value>(&out).unwrap();
         assert!(
             matches!(
-                crate::events::Events::parse(&v),
-                crate::events::Events::Read(_)
+                tehas_core::events::Events::parse(&v),
+                tehas_core::events::Events::Read(_)
             ),
             "{at} was not read"
         );
@@ -1034,6 +1037,40 @@ fn the_owners_issue_types_are_read_and_an_answer_with_no_repository_is_an_error(
 fn a_gh_answer_with_a_byte_that_is_not_utf8_is_kept_and_not_emptied() {
     // A read that failed on one byte used to give an empty answer at exit 0,
     // which reads as gh having printed nothing.
-    let mut gh = super::Bounded::new("printf", std::time::Duration::from_secs(10));
+    let mut gh = tehas_core::forge::Bounded::new("printf", std::time::Duration::from_secs(10));
     assert_eq!(gh.run(&["[1]\\377"]), Ok("[1]\u{fffd}".to_string()));
+}
+
+#[test]
+fn an_issues_text_revision_moves_with_its_title_or_body_and_nothing_else() {
+    let issue = |title: &str, body: &str, label: &str| {
+        Ok(
+            serde_json::json!({"title": title, "body": body, "labels": [{"name": label}]})
+                .to_string(),
+        )
+    };
+    let (mut f, asked) = forge(vec![
+        issue("T", "b", "x"),
+        issue("T", "b\r", "y"),
+        issue("T2", "b", "x"),
+        issue("T", "b2", "x"),
+        Ok(r#"{"body":"b"}"#.into()),
+        Err("HTTP 502".into()),
+    ]);
+    let first = f.text_revision(7).unwrap();
+    assert_eq!(f.text_revision(7).unwrap(), first);
+    assert_ne!(f.text_revision(7).unwrap(), first);
+    assert_ne!(f.text_revision(7).unwrap(), first);
+    assert!(f.text_revision(7).is_err());
+    assert_eq!(
+        f.text_revision(7).unwrap_err().line(),
+        "ERROR: the issue failed: HTTP 502"
+    );
+    assert_eq!(asked.borrow()[0], ["api", "repos/acme/widget/issues/7"]);
+}
+
+#[test]
+fn a_bounded_call_turns_the_shims_retry_off() {
+    let mut gh = tehas_core::forge::Bounded::new("printenv", std::time::Duration::from_secs(10));
+    assert_eq!(gh.run(&["TEHAS_GH_RETRY"]), Ok("0\n".to_string()));
 }

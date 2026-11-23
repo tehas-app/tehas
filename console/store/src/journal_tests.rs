@@ -306,10 +306,21 @@ fn an_action_never_attempted_has_no_result_and_is_only_abandoned() {
 }
 
 #[test]
-fn the_kinds_of_a_planning_sessions_end_are_taken() {
+fn the_kinds_of_a_planning_sessions_end_and_of_a_changes_mark_are_taken() {
     let home = home("journal-kinds");
     ok_at(&home, 7000, &["poll-begin"]);
-    for kind in ["issue-edit", "sub-issue-add", "issue-close"] {
+    // refresh-begin and refresh-end are the 1.x words of change-mark and
+    // change-unmark, kept for the rows written before the update.
+    let kinds = [
+        "issue-edit",
+        "sub-issue-add",
+        "issue-close",
+        "change-mark",
+        "change-unmark",
+        "refresh-begin",
+        "refresh-end",
+    ];
+    for kind in kinds {
         let v = ok_at(
             &home,
             7000,
@@ -329,7 +340,7 @@ fn the_kinds_of_a_planning_sessions_end_are_taken() {
         );
         assert!(v["action"].as_i64().is_some(), "{kind}");
     }
-    assert_eq!(count(&home, "actions"), 3);
+    assert_eq!(count(&home, "actions"), kinds.len() as i64);
 }
 
 #[test]
@@ -363,4 +374,180 @@ fn open_marks_a_row_whose_arguments_are_not_an_object() {
         assert_eq!(a["args_unreadable"], json!(true), "{a}");
         assert_eq!(a["args"], serde_json::Value::Null, "{a} has args");
     }
+}
+
+/// A write as `Journal::send` records it, by its JSON.
+fn write_json(w: &tehas_ports::Write) -> String {
+    serde_json::to_string(w).unwrap()
+}
+
+fn ticket(n: u64) -> tehas_ports::TicketKey {
+    tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap())
+}
+
+fn record_write(home: &std::path::Path, now: i64, write: &str, args: &str) {
+    ok_at(home, now, &["poll-begin"]);
+    ok_at(
+        home,
+        now,
+        &[
+            "journal-record",
+            "--poll",
+            &now.to_string(),
+            "--write",
+            write,
+            "--args",
+            args,
+            "--before",
+            &(now - 5).to_string(),
+        ],
+    );
+}
+
+/// T4.4: a write row keeps its `Write` as the `write` field of its
+/// arguments, beside what the caller gave; its kind is the write's word and
+/// its issue the ticket it names.
+#[test]
+fn a_write_is_recorded_by_its_word_and_the_number_it_names() {
+    let home = home("journal-write");
+    let reopen = tehas_ports::Write::Reopen { ticket: ticket(7) };
+    let args = r#"{"repo":"example-owner/example-product","cycle":{"issue":7,"attempt":2}}"#;
+    record_write(&home, 1000, &write_json(&reopen), args);
+    let row = &ok(&home, &["journal-open"])["actions"][0];
+    assert_eq!(row["kind"], "ticket-reopen");
+    assert_eq!(row["issue"], 7);
+    assert_eq!(row["args"]["repo"], "example-owner/example-product");
+    assert_eq!(row["args"]["cycle"]["attempt"], 2);
+    let kept: tehas_ports::Write = serde_json::from_value(row["args"]["write"].clone()).unwrap();
+    assert_eq!(kept, reopen);
+}
+
+/// The issue column holds what `--issue` takes, a number of one to ten
+/// digits, which is what a settle reads. A write that names none is
+/// refused, and so not sent, rather than kept on issue 0.
+#[test]
+fn a_write_on_no_issue_number_is_refused() {
+    let rec = |w: &tehas_ports::Write| {
+        usage(&[
+            "journal-record",
+            "--poll",
+            "1",
+            "--write",
+            &write_json(w),
+            "--args",
+            "{}",
+            "--before",
+            "1",
+        ])
+    };
+    let none = "--write names no issue the journal keys a row by";
+    assert!(rec(&tehas_ports::Write::Prepare).contains(none));
+    let big = tehas_ports::Write::Reopen {
+        ticket: ticket(10_000_000_000),
+    };
+    assert!(rec(&big).contains(none));
+    let keyed: tehas_ports::Write =
+        serde_json::from_str(r#"{"type":"Reopen","value":{"ticket":{"Key":"OPS-7"}}}"#).unwrap();
+    assert!(rec(&keyed).contains(none));
+    let home = home("journal-write-max");
+    let max = tehas_ports::Write::Reopen {
+        ticket: ticket(9_999_999_999),
+    };
+    record_write(&home, 1000, &write_json(&max), "{}");
+    assert_eq!(
+        ok(&home, &["journal-open"])["actions"][0]["issue"],
+        9_999_999_999_i64
+    );
+}
+
+#[test]
+fn a_write_row_takes_no_kind_no_issue_and_no_body_in_text() {
+    let reopen = write_json(&tehas_ports::Write::Reopen { ticket: ticket(7) });
+    let rec = |extra: &[&str], write: &str, args: &str| {
+        let mut a = vec!["journal-record", "--poll", "1", "--write", write];
+        a.extend_from_slice(extra);
+        a.extend(["--args", args, "--before", "1"]);
+        usage(&a)
+    };
+    assert!(
+        rec(&["--kind", "label-add"], &reopen, "{}").contains("--kind is not taken with --write")
+    );
+    assert!(rec(&["--issue", "7"], &reopen, "{}").contains("--issue is not taken with --write"));
+    assert!(rec(&[], "[1]", "{}").contains("--write is not a write the journal records"));
+    assert!(rec(&[], r#"{"type":"Paint"}"#, "{}")
+        .contains("--write is not a write the journal records"));
+    // The row keeps a body by its sum alone.
+    let note = write_json(&tehas_ports::Write::TicketNote {
+        ticket: ticket(7),
+        body: tehas_ports::Body::Text("text".into()),
+        markers: vec![],
+    });
+    assert!(rec(&[], &note, "{}").contains("--write is not a write the journal records"));
+    assert!(rec(&[], &reopen, r#"{"write":{}}"#).contains("--args holds a write already"));
+}
+
+/// Every word a write is recorded by is one of `KINDS`, and no two kinds
+/// share one but the two notes and the two edits, as 1.x wrote them. A
+/// change's edit has no word, so it is not here.
+#[test]
+fn each_write_kind_has_its_own_word_in_kinds() {
+    use tehas_ports::WriteKind as K;
+    let all = [
+        K::Mark,
+        K::Unmark,
+        K::Close,
+        K::Reopen,
+        K::TicketNote,
+        K::FileTicket,
+        K::EditTicket,
+        K::SetKind,
+        K::SetPriority,
+        K::WaitOn,
+        K::StopWaiting,
+        K::Assign,
+        K::AddPart,
+        K::RemovePart,
+        K::NewTarget,
+        K::EditTarget,
+        K::SetTarget,
+        K::Prepare,
+        K::EnsureMark,
+        K::OpenBlueprint,
+        K::EditBlueprint,
+        K::Comment,
+        K::EditComment,
+        K::CloseBlueprint,
+        K::OpenChange,
+        K::CommentChange,
+        K::MarkChange,
+        K::UnmarkChange,
+        K::CloseChange,
+        K::Merge,
+        K::Propose,
+        K::Tag,
+        K::SetStatus,
+        K::NewRelease,
+        K::Upload,
+        K::PublishRelease,
+    ];
+    let mut words: Vec<&str> = all
+        .iter()
+        .map(|k| crate::journal::word(*k).unwrap_or_else(|| panic!("{k:?} has no word")))
+        .collect();
+    for w in &words {
+        assert!(crate::journal::KINDS.contains(w), "{w}");
+    }
+    assert_eq!(
+        crate::journal::word(K::TicketNote),
+        crate::journal::word(K::Comment)
+    );
+    assert_eq!(
+        crate::journal::word(K::EditTicket),
+        crate::journal::word(K::EditBlueprint)
+    );
+    words.sort_unstable();
+    words.dedup();
+    assert_eq!(words.len(), all.len() - 2);
+    assert_eq!(crate::journal::word(K::EditChange), None);
+    assert_eq!(crate::journal::word(K::Unknown), None);
 }

@@ -1,7 +1,9 @@
 //! A write of the report that GitHub may have taken, read back before it is
 //! sent again (#1754). Nothing decides a cycle's report again, and a settled
 //! row is never replayed, so the report reads it itself: a write that is not
-//! there is sent again, one that is there is done.
+//! there is sent again, one that is there is done. A write of the ports
+//! (`Journal::send`) never comes here: its answer is the site's, and a label
+//! call that names no label settles nothing.
 
 use serde_json::Value;
 use tehas_core::journal::summed;
@@ -75,16 +77,21 @@ pub(super) fn seen(
                 None => Seen::Missing,
             }
         }
-        "label-add" | "label-remove" | "refresh-end" => {
+        "label-add" | "label-remove" | "change-unmark" => {
             let Some(v) = read(&issue, false) else {
                 return Seen::Unread;
             };
             let have = names(&v);
-            let (on, off) = if kind == "refresh-end" {
+            let (on, off) = if kind == "change-unmark" {
                 (vec![], vec!["tehas:refreshing"])
             } else {
                 (after(args, "--add-label"), after(args, "--remove-label"))
             };
+            // A call that names no label, as a row of `Journal::send` under
+            // the same word would read, would be there for nothing checked.
+            if on.is_empty() && off.is_empty() {
+                return Seen::Unread;
+            }
             let done = on.iter().all(|l| have.contains(l)) && off.iter().all(|l| !have.contains(l));
             if done {
                 Seen::There(String::new())
@@ -179,10 +186,26 @@ mod tests {
         assert_eq!(r(json!({"labels": []})), Seen::Missing);
     }
 
+    /// T4.4: a label write that names no label, as a write of the ports
+    /// under a 1.x word would read with no argv, is never there.
+    #[test]
+    fn a_label_write_that_names_no_label_settles_nothing() {
+        let v = json!({"labels": [{"name": "a-label"}]});
+        for kind in ["label-add", "label-remove"] {
+            for a in [vec![], args("edit 7")] {
+                assert_eq!(
+                    seen("a/b", 7, kind, &a, None, NOW, &mut with(Some(v.clone()))),
+                    Seen::Unread,
+                    "{kind} {a:?}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn a_refresh_mark_is_off_when_the_label_is_gone() {
         let a = args("api -X DELETE repos/a/b/issues/9/labels/tehas:refreshing");
-        let r = |v: Value| seen("a/b", 9, "refresh-end", &a, None, NOW, &mut with(Some(v)));
+        let r = |v: Value| seen("a/b", 9, "change-unmark", &a, None, NOW, &mut with(Some(v)));
         assert_eq!(r(json!({"labels": []})), Seen::There(String::new()));
         assert_eq!(
             r(json!({"labels": [{"name": "tehas:refreshing"}]})),

@@ -3,7 +3,8 @@
 //! between two writes, is read again and settled from what GitHub says now.
 //! Never replayed: the poll that settles it decides afresh whether anything
 //! is still owed. A write never attempted made no call, and is abandoned.
-//! A row that does not describe itself is left open with one WARN. A row of
+//! A row that does not describe itself, or that keeps a write of the ports,
+//! is left open with one WARN. A row of
 //! a cycle whose lock is held is that cycle's own, and is left alone: a poll
 //! that abandoned it would have the cycle's write refused.
 
@@ -244,6 +245,13 @@ impl Writer {
 
     /// What GitHub says now of one attempted write.
     fn found(&mut self, a: &Value, kind: &str, n: u64, attempted: u64) -> Found {
+        // A row of `Journal::send` shares the 1.x words but has no argv, so
+        // the reads below would find it done for nothing they checked. It
+        // stays open, never settled and never sent again, until this settle
+        // reads a row by its write (T4.7).
+        if a.pointer("/args/write").is_some() {
+            return Found::Unread("it is a write of the ports, which no read settles yet".into());
+        }
         let repo = self.repo.clone();
         let gh: Vec<Value> = a
             .pointer("/args/gh")
@@ -340,13 +348,15 @@ impl Writer {
                     Found::Abandoned("the comment was not edited since")
                 }
             }
-            "refresh-begin" | "refresh-end" => {
+            // refresh-begin and refresh-end are the 1.x words of a row
+            // written before the update.
+            "change-mark" | "change-unmark" | "refresh-begin" | "refresh-end" => {
                 let v = match read(self, format!("repos/{repo}/issues/{n}"), false) {
                     Ok(v) => v,
                     Err(e) => return Found::Unread(e),
                 };
                 let marked = names(&v).iter().any(|l| l == "tehas:refreshing");
-                if marked == (kind == "refresh-begin") {
+                if marked == matches!(kind, "change-mark" | "refresh-begin") {
                     Found::Done(json!({"labels": names(&v)}))
                 } else {
                     Found::Abandoned("the pull request's mark is not as it wanted it")

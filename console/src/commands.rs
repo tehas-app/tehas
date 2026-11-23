@@ -196,7 +196,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "labels" => labels::main(rest),
         "plugin" => tehas_ops::plugin::main(rest),
         "host-message" => host_message::main(rest),
-        "resume" => holds::resume(rest),
+        "resume" => holds::resume(rest, &mut *control_tickets()),
         "drain" => holds::drain(rest),
         "history" => history::main(rest),
         "export" => export::main(rest),
@@ -470,6 +470,14 @@ pub fn usage(given: &[String]) -> u8 {
             64
         }
     }
+}
+
+/// The handle `tehas resume` reads the control issue with: gh of `PATH`.
+/// `host/env.sh` puts the shim first there where the instance has one, and a
+/// person's shell without it reads with their own gh.
+fn control_tickets() -> Box<dyn tehas_ports::TicketWrites> {
+    let repo = env::var("TEHAS_REPO").unwrap_or_default();
+    crate::wiring::tickets(&repo, "gh", crate::forge::CALL_BOUND)
 }
 
 #[cfg(test)]

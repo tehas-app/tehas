@@ -43,14 +43,14 @@ fn bare_tree(w: &World) -> PathBuf {
         }
     }
     for verb in ["tehas", "tehasbot"] {
-        fs::copy(
+        tehas_core::testing::copy_exe(
             root().join("bin").join(verb),
             tree.join("bin").join(format!("{verb}.real")),
         )
         .unwrap();
     }
-    fs::copy(w.console(), tree.join("libexec/console")).unwrap();
-    fs::copy(w.dispatcher(), tree.join("libexec/tehas-dispatch")).unwrap();
+    tehas_core::testing::copy_exe(w.console(), tree.join("libexec/console")).unwrap();
+    tehas_core::testing::copy_exe(w.dispatcher(), tree.join("libexec/tehas-dispatch")).unwrap();
     let t = w.t().display().to_string();
     let wrapper = |name: &str, lines: &[String]| {
         let p = tree.join("bin").join(name);

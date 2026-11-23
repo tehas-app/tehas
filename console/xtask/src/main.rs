@@ -78,7 +78,7 @@ fn main() -> ExitCode {
             eprintln!("       xtask kani-shard <kani-list.json> <index> <count>");
             eprintln!("       xtask lean-test --root <dir> <file>");
             eprintln!("       xtask lean-roster --root <dir> --report <file>");
-            eprintln!("       xtask config-check --settings <instance dir>");
+            eprintln!("       xtask config-check --settings <instance dir> [--env <file>]");
             ExitCode::from(64)
         }
     }
@@ -97,24 +97,41 @@ fn workspace(root: &std::path::Path) -> Option<Vec<lean::Target>> {
     )
 }
 
-/// `config-check --settings <dir>`: an instance's settings held against this
-/// version's load (tehas_ops::settings::config_check). 78 before anything is
-/// read when the directory is not given or is not there; then 0 on a pass and
-/// 78 on a fail.
+/// `config-check --settings <dir> [--env <file>]`: an instance's settings
+/// held against this version's load (tehas_ops::settings::config_check),
+/// with `<file>` standing for the host's ~/.config/tehas/env. 78 before
+/// anything is read when the directory is not given or is not there, or the
+/// file is given and is not there; then 0 on a pass and 78 on a fail.
 fn config_check(args: &[String]) -> ExitCode {
-    let [flag, dir] = args else {
-        eprintln!("xtask: usage: xtask config-check --settings <instance dir>");
+    const USAGE: &str = "xtask: usage: xtask config-check --settings <instance dir> [--env <file>]";
+    let (mut dir, mut env) = (None, None);
+    for pair in args.chunks(2) {
+        let slot = match pair {
+            [flag, _] if flag == "--settings" => &mut dir,
+            [flag, _] if flag == "--env" => &mut env,
+            _ => {
+                eprintln!("{USAGE}");
+                return ExitCode::from(78);
+            }
+        };
+        if slot.replace(pair[1].as_str()).is_some() {
+            eprintln!("{USAGE}");
+            return ExitCode::from(78);
+        }
+    }
+    let Some(dir) = dir else {
+        eprintln!("{USAGE}");
         return ExitCode::from(78);
     };
-    if flag != "--settings" {
-        eprintln!("xtask: usage: xtask config-check --settings <instance dir>");
-        return ExitCode::from(78);
-    }
     if !std::path::Path::new(dir).is_dir() {
         eprintln!("xtask: config-check: no instance directory at {dir}");
         return ExitCode::from(78);
     }
-    let (lines, pass) = tehas_ops::settings::config_check(dir, "bash");
+    if let Some(file) = env.filter(|f| !std::path::Path::new(f).is_file()) {
+        eprintln!("xtask: config-check: no env file at {file}");
+        return ExitCode::from(78);
+    }
+    let (lines, pass) = tehas_ops::settings::config_check(dir, env, "bash");
     for line in lines {
         tehas_core::outln!("{line}");
     }

@@ -10,6 +10,11 @@
 //!                        --before <at>
 //!     One action, intended: the whole call in --args (a JSON object), the
 //!     read it rests on in --before. {"action":N}.
+//!   store journal-record --poll <at> --write <json> --args <json> --before <at>
+//!     The same for a `Write` of the ports, with its bodies summed: kept as
+//!     the `write` field of --args, its kind the write's word and its issue
+//!     the ticket, blueprint or change it names. A write that names no such
+//!     number is refused.
 //!   store journal-attempt --action N
 //!     The step just before the call: intended becomes attempted.
 //!   store journal-settle --action N (--result <result> | --abandoned)
@@ -29,10 +34,15 @@ use crate::verbs::{self, j, line, list, obj, refuse, Args, Fail, Kind, Q};
 use rusqlite::{params, OptionalExtension};
 use serde_json::Value;
 use std::path::Path;
+use tehas_ports::{TicketKey, Write, WriteKind};
 
 /// The kinds of section 5's table, and the three a planning session's end
-/// writes: an issue's body, a sub-issue link and a close.
-pub const KINDS: [&str; 12] = [
+/// writes: an issue's body, a sub-issue link and a close. The refreshing mark
+/// on and off a pull request is `change-mark` and `change-unmark`;
+/// `refresh-begin` and `refresh-end` are its 1.x words, still read in the
+/// rows written before the update. Then the words of the writes of the
+/// ports that 1.x had none for (T4.4).
+pub const KINDS: [&str; 39] = [
     "label-add",
     "label-remove",
     "label-remove-only",
@@ -42,10 +52,156 @@ pub const KINDS: [&str; 12] = [
     "unit-stop",
     "refresh-begin",
     "refresh-end",
+    "change-mark",
+    "change-unmark",
     "issue-edit",
     "sub-issue-add",
     "issue-close",
+    "ticket-reopen",
+    "ticket-file",
+    "ticket-kind",
+    "ticket-priority",
+    "ticket-wait",
+    "ticket-unwait",
+    "ticket-assign",
+    "part-remove",
+    "target-new",
+    "target-edit",
+    "ticket-target",
+    "marks-prepare",
+    "mark-ensure",
+    "blueprint-open",
+    "blueprint-close",
+    "change-open",
+    "change-comment",
+    "change-close",
+    "change-merge",
+    "change-propose",
+    "tag-make",
+    "status-set",
+    "release-new",
+    "release-upload",
+    "release-publish",
 ];
+
+/// The word a write's row holds, the 1.x word where it had one. None for a
+/// kind the journal does not record: a change's edit, which has no word,
+/// and an unknown write, which is never sent. Every kind is named,
+/// so a new one is decided here.
+pub fn word(kind: WriteKind) -> Option<&'static str> {
+    use WriteKind as K;
+    Some(match kind {
+        K::Mark => "label-add",
+        K::Unmark => "label-remove",
+        K::Close => "issue-close",
+        K::TicketNote | K::Comment => "comment-post",
+        K::EditComment => "comment-edit",
+        K::EditTicket | K::EditBlueprint => "issue-edit",
+        K::AddPart => "sub-issue-add",
+        K::Reopen => "ticket-reopen",
+        K::FileTicket => "ticket-file",
+        K::SetKind => "ticket-kind",
+        K::SetPriority => "ticket-priority",
+        K::WaitOn => "ticket-wait",
+        K::StopWaiting => "ticket-unwait",
+        K::Assign => "ticket-assign",
+        K::RemovePart => "part-remove",
+        K::NewTarget => "target-new",
+        K::EditTarget => "target-edit",
+        K::SetTarget => "ticket-target",
+        K::Prepare => "marks-prepare",
+        K::EnsureMark => "mark-ensure",
+        K::OpenBlueprint => "blueprint-open",
+        K::CloseBlueprint => "blueprint-close",
+        K::OpenChange => "change-open",
+        K::CommentChange => "change-comment",
+        K::CloseChange => "change-close",
+        K::Merge => "change-merge",
+        K::Propose => "change-propose",
+        K::Tag => "tag-make",
+        K::SetStatus => "status-set",
+        K::NewRelease => "release-new",
+        K::Upload => "release-upload",
+        K::PublishRelease => "release-publish",
+        K::MarkChange => "change-mark",
+        K::UnmarkChange => "change-unmark",
+        K::EditChange | K::Unknown => return None,
+        // The ports may add a kind (`non_exhaustive`): not recorded, so
+        // not sent, until it is named above.
+        _ => return None,
+    })
+}
+
+/// The most the issue column holds, as `--issue` takes it: ten digits.
+const ISSUE_MAX: i64 = 9_999_999_999;
+
+/// The number of the ticket, blueprint or change a write is on, as the
+/// issue column holds it and a settle reads it: above 0, at most ten
+/// digits. None for a write on no number (a ticket keyed by text, a new
+/// item, a mark, target, commit or release): the store refuses its row, so
+/// it is not sent, until a settle reads a row by its write (T4.7). Every
+/// variant is named, so a new one is decided here.
+fn issue_of(w: &Write) -> Option<i64> {
+    let n = match w {
+        Write::Mark { ticket, .. }
+        | Write::Unmark { ticket, .. }
+        | Write::Close { ticket, .. }
+        | Write::Reopen { ticket }
+        | Write::TicketNote { ticket, .. }
+        | Write::EditTicket { ticket, .. }
+        | Write::SetKind { ticket, .. }
+        | Write::SetPriority { ticket, .. }
+        | Write::WaitOn { ticket, .. }
+        | Write::StopWaiting { ticket, .. }
+        | Write::Assign { ticket, .. }
+        | Write::SetTarget { ticket, .. }
+        | Write::AddPart { parent: ticket, .. }
+        | Write::RemovePart { parent: ticket, .. } => match ticket {
+            TicketKey::Number(n) => n.get(),
+            TicketKey::Key(_) => return None,
+        },
+        Write::EditBlueprint { no, .. }
+        | Write::Comment { on: no, .. }
+        | Write::CloseBlueprint { no, .. } => no.get(),
+        Write::EditChange { no, .. }
+        | Write::MarkChange { no, .. }
+        | Write::UnmarkChange { no, .. }
+        | Write::CommentChange { no, .. }
+        | Write::CloseChange { no }
+        | Write::Merge { no, .. } => no.get(),
+        Write::FileTicket(_)
+        | Write::NewTarget { .. }
+        | Write::EditTarget { .. }
+        | Write::Prepare
+        | Write::EnsureMark(_)
+        | Write::OpenBlueprint(_)
+        | Write::EditComment { .. }
+        | Write::OpenChange(_)
+        | Write::Propose(_)
+        | Write::Tag { .. }
+        | Write::SetStatus { .. }
+        | Write::NewRelease(_)
+        | Write::Upload { .. }
+        | Write::PublishRelease { .. }
+        | Write::Unknown => return None,
+        // The ports may add a write (`non_exhaustive`): refused until it
+        // is named above.
+        _ => return None,
+    };
+    i64::try_from(n)
+        .ok()
+        .filter(|n| (1..=ISSUE_MAX).contains(n))
+}
+
+/// A write the journal records: one it has a word for, with every body
+/// summed. A marker's fields are kept as they are: the driver makes them,
+/// and the ticket shows them.
+fn a_write(s: &str) -> Option<(Write, &'static str)> {
+    let w: Write = serde_json::from_str(&object(s)?).ok()?;
+    let kind = word(w.kind())?;
+    w.summed(|_| None).ok()?;
+    Some((w, kind))
+}
 
 /// The typed results of every external call (section 3), and `unknown`: a
 /// call GitHub may have taken, which a read settles later.
@@ -108,10 +264,14 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                 ("--issue", Kind::Value),
                 ("--args", Kind::Value),
                 ("--before", Kind::Value),
+                ("--write", Kind::Value),
             ],
             false,
         )
         .and_then(|a| {
+            if a.has("--write") {
+                return record_write(&a);
+            }
             Ok(Call::Record(Record {
                 poll: a.strict_need("--poll", "a Unix time", verbs::unix)?,
                 kind: a.strict_need(
@@ -166,6 +326,28 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
         "journal-open" => Args::parse("journal-open", rest, &[], false).map(|_| Call::Open),
         _ => return None,
     })
+}
+
+/// `journal-record --write`: the write kept in its arguments.
+fn record_write(a: &Args) -> Result<Call, String> {
+    a.only(&["--poll", "--write", "--args", "--before"], "--write")?;
+    let (write, kind) = a.strict_need("--write", "a write the journal records", a_write)?;
+    let args = a.strict_need("--args", "a JSON object", object)?;
+    let mut args: serde_json::Map<String, Value> =
+        serde_json::from_str(&args).map_err(|_| a.usage("--args", "is not a JSON object"))?;
+    if args.contains_key("write") {
+        return Err(a.usage("--args", "holds a write already"));
+    }
+    let kept = serde_json::to_value(&write).map_err(|_| a.usage("--write", "cannot be kept"))?;
+    args.insert("write".into(), kept);
+    Ok(Call::Record(Record {
+        poll: a.strict_need("--poll", "a Unix time", verbs::unix)?,
+        kind,
+        issue: issue_of(&write)
+            .ok_or_else(|| a.usage("--write", "names no issue the journal keys a row by"))?,
+        args: Value::Object(args).to_string(),
+        before: a.strict_need("--before", "a Unix time", verbs::unix)?,
+    }))
 }
 
 pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {

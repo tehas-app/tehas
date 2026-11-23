@@ -1222,7 +1222,11 @@ or as not done, and never made again. A write that timed out, that GitHub
 answered with a 5xx, or whose connection broke after it was made, may have
 reached GitHub: its row is left open as
 `unknown`, the log says `may have been posted`, and the next poll reads it the
-same way before anything is sent again. What the read finds decides the write
+same way before anything is sent again. Each row names its write by a kind,
+which the poll's `journal:` lines quote: the refreshing mark on and off a pull
+request is `change-mark` and `change-unmark`, which 1.x wrote as
+`refresh-begin` and `refresh-end`; a row of the old words left open by the
+update is settled as before. What the read finds decides the write
 when the poll decides it again: found done, it is done and not sent (a park
 tell or a hold's note is then on record as said); not found, it is abandoned
 and the poll sends it once; a read that failed leaves the row open and the
@@ -1233,8 +1237,9 @@ is the text it wrote: a title the plan kept, or a body that says
 minute (a 5xx, a bare 403, or its bound) is tried once more after a short
 wait, at most six times a poll; `tehasbot status` and `console tidy run` follow the
 same rule for their reads. A read that still failed is a line that names gh's
-error by words of a fixed list only (`HTTP 502`, `rate limit`, `timed out`),
-and goes on `~/tehas/state/github-failures`, the record of the last ten
+error by words of a fixed list only (`HTTP 502`, `rate limit`, `timed out`).
+It goes on `~/tehas/state/github-failures` as a fixed line in tehas's words
+for its kind (`GitHub failed with a server error`), the record of the last ten
 minutes that health counts: three or more warn, and `tehas status` prints a
 `github` line. A read that still failed ends the poll where a decision rests on it, as before the retry.
 

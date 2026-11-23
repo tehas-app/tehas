@@ -8,9 +8,9 @@ use serde::{Deserialize, Serialize};
 use crate::mark::unknown_tag;
 use crate::{
     unknown, Account, AccountId, Applied, At, Body, Bound, ChangeDigest, ChangeNo, ChangeToken,
-    Cites, Comment, CommentId, CommitId, Cursor, Depth, Did, Edit, Got, Item, Kind, Mark, MarkSpec,
-    Marker, MarkerEdit, MarkerKey, MarkerKind, Posted, Priority, Ref, Reports, Revision, TargetId,
-    TicketKey, Took, WebLink, Whole, Window, Within,
+    Cites, Comment, CommentId, CommitId, Cursor, Depth, Did, Edit, Got, Item, Kind, Mark, MarkName,
+    MarkSpec, Marker, MarkerEdit, MarkerKey, MarkerKind, Outcome, Posted, Priority, Ref, Reports,
+    Revision, TargetId, TicketKey, Took, WebLink, Whole, Window, Within,
 };
 
 /// Whether a ticket is open, and why it closed.
@@ -495,6 +495,22 @@ pub trait Tickets: Reports + Cites {
     fn new_ticket_link(&self, title: &str, text: &str) -> WebLink;
 }
 
+/// What `prepare` could not do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unprepared {
+    /// The first mark it could not make; None when the site failed before
+    /// it tried one.
+    pub mark: Option<MarkName>,
+    /// Why.
+    pub why: Outcome,
+}
+
+impl From<Outcome> for Unprepared {
+    fn from(why: Outcome) -> Unprepared {
+        Unprepared { mark: None, why }
+    }
+}
+
 /// The tickets port's writes.
 pub trait TicketWrites: Tickets {
     /// The parts of one step, in order, with how far it got, and the note's
@@ -506,8 +522,10 @@ pub trait TicketWrites: Tickets {
         key: &TicketKey,
         step: &Step,
     ) -> (Applied<StepPart>, Option<Posted<CommentId>>);
-    /// Make sure the site can carry every mark of the factory.
-    fn prepare(&mut self) -> Did;
+    /// Make sure the site can carry every mark of the factory. A mark that
+    /// cannot be made stops none of the others; the first that failed is
+    /// the answer.
+    fn prepare(&mut self) -> Result<(), Unprepared>;
     /// Make sure a project's own mark exists. Already there is done. Its
     /// colour and text are made to match where the site has them and the
     /// spec gives them; a site without them ignores both, and that is done
