@@ -746,16 +746,16 @@ impl<T> Answer for Result<T, Outcome> {
     }
 }
 
-/// A batch is answered when the site answered: one item cut, too large or
-/// not found is that item's, not the call's. Only an outcome every item
-/// shares that no answer of the site gives (an outage, a spent pool, a
-/// sign-out) is the call's.
 impl Answer for Result<(), Unprepared> {
     fn seen(&self) -> Result<(), Outcome> {
         self.clone().map_err(|u| u.why)
     }
 }
 
+/// A batch is answered when the site answered: one item cut, too large or
+/// not found is that item's, not the call's. Only an outcome every item
+/// shares that no answer of the site gives (an outage, a spent pool, a
+/// sign-out) is the call's.
 impl<K, T> Answer for Vec<(K, Got<T>)> {
     fn seen(&self) -> Result<(), Outcome> {
         let first = match self.first() {
