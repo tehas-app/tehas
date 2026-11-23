@@ -22,6 +22,8 @@ pub enum State {
     Backups,
     /// The login of the app the factory acts as.
     BotLogin,
+    /// What the last poll logged of the branch check.
+    BranchCheck,
     /// When the word list was last read.
     Buzzwords,
     /// The last result of `tehas check-product`.
@@ -74,6 +76,10 @@ pub enum State {
     ReadOnlyLog,
     /// The ledger of the refinements of issues.
     Refined,
+    /// Why the refreshes are held, as the last poll told it.
+    RefreshHeld,
+    /// The requests for a refresh of a branch, `<issue>.json` each.
+    Refreshes,
     /// The releases the host has run.
     ReleaseHistory,
     /// The pi-rukas commit of the sandbox image, as last read.
@@ -104,6 +110,7 @@ impl State {
             State::AnalyticsDb => "state/analytics.db",
             State::Backups => "state/backup",
             State::BotLogin => "state/github/login",
+            State::BranchCheck => "state/branch-check",
             State::Buzzwords => "state/buzzwords.at",
             State::CheckProduct => "state/check-product.json",
             State::CleanLock => "state/clean.lock",
@@ -130,6 +137,8 @@ impl State {
             State::ReadOnly => "state/read-only",
             State::ReadOnlyLog => "state/read-only.log",
             State::Refined => "state/refined.jsonl",
+            State::RefreshHeld => "state/refresh/.held",
+            State::Refreshes => "state/refresh",
             State::ReleaseHistory => "state/release-history",
             State::RukasImage => "state/rukas-image",
             State::RukasTarget => "state/rukas-target",
@@ -289,6 +298,13 @@ impl Home {
         self.state_dir().join(format!("plan-{issue}.json{end}"))
     }
 
+    /// `state/plan-start/<issue>.json`, the record of a plan's start.
+    pub fn plan_start(&self, issue: u64) -> PathBuf {
+        self.state_dir()
+            .join("plan-start")
+            .join(format!("{issue}.json"))
+    }
+
     /// `state/dev/<name>.lock`, what `tehas dev` holds for a clone's session.
     pub fn dev_lock(&self, name: &str) -> PathBuf {
         self.state_dir().join("dev").join(format!("{name}.lock"))
@@ -387,6 +403,7 @@ mod tests {
             (State::AnalyticsDb, "/h/state/analytics.db"),
             (State::Backups, "/h/state/backup"),
             (State::BotLogin, "/h/state/github/login"),
+            (State::BranchCheck, "/h/state/branch-check"),
             (State::Buzzwords, "/h/state/buzzwords.at"),
             (State::CheckProduct, "/h/state/check-product.json"),
             (State::CleanLock, "/h/state/clean.lock"),
@@ -413,6 +430,8 @@ mod tests {
             (State::ReadOnly, "/h/state/read-only"),
             (State::ReadOnlyLog, "/h/state/read-only.log"),
             (State::Refined, "/h/state/refined.jsonl"),
+            (State::RefreshHeld, "/h/state/refresh/.held"),
+            (State::Refreshes, "/h/state/refresh"),
             (State::ReleaseHistory, "/h/state/release-history"),
             (State::RukasImage, "/h/state/rukas-image"),
             (State::RukasTarget, "/h/state/rukas-target"),
@@ -447,6 +466,7 @@ mod tests {
     fn a_plan_file_is_named_for_its_issue() {
         assert_eq!(at(h().plan_file(7, "")), "/h/state/plan-7.json");
         assert_eq!(at(h().plan_file(7, ".out")), "/h/state/plan-7.json.out");
+        assert_eq!(at(h().plan_start(7)), "/h/state/plan-start/7.json");
     }
 
     #[test]
