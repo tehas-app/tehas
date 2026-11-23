@@ -93,8 +93,13 @@ pub enum Actor {
     /// refused by the site, every call answers `SignedOut`, past `until`
     /// with no request.
     Given(PersonKey),
-    /// No credential: public reads alone, on the site's anonymous budget. A
-    /// write handle asked as `Anonymous` is `Forbidden`.
+    /// No credential: public reads alone, on the site's anonymous budget.
+    /// Its `Remote.with` is None; a write handle asked as `Anonymous` is
+    /// `Forbidden`, with no request. Every adapter answers it for the
+    /// public release reads: `CodeHost::releases`, `latest_release`,
+    /// `tags`, `resolve_tag`, `download` and `archive`. A private project
+    /// refuses them. An adapter may answer more reads; one that does not
+    /// answers any other call `Refused(Unsupported)`.
     Anonymous,
 }
 
