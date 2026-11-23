@@ -13,7 +13,6 @@ use crate::At;
 
 mod dispatch;
 mod gate;
-mod line;
 mod payload;
 pub mod rfc3339;
 mod samples;
@@ -239,15 +238,5 @@ impl Envelope {
     /// The event's name.
     pub fn name(&self) -> Name {
         self.event.name()
-    }
-
-    /// The log's line of the envelope: `event` and the envelope as compact
-    /// JSON, or `event`, its name and key when it does not write, as an
-    /// `Unknown` does not.
-    pub fn line(&self) -> String {
-        match line::json(self) {
-            Ok(json) => format!("event {json}"),
-            Err(_) => format!("event {} {}", self.name().as_str(), self.key.as_str()),
-        }
     }
 }

@@ -617,36 +617,3 @@ fn an_envelope_no_raise_makes_is_refused_and_reaches_no_listener() {
         assert_eq!(d.raise_envelope(&s.bare).refused, None, "{:?}", s.name);
     }
 }
-
-#[test]
-fn the_line_is_event_and_the_envelope_as_compact_json() {
-    let source = Source::new("tehas-tehas").unwrap();
-    let (asked_name, acted_name) = (Name::QuestionAsked.as_str(), Name::TicketActed.as_str());
-    let asked = sample(Name::QuestionAsked);
-    assert_eq!(
-        asked.full.clone().from(source.clone()).line(),
-        format!(
-            r#"event {{"api":1,"source":"tehas-tehas","event":"{asked_name}","data":{{"question":5,"kind":"Park","blueprint":12,"cycle":"12-3","askedAt":"2026-11-22T13:20:00Z","choices":[{{"choice":"retry","label":"Run the cycle again"}}]}},"when":"after","key":"5","at":"2026-11-22T13:20:00Z"}}"#
-        )
-    );
-    assert_eq!(
-        asked.bare.line(),
-        format!(
-            r#"event {{"api":1,"event":"{asked_name}","data":{{"question":5,"kind":"Park","blueprint":12,"askedAt":"2026-11-22T13:20:00Z"}},"when":"after","key":"5","at":"2026-11-22T13:20:00Z"}}"#
-        )
-    );
-    assert_eq!(
-        sample(Name::TicketActed).full.from(source).line(),
-        format!(
-            r#"event {{"api":1,"source":"tehas-tehas","event":"{acted_name}","data":{{"ticket":{{"Number":12}},"act":"Approve","by":{{"realm":"Tickets","login":"alice","id":"1001","kind":"Person"}},"at":"2026-11-22T11:10:00Z"}},"when":"after","key":"12@Approve@2026-11-22T11:10:00Z","at":"2026-11-22T11:10:00Z"}}"#
-        )
-    );
-    let mut q: QuestionAsked = payload(&asked);
-    q.choices[0].label = "a \"b\" \\ \n\r\t\u{8}\u{c}\u{1}\u{1f}\u{7f} é/".into();
-    let line = Envelope::new(q).line();
-    let want = r#""label":"a \"b\" \\ \n\r\t\b\f\u0001\u001f"#.to_string() + "\u{7f} é/\"";
-    assert!(line.contains(&want), "{line}");
-    let mut unknown = asked.full;
-    unknown.event = Event::Unknown;
-    assert_eq!(unknown.line(), "event unknown 5");
-}
