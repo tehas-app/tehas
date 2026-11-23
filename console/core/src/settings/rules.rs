@@ -430,6 +430,19 @@ pub const HOST: &[Setting] = &[
     given_or("TEHAS_UPDATE_LOCK_WAIT", Rule::Seconds(300), "10"),
 ];
 
+/// Whether ~/.config/tehas/env may set `name`: a setting of [`HOST`], or
+/// TEHAS_MANAGER_VERSION, which the program that manages the factory writes
+/// there.
+pub fn in_host_env(name: &str) -> bool {
+    name == "TEHAS_MANAGER_VERSION"
+        || (name.starts_with(MODEL_KEY)
+            && name.len() > MODEL_KEY.len()
+            && super::load::is_name(name.as_bytes()))
+        || HOST
+            .iter()
+            .any(|s| s.name == name && !s.name.ends_with(FAMILY))
+}
+
 /// The words a setting takes, when it takes a list of them.
 pub fn words(name: &str) -> Option<&'static [&'static str]> {
     match rule_of(name)? {
@@ -945,6 +958,28 @@ mod tests {
         takes("TEHAS_GITHUB_APP_ID", "123456789012");
         let why = "expected the ID GitHub shows, a whole number";
         refuses("TEHAS_GITHUB_APP_ID", "1234567890123", why);
+    }
+
+    #[test]
+    fn the_host_env_file_sets_the_host_settings_and_the_managers_version() {
+        for name in [
+            "TEHAS_HOME",
+            "TEHAS_MODEL_KEY_FLEET",
+            "TEHAS_MCP_KEYS",
+            "TEHAS_UPDATE_LOCK_WAIT",
+            "TEHAS_MANAGER_VERSION",
+        ] {
+            assert!(in_host_env(name), "{name}");
+        }
+        for name in [
+            "TEHAS_MODEL_KEY_",
+            "TEHAS_MODEL_KEY_<NAME>",
+            "TEHAS_REPO",
+            "GH_TOKEN",
+            "PATH",
+        ] {
+            assert!(!in_host_env(name), "{name}");
+        }
     }
 
     #[test]
