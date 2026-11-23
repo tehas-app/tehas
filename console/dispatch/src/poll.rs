@@ -523,7 +523,7 @@ impl End<'_> {
         let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
         let cpu = cpu_ms(&stat, clock_ticks()).to_string();
         let gh = self.gh.to_string();
-        let writes = Home::new(&self.home)
+        let writes = Home::new(self.home)
             .state(State::GithubWrites)
             .to_string_lossy()
             .into_owned();
