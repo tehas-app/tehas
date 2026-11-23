@@ -2050,10 +2050,6 @@ mod tests {
             .collect()
     }
 
-    // Every name `known` admits is answered by an arm of the dispatch, and
-    // no arm answers a name the allowlist does not admit. The arms and
-    // `CALLED` are written out twice on purpose: reading them apart is the
-    // point, and a name in one and not the other fails here.
     // A call is refused by its arguments before a tool runs: `Call::read`
     // has no directory to read from, and the refusal is the tool's own.
     #[test]
@@ -2119,6 +2115,10 @@ mod tests {
         }
     }
 
+    // Every name `known` admits is answered by an arm of the dispatch, and
+    // no arm answers a name the allowlist does not admit. The arms and
+    // `CALLED` are written out twice on purpose: reading them apart is the
+    // point, and a name in one and not the other fails here.
     #[test]
     fn arms_agree_with_the_called_list() {
         // The names of the match arms of `call_held`, in its order: the guard

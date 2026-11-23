@@ -655,14 +655,6 @@ fn listed_of(s: &Value) -> Vec<&Value> {
     s["logs"].as_array().into_iter().flatten().collect()
 }
 
-/// `factory_search`: the matches of the logs of the sessions one call names,
-/// and the place its reading stopped. The two words of the tool's answer, the
-/// one to say who it was and the one to say which of its logs, are the words of
-/// `Found` - `word` for the reader of one log, `file` for the caller, who asks
-/// for a log by that word. The place of `next` is always past the last line the
-/// answer holds, as it is for `factory_log`, whose `next` is past the last byte
-/// it answered: of a log the reading could not reach at all the call says
-/// nothing, because it has answered nothing of it.
 /// What `factory_search` takes: the text, the sessions to read by their
 /// issue or their ids, the logs of each by word, and the most matches.
 #[derive(Debug)]
@@ -767,6 +759,14 @@ impl SearchArgs {
     }
 }
 
+/// `factory_search`: the matches of the logs of the sessions one call names,
+/// and the place its reading stopped. The two words of the tool's answer, the
+/// one to say who it was and the one to say which of its logs, are the words of
+/// `Found` - `word` for the reader of one log, `file` for the caller, who asks
+/// for a log by that word. The place of `next` is always past the last line the
+/// answer holds, as it is for `factory_log`, whose `next` is past the last byte
+/// it answered: of a log the reading could not reach at all the call says
+/// nothing, because it has answered nothing of it.
 pub(crate) fn search_call(dirs: &Dirs, args: &SearchArgs) -> Result<(Output, LogGuard), ToolError> {
     let (text, issue, limit) = (args.text.as_str(), args.issue, args.limit);
     let ids: Option<Vec<&str>> = args

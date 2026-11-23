@@ -306,7 +306,8 @@ pub fn answer_in(
             let args = Args::from(params.get("arguments").cloned().unwrap_or(json!({})));
             // A tool outside the key's scope is answered exactly as one the
             // server does not have, so the scope is not probeable tool by
-            // tool. The arguments above are read for either answer.
+            // tool. Its arguments are not looked at: only a tool the key may
+            // call reads them, and refuses them before it runs.
             let asked = name.unwrap_or("");
             let called = if key.may_call(asked) {
                 tools::Call::read(asked, &args).and_then(|call| tools::call_held(dirs, &call))

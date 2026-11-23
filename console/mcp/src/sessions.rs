@@ -847,9 +847,6 @@ pub(crate) fn issue_spec() -> Value {
     Value::Object(s)
 }
 
-/// One issue's story: the stage the dashboard lists it under, the cycle that
-/// owns it now, and its runs of the snapshot's window. The caller does not
-/// join `factory_issues`, `factory_sessions` and `factory_session`.
 /// What `factory_issue` takes: the issue's number.
 #[derive(Debug)]
 pub struct IssueArgs {
@@ -863,6 +860,9 @@ impl IssueArgs {
     }
 }
 
+/// One issue's story: the stage the dashboard lists it under, the cycle that
+/// owns it now, and its runs of the snapshot's window. The caller does not
+/// join `factory_issues`, `factory_sessions` and `factory_session`.
 pub(crate) fn issue(dirs: &Dirs, asked: &IssueArgs) -> Result<Map<String, Value>, ToolError> {
     let issue = asked.issue;
     // The snapshot first: its header is the one file this tool must read, and
