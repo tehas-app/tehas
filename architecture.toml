@@ -177,3 +177,34 @@ allowed = ["console/core/src/forge/**"]
 comment = "#"
 max = 392
 why = "The map at T0: dispatch's tests 191, the shell tests of test/ 123 (84 of them t_stub gh), cycle 45, the console 31, store 17, core, mcp 4 each, ops 2, analytics, attach 1 each. T1 moves each crate's tests onto the ports' fakes, with the same answers, before its calls move; the forge's own pins stay. The test harnesses take the lists of tools every test stubs to fail from console/core/src/testing.rs, which is not in this check's files, in place of eight copies of the deny list and three lists of their own; that takes out 10 (5 of them from T15's ports, 5 older), console_run's calls(\"gh\") among them. Still counted from T15's ports: the short name \"gh\" of a process in a fixture of /proc in console/tests/top_snapshot.rs, a false positive kept as a written floor of 1 in docs/architecture.md. Below its fork value (419) by 18."
+
+# The ports' crate (T4.1): std and serde alone, no supplier, no effects, as
+# docs/specs/2026-11-22-ports.md says in "The crate".
+
+[[check]]
+id = "ports-deps"
+rule = "R8"
+what = "console/ports/Cargo.toml holds its package keys and serde alone: no other dependency, no dev or build dependency, no feature, no build script"
+pattern = '^(?!\s*($|#|\[package\]\s*$|\[dependencies\]\s*$|(name|edition|publish|serde)\s*=))'
+files = ["console/ports/Cargo.toml"]
+max = 0
+why = "New at T4.1. tehas-ports is vendored by a consumer at the tag, so it takes std and serde alone: no serde_json, so no Value reaches a port (R4), no workspace crate, no feature to get wrong, no build script. The pattern counts every line of the manifest that is not blank, a comment, the [package] or [dependencies] header, or the name, edition, publish or serde key."
+
+[[check]]
+id = "ports-words"
+rule = "R1"
+what = "no supplier name, supplier path or query word, or label word in the ports' code, doc lines or manifest"
+pattern = '(?i:github|gitlab|jira|bitbucket|\bgh\b|graphql)|repos/|\bapi\.|tehas:[a-z]|\bneeds-human-attention\b|"epic"'
+files = ["console/ports/src/**", "console/ports/Cargo.toml"]
+max = 0
+why = "New at T4.1. The ports speak tehas's words alone; what each supplier does is the adapter's, and the strings of each word are the vendored host/labels.tsv and host/markers.tsv, read by no code of the crate. No comment prefix is set, so doc lines count too."
+
+[[check]]
+id = "ports-effects"
+rule = "R3"
+what = "the ports read no file, network, process, environment or clock"
+pattern = 'std::(fs|net|process|env|thread)\b|\b(fs|net|process|env|thread)::|Command::new|SystemTime|Instant::now'
+files = ["console/ports/src/**"]
+comment = "//"
+max = 0
+why = "New at T4.1. The ports are data and pure functions; the fake that comes with them keeps a clock of its own."
