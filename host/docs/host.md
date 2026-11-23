@@ -568,12 +568,12 @@ One file is written, not copied: `version.txt`, beside the pages in
 `~/tehas/docs` and `~/tehas/fun`. It holds the newest tag of the checkout and
 the commit it was at when `install.sh` last ran, as `v0.1.1+11b669d`, and the
 footer of every manual page shows it. `--check` does not look at it. The
-footers of the two front pages read their versions from the factory's health
+footer of the front page reads its versions from the factory's health
 instead (`/live/health.json`, by `fun/versions.js`): tehas from
 `checks.platform`, the pi-rukas the sandbox image runs from `checks.rukas`, and
 the program that manages the factory from `checks.manager` when there is
 one, as `tehas v0.24.6 · pi-rukas v0.14.54 · manager v0.9.0`. The same
-module shows a banner at the top of both pages while a host message is set
+module shows a banner at the top of the page while a host message is set
 (`checks.hostMessages`, from [`tehas host-message`](/api#tehas-host-message)):
 each message's level as a word (Alert, Warning or Notice), its text, when it
 was set and its link. With no message there is no banner. A
@@ -1724,8 +1724,8 @@ label `tehas.layer`: the SHA-256 of that file and of the files of the instance
 directory its `COPY` and `ADD` lines name. A file changed, added or taken away
 makes the sum differ, and so the next `--if-moved` builds. The
 factory's health reports the same comparison of the commit and the layer
-(`checks.rukas.behind` and `checks.rukas.layerMoved`), and the footers
-of the front pages show the version the image runs from there. The
+(`checks.rukas.behind` and `checks.rukas.layerMoved`), and the footer
+of the front page shows the version the image runs from there. The
 contract test proves the product's gates run inside the image, as the unprivileged user,
 with nothing mounted but a clone:
 

@@ -1,5 +1,5 @@
 // Tests view() of the panels: the pure step from live/panels.json to the items
-// the two front pages put in their menu.
+// the front page puts in its menu.
 //
 //   node --test test/panels_view_test.mjs
 import assert from "node:assert/strict";

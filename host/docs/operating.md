@@ -1466,7 +1466,7 @@ A program that drives factories uses the same commands: see
 
 A panel puts a page of the project on the dashboard: a support chat, a status
 page, a feedback form, a manual kept elsewhere. It is an item in the menu of
-both front pages; pressing it opens the page in a dock at the side, full screen
+the front page; pressing it opens the page in a dock at the side, full screen
 on a phone, with a link to open it in a new tab.
 
 ```

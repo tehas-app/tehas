@@ -1,5 +1,5 @@
-// The versions in the footers of the two front pages, and the host messages
-// at their top, read from the factory's health (/live/health.json, written by
+// The versions in the footer of the front page, and the host messages
+// at its top, read from the factory's health (/live/health.json, written by
 // tehasbot health): tehas from checks.platform, the pi-rukas the sandbox image
 // runs from checks.rukas, the program that manages the factory from
 // checks.manager, when there is one, and the messages of tehas host-message

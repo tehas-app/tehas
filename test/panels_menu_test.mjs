@@ -1,5 +1,5 @@
 // Tests plugins() of the panels: the pure step from live/plugins.json to the
-// items of the plugins menu both front pages draw after the panels.
+// items of the plugins menu the front page draws after the panels.
 //
 //   node --test test/panels_menu_test.mjs
 import assert from "node:assert/strict";

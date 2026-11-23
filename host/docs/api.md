@@ -1469,8 +1469,8 @@ tehas panel clear <id>
 ```
 
 A page that belongs to the project, such as a support chat, a status page or a
-feedback form, shown on the dashboard. Each panel is an item in the menu of both
-front pages, and pressing it opens the page in a dock at the side. tehas knows
+feedback form, shown on the dashboard. Each panel is an item in the menu of the
+front page, and pressing it opens the page in a dock at the side. tehas knows
 the label and the URL, nothing else. The table gives every field of the schema
 as the schema names it, so a field of an item of the list is named under
 `panels`.
@@ -1565,7 +1565,7 @@ true}` for a file that does not parse.
   state/host-messages.json".
 - `tehas status` prints one line for each message, `message   <level>:
   <text>`, after the pause and limit lines. The MCP `factory_status` answer
-  carries the object as `hostMessages`, and the banner of the front pages
+  carries the object as `hostMessages`, and the banner of the front page
   lists each message: Alert, Warning or Notice, its text, when it was set and
   its link.
 - The text and the link are the writer's: the dashboard sets both as text,
@@ -1634,7 +1634,7 @@ under `/host/`: the docs server answers every path there with 404, which the
 dashboard reads as no host. A factory without a host looks and works as it
 would without this section.
 
-The front pages and `/dashboard` ask once when a page loads, then every 60
+The front page and `/dashboard` ask once when a page loads, then every 60
 seconds while the page is visible, with `cache: "no-store"`. A failed ask, or
 no answer in 5 seconds, keeps the last good answer for up to 5 minutes, then
 drops it. A 404 drops it at once. Every view draws from `live/` first; the
@@ -1653,7 +1653,7 @@ Schema, `api/host-bridge.schema.json`, a sample with every field,
 | `ticketNotes.issue` | 1 to 999999999. At most 3 notes per ticket; the rest are dropped |
 | `ticketNotes.text` | One line, 1 to 60 characters. Control characters become spaces |
 | `ticketNotes.link` | Optional. A path under `/host/`, or an `https://` address, at most 512 characters |
-| `menu` | Optional, at most 4. Items in the front pages' menu, each opening its page in the dock as a panel does, or in a new tab |
+| `menu` | Optional, at most 4. Items in the front page's menu, each opening its page in the dock as a panel does, or in a new tab |
 | `menu.id` | `a-z`, `0-9` and `-`, 1 to 32 characters, unique in the list. An item with the id of a panel takes that panel's place |
 | `menu.label` | One line, 1 to 24 characters. Control characters become spaces |
 | `menu.url` | An `http://` or `https://` address with no user or password, at most 512 characters, not on the dashboard's own origin |
@@ -1677,7 +1677,7 @@ How the dashboard draws it:
   instead, in the same tab. Pull requests keep linking to GitHub.
 - `ticketNotes`: a small chip beside the ticket's number or title in every
   view that draws the ticket from the live queue, linked when it has a link.
-- `menu`: an item each in the menu of both front pages, after the panels of
+- `menu`: an item each in the menu of the front page, after the panels of
   `live/panels.json`, four in all. Pressing one opens its page in the dock at
   the side, framed as a panel is. An item with `open: "page"` is a link that
   opens its page in a new tab instead, for a page that needs a whole tab or
@@ -1687,7 +1687,7 @@ How the dashboard draws it:
 The answer is data and never runs code on the dashboard's pages. Pages under
 `/host/` share the dashboard's origin: tehas keeps no secret on it, and a host
 that fronts the domain is trusted as the factory's operator is. tehas
-registers no service worker, and the front pages and `/dashboard` unregister
+registers no service worker, and the front page and `/dashboard` unregister
 any they find on their origin. `live/` stays public; the bridge does not
 change it. `tehas api` lists the feature `host-bridge`.
 

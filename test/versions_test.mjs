@@ -1,5 +1,5 @@
 // Tests line() of the footers' versions and the host messages banner: the
-// pure steps from live/health.json to what the two front pages show, and the
+// pure steps from live/health.json to what the front page shows, and the
 // banner drawn into a stub document.
 //
 //   node --test test/versions_test.mjs

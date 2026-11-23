@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for the structured data of the pages: the article, breadcrumb and FAQ
-# the manual layout writes, and the software block of the two front pages.
+# the manual layout writes, and the software block of the front page.
 # It reads the templates as text: no server, no rendering.
 # shellcheck disable=SC2016  # the template text is a literal
 # shellcheck source=test/lib.sh

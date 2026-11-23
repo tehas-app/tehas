@@ -1,7 +1,7 @@
 // The pages of the project the dashboard links, read once from
 // /live/panels.json (written by tehas panel, see console/ops/src/panel.rs), and
-// the host bridge's menu (host/fun/host-bridge.js), as it comes and goes. Both
-// front pages load it: each is an item in the page's menu, and pressing it
+// the host bridge's menu (host/fun/host-bridge.js), as it comes and goes. The
+// front page loads it: each is an item in the page's menu, and pressing it
 // opens the page in a dock at the side, or a bridge page item in a new tab.
 //
 // view() is the pure step from the file to the items, and merge() adds the
@@ -109,7 +109,7 @@
   const nav = document.querySelector(".topbar nav");
   if (!nav) return;
 
-  // The one el(), from host/fun/dom.js, the classic script both pages load before
+  // The one el(), from host/fun/dom.js, the classic script the floor loads before
   // this file.
   const { el } = globalThis.TEHAS_DOM;
 

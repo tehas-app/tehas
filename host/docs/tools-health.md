@@ -57,7 +57,7 @@ issue, the one `TEHAS_CONTROL_ISSUE` names, is left out of every list and every
 count: it holds the pause label and is not work, whatever label it carries.
 
 `tehasbot status` also writes `~/tehas/live/epics.json`, the epics panel of
-both front pages: every open issue with sub-issues, GitHub's own links, newest
+the front page: every open issue with sub-issues, GitHub's own links, newest
 first, with GitHub's count of its sub-issues and how many are closed, and its
 sub-issues in their order with their state. Only sub-issues of the instance's
 repository are named; one elsewhere is counted in `more` and not named. A closed
