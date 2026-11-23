@@ -1,8 +1,9 @@
 //! The pure state machine of one report: `next`, with `Notice`, `Health`,
 //! `Word` and the `Notices` sink it reports to. An outage is the host's; a
-//! spent pool and a sign-out are one holder's on that host. Only a change
-//! of state raises a notice, and the adapter raises it only when its
-//! `Ledger::swap_health` wins, so many processes report one change once.
+//! sign-out is one holder's on that host, and a spent pool one pool's of
+//! that holder. Only a change of state raises a notice, and the adapter
+//! raises it only when its `Ledger::swap_health` wins, so many processes
+//! report one change once.
 
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -11,15 +12,21 @@ use crate::{unknown, At, HealthState, HostId, Outcome, Passing, Pool, Realm, Who
 
 /// The next state of `whose` on `host`, from the state it `was` in and the
 /// outcome a call has just `seen`, and the notice due, if any. Only a
-/// change of state raises one.
+/// change of state raises one: another variant.
 ///
-/// The host's own state reads `Unavailable` as an outage and any answer of
-/// the site as the host up. A holder's state reads `Spent` and `SignedOut`
-/// as its own; any other answer is a good call that clears a sign-out, and
-/// clears a spent pool from `until` on, since a call before then was in
-/// another pool. `Unread` tells neither anything. A state of the other
-/// kind (a holder's state given for the host, or the host's for a holder)
-/// is read as `Healthy`.
+/// A caller keeps `Failing` under `Whose::Host`, `SignedOut` under
+/// `Whose::Holder` and `Spent` of a pool under `Whose::Pool` of that pool,
+/// and gives a call's outcome to each of the three it touches: the host,
+/// the holder and the pool the call drew on.
+///
+/// The host reads `Unavailable` as an outage and any answer of the site as
+/// the host up. A holder reads `SignedOut` as its own and any other answer
+/// but `Spent` as a good call that clears it. A pool reads `Spent` of
+/// itself as its own and ignores `Spent` of another pool; a good call
+/// clears it from `until` on, and `SignedOut` tells it nothing. `Unread`
+/// and `Unavailable` tell neither holder nor pool anything. A state not
+/// its own (a holder's or a pool's given for the host, `Spent` of another
+/// pool) is read as `Healthy`.
 pub fn next(
     host: &HostId,
     whose: &Whose,
@@ -32,8 +39,10 @@ pub fn next(
     let new = match whose {
         Whose::Host => host_next(now, was, seen),
         Whose::Holder(_) => holder_next(now, was, seen),
+        Whose::Pool(_, pool) => pool_next(*pool, now, was, seen),
     };
-    let what = changed(&was, &new).then_some(match new {
+    let changed = std::mem::discriminant(&was) != std::mem::discriminant(&new);
+    let what = changed.then_some(match new {
         HealthState::Healthy => Health::Recovered,
         HealthState::Failing { why, .. } => Health::Unavailable(why),
         HealthState::Spent { pool, until } => Health::Spent { pool, until },
@@ -51,9 +60,11 @@ pub fn next(
 
 fn own(whose: &Whose, was: HealthState) -> HealthState {
     match (whose, was) {
-        (Whose::Host, HealthState::Spent { .. } | HealthState::SignedOut { .. })
-        | (Whose::Holder(_), HealthState::Failing { .. }) => HealthState::Healthy,
-        (_, was) => was,
+        (_, HealthState::Healthy)
+        | (Whose::Host, HealthState::Failing { .. })
+        | (Whose::Holder(_), HealthState::SignedOut { .. }) => was,
+        (Whose::Pool(_, mine), HealthState::Spent { pool, .. }) if pool == *mine => was,
+        _ => HealthState::Healthy,
     }
 }
 
@@ -71,24 +82,30 @@ fn host_next(now: At, was: HealthState, seen: &Result<(), Outcome>) -> HealthSta
 
 fn holder_next(now: At, was: HealthState, seen: &Result<(), Outcome>) -> HealthState {
     match (was, seen) {
-        (_, Err(Outcome::Unread(_) | Outcome::Unavailable { .. })) => was,
-        (_, Err(Outcome::Spent { pool, until })) => HealthState::Spent {
-            pool: *pool,
-            until: *until,
-        },
+        (_, Err(Outcome::Unread(_) | Outcome::Unavailable { .. } | Outcome::Spent { .. })) => was,
         (HealthState::SignedOut { .. }, Err(Outcome::SignedOut)) => was,
         (_, Err(Outcome::SignedOut)) => HealthState::SignedOut { since: now },
-        (HealthState::Spent { until, .. }, _) if now < until => was,
         _ => HealthState::Healthy,
     }
 }
 
-/// A change of state: another kind, or a spent pool of another pool. A new
-/// `until` of the same pool, or a new `since` or `why`, is not one.
-fn changed(was: &HealthState, new: &HealthState) -> bool {
-    match (was, new) {
-        (HealthState::Spent { pool: a, .. }, HealthState::Spent { pool: b, .. }) => a != b,
-        _ => std::mem::discriminant(was) != std::mem::discriminant(new),
+fn pool_next(mine: Pool, now: At, was: HealthState, seen: &Result<(), Outcome>) -> HealthState {
+    match (was, seen) {
+        (_, Err(Outcome::Spent { pool, until })) if *pool == mine => HealthState::Spent {
+            pool: mine,
+            until: *until,
+        },
+        (
+            _,
+            Err(
+                Outcome::Spent { .. }
+                | Outcome::Unread(_)
+                | Outcome::Unavailable { .. }
+                | Outcome::SignedOut,
+            ),
+        ) => was,
+        (HealthState::Spent { until, .. }, _) if now < until => was,
+        _ => HealthState::Healthy,
     }
 }
 

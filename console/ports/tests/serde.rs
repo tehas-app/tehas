@@ -2015,7 +2015,16 @@ fn the_ledger_and_health_read_back() {
     round(HostId::new("code-host"));
     for holder in every_holder() {
         round(holder.clone());
-        round(Whose::Holder(holder));
+        round(Whose::Holder(holder.clone()));
+        for pool in [
+            Pool::Calls,
+            Pool::Priced,
+            Pool::Search,
+            Pool::Writes,
+            Pool::Unknown,
+        ] {
+            round(Whose::Pool(holder.clone(), pool));
+        }
     }
     round(Whose::Host);
     round(Budget {
@@ -2045,6 +2054,13 @@ fn the_ledger_and_health_read_back() {
             realm: Realm::Tickets,
             what,
             at: At::new(2),
+        });
+        round(Notice {
+            host: HostId::new("code-host"),
+            whose: Whose::Pool(Holder::Ours(HolderId::new("grant-1")), Pool::Writes),
+            realm: Realm::CodeHost,
+            what,
+            at: At::new(3),
         });
     }
 }

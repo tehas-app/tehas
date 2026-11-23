@@ -85,15 +85,19 @@ pub struct Failure {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct LedgerDown;
 
-/// Whose health a state is: the host's own (an outage: `Healthy` or
-/// `Failing`), or one holder's on that host (`Healthy`, `Spent` or
-/// `SignedOut`).
+/// Whose health a state is, and so which states a caller keeps under it:
+/// the host's own (an outage: `Healthy` or `Failing`), one holder's
+/// credential on that host (`Healthy` or `SignedOut`), or one pool of one
+/// holder on that host (`Healthy` or `Spent` of that pool).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Whose {
-    /// The host's own health.
+    /// The host's own health: `Healthy` or `Failing`.
     Host,
-    /// One holder's health on that host.
+    /// One holder's credential on that host: `Healthy` or `SignedOut`.
     Holder(Holder),
+    /// One pool of one holder on that host: `Healthy` or `Spent` of that
+    /// pool.
+    Pool(Holder, Pool),
 }
 
 /// The budget and the health state, shared by every process and factory
@@ -116,8 +120,8 @@ pub trait Ledger: Send + Sync {
         pool: Pool,
         b: Budget,
     ) -> Result<(), LedgerDown>;
-    /// The health of a host, or of one holder on it. `Healthy` if none is
-    /// kept.
+    /// The health of a host, or of one holder or pool on it. `Healthy` if
+    /// none is kept.
     fn health(&self, host: &HostId, whose: &Whose) -> Result<HealthState, LedgerDown>;
     /// Write `new` only if the state is still `expect`. True if written.
     fn swap_health(

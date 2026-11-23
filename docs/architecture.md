@@ -64,8 +64,8 @@ bodies, bounds, accounts, outcomes, marks and markers). T4.1b: the traits,
 the board, the site, the links and the write, with the per-pass reports
 the traits take (`Reports`, `Report`, `Caller`, `PortName`).
 T4.1c: the ledger and health: `Ledger`, the budget and health state
-shared across processes, keyed by `HostId` and `Whose` (the host, or one
-`Holder` on it), and `health::next`, the pure step from one outcome to the
+shared across processes, keyed by `HostId` and `Whose` (the host, one
+`Holder` on it, or one pool of a holder), and `health::next`, the pure step from one outcome to the
 next state and the `Notice`, if the state changed. T4.1d: the fakes, the
 laws and the `Writer`. A handle takes `&mut self` and is `Send`; a `Site` and the
 caller's stores (`Links`, `Keyring`, `TokenStore`) are `Send + Sync` and

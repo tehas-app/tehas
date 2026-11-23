@@ -448,6 +448,15 @@ fn the_ledger_and_health_read_back_from_json() {
     round!(Whose::Host);
     round!(Whose::Holder(ours.clone()));
     round!(Whose::Holder(Holder::Person(AccountId::new("42"))));
+    round!(Whose::Pool(ours.clone(), Pool::Priced));
+    round!(Whose::Pool(
+        Holder::Anonymous(HolderId::new("addr-sum")),
+        Pool::Unknown
+    ));
+    assert_eq!(
+        serde_json::to_string(&Whose::Pool(ours.clone(), Pool::Writes)).unwrap(),
+        r#"{"Pool":[{"Ours":"grant-1"},"Writes"]}"#
+    );
     round!(Holder::Anonymous(HolderId::new("addr-sum")));
     round!(Budget {
         left: 0,
@@ -538,4 +547,5 @@ fn a_health_or_word_the_reader_cannot_read_is_unknown_in_json() {
     // Not on the list of enums that may grow: an unknown tag is an error.
     assert!(serde_json::from_str::<HealthState>(r#"{"Future":1}"#).is_err());
     assert!(serde_json::from_str::<Holder>(r#"{"Future":"x"}"#).is_err());
+    assert!(serde_json::from_str::<Whose>(r#"{"Future":"x"}"#).is_err());
 }
