@@ -848,7 +848,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: a program that read gh's words in `last` reads the fixed
   lines. A line written before the update shows until it leaves the
   ten-minute window.
-- **The repository is tehas-app/tehas-factory.** #PRNUM. Only the
+- **The repository is tehas-app/tehas-factory.** #2980. Only the
   repository's name changes: the commands, the crates, the paths, the event
   names and the kit keep theirs. The release repository built into tehas
   (`TEHAS_RELEASE_REPO` of `host/versions.env`), the installer's address and
