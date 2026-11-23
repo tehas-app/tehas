@@ -33,7 +33,6 @@
         "lab": {"type": "boolean"}
       }
     },
-    "allHands": {"type": "boolean"},
     "pushFault": {
       "type": "object",
       "required": ["at", "login", "line"],

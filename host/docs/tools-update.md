@@ -84,6 +84,11 @@ pass and 78 on a fail, and 78 before it reads anything when `--settings` is
 missing or names no directory. It reads only the instance directory: no
 GitHub, Docker or git, and no writes.
 
+A required `PI_ENSEMBLE_*` setting that is not set fails, and its line adds
+that a manager which renders `instance.env` for the factories it runs
+supplies it: for such a factory, check the `instance.env` the manager pushes,
+not its raw instance directory.
+
 A pass does not promise the update goes through:
 
 - the credential file is not read. A `GH_TOKEN` line, or a setting

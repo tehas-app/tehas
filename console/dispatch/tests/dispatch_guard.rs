@@ -708,19 +708,6 @@ fn no_argument_and_dry_run_still_behave_as_before() {
 }
 
 #[test]
-fn all_hands_on_the_control_issue_starts_nothing_and_holds_nothing() {
-    let w = World::new("guard");
-    w.fx("control.json", r#"{"labels":[{"name":"tehas:all-hands"}]}"#);
-    w.fx(
-        "events-1.json",
-        r#"[{"event":"labeled","label":{"name":"tehas:all-hands"},"actor":{"login":"alice"}}]"#,
-    );
-    let r = w.poll();
-    assert_eq!(r.rc, 0, "{}", r.out);
-    assert_eq!(w.calls("fake-start"), "7\n");
-}
-
-#[test]
 fn a_poll_runs_tidy_once_after_the_cycles_it_starts() {
     let w = World::new("guard");
     let r = w.poll();

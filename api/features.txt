@@ -3,7 +3,6 @@
 # taken out within 2.x. A feature still being built is in `flags` only, never
 # here. test/api_test.sh holds what the command prints to this list.
 status
-all-hands
 limit
 drain
 history
