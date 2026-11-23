@@ -114,14 +114,26 @@ mod tests {
     #[test]
     fn the_window_counts_the_failures_of_the_last_ten_minutes() {
         let h = home("window");
-        note(&h, 1000, "ERROR: gh api graphql failed: no such host");
-        note(&h, 1500, "WARN status: gh issue list failed: no such host");
-        note(&h, 1590, "WARN: tidy: gh search issues failed: timed out");
+        note(
+            &h,
+            1000,
+            "ERROR: the read of the queue failed: no such host",
+        );
+        note(
+            &h,
+            1500,
+            "WARN status: the read of the issues failed: no such host",
+        );
+        note(&h, 1590, "WARN: tidy: the search failed: timed out");
         let r = recent(&h, 1600);
         assert_eq!(r.count, 2, "the one of 600 s and more ago is out");
         assert_eq!(r.last, Some((1590, "GitHub did not answer in time".into())));
         assert!(!r.outage());
-        note(&h, 1595, "ERROR: gh issue list failed: unexpected EOF");
+        note(
+            &h,
+            1595,
+            "ERROR: the read of the issues failed: unexpected EOF",
+        );
         assert!(recent(&h, 1600).outage());
     }
 
@@ -135,12 +147,12 @@ mod tests {
     fn the_file_keeps_a_fixed_line_per_kind_and_none_of_ghs_words() {
         let h = home("kinds");
         let said = [
-            "WARN: tidy: gh search failed: secondary rate limit",
-            "ERROR: gh api graphql failed: HTTP 502 (tried 2 times)",
-            "ERROR: gh issue list failed: HTTP 404 at api.example.test",
-            "WARN status: gh issue list failed: connection reset",
-            "ERROR: gh api graphql failed: its answer could not be read",
-            "WARN status: gh issue list failed\nforged 999\tline",
+            "WARN: tidy: the search failed: secondary rate limit",
+            "ERROR: the read of the queue failed: HTTP 502 (tried 2 times)",
+            "ERROR: the read of the issues failed: HTTP 404 at api.example.test",
+            "WARN status: the read of the issues failed: connection reset",
+            "ERROR: the read of the queue failed: its answer could not be read",
+            "WARN status: the read of the issues failed\nforged 999\tline",
         ];
         for (i, l) in said.iter().enumerate() {
             note(&h, 1000 + i as i64, l);
@@ -169,11 +181,11 @@ mod tests {
         let git = "fatal: unable to access: The requested URL returned error: 502";
         assert_eq!(fault_of(git), Fault::Server);
         assert!(githubs_fault(git));
-        let slow = "WARN status: gh issue list failed: time out";
+        let slow = "WARN status: the read of the issues failed: time out";
         assert_eq!(fault_of(slow), Fault::Slow);
         assert!(githubs_fault(slow));
         for said in [
-            "ERROR: gh issue list failed",
+            "ERROR: the read of the issues failed",
             "its answer could not be read",
         ] {
             assert!(!githubs_fault(said), "{said}");
@@ -199,7 +211,7 @@ mod tests {
         let h = home("cut");
         let old = format!("1\t{}\n", "x".repeat(200)).repeat(400);
         fs::write(path(&h), old).unwrap();
-        note(&h, 10_000, "ERROR: gh issue list failed");
+        note(&h, 10_000, "ERROR: the read of the issues failed");
         let text = fs::read_to_string(path(&h)).unwrap();
         assert_eq!(text, "10000\ta call to GitHub failed\n");
     }
