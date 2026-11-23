@@ -19,7 +19,7 @@ use tehas_core::home::{Home, State};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 29;
+pub const SCHEMA_VERSION: i64 = 30;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The five tables schemas 15 to 28 held for outsource, which 2.0 dropped:
@@ -236,6 +236,35 @@ ALTER TABLE plugin_runs_new RENAME TO plugin_runs;
 CREATE INDEX plugin_runs_last ON plugin_runs (plugin, kind, started_at);
 ";
 
+/// The `questions` table of schema 30, named `$name`, as schema.sql lays it
+/// (a test holds the two to one shape): the store's own number as `id`,
+/// never reused, and the comment's id beside it, which only the store and the
+/// code host's side of the dispatcher read.
+macro_rules! questions_table {
+    ($name:literal) => {
+        concat!(
+            "
+CREATE TABLE ",
+            $name,
+            " (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  comment_id  INTEGER,
+  issue       INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
+  attempt     INTEGER NOT NULL,
+  kind        TEXT NOT NULL CHECK (kind IN ('park','plan')),
+  posted_at   INTEGER NOT NULL,
+  body_sha256 TEXT,
+  answered_at INTEGER,
+  answered_by TEXT,
+  offers      TEXT,
+  reask       INTEGER NOT NULL DEFAULT 0,
+  withdrawn_at INTEGER
+);
+"
+        )
+    };
+}
+
 /// The table schema 24 adds: an answer given through `tehas answer` (#2782),
 /// one row per question, which goes with its question. `choice` is a word of
 /// `tehas_core::question::ANSWERS` (a test holds the CHECK to that list),
@@ -268,9 +297,14 @@ ALTER TABLE questions ADD COLUMN offers TEXT;
 ";
 
 /// The rebuild of `cycles` with `cycles.how` taking the words `$hows`, every
-/// row copied: SQLite cannot change a CHECK in place.
+/// row copied: SQLite cannot change a CHECK in place. With `$select`, the rows
+/// are copied through that list of columns, so a word the new CHECK refuses is
+/// rewritten as it is copied.
 macro_rules! cycles_with_hows {
     ($hows:literal) => {
+        cycles_with_hows!($hows, "*")
+    };
+    ($hows:literal, $select:literal) => {
         concat!(
             "
 CREATE TABLE cycles_new (
@@ -297,7 +331,9 @@ CREATE TABLE cycles_new (
   stop_asked_at  INTEGER,
   stop_said_times INTEGER NOT NULL DEFAULT 0
 );
-INSERT INTO cycles_new SELECT * FROM cycles;
+INSERT INTO cycles_new SELECT ",
+            $select,
+            " FROM cycles;
 DROP TABLE cycles;
 ALTER TABLE cycles_new RENAME TO cycles;
 CREATE INDEX cycles_running ON cycles (ended_at, started_at);
@@ -321,12 +357,6 @@ pub const STEP_24: &str = concat!(
 /// reply asked for, so `answer` stays the how of `tehas answer` alone (#2782).
 /// Run as the step to 24 is, with foreign keys off (`step_26`).
 pub const STEP_26: &str = cycles_with_hows!("'label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host','answer','reply'");
-
-/// The column of the step to 27 that `init` lays too: a question marked to be
-/// asked again in the words of 2.0 (#2782).
-pub const STEP_27_INIT: &str = "
-ALTER TABLE questions ADD COLUMN reask INTEGER NOT NULL DEFAULT 0;
-";
 
 /// The step from 26 to 27 (#2782): a retry ticked before 2.0 is a retry a
 /// person's reply asked for, so every stored `retry-tick` how becomes `reply`
@@ -398,6 +428,63 @@ DROP TABLE join_codes;
 DROP TABLE contractors;
 DELETE FROM meta WHERE key = 'outsource';
 ";
+
+/// The step from 29 to 30 (docs/specs/2026-11-22-events.md, T11.2), in the
+/// words 2.0 uses for one fact everywhere:
+///
+/// - the how `label` is `approved`, in `cycles.how` (whose CHECK takes
+///   `approved` and no longer `label`, so `cycles` is rebuilt and each row
+///   rewritten as it is copied), `cycle_history.how`, `approvals.how`,
+///   `approvals.label` and `approvals.started_how`;
+/// - `cycle_history.recorded_at`, when the line was written, is the row's
+///   `at` on every row there, and a missing `started_at` is the row's `at`
+///   too (a line of the v0.30 ledgers had none);
+/// - `cycle_history.signalled`, whether a signal stopped the cycle, is 0 on
+///   every row there: no release kept it, and history leaves the field out
+///   of a line that says 0 (T11.3 writes it);
+/// - `questions` is rebuilt with the store's own number as `id`, given in
+///   order and never reused (AUTOINCREMENT), the existing rows numbered in
+///   `posted_at` order, the comment's id in `comment_id`, and `withdrawn_at`:
+///   a withdrawn question is kept with the time it was withdrawn. The answers
+///   move with their questions, through the negative numbers so that no two
+///   rows of `answers` hold one number on the way.
+///
+/// The store's id in `meta` is written by `step_30`, which reads the host's
+/// random source. Run as the step to 24 is, with foreign keys off.
+pub const STEP_30: &str = concat!(
+    "
+UPDATE cycle_history SET how = 'approved' WHERE how = 'label';
+UPDATE approvals SET how = 'approved' WHERE how = 'label';
+UPDATE approvals SET label = 'approved' WHERE label = 'label';
+UPDATE approvals SET started_how = 'approved' WHERE started_how = 'label';
+",
+    cycles_with_hows!(
+        "'approved','refresh','outage-retry','millwright','hand','host','answer','reply'",
+        "issue, attempt, started_at, started_by,
+  CASE how WHEN 'label' THEN 'approved' ELSE how END,
+  requeued, rukas_commit, image, branch, end_reason, ended_at, oom_kills, forks_refused,
+  stalled_seconds, timed_out, runner_exit, watched, host_saw, stop_asked_at, stop_said_times"
+    ),
+    "
+ALTER TABLE cycle_history ADD COLUMN recorded_at INTEGER;
+UPDATE cycle_history SET recorded_at = at;
+UPDATE cycle_history SET started_at = at WHERE started_at IS NULL;
+ALTER TABLE cycle_history ADD COLUMN signalled INTEGER NOT NULL DEFAULT 0 CHECK (signalled IN (0, 1));
+",
+    questions_table!("questions_new"),
+    "
+INSERT INTO questions_new (comment_id, issue, attempt, kind, posted_at, body_sha256,
+    answered_at, answered_by, offers, reask)
+  SELECT id, issue, attempt, kind, posted_at, body_sha256, answered_at, answered_by, offers, reask
+  FROM questions ORDER BY posted_at, id;
+UPDATE answers SET question = -question;
+UPDATE answers SET question = (SELECT n.id FROM questions_new n WHERE n.comment_id = -answers.question);
+DROP TABLE questions;
+ALTER TABLE questions_new RENAME TO questions;
+CREATE INDEX questions_issue ON questions (issue, posted_at);
+CREATE UNIQUE INDEX questions_comment ON questions (comment_id) WHERE withdrawn_at IS NULL;
+"
+);
 
 /// How long SQLite waits for a lock another connection holds before giving
 /// up, as the spec's section 4 states it. A database still busy then is exit
@@ -684,13 +771,14 @@ pub fn install_test_bounds() -> (Duration, Duration) {
 /// them. Every CREATE INDEX of schema.sql appears here exactly once, which that
 /// test is what checks.
 #[cfg(test)]
-pub const COUNTED_INDEXES: [&str; 16] = [
+pub const COUNTED_INDEXES: [&str; 17] = [
     "issues_checked",
     "cycles_running",
     "heartbeats_at",
     "endings_recent",
     "approvals_open",
     "questions_issue",
+    "questions_comment",
     "cycle_history_issue",
     "plan_history_issue",
     "cycle_history_seq",
@@ -1317,10 +1405,9 @@ pub fn write_schema(
     tx.execute_batch(STEP_22).map_err(classify)?;
     tx.execute_batch(STEP_23).map_err(classify)?;
     tx.execute_batch(STEP_24_INIT).map_err(classify)?;
-    tx.execute_batch(STEP_25).map_err(classify)?;
-    tx.execute_batch(STEP_27_INIT).map_err(classify)?;
     let rows = [
         ("schema", SCHEMA_VERSION.to_string()),
+        ("store", store_id()?),
         ("created_at", now.to_string()),
         ("tehas_version", version.to_string()),
         ("tehas_commit", commit.to_string()),
@@ -1485,6 +1572,9 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     (DROP_OUTSOURCE_STEP, |c| {
         step(c, DROP_OUTSOURCE_STEP, DROP_OUTSOURCE)
     }),
+    // A store at 29 is one this binary wrote before the words of the events
+    // and the store's own numbers (T11.2).
+    (30, step_30),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and
@@ -1588,6 +1678,38 @@ fn step_28(conn: &mut Connection) -> Result<(), DbError> {
         .map_err(classify)?;
     stepped?;
     conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The step to 30, run as `step_14` runs its rebuild of `cycles`, with the
+/// store's id written in `meta` when it has none.
+fn step_30(conn: &mut Connection) -> Result<(), DbError> {
+    let sql = format!(
+        "{STEP_30}\nINSERT OR IGNORE INTO meta (key, value) VALUES ('store', '{}');",
+        store_id()?
+    );
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(classify)?;
+    let stepped = step(conn, 30, &sql);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(classify)?;
+    stepped?;
+    conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The store's id: 32 lower-case hex digits from the host's random source,
+/// made once when the store is first laid (or given by the step to 30) and
+/// kept in `meta` under `store`. A copy moved by pack and unpack keeps it.
+pub fn store_id() -> Result<String, DbError> {
+    let mut bytes = [0u8; 16];
+    File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut bytes))
+        .map_err(|e| DbError::Unreadable(format!("cannot read /dev/urandom: {e}")))?;
+    Ok(hex(&bytes))
+}
+
+/// Bytes as lower-case hex, two digits each.
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// The step to 16, run as `step_14` runs its rebuild of `cycles`.

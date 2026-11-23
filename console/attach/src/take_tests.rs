@@ -249,7 +249,7 @@ fn a_link_out_of_an_attachment_folder_is_never_fetched() {
     let record = format!("{base}/record.json");
     fs::write(
         &record,
-        json!({"at": "t", "by": "alice", "how": "label", "links": OUTSIDE_FOLDER}).to_string(),
+        json!({"at": "t", "by": "alice", "how": "approved", "links": OUTSIDE_FOLDER}).to_string(),
     )
     .unwrap();
     let body = format!("{} {}", OUTSIDE_FOLDER.join(" "), file(5, "ok.png"));
@@ -878,7 +878,7 @@ fn with_a_record_only_its_links_are_taken_and_it_is_named() {
     fs::write(
         &record,
         json!({
-            "at": "t", "by": "alice", "how": "label", "links": [link, "https://example.com/x.png"],
+            "at": "t", "by": "alice", "how": "approved", "links": [link, "https://example.com/x.png"],
             "comment_links": [
                 {"link": file(2, "b.png"), "source": "comment:1", "by": "alice"},
                 {"link": file(3, "c.png"), "source": "comment:2", "by": "mallory"},
@@ -895,7 +895,7 @@ fn with_a_record_only_its_links_are_taken_and_it_is_named() {
         serde_json::from_str(&fs::read_to_string(format!("{dir}/manifest.json")).unwrap()).unwrap();
     assert_eq!(
         m["approval"],
-        json!({"at": "t", "by": "alice", "how": "label"})
+        json!({"at": "t", "by": "alice", "how": "approved"})
     );
     let fetched: Vec<String> = net
         .fetched

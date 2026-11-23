@@ -931,7 +931,7 @@ impl Writer {
             "--input-file".into(),
             f,
         ];
-        if given == "label" {
+        if given == "approved" {
             let label = a
                 .get("approved_label")
                 .and_then(Value::as_str)

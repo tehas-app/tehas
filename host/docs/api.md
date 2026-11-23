@@ -32,7 +32,6 @@ name, stays through 1.x),
 [`tehas state load`](#tehas-state-load),
 [`tehas analytics copy`](#tehas-analytics-copy),
 [`tehasbot clean`](#tehasbot-clean), [`tehas disk`](#tehas-disk),
-[`tehas panel`](#tehas-panel),
 [the finish ask](#the-finish-ask), [the host bridge](#the-host-bridge) and
 [the settings rules](#settings-rules). The design of the rest is in
 the spec, `docs/specs/2026-10-17-factories.md` in the source; a command is
@@ -127,7 +126,7 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
-  "features": ["status", "limit", "drain", "history", "export", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "state-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-start", "flags", "status-previews", "wake", "start-reasons", "blockers", "answer", "question"],
+  "features": ["status", "limit", "drain", "history", "export", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "state-check", "finish", "status-versions", "state-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-start", "flags", "status-previews", "wake", "start-reasons", "blockers", "answer", "question"],
   "flags": {"lean": false, "plugins": false},
   "millwright": null,
   "poll": {
@@ -152,7 +151,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` or `v1.0.0-alpha.1` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status` ([`tehas status --json`](#tehas-status---json)), `limit` ([`tehas limit`](#tehas-limit)), `drain` ([`tehas drain`](#tehas-drain)), `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `analytics` ([`tehas analytics copy --json`](#tehas-analytics-copy)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` (the hourly cleaner runs on this host, [`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)), `state-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)), `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message), shown by health, `tehas status`, the MCP server and the dashboard), `refresh-pr` ([`tehas refresh --pr N`](/tools-github#tehas-refresh) asks for the refresh of one pull request, `--json` prints what it asked as one object, and the dispatcher starts it in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `host-start` ([`tehas start`](#tehas-start) approves an issue from the host), `flags` (the object below is there), `status-previews` (`previews` in [`tehas status --json`](#tehas-status---json)), `wake` ([`tehas wake`](#tehas-wake) asks for a poll now), `start-reasons` (`starts` in [`tehas order --json`](#tehas-order)), `blockers` ([`tehas blockers`](#tehas-blockers)), `answer` ([`tehas answer`](#tehas-answer)) and `question` ([`tehas question`](#tehas-question)). A shipped optional feature adds its name of `flags` here; a building one does not |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status` ([`tehas status --json`](#tehas-status---json)), `limit` ([`tehas limit`](#tehas-limit)), `drain` ([`tehas drain`](#tehas-drain)), `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `analytics` ([`tehas analytics copy --json`](#tehas-analytics-copy)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` (the hourly cleaner runs on this host, [`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)), `state-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)), `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message), shown by health, `tehas status`, the MCP server and the dashboard), `refresh-pr` ([`tehas refresh --pr N`](/tools-github#tehas-refresh) asks for the refresh of one pull request, `--json` prints what it asked as one object, and the dispatcher starts it in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `host-start` ([`tehas start`](#tehas-start) approves an issue from the host), `flags` (the object below is there), `status-previews` (`previews` in [`tehas status --json`](#tehas-status---json)), `wake` ([`tehas wake`](#tehas-wake) asks for a poll now), `start-reasons` (`starts` in [`tehas order --json`](#tehas-order)), `blockers` ([`tehas blockers`](#tehas-blockers)), `answer` ([`tehas answer`](#tehas-answer)) and `question` ([`tehas question`](#tehas-question)). A shipped optional feature adds its name of `flags` here; a building one does not |
 | `flags` | Every optional feature of the release and whether this instance has it on, `true` or `false`. A feature still being built is always `false` and its switch set to `on` stops every command with exit 78. Only a shipped feature's key is contract: a building feature's key may change or go until the release that ships it, and `api/api.schema.json` requires only the keys of shipped features. Today `lean` (`TEHAS_LEAN`, still being built: [choosing the driver](/operating#choosing-the-driver)) and `plugins` (`TEHAS_PLUGIN`, still being built: [what it leaves visible](/contract#plugins)) |
 | `millwright` | The app's login, or `null` before it is known |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
@@ -623,7 +622,7 @@ account as the one who answered it.
 | --- | --- |
 | `api` | The API version, 1 |
 | `issue` | The issue |
-| `question.id` | The id of the question's comment |
+| `question.id` | The state store's own number of the question, as [`tehas question`](#tehas-question) prints it. Before 2.0 it was the id of the question's comment |
 | `question.kind` | `park` for a stopped ticket, `plan` for a planning question |
 | `answer` | What was recorded |
 | `answer.choice` | `retry`, `retry-text`, `park`, `option`, `update`, `end` or `text` |
@@ -648,7 +647,7 @@ tehas question <issue> [--json]
 ```
 
 ```json
-{"api": 1, "issue": 12, "question": {"id": 4001, "kind": "park", "asked_at": "2026-10-17T14:00:20Z", "choices": [{"label": "Retry with the issue and all its comments", "choice": "retry"}, {"label": "Retry with the issue text only", "choice": "retry-text"}, {"label": "Leave it parked", "choice": "park"}]}}
+{"api": 1, "issue": 12, "question": {"id": 1, "kind": "park", "asked_at": "2026-10-17T14:00:20Z", "choices": [{"label": "Retry with the issue and all its comments", "choice": "retry"}, {"label": "Retry with the issue text only", "choice": "retry-text"}, {"label": "Leave it parked", "choice": "park"}]}}
 ```
 
 The question an issue waits on and the choices it offers, for a program that
@@ -668,7 +667,7 @@ takes one. A factory that has the command lists `question` in `features`.
 | `api` | The API version, 1 |
 | `issue` | The issue |
 | `question` | The question that waits |
-| `question.id` | The id of its comment |
+| `question.id` | The state store's own number of the question, given in order and never reused. Before 2.0 it was the id of the comment that asked it |
 | `question.kind` | `park` for a stopped ticket, `plan` for a planning question |
 | `question.asked_at` | When it was asked |
 | `question.choices` | Exactly the choices it offers, in the order it lists them |
@@ -846,7 +845,7 @@ tehas history [--json] [--after CURSOR] [--issue N]
     "progress": {"step": "review", "stepNumber": 9, "stepTotal": 9},
     "cap": "awaiting-human-merge", "parkReason": "merge",
     "failureKind": "review", "failureCause": "findings open",
-    "provider": false, "parked": true, "repeat": 1, "by": "alice", "how": "label"},
+    "provider": false, "parked": true, "repeat": 1, "by": "alice", "how": "approved"},
    {"cursor": "1760700300-7-42", "kind": "plan", "issue": 7,
     "started": "2026-10-17T13:20:00Z", "ended": "2026-10-17T13:25:00Z",
     "status": 0, "outcome": "finished", "turn": 3, "by": "alice",
@@ -934,7 +933,7 @@ schema names it, under `runs` for a field of a line.
 | `runs.repeat` | The parks in a row that stopped exactly as this one did, this one not counted, so 1 on the first repeat. On the park of a run of parks only. A field of a work line |
 | `runs.pr` | The pull request, as an address of the repository the instance names. A field of a work line that had one |
 | `runs.by` | Who asked for it. Left out for a cycle run by hand, which names no account |
-| `runs.how` | How it was asked for: `label`, `refresh`, `outage-retry`, `millwright`, `host` ([`tehas start`](#tehas-start)), `reply` (a retry a person's reply answered), `answer` (a retry answered through [`tehas answer`](#tehas-answer)) or `hand`. A retry ticked before 2.0 was recorded `retry-tick`: the step of the state store to schema 27 rewrites it to `reply` in `state/tehas.db` (cycles, approvals and the cycle history), and analytics rewrites it in `runs.how` of `state/analytics.db` each time it opens the file |
+| `runs.how` | How it was asked for: `approved` (a label an allowed account applied), `refresh`, `outage-retry`, `millwright`, `host` ([`tehas start`](#tehas-start)), `reply` (a retry a person's reply answered), `answer` (a retry answered through [`tehas answer`](#tehas-answer)) or `hand`. A retry ticked before 2.0 was recorded `retry-tick`: the step of the state store to schema 27 rewrites it to `reply` in `state/tehas.db` (cycles, approvals and the cycle history), and analytics rewrites it in `runs.how` of `state/analytics.db` each time it opens the file. A start approved by a label was recorded `label` before 2.0: the state store's step to schema 30 rewrites it to `approved` there, and the analytics' step to schema 7 in `runs.how` |
 | `runs.label` | The label that started the turn's session, `tehas:plan` or `tehas:refine`. A field of a plan line |
 | `runs.auto` | `true` for a refine the factory started on its own when a cycle parked as underspecified or too-large. Left out otherwise. A field of a plan line |
 | `runs.filed` | The issues the turn filed, when it filed any. A field of a plan line |
@@ -1455,66 +1454,6 @@ command does not know, which writes nothing; 78 when the settings are missing
 or malformed, before any `df`,
 `docker` or walk.
 
-## tehas panel
-
-```
-tehas panel [--json]
-tehas panel set <id> --label TEXT --url URL
-tehas panel clear <id>
-```
-
-```json
-{"api": 1, "panels": [{"id": "support", "label": "Ask us", "url": "https://support.example.org/f/acme"}]}
-```
-
-A page that belongs to the project, such as a support chat, a status page or a
-feedback form, shown on the dashboard. Each panel is an item in the menu of both
-front pages, and pressing it opens the page in a dock at the side. tehas knows
-the label and the URL, nothing else. The table gives every field of the schema
-as the schema names it, so a field of an item of the list is named under
-`panels`.
-
-| Field | Rule |
-| --- | --- |
-| `api` | The API version, 1 |
-| `panels` | The panels, in the order they were set: at most 4, empty when none is set |
-| `panels.id` | `a-z`, `0-9` and `-`, 1 to 32 characters. `set` on an `id` that is there replaces it, in its place. An id that starts `p-` is a plugin's view, which `tehas update` sets and clears ([the gate of the views](/tools-control#the-gate-of-the-views)): `set` refuses it with 64 |
-| `panels.label` | One line, 1 to 24 characters. Control characters become spaces, as in `tehas pause` |
-| `panels.url` | `https://` or `http://`, a host, no user or password, at most 512 characters. Its host is not `TEHAS_DOMAIN`: the frame is given `allow-same-origin`, which is safe only on another origin. A sibling name such as `support.<domain>` is another origin and is allowed |
-
-- At most 4 panels. A fifth is refused.
-- The list is `~/tehas/state/panels.json`, and the same object is published,
-  renamed into place, to `~/tehas/live/panels.json`. With no panels both files
-  are gone. `tehas state pack` takes both.
-- **A URL is public**, as every file the list names is: put no secret in it.
-- `set` and `clear` print the list as it then is; `--json` works with the show
-  form only. Setting is safe to repeat, and `clear` of an `id` that is not there
-  is fine. Reading makes no network call.
-
-The dashboard reads the file once at load (`host/fun/panels.js`) and checks each
-URL again. It makes the frame on the first press, never at load, so it asks a
-panel's host for nothing until a person does:
-
-```html
-<iframe title="<label>" src="<url>" referrerpolicy="no-referrer" allow=""
-  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
-```
-
-No `allow-top-navigation`, no message channel between the page and the frame,
-and no context but what is in the URL. A page that refuses to be framed shows
-an empty frame; the dock's "Open in a new tab" link still works.
-
-`api/panel.schema.json` in the source says what the object holds, with
-`api/panel.sample.json` and `api/panel.empty.json` beside it: one panel set, and
-a factory with none. The two are what the command prints, so
-`test/json_contract_test.sh` keeps them in step with it, and a program can copy
-them into its own tests.
-
-The checks, the list and the files are the console's (`console/ops/src/panel.rs`).
-
-Exit 0 done; 1 the list could not be read or written; 64 a bad argument, a fifth
-panel or a URL on `TEHAS_DOMAIN`, which writes nothing; 78 without an instance.
-
 ## tehas host-message
 
 ```
@@ -1603,7 +1542,6 @@ the site](/host#the-live-console-on-the-site)).
 | `dispatch.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, published by the store's `publish` ([tehas dispatch](/tools-dispatch#tehas-dispatch)) | `console/ops/src/health.rs`, `console/src/queue.rs`, `console/analytics/src/sample.rs`; the MCP server (`factory_status`) |
 | `demand.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, at every real poll | `console/ops/src/health.rs` |
 | `analytics.json` | `console/src/publish.rs`, run by `tehasbot status` from the analytics program's `report --json` | `host/fun/factory/tehas-factory-days.*`, `host/fun/business-view.js`, `host/fun/analytics-data.js`; the MCP server (`factory_stats`) |
-| `panels.json` | `console/ops/src/panel.rs`, the copy of the person's list ([`tehas panel`](#tehas-panel)) | `host/fun/panels.js` |
 | `disk.json` | `console/ops/src/disk.rs` with `--publish`, run hourly by `tehasbot clean` ([`tehas disk`](#tehas-disk)) | the MCP server (`factory_disk`) |
 | `platform.json` | `console/src/platform.rs`, run by `tehasbot status` | `console/ops/src/health.rs`, which answers it as `checks.platform` |
 | `rukas.json` | `console/ops/src/rukas.rs`, run by `tehasbot status` | `console/ops/src/health.rs`, which answers it as `checks.rukas` |
@@ -1651,8 +1589,8 @@ Schema, `api/host-bridge.schema.json`, a sample with every field,
 | `ticketNotes.issue` | 1 to 999999999. At most 3 notes per ticket; the rest are dropped |
 | `ticketNotes.text` | One line, 1 to 60 characters. Control characters become spaces |
 | `ticketNotes.link` | Optional. A path under `/host/`, or an `https://` address, at most 512 characters |
-| `menu` | Optional, at most 4. Items in the front pages' menu, each opening its page in the dock as a panel does, or in a new tab |
-| `menu.id` | `a-z`, `0-9` and `-`, 1 to 32 characters, unique in the list. An item with the id of a panel takes that panel's place |
+| `menu` | Optional, at most 4. Items in the front pages' menu, each opening its page in the dock or in a new tab |
+| `menu.id` | `a-z`, `0-9` and `-`, 1 to 32 characters, unique in the list |
 | `menu.label` | One line, 1 to 24 characters. Control characters become spaces |
 | `menu.url` | An `http://` or `https://` address with no user or password, at most 512 characters, not on the dashboard's own origin |
 | `menu.open` | Optional. `dock` or `page`. `dock`, or absent: pressing the item opens its page in the dock. `page`: the item is a plain link that opens its page in a new tab, with no frame. Any other value is read as `dock` |
@@ -1675,12 +1613,23 @@ How the dashboard draws it:
   instead, in the same tab. Pull requests keep linking to GitHub.
 - `ticketNotes`: a small chip beside the ticket's number or title in every
   view that draws the ticket from the live queue, linked when it has a link.
-- `menu`: an item each in the menu of both front pages, after the panels of
-  `live/panels.json`, four in all. Pressing one opens its page in the dock at
-  the side, framed as a panel is. An item with `open: "page"` is a link that
-  opens its page in a new tab instead, for a page that needs a whole tab or
-  cannot be framed; a dashboard from before the field docks it. An item that
-  goes from the answer goes from the menu.
+- `menu`: an item each in the menu of both front pages, before the plugins
+  menu. Pressing one opens its page in the dock at the side. An item with
+  `open: "page"` is a link that opens its page in a new tab instead, for a
+  page that needs a whole tab or cannot be framed; a dashboard from before
+  the field docks it. An item that goes from the answer goes from the menu.
+
+The dock (`host/fun/dock.js`) makes the frame on the first press, never at
+load, so it asks a page's host for nothing until a person does:
+
+```html
+<iframe title="<label>" src="<url>" referrerpolicy="no-referrer" allow=""
+  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
+```
+
+No `allow-top-navigation`, no message channel between the page and the frame,
+and no context but what is in the URL. A page that refuses to be framed shows
+an empty frame; the dock's "Open in a new tab" link still works.
 
 The answer is data and never runs code on the dashboard's pages. Pages under
 `/host/` share the dashboard's origin: tehas keeps no secret on it, and a host

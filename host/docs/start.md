@@ -153,7 +153,7 @@ grant gives. When a release ships them, this page says how to write one.
 Until then, a program beside the factory can use what tehas-industry uses:
 the factory's commands with `--json` ([The factory API](/api)), the
 read-only [MCP server](/mcp-server), and up to four menu items of its
-own pages with `tehas panel set` ([Panels](/api#tehas-panel)). It reads
+own pages through [the host bridge](/api#the-host-bridge). It reads
 the factory and shows its own pages. It never writes to the product or to
 the factory's state.
 

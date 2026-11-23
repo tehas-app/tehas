@@ -114,7 +114,7 @@
      {
       "start": 7,
       "by": "alice",
-      "given": "label",
+      "given": "approved",
       "at": "2026-10-02T00:00:00Z",
       "verb": "approved on epic #5, labelled by the millwright,",
       "how": "`tehas:ready` label on epic #5 at 2026-10-01T00:00:00Z, which the millwright carried to this sub-issue"
@@ -1823,7 +1823,7 @@
      {
       "start": 7,
       "by": "alice",
-      "given": "label"
+      "given": "approved"
      }
     ]
    }

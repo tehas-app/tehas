@@ -199,13 +199,11 @@ fn the_first_poll_asks_each_open_question_again_once_and_tells_the_old_comment()
         &gh,
         "Reply in a comment with the number of one of these, or answer in your own words:",
     );
-    // The new ones are on record, unmarked, the stop's with what it offers.
+    // The new ones are on record, unmarked, the stop's with what it offers,
+    // each with a number of the store's after those of the old ones.
     let q = w.row(&["question-show", "21"])["question"].clone();
-    assert_eq!(
-        (q["id"].clone(), q["offers"].clone()),
-        (json!(4121), json!(["retry-text", "park"])),
-        "{q}"
-    );
+    assert_eq!(q["offers"], json!(["retry-text", "park"]), "{q}");
+    assert!(q["id"].as_i64().is_some_and(|id| id > 2), "{q}");
     let k = w.row(&["question-known", "21", "--id", "4121"]);
     assert_eq!(
         (k["known"].clone(), k["reask"].clone()),
@@ -213,7 +211,11 @@ fn the_first_poll_asks_each_open_question_again_once_and_tells_the_old_comment()
         "{k}"
     );
     let q = w.row(&["question-show", "22"])["question"].clone();
-    assert_eq!(q["id"], json!(4122), "{q}");
+    assert!(q["id"].as_i64().is_some_and(|id| id > 2), "{q}");
+    assert_eq!(
+        w.row(&["question-known", "22", "--id", "4122"])["known"],
+        json!(true)
+    );
     // The next poll finds the new questions and does nothing.
     let new21 = reasked(Kind::Park, 21, 1, &old_park())
         .unwrap()

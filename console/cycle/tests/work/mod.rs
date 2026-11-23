@@ -1480,7 +1480,7 @@ impl World {
     pub fn approve(&self, n: u64, by: &str, how: &str, at: i64, extra: &[&str]) {
         let (n, at) = (n.to_string(), at.to_string());
         let mut a = vec!["approval-record", &n, "--at", &at, "--by", by, "--how", how];
-        if matches!(how, "label" | "millwright") {
+        if matches!(how, "approved" | "millwright") {
             a.extend(["--label", "tehas:ready"]);
         }
         let sum = wsum();
@@ -1652,7 +1652,7 @@ impl World {
             "--input-file",
             &file,
         ];
-        if matches!(how.as_str(), "label" | "millwright") {
+        if matches!(how.as_str(), "approved" | "millwright") {
             a.extend(["--label", "tehas:ready"]);
         }
         let title = text_of(&j["title_sha256"]);
@@ -1687,7 +1687,7 @@ impl World {
     /// The approval of a start: by `by`, of `body`, with `links`, by label on
     /// 2026-10-14 (record_is).
     pub fn record_is(&self, by: &str, body: &str, links: &[&str]) {
-        *self.record.borrow_mut() = json!({"at": "2026-10-14T00:00:00Z", "by": by, "how": "label",
+        *self.record.borrow_mut() = json!({"at": "2026-10-14T00:00:00Z", "by": by, "how": "approved",
             "body_sha256": body_sha256(body), "links": links});
         self.record_put();
     }

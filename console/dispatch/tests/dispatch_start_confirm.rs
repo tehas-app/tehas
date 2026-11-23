@@ -425,7 +425,7 @@ fn a_state_store_that_is_not_installed_stops_the_poll_at_78_before_any_call_to_g
 fn a_label_that_cannot_be_changed_takes_the_approval_off_the_record_again_and_the_last_starts_stays_current_a2(
 ) {
     let w = World::new("sc-a2");
-    w.past(7, "bob", "label", "2026-01-01T00:00:00Z", &[]);
+    w.past(7, "bob", "approved", "2026-01-01T00:00:00Z", &[]);
     w.fx("edit-fails-on", "--add-label tehas:running\n");
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);

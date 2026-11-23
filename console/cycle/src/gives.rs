@@ -676,7 +676,7 @@ fn base(r: &Value, allowed: &str) -> Option<Value> {
     }) && shaped(base, "by", |s| {
         s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
     }) && shaped(base, "how", |s| {
-        matches!(s, "label" | "outage-retry" | "host" | "answer" | "reply")
+        matches!(s, "approved" | "outage-retry" | "host" | "answer" | "reply")
     }) && shaped(base, "body_sha256", |s| {
         s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
     });
@@ -789,7 +789,7 @@ mod tests {
         let body = format!("Make it so.\n\ntehas-files: pageticket/p-1 {tree}\n");
         let answer = json!({"body": body}).to_string();
         let record = d.path().join("record.json");
-        let approval = json!({"at": "2026-11-21T00:00:00Z", "by": "alice", "how": "label", "links": [],
+        let approval = json!({"at": "2026-11-21T00:00:00Z", "by": "alice", "how": "approved", "links": [],
             "body_sha256": tehas_core::approval::body_sha256(&json!({"body": body}))});
         fs::write(&record, approval.to_string()).unwrap();
         let mut r = json!({"plugin": "pageticket", "id": "p-1", "kind": "prototype", "issue": 7,
@@ -914,7 +914,7 @@ mod tests {
     }
 
     fn person(by: &str) -> Value {
-        json!({"at": "2026-10-01T00:00:00Z", "by": by, "how": "label",
+        json!({"at": "2026-10-01T00:00:00Z", "by": by, "how": "approved",
             "body_sha256": "a".repeat(64), "links": []})
     }
 
@@ -928,7 +928,7 @@ mod tests {
             shape["driver"] = json!("lean");
             let got = base(&shape, "alice bob").expect("an approval");
             assert_eq!(got["by"], "alice");
-            assert_eq!(got["how"], "label");
+            assert_eq!(got["how"], "approved");
         }
     }
 
@@ -1037,7 +1037,7 @@ mod tests {
         let dir = d.join("images");
         let record = d.join("record.json");
         let path = record.to_string_lossy().into_owned();
-        let mut r = json!({"at": "2026-10-14T00:00:00Z", "by": "alice", "how": "label",
+        let mut r = json!({"at": "2026-10-14T00:00:00Z", "by": "alice", "how": "approved",
             "body_sha256": "a".repeat(64), "links": ["https://github.com/user-attachments/assets/1111"]});
         fs::write(&record, r.to_string()).unwrap();
         assert_eq!(
@@ -1050,7 +1050,7 @@ mod tests {
         assert_eq!(issue_images(&d, 7, &dir, "approved", &path, linked), Ok(()));
         assert_eq!(
             manifest(&dir)["approval"],
-            json!({"at": "2026-10-14T00:00:00Z", "by": "alice", "how": "label"})
+            json!({"at": "2026-10-14T00:00:00Z", "by": "alice", "how": "approved"})
         );
         // A record written before 2.0 may carry comment_links: ignored.
         let mut e = r.clone();

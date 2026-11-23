@@ -350,7 +350,7 @@ fn outage_parked(by: &str, reason: &str) -> World {
     if by == "-" {
         w.t_started(7, Some(s), &["--by-hand"]);
     } else {
-        w.t_approve(7, by, "label", s - 60, &[]);
+        w.t_approve(7, by, "approved", s - 60, &[]);
         w.t_started(7, Some(s), &[]);
     }
     store_locked(

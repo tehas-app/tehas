@@ -160,6 +160,7 @@ fn accounts_read_back() {
     for scope in [
         Scope::Full,
         Scope::Cycle,
+        Scope::CycleMerge,
         Scope::Session,
         Scope::Read,
         Scope::Files,

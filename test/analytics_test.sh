@@ -53,9 +53,9 @@ t_eq "$([[ $facts == "$T/home/tehas/tmp/analytics-facts."?????? ]] && echo named
 
 t_case "the driver of the approval reaches the facts, where the record holds it"
 rm -f "$T"/calls/*
-t_store_answers approval-view 0 '{"api":1,"verb":"approval-view","ok":true,"view":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","links":[],"driver":"lean"}}'
+t_store_answers approval-view 0 '{"api":1,"verb":"approval-view","ok":true,"view":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"approved","links":[],"driver":"lean"}}'
 t_run "$scall; run_facts 7 1"
-t_eq "$(jq -c '.approval | [.how, .driver]' "$T/calls/facts.json")" '["label","lean"]'
+t_eq "$(jq -c '.approval | [.how, .driver]' "$T/calls/facts.json")" '["approved","lean"]'
 rm -f "$T/store-answers"
 
 t_case "a fact the store has none of for this attempt, or cannot give, is null"

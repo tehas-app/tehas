@@ -823,7 +823,7 @@ fn never_continues(how: &str) {
 
 #[test]
 fn a_start_of_how_label_never_passes_continue_pr_also_when_the_image_takes_it() {
-    never_continues("label");
+    never_continues("approved");
 }
 
 #[test]
