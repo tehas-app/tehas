@@ -358,7 +358,9 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   #2830.
   `tehas question <issue> [--json]` prints the question and its choices, each
   in the words `tehas answer` takes. The object is
-  `api/question.schema.json`, the feature word `question`.
+  `api/question.schema.json`, the feature word `question`. `question.comment`
+  is the id of the comment on the issue that asked the question, left out
+  when the store has no comment for it and never null.
   Readers: the consumer that runs many factories, Obeya, the end-to-end
   suite.
   Adopter action: none.

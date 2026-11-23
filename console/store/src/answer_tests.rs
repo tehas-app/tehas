@@ -321,7 +321,8 @@ fn question_list_gives_the_waiting_ones_or_every_one_after_a_number() {
     assert_eq!(
         waiting["questions"][0],
         json!({"id": 1, "issue": 40, "kind": "park", "attempt": 1, "posted_at": NOW,
-            "answered_at": null, "withdrawn_at": null, "offers": null, "options": null})
+            "answered_at": null, "withdrawn_at": null, "comment": 41, "offers": null,
+            "options": null})
     );
     assert_eq!(waiting["questions"][1]["options"], json!(["Adopt all"]));
     for (at, issue) in [(0, "40"), (1, "42")] {
@@ -343,12 +344,26 @@ fn question_list_gives_the_waiting_ones_or_every_one_after_a_number() {
     let answered = ["question-answered", "40", "--id", "44", "--by", "alice"];
     ok_at(&home, NOW + 30, &answered);
     assert_eq!(listed(&home, &[]), [2]);
+    // An issue the list leaves out waits on none.
+    assert_eq!(ok(&home, &["question-show", "40"])["question"], json!(null));
     let all = ok(&home, &["question-list", "--after", "0"]);
     assert_eq!(listed(&home, &["--after", "0"]), [1, 2, 3]);
     let times = |q: &Value| (q["answered_at"].clone(), q["withdrawn_at"].clone());
     assert_eq!(times(&all["questions"][0]), (json!(null), json!(NOW + 10)));
     assert_eq!(times(&all["questions"][2]), (json!(NOW + 30), json!(null)));
     assert_eq!(all["questions"][2]["offers"], json!(["park"]));
+    // A question with no comment on record says null, not a number.
+    let c = conn(&home);
+    c.execute("UPDATE questions SET comment_id = NULL WHERE id = 1", [])
+        .unwrap();
+    let all = ok(&home, &["question-list", "--after", "0"]);
+    let comments: Vec<&Value> = all["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|q| &q["comment"])
+        .collect();
+    assert_eq!(comments, [&json!(null), &json!(43), &json!(44)]);
     assert_eq!(listed(&home, &["--after", "1"]), [2, 3]);
     assert_eq!(
         ok(&home, &["question-list", "--after", "3"])["questions"],

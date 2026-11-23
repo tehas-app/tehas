@@ -16,6 +16,7 @@
       "properties": {
         "id": {"description": "The state store's own number of the question, given in order and never reused: not the id of the comment that asked it, as before 2.0.", "type": "integer", "minimum": 1},
         "kind": {"enum": ["park", "plan"]},
+        "comment": {"description": "The id of the comment on the issue that asked the question. Left out when the store has no comment for it; never null.", "type": "integer", "minimum": 1},
         "askedAt": {"description": "When it was asked. Before 2.0 the field was asked_at.", "type": "string", "format": "date-time"},
         "choices": {
           "description": "Exactly the choices the question offers, in the order it lists them.",

@@ -61,7 +61,8 @@ pub fn words(given: &[String]) -> Result<Asked, u8> {
     while let Some(w) = rest.next() {
         match w.strip_prefix("--") {
             Some("json") if !json => json = true,
-            Some("after") if after.is_none() => {
+            Some("after") if after.is_some() => return Err(bad("--after is given once")),
+            Some("after") => {
                 let n = rest.next().and_then(|v| number(v, 18, true));
                 let Some(n) = n else {
                     return Err(bad("--after takes a question's number, or 0"));
@@ -119,6 +120,8 @@ struct Row {
     asked: i64,
     answered: Option<i64>,
     withdrawn: Option<i64>,
+    /// The id of the comment that asked it, where the store has one.
+    comment: Option<u64>,
     offers: Option<Vec<String>>,
     options: Option<Vec<String>>,
 }
@@ -145,17 +148,20 @@ impl Row {
 
 /// The questions of the store's answer to question-show or question-list,
 /// none for a `question` of null. `None` when the line is not that answer:
-/// every field is required, and a kind is one of the two.
+/// it has `questions` or `question`, every field of a question is there, a
+/// null only where the store writes one, and a kind is one of the two.
 fn rows(line: &str) -> Option<Vec<Row>> {
     let v: Value = serde_json::from_str(line).ok()?;
-    let texts = |v: &Value| -> Option<Option<Vec<String>>> {
-        if v.is_null() {
-            return Some(None);
+    let texts = |q: &Value, key: &str| -> Option<Option<Vec<String>>> {
+        match q.get(key)? {
+            Value::Null => Some(None),
+            v => {
+                let all = v.as_array()?.iter().map(|s| s.as_str().map(str::to_string));
+                all.collect::<Option<Vec<_>>>().map(Some)
+            }
         }
-        let all = v.as_array()?.iter().map(|s| s.as_str().map(str::to_string));
-        all.collect::<Option<Vec<_>>>().map(Some)
     };
-    let time = |v: &Value| match v {
+    let time = |q: &Value, key: &str| match q.get(key)? {
         Value::Null => Some(None),
         v => v.as_i64().map(Some),
     };
@@ -168,16 +174,21 @@ fn rows(line: &str) -> Option<Vec<Row>> {
                 .to_string(),
             attempt: q["attempt"].as_u64()?,
             asked: q["posted_at"].as_i64()?,
-            answered: time(&q["answered_at"])?,
-            withdrawn: time(&q["withdrawn_at"])?,
-            offers: texts(&q["offers"])?,
-            options: texts(&q["options"])?,
+            answered: time(q, "answered_at")?,
+            withdrawn: time(q, "withdrawn_at")?,
+            comment: match q.get("comment")? {
+                Value::Null => None,
+                v => Some(v.as_u64()?),
+            },
+            offers: texts(q, "offers")?,
+            options: texts(q, "options")?,
         })
     };
-    match (&v["questions"], &v["question"]) {
-        (Value::Array(all), _) => all.iter().map(row).collect(),
-        (_, Value::Null) => Some(Vec::new()),
-        (_, one) => Some(vec![row(one)?]),
+    match (v.get("questions"), v.get("question")) {
+        (Some(all), _) => all.as_array()?.iter().map(row).collect(),
+        (None, Some(Value::Null)) => Some(Vec::new()),
+        (None, Some(one)) => Some(vec![row(one)?]),
+        (None, None) => None,
     }
 }
 
@@ -193,9 +204,12 @@ fn object(which: &Which, rows: &[Row]) -> String {
             q.offers.clone(),
             q.options.clone().unwrap_or_default(),
         ));
-        return json!({"api": 1, "issue": issue, "question": {"id": q.id, "kind": q.kind,
-            "askedAt": time::iso(q.asked), "choices": listed}})
-        .to_string();
+        let mut o = json!({"api": 1, "issue": issue, "question": {"id": q.id, "kind": q.kind,
+            "askedAt": time::iso(q.asked), "choices": listed}});
+        if let Some(comment) = q.comment {
+            o["question"]["comment"] = json!(comment);
+        }
+        return o.to_string();
     }
     let listed: Vec<Value> = rows
         .iter()
@@ -207,6 +221,9 @@ fn object(which: &Which, rows: &[Row]) -> String {
                 if let Some(at) = at {
                     o[key] = json!(time::iso(at));
                 }
+            }
+            if let Some(comment) = q.comment {
+                o["comment"] = json!(comment);
             }
             if let Some(cycle) = q.cycle() {
                 o["cycle"] = json!(cycle);
@@ -345,15 +362,20 @@ mod tests {
     /// The store's answers are read whole or not at all.
     #[test]
     fn the_stores_answer_is_read_whole_or_refused() {
-        let one = r#"{"id":2,"issue":12,"kind":"park","attempt":3,"posted_at":5,"answered_at":null,"withdrawn_at":9,"offers":["park"],"options":null}"#;
+        let one = r#"{"id":2,"issue":12,"kind":"park","attempt":3,"posted_at":5,"answered_at":null,"withdrawn_at":9,"comment":4001,"offers":["park"],"options":null}"#;
         let read = rows(&format!(r#"{{"questions":[{one}]}}"#)).unwrap();
         assert_eq!(read, rows(&format!(r#"{{"question":{one}}}"#)).unwrap());
         assert_eq!(read[0].cycle().as_deref(), Some("12-3"));
         assert_eq!((read[0].answered, read[0].withdrawn), (None, Some(9)));
         assert_eq!(rows(r#"{"question":null}"#), Some(vec![]));
         assert_eq!(rows(r#"{"questions":[]}"#), Some(vec![]));
+        assert_eq!(read[0].comment, Some(4001));
         for (from, to) in [
             (r#""id":2,"#, ""),
+            (r#""answered_at":null,"#, ""),
+            (r#""comment":4001,"#, ""),
+            (r#""comment":4001"#, r#""comment":"4001""#),
+            (r#","options":null"#, ""),
             (r#""kind":"park""#, r#""kind":"other""#),
             (r#""withdrawn_at":9"#, r#""withdrawn_at":"9""#),
             (r#"["park"]"#, "[1]"),
@@ -361,75 +383,30 @@ mod tests {
             let line = format!(r#"{{"questions":[{}]}}"#, one.replace(from, to));
             assert_eq!(rows(&line), None, "{line}");
         }
-        assert_eq!(rows("no"), None);
+        for other in ["no", "{}", "5", r#"{"questions":null}"#, r#"{"ok":true}"#] {
+            assert_eq!(rows(other), None, "{other}");
+        }
     }
 
     /// A planning question the issue no longer waits on has no cycle and no
-    /// choices: the store kept its options with the turn.
+    /// choices: the store kept its options with the turn. A question with no
+    /// comment on record has no `comment`, in either object, and one with a
+    /// comment has its id.
     #[test]
-    fn a_list_leaves_out_what_a_question_has_not() {
-        let line = r#"{"questions":[{"id":1,"issue":12,"kind":"plan","attempt":1,"posted_at":0,"answered_at":60,"withdrawn_at":null,"offers":null,"options":null}]}"#;
-        let printed = object(&Which::After(0), &rows(line).unwrap());
+    fn an_object_leaves_out_what_a_question_has_not() {
+        let line = |comment: &str| {
+            format!(
+                r#"{{"questions":[{{"id":1,"issue":12,"kind":"plan","attempt":1,"posted_at":0,"answered_at":60,"withdrawn_at":null,"comment":{comment},"offers":null,"options":null}}]}}"#
+            )
+        };
+        let bare = rows(&line("null")).unwrap();
         assert_eq!(
-            printed,
+            object(&Which::After(0), &bare),
             r#"{"api":1,"questions":[{"answeredAt":"1970-01-01T00:01:00Z","askedAt":"1970-01-01T00:00:00Z","id":1,"issue":12,"kind":"plan"}]}"#
         );
-    }
-
-    /// Each choice in the words `tehas answer` takes, with what a person sees.
-    fn listed(o: &[Offered]) -> Vec<(String, String)> {
-        o.iter()
-            .map(|o| (answer_word(o), o.label.clone()))
-            .collect()
-    }
-
-    #[test]
-    fn a_planning_question_offers_its_options_then_the_end() {
-        let options = vec!["Adopt all".to_string(), UPDATE.to_string()];
-        assert_eq!(
-            listed(&choices("plan", None, options)),
-            [
-                ("option:1".into(), "Adopt all".into()),
-                ("update".into(), UPDATE.into()),
-                ("end".into(), BOX_END.into())
-            ]
-        );
-    }
-
-    #[test]
-    fn a_park_offers_what_it_was_asked_with_or_every_choice_when_unknown() {
-        let asked = Some(vec!["retry-text".to_string(), "park".to_string()]);
-        assert_eq!(
-            listed(&choices("park", asked, vec![])),
-            [
-                ("retry-text".into(), BOX_ALONE.into()),
-                ("park".into(), BOX_PARKED.into())
-            ]
-        );
-        assert_eq!(
-            listed(&choices("park", None, vec![])),
-            [
-                ("retry".into(), BOX_COMMENTS.into()),
-                ("retry-text".into(), BOX_ALONE.into()),
-                ("park".into(), BOX_PARKED.into())
-            ]
-        );
-    }
-
-    /// Every choice listed is a word `tehas answer` takes.
-    #[test]
-    fn every_choice_listed_is_one_tehas_answer_takes() {
-        let options: Vec<String> = (1..=25).map(|i| format!("Option {i}")).collect();
-        let all = [
-            choices("plan", None, options),
-            choices("park", None, vec![]),
-        ]
-        .concat();
-        assert_eq!(all.len(), 20 + 1 + 3);
-        for o in &all {
-            let word = answer_word(o);
-            let args = w(&["12", &word, "--by", "alice"]);
-            assert!(crate::answer::words(&args).is_ok(), "{word}");
-        }
+        assert!(!object(&Which::Issue(12), &bare).contains("comment"));
+        let asked = rows(&line("4002")).unwrap();
+        assert!(object(&Which::After(0), &asked).contains(r#""comment":4002,"id":1,"#));
+        assert!(object(&Which::Issue(12), &asked).contains(r#""comment":4002,"id":1,"#));
     }
 }

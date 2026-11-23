@@ -618,3 +618,5 @@ field questions.questions[].id
 field questions.questions[].issue
 field questions.questions[].kind
 field questions.questions[].withdrawnAt
+field question.question.comment
+field questions.questions[].comment

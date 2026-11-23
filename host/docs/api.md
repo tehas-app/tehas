@@ -648,7 +648,7 @@ tehas question [--after <id>] [--json]
 ```
 
 ```json
-{"api": 1, "issue": 12, "question": {"id": 1, "kind": "park", "askedAt": "2026-10-17T14:00:20Z", "choices": [{"label": "Retry with the issue and all its comments", "choice": "retry"}, {"label": "Retry with the issue text only", "choice": "retry-text"}, {"label": "Leave it parked", "choice": "park"}]}}
+{"api": 1, "issue": 12, "question": {"id": 1, "kind": "park", "comment": 4003, "askedAt": "2026-10-17T14:00:20Z", "choices": [{"label": "Retry with the issue and all its comments", "choice": "retry"}, {"label": "Retry with the issue text only", "choice": "retry-text"}, {"label": "Leave it parked", "choice": "park"}]}}
 ```
 
 The question an issue waits on and the choices it offers, for a program that
@@ -670,6 +670,7 @@ takes one. A factory that has the command lists `question` in `features`.
 | `question` | The question that waits |
 | `question.id` | The state store's own number of the question, given in order and never reused. Before 2.0 it was the id of the comment that asked it |
 | `question.kind` | `park` for a stopped ticket, `plan` for a planning question |
+| `question.comment` | The id of the comment on the issue that asked the question, as the code host numbers it. Left out when the store has no comment for it, never null |
 | `question.askedAt` | When it was asked. Before 2.0 the field was `asked_at` |
 | `question.choices` | Exactly the choices it offers, in the order it lists them |
 | `question.choices.label` | The words a person sees for the choice |
@@ -679,7 +680,7 @@ With no issue the command lists questions, for a program that follows every
 question of the factory instead of asking issue by issue:
 
 ```json
-{"api": 1, "questions": [{"id": 1, "issue": 12, "kind": "park", "cycle": "12-1", "askedAt": "2026-10-17T14:00:20Z", "withdrawnAt": "2026-10-17T14:00:50Z", "choices": [{"label": "Retry with the issue text only", "choice": "retry-text"}, {"label": "Leave it parked", "choice": "park"}]}, {"id": 2, "issue": 12, "kind": "plan", "askedAt": "2026-10-17T14:00:20Z", "answeredAt": "2026-10-17T14:01:20Z"}]}
+{"api": 1, "questions": [{"id": 1, "issue": 12, "kind": "park", "comment": 4001, "cycle": "12-1", "askedAt": "2026-10-17T14:00:20Z", "withdrawnAt": "2026-10-17T14:00:50Z", "choices": [{"label": "Retry with the issue text only", "choice": "retry-text"}, {"label": "Leave it parked", "choice": "park"}]}, {"id": 2, "issue": 12, "kind": "plan", "comment": 4002, "askedAt": "2026-10-17T14:00:20Z", "answeredAt": "2026-10-17T14:01:20Z"}]}
 ```
 
 `tehas question --json` lists the question each issue waits on, the one
@@ -698,6 +699,7 @@ yet seen on a host.
 | `questions.id` | The state store's own number of the question, given in order and never reused |
 | `questions.issue` | The issue it was asked on |
 | `questions.kind` | `park` for a stopped ticket, `plan` for a planning question |
+| `questions.comment` | The id of the comment on the issue that asked it. Left out when the store has no comment for it, never null |
 | `questions.cycle` | The cycle that stopped, `<issue>-<attempt>`. A stop's question alone |
 | `questions.askedAt` | When it was asked |
 | `questions.answeredAt` | When it was answered. An answered question alone |

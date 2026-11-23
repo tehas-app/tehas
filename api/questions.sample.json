@@ -13,6 +13,7 @@
           "label": "End this planning session"
         }
       ],
+      "comment": 4003,
       "id": 3,
       "issue": 12,
       "kind": "plan"
@@ -33,6 +34,7 @@
           "label": "Leave it parked"
         }
       ],
+      "comment": 4004,
       "cycle": "13-1",
       "id": 4,
       "issue": 13,

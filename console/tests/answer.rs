@@ -407,7 +407,7 @@ fn the_questions_samples_are_the_waiting_ones_and_every_one_after_a_number() {
     for q in listed["questions"].as_array().unwrap() {
         let r = question_at_now(&w, &format!("{} --json", q["issue"]));
         let one: serde_json::Value = serde_json::from_str(&r.out).unwrap();
-        for field in ["id", "kind", "askedAt", "choices"] {
+        for field in ["id", "kind", "comment", "askedAt", "choices"] {
             assert_eq!(one["question"][field], q[field], "{field} of {q}");
         }
     }

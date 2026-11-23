@@ -13,6 +13,7 @@
           "label": "Leave it parked"
         }
       ],
+      "comment": 4001,
       "cycle": "12-1",
       "id": 1,
       "issue": 12,
@@ -22,6 +23,7 @@
     {
       "answeredAt": "2026-10-17T14:01:20Z",
       "askedAt": "2026-10-17T14:00:20Z",
+      "comment": 4002,
       "id": 2,
       "issue": 12,
       "kind": "plan"
@@ -38,6 +40,7 @@
           "label": "End this planning session"
         }
       ],
+      "comment": 4003,
       "id": 3,
       "issue": 12,
       "kind": "plan"
@@ -58,6 +61,7 @@
           "label": "Leave it parked"
         }
       ],
+      "comment": 4004,
       "cycle": "13-1",
       "id": 4,
       "issue": 13,

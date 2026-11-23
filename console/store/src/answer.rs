@@ -200,7 +200,7 @@ fn waiting(c: &Connection, issue: i64) -> Result<Option<Waiting>, Fail> {
     })
 }
 
-const QUESTION_NAMES: [&str; 7] = [
+const QUESTION_NAMES: [&str; 8] = [
     "id",
     "issue",
     "kind",
@@ -208,22 +208,24 @@ const QUESTION_NAMES: [&str; 7] = [
     "posted_at",
     "answered_at",
     "withdrawn_at",
+    "comment",
 ];
 
 /// Question `id` as `question-show` and `question-list` give it: the store's
 /// number, its issue and kind, the attempt of the cycle that parked (a
 /// planning question's is its turn), when it was asked, answered and
-/// withdrawn, the choices a park's question offers (null for one asked before
+/// withdrawn, the id of the comment that asked it (null for none), the choices a park's question offers (null for one asked before
 /// they were kept) and a planning question's options. The options are kept
 /// with the session, not the question, so they are null for a planning
 /// question the issue no longer waits on.
 fn question(c: &Connection, id: i64) -> Result<String, Fail> {
     let (mut p, issue, offers): (_, i64, Option<String>) = c
         .query_row(
-            "SELECT id, issue, kind, attempt, posted_at, answered_at, withdrawn_at, offers
+            "SELECT id, issue, kind, attempt, posted_at, answered_at, withdrawn_at, comment_id,
+               offers
              FROM questions WHERE id = ?1",
             [id],
-            |r| Ok((row_json(r, &QUESTION_NAMES)?, r.get(1)?, r.get(7)?)),
+            |r| Ok((row_json(r, &QUESTION_NAMES)?, r.get(1)?, r.get(8)?)),
         )
         .q()?;
     let offers = offers.map(|o| o.split(',').map(str::to_string).collect::<Vec<_>>());

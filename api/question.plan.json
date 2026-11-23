@@ -17,6 +17,7 @@
         "label": "End this planning session"
       }
     ],
+    "comment": 4002,
     "id": 1,
     "kind": "plan"
   }

@@ -36,12 +36,13 @@ option:<k>, update, end) and the words a person sees for it:
     park         Leave it parked
 
 With --json, {"api": 1, "issue": 12, "question": {"id": 2, "kind":
-"park", "askedAt": "...", "choices": [{"label": "...", "choice":
-"retry-text"}, ...]}}.
+"park", "comment": 4003, "askedAt": "...", "choices": [{"label": "...",
+"choice": "retry-text"}, ...]}}. comment is the id of the comment on the
+issue that asked the question, left out when the store has none for it.
 
 A list is one line a question, and with --json {"api": 1, "questions":
-[{"id": 2, "issue": 12, "kind": "park", "cycle": "12-1", "askedAt": "...",
-"choices": [...]}, ...]}, with answeredAt on an answered question and
+[{"id": 2, "issue": 12, "kind": "park", "comment": 4003, "cycle": "12-1",
+"askedAt": "...", "choices": [...]}, ...]}, with answeredAt on an answered question and
 withdrawnAt on a withdrawn one. cycle is a stop's alone. A planning
 question the issue no longer waits on has no choices: its options are kept
 only while it waits.
