@@ -246,9 +246,10 @@ pub trait Blueprints: Reports + Cites {
     /// Has anything changed since this token.
     fn changed(&mut self, since: Option<&ChangeToken>) -> Got<(bool, ChangeToken)>;
     /// Blueprints and comments changed since the cursor, each list oldest
-    /// first. `bound` counts both lists together. Past it, the first
-    /// `bound` changes, with `more`, and a `next` that resumes after the
-    /// last change of either list: never `Unread(Cut)`.
+    /// first. `bound` counts both lists together. Past it, a page of the
+    /// first changes with `more`, and a `next` that resumes after the last
+    /// change of either list: never `Unread(Cut)`. A page with `more` holds
+    /// at most `bound` changes and never none; it may hold fewer.
     fn delta(&mut self, from: Option<&Cursor>, bound: Bound) -> Got<BlueprintDelta>;
 }
 

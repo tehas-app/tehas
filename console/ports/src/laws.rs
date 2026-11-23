@@ -776,7 +776,8 @@ pub mod delta {
     type Page<A, B> = (Vec<A>, Vec<B>, Cursor, bool);
 
     /// Read from `from` a page of `page` at a time: every page but the last
-    /// holds `page` changes with `more`, the last holds the rest without,
+    /// holds at most `page` changes with `more`, never none, the last holds
+    /// the rest without,
     /// and the pages in order are the whole delta, each list in its order.
     /// Read on from the last `next`, nothing has changed. Past the bound is
     /// never `Unread(Cut)`. The fixture holds more changes than a page and
@@ -800,9 +801,11 @@ pub mod delta {
         for _ in 0..=total {
             let (pa, pb, next, more) = got(law, "a page", read(at.as_ref(), page))?;
             let n = pa.len() + pb.len();
-            hold(if more { n == size } else { n <= size }, law, || {
-                format!("a page of {n} changes with more {more}, the bound {size}")
-            })?;
+            hold(
+                if more { 0 < n && n <= size } else { n <= size },
+                law,
+                || format!("a page of {n} changes with more {more}, the bound {size}"),
+            )?;
             a.extend(pa);
             b.extend(pb);
             at = Some(next);
@@ -855,6 +858,44 @@ pub mod delta {
             from,
             page,
         )
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// Five changes in the first list, read from a cursor that is the
+        /// index of the next one, at most `most` a page past the bound.
+        fn paged(most: usize) -> impl FnMut(Option<&Cursor>, Bound) -> Got<Page<u32, u32>> {
+            move |from, bound| {
+                let all: Vec<u32> = (0..5).collect();
+                let start: usize = from.map_or(0, |c| c.as_str().parse().unwrap());
+                let take = if bound == ALL_MAX { all.len() } else { most };
+                let end = (start + take).min(all.len());
+                let more = end < all.len();
+                Ok((
+                    all[start..end].to_vec(),
+                    vec![],
+                    Cursor::new(end.to_string()),
+                    more,
+                ))
+            }
+        }
+
+        #[test]
+        fn a_short_page_with_more_holds() {
+            assert!(pages_resume("short", paged(1), None, Bound::new(2).unwrap()).is_ok());
+        }
+
+        #[test]
+        fn an_empty_page_with_more_breaks_the_law() {
+            assert!(pages_resume("empty", paged(0), None, Bound::new(2).unwrap()).is_err());
+        }
+
+        #[test]
+        fn a_page_past_the_bound_breaks_the_law() {
+            assert!(pages_resume("long", paged(3), None, Bound::new(2).unwrap()).is_err());
+        }
     }
 }
 
