@@ -48,7 +48,8 @@ impl CodeHost for GitHub {
     /// page and none moves past the cursor. The states and the branch narrow
     /// the question; the author (by account id), the blueprints closed, the
     /// numbers and the times narrow what it answers. Read to the end, or to
-    /// one past the bound. In the order of their numbers.
+    /// one past the bound, or `PAGES_MAX` pages: past those, `Unread(Cut)`.
+    /// In the order of their numbers.
     fn changes(&mut self, filter: &ChangeFilter, bound: Bound) -> Got<Whole<ChangeDigest>> {
         if filter.bodies {
             return unsupported();
@@ -62,24 +63,24 @@ impl CodeHost for GitHub {
         let mut numbers = BTreeSet::new();
         let mut cursors = BTreeSet::new();
         let mut after: Option<String> = None;
-        loop {
+        for pages in 1.. {
             let from = after.as_ref().map(|c| format!("after={c}"));
             let mut args = vec!["api", "graphql", "-f", &owner, "-f", &name];
             for var in [&head, &from].into_iter().flatten() {
                 args.extend(["-f", var.as_str()]);
             }
             args.extend(["-f", &query]);
-            let out = self
-                .call("the pull requests", &args)
-                .map_err(|e| self.query_outcome(&e))?;
-            let page = read_page(&out, me)?;
-            for pull in page.pulls {
-                if !numbers.insert(pull.digest.no) {
+            let out = match self.call("the pull requests", &args) {
+                Ok(out) => out,
+                Err(e) => return Err(self.query_outcome(&e)),
+            };
+            let page = read_page(&out, me, filter)?;
+            for no in page.numbers {
+                if !numbers.insert(no) {
                     return Err(Outcome::Unread(Unread::Inconsistent));
                 }
-                if !takes(filter, page.me.as_ref(), &pull) {
-                    continue;
-                }
+            }
+            for pull in page.pulls {
                 let mut digest = pull.digest;
                 digest.marks = self.marks_of(&pull.labels);
                 taken.push(digest);
@@ -93,6 +94,7 @@ impl CodeHost for GitHub {
                 Some(c) if !cursors.insert(c.clone()) => {
                     return Err(Outcome::Unread(Unread::Inconsistent));
                 }
+                Some(_) if pages == PAGES_MAX => return Err(Outcome::Unread(Unread::Cut)),
                 Some(c) => after = Some(c),
             }
         }
@@ -201,12 +203,22 @@ impl CodeHost for GitHub {
 
 impl GitHub {
     /// The outcome of a GraphQL question that failed. gh exits 1 with no
-    /// word of its own when the answer holds errors, so that is
-    /// `Unread(Inconsistent)`: a list with an error in it is never answered
-    /// as whole. A spent budget is the pool of priced reads.
-    fn query_outcome(&self, e: &ForgeError) -> Outcome {
+    /// word of its own when the answer holds errors, as for a project that
+    /// is gone or a token that may not read its pull requests. The REST read
+    /// of the same list settles it: its `NotFound` or `Forbidden` answers,
+    /// and anything else is `Unread(Inconsistent)`, a list with an error in
+    /// it never answered as whole. A spent budget is the pool of priced
+    /// reads.
+    fn query_outcome(&mut self, e: &ForgeError) -> Outcome {
         if e.why.trim_start_matches(": ") == "gh exited 1" {
-            return Outcome::Unread(Unread::Inconsistent);
+            let path = format!("repos/{}/pulls?per_page=1&state=all", self.repo);
+            return match self.call("the pull requests", &["api", &path]) {
+                Ok(_) => Outcome::Unread(Unread::Inconsistent),
+                Err(e) => match self.outcome(&e) {
+                    o @ (Outcome::NotFound | Outcome::Forbidden) => o,
+                    _ => Outcome::Unread(Unread::Inconsistent),
+                },
+            };
         }
         match self.outcome(e) {
             Outcome::Spent { until, .. } => Outcome::Spent {
@@ -286,93 +298,111 @@ fn changes_query(states: ChangeStates, me: bool) -> String {
     )
 }
 
+/// The most pages of pull requests one `changes` reads: a thousand pull
+/// requests. A list longer than that is `Unread(Cut)`, as a bound is.
+const PAGES_MAX: u32 = 10;
+
 /// One page of pull requests, read.
 struct Page {
     /// How many pull requests the question takes, on every page.
     total: u64,
     /// The cursor of the next page, None on the last.
     next: Option<String>,
-    /// The id of the account asking, when the question named it.
-    me: Option<AccountId>,
+    /// The number of every pull request on the page, taken or not.
+    numbers: Vec<ChangeNo>,
+    /// The pull requests the filter takes, each read whole.
     pulls: Vec<Pull>,
 }
 
-/// One pull request, read: its digest with no marks yet, its labels to read
-/// them from, and when the site last saw it change.
+/// One pull request, read: its digest with no marks yet, and its labels to
+/// read them from.
 struct Pull {
     digest: ChangeDigest,
     labels: Vec<String>,
-    updated: At,
+}
+
+/// What the filter needs of a pull request to decide, read before the rest
+/// of it: the rest is read only of one the filter takes.
+struct Lead<'a> {
+    no: ChangeNo,
+    state: &'a str,
+    merged: Option<At>,
+    author: Option<AccountId>,
+    head: Option<&'a str>,
+    updated: Option<At>,
+    closes: Vec<Ref<BlueprintNo>>,
 }
 
 /// Whether the filter takes a pull request. The states and the branch
 /// were asked of the site, and are held again here.
-fn takes(f: &ChangeFilter, me: Option<&AccountId>, p: &Pull) -> bool {
-    let d = &p.digest;
+fn takes(f: &ChangeFilter, me: Option<&AccountId>, l: &Lead) -> bool {
     let state = matches!(
-        (f.states, &d.state),
+        (f.states, l.state),
         (ChangeStates::All, _)
-            | (ChangeStates::Open, ChangeState::Open)
-            | (ChangeStates::Merged, ChangeState::Merged { .. })
-            | (ChangeStates::Closed, ChangeState::Closed { .. })
+            | (ChangeStates::Open, "OPEN")
+            | (ChangeStates::Merged, "MERGED")
+            | (ChangeStates::Closed, "CLOSED")
     );
-    let by = d.author.as_ref().and_then(|a| a.id.as_ref());
     let author = match &f.author {
         None => true,
-        Some(Author::Me) => me.is_some() && by == me,
-        Some(Author::Account(id)) => by == Some(id),
+        Some(Author::Me) => me.is_some() && l.author.as_ref() == me,
+        Some(Author::Account(id)) => l.author.as_ref() == Some(id),
     };
-    let merged = f
-        .merged_since
-        .is_none_or(|since| matches!(d.state, ChangeState::Merged { at, .. } if at >= since));
     state
         && author
-        && merged
-        && f.head.as_ref().is_none_or(|h| d.head == *h)
+        && f.merged_since
+            .is_none_or(|since| l.merged.is_some_and(|at| at >= since))
+        && f.head.as_ref().is_none_or(|h| l.head == Some(h.as_str()))
         && (f.closing.is_empty()
-            || d.closes
+            || l.closes
                 .iter()
                 .any(|c| matches!(c, Ref::Here(n) if f.closing.contains(n))))
-        && f.updated_since.is_none_or(|since| p.updated >= since)
-        && (f.numbers.is_empty() || f.numbers.contains(&d.no))
+        && f.updated_since
+            .is_none_or(|since| l.updated.is_some_and(|at| at >= since))
+        && (f.numbers.is_empty() || f.numbers.contains(&l.no))
 }
 
-/// A page of the pull requests question. An answer that lacks a field
-/// every pull request has, or holds a value outside its type, is
-/// `Unread(Malformed)`; one whose labels or closed issues are more than
-/// one page holds is `Unread(Cut)`; a node with no number, a page with
-/// errors, or a page that says more follows and holds none is
-/// `Unread(Inconsistent)`. A bot's login is written as REST
-/// writes it, `name[bot]`, so one account has one login whichever read
-/// named it.
-fn read_page(out: &str, me: bool) -> Got<Page> {
+/// A page of the pull requests question. Each node's lead is read and the
+/// filter decides; only a node it takes is read whole, so one it leaves
+/// out never fails the list for a part it was not asked for. Every node
+/// has a number, or the page is `Unread(Inconsistent)`. Read whole, an
+/// answer that lacks a field every pull request has, or holds a value
+/// outside its type, is `Unread(Malformed)`; one whose labels or closed
+/// issues are more than one page holds is `Unread(Cut)`. A page with
+/// errors, or a page that says more follows and holds none, is
+/// `Unread(Inconsistent)`. A bot's login is written as REST writes it,
+/// `name[bot]`, so one account has one login whichever read named it.
+fn read_page(out: &str, me: bool, f: &ChangeFilter) -> Got<Page> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     tehas_core::accounts::vouch(&mut v);
     if v.get("errors").is_some_and(|e| !e.is_null()) {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
-    let time = |x: Option<&Value>| -> Result<Option<At>, ()> {
+    let time = |x: Option<&Value>| -> Got<Option<At>> {
         match x {
             None | Some(Value::Null) => Ok(None),
             Some(Value::String(s)) => tehas_core::time::from_iso(s)
                 .map(At::new)
                 .map(Some)
-                .ok_or(()),
-            Some(_) => Err(()),
+                .ok_or(malformed.clone()),
+            Some(_) => Err(malformed.clone()),
         }
     };
-    let account = |x: Option<&Value>| -> Result<Option<Account>, ()> {
+    let account = |x: Option<&Value>| -> Got<Option<Account>> {
         let o = match x {
             None | Some(Value::Null) => return Ok(None),
             Some(Value::Object(o)) => o,
-            Some(_) => return Err(()),
+            Some(_) => return Err(malformed.clone()),
         };
-        let login = o.get("login").and_then(Value::as_str).ok_or(())?;
+        let login = o
+            .get("login")
+            .and_then(Value::as_str)
+            .ok_or(malformed.clone())?;
         let kind = o.get("__typename").and_then(Value::as_str);
         let id = match o.get("databaseId") {
             None | Some(Value::Null) => None,
-            Some(i) => Some(i.as_u64().ok_or(())?),
+            Some(i) => Some(i.as_u64().ok_or(malformed.clone())?),
         };
         let login = match kind {
             Some("Bot") if !login.ends_with("[bot]") => format!("{login}[bot]"),
@@ -388,10 +418,6 @@ fn read_page(out: &str, me: bool) -> Got<Page> {
                 _ => AccountKind::Unknown,
             },
         }))
-    };
-    let count = |x: Option<&Value>| {
-        x.and_then(Value::as_u64)
-            .and_then(|n| u32::try_from(n).ok())
     };
     let repo = v.pointer("/data/repository").ok_or(malformed.clone())?;
     let here = repo.get("databaseId").and_then(Value::as_u64);
@@ -409,7 +435,7 @@ fn read_page(out: &str, me: bool) -> Got<Page> {
         (true, Some(Value::String(c))) => Some(c.clone()),
         (true, _) => return Err(malformed),
     };
-    let me = match (me, v.pointer("/data/viewer/databaseId")) {
+    let viewer = match (me, v.pointer("/data/viewer/databaseId")) {
         (false, _) => None,
         (true, Some(id)) => Some(AccountId::new(
             id.as_u64().ok_or(malformed.clone())?.to_string(),
@@ -423,12 +449,19 @@ fn read_page(out: &str, me: bool) -> Got<Page> {
     if more && nodes.is_empty() {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
-    let mut pulls = Vec::with_capacity(nodes.len());
+    let mut numbers = Vec::with_capacity(nodes.len());
+    let mut pulls = Vec::new();
     for n in nodes {
         let text = |k: &str| n.get(k).and_then(Value::as_str).ok_or(malformed.clone());
         let flag = |k: &str| n.get(k).and_then(Value::as_bool).ok_or(malformed.clone());
-        let at = |k: &str| time(n.get(k)).map_err(|_| malformed.clone());
-        let who = |k: &str| account(n.get(k)).map_err(|_| malformed.clone());
+        let at = |k: &str| time(n.get(k));
+        let who = |k: &str| account(n.get(k));
+        let count = |k: &str| {
+            n.get(k)
+                .and_then(Value::as_u64)
+                .and_then(|n| u32::try_from(n).ok())
+                .ok_or(malformed.clone())
+        };
         let whole = |k: &str| -> Got<Vec<&Value>> {
             let part = n.get(k).ok_or(malformed.clone())?;
             let nodes = part
@@ -441,12 +474,74 @@ fn read_page(out: &str, me: bool) -> Got<Page> {
                 _ => Err(Outcome::Unread(Unread::Inconsistent)),
             }
         };
+        let closes = || -> Got<Vec<Ref<BlueprintNo>>> {
+            let mut closes = Vec::new();
+            for issue in whole("closingIssuesReferences")? {
+                let number = issue
+                    .get("number")
+                    .and_then(Value::as_u64)
+                    .and_then(BlueprintNo::new)
+                    .ok_or(malformed.clone())?;
+                let repo = issue.get("repository").ok_or(malformed.clone())?;
+                let id = repo.get("databaseId").and_then(Value::as_u64);
+                closes.push(match (id, here) {
+                    (Some(id), Some(here)) if id == here => Ref::Here(number),
+                    (Some(_), Some(_)) => Ref::Elsewhere {
+                        project: ProjectName::new(
+                            repo.get("nameWithOwner")
+                                .and_then(Value::as_str)
+                                .ok_or(malformed.clone())?,
+                        ),
+                        item: ItemName::new(number.get().to_string()),
+                    },
+                    _ => return Err(malformed.clone()),
+                });
+            }
+            Ok(closes)
+        };
+
+        // The lead: the number, the state, and what the filter asks.
         let no = n
             .get("number")
             .and_then(Value::as_u64)
             .and_then(ChangeNo::new)
             .ok_or(Outcome::Unread(Unread::Inconsistent))?;
-        let state = match text("state")? {
+        numbers.push(no);
+        let state = text("state")?;
+        if !matches!(state, "OPEN" | "MERGED" | "CLOSED") {
+            return Err(malformed);
+        }
+        let lead = Lead {
+            no,
+            state,
+            merged: match (&f.merged_since, state) {
+                (Some(_), "MERGED") => Some(at("mergedAt")?.ok_or(malformed.clone())?),
+                _ => None,
+            },
+            author: match f.author {
+                Some(_) => who("author")?.and_then(|a| a.id),
+                None => None,
+            },
+            head: match f.head {
+                Some(_) => Some(text("headRefName")?),
+                None => None,
+            },
+            updated: match f.updated_since {
+                Some(_) => Some(at("updatedAt")?.ok_or(malformed.clone())?),
+                None => None,
+            },
+            closes: if f.closing.is_empty() {
+                Vec::new()
+            } else {
+                closes()?
+            },
+        };
+        if !takes(f, viewer.as_ref(), &lead) {
+            continue;
+        }
+
+        // Taken: the rest, whole.
+        let state = match state {
             "OPEN" => ChangeState::Open,
             "MERGED" => ChangeState::Merged {
                 at: at("mergedAt")?.ok_or(malformed.clone())?,
@@ -457,10 +552,9 @@ fn read_page(out: &str, me: bool) -> Got<Page> {
                     .and_then(|c| CommitId::new(c).ok())
                     .ok_or(malformed.clone())?,
             },
-            "CLOSED" => ChangeState::Closed {
+            _ => ChangeState::Closed {
                 at: at("closedAt")?.ok_or(malformed.clone())?,
             },
-            _ => return Err(malformed),
         };
         let merge_state = match (text("mergeable")?, text("mergeStateStatus")?) {
             ("CONFLICTING", _) | ("MERGEABLE", "DIRTY") => Mergeable::No(NotMergeable::Conflict),
@@ -476,28 +570,6 @@ fn read_page(out: &str, me: bool) -> Got<Page> {
             .map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
             .collect::<Option<Vec<_>>>()
             .ok_or(malformed.clone())?;
-        let mut closes = Vec::new();
-        for issue in whole("closingIssuesReferences")? {
-            let number = issue
-                .get("number")
-                .and_then(Value::as_u64)
-                .and_then(BlueprintNo::new)
-                .ok_or(malformed.clone())?;
-            let repo = issue.get("repository").ok_or(malformed.clone())?;
-            let id = repo.get("databaseId").and_then(Value::as_u64);
-            closes.push(match (id, here) {
-                (Some(id), Some(here)) if id == here => Ref::Here(number),
-                (Some(_), Some(_)) => Ref::Elsewhere {
-                    project: ProjectName::new(
-                        repo.get("nameWithOwner")
-                            .and_then(Value::as_str)
-                            .ok_or(malformed.clone())?,
-                    ),
-                    item: ItemName::new(number.get().to_string()),
-                },
-                _ => return Err(malformed),
-            });
-        }
         let edited = at("lastEditedAt")?;
         let digest = ChangeDigest {
             no,
@@ -511,11 +583,11 @@ fn read_page(out: &str, me: bool) -> Got<Page> {
             draft: flag("isDraft")?,
             merge_state,
             marks: Vec::new(),
-            closes,
+            closes: closes()?,
             size: Some(Size {
-                files: count(n.get("changedFiles")).ok_or(malformed.clone())?,
-                added: count(n.get("additions")).ok_or(malformed.clone())?,
-                deleted: count(n.get("deletions")).ok_or(malformed.clone())?,
+                files: count("changedFiles")?,
+                added: count("additions")?,
+                deleted: count("deletions")?,
             }),
             body: None,
             created: at("createdAt")?.ok_or(malformed.clone())?,
@@ -526,16 +598,13 @@ fn read_page(out: &str, me: bool) -> Got<Page> {
             },
             link: WebLink::new(text("url")?).map_err(|_| malformed.clone())?,
         };
-        pulls.push(Pull {
-            digest,
-            labels,
-            updated: at("updatedAt")?.ok_or(malformed.clone())?,
-        });
+        at("updatedAt")?.ok_or(malformed.clone())?;
+        pulls.push(Pull { digest, labels });
     }
     Ok(Page {
         total,
         next,
-        me,
+        numbers,
         pulls,
     })
 }

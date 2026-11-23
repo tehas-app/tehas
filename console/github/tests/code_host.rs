@@ -39,6 +39,7 @@ struct Replay {
 }
 
 /// The recording a call reads, named by the project and the read: `repo`,
+/// `pulls` (the REST list that settles a failed question),
 /// `checks-<commit>-<page>[-name=<name>]`, or
 /// `changes-<states>[-me][-head=<branch>][-after=<cursor>]`, each byte
 /// outside `[A-Za-z0-9=-]` written `_`.
@@ -65,6 +66,9 @@ fn recording(args: &[&str]) -> Option<(String, String)> {
         let path = args.get(1)?.strip_prefix("repos/acme/")?;
         match path.split_once('/') {
             None => (path.to_string(), "repo".to_string()),
+            Some((project, "pulls?per_page=1&state=all")) => {
+                (project.to_string(), "pulls".to_string())
+            }
             Some((project, rest)) => {
                 let rest = rest.strip_prefix("commits/")?;
                 let (commit, query) = rest.split_once("/check-runs?per_page=100&page=")?;
@@ -197,9 +201,7 @@ fn the_changes_answer_as_each_sample_says() {
     let all: Vec<ChangesSample> = samples("code-host-changes.json");
     assert!(!all.is_empty());
     let seen = outcomes(all.iter().map(|s| s.answer.clone()));
-    // A project that is gone is not among them: see
-    // `a_query_whose_answer_holds_errors_is_unread`.
-    covers_the_failures(&seen, false);
+    covers_the_failures(&seen, true);
     assert!(seen.iter().any(|s| s.contains("Inconsistent")));
     assert!(seen.iter().any(|s| s.contains("Cut")));
     for s in all {
@@ -299,14 +301,84 @@ fn the_question_narrows_by_state_and_branch_and_names_the_asker_only_for_me() {
 }
 
 #[test]
-fn a_query_whose_answer_holds_errors_is_unread() {
-    // gh exits 1 with no word of its own when GitHub's answer holds errors,
-    // as for a project that is gone: never an empty list.
-    let (mut gh, _) = adapter("acme/gone");
+fn a_query_that_fails_with_errors_is_settled_by_the_rest_list() {
+    // gh exits 1 with no word of its own when GitHub's answer holds errors.
+    // The REST list says whether the project is gone or not to be read;
+    // when it reads, the list is unread: never an empty list.
+    for (project, want) in [
+        ("acme/gone", Outcome::NotFound),
+        ("acme/locked", Outcome::Forbidden),
+        ("acme/troubled", Outcome::Unread(Unread::Inconsistent)),
+    ] {
+        let (mut gh, asked) = adapter(project);
+        let got = gh.changes(&ChangeFilter::default(), Bound::new(10).unwrap());
+        assert_eq!(got, Err(want), "{project}");
+        let asked = asked.borrow();
+        assert_eq!(asked.len(), 2, "{project}");
+        assert!(
+            asked[1].ends_with("/pulls?per_page=1&state=all"),
+            "{project}"
+        );
+    }
+}
+
+#[test]
+fn a_change_the_filter_leaves_out_is_not_read_whole() {
+    // Strangers' changes the factory's own list never takes: one closing
+    // more issues than a page holds, one from a branch git refuses, one
+    // merged with no merge commit. Each fails a list that takes it.
+    let (mut gh, _) = adapter("acme/crowded");
+    let got = gh.changes(&mine(), Bound::new(10).unwrap()).unwrap();
+    let numbers: Vec<u64> = got.items().iter().map(|d| d.no.get()).collect();
+    assert_eq!(numbers, [1]);
+    let all = ChangeFilter {
+        states: ChangeStates::All,
+        ..ChangeFilter::default()
+    };
     assert_eq!(
-        gh.changes(&ChangeFilter::default(), Bound::new(10).unwrap()),
-        Err(Outcome::Unread(Unread::Inconsistent))
+        gh.changes(&all, Bound::new(10).unwrap()),
+        Err(Outcome::Unread(Unread::Cut))
     );
+}
+
+/// A runner that answers every question with a full page of 100 open pull
+/// requests of `acme/vast`, which holds 1100, and says another follows.
+struct Endless {
+    asked: Asked,
+}
+
+impl GhRunner for Endless {
+    fn run(&mut self, _: &[&str]) -> Result<String, String> {
+        let page = self.asked.borrow().len() as u64;
+        self.asked.borrow_mut().push(String::new());
+        let nodes: Vec<String> = (1..=100)
+            .map(|i| {
+                let no = page * 100 + i;
+                format!(
+                    r#"{{"number":{no},"title":"Change {no}","state":"OPEN","isDraft":false,"isCrossRepository":false,"headRefName":"topic-{no}","headRefOid":"{sha}","baseRefName":"main","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","mergedAt":null,"closedAt":null,"lastEditedAt":null,"additions":1,"deletions":0,"changedFiles":1,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","url":"https://github.com/acme/vast/pull/{no}","author":{{"__typename":"User","login":"alice","databaseId":101}},"editor":null,"mergedBy":null,"mergeCommit":null,"labels":{{"totalCount":0,"nodes":[]}},"closingIssuesReferences":{{"totalCount":0,"nodes":[]}}}}"#,
+                    sha = "ab".repeat(20)
+                )
+            })
+            .collect();
+        Ok(format!(
+            r#"{{"data":{{"viewer":{{"databaseId":900}},"repository":{{"databaseId":7020,"pullRequests":{{"totalCount":1100,"pageInfo":{{"hasNextPage":true,"endCursor":"page-{page}"}},"nodes":[{}]}}}}}}}}"#,
+            nodes.join(",")
+        ))
+    }
+}
+
+#[test]
+fn a_list_longer_than_ten_pages_is_cut_with_no_eleventh_request() {
+    let asked = Asked::default();
+    let runner = Endless {
+        asked: Rc::clone(&asked),
+    };
+    let mut gh = GitHub::new("acme/vast", Box::new(runner));
+    assert_eq!(
+        gh.changes(&mine(), Bound::new(10).unwrap()),
+        Err(Outcome::Unread(Unread::Cut))
+    );
+    assert_eq!(asked.borrow().len(), 10);
 }
 
 #[test]
