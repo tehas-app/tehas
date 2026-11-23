@@ -33,98 +33,72 @@ fn unsupported() -> Outcome {
 }
 
 fn digest(key: TicketKey, open: bool) -> TicketDigest {
-    TicketDigest {
-        key,
-        title: "t".into(),
-        state: if open {
-            TicketState::Open
-        } else {
-            TicketState::Closed(CloseReason::Done)
-        },
-        kind: None,
-        priority: Priority::Normal,
-        marks: vec![],
-        target: None,
-        author: None,
-        created: At::new(0),
-        updated: At::new(0),
-        revision: Revision::new("r"),
-        link: link(),
+    {
+        let mut ticket_digest = TicketDigest::new(
+            key,
+            if open {
+                TicketState::Open
+            } else {
+                TicketState::Closed(CloseReason::Done)
+            },
+            At::new(0),
+            At::new(0),
+            Revision::new("r"),
+            link(),
+        );
+        ticket_digest.title = "t".into();
+        ticket_digest.priority = Priority::Normal;
+        ticket_digest
     }
 }
 
 fn ticket(key: TicketKey, open: bool) -> Ticket {
-    Ticket {
-        digest: digest(key, open),
-        text: "text".into(),
-        closed: None,
-        closer: None,
-        parts: vec![],
-        blockers: vec![],
-        assignees: vec![],
-        markers: vec![],
-        mentioned_by: vec![],
-        history: Took {
-            items: vec![],
-            more: false,
-        },
+    {
+        let mut ticket = Ticket::new(digest(key, open));
+        ticket.text = "text".into();
+        ticket.history = Took::default();
+        ticket
     }
 }
 
 fn comment(id: &str) -> Comment {
-    Comment {
-        id: CommentId::new(id),
-        author: None,
-        editor: None,
-        created: At::new(0),
-        edited: None,
-        body: id.into(),
-        markers: vec![],
-        revision: Revision::new("r"),
-        link: link(),
+    {
+        let mut comment = Comment::new(CommentId::new(id), At::new(0), Revision::new("r"), link());
+        comment.body = id.into();
+        comment
     }
 }
 
 fn blueprint(no: u64, comments: Vec<Comment>) -> Blueprint {
-    Blueprint {
-        no: bp(no),
-        title: "b".into(),
-        body: "body".into(),
-        open: true,
-        author: None,
-        editor: None,
-        created: At::new(0),
-        edited: None,
-        revision: Revision::new("r"),
-        markers: vec![],
-        comments: Took {
-            items: comments,
-            more: false,
-        },
-        link: link(),
+    {
+        let mut blueprint = Blueprint::new(bp(no), At::new(0), Revision::new("r"), link());
+        blueprint.title = "b".into();
+        blueprint.body = "body".into();
+        blueprint.open = true;
+        blueprint.comments = {
+            let mut took = Took::default();
+            took.items = comments;
+            took
+        };
+        blueprint
     }
 }
 
 fn change(no: u64, state: ChangeState, closes: Vec<Ref<BlueprintNo>>) -> ChangeDigest {
-    ChangeDigest {
-        no: cn(no),
-        title: "c".into(),
-        state,
-        head: Branch::new("work").unwrap(),
-        head_commit: CommitId::new("abc1234").unwrap(),
-        base: Branch::new("main").unwrap(),
-        author: None,
-        from_fork: false,
-        draft: false,
-        merge_state: Mergeable::Unknown,
-        marks: vec![],
-        closes,
-        size: None,
-        body: None,
-        created: At::new(0),
-        edited: None,
-        editor: None,
-        link: link(),
+    {
+        let mut change_digest = ChangeDigest::new(
+            cn(no),
+            state,
+            Branch::new("work").unwrap(),
+            CommitId::new("abc1234").unwrap(),
+            Branch::new("main").unwrap(),
+            At::new(0),
+            link(),
+        );
+        change_digest.title = "c".into();
+        change_digest.merge_state = Mergeable::Unknown;
+        change_digest.closes = closes;
+        change_digest
     }
 }
 
@@ -159,11 +133,7 @@ struct StubTickets {
 }
 
 fn reopened() -> TicketEvent {
-    TicketEvent {
-        what: Happened::Reopened,
-        by: None,
-        at: None,
-    }
+    TicketEvent::new(Happened::Reopened)
 }
 
 impl StubTickets {
@@ -178,10 +148,10 @@ impl StubTickets {
 
 impl Reports for StubTickets {
     fn take_reports(&mut self) -> Vec<Report> {
-        vec![Report {
-            port: PortName::Tickets,
-            outcome: Outcome::NotFound,
-            calls: 2,
+        vec![{
+            let mut report = Report::new(PortName::Tickets, Outcome::NotFound);
+            report.calls = 2;
+            report
         }]
     }
 }
@@ -198,14 +168,17 @@ impl Tickets for StubTickets {
         self.asked.lock().unwrap().windows.push(window);
         let mut ticket = self.find(key)?;
         ticket.history = match window {
-            None => Took {
-                items: vec![],
-                more: true,
-            },
-            Some(w) => Took {
-                items: vec![reopened()],
-                more: matches!(w, Window::Last(_)),
-            },
+            None => {
+                let mut took = Took::default();
+                took.more = true;
+                took
+            }
+            Some(w) => {
+                let mut took = Took::default();
+                took.items = vec![reopened()];
+                took.more = matches!(w, Window::Last(_));
+                took
+            }
         };
         Ok(ticket)
     }
@@ -242,9 +215,11 @@ impl Tickets for StubTickets {
         _: Option<&[HappenedKind]>,
     ) -> Got<Took<TicketEvent>> {
         self.asked.lock().unwrap().history += 1;
-        Ok(Took {
-            items: vec![reopened()],
-            more: matches!(window, Window::Last(_)),
+        Ok({
+            let mut took = Took::default();
+            took.items = vec![reopened()];
+            took.more = matches!(window, Window::Last(_));
+            took
         })
     }
     fn notes(&mut self, key: &TicketKey, window: Window) -> Got<Took<Comment>> {
@@ -264,7 +239,12 @@ impl Tickets for StubTickets {
         };
         let more = mine.len() > n;
         let items = mine.split_off(mine.len().saturating_sub(n));
-        Ok(Took { items, more })
+        Ok({
+            let mut took = Took::default();
+            took.items = items;
+            took.more = more;
+            took
+        })
     }
     fn note_edits(&mut self, _: &CommentId, _: Bound) -> Got<Whole<Edit>> {
         Err(unsupported())
@@ -282,12 +262,10 @@ impl Tickets for StubTickets {
             .filter(|t| t.digest.state != TicketState::Open);
         Ok(Whole::new(
             closed
-                .map(|t| ClosedTicket {
-                    digest: t.digest.clone(),
-                    closed: At::new(1),
-                    closer: None,
-                    part_count: 0,
-                    merged: vec![],
+                .map(|t| {
+                    let mut closed_ticket = ClosedTicket::new(t.digest.clone(), At::new(1));
+                    closed_ticket.part_count = 0;
+                    closed_ticket
                 })
                 .collect(),
         ))
@@ -344,10 +322,10 @@ struct StubBlueprints {
 
 impl Reports for StubBlueprints {
     fn take_reports(&mut self) -> Vec<Report> {
-        vec![Report {
-            port: PortName::Blueprints,
-            outcome: Outcome::Unread(Unread::Cut),
-            calls: 1,
+        vec![{
+            let mut report = Report::new(PortName::Blueprints, Outcome::Unread(Unread::Cut));
+            report.calls = 1;
+            report
         }]
     }
 }
@@ -412,10 +390,10 @@ struct StubCodeHost {
 
 impl Reports for StubCodeHost {
     fn take_reports(&mut self) -> Vec<Report> {
-        vec![Report {
-            port: PortName::Tickets,
-            outcome: Outcome::NotFound,
-            calls: 1,
+        vec![{
+            let mut report = Report::new(PortName::Tickets, Outcome::NotFound);
+            report.calls = 1;
+            report
         }]
     }
 }
@@ -473,10 +451,11 @@ impl CodeHost for StubCodeHost {
     fn changed_files(&mut self, _: ChangeNo, bound: Bound) -> Got<Whole<ChangedFile>> {
         let files: Vec<ChangedFile> = ["src/lib.rs", "src/main.rs"]
             .into_iter()
-            .map(|p| ChangedFile {
-                path: RepoPath::new(p).unwrap(),
-                added: 1,
-                deleted: 0,
+            .map(|p| {
+                let mut changed_file = ChangedFile::new(RepoPath::new(p).unwrap());
+                changed_file.added = 1;
+                changed_file.deleted = 0;
+                changed_file
             })
             .collect();
         if files.len() > bound.get() as usize {
@@ -485,9 +464,10 @@ impl CodeHost for StubCodeHost {
         Ok(Whole::new(files))
     }
     fn activity(&mut self, _: ChangeNo, _: Window) -> Got<Took<ChangeEvent>> {
-        Ok(Took {
-            items: vec![],
-            more: true,
+        Ok({
+            let mut took = Took::default();
+            took.more = true;
+            took
         })
     }
     fn checks(&mut self, _: &CommitId, _: Option<&str>) -> Got<Checks> {
@@ -925,15 +905,15 @@ fn the_join_reports_what_its_handles_met_each_kind_once() {
     assert_eq!(
         reports,
         [
-            Report {
-                port: PortName::Tickets,
-                outcome: Outcome::NotFound,
-                calls: 3,
+            {
+                let mut report = Report::new(PortName::Tickets, Outcome::NotFound);
+                report.calls = 3;
+                report
             },
-            Report {
-                port: PortName::Blueprints,
-                outcome: Outcome::Unread(Unread::Cut),
-                calls: 1,
+            {
+                let mut report = Report::new(PortName::Blueprints, Outcome::Unread(Unread::Cut));
+                report.calls = 1;
+                report
             },
         ]
     );
@@ -942,17 +922,12 @@ fn the_join_reports_what_its_handles_met_each_kind_once() {
 #[test]
 fn one_item_reads_its_markers_from_the_blueprints_comments() {
     let n = NonZeroU64::new(7).unwrap();
-    let item = WorkItem {
-        ticket: ticket(TicketKey::Number(n), true),
-        notes: Took {
-            items: vec![],
-            more: false,
-        },
-        blueprints: vec![blueprint(7, vec![comment("on the item")])],
-        changes: Took {
-            items: vec![],
-            more: false,
-        },
+    let item = {
+        let mut work_item = WorkItem::new(ticket(TicketKey::Number(n), true));
+        work_item.notes = Took::default();
+        work_item.blueprints = vec![blueprint(7, vec![comment("on the item")])];
+        work_item.changes = Took::default();
+        work_item
     };
     assert_eq!(item.ticket_comments().items[0].id.as_str(), "on the item");
 }
@@ -981,6 +956,9 @@ impl StubSite {
 impl Site for StubSite {
     fn realms(&self) -> &[Realm] {
         &self.realms
+    }
+    fn mark_name(&self, _: &Mark) -> String {
+        String::new()
     }
     fn tickets(&self, _: &Actor, _: Caller) -> Got<Box<dyn Tickets + Send>> {
         match &self.tickets {

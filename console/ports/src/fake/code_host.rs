@@ -7,7 +7,7 @@ use super::site::{
     comments_of, edit_markers, known_mark, text_of, whole, window, writable, Ctx, Handle,
 };
 use super::state::{ChangeRec, ProposalRec, ReleaseRec, State};
-use super::tickets::{close_item, cursor, since, token};
+use super::tickets::{close_item, page, since, token};
 use crate::{
     Access, Actor, Applied, Blobs, Branch, Change, ChangeDelta, ChangeDigest, ChangeEvent,
     ChangeFilter, ChangeHappened, ChangeNo, ChangeState, ChangeStates, ChangeToken, ChangedFile,
@@ -355,25 +355,23 @@ impl CodeHost for Handle {
             let mut comments = Vec::new();
             for c in &s.changes {
                 if c.seq > after {
-                    changes.push(change_digest(s, c, true));
+                    changes.push((c.seq, change_digest(s, c, true)));
                 }
                 for id in &c.comments {
                     if let Some(at) = s.comment_at(id) {
                         let k = &s.comments[at];
                         if k.seq > after && !k.gone {
-                            comments.push((c.no, super::site::comment(k, false)));
+                            comments.push((k.seq, (c.no, super::site::comment(k, false))));
                         }
                     }
                 }
             }
-            if changes.len() + comments.len() > bound.get() as usize {
-                return Err(Outcome::Unread(Unread::Cut));
-            }
-            Ok(ChangeDelta {
-                changes,
-                comments,
-                next: cursor(s),
-            })
+            let (changes, comments, next, more) = page(s, changes, comments, bound);
+            let mut delta = ChangeDelta::new(next);
+            delta.changes = changes;
+            delta.comments = comments;
+            delta.more = more;
+            Ok(delta)
         })
     }
 
