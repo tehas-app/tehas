@@ -12,8 +12,23 @@ use std::fs;
 use std::process::Command;
 
 /// Where the old name stays, and why. A path ending in `/` is a directory.
-const KEPT: [(&str, &str); 10] = [
-    ("docs/", "records of what was true when they were written"),
+const KEPT: [(&str, &str); 13] = [
+    (
+        "docs/plans/",
+        "records of what was true when they were written",
+    ),
+    (
+        "docs/specs/",
+        "records of what was true when they were written",
+    ),
+    (
+        "docs/audits/",
+        "records of what was true when they were written",
+    ),
+    (
+        "docs/explorations/",
+        "records of what was true when they were written",
+    ),
     ("CHANGELOG.md", "the notes of past releases"),
     (
         "changelog.d/v2-t10-rename.md",
@@ -91,6 +106,35 @@ fn an_unreleased_note_is_no_record_and_names_the_new_repository() {
     assert!(kept("CHANGELOG.md"));
     for note in ["changelog.d/fix-x.md", "changelog.d/v2-t10-rename-more.md"] {
         assert!(!kept(note), "{note} becomes the next release's notes");
+    }
+}
+
+#[test]
+fn only_the_history_under_docs_is_a_record_and_a_living_doc_names_the_new_repository() {
+    for record in [
+        "docs/plans/2026-11-21-coding-standard-v2.md",
+        "docs/specs/x.md",
+        "docs/audits/x.md",
+        "docs/explorations/x.md",
+    ] {
+        assert!(kept(record), "{record}");
+    }
+    for living in [
+        "docs/architecture.md",
+        "docs/architecture-review.md",
+        "docs/architecture-rubric.md",
+        "docs/adr/0001-x.md",
+        "docs/plans.md",
+        "docs/new.md",
+    ] {
+        assert!(!kept(living), "{living} describes today");
+    }
+}
+
+#[test]
+fn each_kept_directory_is_there() {
+    for (path, _) in KEPT.iter().filter(|(p, _)| p.ends_with('/')) {
+        assert!(root().join(path).is_dir(), "{path}");
     }
 }
 
