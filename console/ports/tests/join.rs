@@ -982,6 +982,9 @@ impl Site for StubSite {
     fn realms(&self) -> &[Realm] {
         &self.realms
     }
+    fn mark_name(&self, _: &Mark) -> String {
+        String::new()
+    }
     fn tickets(&self, _: &Actor, _: Caller) -> Got<Box<dyn Tickets + Send>> {
         match &self.tickets {
             Some(t) => Ok(Box::new(t.clone())),

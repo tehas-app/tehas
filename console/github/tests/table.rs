@@ -215,3 +215,35 @@ fn a_marker_that_is_not_writable_cites_as_nothing() {
         assert_eq!(table::marker_text(&m), None, "{m:?}");
     }
 }
+
+#[test]
+fn every_word_names_its_label_and_cites_it_as_code() {
+    for (label, mark) in table::words() {
+        assert_eq!(table::mark_name(&mark), label);
+        assert_eq!(table::cite_mark(&mark), format!("`{label}`"));
+    }
+    let bug = Mark::Project(tehas_ports::MarkName::new("bug").unwrap());
+    assert_eq!(table::mark_name(&bug), "bug");
+    assert_eq!(table::cite_mark(&bug), "`bug`");
+    for unknown in [
+        Mark::Unknown,
+        Mark::Act(tehas_ports::Act::Unknown),
+        Mark::State(tehas_ports::State::Unknown),
+    ] {
+        assert_eq!(table::mark_name(&unknown), "", "{unknown:?}");
+        assert_eq!(table::cite_mark(&unknown), "", "{unknown:?}");
+    }
+}
+
+#[test]
+fn every_factory_mark_has_a_label() {
+    let names: Vec<String> = tehas_ports::laws::marks::factory_marks()
+        .iter()
+        .map(table::mark_name)
+        .collect();
+    assert!(names.iter().all(|n| !n.is_empty()), "{names:?}");
+    let mut unique = names.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), names.len());
+}

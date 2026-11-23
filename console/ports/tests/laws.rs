@@ -297,6 +297,31 @@ fn lists_last_n_is_never_cut_and_more_is_exact() {
 }
 
 #[test]
+fn every_mark_names_a_word_and_reads_back_cited() {
+    for w in both() {
+        let no = first_blueprint(&w);
+        let w = w.blueprint(no, |b| b.title("a plan"));
+        let site = FakeSite::new(&w);
+        let ours = [Mark::Project(MarkName::new("bug").unwrap())];
+        ok(laws::marks::every_mark_names_a_word(&site, &ours));
+        let mut h = site.blueprint_writes(&full(), C).unwrap();
+        for m in laws::marks::factory_marks().iter().chain(&ours) {
+            ok(laws::marks::a_cited_mark_reads_back_as_its_name(
+                &site,
+                h.as_mut(),
+                bp(no),
+                m,
+            ));
+        }
+        let setup = Setup::One(Arc::new(site.clone()));
+        assert_eq!(
+            setup.mark_name(Realm::Tickets, &Mark::Epic),
+            site.mark_name(&Mark::Epic)
+        );
+    }
+}
+
+#[test]
 fn deltas_page_oldest_first_past_the_bound() {
     for w in both() {
         let no = first_blueprint(&w);

@@ -125,6 +125,7 @@ fn bodies_and_bounds_read_back() {
     round(Cite::Change(Ref::Here(ChangeNo::new(3).unwrap())));
     round(Cite::Account(Login::new("someone")));
     round(Cite::Marker(Marker::HoldCleared));
+    round(Cite::Mark(Mark::Epic));
     round(Bound::new(50).unwrap());
     round(Window::Whole(Bound::new(10).unwrap()));
     round(Window::Last(nz32(100)));

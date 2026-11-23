@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::{
     Actor, BlueprintWrites, Blueprints, Board, Caller, CodeHost, CodeHostWrites, Got, Identity,
-    Join, Links, Outcome, Pool, PortName, Realm, Refusal, TicketWrites, Tickets,
+    Join, Links, Mark, Outcome, Pool, PortName, Realm, Refusal, TicketWrites, Tickets,
 };
 
 /// One realm's supplier for one project. A port it does not serve answers
@@ -40,6 +40,12 @@ pub trait Site: Send + Sync {
     fn board(&self, by: &Actor, caller: Caller) -> Got<Box<dyn Board + Send>>;
     /// Calls and points by caller, port and pool, since the site was made.
     fn meter(&self) -> Vec<MeterRow>;
+    /// A mark as this site spells it, for terminal, log and MCP text: no
+    /// handle and no request, so a caller never writes the site's word
+    /// itself. Every mark names a word but `Mark::Unknown`, and any word
+    /// this copy does not know, which name as `""`: they are never written.
+    /// In a body, `Cite::Mark` names it as the site shows it there.
+    fn mark_name(&self, mark: &Mark) -> String;
 }
 
 /// One line of the meter. `Serialize` only: `Caller` is a `&'static str`.
@@ -146,6 +152,12 @@ impl Setup {
             return Err(Outcome::Refused(Refusal::Unsupported));
         }
         site.identity(by, caller)
+    }
+
+    /// A mark as the site of `realm` spells it: a ticket's marks are the
+    /// ticket realm's words, a change's the code host's.
+    pub fn mark_name(&self, realm: Realm, mark: &Mark) -> String {
+        self.site_of(realm).mark_name(mark)
     }
 
     /// `One`: the site's own board. `Split`: a `Join` over handles of both.

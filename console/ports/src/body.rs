@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{BlueprintNo, ChangeNo, Login, Marker, Ref, Sha256, TicketKey};
+use crate::{BlueprintNo, ChangeNo, Login, Mark, Marker, Ref, Sha256, TicketKey};
 
 /// A body or a file named by its sum: sha-256 in hex, and its length.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -51,6 +51,10 @@ pub enum Cite {
     /// shows code, so it is no live marker: what a reply tells a person to
     /// write. A marker that is not [`Marker::writable`] cites as `""`.
     Marker(Marker),
+    /// A mark as the site spells it in a body, the word `Site::mark_name`
+    /// gives, shown so a reader knows it for a mark. `Mark::Unknown` cites
+    /// as `""`.
+    Mark(Mark),
 }
 
 /// `Tickets`, `Blueprints` and `CodeHost` have it. The text that names

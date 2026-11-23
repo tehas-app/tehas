@@ -667,6 +667,98 @@ pub mod blueprints {
     }
 }
 
+/// Laws of naming a mark: on a terminal, in a log and in a body.
+pub mod marks {
+    use super::{got, hold, Law};
+    use crate::{Act, BlueprintNo, BlueprintWrites, Choice, Cite, Mark, Site, State};
+
+    /// Every word of the factory this copy knows, as a mark: each act,
+    /// state and choice, and the epic mark.
+    pub fn factory_marks() -> Vec<Mark> {
+        let acts = [
+            Act::Approve,
+            Act::Plan,
+            Act::Refine,
+            Act::Finish,
+            Act::Block,
+            Act::Pause,
+        ];
+        let states = [
+            State::Running,
+            State::Planning,
+            State::Refreshing,
+            State::AwaitingMerge,
+            State::Shipped,
+            State::Question,
+            State::NeedsPerson,
+            State::Replaced,
+            State::Refined,
+            State::Escalated,
+            State::Proposal,
+        ];
+        let choices = [Choice::Lean, Choice::Classic];
+        let mut all: Vec<Mark> = acts.into_iter().map(Mark::Act).collect();
+        all.extend(states.into_iter().map(Mark::State));
+        all.extend(choices.into_iter().map(Mark::Choice));
+        all.push(Mark::Epic);
+        all
+    }
+
+    /// Every mark names a word: each of `factory_marks` and each of the
+    /// fixture's `project` marks names a word of its own, not empty and
+    /// unlike any other. `Mark::Unknown` names `""`.
+    pub fn every_mark_names_a_word(site: &dyn Site, project: &[Mark]) -> Law {
+        const LAW: &str = "marks::every_mark_names_a_word";
+        let mut seen: Vec<(String, Mark)> = Vec::new();
+        for m in factory_marks().iter().chain(project) {
+            let name = site.mark_name(m);
+            hold(!name.trim().is_empty(), LAW, || {
+                format!("{m:?} names nothing")
+            })?;
+            if let Some((_, other)) = seen.iter().find(|(n, _)| *n == name) {
+                return super::broken(LAW, format!("{m:?} and {other:?} both name {name:?}"));
+            }
+            seen.push((name, m.clone()));
+        }
+        let unknown = site.mark_name(&Mark::Unknown);
+        hold(unknown.is_empty(), LAW, || {
+            format!("an unknown mark names {unknown:?}")
+        })
+    }
+
+    /// `Cite::Mark` in a body reads back as that mark's name: written in a
+    /// comment on the blueprint `no`, the text reads back holding the word
+    /// `Site::mark_name` gives, and no marker. `Mark::Unknown` cites as
+    /// `""`. `h` is a handle of `site`.
+    pub fn a_cited_mark_reads_back_as_its_name(
+        site: &dyn Site,
+        h: &mut dyn BlueprintWrites,
+        no: BlueprintNo,
+        mark: &Mark,
+    ) -> Law {
+        const LAW: &str = "marks::a_cited_mark_reads_back_as_its_name";
+        let unknown = h.cite(&Cite::Mark(Mark::Unknown));
+        hold(unknown.is_empty(), LAW, || {
+            format!("an unknown mark cites as {unknown:?}")
+        })?;
+        let name = site.mark_name(mark);
+        hold(!name.is_empty(), LAW, || format!("{mark:?} names nothing"))?;
+        let text = h.cite(&Cite::Mark(mark.clone()));
+        let posted = got(LAW, "the comment", h.comment(no, &text, &[]))?;
+        let mut answers = h.comments_by_id(std::slice::from_ref(&posted.id));
+        let c = match answers.pop() {
+            Some((_, answer)) => got(LAW, "the comment read back", answer)?,
+            None => return super::broken(LAW, "the comment was not answered"),
+        };
+        hold(c.body.contains(&name), LAW, || {
+            format!("{text:?} read back as {:?}, without {name:?}", c.body)
+        })?;
+        hold(c.markers.is_empty(), LAW, || {
+            format!("{text:?} read as {:?}", c.markers)
+        })
+    }
+}
+
 /// Laws of the deltas: a long history read over several passes.
 pub mod delta {
     use std::fmt::Debug;

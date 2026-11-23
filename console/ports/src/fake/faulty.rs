@@ -681,6 +681,10 @@ impl<S: Site> Site for Faulty<S> {
         self.site.realms()
     }
 
+    fn mark_name(&self, mark: &crate::Mark) -> String {
+        self.site.mark_name(mark)
+    }
+
     fn tickets(&self, by: &Actor, caller: Caller) -> Got<Box<dyn Tickets + Send>> {
         let h = self.site.tickets(by, caller)?;
         Ok(Box::new(self.wrap(h, by, PortName::Tickets)))

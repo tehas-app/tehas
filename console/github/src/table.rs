@@ -63,6 +63,35 @@ pub fn label(mark: &Mark) -> Option<String> {
     }
 }
 
+/// `Site::mark_name`: a mark as GitHub spells it, its label, for terminal,
+/// log and MCP text. `""` for a mark no label is, which is never written.
+pub fn mark_name(mark: &Mark) -> String {
+    label(mark).unwrap_or_default()
+}
+
+/// `Cite::Mark`: a mark's label as GitHub shows code, so a reader knows it
+/// for a label. `""` for a mark no label is.
+pub fn cite_mark(mark: &Mark) -> String {
+    code(&mark_name(mark))
+}
+
+/// A text as GitHub shows code: inline for one line, a fenced block for
+/// more. A fence is longer than any run of backticks inside it. `""` stays
+/// `""`.
+fn code(text: &str) -> String {
+    if text.is_empty() {
+        return String::new();
+    }
+    let longest = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+    if text.contains('\n') {
+        let fence = "`".repeat((longest + 1).max(3));
+        format!("{fence}\n{text}\n{fence}")
+    } else {
+        let fence = "`".repeat(longest + 1);
+        format!("{fence}{text}{fence}")
+    }
+}
+
 /// The vendored table of markers: one row per kind but `Project`, a tab
 /// between the kind, the open text, the close text and the fields.
 const MARKERS: &str = include_str!("../../../host/markers.tsv");
@@ -204,19 +233,7 @@ pub fn marker_text(m: &Marker) -> Option<String> {
 }
 
 /// `Cite::Marker`: the marker's text as GitHub shows code, so it is no live
-/// marker. One line is inline code; a block is a fenced block. A fence is
-/// longer than any run of backticks inside it. `""` for a marker that is
-/// not writable.
+/// marker. `""` for a marker that is not writable.
 pub fn cite_marker(m: &Marker) -> String {
-    let Some(text) = marker_text(m) else {
-        return String::new();
-    };
-    let longest = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
-    if text.contains('\n') {
-        let fence = "`".repeat((longest + 1).max(3));
-        format!("{fence}\n{text}\n{fence}")
-    } else {
-        let fence = "`".repeat(longest + 1);
-        format!("{fence}{text}{fence}")
-    }
+    marker_text(m).map(|text| code(&text)).unwrap_or_default()
 }
