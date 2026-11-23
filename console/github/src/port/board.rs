@@ -141,13 +141,10 @@ impl Board for GitHub {
                 Some(each) => siblings(change, &read, each)?,
                 None => Vec::new(),
             };
-            items.push(ChangeItem {
-                change: change.clone(),
-                files,
-                closing: Vec::new(),
-                siblings,
-                activity: None,
-            });
+            let mut item = ChangeItem::new(change.clone());
+            item.files = files;
+            item.siblings = siblings;
+            items.push(item);
         }
         Ok(Whole::new(items))
     }
@@ -281,11 +278,10 @@ impl GitHub {
             }
             for f in page.nodes {
                 let f = f.ok_or(Outcome::Unread(Unread::Inconsistent))?;
-                files.push(ChangedFile {
-                    path: RepoPath::new(f.path).map_err(|_| malformed())?,
-                    added: count(f.additions)?,
-                    deleted: count(f.deletions)?,
-                });
+                let mut file = ChangedFile::new(RepoPath::new(f.path).map_err(|_| malformed())?);
+                file.added = count(f.additions)?;
+                file.deleted = count(f.deletions)?;
+                files.push(file);
             }
             let Some(cursor) = next(&page.page_info, &mut seen)? else {
                 if files.len() as u64 != first.total_count {
@@ -372,30 +368,28 @@ impl GitHub {
             p.editor.as_ref(),
             p.renames.nodes.into_iter().flatten().last(),
         )?;
-        Ok(ChangeDigest {
-            no,
-            title: p.title,
-            state,
-            head: Branch::new(p.head_ref_name).map_err(|_| malformed())?,
-            head_commit: commit(Some(p.head_ref_oid))?,
-            base: Branch::new(p.base_ref_name).map_err(|_| malformed())?,
-            author: p.author.as_ref().and_then(Actor::account),
-            from_fork: p.is_cross_repository,
-            draft: p.is_draft,
-            merge_state: mergeable(&p.mergeable, &p.merge_state_status),
-            marks: self.read_marks(&labels).into_iter().flatten().collect(),
-            closes,
-            size: Some(Size {
-                files: count(p.changed_files)?,
-                added: count(p.additions)?,
-                deleted: count(p.deletions)?,
-            }),
-            body: None,
-            created: time(Some(&p.created_at))?,
-            edited,
-            editor,
-            link: WebLink::new(p.url).map_err(|_| malformed())?,
-        })
+        let head = Branch::new(p.head_ref_name).map_err(|_| malformed())?;
+        let head_commit = commit(Some(p.head_ref_oid))?;
+        let base = Branch::new(p.base_ref_name).map_err(|_| malformed())?;
+        let marks = self.read_marks(&labels).into_iter().flatten().collect();
+        let mut size = Size::default();
+        size.files = count(p.changed_files)?;
+        size.added = count(p.additions)?;
+        size.deleted = count(p.deletions)?;
+        let created = time(Some(&p.created_at))?;
+        let link = WebLink::new(p.url).map_err(|_| malformed())?;
+        let mut digest = ChangeDigest::new(no, state, head, head_commit, base, created, link);
+        digest.title = p.title;
+        digest.author = p.author.as_ref().and_then(Actor::account);
+        digest.from_fork = p.is_cross_repository;
+        digest.draft = p.is_draft;
+        digest.merge_state = mergeable(&p.mergeable, &p.merge_state_status);
+        digest.marks = marks;
+        digest.closes = closes;
+        digest.size = Some(size);
+        digest.edited = edited;
+        digest.editor = editor;
+        Ok(digest)
     }
 
     /// The blueprint a change closes: this project's by its number, another
