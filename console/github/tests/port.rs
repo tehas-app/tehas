@@ -3,9 +3,9 @@
 //! off, and what it does not answer yet. Each case runs the adapter against
 //! a runner that answers from fixtures and writes down every call.
 
-use std::cell::RefCell;
 use std::num::NonZeroU64;
-use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::Mutex;
 use tehas_core::forge::GhRunner;
 use tehas_github::{table, GitHub};
 use tehas_ports::{
@@ -14,7 +14,7 @@ use tehas_ports::{
     TicketWrites, Tickets, Unprepared, Unread,
 };
 
-type Asked = Rc<RefCell<Vec<String>>>;
+type Asked = Arc<Mutex<Vec<String>>>;
 
 /// Answers each call from the list in turn; a call past it fails.
 struct Stub {
@@ -24,7 +24,7 @@ struct Stub {
 
 impl GhRunner for Stub {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        let mut asked = self.asked.borrow_mut();
+        let mut asked = self.asked.lock().unwrap();
         asked.push(args.join(" "));
         self.answers
             .get(asked.len() - 1)
@@ -40,7 +40,7 @@ fn adapter(answers: Vec<Result<&str, &str>>) -> (GitHub, Asked) {
             .into_iter()
             .map(|a| a.map(str::to_string).map_err(str::to_string))
             .collect(),
-        asked: Rc::clone(&asked),
+        asked: Arc::clone(&asked),
     };
     (GitHub::new("acme/widget", Box::new(stub)), asked)
 }
@@ -63,7 +63,7 @@ const ISSUE: &str = r#"{"number":7,"title":"Make it so","state":"open","state_re
 fn a_tickets_digest_is_the_issues_rest_read() {
     let (mut gh, asked) = adapter(vec![Ok(ISSUE)]);
     let got = gh.several(&[key(7)]);
-    assert_eq!(*asked.borrow(), ["api repos/acme/widget/issues/7"]);
+    assert_eq!(*asked.lock().unwrap(), ["api repos/acme/widget/issues/7"]);
     let (k, d) = &got[0];
     assert_eq!(*k, key(7));
     let d = d.as_ref().unwrap();
@@ -150,7 +150,7 @@ fn prepare_makes_every_label_of_the_table_and_one_that_fails_stops_none() {
             }
         })
     );
-    let asked = asked.borrow();
+    let asked = asked.lock().unwrap();
     assert_eq!(asked.len(), specs.len());
     assert_eq!(
         asked[0],
@@ -186,7 +186,7 @@ fn ensure_mark_makes_a_projects_label_with_what_its_spec_gives() {
     };
     assert_eq!(gh.ensure_mark(&full), Ok(()));
     assert_eq!(
-        *asked.borrow(),
+        *asked.lock().unwrap(),
         [
             "label create area-ui --repo acme/widget --force",
             "label create area-ui --repo acme/widget --color 00ff00 --description The UI --force"
@@ -203,7 +203,7 @@ fn ensure_mark_makes_a_projects_label_with_what_its_spec_gives() {
         gh.ensure_mark(&spaced),
         Err(Outcome::Refused(Refusal::Invalid))
     );
-    assert!(asked.borrow().is_empty());
+    assert!(asked.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -215,7 +215,7 @@ fn a_mark_goes_on_and_comes_off_as_its_label() {
     assert_eq!(gh.unmark(&key(7), &pause), Ok(()));
     assert!(gh.unmark(&key(7), &pause).is_err());
     assert_eq!(
-        *asked.borrow(),
+        *asked.lock().unwrap(),
         [
             "api -X POST repos/acme/widget/issues/7/labels -f labels[]=tehas:pause",
             "api -X DELETE repos/acme/widget/issues/7/labels/tehas%3Apause",
@@ -227,7 +227,7 @@ fn a_mark_goes_on_and_comes_off_as_its_label() {
         gh.mark(&key(7), &Mark::Unknown),
         Err(Outcome::Refused(Refusal::Invalid))
     );
-    assert!(asked.borrow().is_empty());
+    assert!(asked.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -241,7 +241,7 @@ fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
         gh.close(&key(7), &CloseReason::Done),
         Err(Outcome::Refused(Refusal::Unsupported))
     );
-    assert!(asked.borrow().is_empty());
+    assert!(asked.lock().unwrap().is_empty());
 }
 
 #[test]
