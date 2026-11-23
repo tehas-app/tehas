@@ -113,8 +113,8 @@ pub enum Scope {
     Read,
     /// Read files only (release reads, a settings pull).
     Files,
-    /// An agent's token: write tickets and changes, read files. No file
-    /// write and no push, so an agent never gets `Full`.
+    /// An agent's token: write tickets, blueprints and changes, read
+    /// contents. No file write and no push, so an agent never gets `Full`.
     Agent,
     /// A scope this copy does not know.
     #[serde(other)]
