@@ -33,11 +33,8 @@ pub enum Mark {
     Unknown,
 }
 
-/// The tags of `Mark` but `Unknown`.
-const MARK_TAGS: &[&str] = &["Act", "State", "Choice", "Epic", "Project"];
-
 fn mark_unknown<'de, D: Deserializer<'de>>(d: D) -> Result<(), D::Error> {
-    unknown::read(d, MARK_TAGS)
+    unknown::read_any(d)
 }
 
 pub(crate) fn unknown_tag<S: Serializer>(s: S) -> Result<S::Ok, S::Error> {
@@ -136,11 +133,8 @@ pub enum Kind {
     Unknown,
 }
 
-/// The tags of `Kind` but `Unknown`.
-const KIND_TAGS: &[&str] = &["Feature", "Bug", "Task", "Epic", "Other"];
-
 fn kind_unknown<'de, D: Deserializer<'de>>(d: D) -> Result<(), D::Error> {
-    unknown::read(d, KIND_TAGS)
+    unknown::read_any(d)
 }
 
 /// How soon a ticket is to be worked on.

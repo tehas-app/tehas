@@ -29,9 +29,11 @@ pub const VERSION: &str = "v2.0.0";
 /// How a port enum that may grow reads a tag this copy does not know.
 ///
 /// Such an enum is written with a tag and its content. Its `Unknown` is the
-/// last variant, read when no other matches: a tag of the enum's own whose
-/// content does not read is an error, any other tag is `Unknown`. `Marker`
-/// reads such a tag as `Unreadable` instead, as its text does.
+/// last variant, read when no other matches: a tag this copy does not know,
+/// and a tag of its own whose content does not read, are both `Unknown`, so
+/// an older reader never fails a record ([`read_any`]). `Marker` reads a tag
+/// of its own whose content does not read as `Unreadable` instead, as its
+/// text does: it asks [`read`], which refuses its own tags.
 mod unknown {
     use serde::de::Error as _;
     use serde::ser::SerializeMap;
@@ -55,6 +57,17 @@ mod unknown {
         } else {
             Ok(())
         }
+    }
+
+    /// `Unknown` from any tagged value: a tag this copy does not know, or one
+    /// of the enum's own whose content does not read. A value with no tag is
+    /// no record of the enum, and stays an error.
+    pub(crate) fn read_any<'de, D: Deserializer<'de>>(d: D) -> Result<(), D::Error> {
+        #[derive(Deserialize)]
+        struct Tag {
+            r#type: String,
+        }
+        Tag::deserialize(d).map(|tag| drop(tag.r#type))
     }
 
     /// `Unknown` as its tag alone, so it reads back as `Unknown`.

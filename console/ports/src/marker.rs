@@ -58,23 +58,8 @@ pub enum MarkerKind {
     Unknown,
 }
 
-/// The tags of `MarkerKind` but `Unknown`.
-const MARKER_KIND_TAGS: &[&str] = &[
-    "Question",
-    "Blocked",
-    "HoldCleared",
-    "Park",
-    "Finish",
-    "Spec",
-    "LastAttempt",
-    "Millwright",
-    "TicketOf",
-    "Link",
-    "Project",
-];
-
 fn marker_kind_unknown<'de, D: Deserializer<'de>>(d: D) -> Result<(), D::Error> {
-    unknown::read(d, MARKER_KIND_TAGS)
+    unknown::read_any(d)
 }
 
 checked!(

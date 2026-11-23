@@ -608,9 +608,10 @@ fn an_unknown_word_inside_a_known_tag_is_that_enums_unknown() {
 }
 
 #[test]
-fn a_known_tag_whose_content_does_not_read_is_an_error() {
+fn a_known_tag_whose_content_does_not_read_is_unknown_never_an_error() {
     // Every tag of each enum that may grow, with content that cannot read as
-    // any variant's. None may read as `Unknown`.
+    // any variant's: an older reader of a newer record never fails it, so
+    // each reads as `Unknown`.
     let bad = || Node::Seq(vec![Node::Bool(true), Node::Bool(false)]);
     let tagged = |tag: &str| map(vec![("type", text(tag)), ("value", bad())]);
     let tag_of = |n: &Node| match n {
@@ -629,7 +630,11 @@ fn a_known_tag_whose_content_does_not_read_is_an_error() {
     ];
     for m in &marks {
         let tag = tag_of(&to_node(m).unwrap());
-        assert!(from_node::<Mark>(tagged(&tag)).is_err(), "Mark {tag}");
+        assert_eq!(
+            from_node::<Mark>(tagged(&tag)).unwrap(),
+            Mark::Unknown,
+            "Mark {tag}"
+        );
     }
     let kinds = [
         Kind::Feature,
@@ -640,7 +645,11 @@ fn a_known_tag_whose_content_does_not_read_is_an_error() {
     ];
     for k in &kinds {
         let tag = tag_of(&to_node(k).unwrap());
-        assert!(from_node::<Kind>(tagged(&tag)).is_err(), "Kind {tag}");
+        assert_eq!(
+            from_node::<Kind>(tagged(&tag)).unwrap(),
+            Kind::Unknown,
+            "Kind {tag}"
+        );
     }
     let marker_kinds = [
         MarkerKind::Question,
@@ -657,8 +666,9 @@ fn a_known_tag_whose_content_does_not_read_is_an_error() {
     ];
     for k in &marker_kinds {
         let tag = tag_of(&to_node(k).unwrap());
-        assert!(
-            from_node::<MarkerKind>(tagged(&tag)).is_err(),
+        assert_eq!(
+            from_node::<MarkerKind>(tagged(&tag)).unwrap(),
+            MarkerKind::Unknown,
             "MarkerKind {tag}"
         );
     }

@@ -268,8 +268,31 @@ fn a_known_marker_tag_whose_content_does_not_read_is_unreadable_in_json() {
     ] {
         assert_eq!(read!(Marker, json), unreadable(kind), "{json}");
     }
-    // A known tag of an enum other than `Marker` still does not read.
-    assert!(serde_json::from_str::<Mark>(r#"{"type":"Act","value":3}"#).is_err());
+}
+
+#[test]
+fn a_known_tag_of_another_enum_whose_content_does_not_read_is_unknown_in_json() {
+    // One rule for every enum that may grow: an older reader never fails a
+    // record. `Marker` alone reads such a tag as `Unreadable` instead.
+    for json in [
+        r#"{"type":"Act","value":3}"#,
+        r#"{"type":"Project","value":"no mark/name#"}"#,
+    ] {
+        assert_eq!(read!(Mark, json), Mark::Unknown, "{json}");
+    }
+    // A newer word inside a known tag reads as the inner enum's own Unknown.
+    assert_eq!(
+        read!(Mark, r#"{"type":"State","value":"Later"}"#),
+        Mark::State(State::Unknown)
+    );
+    assert_eq!(read!(Kind, r#"{"type":"Other","value":7}"#), Kind::Unknown);
+    assert_eq!(
+        read!(MarkerKind, r#"{"type":"Project","value":[1]}"#),
+        MarkerKind::Unknown
+    );
+    // A value with no tag is no record of the enum.
+    assert!(serde_json::from_str::<Mark>("3").is_err());
+    assert!(serde_json::from_str::<Mark>(r#"{"value":3}"#).is_err());
 }
 
 #[test]
