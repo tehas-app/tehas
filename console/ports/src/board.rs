@@ -48,9 +48,11 @@ pub struct WorkItem {
 
 impl WorkItem {
     /// The comments a ticket marker is read from: the notes, or, where
-    /// ticket and blueprint are one item, that blueprint's comments. A
-    /// ticket named by a number is an item of a code host's own tracker, so
-    /// the blueprint of the same number is the ticket itself.
+    /// ticket and blueprint are one item, that blueprint's comments. This
+    /// leans on the spec's "one ticket, one key" rule: a ticket named by a
+    /// `TicketKey::Number` is an item of a code host's own tracker, so the
+    /// blueprint of that number is the ticket itself. A split setup would
+    /// revisit it.
     pub fn ticket_comments(&self) -> &Took<Comment> {
         if let TicketKey::Number(n) = self.ticket.digest.key {
             if let Some(same) = self.blueprints.iter().find(|b| b.no.get() == n.get()) {
@@ -108,18 +110,20 @@ pub struct ChangeItem {
 /// one question and owns its cost.
 pub trait Board: Reports {
     /// The open tickets the filter takes, each with its own answer, and the
-    /// control ticket.
+    /// control ticket. Open tickets alone, whatever the filter's `open` says.
     fn open_work(&mut self, ask: &BoardAsk, bound: Bound) -> Got<OpenWork>;
     /// One ticket whole, as the ask names.
     fn work_item(&mut self, key: &TicketKey, ask: &BoardAsk) -> Got<WorkItem>;
-    /// The tickets closed since a time. Per item, as `OpenWork.items`.
+    /// The tickets closed since a time. Per item, as `OpenWork.items`. The
+    /// ask's filter is not applied: every ticket closed since then.
     fn closed_work(
         &mut self,
         ask: &BoardAsk,
         since: At,
         bound: Bound,
     ) -> Got<Whole<(TicketKey, Got<WorkItem>)>>;
-    /// The tickets of a target. Per item, as `OpenWork.items`.
+    /// The tickets of a target. Per item, as `OpenWork.items`. The ask's
+    /// filter is not applied: every ticket of the target.
     fn target_work(
         &mut self,
         ask: &BoardAsk,
@@ -251,6 +255,11 @@ impl Board for Join {
         })
     }
 
+    /// The notes are read whole, at most `ITEM_MAX` (1000) of them, before
+    /// the ask's depth cuts them: a ticket of more notes than that is
+    /// `Unread(Cut)` whatever the depth, `Depth::Last` too, which fails
+    /// closed. `Depth::Cut`'s cut of each note's text is the site's to apply
+    /// in its own read; this join does not apply it.
     fn work_item(&mut self, key: &TicketKey, ask: &BoardAsk) -> Got<WorkItem> {
         let mut ticket = self.tickets.ticket(key, ask.depth)?;
         if let Some(window) = ask.history {
