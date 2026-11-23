@@ -826,6 +826,40 @@ fn lists_past_the_bound_is_unread() {
 }
 
 #[test]
+fn the_fake_cuts_a_whole_list_past_its_bound_and_orders_one_second_by_key() {
+    let w = World::new();
+    let many: Vec<TicketKey> = (2..=1002).map(|n| w.key(n)).collect();
+    let w = w.ticket(1, |t| {
+        many.iter().fold(t.title("huge"), |t, k| t.part(k.clone()))
+    });
+    let site = FakeSite::new(&w);
+    let mut h = site.tickets(&full(), C).unwrap();
+    let cut = Err(Outcome::Unread(Unread::Cut));
+    assert_eq!(h.parts(&w.key(1)).map(|_| ()), cut);
+    for depth in [Depth::Cut { notes: 0 }, Depth::All] {
+        assert_eq!(h.ticket(&w.key(1), depth, None).map(|_| ()), cut);
+    }
+    // Tickets filed in one second list by key, the same on every read.
+    let w = World::new()
+        .ticket(3, |t| t.title("c"))
+        .ticket(1, |t| t.title("a"))
+        .ticket(2, |t| t.title("b"));
+    let site = FakeSite::new(&w);
+    let mut h = site.tickets(&full(), C).unwrap();
+    let keys = |h: &mut Box<dyn Tickets + Send>| -> Vec<TicketKey> {
+        h.list(&Filter::default(), b(10))
+            .unwrap()
+            .into_items()
+            .into_iter()
+            .map(|d| d.key)
+            .collect()
+    };
+    let first = keys(&mut h);
+    assert_eq!(first, [w.key(1), w.key(2), w.key(3)]);
+    assert_eq!(keys(&mut h), first);
+}
+
+#[test]
 fn lists_last_n_is_never_cut_and_more_is_exact() {
     for w in both() {
         let no = first_change(&w);

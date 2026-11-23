@@ -945,6 +945,12 @@ pub(crate) fn whole<T>(items: Vec<T>, bound: Bound) -> Got<Whole<T>> {
     }
 }
 
+/// A list a port gives whole with no bound of the caller's: whole up to
+/// `ALL_MAX`, as an adapter pages it, or `Unread(Cut)` past it.
+pub(crate) fn whole_kept<T>(items: Vec<T>) -> Got<Whole<T>> {
+    whole(items, ALL_MAX)
+}
+
 /// As much of a list, oldest first, as a window takes.
 pub(crate) fn window<T: Clone>(items: &[T], w: Window) -> Got<Took<T>> {
     match w {

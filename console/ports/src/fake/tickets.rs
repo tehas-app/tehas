@@ -5,7 +5,7 @@ use std::num::{NonZeroU32, NonZeroU64};
 use super::faulty::{Op, TicketsOp};
 use super::site::{
     comments_of, digest, edit_markers, first, known_mark, list_order, matches, revision, text_of,
-    whole, window, writable, Ctx, Handle,
+    whole, whole_kept, window, writable, Ctx, Handle,
 };
 use super::state::{Layout, State};
 use crate::{
@@ -40,20 +40,22 @@ fn ticket(s: &State, at: usize, depth: Depth, history: Option<Window>) -> Got<Ti
         Depth::Cut { .. } => super::site::cut(&item.text),
         _ => item.text.clone(),
     };
+    let parts = item
+        .parts
+        .iter()
+        .map(|k| Part {
+            key: Ref::Here(k.clone()),
+            open: open_of(s, k),
+        })
+        .collect();
+    let blockers = item.blockers.iter().map(|on| blocker(s, on)).collect();
     Ok(Ticket {
         digest,
         text,
         closed: item.closed,
         closer: item.closer.clone(),
-        parts: item
-            .parts
-            .iter()
-            .map(|k| Part {
-                key: Ref::Here(k.clone()),
-                open: open_of(s, k),
-            })
-            .collect(),
-        blockers: item.blockers.iter().map(|on| blocker(s, on)).collect(),
+        parts: whole_kept(parts)?.into_items(),
+        blockers: whole_kept(blockers)?.into_items(),
         assignees: item.assignees.clone(),
         markers: item.markers.clone(),
         mentioned_by: item.mentioned_by.iter().map(|n| Ref::Here(*n)).collect(),
@@ -378,16 +380,14 @@ impl Tickets for Handle {
     fn blockers(&mut self, key: &TicketKey) -> Got<Whole<Blocker>> {
         self.run(Pool::Calls, |s, _| {
             let at = at_ticket(s, key)?;
-            Ok(Whole::new(
-                s.items[at].blockers.iter().map(|b| blocker(s, b)).collect(),
-            ))
+            whole_kept(s.items[at].blockers.iter().map(|b| blocker(s, b)).collect())
         })
     }
 
     fn parts(&mut self, key: &TicketKey) -> Got<Whole<Part>> {
         self.run(Pool::Calls, |s, _| {
             let at = at_ticket(s, key)?;
-            Ok(Whole::new(
+            whole_kept(
                 s.items[at]
                     .parts
                     .iter()
@@ -396,7 +396,7 @@ impl Tickets for Handle {
                         open: open_of(s, k),
                     })
                     .collect(),
-            ))
+            )
         })
     }
 
@@ -464,7 +464,7 @@ impl Tickets for Handle {
                             .iter()
                             .any(|c| has_marker(&c.markers, kind, key)))
             });
-            Ok(Whole::new(found.into_iter().map(|d| d.key).collect()))
+            whole_kept(found.into_iter().map(|d| d.key).collect())
         })
     }
 
@@ -496,7 +496,7 @@ impl Tickets for Handle {
     }
 
     fn kinds(&mut self) -> Got<Whole<Kind>> {
-        self.run(Pool::Calls, |s, _| Ok(Whole::new(s.kinds.clone())))
+        self.run(Pool::Calls, |s, _| whole_kept(s.kinds.clone()))
     }
 
     fn targets(&mut self, bound: Bound) -> Got<Whole<Target>> {

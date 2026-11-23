@@ -5,7 +5,7 @@ use std::num::NonZeroU32;
 use super::faulty::{BlueprintsOp, Op};
 use super::site::{
     blueprint, comment, comments_of, edit_markers, first, matches, no_blueprint, revision, text_of,
-    whole, writable, Ctx, Handle,
+    whole, whole_kept, writable, Ctx, Handle,
 };
 use super::state::State;
 use super::tickets::{close_item, page, since, token};
@@ -110,13 +110,13 @@ impl Blueprints for Handle {
     fn attachments(&mut self, no: BlueprintNo) -> Got<Whole<Attachment>> {
         self.run(Pool::Calls, |s, _| {
             let at = no_blueprint(s, no)?;
-            Ok(Whole::new(
+            whole_kept(
                 s.items[at]
                     .attachments
                     .iter()
                     .map(|(a, _)| a.clone())
                     .collect(),
-            ))
+            )
         })
     }
 
