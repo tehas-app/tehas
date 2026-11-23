@@ -110,6 +110,9 @@ impl Site {
     }
 
     fn answer(&mut self, args: &[&str]) -> Result<String, String> {
+        if args.starts_with(&["api", "-X", "GET", "search/issues"]) {
+            return Ok(self.search_page(args));
+        }
         let [api, path] = args else {
             return Err(format!("no recording of {args:?}"));
         };
@@ -138,6 +141,35 @@ impl Site {
             .get(&n)
             .map(Value::to_string)
             .ok_or_else(|| "gh: Not Found (HTTP 404)".to_string())
+    }
+}
+
+impl Site {
+    /// The first page of GitHub's issue search over the issues the site
+    /// keeps: each one whose title holds the question's quoted words, as
+    /// the search's items carry it, the issue's own REST answer.
+    fn search_page(&self, args: &[&str]) -> String {
+        let q = args
+            .iter()
+            .find_map(|a| a.strip_prefix("q="))
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let words: Vec<&str> = q.split('"').skip(1).step_by(2).collect();
+        let items: Vec<Value> = self
+            .issues
+            .values()
+            .filter(|v| {
+                let title = v["title"].as_str().unwrap_or_default().to_ascii_lowercase();
+                words.iter().all(|w| title.contains(w))
+            })
+            .cloned()
+            .collect();
+        serde_json::json!({
+            "total_count": items.len(),
+            "incomplete_results": false,
+            "items": items,
+        })
+        .to_string()
     }
 }
 
@@ -585,6 +617,53 @@ fn several_answers_each_number_on_its_own_in_the_order_asked() {
     assert_eq!(got[1], (no(404), Err(Outcome::NotFound)));
     assert_eq!(got[2].1.as_ref().unwrap().markers, [Marker::HoldCleared]);
     assert_eq!(calls.borrow().len(), 3);
+}
+
+#[test]
+fn a_title_search_then_the_blueprint_of_its_hit_answer_the_same_title_author_and_created() {
+    // The relay's settle of an open that may have landed: a search of the
+    // title, then each hit read at Cut 0, over one set of recordings.
+    let (mut gh, _, calls) = adapter(Site::default().seven().issue(9, "Another plan", "T."));
+    let title = "Plan: the widget's settings page";
+    let hits = gh
+        .search(title, tehas_ports::Within::Titles, Some(true), n32(20))
+        .unwrap();
+    assert!(!hits.more);
+    assert_eq!(hits.items.len(), 1);
+    let hit = &hits.items[0];
+    assert_eq!((hit.no, hit.title.as_str(), hit.open), (no(7), title, true));
+    let b = gh.blueprint(hit.no, CUT0).unwrap();
+    assert_eq!(b.title, hit.title);
+    let issue = json::<Value>("issue-7.json");
+    let author = b.author.as_ref().unwrap();
+    assert_eq!(author.id.as_ref().unwrap().as_str(), "100001");
+    assert_eq!(author.kind, AccountKind::Bot);
+    assert_eq!(
+        b.created,
+        At::new(tehas_core::time::from_iso(issue["created_at"].as_str().unwrap()).unwrap())
+    );
+    // The body without this item's markers, nothing else changed.
+    let raw = issue["body"].as_str().unwrap();
+    assert_eq!(b.body, markers::read(raw, Some(no(7))).text);
+    assert!(b
+        .body
+        .starts_with("One page for every setting.\r\n\r\n- read them\r\n- save them"));
+    let calls = calls.borrow();
+    assert_eq!(calls.len(), 2);
+    assert!(calls[0].starts_with("api -X GET search/issues"));
+    assert_eq!(calls[1], ISSUE_7);
+}
+
+#[test]
+fn a_persons_issue_answers_a_person_with_its_id() {
+    let mut site = Site::default().issue(9, "Plan", "T.");
+    site.issues.get_mut(&9).unwrap()["user"] =
+        serde_json::json!({"login": "Alice-Dev", "id": 200002, "type": "User"});
+    let (mut gh, _, _) = adapter(site);
+    let author = gh.blueprint(no(9), CUT0).unwrap().author.unwrap();
+    assert_eq!(author.login.as_str(), "alice-dev");
+    assert_eq!(author.id.unwrap().as_str(), "200002");
+    assert_eq!(author.kind, AccountKind::Person);
 }
 
 // The contract with the edit.
