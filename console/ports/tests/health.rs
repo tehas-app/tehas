@@ -53,11 +53,15 @@ fn signed_out(since: i64) -> HealthState {
     HealthState::SignedOut { since: at(since) }
 }
 
+/// A failure an attempt to reach the site met. One that could not connect
+/// never went out; any other did, and no answer came. A passed deadline's
+/// `Timeout` with `sent: No` is made without trying and never given.
 fn down(why: Passing) -> Result<(), Outcome> {
-    Err(Outcome::Unavailable {
-        why,
-        sent: Sent::No,
-    })
+    let sent = match why {
+        Passing::Unreachable => Sent::No,
+        _ => Sent::Maybe,
+    };
+    Err(Outcome::Unavailable { why, sent })
 }
 
 /// The site's answer that the work asked about errored.

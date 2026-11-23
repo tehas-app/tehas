@@ -17,10 +17,11 @@ use crate::{unknown, At, HealthState, HostId, Outcome, Passing, Pool, Realm, Who
 /// A caller keeps `Failing` under `Whose::Host`, `SignedOut` under
 /// `Whose::Holder` and `Spent` of a pool under `Whose::Pool` of that pool,
 /// and gives a call's outcome to each of the three it touches: the host,
-/// the holder and the pool the call drew on. `seen` is the answer of a
-/// request that went out; an answer the adapter makes without one (a held
-/// pool's `Spent`, a passed deadline's `Unavailable`, an expired kept
-/// token's `SignedOut`, an out-of-set `Forbidden`) is not given to `next`.
+/// the holder and the pool the call drew on. `seen` is the outcome of every
+/// attempt the adapter made to reach the site, one that could not connect
+/// included; never an answer it made without trying (a held pool's
+/// `Spent`, a passed deadline's `Unavailable(Timeout)`, an expired kept
+/// token's `SignedOut`, an out-of-set `Forbidden`).
 ///
 /// The host reads `Unavailable` as an outage and any answer of the site as
 /// the host up, `Unavailable(Broken)` among them: the site answered that a
