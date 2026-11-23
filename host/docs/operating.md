@@ -19,9 +19,9 @@ stage when it draws the bundled sample, and the factory floor counts them as
 not on the line.
 
 This version has no Protolab: the site that kept a page of the files
-attached to each prototype is parked, to come back as a plugin.
-`tehas labels` still makes and pins `tehas:prototype`, and the dispatcher
-does not act on it.
+attached to each prototype is parked, to come back as a plugin. tehas 2.0
+removed the `tehas:prototype` label: `tehas labels` no longer makes it, and
+nothing reads it where a repository still has it.
 
 An idea goes to the factory when it is ready for implementation, which
 means:
@@ -171,8 +171,7 @@ compute on the issue.
   log says `skip #<n>: tehas:ready was taken off by '<who>' since it was
   applied`, and nothing on the issue changes. Of two events in one second the
   removal counts as the later. The same holds for `tehas:blocked`,
-  `tehas:plan`, `tehas:refine`, `tehas:finish`, the driver labels and
-  `tehas:prototype`.
+  `tehas:plan`, `tehas:refine`, `tehas:finish` and the driver labels.
 - The label must be the one the factory pinned. A label event names the
   label by its current name, so a renamed label would carry its old
   applications with it. The dispatcher keeps the GitHub id of each granting
@@ -1722,22 +1721,20 @@ size `TEHAS_WORK_TIMEOUT` for two bounds a step.
 
 ## Kinds as issue types
 
-Optional. Two labels say what an issue is rather than where it is:
-`tehas:improvement`, a proposal the factory filed, and
-`tehas:prototype`, a ticket at the prototype stage. An organisation can use
-its own issue types for them instead. Without the setting, the labels work
+Optional. One label says what an issue is rather than where it is:
+`tehas:improvement`, a proposal the factory filed. An organisation can use
+its own issue type for it instead. Without the setting, the label works
 as described above.
 
 To set it up:
 
-1. As an owner of the organisation, add the issue types in its settings,
-   under Planning, Issue types: for example `Improvement` and `Prototype`.
-   tehas never creates them.
-2. Map each kind to its type in `instance.env`, one `kind=Type` pair for
-   each, separated by a space. A kind left out stays its label:
+1. As an owner of the organisation, add the issue type in its settings,
+   under Planning, Issue types: for example `Improvement`. tehas never
+   creates it.
+2. Map the kind to its type in `instance.env`, a `kind=Type` pair:
 
    ```
-   TEHAS_ISSUE_TYPES="improvement=Improvement prototype=Prototype"
+   TEHAS_ISSUE_TYPES="improvement=Improvement"
    ```
 
 3. Run `install.sh`, or wait for the next poll: the setting is read at each
@@ -1749,8 +1746,9 @@ What changes:
   holds one labelled `tehas:improvement`: the millwright does not start it.
   The label still holds where a person left it, so turning the setting on lets
   nothing start that was held.
-- **prototype**: a `prototype=` pair is accepted, and nothing in this
-  version reads the type. It was the Protolab's, which is parked.
+- **prototype**: tehas 2.0 removed the kind. A `prototype=` pair still
+  loads: every command warns once that it is no longer read and drops it.
+  Take the pair out.
 
 A type the organisation does not have fails closed: the poll that reads the
 setting stops with 78 before it writes anything,
