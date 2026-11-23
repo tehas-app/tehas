@@ -356,6 +356,26 @@ mod tests {
         assert_eq!(table("a\t000000\tx\nb\n"), Err(2));
     }
 
+    /// The kinds a word of the table names: the acts, the factory's states,
+    /// the choices beside an act, and the epic mark.
+    const KINDS: [&str; 4] = ["Act", "State", "Choice", "Mark"];
+
+    #[test]
+    fn every_row_of_the_table_has_one_word_and_no_word_is_on_two_rows() {
+        let mut words: Vec<&str> = Vec::new();
+        for (i, line) in THE_TABLE.lines().enumerate() {
+            let fields: Vec<&str> = line.split('\t').collect();
+            assert_eq!(fields.len(), 4, "line {} has no word", i + 1);
+            let word = fields[3];
+            assert!(is_word(word), "line {}: {word:?}", i + 1);
+            let (kind, _) = word.split_once("::").unwrap_or_default();
+            assert!(KINDS.contains(&kind), "line {}: {word:?}", i + 1);
+            assert!(!words.contains(&word), "{word} on two rows");
+            words.push(word);
+        }
+        assert_eq!(words.len(), table(THE_TABLE).unwrap().len());
+    }
+
     #[test]
     fn a_line_of_three_fields_and_one_of_four_with_a_word_are_both_read() {
         let a = Label {
