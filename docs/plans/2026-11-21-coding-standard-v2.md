@@ -407,6 +407,9 @@ Findings:
   issues read-only, so the site refuses it (`console/src/plan/turn.rs`
   ~485). It must file with the factory's token or not at all. T4.7 fixes
   it.
+- No port operation marks a change ready or draft: `edit_change` takes no
+  draft flag, so a `CycleMerge` cycle cannot take its own draft out of
+  draft through the ports. T4.2+ decides.
 
 ### T5. Deep homes for files
 
