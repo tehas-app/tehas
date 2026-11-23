@@ -842,6 +842,27 @@ fn token_site(wired: &Wired, tokens: &Arc<MemoryTokens>) -> Faulty<FakeSite> {
 }
 
 #[test]
+fn the_world_logs_each_request_and_no_local_answer() {
+    let wired = Wired::new(World::new());
+    let tokens = Arc::new(MemoryTokens::new(wired.world.clock()));
+    let faulty = token_site(&wired, &tokens);
+    let mut h = faulty.identity(&full(), C).unwrap();
+    h.token(Scope::Cycle).unwrap();
+    assert_eq!((wired.world.sent(), faulty.requests()), (1, 1), "a mint");
+    h.token(Scope::Cycle).unwrap();
+    assert_eq!((wired.world.sent(), faulty.requests()), (1, 1), "kept");
+    assert!(matches!(
+        h.token_over(Scope::Cycle, &[]),
+        Err(Outcome::Forbidden)
+    ));
+    assert_eq!((wired.world.sent(), faulty.requests()), (1, 1), "refused");
+    h.me().unwrap();
+    assert_eq!((wired.world.sent(), faulty.requests()), (2, 2), "a call");
+    assert_eq!(wired.world.sent_by(&full()), 2);
+    assert_eq!(wired.world.sent_by(&Actor::Anonymous), 0);
+}
+
+#[test]
 fn health_a_kept_token_raises_no_recovered() {
     let wired = Wired::new(World::new());
     let tokens = Arc::new(MemoryTokens::new(wired.world.clock()));

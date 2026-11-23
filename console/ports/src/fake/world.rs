@@ -9,10 +9,10 @@ use super::state::{lock, nz, split_key, AccountRec, ChangeRec, Layout, ReleaseRe
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Account, AccountId, AccountKind, At, BlueprintNo, Branch, ChangeEvent, ChangeNo, ChangeState,
-    Check, CommentId, CommitId, DeployCredential, Got, Keyring, Kind, Links, Mergeable, PersonKey,
-    ProjectName, Realm, Release, RepoPath, Scope, Secret, SignInCode, Standing, Tag, TagName,
-    Target, TargetId, TicketKey, Token, Write,
+    Account, AccountId, AccountKind, Actor, At, BlueprintNo, Branch, ChangeEvent, ChangeNo,
+    ChangeState, Check, CommentId, CommitId, DeployCredential, Got, Keyring, Kind, Links,
+    Mergeable, PersonKey, ProjectName, Realm, Release, RepoPath, Scope, Secret, SignInCode,
+    Standing, Tag, TagName, Target, TargetId, TicketKey, Token, Write,
 };
 
 /// The login of the factory's own account in a `World`.
@@ -130,13 +130,28 @@ impl World {
         self.lock().wrote.clone()
     }
 
-    /// What the world holds, as text, without its record of writes: two
-    /// worlds that hold the same read the same.
+    /// How many requests its sites have sent: every call that reached
+    /// the world and every mint. An answer a site made with no request
+    /// (a kept or given token, a token refused before any mint) is not
+    /// one.
+    pub fn sent(&self) -> u64 {
+        self.lock().sent.len() as u64
+    }
+
+    /// How many of those requests `actor`'s handles sent.
+    pub fn sent_by(&self, actor: &Actor) -> u64 {
+        self.lock().sent.iter().filter(|a| *a == actor).count() as u64
+    }
+
+    /// What the world holds, as text, without its record of writes and
+    /// requests: two worlds that hold the same read the same.
     pub fn held(&self) -> String {
         let mut s = self.lock();
         let wrote = std::mem::take(&mut s.wrote);
+        let sent = std::mem::take(&mut s.sent);
         let text = format!("{:?}", *s);
         s.wrote = wrote;
+        s.sent = sent;
         text
     }
 

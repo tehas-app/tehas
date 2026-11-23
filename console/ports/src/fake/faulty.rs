@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use super::site::answered_locally;
+use super::site::FakeSite;
 use super::state::lock;
 use super::world::{Clock, World};
 use crate::{
@@ -500,6 +500,25 @@ struct Shared {
     watch: Option<Watch>,
 }
 
+/// What `Faulty` reads of the site it wraps to tell that a call sent a
+/// request: the `World` that logs each request the site sends. A call
+/// sent a request when the log grew while the site answered it, so a call
+/// run at the same time on another thread over the same world can be
+/// taken for its request.
+pub trait RequestLog {
+    /// The world that logs this site's requests. A site that names none
+    /// is taken to send a request on every call it is handed.
+    fn log(&self) -> Option<&World> {
+        None
+    }
+}
+
+impl RequestLog for FakeSite {
+    fn log(&self) -> Option<&World> {
+        Some(self.world())
+    }
+}
+
 /// Wraps any site and answers chosen calls with a fault:
 /// `Faulty::new(site).on(Op::Board(BoardOp::OpenWork), Fault::Timeout).times(2)`.
 /// A rule answers every matching call, from the first, unless `after` or
@@ -509,16 +528,23 @@ struct Shared {
 /// deadline with no request, and gives every other answer to
 /// `health::next`, raising a notice only when its swap wins. An answer its
 /// site made with no request (`FakeSite`'s kept or given token, or a
-/// token refused before any mint) is not given to `health::next`.
+/// token refused before any mint) is not given to `health::next`: the
+/// site's `RequestLog` tells which. Over a site whose log names no world,
+/// every call it hands the site counts as a request.
 pub struct Faulty<S: Site> {
     site: S,
     shared: Arc<Shared>,
+    log: Option<World>,
 }
 
 impl<S: Site> Faulty<S> {
     /// The site, with no fault and no watch.
-    pub fn new(site: S) -> Self {
+    pub fn new(site: S) -> Self
+    where
+        S: RequestLog,
+    {
         Self {
+            log: site.log().cloned(),
             site,
             shared: Arc::new(Shared {
                 rules: Vec::new(),
@@ -630,6 +656,7 @@ impl<S: Site> Faulty<S> {
             port,
             reports: Vec::new(),
             told_down: false,
+            log: self.log.clone(),
         }
     }
 }
@@ -767,6 +794,8 @@ struct Wrap<H: ?Sized> {
     port: PortName,
     reports: Vec<Report>,
     told_down: bool,
+    /// The world that logs the site's requests, if it names one.
+    log: Option<World>,
 }
 
 /// Is this outcome a failure of the supplier, kept for the health check:
@@ -794,7 +823,7 @@ impl<H: ?Sized> Wrap<H> {
             return fail(o);
         }
         let fault = self.fault(op);
-        let local = answered_locally();
+        let before = self.sent();
         let answer = match fault {
             None => f(&mut self.inner),
             Some(fault) => {
@@ -810,7 +839,7 @@ impl<H: ?Sized> Wrap<H> {
         let seen = answer.seen();
         // A fault stands for an answer of the site; an answer the site made
         // with no request is neither counted nor seen.
-        if fault.is_some() || answered_locally() == local {
+        if fault.is_some() || before.is_none() || self.sent() != before {
             self.count_request();
             self.observe(&pools, &seen);
         }
@@ -818,6 +847,11 @@ impl<H: ?Sized> Wrap<H> {
             self.report(&o);
         }
         answer
+    }
+
+    /// How many requests the site's world has logged, if it names one.
+    fn sent(&self) -> Option<u64> {
+        self.log.as_ref().map(World::sent)
     }
 
     /// The pools a call of `op` draws on: as `draws` set, else `Op::pool`.

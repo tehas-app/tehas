@@ -1,8 +1,9 @@
 //! `FakeSite`: a `Site` over a `World`. Every write is checked as a site
 //! would check it, applied, and recorded as a `Wrote` naming the handle's
-//! account. Its handles count their calls in the site's meter.
+//! account. Its handles count their calls in the site's meter, and log
+//! each request they send in the world: every call that reaches it and
+//! every mint. An answer made with no request logs nothing.
 
-use std::cell::Cell;
 use std::sync::{Arc, Mutex};
 
 use super::faulty::{IdentityOp, Op};
@@ -24,22 +25,6 @@ pub const TOKEN_LIFE: i64 = 3600;
 pub const TOKEN_LEFT: u32 = 600;
 /// How many characters of a text `Depth::Cut` keeps.
 pub const CUT_TEXT: usize = 200;
-
-thread_local! {
-    static LOCAL: Cell<u64> = const { Cell::new(0) };
-}
-
-/// How many answers the fake's handles made on this thread with no
-/// request: a kept or given token, or a token refused before any mint. A
-/// call runs on its caller's thread, so `Faulty` reads this before and
-/// after it and gives no such answer to `health::next`.
-pub(crate) fn answered_locally() -> u64 {
-    LOCAL.with(Cell::get)
-}
-
-fn answer_locally() {
-    LOCAL.with(|c| c.set(c.get() + 1));
-}
 
 /// A `Site` over a `World`. Its handles answer from the world and write to
 /// it; a read handle has no write method to call. Minted tokens are kept in
@@ -394,6 +379,7 @@ impl Handle {
         self.count(pool);
         let answer = {
             let mut s = self.world.lock();
+            s.sent.push(self.actor.clone());
             let ctx = self.ctx(&s);
             match self.stopped(&s) {
                 Some(o) => Err(o),
@@ -466,7 +452,6 @@ impl Handle {
     fn anonymous_may(&mut self, op: IdentityOp) -> Got<()> {
         let answer = allowed(&self.actor, self.scope, Op::Identity(op));
         if let Err(o) = &answer {
-            answer_locally();
             self.report(o.clone());
         }
         answer
@@ -491,6 +476,7 @@ impl Handle {
         self.count(Pool::Calls);
         let answers: Vec<(K, Got<T>)> = {
             let mut s = self.world.lock();
+            s.sent.push(self.actor.clone());
             let ctx = self.ctx(&s);
             let stopped = self.stopped(&s);
             keys.iter()
@@ -549,19 +535,18 @@ impl Handle {
 
     /// A kept token of the factory's, or a new one kept for the next
     /// caller. A keyless site mints none: none kept is `SignedOut`. Only a
-    /// mint is a request, counted in the meter.
+    /// mint is a request, counted in the meter and logged in the world.
     fn token_for(&self, covers: &Covers, scope: Scope, now: At) -> Got<Token> {
         if let Some(t) = self.tokens.kept(covers, scope, TOKEN_LEFT) {
-            answer_locally();
             return Ok(t);
         }
         if self.keyless {
-            answer_locally();
             return Err(Outcome::SignedOut);
         }
         self.count(Pool::Calls);
         let n = {
             let mut s = self.world.lock();
+            s.sent.push(self.actor.clone());
             s.fresh_id("minted")
         };
         let token = Token {
@@ -676,21 +661,14 @@ impl Identity for Handle {
         let now = self.world.now();
         let answer = match self.actor.clone() {
             Actor::Given(key) => match crate::Keyring::given(&self.world, &key) {
-                Some(t) if t.until > now => {
-                    answer_locally();
-                    Ok(t)
-                }
+                Some(t) if t.until > now => Ok(t),
                 _ => {
-                    answer_locally();
                     crate::Keyring::signed_out(&self.world, &key);
                     Err(Outcome::SignedOut)
                 }
             },
             Actor::Ours(_) if self.scope_ok(scope) => self.token_for(&self.covers(), scope, now),
-            _ => {
-                answer_locally();
-                Err(Outcome::Forbidden)
-            }
+            _ => Err(Outcome::Forbidden),
         };
         if let Err(o) = &answer {
             self.report(o.clone());
@@ -713,15 +691,11 @@ impl Identity for Handle {
             || !projects.contains(&own)
             || projects.iter().any(|p| !covered.contains(p))
         {
-            answer_locally();
             Err(Outcome::Forbidden)
         } else {
             match Covers::projects(grant, projects.to_vec()) {
                 Ok(covers) => self.token_for(&covers, scope, now),
-                Err(_) => {
-                    answer_locally();
-                    Err(Outcome::Forbidden)
-                }
+                Err(_) => Err(Outcome::Forbidden),
             }
         };
         if let Err(o) = &answer {

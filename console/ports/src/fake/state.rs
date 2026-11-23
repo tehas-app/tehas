@@ -5,11 +5,11 @@ use std::num::NonZeroU64;
 use std::sync::{Mutex, MutexGuard};
 
 use crate::{
-    Account, AccountKind, At, Attachment, BlueprintNo, Branch, ChangeEvent, ChangeNo, ChangeState,
-    ChangedFile, Check, CloseReason, Closer, CommentId, CommitId, DeployCredential, Edit, GrantId,
-    Item, KeyText, Kind, Mark, MarkSpec, Marker, Mergeable, PersonKey, Priority, ProjectName,
-    Proposal, Realm, Release, RepoPath, Review, Scope, SignInCode, Standing, Status, Tag, TagName,
-    Target, TargetId, TicketEvent, TicketKey, Token, WebLink,
+    Account, AccountKind, Actor, At, Attachment, BlueprintNo, Branch, ChangeEvent, ChangeNo,
+    ChangeState, ChangedFile, Check, CloseReason, Closer, CommentId, CommitId, DeployCredential,
+    Edit, GrantId, Item, KeyText, Kind, Mark, MarkSpec, Marker, Mergeable, PersonKey, Priority,
+    ProjectName, Proposal, Realm, Release, RepoPath, Review, Scope, SignInCode, Standing, Status,
+    Tag, TagName, Target, TargetId, TicketEvent, TicketKey, Token, WebLink,
 };
 
 use super::world::{Wrote, FACTORY, KEY_PREFIX, OPERATOR};
@@ -169,6 +169,8 @@ pub(crate) struct State {
     pub grant: GrantId,
     pub grant_projects: Vec<ProjectName>,
     pub wrote: Vec<Wrote>,
+    /// The actor of each request a `FakeSite` sent, oldest first.
+    pub sent: Vec<Actor>,
     pub seq: u64,
     pub next_id: u64,
     pub next_ticket: u64,
@@ -232,6 +234,7 @@ impl State {
             grant: GrantId::new("grant-1"),
             grant_projects: Vec::new(),
             wrote: Vec::new(),
+            sent: Vec::new(),
             seq: 0,
             next_id: 1,
             next_ticket: 1,
