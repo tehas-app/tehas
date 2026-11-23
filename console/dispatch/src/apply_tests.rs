@@ -68,6 +68,10 @@ case "$name $1" in
       *--turn*) if [ -f "$d/plan" ]; then sed 's/"verb":"plan-show"/"verb":"plan-end"/' "$d/plan"; else echo '{"api":1,"verb":"plan-end","ok":true}'; fi ;;
       *) echo '{"api":1,"verb":"plan-end","ok":true}' ;;
     esac ;;
+  "store cycle-end") cat "$d/end" 2>/dev/null || echo '{"api":1,"verb":"cycle-end","ok":true}' ;;
+  "store history-show") cat "$d/history" 2>/dev/null || echo '{"api":1,"verb":"history-show","ok":true,"rows":[]}' ;;
+  "store question-asked") cat "$d/asked" 2>/dev/null || echo '{"api":1,"verb":"question-asked","ok":true}' ;;
+  "store question-list") cat "$d/questions" 2>/dev/null || echo '{"api":1,"verb":"question-list","ok":true,"questions":[]}' ;;
   "store cycle-note") cat "$d/note" 2>/dev/null || echo '{"api":1,"verb":"cycle-note","ok":true,"times":0,"stop_asked_at":0}' ;;
   "store plan-note") echo "{\"api\":1,\"verb\":\"plan-note\",\"ok\":true,\"said\":$(cat "$d/said" 2>/dev/null || echo true)}" ;;
   "store "*) echo "{\"api\":1,\"verb\":\"$1\",\"ok\":true}" ;;
@@ -119,6 +123,8 @@ struct World {
     dir: TestDir,
     _stub: Arc<TestDir>,
     w: Writer,
+    /// The lines the events' log listener wrote.
+    heard: Arc<Mutex<Vec<String>>>,
 }
 
 fn world() -> World {
@@ -153,6 +159,8 @@ fn world() -> World {
         std::os::unix::fs::symlink(&stub, dir.join(name)).unwrap();
     }
     let s = |n: &str| dir.join(n).to_string_lossy().into_owned();
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let h = Arc::clone(&heard);
     let w = Writer {
         repo: "example-owner/example-product".into(),
         home: dir.join("home"),
@@ -229,11 +237,13 @@ fn world() -> World {
         say_now: None,
         plans_ended: Vec::new(),
         asked_again: false,
+        events: tehas_core::raise::logged(move |l| h.lock().unwrap().push(l.to_string())).build(),
     };
     World {
         dir,
         _stub: held,
         w,
+        heard,
     }
 }
 
@@ -1160,6 +1170,67 @@ fn a_lost_cycle_is_ended_through_the_store_and_a_running_one_is_left_alone() {
         t.apply(json!([{"lost_cycle": 7, "attempt": 3}])).log,
         vec!["WARN: the lost cycle of #7 could not be ended (busy)"]
     );
+}
+
+/// The poll raises `cycle.ended` of a lost record only when the store
+/// answered that its own call wrote the line (T11.9). A record another
+/// writer ended first raises nothing here, so no end is raised twice.
+#[test]
+fn a_lost_end_is_raised_by_the_poll_that_wrote_it_and_only_then() {
+    let lost = r#"{"api":1,"verb":"history-show","ok":true,"rows":[{"kind":"cycle","issue":7,"attempt":3,"at":1000,"status":"lost","started_at":900,"recorded_at":1200,"seq":4,"reported":false}]}"#;
+    let end = |already: bool| {
+        format!(r#"{{"api":1,"verb":"cycle-end","ok":true,"cycle":{{}},"already":{already}}}"#)
+    };
+    let mut t = world();
+    fs::write(t.dir.join("history"), lost).unwrap();
+    fs::write(t.dir.join("end"), end(false)).unwrap();
+    t.apply(json!([{"lost_cycle": 7, "attempt": 3}]));
+    let heard = t.heard.lock().unwrap().clone();
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    let e: tehas_ports::events::Envelope =
+        serde_json::from_str(heard[0].strip_prefix("event ").unwrap()).unwrap();
+    assert_eq!(e.key.as_str(), "7-3");
+    let tehas_ports::events::Event::CycleEnded(p) = &e.event else {
+        panic!("{e:?}")
+    };
+    assert_eq!(
+        (p.end, p.outcome.as_str()),
+        (tehas_ports::events::End::Failed, "lost")
+    );
+    let mut t = world();
+    fs::write(t.dir.join("history"), lost).unwrap();
+    fs::write(t.dir.join("end"), end(true)).unwrap();
+    t.apply(json!([{"lost_cycle": 7, "attempt": 3}]));
+    assert!(t.heard.lock().unwrap().is_empty());
+    assert!(!t
+        .calls()
+        .iter()
+        .any(|c| c.starts_with("store history-show")));
+}
+
+/// A question the poll records raises `question.asked`, read back from the
+/// store; a replay of one on record raises nothing.
+#[test]
+fn a_question_the_poll_records_is_raised_once() {
+    let mut t = world();
+    fs::write(
+        t.dir.join("questions"),
+        r#"{"api":1,"verb":"question-list","ok":true,"questions":[{"id":5,"issue":12,"kind":"plan","attempt":1,"posted_at":1000,"offers":null,"options":["Adopt all"]}]}"#,
+    )
+    .unwrap();
+    let asked =
+        r#"{"api":1,"verb":"question-asked","ok":true,"question":{"id":5},"already":false}"#;
+    let mut log = Vec::new();
+    t.w.raise_asked(12, asked, &mut log);
+    assert!(log.is_empty(), "{log:?}");
+    assert!(t
+        .calls()
+        .contains(&"store question-list --after 4".to_string()));
+    let heard = t.heard.lock().unwrap().clone();
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    assert!(heard[0].contains(r#""kind":"Plan""#), "{}", heard[0]);
+    t.w.raise_asked(12, &asked.replace("false", "true"), &mut log);
+    assert_eq!(t.heard.lock().unwrap().len(), 1);
 }
 
 #[test]

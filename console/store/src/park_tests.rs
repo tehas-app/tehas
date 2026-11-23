@@ -518,6 +518,11 @@ fn question_asked_records_park_and_plan_questions() {
         &["question-asked", "30", "--id", "900", "--kind", "park"],
     );
     assert_eq!(again["question"], v["question"]);
+    // The call that recorded it says so; a replay does not (T11.9).
+    assert_eq!(
+        (v["already"].clone(), again["already"].clone()),
+        (json!(false), json!(true))
+    );
     planned(&home, 31);
     let v = ok(
         &home,
