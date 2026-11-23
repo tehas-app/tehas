@@ -337,11 +337,17 @@ fn a_journal_record_the_reader_cannot_read_is_unknown_in_json() {
         read!(Happened, r#"{"type":"Closed","value":[true]}"#),
         Happened::Unknown
     );
+    // A mark inside that does not read is the mark's own Unknown, by the
+    // same rule one level in.
     assert_eq!(
         read!(
             ChangeHappened,
             r#"{"type":"Marked","value":{"type":"Act","value":3}}"#
         ),
+        ChangeHappened::Marked(Mark::Unknown)
+    );
+    assert_eq!(
+        read!(ChangeHappened, r#"{"type":"Marked","value":3}"#),
         ChangeHappened::Unknown
     );
     assert_eq!(
