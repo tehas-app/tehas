@@ -689,7 +689,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   copy, the end-to-end suite.
   Adopter action: `tehas update` migrates the store.
 - **Labels starting `tehas:p-` belong to plugin phases.**
-  #PRNUM.
+  #2930.
   No core label takes the prefix. 2.0 neither writes nor reads them: the
   dispatcher, the tidy and `tehas labels` leave a `tehas:p-` label as it
   is, and it authorises nothing. In 2.x tehas may write them, for display
@@ -697,7 +697,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: plugins, adopters, the consumer that runs many factories.
   Adopter action: none.
 - **The flow may gain states, and no plugin removes approval or the merge.**
-  #PRNUM.
+  #2930.
   The states of the status flow and a held ticket's `why` may gain values
   in 2.x, plugin phases among them, and a reader treats an unknown one as
   unknown. A plugin may add phases and skip or hide an optional one under a
