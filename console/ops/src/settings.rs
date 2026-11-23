@@ -374,11 +374,26 @@ pub fn config_check(dir: &str, bash: &str) -> (Vec<String>, bool) {
     }
     for line in &found {
         let why = line.strip_prefix("tehas: ").unwrap_or(line);
-        out.push(format!("fail {}: {why}", named(why, &names)));
+        let name = named(why, &names);
+        out.push(format!("fail {name}: {why}{}", managed(&name, why)));
     }
     let pass = found.is_empty();
     out.push(if pass { "pass" } else { "fail" }.to_string());
     (out, pass)
+}
+
+/// What a refusal of a required model setting that is not set adds: a
+/// manager that renders instance.env for the factories it runs gives these
+/// itself, so a directory it manages is checked as it pushes the file.
+fn managed(name: &str, why: &str) -> &'static str {
+    if name.starts_with("PI_ENSEMBLE_")
+        && INSTANCE_SETTINGS.contains(&name)
+        && why.starts_with(&format!("{name} is not set"))
+    {
+        "; a manager that renders instance.env supplies it, so check the instance.env it pushes"
+    } else {
+        ""
+    }
 }
 
 /// The setting a refusal is about: the first word of it that the instance

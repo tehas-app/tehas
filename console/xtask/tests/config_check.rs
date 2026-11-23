@@ -176,7 +176,41 @@ fn a_required_setting_that_is_not_set_fails() {
         "{}",
         r.out
     );
+    assert!(!got[0].contains("manager"), "{}", r.out);
     assert_eq!(got[1..], ["fail"]);
+}
+
+#[test]
+fn a_required_model_setting_that_is_not_set_fails_and_names_the_manager_that_renders_it() {
+    let dir = instance("no-model", &[]);
+    let file = dir.join("instance.env");
+    let text = fs::read_to_string(&file).unwrap();
+    let kept: String = text
+        .lines()
+        .filter(|l| !l.starts_with("PI_ENSEMBLE_SUBAGENT_MODEL="))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    assert_ne!(kept, text);
+    fs::write(&file, kept).unwrap();
+    let r = check(&["--settings", &dir.to_string_lossy()]);
+    assert_eq!(r.rc, 78, "{}{}", r.out, r.err);
+    let got = lines(&r);
+    assert_eq!(got.len(), 2, "{}", r.out);
+    assert!(
+        got[0].starts_with(
+            "fail PI_ENSEMBLE_SUBAGENT_MODEL: PI_ENSEMBLE_SUBAGENT_MODEL is not set (see "
+        ),
+        "{}",
+        r.out
+    );
+    assert!(
+        got[0].ends_with(
+            "; a manager that renders instance.env supplies it, so check the instance.env it pushes"
+        ),
+        "{}",
+        r.out
+    );
+    assert_eq!(got[1], "fail");
 }
 
 #[test]
