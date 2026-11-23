@@ -1,1 +1,0 @@
-| 2026-11-23 | T9: removed features' settings stay dropped through 2.x, and what plugins read of an approved body is frozen | #PR |
