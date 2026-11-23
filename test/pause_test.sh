@@ -29,8 +29,13 @@ reset() {
   t_ids "$T/home/tehas"
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
-  echo '{"labels":[]}' >"$T/labels.json"
+  issue '[]'
   echo '[]' >"$T/events.json"
+}
+# The control issue as GitHub's REST read gives it, with these labels.
+issue() { # <labels as JSON>
+  jq -nc --argjson l "$1" '{title: "control", state: "open", created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z", html_url: "https://github.com/acme/widget/issues/1", labels: $l}' >"$T/labels.json"
 }
 # The control issue's pause events, newest last.
 pause_events() { # <event> <login or "">
@@ -127,7 +132,7 @@ t_lacks "$(t_calls gh)" "issue edit"
 
 t_case "resume says when the label still holds the host"
 reset
-echo '{"labels":[{"name":"tehas:pause"}]}' >"$T/labels.json"
+issue '[{"name":"tehas:pause"}]'
 t_run "$pause --reason x"
 t_run "$resume"
 t_eq "$t_rc" 0
