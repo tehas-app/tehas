@@ -18,5 +18,27 @@
       "console/store/tests"
     ],
     "testGlob": "*.rs"
+  },
+  "budgets": {
+    "specify": {
+      "turns": 800,
+      "tokens": 150000000,
+      "minutes": 45
+    },
+    "build": {
+      "turns": 800,
+      "tokens": 150000000,
+      "minutes": 60
+    },
+    "challenge": {
+      "turns": 800,
+      "tokens": 150000000,
+      "minutes": 30
+    },
+    "review": {
+      "turns": 800,
+      "tokens": 150000000,
+      "minutes": 45
+    }
   }
 }
