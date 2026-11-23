@@ -210,3 +210,20 @@ fn load_needs_an_absolute_name() {
     assert!(usage(&["load"]).contains("--from"));
     assert!(usage(&["load", "--from", "copy.db"]).contains("absolute"));
 }
+
+/// The loaded store takes the copy's `store` (T11.5): the copy's cycle ids
+/// come with it, and its attempts go on from the copy's, so no id is given
+/// twice within one `store`.
+#[test]
+fn load_takes_the_copy_s_store_and_its_attempts_go_on() {
+    let (from, copy) = a_copy("load-store-from");
+    let into = home("load-store-new");
+    let id = |h: &Path| one::<String>(h, "SELECT value FROM meta WHERE key = 'store'");
+    let theirs = id(&from);
+    assert_ne!(id(&into), theirs);
+    load(&into, &copy).unwrap();
+    assert_eq!(id(&into), theirs);
+    let before: i64 = one(&from, "SELECT attempt FROM cycles WHERE issue = 7");
+    let (_lock, next) = start(&into, 7);
+    assert_eq!(next, before + 1);
+}
