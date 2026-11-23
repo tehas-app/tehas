@@ -7,6 +7,7 @@
 //! with the cycle's lock held; a signal then is a flag nobody reads.
 
 use crate::after::{self, log};
+use crate::end_failed::Failure;
 use crate::facts::Facts;
 use crate::host::{self, Start};
 use crate::report::{report, Action, Ask, Park, Report};
@@ -217,9 +218,9 @@ pub type HandlesOf = fn(repo: &str, bound: Duration, grace: Duration) -> Handles
 /// How a write of the ports ended.
 enum Sent {
     Done(Receipt),
-    Failed(String),
+    Failed(Outcome),
     /// The site may have taken it; its row, unless it went with none.
-    Unknown(String, Option<RowId>),
+    Unknown(Outcome, Option<RowId>),
 }
 
 /// The site may have taken a write that did not answer as made.
@@ -270,9 +271,9 @@ struct Writer<'a> {
     /// A comment that carries the handoff of pi-rukas was posted.
     handed_off: bool,
     /// What gh said of the last write that failed all its tries.
-    last_failed: String,
+    last_failed: Failure,
     /// What gh said of the comment with the handoff that was not posted.
-    handoff_failed: Option<String>,
+    handoff_failed: Option<Failure>,
     /// The comment with the handoff may have been posted: no read could tell.
     handoff_maybe: bool,
 }
@@ -370,9 +371,9 @@ impl Writer<'_> {
             let since = tehas_core::time::now();
             match self.write(n, kind, args.clone(), input, None) {
                 Wrote::Done(_) => return Some(true),
-                Wrote::Failed(why) => self.last_failed = why,
+                Wrote::Failed(why) => self.last_failed = Failure::Said(why),
                 Wrote::Unknown(why) => {
-                    self.last_failed = why.clone();
+                    self.last_failed = Failure::Said(why.clone());
                     match self.reread(n, kind, &args, input, since) {
                         Seen::There(_) => return Some(true),
                         Seen::Missing => continue,
@@ -382,7 +383,7 @@ impl Writer<'_> {
                         }
                     }
                 }
-                Wrote::Unrecorded => self.last_failed.clear(),
+                Wrote::Unrecorded => self.last_failed = Failure::Said(String::new()),
             }
             if t < self.gh.tries {
                 std::thread::sleep(self.gh.retry_wait);
@@ -412,10 +413,8 @@ impl Writer<'_> {
             };
             match journal.send(&mut store, write, &mut *self.ports.writes, &NoBlobs) {
                 Journaled::Answered(Ok(r)) => return Sent::Done(r),
-                Journaled::Answered(Err(e)) => return Sent::Failed(e.line().to_string()),
-                Journaled::Unknown { answer, row } => {
-                    return Sent::Unknown(answer.line().to_string(), Some(row))
-                }
+                Journaled::Answered(Err(e)) => return Sent::Failed(e),
+                Journaled::Unknown { answer, row } => return Sent::Unknown(answer, Some(row)),
                 Journaled::Unrecorded => {}
             }
             self.unjournaled = true;
@@ -426,8 +425,8 @@ impl Writer<'_> {
         }
         match self.ports.writes.send(write, &NoBlobs) {
             Ok(r) => Sent::Done(r),
-            Err(e) if maybe(&e) => Sent::Unknown(e.line().to_string(), None),
-            Err(e) => Sent::Failed(e.line().to_string()),
+            Err(e) if maybe(&e) => Sent::Unknown(e, None),
+            Err(e) => Sent::Failed(e),
         }
     }
 
@@ -490,11 +489,12 @@ impl Writer<'_> {
             let since = tehas_core::time::now();
             match self.send(write) {
                 Sent::Done(r) => return (Some(true), Some(r)),
-                Sent::Failed(why) => self.last_failed = why,
+                Sent::Failed(why) => self.last_failed = Failure::Answered(why),
                 Sent::Unknown(why, row) => {
-                    self.last_failed = why.clone();
+                    let said = format!(": {}", why.line());
+                    self.last_failed = Failure::Answered(why);
                     let Some(found) = self.found(write, since) else {
-                        maybe_posted(n, &format!(": {why}"));
+                        maybe_posted(n, &said);
                         return (None, None);
                     };
                     if let Some(row) = row {
@@ -675,7 +675,7 @@ impl Writer<'_> {
                 Seen::Missing => return Posted::No,
                 Seen::Unread => {
                     maybe_posted(n, &why);
-                    self.last_failed = why;
+                    self.last_failed = Failure::Said(why);
                     self.handed(None, body);
                     return Posted::Maybe;
                 }
@@ -971,7 +971,7 @@ fn keep_end_fault(
     home: &Path,
     f: &Facts,
     a: &after::After,
-    handoff: Option<&str>,
+    handoff: Option<&Failure>,
     now: i64,
 ) -> bool {
     let issue = f.issue;
@@ -1028,7 +1028,7 @@ pub struct Written {
     pub handed_off: bool,
     /// What the site said of the comment with the handoff that was not
     /// posted.
-    pub handoff_failed: Option<String>,
+    pub handoff_failed: Option<Failure>,
     /// The comment with the handoff may have been posted: no read could tell.
     pub handoff_maybe: bool,
 }
@@ -1062,7 +1062,7 @@ pub fn write(
         unjournaled: false,
         stuck: true,
         handed_off: false,
-        last_failed: String::new(),
+        last_failed: Failure::Said(String::new()),
         handoff_failed: None,
         handoff_maybe: false,
     };
@@ -1195,7 +1195,7 @@ pub fn reported(home: &Path, s: &Start, handles: HandlesOf) -> Reported {
             "WARN: the handoff of #{issue} reached no comment: it is only in the run log"
         ));
     }
-    let fault_kept = keep_end_fault(home, &facts, &a, w.handoff_failed.as_deref(), now);
+    let fault_kept = keep_end_fault(home, &facts, &a, w.handoff_failed.as_ref(), now);
     a.approved = approved;
     a.console = s.console.clone();
     a.status_cmd = s.status_cmd.clone();
@@ -1438,7 +1438,7 @@ esac
                 unjournaled: false,
                 stuck: true,
                 handed_off: false,
-                last_failed: String::new(),
+                last_failed: Failure::Said(String::new()),
                 handoff_failed: None,
                 handoff_maybe: false,
             }
@@ -1535,7 +1535,7 @@ esac
         assert_eq!(h.count("write mark"), 0);
         assert_eq!(
             writer.last_failed,
-            Outcome::Refused(Refusal::Invalid).line()
+            Failure::Answered(Outcome::Refused(Refusal::Invalid))
         );
         assert_eq!(marks_of_7(&w), vec![running()]);
     }
@@ -1875,6 +1875,31 @@ esac
             Faulty::new(FakeSite::new(&w)).on(Op::Tickets(TicketsOp::Unmark), Fault::Timeout);
         park(&h, &site, 1);
         assert_eq!(h.count("write unmark"), 1);
+    }
+
+    #[test]
+    fn a_handoff_the_site_would_not_take_keeps_its_answer_for_the_end() {
+        let h = Host::new("handoff-failed");
+        let w = world();
+        let failed = Outcome::Unavailable {
+            why: tehas_ports::Passing::Server,
+            sent: Passed::No,
+        };
+        let site = Faulty::new(FakeSite::new(&w)).on(
+            Op::Tickets(TicketsOp::Note),
+            Fault::Server { applied: false },
+        );
+        let mut writer = h.writer(&site);
+        writer.comment("<!-- pi-rukas:handoff issue=7 cap=x -->\nHanded off.");
+        assert!(!writer.handed_off);
+        assert!(
+            matches!(
+                writer.handoff_failed,
+                Some(Failure::Answered(Outcome::Unavailable { .. }))
+            ),
+            "{:?} (not {failed:?})",
+            writer.handoff_failed
+        );
     }
 
     #[test]
