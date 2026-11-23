@@ -63,6 +63,11 @@ impl Cites for GitHub {
             Cite::Blueprint(r) => named(r, |n| n.get().to_string()),
             Cite::Change(r) => named(r, |n| n.get().to_string()),
             Cite::Account(login) => format!("@{}", login.as_str()),
+            Cite::Marker(m) => table::cite_marker(m),
+            Cite::Mark(m) => table::cite_mark(m),
+            // A cite this copy does not know names nothing rather than a
+            // wrong item.
+            _ => String::new(),
         }
     }
 }

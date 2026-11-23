@@ -5,7 +5,11 @@ use std::num::NonZeroU32;
 
 use serde::{Deserialize, Serialize};
 
-/// The most items a caller takes. More than this is `Unread(Cut)`.
+/// The most items a caller takes. More than this is `Unread(Cut)`, but
+/// for a delta (`Tickets::delta`, `Blueprints::delta`, `CodeHost::delta`):
+/// past the bound a delta answers a page of its first changes, oldest
+/// first, at most `bound` and never none, with `more` and a `next` that
+/// resumes after them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Bound(NonZeroU32);

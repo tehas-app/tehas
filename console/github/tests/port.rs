@@ -80,11 +80,10 @@ fn a_tickets_digest_is_the_issues_rest_read() {
     assert_eq!(d.target.as_ref().unwrap().title, "v2");
     assert_eq!(
         d.author,
-        Some(Account {
-            realm: Realm::CodeHost,
-            login: Login::new("alice"),
-            id: Some(AccountId::new("5")),
-            kind: AccountKind::Person,
+        Some({
+            let mut a = Account::new(Realm::CodeHost, Login::new("alice"), AccountKind::Person);
+            a.id = Some(AccountId::new("5"));
+            a
         })
     );
     assert_eq!(d.created, at("2026-01-02T03:04:05Z"));
@@ -142,12 +141,13 @@ fn prepare_makes_every_label_of_the_table_and_one_that_fails_stops_none() {
     let (mut gh, asked) = adapter(answers);
     assert_eq!(
         gh.prepare(),
-        Err(Unprepared {
-            mark: Some(specs[2].name.clone()),
-            why: Outcome::Unavailable {
+        Err({
+            let mut u = Unprepared::new(Outcome::Unavailable {
                 why: Passing::Server,
-                sent: Sent::Maybe
-            }
+                sent: Sent::Maybe,
+            });
+            u.mark = Some(specs[2].name.clone());
+            u
         })
     );
     let asked = asked.lock().unwrap();
@@ -249,6 +249,24 @@ fn a_cite_is_githubs_reference_and_a_new_ticket_link_its_page() {
     let (gh, _) = adapter(vec![]);
     assert_eq!(gh.cite(&Cite::Ticket(Ref::Here(key(7)))), "#7");
     assert_eq!(gh.cite(&Cite::Account(Login::new("alice"))), "@alice");
+    assert_eq!(
+        gh.cite(&Cite::Mark(Mark::Act(Act::Approve))),
+        format!("`{}`", table::APPROVAL_LABEL)
+    );
+    assert_eq!(gh.cite(&Cite::Mark(Mark::Unknown)), "");
+    let finish = tehas_ports::Marker::Millwright(tehas_ports::MillwrightMarker::new(
+        tehas_ports::BlueprintNo::new(12).unwrap(),
+        tehas_ports::MillwrightAction::Finish,
+    ));
+    assert_eq!(
+        gh.cite(&Cite::Marker(finish.clone())),
+        table::cite_marker(&finish)
+    );
+    assert_eq!(
+        gh.cite(&Cite::Marker(finish)),
+        "`<!-- tehas:millwright issue=12 action=finish -->`"
+    );
+    assert_eq!(gh.cite(&Cite::Marker(tehas_ports::Marker::Unknown)), "");
     assert_eq!(
         gh.new_ticket_link("A b", "c&d").as_str(),
         "https://github.com/acme/widget/issues/new?title=A%20b&body=c%26d"
