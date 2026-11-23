@@ -92,7 +92,7 @@ other issue the poll takes it off, as it does an outsider's.
 | Switch grammar | Every switch takes `on`, `off`, `1` and `0`. The manual writes `on` and `off` | The Rust tests of the settings rules |
 | Commands | The `tehas` commands, their subcommands and the flags of each, but the flags marked `internal` | `api/commands.txt`, held to the commands tehas knows and to the synopsis lines of each command's text by the tests of `console/src/front.rs` |
 | Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
-| Labels | The rows of `host/labels.tsv`: the name and what the dispatcher does with it | The dispatcher's and the tidy's tests |
+| Labels | The rows of `host/labels.tsv`: the name, what the dispatcher does with it, and the word of the ports it is (the fourth column, such as `State::Running`) | The dispatcher's and the tidy's tests, and the table's own test in `console/src/labels.rs` |
 | Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 29 | The store's migration tests |
 | analytics.db | `user_version` 6, tables and columns only added | `console/analytics/src/schema.pinned` |
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
