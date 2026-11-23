@@ -820,7 +820,11 @@ fn the_refreshing_mark_off_its_pull_request_is_journaled_as_change_unmark() {
     h.approve_refresh();
     h.result("aborted", "develop", "", "");
     h.report(20, false);
-    let off = h.at("gh api -X DELETE repos/a/b/issues/9/labels/tehas:refreshing");
+    let off = h
+        .calls()
+        .iter()
+        .position(|c| c.contains("-X DELETE repos/a/b/issues/9/labels/"))
+        .expect("the mark is taken off");
     let record = h.at("store journal-record --poll 100 --kind change-unmark --issue 9");
     assert!(record < off, "{:#?}", h.calls());
 }

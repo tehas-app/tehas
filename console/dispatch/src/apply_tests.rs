@@ -6138,7 +6138,7 @@ fn a_changes_mark_is_settled_by_its_labels_under_either_word() {
     let mut t = world();
     let row = |id: u64, kind: &str| {
         json!({"id": id, "kind": kind, "issue": 12, "state": "attempted", "intended_at": 990,
-            "attempted_at": 991, "args": {"gh": ["api", "-X", "POST", "repos/r/issues/12/labels"]}})
+            "attempted_at": 991, "args": {}})
     };
     left_open(
         &t,
@@ -6151,7 +6151,7 @@ fn a_changes_mark_is_settled_by_its_labels_under_either_word() {
     );
     fs::write(
         t.dir.join("issue-12"),
-        r#"{"title":"t","body":"b","labels":[{"name":"tehas:refreshing"}]}"#,
+        r#"{"title":"t","body":"b","labels":[]}"#,
     )
     .unwrap();
     let mut log = Vec::new();
@@ -6160,10 +6160,10 @@ fn a_changes_mark_is_settled_by_its_labels_under_either_word() {
     assert_eq!(
         log,
         vec![
-            "journal: action 3 (change-mark on #12, 10s old) was done".to_string(),
-            "journal: action 4 (refresh-begin on #12, 10s old) was done".to_string(),
-            format!("journal: action 5 (change-unmark on #12, 10s old) {not}"),
-            format!("journal: action 6 (refresh-end on #12, 10s old) {not}"),
+            format!("journal: action 3 (change-mark on #12, 10s old) {not}"),
+            format!("journal: action 4 (refresh-begin on #12, 10s old) {not}"),
+            "journal: action 5 (change-unmark on #12, 10s old) was done".to_string(),
+            "journal: action 6 (refresh-end on #12, 10s old) was done".to_string(),
         ]
     );
 }
