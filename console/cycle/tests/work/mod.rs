@@ -844,6 +844,17 @@ impl World {
         self.stub("docker", &format!("{before}{DOCKER}"));
     }
 
+    /// The same docker, but the run of the cycle's container, the one given a
+    /// --cidfile, ends only once `file` is there, at most 20 seconds on. A
+    /// console that must end on its own, before the end of the cycle stops it,
+    /// makes the file.
+    pub fn docker_runs_until(&self, file: &Path) {
+        self.docker_stub(&format!(
+            "case \" $* \" in \" run \"*\" --cidfile \"*) i=0; while [ ! -e '{}' ] && [ $i -lt 400 ]; do sleep 0.05; i=$((i + 1)); done ;; esac\n",
+            file.display()
+        ));
+    }
+
     /// The same docker, but the run of the container is a client that never
     /// ends and ignores TERM, as the attached `docker run` of a wedged dockerd
     /// is. Every other verb answers as before.

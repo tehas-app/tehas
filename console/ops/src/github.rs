@@ -794,7 +794,7 @@ pub fn renew_session() {
     static NEVER: AtomicBool = AtomicBool::new(false);
     let every = renew::every(&env::var("TEHAS_GITHUB_RENEW_EVERY").unwrap_or_default());
     let cmd = home_dir("bin/tehasbot");
-    session_renewer(cmd, every, renew::RETRY, &NEVER);
+    session_renewer(cmd, every, renew::RETRY, &NEVER, renew::epoch_seconds);
 }
 
 fn session_renewer(
@@ -802,12 +802,13 @@ fn session_renewer(
     every: u64,
     retry: u64,
     stop: &'static AtomicBool,
+    now: renew::Now,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         // The command has just made the token: the first ask is one period on.
-        sleep(Duration::from_secs(every));
+        renew::stand_still(every, stop, now);
         let args = ["github-token".to_string(), "--session".to_string()];
-        renew::renew(&cmd, &args, every, retry, stop, renew::epoch_seconds);
+        renew::renew(&cmd, &args, every, retry, stop, now);
     })
 }
 
@@ -1156,22 +1157,28 @@ mod tests {
     // A turn or a session that runs past one renewal period reads a token
     // made after it started: the stand-in for tehasbot writes a new one each
     // time it is asked, as github-token --session does once the kept one is
-    // near its end.
+    // near its end. It writes the token before it notes the ask, so two asks
+    // noted mean the second token is in place. The clock moves a period at
+    // every reading, so no wait stands on the wall.
     #[test]
     fn a_session_past_one_renewal_period_reads_a_fresh_token() {
         static STOP: AtomicBool = AtomicBool::new(false);
+        static CLOCK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        fn racing() -> u64 {
+            CLOCK.fetch_add(1000, std::sync::atomic::Ordering::SeqCst)
+        }
         let d = dir("session-renew");
         let kept = Home::new(d.path()).token_dir(TokenDir::Session);
         fs::create_dir_all(&kept).unwrap();
         fs::write(kept.join("token"), "ghs_first\n").unwrap();
         let cmd = d.path().join("tehasbot");
         tehas_core::testing::write_exe(&cmd, format!(
-                "#!/bin/sh\n[ \"$*\" = \"github-token --session\" ] || exit 64\necho \"$*\" >>'{0}/asked'\nprintf 'ghs_%s\\n' \"$(wc -l <'{0}/asked')\" >'{1}/token.new' && mv '{1}/token.new' '{1}/token'\n",
+                "#!/bin/sh\n[ \"$*\" = \"github-token --session\" ] || exit 64\nn=$(($(cat '{0}/asked' 2>/dev/null | wc -l) + 1))\nprintf 'ghs_%s\\n' \"$n\" >'{1}/token.new' && mv '{1}/token.new' '{1}/token'\necho \"$*\" >>'{0}/asked'\n",
                 d.path().display(),
                 kept.display()
             ),
         ).unwrap();
-        let thread = session_renewer(cmd, 1, 1, &STOP);
+        let thread = session_renewer(cmd, 1, 1, &STOP, racing);
         let until = Instant::now() + Duration::from_secs(10);
         let asked = || fs::read_to_string(d.path().join("asked")).unwrap_or_default();
         while asked().lines().count() < 2 && Instant::now() < until {
