@@ -179,8 +179,10 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
    refused line before the update. Every setting 2.0 refuses was already
    refused by 1.4.0: `RETIRED` holds the same twelve names, and
    `api/renames-1.0.tsv` is unchanged. Every setting that left
-   `api/settings-rules.json` since 1.4.0, fourteen, is dropped with a
-   warning, not refused.
+   `api/settings-rules.json` since 1.4.0 is dropped with a warning, not
+   refused: twelve of its instance settings and two of its host settings,
+   `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, which `~/.config/tehas/env`
+   held.
 2. **Run `tehas update`.** It stops and removes the units and files of the
    features 2.0 took out of core, and migrates the state store and analytics.
 3. **The state store** (`state/tehas.db`) goes from schema 23, 1.4.x's, to
