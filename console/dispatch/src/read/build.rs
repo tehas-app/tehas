@@ -109,6 +109,8 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         typed_as_label(&mut q.open, t, crate::decide::IMPROVEMENT);
     }
     s["user"] = json!({"login": c.bot_login});
+    // A file that cannot be read gives no id: the bot is then known by its
+    // login, as before the first record. Its questions authorise nothing.
     s["bot_id"] = json!(tehas_core::accounts::read(home)
         .get(tehas_core::accounts::account(&c.bot_login))
         .copied());
