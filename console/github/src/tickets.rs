@@ -188,7 +188,11 @@ fn account(login: &str, facts: &gh::Facts) -> Option<Account> {
         Some("Bot") => AccountKind::Bot,
         _ => AccountKind::Unknown,
     };
-    let login = Login::new(tehas_core::accounts::folded(login));
+    // One account is REST's `<slug>[bot]` and GraphQL's `<slug>`: the port
+    // names it as the latter.
+    let login = Login::new(tehas_core::accounts::folded(tehas_core::accounts::account(
+        login,
+    )));
     let mut account = Account::new(Realm::CodeHost, login, kind);
     account.id = facts.id.map(|id| AccountId::new(id.to_string()));
     Some(account)
