@@ -32,7 +32,7 @@ const USAGE: &str =
 
 /// Which questions are asked for.
 #[derive(Debug, PartialEq, Eq)]
-pub enum Which {
+enum Which {
     /// The one the issue waits on.
     Issue(u64),
     /// The one each issue waits on.
