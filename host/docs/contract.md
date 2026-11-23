@@ -63,10 +63,8 @@ Internal:
 
 ## Starting work for a person
 
-A program on the host starts work for a person with `tehas start <issue>`,
-called for a person who is signed in to that program. In 2.0 it is the one
-way; until #2894 lands, the
-millwright's grant below is a second. The program
+A program on the host starts work for a person in one way: `tehas start
+<issue>`, called for a person who is signed in to that program. The program
 answers for who the person is and that they may approve work; tehas records
 the approval as the host's (`how: host`), binds the issue's title and text,
 and the next poll starts it under the rules every start passes. [tehas
@@ -82,12 +80,9 @@ A program answers a question an issue waits on for a person with
 `TEHAS_ALLOWED_LABELERS`, and reads the question and its choices with
 [tehas question](/api#tehas-question).
 
-Today the millwright's own `tehas:ready` also starts work, by its grant: it
-retries a cycle a person approved before (`TEHAS_MILLWRIGHT_MAX_RETRIES`)
-and feeds an issue a person wrote (`TEHAS_MILLWRIGHT_FEED`). The grant is
-coming out in 2.0 with #2894 (Pending). After it, the millwright's
-`tehas:ready` starts only an epic's sub-issues under
-`TEHAS_MILLWRIGHT_EPICS=on`.
+No other path starts work for a person. The millwright's own `tehas:ready`
+starts only an epic's sub-issues under `TEHAS_MILLWRIGHT_EPICS=on`; on any
+other issue the poll takes it off, as it does an outsider's.
 
 ## What is frozen and how
 
@@ -173,7 +168,7 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
    refused by 1.4.0: `RETIRED` holds the same twelve names, and
    `api/renames-1.0.tsv` is unchanged. Every setting that left
    `api/settings-rules.json` since 1.4.0 is dropped with a warning, not
-   refused: twenty-two of its instance settings and two of its host settings,
+   refused: twenty-five of its instance settings and two of its host settings,
    `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, which `~/.config/tehas/env`
    held. `api/settings-1.4.0.txt` lists every setting 1.4.0 accepted, 101
    instance and 10 host settings, and the test
@@ -242,6 +237,8 @@ line is one of three:
     `TEHAS_OUTSOURCE_REPOS`, `TEHAS_OUTSOURCE_CONTRACTORS`,
     `TEHAS_OUTSOURCE_JOIN_TTL`, `TEHAS_OUTSOURCE_PROXY_ADDR`,
     `TEHAS_OUTSOURCE_PROXY_IDLE` (outsource);
+  - `TEHAS_MILLWRIGHT_MAX_RETRIES`, `TEHAS_MILLWRIGHT_FEED`,
+    `TEHAS_MILLWRIGHT_MAX_FEEDS` (the millwright's grant);
   - a `prototype=` pair of `TEHAS_ISSUE_TYPES` (the Protolab): the pair is
     dropped and the rest of the value kept.
 - **Refused.** The line stops every command with 78 and says what to do:
@@ -255,10 +252,8 @@ line is one of three:
   - a value for a setting of a feature still being built, which names the
     feature.
 
-Pending: #2894 drops `TEHAS_MILLWRIGHT_MAX_RETRIES`,
-`TEHAS_MILLWRIGHT_FEED` and `TEHAS_MILLWRIGHT_MAX_FEEDS` with a warning, and
-#2892 `TEHAS_SPEC_PIPE`. Until #2892 lands, a value for `TEHAS_SPEC_PIPE` is
-refused as a building feature's.
+Pending: #2892 drops `TEHAS_SPEC_PIPE` with a warning. Until it lands, a
+value for `TEHAS_SPEC_PIPE` is refused as a building feature's.
 
 ## The commands of other parts
 
@@ -596,6 +591,27 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: take any `prototype=` pair out of `TEHAS_ISSUE_TYPES` in
   `instance.env`. Delete the `tehas:prototype` label from the product
   repository, or leave it.
+- **The millwright's grant is removed; `tehas start` is the one way a
+  program starts work for a person.**
+  #2894.
+  The bot's `tehas:ready` no longer starts a cycle again on an issue a
+  person approved before, and the feed no longer starts an issue a person
+  wrote: the poll takes the label off as it does an outsider's. The
+  millwright still answers planning questions in a session a person
+  started, asks for a finish on a person's approval of the text as it is,
+  and starts an epic's sub-issues under `TEHAS_MILLWRIGHT_EPICS=on`. Its
+  `action=retry` and `action=change` comments do nothing; `action=answer`
+  and `action=finish` work as before. `TEHAS_MILLWRIGHT_MAX_RETRIES`,
+  `TEHAS_MILLWRIGHT_FEED` and `TEHAS_MILLWRIGHT_MAX_FEEDS` are dropped with a
+  warning. `features` in `tehas api --json` no longer lists
+  `millwright-grant`. The store's approval views no longer give
+  `millwright_starts`, `fixer_starts` or `park_lifted`.
+  Readers: the consumer that runs many factories, Obeya, the end-to-end
+  suite, plugins.
+  Adopter action: take the three settings out of `instance.env` if it sets
+  them. A program that applied `tehas:ready` as the millwright to start or
+  retry work for a person runs `tehas start` for a signed-in person
+  instead; one that checks `features` for `millwright-grant` finds it gone.
 - **The state store is at schema 29.**
   #2794, #2830, #2843, #2867, #2889, #2886.
   The steps 24 to 29 are listed under [Upgrading to 2.0](#upgrading-to-20).
@@ -621,21 +637,6 @@ Planned or in review, not merged. Each moves to
 [Changed in 2.0](#changed-in-20) when it lands, with its readers and
 adopter action as the pull request states them.
 
-- **The millwright's grant goes, and `tehas start` is the one way a
-  program starts work for a person.**
-  #2894. The bot's
-  `tehas:ready` no longer retries a cycle a person approved before, and the
-  feed no longer starts an issue a person wrote; the poll takes the label
-  off as an outsider's. `TEHAS_MILLWRIGHT_MAX_RETRIES`,
-  `TEHAS_MILLWRIGHT_FEED` and `TEHAS_MILLWRIGHT_MAX_FEEDS` are dropped with
-  a warning; `features` drops `millwright-grant`. The millwright's
-  `action=retry` and `action=change` comments do nothing; `action=answer`
-  and `action=finish` work as before.
-  Readers: the consumer that runs many factories, Obeya, the end-to-end
-  suite, plugins.
-  Adopter action: a program that applied `tehas:ready` as the millwright to
-  start or retry work for a person runs `tehas start` for a signed-in
-  person instead.
 - **The spec mark goes.**
   #2892. A `Spec:` line is
   plain text, no pull request is checked for a spec block, the key
@@ -688,10 +689,12 @@ adopter action as the pull request states them.
   `tehas-top.service`.
 - **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
   Each row of `host/labels.tsv` gains its fourth field, `word`, once the
-  label drops have taken their rows out. The ports themselves. Two settings choose the adapters: `TEHAS_CODE_HOST` and
-  `TEHAS_TICKETS`. In 2.0 each accepts only `github`; a missing setting
+  label drops have taken their rows out. The ports themselves. Two
+  settings choose the adapters: `TEHAS_CODE_HOST` and `TEHAS_TICKETS`. In 2.0 each accepts only `github`; a missing setting
   means `github`, so a 1.4.x instance still loads, and any other value is
-  refused with 78.
+  refused with 78. Two names stay for now as GitHub's word for a pull
+  request, on the list of supplier words still to go: `pullRequests` in the
+  analytics report and the dashboard's internal `pr` key.
   Readers: adopters, the consumer that runs many factories where it keeps
   an instance's settings, and, for the `word` field, any program that
   splits `host/labels.tsv` by its fields.
