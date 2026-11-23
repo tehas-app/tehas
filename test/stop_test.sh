@@ -160,7 +160,7 @@ cycle_files() { # <issue>
   for ext in "${GO[@]}" "${KEEP[@]}"; do printf '%s\n' "$n $ext" >"$state/$n.$ext"; done
   printf '%s %s\n' "$(date +%s)" "$whoami_here" >"$state/$n.stopped"
   # Its last cycle, on alice's label, parked with the question 42<issue> on record.
-  t_ended "$th" "$n" alice label --parked
+  t_ended "$th" "$n" alice approved --parked
   t_park "$th" "$n" failed "42$n"
   printf 'console line\n' >"$th/live/console-$n.txt"
   printf 'transcript\n' >"$runs/issue-$n/a-1-coder.json"
@@ -759,7 +759,7 @@ t_eq "$(t_row cycle-show 5 -- .cycle.ended_at)" null
 
 t_case "a stop spends the retry a provider outage left owed, and the dispatcher starts nothing on its own"
 reset
-t_ended "$th" 5 alice label --provider --parked
+t_ended "$th" 5 alice approved --provider --parked
 t_park "$th" 5 provider-outage
 t_eq "$(t_row park-show 5 -- '.park.automatic')" true
 t_run "$stop_cmd 5"

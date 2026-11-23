@@ -296,7 +296,7 @@
       "medianSeconds": 5070,
       "medianTokens": 50830109,
       "n": 43,
-      "prShare": 0.233,
+      "changeShare": 0.233,
       "rukas": "0.14.84",
       "tokensN": 43
     },
@@ -304,7 +304,7 @@
       "medianSeconds": 2488,
       "medianTokens": 85803950,
       "n": 7,
-      "prShare": 0.429,
+      "changeShare": 0.429,
       "rukas": "0.14.83",
       "tokensN": 7
     }

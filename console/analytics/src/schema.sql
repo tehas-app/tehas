@@ -152,7 +152,8 @@ CREATE TABLE samples (
 -- schema 6: contractor_id on runs goes; outsource was dropped in 2.0.
 -- schema 7: the words of 2.0's events. runs.outcome says offered where it said
 -- pr (its CHECK and every row), runs.how says approved where it said label,
--- and v_versions counts offered and names its share offered_share. db::open
+-- and v_versions names the share of the runs that reached a change, offered
+-- or merged, change_share (it was pr_share). db::open
 -- migrates a database of schema 4, 5 or 6 in place, the only versions it
 -- migrates.
 
@@ -201,8 +202,8 @@ SELECT
 FROM days d;
 
 -- Per tehas and pi-rukas version pair, of the work runs that ended: how many,
--- the share of each outcome (offered_share counts the runs that offered a
--- change or merged one), the median minutes, and the median tokens of the
+-- the share of each outcome (change_share counts the runs that reached a
+-- change, offered or merged), the median minutes, and the median tokens of the
 -- runs that reported usage: an empty count is no zero. A pi-rukas without a
 -- version is named by its commit. The views are the end of the file: the step
 -- to 7 in db.rs lays them again from CREATE VIEW v_lead to the end, so they
@@ -232,7 +233,7 @@ mt AS (
 ),
 pairs AS (
   SELECT tv, rv, count(*) AS runs,
-    sum(outcome IN ('offered', 'merged')) AS offered,
+    sum(outcome IN ('offered', 'merged')) AS reached,
     sum(outcome = 'handoff') AS handoff,
     sum(outcome = 'parked') AS parked,
     sum(outcome = 'failed') AS failed
@@ -242,7 +243,7 @@ SELECT
   p.tv AS tehas_version,
   p.rv AS rukas_version,
   p.runs AS runs,
-  round(1.0 * p.offered / p.runs, 3) AS offered_share,
+  round(1.0 * p.reached / p.runs, 3) AS change_share,
   round(1.0 * p.handoff / p.runs, 3) AS handoff_share,
   round(1.0 * p.parked / p.runs, 3) AS parked_share,
   round(1.0 * p.failed / p.runs, 3) AS failed_share,

@@ -84,7 +84,8 @@ outsource was dropped in 2.0, and no release ever wrote a value there.
 Schema 7 takes the words of 2.0 for one fact everywhere: `runs.outcome`
 says `offered` where it said `pr`, in its CHECK and in every row, `runs.how`
 says `approved` where it said `label`, and `v_versions` counts `offered` and
-names its share `offered_share` (it was `pr_share`). A program that reads a
+names its share of the runs that reached a change `change_share` (it was
+`pr_share`). A program that reads a
 copy reads the new words; there is no alias.
 
 A file at 4, 5 or 6 is migrated in place the first time it is opened:
@@ -302,7 +303,7 @@ So that a reader does not have to work out the common figures again:
 | --- | --- | --- |
 | `v_lead` | Per shipped issue: `issue`, `merged`, `ready`, `lead_seconds` and `runs`, the work runs it took. Shipped is a `merged` event, or a work run whose outcome was `merged` | 1 |
 | `v_daily` | Per UTC day: `day`, `shipped`, `runs` ended, of them `failed`, their `minutes` and `tokens` (input, output and cache read) | 1 |
-| `v_versions` | Per tehas and pi-rukas version pair of work runs that ended: `tehas_version`, `rukas_version` (its commit where it has no version), `runs`, `offered_share` (offered or merged), `handoff_share`, `parked_share`, `failed_share`, `median_minutes` and `median_tokens`, the last of the runs that reported usage, NULL where none did | 1 |
+| `v_versions` | Per tehas and pi-rukas version pair of work runs that ended: `tehas_version`, `rukas_version` (its commit where it has no version), `runs`, `change_share` (offered or merged), `handoff_share`, `parked_share`, `failed_share`, `median_minutes` and `median_tokens`, the last of the runs that reported usage, NULL where none did | 1 |
 
 ## The report
 
@@ -365,15 +366,15 @@ apart. A run with no driver on record is classic. Each entry gives:
 | --- | --- |
 | `n` | The work runs of the pair, refused and stopped ones with them |
 | `ran` | Those of `n` that ran: not refused, not stopped. Neither says anything of the driver |
-| `prShare` | The share of `ran` that ended in a pull request a person could merge: outcome `offered` or `merged` |
+| `changeShare` | The share of `ran` that ended in a pull request a person could merge: outcome `offered` or `merged` |
 | `parkedShare` | The share of `ran` handed to a person: outcome `handoff` or `parked`, as `handoffRate` counts them, since a run tehas parks with its pull request open has outcome `handoff` |
 | `minutes` | `n` runs of `ran` with a length, their `total` and `median`, whole minutes |
 | `tokens` | `n` runs that reported usage, their `total` and `median` (input, output and cache read) |
 | `pullRequests` | `n` issues whose runs reached a pull request, how many of them `merged`, and that `share` |
-| `oneAttempt` | Of the runs of `ran` that were their issue's first attempt (`attempt` 1, so a resumed or follow-up run is not one), `n`, the `pr` of them that reached a pull request, and that `share`: the one-attempt success. Left out when no such run is in the entry |
+| `oneAttempt` | Of the runs of `ran` that were their issue's first attempt (`attempt` 1, so a resumed or follow-up run is not one), `n`, the `change` of them that reached a pull request, and that `share`: the one-attempt success. Left out when no such run is in the entry |
 | `handBack` | The step funnel of the entry's runs, by the rule and from the steps of the report's [`stations`](/tools-status#tehas-analytics) key: `n` runs, and per step the runs that reached it, `passed` of them that went on, and that `share`. A lean run's steps are the driver's own record (see [what is recorded, and when](#what-is-recorded-and-when)). Left out when no run of the entry recorded a step |
 
-`prShare`, `parkedShare`, `pullRequests.share` and `oneAttempt.share` are left
+`changeShare`, `parkedShare`, `pullRequests.share` and `oneAttempt.share` are left
 out under `VERSION_FLOOR` (3) runs behind them, as in the `versions` table. The
 terminal prints the pair's version in its own column, the one-attempt success as
 `pr/n`, and under each entry one line per step of its hand-back.

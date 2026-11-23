@@ -779,7 +779,7 @@ fn stats_schema() -> Value {
                         ("medianSeconds", given("Median run seconds.")),
                         ("medianTokens", given("Median tokens.")),
                         (
-                            "prShare",
+                            "changeShare",
                             given("The share that left a pull request, 0 to 1."),
                         ),
                     ],
@@ -1322,7 +1322,7 @@ pub fn spec_of(name: &str) -> Option<Value> {
             s.insert(
                 "versions".into(),
                 json!([{"tehas": true, "rukas": true, "n": true,
-                        "medianSeconds": true, "medianTokens": true, "prShare": true}]),
+                        "medianSeconds": true, "medianTokens": true, "changeShare": true}]),
             );
             s.insert(
                 "daily".into(),

@@ -189,7 +189,7 @@ mt AS (
 ),
 pairs AS (
   SELECT tv, rv, count(*) AS runs,
-    sum(outcome IN ('offered', 'merged')) AS offered,
+    sum(outcome IN ('offered', 'merged')) AS reached,
     sum(outcome = 'handoff') AS handoff,
     sum(outcome = 'parked') AS parked,
     sum(outcome = 'failed') AS failed
@@ -199,7 +199,7 @@ SELECT
   p.tv AS tehas_version,
   p.rv AS rukas_version,
   p.runs AS runs,
-  round(1.0 * p.offered / p.runs, 3) AS offered_share,
+  round(1.0 * p.reached / p.runs, 3) AS change_share,
   round(1.0 * p.handoff / p.runs, 3) AS handoff_share,
   round(1.0 * p.parked / p.runs, 3) AS parked_share,
   round(1.0 * p.failed / p.runs, 3) AS failed_share,

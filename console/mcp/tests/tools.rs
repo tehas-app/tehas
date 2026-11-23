@@ -980,7 +980,7 @@ fn every_key_is_listed() {
                 "versions[].n",
                 "versions[].medianSeconds",
                 "versions[].medianTokens",
-                "versions[].prShare",
+                "versions[].changeShare",
                 "daily",
                 "daily[].day",
                 "daily[].runs",

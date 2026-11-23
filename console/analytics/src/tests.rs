@@ -1902,7 +1902,7 @@ fn the_views_answer_for_a_known_data_set() {
     );
     let versions: Vec<(String, i64, f64, f64, f64, f64)> = conn
         .prepare(
-            "SELECT tehas_version, runs, offered_share, handoff_share, median_minutes, median_tokens
+            "SELECT tehas_version, runs, change_share, handoff_share, median_minutes, median_tokens
              FROM v_versions ORDER BY tehas_version",
         )
         .unwrap()
@@ -3825,7 +3825,7 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
         ]},
         // Three runs or more show their figures; fewer, the count only.
         "versions": [
-            {"tehas": "v1", "rukas": "0.13.0", "n": 4, "prShare": 0.5, "medianSeconds": 900,
+            {"tehas": "v1", "rukas": "0.13.0", "n": 4, "changeShare": 0.5, "medianSeconds": 900,
              "medianTokens": 2500, "tokensN": 3},
             {"tehas": "v2", "n": 1},
             {"tehas": "v2", "rukas": "0.13.0", "n": 1},
@@ -3838,7 +3838,7 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
                 // Two pull requests and one run are under VERSION_FLOOR: their
                 // counts stand and their shares are left out. The hand-back of
                 // each entry is set below.
-                "0.13.0": {"n": 5, "ran": 4, "prShare": 0.5, "parkedShare": 0.25,
+                "0.13.0": {"n": 5, "ran": 4, "changeShare": 0.5, "parkedShare": 0.25,
                            "minutes": {"n": 4, "total": 65, "median": 15},
                            "tokens": {"n": 3, "total": 6500, "median": 2500},
                            "pullRequests": {"n": 2, "merged": 2}},
@@ -3962,11 +3962,11 @@ fn the_report_splits_by_driver_and_counts_a_null_row_as_classic() {
     assert_eq!(
         got["drivers"],
         json!({
-            "classic": {"none": {"n": 4, "ran": 4, "prShare": 0.5, "parkedShare": 0.25,
+            "classic": {"none": {"n": 4, "ran": 4, "changeShare": 0.5, "parkedShare": 0.25,
                                  "minutes": {"n": 4, "total": 40, "median": 10},
                                  "tokens": {"n": 4, "total": 1000, "median": 250},
                                  "pullRequests": {"n": 2, "merged": 1}}},
-            "lean": {"none": {"n": 3, "ran": 3, "prShare": 0.667, "parkedShare": 0.333,
+            "lean": {"none": {"n": 3, "ran": 3, "changeShare": 0.667, "parkedShare": 0.333,
                               "minutes": {"n": 3, "total": 30, "median": 10},
                               "tokens": {"n": 0},
                               "pullRequests": {"n": 2, "merged": 1}}},
@@ -4038,7 +4038,7 @@ fn a_drivers_shares_are_of_its_runs_that_ran() {
     let lean = &got["drivers"]["lean"]["none"];
     assert_eq!(lean["n"], 5);
     assert_eq!(lean["ran"], 3);
-    assert_eq!(lean["prShare"], 0.667);
+    assert_eq!(lean["changeShare"], 0.667);
     assert_eq!(lean["parkedShare"], 0.0);
 }
 
@@ -4051,7 +4051,7 @@ fn a_driver_with_only_refused_runs_has_no_shares() {
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
     let lean = &got["drivers"]["lean"]["none"];
     assert_eq!((&lean["n"], &lean["ran"]), (&json!(1), &json!(0)));
-    assert_eq!(lean.get("prShare"), None);
+    assert_eq!(lean.get("changeShare"), None);
     assert_eq!(lean.get("parkedShare"), None);
 }
 
@@ -4239,7 +4239,7 @@ fn each_drivers_entry_carries_the_keys_the_terminal_prints() {
             // A figure the report cannot work out is left out, never null: a
             // key that is there holds a value of the shape `text` prints.
             assert!(
-                e.get("prShare").is_none_or(Value::is_number),
+                e.get("changeShare").is_none_or(Value::is_number),
                 "{driver} {version}"
             );
             assert!(
@@ -4265,7 +4265,7 @@ fn each_drivers_entry_carries_the_keys_the_terminal_prints() {
     }
     // And the two figures of the comparison hold what their lines print.
     let e = &got["drivers"]["lean"]["0.14.50"];
-    assert!(e["oneAttempt"]["pr"].is_number() && e["oneAttempt"]["n"].is_number());
+    assert!(e["oneAttempt"]["change"].is_number() && e["oneAttempt"]["n"].is_number());
     let back = e["handBack"]["steps"].as_array().unwrap();
     assert!(back[0]["step"].is_string() && back[0]["n"].is_number());
     assert!(back[0]["passed"].is_number() && back[0]["share"].is_number());
@@ -4285,9 +4285,9 @@ fn the_drivers_section_never_pools_two_pi_rukas_versions() {
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
     let lean = &got["drivers"]["lean"];
     assert_eq!(lean["0.14.49"]["n"], json!(3));
-    assert_eq!(lean["0.14.49"]["prShare"], json!(0.667));
+    assert_eq!(lean["0.14.49"]["changeShare"], json!(0.667));
     assert_eq!(lean["0.14.50"]["n"], json!(1));
-    assert_eq!(lean["0.14.50"].get("prShare"), None);
+    assert_eq!(lean["0.14.50"].get("changeShare"), None);
     assert_eq!(lean["0.14.50"].get("parkedShare"), None);
     // The terminal prints one line per pair, the version in its own column.
     let text = crate::report::text(&got);
@@ -4348,7 +4348,10 @@ fn a_drivers_entry_gives_the_one_attempt_success_and_the_hand_back_by_step() {
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
     let e = &got["drivers"]["lean"]["0.14.50"];
     // Three first attempts ran (the refused one did not), two reached a PR.
-    assert_eq!(e["oneAttempt"], json!({"n": 3, "pr": 2, "share": 0.667}));
+    assert_eq!(
+        e["oneAttempt"],
+        json!({"n": 3, "change": 2, "share": 0.667})
+    );
     // Four runs in the funnel; the fix step is the second run's alone.
     assert_eq!(e["handBack"]["n"], json!(4));
     let steps: BTreeMap<String, (i64, i64)> = e["handBack"]["steps"]
@@ -4435,7 +4438,7 @@ fn a_version_pair_reaches_its_figures_at_three_runs() {
         let want = if i < 2 {
             json!({"tehas": "v0.7.22", "rukas": "0.13.0", "n": i + 1})
         } else {
-            json!({"tehas": "v0.7.22", "rukas": "0.13.0", "n": 3, "prShare": 0.667,
+            json!({"tehas": "v0.7.22", "rukas": "0.13.0", "n": 3, "changeShare": 0.667,
                    "medianSeconds": 60, "medianTokens": 10, "tokensN": 3})
         };
         assert_eq!(pair(&conn), want);
@@ -6858,7 +6861,7 @@ fn schema_6_file(file: &Path) {
 
 /// Schema 6 to 7: `runs.outcome` takes `offered` and no longer `pr`, every
 /// `pr` outcome and every `label` how is rewritten, every row of runs and of
-/// its children stays, `v_versions` counts `offered_share`, the file has the
+/// its children stays, `v_versions` counts `change_share`, the file has the
 /// shape of a new one, the rewrite is counted for the published sessions, and
 /// a second open writes nothing. No `pr` outcome and no `label` how is left.
 #[test]
@@ -6911,7 +6914,7 @@ fn a_schema_6_file_takes_the_words_of_2_0_and_keeps_every_row() {
     assert_eq!(
         one::<String>(
             &conn,
-            "SELECT runs || ' ' || offered_share FROM v_versions WHERE tehas_version = 'v1.4.0'"
+            "SELECT runs || ' ' || change_share FROM v_versions WHERE tehas_version = 'v1.4.0'"
         ),
         "3 0.667"
     );
@@ -6944,7 +6947,7 @@ fn the_views_of_schema_7_say_offered_and_approved_and_never_pr_or_label() {
         &conn,
         "SELECT group_concat(sql, ' ') FROM sqlite_master WHERE type = 'view'",
     );
-    assert!(views.contains("offered_share"), "{views}");
+    assert!(views.contains("change_share"), "{views}");
     for old in ["'pr'", " pr,", "pr_share", "'label'"] {
         assert!(!views.contains(old), "{old} in {views}");
     }
