@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{BlueprintNo, ChangeNo, Login, Ref, TicketKey};
+use crate::{BlueprintNo, ChangeNo, Login, Ref, Sha256, TicketKey};
 
 // T4.1b: `Blobs`, the trait a write that sends files finds their bytes
 // through, and `NoBlobs`, its answer for a caller that sends none.
@@ -12,8 +12,8 @@ use crate::{BlueprintNo, ChangeNo, Login, Ref, TicketKey};
 /// A body or a file named by its sum: sha-256 in hex, and its length.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Sum {
-    /// The sha-256 of the bytes, in hex.
-    pub sha256: String,
+    /// The sha-256 of the bytes.
+    pub sha256: Sha256,
     /// The number of bytes.
     pub len: u64,
 }

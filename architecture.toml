@@ -93,12 +93,12 @@ end = '\{|;\s*$'
 pattern = '\bValue\b'
 files = ["console/**/*.rs"]
 allowed = [
-  # only serde's own Visitor::Value and DeserializeSeed::Value, in the tests' in-memory format of tehas-ports, which takes serde alone; a serde_json::Value here must not hide behind this
+  # a test-only serde format: `Value` is serde's Visitor associated type, never serde_json::Value; an untyped seam here must not hide behind this
   "console/ports/tests/tree/mod.rs",
 ]
 comment = "//"
 max = 1287
-why = "console/ports/tests/tree/mod.rs is allowed (T4.1): its 11 matches are serde's associated type Value of a Visitor or a DeserializeSeed, which every deserializer names in its signatures, in the small format the ports' tests round-trip their types through, since tehas-ports takes serde alone and no serde_json. None is serde_json::Value. Re-measured at T0's follow-up, with tests in files counted: dispatch 366, mcp 251, cycle 181, the console 162, core 128, ops 89, store 77, analytics 45, attach 42, plugin 33. 377 are in test files. T3 types the dispatcher's core, T4 the ports, T5 the store client; T7 moves the rest or writes a floor for an adapter's own parsing. T15's port of test/preview_choose_test.sh adds 1, the test helper in console/src/preview/choose_tests.rs that edits a row of GitHub's list as the shell's jq did: the row is the untyped value preview::choose itself takes, so it is no new untyped interface and goes when T7 types that list."
+why = "console/ports/tests/tree/mod.rs is allowed (T4.1): its 11 matches are serde's associated type Value of a Visitor or a DeserializeSeed, which every deserializer names in its signatures, in the small format the ports' tests round-trip their types through, since tehas-ports takes serde alone and no serde_json. None is serde_json::Value, and an untyped seam may never be allowed here on that ground. Re-measured at T0's follow-up, with tests in files counted: dispatch 366, mcp 251, cycle 181, the console 162, core 128, ops 89, store 77, analytics 45, attach 42, plugin 33. 377 are in test files. T3 types the dispatcher's core, T4 the ports, T5 the store client; T7 moves the rest or writes a floor for an adapter's own parsing. T15's port of test/preview_choose_test.sh adds 1, the test helper in console/src/preview/choose_tests.rs that edits a row of GitHub's list as the shell's jq did: the row is the untyped value preview::choose itself takes, so it is no new untyped interface and goes when T7 types that list."
 
 [[check]]
 id = "untyped-fields"

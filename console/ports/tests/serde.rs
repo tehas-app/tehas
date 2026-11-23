@@ -109,12 +109,17 @@ fn a_checked_type_refuses_a_bad_text_when_read() {
 #[test]
 fn bodies_and_bounds_read_back() {
     let sum = Sum {
-        sha256: "ab".repeat(32),
+        sha256: sha('a'),
         len: 12,
     };
     round(sum.clone());
     round(Body::Text("hello".into()));
     round(Body::Summed(sum));
+    round(MarkName::read_list(["area: docs", "a/b"]));
+    assert!(
+        from_node::<Sum>(map(vec![("sha256", text("ABC")), ("len", Node::Uint(1))])).is_err(),
+        "a sum's hash is checked when read"
+    );
     round(Cite::Ticket(Ref::Here(TicketKey::Number(nz(1)))));
     round(Cite::Blueprint(elsewhere()));
     round(Cite::Change(Ref::Here(ChangeNo::new(3).unwrap())));
