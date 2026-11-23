@@ -1,9 +1,8 @@
 use crate::sniff::{image_type, Sniffer};
-use crate::unpack::{clean_part, kind, unpack};
+use crate::unpack::{clean_part, kind, unpack, Unpacked};
 use crate::zip::{Archive, MAX_ENTRIES};
 use flate2::write::DeflateEncoder;
 use flate2::{Compression, Crc};
-use serde_json::Value;
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::{symlink, PermissionsExt};
@@ -101,26 +100,26 @@ fn zip_counted(entries: &[E], total: Option<u16>) -> Vec<u8> {
     out
 }
 
-fn run(zip: &[u8], dest: &Path, bytes: u64, files: i64) -> Vec<Value> {
+fn run(zip: &[u8], dest: &Path, bytes: u64, files: i64) -> Vec<Unpacked> {
     let archive = Archive::open(zip).expect("a readable archive");
     unpack(&archive, dest, bytes, files).expect("a directory that can be made")
 }
 
-fn skips(out: &[Value]) -> Vec<(String, String)> {
+fn skips(out: &[Unpacked]) -> Vec<(String, String)> {
     out.iter()
-        .filter(|v| v.get("skip").is_some())
-        .map(|v| {
-            (
-                v["skip"].as_str().unwrap().to_string(),
-                v["reason"].as_str().unwrap().to_string(),
-            )
+        .filter_map(|entry| match entry {
+            Unpacked::Skip { name, reason } => Some((name.clone(), reason.clone())),
+            Unpacked::File { .. } => None,
         })
         .collect()
 }
 
-fn names(out: &[Value]) -> Vec<String> {
+fn names(out: &[Unpacked]) -> Vec<String> {
     out.iter()
-        .filter_map(|v| v.get("name").and_then(Value::as_str).map(String::from))
+        .filter_map(|entry| match entry {
+            Unpacked::File { name, .. } => Some(name.clone()),
+            Unpacked::Skip { .. } => None,
+        })
         .collect()
 }
 
@@ -253,20 +252,39 @@ fn files_are_written_with_what_their_bytes_say() {
     let zip = zip_of(&[e("a.md", "# A\n"), png]);
     let out = run(&zip, &s, MB, 16);
     assert_eq!(names(&out), ["a.md", "img/b.png"]);
-    assert_eq!(out[0]["kind"], "part");
-    assert_eq!(out[0]["bytes"], 4);
-    assert_eq!(out[0]["text"], true);
-    assert_eq!(out[0]["image"], Value::Null);
-    assert_eq!(out[1]["kind"], "image");
-    assert_eq!(out[1]["image"], "png");
-    assert_eq!(out[1]["text"], false);
+    let sha = |entry: &Unpacked| match entry {
+        Unpacked::File { sha256, .. } => sha256.clone(),
+        Unpacked::Skip { .. } => String::new(),
+    };
+    assert_eq!(
+        out[0],
+        Unpacked::File {
+            name: "a.md".into(),
+            kind: "part",
+            bytes: 4,
+            sha256: sha(&out[0]),
+            image: None,
+            text: true,
+        }
+    );
+    assert_eq!(
+        out[1],
+        Unpacked::File {
+            name: "img/b.png".into(),
+            kind: "image",
+            bytes: 12,
+            sha256: sha(&out[1]),
+            image: Some("png"),
+            text: false,
+        }
+    );
     assert_eq!(fs::read(s.join("a.md")).unwrap(), b"# A\n");
     let mode = fs::metadata(s.join("img/b.png"))
         .unwrap()
         .permissions()
         .mode();
     assert_eq!(mode & 0o777, 0o644);
-    assert_eq!(out[0]["sha256"].as_str().unwrap().len(), 64);
+    assert_eq!(sha(&out[0]).len(), 64);
 }
 
 // What `attach unpack` answers of an archive, byte for byte: a file of each
@@ -567,10 +585,12 @@ fn only_the_first_200_entries_are_read() {
     let entries: Vec<E> = (1..=205).map(|i| e(&format!("e{i}.txt"), "x")).collect();
     let out = run(&zip_of(&entries), &s, MB, 1000);
     assert_eq!(names(&out).len(), MAX_ENTRIES);
-    assert_eq!(out.last().unwrap()["skip"], "...");
     assert_eq!(
-        out.last().unwrap()["reason"],
-        "More than 200 entries in the zip."
+        out.last().unwrap(),
+        &Unpacked::Skip {
+            name: "...".into(),
+            reason: "More than 200 entries in the zip.".into(),
+        }
     );
     assert!(!s.join("e201.txt").exists());
 }
