@@ -1099,6 +1099,14 @@ fn a_plan_note_says_its_words_only_the_first_time() {
 }
 
 #[test]
+fn the_said_file_of_an_issue_is_beside_its_request() {
+    assert_eq!(
+        crate::apply::said_file(Path::new("/h"), 3),
+        Path::new("/h/state/refresh/3.said")
+    );
+}
+
+#[test]
 fn the_files_of_the_hold_and_the_branch_check() {
     let mut t = world();
     let h = t.w.home.clone();
