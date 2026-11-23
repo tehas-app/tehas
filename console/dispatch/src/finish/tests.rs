@@ -40,7 +40,7 @@ fn ask_comment(by: &str) -> Value {
 
 fn approved() -> Value {
     json!({"at": "2026-10-30T10:00:00Z", "by": "alice", "how": "label",
-        "body_sha256": body_sha256(&json!({"body": BODY})), "fixer_starts": 0})
+        "body_sha256": body_sha256(&json!({"body": BODY}))})
 }
 
 fn ask(by: &str) -> Ask {
@@ -127,7 +127,7 @@ fn the_millwright_asks_on_a_persons_approval() {
     let mut a = ask("acme-millwright[bot]");
     let mut r = approved();
     r = json!({"at": "2026-10-31T10:00:00Z", "by": "acme-millwright", "how": "fixer",
-        "fixer_starts": 2, "rests_on": r});
+        "rests_on": r});
     a.approval = Ok(Some(r));
     a.comments = comments(vec![ask_comment("acme-millwright[bot]")]);
     let mut f = Fake::default();
@@ -146,7 +146,7 @@ fn a_change_in_the_second_of_a_host_approval_by_an_account_called_host_refuses()
         r["by"] = json!("host");
         r["how"] = json!("host");
         json!({"at": "2026-10-31T10:00:00Z", "by": "acme-millwright", "how": "fixer",
-            "fixer_starts": 1, "rests_on": r})
+            "rests_on": r})
     };
     let edited = |at: &str| {
         let mut a = ask("acme-millwright");

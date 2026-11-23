@@ -1090,7 +1090,7 @@ fn fixer_record(w: &World, by: &str) {
     w.record_edit(|v| {
         let old = v.clone();
         *v = json!({"at": "2026-10-15T00:00:00Z", "by": "tehas-bot", "how": "fixer",
-            "body_sha256": old["body_sha256"], "links": old["links"], "fixer_starts": 1,
+            "body_sha256": old["body_sha256"], "links": old["links"],
             "rests_on": {"at": old["at"], "how": old["how"], "body_sha256": old["body_sha256"], "by": by}});
     });
 }

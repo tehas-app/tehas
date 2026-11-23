@@ -1856,7 +1856,7 @@ impl<'a> Poll<'a> {
         }
         let (who, at) = standing_actor(&ev, label);
         if !self.c.allowed(&who) {
-            // The millwright's labels are answered by its grant.
+            // The millwright's labels are answered on the epic path alone.
             let granted = matches!(label, "tehas:ready" | "tehas:plan" | "tehas:refine");
             if !granted || !self.c.is_millwright(&who) {
                 self.deny("skip", n, label, &who);
@@ -2310,10 +2310,21 @@ impl<'a> Poll<'a> {
     /// epic_ready: the millwright's tehas:ready, applied at `at`, on the
     /// first cycle of an approved epic's sub-issue. None when no epic stands
     /// over it or a cycle of it was approved before; Some(None) with the label
-    /// off and the reason said.
+    /// off and the reason said, or kept while its approvals are not read.
     fn epic_ready(&mut self, n: u64, who: &str, at: &str) -> Step<Option<Option<EpicGrant>>> {
-        if !matches!(self.s.issues.get(&n), Some(i) if matches!(i.approval, Some(Ok(None)))) {
-            return Ok(None);
+        match self.s.issues.get(&n).map(|i| &i.approval) {
+            Some(Some(Ok(None))) => {}
+            Some(Some(Err(()))) => {
+                self.log(format!(
+                    "skip #{n}: tehas:ready from the millwright waits: its approvals on the state store could not be read"
+                ));
+                return Ok(Some(None));
+            }
+            None | Some(None) => {
+                self.need("approval");
+                return Ok(Some(None));
+            }
+            Some(Some(Ok(Some(_)))) => return Ok(None),
         }
         match self.epic_part(n)? {
             EpicPart::None => Ok(None),
@@ -3135,9 +3146,9 @@ mod fixer_tests {
         json!({"at": "2026-10-01T00:00:00Z", "by": by, "how": "label", "body_sha256": SUM, "links": []})
     }
 
-    fn by_fixer(starts: Value, rests_on: Value) -> Value {
+    fn by_fixer(rests_on: Value) -> Value {
         json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-fixer", "how": "fixer", "body_sha256": SUM,
-            "links": [], "fixer_starts": starts, "rests_on": rests_on})
+            "links": [], "rests_on": rests_on})
     }
 
     fn by_refresh() -> Value {
@@ -3149,17 +3160,14 @@ mod fixer_tests {
     fn a_base_is_the_persons_approval_a_record_rests_on() {
         let want = json!({"at": "2026-10-01T00:00:00Z", "by": "alice", "how": "label", "body_sha256": SUM});
         assert_eq!(fixer_base(&person("alice")), Some(want.clone()));
-        assert_eq!(
-            fixer_base(&by_fixer(json!(1), person("alice"))),
-            Some(want.clone())
-        );
+        assert_eq!(fixer_base(&by_fixer(person("alice"))), Some(want.clone()));
         assert_eq!(fixer_base(&by_refresh()), Some(want));
     }
 
     #[test]
     fn a_fixers_record_that_rests_on_no_person_is_no_base() {
-        assert_eq!(fixer_base(&by_fixer(json!(1), Value::Null)), None);
-        let twice = by_fixer(json!(1), by_fixer(json!(1), person("alice")));
+        assert_eq!(fixer_base(&by_fixer(Value::Null)), None);
+        let twice = by_fixer(by_fixer(person("alice")));
         assert_eq!(fixer_base(&twice), None);
         let mut own = person("alice");
         own["how"] = json!("fixer");
@@ -3173,7 +3181,7 @@ mod fixer_tests {
         let c = crate::Settings::parse(&json!({"TEHAS_ALLOWED_LABELERS": "alice"}));
         let mut host = person("host");
         host["how"] = json!("host");
-        let base = fixer_base(&by_fixer(json!(1), host)).unwrap();
+        let base = fixer_base(&by_fixer(host)).unwrap();
         assert_eq!(base["how"], "host");
         assert!(base_stands(&c, &base));
         assert!(base_stands(&c, &fixer_base(&person("alice")).unwrap()));

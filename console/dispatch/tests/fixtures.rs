@@ -359,22 +359,14 @@ fn expand(c: &Value, snap: &mut Value) {
         }
     }
     // approved: the approval of the issue's latest start, as `past` writes
-    // it: {by, at, body, fixer_starts}. With fixer starts, the latest is the
-    // fixer's and rests on the person's.
+    // it: {by, at, body, how}.
     if let Some(m) = c.get("approved").and_then(Value::as_object) {
         let mut is = issues(snap);
         for (n, x) in m {
             let sum = body_sha256(&json!({"body": x["body"]}));
             let base = json!({"at": x["at"], "by": x["by"], "how": x.get("how").unwrap_or(&json!("label")), "body_sha256": sum});
-            let record = match x.get("fixer_starts").and_then(Value::as_u64) {
-                Some(k) if k > 0 => {
-                    json!({"at": "2026-10-01T05:00:00Z", "by": "tehas-fixer", "how": "fixer",
-                    "body_sha256": sum, "fixer_starts": k, "rests_on": base})
-                }
-                _ => base,
-            };
             let i = is.entry(n.clone()).or_insert_with(|| json!({}));
-            i["approval"] = record;
+            i["approval"] = base;
         }
         snap["issues"] = Value::Object(is);
     }

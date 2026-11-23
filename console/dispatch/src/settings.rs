@@ -38,9 +38,8 @@ pub struct Settings {
     pub size_max_files: Option<u64>,
     pub size_max_bytes: usize,
     pub size_max_lines: usize,
-    /// TEHAS_WORK_IMAGES. With it the park's hold of the unchanged body lifts
-    /// for a millwright's comment of guidance, which reaches the cycle in
-    /// `comments.json` (#1130). Without it the hold stays.
+    /// TEHAS_WORK_IMAGES=1: image_ok holds an issue that links an attachment
+    /// while the sandbox or the model cannot read one.
     pub work_images: bool,
     /// PI_ENSEMBLE_SUBAGENT_MODEL and PI_ENSEMBLE_IMAGE.
     pub model: String,
@@ -329,6 +328,15 @@ mod tests {
         tested["TEHAS_TEST_FEATURES"] = json!("outsource");
         let rules = Settings::parse(&tested).outsource.unwrap();
         assert_eq!(rules.repos, ["acme/widget"]);
+    }
+
+    #[test]
+    fn images_are_off_unless_it_is_1() {
+        assert!(!Settings::parse(&json!({})).work_images);
+        // TEHAS_WORK_FILES left core in 2.0: it turns on no images.
+        assert!(!Settings::parse(&json!({"TEHAS_WORK_FILES": "1"})).work_images);
+        assert!(Settings::parse(&json!({"TEHAS_WORK_IMAGES": "1"})).work_images);
+        assert!(!Settings::parse(&json!({"TEHAS_WORK_IMAGES": "yes"})).work_images);
     }
 
     #[test]
