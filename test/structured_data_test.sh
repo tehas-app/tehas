@@ -57,6 +57,6 @@ t_contains "$text" '"license": "https://www.apache.org/licenses/LICENSE-2.0",'
 # (test/install_build_tree_test.sh), so the block names none.
 t_lacks "$text" 'softwareVersion'
 t_contains "$text" '"author": {"@type": "Organization", "name": "tehas-app", "url": "https://github.com/tehas-app"},'
-t_contains "$text" '"isBasedOn": {"@type": "SoftwareSourceCode", "codeRepository": "https://github.com/tehas-app/tehas-factory",'
+t_contains "$text" '"isBasedOn": {"@type": "SoftwareSourceCode", "codeRepository": "https://github.com/tehas-app/tehas",'
 
 t_done
