@@ -200,6 +200,9 @@ fn a_holders_table() {
         (gone, out_of(Pool::Calls, NOW + 9), gone, None),
         (gone, Err(Outcome::Unread(Unread::Malformed)), gone, None),
         (gone, down(Passing::Unreachable), gone, None),
+        // A failed check run is the site answering: the sign-in works.
+        (up, broken(), up, None),
+        (gone, broken(), up, Some(Health::Recovered)),
     ];
     for (was, seen, new, notice) in cases {
         assert_eq!(

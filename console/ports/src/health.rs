@@ -31,7 +31,9 @@ use crate::{unknown, At, HealthState, Holder, HostId, Outcome, Passing, Pool, Re
 /// `Spent` of itself as its own and ignores `Spent` of another pool, which
 /// `keys` gives to that pool. A good call clears a pool only from `until`
 /// on, and `SignedOut` tells it nothing. `Unread` and `Unavailable` tell
-/// neither holder nor pool anything. A state not its own (a holder's or a
+/// neither holder nor pool anything, but `Unavailable(Broken)`, which
+/// answers the holder's request, clears a holder's `SignedOut`. A state not
+/// its own (a holder's or a
 /// pool's given for the host, `Spent` of another pool) is read as
 /// `Healthy`.
 pub fn next(
@@ -116,6 +118,15 @@ fn host_next(now: At, was: HealthState, seen: &Result<(), Outcome>) -> HealthSta
 
 fn holder_next(now: At, was: HealthState, seen: &Result<(), Outcome>) -> HealthState {
     match (was, seen) {
+        // A failed check run is the site answering the holder's request: the
+        // sign-in works, as with any other good answer.
+        (
+            _,
+            Err(Outcome::Unavailable {
+                why: Passing::Broken,
+                ..
+            }),
+        ) => HealthState::Healthy,
         (_, Err(Outcome::Unread(_) | Outcome::Unavailable { .. } | Outcome::Spent { .. })) => was,
         (HealthState::SignedOut { .. }, Err(Outcome::SignedOut)) => was,
         (_, Err(Outcome::SignedOut)) => HealthState::SignedOut { since: now },
