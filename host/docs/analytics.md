@@ -173,17 +173,20 @@ call; one that a caller killed during the call leaves is removed by
 | `tool_calls`, `tool_errors` | The result's `usage.toolCalls` and `usage.toolErrors`: the tool calls the run's children started, a codemode script's nested calls included, and those that ended in an error. NULL where the result has none: a pi-rukas before v0.14.66 (`features.usageTools`), a result that could not count them, a planning turn | 4 |
 | `result_driver` | The result's `driver`: the engine that ran the issue, `classic` or `lean`, beside `driver`, the one the approval bound. NULL where the result names none or another word | 4 |
 
-The outcome of a work run:
+The outcome of a work run, the first row that matches, top to bottom.
+`tehas_core::outcome::end` decides it:
 
 | Outcome | Meaning |
 | --- | --- |
-| `merged` | The issue's pull request was merged |
-| `stopped` | The issue was closed while it ran, or it was interrupted |
+| `merged` | The issue's pull request was merged within the run, and the run did not park. A runner that claimed a merge the report did not find parks, and ends by a later row |
+| `stopped` | The issue was closed while it ran, it was interrupted, or `tehas stop` stopped it, and the run did not park |
 | `refused` | No cycle ran: the runner refused, or `tehas work` started none |
 | `pr` | It left an open pull request and was not parked |
 | `handoff` | The runner handed off to a person |
-| `failed` | tehas stopped it, the runner aborted, or a failure other than a cap stopped it |
+| `failed` | tehas stopped it, the runner aborted, it was lost (it died without a word), or a failure other than a cap stopped it |
 | `parked` | Any other end that needs a person, such as a cap |
+
+A run that parked never has `merged`, `stopped` or `pr`.
 
 A planning turn is `handoff` when it asked its question, `stopped` when Pi no
 longer had the session, `refused` when no turn ran, and `failed` otherwise.
