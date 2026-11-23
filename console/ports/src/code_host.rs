@@ -18,7 +18,10 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct Facts {
-    /// The project, as the site names it.
+    /// The project's current name, after any rename or move. Where the
+    /// site holds it to be the project the handle was made for, it is the
+    /// configured spelling, so a name that differs means the project
+    /// moved. The adapter folds the site's case.
     pub name: ProjectName,
     /// Anyone may read it.
     pub public: bool,
@@ -40,14 +43,19 @@ new!(
     archived
 );
 
-/// Whether a change can merge now.
+/// Whether a change can merge now. A conflict wins: a change whose
+/// branch conflicts with its base is `No(Conflict)`, whatever else holds
+/// it. While the site has not worked out whether it conflicts, the answer
+/// is `Unknown`, never another reason, so a conflicting draft never reads
+/// as `No(Draft)` and is asked again.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Mergeable {
     /// It can.
     Yes,
-    /// It cannot, for this reason.
+    /// It cannot, for this reason; `Conflict` before every other.
     No(NotMergeable),
-    /// The site has not worked it out yet. The default.
+    /// The site has not worked it out yet, a conflict among it. The
+    /// default.
     #[default]
     Unknown,
 }
@@ -122,6 +130,10 @@ pub struct ChangeDigest {
     pub head_commit: CommitId,
     /// The branch it merges into.
     pub base: Branch,
+    /// The base commit the site records for the change, from the same
+    /// answer as `head_commit`: what a hook names as the change's base. It
+    /// may lag the tip of `base`, which `CodeHost::branch` gives.
+    pub base_commit: CommitId,
     /// Who opened it; None where the site names nobody.
     pub author: Option<Account>,
     /// Its head is in another project.
@@ -133,7 +145,15 @@ pub struct ChangeDigest {
     /// The marks it carries.
     pub marks: Vec<Mark>,
     /// The blueprints this change says it closes, as the site records it.
+    /// A site may record none for a change into a branch other than the
+    /// default: `says_closes` reads the text.
     pub closes: Vec<Ref<BlueprintNo>>,
+    /// The blueprints the change's text names with the site's closing
+    /// syntax, whatever its base. Given when the filter asks for bodies,
+    /// empty otherwise. The adapter owns the syntax. Missing, it reads as
+    /// empty.
+    #[serde(default)]
+    pub says_closes: Vec<Ref<BlueprintNo>>,
     /// Its size, if the site says.
     pub size: Option<Size>,
     /// Given when the filter asks for bodies. Without our markers, as every
@@ -141,6 +161,10 @@ pub struct ChangeDigest {
     pub body: Option<String>,
     /// When it was opened.
     pub created: At,
+    /// When the site last saw the change change, as it records it: at or
+    /// after `created`, `edited` and its merge or close. A caller compares
+    /// it with a time it stored.
+    pub updated: At,
     /// When its title or body was last edited; None when unedited.
     pub edited: Option<At>,
     /// The last account to edit the change's title or body; None when
@@ -157,7 +181,9 @@ new!(
         head: Branch,
         head_commit: CommitId,
         base: Branch,
+        base_commit: CommitId,
         created: At,
+        updated: At,
         link: WebLink
     },
     title,
@@ -167,6 +193,7 @@ new!(
     merge_state,
     marks,
     closes,
+    says_closes,
     size,
     body,
     edited,
@@ -348,6 +375,10 @@ pub struct ChangeFilter {
     pub author: Option<Author>,
     /// Changes from this branch.
     pub head: Option<Branch>,
+    /// Changes carrying every one of these marks. Empty narrows nothing,
+    /// as in tickets' `Filter`. Missing, it reads as empty.
+    #[serde(default)]
+    pub carrying: Vec<Mark>,
     /// Changes that close one of these blueprints. Empty narrows nothing.
     pub closing: Vec<BlueprintNo>,
     /// Changes merged since a time.
@@ -379,7 +410,8 @@ pub struct ChangeDelta {
 
 new!(ChangeDelta { next: Cursor }, changes, comments, more);
 
-/// The checks on a commit, and what they add up to.
+/// The checks on a commit, and what they add up to: the newest run of
+/// each name, and `Overall::of` them.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct Checks {
@@ -415,7 +447,11 @@ pub enum CheckStatus {
     Done(Conclusion),
 }
 
-/// The words both code hosts have. The adapter folds the rest into these.
+/// The words both code hosts have. The adapter folds its site's into
+/// these: a success or a neutral end is `Passed`; a skip is `Skipped`; a
+/// failure, a time out and a run that could not start are `Failed`; a
+/// cancel is `Cancelled`; anything else, and a finished run that names no
+/// conclusion, is `Unknown`, never a pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Conclusion {
@@ -432,18 +468,50 @@ pub enum Conclusion {
     Unknown,
 }
 
-/// Never `Pass` from an answer that could not be read: that is `Unread`.
+/// What the checks on a commit add up to, by `Overall::of`. Never `Pass`
+/// from an answer that could not be read: that is `Unread`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Overall {
-    /// Every check passed.
+    /// Every check passed or was skipped.
     Pass,
-    /// A check failed.
+    /// A check failed, whatever the others are.
     Fail,
-    /// A check has not finished.
+    /// None failed and a check has not finished.
     Pending,
     /// There are no checks.
     #[default]
     None,
+    /// Every check finished, none failed, and not every one passed: one
+    /// was cancelled or ended in a word the site does not fold. What ended
+    /// them is not known, so it is no pass.
+    Unknown,
+}
+
+impl Overall {
+    /// What the runs add up to, the newest run of each name alone: none is
+    /// `None`; a `Failed` one is `Fail`; every one `Passed` or `Skipped` is
+    /// `Pass`; every one done otherwise is `Unknown`; else `Pending`.
+    pub fn of(runs: &[Check]) -> Overall {
+        if runs.is_empty() {
+            return Overall::None;
+        }
+        let done = |r: &Check| match r.status {
+            CheckStatus::Done(c) => Some(c),
+            CheckStatus::Queued | CheckStatus::Running => None,
+        };
+        if runs.iter().any(|r| done(r) == Some(Conclusion::Failed)) {
+            Overall::Fail
+        } else if runs
+            .iter()
+            .all(|r| matches!(done(r), Some(Conclusion::Passed | Conclusion::Skipped)))
+        {
+            Overall::Pass
+        } else if runs.iter().all(|r| done(r).is_some()) {
+            Overall::Unknown
+        } else {
+            Overall::Pending
+        }
+    }
 }
 
 /// A status tehas posts on a commit, as a plugin's hook does. `link` is
@@ -739,7 +807,9 @@ pub trait CodeHost: Reports + Cites {
     fn changed_files(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<ChangedFile>>;
     /// A change's events, oldest first.
     fn activity(&mut self, no: ChangeNo, window: Window) -> Got<Took<ChangeEvent>>;
-    /// The checks on a commit, or the one of this name.
+    /// The checks on a commit, or the one of this name: the newest run of
+    /// each name alone, so an old failure beside a passing re-run is not
+    /// read. `overall` is `Overall::of` those runs.
     fn checks(&mut self, at: &CommitId, name: Option<&str>) -> Got<Checks>;
     /// The project's tags, whole.
     fn tags(&mut self, bound: Bound) -> Got<Whole<Tag>>;
