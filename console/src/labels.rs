@@ -431,6 +431,38 @@ mod tests {
         assert_eq!(readable(bare.path()), Ok(()));
     }
 
+    // CRLF line ends, spaces or tabs after an id and blank lines: the
+    // command goes on, keeps the pins and writes the file plain.
+    #[test]
+    fn pins_with_trailing_damage_pass_and_are_written_plain() {
+        use tehas_core::label_pins::{FILE, GRANTING};
+        for text in [
+            "tehas:plan\tLA_plan\r\ntehas:ready\tLA_ready\r\n",
+            "tehas:plan\tLA_plan \ntehas:ready\tLA_ready\t\n",
+            "\ntehas:plan\tLA_plan\n\ntehas:ready\tLA_ready\n\n",
+        ] {
+            let d = tehas_core::testdir::TestDir::new("labels-pin-lenient");
+            fs::create_dir_all(d.path().join(FILE).parent().unwrap()).unwrap();
+            fs::write(d.path().join(FILE), text).unwrap();
+            assert_eq!(readable(d.path()), Ok(()), "{text:?}");
+            let id = |n: &str| format!("LA_{}", n.trim_start_matches("tehas:"));
+            let before: Vec<Option<String>> = GRANTING
+                .iter()
+                .map(|n| ["tehas:ready", "tehas:plan"].contains(n).then(|| id(n)))
+                .collect();
+            let rc = pin(d.path(), before, &mut |n| Some(id(n)), &BTreeMap::new());
+            assert_eq!(rc, 0, "{text:?}");
+            let got = fs::read_to_string(d.path().join(FILE)).unwrap();
+            assert!(
+                !got.contains(['\r', ' ']) && !got.contains("\n\n"),
+                "{got:?}"
+            );
+            assert!(
+                got.contains("tehas:plan\tLA_plan\n") && got.contains("tehas:ready\tLA_ready\n")
+            );
+        }
+    }
+
     /// A plugin phase's label: no core label takes the prefix, and `tehas
     /// labels` neither makes, recolours nor pins one. It makes only the
     /// table's labels and pins only `GRANTING`, so a phase label the

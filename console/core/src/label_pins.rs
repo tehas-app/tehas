@@ -75,7 +75,8 @@ const BOUND: u64 = 64 * 1024;
 /// Anything else that is not a regular file of `<name>\t<id>` lines, each
 /// name once and no whitespace in either, is [`Unreadable`]: a link, a
 /// directory, a file tehas may not read, one over the bound, not UTF-8, or a
-/// line of another shape.
+/// line of another shape. Blank lines, CRLF line ends and spaces or tabs
+/// after the id are read past.
 pub fn load(home: &Path) -> Result<Record, Unreadable> {
     let path = home.join(FILE);
     match fs::symlink_metadata(&path) {
@@ -97,7 +98,12 @@ pub fn load(home: &Path) -> Result<Record, Unreadable> {
 
 fn parse(text: &str) -> Result<Pins, Unreadable> {
     let mut pins = Pins::new();
-    for (at, l) in text.lines().enumerate() {
+    for (at, raw) in text.split('\n').enumerate() {
+        // Trailing spaces, tabs and CR are damage that cannot change a pair.
+        let l = raw.trim_end_matches([' ', '\t', '\r']);
+        if l.is_empty() {
+            continue;
+        }
         let bare = |w: &str| !w.is_empty() && !w.contains(char::is_whitespace);
         let Some((name, id)) = l.split_once('\t').filter(|(n, id)| bare(n) && bare(id)) else {
             return Err(Unreadable(format!(
@@ -497,6 +503,150 @@ mod tests {
         )
         .unwrap();
         assert_eq!(pins(d.path())[READY], "LA_r");
+    }
+
+    /// Every file 1.x could write: `save` was the one writer from
+    /// v1.0.0-beta.1 to v1.4.0, a `<name>\t<id>\n` line per pin in name
+    /// order, and an empty file when a poll read no granting label.
+    /// `tehas:prototype` was pinned until 2.0; `tehas:blocked` from v1.0.0.
+    #[test]
+    fn every_file_1x_wrote_reads_as_its_pins() {
+        let cases: [(&str, &[(&str, &str)]); 4] = [
+            ("no pin", &[]),
+            ("one pin", &[(READY, "LA_kwDOAbc123")]),
+            (
+                "the beta set",
+                &[
+                    ("tehas:classic", "LA_c"),
+                    ("tehas:finish", "LA_f"),
+                    ("tehas:lean", "LA_l"),
+                    ("tehas:plan", "LA_p"),
+                    ("tehas:prototype", "LA_x"),
+                    ("tehas:ready", "LA_r"),
+                    ("tehas:refine", "LA_e"),
+                ],
+            ),
+            (
+                "the 1.x set",
+                &[
+                    ("tehas:blocked", "LA_b"),
+                    ("tehas:classic", "LA_c"),
+                    ("tehas:finish", "LA_f"),
+                    ("tehas:lean", "LA_l"),
+                    ("tehas:plan", "LA_p"),
+                    ("tehas:prototype", "LA_x"),
+                    ("tehas:ready", "LA_r"),
+                    ("tehas:refine", "LA_e"),
+                ],
+            ),
+        ];
+        for (why, pairs) in cases {
+            let d = TestDir::new("pins-1x");
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
+            let text: String = pairs.iter().map(|(n, id)| format!("{n}\t{id}\n")).collect();
+            fs::write(d.path().join(FILE), &text).unwrap();
+            let want: Pins = pairs
+                .iter()
+                .map(|(n, id)| (n.to_string(), id.to_string()))
+                .collect();
+            assert_eq!(load(d.path()), Ok(Record::Kept(want.clone())), "{why}");
+            save(d.path(), &want).unwrap();
+            assert_eq!(
+                fs::read_to_string(d.path().join(FILE)).unwrap(),
+                text,
+                "{why}"
+            );
+        }
+    }
+
+    const LENIENT: [(&str, &str); 6] = [
+        (
+            "CRLF line ends",
+            "tehas:plan\tLA_p\r\ntehas:ready\tLA_r\r\n",
+        ),
+        (
+            "CRLF, no last line end",
+            "tehas:plan\tLA_p\r\ntehas:ready\tLA_r\r",
+        ),
+        (
+            "trailing spaces",
+            "tehas:plan\tLA_p  \ntehas:ready\tLA_r \n",
+        ),
+        (
+            "trailing tabs",
+            "tehas:plan\tLA_p\t\ntehas:ready\tLA_r\t \t\n",
+        ),
+        (
+            "blank lines",
+            "\ntehas:plan\tLA_p\n\n \t\ntehas:ready\tLA_r\n\n",
+        ),
+        (
+            "all of them",
+            "\r\ntehas:plan\tLA_p \r\n\r\ntehas:ready\tLA_r\t\r\n",
+        ),
+    ];
+
+    fn lenient_pins() -> Pins {
+        Pins::from([
+            ("tehas:plan".into(), "LA_p".into()),
+            (READY.into(), "LA_r".into()),
+        ])
+    }
+
+    #[test]
+    fn trailing_whitespace_crlf_and_blank_lines_read_as_the_same_pairs() {
+        for (why, text) in LENIENT {
+            let d = TestDir::new("pins-lenient");
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
+            fs::write(d.path().join(FILE), text).unwrap();
+            assert_eq!(load(d.path()), Ok(Record::Kept(lenient_pins())), "{why}");
+        }
+    }
+
+    // Whitespace anywhere but at the end of a line is not plain damage: the
+    // file stays unreadable.
+    #[test]
+    fn whitespace_inside_a_line_is_still_unreadable() {
+        for text in [
+            " tehas:ready\tLA_r\n",
+            "\ttehas:ready\tLA_r\n",
+            "tehas:ready LA_r\n",
+            "tehas:ready\t\tLA_r\n",
+            "tehas:ready \tLA_r\n",
+            "tehas:ready\tLA_r x\n",
+            "tehas:ready\rLA_r\n",
+            "tehas:ready\n",
+            "tehas:ready\t \n",
+        ] {
+            let d = TestDir::new("pins-inside");
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
+            fs::write(d.path().join(FILE), text).unwrap();
+            assert!(load(d.path()).is_err(), "{text:?}");
+        }
+    }
+
+    // `tehas labels` writes the file on every run, so it writes it plain.
+    #[test]
+    fn tehas_labels_writes_a_damaged_file_plain() {
+        for (why, text) in LENIENT {
+            let d = TestDir::new("pins-lenient-made");
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
+            fs::write(d.path().join(FILE), text).unwrap();
+            let (said, whole) = pin_made(
+                d.path(),
+                &[
+                    seen(READY, Some("LA_r"), Some("LA_r")),
+                    seen("tehas:plan", Some("LA_p"), Some("LA_p")),
+                ],
+            )
+            .unwrap();
+            assert!(whole && said.is_empty(), "{why}: {said:?}");
+            assert_eq!(
+                fs::read_to_string(d.path().join(FILE)).unwrap(),
+                "tehas:plan\tLA_p\ntehas:ready\tLA_r\n",
+                "{why}"
+            );
+        }
     }
 
     #[test]

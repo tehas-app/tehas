@@ -561,6 +561,32 @@ mod tests {
         cases
     }
 
+    // CRLF line ends, spaces or tabs after an id and blank lines: the poll
+    // reads the same pins, alice's application counts, and the file is left
+    // as it is, since a poll that pins nothing writes nothing.
+    #[test]
+    fn pins_with_trailing_damage_are_used_as_they_are() {
+        for text in [
+            "tehas:plan\tLA_p\r\ntehas:ready\tLA_real\r\n",
+            "tehas:plan\tLA_p \ntehas:ready\tLA_real\t\n",
+            "\ntehas:plan\tLA_p\n\ntehas:ready\tLA_real\n\n",
+        ] {
+            for dry in [false, true] {
+                let d = TestDir::new("pins-lenient");
+                fs::create_dir_all(d.path().join(FILE).parent().unwrap()).unwrap();
+                fs::write(d.path().join(FILE), text).unwrap();
+                let mut s = snap(
+                    json!([{"name": "tehas:ready", "id": "LA_real"}, {"name": "tehas:plan", "id": "LA_p"}]),
+                    json!([ready("LA_real", "alice")]),
+                );
+                let (said, refused) = settle(d.path(), &mut s, dry);
+                assert!(said.is_empty() && refused.is_empty(), "{text:?}: {said:?}");
+                assert_eq!(actor(&s), "alice", "{text:?}");
+                assert_eq!(fs::read_to_string(d.path().join(FILE)).unwrap(), text);
+            }
+        }
+    }
+
     // The label read is the pinned one, and alice's application of it would
     // count: with pins that cannot be read it counts for nothing, every
     // granting label is refused, and the file is as it was.

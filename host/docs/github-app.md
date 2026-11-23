@@ -326,7 +326,9 @@ GraphQL carry the id of their label:
   counts, and the poll writes nothing to the file. `tehas labels` stops with
   exit 78 and the same line, before it asks GitHub anything, and leaves the
   file as it is. Only a file that is not there at all is pinned at first
-  sight.
+  sight. Blank lines, CRLF line ends and spaces or tabs after an id are
+  read past: the pins count as written, the poll leaves the file as it is,
+  and the next `tehas labels` writes it plain.
 - A refused `tehas:blocked` starts nothing, but it still holds: an issue
   that carries it waits as it would for an allowed account's, on the marked
   comment or on the label alone. A refused pin never lets an issue start
