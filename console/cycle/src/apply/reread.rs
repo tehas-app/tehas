@@ -1,7 +1,9 @@
 //! A write of the report that GitHub may have taken, read back before it is
 //! sent again (#1754). Nothing decides a cycle's report again, and a settled
 //! row is never replayed, so the report reads it itself: a write that is not
-//! there is sent again, one that is there is done.
+//! there is sent again, one that is there is done. A write of the ports
+//! (`Journal::send`) never comes here: its answer is the site's, and a label
+//! call that names no label settles nothing.
 
 use serde_json::Value;
 use tehas_core::journal::summed;
@@ -85,6 +87,11 @@ pub(super) fn seen(
             } else {
                 (after(args, "--add-label"), after(args, "--remove-label"))
             };
+            // A call that names no label, as a row of `Journal::send` under
+            // the same word would read, would be there for nothing checked.
+            if on.is_empty() && off.is_empty() {
+                return Seen::Unread;
+            }
             let done = on.iter().all(|l| have.contains(l)) && off.iter().all(|l| !have.contains(l));
             if done {
                 Seen::There(String::new())
@@ -177,6 +184,22 @@ mod tests {
         assert_eq!(r(on), Seen::There(String::new()));
         assert_eq!(r(both), Seen::Missing);
         assert_eq!(r(json!({"labels": []})), Seen::Missing);
+    }
+
+    /// T4.4: a label write that names no label, as a write of the ports
+    /// under a 1.x word would read with no argv, is never there.
+    #[test]
+    fn a_label_write_that_names_no_label_settles_nothing() {
+        let v = json!({"labels": [{"name": "tehas:running"}]});
+        for kind in ["label-add", "label-remove"] {
+            for a in [vec![], args("issue edit 7 --repo a/b")] {
+                assert_eq!(
+                    seen("a/b", 7, kind, &a, None, NOW, &mut with(Some(v.clone()))),
+                    Seen::Unread,
+                    "{kind} {a:?}"
+                );
+            }
+        }
     }
 
     #[test]
