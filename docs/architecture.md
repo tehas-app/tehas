@@ -234,7 +234,7 @@ its reason, as a floor; a departure from a should rule (R5) likewise.
 | home-layout | 16, in the bash and the units | `install.sh` 12, `host/systemd/` 4 | T8's freeze, below |
 | gh-argv | 3, in the bash | `lib/github-app.sh` 1, `host/sandbox/gh-shim` 1, `scripts/tag-release.sh` 1 | T8's freeze, below |
 | github-rest | 4, in the bash | `host/sandbox/gh-shim` 4 | T8's freeze, below |
-| tests-stub-gh | 76, in the shell tests of what is bash | 17 files of `test/` | T8's freeze, below |
+| tests-stub-gh | 83, in the shell tests that stay shell | 18 files of `test/` | T8's freeze, below |
 
 ### The bash that stays (T8)
 
@@ -273,7 +273,7 @@ The checks that read bash, and what each still counts there:
 | home-layout | 16 | 1356 | `install.sh` 12: ten paths under the home it writes once each (the state directory, `state/tehas.db`, `state/backup`, `state/dispatch.lock`, `state/update.lock`, `state/sandbox.Dockerfile.sha256`, `state/first-install`, `state/cycles` in a note, `state/index.json`, and `live` on the line that makes the home's directories) and two comments (lines 97 and 140). The units 4: `tehas-dispatch.path` and `tehas-dispatch.service` name `state/dispatch.again`, `tehas-mcp-fetch.socket` names `run/mcp-fetch/fetch.sock`, and `tehas-cycle@.service` line 9 is a comment |
 | gh-argv | 3 | 408 | `lib/github-app.sh` line 19, the credential helper string git is given, which names the console's shim. Two comments: `host/sandbox/gh-shim` line 33 and `scripts/tag-release.sh` line 68 |
 | github-rest | 4 | 846 | `host/sandbox/gh-shim`: lines 43, 50 and 57 read whether a `gh api graphql` call is a mutation, to refuse a write on a read-only host. Line 33 is a comment |
-| tests-stub-gh | 76 | 419 | the shell tests of what is bash: `github_app_test.sh` 22, `gh_fail_test.sh` 21 (the test of `t_gh_fail` in `test/lib.sh`), the six `shim_writes_*` files 16, `tag_release_test.sh` 6, `install_first_test.sh` 4, and 1 each in `gh_shim_test.sh`, `bootstrap_lib.sh`, `bootstrap_test.sh`, `install_lib.sh`, `setup_test.sh`, `update_test.sh` and `config_defaults_test.sh` |
+| tests-stub-gh | 83 | 419 | the shell tests that ports spec T4.12 and the tests-stub-gh row of its Done keep as written floors: `github_app_test.sh` 22, `gh_fail_test.sh` 21 (the test of `t_gh_fail` in `test/lib.sh`), the six `shim_writes_*` files 16, `init_product_test.sh` 7, `tag_release_test.sh` 6, `install_first_test.sh` 4, and 1 each in `sandbox_argv_test.sh` (rule 4), `gh_shim_test.sh`, `bootstrap_lib.sh`, `bootstrap_test.sh`, `install_lib.sh`, `setup_test.sh` and `config_defaults_test.sh`. The spec names `install_fresh_test.sh` and `config_test.sh`; their cases are in `install_first_test.sh` and `config_defaults_test.sh` now, and `bootstrap_test.sh`'s 2 are split with `bootstrap_lib.sh` |
 
 Six of the 23 matches outside the tests are comments, on five lines
 (`host/sandbox/gh-shim` line 33 counts in two checks). They count
@@ -288,16 +288,27 @@ contract (`api/commands.txt`), not a small change to the bash, and the
 owner's freeze leaves it out of 2.0. The units need real paths: systemd
 cannot ask. The credential helper is a string git reads from the environment of a
 login shell. The gh shim of the sandbox must read `gh`'s arguments to
-decide whether a call writes. The 76 shell tests test bash itself: the
-shims, the App's shell side, the harness's own gh failure, install,
-bootstrap, setup and update, the settings library and the release script.
+decide whether a call writes. The 83 shell tests are those whose point
+is the bash, as the ports spec keeps them: the shims, the container's
+argument lists (rule 4), the App's shell side, the harness's own gh
+failure, install, bootstrap, init-product and setup, the settings library
+and the release script.
 
-Not in this floor. The other 37 matches of tests-stub-gh in 21 files of
-`test/` are tests of Rust commands run through the shell: T15 moves them.
-Its 36 matches in data files of Rust tests (dispatch's fixtures 21, the
-store's dumps 10, core's drafts 4, mcp's log 1) are not bash. The shell
-stubs that home-layout counts in the Rust test files of cycle and of the
-console go with the ports' moves, T4.5 and T4.9.
+Not in this floor. The other 30 matches of tests-stub-gh in 20 files of
+`test/`, `update_test.sh` among them, stub `gh` for a behaviour of Rust
+code: ports spec T4.12 moves them into Rust over the fake, with the
+crate they test, and the plan's T15 ports the shell tests to Rust. Its 36
+matches in data files of Rust tests are not bash. Dispatch's JSON
+fixtures 21 give way to builders at T4.6. The store's 1.x SQL fixtures
+10, core's text samples 4 and mcp's log sample 1 are written floors of T4
+(ports spec T4.4, T4.8 and T4.11, and its Done). home-layout's matches in
+the Rust test files of cycle (70) and of the console (8, and 1 in
+`console/src/wake.rs`) are T5's, whose Done is home-layout at 0 outside
+`Home`: cycle's are 64 shell stubs of the runner writing its notes under
+`state/cycles`, 3 expected values and 3 files a test checks are not made;
+the console's are 5 shell stubs in its update tests (`tests/update.rs` 2,
+`update/mod.rs` 2, `update_checkout.rs` 1) and 4 paths a test holds to
+check against, `wake.rs` line 89 an expected path.
 
 ### Temporary rises
 

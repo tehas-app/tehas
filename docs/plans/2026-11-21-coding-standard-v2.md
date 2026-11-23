@@ -493,8 +493,8 @@ Closed by a freeze (the owner, 2026-11-23): T8 does not rewrite the bash
 that is left. #2981 made `install.sh` write each path under `state/`
 once; the rest is frozen at its count as a written floor, which may only
 fall, in `docs/architecture.md`, "The bash that stays (T8)": label-words
-0, home-layout 16, gh-argv 3, github-rest 4, and tests-stub-gh 76 in the
-shell tests of what is bash.
+0, home-layout 16, gh-argv 3, github-rest 4, and tests-stub-gh 83 in the
+shell tests that ports spec T4.12 keeps as shell.
 
 ### T11. Events
 
