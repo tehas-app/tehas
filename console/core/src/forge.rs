@@ -18,8 +18,9 @@
 /// A runner runs one gh call and owns how: it holds the program, gives the
 /// call its bound, and reads its standard output. `args` are the words after
 /// the program, which the runner does not repeat, and the reason an adapter
-/// holds is the runner's own for the failure, not what gh printed.
-pub trait GhRunner {
+/// holds is the runner's own for the failure, not what gh printed. It is
+/// `Send`, so an adapter holding one can be a site's `Send` handle.
+pub trait GhRunner: Send {
     /// Run gh with these arguments: its standard output, or the reason it
     /// gave for failing.
     fn run(&mut self, args: &[&str]) -> Result<String, String>;
