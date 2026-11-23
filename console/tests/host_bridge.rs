@@ -274,8 +274,16 @@ fn the_docs_server_answers_every_path_under_host_and_pages_with_404_before_anyth
     let caddyfile = text("host/edge/docs.Caddyfile");
     has(&caddyfile, "@host path /host/*");
     has(&caddyfile, "respond @host 404");
-    has(&caddyfile, "@pages path /pages/*");
+    has(&caddyfile, "@pages path /pages /pages/*");
     has(&caddyfile, "respond @pages 404");
+    // Nothing else names /pages, so no handler outside the route can answer
+    // there either.
+    for line in caddyfile.lines() {
+        let code = line.trim_start();
+        if code.contains("/pages") && !code.starts_with('#') {
+            assert_eq!(code, "@pages path /pages /pages/*", "a line names /pages");
+        }
+    }
     // The first things in the route, so no handler below can answer under
     // /host/ or /pages/.
     let (mut r, mut h, mut p, mut f) = (0, 0, 0, 0);
@@ -324,9 +332,9 @@ fn curl_code(url: &str) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
-// What the contract freezes: the host owns /host/ and plugins' public pages own
-// /pages/, so a file put there is never served. Bare /host is left out: the
-// manual's page "The host" is named so.
+// What the contract freezes: the host owns /host/, and /pages with all under
+// /pages/ is reserved for plugins, so a file put there is never served. Bare
+// /host is left out: the manual's page "The host" is named so.
 #[test]
 fn the_docs_server_answers_404_for_any_path_under_host_or_pages_even_where_a_file_stands() {
     if !(on_path("caddy") && on_path("curl")) {
@@ -365,6 +373,7 @@ fn the_docs_server_answers_404_for_any_path_under_host_or_pages_even_where_a_fil
         "/host/index.html",
         "/host/.x",
         "/Host/bridge.json",
+        "/pages",
         "/pages/",
         "/pages/x",
         "/pages/index.html",
@@ -551,8 +560,10 @@ fn the_contract_reserves_the_plugin_pages_namespace_and_names_the_test_that_hold
         .expect("contract.md has no row for the plugin pages namespace");
     for words in [
         "`/pages/`",
-        "never serves a path under it",
-        "answers 404 there",
+        "`/pages`",
+        "reserved for plugins from 2.1",
+        "serves nothing there and answers 404",
+        "adds no manual page, route or file there in 2.x",
         "`console/tests/host_bridge.rs`",
     ] {
         has(row, words);
