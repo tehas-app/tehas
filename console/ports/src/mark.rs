@@ -133,6 +133,23 @@ pub enum Kind {
     Unknown,
 }
 
+impl Kind {
+    /// The kind a site's type of ticket names, or a setting names: the
+    /// four of ours by their names as written (`Feature`, `Bug`, `Task`,
+    /// `Epic`), any other name a mark's name can be as `Other`, and a name
+    /// that cannot be one as `Unknown`. Pure: no case is folded, so a
+    /// setting matches a site's type exactly as the adapter reads it.
+    pub fn named(name: &str) -> Kind {
+        match name {
+            "Feature" => Kind::Feature,
+            "Bug" => Kind::Bug,
+            "Task" => Kind::Task,
+            "Epic" => Kind::Epic,
+            other => MarkName::new(other).map_or(Kind::Unknown, Kind::Other),
+        }
+    }
+}
+
 fn kind_unknown<'de, D: Deserializer<'de>>(d: D) -> Result<(), D::Error> {
     unknown::read_any(d)
 }
@@ -175,6 +192,24 @@ fn colour_ok(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_kind_is_named_as_written() {
+        assert_eq!(Kind::named("Feature"), Kind::Feature);
+        assert_eq!(Kind::named("Bug"), Kind::Bug);
+        assert_eq!(Kind::named("Task"), Kind::Task);
+        assert_eq!(Kind::named("Epic"), Kind::Epic);
+        assert_eq!(
+            Kind::named("Spike"),
+            Kind::Other(MarkName::new("Spike").unwrap())
+        );
+        // No case is folded.
+        assert_eq!(
+            Kind::named("bug"),
+            Kind::Other(MarkName::new("bug").unwrap())
+        );
+        assert_eq!(Kind::named(""), Kind::Unknown);
+    }
 
     #[test]
     fn a_colour_is_six_hex_digits() {

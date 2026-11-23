@@ -82,7 +82,7 @@
           {
             "name": "advice",
             "status": {
-              "Done": "Skipped"
+              "Done": "Passed"
             }
           }
         ],
@@ -162,7 +162,7 @@
             }
           }
         ],
-        "overall": "Fail"
+        "overall": "Unknown"
       }
     }
   },
