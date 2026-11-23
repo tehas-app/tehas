@@ -133,7 +133,6 @@ fn a_port_not_built_here_is_unsupported_and_makes_no_runner() {
         refused(site.code_host_writes(&by, CALLER)),
         Some(UNSUPPORTED)
     );
-    assert_eq!(refused(site.identity(&by, CALLER)), Some(UNSUPPORTED));
     assert_eq!(refused(site.board(&by, CALLER)), Some(UNSUPPORTED));
     assert!(asked.lock().unwrap().is_empty());
 }
@@ -173,12 +172,10 @@ fn a_setup_of_the_site_hands_out_its_handles_by_realm() {
     let by = Actor::Ours(Scope::Full);
     assert!(setup.tickets(&by, CALLER).is_ok());
     assert!(setup.ticket_writes(&by, CALLER).is_ok());
-    assert_eq!(
-        refused(setup.identity(Realm::CodeHost, &by, CALLER)),
-        Some(UNSUPPORTED)
-    );
+    assert!(setup.identity(Realm::CodeHost, &by, CALLER).is_ok());
+    assert!(setup.identity(Realm::Tickets, &by, CALLER).is_ok());
     assert_eq!(refused(setup.board(&by, CALLER)), Some(UNSUPPORTED));
-    assert_eq!(asked.lock().unwrap().len(), 2);
+    assert_eq!(asked.lock().unwrap().len(), 4);
 }
 
 #[test]
@@ -387,5 +384,50 @@ fn the_timeline_answers_the_factorys_account_ours_and_a_person_of_its_slug_not()
     assert_eq!(
         read(other),
         (vec![AccountKind::Bot, AccountKind::Bot], AccountKind::Bot)
+    );
+}
+
+/// What `me` answers through an identity handle of `site`, the viewer and
+/// the account read answering as recorded.
+fn me_of(site: impl Fn(&[&str]) -> GitHubSite, viewer: &str, user: &str) -> Account {
+    let s = site(&[viewer, user]);
+    let mut h = s.identity(&Actor::Ours(Scope::Full), CALLER).unwrap();
+    h.me().unwrap()
+}
+
+const USER_900: &str = r#"{"login":"tehas-bot[bot]","id":900,"type":"Bot"}"#;
+
+#[test]
+fn me_answers_the_factorys_own_account_ours() {
+    let id_900 = |a: &[&str]| site(a).0.with_bot_id(900);
+    for viewer in [
+        r#"{"data":{"viewer":{"login":"tehas-bot[bot]","databaseId":900}}}"#,
+        r#"{"data":{"viewer":{"login":"Tehas-Bot","databaseId":900}}}"#,
+    ] {
+        assert_eq!(me_of(plain, viewer, USER_900).kind, AccountKind::Ours);
+        assert_eq!(me_of(id_900, viewer, USER_900).kind, AccountKind::Ours);
+    }
+    // The same login on another id is another App's.
+    let viewer = r#"{"data":{"viewer":{"login":"tehas-bot","databaseId":900}}}"#;
+    assert_eq!(me_of(with_id, viewer, USER_900).kind, AccountKind::Bot);
+    // The operator's own account is a person.
+    let viewer = r#"{"data":{"viewer":{"login":"Alice","databaseId":101}}}"#;
+    let user = r#"{"login":"Alice","id":101,"type":"User"}"#;
+    assert_eq!(me_of(plain, viewer, user).kind, AccountKind::Person);
+}
+
+#[test]
+fn me_through_a_handle_made_without_a_site_is_never_ours() {
+    let viewer = r#"{"data":{"viewer":{"login":"tehas-bot[bot]","databaseId":900}}}"#;
+    let mut gh = GitHub::new(
+        "acme/widget",
+        Box::new(Stub {
+            answers: vec![viewer.to_string(), USER_900.to_string()],
+            next: 0,
+        }),
+    );
+    assert_eq!(
+        tehas_ports::Identity::me(&mut gh).unwrap().kind,
+        AccountKind::Bot
     );
 }

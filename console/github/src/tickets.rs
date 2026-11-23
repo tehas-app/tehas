@@ -217,7 +217,7 @@ impl Bot {
     /// bot's id is known the account carries that id. An account GitHub
     /// types a user is never the App's: a person may hold the slug the
     /// App's `<slug>[bot]` folds to.
-    fn is(&self, login: &str, facts: &gh::Facts) -> bool {
+    pub(crate) fn is(&self, login: &str, facts: &gh::Facts) -> bool {
         let same_id = match (self.id, facts.id) {
             (Some(ours), id) => id == Some(ours),
             (None, _) => true,

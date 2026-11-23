@@ -121,9 +121,13 @@ impl Site for GitHubSite {
         unsupported()
     }
 
-    /// Not built in this adapter yet.
-    fn identity(&self, _: &Actor, _: Caller) -> Got<Box<dyn Identity + Send>> {
-        unsupported()
+    fn identity(&self, by: &Actor, caller: Caller) -> Got<Box<dyn Identity + Send>> {
+        Ok(Box::new(self.handle(
+            by,
+            caller,
+            PortName::Identity,
+            false,
+        )?))
     }
 
     /// Not built in this adapter yet: the joined read waits on blueprints

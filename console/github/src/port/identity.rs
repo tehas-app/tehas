@@ -29,7 +29,9 @@ impl Identity for GitHub {
     /// GraphQL's `viewer`, one priced call, then the account read of the id
     /// it names for the kind. GraphQL types every viewer a user and spells
     /// an App's login more than one way, so the kind is the account read's
-    /// type: `Bot` or `Person`, `Unknown` for any other.
+    /// type: `Bot` or `Person`, `Unknown` for any other. A handle made by
+    /// the site answers `Ours` where the account is the site's factory
+    /// account.
     fn me(&mut self) -> Got<Account> {
         let query = format!("query={VIEWER}");
         let out = self
@@ -40,11 +42,20 @@ impl Identity for GitHub {
         let out = self
             .call("the account", &["api", &user])
             .map_err(|e| self.outcome(&e))?;
-        let kind = match read_user(&out, id)? {
-            Holder::User(_) => AccountKind::Person,
-            Holder::Bot => AccountKind::Bot,
-            Holder::Organisation => AccountKind::Unknown,
+        let (kind, said) = match read_user(&out, id)? {
+            Holder::User(_) => (AccountKind::Person, "User"),
+            Holder::Bot => (AccountKind::Bot, "Bot"),
+            Holder::Organisation => (AccountKind::Unknown, "Organization"),
         };
+        let facts = crate::gh::Facts {
+            id: Some(id),
+            kind: Some(said.to_string()),
+        };
+        let ours = self
+            .bot
+            .as_ref()
+            .is_some_and(|b| b.is(login.as_str(), &facts));
+        let kind = if ours { AccountKind::Ours } else { kind };
         let mut account = Account::new(Realm::CodeHost, login, kind);
         account.id = Some(AccountId::new(id.to_string()));
         Ok(account)
