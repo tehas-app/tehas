@@ -23,8 +23,8 @@ use crate::{
     ProposalPart, Proposed, Realm, Refusal, Release, ReleaseId, Remote, RepoPath, Report, Reports,
     Rev, Revision, Scope, Secret, Sent, SignInCode, SignInState, Site, SiteId, Standing, Status,
     Step, StepPart, Sum, Tag, TagName, Target, TargetEdit, TargetId, Ticket, TicketDelta,
-    TicketDigest, TicketEvent, TicketKey, TicketWrites, Tickets, Token, Took, Unread, WebLink,
-    Whole, Whose, Window, Within, WorkItem,
+    TicketDigest, TicketEvent, TicketKey, TicketWrites, Tickets, Token, Took, Unprepared, Unread,
+    WebLink, Whole, Whose, Window, Within, WorkItem,
 };
 
 /// How many seconds of failures a `Faulty` asks its ledger to keep: the
@@ -746,6 +746,12 @@ impl<T> Answer for Result<T, Outcome> {
     }
 }
 
+impl Answer for Result<(), Unprepared> {
+    fn seen(&self) -> Result<(), Outcome> {
+        self.clone().map_err(|u| u.why)
+    }
+}
+
 /// A batch is answered when the site answered: one item cut, too large or
 /// not found is that item's, not the call's. Only an outcome every item
 /// shares that no answer of the site gives (an outage, a spent pool, a
@@ -1156,8 +1162,8 @@ impl<H: TicketWrites + ?Sized> TicketWrites for Wrap<H> {
         };
         self.call(Op::Tickets(T::Apply), fail, |h| h.apply(key, step))
     }
-    fn prepare(&mut self) -> Did {
-        self.call(Op::Tickets(T::Prepare), Err, |h| h.prepare())
+    fn prepare(&mut self) -> Result<(), Unprepared> {
+        self.call(Op::Tickets(T::Prepare), |o| Err(o.into()), |h| h.prepare())
     }
     fn ensure_mark(&mut self, spec: &MarkSpec) -> Did {
         self.call(Op::Tickets(T::EnsureMark), Err, |h| h.ensure_mark(spec))
