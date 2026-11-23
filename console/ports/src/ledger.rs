@@ -34,12 +34,18 @@ opaque!(
 
 /// What is left of one holder's pool, and when it is full again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Budget {
     /// How many calls or points are left.
     pub left: u32,
     /// When the pool is full again.
     pub resets: At,
 }
+
+new!(Budget {
+    left: u32,
+    resets: At
+});
 
 /// The health of a host, or of one holder on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -71,6 +77,7 @@ pub enum HealthState {
 /// its outcome, whose fixed line is `outcome.line()`. Read back whole by
 /// another process.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Failure {
     /// When the call failed.
     pub at: At,
@@ -79,6 +86,12 @@ pub struct Failure {
     /// What stopped it.
     pub outcome: Outcome,
 }
+
+new!(Failure {
+    at: At,
+    site: SiteId,
+    outcome: Outcome
+});
 
 /// The ledger could not be read or written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
