@@ -166,6 +166,12 @@ and, after 5 seconds of grace, KILL to the whole process group, as
 `timeout -k` does. The bound matters: a poll holds its lock for the whole of
 its read.
 
+A write sends its text with `run_input`, on gh's standard input, never as an
+argument: a body may be 1 MiB, past the 128 KiB one argument may hold, and an
+argument list is seen by every process on the host. The input is written
+within the same bound, and a failed call's reason never holds it. A runner
+that takes no input answers so and runs nothing.
+
 ## Testing the adapter
 
 The GitHub adapter's tests, in `console/github/tests/forge.rs`, run it
