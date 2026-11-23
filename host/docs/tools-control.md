@@ -262,13 +262,16 @@ GitHub for nothing: the label then goes by hand, or the poll parks the issue.
 For the third there is a cycle of issue 12 on this host, and that cycle owns
 `tehas:running`: it takes the label off when it ends, and taking it off by hand
 while it runs takes the label out from under it. Running this again ends that
-cycle too, as stopping any other cycle does.
+cycle too, as stopping any other cycle does. A number that is not an issue
+of this project, a pull request's number or no item at all, is said on stderr
+as `#12 is not an issue; tehas stops only issues`, exit 1, and nothing is
+taken off: no read failed, so no warning about the labels is said.
 
 Exit 0 when the leftovers are gone or there was nothing to do, 1 when the cycle
 still holds its lock after the stop, something could not be removed,
 `tehas:running` could not be read or taken off the issue, or a cycle of that
-issue took its lock again before the label was read, or the cycle's record
-could not be read or ended, 64 with no issue number, an issue that is not a
+issue took its lock again before the label was read, the number is not an
+issue, or the cycle's record could not be read or ended, 64 with no issue number, an issue that is not a
 positive number, or an argument it does not know, 78 when the instance
 settings are missing or malformed or the state store is not installed or
 cannot be used, which changes nothing.
