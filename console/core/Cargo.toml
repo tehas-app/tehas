@@ -23,6 +23,9 @@ mask = ["dep:regex", "dep:sha2"]
 regex = { version = "1", optional = true }
 # O_NOFOLLOW, for the reader of a plugin's /out.
 libc = "0.2"
+# The store's answers the events are built from, read as typed rows
+# (src/raise.rs).
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = { version = "0.10", optional = true }
 # The envelope of the event that asks a plugin's hook (src/plugin/hook.rs,
