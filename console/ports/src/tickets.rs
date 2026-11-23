@@ -8,9 +8,9 @@ use serde::{Deserialize, Serialize};
 use crate::mark::unknown_tag;
 use crate::{
     unknown, Account, AccountId, Applied, At, Body, Bound, ChangeDigest, ChangeNo, ChangeToken,
-    Cites, Comment, CommentId, CommitId, Cursor, Depth, Did, Edit, Got, Item, Kind, Mark, MarkName,
-    MarkSpec, Marker, MarkerEdit, MarkerKey, MarkerKind, Outcome, Posted, Priority, Ref, Reports,
-    Revision, TargetId, TicketKey, Took, WebLink, Whole, Window, Within,
+    Cites, Comment, CommentId, CommitId, Cursor, Depth, Did, Edit, Got, Item, Kind, Mark, MarkId,
+    MarkName, MarkSpec, Marker, MarkerEdit, MarkerKey, MarkerKind, Outcome, Posted, Priority, Ref,
+    Reports, Revision, TargetId, TicketKey, Took, WebLink, Whole, Window, Within,
 };
 
 /// Whether a ticket is open, and why it closed.
@@ -204,9 +204,16 @@ pub struct TicketEvent {
     pub by: Option<Account>,
     /// When, if the site says.
     pub at: Option<At>,
+    /// For a mark that went on or came off, the site's id of that mark,
+    /// as `Tickets::marks` names it: a mark renamed to one of ours keeps
+    /// its old id, so it is not ours. None where the site gave no id: the
+    /// caller then checks the ticket's current marks. Missing, it reads as
+    /// None.
+    #[serde(default)]
+    pub mark_id: Option<MarkId>,
 }
 
-new!(TicketEvent { what: Happened }, by, at);
+new!(TicketEvent { what: Happened }, by, at, mark_id);
 
 /// What happened to a ticket.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -595,6 +602,11 @@ pub trait Tickets: Reports + Cites {
     ) -> Got<Whole<TicketKey>>;
     /// The site's types of ticket.
     fn kinds(&mut self) -> Got<Whole<Kind>>;
+    /// The marks the site holds for the project, each with its id, as the
+    /// site names them now: what a caller pins, so a mark renamed to one
+    /// of ours is told apart by its id. Each mark once; a site word this
+    /// copy does not know is left out.
+    fn marks(&mut self, bound: Bound) -> Got<Whole<(Mark, MarkId)>>;
     /// The project's targets, open and closed, whole.
     fn targets(&mut self, bound: Bound) -> Got<Whole<Target>>;
     /// The tickets of a target, in list order.

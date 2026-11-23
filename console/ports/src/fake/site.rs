@@ -714,6 +714,13 @@ pub(crate) fn mark_name(mark: &crate::Mark) -> String {
     }
 }
 
+/// The fake's id of a mark: its word behind `id:`, None for a mark that
+/// names no word.
+pub(crate) fn mark_id(mark: &crate::Mark) -> Option<crate::MarkId> {
+    let name = mark_name(mark);
+    (!name.is_empty()).then(|| crate::MarkId::new(format!("id:{name}")))
+}
+
 impl Identity for Handle {
     fn me(&mut self) -> Got<Account> {
         self.anonymous_may(IdentityOp::Me)?;

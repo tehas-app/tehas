@@ -17,12 +17,12 @@ use crate::{
     ChangeFilter, ChangeItem, ChangeNo, ChangeToken, ChangedFile, Checks, Cite, Cites, CloseReason,
     ClosedTicket, CodeHost, CodeHostWrites, Comment, CommentId, CommitId, Compared, Cursor, Depth,
     Did, Edit, Facts, Failure, FileName, Filed, Filter, Got, HappenedKind, HealthState, Holder,
-    HolderId, HostId, Identity, Item, Kind, Ledger, Login, Mark, MarkSpec, Marker, MarkerEdit,
-    MarkerKey, MarkerKind, MergeHow, MeterRow, NewBlueprint, NewChange, NewRelease, NewTicket,
-    OpenWork, Outcome, Part, Passing, Pool, PortName, Posted, Priority, ProjectName, Proposal,
-    ProposalPart, Proposed, Realm, Refusal, Release, ReleaseId, Remote, RepoPath, Report, Reports,
-    Rev, Revision, Scope, Secret, Sent, SignInCode, SignInState, Site, SiteId, Standing, Status,
-    Step, StepPart, Sum, Tag, TagName, Target, TargetEdit, TargetId, Ticket, TicketDelta,
+    HolderId, HostId, Identity, Item, Kind, Ledger, Login, Mark, MarkId, MarkSpec, Marker,
+    MarkerEdit, MarkerKey, MarkerKind, MergeHow, MeterRow, NewBlueprint, NewChange, NewRelease,
+    NewTicket, OpenWork, Outcome, Part, Passing, Pool, PortName, Posted, Priority, ProjectName,
+    Proposal, ProposalPart, Proposed, Realm, Refusal, Release, ReleaseId, Remote, RepoPath, Report,
+    Reports, Rev, Revision, Scope, Secret, Sent, SignInCode, SignInState, Site, SiteId, Standing,
+    Status, Step, StepPart, Sum, Tag, TagName, Target, TargetEdit, TargetId, Ticket, TicketDelta,
     TicketDigest, TicketEvent, TicketKey, TicketWrites, Tickets, Token, Took, Unprepared, Unread,
     WebLink, Whole, Whose, Window, WithCloser, Within, WorkItem,
 };
@@ -66,6 +66,8 @@ pub enum TicketsOp {
     FindMarked,
     /// `Tickets::kinds`.
     Kinds,
+    /// `Tickets::marks`.
+    Marks,
     /// `Tickets::targets`.
     Targets,
     /// `Tickets::members`.
@@ -1153,6 +1155,9 @@ impl<H: Tickets + ?Sized> Tickets for Wrap<H> {
     }
     fn kinds(&mut self) -> Got<Whole<Kind>> {
         self.call(Op::Tickets(T::Kinds), Err, |h| h.kinds())
+    }
+    fn marks(&mut self, bound: Bound) -> Got<Whole<(Mark, MarkId)>> {
+        self.call(Op::Tickets(T::Marks), Err, |h| h.marks(bound))
     }
     fn targets(&mut self, bound: Bound) -> Got<Whole<Target>> {
         self.call(Op::Tickets(T::Targets), Err, |h| h.targets(bound))

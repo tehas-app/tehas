@@ -301,6 +301,9 @@ impl Tickets for StubTickets {
     fn kinds(&mut self) -> Got<Whole<Kind>> {
         Err(unsupported())
     }
+    fn marks(&mut self, _: Bound) -> Got<Whole<(Mark, MarkId)>> {
+        Err(unsupported())
+    }
     fn targets(&mut self, _: Bound) -> Got<Whole<Target>> {
         Err(unsupported())
     }

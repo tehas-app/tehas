@@ -165,6 +165,36 @@ fn tickets_carrying_any_takes_any_of_the_marks() {
 }
 
 #[test]
+fn tickets_a_mark_event_names_the_marks_id() {
+    for w in both() {
+        let w = w.ticket(1, |t| t.title("a").mark(Mark::Epic));
+        let site = FakeSite::new(&w);
+        let mut h = site.ticket_writes(&full(), C).unwrap();
+        let ready = Mark::Act(Act::Approve);
+        ok(laws::tickets::a_mark_event_names_the_marks_id(
+            h.as_mut(),
+            &w.key(1),
+            &ready,
+            b(100),
+        ));
+        let marks = h.marks(b(100)).unwrap().into_items();
+        assert!(marks.iter().any(|(m, _)| *m == Mark::Epic));
+        // An event the site gave with no id is None: the caller checks the
+        // ticket's current marks.
+        let w = w.ticket(2, |t| {
+            t.title("b")
+                .event(Happened::Marked(ready.clone()), Some("alice"), None)
+        });
+        let mut h = FakeSite::new(&w).tickets(&full(), C).unwrap();
+        let only = [HappenedKind::Marked];
+        let events = h
+            .history(&w.key(2), Window::Whole(b(10)), Some(&only))
+            .unwrap();
+        assert_eq!(events.items[0].mark_id, None);
+    }
+}
+
+#[test]
 fn tickets_several_carries_each_closer() {
     for w in both() {
         let w = w

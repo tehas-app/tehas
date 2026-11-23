@@ -11,10 +11,11 @@ use super::state::{Layout, State};
 use crate::{
     AccountId, Applied, At, Blocker, BlockerState, Bound, ChangeState, ChangeToken, CloseReason,
     ClosedTicket, Closer, Comment, CommentId, Cursor, Depth, Did, Edit, Filed, Filter, Got,
-    Happened, HappenedKind, Item, Kind, Mark, MarkSpec, Marker, MarkerEdit, MarkerKey, MarkerKind,
-    NewTicket, Outcome, Part, Pool, Posted, Priority, Ref, Refusal, Step, StepPart, Target,
-    TargetEdit, TargetId, Ticket, TicketChange, TicketDelta, TicketDigest, TicketEvent, TicketKey,
-    TicketWrites, Tickets, Took, Unprepared, WebLink, Whole, Window, WithCloser, Within, Write,
+    Happened, HappenedKind, Item, Kind, Mark, MarkId, MarkSpec, Marker, MarkerEdit, MarkerKey,
+    MarkerKind, NewTicket, Outcome, Part, Pool, Posted, Priority, Ref, Refusal, Step, StepPart,
+    Target, TargetEdit, TargetId, Ticket, TicketChange, TicketDelta, TicketDigest, TicketEvent,
+    TicketKey, TicketWrites, Tickets, Took, Unprepared, WebLink, Whole, Window, WithCloser, Within,
+    Write,
 };
 
 fn at_ticket(s: &State, key: &TicketKey) -> Got<usize> {
@@ -141,10 +142,15 @@ fn part_of(s: &State, parent: &TicketKey, of: &TicketKey) -> bool {
 
 fn event(s: &mut State, at: usize, ctx: &Ctx, what: Happened) {
     let by = Some(ctx.me(s));
+    let mark_id = match &what {
+        Happened::Marked(m) | Happened::Unmarked(m) => super::site::mark_id(m),
+        _ => None,
+    };
     s.items[at].history.push(TicketEvent {
         what,
         by,
         at: Some(ctx.now),
+        mark_id,
     });
     s.touch(at, ctx.now);
 }
@@ -425,6 +431,33 @@ impl Tickets for Handle {
                             .any(|c| has_marker(&c.markers, kind, key)))
             });
             Ok(Whole::new(found.into_iter().map(|d| d.key).collect()))
+        })
+    }
+
+    /// The marks any item carries, the factory's once prepared, and each
+    /// project mark ensured, by word.
+    fn marks(&mut self, bound: Bound) -> Got<Whole<(Mark, MarkId)>> {
+        self.run(Pool::Calls, |s, _| {
+            let mut all: Vec<Mark> = s.items.iter().flat_map(|i| i.marks.clone()).collect();
+            all.extend(s.changes.iter().flat_map(|c| c.marks.clone()));
+            if s.prepared {
+                all.extend(crate::laws::marks::factory_marks());
+            }
+            all.extend(
+                s.project_marks
+                    .iter()
+                    .map(|m| Mark::Project(m.name.clone())),
+            );
+            let mut named: Vec<(Mark, MarkId)> = Vec::new();
+            for m in all {
+                if let Some(id) = super::site::mark_id(&m) {
+                    if !named.iter().any(|(n, _)| *n == m) {
+                        named.push((m, id));
+                    }
+                }
+            }
+            named.sort_by(|a, b| a.1.cmp(&b.1));
+            whole(named, bound)
         })
     }
 
@@ -791,6 +824,7 @@ impl TicketWrites for Handle {
                         },
                         by: Some(me.clone()),
                         at: Some(ctx.now),
+                        mark_id: None,
                     });
                 }
             }

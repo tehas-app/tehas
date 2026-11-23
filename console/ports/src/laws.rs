@@ -114,6 +114,49 @@ pub mod tickets {
         })
     }
 
+    /// `marks` names each mark once, each with an id of its own, and a mark
+    /// put on through the port is read back in the history with that id,
+    /// or with none where the site gives none. The fixture's ticket is open
+    /// and does not carry `mark`; the site holds `mark` once it is put on.
+    pub fn a_mark_event_names_the_marks_id(
+        h: &mut dyn TicketWrites,
+        key: &TicketKey,
+        mark: &Mark,
+        bound: Bound,
+    ) -> Law {
+        const LAW: &str = "tickets::a_mark_event_names_the_marks_id";
+        got(LAW, "mark", h.mark(key, mark))?;
+        let marks = got(LAW, "marks", h.marks(bound))?.into_items();
+        for (i, (m, id)) in marks.iter().enumerate() {
+            let again = marks[i + 1..].iter().find(|(n, j)| n == m || j == id);
+            hold(again.is_none(), LAW, || {
+                format!("marks names {m:?} as {id:?} and again {again:?}")
+            })?;
+        }
+        let id = marks.iter().find(|(m, _)| m == mark).map(|(_, id)| id);
+        hold(id.is_some(), LAW, || format!("marks holds no {mark:?}"))?;
+        let only = [crate::HappenedKind::Marked];
+        let history = got(
+            LAW,
+            "the history",
+            h.history(key, crate::Window::Whole(bound), Some(&only)),
+        )?;
+        let event = history
+            .items
+            .iter()
+            .rev()
+            .find(|e| e.what == crate::Happened::Marked(mark.clone()));
+        let event = match event {
+            Some(e) => e,
+            None => return super::broken(LAW, format!("no event put {mark:?} on")),
+        };
+        hold(
+            event.mark_id.is_none() || event.mark_id.as_ref() == id,
+            LAW,
+            || format!("the event names {:?}, marks names {id:?}", event.mark_id),
+        )
+    }
+
     /// `several_with_closers` answers each ticket's digest as `several`
     /// does, with the closer its `Ticket.closer` gives, None while it is
     /// open. The fixture holds `keys`, closed and open.

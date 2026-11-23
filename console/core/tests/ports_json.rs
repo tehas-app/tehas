@@ -312,6 +312,19 @@ fn a_change_digest_carries_its_base_commit_update_and_what_its_text_closes() {
 }
 
 #[test]
+fn a_ticket_event_stored_without_a_mark_id_reads_as_none() {
+    let e = read!(
+        TicketEvent,
+        r#"{"what":{"type":"Reopened"},"by":null,"at":null}"#
+    );
+    assert_eq!(e, TicketEvent::new(Happened::Reopened));
+    let mut marked = TicketEvent::new(Happened::Marked(Mark::Epic));
+    marked.mark_id = Some(MarkId::new("LA_kwDO"));
+    assert_eq!(serde_json::to_value(&marked).unwrap()["mark_id"], "LA_kwDO");
+    round!(marked);
+}
+
+#[test]
 fn an_old_spec_marker_reads_as_unknown() {
     // The Spec marker left with the Spec marks (#2892): a record that still
     // holds one reads under the one rule, as a tag this copy does not know.

@@ -62,6 +62,7 @@ fn ids_read_back() {
     round(CommentId::new("c1"));
     round(TargetId::new("t1"));
     round(ReleaseId::new("r1"));
+    round(MarkId::new("m1"));
     round(AttachmentId::new("a1"));
     round(Revision::new("rev"));
     round(ChangeToken::new("tok"));
@@ -890,6 +891,11 @@ fn tickets_read_back() {
     kinds.dedup();
     assert_eq!(kinds.len(), 13, "one kind for each event");
     round(TicketEvent::new(Happened::Reopened));
+    round({
+        let mut e = TicketEvent::new(Happened::Marked(Mark::Act(Act::Approve)));
+        e.mark_id = Some(MarkId::new("LA_1"));
+        e
+    });
     round({
         let mut target = Target::new(TargetId::new("t"), "2.0".into(), At::new(1));
         target.due = Some(At::new(9));
