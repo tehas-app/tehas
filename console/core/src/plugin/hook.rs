@@ -145,7 +145,7 @@ pub fn open_bot_pull(pull: &Value, repo: &str, bot: &str) -> Option<(String, Str
 }
 
 /// The plugins asked for a hook, in the order of TEHAS_PLUGINS: none while
-/// plugins are off. A plugin is asked when it is granted `hook:after:work`
+/// plugins are off. A plugin is asked when it is granted `hook:after:change.offered`
 /// at its pin and ready there. `state` reads a plugin's state.json.
 pub fn granted(get: &dyn Fn(&str) -> String, state: &dyn Fn(&str) -> Option<State>) -> Vec<String> {
     if !crate::features::on_in("plugins", get) {
@@ -155,7 +155,7 @@ pub fn granted(get: &dyn Fn(&str) -> String, state: &dyn Fn(&str) -> Option<Stat
     pins.into_iter()
         .filter(|pin| {
             let granted = super::grants(&get(&super::grants_setting(&pin.name)))
-                .is_ok_and(|g| g.commit == pin.commit && g.caps.contains(&Cap::HookAfterWork));
+                .is_ok_and(|g| g.commit == pin.commit && g.caps.contains(&Cap::HOOK));
             let ready =
                 state(&pin.name).is_some_and(|s| s.commit == pin.commit && s.state == Word::Ready);
             granted && ready
@@ -215,9 +215,9 @@ mod tests {
             ),
             (
                 "TEHAS_PLUGIN_GRANTS_FLOORPLAN",
-                format!("{C} view hook:after:work"),
+                format!("{C} view hook:after:change.offered"),
             ),
-            ("TEHAS_PLUGIN_GRANTS_SPEC", format!("{C} hook:after:work")),
+            ("TEHAS_PLUGIN_GRANTS_SPEC", format!("{C} hook:after:change.offered")),
         ] {
             map.insert(k.to_string(), v);
         }
@@ -244,7 +244,7 @@ mod tests {
         let other = "f".repeat(40);
         let elsewhere = vars(&[(
             "TEHAS_PLUGIN_GRANTS_SPEC",
-            &format!("{other} hook:after:work"),
+            &format!("{other} hook:after:change.offered"),
         )]);
         assert_eq!(granted(&elsewhere, &ready), ["floorplan"]);
         let refused = |name: &str| {

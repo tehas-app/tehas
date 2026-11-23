@@ -777,6 +777,19 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   plugins.
   Adopter action: none. A program that reads a cycle's log, or
   `logs/dispatch.log`, sees the `event` lines.
+- **The plugin hook is named by its event.** #2939.
+  The grant and the ask `hook:after:work` are `hook:after:change.offered`,
+  and a manifest's hook `at` is `after:change.offered`, not `after:work`.
+  No alias is kept: `hook:after:work` in a manifest or a grants line is
+  refused, saying the word is now `hook:after:change.offered`, and so is a
+  hook at `after:work`. Every other `hook:` word stays reserved until 2.1.
+  `tehas plugin review` lists the grant under its new word. The hook still
+  runs on each change a cycle offers for review, as before.
+  Readers: plugins.
+  Adopter action: a plugin that asks `hook:after:work` asks
+  `hook:after:change.offered` and puts its hook at `after:change.offered`;
+  a `TEHAS_PLUGIN_GRANTS_<NAME>` line that grants `hook:after:work` grants
+  `hook:after:change.offered` for the plugin's commit.
 - **2.0 is supported from 1.4.x.** This page. The update to 2.0 is
   supported from 1.4.x only, and a host upgrades its factories and the
   programs that run them together.
@@ -830,13 +843,6 @@ adopter action as the pull request states them.
   lost end and the ticket and change events are still to come.
   Readers: the consumer that runs many factories, the consumer that reads
   the analytics copies, MCP clients, the end-to-end suite, plugins.
-- **The plugin hook is named by its event.** T11.8. The grant
-  `hook:after:work` becomes `hook:after:change.offered`, with no alias.
-  The hook is already asked on `change.offered` (#2937); the word itself
-  waits, since the pinned tests of a plugin's container arguments name it.
-  Readers: plugins.
-  Adopter action: a plugin that asks `hook:after:work` asks
-  `hook:after:change.offered`, and a grant names it so.
 - **Lean is the default driver.** T13. An issue with a `pi-spec v1` block
   runs the lean driver; an issue without one runs classic. When lean is
   only the default and refuses the repository's setup, the same cycle runs
@@ -956,14 +962,14 @@ The plugin API as 2.0 holds it, for the work of 2.1:
 - **The grants.** A plugin asks in its manifest and a person grants for the
   plugin's commit; `tehas plugin review` lists each grant, and every
   install, enable and pin move checks them again. The one hook grant the
-  code takes today is `hook:after:work`, asked on `change.offered`. With the
-  rename (Pending) it becomes `hook:after:change.offered`, with no alias.
+  code takes is `hook:after:change.offered`, asked on `change.offered`;
+  1.x's `hook:after:work` is refused, with no alias.
 - **The events a plugin can see**, under the names 2.1 grants: each event
   of the [list under Pending](#pending-for-20) as `hook:after:<event>`, and
   a gate as `hook:before:<event>=<policy>`, where the policy is `hold` or
-  `pass` and a gate grant with none is refused with 78. After T11.8, 2.0
-  takes one, `hook:after:change.offered`, and refuses every other `hook:`
-  word as not in this release. The first gate, `hook:before:cycle.started`, comes in 2.1.
+  `pass` and a gate grant with none is refused with 78. 2.0 takes one,
+  `hook:after:change.offered`, and refuses every other `hook:` word as not
+  in this release. The first gate, `hook:before:cycle.started`, comes in 2.1.
 - **What plugins read of an approved body.** `start.approval.bodySha256`
   of `tehas start --json` and the reader of lean's `pi-spec v1` block,
   `spec_block` in `console/core/src/plan.rs`, stay through 2.x: the

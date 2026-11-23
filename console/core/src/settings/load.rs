@@ -1436,7 +1436,7 @@ mod tests {
     #[test]
     fn plugins_load_with_their_lines_where_a_test_turns_them_on() {
         let line = plugins_line();
-        let grants = format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN={PIN} view product model:2000000 action:refresh hook:after:work");
+        let grants = format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN={PIN} view product model:2000000 action:refresh hook:after:change.offered");
         let (vars, got) = plugged(&[
             "TEHAS_PLUGIN=on",
             &line,

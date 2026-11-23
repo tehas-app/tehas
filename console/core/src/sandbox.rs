@@ -2038,18 +2038,23 @@ mod tests {
             "product",
             "model",
             "action:refresh",
-            "hook:after:work",
+            "hook:after:change.offered",
         ];
         let cases: [(&str, &[&str], &str, Kind); 7] = [
             ("none", &[], "", Kind::Refresh),
             ("view", &["view"], "view", Kind::Refresh),
             ("product", &["product"], "product", Kind::Refresh),
             ("model", &["model"], "model:2000000", Kind::Refresh),
-            ("hook", &["hook:after:work"], "hook:after:work", Kind::Hook),
+            (
+                "hook",
+                &["hook:after:change.offered"],
+                "hook:after:change.offered",
+                Kind::Hook,
+            ),
             (
                 "reference",
                 &reference,
-                "view product model:2000000 action:refresh hook:after:work",
+                "view product model:2000000 action:refresh hook:after:change.offered",
                 Kind::Refresh,
             ),
             // Product and model granted, and a call has neither.
@@ -2088,10 +2093,10 @@ mod tests {
             "product",
             "model",
             "action:refresh",
-            "hook:after:work",
+            "hook:after:change.offered",
         ];
         let m = manifest(&asks);
-        let g = granted("view product model:5 action:refresh hook:after:work");
+        let g = granted("view product model:5 action:refresh hook:after:change.offered");
         for kind in [Kind::Refresh, Kind::Hook] {
             let w = plugin_run(&run(&m, &g, kind)).unwrap();
             assert!(!w.iter().any(|a| a == "--rm" || a == "--privileged"));
