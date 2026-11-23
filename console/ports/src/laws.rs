@@ -1628,6 +1628,59 @@ pub mod scopes {
     }
 }
 
+/// Laws of `Actor::Anonymous`.
+pub mod anonymous {
+    use super::{got, hold, Law};
+    use crate::{Actor, Caller, CommitId, FileName, Outcome, Site, TagName, ALL_MAX};
+
+    /// On a public project, `Anonymous` reads its releases: `releases`,
+    /// `latest_release`, `tags`, `resolve_tag`, `download` and `archive`
+    /// answer, the tag resolving to `at`. A write handle asked as
+    /// `Anonymous` is `Forbidden`, for every port. The fixture's project is
+    /// public, `tag` names a published release on `at` holding `file`, and
+    /// both are within `limit` bytes.
+    pub fn reads_public_releases_and_writes_nothing(
+        site: &dyn Site,
+        caller: Caller,
+        tag: &TagName,
+        file: &FileName,
+        at: &CommitId,
+        limit: u64,
+    ) -> Law {
+        const LAW: &str = "anonymous::reads_public_releases_and_writes_nothing";
+        let by = Actor::Anonymous;
+        let mut h = got(LAW, "a code host read handle", site.code_host(&by, caller))?;
+        let releases = got(LAW, "releases", h.releases(ALL_MAX))?;
+        hold(releases.items().iter().any(|r| r.tag == *tag), LAW, || {
+            format!("releases holds no release of {}", tag.as_str())
+        })?;
+        got(LAW, "latest_release", h.latest_release())?;
+        let tags = got(LAW, "tags", h.tags(ALL_MAX))?;
+        hold(tags.items().iter().any(|t| t.name == *tag), LAW, || {
+            format!("tags holds no {}", tag.as_str())
+        })?;
+        let resolved = got(LAW, "resolve_tag", h.resolve_tag(tag))?;
+        hold(resolved == *at, LAW, || {
+            format!("{} resolved to {resolved:?}", tag.as_str())
+        })?;
+        let mut bytes = Vec::new();
+        got(LAW, "download", h.download(tag, file, limit, &mut bytes))?;
+        let mut tarball = Vec::new();
+        got(LAW, "archive", h.archive(at, limit, &mut tarball))?;
+        let writes = [
+            ("tickets", site.ticket_writes(&by, caller).map(drop)),
+            ("blueprints", site.blueprint_writes(&by, caller).map(drop)),
+            ("code host", site.code_host_writes(&by, caller).map(drop)),
+        ];
+        for (port, answer) in writes {
+            hold(answer == Err(Outcome::Forbidden), LAW, || {
+                format!("an anonymous {port} write handle answered {answer:?}")
+            })?;
+        }
+        Ok(())
+    }
+}
+
 /// Laws of identity and its tokens.
 pub mod identity {
     use super::{got, hold, Law, TokenLog};

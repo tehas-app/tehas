@@ -239,6 +239,25 @@ fn a_change_records_its_base_commit_and_what_its_text_closes() {
 }
 
 #[test]
+fn anonymous_reads_public_releases_and_writes_nothing() {
+    for w in both() {
+        let at = w.head("main").unwrap();
+        let w = w
+            .tag("v2.0.0", &at)
+            .release("v2.0.0", &[("tehas.tar.gz", b"bytes")]);
+        let site = FakeSite::new(&w);
+        ok(laws::anonymous::reads_public_releases_and_writes_nothing(
+            &site,
+            C,
+            &TagName::new("v2.0.0").unwrap(),
+            &FileName::new("tehas.tar.gz").unwrap(),
+            &at,
+            1 << 20,
+        ));
+    }
+}
+
+#[test]
 fn code_host_merge_at_a_moved_head_is_a_conflict() {
     for w in both() {
         let no = first_change(&w);
