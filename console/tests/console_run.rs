@@ -633,7 +633,6 @@ cases!(with_no_instance_env {
     tehas_init_product_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehas init-product";
     tehasbot_health_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot health";
     tehasbot_status_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot status";
-    tehasbot_top_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot top";
     tehasbot_mcp_serve_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot mcp serve";
     tehasbot_dispatch_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot dispatch";
     tehasbot_preview_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot preview";
@@ -659,7 +658,6 @@ cases!(with_a_setting_no_rule_allows {
     tehas_init_product_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehas init-product";
     tehasbot_health_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot health";
     tehasbot_status_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot status";
-    tehasbot_top_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot top";
     tehasbot_mcp_serve_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot mcp serve";
     tehasbot_dispatch_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot dispatch";
     tehasbot_preview_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot preview";
@@ -685,7 +683,6 @@ cases!(with_an_instance_file_that_ends_its_shell {
     tehas_init_product_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehas init-product";
     tehasbot_health_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot health";
     tehasbot_status_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot status";
-    tehasbot_top_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot top";
     tehasbot_mcp_serve_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot mcp serve";
     tehasbot_dispatch_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot dispatch";
     tehasbot_preview_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot preview";
@@ -734,11 +731,6 @@ cases!(writer_with {
     tehas_order_clear_with_tehas_control_issue_x_is_78_and_calls_and_writes_nothing: "tehas order clear", "TEHAS_CONTROL_ISSUE=x", "TEHAS_CONTROL_ISSUE is not ";
     tehas_order_clear_with_tehas_allowed_labelers_alice_bob_is_78_and_calls_and_writes_nothing: "tehas order clear", "TEHAS_ALLOWED_LABELERS='alice  bob'", "TEHAS_ALLOWED_LABELERS is not ";
     tehas_order_clear_with_tehas_allowed_labelers_is_78_and_calls_and_writes_nothing: "tehas order clear", "TEHAS_ALLOWED_LABELERS=", "TEHAS_ALLOWED_LABELERS is not ";
-    tehas_panel_set_chat_label_chat_url_https_chat_example_org_with_tehas_repo_bad_is_78_and_calls_and_writes_nothing: "tehas panel set chat --label Chat --url https://chat.example.org", "TEHAS_REPO=bad", "TEHAS_REPO is not ";
-    tehas_panel_set_chat_label_chat_url_https_chat_example_org_with_tehas_repo_is_78_and_calls_and_writes_nothing: "tehas panel set chat --label Chat --url https://chat.example.org", "TEHAS_REPO=", "TEHAS_REPO is not ";
-    tehas_panel_set_chat_label_chat_url_https_chat_example_org_with_tehas_control_issue_x_is_78_and_calls_and_writes_nothing: "tehas panel set chat --label Chat --url https://chat.example.org", "TEHAS_CONTROL_ISSUE=x", "TEHAS_CONTROL_ISSUE is not ";
-    tehas_panel_set_chat_label_chat_url_https_chat_example_org_with_tehas_allowed_labelers_alice_bob_is_78_and_calls_and_writes_nothing: "tehas panel set chat --label Chat --url https://chat.example.org", "TEHAS_ALLOWED_LABELERS='alice  bob'", "TEHAS_ALLOWED_LABELERS is not ";
-    tehas_panel_set_chat_label_chat_url_https_chat_example_org_with_tehas_allowed_labelers_is_78_and_calls_and_writes_nothing: "tehas panel set chat --label Chat --url https://chat.example.org", "TEHAS_ALLOWED_LABELERS=", "TEHAS_ALLOWED_LABELERS is not ";
     tehas_host_message_set_up_level_info_text_hi_with_tehas_repo_bad_is_78_and_calls_and_writes_nothing: "tehas host-message set up --level info --text hi", "TEHAS_REPO=bad", "TEHAS_REPO is not ";
     tehas_host_message_set_up_level_info_text_hi_with_tehas_repo_is_78_and_calls_and_writes_nothing: "tehas host-message set up --level info --text hi", "TEHAS_REPO=", "TEHAS_REPO is not ";
     tehas_host_message_set_up_level_info_text_hi_with_tehas_control_issue_x_is_78_and_calls_and_writes_nothing: "tehas host-message set up --level info --text hi", "TEHAS_CONTROL_ISSUE=x", "TEHAS_CONTROL_ISSUE is not ";

@@ -150,7 +150,7 @@ t_case "the real workspace: a change to the selector asks for the full gate"
 t_eq "$(bash "$T_ROOT/scripts/select-tests.sh" console/xtask/src/select.rs)" "full console/xtask/src/select.rs is part of the gate itself"
 
 t_case "the real checkout: a model of the plain dashboard selects the node tests that run it"
-picked=$(bash "$T_ROOT/scripts/select-tests.sh" host/fun/factory/tehas-factory-host.model.js 2>&1 | grep '^node ')
+picked=$(bash "$T_ROOT/scripts/select-tests.sh" host/fun/factory/tehas-factory-state.model.js 2>&1 | grep '^node ')
 t_contains "$picked" "node test/dashboard_view_test.mjs"
 t_contains "$picked" "node test/dashboard_host_test.mjs"
 

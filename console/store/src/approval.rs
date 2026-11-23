@@ -49,7 +49,7 @@ pub const MILLWRIGHT: &str = tehas_core::grammar::MILLWRIGHT;
 /// the entries. `driver` is
 /// written only when it is `DRIVER`: no driver means classic, which is every
 /// record written before it existed.
-const INPUT_LISTS: [&str; 3] = ["links", "comment_links", "retry_context"];
+const INPUT_LISTS: [&str; 2] = ["links", "retry_context"];
 const INPUT_BOUND: u64 = tehas_core::file::READ_BOUND;
 const DRIVER: &str = "lean";
 
@@ -762,9 +762,6 @@ pub fn view_of(answer: &Value, want: Option<i64>) -> Result<String, Fail> {
     ];
     if !c["title_sha256"].is_null() {
         p.push(("title_sha256", c["title_sha256"].to_string()));
-    }
-    if let Some(v) = input.get("comment_links") {
-        p.push(("comment_links", v.to_string()));
     }
     if !at_input("driver").is_null() {
         p.push(("driver", at_input("driver").to_string()));

@@ -145,7 +145,7 @@
 //! pull request, see src/product.rs.
 //!
 //!   console tehas status|disk|state|limit|pause|analytics|top|api|labels|resume|drain|history|export|stop|dev|dev-login|mcp ...
-//!   console tehasbot health|status|top|mcp
+//!   console tehasbot health|status|mcp
 //!   console usage <command>
 //!
 //! The commands of bin/tehas and bin/tehasbot that are verbs of this program,
@@ -174,8 +174,8 @@
 //! output cannot be written, 2 usage.
 
 use tehas_ops::{
-    account, clean, disk, edge, forge, freeze, github, health, holds, host_message, ids, mcp,
-    panel, pins, rukas, sandbox, settings, setup, shipped, size, slice, stop, store, tidy, update,
+    account, clean, disk, edge, forge, freeze, github, health, holds, host_message, ids, mcp, pins,
+    rukas, sandbox, settings, setup, shipped, size, slice, stop, store, tidy, update,
 };
 mod answer;
 mod api;

@@ -20,7 +20,6 @@ tehas index                      # build the code index the agents search
 tehas setup [options]            # write this host's instance and start the factory
 tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
-tehas panel [set ...|clear ...]  # the pages of the project the dashboard links
 tehas host-message [set ...|clear ...]  # short messages for this factory
 tehas check-product [--sandbox]  # check the product against the contract
 tehas init-product [--dry-run]   # propose the missing contract files
@@ -82,10 +81,9 @@ Every command that needs the instance settings loads them first and stops with
 exit 78 and one line if a setting it needs is missing or malformed. See
 [The host](/host).
 
-The two lists name every command the two programs route. Four of them have no
-section of these pages and are on the page that describes them: `tehas panel`
-and `tehas host-message` on [the factory API](/api#tehas-panel) and
-[the factory API](/api#tehas-host-message), `tehas mcp key` and
+The two lists name every command the two programs route. Three of them have no
+section of these pages and are on the page that describes them:
+`tehas host-message` on [the factory API](/api#tehas-host-message), `tehas mcp key` and
 `tehasbot mcp serve` on [The MCP server](/mcp-server#how-it-runs), which
 `tehas-mcp.service` runs. `tehas state copy --to <file>` and
 `tehas state load --from <file>` are the two verbs `tehas state` holds beside
@@ -144,7 +142,6 @@ does a line that gives a value to one of such a feature's own settings.
 | `TEHAS_SITE_INDEXING`                | `off`                                    | `on` lets search engines index the dashboard and the manual      |
 | `TEHAS_SITE_CONSOLE`                 | `off`                                    | `on` serves the live console of each running cycle under `/live/` to anyone who can reach the site. `off` answers 404 for those files and the console panels of the site stay empty; the site has no sign-in. A full key of [the MCP server](/mcp-server) reads the console either way. Anything but `on`, `off`, `1` or `0` stops every command with 78. See [The live console on the site](/host#the-live-console-on-the-site) |
 | `TEHAS_SITE_ANALYTICS_SRC`, `_NAME`  | empty                                    | Optional. The https address of a visitor analytics script and the site name it reports under. Both set: every page loads it |
-| `TEHAS_TOP`                     | `off`                                    | `on` lets [`tehasbot top`](/tools-health#tehasbot-top) publish the host snapshot to `~/tehas/live/top.json`, which the Host panel of the factory floor and the plain dashboard read. With `0` the command removes the file and writes nothing. It governs the published file only: `tehas top` in a terminal always works, and the unit, installed on every instance, starts only when you enable it |
 | `TEHAS_SITE_ANALYTICS_COOKIE`        | `off`                                    | `on` adds `data-cookie="true"` to that script tag                |
 | `TEHAS_DESIGN`                  | `beesknees26`                            | The look of the whole site and its front page: `beesknees26` (the business page at `/`) or `pixel` (the factory floor at `/`). Any other value is exit 78. See [Designs](/host#designs) |
 | `TEHAS_ANALYTICS`               | `on`                                     | The factory's own analytics, not the visitor analytics above: 365 days of runs, issue events and poll samples in `~/tehas/state/analytics.db`. `off` stops every write and leaves the file as it is. Anything but `on` or `off` stops every command with 78 |
@@ -674,7 +671,7 @@ hand)` and `## scripts/test.sh` stay here.
 | [The commands that hold work back](/tools-control) | An outside cap, a drain, the records of what ended, and stopping a cycle by hand. |
 | [tehas status, api, disk, top and analytics](/tools-status) | What the factory is doing, what it speaks to a program, how full the host is, and its runs. |
 | [tehasbot and tehasbot cycle](/tools-tehasbot) | The command the units run, and one cycle for one issue with its report. |
-| [The console, health and top](/tools-health) | The files that feed the dashboard, and what watches the host's health, its models and its load. |
+| [The console and health](/tools-health) | The files that feed the dashboard, and what watches the host's health and its models. |
 | [The GitHub commands](/tools-github) | Asking for refreshes, the App's tokens, and the writes of the last day. |
 | [tehasbot clean and tehasbot preview](/tools-clean) | What the cleaner removes and when, and the preview of every pull request. |
 | [tehas update, install.sh and bootstrap.sh](/tools-update) | Bringing a host up to date, installing one, and preparing a fresh one. |

@@ -44,7 +44,7 @@ export function tokens(v) {
 }
 
 // Heights for a row of bars: each value's share of the largest, 0 where all
-// are 0, so an empty ten days draws flat rather than full.
+// are 0, so an empty ten days draws flat.
 function heights(values) {
   const max = Math.max(0, ...values);
   return values.map((v) => (max > 0 ? v / max : 0));

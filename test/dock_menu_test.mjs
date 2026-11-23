@@ -1,13 +1,14 @@
-// Tests plugins() of the panels: the pure step from live/plugins.json to the
-// items of the plugins menu both front pages draw after the panels.
+// Tests the pure steps of the dock: bridge(), from the host bridge's menu to
+// its items, and plugins(), from live/plugins.json to the items of the
+// plugins menu both front pages draw after them.
 //
-//   node --test test/panels_menu_test.mjs
+//   node --test test/dock_menu_test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
-import "../host/fun/panels.js";
+import "../host/fun/dock.js";
 
-const { plugins } = globalThis.TEHAS_PANELS;
+const { bridge, plugins } = globalThis.TEHAS_DOCK;
 
 const ORIGIN = "https://example.org";
 const BASE = "https://plugin-floorplan.example.org";
@@ -69,4 +70,24 @@ test("the committed sample of live/plugins.json makes its items", () => {
     ["m-floorplan-map", "dock", "Floorplan"],
     ["m-floorplan-health", "page", "Floorplan"],
   ]);
+});
+
+const item = (id, over = {}) => ({ id, label: `Label ${id}`, url: `https://${id}.example.net/x`, ...over });
+
+test("the bridge's items keep their order and how they open, and a later id takes the earlier one's place", () => {
+  assert.deepEqual(bridge(undefined, ORIGIN), []);
+  assert.deepEqual(bridge("x", ORIGIN), []);
+  const out = bridge([item("a", { open: "page" }), item("b", { open: "dock" })], ORIGIN);
+  assert.deepEqual(out.map((i) => [i.id, i.open]), [["a", "page"], ["b", "dock"]]);
+  const swapped = bridge([item("a"), item("b"), item("a", { label: "Again", url: "http://host.example.net/a" })], ORIGIN);
+  assert.deepEqual(swapped.map((i) => [i.id, i.label, i.url]), [
+    ["a", "Again", "http://host.example.net/a"],
+    ["b", "Label b", "https://b.example.net/x"],
+  ]);
+});
+
+test("four bridge items is the most, and one on the page's own origin or with no address is dropped", () => {
+  assert.deepEqual(bridge(["a", "b", "c", "d", "e"].map((id) => item(id)), ORIGIN).map((i) => i.id), ["a", "b", "c", "d"]);
+  assert.deepEqual(bridge([item("d", { url: "https://example.org/x" })], ORIGIN), []);
+  assert.deepEqual(bridge([item("d", { url: "not a url" })], ORIGIN), []);
 });

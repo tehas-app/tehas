@@ -1,6 +1,6 @@
 //! Accounts and actors: `Realm`, `Login`, `AccountId`, `Account`, `Actor`,
-//! `Scope`, `Secret`, `Token`, `DeployCredential`, `SiteId`, `GrantId`,
-//! `Covers`, `Kept`.
+//! `Scope`, `Secret`, `Token`, `Keyring`, `DeployCredential`, `TokenStore`,
+//! `TokenLock`, `SiteId`, `GrantId`, `Covers`, `Kept`.
 
 use std::fmt;
 
@@ -8,11 +8,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::ids::opaque;
 use crate::{At, NotValid, ProjectName};
-
-// T4.1b: `Keyring`, the trait of the caller's store of person and deploy
-// credentials, and `TokenStore`, the trait of where the caller keeps the
-// factory's minted tokens, with `TokenLock`, the hold `TokenStore::lock`
-// answers.
 
 /// Which supplier an account belongs to. Two at most in an allowed setup.
 /// Where tickets come from the code host, every account is `CodeHost`.
@@ -152,6 +147,21 @@ pub struct Token {
     pub until: At,
 }
 
+/// The caller's store of person and deploy credentials, in memory. The
+/// adapter asks it per handle and keeps the answer no longer than the
+/// handle.
+pub trait Keyring: Send + Sync {
+    /// A person's credential.
+    fn secret(&self, key: &PersonKey) -> Option<Secret>;
+    /// A deploy credential, and which kind it is.
+    fn deploy(&self, key: &PersonKey) -> Option<DeployCredential>;
+    /// A token handed in for `Actor::Given`, with its `until`.
+    fn given(&self, key: &PersonKey) -> Option<Token>;
+    /// The site said the credential is no longer good: end that person's
+    /// sessions.
+    fn signed_out(&self, key: &PersonKey);
+}
+
 /// A deploy key is a private key for git over `ssh`; a deploy token is a
 /// secret for `https`.
 #[derive(Debug, Clone)]
@@ -234,6 +244,45 @@ impl TryFrom<Vec<ProjectName>> for ProjectSet {
 impl From<ProjectSet> for Vec<ProjectName> {
     fn from(set: ProjectSet) -> Self {
         set.0
+    }
+}
+
+/// Where the caller keeps the factory's minted tokens, by what they cover
+/// and their scope, so several processes share one and a cycle's container
+/// can be given it. Keyed by what a token covers because one program mints
+/// for several projects, and one project's token, or one set's, must never
+/// overwrite another's. The adapter mints and renews; the caller decides
+/// where a token lives and who reads it.
+pub trait TokenStore: Send + Sync {
+    /// A kept token with at least `left` seconds to run, if any.
+    fn kept(&self, covers: &Covers, scope: Scope, left: u32) -> Option<Token>;
+    /// Keep a new token. False if it could not be kept; the caller then gets
+    /// it once, kept nowhere.
+    fn keep(&self, covers: &Covers, scope: Scope, token: &Token) -> bool;
+    /// The site refused a kept token: drop it, so no other process reads
+    /// it again. `None` drops every scope of what it covers and, for a
+    /// site, its facts. False if anything could not be dropped: the adapter
+    /// raises `Health::TokenNotDropped` once per handle.
+    fn forget(&self, covers: &Covers, scope: Option<Scope>) -> bool;
+    /// A small fact the adapter keeps beside its tokens, so a mint need not
+    /// look it up each time.
+    fn fact(&self, site: &SiteId, what: Kept) -> Option<String>;
+    /// Keep a fact. False if it could not be kept: the adapter uses the fact
+    /// for this handle alone and looks it up again on the next mint. Not
+    /// reported: a lost fact costs one call, never a wrong answer.
+    fn keep_fact(&self, site: &SiteId, what: Kept, value: &str) -> bool;
+    /// Hold the minting of `scope` across processes, at most `wait` seconds.
+    /// `None` after the wait: the adapter answers `Unavailable { why:
+    /// Timeout, sent: No }` and mints nothing.
+    fn lock(&self, covers: &Covers, scope: Scope, wait: u32) -> Option<TokenLock>;
+}
+
+/// Held until dropped; what it holds is the caller's.
+pub struct TokenLock(pub Box<dyn Send>);
+
+impl fmt::Debug for TokenLock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("TokenLock(..)")
     }
 }
 

@@ -61,8 +61,16 @@ Their types are in a crate of their own, `console/ports/` (`tehas-ports`),
 which a consumer vendors at the tag: std and serde alone, no supplier word,
 no effects. T4.1 lands it in four parts. T4.1a: the data types (ids,
 bodies, bounds, accounts, outcomes, marks and markers). T4.1b: the traits,
-the board, the site, the links and the write. T4.1c: the ledger, health
-and the report. T4.1d: the fakes and the laws.
+the board, the site, the links and the write, with the per-pass reports
+the traits take (`Reports`, `Report`, `Caller`, `PortName`).
+T4.1c: the ledger and health: `Ledger`, the budget and health state
+shared across processes, keyed by `HostId` and `Whose` (the host, one
+`Holder` on it, or one pool of a holder), and `health::next`, the pure step from one outcome to the
+next state and the `Notice`, if the state changed. T4.1d: the fakes, the
+laws and the `Writer`. A handle takes `&mut self` and is `Send`; a `Site` and the
+caller's stores (`Links`, `Keyring`, `TokenStore`) are `Send + Sync` and
+take `&self`. `Join` is the board of a split setup: pure code over three
+owned read handles and the links, each ticket answered alone.
 
 ## Checks of the core (R3, R8)
 
