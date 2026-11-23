@@ -63,7 +63,6 @@ case "$name $1" in
   "store plan-answer")
     for a; do [ "${prev:-}" != --text-file ] || cp "$a" "$d/answer"; prev=$a; done
     cat "$d/answered" 2>/dev/null || echo '{"api":1,"verb":"plan-answer","ok":true,"planning":{"answer":"Do A.\n"}}' ;;
-  "store job-stamp") cat "$d/job" 2>/dev/null || echo '{"api":1,"verb":"job-stamp","ok":true,"job":null}' ;;
   "store plan-show") cat "$d/plan" 2>/dev/null || echo '{"api":1,"verb":"plan-show","ok":true,"planning":null}' ;;
   "store plan-end") case "$*" in
       *--turn*) if [ -f "$d/plan" ]; then sed 's/"verb":"plan-show"/"verb":"plan-end"/' "$d/plan"; else echo '{"api":1,"verb":"plan-end","ok":true}'; fi ;;
@@ -182,7 +181,6 @@ fn world() -> World {
             refused_labels: Vec::new(),
             bot: "tehas-bot".into(),
             owner: String::new(),
-            outsource: false,
             systemctl: s("start"),
             start_cmd: Some(s("start")),
             stop_cmd: Some(s("start")),
@@ -1330,61 +1328,6 @@ fn a_start_records_marks_says_and_starts_in_that_order() {
 }
 
 #[test]
-fn with_outsource_off_the_start_comment_asks_no_stamp() {
-    let mut t = world();
-    t.apply(json!([start_of(7, "label")]));
-    let all = t.writes().join("\n");
-    assert!(all.contains("Tehas cycle started"), "{all}");
-    assert!(!all.contains("Built by"), "{all}");
-    assert!(!all.contains("job-stamp"), "{all}");
-}
-
-#[test]
-fn with_outsource_on_the_start_comment_says_who_builds_it() {
-    let mut t = world();
-    t.w.host.outsource = true;
-    t.apply(json!([start_of(7, "label")]));
-    let c = t.writes();
-    assert!(
-        c.iter()
-            .any(|w| w == "store job-stamp --issue 7 --since 1793008800 --open"),
-        "{c:#?}"
-    );
-    let all = c.join("\n");
-    assert!(all.contains("is removed.\n\nBuilt by: in-house\n"), "{all}");
-
-    let mut t = world();
-    t.w.host.outsource = true;
-    fs::write(
-        t.dir.join("job"),
-        r#"{"api":1,"verb":"job-stamp","ok":true,"job":4,"contractor":"box-1"}"#,
-    )
-    .unwrap();
-    t.apply(json!([start_of(7, "label")]));
-    let all = t.writes().join("\n");
-    assert!(
-        all.contains("is removed.\n\nBuilt by contractor: box-1 (job 4)\n"),
-        "{all}"
-    );
-
-    // A store that cannot say leaves the comment without a stamp.
-    let mut t = world();
-    t.w.host.outsource = true;
-    t.fail("store", "job-stamp");
-    let a = t.apply(json!([start_of(7, "label")]));
-    let all = t.writes().join("\n");
-    assert!(all.contains("Tehas cycle started"), "{all}");
-    assert!(!all.contains("Built by"), "{all}");
-    assert!(
-        a.log
-            .iter()
-            .any(|l| l.starts_with("WARN: #7: the store did not say who builds it")),
-        "{:#?}",
-        a.log
-    );
-}
-
-#[test]
 fn a_start_binds_its_driver_in_the_record_and_a_classic_one_names_none() {
     let mut t = world();
     let mut a = start_of(7, "label");
@@ -1393,17 +1336,6 @@ fn a_start_binds_its_driver_in_the_record_and_a_classic_one_names_none() {
     let input: Value =
         serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
     assert_eq!(input["driver"], "lean");
-}
-
-#[test]
-fn an_outsourced_start_binds_its_contractor_in_the_record() {
-    let mut t = world();
-    let mut a = start_of(7, "label");
-    a["contractor"] = json!("box-1");
-    t.apply(json!([a]));
-    let input: Value =
-        serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
-    assert_eq!(input["contractor"], "box-1");
 }
 
 #[test]
@@ -1769,30 +1701,6 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
         .calls()
         .iter()
         .any(|c| c.starts_with("store approval-record")));
-}
-
-#[test]
-fn with_outsource_on_a_refresh_start_says_who_builds_it() {
-    let mut t = world();
-    t.w.host.outsource = true;
-    fs::write(
-        t.dir.join("job"),
-        r#"{"api":1,"verb":"job-stamp","ok":true,"job":4,"contractor":"box-1"}"#,
-    )
-    .unwrap();
-    let mut a = start_of(7, "refresh");
-    a["how"] = json!("approval");
-    a["refresh_pr"] = json!(12);
-    a["refresh_url"] = json!("https://github.com/example-owner/example-product/pull/12");
-    a["refresh_of"] =
-        json!({"pr": 12, "head_sha": "c".repeat(40), "base_sha": "d".repeat(40), "branch": "main"});
-    t.apply(json!([a]));
-    let all = t.writes().join("\n");
-    assert!(all.contains("Tehas refresh started"), "{all}");
-    assert!(
-        all.contains("is removed.\n\nBuilt by contractor: box-1 (job 4)\n"),
-        "{all}"
-    );
 }
 
 #[test]
@@ -2252,71 +2160,6 @@ fn a_start_whose_issue_alone_is_not_a_bool_is_said_and_reads_its_comments() {
         );
         assert!(t.calls().iter().any(|c| c.contains("issues/7/comments")));
     }
-}
-
-#[test]
-fn a_millwright_start_names_its_note_of_the_ten_minutes_before_the_label() {
-    let mut t = world();
-    let c = |id: u64, who: &str, at: &str, body: &str| json!({"id": id, "body": body, "user": {"login": who}, "created_at": at, "updated_at": at});
-    let marker = "<!-- tehas:millwright issue=7 action=retry -->";
-    fs::write(
-        t.dir.join("comments"),
-        json!([
-            c(
-                1,
-                "mill-bot",
-                "2026-10-26T09:45:00Z",
-                &format!("too early {marker}")
-            ),
-            c(
-                2,
-                "mill-bot",
-                "2026-10-26T09:52:00Z",
-                &format!("first {marker}")
-            ),
-            c(
-                3,
-                "mill-bot",
-                "2026-10-26T09:55:00Z",
-                &format!("the one {marker}")
-            ),
-            c(
-                4,
-                "alice",
-                "2026-10-26T09:56:00Z",
-                &format!("a person {marker}")
-            ),
-            c(5, "mill-bot", "2026-10-26T09:57:00Z", "no marker"),
-        ])
-        .to_string(),
-    )
-    .unwrap();
-    t.apply(json!([start_of(7, "millwright")]));
-    assert!(t
-        .writes()
-        .iter()
-        .any(|c| c.starts_with("store approval-record") && c.contains("--label tehas:ready")));
-    let input: Value =
-        serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
-    assert_eq!(
-        input["retry_context"],
-        json!([{"source": "millwright:3", "by": "mill-bot", "at": "2026-10-26T09:55:00Z", "text": format!("the one {marker}")}])
-    );
-    assert!(input.get("comment_links").is_none());
-}
-
-#[test]
-fn a_lifted_start_is_given_the_note_that_lifted_it_and_reads_no_comment_again() {
-    let mut t = world();
-    let note = json!({"source": "millwright:3", "by": "mill-bot", "at": "2026-10-26T09:55:00Z", "text": "the one"});
-    let mut start = start_of(7, "millwright");
-    start["park_lifted"] = note.clone();
-    t.apply(json!([start]));
-    assert!(!t.calls().iter().any(|c| c.contains("/comments")));
-    let input: Value =
-        serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
-    assert_eq!(input["park_lifted"], note);
-    assert_eq!(input["retry_context"], json!([note]));
 }
 
 #[test]

@@ -36,14 +36,14 @@ while IFS=$'\t' read -r name _; do
   t_contains "$t_out" "label $name"
 done <"$T_ROOT/host/labels.tsv"
 
-t_case "it pins each granting label and the prototype label to its id once the labels are made"
+t_case "it pins each granting label to its id once the labels are made"
 pins=$T/home/tehas/state/labels
-for name in ready plan refine finish blocked lean classic prototype; do
+for name in ready plan refine finish blocked lean classic; do
   t_contains "$(t_calls gh)" "api repos/acme/widget/labels/tehas:$name --jq .node_id"
   t_contains "$t_out" "pinned the label tehas:$name as LA_$name in state/labels"
   t_contains "$(cat "$pins")" "$(printf 'tehas:%s\tLA_%s' "$name" "$name")"
 done
-t_eq "$(wc -l <"$pins")" 8
+t_eq "$(wc -l <"$pins")" 7
 t_lacks "$(cat "$pins")" "tehas:running"
 
 t_case "once the file exists, a label that was there with no pin is named and not pinned, exit 1"
@@ -65,12 +65,12 @@ rm -f "$T"/calls/*
 t_run "$labels"
 t_eq "$t_rc" 0
 t_contains "$t_out" "pinned the label tehas:plan as LA_plan in state/labels"
-t_eq "$(wc -l <"$pins")" 8
+t_eq "$(wc -l <"$pins")" 7
 T_ENV=()
 rm -f "$pins"
 
 t_case "a label there with no pin is pinned when GitHub says it was made with a pinned one"
-for name in ready plan refine finish lean classic prototype; do
+for name in ready plan refine finish lean classic; do
   printf 'tehas:%s\tLA_%s\n' "$name" "$name"
 done >"$pins"
 printf 'LA_ready\t2026-10-19T18:16:01Z\nLA_blocked\t2026-10-19T18:16:09Z\n' >"$T/created"
@@ -81,7 +81,7 @@ t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "api graphql -f query="
 t_contains "$(t_calls gh)" "-f owner=acme -f name=widget"
 t_contains "$t_out" "pinned the label tehas:blocked as LA_blocked in state/labels: it was made with the pinned labels"
-t_eq "$(wc -l <"$pins")" 8
+t_eq "$(wc -l <"$pins")" 7
 
 t_case "one made long after the pinned ones is still refused, exit 1"
 grep -v '^tehas:blocked' "$pins" >"$pins.new" && mv "$pins.new" "$pins"
@@ -93,9 +93,6 @@ t_contains "$t_out" "not pinned: the label tehas:blocked (LA_blocked) was there 
 t_lacks "$(cat "$pins")" "tehas:blocked"
 T_ENV=()
 rm -f "$pins"
-
-t_case "it creates the all-hands label"
-t_contains "$(t_calls gh)" "label create tehas:all-hands "
 
 t_case "it creates the question label"
 t_contains "$(t_calls gh)" "label create tehas:question "

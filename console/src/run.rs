@@ -20,10 +20,6 @@
 //!   refresh   exit 64 before step 2 unless the arguments are --pr N
 //!   preview   exit 78 after step 3 unless TEHAS_PREVIEWS is 1
 //!
-//! tehasbot outsource-proxy is `tehas-proxy` beside this program, by exec
-//! under the settings: the model proxy of outsource, which says itself
-//! whether the feature is on.
-//!
 //! tehasbot plugin is `tehas-plugin` beside this program, by exec under the
 //! settings: a plugin's run and the plugins' tick, which say themselves
 //! whether the feature is on.
@@ -299,9 +295,6 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
         }
         ["tehasbot", "cycle"] => cycle_run(libexec, rest.first().ok_or(64u8)?),
         ["tehasbot", "plugin"] => beside(libexec, "tehas-plugin", "tehasbot plugin", rest),
-        ["tehasbot", "outsource-proxy"] if rest.is_empty() => {
-            beside(libexec, "tehas-proxy", "tehasbot outsource-proxy", &[])
-        }
         ["tehasbot", "plugin-gate"] if rest.is_empty() => {
             beside(libexec, "tehas-plugin-gate", "tehasbot plugin-gate", &[])
         }

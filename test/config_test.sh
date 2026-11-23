@@ -338,49 +338,28 @@ for bad in "TEHAS_WORKSTREAMS=auto" "TEHAS_WORKSTREAMS=0" "TEHAS_MAX_CYCLES=0" "
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
 
-t_case "outsource is off unless the instance turns it on, and the bounds are the defaults"
-printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && set -u && echo \"[\$TEHAS_OUTSOURCE][\$TEHAS_OUTSOURCE_REPOS]\""
-t_eq "$t_out" "[0][]"
-t_run "$load && echo \"[\$TEHAS_OUTSOURCE_TIMEOUT][\$TEHAS_OUTSOURCE_GRACE][\$TEHAS_OUTSOURCE_RETRIES][\$TEHAS_OUTSOURCE_REST][\$TEHAS_OUTSOURCE_JOIN_TTL]\""
-t_eq "$t_out" "[600][120][2][1800][3600]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on "TEHAS_OUTSOURCE_REPOS='acme/widget other/widget'" >"$TEHAS_INSTANCE_DIR/instance.env"
-T_ENV=(TEHAS_TEST_FEATURES=outsource)
-t_run "$load && echo \"[\$TEHAS_OUTSOURCE][\$TEHAS_OUTSOURCE_REPOS]\""
-t_eq "$t_out" "[1][acme/widget other/widget]"
-T_ENV=()
-
-t_case "outsource is still being built: its switch set on stops the load with 78"
-for value in on 1; do
-  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_OUTSOURCE=$value" >"$TEHAS_INSTANCE_DIR/instance.env"
-  t_run "$load; echo rc=\$?"
-  t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "tehas: TEHAS_OUTSOURCE is on and outsource is still being built in this release"
+t_case "a setting of outsource, gone, loads with one warning and is dropped"
+gone=(TEHAS_OUTSOURCE TEHAS_OUTSOURCE_TIMEOUT TEHAS_OUTSOURCE_GRACE TEHAS_OUTSOURCE_RETRIES TEHAS_OUTSOURCE_REST
+  TEHAS_OUTSOURCE_REPOS TEHAS_OUTSOURCE_CONTRACTORS TEHAS_OUTSOURCE_JOIN_TTL TEHAS_OUTSOURCE_PROXY_ADDR
+  TEHAS_OUTSOURCE_PROXY_IDLE)
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on TEHAS_OUTSOURCE_TIMEOUT=600 TEHAS_OUTSOURCE_GRACE=120 \
+  TEHAS_OUTSOURCE_RETRIES=2 TEHAS_OUTSOURCE_REST=1800 TEHAS_OUTSOURCE_REPOS=acme/widget \
+  TEHAS_OUTSOURCE_CONTRACTORS=box1 TEHAS_OUTSOURCE_JOIN_TTL=3600 TEHAS_OUTSOURCE_PROXY_ADDR=127.0.0.1:8090 \
+  TEHAS_OUTSOURCE_PROXY_IDLE=60 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load; echo rc=\$? \"[\${TEHAS_OUTSOURCE-unset}][\${TEHAS_OUTSOURCE_REPOS-unset}][\${TEHAS_OUTSOURCE_PROXY_IDLE-unset}]\""
+t_contains "$t_out" "rc=0 [unset][unset][unset]"
+for name in "${gone[@]}"; do
+  t_contains "$t_out" "$name is no longer read: outsource was dropped in 2.0; remove it from the instance"
 done
+# What a 1.4 instance could hold and still load: the switch off, or a line left empty.
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=off TEHAS_OUTSOURCE_REPOS= >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=0"
 
-for bad in "TEHAS_OUTSOURCE=yes" "TEHAS_OUTSOURCE=On" "TEHAS_OUTSOURCE=2" \
-  "TEHAS_OUTSOURCE_TIMEOUT=soon" "TEHAS_OUTSOURCE_TIMEOUT=0" "TEHAS_OUTSOURCE_TIMEOUT=10m" \
-  "TEHAS_OUTSOURCE_GRACE=-1" "TEHAS_OUTSOURCE_RETRIES=two" "TEHAS_OUTSOURCE_RETRIES=0" \
-  "TEHAS_OUTSOURCE_REST=1h" "TEHAS_OUTSOURCE_JOIN_TTL=0" \
-  "TEHAS_OUTSOURCE_REPOS=acme" "TEHAS_OUTSOURCE_REPOS=acme/widget  other/widget" \
-  "TEHAS_OUTSOURCE_REPOS= acme/widget" "TEHAS_OUTSOURCE_REPOS=acme/widget " \
-  "TEHAS_OUTSOURCE_REPOS=acme/widget;rm"; do
-  t_case "loading rejects $bad"
-  printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
-  t_run "$load; echo rc=\$?"
-  t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
-done
-
-t_case "a command fails closed on a bad TEHAS_OUTSOURCE before it calls GitHub"
+t_case "a value the rule of outsource once refused loads too: nothing reads it"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=maybe >"$TEHAS_INSTANCE_DIR/instance.env"
-t_stub gh
-for cmd in "bin/tehasbot cycle 7" "bin/tehasbot dispatch"; do
-  t_run "TEHAS_CONSOLE=\"\$TEHAS_SETTINGS_CMD\" \"\$T_ROOT/\"$cmd"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "TEHAS_OUTSOURCE is not valid"
-  t_eq "$(t_calls gh)" ""
-done
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=0"
 
 t_case "the owner is optional: unset it is empty, set it is the login"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -414,21 +393,13 @@ for name in TEHAS_REVIEW TEHAS_REVIEW_REPO; do
   t_contains "$t_out" "$name is no longer read: the review loop left core in 2.0 and returns as a plugin; remove it from the instance"
 done
 
-t_case "the millwright may retry twice and answer three planning questions by default"
+t_case "the millwright may answer three planning questions by default"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && set -u && echo \"[\$TEHAS_MILLWRIGHT_MAX_RETRIES][\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
-t_eq "$t_out" "[2][3]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_MAX_RETRIES=3 TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=1 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_MAX_RETRIES][\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
-t_eq "$t_out" "[3][1]"
-
-t_case "the millwright's feed is off unless the instance turns it on, two at once by default"
-printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && set -u && echo \"[\$TEHAS_MILLWRIGHT_FEED][\$TEHAS_MILLWRIGHT_MAX_FEEDS]\""
-t_eq "$t_out" "[0][2]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_FEED=1 TEHAS_MILLWRIGHT_MAX_FEEDS=4 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_FEED][\$TEHAS_MILLWRIGHT_MAX_FEEDS]\""
-t_eq "$t_out" "[1][4]"
+t_run "$load && set -u && echo \"[\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
+t_eq "$t_out" "[3]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
+t_eq "$t_out" "[1]"
 
 t_case "the millwright's epics are off unless the instance turns them on"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -568,8 +539,7 @@ done
 # Every count: a digit string no comparison can hold is refused by its length,
 # so a long number stops the load rather than reach the dispatcher or tehas limit.
 for name in TEHAS_WORK_TIMEOUT TEHAS_WORKSTREAMS TEHAS_MAX_CYCLES TEHAS_VERIFY_TIMEOUT \
-  TEHAS_CHILD_TIMEOUT TEHAS_WORK_STALL TEHAS_PLAN_TIMEOUT TEHAS_SIZE_MAX_FILES TEHAS_MAX_AWAITING \
-  TEHAS_MILLWRIGHT_MAX_RETRIES; do
+  TEHAS_CHILD_TIMEOUT TEHAS_WORK_STALL TEHAS_PLAN_TIMEOUT TEHAS_SIZE_MAX_FILES TEHAS_MAX_AWAITING; do
   t_case "loading rejects a $name of 20 digits"
   t_instance "${T_MINIMAL[@]}" "$name=99999999999999999999"
   t_run "$load; echo rc=\$?"
@@ -581,9 +551,7 @@ t_instance "${T_MINIMAL[@]}" TEHAS_SIZE_MAX_FILES=999999999
 t_run "$load && echo \"[\$TEHAS_SIZE_MAX_FILES]\""
 t_eq "$t_out" "[999999999]"
 
-for bad in "TEHAS_MILLWRIGHT_MAX_RETRIES=0" "TEHAS_MILLWRIGHT_MAX_RETRIES=many" \
-  "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=0" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=-1" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=lots" \
-  "TEHAS_MILLWRIGHT_FEED=yes" "TEHAS_MILLWRIGHT_FEED=2" "TEHAS_MILLWRIGHT_MAX_FEEDS=0" "TEHAS_MILLWRIGHT_MAX_FEEDS=many" \
+for bad in "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=0" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=-1" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=lots" \
   "TEHAS_MILLWRIGHT_EPICS=yes" "TEHAS_MILLWRIGHT_EPICS=2"; do
   t_case "loading rejects $bad"
   t_instance "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'"
@@ -634,7 +602,7 @@ t_contains "$t_out" "rc=78"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "an old fixer name stops the load with 78 and names the new one"
-for old in TEHAS_FIXER_LOGIN=tehas-mill TEHAS_FIXER_MAX_RETRIES=3 TEHAS_FIXER_MAX_PLAN_ANSWERS=1 TEHAS_FIXER_LOGIN=; do
+for old in TEHAS_FIXER_LOGIN=tehas-mill TEHAS_FIXER_MAX_PLAN_ANSWERS=1 TEHAS_FIXER_LOGIN=; do
   t_case "loading rejects $old"
   printf '%s\n' "${T_MINIMAL[@]}" "$old" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"

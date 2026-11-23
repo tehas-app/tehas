@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 pub const FAMILY: [&str; 5] = ["industry", "kaizen", "kata", "monozukuri", "yokoten"];
 
 /// Words that name a program of tehas itself as `tehas-<word>`: never a part.
-pub const OWN: [&str; 6] = ["contractor", "cycle", "dispatch", "front", "mcp", "proxy"];
+pub const OWN: [&str; 4] = ["cycle", "dispatch", "front", "mcp"];
 
 /// The longest part name.
 const MAX: usize = 32;

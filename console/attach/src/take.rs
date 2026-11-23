@@ -745,7 +745,6 @@ pub struct IssueRun<'a> {
     pub approved: &'a str,
     pub record: &'a str,
     pub wants: Wants,
-    pub millwright: &'a str,
     /// The answer the caller already read for the issue; empty when it read none.
     pub data: &'a str,
 }
@@ -834,7 +833,7 @@ pub fn issue(run: &IssueRun, net: &dyn Net) -> Result<(), String> {
     let comments = if run.record.is_empty() {
         None
     } else {
-        write_comments(dir, run.record, &number, run.repo, run.millwright)
+        write_comments(dir, run.record, &number, run.repo)
             .map_err(|()| written())?
             .map(|(entry, _)| entry)
     };
@@ -865,13 +864,12 @@ fn write_comments(
     record: &str,
     issue: &Value,
     repo: &str,
-    millwright: &str,
 ) -> Result<Option<Written>, ()> {
     let values = given::values_of(record).map_err(|_| ())?;
     let Some(r) = values.first().filter(|r| r.is_object()) else {
         return Err(());
     };
-    let Some(b) = comments::blob(r, issue.as_u64().ok_or(())?, repo, millwright) else {
+    let Some(b) = comments::blob(r, issue.as_u64().ok_or(())?, repo) else {
         return Ok(None);
     };
     let path = format!("{dir}/{}", comments::FILE);
@@ -892,7 +890,6 @@ pub struct CommentsRun<'a> {
     pub dir: &'a str,
     pub record: &'a str,
     pub repo: &'a str,
-    pub millwright: &'a str,
 }
 
 /// Remake <dir> with the comments of the record and a manifest that lists no
@@ -911,8 +908,7 @@ pub fn comments_only(run: &CommentsRun) -> Result<(usize, usize), String> {
     rm_rf(dir)
         .and_then(|()| fs::create_dir_all(dir))
         .map_err(|_| "the directory for the issue's comments could not be made".to_string())?;
-    let given = write_comments(dir, run.record, &number, run.repo, run.millwright)
-        .map_err(|()| written())?;
+    let given = write_comments(dir, run.record, &number, run.repo).map_err(|()| written())?;
     let counts = given.as_ref().map_or((0, 0), |(_, c)| *c);
     let entry = given.map(|(e, _)| e);
     let plain = |key: &str| Ordered::Plain(record[key].clone());

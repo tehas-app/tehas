@@ -47,12 +47,6 @@
 //! created when gh's answer to `issue create` names its URL under TEHAS_REPO.
 //! A cycle has at most 50 writes run.
 //!
-//! On a contractor the same requests are read and planned the same way, and
-//! each planned write goes to the factory through the contractor program
-//! ([`Channel`]). The factory runs [`answer_request`] on it again, with its own
-//! token and a scope of the job's, so a contractor holds no token that writes
-//! issues and a write refused here is refused there.
-//!
 //! The token is asked of `tehasbot github-token` for every request, bounded
 //! to 60 seconds: the one the start had runs out after an hour, and that
 //! command keeps a token with at least ten minutes left. gh is given it as
@@ -67,11 +61,8 @@ use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Mutex};
 use std::time::{Duration, Instant};
 use tehas_core::text::has_marker;
-
-use crate::memory::{self, Planned, Vipune};
 
 /// The most a body file, or the arguments, may hold.
 pub const MAX_BODY: u64 = 1 << 20;
@@ -90,12 +81,8 @@ const GH_WAIT: u64 = 100;
 /// How long the token command may take.
 pub const TOKEN_WAIT: u64 = 60;
 
-/// How many vipune calls run at once. They have threads of their own, so a
-/// call never waits behind a slow issue write.
-const MEMORY_WORKERS: usize = 3;
-
-/// How old an answer is when no one will read it: longer than any waiter
-/// waits (gh-shim 120 s, vipune-shim 28 s). It is removed then.
+/// How old an answer is when no one will read it: longer than the gh-shim
+/// waits, 120 s. It is removed then.
 const STALE: Duration = Duration::from_secs(300);
 
 fn no(why: &str) -> String {
@@ -320,124 +307,6 @@ impl Via {
     }
 }
 
-/// Where a planned write runs: gh on this host with the app's token, or the
-/// factory over a contractor's job channel.
-pub trait Run {
-    fn run(&self, argv: &[String], input: Option<&str>) -> (String, String, i32);
-
-    /// Whether the factory's memory answers vipune calls here. When it does
-    /// not, the stand-in is told to run the image's own vipune.
-    fn has_memory(&self) -> bool {
-        false
-    }
-
-    /// One planned vipune call of the cycle ([`crate::memory`]): vipune's
-    /// answer. Asked only when [`Run::has_memory`].
-    fn memory(&self, _planned: &Planned, _repo: &str) -> (String, String, i32) {
-        (String::new(), no("is off"), 1)
-    }
-}
-
-/// An in-house cycle's relay with the factory's memory on: issue writes as
-/// [`Via`] runs them, and vipune calls for the cycle's own database.
-pub struct InHouse {
-    pub via: Via,
-    pub memory: Box<dyn Vipune + Send + Sync>,
-    /// The cycle's database ([`crate::memory::of_issue`]).
-    pub cycle: String,
-}
-
-impl Run for InHouse {
-    fn run(&self, argv: &[String], input: Option<&str>) -> (String, String, i32) {
-        self.via.run(argv, input)
-    }
-
-    fn has_memory(&self) -> bool {
-        true
-    }
-
-    fn memory(&self, planned: &Planned, repo: &str) -> (String, String, i32) {
-        self.memory.call(&self.cycle, planned, repo)
-    }
-}
-
-impl Run for Via {
-    fn run(&self, argv: &[String], input: Option<&str>) -> (String, String, i32) {
-        run(self, argv, input)
-    }
-}
-
-/// A contractor's relay: each planned write goes to the factory through
-/// `<program> relay`, which reads `{"argv": [...], "input": ...}` on its
-/// standard input and prints `{"out": ..., "err": ..., "rc": ...}`. The
-/// factory plans and scopes the write again and runs it with its own token,
-/// so the contractor holds none that writes issues.
-pub struct Channel {
-    pub program: PathBuf,
-}
-
-impl Channel {
-    fn ask(&self, ask: &serde_json::Value) -> (String, String, i32) {
-        let ask = ask.to_string();
-        let child = bounded(GH_WAIT + TOKEN_WAIT, &self.program, &["relay".to_string()])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn();
-        let Ok(mut child) = child else {
-            return (String::new(), no("could not reach the factory"), 1);
-        };
-        if let Some(mut i) = child.stdin.take() {
-            let _ = i.write_all(ask.as_bytes());
-        }
-        let said = child
-            .wait_with_output()
-            .ok()
-            .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok());
-        let Some(said) = said else {
-            return (String::new(), no("got no answer from the factory"), 1);
-        };
-        let text = |k: &str| said[k].as_str().unwrap_or_default().to_string();
-        let rc = said["rc"]
-            .as_i64()
-            .and_then(|n| i32::try_from(n).ok())
-            .unwrap_or(1);
-        (text("out"), text("err"), rc)
-    }
-}
-
-impl Run for Channel {
-    fn run(&self, argv: &[String], input: Option<&str>) -> (String, String, i32) {
-        self.ask(&serde_json::json!({ "argv": argv, "input": input }))
-    }
-
-    /// A vipune call goes to the factory as a relay request of kind
-    /// `vipune`; the factory plans it again and runs it for the job's own
-    /// database. Not answered, it fails as vipune fails, so the cycle goes on
-    /// without memory.
-    fn has_memory(&self) -> bool {
-        true
-    }
-
-    fn memory(&self, planned: &Planned, _repo: &str) -> (String, String, i32) {
-        let env: serde_json::Map<String, serde_json::Value> = planned
-            .vars
-            .iter()
-            .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
-            .collect();
-        let (out, err, rc) = self.ask(&serde_json::json!({
-            "kind": memory::MARK,
-            "argv": planned.args,
-            "env": env,
-        }));
-        let err = match err.strip_prefix("gh-shim: the relay ") {
-            Some(why) => format!("vipune: the factory's memory {why}\n"),
-            None => err,
-        };
-        (out, err, rc)
-    }
-}
-
 /// Serves the relay directory `dir` of the cycle of issue `issue` for `repo`
 /// until `stop` is set, then answers what is left with 1.
 pub fn serve(dir: &Path, repo: &str, issue: u64, stop: &AtomicBool) {
@@ -445,87 +314,16 @@ pub fn serve(dir: &Path, repo: &str, issue: u64, stop: &AtomicBool) {
     serve_via(dir, repo, issue, stop, &Via::from_env(&home));
 }
 
-pub fn serve_via(dir: &Path, repo: &str, issue: u64, stop: &AtomicBool, via: &(dyn Run + Sync)) {
-    let (writes, writes_rx) = mpsc::channel();
-    let (memory, memory_rx) = mpsc::channel();
-    let (writes_rx, memory_rx) = (Mutex::new(writes_rx), Mutex::new(memory_rx));
-    std::thread::scope(|s| {
-        s.spawn(|| {
-            let mut scope = Scope::new(issue);
-            work(dir, &writes_rx, stop, |top, pid, taken| {
-                write_request(dir, top, pid, taken, repo, via, &mut scope)
-            })
-        });
-        for _ in 0..MEMORY_WORKERS {
-            s.spawn(|| {
-                work(dir, &memory_rx, stop, |top, pid, taken| {
-                    let (out, err, rc) = vipune_request(taken.args, taken.env, repo, via);
-                    match rc {
-                        None => answer_local(dir, top, pid),
-                        Some(rc) => answer(dir, top, pid, &out, &err, rc),
-                    }
-                })
-            });
+pub fn serve_via(dir: &Path, repo: &str, issue: u64, stop: &AtomicBool, via: &Via) {
+    let mut scope = Scope::new(issue);
+    while !stop.load(Ordering::SeqCst) {
+        pass(dir, repo, via, &mut scope, stop);
+        let until = Instant::now() + POLL;
+        while Instant::now() < until && !stop.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(50));
         }
-        while !stop.load(Ordering::SeqCst) {
-            pass(dir, &writes, &memory);
-            let until = Instant::now() + POLL;
-            while Instant::now() < until && !stop.load(Ordering::SeqCst) {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-        }
-        drop((writes, memory));
-    });
+    }
     answer_left(dir);
-}
-
-/// A request taken from the directory, with its process id.
-type Queue = mpsc::Sender<(String, Taken)>;
-
-/// Answers with `each` the requests [`pass`] queued, until the queue closes.
-/// One still queued at the stop is answered as one left at the end.
-fn work(
-    dir: &Path,
-    rx: &Mutex<mpsc::Receiver<(String, Taken)>>,
-    stop: &AtomicBool,
-    mut each: impl FnMut(&OwnedFd, &str, Taken),
-) {
-    loop {
-        let Some((pid, taken)) = rx.lock().ok().and_then(|r| r.recv().ok()) else {
-            return;
-        };
-        let Some(top) = open_dir(dir) else {
-            continue;
-        };
-        if stop.load(Ordering::SeqCst) {
-            answer(
-                dir,
-                &top,
-                &pid,
-                "",
-                &no("did not run this: the cycle ended"),
-                1,
-            );
-            continue;
-        }
-        each(&top, &pid, taken);
-    }
-}
-
-/// Leave [`memory::MARK`] in the relay directory `dir` when `on`, made if
-/// need be, and take it out when not: the stand-in sends its vipune calls
-/// here only while it is there. Made before the container starts, without
-/// following a link.
-pub fn mark_memory(dir: &Path, on: bool) {
-    if on {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    if let Some(top) = open_dir(dir) {
-        let _ = rustix::fs::unlinkat(&top, memory::MARK, AtFlags::empty());
-        if on && !write_new(&top, memory::MARK, "") {
-            eprintln!("tehas relay: could not mark the relay for vipune");
-        }
-    }
 }
 
 fn open_dir(dir: &Path) -> Option<OwnedFd> {
@@ -548,36 +346,19 @@ fn requests(dir: &Path) -> Vec<String> {
     pids
 }
 
-/// One reading of the directory: every complete request taken and queued,
-/// an issue write on `writes` and a vipune call on `memory`, so neither waits
-/// behind the other; and answers no one read removed.
-fn pass(dir: &Path, writes: &Queue, memory: &Queue) {
+/// One reading of the directory: every complete request answered, and
+/// answers no one read removed. Once `stop` is set no further request is
+/// run: the end answers what is left.
+fn pass(dir: &Path, repo: &str, via: &Via, scope: &mut Scope, stop: &AtomicBool) {
     let Some(top) = open_dir(dir) else {
         return;
     };
     for pid in requests(dir) {
-        let Some(taken) = take(dir, &top, &pid) else {
-            continue;
-        };
-        let queue = match taken.kind.as_ref().map(Option::as_deref) {
-            Ok(None) => writes,
-            Ok(Some(memory::MARK)) => memory,
-            Ok(Some(_)) | Err(_) => {
-                let why = no("takes requests of the kinds gh and vipune only");
-                eprintln!("tehas relay: refused request {pid}: {why}");
-                answer(dir, &top, &pid, "", &why, 1);
-                continue;
-            }
-        };
-        if let Err(mpsc::SendError((pid, _))) = queue.send((pid, taken)) {
-            answer(
-                dir,
-                &top,
-                &pid,
-                "",
-                &no("did not run this: the cycle ended"),
-                1,
-            );
+        if stop.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Some(taken) = take(dir, &top, &pid) {
+            write_request(dir, &top, &pid, taken, repo, via, scope);
         }
     }
     remove_stale(dir, &top, STALE);
@@ -639,14 +420,11 @@ pub fn answer_left(dir: &Path) {
     }
 }
 
-/// A request read and removed: its arguments and body, each or why not, its
-/// kind (None for an issue write) and its variables, from `env`.
+/// A request read and removed: its arguments and body, each or why not.
 /// None when it is not complete or could not be removed.
 struct Taken {
     args: Result<Vec<String>, String>,
     body: Result<Option<String>, String>,
-    kind: Result<Option<String>, String>,
-    env: Result<Vec<(String, String)>, String>,
 }
 
 fn take(dir: &Path, top: &OwnedFd, pid: &str) -> Option<Taken> {
@@ -673,31 +451,18 @@ fn take(dir: &Path, top: &OwnedFd, pid: &str) -> Option<Taken> {
         b.map(|b| String::from_utf8(b).map_err(|_| no("takes a body of UTF-8 text")))
             .transpose()
     });
-    let kind = regular(&req, "kind", 16).and_then(|k| {
-        k.map(|k| {
-            String::from_utf8(k)
-                .map(|k| k.trim_end().to_string())
-                .map_err(|_| no("takes a kind of UTF-8 text"))
-        })
-        .transpose()
-    });
-    let env = regular(&req, "env", memory::MAX_ARGS as u64).and_then(|e| {
-        let e = String::from_utf8(e.unwrap_or_default())
-            .map_err(|_| no("takes variables of UTF-8 text"))?;
-        memory::vars_of(&e)
-    });
+    // A request that names a kind is no issue write, whatever else it holds.
+    let args = match regular(&req, "kind", 0) {
+        Ok(None) => args,
+        _ => Err(no("takes issue writes only")),
+    };
     drop(req);
     if std::fs::remove_dir_all(dir.join(&name)).is_err() {
         // Not run: it could be taken again.
         answer(dir, top, pid, "", &no("could not take the request"), 1);
         return None;
     }
-    Some(Taken {
-        args,
-        body,
-        kind,
-        env,
-    })
+    Some(Taken { args, body })
 }
 
 /// An issue write: planned, held to the cycle's scope, run and answered.
@@ -707,10 +472,10 @@ fn write_request(
     pid: &str,
     taken: Taken,
     repo: &str,
-    via: &dyn Run,
+    via: &Via,
     scope: &mut Scope,
 ) {
-    let Taken { args, body, .. } = taken;
+    let Taken { args, body } = taken;
     let ran = args.and_then(|a| answer_request(&a, body?.as_deref(), repo, via, scope));
     match ran {
         Ok((out, err, rc)) => answer(dir, top, pid, &out, &err, rc),
@@ -721,44 +486,19 @@ fn write_request(
     }
 }
 
-/// A request of kind `vipune`: vipune's answer, or a refusal answered as its
-/// usage error. A None status: the factory's memory is off here, whatever the
-/// request holds. It does not count against the cycle's issue writes.
-fn vipune_request(
-    args: Result<Vec<String>, String>,
-    env: Result<Vec<(String, String)>, String>,
-    repo: &str,
-    via: &dyn Run,
-) -> (String, String, Option<i32>) {
-    if !via.has_memory() {
-        return (String::new(), String::new(), None);
-    }
-    let (args, vars) = match args.and_then(|a| Ok((a, env?))) {
-        Ok(read) => read,
-        Err(why) => {
-            let why = why.replacen("gh-shim: the relay", "vipune: the factory's memory", 1);
-            return (String::new(), format!("{why}\n"), Some(memory::USAGE_EXIT));
-        }
-    };
-    let (out, err, rc) = memory::answer(&args, &vars, repo, &|planned| via.memory(planned, repo));
-    (out, err, Some(rc))
-}
-
 /// One request of a cycle, planned, held to its scope and run: gh's output,
-/// its error stream and its status, or why it is refused. The local
-/// relay answers each request of its directory with it, and the factory each
-/// request a contractor relays for its job, so both refuse the same writes.
-pub fn answer_request(
+/// its error stream and its status, or why it is refused.
+fn answer_request(
     args: &[String],
     body: Option<&str>,
     repo: &str,
-    via: &dyn Run,
+    via: &Via,
     scope: &mut Scope,
 ) -> Result<(String, String, i32), String> {
     let (argv, input) = plan(args, body, repo)?;
     scope.permits(&argv)?;
     scope.run += 1;
-    let (out, err, rc) = via.run(&argv, input.as_deref());
+    let (out, err, rc) = run(via, &argv, input.as_deref());
     if rc == 0 && argv[1] == "create" {
         if let Some(n) = created_number(&out, repo) {
             scope.created.insert(n);
@@ -865,15 +605,12 @@ fn run(via: &Via, argv: &[String], input: Option<&str>) -> (String, String, i32)
 /// container cannot have it written anywhere else.
 fn answer(dir: &Path, top: &OwnedFd, pid: &str, out: &str, err: &str, rc: i32) {
     let rc = format!("{rc}\n");
-    answer_files(dir, top, pid, &[("out", out), ("err", err), ("rc", &rc)]);
-}
-
-/// The answer that tells the stand-in to run the image's own vipune.
-fn answer_local(dir: &Path, top: &OwnedFd, pid: &str) {
-    answer_files(dir, top, pid, &[("local", "")]);
-}
-
-fn answer_files(dir: &Path, top: &OwnedFd, pid: &str, files: &[(&str, &str)]) {
+    let files = [
+        ("out", out),
+        ("err", err),
+        ("rc", rc.as_str()),
+        ("done", ""),
+    ];
     let name = format!("res.{pid}");
     if !remove_at(dir, top, &name)
         || rustix::fs::mkdirat(top, &name, Mode::from_raw_mode(0o700)).is_err()
@@ -886,7 +623,7 @@ fn answer_files(dir: &Path, top: &OwnedFd, pid: &str, files: &[(&str, &str)]) {
         eprintln!("tehas relay: could not answer request {pid}");
         return;
     };
-    for (file, text) in files.iter().copied().chain([("done", "")]) {
+    for (file, text) in files {
         if !write_new(&res, file, text) {
             eprintln!("tehas relay: could not answer request {pid}");
             return;
@@ -1458,6 +1195,29 @@ mod tests {
     }
 
     #[test]
+    fn a_request_that_names_a_kind_is_refused_and_runs_nothing() {
+        let d = TestDir::new("relay-kind");
+        let (relay, stop, t) = served(&d);
+        let args = ["issue", "comment", "3", "--body", "hi"];
+        for (pid, kind) in [("6", "vipune\n"), ("7", "")] {
+            let req = relay.join(format!("req.{pid}"));
+            fs::create_dir(&req).unwrap();
+            fs::write(req.join("args"), args.join("\0") + "\0").unwrap();
+            fs::write(req.join("kind"), kind).unwrap();
+            fs::write(req.join("ready"), "").unwrap();
+            assert!(wait_done(&relay, pid));
+            assert_eq!(read(relay.join(format!("res.{pid}/rc"))), "1\n");
+            assert!(
+                read(relay.join(format!("res.{pid}/err"))).contains("takes issue writes only"),
+                "{pid}"
+            );
+        }
+        stop.store(true, Ordering::SeqCst);
+        t.join().unwrap();
+        assert!(!d.join("gh.log").exists());
+    }
+
+    #[test]
     fn serve_gives_a_body_file_on_standard_input() {
         let d = TestDir::new("relay-body");
         let (relay, stop, t) = served(&d);
@@ -1666,303 +1426,30 @@ mod tests {
     }
 
     #[test]
-    fn a_contractor_s_relay_hands_the_planned_write_to_the_channel_program() {
-        let d = TestDir::new("relay-channel");
-        let relay = d.join("relay");
-        fs::create_dir(&relay).unwrap();
-        let program = d.join("contractor");
-        let asked = d.join("asked");
-        tehas_core::testing::write_exe(
-            &program,
-            format!(
-                "#!/bin/sh\n[ \"$1\" = relay ] || exit 9\ncat >{}\nprintf '%s' '{{\"out\":\"https://github.com/{REPO}/issues/3#c\\\\n\",\"err\":\"\",\"rc\":0}}'\n",
-                asked.display()
-            ),
-        )
-        .unwrap();
-        let via = Channel { program };
-        let stop = Arc::new(AtomicBool::new(false));
-        let (r, st) = (relay.clone(), stop.clone());
-        let t = std::thread::spawn(move || serve_via(&r, REPO, 3, &st, &via));
-        request(
-            &relay,
-            "7",
-            &["issue", "comment", "3", "--body", "hi @someone"],
-            None,
-        );
-        assert!(wait_done(&relay, "7"));
-        // A refused write never reaches the factory.
-        request(
-            &relay,
-            "8",
-            &["issue", "edit", "3", "--add-label", "x"],
-            None,
-        );
-        assert!(wait_done(&relay, "8"));
-        stop.store(true, Ordering::SeqCst);
-        t.join().unwrap();
-        assert_eq!(read(relay.join("res.7/rc")).trim(), "0");
-        assert!(read(relay.join("res.7/out")).contains("/issues/3"));
-        assert_eq!(read(relay.join("res.8/rc")).trim(), "1");
-        let sent: serde_json::Value = serde_json::from_str(&read(asked)).unwrap();
-        assert_eq!(
-            sent["argv"],
-            serde_json::json!([
-                "issue",
-                "comment",
-                "3",
-                "--body-file=-",
-                format!("--repo={REPO}")
-            ])
-        );
-        assert_eq!(sent["input"], "hi @\u{200b}someone");
-    }
-
-    #[test]
-    fn a_channel_that_answers_nothing_is_a_failed_write() {
-        let d = TestDir::new("relay-channel-dead");
-        let program = d.join("contractor");
-        tehas_core::testing::write_exe(&program, "#!/bin/sh\nexit 1\n").unwrap();
-        let (out, err, rc) = Channel { program }.run(&["issue".into(), "comment".into()], None);
-        assert_eq!((out.as_str(), rc), ("", 1));
-        assert!(err.contains("no answer from the factory"), "{err}");
-    }
-
-    #[test]
     fn answer_request_refuses_what_the_scope_does_not_permit_and_runs_nothing() {
-        struct Never;
-        impl Run for Never {
-            fn run(&self, _: &[String], _: Option<&str>) -> (String, String, i32) {
-                panic!("ran a refused write")
-            }
-        }
+        // A token command that leaves a file: a write that ran asked it.
+        let d = TestDir::new("relay-refused-runs-nothing");
+        let ran = d.join("ran");
+        let token = d.join("token");
+        tehas_core::testing::write_exe(&token, format!("#!/bin/sh\n: >'{}'\n", ran.display()))
+            .unwrap();
+        let via = Via {
+            gh: d.join("gh"),
+            token,
+            token_args: Vec::new(),
+            token_wait: 5,
+        };
         let mut scope = Scope::new(3);
         let args: Vec<String> = ["issue", "comment", "4", "--body", "x"]
             .map(String::from)
             .to_vec();
-        let why = answer_request(&args, None, REPO, &Never, &mut scope).unwrap_err();
+        let why = answer_request(&args, None, REPO, &via, &mut scope).unwrap_err();
         assert!(
             why.contains("comments only on this cycle's issue #3"),
             "{why}"
         );
         assert_eq!(scope.run, 0);
-    }
-
-    /// A request of kind vipune, as host/sandbox/vipune-shim leaves it.
-    fn vipune_request(relay: &Path, pid: &str, args: &[&str], env: &str) {
-        let req = relay.join(format!("req.{pid}"));
-        fs::create_dir(&req).unwrap();
-        let mut a = Vec::new();
-        for w in args {
-            a.extend_from_slice(w.as_bytes());
-            a.push(0);
-        }
-        fs::write(req.join("args"), a).unwrap();
-        fs::write(req.join("kind"), "vipune\n").unwrap();
-        fs::write(req.join("env"), env).unwrap();
-        fs::write(req.join("ready"), "").unwrap();
-    }
-
-    /// A memory that keeps what it was asked and answers with its own
-    /// streams and status.
-    #[derive(Default)]
-    struct Kept(std::sync::Mutex<Vec<String>>);
-
-    impl Vipune for Arc<Kept> {
-        fn call(&self, cycle: &str, planned: &Planned, repo: &str) -> (String, String, i32) {
-            self.0.lock().unwrap().push(format!(
-                "{cycle} {repo} {:?} {:?}",
-                planned.args, planned.vars
-            ));
-            ("{\"memories\":[]}\n".into(), "ort noise\n".into(), 3)
-        }
-        fn forget(&self, _: &str) {}
-    }
-
-    fn served_memory(
-        d: &TestDir,
-        kept: &Arc<Kept>,
-    ) -> (PathBuf, Arc<AtomicBool>, std::thread::JoinHandle<()>) {
-        let relay = d.join("relay");
-        fs::create_dir(&relay).unwrap();
-        let via = InHouse {
-            via: Via {
-                gh: stub_gh(d),
-                token: stub_token(d, "ghs_full"),
-                token_args: vec![],
-                token_wait: 10,
-            },
-            memory: Box::new(kept.clone()),
-            cycle: memory::of_issue(3),
-        };
-        let stop = Arc::new(AtomicBool::new(false));
-        let (r, s) = (relay.clone(), stop.clone());
-        let t = std::thread::spawn(move || serve_via(&r, REPO, 3, &s, &via));
-        (relay, stop, t)
-    }
-
-    #[test]
-    fn a_vipune_call_reaches_the_memory_and_its_answer_comes_back_unchanged() {
-        let d = TestDir::new("relay-vipune");
-        let kept = Arc::new(Kept::default());
-        let (relay, stop, t) = served_memory(&d, &kept);
-        vipune_request(
-            &relay,
-            "5",
-            &["search", "the cache", "--json", "-p", "someone/else"],
-            "VIPUNE_RECENCY_WEIGHT=0.3\0VIPUNE_PROJECT=someone/else\0",
-        );
-        assert!(wait_done(&relay, "5"));
-        stop.store(true, Ordering::SeqCst);
-        t.join().unwrap();
-        assert_eq!(read(relay.join("res.5/out")), "{\"memories\":[]}\n");
-        assert_eq!(read(relay.join("res.5/err")), "ort noise\n");
-        assert_eq!(read(relay.join("res.5/rc")), "3\n");
-        assert!(!relay.join("res.5/local").exists());
-        assert_eq!(
-            kept.0.lock().unwrap().as_slice(),
-            [format!(
-                "issue-3 {REPO} [\"search\", \"the cache\", \"--json\"] [(\"VIPUNE_PROJECT\", \"{REPO}\"), (\"VIPUNE_RECENCY_WEIGHT\", \"0.3\")]"
-            )]
-        );
-        // gh was never run.
-        assert_eq!(read(d.join("gh.log")), "");
-    }
-
-    #[test]
-    fn a_refused_vipune_call_answers_as_a_usage_error() {
-        let d = TestDir::new("relay-vipune-refused");
-        let kept = Arc::new(Kept::default());
-        let (relay, stop, t) = served_memory(&d, &kept);
-        let shapes: [(&[&str], &str); 5] = [
-            (&["delete", "x"], ""),
-            (&["add", "x", "--db-path", "/etc/passwd"], ""),
-            (&["list"], "LD_PRELOAD=/x\0"),
-            (&["list"], "no equals\0"),
-            (&[], ""),
-        ];
-        for (i, (args, env)) in shapes.iter().enumerate() {
-            vipune_request(&relay, &format!("{}", 10 + i), args, env);
-        }
-        let big = "x".repeat(memory::MAX_ARGS);
-        vipune_request(&relay, "20", &["add", &big], "");
-        for pid in ["10", "11", "12", "13", "14", "20"] {
-            assert!(wait_done(&relay, pid), "{pid}");
-            assert_eq!(read(relay.join(format!("res.{pid}/out"))), "", "{pid}");
-            assert_eq!(read(relay.join(format!("res.{pid}/rc"))), "64\n", "{pid}");
-            let err = read(relay.join(format!("res.{pid}/err")));
-            assert!(
-                err.starts_with("vipune: the factory's memory"),
-                "{pid}: {err}"
-            );
-        }
-        stop.store(true, Ordering::SeqCst);
-        t.join().unwrap();
-        assert!(kept.0.lock().unwrap().is_empty());
-    }
-
-    #[test]
-    fn vipune_calls_do_not_count_against_the_issue_writes() {
-        let d = TestDir::new("relay-vipune-count");
-        let kept = Arc::new(Kept::default());
-        let (relay, stop, t) = served_memory(&d, &kept);
-        for i in 0..(MAX_WRITES + 2) {
-            vipune_request(&relay, &format!("{}", 100 + i), &["list"], "");
-        }
-        assert!(wait_done(&relay, &format!("{}", 100 + MAX_WRITES + 1)));
-        request(
-            &relay,
-            "999",
-            &["issue", "comment", "3", "--body", "hi"],
-            None,
-        );
-        assert!(wait_done(&relay, "999"));
-        stop.store(true, Ordering::SeqCst);
-        t.join().unwrap();
-        assert_eq!(read(relay.join("res.999/rc")), "0\n");
-        assert_eq!(kept.0.lock().unwrap().len(), MAX_WRITES + 2);
-    }
-
-    #[test]
-    fn with_the_memory_off_a_vipune_call_is_told_to_run_locally() {
-        let d = TestDir::new("relay-vipune-off");
-        let (relay, stop, t) = served(&d);
-        vipune_request(&relay, "6", &["list"], "");
-        request(&relay, "7", &["issue", "comment", "3", "--body", "x"], None);
-        let mut kind = relay.join("req.7");
-        kind.push("kind");
-        fs::write(&kind, "curl\n").unwrap();
-        assert!(wait_done(&relay, "6"));
-        assert!(wait_done(&relay, "7"));
-        stop.store(true, Ordering::SeqCst);
-        t.join().unwrap();
-        assert!(relay.join("res.6/local").exists());
-        assert!(!relay.join("res.6/rc").exists());
-        // A kind the relay does not know is refused, and nothing runs.
-        assert_eq!(read(relay.join("res.7/rc")), "1\n");
-        assert!(read(relay.join("res.7/err")).contains("kinds gh and vipune"));
-        assert_eq!(read(d.join("gh.log")), "");
-    }
-
-    #[test]
-    fn with_the_memory_off_even_a_malformed_vipune_call_runs_locally() {
-        let d = TestDir::new("relay-vipune-off-bad");
-        let (relay, stop, t) = served(&d);
-        vipune_request(&relay, "6", &["list"], "no equals\0");
-        let args = relay.join("req.6").join("args");
-        fs::write(&args, b"list").unwrap();
-        assert!(wait_done(&relay, "6"));
-        stop.store(true, Ordering::SeqCst);
-        t.join().unwrap();
-        assert!(relay.join("res.6/local").exists());
-        assert!(!relay.join("res.6/rc").exists());
-    }
-
-    #[test]
-    fn a_vipune_call_does_not_wait_behind_a_slow_issue_write() {
-        let d = TestDir::new("relay-vipune-beside-gh");
-        let kept = Arc::new(Kept::default());
-        let relay = d.join("relay");
-        fs::create_dir(&relay).unwrap();
-        let gh = d.join("gh");
-        tehas_core::testing::write_exe(&gh, "#!/bin/sh\ncat >/dev/null\nsleep 6\necho posted\n")
-            .unwrap();
-        let via = InHouse {
-            via: Via {
-                gh,
-                token: stub_token(&d, "ghs_full"),
-                token_args: vec![],
-                token_wait: 10,
-            },
-            memory: Box::new(kept.clone()),
-            cycle: memory::of_issue(3),
-        };
-        let stop = Arc::new(AtomicBool::new(false));
-        let (r, s) = (relay.clone(), stop.clone());
-        let t = std::thread::spawn(move || serve_via(&r, REPO, 3, &s, &via));
-        request(
-            &relay,
-            "1",
-            &["issue", "comment", "3", "--body", "hi"],
-            None,
-        );
-        std::thread::sleep(Duration::from_millis(1200));
-        let asked = Instant::now();
-        vipune_request(&relay, "2", &["list"], "");
-        vipune_request(&relay, "3", &["list"], "");
-        assert!(wait_done(&relay, "2"));
-        assert!(wait_done(&relay, "3"));
-        assert!(
-            asked.elapsed() < Duration::from_secs(3),
-            "{:?}",
-            asked.elapsed()
-        );
-        assert!(!relay.join("res.1/done").exists());
-        assert!(wait_done(&relay, "1"));
-        stop.store(true, Ordering::SeqCst);
-        t.join().unwrap();
-        assert_eq!(read(relay.join("res.1/rc")), "0\n");
-        assert_eq!(read(relay.join("res.2/rc")), "3\n");
+        assert!(!ran.exists());
     }
 
     #[test]
@@ -1995,72 +1482,5 @@ mod tests {
         remove_stale(&relay, &top, Duration::ZERO);
         assert!(fs::symlink_metadata(relay.join("res.3")).is_err());
         assert!(outside.join("keep").exists());
-    }
-
-    #[test]
-    fn the_mark_is_left_only_while_the_memory_is_on() {
-        let d = TestDir::new("relay-vipune-mark");
-        let relay = d.join("relay");
-        mark_memory(&relay, true);
-        assert!(relay.join(memory::MARK).is_file());
-        mark_memory(&relay, true);
-        assert!(relay.join(memory::MARK).is_file());
-        mark_memory(&relay, false);
-        assert!(!relay.join(memory::MARK).exists());
-        // A link the container left in its place is removed, never followed.
-        let outside = d.join("outside");
-        std::os::unix::fs::symlink(&outside, relay.join(memory::MARK)).unwrap();
-        mark_memory(&relay, true);
-        assert!(!outside.exists());
-        assert!(fs::symlink_metadata(relay.join(memory::MARK))
-            .unwrap()
-            .is_file());
-    }
-
-    #[test]
-    fn a_contractor_s_relay_sends_a_vipune_call_to_the_factory_as_its_kind() {
-        let d = TestDir::new("relay-vipune-channel");
-        let relay = d.join("relay");
-        fs::create_dir(&relay).unwrap();
-        let program = d.join("contractor");
-        let asked = d.join("asked");
-        tehas_core::testing::write_exe(
-            &program,
-            format!(
-                "#!/bin/sh\n[ \"$1\" = relay ] || exit 9\ncat >{}\nprintf '%s' '{{\"out\":\"found\\n\",\"err\":\"\",\"rc\":0}}'\n",
-                asked.display()
-            ),
-        )
-        .unwrap();
-        let via = Channel { program };
-        let stop = Arc::new(AtomicBool::new(false));
-        let (r, st) = (relay.clone(), stop.clone());
-        let t = std::thread::spawn(move || serve_via(&r, REPO, 3, &st, &via));
-        vipune_request(&relay, "7", &["add", "a fact", "--project=x/y"], "");
-        assert!(wait_done(&relay, "7"));
-        stop.store(true, Ordering::SeqCst);
-        t.join().unwrap();
-        assert_eq!(read(relay.join("res.7/out")), "found\n");
-        assert_eq!(read(relay.join("res.7/rc")), "0\n");
-        let sent: serde_json::Value = serde_json::from_str(&read(asked)).unwrap();
-        assert_eq!(
-            sent,
-            serde_json::json!({
-                "kind": "vipune",
-                "argv": ["add", "a fact"],
-                "env": { "VIPUNE_PROJECT": REPO },
-            })
-        );
-    }
-
-    #[test]
-    fn a_contractor_that_cannot_reach_the_factory_fails_the_call_as_vipune_fails() {
-        let d = TestDir::new("relay-vipune-channel-dead");
-        let program = d.join("contractor");
-        tehas_core::testing::write_exe(&program, "#!/bin/sh\nexit 1\n").unwrap();
-        let planned = memory::plan(&args(&["list"]), &[], REPO).unwrap();
-        let (out, err, rc) = Channel { program }.memory(&planned, REPO);
-        assert_eq!((out.as_str(), rc), ("", 1));
-        assert!(err.starts_with("vipune: the factory's memory"), "{err}");
     }
 }

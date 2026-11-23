@@ -2096,11 +2096,6 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             &["time", "freeBytes", "minFreeBytes", "low"],
         ))
     };
-    let all_hands = if queue.is_null() || old_queue {
-        J::Null
-    } else {
-        queue.get("allHands").clone()
-    };
     let backup_check = if backup.is_null() {
         J::Null
     } else {
@@ -2121,7 +2116,6 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         ("demand", demand),
         ("limit", limit),
         ("order", order),
-        ("allHands", all_hands),
         ("pause", pause),
         ("platform", platform),
         ("rukas", rukas),
@@ -2177,7 +2171,7 @@ mod tests {
         fs::create_dir_all(h.at().state_dir()).unwrap();
         h.write(
             Live::Status,
-            r#"{"generatedAt":"2026-10-17T14:00:10Z","queued":[1,2],"running":[3],"awaiting":[],"stopped":[],"allHands":false}"#,
+            r#"{"generatedAt":"2026-10-17T14:00:10Z","queued":[1,2],"running":[3],"awaiting":[],"stopped":[]}"#,
         );
         h
     }
@@ -2275,7 +2269,6 @@ mod tests {
             r.get("checks").get("queue").dump(),
             r#"{"time":"2026-10-17T14:00:10Z","paused":false,"inLine":2,"building":1,"review":0,"stopped":0}"#
         );
-        assert_eq!(r.at(&["checks", "allHands"]).dump(), "false");
         assert_eq!(r.at(&["checks", "limit"]).dump(), r#"{"state":"none"}"#);
     }
 
@@ -2424,10 +2417,7 @@ mod tests {
     #[test]
     fn an_old_queue_snapshot_warns() {
         let h = home("old");
-        h.write(
-            Live::Status,
-            r#"{"generatedAt":"2026-10-17T13:40:20Z","allHands":true}"#,
-        );
+        h.write(Live::Status, r#"{"generatedAt":"2026-10-17T13:40:20Z"}"#);
         let r = h.report(&Given::default());
         assert_eq!(
             said(&r),
@@ -2436,7 +2426,6 @@ mod tests {
                 "The queue snapshot is 20 min old: GitHub did not answer the last polls.".into()
             )
         );
-        assert_eq!(r.at(&["checks", "allHands"]), &J::Null);
     }
 
     #[test]
@@ -3107,17 +3096,17 @@ mod tests {
         assert!(r.at(&["checks", "testFeatures"]).is_null());
         assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
 
-        let r = with(Some((true, &["outsource", "lean"])));
+        let r = with(Some((true, &["plugins", "lean"])));
         assert_eq!(r.at(&["checks", "testFeatures", "read"]), &J::Bool(true));
         assert_eq!(
             r.at(&["checks", "testFeatures", "features"]),
-            &J::Arr(vec![J::str("outsource"), J::str("lean")])
+            &J::Arr(vec![J::str("plugins"), J::str("lean")])
         );
         assert_eq!(
             said(&r),
             (
                 "warn".into(),
-                "A lab build: TEHAS_TEST_FEATURES names outsource, lean, still being built. No release reads it.".into()
+                "A lab build: TEHAS_TEST_FEATURES names plugins, lean, still being built. No release reads it.".into()
             )
         );
         assert_eq!(
@@ -3125,7 +3114,7 @@ mod tests {
             "A lab build: TEHAS_TEST_FEATURES is set and names no building feature."
         );
 
-        let r = with(Some((false, &["outsource"])));
+        let r = with(Some((false, &["plugins"])));
         assert_eq!(r.at(&["checks", "testFeatures", "read"]), &J::Bool(false));
         assert_eq!(
             said(&r),
@@ -3162,11 +3151,11 @@ mod tests {
                 "A lab build: TEHAS_TEST_FEATURES is unset, so no building feature is on. ./install.sh without --lab-build goes back.".into()
             )
         );
-        let r = lab(true, &["outsource"]);
+        let r = lab(true, &["plugins"]);
         assert_eq!(r.at(&["checks", "testFeatures", "lab"]), &J::Bool(true));
         assert_eq!(
             said(&r).1,
-            "A lab build: TEHAS_TEST_FEATURES names outsource, still being built. No release reads it."
+            "A lab build: TEHAS_TEST_FEATURES names plugins, still being built. No release reads it."
         );
     }
 

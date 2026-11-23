@@ -277,7 +277,6 @@ pub fn issue_images(
         return gives_nothing(issue, dir, record, data);
     };
     let (issue_str, repo, dir_str) = (issue.to_string(), env("TEHAS_REPO"), dir.to_string_lossy());
-    let millwright = env("TEHAS_MILLWRIGHT_LOGIN");
     let args: Vec<&str> = [
         issue_str.as_str(),
         dir_str.as_ref(),
@@ -287,8 +286,6 @@ pub fn issue_images(
         record,
         "--repo",
         &repo,
-        "--millwright",
-        &millwright,
     ]
     .to_vec();
     take(&bin, "issue", &args, &format!("{data}\n"))
@@ -554,8 +551,6 @@ pub fn comments_only(home: &Path, issue: u64, dir: &Path, record: &str) -> Resul
         record.to_string(),
         "--repo".into(),
         env("TEHAS_REPO"),
-        "--millwright".into(),
-        env("TEHAS_MILLWRIGHT_LOGIN"),
     ];
     let answer = ask(home, "comments", &args).map_err(|no| {
         format!(
@@ -709,37 +704,6 @@ pub fn record_approves(record: &str) -> bool {
         .and_then(|r| r.get("by").and_then(|b| b.as_str().map(String::from)))
         .unwrap_or_default();
     allowed(&by) || (millwright_is(&by) && millwright_base(record).is_some())
-}
-
-/// The issue's images and files for a contractor's job, made in <dir> on the
-/// factory as an in-house start makes them: the dispatcher's latest record of
-/// the issue, its approval, the issue read once, and [`issue_images`] with the
-/// instance's own settings. Err is why the job may not start; an issue with no
-/// recorded approval is one.
-pub fn for_job(home: &Path, issue: u64, dir: &Path) -> Result<(), String> {
-    let recorded = crate::start::record(home, issue, "", None)
-        .map_err(|_| "the approval of this issue could not be read".to_string())?;
-    let Some(file) = recorded.file else {
-        return Err("no approval is recorded for this issue".to_string());
-    };
-    let record = file.to_string_lossy().into_owned();
-    let word = if record_approves(&record) {
-        "approved"
-    } else {
-        ""
-    };
-    let args = [
-        "api".to_string(),
-        format!("repos/{}/issues/{issue}", env("TEHAS_REPO")),
-    ];
-    let read = call::run("gh", &args, call::GH_BOUND);
-    let made = if read.ok() {
-        issue_images(home, issue, dir, word, &record, &read.out)
-    } else {
-        Err("the issue could not be read for its images".to_string())
-    };
-    let _ = fs::remove_file(&file);
-    made
 }
 
 /// Whether <login> is one of TEHAS_ALLOWED_LABELERS.
@@ -1029,24 +993,6 @@ mod tests {
         assert!(take(&f).unwrap_err().starts_with(FILES_CHANGED));
     }
 
-    #[test]
-    fn a_job_s_files_are_refused_for_an_issue_with_no_approval_and_nothing_is_made() {
-        let d = TestDir::new("gives-for-job");
-        let store = d.path().join("libexec/store");
-        fs::create_dir_all(store.parent().unwrap()).unwrap();
-        tehas_core::testing::write_exe(&store, "#!/bin/sh\necho '{\"view\":null}'\n").unwrap();
-        let dir = d.path().join("files");
-        assert_eq!(
-            for_job(d.path(), 7, &dir),
-            Err("no approval is recorded for this issue".to_string())
-        );
-        assert!(!dir.exists());
-        // A store that does not answer is no approval either.
-        tehas_core::testing::write_exe(&store, "#!/bin/sh\nexit 3\n").unwrap();
-        assert!(for_job(d.path(), 7, &dir).is_err());
-        assert!(!dir.exists());
-    }
-
     fn person(by: &str) -> Value {
         json!({"at": "2026-10-01T00:00:00Z", "by": by, "how": "label",
             "body_sha256": "a".repeat(64), "links": []})
@@ -1055,7 +1001,7 @@ mod tests {
     #[test]
     fn a_record_rests_on_the_persons_approval_in_each_shape_a_start_has() {
         let millwright = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-millwright", "how": "millwright",
-            "body_sha256": "a".repeat(64), "fixer_starts": 1, "rests_on": person("alice")});
+            "body_sha256": "a".repeat(64), "rests_on": person("alice")});
         let refresh = json!({"at": "2026-10-01T00:00:00Z", "by": "alice", "how": "refresh",
             "body_sha256": "a".repeat(64), "refreshes": 1, "rests_on": person("alice")});
         for mut shape in [person("alice"), millwright, refresh] {
@@ -1072,7 +1018,7 @@ mod tests {
         let mut host = person("host");
         host["how"] = json!("host");
         let millwright = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-millwright", "how": "millwright",
-            "body_sha256": "a".repeat(64), "fixer_starts": 1, "rests_on": host.clone()});
+            "body_sha256": "a".repeat(64), "rests_on": host.clone()});
         for shape in [host, millwright] {
             let got = base(&shape, "alice").expect("an approval");
             assert_eq!(got["how"], "host");

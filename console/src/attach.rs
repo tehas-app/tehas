@@ -68,7 +68,6 @@ fn take(bin: &Path, issue: &str, dir: &str, approved: &str) -> Result<(), String
     let done = Command::new(bin)
         .args(["issue", issue, dir, "--approved", approved, "--record", ""])
         .args(["--repo", &var("TEHAS_REPO")])
-        .args(["--millwright", &var("TEHAS_MILLWRIGHT_LOGIN")])
         .arg("--attach")
         .arg(bin)
         .args(["--images", &or("TEHAS_WORK_IMAGES", "1")])

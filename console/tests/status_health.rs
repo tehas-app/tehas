@@ -1020,15 +1020,15 @@ fn the_stores_refusal_is_no_warning_and_the_health_file_says_there_was_no_check(
 #[test]
 fn test_features_the_variable_set_is_a_warning_a_line_and_a_field_and_unset_is_none() {
     let w = World::new("test-features");
-    w.set_env(&["TEHAS_TEST_FEATURES=outsource nothing"]);
+    w.set_env(&["TEHAS_TEST_FEATURES=plugins nothing"]);
     let r = and_summary(&w);
     assert_eq!(r.rc, 0, "{}", r.out);
     has(
         &r.out,
-        "features  a lab build: TEHAS_TEST_FEATURES names outsource, still being built",
+        "features  a lab build: TEHAS_TEST_FEATURES names plugins, still being built",
     );
     let h = health_file(&w);
-    let want = json!({"read":true,"features":["outsource"],"lab":false});
+    let want = json!({"read":true,"features":["plugins"],"lab":false});
     assert_eq!(
         json!([h["status"], h["checks"]["testFeatures"]]),
         json!(["warn", want])

@@ -105,9 +105,6 @@ fi
 echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
 echo "/dev/x 60000000 1 $answer 1% /""#;
 
-/// The programs no stub may leave to the host's own.
-const DENIED: &str = "docker gh systemctl curl ssh";
-
 /// The values of a minimal valid instance (T_MINIMAL).
 #[allow(dead_code)] // each test file uses a part of this module
 pub const MINIMAL: &[&str] = &[
@@ -299,7 +296,7 @@ impl Host {
             env: RefCell::new(vec![]),
         };
         h.put_console();
-        for name in DENIED.split(' ') {
+        for name in tehas_core::testing::DENIED {
             write_exe(
                 h.t.join("deny").join(name),
                 format!(

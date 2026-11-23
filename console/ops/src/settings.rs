@@ -326,6 +326,105 @@ pub fn loaded(names: &[&str]) -> Result<(), u8> {
     require(names, &load_here(uid, "bash")?)
 }
 
+/// The settings `tehas update` rewrites, each old name with its new one. 2.0
+/// rewrites none: a setting is kept, dropped with a warning (`IGNORED` of
+/// tehas_core's load) or refused. A rewrite table, when one is added, lives in
+/// console/ops/src/update/rewrites.rs and is read here.
+fn rewrites() -> &'static [(&'static str, &'static str)] {
+    &[]
+}
+
+/// `cargo xtask config-check`: the settings of the instance directory `dir`
+/// held against this version, as `tehas update` holds them before it installs
+/// (update::findings::settings_findings), with no file's owner judged and
+/// nothing of this machine's home read. One line for each setting the load
+/// drops, as its own warning names it, one for each finding, then `pass` or
+/// `fail`; true on a pass. A finding can hide the stages after it, so a fail
+/// is run again once it is put right.
+pub fn config_check(dir: &str, bash: &str) -> (Vec<String>, bool) {
+    // The load takes an absolute path only.
+    let dir = fs::canonicalize(dir).map_or_else(|_| dir.to_string(), |d| d.display().to_string());
+    let text = fs::read(format!("{dir}/instance.env")).unwrap_or_default();
+    let names = load::names_in(&text);
+    let mut out = Vec::new();
+    for (old, new) in rewrites() {
+        if names.iter().any(|n| n == old) {
+            out.push(format!("changed {old} -> {new}"));
+        }
+    }
+    // A home that does not exist, so no credential file and no other file of
+    // this machine takes part.
+    let vars = Vars::new([
+        (b"HOME".to_vec(), b"/nonexistent".to_vec()),
+        (b"TEHAS_INSTANCE_DIR".to_vec(), dir.as_bytes().to_vec()),
+    ]);
+    let uid = sandbox::user();
+    let uid = uid.split(':').next().unwrap_or_default().to_string();
+    let mut warned = Vec::new();
+    let found = crate::update::findings::settings_findings(vars, |vars| {
+        load_keeping_warnings(vars, &uid, bash, &mut warned)
+            .map_err(|line| format!("tehas: {line}"))
+    });
+    for line in &warned {
+        let name = line.split(' ').next().unwrap_or_default();
+        match load::ignored_why(name) {
+            Some(why) => out.push(format!("dropped {name}: {why}")),
+            None => out.push(format!("warning: {line}")),
+        }
+    }
+    for line in &found {
+        let why = line.strip_prefix("tehas: ").unwrap_or(line);
+        let name = named(why, &names);
+        out.push(format!("fail {name}: {why}{}", managed(&name, why)));
+    }
+    let pass = found.is_empty();
+    out.push(if pass { "pass" } else { "fail" }.to_string());
+    (out, pass)
+}
+
+/// What a refusal of a required model setting that is not set adds: a
+/// manager that renders instance.env for the factories it runs gives these
+/// itself, so a directory it manages is checked as it pushes the file.
+fn managed(name: &str, why: &str) -> &'static str {
+    if name.starts_with("PI_ENSEMBLE_")
+        && INSTANCE_SETTINGS.contains(&name)
+        && why.starts_with(&format!("{name} is not set"))
+    {
+        "; a manager that renders instance.env supplies it, so check the instance.env it pushes"
+    } else {
+        ""
+    }
+}
+
+/// The setting a refusal is about: the first word of it that the instance
+/// sets, else its first word that is a setting's name, else the file it is
+/// about: models.json when it names that file, else instance.env.
+fn named(why: &str, names: &[String]) -> String {
+    let words: Vec<&str> = why
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|w| !w.is_empty())
+        .collect();
+    words
+        .iter()
+        .find(|w| names.iter().any(|n| n == *w))
+        .or_else(|| {
+            words
+                .iter()
+                .find(|w| w.starts_with("TEHAS_") || w.starts_with("PI_ENSEMBLE_"))
+        })
+        .map_or_else(
+            || {
+                if why.contains("models.json") {
+                    "models.json"
+                } else {
+                    "instance.env"
+                }
+                .to_string()
+            },
+            |w| w.to_string(),
+        )
+}
+
 fn why(name: &str, value: &str) -> Option<String> {
     rules::check(name, value).err()
 }

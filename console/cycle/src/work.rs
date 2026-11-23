@@ -161,14 +161,6 @@
 //! container runs. A request still there when the container ends is answered
 //! with 1.
 //!
-//! On a contractor (outsource on, TEHAS_CONTRACTOR naming the contractor
-//! program) the renewer asks that program for the cycle's token and the relay
-//! hands each planned write to it: both go to the factory over the job
-//! channel. Before the container starts, the program is asked to hand the
-//! sources of its read-write mounts to the factory's account (`own`,
-//! src/prepare.rs). The container's mounts and variables are the same, pinned
-//! by the same test.
-//!
 //! With TEHAS_WORK_IMAGES=1 it is given two things more: the issue's images,
 //! read-only, and PI_ENSEMBLE_EXTRA_IMAGE_DIRS, their path inside the container.
 //! The images are fetched here, before anything starts:
@@ -204,10 +196,10 @@
 //!
 //! A record whose retry_context holds anything gives the cycle comments: the
 //! comments a comments retry recorded at its tick (the issue's and its pull
-//! requests', by allowed accounts that may write), the fixer's note of a
-//! millwright's start, or a refresh's task. console/attach writes them to
-//! comments.json in the same directory, in the format of
-//! trail-openers/pi-rukas#2020, and names it under "comments" in the manifest:
+//! requests', by allowed accounts that may write) or a refresh's task.
+//! console/attach writes them to comments.json in the same directory, in the
+//! format of trail-openers/pi-rukas#2020, and names it under "comments" in the
+//! manifest:
 //! each item cut at 4000 characters, the blob at 64 KB with the oldest dropped
 //! and counted. With TEHAS_WORK_IMAGES=0 the directory is still mounted and named in PI_ENSEMBLE_EXTRA_IMAGE_DIRS, and
 //! holds the manifest and comments.json alone. A blob that cannot be written
@@ -489,36 +481,11 @@ fn app_token(console: &str, words: &[&str]) -> Option<String> {
     (!token.is_empty()).then_some(token)
 }
 
-/// The cycle token the contractor program prints, which it asked the factory
-/// for and wrote where the container reads it.
-fn contractor_token(program: &Path) -> Option<String> {
-    let out = Command::new(program)
-        .arg("token")
-        .stdin(Stdio::null())
-        .stderr(Stdio::inherit())
-        .output()
-        .ok()
-        .filter(|o| o.status.success())?;
-    let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (!token.is_empty()).then_some(token)
-}
-
 /// The host's token and the cycle's: GH_TOKEN is the app's and the cycle token
 /// is the app's narrowed one (#1814).
 fn github_token(console: &str) -> i32 {
     // Before any thread: the process is still single-threaded.
     std::env::remove_var(sandbox::CYCLE_TOKEN);
-    if let Some(program) = contractor() {
-        // A contractor holds no app token: the host side and the container
-        // both act with the cycle's narrowed token, which the factory makes.
-        let Some(token) = contractor_token(&program) else {
-            eprintln!("tehas work: no cycle token from the factory, not starting a cycle");
-            return 1;
-        };
-        std::env::set_var("GH_TOKEN", &token);
-        std::env::set_var(sandbox::CYCLE_TOKEN, token);
-        return 0;
-    }
     let Some(token) = app_token(console, &[]) else {
         eprintln!("tehas work: no GitHub token for the app");
         return 1;
@@ -532,67 +499,17 @@ fn github_token(console: &str) -> i32 {
     0
 }
 
-/// The contractor program of a cycle run on a contractor: with outsource on,
-/// `TEHAS_CONTRACTOR` names it, and the cycle's token renewal and issue writes
-/// go to the factory through it instead of to a token command and gh of this
-/// host, which a contractor does not have. What the container is given is the
-/// same either way.
-pub(crate) fn contractor() -> Option<PathBuf> {
-    contractor_in(&env)
-}
-
-fn contractor_in(get: &dyn Fn(&str) -> String) -> Option<PathBuf> {
-    let program = get("TEHAS_CONTRACTOR");
-    (!program.is_empty() && tehas_core::features::on_in("outsource", get))
-        .then(|| PathBuf::from(program))
-}
-
-/// Where the relay runs the cycle's issue writes: gh of this host, or the
-/// factory through the contractor program. With outsource on, an in-house
-/// cycle's vipune calls are answered here too, from the factory's memory
-/// (src/memory.rs).
-fn relay_via(home: &Path, issue: u64) -> Box<dyn relay::Run + Send + Sync> {
-    match (contractor(), in_house_memory(home)) {
-        (Some(program), _) => Box::new(relay::Channel { program }),
-        (None, Some(memory)) => Box::new(relay::InHouse {
-            via: relay::Via::from_env(home),
-            memory: Box::new(memory),
-            cycle: crate::memory::of_issue(issue),
-        }),
-        (None, None) => Box::new(relay::Via::from_env(home)),
-    }
-}
-
-/// Whether the factory's memory answers this cycle's vipune calls: with
-/// outsource on, in-house and on a contractor alike.
-fn memory_on() -> bool {
-    tehas_core::features::on("outsource")
-}
-
-/// The factory's memory of an in-house cycle, when it is on.
-fn in_house_memory(home: &Path) -> Option<crate::memory::InImage> {
-    (memory_on() && contractor().is_none())
-        .then(|| crate::memory::InImage::of_home(home, &env("PI_ENSEMBLE_IMAGE")))
-}
-
 /// The renewer of the cycle's token while the container reads it. The watch
 /// ends it with a TERM, and it ends on its own when this process is gone. A renewer that cannot start is the line the cycle is
 /// refused with: without it the app's token ages out during a long run.
 fn renewer(home: &Path) -> Result<Child, String> {
     let every = renew::every(&env("TEHAS_GITHUB_RENEW_EVERY")).to_string();
     let retry = renew::RETRY.to_string();
-    let (cmd, args) = match contractor() {
-        Some(program) => (program, vec!["--arg", "token"]),
-        None => (
-            home.join("bin/tehasbot"),
-            vec!["--arg", "github-token", "--arg", "--cycle"],
-        ),
-    };
     let child = Command::new(home.join("libexec/tehas-cycle"))
         .arg("renew")
         .arg("--cmd")
-        .arg(cmd)
-        .args(args)
+        .arg(home.join("bin/tehasbot"))
+        .args(["--arg", "github-token", "--arg", "--cycle"])
         .args(["--every", &every, "--retry", &retry])
         .args(["--parent", &std::process::id().to_string()])
         .stdin(Stdio::null())
@@ -618,18 +535,10 @@ struct Relay {
 /// How long the end of a cycle waits for its relay.
 const RELAY_END_WAIT: Duration = Duration::from_secs(10);
 
-fn start_relay(
-    dir: &Path,
-    repo: &str,
-    issue: u64,
-    via: Box<dyn relay::Run + Send + Sync>,
-    wait: Duration,
-) -> Relay {
-    relay::mark_memory(dir, memory_on());
+fn start_relay(dir: &Path, repo: &str, issue: u64, via: relay::Via, wait: Duration) -> Relay {
     let stop = Arc::new(AtomicBool::new(false));
     let (d, repo, flag) = (dir.to_path_buf(), repo.to_string(), stop.clone());
-    let thread =
-        std::thread::spawn(move || relay::serve_via(&d, &repo, issue, &flag, via.as_ref()));
+    let thread = std::thread::spawn(move || relay::serve_via(&d, &repo, issue, &flag, &via));
     Relay {
         dir: dir.to_path_buf(),
         stop,
@@ -730,7 +639,8 @@ enum Approved {
 fn approved(issue: u64, record: &str, console: &str) -> Approved {
     if start::is_record(record) {
         // The dispatcher's record of the start: who approved and which links. A
-        // start of the millwright's counts on the person's approval it rests on.
+        // millwright's start 1.4.x recorded counts on the person's approval it
+        // rests on.
         return if gives::record_approves(record) {
             Approved::Yes
         } else {
@@ -1210,17 +1120,11 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     let email = git_email();
     // The relay masks what it posts with the names the console masks.
     let _ = tehas_core::mask::set_private(&tehas_core::mask::host_names(&models, &email));
-    // An in-house cycle's database starts empty and goes with the cycle.
-    let memory = in_house_memory(home);
-    let cycle = crate::memory::of_issue(n);
-    if let Some(m) = &memory {
-        crate::memory::Vipune::forget(m, &cycle);
-    }
     let relay = start_relay(
         &relay_dir,
         &env("TEHAS_REPO"),
         n,
-        relay_via(home, n),
+        relay::Via::from_env(home),
         RELAY_END_WAIT,
     );
     let given = watch::Given {
@@ -1244,9 +1148,6 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     };
     let rc = watch::run(home, &given, stop.flag());
     relay.end();
-    if let Some(m) = &memory {
-        crate::memory::Vipune::forget(m, &cycle);
-    }
     reap(renew);
     rc
 }
@@ -1400,12 +1301,12 @@ mod tests {
             &dir,
             "acme/widget",
             3,
-            Box::new(relay::Via {
+            relay::Via {
                 gh: gh.clone(),
                 token: bot.clone(),
                 token_args: vec!["github-token".to_string()],
                 token_wait: 10,
-            }),
+            },
             Duration::from_secs(10),
         );
         // Two renewals after the first ask.
@@ -1457,12 +1358,12 @@ mod tests {
             &dir,
             "acme/widget",
             3,
-            Box::new(relay::Via {
+            relay::Via {
                 gh,
                 token,
                 token_args: vec![],
                 token_wait: 30,
-            }),
+            },
             Duration::from_secs(1),
         );
         let ask = |pid: &str| {
@@ -1505,44 +1406,5 @@ mod tests {
         assert_eq!(short_wait("TEHAS_TEST_SHORT_WAIT", 60), 7);
         std::env::remove_var("TEHAS_TEST_SHORT_WAIT");
         assert_eq!(short_wait("TEHAS_TEST_SHORT_WAIT", 60), 60);
-    }
-
-    #[test]
-    fn a_contractor_named_with_outsource_off_is_not_used() {
-        // The variable alone moves nothing: a cycle's writes and renewal go to
-        // the factory only with the feature on.
-        let of = |pairs: &'static [(&'static str, &'static str)]| {
-            move |name: &str| {
-                pairs
-                    .iter()
-                    .find(|(k, _)| *k == name)
-                    .map_or_else(String::new, |(_, v)| v.to_string())
-            }
-        };
-        let test = tehas_core::features::TEST_VAR;
-        let off = of(&[("TEHAS_CONTRACTOR", "/opt/c"), ("TEHAS_OUTSOURCE", "off")]);
-        assert_eq!(contractor_in(&off), None);
-        let building = of(&[("TEHAS_CONTRACTOR", "/opt/c"), ("TEHAS_OUTSOURCE", "on")]);
-        assert_eq!(contractor_in(&building), None);
-        let unnamed: Vec<(&str, &str)> = vec![("TEHAS_OUTSOURCE", "on"), (test, "outsource")];
-        let get = |n: &str| {
-            unnamed
-                .iter()
-                .find(|(k, _)| *k == n)
-                .map_or_else(String::new, |(_, v)| v.to_string())
-        };
-        assert_eq!(contractor_in(&get), None);
-        let named: Vec<(&str, &str)> = vec![
-            ("TEHAS_CONTRACTOR", "/opt/c"),
-            ("TEHAS_OUTSOURCE", "on"),
-            (test, "outsource"),
-        ];
-        let get = |n: &str| {
-            named
-                .iter()
-                .find(|(k, _)| *k == n)
-                .map_or_else(String::new, |(_, v)| v.to_string())
-        };
-        assert_eq!(contractor_in(&get), Some(PathBuf::from("/opt/c")));
     }
 }

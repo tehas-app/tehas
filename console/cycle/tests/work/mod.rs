@@ -612,7 +612,7 @@ impl World {
             instance_on: Cell::new(false),
             record: RefCell::new(Value::Null),
         };
-        for name in ["docker", "gh", "systemctl", "curl", "ssh"] {
+        for name in tehas_core::testing::DENIED {
             write_exe(
                 w.t.join("deny").join(name),
                 format!(
@@ -1581,8 +1581,8 @@ impl World {
 
     /// On a fresh store, the approval `j` describes in the shape approval-view
     /// gives it, used by a start of `n`: with the person's approval it rests
-    /// on (`rests_on`), and the millwright's (`fixer_starts`) and the refreshes'
-    /// (`refreshes`) starts it counts, as ended starts before it (t_record).
+    /// on (`rests_on`), and the refreshes' (`refreshes`) starts it counts, as
+    /// ended starts before it (t_record).
     pub fn record_on(&self, n: u64, j: &Value) {
         self.store_db();
         let how = j["how"].as_str().unwrap_or_default().to_string();
@@ -1608,13 +1608,6 @@ impl World {
                 epoch(&text_of(&base["at"])),
                 &["--body-sha", &text_of(&base["body_sha256"])],
             );
-            let mut count = j["fixer_starts"].as_i64().unwrap_or(0);
-            if how == "millwright" {
-                count -= 1;
-            }
-            for _ in 0..count.max(0) {
-                last = used("tehas-millwright", "millwright", last + 10, &[]);
-            }
             if how == "refresh" {
                 let head = "a".repeat(40);
                 for _ in 1..j["refreshes"].as_i64().unwrap_or(1) {

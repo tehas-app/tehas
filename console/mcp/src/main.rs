@@ -2,10 +2,7 @@
 //!
 //!   tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port>
 //!             --server-version <v> [--io-timeout <seconds>] [--private <name>]...
-//!             [--outsource] [--plugin-calls <socket>] [--checkout <dir> [--checkout-fetch <socket>]]
-//!
-//! --outsource serves the tool of outsource, `factory_contractors`, to both
-//! kinds of key. `tehasbot mcp serve` passes it while the feature is on.
+//!             [--plugin-calls <socket>] [--checkout <dir> [--checkout-fetch <socket>]]
 //!
 //! --plugin-calls serves, to full keys, the plugin tools of the broker on
 //! that socket (mcp::plugins). `tehasbot mcp serve` passes it while a plugin
@@ -58,7 +55,7 @@ fn of(setting: Setting) -> (&'static Setting, &'static str) {
 fn usage(why: &str) -> ! {
     eprintln!("tehas-mcp: {why}");
     eprintln!(
-        "usage: tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port> --server-version <v> [--io-timeout <seconds>] [--private <name>]... [--outsource] [--plugin-calls <socket>] [--checkout <dir> [--checkout-fetch <socket>]]"
+        "usage: tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port> --server-version <v> [--io-timeout <seconds>] [--private <name>]... [--plugin-calls <socket>] [--checkout <dir> [--checkout-fetch <socket>]]"
     );
     std::process::exit(78);
 }
@@ -119,10 +116,6 @@ fn main() {
     let mut private = Vec::new();
     let mut fetch: Option<PathBuf> = None;
     while let Some(a) = args.next() {
-        if a == "--outsource" {
-            mcp::tools::serve_outsource();
-            continue;
-        }
         if a == "--plugin-calls" {
             let socket = args
                 .next()

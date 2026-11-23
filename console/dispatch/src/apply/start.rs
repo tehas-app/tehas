@@ -10,7 +10,7 @@
 //! the checkout) is the poll's, part 4 of #254.
 
 use super::{text, word, Writer, Wrote};
-use crate::decide::{in_window, iso, window_order, ContextNote};
+use crate::decide::{in_window, iso, window_order};
 use crate::read::host::{epoch, held};
 use crate::read::run::{gh_env, run_grace_env, run_quiet};
 use crate::settings::account;
@@ -40,8 +40,6 @@ pub struct Host {
     pub bot: String,
     /// TEHAS_ASSIGNEE: the person a claimed issue is assigned to, or empty.
     pub owner: String,
-    /// The outsource feature is on: the start comment says who builds it.
-    pub outsource: bool,
     pub systemctl: String,
     /// TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD, which a test sets.
     pub start_cmd: Option<String>,
@@ -238,25 +236,6 @@ pub(crate) fn window(
     Some(out)
 }
 
-/// A comment as retry_context has it: its first 4000 characters, without
-/// carriage returns.
-pub(crate) fn context(c: &Value, source: &str) -> Value {
-    let s = |k: &str| c.pointer(k).and_then(Value::as_str).unwrap_or("");
-    let note = ContextNote::new(
-        source,
-        &c["id"].to_string(),
-        s("/user/login"),
-        s("/created_at"),
-        s("/body"),
-    );
-    Value::Object(
-        note.pairs()
-            .into_iter()
-            .map(|(k, v)| (k.into(), json!(v)))
-            .collect(),
-    )
-}
-
 /// The most text of comments a record holds, in bytes of their text: the
 /// store takes an input of 1 MiB, and the blob a cycle is given holds 64 KB.
 const RECORD_TEXT: usize = 512 * 1024;
@@ -349,24 +328,6 @@ fn bounded(items: Vec<Value>) -> (Vec<Value>, usize) {
     }
     let dropped = items.len() - keep;
     (items.into_iter().skip(dropped).collect(), dropped)
-}
-
-/// `change_note_of` of the poll's GraphQL read of the issue's comments, as
-/// the record keeps the note. None when that read or `at` is no answer, so a
-/// failed read is never taken for no note.
-#[cfg(test)]
-pub(crate) fn change_note(list: &Value, n: u64, fixer: &str, at: &str) -> Option<Option<Value>> {
-    let c = crate::snapshot::Comments::parse(list);
-    crate::decide::change_note_of(c.nodes_or_bare()?, n, fixer, at).map(|note| {
-        note.map(|n| {
-            Value::Object(
-                n.pairs()
-                    .into_iter()
-                    .map(|(k, v)| (k.into(), json!(v)))
-                    .collect(),
-            )
-        })
-    })
 }
 
 /// Where the probe copies the checkout for its one check, under the home.
@@ -825,7 +786,6 @@ impl Writer {
             let _ = std::fs::remove_file(self.home.join(format!("state/refresh/{n}.json")));
             let url = text(a, "refresh_url");
             let said = format!("Tehas refresh started on `{host}` at {when} UTC: {url} conflicts with `{branch}`. This cycle merges that branch into it, resolves the conflicts and pushes to the same pull request. It rests on {whose} {how}. This issue is owned by the cycle until `tehas:running` is removed.");
-            let said = self.stamped(n, recorded, said, log);
             self.say(n, &said, log);
         } else {
             let left = if left_out.is_empty() {
@@ -835,7 +795,6 @@ impl Writer {
                 format!(" The comments of {} are left out: their permission on the repository could not be read.", names.join(", "))
             };
             let said = format!("Tehas cycle started on `{host}` at {when} UTC (authorized by {whose} {how}). This issue is owned by the cycle until `tehas:running` is removed.{left}");
-            let said = self.stamped(n, recorded, said, log);
             self.say(n, &said, log);
         }
         if let Some(say) = self.say_now {
@@ -880,35 +839,6 @@ impl Writer {
         };
         self.say(n, &format!("Tehas could not start the cycle for this issue on `{host}`: `tehas-cycle@{n}.service` did not come up: {why}. See `journalctl --user -u tehas-cycle@{n}` and `~/tehas/logs/dispatch.log` there. To retry, {retry}."), log);
         Then::Failed
-    }
-
-    /// The start comment with the line of who builds the cycle, where
-    /// outsource is on: the contractor of the issue's job open since the
-    /// approval at `since`, or in-house. Placement gives the job out before
-    /// this comment, so the comment names the hand that holds it; a job of an
-    /// earlier attempt, lost or ended, is not this start's. A store that
-    /// cannot say leaves the comment as it was rather than guess.
-    fn stamped(&mut self, n: u64, since: i64, said: String, log: &mut Vec<String>) -> String {
-        if !self.host.outsource {
-            return said;
-        }
-        let (issue, since) = (n.to_string(), since.to_string());
-        match self.store_try(
-            3,
-            &["job-stamp", "--issue", &issue, "--since", &since, "--open"],
-        ) {
-            Ok(v) => format!(
-                "{said}\n\n{}",
-                tehas_core::stamp::Built::of_answer(&v).line()
-            ),
-            Err(f) => {
-                log.push(format!(
-                    "WARN: #{n}: the store did not say who builds it ({}): its start comment carries no stamp",
-                    word(&f)
-                ));
-                said
-            }
-        }
     }
 
     /// spec_holds: with the spec-pipe feature on, a start whose body marks a
@@ -1027,10 +957,8 @@ impl Writer {
         let given_at = text(a, "at").to_string();
         let mut input = Map::new();
         input.insert("links".into(), a.get("links").cloned().unwrap_or(json!([])));
-        for k in ["driver", "contractor"] {
-            if let Some(v) = a.get(k) {
-                input.insert(k.into(), v.clone());
-            }
+        if let Some(v) = a.get("driver") {
+            input.insert("driver".into(), v.clone());
         }
         // The pin spec_holds fetched the spec's bytes to.
         if let Some(s) = a.get("spec").filter(|s| s.get("sha256").is_some()) {
@@ -1065,27 +993,14 @@ impl Writer {
         }
         // A start of the issue text only names no comment of an issue or a
         // pull request, so nothing of the earlier cycle goes with it: the note
-        // of the fixer or of a refresh stays out of its record whatever asks.
-        if !alone {
-            if let Some(note) = a.get("park_lifted").filter(|_| given == "millwright") {
-                retry = json!({"context": [note]});
-            } else if given == "millwright" {
-                let Some(r) = self.fixer_note(n, &given_at) else {
-                    log.push(format!(
-                        "ERROR: the comments of #{n} could not be read for the fixer's"
-                    ));
-                    return Err(none());
-                };
-                retry = r;
-            }
-            if given == "refresh" {
-                let b = a
-                    .pointer("/refresh_of/branch")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                retry = json!({"context": [{"source": "refresh", "by": "tehas", "at": iso(tehas_core::time::now() as u64),
-                    "text": format!("This pull request conflicts with `{b}`. Merge `{b}` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate in `.pi/verify-cmd`, and push to the same branch. Do no other work.")}]});
-            }
+        // of a refresh stays out of its record whatever asks.
+        if !alone && given == "refresh" {
+            let b = a
+                .pointer("/refresh_of/branch")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            retry = json!({"context": [{"source": "refresh", "by": "tehas", "at": iso(tehas_core::time::now() as u64),
+                "text": format!("This pull request conflicts with `{b}`. Merge `{b}` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate in `.pi/verify-cmd`, and push to the same branch. Do no other work.")}]});
         }
         if retry
             .get("context")
@@ -1099,11 +1014,6 @@ impl Writer {
                 "refresh_of".into(),
                 a.get("refresh_of").cloned().unwrap_or(Value::Null),
             );
-        }
-        // Why a park's hold let this start through. `rests_on` keeps naming
-        // the person's approval (#1130).
-        if let Some(note) = a.get("park_lifted") {
-            input.insert("park_lifted".into(), note.clone());
         }
         let at = match given.as_str() {
             "refresh" | "outage-retry" => None,
@@ -1130,7 +1040,7 @@ impl Writer {
             "--input-file".into(),
             f,
         ];
-        if matches!(given.as_str(), "label" | "millwright") {
+        if given == "label" {
             let label = a
                 .get("approved_label")
                 .and_then(Value::as_str)
@@ -1351,31 +1261,6 @@ impl Writer {
             log.push(format!("WARN: #{n}: {dropped} older comments are left out of the retry's record, which holds {RECORD_TEXT} bytes of their text"));
         }
         Some(json!({"context": given, "left_out": left_out}))
-    }
-
-    /// fixer_note: the millwright's comment behind its tehas:ready, written
-    /// in the ten minutes before the label and edited by nobody after it.
-    fn fixer_note(&mut self, n: u64, at: &str) -> Option<Value> {
-        let list = self.comments(n)?;
-        let since = iso(u64::try_from(epoch(at)? - 600).ok()?);
-        let marker = regex::Regex::new(&format!(
-            "<!-- tehas:millwright issue={n} action=(retry|change) -->"
-        ))
-        .ok()?;
-        let fixer = self.host.millwright.clone();
-        let who = |l: &str| !fixer.is_empty() && account(l) == fixer;
-        let w = window(&list, &since, at, &who)?;
-        let last: Vec<Value> = w
-            .iter()
-            .rfind(|c| {
-                c.get("body")
-                    .and_then(Value::as_str)
-                    .is_some_and(|b| marker.is_match(b))
-            })
-            .map(|c| context(c, "millwright"))
-            .into_iter()
-            .collect();
-        Some(json!({"context": last}))
     }
 
     /// park_unask: the question of the issue's park off the record. Whether
@@ -1599,43 +1484,5 @@ impl Writer {
                 rc.unwrap_or(124)
             ));
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const AT: &str = "2026-11-10T10:00:00Z";
-
-    /// The poll's GraphQL read of one comment.
-    fn comment(by: &str, body: &str) -> Value {
-        json!({"databaseId": 5, "author": {"login": by}, "body": body,
-            "createdAt": "2026-11-10T09:59:00Z", "lastEditedAt": null})
-    }
-
-    fn list(by: &str, body: &str) -> Value {
-        json!({"data": {"repository": {"issue": {"comments": {"nodes": [comment(by, body)]}}}}})
-    }
-
-    const CHANGE: &str = "<!-- tehas:millwright issue=5 action=change -->\nTry the other branch.";
-
-    /// The millwright is the factory's own app account, so a marker the bot
-    /// wrote lifts a hold, and one another account wrote does not.
-    #[test]
-    fn a_bot_marker_lifts_a_hold() {
-        let lifted = change_note(&list("acme-factory", CHANGE), 5, "acme-factory", AT);
-        let note = lifted.expect("the read is an answer").expect("a note");
-        assert!(note["text"].as_str().unwrap().contains("action=change"));
-        // REST names the same app `<slug>[bot]`: one account.
-        let rest = json!([{"id": 5, "user": {"login": "acme-factory[bot]"}, "body": CHANGE,
-            "created_at": "2026-11-10T09:59:00Z", "updated_at": "2026-11-10T09:59:00Z"}]);
-        assert!(change_note(&rest, 5, "acme-factory", AT).unwrap().is_some());
-        // Another account's marker lifts nothing, and a retry marker is no change.
-        let other = change_note(&list("mallory", CHANGE), 5, "acme-factory", AT);
-        assert_eq!(other, Some(None));
-        let retry = CHANGE.replace("action=change", "action=retry");
-        let retried = change_note(&list("acme-factory", &retry), 5, "acme-factory", AT);
-        assert_eq!(retried, Some(None));
     }
 }
