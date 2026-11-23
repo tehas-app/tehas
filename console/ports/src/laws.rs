@@ -1577,7 +1577,7 @@ pub mod ledger {
     use super::{hold, Broken, Law};
     use crate::{
         At, Budget, Failure, HealthState, Holder, HolderId, HostId, Ledger, Outcome, Passing, Pool,
-        Sent, SiteId, Whose,
+        Sent, SiteId, Unread, Whose,
     };
 
     fn up<T>(law: &str, what: &str, answer: Result<T, crate::LedgerDown>) -> Result<T, Broken> {
@@ -1707,43 +1707,80 @@ pub mod ledger {
         })
     }
 
-    /// `failed` keeps what it is given and drops a host's failures older
-    /// than the newest one's time less `keep`. `failures` answers those at or
-    /// after `since`, oldest first, of that host alone.
+    /// `failed` keeps what it is given, an odd answer too: the adapter
+    /// chooses which failures count. Each `failed` drops the host's failures
+    /// older than its own failure's time less `keep`, and keeps one at that
+    /// time exactly. `failures` answers those at or after `since`, oldest
+    /// first, of that host alone.
     pub fn failures_are_kept_within_keep_oldest_first(
         l: &dyn Ledger,
         host: &HostId,
         now: At,
     ) -> Law {
         const LAW: &str = "ledger::failures_are_kept_within_keep_oldest_first";
-        let failure = |secs: i64| Failure {
+        let failure = |secs: i64, outcome: Outcome| Failure {
             at: At::new(now.secs() + secs),
             site: SiteId::new("law-site"),
-            outcome: Outcome::Unavailable {
-                why: Passing::Server,
-                sent: Sent::No,
-            },
+            outcome,
         };
+        let down = || Outcome::Unavailable {
+            why: Passing::Server,
+            sent: Sent::No,
+        };
+        let odd = Outcome::Unread(Unread::Inconsistent);
         let elsewhere = HostId::new(format!("{}-elsewhere", host.as_str()));
         up(
             LAW,
             "a failure kept",
-            l.failed(&elsewhere, failure(-500), 60),
+            l.failed(&elsewhere, failure(-500, down()), 60),
         )?;
-        for secs in [-100, -10, -30, 0] {
-            up(LAW, "a failure kept", l.failed(host, failure(secs), 60))?;
-        }
-        let all = up(LAW, "a read", l.failures(host, At::new(0)))?;
-        let want = vec![failure(-30), failure(-10), failure(0)];
-        hold(all == want, LAW, || {
-            format!("kept {all:?}, not the last 60 s oldest first")
+        // An older failure given after a newer one is kept: it is within 60 s
+        // of its own time, though not of the newest.
+        up(
+            LAW,
+            "a failure kept",
+            l.failed(host, failure(0, down()), 60),
+        )?;
+        up(
+            LAW,
+            "a failure kept",
+            l.failed(host, failure(-100, down()), 60),
+        )?;
+        let both = up(LAW, "a read", l.failures(host, At::new(0)))?;
+        hold(
+            both == vec![failure(-100, down()), failure(0, down())],
+            LAW,
+            || format!("after 0 then -100 it kept {both:?}, not both"),
+        )?;
+        // -100 is exactly 60 s before -40: kept.
+        up(
+            LAW,
+            "a failure kept",
+            l.failed(host, failure(-40, odd.clone()), 60),
+        )?;
+        let at_edge = up(LAW, "a read", l.failures(host, At::new(0)))?;
+        hold(at_edge.len() == 3, LAW, || {
+            format!("a failure exactly `keep` older was dropped: {at_edge:?}")
         })?;
-        let since = up(LAW, "a read", l.failures(host, At::new(now.secs() - 10)))?;
+        // -40 is exactly 60 s before 20: kept; -100 goes.
+        up(
+            LAW,
+            "a failure kept",
+            l.failed(host, failure(20, down()), 60),
+        )?;
+        let all = up(LAW, "a read", l.failures(host, At::new(0)))?;
+        let want = vec![failure(-40, odd), failure(0, down()), failure(20, down())];
+        hold(all == want, LAW, || format!("kept {all:?}, not {want:?}"))?;
+        let since = up(LAW, "a read", l.failures(host, At::new(now.secs() - 40)))?;
+        hold(since == want, LAW, || {
+            format!("since the oldest kept answered {since:?}")
+        })?;
+        let since = up(LAW, "a read", l.failures(host, At::new(now.secs() - 39)))?;
         hold(since == want[1..], LAW, || {
-            format!("since 10 s ago answered {since:?}")
+            format!("since a second after the oldest answered {since:?}")
         })?;
         let theirs = up(LAW, "a read", l.failures(&elsewhere, At::new(0)))?;
-        hold(theirs == vec![failure(-500)], LAW, || {
+        hold(theirs == vec![failure(-500, down())], LAW, || {
             format!("another host's failures are {theirs:?}")
         })
     }
