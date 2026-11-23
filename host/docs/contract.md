@@ -786,6 +786,19 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `hook:after:change.offered` and puts its hook at `after:change.offered`;
   a `TEHAS_PLUGIN_GRANTS_<NAME>` line that grants `hook:after:work` grants
   `hook:after:change.offered` for the plugin's commit.
+- **The health check's `github.last` is in tehas's words.** #2954.
+  `checks.github.last` in the health check, and the `github` line of
+  `tehas status`, name the newest failed GitHub call by a fixed line for its
+  kind: `GitHub's rate limit was reached`, `GitHub failed with a server
+  error`, `GitHub refused the call`, `GitHub did not answer in time`,
+  `GitHub could not be reached`, `GitHub's answer could not be read`, or `a
+  call to GitHub failed`. They no longer show the logged line with gh's
+  words. The other fields keep their meaning.
+  Readers: adopters, the consumer that runs many factories, the end-to-end
+  suite.
+  Adopter action: a program that read gh's words in `last` reads the fixed
+  lines. A line written before the update shows until it leaves the
+  ten-minute window.
 - **2.0 is supported from 1.4.x.** This page. The update to 2.0 is
   supported from 1.4.x only, and a host upgrades its factories and the
   programs that run them together.
