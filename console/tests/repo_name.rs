@@ -15,7 +15,7 @@ use std::process::Command;
 const KEPT: [(&str, &str); 10] = [
     ("docs/", "records of what was true when they were written"),
     ("CHANGELOG.md", "the notes of past releases"),
-    ("changelog.d/", "the note of the rename itself"),
+    ("changelog.d/v2-t10-rename.md", "the note of the rename itself"),
     (
         "host/docs/contract.md",
         "Changed in 2.0 names the old name once",
@@ -36,6 +36,11 @@ const KEPT: [(&str, &str); 10] = [
         "a real instance: a person changes it",
     ),
 ];
+
+/// Whether the old name may stay in this tracked path.
+fn kept(path: &str) -> bool {
+    KEPT.iter().any(|(kept, _)| path.starts_with(kept))
+}
 
 fn tracked() -> Vec<String> {
     let out = Command::new("git")
@@ -78,13 +83,22 @@ fn the_old_name_is_the_repository_and_a_longer_name_is_another() {
 }
 
 #[test]
+fn an_unreleased_note_is_no_record_and_names_the_new_repository() {
+    assert!(kept("changelog.d/v2-t10-rename.md"));
+    assert!(kept("CHANGELOG.md"));
+    for note in ["changelog.d/fix-x.md", "changelog.d/v2-t10-rename-more.md"] {
+        assert!(!kept(note), "{note} becomes the next release's notes");
+    }
+}
+
+#[test]
 fn nothing_names_the_old_repository_outside_the_kept_places() {
     let re = old_name();
     let files = tracked();
     assert!(files.len() > 1000, "git ls-files lists the tree");
     let named: Vec<&String> = files
         .iter()
-        .filter(|f| !KEPT.iter().any(|(kept, _)| f.starts_with(kept)))
+        .filter(|f| !kept(f))
         .filter(|f| fs::read(root().join(f)).is_ok_and(|bytes| re.is_match(&bytes)))
         .collect();
     assert!(
