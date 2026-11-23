@@ -289,11 +289,13 @@ pub struct ChangeFilter {
     pub bodies: bool,
 }
 
-/// Changes changed since a cursor, with their bodies.
+/// Changes and their comments changed since a cursor, with their bodies.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ChangeDelta {
     /// The changes that changed.
     pub changes: Vec<ChangeDigest>,
+    /// The comments on changes since the cursor, each with its change.
+    pub comments: Vec<(ChangeNo, Comment)>,
     /// Where the next delta starts.
     pub next: Cursor,
 }
@@ -639,7 +641,7 @@ pub trait CodeHost: Reports + Cites {
     fn archive(&mut self, at: &CommitId, limit: u64, into: &mut dyn std::io::Write) -> Did;
     /// Has anything changed since this token.
     fn changed(&mut self, since: Option<&ChangeToken>) -> Got<(bool, ChangeToken)>;
-    /// Changes changed since the cursor, with their bodies.
+    /// Changes and their comments changed since the cursor, with bodies.
     fn delta(&mut self, from: Option<&Cursor>, bound: Bound) -> Got<ChangeDelta>;
     /// The remote for git, with a credential for this handle's actor.
     fn remote(&mut self, access: Access) -> Got<Remote>;

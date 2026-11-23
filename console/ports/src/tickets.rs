@@ -427,10 +427,15 @@ pub trait Tickets: Reports + Cites {
 
 /// The tickets port's writes.
 pub trait TicketWrites: Tickets {
-    /// The parts of one step, in order, with how far it got. The history
-    /// then names this handle's account. The journal sends a step part by
-    /// part instead; this is for a caller with no journal.
-    fn apply(&mut self, key: &TicketKey, step: &Step) -> Applied<StepPart>;
+    /// The parts of one step, in order, with how far it got, and the note's
+    /// answer when the note part was applied. The history then names this
+    /// handle's account. The journal sends a step part by part instead;
+    /// this is for a caller with no journal.
+    fn apply(
+        &mut self,
+        key: &TicketKey,
+        step: &Step,
+    ) -> (Applied<StepPart>, Option<Posted<CommentId>>);
     /// Make sure the site can carry every mark of the factory.
     fn prepare(&mut self) -> Did;
     /// Make sure a project's own mark exists. Already there is done. Its

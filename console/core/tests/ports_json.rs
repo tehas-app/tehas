@@ -226,6 +226,35 @@ fn the_ports_values_read_back_from_json() {
         stopped: Some((bp(2), Outcome::Refused(Refusal::Unknown))),
     });
     round!(MarkName::read_list(["area: docs", "a#b"]));
+    let link = WebLink::new("https://example.test/c").unwrap();
+    round!((
+        Applied {
+            done: vec![StepPart::Note],
+            stopped: Some((StepPart::Close, Outcome::Forbidden)),
+        },
+        Some(Posted {
+            id: CommentId::new("c1"),
+            link: link.clone(),
+        }),
+    ));
+    round!(ChangeDelta {
+        changes: vec![],
+        comments: vec![(
+            ChangeNo::new(4).unwrap(),
+            Comment {
+                id: CommentId::new("c2"),
+                author: None,
+                editor: None,
+                created: At::new(1),
+                edited: None,
+                body: "seen".into(),
+                markers: vec![],
+                revision: Revision::new("r"),
+                link,
+            },
+        )],
+        next: Cursor::new("next"),
+    });
 }
 
 #[test]

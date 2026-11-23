@@ -975,6 +975,23 @@ fn tickets_read_back() {
         mark: vec![Mark::Act(Act::Block)],
         close: Some(CloseReason::Done),
     });
+    round((
+        Applied {
+            done: vec![StepPart::Note, StepPart::Close],
+            stopped: None,
+        },
+        Some(Posted {
+            id: CommentId::new("c1"),
+            link: link(),
+        }),
+    ));
+    round((
+        Applied {
+            done: vec![],
+            stopped: Some((StepPart::Note, Outcome::Forbidden)),
+        },
+        None::<Posted<CommentId>>,
+    ));
     for p in [
         StepPart::Note,
         StepPart::Unmark(Mark::Epic),
@@ -1239,6 +1256,7 @@ fn the_code_host_reads_back() {
     round(Author::Me);
     round(ChangeDelta {
         changes: vec![change_digest()],
+        comments: vec![(ChangeNo::new(4).unwrap(), comment())],
         next: Cursor::new("c"),
     });
     let conclusions = [
