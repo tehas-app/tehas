@@ -36,7 +36,7 @@ init-product --dry-run
 labels
 limit --json
 limit clear
-limit set --cycles --for --plan --reason --until
+limit set --cycles --for --json --plan --reason --until
 mcp
 mcp key
 order --json

@@ -381,12 +381,12 @@ drain_world() { # <name>
   done
 }
 
-# <name>: the reading a drain sample holds, as the command prints it. The wait
-# is named on the command line, and so is --json: the object is the whole of
-# standard output, since every word the command says to a person goes to
-# standard error.
+# <name>: the reading a drain sample holds, as the console prints it at the
+# test's clock, which the settings load behind bin/tehas drops: `set` is then
+# the samples'. The wait and --json are named on the command line: the object
+# is the whole of standard output, the words for a person go to standard error.
 drain_reading() { # <name>
-  t_run "'$T_ROOT/bin/tehas' drain --wait $drain_hold --json"
+  t_run "TEHAS_FLAGS_TEST_NOW=$limit_written '$T_CONSOLE' tehas drain --wait $drain_hold --json"
 }
 
 # The seconds of the ends the history samples are read from, as the cursors of

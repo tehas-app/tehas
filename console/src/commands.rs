@@ -70,7 +70,7 @@ fn limit_words(given: &[String]) -> Result<Vec<String>, u8> {
         (Some("clear"), 1) => Ok(strings(&["limit", "clear"], &[])),
         (Some("set"), _) => Ok(strings(&["limit", "set"], &given[1..])),
         _ => {
-            eprintln!("usage: tehas limit [--json] | set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] | clear");
+            eprintln!("usage: tehas limit [--json] | set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] [--json] | clear");
             Err(64)
         }
     }
