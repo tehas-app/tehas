@@ -823,6 +823,13 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   read the issue again. It guards the moment of the edit, not an earlier
   edit by a person.
   Readers: the agents of a cycle.
+- **The relay answers in tehas's words.** T4.5. A write the relay makes
+  answers the cycle's `gh` with its link, as before. A write GitHub refuses
+  or cannot take answers with status 1 and one line of tehas's words,
+  `gh-shim: the relay could not <verb> #<n>: <reason>`, never GitHub's own
+  error text. A create without both a title and a body, a comment without a
+  body or with a title, and an edit with neither are refused before any call.
+  Readers: the agents of a cycle.
 - **The merge is no plugin's grant.** #2943.
   The grant and the ask `merge` are refused with 78, saying the merge is a
   person's and no plugin is granted it in this release, where before they
