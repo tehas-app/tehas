@@ -41,9 +41,19 @@ pub fn is_id(name: &str) -> bool {
         && &name[10..11] == "-"
 }
 
+/// What a kept build's build.json says of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Build {
+    pub id: String,
+    pub commit: String,
+    /// Empty when the record has none that is text, as `describe` is.
+    pub built_at: String,
+    pub describe: String,
+}
+
 /// A build's build.json, when it is an object whose id is a build id and
 /// whose commit is full hex.
-pub fn build_of(text: &str) -> Option<Value> {
+pub fn build_of(text: &str) -> Option<Build> {
     let v: Value = serde_json::from_str(text).ok()?;
     let id = v.get("id")?.as_str()?;
     let commit = v.get("commit")?.as_str()?;
@@ -51,7 +61,13 @@ pub fn build_of(text: &str) -> Option<Value> {
         && commit
             .bytes()
             .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
-    (is_id(id) && full && id[11..] == commit[..8]).then_some(v)
+    let word = |k: &str| v[k].as_str().unwrap_or("").to_string();
+    (is_id(id) && full && id[11..] == commit[..8]).then(|| Build {
+        id: id.to_string(),
+        commit: commit.to_string(),
+        built_at: word("builtAt"),
+        describe: word("describe"),
+    })
 }
 
 #[cfg(test)]
@@ -105,5 +121,17 @@ mod tests {
         assert!(build_of(&build("../x", A)).is_none());
         assert!(build_of("[]").is_none());
         assert!(build_of("not json").is_none());
+    }
+
+    #[test]
+    fn a_build_says_when_it_was_built_and_of_what_or_nothing() {
+        let b = build_of(&build("2026-11-21-68ffab1d", A)).unwrap();
+        assert_eq!(b.id, "2026-11-21-68ffab1d");
+        assert_eq!(b.commit, A);
+        assert_eq!(b.built_at, "2026-11-21T03:04:10Z");
+        assert_eq!(b.describe, "v1.2.0-5-g68ffab1d");
+        let bare = json!({"id": "2026-11-21-68ffab1d", "commit": A, "builtAt": 7}).to_string();
+        let b = build_of(&bare).unwrap();
+        assert_eq!((b.built_at.as_str(), b.describe.as_str()), ("", ""));
     }
 }

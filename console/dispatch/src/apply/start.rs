@@ -1208,7 +1208,10 @@ impl Writer {
                 "park",
             ],
         ) {
-            Ok(_) => true,
+            Ok(v) => {
+                self.raise_asked(n, &v.to_string(), log);
+                true
+            }
             Err(f) => {
                 log.push(format!(
                     "WARN: could not put the park question of #{n} back on the record ({}): its boxes start nothing now",

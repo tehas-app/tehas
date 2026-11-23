@@ -620,7 +620,7 @@ fn a_hooks_context_holds_the_envelope_of_an_offer() {
 mod raised {
     use super::*;
     use common::World;
-    use tehas_cycle::events::{ended, started, Ended, HistoryRow, QuestionRow, StartRow};
+    use tehas_core::raise::{read_asked, read_ended, recorded, started, Ended, StartRow, Writer};
 
     const SHA: &str = "4f7d2a2ef2bd1b5d6c4d0bd0f5f3d6c1b0a5e6f7c8d9e0f1a2b3c4d5e6f7a8b9";
 
@@ -645,12 +645,36 @@ mod raised {
         serde_json::from_str(&r.out).unwrap()
     }
 
-    fn end(w: &World, s: &StartRow, args: &[&str]) {
+    // The end of `s` with `args`, as the cycle's report writes it: whether
+    // this call wrote the line.
+    fn end(w: &World, s: &StartRow, args: &[&str]) -> bool {
         let (issue, attempt) = (s.issue.to_string(), s.attempt.to_string());
         let mut all = vec!["cycle-end", &issue, "--attempt", &attempt];
         all.extend_from_slice(args);
         let r = w.store_locked(s.issue, &all);
         assert_eq!(r.rc, 0, "{}", r.out);
+        wrote(&r.out)
+    }
+
+    // Whether a `cycle-end` answer says the call wrote the line.
+    fn wrote(answer: &str) -> bool {
+        let a: tehas_core::raise::EndAnswer = serde_json::from_str(answer).unwrap();
+        !a.already
+    }
+
+    // An end with no report, `--stopped`, `--lost` or `--refused`, with the
+    // store's clock at `at` when given: whether this call wrote the line.
+    fn short(w: &World, s: &StartRow, flag: &[&str], at: Option<i64>) -> bool {
+        let (issue, attempt) = (s.issue.to_string(), s.attempt.to_string());
+        let mut all = vec!["cycle-end", &issue, "--attempt", &attempt];
+        all.extend_from_slice(flag);
+        let r = match (flag[0], at) {
+            ("--refused", _) => w.store_locked(s.issue, &all),
+            (_, Some(at)) => w.store_at(at, &all),
+            _ => w.store(&all),
+        };
+        assert_eq!(r.rc, 0, "{}", r.out);
+        wrote(&r.out)
     }
 
     // A park on record with its question, as the report writes them before
@@ -671,20 +695,15 @@ mod raised {
         ]);
     }
 
-    // What the cycle reads after its end, and the events it makes of it, as
-    // tehas_cycle::events::read_ended does.
+    // What `by` reads after an end, and the events it makes of it: the
+    // read every raiser makes, tehas_core::raise::read_ended.
+    fn read_by(w: &World, issue: u64, attempt: u32, by: Writer) -> Ended {
+        let mut ask = |a: &[&str]| Ok(w.store_ok(a).to_string());
+        read_ended(&mut ask, issue, attempt, by).unwrap()
+    }
+
     fn read(w: &World, s: &StartRow) -> Ended {
-        let issue = s.issue.to_string();
-        let rows: Vec<HistoryRow> = w.store_ok(&["history-show", &issue])["rows"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|r| r["kind"] == "cycle")
-            .map(|r| serde_json::from_value(r.clone()).unwrap())
-            .collect();
-        let q = w.store_ok(&["question-show", &issue])["question"].clone();
-        let q: Option<QuestionRow> = serde_json::from_value(q).unwrap();
-        ended(s.issue, s.attempt, &rows, q.as_ref())
+        read_by(w, s.issue, s.attempt, Writer::Report)
     }
 
     // What `tehas <words>` prints, as JSON.
@@ -831,14 +850,6 @@ mod raised {
         assert_eq!(repeat("12-2"), std::num::NonZeroU32::new(1).map(Some));
 
         let runs = console!(&w, "history --json")["runs"].clone();
-        let line = |cycle: &str| {
-            runs.as_array()
-                .unwrap()
-                .iter()
-                .find(|l| l["cycle"] == cycle)
-                .cloned()
-                .unwrap_or_else(|| panic!("no line of {cycle} in {runs}"))
-        };
         // A page that leaves the first park out gives the second the same
         // count as the whole history does.
         let first = runs[0]["cursor"].as_str().unwrap().to_string();
@@ -849,8 +860,24 @@ mod raised {
             .iter()
             .find(|l| l["cycle"] == "12-2");
         assert_eq!(second.map(|l| l["repeat"].clone()), Some(json!(1)));
-        let questions = console!(&w, "question --after 0 --json")["questions"].clone();
-        for e in &all {
+        held_to_witness(&w, &all);
+    }
+
+    // Each envelope fits its schema, and its fields are its witness's:
+    // the work line of `tehas history --json` of its cycle, or its question
+    // in `tehas question --after 0 --json`.
+    fn held_to_witness(w: &World, all: &[Envelope]) {
+        let runs = console!(w, "history --json")["runs"].clone();
+        let line = |cycle: &str| {
+            runs.as_array()
+                .unwrap()
+                .iter()
+                .find(|l| l["cycle"] == cycle)
+                .cloned()
+                .unwrap_or_else(|| panic!("no line of {cycle} in {runs}"))
+        };
+        let questions = console!(w, "question --after 0 --json")["questions"].clone();
+        for e in all {
             let v = serde_json::to_value(e).unwrap();
             assert_eq!(fits!("event.schema.json", &v), Vec::<String>::new(), "{v}");
             let own = format!("event-{}.schema.json", slug(e.name()));
@@ -929,14 +956,154 @@ mod raised {
                             ("choices", "/choices"),
                         ],
                     );
-                    // The ports' word for the store's `park`.
-                    assert_eq!(q["kind"], "park");
-                    want["kind"] = json!("Park");
+                    // The ports' words for the store's `park` and `plan`.
+                    want["kind"] = match q["kind"].as_str() {
+                        Some("park") => json!("Park"),
+                        Some("plan") => json!("Plan"),
+                        other => panic!("a question of kind {other:?}"),
+                    };
                     want
                 }
-                other => panic!("{other:?} is not raised by a cycle"),
+                other => panic!("{other:?} is not raised here"),
             };
             assert_eq!(data, &want, "{}", e.name().as_str());
         }
+    }
+
+    // A planning turn's question on record, as the dispatcher records one
+    // after the turn's end with its options: what `question-asked` answered.
+    fn plan_asked(w: &World, n: u64, id: &str) -> String {
+        let issue = n.to_string();
+        let brief = w.t().join(format!("brief-{n}.md"));
+        fs::write(&brief, "# Faster search\n").unwrap();
+        // The label that starts a planning session, as host/labels.tsv
+        // names it.
+        let table = fs::read_to_string(root().join("host/labels.tsv")).unwrap();
+        let label = table
+            .lines()
+            .find(|l| l.contains("start a planning session"))
+            .and_then(|l| l.split('\t').next())
+            .unwrap()
+            .to_string();
+        w.store_ok(&[
+            "plan-begin",
+            &issue,
+            "--by",
+            "alice",
+            "--label",
+            &label,
+            "--brief-file",
+            brief.to_str().unwrap(),
+        ]);
+        w.store_ok(&[
+            "plan-end",
+            &issue,
+            "--turn",
+            "1",
+            "--outcome",
+            "finished",
+            "--rc",
+            "0",
+            "--session",
+            "abc-123",
+            "--option",
+            "Adopt all",
+            "--option",
+            "Update this issue",
+        ]);
+        w.store_ok(&["question-asked", &issue, "--id", id, "--kind", "plan"])
+            .to_string()
+    }
+
+    // The ends no report wrote (T11.9), each raised by the process whose call
+    // wrote its line, and a planning question by the poll that recorded it.
+    // Every start gets exactly one `cycle.ended`: a late report, a late stop
+    // and a late poll each find the line written and raise nothing.
+    #[test]
+    fn every_start_ends_once_whoever_wrote_its_line() {
+        let w = World::new("events-raised-ends");
+        let mut all = Vec::new();
+        let mut starts = Vec::new();
+        let raise = |all: &mut Vec<Envelope>, e: Ended| all.extend(e.envelopes());
+        let report = ["--status", "interrupted", "--rc", "143", "--signalled"];
+        // #30 is stopped by `tehas stop`; its report comes late, then a poll.
+        let s = start(&w, 30);
+        assert!(short(&w, &s, &["--stopped"], None));
+        raise(&mut all, read_by(&w, 30, s.attempt, Writer::Short));
+        assert!(!end(&w, &s, &report));
+        raise(&mut all, read(&w, &s));
+        let later = s.started_at + 600;
+        assert!(!short(&w, &s, &["--lost"], Some(later)));
+        starts.push(s);
+        // #32 is refused before its runner, by the cycle that started it.
+        let s = start(&w, 32);
+        assert!(short(&w, &s, &["--refused", "--rc", "65"], None));
+        raise(&mut all, read_by(&w, 32, s.attempt, Writer::Short));
+        starts.push(s);
+        // #34 is ended as lost by the poll; its report comes late.
+        let s = start(&w, 34);
+        assert!(short(&w, &s, &["--lost"], Some(s.started_at + 600)));
+        raise(&mut all, read_by(&w, 34, s.attempt, Writer::Short));
+        assert!(!end(&w, &s, &report));
+        raise(&mut all, read(&w, &s));
+        starts.push(s);
+        // #36's open record is ended as lost by its next start, which then
+        // reports.
+        let first = start(&w, 36);
+        let next = start(&w, 36);
+        assert_eq!(next.replaced, Some(first.attempt));
+        raise(&mut all, read_by(&w, 36, first.attempt, Writer::Short));
+        assert!(end(&w, &next, &["--status", "failed", "--rc", "1"]));
+        raise(&mut all, read(&w, &next));
+        starts.extend([first, next]);
+        // #38 reports, then is stopped: the stop finds the line written.
+        let s = start(&w, 38);
+        assert!(end(&w, &s, &["--status", "failed", "--rc", "1"]));
+        raise(&mut all, read(&w, &s));
+        assert!(!short(&w, &s, &["--stopped"], None));
+        raise(&mut all, read_by(&w, 38, s.attempt, Writer::Short));
+        starts.push(s);
+        // #40 asks a planning question; asked again, it is a replay.
+        let answer = plan_asked(&w, 40, "4040");
+        let id = recorded(&answer).expect("the call recorded it");
+        let mut ask = |a: &[&str]| Ok(w.store_ok(a).to_string());
+        all.extend(read_asked(&mut ask, id).unwrap().map(Envelope::new));
+        let again = w.store_ok(&["question-asked", "40", "--id", "4040", "--kind", "plan"]);
+        assert_eq!(recorded(&again.to_string()), None);
+
+        let ended: Vec<String> = all
+            .iter()
+            .filter(|e| e.name() == Name::CycleEnded)
+            .map(|e| e.key.as_str().to_string())
+            .collect();
+        let mut want: Vec<String> = starts
+            .iter()
+            .map(|s| format!("{}-{}", s.issue, s.attempt))
+            .collect();
+        want.sort();
+        let mut got = ended.clone();
+        got.sort();
+        assert_eq!(got, want, "one end per start: {ended:?}");
+        let end_of = |key: &str| {
+            all.iter().find_map(|e| match &e.event {
+                Event::CycleEnded(p) if e.key.as_str() == key => Some((p.end, p.outcome.clone())),
+                _ => None,
+            })
+        };
+        assert_eq!(end_of("30-1"), Some((End::Stopped, "stopped".into())));
+        assert_eq!(end_of("32-1"), Some((End::Refused, "refused".into())));
+        assert_eq!(end_of("34-1"), Some((End::Failed, "lost".into())));
+        assert_eq!(end_of("36-1"), Some((End::Failed, "lost".into())));
+        let asked: Vec<&Envelope> = all
+            .iter()
+            .filter(|e| e.name() == Name::QuestionAsked)
+            .collect();
+        assert_eq!(asked.len(), 1);
+        let Event::QuestionAsked(q) = &asked[0].event else {
+            unreachable!()
+        };
+        assert_eq!(q.cycle, None);
+        assert!(!q.choices.is_empty());
+        held_to_witness(&w, &all);
     }
 }
