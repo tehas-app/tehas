@@ -310,14 +310,15 @@ fn without_the_refine_brief_on_the_host_no_session_starts_and_it_is_logged() {
         }
     }
     for e in fs::read_dir(root().join("libexec")).unwrap().flatten() {
-        fs::copy(e.path(), short.join("libexec").join(e.file_name())).unwrap();
+        tehas_core::testing::copy_exe(e.path(), short.join("libexec").join(e.file_name())).unwrap();
     }
     for verb in ["tehas", "tehasbot"] {
-        fs::copy(root().join("bin").join(verb), short.join("bin").join(verb)).unwrap();
+        tehas_core::testing::copy_exe(root().join("bin").join(verb), short.join("bin").join(verb))
+            .unwrap();
     }
-    fs::copy(w.console(), short.join("libexec/console")).unwrap();
+    tehas_core::testing::copy_exe(w.console(), short.join("libexec/console")).unwrap();
     // The Rust poll finds the brief beside its own program, as on a host.
-    fs::copy(w.dispatcher(), short.join("libexec/tehas-dispatch")).unwrap();
+    tehas_core::testing::copy_exe(w.dispatcher(), short.join("libexec/tehas-dispatch")).unwrap();
     let r =
         w.sh("unset TEHAS_DISPATCH_CMD TEHAS_HEALTH_CMD; \"$T/norefine/bin/tehasbot\" dispatch");
     assert_eq!(w.plan_calls(), "");
