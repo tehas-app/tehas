@@ -8,7 +8,7 @@
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{unknown, At, HealthState, HostId, Outcome, Passing, Pool, Realm, Whose};
+use crate::{unknown, At, HealthState, Holder, HostId, Outcome, Passing, Pool, Realm, Whose};
 
 /// The next state of `whose` on `host`, from the state it `was` in and the
 /// outcome a call has just `seen`, and the notice due, if any. Only a
@@ -16,8 +16,9 @@ use crate::{unknown, At, HealthState, HostId, Outcome, Passing, Pool, Realm, Who
 ///
 /// A caller keeps `Failing` under `Whose::Host`, `SignedOut` under
 /// `Whose::Holder` and `Spent` of a pool under `Whose::Pool` of that pool,
-/// and gives a call's outcome to each of the three it touches: the host,
-/// the holder and the pool the call drew on. `seen` is the outcome of every
+/// and gives a call's outcome to `next` once for each key `keys` returns:
+/// the host, the holder, each pool the call drew on, and the pool a
+/// `Spent` names. `seen` is the outcome of every
 /// attempt the adapter made to reach the site, one that could not connect
 /// included; never an answer it made without trying (a held pool's
 /// `Spent`, a passed deadline's `Unavailable(Timeout)`, an expired kept
@@ -25,13 +26,14 @@ use crate::{unknown, At, HealthState, HostId, Outcome, Passing, Pool, Realm, Who
 ///
 /// The host reads `Unavailable` as an outage and any answer of the site as
 /// the host up, `Unavailable(Broken)` among them: the site answered that a
-/// check run or job errored. A holder reads `SignedOut` as its own and any other answer
-/// but `Spent` as a good call that clears it. A pool reads `Spent` of
-/// itself as its own and ignores `Spent` of another pool; a good call
-/// clears it from `until` on, and `SignedOut` tells it nothing. `Unread`
-/// and `Unavailable` tell neither holder nor pool anything. A state not
-/// its own (a holder's or a pool's given for the host, `Spent` of another
-/// pool) is read as `Healthy`.
+/// check run or job errored. A holder reads `SignedOut` as its own and any
+/// other answer but `Spent` as a good call that clears it. A pool reads
+/// `Spent` of itself as its own and ignores `Spent` of another pool, which
+/// `keys` gives to that pool. A good call clears a pool only from `until`
+/// on, and `SignedOut` tells it nothing. `Unread` and `Unavailable` tell
+/// neither holder nor pool anything. A state not its own (a holder's or a
+/// pool's given for the host, `Spent` of another pool) is read as
+/// `Healthy`.
 pub fn next(
     host: &HostId,
     whose: &Whose,
@@ -61,6 +63,26 @@ pub fn next(
         at: now,
     });
     (new, notice)
+}
+
+/// The states an answer is given to, in this order: `Whose::Host`, then
+/// `Whose::Holder(holder)`, then `Whose::Pool(holder, p)` for each pool
+/// `drew` names, then, on a `Spent`, the pool it names, each key once. The
+/// caller gives the answer to `next` once for each. A `Spent` belongs to the
+/// pool the answer names, which need not be one the call drew on.
+pub fn keys(holder: &Holder, seen: &Result<(), Outcome>, drew: &[Pool]) -> Vec<Whose> {
+    let named = match seen {
+        Err(Outcome::Spent { pool, .. }) => Some(*pool),
+        _ => None,
+    };
+    let mut keys = vec![Whose::Host, Whose::Holder(holder.clone())];
+    for pool in drew.iter().copied().chain(named) {
+        let key = Whose::Pool(holder.clone(), pool);
+        if !keys.contains(&key) {
+            keys.push(key);
+        }
+    }
+    keys
 }
 
 fn own(whose: &Whose, was: HealthState) -> HealthState {
@@ -116,6 +138,8 @@ fn pool_next(mine: Pool, now: At, was: HealthState, seen: &Result<(), Outcome>) 
                 | Outcome::SignedOut,
             ),
         ) => was,
+        // An answer to a request sent before the spend was kept can arrive
+        // after it.
         (HealthState::Spent { until, .. }, _) if now < until => was,
         _ => HealthState::Healthy,
     }

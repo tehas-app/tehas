@@ -1,7 +1,7 @@
 //! `health::next` as a table: each state and outcome, for the host, a
 //! holder and a pool; a notice only on a change of state; an outage and its
 //! end, a spent pool and a sign-out, each reported once for every project
-//! on the host.
+//! on the host; and `keys`, which says which states an answer is given to.
 
 use tehas_ports::*;
 
@@ -606,4 +606,61 @@ fn next_is_a_function_of_its_inputs() {
             }
         }
     }
+}
+
+#[test]
+fn keys_of_a_good_call_are_the_host_the_holder_and_the_pools_it_drew_on() {
+    assert_eq!(
+        keys(
+            &grant(),
+            &Ok(()),
+            &[Pool::Priced, Pool::Calls, Pool::Priced]
+        ),
+        [Whose::Host, ours(), pool(Pool::Priced), pool(Pool::Calls)]
+    );
+    assert_eq!(keys(&grant(), &Ok(()), &[]), [Whose::Host, ours()]);
+}
+
+#[test]
+fn keys_of_a_spent_of_a_drawn_pool_name_that_pool_once() {
+    assert_eq!(
+        keys(&grant(), &out_of(Pool::Writes, NOW + 60), &[Pool::Writes]),
+        [Whose::Host, ours(), pool(Pool::Writes)]
+    );
+}
+
+#[test]
+fn keys_of_a_spent_of_another_pool_add_the_pool_it_names() {
+    assert_eq!(
+        keys(&grant(), &out_of(Pool::Priced, NOW + 60), &[Pool::Writes]),
+        [Whose::Host, ours(), pool(Pool::Writes), pool(Pool::Priced)]
+    );
+}
+
+#[test]
+fn a_call_drawing_on_one_pool_and_refused_for_another_spends_the_other() {
+    let seen = out_of(Pool::Priced, NOW + 60);
+    let mut raised = Vec::new();
+    let mut kept = std::collections::HashMap::new();
+    for whose in keys(&grant(), &seen, &[Pool::Writes]) {
+        let state = kept.entry(whose.clone()).or_insert(HealthState::Healthy);
+        raised.extend(run(state, &whose, &seen, 1));
+    }
+    assert_eq!(kept[&pool(Pool::Priced)], spent(Pool::Priced, NOW + 60));
+    assert_eq!(kept[&pool(Pool::Writes)], HealthState::Healthy);
+    assert_eq!(kept[&Whose::Host], HealthState::Healthy);
+    assert_eq!(kept[&ours()], HealthState::Healthy);
+    assert_eq!(
+        raised
+            .iter()
+            .map(|n| (&n.whose, n.what))
+            .collect::<Vec<_>>(),
+        [(
+            &pool(Pool::Priced),
+            Health::Spent {
+                pool: Pool::Priced,
+                until: at(NOW + 60)
+            }
+        )]
+    );
 }
