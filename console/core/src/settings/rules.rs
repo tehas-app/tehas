@@ -1551,7 +1551,9 @@ mod tests {
             takes(name, PIN);
             takes(
                 name,
-                &format!("{PIN} view product model:2000000 action:refresh hook:after:work"),
+                &format!(
+                    "{PIN} view product model:2000000 action:refresh hook:after:change.offered"
+                ),
             );
             refuses(
                 name,

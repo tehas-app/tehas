@@ -17,8 +17,9 @@
 //!
 //! The report is `apply`, in this process. It goes by the settings of this
 //! environment and loads none: instance.env may have changed during the cycle.
-//! After it, a cycle that was not stopped and left an open pull request asks
-//! for the plugins' hooks on it (src/hook.rs), and waits for none of them.
+//! The start once on record raises `cycle.started`, and the end once on record
+//! raises the events of its line (src/events.rs): the plugins' hooks are asked
+//! on `change.offered` (src/hook.rs), and none is waited for.
 //!
 //! The --work program is tehas work, which runs the cycle on this host.
 
@@ -37,8 +38,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tehas_core::call::{gh_why, run_full, GRACE};
 use tehas_core::home::Home;
-use tehas_core::plugin::hook::Ending;
 use tehas_core::{cycle_notes, time};
+use tehas_ports::events::Dispatcher;
 
 /// What tehasbot cycle gives this.
 pub struct Given {
@@ -394,8 +395,9 @@ fn supervise(
     }
 }
 
-/// A cycle's start, its supervision and its report. Its exit status.
-pub fn run(home: &Path, g: &Given) -> i32 {
+/// A cycle's start, its supervision and its report, and their events raised
+/// on `events`. Its exit status.
+pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
     let n = g.issue.to_string();
     let answer = match start_on_record(home, &n) {
         Ok(a) => a,
@@ -416,6 +418,13 @@ pub fn run(home: &Path, g: &Given) -> i32 {
             "ERROR: #{n}: the state store answered the start with no attempt"
         ));
         return 78;
+    }
+    let start = serde_json::from_value(answer.clone()).ok();
+    match start.as_ref().and_then(crate::events::started) {
+        Some(p) => crate::events::raise(events, p),
+        None => log(&format!(
+            "WARN: #{n}: the start on record could not be read, so it raises no event"
+        )),
     }
     let approval_at = match answer.get("approval_at") {
         Some(Value::Number(x)) => x.to_string(),
@@ -500,14 +509,8 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         status_args: g.status_args.clone(),
     };
     let reported = apply::reported(home, &start);
-    let ending = Ending {
-        signalled,
-        refused: reported.refused,
-        pr: reported.pr,
-    };
-    crate::hook::ask(home, g.issue, &ending, &|name: &str| {
-        std::env::var(name).unwrap_or_default()
-    });
+    let attempt = u32::try_from(start.attempt).unwrap_or(0);
+    crate::events::read_ended(home, g.issue, attempt).raise(events);
     reported.rc
 }
 

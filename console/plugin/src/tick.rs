@@ -419,7 +419,12 @@ mod tests {
     #[test]
     fn a_verdict_whose_head_is_merged_goes_with_its_request() {
         let mut h = Fake::new();
-        let w = world("plugin-tick-merged", &mut h, "", "hook:after:work");
+        let w = world(
+            "plugin-tick-merged",
+            &mut h,
+            "",
+            "hook:after:change.offered",
+        );
         let v = left(&w, H2, 0);
         assert_eq!(go(&mut h, &w), 0);
         assert!(h.x.ran_any(&format!(
@@ -432,7 +437,7 @@ mod tests {
     #[test]
     fn a_verdict_older_than_its_days_goes_and_a_newer_one_stays() {
         let mut h = Fake::new();
-        let w = world("plugin-tick-old", &mut h, "", "hook:after:work");
+        let w = world("plugin-tick-old", &mut h, "", "hook:after:change.offered");
         h.x.on("merge-base", fails(""));
         let v = left(&w, H2, VERDICT_DAYS - 1);
         assert_eq!(go(&mut h, &w), 0);

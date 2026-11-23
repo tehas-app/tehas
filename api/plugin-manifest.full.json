@@ -5,10 +5,10 @@
   "label": "Floorplan",
   "license": "Apache-2.0",
   "build": "Dockerfile",
-  "asks": ["view", "product", "model", "action:refresh", "hook:after:work"],
+  "asks": ["view", "product", "model", "action:refresh", "hook:after:change.offered"],
   "timeout": 3600,
   "ui": {"kit": 1},
   "view": {"label": "Floorplan"},
   "actions": [{"id": "refresh", "label": "Refresh floorplan"}],
-  "hooks": [{"at": "after:work", "timeout": 600}]
+  "hooks": [{"at": "after:change.offered", "timeout": 600}]
 }

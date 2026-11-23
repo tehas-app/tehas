@@ -337,20 +337,25 @@ and two in all run at once, and a request for the same pull request written
 while one runs, even at the same head, runs after it. A hook takes its
 request before it runs, and reads the plugin's pin, grants and state again
 before each run: a plugin no longer ready at its pin or no longer granted
-`hook:after:work` runs nothing and posts nothing. With `product` granted the
+`hook:after:change.offered` runs nothing and posts nothing. With `product` granted the
 hook fetches the pull request's head into the mirror as
 `refs/tehas/plugin-pr/<name>/<pr>`, one ref for each plugin, and when that
 head moved since the request it asks GitHub for the head and base together
 and runs with both, or does not run when GitHub gives another head.
 
-A cycle asks for the hooks itself. After its report, a cycle that was not
-stopped by a signal, was not refused at its start and left an open pull
-request of the bot's, a refresh's too, reads that pull request from GitHub.
-For each plugin granted `hook:after:work` and ready at its pin it writes
+A cycle asks for the hooks itself, on its event `change.offered`
+([Events](/api#events)). After its report the cycle raises the events of its
+history line; a line that names a pull request, was not stopped by a signal,
+and did not end `refused` or `merged` raises `change.offered`, a refresh's
+too. The plugins' bridge, a listener of the cycle's events while plugins are
+on, then reads that pull request from GitHub. For each plugin granted
+`hook:after:change.offered` and ready at its pin it writes
 `~/tehas/plugins/<name>/hooks/<pr>.json` (the pull request, its head as
-GitHub gave it, its base and the issue) and starts
+GitHub gave it, its base, the issue and the event's envelope) and starts
 `tehas-plugin-hook@<name>-<pr>.service`. It waits for none of them. A hook
 holds no slot, lock or label. A merged or closed pull request gets no hook.
+The hook's `/run/context.json` has the envelope as `event`; a hook run by
+hand with `tehas plugin hook` has none.
 
 When a hook ends, `tehas-plugin` asks GitHub for the pull request's head and
 posts one commit status on the head the hook read, and nothing else, never

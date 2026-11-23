@@ -145,6 +145,30 @@ pub fn plan_choices(options: &[String]) -> Vec<Offered> {
     out
 }
 
+impl Offered {
+    /// The word `tehas answer` takes for it: `option:<k>` for an option.
+    pub fn answer_word(&self) -> String {
+        match (self.choice, self.option) {
+            (Choice::Option, Some(k)) => format!("option:{k}"),
+            (c, _) => c.word().to_string(),
+        }
+    }
+}
+
+/// The choices of a question as the store keeps it: a planning question's
+/// from its options, a park's from the words of the choices it was asked
+/// with, every park choice when those were not kept.
+pub fn stored_choices(kind: &str, offers: Option<&[String]>, options: &[String]) -> Vec<Offered> {
+    if kind == "plan" {
+        return plan_choices(options);
+    }
+    let offered: Vec<Choice> = match offers {
+        Some(words) => words.iter().filter_map(|w| Choice::of(w)).collect(),
+        None => CHOICES.to_vec(),
+    };
+    park_choices(&offered)
+}
+
 /// The choices of a park's question that offers `offers`, with their words.
 pub fn park_choices(offers: &[Choice]) -> Vec<Offered> {
     offers

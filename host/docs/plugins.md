@@ -44,7 +44,7 @@ A plugin takes two lines of `instance.env`, its pin and its grants, and
 ```
 TEHAS_PLUGIN=on
 TEHAS_PLUGINS="floorplan=https://github.com/tehas-app/tehas-plugin-floorplan@<commit>"
-TEHAS_PLUGIN_GRANTS_FLOORPLAN="<commit> view product model:15000000 action:refresh hook:after:work"
+TEHAS_PLUGIN_GRANTS_FLOORPLAN="<commit> view product model:15000000 action:refresh hook:after:change.offered"
 TEHAS_PLUGIN_ACCESS=write
 TEHAS_PLUGIN_MODEL_DAY=20000000
 ```
@@ -115,7 +115,8 @@ Every run, whatever is granted:
   `disk` the run fails; a `/state` past it is emptied and the plugin waits
   for `tehas plugin run`.
 - `/run/context.json`: the kind of run, the plugin's commit, and what its
-  grants make of it. Nothing about a person.
+  grants make of it. A hook a cycle asked for has the envelope of its
+  event, `change.offered`, as `event`. Nothing about a person.
 - `docker kill` at the manifest's timeout.
 
 No grant gives, in any version: a GitHub token or the App's key, the Docker
@@ -143,7 +144,7 @@ the line of this table. Read it before you write the grant.
 | `model:<tokens>` | Chat completions through a socket, up to the tokens of the grant a run |
 | `model:images` | Images in its model requests, each carried in the request and never fetched: what it sends of the product's pages goes to the model |
 | `action:<id>` | A button in the view: a signed-in person asks for a refresh |
-| `hook:after:work` | A run on each pull request a cycle leaves; its summary is on the pull request for every reader of the repository |
+| `hook:after:change.offered` | A run on each change a cycle offers for review, the event change.offered; its summary is on the pull request for every reader of the repository |
 | `skill:<id>` | Its text from the pinned commit goes into the chats' instructions |
 | `needs:<name>` | Runs only while the named plugin is ready, and its chat gets the skills that plugin grants to a plugin's chat; it grants the other plugin nothing |
 | `tool:<id>` | The chats it names may call it: each call is a run with the caller's arguments and the plugin's /state read only, and its answer goes to the model |
@@ -162,7 +163,7 @@ What to weigh:
   model costs](#what-the-model-costs).
 - **`action:<id>`.** Anyone the sign-in lets in can start a refresh, one at
   a time.
-- **`hook:after:work`.** The status's summary, 140 characters, is public to
+- **`hook:after:change.offered`.** The status's summary, 140 characters, is public to
   every reader of the repository. The findings stay behind the sign-in.
 
 ### The build
@@ -229,9 +230,9 @@ A refresh makes the view. A hook reports on a pull request.
   same head.
 - **On demand.** `tehas plugin run <name>`, or a press of the view's button.
   One refresh of a plugin runs at a time.
-- **After a cycle.** A cycle that leaves an open pull request of the bot's
-  asks each ready plugin granted `hook:after:work` for a hook on it, and
-  waits for none. A hook holds no slot, lock or label. By hand: `tehas plugin
+- **After a cycle.** A cycle that offers a change, its event
+  `change.offered`, asks each ready plugin granted `hook:after:change.offered` for a
+  hook on the pull request while it is open, and waits for none. A hook holds no slot, lock or label. By hand: `tehas plugin
   hook <name> <pr>`.
 - **What it said.** `tehas plugin log <name>` prints the last refresh's log,
   and `--hook <pr>` the last hook's on that pull request. Each control
@@ -324,7 +325,7 @@ the view, with a Refresh button. A hook rebuilds the map from a pull
 request's head with no model call and reports what the change added to
 Floorplan's Health check: kinds of finding, file and line, never a value. Its
 verdict is `note` or `pass`. It asks for `view`, `product`, `model`,
-`action:refresh` and `hook:after:work`, the grants of the example above.
+`action:refresh` and `hook:after:change.offered`, the grants of the example above.
 
 To try it now, follow "Try it by hand" in its README: Node 22, git, a model
 endpoint that speaks chat completions with tools, and a checkout of a

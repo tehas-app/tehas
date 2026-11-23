@@ -748,6 +748,44 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   stays.
   Readers: adopters, the consumer that runs many factories (`flags`).
   Adopter action: take `TEHAS_SPEC_PIPE` out of `instance.env`.
+- **A cycle raises its events.** #2937.
+  `tehas-cycle` raises `cycle.started` once a start is on record, and after
+  the report `cycle.parked` (a parked line), `question.asked` (a park's
+  question), `cycle.ended` and `change.offered` (a line that names a change,
+  was not signalled, and did not end `refused` or `merged`), in that order.
+  Each payload is built from what the state store holds after the record,
+  so it is what `tehas status`, `tehas history` and `tehas question` then
+  print. The cycle's log has one line per event: `event` and the envelope as
+  JSON. Nothing is pushed to another program. `features` in
+  `tehas api --json` gains `events`. The plugins' hook after a cycle is
+  asked by a listener of `change.offered`, the plugins' bridge, in place of
+  the cycle's own call; its request and the hook's `/run/context.json` carry
+  the envelope as `event` (plugins stay off in 2.0). The other raisers come
+  with T11.9 and T11.10: until then the end of a start refused before its
+  runner, of a cycle `tehas stop` ended and of a lost cycle raises no
+  `cycle.ended`, and a consumer reads `tehas history` for them. A line that
+  ends `refused` by its exit status alone (64, 78 and the rest) is not
+  offered, where the 1.x hook asked on it. `repeat` on a line of
+  `tehas history --json` is counted over every line the store keeps,
+  before `--after` takes its page, so a page shows the same count as the
+  whole history and as the event.
+  Readers: the consumer that runs many factories, the end-to-end suite,
+  plugins.
+  Adopter action: none. A program that reads a cycle's log sees the
+  `event` lines.
+- **The plugin hook is named by its event.** #2939.
+  The grant and the ask `hook:after:work` are `hook:after:change.offered`,
+  and a manifest's hook `at` is `after:change.offered`, not `after:work`.
+  No alias is kept: `hook:after:work` in a manifest or a grants line is
+  refused, saying the word is now `hook:after:change.offered`, and so is a
+  hook at `after:work`. Every other `hook:` word stays reserved until 2.1.
+  `tehas plugin review` lists the grant under its new word. The hook still
+  runs on each change a cycle offers for review, as before.
+  Readers: plugins.
+  Adopter action: a plugin that asks `hook:after:work` asks
+  `hook:after:change.offered` and puts its hook at `after:change.offered`;
+  a `TEHAS_PLUGIN_GRANTS_<NAME>` line that grants `hook:after:work` grants
+  `hook:after:change.offered` for the plugin's commit.
 - **2.0 is supported from 1.4.x.** This page. The update to 2.0 is
   supported from 1.4.x only, and a host upgrades its factories and the
   programs that run them together.
@@ -796,12 +834,11 @@ adopter action as the pull request states them.
   2.1 raises; and `gate-answer.schema.json`, `{"api": 1, "answer": "allow" |
   "refuse", "why": "..."}`, why at most 140 characters. The kit gains
   `events.js`, which raises an envelope on a page as `tehas:<event>`
-  ([Events](/api#events)). No factory raises an event yet.
+  ([Events](/api#events)). A cycle raises its five (#2937, under
+  [Changed in 2.0](#changed-in-20)); the limit, a stop, a refused start, a
+  lost end and the ticket and change events are still to come.
   Readers: the consumer that runs many factories, the consumer that reads
   the analytics copies, MCP clients, the end-to-end suite, plugins.
-- **The plugin hook is named by its event.** T11.8. The grant
-  `hook:after:work` becomes `hook:after:change.offered`, with no alias.
-  Readers: plugins.
 - **Lean is the default driver.** T13. An issue with a `pi-spec v1` block
   runs the lean driver; an issue without one runs classic. When lean is
   only the default and refuses the repository's setup, the same cycle runs
@@ -921,14 +958,14 @@ The plugin API as 2.0 holds it, for the work of 2.1:
 - **The grants.** A plugin asks in its manifest and a person grants for the
   plugin's commit; `tehas plugin review` lists each grant, and every
   install, enable and pin move checks them again. The one hook grant the
-  code takes today is `hook:after:work`. With T11.8 (Pending) it becomes
-  `hook:after:change.offered`, with no alias.
+  code takes is `hook:after:change.offered`, asked on `change.offered`;
+  1.x's `hook:after:work` is refused, with no alias.
 - **The events a plugin can see**, under the names 2.1 grants: each event
   of the [list under Pending](#pending-for-20) as `hook:after:<event>`, and
   a gate as `hook:before:<event>=<policy>`, where the policy is `hold` or
-  `pass` and a gate grant with none is refused with 78. After T11.8, 2.0
-  takes one, `hook:after:change.offered`, and refuses every other `hook:`
-  word as not in this release. The first gate, `hook:before:cycle.started`, comes in 2.1.
+  `pass` and a gate grant with none is refused with 78. 2.0 takes one,
+  `hook:after:change.offered`, and refuses every other `hook:` word as not
+  in this release. The first gate, `hook:before:cycle.started`, comes in 2.1.
 - **What plugins read of an approved body.** `start.approval.bodySha256`
   of `tehas start --json` and the reader of lean's `pi-spec v1` block,
   `spec_block` in `console/core/src/plan.rs`, stay through 2.x: the
@@ -936,6 +973,9 @@ The plugin API as 2.0 holds it, for the work of 2.1:
   `bodySha256` is the sha256 of the body with its carriage returns dropped,
   as `body_sum` in `console/core/src/approval.rs` takes it, so a reader that
   hashes the body itself drops them too.
+- **A tool's typed blocks.** A tool's answer may carry typed blocks from
+  2.1; their schema will live in `api/`, so the block vocabulary has one
+  owner, as the events have.
 - **Revision 1.6.0** of the plugin specification
   (`docs/specs/2026-11-22-plugins-1.6.md`) and the plugin surfaces for 2.1
   (`docs/specs/2026-11-22-plugin-surfaces-2.1.md`) are built after 2.0.

@@ -251,16 +251,16 @@ t_eq "$(jq -r '.runs[0] | has("repeat")' <<<"$t_out")" false
 t_run "$history"
 t_eq "$t_out" "1760700000-12-1  work  #12  failed  rc 10  step develop  parked"
 
-t_case "the count counts the parks the listing holds, and none besides"
+t_case "the count counts every park the store keeps, whatever the page"
 reset
-# The run begins with a park the listing does not hold: the two it holds are 0
-# and 1, the first of them a park the reader cannot know repeats anything.
+# The run begins with a park the page does not hold: the two it holds still
+# count 1 and 2, as the whole history and cycle.parked count them.
 parked='{"kind":"work","rc":10,"status":"failed","step":"develop","cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","parked":true}'
 work 12 "$T0" "$parked"
 work 12 "$((T0 + 60))" "$parked"
 work 12 "$((T0 + 120))" "$parked"
 run_json --after 1760700000-12-1
-t_eq "$(jq -c '[.runs[] | .repeat]' <<<"$t_out")" '[null,1]'
+t_eq "$(jq -c '[.runs[] | .repeat]' <<<"$t_out")" '[1,2]'
 
 t_case "a repeat is a whole number of a cycle line only"
 reset

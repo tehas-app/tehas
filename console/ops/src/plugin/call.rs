@@ -166,6 +166,7 @@ pub fn call(
         model: "",
         pr: None,
         tool: Some(&t.id),
+        event: None,
     };
     let (got, result, size) = run_in(x, &run, &t, args);
     // A row left open keeps its directory, for a sweep to find.
