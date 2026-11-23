@@ -66,8 +66,11 @@ the traits take (`Reports`, `Report`, `Caller`, `PortName`).
 T4.1c: the ledger and health: `Ledger`, the budget and health state
 shared across processes, keyed by `HostId` and `Whose` (the host, one
 `Holder` on it, or one pool of a holder), and `health::next`, the pure step from one outcome to the
-next state and the `Notice`, if the state changed. T4.1d: the fakes, the
-laws and the `Writer`. A handle takes `&mut self` and is `Send`; a `Site` and the
+next state and the `Notice`, if the state changed. T4.1d: the fakes
+(`tehas_ports::fake`: `World`, `FakeSite`, `Faulty`, the `Notices` sink,
+`MemoryLedger`, `MemoryTokens`), the laws (`tehas_ports::laws`, the
+contract test of any adapter) and the `Writer`; with it the crate holds
+what step T4.1 names. A handle takes `&mut self` and is `Send`; a `Site` and the
 caller's stores (`Links`, `Keyring`, `TokenStore`) are `Send + Sync` and
 take `&self`. `Join` is the board of a split setup: pure code over three
 owned read handles and the links, each ticket answered alone.
@@ -96,7 +99,8 @@ or clock in its source, whether reached by a path, a grouped import
 (`use std::{fs, ...}`, also spread over lines) or an alias
 (`use std::{env as e}`, `std as`); no standard stream (`stdin`,
 `stdout`, `stderr`); and no `print!`, `println!`, `eprint!`, `eprintln!`
-or `dbg!`. The crate's tests round-trip
+or `dbg!`. In-process sharing (`std::sync`), which the fakes use for
+`Send + Sync`, is no effect and is not counted. The crate's tests round-trip
 its types through a small serde format of their own, since the crate takes
 no serde_json; `untyped-signatures` allows that one file by name, as its
 matches are serde's own `Visitor::Value`.
