@@ -73,7 +73,8 @@ pub fn refusal(label: &str, stage: &str, pin: Option<&str>, id: &str) -> Option<
 }
 
 /// The label's refusal as [`refusal`] says it, read from GitHub and the pins
-/// of `home`. Err with the line when the label could not be read.
+/// of `home`, and a refusal when the pins cannot be read. Err with the line
+/// when the label could not be read.
 pub fn pin_refusal(
     gh: &mut dyn GhRunner,
     home: &Path,
@@ -87,7 +88,10 @@ pub fn pin_refusal(
             "the label {label} could not be read, nothing built or removed"
         ));
     };
-    let pins = crate::label_pins::load(home);
+    let pins = match crate::label_pins::load(home) {
+        Ok(r) => r.pins(),
+        Err(u) => return Ok(Some(format!("refused: {u}"))),
+    };
     Ok(refusal(
         label,
         stage,
