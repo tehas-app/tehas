@@ -128,7 +128,7 @@ t_eq "$t_rc" 0
 t_eq "$(jq -c '.flags' <<<"$t_out")" '{"spec-pipe":false,"lean":false,"plugins":false}'
 t_eq "$(jq -r '.features | index("spec-pipe")' <<<"$t_out")" null
 t_eq "$(jq -r '.features | index("lean")' <<<"$t_out")" null
-t_eq "$(jq -r 'keys_unsorted | join(" ")' <<<"$t_out")" "api tehas commit repo features flags millwright poll"
+t_eq "$(jq -r 'keys_unsorted | join(" ")' <<<"$t_out")" "api tehas commit repo features flags millwright poll store"
 t_run "$api"
 t_contains "$t_out" "flags       spec-pipe=off lean=off plugins=off"
 

@@ -120,7 +120,7 @@ t_case "the cycle's own line of history is what tehas history says"
 reset
 cycle 12 "$T0" '{"kind":"work","rc":10,"status":"handoff","step":"review","parked":true,"pr":"https://github.com/acme/widget/pull/9"}'
 run_export --json --after $((T0 - 1))-12 "$out"
-t_eq "$(jq -c . "$out/cycles/1760700000-12-1/history.json")" "{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso $((T0 - 60)))\",\"status\":10,\"outcome\":\"handoff\",\"progress\":{\"step\":\"review\"},\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"how\":\"hand\"}"
+t_eq "$(jq -c . "$out/cycles/1760700000-12-1/history.json")" "{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"cycle\":\"12-1\",\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso $((T0 - 60)))\",\"status\":10,\"outcome\":\"handoff\",\"end\":\"handoff\",\"progress\":{\"step\":\"review\"},\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"change\":9,\"how\":\"hand\"}"
 
 t_case "a planning turn brings its session, as the store has it, and no cycle files"
 reset
