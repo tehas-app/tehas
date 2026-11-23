@@ -228,10 +228,11 @@ pub fn parse(bytes: &[u8], now: i64) -> Limit {
             None => return Limit::of("unreadable"),
         },
     };
-    // A time, or the file is no limit: a key of the event is read from it.
+    // A time as tehas writes one, read strictly, or the file is no limit:
+    // the key of an event is read from it, and it is printed as it stands.
     let set = match held("set") {
         None | Some("null") => None,
-        Some(value) => match quoted(value).filter(|s| epoch(s).is_some()) {
+        Some(value) => match quoted(value).filter(|s| crate::time::from_iso(s).is_some()) {
             Some(s) => Some(s),
             None => return Limit::of("unreadable"),
         },
@@ -258,8 +259,8 @@ pub fn object(bytes: &[u8]) -> Option<Vec<(String, (usize, usize))>> {
     Skip::new(bytes).object()
 }
 
-/// The text of a quoted string, with its escapes as they came. Only a reason
-/// and an until are wanted, and both are text.
+/// The text of a quoted string, with its escapes as they came. Only a reason,
+/// an until and a set are wanted, and all three are text.
 pub fn quoted(value: &str) -> Option<String> {
     let unescaped = value.strip_prefix('"')?.strip_suffix('"')?;
     // The escapes of a JSON string become the characters the file meant, the
@@ -570,7 +571,10 @@ mod tests {
 
     #[test]
     fn a_set_that_is_no_time_is_unreadable() {
-        for set in ["1", "\"soon\"", "\"\"", "true", "[]"] {
+        // A day no month has is a time to jq's reader and none here: the
+        // schema of what is printed refuses it.
+        let no_day = "\"2026-10-99T00:00:00Z\"";
+        for set in ["1", "\"soon\"", "\"\"", "true", "[]", no_day] {
             assert_eq!(
                 state(&format!(r#"{{"v":1,"cycles":1,"plan":true,"set":{set}}}"#)),
                 "unreadable",

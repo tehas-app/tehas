@@ -763,6 +763,9 @@ fn drain_report(said: &str, running: &[u64], passed: bool, limit: &str, json: bo
     out
 }
 
+/// The limit `tehas drain` sets, in the words of `tehas limit set`.
+const DRAIN: [&str; 6] = ["--cycles", "0", "--plan", "off", "--reason", "draining"];
+
 /// `tehas drain`: the limit of no new work, then the count of what still runs.
 pub fn drain(given: &[String]) -> u8 {
     let asked = match drain_words(given) {
@@ -775,7 +778,7 @@ pub fn drain(given: &[String]) -> u8 {
     };
     let here = Home::new(here);
     let file = here.state(State::Limit);
-    let words = ["--cycles", "0", "--plan", "off", "--reason", "draining"].map(String::from);
+    let words = DRAIN.map(String::from);
     let Ok(want) = set_args(&words) else {
         return 64;
     };
@@ -1039,11 +1042,14 @@ fn poll_if_raised(file: &Path, before: &Reading, after: &Reading) {
 }
 
 fn write_limit(file: &Path, want: &Wanted) -> Result<(), u8> {
+    // One moment for the whole write: the `until` of a `--for` counts from
+    // the `set` beside it.
+    let now = now();
     let cycles = want.cycles.clone().unwrap_or_else(|| String::from("0"));
     let until = match (want.for_.as_deref(), want.until.as_deref()) {
         (Some(secs), _) => {
             let secs: u64 = secs.parse().unwrap_or(0);
-            time::iso(now().saturating_add(secs as i64))
+            time::iso(now.saturating_add(secs as i64))
         }
         (None, Some(u)) => u.to_string(),
         (None, None) => String::new(),
@@ -1053,7 +1059,7 @@ fn write_limit(file: &Path, want: &Wanted) -> Result<(), u8> {
     // The three values are what a JSON document holds them as: a boolean, a
     // string or null, and a string with its escapes.
     let held = |text: &str| Value::String(text.to_string()).to_string();
-    let set = match limit_file::read(file, now()).set_of(&cycles, plan, &reason, now()) {
+    let set = match limit_file::read(file, now).set_of(&cycles, plan, &reason, now) {
         Some(set) => format!(",\"set\":{}", held(&set)),
         None => String::new(),
     };
@@ -1506,16 +1512,15 @@ mod tests {
     }
 
     #[test]
-    fn a_drain_over_a_drain_keeps_its_set() {
+    fn the_limit_of_a_drain_written_over_a_drain_keeps_its_set() {
         let d = dir("set-drain");
         let file = written(&d);
-        let drain = ["--cycles", "0", "--plan", "off", "--reason", "draining"];
         fs::write(
             &file,
             format!("{{\"v\":1,\"cycles\":0,\"plan\":false,\"until\":null,\"reason\":\"draining\",\"set\":\"{SET}\"}}\n"),
         )
         .unwrap();
-        set_in(&d, &drain);
+        set_in(&d, &DRAIN);
         assert_eq!(set_of(&file).as_deref(), Some(SET));
     }
 
