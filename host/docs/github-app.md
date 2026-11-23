@@ -343,7 +343,9 @@ nothing may widen what a container is given (the mounts and variables of
 `tehas work` are pinned by `console/cycle/tests/work_container.rs`). The container gets a
 directory to leave requests in. It gets no token for it and no way to ask for
 anything but the three commands. The host reads each request, checks it and
-runs it. It refuses, with the reason written back to the cycle:
+makes the write itself through the GitHub adapter, with no word of the
+request given to gh as an argument. It refuses, with the reason written back
+to the cycle:
 
 - a command other than `gh issue create`, `gh issue edit` and `gh issue comment`;
 - a label, an assignee, a milestone, a project, a state change and another
@@ -352,6 +354,8 @@ runs it. It refuses, with the reason written back to the cycle:
 - an edit of an issue the cycle did not create during that cycle;
 - a body over 1 MiB, a link in place of a file, and any text containing
   `<!-- tehas:`, in any letter case and with any white space after `<!--`;
+- a create without a title and a body, a comment without a body or with a
+  title, and an edit with neither;
 - the 51st write of a cycle.
 
 Before an edit the host reads the issue twice, and it edits only if the
@@ -359,6 +363,10 @@ title and body are the same in both reads. If another account changed them
 in between, the cycle's `gh` fails with one line that says so, and the agent
 reads the issue again. GitHub cannot make the write itself conditional, so
 this covers the moment of the edit only, not an edit made before it.
+
+A write that is made answers the cycle's `gh` with its link, as gh prints
+one. A write GitHub refuses or that cannot reach it answers with one line in
+tehas's words, never GitHub's own error text.
 
 A title and a body that pass are posted masked as the console masks a log:
 tokens, keys, passwords, private addresses and the host's names are taken

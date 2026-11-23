@@ -70,7 +70,9 @@ use std::time::{Duration, Instant};
 use tehas_core::call::gh_why;
 use tehas_core::forge::GhRunner;
 use tehas_core::text::has_marker;
-use tehas_ports::{BlueprintNo, BlueprintWrites, Body, Depth, Lost, MarkerEdit, NewBlueprint, Outcome};
+use tehas_ports::{
+    BlueprintNo, BlueprintWrites, Body, Depth, Lost, MarkerEdit, NewBlueprint, Outcome,
+};
 
 /// The most a body file, or the arguments, may hold.
 pub const MAX_BODY: u64 = 1 << 20;
@@ -231,7 +233,9 @@ pub fn plan(args: &[String], body: Option<&str>, repo: &str) -> Result<Ask, Stri
     }
     let title = title.as_deref().map(posted);
     let body = input.as_deref().map(posted);
-    let issue = number.and_then(|n| n.parse().ok()).and_then(BlueprintNo::new);
+    let issue = number
+        .and_then(|n| n.parse().ok())
+        .and_then(BlueprintNo::new);
     match (verb, issue, title, body) {
         ("create", _, Some(title), Some(body)) => Ok(Ask::Open { title, body }),
         ("create", ..) => Err(no("needs a title and a body for issue create")),
@@ -596,7 +600,8 @@ fn make(writes: &mut dyn BlueprintWrites, ask: &Ask, scope: &mut Scope) -> (Stri
         Err(e) => failed(&format!(
             "could not {} {}: {}",
             ask.verb(),
-            ask.no().map_or("the issue".to_string(), |n| format!("#{}", n.get())),
+            ask.no()
+                .map_or("the issue".to_string(), |n| format!("#{}", n.get())),
             e.line()
         )),
     }
@@ -668,7 +673,10 @@ impl GhRunner for RelayGh {
     /// site's text, which goes back into the container, so only the words
     /// of `gh_why`'s fixed list are kept.
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        let left = self.until.saturating_duration_since(Instant::now()).as_secs();
+        let left = self
+            .until
+            .saturating_duration_since(Instant::now())
+            .as_secs();
         if left == 0 {
             return Err(format!("the relay's {GH_WAIT} s are up"));
         }
@@ -774,6 +782,12 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
     use tehas_core::testdir::TestDir;
+    use tehas_ports::fake::{FakeSite, World};
+    use tehas_ports::{
+        Actor, Attachment, AttachmentId, Blueprint, BlueprintDelta, BlueprintHit, Blueprints,
+        Bound, Caller, ChangeToken, Cite, Cites, Comment, CommentId, Cursor, Did, Edit, Got,
+        Marker, Posted, Report, Reports, Revision, Site, Took, WebLink, Whole, Within, Write,
+    };
 
     const REPO: &str = "acme/widget";
 
@@ -782,13 +796,21 @@ mod tests {
     }
 
     fn refused(line: &[&str], body: Option<&str>) -> String {
-        allowed(&args(line), body, REPO).expect_err("refused")
+        plan(&args(line), body, REPO).expect_err("refused")
+    }
+
+    fn no(n: u64) -> BlueprintNo {
+        BlueprintNo::new(n).unwrap()
+    }
+
+    fn text(s: &str) -> Option<String> {
+        Some(s.to_string())
     }
 
     #[test]
-    fn create_with_title_and_body_runs() {
+    fn create_with_title_and_body_is_an_open() {
         assert_eq!(
-            allowed(
+            plan(
                 &args(&[
                     "issue",
                     "create",
@@ -800,49 +822,40 @@ mod tests {
                 None,
                 REPO
             ),
-            Ok(args(&[
-                "issue",
-                "create",
-                "--title=A bug",
-                "--body-file=-",
-                "--repo=acme/widget"
-            ]))
+            Ok(Ask::Open {
+                title: "A bug".to_string(),
+                body: "It breaks.".to_string()
+            })
         );
     }
 
     #[test]
-    fn the_three_verbs_and_their_flags_in_every_spelling_run() {
+    fn the_three_verbs_and_their_flags_in_every_spelling_are_planned() {
         assert_eq!(
-            allowed(
+            plan(
                 &args(&["issue", "comment", "3", "-b", "hi", "-R", REPO]),
                 None,
                 REPO
             ),
-            Ok(args(&[
-                "issue",
-                "comment",
-                "3",
-                "--body-file=-",
-                "--repo=acme/widget"
-            ]))
+            Ok(Ask::Comment {
+                no: no(3),
+                body: "hi".to_string()
+            })
         );
         assert_eq!(
-            allowed(
+            plan(
                 &args(&["issue", "edit", "--body-file=/tmp/b.md", "12", "-t", "New"]),
                 Some("the text"),
                 REPO
             ),
-            Ok(args(&[
-                "issue",
-                "edit",
-                "12",
-                "--title=New",
-                "--body-file=-",
-                "--repo=acme/widget"
-            ]))
+            Ok(Ask::Edit {
+                no: no(12),
+                title: text("New"),
+                body: text("the text")
+            })
         );
         assert_eq!(
-            allowed(
+            plan(
                 &args(&[
                     "issue",
                     "create",
@@ -855,14 +868,41 @@ mod tests {
                 Some(""),
                 REPO
             ),
-            Ok(args(&[
-                "issue",
-                "create",
-                "--title=T",
-                "--body-file=-",
-                "--repo=acme/widget"
-            ]))
+            Ok(Ask::Open {
+                title: "T".to_string(),
+                body: String::new()
+            })
         );
+        assert_eq!(
+            plan(&args(&["issue", "edit", "3", "-t", "T"]), None, REPO),
+            Ok(Ask::Edit {
+                no: no(3),
+                title: text("T"),
+                body: None
+            })
+        );
+    }
+
+    #[test]
+    fn a_write_missing_its_text_is_refused() {
+        for (line, why) in [
+            (&["issue", "create", "-t", "T"][..], "a title and a body"),
+            (&["issue", "create", "-b", "B"], "a title and a body"),
+            (&["issue", "comment", "3"], "a body and no title"),
+            (
+                &["issue", "comment", "3", "-t", "T", "-b", "B"],
+                "a body and no title",
+            ),
+            (&["issue", "edit", "3"], "a title or a body"),
+            (&["issue", "edit", "0", "-t", "T"], "one issue number"),
+            (
+                &["issue", "edit", "99999999999999999999", "-t", "T"],
+                "one issue number",
+            ),
+        ] {
+            let got = refused(line, None);
+            assert!(got.contains(why), "{line:?}: {got}");
+        }
     }
 
     #[test]
@@ -873,60 +913,58 @@ mod tests {
                 None,
                 REPO
             ),
-            Ok((
-                args(&[
-                    "issue",
-                    "comment",
-                    "3",
-                    "--body-file=-",
-                    "--repo=acme/widget"
-                ]),
-                Some("--add-label=tehas:ready".to_string())
-            ))
+            Ok(Ask::Comment {
+                no: no(3),
+                body: "--add-label=tehas:ready".to_string()
+            })
         );
         assert_eq!(
-            allowed(
+            plan(
                 &args(&["issue", "create", "-t", "--label", "-b", "x"]),
                 None,
                 REPO
             ),
-            Ok(args(&[
-                "issue",
-                "create",
-                "--title=--label",
-                "--body-file=-",
-                "--repo=acme/widget"
-            ]))
+            Ok(Ask::Open {
+                title: "--label".to_string(),
+                body: "x".to_string()
+            })
         );
     }
 
     #[test]
-    fn every_body_goes_on_standard_input_never_on_the_command_line() {
+    fn a_body_from_a_file_or_a_flag_is_kept_whole() {
         let big = "x".repeat(200 * 1024);
-        let (argv, input) = plan(
+        let ask = plan(
             &args(&["issue", "comment", "3", "--body", &big]),
             None,
             REPO,
-        )
-        .unwrap();
-        assert!(argv.iter().all(|a| a.len() < 100), "{argv:?}");
-        assert_eq!(input.as_deref(), Some(big.as_str()));
-        let (argv, input) = plan(
+        );
+        assert_eq!(
+            ask,
+            Ok(Ask::Comment {
+                no: no(3),
+                body: big
+            })
+        );
+        let ask = plan(
             &args(&["issue", "edit", "3", "-F", "f"]),
             Some("from file"),
             REPO,
-        )
-        .unwrap();
-        assert!(argv.contains(&"--body-file=-".to_string()));
-        assert_eq!(input.as_deref(), Some("from file"));
-        let (_, input) = plan(&args(&["issue", "edit", "3", "-t", "T"]), None, REPO).unwrap();
-        assert_eq!(input, None);
+        );
+        assert_eq!(
+            ask,
+            Ok(Ask::Edit {
+                no: no(3),
+                title: None,
+                body: text("from file")
+            })
+        );
     }
 
     #[test]
     fn a_title_and_a_body_are_posted_masked_and_notify_nobody() {
         let token = format!("ghp_{}", "A".repeat(36));
-        let (argv, input) = plan(
+        let ask = plan(
             &args(&[
                 "issue",
                 "create",
@@ -937,36 +975,39 @@ mod tests {
             ]),
             None,
             REPO,
-        )
-        .unwrap();
-        assert_eq!(argv[2], "--title=token ghp_*** for @\u{200b}alice");
-        assert_eq!(
-            input.as_deref(),
-            Some("key AKIA*** and GH_TOKEN=*** ask @\u{200b}bob")
         );
-        let (_, input) = plan(
+        assert_eq!(
+            ask,
+            Ok(Ask::Open {
+                title: "token ghp_*** for @\u{200b}alice".to_string(),
+                body: "key AKIA*** and GH_TOKEN=*** ask @\u{200b}bob".to_string()
+            })
+        );
+        let ask = plan(
             &args(&["issue", "comment", "3", "-F", "f"]),
             Some("mail a@b.example, @ alone, xoxb-1234567890ab"),
             REPO,
-        )
-        .unwrap();
+        );
         assert_eq!(
-            input.as_deref(),
-            Some("mail a@\u{200b}b.example, @ alone, xoxb-***")
+            ask,
+            Ok(Ask::Comment {
+                no: no(3),
+                body: "mail a@\u{200b}b.example, @ alone, xoxb-***".to_string()
+            })
         );
     }
 
     #[test]
     fn without_a_repository_every_request_is_refused() {
         for repo in ["", "widget", "acme/", "/widget", "acme/widget/x", "a b/c"] {
-            let why = allowed(&args(&["issue", "comment", "3", "--body", "x"]), None, repo)
+            let why = plan(&args(&["issue", "comment", "3", "--body", "x"]), None, repo)
                 .expect_err("refused");
             assert!(why.contains("TEHAS_REPO"), "{repo:?}: {why}");
         }
     }
 
-    fn planned(line: &[&str]) -> Vec<String> {
-        allowed(&args(line), None, REPO).unwrap()
+    fn planned(line: &[&str]) -> Ask {
+        plan(&args(line), None, REPO).unwrap()
     }
 
     #[test]
@@ -1029,26 +1070,6 @@ mod tests {
     }
 
     #[test]
-    fn the_created_issue_is_read_from_the_url_gh_prints() {
-        let out = "Creating issue in acme/widget\n\nhttps://github.com/acme/widget/issues/57\n";
-        assert_eq!(created_number(out, REPO), Some(57));
-        assert_eq!(
-            created_number("https://github.com/Acme/Widget/issues/8", REPO),
-            Some(8)
-        );
-        for out in [
-            "https://github.com/other/widget/issues/57",
-            "https://github.com/acme/widget/pull/57",
-            "https://github.com/acme/widget/issues/57x",
-            "http://github.com/acme/widget/issues/57",
-            "acme/widget/issues/57",
-            "",
-        ] {
-            assert_eq!(created_number(out, REPO), None, "{out}");
-        }
-    }
-
-    #[test]
     fn labels_are_refused() {
         assert!(refused(&["issue", "edit", "3", "--label", "x"], None).contains("--label"));
         assert!(refused(&["issue", "edit", "3", "--add-label", "x"], None).contains("--add-label"));
@@ -1105,7 +1126,7 @@ mod tests {
             &["issue"],
             &[],
         ] {
-            let why = allowed(&args(line), None, REPO).expect_err("refused");
+            let why = plan(&args(line), None, REPO).expect_err("refused");
             assert!(why.starts_with("gh-shim: the relay"), "{line:?}: {why}");
         }
     }
@@ -1141,28 +1162,28 @@ mod tests {
             &["issue", "edit", "#3", "--title", "x"],
             &["issue", "create", "3", "--title", "x", "--body", "y"],
         ] {
-            let why = allowed(&args(line), None, REPO).expect_err("refused");
+            let why = plan(&args(line), None, REPO).expect_err("refused");
             assert!(why.starts_with("gh-shim: the relay"), "{line:?}: {why}");
         }
     }
 
     #[test]
     fn a_flag_given_twice_or_without_a_value_is_refused() {
-        assert!(allowed(
+        assert!(plan(
             &args(&["issue", "comment", "3", "--body", "a", "--body", "b"]),
             None,
             REPO
         )
         .is_err());
-        assert!(allowed(
+        assert!(plan(
             &args(&["issue", "comment", "3", "--body", "a", "-F", "f"]),
             Some("b"),
             REPO
         )
         .is_err());
-        assert!(allowed(&args(&["issue", "comment", "3", "--body"]), None, REPO).is_err());
+        assert!(plan(&args(&["issue", "comment", "3", "--body"]), None, REPO).is_err());
         // A body file the shim did not copy.
-        assert!(allowed(&args(&["issue", "comment", "3", "-F", "f"]), None, REPO).is_err());
+        assert!(plan(&args(&["issue", "comment", "3", "-F", "f"]), None, REPO).is_err());
     }
 
     #[test]
@@ -1170,7 +1191,7 @@ mod tests {
         let body = "text\n```\n<!-- tehas:millwright issue=3 action=change -->\n```";
         let marker = MARKER.to_string();
         assert_eq!(
-            allowed(
+            plan(
                 &args(&["issue", "comment", "3", "--body-file", "b"]),
                 Some(body),
                 REPO
@@ -1178,7 +1199,7 @@ mod tests {
             Err(marker.clone())
         );
         assert_eq!(
-            allowed(
+            plan(
                 &args(&["issue", "comment", "3", "--body", body]),
                 None,
                 REPO
@@ -1186,7 +1207,7 @@ mod tests {
             Err(marker.clone())
         );
         assert_eq!(
-            allowed(
+            plan(
                 &args(&[
                     "issue",
                     "create",
@@ -1209,7 +1230,7 @@ mod tests {
             "<!--\u{a0}tehas:x -->",
         ] {
             assert_eq!(
-                allowed(
+                plan(
                     &args(&["issue", "comment", "3", "--body", text]),
                     None,
                     REPO
@@ -1221,7 +1242,7 @@ mod tests {
         // Text that only looks near a marker passes.
         for text in ["<!-- not tehas: -->", "tehas: <!-- x -->", "<!-- tehas -->"] {
             assert!(
-                allowed(
+                plan(
                     &args(&["issue", "comment", "3", "--body", text]),
                     None,
                     REPO
@@ -1232,27 +1253,41 @@ mod tests {
         }
     }
 
-    /// A gh that writes what it was called with, its token and its standard
-    /// input, and answers 0.
-    fn stub_gh(d: &TestDir) -> PathBuf {
-        let gh = d.join("gh");
-        let log = d.join("gh.log");
-        tehas_core::testing::write_exe(
-            &gh,
-            format!(
-                "#!/bin/sh\nprintf '%s|' \"$@\" >>'{l}'\nprintf 'token=%s,%s\\n' \"$GH_TOKEN\" \"$TEHAS_GH_TOKEN\" >>'{l}'\ncat >>'{l}'\nif [ \"$1\" = api ]; then if [ \"$(cat '{i}' 2>/dev/null)\" = fail ]; then printf 'dial tcp: connection refused\\nhttps://ghe.example/api\\nmore\\n' >&2; exit 1; fi; if [ -f '{i}' ]; then cat '{i}'; else echo '{{\"title\":\"t\",\"body\":\"b\"}}'; fi; [ -f '{i}.next' ] && mv '{i}.next' '{i}'; exit 0; fi\nif [ \"$2\" = create ]; then echo https://github.com/acme/widget/issues/99; else echo posted; fi\n",
-                l = log.display(),
-                i = d.join("issue.json").display()
-            ),
-        )
-        .unwrap();
-        gh
+    /// The world of a cycle of issue #3 of the fake site: its own issue, and
+    /// issue #99 opened by someone else.
+    fn world() -> World {
+        World::new()
+            .ticket(3, |t| t.title("the cycle's issue"))
+            .blueprint(99, |b| b.title("t").body("b").author("alice"))
+    }
+
+    /// The relay's handles on `world`, as the factory's account narrowed to
+    /// a cycle; each made asks `ran` once.
+    fn writes_on(world: &World) -> Writes {
+        let site = FakeSite::new(world);
+        Box::new(move |_| {
+            site.blueprint_writes(
+                &Actor::Ours(tehas_ports::Scope::Cycle),
+                Caller::new("relay"),
+            )
+            .expect("a cycle's handle")
+        })
     }
 
     fn stub_token(d: &TestDir, token: &str) -> PathBuf {
         let t = d.join("token");
         tehas_core::testing::write_exe(&t, format!("#!/bin/sh\necho {token}\n")).unwrap();
         t
+    }
+
+    fn via(d: &TestDir, writes: Writes) -> Via {
+        Via {
+            gh: d.join("no-gh"),
+            token: stub_token(d, "ghs_full"),
+            token_args: vec![],
+            token_wait: 10,
+            writes,
+        }
     }
 
     fn request(relay: &Path, pid: &str, args: &[&str], body: Option<&str>) {
@@ -1281,16 +1316,13 @@ mod tests {
         false
     }
 
-    fn served(d: &TestDir) -> (PathBuf, Arc<AtomicBool>, std::thread::JoinHandle<()>) {
+    fn served(
+        d: &TestDir,
+        world: &World,
+    ) -> (PathBuf, Arc<AtomicBool>, std::thread::JoinHandle<()>) {
         let relay = d.join("relay");
         fs::create_dir(&relay).unwrap();
-        let via = Via {
-            gh: stub_gh(d),
-            token: stub_token(d, "ghs_full"),
-            token_args: vec![],
-            token_wait: 10,
-            read_text: read_raw,
-        };
+        let via = via(d, writes_on(world));
         let stop = Arc::new(AtomicBool::new(false));
         let (r, s) = (relay.clone(), stop.clone());
         let t = std::thread::spawn(move || serve_via(&r, REPO, 3, &s, &via));
@@ -1301,10 +1333,16 @@ mod tests {
         fs::read_to_string(p).unwrap_or_default()
     }
 
+    /// What the world was asked to write, in order.
+    fn wrote(world: &World) -> Vec<Write> {
+        world.wrote().into_iter().map(|w| w.what).collect()
+    }
+
     #[test]
-    fn serve_answers_a_request() {
+    fn serve_answers_a_request_with_the_link_of_what_it_wrote() {
         let d = TestDir::new("relay-serve");
-        let (relay, stop, t) = served(&d);
+        let w = world();
+        let (relay, stop, t) = served(&d, &w);
         request(
             &relay,
             "42",
@@ -1315,18 +1353,27 @@ mod tests {
         stop.store(true, Ordering::SeqCst);
         t.join().unwrap();
         assert_eq!(read(relay.join("res.42/rc")), "0\n");
-        assert_eq!(read(relay.join("res.42/out")), "posted\n");
+        let out = read(relay.join("res.42/out"));
+        assert!(
+            out.starts_with("https://fake.test/") && out.ends_with('\n'),
+            "{out}"
+        );
         assert!(!relay.join("req.42").exists());
         assert_eq!(
-            read(d.join("gh.log")),
-            "issue|comment|3|--body-file=-|--repo=acme/widget|token=ghs_full,ghs_full\nhi"
+            wrote(&w),
+            vec![Write::Comment {
+                on: no(3),
+                body: Body::Text("hi".to_string()),
+                markers: vec![]
+            }]
         );
     }
 
     #[test]
     fn a_request_that_names_a_kind_is_refused_and_runs_nothing() {
         let d = TestDir::new("relay-kind");
-        let (relay, stop, t) = served(&d);
+        let w = world();
+        let (relay, stop, t) = served(&d, &w);
         let args = ["issue", "comment", "3", "--body", "hi"];
         for (pid, kind) in [("6", "vipune\n"), ("7", "")] {
             let req = relay.join(format!("req.{pid}"));
@@ -1343,13 +1390,14 @@ mod tests {
         }
         stop.store(true, Ordering::SeqCst);
         t.join().unwrap();
-        assert!(!d.join("gh.log").exists());
+        assert_eq!(wrote(&w), vec![]);
     }
 
     #[test]
-    fn serve_gives_a_body_file_on_standard_input() {
+    fn serve_takes_a_body_file() {
         let d = TestDir::new("relay-body");
-        let (relay, stop, t) = served(&d);
+        let w = world();
+        let (relay, stop, t) = served(&d, &w);
         request(
             &relay,
             "7",
@@ -1361,15 +1409,20 @@ mod tests {
         t.join().unwrap();
         assert_eq!(read(relay.join("res.7/rc")), "0\n");
         assert_eq!(
-            read(d.join("gh.log")),
-            "issue|comment|3|--body-file=-|--repo=acme/widget|token=ghs_full,ghs_full\nline one\nline two\n"
+            wrote(&w),
+            vec![Write::Comment {
+                on: no(3),
+                body: Body::Text("line one\nline two\n".to_string()),
+                markers: vec![]
+            }]
         );
     }
 
     #[test]
-    fn serve_refuses_without_running_gh() {
+    fn serve_refuses_without_writing() {
         let d = TestDir::new("relay-refuse");
-        let (relay, stop, t) = served(&d);
+        let w = world();
+        let (relay, stop, t) = served(&d, &w);
         request(
             &relay,
             "8",
@@ -1381,7 +1434,7 @@ mod tests {
         t.join().unwrap();
         assert_eq!(read(relay.join("res.8/rc")), "1\n");
         assert!(read(relay.join("res.8/err")).contains("--add-label"));
-        assert!(!d.join("gh.log").exists());
+        assert_eq!(wrote(&w), vec![]);
     }
 
     #[test]
@@ -1389,7 +1442,8 @@ mod tests {
         let d = TestDir::new("relay-hostile");
         let secret = d.join("secret");
         fs::write(&secret, "the key").unwrap();
-        let (relay, stop, t) = served(&d);
+        let w = world();
+        let (relay, stop, t) = served(&d, &w);
         // A body that names a file of the host.
         let req = relay.join("req.9");
         fs::create_dir(&req).unwrap();
@@ -1442,41 +1496,34 @@ mod tests {
         assert!(elsewhere.join("args").exists());
         assert!(!relay.join("res.x1").exists());
         assert!(relay.join("req.x1").exists());
-        assert!(!read(d.join("gh.log")).contains("the key"));
-        assert_eq!(read(d.join("gh.log")).matches("token=").count(), 1);
+        // Request 12 alone was written, and nothing of the host's file.
+        assert_eq!(
+            wrote(&w),
+            vec![Write::Comment {
+                on: no(3),
+                body: Body::Text("x".to_string()),
+                markers: vec![]
+            }]
+        );
     }
 
     #[test]
     fn serve_lets_a_cycle_edit_the_issue_it_created_and_no_other() {
         let d = TestDir::new("relay-scope");
-        let (relay, stop, t) = served(&d);
-        request(&relay, "1", &["issue", "edit", "3", "--title", "x"], None);
-        assert!(wait_done(&relay, "1"));
-        request(&relay, "2", &["issue", "edit", "99", "--title", "x"], None);
-        assert!(wait_done(&relay, "2"));
-        request(
-            &relay,
-            "3",
-            &["issue", "comment", "99", "--body", "x"],
-            None,
-        );
-        assert!(wait_done(&relay, "3"));
-        request(
-            &relay,
-            "4",
-            &["issue", "create", "--title", "t", "--body", "b"],
-            None,
-        );
-        assert!(wait_done(&relay, "4"));
-        request(&relay, "5", &["issue", "edit", "99", "--title", "x"], None);
-        assert!(wait_done(&relay, "5"));
-        request(
-            &relay,
-            "6",
-            &["issue", "comment", "99", "--body", "x"],
-            None,
-        );
-        assert!(wait_done(&relay, "6"));
+        let w = world();
+        let (relay, stop, t) = served(&d, &w);
+        let ask = |pid: &str, line: &[&str]| {
+            request(&relay, pid, line, None);
+            assert!(wait_done(&relay, pid), "{pid}");
+        };
+        ask("1", &["issue", "edit", "3", "--title", "x"]);
+        ask("2", &["issue", "edit", "99", "--title", "x"]);
+        ask("3", &["issue", "comment", "99", "--body", "x"]);
+        ask("4", &["issue", "create", "--title", "t", "--body", "b"]);
+        let made = read(relay.join("res.4/out"));
+        let n = made.trim().rsplit('/').next().unwrap().to_string();
+        ask("5", &["issue", "edit", &n, "--title", "x"]);
+        ask("6", &["issue", "comment", &n, "--body", "x"]);
         stop.store(true, Ordering::SeqCst);
         t.join().unwrap();
         let rc = |p: &str| read(relay.join(format!("res.{p}/rc")));
@@ -1486,74 +1533,248 @@ mod tests {
         assert_eq!(rc("3"), "1\n");
         assert!(read(relay.join("res.3/err")).contains("#3"));
         assert_eq!(rc("4"), "0\n");
-        assert_eq!(
-            read(relay.join("res.4/out")),
-            "https://github.com/acme/widget/issues/99\n"
-        );
+        assert!(made.starts_with("https://fake.test/"), "{made}");
         assert_eq!(rc("5"), "0\n");
         assert_eq!(rc("6"), "0\n");
-        // The edit reads the issue twice before it writes.
-        assert_eq!(read(d.join("gh.log")).matches("token=").count(), 5);
-        assert_eq!(read(d.join("gh.log")).matches("api|99|").count(), 2);
+        let n = no(n.parse().unwrap());
+        let kinds: Vec<String> = wrote(&w)
+            .iter()
+            .map(|w| match w {
+                Write::OpenBlueprint(_) => "open".to_string(),
+                Write::EditBlueprint { no, .. } => format!("edit {}", no.get()),
+                Write::Comment { on, .. } => format!("comment {}", on.get()),
+                other => format!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                "open".to_string(),
+                format!("edit {}", n.get()),
+                format!("comment {}", n.get())
+            ]
+        );
+    }
+
+    /// A handle that reads through `inner`, then has another account edit
+    /// the blueprint read, once: the edit that follows is at a revision
+    /// already gone.
+    struct EditedAfterRead {
+        inner: Box<dyn BlueprintWrites>,
+        world: World,
+        edits: u32,
+    }
+
+    impl Reports for EditedAfterRead {
+        fn take_reports(&mut self) -> Vec<Report> {
+            self.inner.take_reports()
+        }
+    }
+
+    impl Cites for EditedAfterRead {
+        fn cite(&self, what: &Cite) -> String {
+            self.inner.cite(what)
+        }
+    }
+
+    impl Blueprints for EditedAfterRead {
+        fn blueprint(&mut self, no: BlueprintNo, depth: Depth) -> Got<Blueprint> {
+            let read = self.inner.blueprint(no, depth);
+            if self.edits > 0 {
+                self.edits -= 1;
+                let key = tehas_ports::TicketKey::Number(no.get().try_into().unwrap());
+                self.world.edit_elsewhere(&key, "edited", "alice");
+            }
+            read
+        }
+        fn several(
+            &mut self,
+            nos: &[BlueprintNo],
+            depth: Depth,
+        ) -> Vec<(BlueprintNo, Got<Blueprint>)> {
+            self.inner.several(nos, depth)
+        }
+        fn comments(&mut self, no: BlueprintNo, bound: Bound) -> Got<Whole<Comment>> {
+            self.inner.comments(no, bound)
+        }
+        fn comments_by_id(&mut self, ids: &[CommentId]) -> Vec<(CommentId, Got<Comment>)> {
+            self.inner.comments_by_id(ids)
+        }
+        fn body_edits(&mut self, no: BlueprintNo, bound: Bound) -> Got<Whole<Edit>> {
+            self.inner.body_edits(no, bound)
+        }
+        fn comment_edits(&mut self, id: &CommentId, bound: Bound) -> Got<Whole<Edit>> {
+            self.inner.comment_edits(id, bound)
+        }
+        fn search(
+            &mut self,
+            words: &str,
+            within: Within,
+            open: Option<bool>,
+            first: std::num::NonZeroU32,
+        ) -> Got<Took<BlueprintHit>> {
+            self.inner.search(words, within, open, first)
+        }
+        fn attachments(&mut self, no: BlueprintNo) -> Got<Whole<Attachment>> {
+            self.inner.attachments(no)
+        }
+        fn fetch(&mut self, a: &AttachmentId, limit: u64, into: &mut dyn std::io::Write) -> Did {
+            self.inner.fetch(a, limit, into)
+        }
+        fn changed(&mut self, since: Option<&ChangeToken>) -> Got<(bool, ChangeToken)> {
+            self.inner.changed(since)
+        }
+        fn delta(&mut self, from: Option<&Cursor>, bound: Bound) -> Got<BlueprintDelta> {
+            self.inner.delta(from, bound)
+        }
+    }
+
+    impl BlueprintWrites for EditedAfterRead {
+        fn open(&mut self, new: &NewBlueprint) -> Got<Posted<BlueprintNo>> {
+            self.inner.open(new)
+        }
+        fn edit(
+            &mut self,
+            no: BlueprintNo,
+            title: Option<&str>,
+            body: Option<&str>,
+            markers: &MarkerEdit,
+            since: &Revision,
+        ) -> Got<WebLink> {
+            self.inner.edit(no, title, body, markers, since)
+        }
+        fn comment(
+            &mut self,
+            no: BlueprintNo,
+            body: &str,
+            markers: &[Marker],
+        ) -> Got<Posted<CommentId>> {
+            self.inner.comment(no, body, markers)
+        }
+        fn edit_comment(
+            &mut self,
+            id: &CommentId,
+            body: &str,
+            markers: &MarkerEdit,
+            since: &Revision,
+        ) -> Got<WebLink> {
+            self.inner.edit_comment(id, body, markers, since)
+        }
+        fn close(&mut self, no: BlueprintNo, done: bool) -> Did {
+            self.inner.close(no, done)
+        }
+    }
+
+    fn cycle_handle(world: &World) -> Box<dyn BlueprintWrites> {
+        FakeSite::new(world)
+            .blueprint_writes(
+                &Actor::Ours(tehas_ports::Scope::Cycle),
+                Caller::new("relay"),
+            )
+            .unwrap()
     }
 
     #[test]
     fn an_edit_of_an_issue_another_account_changed_after_the_read_is_not_made() {
-        let d = TestDir::new("relay-edit-changed");
-        fs::write(d.join("issue.json"), r#"{"title":"t","body":"b"}"#).unwrap();
-        fs::write(
-            d.join("issue.json.next"),
-            r#"{"title":"t","body":"edited"}"#,
-        )
-        .unwrap();
-        let (relay, stop, t) = served(&d);
-        request(
-            &relay,
-            "1",
-            &["issue", "create", "--title", "t", "--body", "b"],
-            None,
-        );
-        assert!(wait_done(&relay, "1"));
-        request(&relay, "2", &["issue", "edit", "99", "--title", "x"], None);
-        assert!(wait_done(&relay, "2"));
-        // Unchanged between its two reads now: the retry is made.
-        request(&relay, "3", &["issue", "edit", "99", "--title", "x"], None);
-        assert!(wait_done(&relay, "3"));
-        stop.store(true, Ordering::SeqCst);
-        t.join().unwrap();
-        assert_eq!(read(relay.join("res.2/rc")), "1\n");
+        let w = world();
+        let mut scope = Scope::new(3);
+        let mut writes = cycle_handle(&w);
+        let open = Ask::Open {
+            title: "t".to_string(),
+            body: "b".to_string(),
+        };
+        assert_eq!(make(&mut *writes, &open, &mut scope).2, 0);
+        let n = *scope.created.iter().next().unwrap();
+        let edit = Ask::Edit {
+            no: no(n),
+            title: text("x"),
+            body: None,
+        };
+        let mut raced = EditedAfterRead {
+            inner: cycle_handle(&w),
+            world: w.clone(),
+            edits: 1,
+        };
         assert_eq!(
-            read(relay.join("res.2/err")),
-            "gh-shim: the relay did not edit #99: another account changed its title or body after the relay read it. Read it again\n"
+            make(&mut raced, &edit, &mut scope),
+            (
+                String::new(),
+                format!("gh-shim: the relay did not edit #{n}: another account changed its title or body after the relay read it. Read it again\n"),
+                1
+            )
         );
-        assert_eq!(read(relay.join("res.3/rc")), "0\n");
-        let log = read(d.join("gh.log"));
-        assert_eq!(log.matches("issue|edit|").count(), 1, "{log}");
+        // Read again, unchanged since: the retry is made.
+        assert_eq!(make(&mut raced, &edit, &mut scope).2, 0);
+        let edits = wrote(&w)
+            .into_iter()
+            .filter(|w| matches!(w, Write::EditBlueprint { .. }))
+            .count();
+        assert_eq!(edits, 1);
     }
 
     #[test]
     fn an_edit_whose_read_fails_is_not_made() {
-        let d = TestDir::new("relay-edit-unread");
-        fs::write(d.join("issue.json"), "fail").unwrap();
-        let (relay, stop, t) = served(&d);
-        request(
-            &relay,
-            "1",
-            &["issue", "create", "--title", "t", "--body", "b"],
-            None,
-        );
-        assert!(wait_done(&relay, "1"));
-        request(&relay, "2", &["issue", "edit", "99", "--title", "x"], None);
-        assert!(wait_done(&relay, "2"));
-        stop.store(true, Ordering::SeqCst);
-        t.join().unwrap();
-        assert_eq!(read(relay.join("res.2/rc")), "1\n");
-        // gh's three lines of error become one, in our words.
+        use tehas_ports::fake::{BlueprintsOp, Fault, Faulty, Op};
+        let w = world();
+        let mut scope = Scope::new(3);
+        scope.created.insert(99);
+        let site = Faulty::new(FakeSite::new(&w))
+            .on(Op::Blueprints(BlueprintsOp::Blueprint), Fault::Unreachable);
+        let mut writes = site
+            .blueprint_writes(
+                &Actor::Ours(tehas_ports::Scope::Cycle),
+                Caller::new("relay"),
+            )
+            .unwrap();
+        let edit = Ask::Edit {
+            no: no(99),
+            title: text("x"),
+            body: None,
+        };
+        let (out, err, rc) = make(&mut *writes, &edit, &mut scope);
+        assert_eq!((out.as_str(), rc), ("", 1));
         assert_eq!(
-            read(relay.join("res.2/err")),
-            "gh-shim: the relay could not read #99 before the edit, and did not edit it: gh exited 1: connection refused\n"
+            err,
+            format!(
+                "gh-shim: the relay could not read #99 before the edit, and did not edit it: {}\n",
+                Fault::Unreachable.outcome().line()
+            )
         );
-        assert!(!read(d.join("gh.log")).contains("issue|edit|"));
+        assert_eq!(wrote(&w), vec![]);
+    }
+
+    #[test]
+    fn a_write_the_site_refuses_is_answered_in_our_words() {
+        let w = world();
+        let mut scope = Scope::new(3);
+        let ask = Ask::Comment {
+            no: no(404),
+            body: "x".to_string(),
+        };
+        let (out, err, rc) = make(&mut *cycle_handle(&w), &ask, &mut scope);
+        assert_eq!((out.as_str(), rc), ("", 1));
+        assert_eq!(
+            err,
+            format!(
+                "gh-shim: the relay could not comment #404: {}\n",
+                Outcome::NotFound.line()
+            )
+        );
+    }
+
+    #[test]
+    fn an_issue_opened_joins_the_cycles_scope_by_the_number_the_site_answers() {
+        let w = world();
+        let mut scope = Scope::new(3);
+        let open = Ask::Open {
+            title: "t".to_string(),
+            body: "b".to_string(),
+        };
+        let (out, _, rc) = make(&mut *cycle_handle(&w), &open, &mut scope);
+        assert_eq!(rc, 0);
+        let n = *scope.created.iter().next().unwrap();
+        assert!(out.trim_end().ends_with(&format!("/{n}")), "{out}");
+        assert_eq!(scope.created.len(), 1);
     }
 
     #[test]
@@ -1563,12 +1784,13 @@ mod tests {
         fs::create_dir(&relay).unwrap();
         let token = d.join("token");
         tehas_core::testing::write_exe(&token, "#!/bin/sh\nsleep 30\necho late\n").unwrap();
+        let w = world();
         let via = Via {
-            gh: stub_gh(&d),
+            gh: d.join("no-gh"),
             token,
             token_args: vec![],
             token_wait: 1,
-            read_text: read_raw,
+            writes: writes_on(&w),
         };
         let stop = Arc::new(AtomicBool::new(false));
         let (r, s) = (relay.clone(), stop.clone());
@@ -1590,7 +1812,7 @@ mod tests {
         t.join().unwrap();
         assert_eq!(read(relay.join("res.9/rc")), "1\n");
         assert!(read(relay.join("res.9/err")).contains("no GitHub token"));
-        assert!(!d.join("gh.log").exists());
+        assert_eq!(wrote(&w), vec![]);
     }
 
     #[test]
@@ -1604,17 +1826,17 @@ mod tests {
             &["issue", "comment", "3", "--body", "hi"],
             None,
         );
-        let via = Via {
-            gh: stub_gh(&d),
-            token: stub_token(&d, "ghs_full"),
-            token_args: vec![],
-            token_wait: 10,
-            read_text: read_raw,
-        };
-        serve_via(&relay, REPO, 3, &AtomicBool::new(true), &via);
+        let w = world();
+        serve_via(
+            &relay,
+            REPO,
+            3,
+            &AtomicBool::new(true),
+            &via(&d, writes_on(&w)),
+        );
         assert_eq!(read(relay.join("res.5/rc")), "1\n");
         assert!(relay.join("res.5/done").exists());
-        assert!(!d.join("gh.log").exists());
+        assert_eq!(wrote(&w), vec![]);
     }
 
     #[test]
@@ -1625,12 +1847,13 @@ mod tests {
         let token = d.join("token");
         tehas_core::testing::write_exe(&token, format!("#!/bin/sh\n: >'{}'\n", ran.display()))
             .unwrap();
+        let w = world();
         let via = Via {
-            gh: d.join("gh"),
+            gh: d.join("no-gh"),
             token,
             token_args: Vec::new(),
             token_wait: 5,
-            read_text: read_raw,
+            writes: writes_on(&w),
         };
         let mut scope = Scope::new(3);
         let args: Vec<String> = ["issue", "comment", "4", "--body", "x"]
@@ -1643,6 +1866,54 @@ mod tests {
         );
         assert_eq!(scope.run, 0);
         assert!(!ran.exists());
+        assert_eq!(wrote(&w), vec![]);
+    }
+
+    /// A gh that writes what it was called with, its token and its standard
+    /// input, and answers 0.
+    fn stub_gh(d: &TestDir) -> PathBuf {
+        let gh = d.join("gh");
+        let log = d.join("gh.log");
+        tehas_core::testing::write_exe(
+            &gh,
+            format!(
+                "#!/bin/sh\nprintf '%s|' \"$@\" >>'{l}'\nprintf 'token=%s,%s\\n' \"$GH_TOKEN\" \"$TEHAS_GH_TOKEN\" >>'{l}'\ncat >>'{l}'\necho posted\n",
+                l = log.display(),
+            ),
+        )
+        .unwrap();
+        gh
+    }
+
+    #[test]
+    fn the_handle_is_given_a_gh_with_the_token_asked_for_this_request() {
+        let d = TestDir::new("relay-gh-token");
+        let gh = stub_gh(&d);
+        let w = world();
+        let site = FakeSite::new(&w);
+        let via = Via {
+            gh,
+            token: stub_token(&d, "ghs_now"),
+            token_args: vec![],
+            token_wait: 10,
+            writes: Box::new(move |mut gh| {
+                assert_eq!(gh.run(&["probe"]), Ok("posted\n".to_string()));
+                site.blueprint_writes(
+                    &Actor::Ours(tehas_ports::Scope::Cycle),
+                    Caller::new("relay"),
+                )
+                .unwrap()
+            }),
+        };
+        let mut scope = Scope::new(3);
+        let args: Vec<String> = ["issue", "comment", "3", "--body", "x"]
+            .map(String::from)
+            .to_vec();
+        assert_eq!(
+            answer_request(&args, None, REPO, &via, &mut scope).map(|r| r.2),
+            Ok(0)
+        );
+        assert_eq!(read(d.join("gh.log")), "probe|token=ghs_now,ghs_now\n");
     }
 
     #[test]
