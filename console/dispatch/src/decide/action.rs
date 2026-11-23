@@ -571,7 +571,7 @@ mod tests {
             by: "alice".into(),
             how: "how".into(),
             at: "2026-10-01T00:00:00Z".into(),
-            given: "label".into(),
+            given: "approved".into(),
             remove: vec!["tehas:ready".into()],
             verb: "labelled".into(),
             log: "start #7".into(),

@@ -161,7 +161,7 @@ function report() {
     stopReasons: { n: 2, top: [{ reason: "timeout", n: 2 }] },
     stations: { n: 4, steps: [{ step: "explore", n: 4, passed: 3, share: 0.75 }] },
     versions: [
-      { tehas: "v0.7.22", rukas: "0.13.0", n: 3, prShare: 0.667, medianSeconds: 600, medianTokens: 1000 },
+      { tehas: "v0.7.22", rukas: "0.13.0", n: 3, changeShare: 0.667, medianSeconds: 600, medianTokens: 1000 },
       { tehas: "v0.7.21", rukas: "0.12.80", n: 1 },
     ],
   };

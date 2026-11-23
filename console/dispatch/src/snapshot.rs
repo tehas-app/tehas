@@ -1039,7 +1039,7 @@ impl Base {
                 .all(|b| b.is_ascii_digit() || matches!(b, b'T' | b':' | b'.' | b'Z' | b'-'))
             && !by.is_empty()
             && by.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-            && matches!(how, "label" | "outage-retry" | HOST | "answer" | "reply")
+            && matches!(how, "approved" | "outage-retry" | HOST | "answer" | "reply")
             && sum.len() == 64
             && sum.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
         ok.then(|| Base {
@@ -1656,13 +1656,15 @@ fn issue(v: &Value) -> Issue {
             })
         }),
         // The question read's, or the park's for a park whose hold may lift.
+        // The poll knows a question by its comment: the store's `comment`, not
+        // the store's own number in `question`.
         answer: ["/question/answer", "/park/answer"]
             .iter()
             .find_map(|p| v.pointer(p).filter(|a| a.is_object()))
             .and_then(|a| {
                 let s = |k: &str| a.get(k).and_then(Value::as_str);
                 crate::answer::Answer::new(
-                    a.get("question")?.as_u64()?,
+                    a.get("comment")?.as_u64()?,
                     s("kind")?,
                     s("choice")?,
                     a.get("option").and_then(Value::as_u64),

@@ -269,7 +269,7 @@ fn a_question_on_record_of_another_issue_is_no_record_for_this_one() {
     unrecorded(&w);
     // 4001 is the question of #7's park. The tick on #9 is in a comment of
     // that id.
-    w.t_ended(7, "alice", "label", &["--parked"]);
+    w.t_ended(7, "alice", "approved", &["--parked"]);
     w.t_park(7, "failed", "4001", &[]);
     w.poll();
     assert_eq!(started(&w), "");

@@ -121,7 +121,7 @@ fn the_approval_record_of_a_refresh_by_the_person_rests_on_refreshes_refresh_of_
     );
     assert_eq!(
         w.approval(&filter, 7),
-        r#"["alice","refresh","2026-10-01T00:00:00Z",true,"alice","label",1,50,true,true,"main"]"#
+        r#"["alice","refresh","2026-10-01T00:00:00Z",true,"alice","approved",1,50,true,true,"main"]"#
     );
     assert_eq!(
         w.approval("[.retry_context[] | {source, by}]", 7),

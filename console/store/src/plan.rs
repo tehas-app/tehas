@@ -528,11 +528,13 @@ fn need_open(c: &Connection, issue: i64) -> Result<Open, Fail> {
     open(c, issue)?.ok_or_else(|| refuse("noplan", issue, "no open planning session"))
 }
 
-/// The issue's unanswered questions of `kind`, withdrawn.
-fn withdraw(c: &Connection, issue: i64, kind: &str) -> Result<(), Fail> {
+/// The issue's unanswered questions of `kind`, withdrawn at `now`: each is
+/// kept with when it was withdrawn, and none is deleted.
+fn withdraw(c: &Connection, issue: i64, kind: &str, now: i64) -> Result<(), Fail> {
     c.execute(
-        "DELETE FROM questions WHERE issue = ?1 AND kind = ?2 AND answered_at IS NULL",
-        params![issue, kind],
+        "UPDATE questions SET withdrawn_at = ?3
+         WHERE issue = ?1 AND kind = ?2 AND answered_at IS NULL AND withdrawn_at IS NULL",
+        params![issue, kind, now],
     )
     .q()
     .map(|_| ())
@@ -592,8 +594,8 @@ fn begin(
             Some((None, false)) => "open",
             Some((Some(_), _)) => "ended",
         };
-        withdraw(c, issue, "plan")?;
-        withdraw(c, issue, "park")?;
+        withdraw(c, issue, "plan", now)?;
+        withdraw(c, issue, "park", now)?;
         c.execute("DELETE FROM planning WHERE issue = ?1", [issue])
             .q()?;
         c.execute(
@@ -673,7 +675,8 @@ fn answer(
         if let Some(id) = o.comment_id {
             c.execute(
                 "UPDATE questions SET answered_at = ?3, answered_by = ?4
-                 WHERE id = ?1 AND issue = ?2 AND kind = 'plan' AND answered_at IS NULL",
+                 WHERE comment_id = ?1 AND issue = ?2 AND kind = 'plan' AND answered_at IS NULL
+                   AND withdrawn_at IS NULL",
                 params![id, issue, now, by],
             )
             .q()?;
@@ -708,23 +711,25 @@ fn answer_undo(home: &Path, issue: i64, turn: i64) -> Result<String, Fail> {
             params![issue, turn],
         )
         .q()?;
-        let reopened: Option<i64> = c
+        let reopened: Option<(i64, Option<i64>)> = c
             .query_row(
-                "SELECT id FROM questions WHERE issue = ?1 AND kind = 'plan' AND attempt = ?2
-                   AND answered_at = ?3 AND answered_by = ?4
+                "SELECT id, comment_id FROM questions WHERE issue = ?1 AND kind = 'plan'
+                   AND attempt = ?2 AND answered_at = ?3 AND answered_by = ?4
+                   AND withdrawn_at IS NULL
                  ORDER BY posted_at DESC, id DESC LIMIT 1",
                 params![issue, o.turns, o.started_at, by],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()
             .q()?;
-        if let Some(id) = reopened {
+        if let Some((id, _)) = reopened {
             c.execute(
                 "UPDATE questions SET answered_at = NULL, answered_by = NULL WHERE id = ?1",
                 [id],
             )
             .q()?;
         }
+        let reopened = reopened.and_then(|(_, comment)| comment);
         c.execute(
             "UPDATE planning SET running = 0, comment_id = ?2 WHERE issue = ?1",
             params![issue, reopened],
@@ -863,7 +868,7 @@ fn close(home: &Path, issue: i64, now: i64) -> Result<String, Fail> {
             params![issue, now],
         )
         .q()?;
-        withdraw(c, issue, "plan")?;
+        withdraw(c, issue, "plan", now)?;
         drop_notes(c, issue)?;
         Ok(line(
             "plan-end",

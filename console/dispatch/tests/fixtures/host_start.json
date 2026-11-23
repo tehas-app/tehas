@@ -25,7 +25,7 @@
     {"case": "a host approval waits while its issue's cycle runs",
      "settings": {"TEHAS_MAX_CYCLES": 2},
      "snapshot": {"ready": [], "issues": {"12": {"events": []}},
-       "running": [{"issue": 12, "how": "label", "took": 1793404795, "heard": 1793404795}],
+       "running": [{"issue": 12, "how": "approved", "took": 1793404795, "heard": 1793404795}],
        "host_starts": [{"issue": 12, "at": 1793404000, "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "title_sha256": null, "labels": []}]},
      "expect": {"exit": 0, "picked": [], "log": ["wait #12: its cycle is still running"]}},
     {"case": "an open blocker holds a host approval",

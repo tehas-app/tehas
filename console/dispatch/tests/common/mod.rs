@@ -1326,7 +1326,7 @@ impl World {
     pub fn t_approve(&self, n: u64, by: &str, how: &str, at: i64, extra: &[&str]) {
         let (n, at, sum) = (n.to_string(), at.to_string(), wsum());
         let mut a = vec!["approval-record", &n, "--at", &at, "--by", by, "--how", how];
-        if matches!(how, "label" | "millwright") {
+        if matches!(how, "approved" | "millwright") {
             a.extend(["--label", "tehas:ready"]);
         }
         if !extra.contains(&"--body-sha") {
@@ -1684,7 +1684,7 @@ impl World {
             "asking.json",
             r#"[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]"#,
         );
-        self.t_ended(7, by, "label", &["--parked"]);
+        self.t_ended(7, by, "approved", &["--parked"]);
         self.t_park(7, reason, "4001", &[]);
     }
 
