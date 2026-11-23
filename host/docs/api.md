@@ -910,14 +910,14 @@ schema names it, under `runs` for a field of a line.
 | Field | Meaning |
 | --- | --- |
 | `api` | The API version, 1 |
-| `runs` | The lines, oldest first: one for each cycle and each planning turn that ended |
+| `runs` | The lines, oldest first: one for each cycle and each planning turn that ended. Every start of a cycle has its line: one the cycle refused (`refused`), one `tehas stop` stopped (`stopped`) and one that died without a word (`lost`) too |
 | `next` | The cursor to keep, as the last line's `cursor`, or `null` when the listing holds no line and none was asked for with `--after` |
 | `runs.cursor` | The seconds of the end, the issue, and the line's place in the order the store wrote the ends, as `1760700000-12-41` |
 | `runs.kind` | `work` for a cycle, `plan` for a planning turn |
 | `runs.issue` | The issue the line is about |
 | `runs.ended` | When the cycle or the turn ended |
 | `runs.started` | When it started; left out when the record holds no start |
-| `runs.status` | Its exit status; left out for a turn whose unit left no readable one |
+| `runs.status` | Its exit status; left out when the unit left no readable one, as a stopped or lost cycle leaves none |
 | `runs.outcome` | What it reported: for a cycle the status of its end, for a turn `finished`, `failed`, `interrupted`, `not-started`, `not-readable` or `lost` |
 | `runs.turn` | The turn's number in its session, from 1. A field of a plan line |
 | `runs.progress` | Where the step a cycle ended in was, as its driver reported it. Driver-specific and may change in a minor release. Left out when nothing of it is known. A field of a work line |
@@ -936,6 +936,8 @@ schema names it, under `runs` for a field of a line.
 | `runs.by` | Who asked for it. Left out for a cycle run by hand, which names no account |
 | `runs.how` | How it was asked for: `approved` (a label an allowed account applied), `refresh`, `outage-retry`, `millwright`, `host` ([`tehas start`](#tehas-start)), `reply` (a retry a person's reply answered), `answer` (a retry answered through [`tehas answer`](#tehas-answer)) or `hand`. A retry ticked before 2.0 was recorded `retry-tick`: the step of the state store to schema 27 rewrites it to `reply` in `state/tehas.db` (cycles, approvals and the cycle history), and analytics rewrites it in `runs.how` of `state/analytics.db` each time it opens the file. A start approved by a label was recorded `label` before 2.0: the state store's step to schema 30 rewrites it to `approved` there, and the analytics' step to schema 7 in `runs.how` |
 | `runs.label` | The label that started the turn's session, `tehas:plan` or `tehas:refine`. A field of a plan line |
+| `runs.recorded` | When the line was written, on a work line written after its end: a lost cycle's, whose `ended` is when it was last heard from, written by the next start or by the poll. Its place in the cursor's order is when it was written, so `--after` lists it once, after the lines written before it |
+| `runs.signalled` | `true` on a work line when a signal stopped the cycle; left out otherwise |
 | `runs.auto` | `true` for a refine the factory started on its own when a cycle parked as underspecified or too-large. Left out otherwise. A field of a plan line |
 | `runs.filed` | The issues the turn filed, when it filed any. A field of a plan line |
 

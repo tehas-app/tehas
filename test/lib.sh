@@ -1109,7 +1109,7 @@ t_history_end() { # <home> <issue> <epoch of the end> [<fields>]
     TEHAS_STORE_TEST_NOW=$started t_started "$home" "$n" --by-hand
   fi
   mapfile -t t_end < <(jq -r '
-    "--status", (.status // "unknown"),
+    (if .lost == true then "--lost" else ("--status", (.status // "unknown")) end),
     (if .rc != null then ("--rc", (.rc | tostring)) else empty end),
     (if .step != null then ("--step", .step) else empty end),
     (if .cap != null then ("--cap", .cap) else empty end),
@@ -1117,9 +1117,9 @@ t_history_end() { # <home> <issue> <epoch of the end> [<fields>]
     (if .failure_kind != null then ("--failure-kind", .failure_kind) else empty end),
     (if .failure_cause != null then ("--failure-cause", .failure_cause) else empty end),
     (if .provider == true then "--provider" else empty end),
-    (if .parked == true then "--parked" else empty end),
+    (if .parked == true then "--parked" else empty end), (if .signalled == true then "--signalled" else empty end),
     (if .pr != null then ("--pr", (.pr | sub(".*/"; ""))) else empty end)' <<<"$x")
-  TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$e flock -w 5 "$home/state/cycles/$n.lock" "$T_STORE" cycle-end "$n" \
+  TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$e flock -w 5 "$home/state/cycles/$n.$(jq -r 'if .lost then "free" else "lock" end' <<<"$x")" "$T_STORE" cycle-end "$n" \
     --attempt $((a + 1)) "${t_end[@]}" >/dev/null || t_bad "t_history_end: the store refused the end of #$n"
 }
 t_park() { # <home> <issue> <reason> [<question id>|-] [<park args>...]

@@ -257,6 +257,8 @@ impl Writer {
             if std::fs::write(&path, format!("{note}\n")).is_err() {
                 log.push(format!("WARN: could not write {}", path.display()));
             }
+        } else if let Some(n) = a.get("lost_cycle").and_then(Value::as_u64) {
+            self.lost(n, a, log);
         } else if let Some(name) = a.get("reap").and_then(Value::as_str) {
             self.reap(name, text(a, "why"), log);
         } else if let Some(n) = a.get("quiet").and_then(Value::as_u64) {
@@ -531,6 +533,27 @@ impl Writer {
                     word(&f)
                 ));
             }
+        }
+    }
+
+    /// lost_cycle: the open record of a cycle that died without a word, ended
+    /// as lost with its line of history. The store takes it only with the
+    /// lock free: a cycle that took the lock since is running, and nothing is
+    /// said of it.
+    fn lost(&mut self, n: u64, a: &Value, log: &mut Vec<String>) {
+        let (issue, attempt) = (
+            n.to_string(),
+            a.get("attempt").map_or(String::new(), |v| v.to_string()),
+        );
+        match self.store_try(3, &["cycle-end", &issue, "--attempt", &attempt, "--lost"]) {
+            Ok(_) => log.push(format!(
+                "lost #{n}: attempt {attempt} died without a word and no cycle holds its lock; ended as lost"
+            )),
+            Err(f) if matches!(word(&f).as_str(), "running" | "attempt") => {}
+            Err(f) => log.push(format!(
+                "WARN: the lost cycle of #{n} could not be ended ({})",
+                word(&f)
+            )),
         }
     }
 

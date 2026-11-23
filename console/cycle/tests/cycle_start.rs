@@ -120,12 +120,16 @@ fn a_closed_issue_is_asked_for_and_refused_no_cycle_no_label_no_comment() {
             json!([c["attempt"], !c["ended_at"].is_null(), c["end_reason"]]),
             json!([1, true, null])
         );
+        // Its line of history says it was refused, with the unit's exit
+        // status (T11.3).
+        let rows = w.row(&["history-show", "7"])["rows"].clone();
         assert_eq!(
-            w.row(&["history-show", "7"])["rows"]
-                .as_array()
-                .unwrap()
-                .len(),
-            0
+            json!([
+                rows.as_array().unwrap().len(),
+                rows[0]["status"],
+                rows[0]["rc"]
+            ]),
+            json!([1, "refused", 65])
         );
     }
 }

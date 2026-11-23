@@ -1128,6 +1128,34 @@ fn a_container_removed_is_said_and_one_not_there_is_not() {
         .is_empty());
 }
 
+/// A lost cycle is ended through the store's `cycle-end --lost` (T11.3). A
+/// cycle that took the lock since is running, and nothing is said; another
+/// failure is said.
+#[test]
+fn a_lost_cycle_is_ended_through_the_store_and_a_running_one_is_left_alone() {
+    let mut t = world();
+    let a = t.apply(json!([{"lost_cycle": 7, "attempt": 3}]));
+    assert!(t
+        .calls()
+        .contains(&"store cycle-end 7 --attempt 3 --lost".to_string()));
+    assert_eq!(
+        a.log,
+        vec!["lost #7: attempt 3 died without a word and no cycle holds its lock; ended as lost"]
+    );
+    let mut t = world();
+    t.fail("store", "cycle-end 7|running");
+    assert!(t
+        .apply(json!([{"lost_cycle": 7, "attempt": 3}]))
+        .log
+        .is_empty());
+    let mut t = world();
+    t.fail("store", "cycle-end 7");
+    assert_eq!(
+        t.apply(json!([{"lost_cycle": 7, "attempt": 3}])).log,
+        vec!["WARN: the lost cycle of #7 could not be ended (busy)"]
+    );
+}
+
 #[test]
 fn an_action_of_no_kind_apply_knows_is_left() {
     let mut t = world();

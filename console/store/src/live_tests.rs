@@ -276,8 +276,13 @@ fn a_short_end_publishes_the_cycle_as_ended(
     assert_eq!(e[0]["status"], word, "{mode}");
     assert_eq!(e[0]["startedAt"], 1000, "{mode}");
     assert_eq!(e[0]["updatedAt"], 1020, "{mode}");
-    // The short ends write no cycle_history row, as they never did.
-    assert_eq!(count(&home, "cycle_history"), 0, "{mode}");
+    // The short end writes its line of history, with the word of the end
+    // (T11.3).
+    assert_eq!(
+        one::<String>(&home, "SELECT group_concat(status) FROM cycle_history"),
+        word,
+        "{mode}"
+    );
 }
 
 #[test]
