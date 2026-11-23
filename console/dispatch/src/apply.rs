@@ -83,6 +83,8 @@ pub struct Writer {
     pub plans_ended: Vec<u64>,
     /// A session ended this poll and asked for the poll after it.
     pub asked_again: bool,
+    /// The events the writes raise (src/events.rs).
+    pub events: tehas_ports::events::Dispatcher,
 }
 
 /// What the settle's read found of an open write that this poll may decide
@@ -548,9 +550,12 @@ impl Writer {
     fn lost(&mut self, n: u64, attempt: u64, log: &mut Vec<String>) {
         let (issue, attempt) = (n.to_string(), attempt.to_string());
         match self.store_try(3, &["cycle-end", &issue, "--attempt", &attempt, "--lost"]) {
-            Ok(_) => log.push(format!(
-                "lost #{n}: attempt {attempt} died without a word and no cycle holds its lock; ended as lost"
-            )),
+            Ok(v) => {
+                log.push(format!(
+                    "lost #{n}: attempt {attempt} died without a word and no cycle holds its lock; ended as lost"
+                ));
+                self.raise_lost(n, attempt.parse().unwrap_or(0), &v.to_string(), log);
+            }
             Err(f) if matches!(word(&f).as_str(), "running" | "attempt" | "heard") => {}
             Err(f) => log.push(format!(
                 "WARN: the lost cycle of #{n} could not be ended ({})",
@@ -623,12 +628,15 @@ impl Writer {
             if !r.offers.is_empty() {
                 args.extend(["--offers", r.offers]);
             }
-            if let Err(f) = self.store_try(3, &args) {
-                log.push(format!(
-                    "WARN: the question of #{n} was asked again as comment {id}, but it could not be recorded ({})",
-                    word(&f)
-                ));
-                return;
+            match self.store_try(3, &args) {
+                Ok(v) => self.raise_asked(n, &v.to_string(), log),
+                Err(f) => {
+                    log.push(format!(
+                        "WARN: the question of #{n} was asked again as comment {id}, but it could not be recorded ({})",
+                        word(&f)
+                    ));
+                    return;
+                }
             }
             new = id.parse().ok();
         }

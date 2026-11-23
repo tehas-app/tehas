@@ -111,5 +111,6 @@ fn main() {
         &PathBuf::from(&home),
         &settings,
         dry,
+        tehas_dispatch::events::wiring(),
     ));
 }

@@ -128,7 +128,8 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
                (SELECT count(*) > 0 FROM approvals a
                   WHERE a.issue = h.issue AND a.started_how = 'refresh'
                     AND a.started_by = h.attempt AND a.started_easy = 1),
-               h.seq, h.step_number, h.step_total, h.round, h.recorded_at, h.signalled
+               h.seq, h.step_number, h.step_total, h.round, h.recorded_at, h.signalled,
+               h.reported
              FROM cycle_history h
              WHERE (?1 IS NULL OR h.issue = ?1)
                AND (?2 IS NULL OR h.how = ?2)",
@@ -138,13 +139,14 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
         .query_map(rusqlite::params![issue, how], |r| {
             let n = CYCLE_NAMES.len();
             let at: [Option<i64>; 3] = [r.get(n)?, r.get(n + 1)?, r.get(n + 2)?];
-            let written: (i64, Option<i64>, bool) = (r.get(3)?, r.get(n + 3)?, r.get(n + 4)?);
+            let written: (i64, Option<i64>, bool, bool) =
+                (r.get(3)?, r.get(n + 3)?, r.get(n + 4)?, r.get(n + 5)?);
             Ok((r.get(n - 1)?, row_json(r, &CYCLE_NAMES)?, at, written))
         })
         .q()?;
     let mut out = Vec::new();
     for row in rows {
-        let (seq, mut p, at, (ended, recorded, signalled)) = row.q()?;
+        let (seq, mut p, at, (ended, recorded, signalled, reported)) = row.q()?;
         p.insert(0, ("kind", j("cycle")));
         // Every cycle row answers `easy`, not only a refresh's, so a reader of
         // one kind reads one answer for every row.
@@ -162,6 +164,11 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
         }
         if signalled {
             p.push(("signalled", j(true)));
+        }
+        // A line no report wrote (T11.9): its writer raises its end, not the
+        // cycle.
+        if !reported {
+            p.push(("reported", j(false)));
         }
         out.push((seq, obj(&p)));
     }

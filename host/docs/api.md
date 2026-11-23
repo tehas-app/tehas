@@ -1605,15 +1605,28 @@ samples per name in `api/`, and the kit's `events.js`. A factory that names
 `events` in `features` raises the events of a cycle: `cycle.started` once
 its start is on record, and after its report `cycle.parked`,
 `question.asked` (for a park's question), `cycle.ended` and
-`change.offered`. Each is built from what the state store then holds, so
-it carries what the witness prints. The cycle's log has one line per event,
-`event` and its envelope as JSON. tehas pushes no event to another program
-and no page listens to one: a program that runs many factories builds the
-same envelopes from its polls, and a page of its own can raise them on the
-kit. The other names are raised by later steps of 2.0. Not raised yet
-either: `cycle.ended` of a start refused before its runner ran, of a cycle
-`tehas stop` ended, and of a lost cycle. Their lines are in `tehas history`,
-so a program reads it for them. `change.offered` is not raised for a line
+`change.offered`. The end of every start is raised by whoever wrote its
+line of history: the cycle after its report, the cycle for a start it
+refused before its runner ran, the next start for an open record it ended
+as lost, `tehas stop` for a record it ended, and the dispatcher's poll for
+a cycle it ended as lost. A writer that finds the line already written
+raises nothing. The dispatcher raises `question.asked` for each question
+it records: a planning turn's, a question asked again in 2.0's words and a
+park's question a start puts back. A question asked again is a new
+question number, so one comment on GitHub can come with two
+`question.asked`. tehas raises each end and each question at most once.
+A writer whose answer from the state store was lost, a write that
+committed but whose answer was not read and was tried again, raises
+nothing, so an end or a question can go unraised. `tehas history` and
+`tehas question --after` are the record: a consumer reads them for what
+it missed. Each event is built from what
+the state store then holds, so it carries what the witness prints. The
+cycle's and the dispatcher's logs, and for `tehas stop` the factory's log
+`logs/dispatch.log`, have one line per event, `event` and its envelope as
+JSON. tehas pushes no event to another program and no page listens to one:
+a program that runs many factories builds the same envelopes from its
+polls, and a page of its own can raise them on the kit. The other names are
+raised by later steps of 2.0. `change.offered` is not raised for a line
 that ends `refused`, by its word or by its exit status (64 and 78 among
 them), even when the line names a change.
 
