@@ -45,7 +45,7 @@ pub struct Settings {
     pub model: String,
     pub image: String,
     pub refresh_max: i64,
-    pub fixer_max_plan_answers: i64,
+    pub millwright_max_plan_answers: i64,
     /// TEHAS_MILLWRIGHT_EPICS: a person's tehas:ready on an epic approves its
     /// open sub-issues, so the millwright's tehas:ready or tehas:plan on one
     /// stands on that person's approval.
@@ -123,7 +123,7 @@ impl Settings {
             model: s("PI_ENSEMBLE_SUBAGENT_MODEL", ""),
             image: s("PI_ENSEMBLE_IMAGE", ""),
             refresh_max: n("TEHAS_REFRESH_MAX_PER_PR", 2),
-            fixer_max_plan_answers: n("TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS", 3),
+            millwright_max_plan_answers: n("TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS", 3),
             millwright_epics: s("TEHAS_MILLWRIGHT_EPICS", "0") == "1",
             libexec: s("libexec", "/home/tehas/tehas/libexec"),
             keep_days: n("TEHAS_WORKSPACE_KEEP_DAYS", 7).max(1) as u64,
@@ -303,7 +303,7 @@ mod tests {
             "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS": 4,
         }));
         assert_eq!(
-            (new.millwright.as_str(), new.fixer_max_plan_answers),
+            (new.millwright.as_str(), new.millwright_max_plan_answers),
             ("mill-bot", 4)
         );
         let old = Settings::parse(&json!({
@@ -312,11 +312,11 @@ mod tests {
             "TEHAS_FIXER_MAX_PLAN_ANSWERS": "6",
         }));
         assert_eq!(
-            (old.millwright.as_str(), old.fixer_max_plan_answers),
+            (old.millwright.as_str(), old.millwright_max_plan_answers),
             ("", 3)
         );
         let none = Settings::parse(&json!({}));
-        assert_eq!(none.fixer_max_plan_answers, 3);
+        assert_eq!(none.millwright_max_plan_answers, 3);
     }
 
     #[test]

@@ -1393,10 +1393,10 @@
    }
   },
   {
-   "case": "a refresh of a fixer's start rests on the person's approval",
+   "case": "a refresh of a millwright's start rests on the person's approval",
    "settings": {
     "TEHAS_MAX_CYCLES": 2,
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [],
@@ -1465,8 +1465,8 @@
        "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
       },
       "approval": {
-       "how": "fixer",
-       "by": "tehas-fixer",
+       "how": "millwright",
+       "by": "tehas-millwright",
        "at": "2026-10-02T00:00:00Z",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "rests_on": {

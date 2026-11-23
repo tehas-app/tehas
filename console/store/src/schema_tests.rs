@@ -164,6 +164,7 @@ fn step_sql(to: i64) -> &'static str {
         25 => db::STEP_25,
         26 => db::STEP_26,
         27 => db::STEP_27,
+        28 => db::STEP_28,
         _ => unreachable!("no step to {to}"),
     }
 }
@@ -299,14 +300,21 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_27() {
-    assert_eq!(db::SCHEMA_VERSION, 27);
-    let home = home("schema-27");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 27);
+fn init_writes_schema_28() {
+    assert_eq!(db::SCHEMA_VERSION, 28);
+    let home = home("schema-28");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 28);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "27"
+        "28"
     );
+    // Schema 28: the millwright's old name is no word of a CHECK.
+    for t in ["cycles", "planning_notes"] {
+        assert!(
+            checks(&conn(&home), t).iter().all(|c| !c.contains("fixer")),
+            "{t}"
+        );
+    }
     // Schema 27: a question asked again in 2.0's words.
     assert!(columns(&conn(&home), "questions").contains(&"reask".to_string()));
     // Schema 25: the choices a park's question offers.
@@ -1103,6 +1111,77 @@ fn the_step_to_27_rewrites_retry_tick_and_marks_the_open_questions() {
     }
     let made = crate::verbs_tests::home("step-27-shape");
     same_shape_as_init(&home, &conn(&made), "v1.4.0");
+}
+
+/// The step to 28 from a store at 27 that still says `fixer` in a cycle and a
+/// planning note: each is written in the millwright's word, a note of a
+/// comment already noted under it kept once, every other row kept, and the
+/// old words are refused after. An approval's input loses `comment_links` and
+/// keeps every other key; one without the key is left as it was.
+#[test]
+fn the_step_from_27_drops_the_millwrights_old_name() {
+    let home = release("step-28-fixer", 23);
+    let mut c = conn(&home);
+    for (to, run) in db::STEPS {
+        if (24..=27).contains(to) {
+            run(&mut c).unwrap();
+        }
+    }
+    c.execute_batch(
+        "UPDATE cycles SET how = 'fixer' WHERE issue = 8;
+         INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'fixer-refused', 55, 1789999700);
+         INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'fixer-refused', 57, 1789999800);
+         UPDATE approvals SET input_json = '{\"links\":[\"a\"],\"comment_links\":[\"b\"],\"driver\":\"lean\",\"retry_context\":[{\"source\":\"comment:9\"}]}' WHERE issue = 7;
+         UPDATE approvals SET input_json = '{\"links\":[],\"driver\":\"classic\"}' WHERE issue = 8;",
+    )
+    .unwrap();
+    let kept = one::<String>(&home, "SELECT input_json FROM approvals WHERE issue = 8");
+    drop(c);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 27);
+    let cycles = count(&home, "cycles");
+    migrate(&home).unwrap();
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
+    assert_eq!(count(&home, "cycles"), cycles);
+    assert_eq!(count(&home, "cycles WHERE how = 'fixer'"), 0);
+    assert_eq!(
+        count(&home, "cycles WHERE issue = 8 AND how = 'millwright'"),
+        1
+    );
+    assert_eq!(
+        count(&home, "planning_notes WHERE kind = 'fixer-refused'"),
+        0
+    );
+    assert_eq!(
+        count(&home, "planning_notes WHERE kind = 'millwright-refused'"),
+        2
+    );
+    assert_eq!(count(&home, "planning_notes WHERE kind = 'held'"), 1);
+    let input: serde_json::Value = serde_json::from_str(&one::<String>(
+        &home,
+        "SELECT input_json FROM approvals WHERE issue = 7",
+    ))
+    .unwrap();
+    assert_eq!(
+        input,
+        serde_json::json!({"links": ["a"], "driver": "lean", "retry_context": [{"source": "comment:9"}]})
+    );
+    assert_eq!(
+        one::<String>(&home, "SELECT input_json FROM approvals WHERE issue = 8"),
+        kept
+    );
+    let c = conn(&home);
+    assert!(c
+        .execute("UPDATE cycles SET how = 'fixer' WHERE issue = 8", [])
+        .is_err());
+    assert!(c
+        .execute(
+            "INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'fixer-refused', 58, 1789999900)",
+            []
+        )
+        .is_err());
+    drop(c);
+    let made = crate::verbs_tests::home("step-28-shape");
+    same_shape_as_init(&home, &conn(&made), "27");
 }
 
 /// The step to 26 keeps every cycle, and a cycle's start may then say

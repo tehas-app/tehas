@@ -19,7 +19,7 @@ use tehas_core::home::{Home, State};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 27;
+pub const SCHEMA_VERSION: i64 = 28;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The five tables of section 3.15, the outsource state. Every store of this
@@ -414,6 +414,37 @@ UPDATE cycle_history SET how = 'reply' WHERE how = 'retry-tick';
     "
 ALTER TABLE questions ADD COLUMN reask INTEGER NOT NULL DEFAULT 0;
 UPDATE questions SET reask = 1 WHERE answered_at IS NULL;
+"
+);
+
+/// The step from 27 to 28: the millwright's old name goes from the two CHECK
+/// lists that still took it. Any row that still says it is written in the
+/// millwright's word first, a note that would then name a comment twice
+/// dropped. The approvals' inputs lose `comment_links`, whose feature left
+/// core in 2.0; no reader takes the key. Run as the step to 24 is, with
+/// foreign keys off (`step_28`).
+pub const STEP_28: &str = concat!(
+    "
+UPDATE approvals SET input_json = json_remove(input_json, '$.comment_links')
+ WHERE json_type(input_json, '$.comment_links') IS NOT NULL;
+UPDATE cycles SET how = 'millwright' WHERE how = 'fixer';
+UPDATE OR IGNORE planning_notes SET kind = 'millwright-refused' WHERE kind = 'fixer-refused';
+DELETE FROM planning_notes WHERE kind = 'fixer-refused';
+",
+    cycles_with_hows!(
+        "'label','refresh','outage-retry','millwright','hand','host','answer','reply'"
+    ),
+    "
+CREATE TABLE planning_notes_new (
+  issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
+  kind  TEXT NOT NULL CHECK (kind IN ('millwright-refused','held')),
+  comment_id INTEGER NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (issue, kind, comment_id)
+);
+INSERT INTO planning_notes_new SELECT * FROM planning_notes;
+DROP TABLE planning_notes;
+ALTER TABLE planning_notes_new RENAME TO planning_notes;
 "
 );
 
@@ -1508,6 +1539,9 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     // A store at 26 is one this binary wrote before retry-tick was gone and
     // an open question was asked again in 2.0's words.
     (27, step_27),
+    // A store at 27 is one this binary wrote before the millwright's old name
+    // was gone from its CHECK lists.
+    (28, step_28),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and
@@ -1596,6 +1630,17 @@ fn step_27(conn: &mut Connection) -> Result<(), DbError> {
     conn.pragma_update(None, "foreign_keys", "OFF")
         .map_err(classify)?;
     let stepped = step(conn, 27, STEP_27);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(classify)?;
+    stepped?;
+    conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The step to 28, run as `step_14` runs its rebuild of `cycles`.
+fn step_28(conn: &mut Connection) -> Result<(), DbError> {
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(classify)?;
+    let stepped = step(conn, 28, STEP_28);
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(classify)?;
     stepped?;

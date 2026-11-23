@@ -214,7 +214,7 @@ mod tests {
                 labels,
                 tick: Tick::none(),
                 reply: $reply,
-                fixer_reply: None,
+                millwright_reply: None,
             }
         }};
     }

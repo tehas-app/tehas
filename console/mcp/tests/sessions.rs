@@ -200,38 +200,21 @@ fn filters_combine() {
 }
 
 #[test]
-fn an_old_record_that_says_fixer_answers_millwright() {
+fn the_millwright_has_one_word_and_its_filter_takes_only_its_own() {
     let all = [
         sess("work", 1, 100, json!({"how": "millwright"})),
-        sess("work", 2, 200, json!({"how": "fixer"})),
         sess("work", 3, 300, json!({"how": "label"})),
-        // A run of a word outside the class is not swept into it by a filter
-        // of the class: `hand` is a cycle run by hand, `refresh` a restart on
-        // a person's request.
+        // A run of another word is not swept in by the millwright's filter:
+        // `hand` is a cycle run by hand, `refresh` a restart on a person's
+        // request.
         sess("work", 7, 700, json!({"how": "hand"})),
         sess("work", 8, 800, json!({"how": "refresh"})),
     ];
     let env = Env::new("how", Some("a/b"), &all);
-    let both = [
-        all[0]["id"].as_str().unwrap(),
-        all[1]["id"].as_str().unwrap(),
-    ];
     let out = env
         .call("factory_sessions", json!({"how": "millwright"}))
         .unwrap();
-    assert_eq!(ids(&out), both);
-    // The old word is never answered: one word names the millwright.
-    let returned: BTreeSet<&str> = out["sessions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|s| s["how"].as_str().unwrap())
-        .collect();
-    assert_eq!(returned, ["millwright"].into_iter().collect());
-    let one = env
-        .call("factory_session", json!({"id": all[1]["id"]}))
-        .unwrap();
-    assert_eq!(one["session"]["how"], "millwright", "{one}");
+    assert_eq!(ids(&out), [all[0]["id"].as_str().unwrap()]);
     // The old word is no filter of the tool.
     assert!(env
         .call("factory_sessions", json!({"how": "fixer"}))
@@ -239,8 +222,7 @@ fn an_old_record_that_says_fixer_answers_millwright() {
     let label = env
         .call("factory_sessions", json!({"how": "label"}))
         .unwrap();
-    assert_eq!(ids(&label), [all[2]["id"].as_str().unwrap()]);
-    // A word outside the class is not swept into it.
+    assert_eq!(ids(&label), [all[1]["id"].as_str().unwrap()]);
     for w in ["hand", "refresh"] {
         let out = env.call("factory_sessions", json!({"how": w})).unwrap();
         assert_eq!(ids(&out).len(), 1, "{w}");
@@ -1304,7 +1286,7 @@ fn the_storys_schema_names_every_field_of_an_answer() {
         7,
         120,
         json!({
-            "attempt": 1, "how": "fixer", "outcome": "failed", "failedStep": "plan",
+            "attempt": 1, "how": "millwright", "outcome": "failed", "failedStep": "plan",
             "failureKind": "model", "failureCause": "c", "parkReason": "loop", "pr": 8,
         }),
     );

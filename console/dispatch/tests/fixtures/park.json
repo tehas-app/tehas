@@ -3331,7 +3331,7 @@
   {
    "case": "a person's tehas:ready on the parked body is held whatever comments exist",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_WORK_IMAGES": "1"
    },
    "snapshot": {
@@ -3365,7 +3365,7 @@
             {
              "databaseId": 81,
              "author": {
-              "login": "tehas-fixer"
+              "login": "tehas-millwright"
              },
              "body": "<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite.",
              "createdAt": "2026-10-30T23:55:00Z",

@@ -122,7 +122,7 @@ const LOGINS: &[&str] = &[
     "bob-2",
     "carol",
     "boss",
-    "tehas-fixer",
+    "tehas-millwright",
     "tehas-mill",
     "millbot",
     "mill-bot",
@@ -1476,11 +1476,11 @@ impl World {
 
     /// An approval of issue `n` on record, as the dispatcher records it: the
     /// body hash of "Words." unless `extra` gives one, tehas:ready for a
-    /// label and a fixer (t_approve).
+    /// label and a millwright (t_approve).
     pub fn approve(&self, n: u64, by: &str, how: &str, at: i64, extra: &[&str]) {
         let (n, at) = (n.to_string(), at.to_string());
         let mut a = vec!["approval-record", &n, "--at", &at, "--by", by, "--how", how];
-        if matches!(how, "label" | "fixer") {
+        if matches!(how, "label" | "millwright") {
             a.extend(["--label", "tehas:ready"]);
         }
         let sum = wsum();
@@ -1601,7 +1601,7 @@ impl World {
             at
         };
         let base = &j["rests_on"];
-        if matches!(how.as_str(), "fixer" | "refresh") && base.is_object() {
+        if matches!(how.as_str(), "millwright" | "refresh") && base.is_object() {
             last = used(
                 &text_of(&base["by"]),
                 &text_of(&base["how"]),
@@ -1652,7 +1652,7 @@ impl World {
             "--input-file",
             &file,
         ];
-        if matches!(how.as_str(), "label" | "fixer") {
+        if matches!(how.as_str(), "label" | "millwright") {
             a.extend(["--label", "tehas:ready"]);
         }
         let title = text_of(&j["title_sha256"]);

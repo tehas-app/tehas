@@ -16,7 +16,7 @@
 //! poll logs is the record: `finish #<n>: ...` in `dispatch.log`, which
 //! `factory_decisions` answers.
 
-use crate::decide::{base_approver, base_stands, fixer_base};
+use crate::decide::{base_approver, base_stands, record_base};
 use crate::read::host::epoch;
 use crate::settings::account;
 use crate::text::body_sha256;
@@ -200,7 +200,7 @@ fn approval_holds(c: &Settings, a: &Ask) -> Result<Option<String>, String> {
     let Some(record) = record else {
         return Ok(none());
     };
-    let Some(base) = fixer_base(record).filter(|b| base_stands(c, b)) else {
+    let Some(base) = record_base(record).filter(|b| base_stands(c, b)) else {
         return Ok(none());
     };
     let by = base["by"].as_str().unwrap_or("");

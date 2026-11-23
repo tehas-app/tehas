@@ -883,7 +883,7 @@ fn read_only() {
 }
 
 #[test]
-fn fixer() {
+fn millwright() {
     run_suite("fixer");
 }
 
@@ -936,8 +936,8 @@ fn every_logged_hold_of_the_fixtures_has_a_code() {
         // Rule 5a, a refine of a park: it starts no cycle.
         "not refined",
         // Rule 5, the answers of a planning session: a turn, not a start.
-        "the fixer's answer runs no turn",
-        "the fixer saved the question after another account did",
+        "the millwright's answer runs no turn",
+        "the millwright saved the question after another account did",
         "the question answered is not the one this session is waiting on",
         "the ticked box matches no option on record",
         // Rule 2's clean-up of the running mark, not a hold of a start.

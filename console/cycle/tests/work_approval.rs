@@ -1084,41 +1084,41 @@ fn the_image_s_word_on_comments_is_noted_for_the_park_and_a_comments_retry_on_th
     lacks(&w.after("-e").join("\n"), "PI_ENSEMBLE_REPEAT_PARK");
 }
 
-/// The fixer's record of a start that rests on `by`'s approval of the record
+/// The millwright's record of a start that rests on `by`'s approval of the record
 /// record_is made.
-fn fixer_record(w: &World, by: &str) {
+fn millwright_record(w: &World, by: &str) {
     w.record_edit(|v| {
         let old = v.clone();
-        *v = json!({"at": "2026-10-15T00:00:00Z", "by": "tehas-bot", "how": "fixer",
+        *v = json!({"at": "2026-10-15T00:00:00Z", "by": "tehas-bot", "how": "millwright",
             "body_sha256": old["body_sha256"], "links": old["links"],
             "rests_on": {"at": old["at"], "how": old["how"], "body_sha256": old["body_sha256"], "by": by}});
     });
 }
 
 #[test]
-fn a_start_the_fixer_made_on_a_person_s_approval_takes_the_links_that_person_approved() {
-    let w = world("fixer-links");
+fn a_start_the_millwright_made_on_a_person_s_approval_takes_the_links_that_person_approved() {
+    let w = world("millwright-links");
     w.images_on(&[]);
     w.net(&format!("{A}/1111"), PNG);
     w.issue_is(&format!("![a]({A}/1111)"), "NONE", "");
     w.record_is("alice", &format!("![a]({A}/1111)"), &[&format!("{A}/1111")]);
-    fixer_record(&w, "alice");
+    millwright_record(&w, "alice");
     let r = w.work7();
     assert_eq!(r.rc, 2, "{}", r.out);
     assert_eq!(
         w.manifest("[(.images | length), .approval.how, .approval.by]"),
-        r#"[1,"fixer","tehas-bot"]"#
+        r#"[1,"millwright","tehas-bot"]"#
     );
 }
 
 #[test]
-fn a_fixer_s_record_that_rests_on_no_allowed_account_takes_no_link() {
-    let w = world("fixer-outsider");
+fn a_millwright_s_record_that_rests_on_no_allowed_account_takes_no_link() {
+    let w = world("millwright-outsider");
     w.images_on(&[]);
     w.net(&format!("{A}/1111"), PNG);
     w.issue_is(&format!("![a]({A}/1111)"), "NONE", "");
     w.record_is("alice", &format!("![a]({A}/1111)"), &[&format!("{A}/1111")]);
-    fixer_record(&w, "mallory");
+    millwright_record(&w, "mallory");
     w.work7();
     assert_eq!(w.manifest(".images | length"), "0");
 }

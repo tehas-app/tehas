@@ -56,7 +56,7 @@ pub fn code_of(text: &str) -> &'static str {
         ("who may not authorise work here", code::NOT_ALLOWED),
         ("not an allowed account", code::NOT_ALLOWED),
         ("was taken off by", code::LABEL_OFF),
-        ("from the fixer", code::MILLWRIGHT),
+        ("from the millwright", code::MILLWRIGHT),
         ("from the bot starts nothing", code::NOT_ALLOWED),
         ("tehas:ready was applied by", code::NOT_ALLOWED),
         ("it carries both", code::DRIVER),

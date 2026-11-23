@@ -239,9 +239,9 @@ fn a_refresh_after_a_refresh_counts_on_from_it() {
 }
 
 #[test]
-fn a_refresh_of_a_fixer_s_start_rests_on_the_person_s_approval() {
-    let w = refresh_world("fixer-start", &[]);
-    w.past(7, "tehas-bot", "fixer", "2026-10-02T00:00:00Z", &[]);
+fn a_refresh_of_a_millwright_s_start_rests_on_the_person_s_approval() {
+    let w = refresh_world("millwright-start", &[]);
+    w.past(7, "tehas-bot", "millwright", "2026-10-02T00:00:00Z", &[]);
     w.poll();
     assert_eq!(w.started(), "7 ");
     assert_eq!(
