@@ -581,9 +581,9 @@ impl Writer<'_> {
         ];
         for t in 1..=self.gh.tries {
             let since = tehas_core::time::now();
-            match self.write(n, "refresh-end", args.clone(), None, Some("Not Found")) {
+            match self.write(n, "change-unmark", args.clone(), None, Some("Not Found")) {
                 Wrote::Done(_) => return,
-                Wrote::Unknown(why) => match self.reread(n, "refresh-end", &args, None, since) {
+                Wrote::Unknown(why) => match self.reread(n, "change-unmark", &args, None, since) {
                     Seen::There(_) => return,
                     Seen::Missing => continue,
                     Seen::Unread => return maybe_posted(n, &why),
