@@ -49,7 +49,6 @@ issue text.
 | A png, jpg, webp or gif linked in the body  | Fetched and mounted with `TEHAS_WORK_IMAGES=on`; shown to explore and plan when the sandbox image says its pi-rukas reads them | The same |
 | The same image linked in a comment          | Not given | When a reply to its question links it |
 | The text of comments, on a retry with comments | `comments.json` beside the images, when `retry` (`Retry with the issue and all its comments`) was answered: what allowed accounts that may write said on the issue and its pull requests up to the answer. Read by the sandbox image's pi-rukas or its polyfill | Not given |
-| The spec an issue's `Spec:` line names, and the approved title and body | With `TEHAS_SPEC_PIPE=on`, still being built: the spec, held to the sha256 its approval pinned, and `approved.json`, beside the images and named in the manifest. A spec needs a sandbox image whose pi-rukas lists `issueSpec` | Not given |
 | md, txt, csv, json, yaml, log, html, css or js linked in the body | Not given | Not given |
 | svg, avif, a video                          | Not given | Not given |
 | A zip                                       | Not given | Not given |
@@ -655,14 +654,6 @@ adversarial review, and those findings posted as a comment on the pull request,
 carries on to the gate with the findings named on the pull request instead of
 parking; a post that fails parks. A review that runs out of its time budget
 parks whatever the findings are.
-
-With `TEHAS_SPEC_PIPE=on` and a start whose approval pins a spec, a pull
-request waits only for a merge when its body holds a [spec
-block](/contract#the-pull-request-spec-block) that names the sha256 of that
-pin. Without one, or with a block of another sha256 or one tehas cannot read,
-the issue parks with `needs-human-attention` instead of
-`tehas:awaiting-merge`, and the pull request stays open. See [a pull request
-that does not answer to the spec](/troubleshooting).
 
 A pull request that waits while other work merges may start to conflict with
 the branch. Where the instance turns [refreshes](#refreshes) on, the factory
