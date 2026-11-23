@@ -1,0 +1,24 @@
+{
+  "number": "7",
+  "title": 5,
+  "url": "http://example.com/7",
+  "author": 3,
+  "updatedAt": "yesterday",
+  "files": [
+    5,
+    {"name": 9, "kind": "image", "bytes": 1.5},
+    {"kind": "part", "bytes": "12"},
+    {"name": "x.bin", "kind": "other", "bytes": -3},
+    {"name": "p.css", "kind": "part", "bytes": 9223372036854775807},
+    {"name": "q.css", "kind": "part", "bytes": 9223372036854775807},
+    null,
+    {"name": "big.mp4", "kind": "video", "bytes": 18446744073709551615}
+  ],
+  "skipped": [
+    {"name": 4, "reason": null},
+    "text",
+    {"reason": "Why & how."}
+  ],
+  "outside": 0,
+  "bytes": 0
+}
