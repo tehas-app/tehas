@@ -1,7 +1,8 @@
 //! The tickets port's reads past the digest, as the adapter answers them:
 //! one ticket to a depth, a history of every kind, a ticket's parts and the
-//! list a filter takes. The ports' recorded samples say what each call must
-//! answer, the adapter answers from its recordings under `tests/recorded/`,
+//! list a filter takes. Recorded samples, in the ports' form, say what each
+//! call must answer, the adapter answers from its recordings under
+//! `tests/recorded/`,
 //! and the laws of `tehas_ports::laws` check the same answers. The cases a
 //! recording cannot hold, an answer that disagrees with itself among them,
 //! run against a runner that answers from a list.
@@ -42,10 +43,15 @@ fn bound(n: u32) -> Bound {
     Bound::new(n).unwrap()
 }
 
+/// The samples of one file: the ports' own, under `console/ports/samples/`,
+/// or, by a name with `own/` before it, those of this pull request, kept
+/// beside the adapter's tests until the ports' owner takes them in.
 fn samples<T: for<'de> Deserialize<'de>>(file: &str) -> Vec<T> {
-    let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../ports/samples/github")
-        .join(file);
+    let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let at = match file.strip_prefix("own/") {
+        Some(own) => here.join("tests/samples").join(own),
+        None => here.join("../ports/samples/github").join(file),
+    };
     let text = std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()));
     let all: Vec<T> =
         serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", at.display()));
@@ -100,7 +106,7 @@ struct OfList {
 
 #[test]
 fn a_ticket_answers_as_each_sample_says() {
-    for s in samples::<OfTicket>("tickets-ticket.json") {
+    for s in samples::<OfTicket>("own/tickets-ticket.json") {
         assert_eq!(s.op, "Tickets::ticket");
         assert!(matches!(s.actor, Actor::Ours(_)), "{}", s.fixture);
         let got = adapter().ticket(&s.ticket, s.depth, s.history);
@@ -110,7 +116,7 @@ fn a_ticket_answers_as_each_sample_says() {
 
 #[test]
 fn a_history_of_any_kind_answers_as_each_sample_says() {
-    for s in samples::<OfHistory>("tickets-history-kinds.json") {
+    for s in samples::<OfHistory>("own/tickets-history-kinds.json") {
         assert_eq!(s.op, "Tickets::history");
         assert!(matches!(s.actor, Actor::Ours(_)), "{}", s.fixture);
         let mut gh = adapter();
@@ -139,7 +145,7 @@ fn the_marks_history_answers_the_same_through_the_port() {
 
 #[test]
 fn the_parts_answer_as_each_sample_says() {
-    for s in samples::<OfParts>("tickets-parts.json") {
+    for s in samples::<OfParts>("own/tickets-parts.json") {
         assert_eq!(s.op, "Tickets::parts");
         assert!(matches!(s.actor, Actor::Ours(_)), "{}", s.fixture);
         assert_eq!(
@@ -154,7 +160,7 @@ fn the_parts_answer_as_each_sample_says() {
 
 #[test]
 fn a_list_answers_as_each_sample_says() {
-    for s in samples::<OfList>("tickets-list.json") {
+    for s in samples::<OfList>("own/tickets-list.json") {
         assert_eq!(s.op, "Tickets::list");
         assert!(matches!(s.actor, Actor::Ours(_)), "{}", s.fixture);
         let got = adapter().list(&s.filter, s.bound);
