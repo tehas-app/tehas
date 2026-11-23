@@ -20,11 +20,11 @@ use tehas_core::call::{run_full, store_try, GH_BOUND, GRACE};
 use tehas_core::end_fault;
 use tehas_core::home::Home;
 use tehas_core::journal::{settle as rules, Found, Journal, Journaled, RowId, Wrote};
-use tehas_ports::{
-    At, Bound, ChangeNo, CodeHost, Mark, NoBlobs, Outcome, Receipt, Sent as Passed, State,
-    TicketKey, Tickets, Window, Write, Writes,
-};
 use tehas_core::question::is_handoff_marker;
+use tehas_ports::{
+    At, Blueprints, Bound, ChangeNo, CodeHost, Mark, NoBlobs, Outcome, Receipt, Sent as Passed,
+    State, TicketKey, Tickets, Window, Write, Writes,
+};
 
 mod reread;
 use reread::Seen;
@@ -204,6 +204,9 @@ impl Ask for Tried {
 pub struct Handles {
     pub writes: Box<dyn Writes>,
     pub tickets: Box<dyn Tickets>,
+    /// Where a ticket is its own blueprint, its notes are the blueprint's
+    /// comments.
+    pub blueprints: Box<dyn Blueprints>,
     pub code_host: Box<dyn CodeHost>,
 }
 
@@ -445,9 +448,24 @@ impl Writer<'_> {
                 rules::by_marks(write, &digest.ok()?.marks)
             }
             Write::TicketNote { ticket, .. } => {
-                let last = std::num::NonZeroU32::new(100).expect("100 is no zero");
-                let notes = self.ports.tickets.notes(ticket, Window::Last(last)).ok()?;
-                rules::by_comments(write, &notes.items, since)
+                let notes = match ticket.same_item() {
+                    Some(no) => self
+                        .ports
+                        .blueprints
+                        .comments(no, bound)
+                        .ok()?
+                        .items()
+                        .to_vec(),
+                    None => {
+                        let last = std::num::NonZeroU32::new(100).expect("100 is no zero");
+                        self.ports
+                            .tickets
+                            .notes(ticket, Window::Last(last))
+                            .ok()?
+                            .items
+                    }
+                };
+                rules::by_comments(write, &notes, since)
             }
             Write::MarkChange { no, .. } | Write::UnmarkChange { no, .. } => {
                 let change = self.ports.code_host.change(*no, bound).ok()?;
@@ -716,7 +734,9 @@ impl Writer<'_> {
 
     fn pr_comment(&mut self, pr: &str, body: &str) {
         let Some(no) = change_no(pr) else {
-            log(&format!("WARN: comment on {pr} failed: it names no pull request"));
+            log(&format!(
+                "WARN: comment on {pr} failed: it names no pull request"
+            ));
             return;
         };
         let comment = Write::CommentChange {
@@ -984,6 +1004,107 @@ fn keep_end_fault(
 
 /// Report the cycle `s`. The exit status of the cycle: 0, or 70 when its end
 /// or the record of its failed end is not on record.
+/// How a report's writes go: to which issue and attempt, with what tries
+/// and bounds, and the gh of the writes that do not go through the ports yet.
+pub struct How {
+    pub repo: String,
+    pub issue: u64,
+    pub attempt: u64,
+    /// When the report began: the read its writes rest on.
+    pub now: i64,
+    pub gh_bin: String,
+    pub tries: u32,
+    pub retry_wait: Duration,
+    pub bound: Duration,
+    pub grace: Duration,
+    /// The workspace a tidy removes.
+    pub workdir: String,
+}
+
+/// What a report's writes left for its end.
+pub struct Written {
+    /// A comment that carries the handoff of pi-rukas was posted.
+    pub handed_off: bool,
+    /// What the site said of the comment with the handoff that was not
+    /// posted.
+    pub handoff_failed: Option<String>,
+    /// The comment with the handoff may have been posted: no read could tell.
+    pub handoff_maybe: bool,
+}
+
+/// The writes of report `r`, in its order, through `ports`, each a row of
+/// the journal of the store under `home`.
+pub fn write(
+    home: &Path,
+    how: &How,
+    r: &mut Report,
+    facts: &Facts,
+    ask: &mut dyn Ask,
+    ports: Handles,
+) -> Written {
+    let mut w = Writer {
+        ports,
+        gh_bin: how.gh_bin.clone(),
+        home,
+        repo: how.repo.clone(),
+        issue: how.issue,
+        attempt: how.attempt,
+        gh: Gh {
+            tries: how.tries,
+            retry_wait: how.retry_wait,
+            bound: how.bound,
+            grace: how.grace,
+        },
+        before: how.now,
+        poll_at: 0,
+        no_row: false,
+        unjournaled: false,
+        stuck: true,
+        handed_off: false,
+        last_failed: String::new(),
+        handoff_failed: None,
+        handoff_maybe: false,
+    };
+    for a in &mut r.actions {
+        match a {
+            Action::Relabel { remove, add } => {
+                if w.relabel(remove, add) {
+                    w.stuck = false;
+                }
+            }
+            Action::Comment { ok, stuck } => {
+                let said = if w.stuck { stuck.clone() } else { ok.clone() };
+                w.comment(&said);
+            }
+            Action::Park(p) => w.park(p, facts, ask),
+            Action::PrComment { pr, body } => w.pr_comment(pr, body),
+            Action::Tidy { remove, warn } => {
+                if !warn.is_empty() {
+                    log(warn);
+                } else {
+                    // Every path is tried, whichever of them fails.
+                    let mut ok = true;
+                    for p in remove {
+                        ok &= remove_all(p);
+                    }
+                    if !ok {
+                        log(&format!(
+                            "WARN: could not remove the workspace {}",
+                            how.workdir
+                        ));
+                    }
+                }
+            }
+            Action::RefreshOff { pr } => w.refresh_off(pr),
+        }
+    }
+    Written {
+        handed_off: w.handed_off,
+        handoff_failed: w.handoff_failed,
+        handoff_maybe: w.handoff_maybe,
+    }
+}
+
 pub fn run(home: &Path, s: &Start, handles: HandlesOf) -> i32 {
     reported(home, s, handles).rc
 }
@@ -1041,54 +1162,20 @@ pub fn reported(home: &Path, s: &Start, handles: HandlesOf) -> Reported {
     for line in &r.log {
         log(line);
     }
-    let mut w = Writer {
-        ports: handles(&facts.repo, gh.bound, gh.grace),
-        gh_bin: "gh".to_string(),
-        home,
+    let how = How {
         repo: facts.repo.clone(),
         issue,
         attempt: s.attempt,
-        gh,
-        before: now,
-        poll_at: 0,
-        no_row: false,
-        unjournaled: false,
-        stuck: true,
-        handed_off: false,
-        last_failed: String::new(),
-        handoff_failed: None,
-        handoff_maybe: false,
+        now,
+        gh_bin: "gh".to_string(),
+        tries: gh.tries,
+        retry_wait: gh.retry_wait,
+        bound: gh.bound,
+        grace: gh.grace,
+        workdir: workdir.clone(),
     };
-    for a in &mut r.actions {
-        match a {
-            Action::Relabel { remove, add } => {
-                if w.relabel(remove, add) {
-                    w.stuck = false;
-                }
-            }
-            Action::Comment { ok, stuck } => {
-                let said = if w.stuck { stuck.clone() } else { ok.clone() };
-                w.comment(&said);
-            }
-            Action::Park(p) => w.park(p, &facts, &mut ask),
-            Action::PrComment { pr, body } => w.pr_comment(pr, body),
-            Action::Tidy { remove, warn } => {
-                if !warn.is_empty() {
-                    log(warn);
-                } else {
-                    // Every path is tried, whichever of them fails.
-                    let mut ok = true;
-                    for p in remove {
-                        ok &= remove_all(p);
-                    }
-                    if !ok {
-                        log(&format!("WARN: could not remove the workspace {workdir}"));
-                    }
-                }
-            }
-            Action::RefreshOff { pr } => w.refresh_off(pr),
-        }
-    }
+    let ports = handles(&facts.repo, gh.bound, gh.grace);
+    let w = write(home, &how, &mut r, &facts, &mut ask, ports);
     log(&r.done);
     let approved = after::approved(home, issue, s.attempt);
     if !r.refused_why.is_empty() {
@@ -1217,5 +1304,590 @@ mod tests {
         assert!(!approved_lean(
             &json!({"approval": {"input": {"driver": true}}})
         ));
+    }
+}
+
+/// The report's writes of the ports, on the ports' fake: each a row of its
+/// own in the journal of a stub store, tried as the bash tried them, and a
+/// write the site may have taken read back by its kind's rule before it is
+/// sent again.
+#[cfg(test)]
+mod ports_tests {
+    use super::*;
+    use crate::report::report;
+    use std::path::PathBuf;
+    use tehas_core::testdir::TestDir;
+    use tehas_ports::fake::{
+        BlueprintsOp, Clock, CodeHostOp, FakeSite, Fault, Faulty, Op, TicketsOp, World,
+    };
+    use tehas_ports::{Actor, Blobs, Caller, Got, Refusal, Scope, Site};
+
+    /// A store that logs its calls and answers each as the real one does.
+    const STORE: &str = r#"#!/usr/bin/env bash
+d=$(dirname "$0")
+printf 'store %s\n' "$*" >>"$d/../calls.log"
+if [ -f "$d/../store-fail" ] && [[ "$*" == $(cat "$d/../store-fail")* ]]; then
+  echo "store: refused #7: not now" >&2
+  exit 1
+fi
+case $1 in
+  poll-begin) echo '{"api":1,"verb":"poll-begin","ok":true,"at":100}' ;;
+  journal-record) n=$(($(cat "$d/../n" 2>/dev/null || echo 0) + 1)); echo "$n" >"$d/../n"
+    echo "{\"api\":1,\"verb\":\"journal-record\",\"ok\":true,\"action\":$n}" ;;
+  *) echo "{\"api\":1,\"verb\":\"$1\",\"ok\":true}" ;;
+esac
+"#;
+
+    /// A port write, said beside the store's calls so their order shows.
+    struct Logged {
+        inner: Box<dyn Writes>,
+        log: PathBuf,
+    }
+
+    fn said_write(w: &Write) -> String {
+        match w {
+            Write::Mark { mark, .. } => format!("mark {mark:?}"),
+            Write::Unmark { mark, .. } => format!("unmark {mark:?}"),
+            Write::TicketNote { body, .. } => format!("note {body:?}"),
+            Write::CommentChange { no, body, .. } => {
+                format!("change-comment {} {body:?}", no.get())
+            }
+            Write::UnmarkChange { no, mark } => format!("change-unmark {} {mark:?}", no.get()),
+            other => format!("{:?}", other.kind()),
+        }
+    }
+
+    impl Writes for Logged {
+        fn send(&mut self, w: &Write, files: &dyn Blobs) -> Got<Receipt> {
+            let mut f = fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&self.log)
+                .unwrap();
+            writeln!(f, "write {}", said_write(w)).unwrap();
+            self.inner.send(w, files)
+        }
+        fn read_only(&self) -> bool {
+            false
+        }
+    }
+
+    struct Host {
+        dir: TestDir,
+    }
+
+    impl Host {
+        fn new(name: &str) -> Host {
+            let dir = TestDir::new(&format!("apply-ports-{name}"));
+            fs::create_dir_all(dir.join("libexec")).unwrap();
+            tehas_core::testing::write_exe(dir.join("libexec/store"), STORE).unwrap();
+            Host { dir }
+        }
+
+        fn calls(&self) -> Vec<String> {
+            fs::read_to_string(self.dir.join("calls.log"))
+                .unwrap_or_default()
+                .lines()
+                .map(str::to_string)
+                .collect()
+        }
+
+        fn count(&self, what: &str) -> usize {
+            self.calls().iter().filter(|c| c.starts_with(what)).count()
+        }
+
+        /// The handles of `site`, the factory's own, every write logged.
+        fn handles(&self, site: &impl Site) -> Handles {
+            let (by, c) = (Actor::Ours(Scope::Full), Caller::new("report"));
+            let writes = tehas_ports::Writer {
+                tickets: site.ticket_writes(&by, c).unwrap(),
+                blueprints: site.blueprint_writes(&by, c).unwrap(),
+                code_host: site.code_host_writes(&by, c).unwrap(),
+            };
+            Handles {
+                writes: Box::new(Logged {
+                    inner: Box::new(writes),
+                    log: self.dir.join("calls.log"),
+                }),
+                tickets: site.tickets(&by, c).unwrap(),
+                blueprints: site.blueprints(&by, c).unwrap(),
+                code_host: site.code_host(&by, c).unwrap(),
+            }
+        }
+
+        /// The report's writer of issue 7 on `site`, three tries with no
+        /// wait between them.
+        fn writer(&self, site: &impl Site) -> Writer<'_> {
+            Writer {
+                ports: self.handles(site),
+                gh_bin: self.dir.join("no-gh").to_string_lossy().into_owned(),
+                home: self.dir.path(),
+                repo: "a/b".to_string(),
+                issue: 7,
+                attempt: 1,
+                gh: Gh {
+                    tries: 3,
+                    retry_wait: Duration::ZERO,
+                    bound: Duration::from_secs(10),
+                    grace: Duration::ZERO,
+                },
+                before: 5,
+                poll_at: 0,
+                no_row: false,
+                unjournaled: false,
+                stuck: true,
+                handed_off: false,
+                last_failed: String::new(),
+                handoff_failed: None,
+                handoff_maybe: false,
+            }
+        }
+    }
+
+    fn running() -> Mark {
+        Mark::State(State::Running)
+    }
+
+    fn attention() -> Mark {
+        Mark::State(State::NeedsPerson)
+    }
+
+    /// Issue 7, running, and pull request 9 of its branch, refreshing. The
+    /// site's clock reads the host's, as a row's time is the host's.
+    fn world() -> World {
+        let now = Clock::new(At::new(tehas_core::time::now()));
+        World::new()
+            .on_clock(now)
+            .ticket(7, |t| t.title("the issue").mark(running()))
+            .change(9, "feature/issue-7-a", |c| {
+                c.mark(Mark::State(State::Refreshing))
+            })
+    }
+
+    fn marks_of_7(w: &World) -> Vec<Mark> {
+        let site = FakeSite::new(w);
+        let mut t = site.tickets(&Actor::Operator, Caller::new("test")).unwrap();
+        let key = TicketKey::Number(std::num::NonZeroU64::new(7).unwrap());
+        t.several(&[key]).pop().unwrap().1.unwrap().marks
+    }
+
+    fn notes_of_7(w: &World) -> usize {
+        let site = FakeSite::new(w);
+        let mut b = site
+            .blueprints(&Actor::Operator, Caller::new("test"))
+            .unwrap();
+        b.comments(
+            tehas_ports::BlueprintNo::new(7).unwrap(),
+            Bound::new(50).unwrap(),
+        )
+        .unwrap()
+        .items()
+        .len()
+    }
+
+    #[test]
+    fn a_change_of_marks_goes_mark_by_mark_each_a_row_named_by_its_cycle() {
+        let h = Host::new("marks");
+        let w = world();
+        let mut writer = h.writer(&FakeSite::new(&w));
+        assert!(writer.relabel(&[running()], &[attention()]));
+        assert_eq!(marks_of_7(&w), vec![attention()]);
+        let order: Vec<String> = h
+            .calls()
+            .into_iter()
+            .filter(|c| c.starts_with("write") || c.starts_with("store journal-record"))
+            .map(|c| c.split(" --").next().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            order,
+            [
+                "store journal-record",
+                "write unmark State(Running)",
+                "store journal-record",
+                "write mark State(NeedsPerson)",
+            ]
+        );
+        let record = h
+            .calls()
+            .into_iter()
+            .find(|c| c.starts_with("store journal-record"))
+            .unwrap();
+        assert!(
+            record.contains(r#""cycle":{"attempt":1,"issue":7}"#),
+            "{record}"
+        );
+        assert!(record.contains("--write"), "{record}");
+    }
+
+    #[test]
+    fn a_mark_the_site_refuses_is_tried_three_times_each_a_row_and_stops_the_rest() {
+        let h = Host::new("marks-refused");
+        let w = world();
+        let site = Faulty::new(FakeSite::new(&w)).on(
+            Op::Tickets(TicketsOp::Unmark),
+            Fault::Refused(Refusal::Invalid),
+        );
+        let mut writer = h.writer(&site);
+        assert!(!writer.relabel(&[running()], &[attention()]));
+        assert_eq!(h.count("write unmark"), 3);
+        assert_eq!(h.count("store journal-record"), 3);
+        assert_eq!(h.count("write mark"), 0);
+        assert_eq!(
+            writer.last_failed,
+            Outcome::Refused(Refusal::Invalid).line()
+        );
+        assert_eq!(marks_of_7(&w), vec![running()]);
+    }
+
+    #[test]
+    fn a_note_the_site_took_without_answering_is_read_back_and_not_sent_again() {
+        let h = Host::new("note-took");
+        let w = world();
+        let site = Faulty::new(FakeSite::new(&w))
+            .on(
+                Op::Tickets(TicketsOp::Note),
+                Fault::TimeoutMaybe { applied: true },
+            )
+            .times(1);
+        let mut writer = h.writer(&site);
+        writer.comment("Tehas cycle stopped.");
+        assert_eq!(h.count("write note"), 1);
+        assert_eq!(notes_of_7(&w), 1);
+        let settles: Vec<String> = h
+            .calls()
+            .into_iter()
+            .filter(|c| c.starts_with("store journal-settle"))
+            .collect();
+        assert_eq!(
+            settles,
+            [
+                "store journal-settle --action 1 --result unknown",
+                "store journal-settle --action 1 --result ok",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_note_the_site_did_not_take_is_closed_as_not_sent_and_sent_again() {
+        let h = Host::new("note-lost");
+        let w = world();
+        let site = Faulty::new(FakeSite::new(&w))
+            .on(
+                Op::Tickets(TicketsOp::Note),
+                Fault::TimeoutMaybe { applied: false },
+            )
+            .times(1);
+        let mut writer = h.writer(&site);
+        writer.comment("Tehas cycle stopped.");
+        assert_eq!(h.count("write note"), 2);
+        assert_eq!(notes_of_7(&w), 1);
+        assert!(h
+            .calls()
+            .contains(&"store journal-settle --action 1 --abandoned".to_string()));
+        assert!(h
+            .calls()
+            .contains(&"store journal-settle --action 2 --result ok".to_string()));
+    }
+
+    #[test]
+    fn a_note_no_read_can_settle_is_left_unknown_and_not_sent_again() {
+        let h = Host::new("note-unread");
+        let w = world();
+        let site = Faulty::new(FakeSite::new(&w))
+            .on(
+                Op::Tickets(TicketsOp::Note),
+                Fault::TimeoutMaybe { applied: true },
+            )
+            .on(Op::Blueprints(BlueprintsOp::Comments), Fault::Unreachable);
+        let mut writer = h.writer(&site);
+        writer.comment("<!-- pi-rukas:handoff issue=7 cap=x -->\nHanded off.");
+        assert_eq!(h.count("write note"), 1);
+        assert_eq!(h.count("store journal-settle"), 1);
+        assert!(writer.handoff_maybe);
+    }
+
+    #[test]
+    fn a_write_the_journal_cannot_record_is_made_with_no_row() {
+        let h = Host::new("unrecorded");
+        fs::write(h.dir.join("store-fail"), "journal-record").unwrap();
+        let w = world();
+        let mut writer = h.writer(&FakeSite::new(&w));
+        writer.comment("Tehas cycle stopped.");
+        assert!(writer.unjournaled);
+        assert_eq!(h.count("write note"), 1);
+        assert_eq!(notes_of_7(&w), 1);
+        assert_eq!(h.count("store journal-settle"), 0);
+    }
+
+    #[test]
+    fn a_comment_on_the_pull_request_and_its_refreshing_mark_go_to_the_change() {
+        let h = Host::new("change");
+        let w = world();
+        let mut writer = h.writer(&FakeSite::new(&w));
+        writer.pr_comment("https://github.com/a/b/pull/9", "Refreshed.");
+        writer.refresh_off("9");
+        assert_eq!(h.count("write change-comment 9"), 1);
+        assert_eq!(h.count("write change-unmark 9 State(Refreshing)"), 1);
+        let site = FakeSite::new(&w);
+        let mut c = site
+            .code_host(&Actor::Operator, Caller::new("test"))
+            .unwrap();
+        let change = c
+            .change(ChangeNo::new(9).unwrap(), Bound::new(50).unwrap())
+            .unwrap();
+        assert!(change.digest.marks.is_empty());
+        assert_eq!(change.comments.len(), 1);
+    }
+
+    #[test]
+    fn a_refreshing_mark_the_site_may_have_taken_off_is_read_on_the_change() {
+        let h = Host::new("change-unread");
+        let w = world();
+        let site = Faulty::new(FakeSite::new(&w))
+            .on(
+                Op::CodeHost(CodeHostOp::UnmarkChange),
+                Fault::Server { applied: true },
+            )
+            .times(1);
+        let mut writer = h.writer(&site);
+        writer.refresh_off("9");
+        assert_eq!(h.count("write change-unmark"), 1);
+        assert!(h
+            .calls()
+            .contains(&"store journal-settle --action 1 --result ok".to_string()));
+    }
+
+    #[test]
+    fn a_pull_request_no_number_names_is_said_and_nothing_is_sent() {
+        let h = Host::new("change-none");
+        let w = world();
+        let mut writer = h.writer(&FakeSite::new(&w));
+        writer.refresh_off("x");
+        writer.pr_comment("not a link", "Refreshed.");
+        assert_eq!(h.count("write"), 0);
+        assert_eq!(h.count("store"), 0);
+    }
+
+    /// A gh for the park's question and its comment, which go with gh until
+    /// the park's writes carry their markers: it logs its call, and the
+    /// question gets id 4002.
+    const GH: &str = r#"#!/usr/bin/env bash
+d=$(dirname "$0")
+body=""
+case " $* " in *" --body-file - "* | *" --input - "*) body=$(cat) ;; esac
+printf 'gh %s%s\n' "$*" "${body:+ <<< $body}" >>"$d/../calls.log"
+case "$1 $2" in
+  "api repos/acme/widget/issues/7/comments") echo 4002 ;;
+esac
+"#;
+
+    /// Park case 5 of the fixtures, a step failed for an ordinary reason,
+    /// written on `site` with `tries` tries.
+    fn park(h: &Host, site: &impl Site, tries: u32) -> Written {
+        case(h, site, "park", 5, tries)
+    }
+
+    /// Case `n` of fixture suite `suite`, its report written on `site`.
+    fn case(h: &Host, site: &impl Site, suite: &str, n: usize, tries: u32) -> Written {
+        fs::create_dir_all(h.dir.join("bin")).unwrap();
+        tehas_core::testing::write_exe(h.dir.join("bin/gh"), GH).unwrap();
+        let path = format!("{}/tests/fixtures/{suite}.json", env!("CARGO_MANIFEST_DIR"));
+        let cases: Vec<Value> = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        let c = &cases[n];
+        let facts = Facts::from_json(&c["facts"]).unwrap();
+        let mut ask = crate::report::Given(c["facts"]["github"].clone());
+        let mut r = report(&facts, &mut ask);
+        let how = How {
+            repo: facts.repo.clone(),
+            issue: 7,
+            attempt: 1,
+            now: 5,
+            gh_bin: h.dir.join("bin/gh").to_string_lossy().into_owned(),
+            tries,
+            retry_wait: Duration::ZERO,
+            bound: Duration::from_secs(10),
+            grace: Duration::ZERO,
+            workdir: h.dir.join("work").to_string_lossy().into_owned(),
+        };
+        write(
+            h.dir.path(),
+            &how,
+            &mut r,
+            &facts,
+            &mut ask,
+            h.handles(site),
+        )
+    }
+
+    /// The calls that start with one of `of`, cut at the first ` --` or ` <<<`.
+    fn order(h: &Host, of: &[&str]) -> Vec<String> {
+        h.calls()
+            .into_iter()
+            .filter(|c| of.iter().any(|o| c.starts_with(o)))
+            .map(|c| {
+                let c = c.split(" <<<").next().unwrap();
+                c.split(" --").next().unwrap().to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_park_goes_marks_record_question_asked_mark() {
+        let h = Host::new("park");
+        let w = world();
+        park(&h, &FakeSite::new(&w), 3);
+        assert_eq!(
+            order(&h, &["write", "store park", "store question", "gh"]),
+            [
+                "write unmark State(Running)",
+                "write mark State(NeedsPerson)",
+                "store park 7",
+                "gh api repos/acme/widget/issues/7/comments",
+                "store question-asked 7",
+                "write mark State(Question)",
+            ]
+        );
+        assert_eq!(
+            marks_of_7(&w),
+            vec![attention(), Mark::State(State::Question)]
+        );
+    }
+
+    #[test]
+    fn a_handoff_that_waits_for_a_merge_marks_the_issue_and_says_so_on_both() {
+        let h = Host::new("handoff");
+        let w = world();
+        case(&h, &FakeSite::new(&w), "handoff", 6, 3);
+        let writes: Vec<String> = order(&h, &["write"])
+            .into_iter()
+            .map(|c| c.chars().take(40).collect())
+            .collect();
+        assert_eq!(
+            writes,
+            [
+                "write unmark State(Running)",
+                "write mark State(AwaitingMerge)",
+                "write note Text(\"Tehas cycle finished: s",
+                "write change-comment 9 Text(\"Tehas cycle",
+            ]
+        );
+        assert_eq!(marks_of_7(&w), vec![Mark::State(State::AwaitingMerge)]);
+    }
+
+    #[test]
+    fn a_journal_that_fails_at_any_step_is_asked_no_more_and_said_once() {
+        for verb in ["poll-begin", "journal-record", "journal-attempt"] {
+            let h = Host::new(&format!("journal-{verb}"));
+            fs::write(h.dir.join("store-fail"), verb).unwrap();
+            let w = world();
+            let mut writer = h.writer(&FakeSite::new(&w));
+            assert!(writer.relabel(&[running()], &[attention()]));
+            writer.comment("Tehas cycle stopped.");
+            assert!(writer.unjournaled, "{verb}");
+            assert_eq!(
+                h.count(&format!("store {verb}")),
+                1,
+                "{verb}: {:#?}",
+                h.calls()
+            );
+            assert_eq!(h.count("write"), 3, "{verb}");
+            assert_eq!(marks_of_7(&w), vec![attention()], "{verb}");
+        }
+    }
+
+    #[test]
+    fn the_questions_body_goes_to_gh_on_standard_input_and_its_row_keeps_a_sum() {
+        let h = Host::new("park-stdin");
+        let w = world();
+        park(&h, &FakeSite::new(&w), 3);
+        let calls = h.calls();
+        let q = calls
+            .iter()
+            .find(|c| c.starts_with("gh api repos/acme/widget/issues/7/comments"))
+            .unwrap();
+        assert!(q.contains(r#"<<< {"body":""#), "{q}");
+        let record = calls
+            .iter()
+            .find(|c| c.starts_with("store journal-record") && c.contains("comment-post"))
+            .unwrap();
+        assert!(record.contains("sha256"), "{record}");
+        assert!(!record.contains("Tehas cycle"), "{record}");
+    }
+
+    #[test]
+    fn a_mark_that_stayed_is_said_in_the_question() {
+        let h = Host::new("park-stuck");
+        let w = world();
+        let site = Faulty::new(FakeSite::new(&w)).on(
+            Op::Tickets(TicketsOp::Unmark),
+            Fault::Refused(Refusal::Invalid),
+        );
+        park(&h, &site, 3);
+        assert_eq!(h.count("write unmark"), 3);
+        let q = h
+            .calls()
+            .into_iter()
+            .find(|c| c.starts_with("gh api repos/acme/widget/issues/7/comments"))
+            .unwrap();
+        assert!(q.contains("could not be changed"), "{q}");
+    }
+
+    #[test]
+    fn a_question_whose_mark_fails_is_taken_off_the_record_and_says_so() {
+        let h = Host::new("park-withdraw");
+        let w = world();
+        // The park's own mark goes on; the question's does not.
+        let site = Faulty::new(FakeSite::new(&w))
+            .on(
+                Op::Tickets(TicketsOp::Mark),
+                Fault::Refused(Refusal::Invalid),
+            )
+            .after(1);
+        park(&h, &site, 3);
+        let calls = order(&h, &["store question", "write note"]);
+        assert_eq!(calls[0], "store question-asked 7");
+        assert_eq!(calls[1], "store question-answered 7");
+        let boxes = format!("write note Text({BOXES:?})");
+        assert!(h.calls().contains(&boxes), "{:#?}", h.calls());
+    }
+
+    #[test]
+    fn a_park_the_store_will_not_take_asks_no_question() {
+        let h = Host::new("park-unrecorded");
+        fs::write(h.dir.join("store-fail"), "park 7").unwrap();
+        let w = world();
+        park(&h, &FakeSite::new(&w), 3);
+        assert_eq!(h.count("gh api repos/acme/widget/issues/7/comments"), 0);
+        let said = h
+            .calls()
+            .into_iter()
+            .find(|c| c.starts_with("gh issue comment 7"))
+            .unwrap();
+        assert!(said.contains("To retry, apply `tehas:ready`."), "{said}");
+    }
+
+    #[test]
+    fn after_a_stop_each_write_is_one_try() {
+        let h = Host::new("park-stop");
+        let w = world();
+        let site =
+            Faulty::new(FakeSite::new(&w)).on(Op::Tickets(TicketsOp::Unmark), Fault::Timeout);
+        park(&h, &site, 1);
+        assert_eq!(h.count("write unmark"), 1);
+    }
+
+    #[test]
+    fn a_write_with_no_row_keeps_its_tries() {
+        let h = Host::new("no-row-tries");
+        fs::write(h.dir.join("store-fail"), "journal-record").unwrap();
+        let w = world();
+        let site = Faulty::new(FakeSite::new(&w)).on(
+            Op::Tickets(TicketsOp::Note),
+            Fault::Refused(Refusal::Invalid),
+        );
+        let mut writer = h.writer(&site);
+        writer.comment("Tehas cycle stopped.");
+        assert_eq!(h.count("write note"), 3);
+        assert_eq!(h.count("store journal-settle"), 0);
     }
 }

@@ -518,6 +518,7 @@ fn handles(repo: &str, bound: Duration, grace: Duration) -> tehas_cycle::apply::
             code_host: Box::new(gh()),
         }),
         tickets: Box::new(gh()),
+        blueprints: Box::new(gh()),
         code_host: Box::new(gh()),
     }
 }
