@@ -2,16 +2,14 @@
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
+use tehas_core::testdir::TestDir;
 
 const FRONT: &str = env!("CARGO_BIN_EXE_tehas-front");
 
-fn scratch(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    dir
+fn scratch(name: &str) -> TestDir {
+    TestDir::new(&format!("front-{name}"))
 }
 
 /// A part that prints its words, one a line, and exits 5.
