@@ -27,15 +27,24 @@ impl GitHub {
     pub(crate) fn digest(&mut self, key: &TicketKey) -> Got<TicketDigest> {
         let issue = number(key)?;
         let out = self.issue_answer(issue).map_err(|e| self.outcome(&e))?;
-        let labels = gh::parse_labels(&out).ok_or(Outcome::Unread(Unread::Malformed))?;
-        let marks = self.read_marks(&labels).into_iter().flatten().collect();
-        read_digest(&out, key.clone(), marks).ok_or(Outcome::Unread(Unread::Malformed))
+        self.digest_of(key, &out)
     }
 
-    /// A ticket's marks going on and off, oldest first, as `Tickets::history`
-    /// answers for the kinds `Marked` and `Unmarked`. Any other kind, or
-    /// every kind (`only` None), is `Refused(Unsupported)` before any
-    /// request: this read holds the label events alone.
+    /// The digest of an issue's REST read. A pull request answers that read
+    /// too, and is no ticket: `NotFound`.
+    pub(crate) fn digest_of(&mut self, key: &TicketKey, out: &str) -> Got<TicketDigest> {
+        if gh::is_pull(out) {
+            return Err(Outcome::NotFound);
+        }
+        let labels = gh::parse_labels(out).ok_or(Outcome::Unread(Unread::Malformed))?;
+        let marks = self.read_marks(&labels).into_iter().flatten().collect();
+        read_digest(out, key.clone(), marks).ok_or(Outcome::Unread(Unread::Malformed))
+    }
+
+    /// A ticket's history, oldest first, as `Tickets::history` answers. The
+    /// kinds `Marked` and `Unmarked` alone are the label events' REST read;
+    /// any other kind, or every kind (`only` None), is the issue's timeline
+    /// (`ticket.rs`).
     pub fn history(
         &mut self,
         key: &TicketKey,
@@ -44,9 +53,10 @@ impl GitHub {
     ) -> Got<Took<TicketEvent>> {
         let issue = number(key)?;
         let marks = [HappenedKind::Marked, HappenedKind::Unmarked];
-        let only = only
-            .filter(|kinds| kinds.iter().all(|k| marks.contains(k)))
-            .ok_or(Outcome::Refused(Refusal::Unsupported))?;
+        let only = match only {
+            Some(kinds) if kinds.iter().all(|k| marks.contains(k)) => kinds,
+            _ => return self.timeline(key, window, only),
+        };
         let out = self.event_pages(issue).map_err(|e| self.outcome(&e))?;
         let mut read =
             gh::parse_with_facts(&out).map_err(|_| Outcome::Unread(Unread::Malformed))?;
@@ -86,7 +96,7 @@ impl GitHub {
     /// The mark of each label, in order: a word of the table, or the
     /// project's own mark, read with `MarkName::read_list`. None for a name
     /// no mark can have, which is kept once for the caller to report.
-    fn read_marks(&mut self, labels: &[String]) -> Vec<Option<Mark>> {
+    pub(crate) fn read_marks(&mut self, labels: &[String]) -> Vec<Option<Mark>> {
         let theirs = labels.iter().filter(|l| table::word(l).is_none()).cloned();
         let read = MarkName::read_list(theirs);
         for name in read.left_out {
@@ -119,7 +129,7 @@ impl GitHub {
 
 /// The issue a ticket is. A GitHub ticket is always its number: a key is no
 /// ticket here.
-fn number(key: &TicketKey) -> Got<u64> {
+pub(crate) fn number(key: &TicketKey) -> Got<u64> {
     match key {
         TicketKey::Number(n) => Ok(n.get()),
         TicketKey::Key(_) => Err(Outcome::Refused(Refusal::Invalid)),
@@ -178,8 +188,10 @@ fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDige
 }
 
 /// The account of an event, None where it names nobody. The login is folded
-/// to lower case, as GitHub compares logins.
-fn account(login: &str, facts: &gh::Facts) -> Option<Account> {
+/// to lower case, as GitHub compares logins, and an app's spellings
+/// (`x[bot]` in REST, `x` in GraphQL, `app/x`) to one, as the spec's `Login`
+/// says.
+pub(crate) fn account(login: &str, facts: &gh::Facts) -> Option<Account> {
     if login.is_empty() {
         return None;
     }
@@ -188,8 +200,6 @@ fn account(login: &str, facts: &gh::Facts) -> Option<Account> {
         Some("Bot") => AccountKind::Bot,
         _ => AccountKind::Unknown,
     };
-    // One account is REST's `<slug>[bot]` and GraphQL's `<slug>`: the port
-    // names it as the latter.
     let login = Login::new(tehas_core::accounts::folded(tehas_core::accounts::account(
         login,
     )));
@@ -199,7 +209,7 @@ fn account(login: &str, facts: &gh::Facts) -> Option<Account> {
 }
 
 /// What a window takes of a list, oldest first.
-fn take<T>(mut items: Vec<T>, window: Window) -> Got<Took<T>> {
+pub(crate) fn take<T>(mut items: Vec<T>, window: Window) -> Got<Took<T>> {
     match window {
         Window::Whole(bound) if items.len() > bound.get() as usize => {
             Err(Outcome::Unread(Unread::Cut))
