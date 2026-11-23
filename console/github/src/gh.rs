@@ -16,10 +16,10 @@
 //! beside [`tehas_core::forge::Bounded`], the runner that makes the reason,
 //! until the runner moves here.
 
+use crate::{Approval, LabelEvent};
 use serde_json::Value;
 use std::cmp::Ordering;
 pub use tehas_core::forge::{says_not_found, why};
-use tehas_core::forge::{Approval, LabelEvent};
 
 /// One label event, as the REST list gives it. `at` is None for an event with
 /// no stamp: it sorts before every stamped one and answers as the empty time.
@@ -266,7 +266,7 @@ pub(crate) fn parse_issue_types(out: &str) -> Result<Vec<String>, String> {
     }
 }
 
-/// Who gave the issue the type `name`, as [`tehas_core::forge::Forge::typed_by`] answers.
+/// Who gave the issue the type `name`, as [`crate::GitHub::typed_by`] answers.
 /// GitHub gives the timeline oldest first, so the newest change is the last.
 /// It names the setter only when it is the change that set `name`: a removal,
 /// a change to another type, or none at all, and the type came some way the

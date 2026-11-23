@@ -1,9 +1,87 @@
 //! The `GitHub` type: the forge's terms answered from GitHub's labels and
-//! their events, through a [`GhRunner`].
+//! their events, through a [`GhRunner`], and the values they answer with.
+//! The tickets port is answered over these terms (`tickets.rs`).
 
 use crate::gh;
 use crate::table::{is_label, APPROVAL_LABEL};
-use tehas_core::forge::{Approval, Forge, ForgeError, GhRunner, LabelEvent};
+use tehas_core::forge::GhRunner;
+
+/// A term the forge could not answer, as a value rather than a panic.
+///
+/// `call` names the term that stopped, so one line says what was attempted,
+/// and `why` is gh's reason, which the runner made from its fixed list of
+/// error words and never from the whole of its answer: a caller does not hold
+/// what may name a host or carry a token. An error is never an empty answer,
+/// and an empty answer is never an error.
+#[derive(Clone, Debug)]
+pub struct ForgeError {
+    pub call: String,
+    /// The reason, without its `": "`: the line adds that. Empty when the
+    /// call gave none.
+    pub why: String,
+}
+
+impl ForgeError {
+    /// The error of one call, with its reason, which may be empty. A reason is
+    /// what a runner said, not gh's own words: only the fixed list of them
+    /// belongs in a log line.
+    pub fn new(call: &str, why: impl Into<String>) -> ForgeError {
+        ForgeError {
+            call: call.to_string(),
+            why: why.into(),
+        }
+    }
+
+    /// The line a caller logs, shaped as the poll's lines are: what failed,
+    /// and gh's own words when it had any. The separator is made here, so a
+    /// reason never has to carry it.
+    pub fn line(&self) -> String {
+        if self.why.is_empty() {
+            format!("ERROR: {} failed", self.call)
+        } else {
+            format!("ERROR: {} failed: {}", self.call, self.why)
+        }
+    }
+}
+
+impl std::fmt::Display for ForgeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.line())
+    }
+}
+
+impl std::error::Error for ForgeError {}
+
+/// Who applied a label, and when, as the approval term answers. `None` is the
+/// answer of an issue nothing applied; an empty `actor` inside `Some` is a fact
+/// and not a refusal, the event's account being gone. The caller compares the
+/// account with the allowed list, which is what keeps authorisation where the
+/// site put it (AGENTS.md rule 5): the adapter answers who, and never whether
+/// that account may start anything.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Approval {
+    /// The account that applied the label, empty when the event names none.
+    pub actor: String,
+    /// The application's stamp, empty when it has none.
+    pub at: String,
+}
+
+/// The latest `labeled` or `unlabeled` event of one label: its kind, the
+/// account behind it, and its time. A field is empty when the event names
+/// none, which is what GitHub answers for an event whose actor is gone; an
+/// event with no time is read as older than any stamped one.
+///
+/// An empty `actor` is a fact, not a refusal: the caller compares it with the
+/// allowed list and decides that nobody was asked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LabelEvent {
+    /// `labeled` or `unlabeled`.
+    pub kind: String,
+    /// The account that changed the label, empty when the event names none.
+    pub actor: String,
+    /// The event's stamp, empty when it has none.
+    pub at: String,
+}
 
 /// gh's answer to the events call as [`tehas_core::events`] reads events. Why not
 /// when it says nothing of them: an empty answer included.
@@ -24,8 +102,8 @@ fn public(e: gh::Event) -> tehas_core::events::Event {
 /// today. It holds the repository it asks and the runner that asks GitHub, and
 /// reads nothing else.
 ///
-/// The ordering of the events that answers [`Forge::label_state`] and
-/// [`Forge::approval`] is the rules of [`gh`].
+/// The ordering of the events that answers [`GitHub::label_state`] and
+/// [`GitHub::approval`] is the rules of [`gh`].
 pub struct GitHub {
     /// `owner/name`, as `TEHAS_REPO` gives it.
     pub repo: String,
@@ -67,7 +145,7 @@ impl GitHub {
 
     /// Ask gh, keeping the reason a failed call gave. `args` are the words
     /// after gh; `call` is what a [`ForgeError`] names.
-    fn call(&mut self, call: &str, args: &[&str]) -> Result<String, ForgeError> {
+    pub(crate) fn call(&mut self, call: &str, args: &[&str]) -> Result<String, ForgeError> {
         match self.runner.run(args) {
             Ok(out) => Ok(out),
             Err(why) => Err(ForgeError::new(call, why)),
@@ -115,23 +193,39 @@ impl GitHub {
     }
 }
 
-impl Forge for GitHub {
-    fn labels(&mut self, issue: u64) -> Result<Vec<String>, ForgeError> {
+/// The forge's terms. `issue` is the issue's number in every term. Every
+/// term makes its own call and answers a value or a [`ForgeError`]: an empty
+/// value is the site's answer, and an answer that could not be read is an
+/// error, never an empty list.
+impl GitHub {
+    /// The labels the issue carries, in the order the site gave them.
+    pub fn labels(&mut self, issue: u64) -> Result<Vec<String>, ForgeError> {
         let out = self.issue_answer(issue)?;
         // The answer is read as an issue with labels or not at all: an answer
         // that is no issue is not an issue with no labels.
         gh::parse_labels(&out).ok_or_else(|| ForgeError::new("the issue", "no labels to read"))
     }
 
-    fn label_state(&mut self, issue: u64, label: &str) -> Result<Option<LabelEvent>, ForgeError> {
+    /// The newest `labeled` or `unlabeled` event of `label`, or None.
+    pub fn label_state(
+        &mut self,
+        issue: u64,
+        label: &str,
+    ) -> Result<Option<LabelEvent>, ForgeError> {
         Ok(gh::latest_event(&self.events(issue)?, label))
     }
 
-    fn label_events(&mut self, issue: u64) -> Result<Vec<tehas_core::events::Event>, ForgeError> {
+    /// Every label event of the issue, for a rule of the caller's to read.
+    pub fn label_events(
+        &mut self,
+        issue: u64,
+    ) -> Result<Vec<tehas_core::events::Event>, ForgeError> {
         Ok(self.events(issue)?.into_iter().map(public).collect())
     }
 
-    fn applied_by(&mut self, issue: u64, label: &str) -> Result<Option<Approval>, ForgeError> {
+    /// The newest application of `label`, or None when no event applied it.
+    /// A removal never answers it: authorisation is who applied the label.
+    pub fn applied_by(&mut self, issue: u64, label: &str) -> Result<Option<Approval>, ForgeError> {
         // The applications alone, as `tehas_label_actor` reads them: the
         // newest event of the label is not the newest application of it, and
         // a removal would hand the caller the remover's account to compare
@@ -144,11 +238,13 @@ impl Forge for GitHub {
         )
     }
 
-    fn approval(&mut self, issue: u64) -> Result<Option<Approval>, ForgeError> {
+    /// Who applied the label that approves work most recently, and when.
+    pub fn approval(&mut self, issue: u64) -> Result<Option<Approval>, ForgeError> {
         self.applied_by(issue, APPROVAL_LABEL)
     }
 
-    fn issue_types(&mut self) -> Result<Vec<String>, ForgeError> {
+    /// The names of the issue types an issue of the repository can be given.
+    pub fn issue_types(&mut self) -> Result<Vec<String>, ForgeError> {
         let (owner, name) = self.owner_name();
         let out = self.call(
             "the issue types",
@@ -166,7 +262,12 @@ impl Forge for GitHub {
         gh::parse_issue_types(&out).map_err(|why| ForgeError::new("the issue types", why))
     }
 
-    fn typed_by(&mut self, issue: u64, type_name: &str) -> Result<Option<Approval>, ForgeError> {
+    /// Who gave the issue the type it holds now, when that is `type_name`.
+    pub fn typed_by(
+        &mut self,
+        issue: u64,
+        type_name: &str,
+    ) -> Result<Option<Approval>, ForgeError> {
         let (owner, name) = self.owner_name();
         let out = self.call(
             "the issue's type events",
@@ -187,7 +288,9 @@ impl Forge for GitHub {
             .map_err(|why| ForgeError::new("the issue's type events", why))
     }
 
-    fn add_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError> {
+    /// Put `label` on the issue. A name no label can have is refused
+    /// without a call.
+    pub fn add_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError> {
         if !is_label(label) {
             return Err(ForgeError::new(
                 "the label change",
@@ -218,7 +321,9 @@ impl Forge for GitHub {
         Ok(())
     }
 
-    fn remove_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError> {
+    /// Take `label` off the issue. One that is not there is the state
+    /// wanted. A name no label can have is refused without a call.
+    pub fn remove_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError> {
         if !is_label(label) {
             return Err(ForgeError::new(
                 "the label change",
@@ -245,7 +350,7 @@ impl Forge for GitHub {
 /// its own past the segment it sits in. Applied to the one part of a path the
 /// site's own answer fills: the label of a removal. The dispatcher's
 /// `read::build::uri` holds the same function, for the branch of a query.
-fn uri(s: &str) -> String {
+pub(crate) fn uri(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {

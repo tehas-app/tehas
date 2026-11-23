@@ -10,7 +10,10 @@
 //! which no check of the list matches. A login of no list is left as it is.
 //!
 //! The key of a pair is the login as GraphQL gives it: REST names a GitHub
-//! App `<slug>[bot]` and GraphQL `<slug>`, one account.
+//! App `<slug>[bot]` and GraphQL `<slug>`, one account. GitHub logins are
+//! ASCII and one account in any case, so the vouch compares them as `folded`
+//! gives them: every case variant of a listed login carries its recorded id
+//! or does not count.
 
 use crate::grant::{self, Actor};
 use serde_json::Value;
@@ -36,6 +39,12 @@ pub fn account(login: &str) -> &str {
             login.strip_suffix("[bot]").unwrap_or(login)
         }
     }
+}
+
+/// A login as tehas compares it: ASCII case folded, nothing else. The one
+/// fold of a login, for the vouch, the allowed list and the ports' adapter.
+pub fn folded(login: &str) -> String {
+    login.to_ascii_lowercase()
 }
 
 /// Whether `login` is the factory's own, the bot's. An empty name matches
@@ -126,7 +135,8 @@ pub enum Doubt {
     Other { recorded: u64 },
 }
 
-/// The listed logins and the pairs recorded for them.
+/// The listed logins and the pairs recorded for them, keyed as `folded`
+/// gives them.
 #[derive(Debug, Default)]
 pub struct Accounts {
     listed: Vec<String>,
@@ -134,7 +144,22 @@ pub struct Accounts {
 }
 
 impl Accounts {
+    /// Two pairs of one login in two cases that disagree record no id for
+    /// it, so it does not count until `tehas update` settles it: it keeps
+    /// one pair a login, and a changed id stops it (console/ops/src/ids.rs).
     pub fn new(listed: Vec<String>, ids: BTreeMap<String, u64>) -> Accounts {
+        let listed = listed.iter().map(|l| folded(l)).collect();
+        let mut folds: BTreeMap<String, Option<u64>> = BTreeMap::new();
+        for (login, id) in ids {
+            folds
+                .entry(folded(&login))
+                .and_modify(|had| *had = had.filter(|h| *h == id))
+                .or_insert(Some(id));
+        }
+        let ids = folds
+            .into_iter()
+            .filter_map(|(l, id)| Some((l, id?)))
+            .collect();
         Accounts { listed, ids }
     }
 
@@ -155,7 +180,7 @@ impl Accounts {
         } else {
             read(Path::new(&home))
         };
-        Accounts { listed, ids }
+        Accounts::new(listed, ids)
     }
 
     /// Whether `login` with `id` counts as the listed account it names. A
@@ -166,14 +191,14 @@ impl Accounts {
     }
 
     fn is_listed(&self, login: &str) -> bool {
-        let key = account(login);
-        self.listed.iter().any(|l| l == key)
+        let key = folded(account(login));
+        self.listed.contains(&key)
     }
 
     fn actor<'a>(&self, login: &'a str, id: Option<u64>) -> Actor<&'a str> {
         Actor {
             login,
-            recorded: self.ids.get(account(login)).copied(),
+            recorded: self.ids.get(&folded(account(login))).copied(),
             carried: id,
         }
     }
@@ -325,6 +350,69 @@ mod tests {
         assert_eq!(a.doubt("mill", Some(3001)), None);
         assert_eq!(a.doubt("mill[bot]", Some(3001)), None);
         assert_eq!(a.doubt("mallory", None), None);
+    }
+
+    /// A login is one account in any case, so every case variant of a
+    /// listed login is checked against the recorded id.
+    #[test]
+    fn a_case_variant_of_a_listed_login_counts_only_with_its_recorded_id() {
+        let a = Accounts::new(listed("alice", ""), parse("alice 5\n").unwrap());
+        assert_eq!(
+            a.doubt("Alice", Some(99)),
+            Some(Doubt::Other { recorded: 5 })
+        );
+        assert_eq!(a.doubt("ALICE", None), Some(Doubt::NoId));
+        assert_eq!(a.doubt("Alice", Some(5)), None);
+        assert_eq!(a.doubt("alıce", Some(99)), None, "no ASCII variant");
+        // A list or a file in another case is the same account.
+        let b = Accounts::new(listed("Alice", ""), parse("ALICE 5\n").unwrap());
+        assert_eq!(
+            b.doubt("alice", Some(99)),
+            Some(Doubt::Other { recorded: 5 })
+        );
+        assert_eq!(b.doubt("alice", Some(5)), None);
+        let mut v = json!([{"actor": {"login": "Alice", "id": 99}},
+            {"actor": {"login": "ALICE"}}, {"actor": {"login": "Alice", "id": 5}}]);
+        a.vouch(&mut v);
+        let logins: Vec<&str> = (0..3)
+            .map(|i| v[i]["actor"]["login"].as_str().unwrap())
+            .collect();
+        assert_eq!(logins, ["Alice#99", "ALICE#", "Alice"]);
+    }
+
+    /// Two entries of a list that differ only in case are one account. Two
+    /// recorded ids for it that disagree vouch for neither.
+    #[test]
+    fn ids_recorded_for_one_login_in_two_cases_must_agree() {
+        let same = Accounts::new(
+            listed("alice Alice", ""),
+            parse("alice 5\nAlice 5\n").unwrap(),
+        );
+        assert_eq!(same.doubt("ALICE", Some(5)), None);
+        let split = Accounts::new(
+            listed("alice Alice", ""),
+            parse("alice 5\nAlice 99\n").unwrap(),
+        );
+        for id in [5, 99] {
+            assert_eq!(
+                split.doubt("alice", Some(id)),
+                Some(Doubt::Unrecorded),
+                "{id}"
+            );
+            assert_eq!(
+                split.doubt("Alice", Some(id)),
+                Some(Doubt::Unrecorded),
+                "{id}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_fold_is_ascii_case_alone() {
+        assert_eq!(folded("Alice"), "alice");
+        assert_eq!(folded("ACME-Bot[bot]"), "acme-bot[bot]");
+        assert_eq!(folded("alıce"), "alıce");
+        assert_eq!(folded(""), "");
     }
 
     #[test]
