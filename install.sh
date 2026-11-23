@@ -550,6 +550,14 @@ tehas_tool_paths
 # have named another home.
 refuse_home
 
+# The paths under the home's state/ that more than one line here names, each
+# written once, after the home is settled. Home (console/core/src/home.rs)
+# owns the layout; no console verb prints its paths, so they are written here.
+state_dir=$TEHAS_HOME/state
+db_file=$TEHAS_HOME/state/tehas.db
+backup_dir=$TEHAS_HOME/state/backup
+dispatch_lock=$TEHAS_HOME/state/dispatch.lock
+
 # --- 1c. The commit the store records -----------------------------------------
 # The store's database records which commit of tehas made it, and the pages and
 # the store show the version, both as the console reads them from this tree
@@ -591,8 +599,8 @@ if [ "$check" != 1 ]; then
   # yet has none, and a run that has not been given the lock by tehas update
   # opens the file itself. It is the store's directory too, so it is 0700 from
   # here on: with WAL on, a readable state/ is a readable copy of the database.
-  if ! mkdir -p "$TEHAS_HOME/state" || ! chmod 700 "$TEHAS_HOME/state"; then
-    echo "tehas: could not make $TEHAS_HOME/state mode 0700; nothing was installed" >&2
+  if ! mkdir -p "$state_dir" || ! chmod 700 "$state_dir"; then
+    echo "tehas: could not make $state_dir mode 0700; nothing was installed" >&2
     exit 1
   fi
   if [[ $update_fd =~ ^[0-9]+$ ]] && [ "/dev/fd/$update_fd" -ef "$update_lock" ]; then
@@ -929,26 +937,26 @@ fi
 # refuses or copies it cannot write stop the run with exit 78.
 dispatch_held=0
 dispatch_hold() {
-  exec 9>>"$TEHAS_HOME/state/dispatch.lock"
+  exec 9>>"$dispatch_lock"
   if ! flock -w "$dispatch_wait" 9; then
-    echo "tehas: a poll is running ($TEHAS_HOME/state/dispatch.lock still held after ${dispatch_wait}s); nothing was installed" >&2
+    echo "tehas: a poll is running ($dispatch_lock still held after ${dispatch_wait}s); nothing was installed" >&2
     exit 1
   fi
   dispatch_held=1
   if [ ! -e "$TEHAS_HOME/$home_marker" ] && [ ! -L "$TEHAS_HOME/$home_marker" ]; then
     printf 'tehas\n' | "$steps_console" update files write "$TEHAS_HOME/$home_marker" || exit 1
   fi
-  [ -e "$TEHAS_HOME/state/tehas.db" ] || [ -L "$TEHAS_HOME/state/tehas.db" ] || return 0
+  [ -e "$db_file" ] || [ -L "$db_file" ] || return 0
   if [ ! -x "$gate_store" ]; then
-    echo "tehas: there is no store to judge $TEHAS_HOME/state/tehas.db with ($gate_store); nothing was installed" >&2
+    echo "tehas: there is no store to judge $db_file with ($gate_store); nothing was installed" >&2
     exit 78
   fi
   # The store says its refusal itself, exit 78; any other status is a store
   # that could not say.
-  local copies=$TEHAS_HOME/state/backup
+  local copies=$backup_dir
   TEHAS_HOME=$TEHAS_HOME "$gate_store" migrate --dry-run --backup "$copies" >/dev/null && return 0
-  [ $? = 78 ] || { echo "tehas: the store could not judge $TEHAS_HOME/state/tehas.db; nothing was installed" >&2; exit 1; }
-  echo "tehas: this release cannot migrate $TEHAS_HOME/state/tehas.db; nothing was installed" >&2
+  [ $? = 78 ] || { echo "tehas: the store could not judge $db_file; nothing was installed" >&2; exit 1; }
+  echo "tehas: this release cannot migrate $db_file; nothing was installed" >&2
   exit 78
 }
 # Given back before the first index, which takes the lock itself.
@@ -980,7 +988,7 @@ had_versions=0
 # marker go into a home that is not yet there.
 # --check changes nothing, so it makes neither.
 if [ "$check" != 1 ]; then
-  mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/items" \
+  mkdir -p "$TEHAS_HOME/logs" "$state_dir" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/items" \
     "$TEHAS_HOME/preview"
   # A home with no env.sh has never been installed.
   [ -f "$TEHAS_HOME/env.sh" ] || : >"$first_owed"
@@ -1015,7 +1023,7 @@ if [ "$sandbox_changed" = 1 ]; then
     # a run that had nothing else to do prints "tehas is up to date" and ends
     # before then. A run that died with the step still in the record leaves the
     # file unseen, so tehas update owes the build and the next install sees it.
-    mkdir -p "$TEHAS_HOME/state"
+    mkdir -p "$state_dir"
     if hash=$(sha256sum "$instance/sandbox.Dockerfile" 2>/dev/null); then
       printf '%s\n' "${hash:0:64}" | "$steps_console" update files write "$sandbox_at_file" || exit 1
     else
@@ -1166,17 +1174,17 @@ fi
 # A store that fails stops the run: the files are copied, the database is left
 # as it was, and the store's own line says why.
 store_db() {
-  local store=$TEHAS_HOME/libexec/store db=$TEHAS_HOME/state/tehas.db version=$tree_version name verb
+  local store=$TEHAS_HOME/libexec/store db=$db_file version=$tree_version name verb
   name=${instance%/}
   name=${name##*/}
   [ -n "$version" ] || version=${store_commit:0:7}
   if [ -e "$db" ] || [ -L "$db" ]; then
-    verb=(migrate --backup "$TEHAS_HOME/state/backup")
+    verb=(migrate --backup "$backup_dir")
   else
     verb=(init)
   fi
   [ -x "$store" ] || { echo "tehas: $store is not installed, so $db was neither made nor migrated" >&2; exit 1; }
-  chmod 700 "$TEHAS_HOME/state" || { echo "tehas: could not keep $TEHAS_HOME/state mode 0700" >&2; exit 1; }
+  chmod 700 "$state_dir" || { echo "tehas: could not keep $state_dir mode 0700" >&2; exit 1; }
   if ! TEHAS_HOME=$TEHAS_HOME "$store" "${verb[@]}" --version "$version" --commit "$store_commit" \
     --instance "$name" --repo "$TEHAS_REPO" --say; then
     echo "tehas: the store could not ${verb[0]} $db; the files are installed, the database was left as it was" >&2
