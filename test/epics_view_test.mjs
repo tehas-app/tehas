@@ -1,5 +1,5 @@
 // Tests view() of the epics panel: the pure step from live/epics.json to the
-// epics the two front pages draw.
+// epics the front page draws.
 //
 //   node --test test/epics_view_test.mjs
 import assert from "node:assert/strict";

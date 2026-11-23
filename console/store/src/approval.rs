@@ -44,31 +44,13 @@ pub struct Record {
 pub const MILLWRIGHT: &str = tehas_core::grammar::MILLWRIGHT;
 
 /// The keys `--input-file` may hold: what the cycle is given with the
-/// approval. Each list is a JSON array, `refresh_of` an object or null and
-/// `spec` a `spec_pin`; the readers check
-/// the entries. `driver` is
-/// written only when it is `DRIVER`: no driver means classic, which is every
-/// record written before it existed.
+/// approval. Each list is a JSON array and `refresh_of` an object or null;
+/// the readers check the entries. `driver` is written only when it is
+/// `DRIVER`: no driver means classic, which is every record written before it
+/// existed.
 const INPUT_LISTS: [&str; 2] = ["links", "retry_context"];
 const INPUT_BOUND: u64 = tehas_core::file::READ_BOUND;
 const DRIVER: &str = "lean";
-
-/// The pin of the spec an approval binds, written only with the spec-pipe
-/// feature on: {link, sha256}, the link of the file and the sha256 of the
-/// bytes the dispatcher fetched for it. The link is https and one word, the
-/// sum 64 lower-case hex digits.
-pub fn spec_pin(v: &Value) -> bool {
-    let Value::Object(m) = v else {
-        return false;
-    };
-    let link = v["link"].as_str().is_some_and(|l| {
-        l.starts_with("https://")
-            && !l
-                .bytes()
-                .any(|b| b.is_ascii_whitespace() || b.is_ascii_control())
-    });
-    m.len() == 2 && link && v["sha256"].as_str().and_then(verbs::sha256).is_some()
-}
 
 /// The how of an approval `tehas start` records on the host (#1967): no GitHub
 /// login gave it, and its row says `host` for the account too.
@@ -240,8 +222,6 @@ fn read_input(path: &Path, issue: i64) -> Result<String, Fail> {
             value.is_object() || value.is_null()
         } else if key == "driver" {
             value == DRIVER
-        } else if key == "spec" {
-            spec_pin(value)
         } else {
             return Err(bad(&format!(
                 "holds a key it may not: {}",
@@ -770,9 +750,6 @@ pub fn view_of(answer: &Value, want: Option<i64>) -> Result<String, Fail> {
     }
     if !holds_nothing(at_input("retry_context"))? {
         p.push(("retry_context", at_input("retry_context").to_string()));
-    }
-    if let Some(v) = input.get("spec") {
-        p.push(("spec", v.to_string()));
     }
     if how == MILLWRIGHT || how == "refresh" {
         p.push(("rests_on", rests_on));

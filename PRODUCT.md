@@ -53,7 +53,7 @@ typeface is the exception: it sets every word on the front page.
 That identity is the pixel design's, for a site where the factory is shown and
 demonstrated: with `TEHAS_DESIGN=pixel` it draws the whole site. A factory that
 sets nothing is in the business register everywhere: beesknees26, IBM Plex on
-white panels with one muted green, with the business page at `/`. Same voice,
+white panels with one muted green, with the factory floor at `/`. Same voice,
 same facts, no 16-bit clothing.
 
 Voice is short and plain, in the manner of game interface text: labels, counts,

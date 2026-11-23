@@ -757,8 +757,8 @@ fn completed_count_is_every_closed_issue_labelled_tehas_shipped_though_the_list_
 // The figure is published as a whole number of issues, or no key at all: an
 // answer that is not one is dropped rather than published for a reader to
 // judge, and 0 is a published answer, not an absent one. The bounds are the
-// ones host/fun/business-view.js accepts, so both sides of the pair are
-// pinned here.
+// ones a JavaScript reader holds exactly, the business plugin's page among
+// them.
 #[test]
 fn completed_count_is_published_only_as_a_whole_number_of_issues() {
     let w = World::new("count-whole");

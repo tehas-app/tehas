@@ -7,7 +7,6 @@
 // (test/analytics_view_test.mjs). Every figure says its count as "n=N": with
 // ten days of data the numbers are small.
 
-export const READ_EVERY = 60; // seconds: the file changes once a poll, every two minutes
 export const VERSION_FLOOR = 3; // the report gives a pair's figures from three runs
 
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -48,14 +47,6 @@ export function tokens(v) {
 function heights(values) {
   const max = Math.max(0, ...values);
   return values.map((v) => (max > 0 ? v / max : 0));
-}
-
-// Should the page read the file now? Not while it is hidden, and not more
-// than once in READ_EVERY seconds, whether the last answer was a file or not.
-// readAt: when it was last asked for, 0 for never.
-export function dueToRead({ hidden = false, readAt = 0 } = {}, nowMs = Date.now()) {
-  if (hidden) return false;
-  return !readAt || nowMs - readAt >= READ_EVERY * 1000;
 }
 
 // data: the parsed file, or null where there is none.
