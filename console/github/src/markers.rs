@@ -19,14 +19,18 @@
 //! white space is `>`), inside a fenced code block, or inside a code span
 //! of one line. An indented line is text: tehas's writers indent nothing,
 //! and a list's continuation line is indented too.
+//!
+//! [`write`] is the reading's inverse: a text and its markers made into
+//! the one text GitHub keeps, each marker's words from `table.rs`, and
+//! held to read back as what it was given.
 
 use std::num::{NonZeroU32, NonZeroU64};
 
 use crate::table::{self, MarkerRow, Rule};
 use tehas_ports::{
-    BlueprintNo, FinishMarker, FinishResult, KeyText, LastAttemptMarker, Marker, MarkerKind,
-    MarkerWord, MillwrightAction, MillwrightMarker, ParkMarker, QuestionKind, Ref, Sha256,
-    TicketKey,
+    BlueprintNo, FinishMarker, FinishResult, Got, KeyText, LastAttemptMarker, Marker, MarkerKind,
+    MarkerWord, MillwrightAction, MillwrightMarker, Outcome, ParkMarker, QuestionKind, Ref,
+    Refusal, Sha256, TicketKey,
 };
 
 /// A text as the ports carry it: without our markers, and the markers.
@@ -68,6 +72,70 @@ pub fn read(body: &str, item: Option<BlueprintNo>) -> Read {
         text: without(body, &lines, &spans),
         markers,
     }
+}
+
+/// The text GitHub keeps for `text` and `markers`, written on the item
+/// `item`: the text, a blank line, then each marker alone on its line in
+/// the order given, a block as its open line, its note and its close line.
+/// That is where 1.x put them: `q_render` ends a question with the park's
+/// marker and its own (`console/core/src/question.rs` line 461), and the
+/// last attempt's note follows the body after a blank line
+/// (`console/cycle/src/last_attempt.rs` line 96). Each marker's words are
+/// its row's, as `table::marker_text` writes them. A text with no marker is
+/// kept as it is; with one, it is kept as [`read`] gives it back: without
+/// the blank lines at its start and the white space at its end.
+///
+/// `read(&write(text, markers, item)?, item)` answers that text and
+/// `markers`, or the write is refused. Before any request:
+/// `Refused(Invalid)` for a marker that is not writable, for a text or a
+/// block's note that holds anything [`read`] reports as a marker (wrapped,
+/// badly wrapped or bare, of this item or another), and for a whole that
+/// would not read back as given: a fence the text leaves open, two blocks
+/// of one kind, a marker of another item, a note that holds its close line.
+/// Nothing is escaped. `Refused(Unsupported)` for a project's own marker,
+/// whose words the table does not hold.
+pub fn write(text: &str, markers: &[Marker], item: Option<BlueprintNo>) -> Got<String> {
+    let invalid = Outcome::Refused(Refusal::Invalid);
+    let marked_note = |m: &Marker| matches!(m, Marker::LastAttempt(l) if holds_marker(&l.note));
+    if holds_marker(text) || markers.iter().any(|m| !m.writable() || marked_note(m)) {
+        return Err(invalid);
+    }
+    if markers.is_empty() {
+        return Ok(text.to_string());
+    }
+    let lines = markers
+        .iter()
+        .map(|m| table::marker_text(m).ok_or(Outcome::Refused(Refusal::Unsupported)))
+        .collect::<Got<Vec<String>>>()?;
+    let text = kept(text);
+    let mut body = String::with_capacity(text.len() + 2 + lines.iter().map(String::len).sum::<usize>());
+    if !text.is_empty() {
+        body.push_str(text);
+        body.push_str("\n\n");
+    }
+    body.push_str(&lines.join("\n"));
+    let back = read(&body, item);
+    if back.text != text || back.markers != markers {
+        return Err(invalid);
+    }
+    Ok(body)
+}
+
+/// Whether [`read`] finds any marker in `text`, of any item.
+fn holds_marker(text: &str) -> bool {
+    !read(text, None).markers.is_empty()
+}
+
+/// `text` as [`read`] leaves the text around a marker it took out: without
+/// the white space at its end and the blank lines at its start.
+fn kept(text: &str) -> &str {
+    let text = text.trim_end();
+    let blank = text
+        .split_inclusive('\n')
+        .take_while(|l| l.trim().is_empty())
+        .map(str::len)
+        .sum::<usize>();
+    &text[blank..]
 }
 
 /// One line: where it starts, where its text ends, and where the next line
