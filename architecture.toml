@@ -65,8 +65,8 @@ allowed = [
   "console/tests/store_paths.rs",
 ]
 comment = "//"
-max = 1837
-why = "Re-measured at T0's follow-up, with tests in files counted and needs-human-attention and epic added: dispatch 1010, cycle 228, core 189, the console 184, ops 137, store 70, the front pages 34, mcp 21, analytics 4, plugin 1. 930 are in test files. T2 gives the state words one owner in core, checked against host/labels.tsv. console/tests/store_paths.rs is allowed: its one match is a park marker it gives the store lint's patterns as a line they must not take, data the lint reads, not a label anything writes. Each allowed test file is listed in `allowed` with a comment saying what it covers."
+max = 1820
+why = "Re-measured at T0's follow-up, with tests in files counted and needs-human-attention and epic added: dispatch 1010, cycle 228, core 189, the console 184, ops 137, store 70, the front pages 34, mcp 21, analytics 4, plugin 1. 930 are in test files. T2 gives the state words one owner in core, checked against host/labels.tsv. console/tests/store_paths.rs is allowed: its one match is a park marker it gives the store lint's patterns as a line they must not take, data the lint reads, not a label anything writes. Each allowed test file is listed in `allowed` with a comment saying what it covers. T16's drop of tehas:prototype takes 17 out."
 
 [[check]]
 id = "home-layout"
