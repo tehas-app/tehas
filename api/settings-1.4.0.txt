@@ -1,11 +1,15 @@
-# Every setting name the rules table of tehas v1.4.0 accepted
-# (console/core/src/settings/rules.rs, TABLE), one per line in the table's
-# order. A name ending <NAME> is a family. Generated once, and never edited:
+# Every setting name tehas v1.4.0 accepted, generated once and never edited.
+# A name ending <NAME> is a family.
+# The instance settings, a bare name each: the rules table of
+# console/core/src/settings/rules.rs (TABLE), in its order, from
 #   git show v1.4.0:api/settings-rules.json | jq -r '.settings[].name'
-# v1.4.0's test/settings_rules_test.sh pins that file to what TABLE prints.
-# console/core/src/settings/load.rs holds each name against today's load: an
-# instance that loaded on v1.4.0 must still load, so each is in today's table
-# or dropped with a warning (IGNORED), never refused.
+# The host settings, of ~/.config/tehas/env, `host <name>` each: its HOST
+# table, in its order, from
+#   git show v1.4.0:api/settings-rules.json | jq -r '.host[].name'
+# v1.4.0's test/settings_rules_test.sh pins that file to what the tables print.
+# console/core/src/settings/load.rs holds each name against today's load: a
+# config that loaded on v1.4.0 must still load, so each is in today's table of
+# its kind or dropped with a warning (IGNORED), never refused.
 TEHAS_SITE_INDEXING
 TEHAS_SITE_CONSOLE
 TEHAS_WORK_IMAGES
@@ -107,3 +111,13 @@ TEHAS_ALLOWED_LABELERS
 PI_ENSEMBLE_SUBAGENT_MODEL
 PI_ENSEMBLE_SUBAGENT_PROVIDER
 TEHAS_REVIEW_REPO
+host TEHAS_HOME
+host TEHAS_INSTANCE_DIR
+host TEHAS_MODEL_KEY_<NAME>
+host TEHAS_MCP
+host TEHAS_MCP_KEYS
+host TEHAS_MCP_DASHBOARD_KEYS
+host TEHAS_MCP_CHECKOUT
+host TEHAS_ENERGY
+host TEHAS_ENERGY_URL
+host TEHAS_UPDATE_LOCK_WAIT

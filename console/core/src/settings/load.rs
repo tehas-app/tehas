@@ -2609,23 +2609,42 @@ mod tests {
 
     #[test]
     fn every_setting_v1_4_0_accepted_is_kept_or_dropped_with_a_warning_never_refused() {
-        let names: Vec<&str> = V1_4_0
+        let rows: Vec<&str> = V1_4_0
             .lines()
             .filter(|l| !l.is_empty() && !l.starts_with('#'))
             .collect();
-        assert!(names.len() > 90, "{} names", names.len());
-        for name in names {
-            let kept = TABLE.iter().any(|s| s.name == name);
-            assert!(
-                kept || ignored(name),
-                "{name} loaded on v1.4.0 and is neither in TABLE nor IGNORED"
-            );
+        let (mut instance, mut host, mut dropped) = (0, 0, Vec::new());
+        for row in rows {
+            let (name, table) = match row.strip_prefix("host ") {
+                Some(name) => {
+                    host += 1;
+                    (name, HOST)
+                }
+                None => {
+                    instance += 1;
+                    (row, TABLE)
+                }
+            };
+            if !table.iter().any(|s| s.name == name) {
+                assert!(
+                    ignored(name),
+                    "{name} loaded on v1.4.0 and is neither in its table nor IGNORED"
+                );
+                dropped.push(name);
+            }
             assert!(!retired(name), "{name} loaded on v1.4.0 and is refused now");
             assert!(
                 !renamed::rows().iter().any(|r| r.old == name),
                 "{name} loaded on v1.4.0 and is a renamed row now"
             );
         }
+        assert_eq!((instance, host), (101, 10));
+        // What 2.0 dropped of v1.4.0's is all of IGNORED: a name on it that
+        // v1.4.0 never read would be a warning for a line no config holds.
+        dropped.sort_unstable();
+        let mut all: Vec<&str> = IGNORED.iter().map(|(n, _)| *n).collect();
+        all.sort_unstable();
+        assert_eq!(dropped, all);
     }
 
     #[test]
