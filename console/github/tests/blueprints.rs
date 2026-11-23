@@ -15,7 +15,7 @@ use tehas_github::GitHub;
 use tehas_ports::laws;
 use tehas_ports::{
     Actor, BlueprintHit, BlueprintNo, Blueprints, Bound, CommentId, Depth, Got, Outcome, Pool,
-    Refusal, Took, Within,
+    Refusal, Took, Unread, Within,
 };
 
 const PROJECT: &str = "acme/widget";
@@ -260,4 +260,61 @@ fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
     assert_eq!(gh.attachments(no), Err(unsupported.clone()));
     assert_eq!(gh.changed(None).map(|_| ()), Err(unsupported.clone()));
     assert_eq!(gh.delta(None, bound).map(|_| ()), Err(unsupported));
+}
+
+/// A search that holds more than GitHub gives: every page is full, of
+/// issues titled `title`, numbered on from the page's start, and the
+/// total is `total`.
+struct Wide {
+    total: usize,
+    title: &'static str,
+    asked: Asked,
+}
+
+impl GhRunner for Wide {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        self.asked.borrow_mut().push(args.join(" "));
+        let page: usize = args
+            .iter()
+            .find_map(|a| a.strip_prefix("page="))
+            .and_then(|p| p.parse().ok())
+            .unwrap();
+        let items: Vec<String> = (1..=100)
+            .map(|k| {
+                let no = (page - 1) * 100 + k;
+                format!(
+                    r#"{{"number":{no},"title":"{} {no}","state":"open","body":null,"repository_url":"https://api.github.com/repos/{PROJECT}"}}"#,
+                    self.title
+                )
+            })
+            .collect();
+        Ok(format!(
+            r#"{{"total_count":{},"incomplete_results":false,"items":[{}]}}"#,
+            self.total,
+            items.join(",")
+        ))
+    }
+}
+
+#[test]
+fn past_githubs_reach_a_search_that_cannot_tell_is_inconsistent() {
+    let asked = Asked::default();
+    let wide = |title| Wide {
+        total: 1500,
+        title,
+        asked: Rc::clone(&asked),
+    };
+    // No hit holds the word: past the thousandth item, one might.
+    let mut gh = GitHub::new(PROJECT, Box::new(wide("Other")));
+    assert_eq!(
+        gh.search("report", Within::Titles, None, n(5)),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    assert_eq!(asked.borrow().len(), 10);
+    // Hits enough within reach: the first n, and more.
+    asked.borrow_mut().clear();
+    let mut gh = GitHub::new(PROJECT, Box::new(wide("Report")));
+    let took = gh.search("report", Within::Titles, None, n(150)).unwrap();
+    assert_eq!((took.items.len(), took.more), (150, true));
+    assert_eq!(asked.borrow().len(), 2);
 }
