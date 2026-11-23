@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Account, AccountId, AccountKind, Actor, At, BlueprintNo, Branch, ChangeEvent, ChangeNo,
-    ChangeState, Check, CommentId, CommitId, DeployCredential, Got, Keyring, Kind, Links,
+    ChangeState, Check, CommentId, CommitId, DeployCredential, Got, Keyring, Kind, Links, Mark,
     Mergeable, PersonKey, ProjectName, Realm, Release, RepoPath, Scope, Secret, SignInCode,
     Standing, Tag, TagName, Target, TargetId, TicketKey, Token, Write,
 };
@@ -461,6 +461,7 @@ impl World {
             };
             let author =
                 Some(s.account(spec.author.as_deref().unwrap_or(FACTORY), Realm::CodeHost));
+            let base_commit = s.branch_at(&base).unwrap_or_else(|| head_commit.clone());
             let seq = s.bump();
             let no = ChangeNo::from(nz(n));
             s.changes.push(ChangeRec {
@@ -472,6 +473,7 @@ impl World {
                 head,
                 head_commit,
                 base,
+                base_commit,
                 author,
                 draft: false,
                 merge_state: Mergeable::Yes,
@@ -614,6 +616,12 @@ impl World {
         if let Some(at) = s.comment_at(id) {
             s.comments[at].gone = true;
         }
+    }
+
+    /// Rename a mark as a person with the site's settings does: it keeps
+    /// its id, and every ticket and event that named it names `to`.
+    pub fn rename_mark(&self, from: &Mark, to: &Mark) {
+        self.lock().rename_mark(from, to);
     }
 
     /// Edit an item's text as another account does, between a caller's

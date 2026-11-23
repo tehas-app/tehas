@@ -17,14 +17,14 @@ use crate::{
     ChangeFilter, ChangeItem, ChangeNo, ChangeToken, ChangedFile, Checks, Cite, Cites, CloseReason,
     ClosedTicket, CodeHost, CodeHostWrites, Comment, CommentId, CommitId, Compared, Cursor, Depth,
     Did, Edit, Facts, Failure, FileName, Filed, Filter, Got, HappenedKind, HealthState, Holder,
-    HolderId, HostId, Identity, Item, Kind, Ledger, Login, Mark, MarkSpec, Marker, MarkerEdit,
-    MarkerKey, MarkerKind, MergeHow, MeterRow, NewBlueprint, NewChange, NewRelease, NewTicket,
-    OpenWork, Outcome, Part, Passing, Pool, PortName, Posted, Priority, ProjectName, Proposal,
-    ProposalPart, Proposed, Realm, Refusal, Release, ReleaseId, Remote, RepoPath, Report, Reports,
-    Rev, Revision, Scope, Secret, Sent, SignInCode, SignInState, Site, SiteId, Standing, Status,
-    Step, StepPart, Sum, Tag, TagName, Target, TargetEdit, TargetId, Ticket, TicketDelta,
+    HolderId, HostId, Identity, Item, Kind, Ledger, Login, Mark, MarkHeld, MarkSpec, Marker,
+    MarkerEdit, MarkerKey, MarkerKind, MergeHow, MeterRow, NewBlueprint, NewChange, NewRelease,
+    NewTicket, OpenWork, Outcome, Part, Passing, Pool, PortName, Posted, Priority, ProjectName,
+    Proposal, ProposalPart, Proposed, Realm, Refusal, Release, ReleaseId, Remote, RepoPath, Report,
+    Reports, Rev, Revision, Scope, Secret, Sent, SignInCode, SignInState, Site, SiteId, Standing,
+    Status, Step, StepPart, Sum, Tag, TagName, Target, TargetEdit, TargetId, Ticket, TicketDelta,
     TicketDigest, TicketEvent, TicketKey, TicketWrites, Tickets, Token, Took, Unprepared, Unread,
-    WebLink, Whole, Whose, Window, Within, WorkItem,
+    WebLink, Whole, Whose, Window, WithCloser, Within, WorkItem,
 };
 
 /// How many seconds of failures a `Faulty` asks its ledger to keep: the
@@ -44,6 +44,8 @@ pub enum TicketsOp {
     List,
     /// `Tickets::several`.
     Several,
+    /// `Tickets::several_with_closers`.
+    SeveralWithClosers,
     /// `Tickets::history`.
     History,
     /// `Tickets::notes`.
@@ -64,6 +66,8 @@ pub enum TicketsOp {
     FindMarked,
     /// `Tickets::kinds`.
     Kinds,
+    /// `Tickets::marks`.
+    Marks,
     /// `Tickets::targets`.
     Targets,
     /// `Tickets::members`.
@@ -510,8 +514,10 @@ type Calls = Vec<(Op, Option<Actor>, u32)>;
 struct Shared {
     rules: Vec<Rule>,
     draws: Vec<(Op, Vec<Pool>)>,
-    calls: Mutex<Calls>,
-    requests: Mutex<Vec<(Actor, u32)>>,
+    /// Shared with the `until` views made of it.
+    calls: Arc<Mutex<Calls>>,
+    /// Shared with the `until` views made of it.
+    requests: Arc<Mutex<Vec<(Actor, u32)>>>,
     watch: Option<Watch>,
 }
 
@@ -564,8 +570,8 @@ impl<S: Site> Faulty<S> {
             shared: Arc::new(Shared {
                 rules: Vec::new(),
                 draws: Vec::new(),
-                calls: Mutex::new(Vec::new()),
-                requests: Mutex::new(Vec::new()),
+                calls: Arc::new(Mutex::new(Vec::new())),
+                requests: Arc::new(Mutex::new(Vec::new())),
                 watch: None,
             }),
         }
@@ -579,8 +585,8 @@ impl<S: Site> Faulty<S> {
             let copy = Shared {
                 rules: s.rules.clone(),
                 draws: s.draws.clone(),
-                calls: Mutex::new(lock(&s.calls).clone()),
-                requests: Mutex::new(lock(&s.requests).clone()),
+                calls: Arc::new(Mutex::new(lock(&s.calls).clone())),
+                requests: Arc::new(Mutex::new(lock(&s.requests).clone())),
                 watch: s.watch.clone(),
             };
             self.shared = Arc::new(copy);
@@ -679,6 +685,28 @@ impl<S: Site> Faulty<S> {
 impl<S: Site> Site for Faulty<S> {
     fn realms(&self) -> &[Realm] {
         self.site.realms()
+    }
+
+    /// The view of its site's `until`, under the same rules, counting its
+    /// calls and requests with this one's. With a watch, the watch's
+    /// `deadline` is `until`, or the earlier one it had.
+    fn until(&self, until: At) -> Arc<dyn Site> {
+        let s = &*self.shared;
+        let watch = s.watch.clone().map(|mut w| {
+            w.deadline = Some(w.deadline.map_or(until, |d| d.min(until)));
+            w
+        });
+        Arc::new(Faulty {
+            site: self.site.until(until),
+            shared: Arc::new(Shared {
+                rules: s.rules.clone(),
+                draws: s.draws.clone(),
+                calls: Arc::clone(&s.calls),
+                requests: Arc::clone(&s.requests),
+                watch,
+            }),
+            log: self.log.clone(),
+        })
     }
 
     fn mark_name(&self, mark: &crate::Mark) -> String {
@@ -1065,6 +1093,12 @@ impl<H: Tickets + ?Sized> Tickets for Wrap<H> {
         let fail = |o: Outcome| keys.iter().map(|k| (k.clone(), Err(o.clone()))).collect();
         self.call(Op::Tickets(T::Several), fail, |h| h.several(keys))
     }
+    fn several_with_closers(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<WithCloser>)> {
+        let fail = |o: Outcome| keys.iter().map(|k| (k.clone(), Err(o.clone()))).collect();
+        self.call(Op::Tickets(T::SeveralWithClosers), fail, |h| {
+            h.several_with_closers(keys)
+        })
+    }
     fn history(
         &mut self,
         key: &TicketKey,
@@ -1121,6 +1155,9 @@ impl<H: Tickets + ?Sized> Tickets for Wrap<H> {
     }
     fn kinds(&mut self) -> Got<Whole<Kind>> {
         self.call(Op::Tickets(T::Kinds), Err, |h| h.kinds())
+    }
+    fn marks(&mut self, bound: Bound) -> Got<Whole<MarkHeld>> {
+        self.call(Op::Tickets(T::Marks), Err, |h| h.marks(bound))
     }
     fn targets(&mut self, bound: Bound) -> Got<Whole<Target>> {
         self.call(Op::Tickets(T::Targets), Err, |h| h.targets(bound))
