@@ -72,6 +72,7 @@ use std::time::UNIX_EPOCH;
 use tehas_core::grammar::is_hex;
 use tehas_core::home::{Home, State};
 use tehas_core::mask;
+use tehas_core::outcome::{end, Line};
 use tehas_core::time::days_from_civil;
 
 // A file bigger than this is not read: none that tehas writes comes near it.
@@ -462,7 +463,7 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
         }
     }
 
-    run.outcome = Some(outcome(&run, parked).to_string());
+    run.outcome = Some(end(&run.line(parked)).to_string());
     Ok(run)
 }
 
@@ -577,43 +578,17 @@ fn role(name: String, r: &Map<String, Value>) -> Option<Role> {
     })
 }
 
-/// The statuses of a cycle that ended in failure.
-pub(crate) const FAILED: [&str; 6] = [
-    "killed", "stalled", "timeout", "aborted", "unknown", "failed",
-];
-
-/// How the run ended, in the words of the runs table:
-/// merged    the issue's pull request was merged
-/// stopped   the issue was closed while it ran, or it was interrupted
-/// refused   no cycle ran: the runner refused (40), or tehas work started
-///           none (3 cannot push, 4 attachments, 5 already running, 64, 78)
-/// pr        it left an open pull request and was not parked
-/// handoff   the runner handed off to a person
-/// failed    tehas stopped it (killed, stalled, timeout), the runner
-///           aborted, or a failure other than a cap stopped it
-/// parked    any other end that needs a person, such as a cap
-pub(crate) fn outcome(run: &Run, parked: bool) -> &'static str {
-    let status = run.status.as_deref().unwrap_or("unknown");
-    let kind = run.failure_kind.as_deref().unwrap_or("");
-    match status {
-        "merged" => return "merged",
-        "closed" | "interrupted" => return "stopped",
-        "refused" => return "refused",
-        _ => {}
+impl Run {
+    /// The fields of the run that decide its end, for `tehas_core::outcome::end`.
+    pub(crate) fn line(&self, parked: bool) -> Line<'_> {
+        Line {
+            outcome: self.status.as_deref(),
+            status: self.exit_code,
+            change: self.pr.is_some(),
+            parked,
+            failure_kind: self.failure_kind.as_deref(),
+        }
     }
-    if matches!(run.exit_code, Some(3 | 4 | 5 | 40 | 64 | 78)) {
-        return "refused";
-    }
-    if run.pr.is_some() && !parked {
-        return "pr";
-    }
-    if status == "handoff" {
-        return "handoff";
-    }
-    if FAILED.contains(&status) || (!kind.is_empty() && kind != "cap") {
-        return "failed";
-    }
-    "parked"
 }
 
 /// Inserts the run with its steps and roles, in one transaction. A run
