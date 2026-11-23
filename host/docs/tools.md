@@ -687,7 +687,7 @@ hand)` and `## scripts/test.sh` stay here.
 | [The commands that hold work back](/tools-control) | An outside cap, a drain, the records of what ended, and stopping a cycle by hand. |
 | [tehas status, api, disk, top and analytics](/tools-status) | What the factory is doing, what it speaks to a program, how full the host is, and its runs. |
 | [tehasbot and tehasbot cycle](/tools-tehasbot) | The command the units run, and one cycle for one issue with its report. |
-| [The console, health and top](/tools-health) | The files that feed the dashboard, and what watches the host's health, its models and its load. |
+| [The console and health](/tools-health) | The files that feed the dashboard, and what watches the host's health and its models. |
 | [The GitHub commands](/tools-github) | Asking for refreshes, the App's tokens, and the writes of the last day. |
 | [tehasbot clean and tehasbot preview](/tools-clean) | What the cleaner removes and when, and the preview of every pull request. |
 | [tehas update, install.sh and bootstrap.sh](/tools-update) | Bringing a host up to date, installing one, and preparing a fresh one. |

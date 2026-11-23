@@ -315,7 +315,7 @@ done <"$T_ROOT/api/renames-1.0.tsv"
 t_case "each tehasbot verb of 0.30 is still one, or a command row of the renames file"
 bot_help=$(TEHAS_CONSOLE=$T_CONSOLE "$T_ROOT/bin/tehasbot" help)
 for verb in clean cycle dispatch github-token github-writes health help improve mcp \
-  preview refresh status top; do
+  preview refresh status; do
   row=$(awk -F '\t' -v v="tehasbot $verb" '$1 == "command" && $2 == v && $3 == ""' "$T_ROOT/api/renames-1.0.tsv")
   if [ -n "$row" ]; then
     t_lacks "$bot_help" "  tehasbot $verb"

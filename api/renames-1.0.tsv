@@ -6,7 +6,6 @@ command	tehasbot refresh --pr N	tehas refresh --pr N	the old form stays as an al
 command	tehasbot github-token --check	tehas github check	the old form stays as an internal alias
 command	tehasbot github-writes	tehas github writes	the old form stays as an internal alias
 command	tehasbot improve		the improvement loop is removed
-command	tehasbot top		the host panel left core in 2.0; tehas top stays
 field	status.running[].step	status.running[].progress.step	driver-specific, may change
 field	status.running[].stepNumber	status.running[].progress.stepNumber	driver-specific, may change
 field	status.running[].stepTotal	status.running[].progress.stepTotal	driver-specific, may change

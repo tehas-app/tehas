@@ -44,8 +44,7 @@ done
 
 t_case "the versions the sandbox image pins ask for the build"
 t_eq "$(steps_for versions.env)" "sandbox"
-# The host panel's publisher left core in 2.0, and its unit with it: retiring
-# its scripts asks for nothing.
+# The host panel's publisher left core in 2.0: retiring its scripts asks nothing.
 t_eq "$(steps_for libexec/top-publish libexec/with-settings)" ""
 
 t_case "a new env.sh restarts the running services, which keep the environment of their start"

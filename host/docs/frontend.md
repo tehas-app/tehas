@@ -276,7 +276,7 @@ plan.meta(); // null before the first answer, then
   one too, and a new `Date` with the same bytes leaves `data()`'s readers be.
   It lands a moment before `data()` does, while the poll is still pending.
 - The server's clock is `meta().date` moved on by what the viewer's clock has
-  run since `meta().at`. The host island judges a snapshot's age so.
+  run since `meta().at`.
 - An error of a status that is not accepted carries it as `error.status`.
 
 Two more, added in `kit 1` with no change for a caller that does not use
@@ -815,10 +815,6 @@ reads "loading", the lists are empty and the optional sections are hidden.
 - What more than one island draws, the space between two elements and the
   host's notes on a ticket, is in `factory/parts.render.js`. It is a render
   module with no element, so `pages.max` gives it an island line of its own.
-- The host island judges the snapshot's age by the server's clock: the
-  `Date` of the feed's last answer (`meta()`), moved on by what the viewer's
-  clock has run since. A viewer whose clock is off from the host's sees the
-  same age as one whose clock is right.
 - The console is a plain element inside the console island,
   `<tehas-factory-tail file live>` (`factory/tehas-factory-tail.js`). A
   console is text that grows and is read by byte range, so the element reads

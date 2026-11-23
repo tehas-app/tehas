@@ -1,9 +1,9 @@
 ---
-title: The console, health and top
-description: "The files that feed the dashboard, and what watches the host's health, its models and its load."
+title: The console and health
+description: "The files that feed the dashboard, and what watches the host's health and its models."
 ---
 
-# The console, health and top
+# The console and health
 
 ## tehasbot status and the console
 
