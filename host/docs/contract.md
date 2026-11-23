@@ -1003,6 +1003,7 @@ The rest is library code that nothing in core calls yet:
 | The review's renderer | `console/review-render` | the `review` plugin |
 | The wiki's collector, check and render | `console/wiki-collect`, `console/wiki-render` | the `wiki` plugin |
 | The mesh read | `console/mesh-feed` | the `energy` plugin |
+| The cut of `tehas top`'s snapshot | `console/host-feed` | the `hoststats` plugin (`feed:host`) |
 
 ## Exit statuses
 
