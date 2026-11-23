@@ -674,12 +674,21 @@ impl TicketWrites for Handle {
 
     fn note(&mut self, key: &TicketKey, body: &str, markers: &[Marker]) -> Got<Posted<CommentId>> {
         self.write(Op::Tickets(TicketsOp::Note), |s, ctx| {
+            ctx.text_alone(markers.is_empty())?;
             note(s, ctx, key, body, markers)
         })
     }
 
     fn file(&mut self, new: &NewTicket) -> Got<Posted<TicketKey>> {
         self.write(Op::Tickets(TicketsOp::File), |s, ctx| {
+            ctx.text_alone(
+                new.markers.is_empty()
+                    && new.marks.is_empty()
+                    && new.kind.is_none()
+                    && new.priority == Priority::Normal
+                    && new.target.is_none()
+                    && new.parent.is_none(),
+            )?;
             let text = text_of(&new.text)?.to_string();
             writable(&new.markers)?;
             for m in &new.marks {
@@ -731,6 +740,7 @@ impl TicketWrites for Handle {
         since_rev: &crate::Revision,
     ) -> Got<WebLink> {
         self.write(Op::Tickets(TicketsOp::Edit), |s, ctx| {
+            ctx.text_alone(markers.set.is_empty() && markers.drop.is_empty())?;
             markers.check()?;
             let at = at_ticket(s, key)?;
             ctx.own(s, s.items[at].author.as_ref())?;

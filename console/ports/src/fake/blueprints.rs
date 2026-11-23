@@ -223,6 +223,7 @@ pub(crate) fn edit_item(
 impl BlueprintWrites for Handle {
     fn open(&mut self, new: &NewBlueprint) -> Got<Posted<BlueprintNo>> {
         self.write(Op::Blueprints(BlueprintsOp::Open), |s, ctx| {
+            ctx.text_alone(new.markers.is_empty())?;
             let body = text_of(&new.body)?.to_string();
             writable(&new.markers)?;
             let (no, ticket) = s.next_blueprint_no();
@@ -249,6 +250,7 @@ impl BlueprintWrites for Handle {
         since_rev: &Revision,
     ) -> Got<WebLink> {
         self.write(Op::Blueprints(BlueprintsOp::Edit), |s, ctx| {
+            ctx.text_alone(markers.set.is_empty() && markers.drop.is_empty())?;
             let at = no_blueprint(s, no)?;
             ctx.own(s, s.items[at].author.as_ref())?;
             edit_item(s, ctx, at, title, body, markers, since_rev)?;
@@ -273,6 +275,7 @@ impl BlueprintWrites for Handle {
         markers: &[Marker],
     ) -> Got<Posted<CommentId>> {
         self.write(Op::Blueprints(BlueprintsOp::Comment), |s, ctx| {
+            ctx.text_alone(markers.is_empty())?;
             writable(markers)?;
             let at = no_blueprint(s, no)?;
             let author = Some(ctx.me(s));

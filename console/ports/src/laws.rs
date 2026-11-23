@@ -959,10 +959,11 @@ pub mod markers {
 /// Laws of what a scope may write on the code host. A write its scope
 /// does not allow is `Forbidden` and changes nothing.
 pub mod scopes {
-    use super::{hold, Law};
+    use super::{got, hold, Law};
     use crate::{
-        Access, Blobs, ChangeNo, ChangeState, CodeHostWrites, CommitId, MergeHow, NewRelease,
-        Outcome, Proposal, TagName, ALL_MAX,
+        Access, Blobs, ChangeNo, ChangeState, CloseReason, CodeHostWrites, CommitId, Depth, Filter,
+        Mark, MergeHow, NewRelease, NewTicket, Outcome, Proposal, TagName, TicketKey, TicketWrites,
+        ALL_MAX,
     };
 
     /// An agent's token makes no file write and no push: a proposal is
@@ -996,7 +997,8 @@ pub mod scopes {
 
     /// A cycle's or a session's token merges, tags and releases nothing:
     /// each is `Forbidden` and leaves the change open, the tag absent and
-    /// no release. `h` acts as `Ours(Cycle)` or `Ours(Session)`; `no` is
+    /// no release. What a cycle does today with its token or its relay
+    /// asks none of them; a merge a product opts into is not allowed here. `h` acts as `Ours(Cycle)` or `Ours(Session)`; `no` is
     /// an open change that can merge at `head`; `tag` is absent; `release`
     /// is of a tag that is there and has no release.
     pub fn a_cycle_merges_tags_and_releases_nothing(
@@ -1031,6 +1033,52 @@ pub mod scopes {
         let read = h.release(&release.tag).map(|_| ());
         hold(read == Err(Outcome::NotFound), LAW, || {
             format!("the refused release reads {read:?}")
+        })
+    }
+
+    /// A cycle's or a session's token marks, unmarks and closes no ticket,
+    /// and files none that carries more than text: each is `Forbidden`, the
+    /// ticket reads as it did and no ticket is filed. Marks on a ticket are
+    /// the factory's own writes. `h` acts as `Ours(Cycle)` or
+    /// `Ours(Session)`; `key` is an open ticket that carries `on` and not
+    /// `off`; `marked` is a ticket to file that carries a mark.
+    pub fn a_cycle_marks_and_closes_no_ticket(
+        h: &mut dyn TicketWrites,
+        key: &TicketKey,
+        on: &Mark,
+        off: &Mark,
+        marked: &NewTicket,
+    ) -> Law {
+        const LAW: &str = "scopes::a_cycle_marks_and_closes_no_ticket";
+        let forbidden = Err(Outcome::Forbidden);
+        let depth = Depth::Cut { notes: 0 };
+        let before = got(LAW, "the ticket", h.ticket(key, depth, None))?.digest;
+        let count =
+            |h: &mut dyn TicketWrites| h.list(&Filter::default(), ALL_MAX).map(|w| w.items().len());
+        let tickets = got(LAW, "the tickets", count(h))?;
+        let marked_on = h.mark(key, off);
+        hold(marked_on == forbidden, LAW, || {
+            format!("a mark answered {marked_on:?}")
+        })?;
+        let unmarked = h.unmark(key, on);
+        hold(unmarked == forbidden, LAW, || {
+            format!("an unmark answered {unmarked:?}")
+        })?;
+        let closed = h.close(key, &CloseReason::Done);
+        hold(closed == forbidden, LAW, || {
+            format!("a close answered {closed:?}")
+        })?;
+        let after = got(LAW, "the ticket again", h.ticket(key, depth, None))?.digest;
+        hold(after == before, LAW, || {
+            format!("the refused writes left {after:?}, not {before:?}")
+        })?;
+        let filed = h.file(marked).map(|_| ());
+        hold(filed == forbidden, LAW, || {
+            format!("filing a marked ticket answered {filed:?}")
+        })?;
+        let now = got(LAW, "the tickets again", count(h))?;
+        hold(now == tickets, LAW, || {
+            format!("the refused filing left {now} tickets, not {tickets}")
         })
     }
 }

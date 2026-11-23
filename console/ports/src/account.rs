@@ -98,11 +98,16 @@ opaque!(
 pub enum Scope {
     /// Everything the factory writes.
     Full,
-    /// A cycle: read the project and its blueprints, push branches, open
-    /// changes; no ticket or blueprint write.
+    /// A cycle: what the agents in a cycle's container make, with its own
+    /// token or through its relay. Read the project; push branches;
+    /// propose, open, edit and comment on changes; file, note and edit
+    /// tickets and open, comment on and edit blueprints, with text alone.
+    /// No mark, close, merge, tag or release: those are the factory's.
     Cycle,
-    /// A planning turn or a dev session: what a cycle has, and the ticket
-    /// and blueprint reads planning asks for.
+    /// A planning turn or a dev session: a cycle's reads and change writes,
+    /// the ticket and blueprint reads planning asks for, and a new ticket
+    /// or blueprint of text alone, as a planner's confirm files it. No note
+    /// or edit of a ticket or blueprint.
     Session,
     /// Read tickets, blueprints and files.
     Read,

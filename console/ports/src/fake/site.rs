@@ -169,7 +169,11 @@ fn may_make(by: &Actor, scope: Option<Scope>, port: PortName, write: bool) -> Go
             matches!(
                 (scope, port, write),
                 (Scope::Full | Scope::Agent, _, _)
-                    | (Scope::Cycle | Scope::Session, PortName::CodeHost, _)
+                    | (
+                        Scope::Cycle | Scope::Session,
+                        PortName::CodeHost | PortName::Tickets | PortName::Blueprints,
+                        _
+                    )
                     | (Scope::Cycle | Scope::Session | Scope::Read, _, false)
                     | (Scope::Files, PortName::CodeHost | PortName::Identity, false)
             )
@@ -187,10 +191,14 @@ fn may_make(by: &Actor, scope: Option<Scope>, port: PortName, write: bool) -> Go
 /// agent's token writes tickets, blueprints and a change's talk, never a
 /// file, a merge, a tag or a release. A cycle's or a session's proposes,
 /// opens, edits and comments on a change, and merges, tags and releases
-/// nothing. Anonymous asks identity only about others. A person's
-/// standing is checked over the world, in `Handle::write`.
+/// nothing. A cycle's also files, notes and edits a ticket and opens,
+/// comments on and edits a blueprint, as its relay does; a session's files
+/// a ticket or opens a blueprint, as a planner's confirm does. Those carry
+/// text alone (`Ctx::text_alone`). Anonymous asks identity only about
+/// others. A person's standing is checked over the world, in
+/// `Handle::write`.
 pub(crate) fn allowed(by: &Actor, scope: Option<Scope>, op: Op) -> Got<()> {
-    use super::faulty::{CodeHostOp as C, IdentityOp as I};
+    use super::faulty::{BlueprintsOp as B, CodeHostOp as C, IdentityOp as I, TicketsOp as T};
     let scoped = matches!(by, Actor::Ours(_) | Actor::Given(_));
     let ok = match op {
         Op::Identity(I::Me | I::Standing | I::Assignable | I::Token | I::TokenOver) => {
@@ -213,7 +221,16 @@ pub(crate) fn allowed(by: &Actor, scope: Option<Scope>, op: Op) -> Got<()> {
             ),
             _ => false,
         },
-        _ if scoped && op.is_write() => matches!(scope, Some(Scope::Full | Scope::Agent)),
+        _ if scoped && op.is_write() => match scope {
+            Some(Scope::Full | Scope::Agent) => true,
+            Some(Scope::Cycle) => matches!(
+                op,
+                Op::Tickets(T::File | T::Note | T::Edit)
+                    | Op::Blueprints(B::Open | B::Comment | B::Edit)
+            ),
+            Some(Scope::Session) => matches!(op, Op::Tickets(T::File) | Op::Blueprints(B::Open)),
+            _ => false,
+        },
         _ => true,
     };
     if ok {
@@ -347,6 +364,8 @@ pub(crate) struct Ctx {
     pub me: Option<String>,
     /// A person's handle below `Write` standing: it edits its own alone.
     pub below_write: bool,
+    /// The scope the handle acts with, if the factory's.
+    pub scope: Option<Scope>,
 }
 
 impl Ctx {
@@ -354,6 +373,17 @@ impl Ctx {
     /// another account wrote.
     pub fn own(&self, s: &State, author: Option<&Account>) -> Got<()> {
         if self.below_write && author.map(|a| &a.login) != Some(&self.me(s).login) {
+            return Err(Outcome::Forbidden);
+        }
+        Ok(())
+    }
+
+    /// `Forbidden` where a cycle's or a session's ticket or blueprint
+    /// write carries more than text (`bare` false): a marker, a mark, a
+    /// kind, a priority, a target or a parent. Its relay passes a title, a
+    /// body and an item alone.
+    pub fn text_alone(&self, bare: bool) -> Got<()> {
+        if !bare && matches!(self.scope, Some(Scope::Cycle | Scope::Session)) {
             return Err(Outcome::Forbidden);
         }
         Ok(())
@@ -423,6 +453,7 @@ impl Handle {
             realm: self.realm,
             me: self.me.clone(),
             below_write,
+            scope: self.scope,
         }
     }
 

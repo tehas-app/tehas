@@ -710,6 +710,41 @@ fn scopes_a_cycle_merges_tags_and_releases_nothing() {
 }
 
 #[test]
+fn scopes_a_cycle_marks_and_closes_no_ticket() {
+    for scope in [Scope::Cycle, Scope::Session] {
+        for w in both() {
+            let on = Mark::State(State::Running);
+            let off = Mark::State(State::Question);
+            let w = w.ticket(1, |t| t.title("work").mark(on.clone()));
+            let marked = NewTicket {
+                marks: vec![off.clone()],
+                ..new_ticket()
+            };
+            let site = FakeSite::new(&w);
+            let mut h = site.ticket_writes(&Actor::Ours(scope), C).unwrap();
+            ok(laws::scopes::a_cycle_marks_and_closes_no_ticket(
+                h.as_mut(),
+                &w.key(1),
+                &on,
+                &off,
+                &marked,
+            ));
+            // A fake that allows too much breaks it.
+            let mut wide = site.ticket_writes(&full(), C).unwrap();
+            let e = laws::scopes::a_cycle_marks_and_closes_no_ticket(
+                wide.as_mut(),
+                &w.key(1),
+                &on,
+                &off,
+                &marked,
+            )
+            .unwrap_err();
+            assert_eq!(e.law, "scopes::a_cycle_marks_and_closes_no_ticket");
+        }
+    }
+}
+
+#[test]
 fn each_scope_writes_on_the_code_host_what_it_may() {
     let w = World::new().change(50, "work", |c| c.title("work"));
     let site = FakeSite::new(&w);
@@ -720,16 +755,107 @@ fn each_scope_writes_on_the_code_host_what_it_may() {
     agent.mark_change(cn(50), &mark).unwrap();
     agent.comment_change(cn(50), "a note", &[]).unwrap();
     assert!(agent.remote(Access::Fetch).is_ok());
-    let mut cycle = site
-        .code_host_writes(&Actor::Ours(Scope::Cycle), C)
-        .unwrap();
-    cycle.comment_change(cn(50), "a note", &[]).unwrap();
-    assert!(cycle.remote(Access::Push).is_ok());
-    assert_eq!(
-        cycle.mark_change(cn(50), &mark),
-        Err(Outcome::Forbidden),
-        "a cycle does not mark a change"
-    );
+    for scope in [Scope::Cycle, Scope::Session] {
+        let mut h = site.code_host_writes(&Actor::Ours(scope), C).unwrap();
+        h.comment_change(cn(50), "a note", &[]).unwrap();
+        h.edit_change(cn(50), Some("work, retitled"), None, &MarkerEdit::default())
+            .unwrap();
+        assert!(h.remote(Access::Push).is_ok());
+        // The marks on a change are the factory's own writes.
+        for (what, answer) in [
+            ("mark", h.mark_change(cn(50), &mark)),
+            ("unmark", h.unmark_change(cn(50), &mark)),
+            ("close", h.close_change(cn(50))),
+        ] {
+            assert_eq!(answer, Err(Outcome::Forbidden), "{scope:?} {what}");
+        }
+    }
+}
+
+#[test]
+fn each_scope_writes_on_tickets_what_it_may() {
+    for w in both() {
+        let w = w.ticket(1, |t| t.title("work"));
+        let site = FakeSite::new(&w);
+        let key = w.key(1);
+        let rev = |site: &FakeSite| {
+            let mut r = site.tickets(&full(), C).unwrap();
+            r.ticket(&key, Depth::Cut { notes: 0 }, None)
+                .unwrap()
+                .digest
+                .revision
+        };
+        // A cycle's relay files, notes and edits, with text alone.
+        let mut cycle = site.ticket_writes(&Actor::Ours(Scope::Cycle), C).unwrap();
+        cycle.file(&new_ticket()).unwrap();
+        cycle.note(&key, "a note", &[]).unwrap();
+        let since = rev(&site);
+        let none = MarkerEdit::default();
+        cycle
+            .edit(&key, Some("work, retitled"), None, &none, &since)
+            .unwrap();
+        let urgent = NewTicket {
+            priority: Priority::Urgent,
+            ..new_ticket()
+        };
+        assert_eq!(cycle.file(&urgent).map(|_| ()), Err(Outcome::Forbidden));
+        let marker = Marker::HoldCleared;
+        assert_eq!(
+            cycle.note(&key, "a note", &[marker]).map(|_| ()),
+            Err(Outcome::Forbidden),
+            "a cycle's note carries no marker"
+        );
+        // A session's planner files; it notes and edits nothing.
+        let mut session = site.ticket_writes(&Actor::Ours(Scope::Session), C).unwrap();
+        session.file(&new_ticket()).unwrap();
+        assert_eq!(
+            session.note(&key, "a note", &[]).map(|_| ()),
+            Err(Outcome::Forbidden)
+        );
+        let since = rev(&site);
+        assert_eq!(
+            session
+                .edit(&key, Some("x"), None, &none, &since)
+                .map(|_| ()),
+            Err(Outcome::Forbidden)
+        );
+        // Read and Files write nothing.
+        for scope in [Scope::Read, Scope::Files] {
+            assert!(site.ticket_writes(&Actor::Ours(scope), C).is_err());
+        }
+    }
+}
+
+#[test]
+fn each_scope_writes_on_blueprints_what_it_may() {
+    for w in both() {
+        let n = first_blueprint(&w);
+        let w = w.blueprint(n, |b| b.title("plan"));
+        let site = FakeSite::new(&w);
+        let plan = |markers: Vec<Marker>| NewBlueprint {
+            title: "a plan".into(),
+            body: Body::Text("steps".into()),
+            markers,
+        };
+        let mut cycle = site
+            .blueprint_writes(&Actor::Ours(Scope::Cycle), C)
+            .unwrap();
+        cycle.open(&plan(vec![])).unwrap();
+        cycle.comment(bp(n), "a note", &[]).unwrap();
+        assert_eq!(
+            cycle.open(&plan(vec![Marker::HoldCleared])).map(|_| ()),
+            Err(Outcome::Forbidden)
+        );
+        assert_eq!(cycle.close(bp(n), true), Err(Outcome::Forbidden));
+        let mut session = site
+            .blueprint_writes(&Actor::Ours(Scope::Session), C)
+            .unwrap();
+        session.open(&plan(vec![])).unwrap();
+        assert_eq!(
+            session.comment(bp(n), "a note", &[]).map(|_| ()),
+            Err(Outcome::Forbidden)
+        );
+    }
 }
 
 // Health, over a `Faulty` `FakeSite`, a `MemoryLedger` and the sink.
@@ -2830,8 +2956,9 @@ fn a_given_token_does_what_its_scope_may() {
     let w = w.given("cycle", Scope::Cycle, token);
     let site = FakeSite::new(&w);
     let given = Actor::Given(PersonKey::new("cycle"));
+    let mut t = site.ticket_writes(&given, C).unwrap();
     assert_eq!(
-        site.ticket_writes(&given, C).map(drop),
+        t.close(&w.key(1), &CloseReason::Done),
         Err(Outcome::Forbidden)
     );
     let mut c = site.code_host_writes(&given, C).unwrap();
