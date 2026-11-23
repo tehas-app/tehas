@@ -16,6 +16,13 @@ pub type Did = Result<(), Outcome>;
 #[serde(transparent)]
 pub struct Whole<T>(Vec<T>);
 
+impl<T> Default for Whole<T> {
+    /// Nothing.
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
 impl<T> Whole<T> {
     /// The whole list. Only an adapter or a fake that read it all says so.
     pub fn new(items: Vec<T>) -> Self {
@@ -43,6 +50,16 @@ pub struct Took<T> {
     pub items: Vec<T>,
     /// The site holds more than were taken.
     pub more: bool,
+}
+
+impl<T> Default for Took<T> {
+    /// Nothing taken, and no more.
+    fn default() -> Self {
+        Self {
+            items: Vec::new(),
+            more: false,
+        }
+    }
 }
 
 /// What stopped a call. Exhaustive on purpose: a new outcome is a major
@@ -228,6 +245,16 @@ pub struct Applied<P> {
     pub done: Vec<P>,
     /// The part that stopped it, and why. None when every part was applied.
     pub stopped: Option<(P, Outcome)>,
+}
+
+impl<P> Default for Applied<P> {
+    /// Nothing applied, and nothing stopped it.
+    fn default() -> Self {
+        Self {
+            done: Vec::new(),
+            stopped: None,
+        }
+    }
 }
 
 #[cfg(test)]

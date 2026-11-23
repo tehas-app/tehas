@@ -57,6 +57,16 @@ pub struct MeterRow {
     pub points: u32,
 }
 
+new!(
+    MeterRow {
+        caller: Caller,
+        port: PortName,
+        pool: Pool
+    },
+    calls,
+    points
+);
+
 /// A setup: one site, or a code host's site and a tickets site. The one
 /// thing a program's wiring hands its callers.
 pub enum Setup {

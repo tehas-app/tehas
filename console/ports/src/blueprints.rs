@@ -42,6 +42,23 @@ pub struct Blueprint {
     pub link: WebLink,
 }
 
+new!(
+    Blueprint {
+        no: BlueprintNo,
+        created: At,
+        revision: Revision,
+        link: WebLink
+    },
+    title,
+    body,
+    open,
+    author,
+    editor,
+    edited,
+    markers,
+    comments
+);
+
 /// A comment, or a note on a ticket, with its author and last editor.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Comment {
@@ -65,6 +82,20 @@ pub struct Comment {
     pub link: WebLink,
 }
 
+new!(
+    Comment {
+        id: CommentId,
+        created: At,
+        revision: Revision,
+        link: WebLink
+    },
+    author,
+    editor,
+    edited,
+    body,
+    markers
+);
+
 /// One edit of a body or a comment: who, when, the text after it without
 /// our markers, and the markers after it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -79,6 +110,8 @@ pub struct Edit {
     pub markers: Vec<Marker>,
 }
 
+new!(Edit { at: At }, by, after, markers);
+
 /// A file a blueprint's text links to on the site's own store.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Attachment {
@@ -89,6 +122,8 @@ pub struct Attachment {
     /// Its size in bytes, if the site says.
     pub size: Option<u64>,
 }
+
+new!(Attachment { id: AttachmentId }, name, size);
 
 /// A blueprint to open.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -112,6 +147,8 @@ pub struct BlueprintHit {
     pub open: bool,
 }
 
+new!(BlueprintHit { no: BlueprintNo }, title, open);
+
 /// A blueprint's change since a cursor, whole but for its comments.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BlueprintChange {
@@ -129,6 +166,17 @@ pub struct BlueprintChange {
     pub revision: Revision,
 }
 
+new!(
+    BlueprintChange {
+        no: BlueprintNo,
+        revision: Revision
+    },
+    title,
+    body,
+    open,
+    closed
+);
+
 /// Blueprints and comments changed since a cursor, and where to read on
 /// from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -140,6 +188,8 @@ pub struct BlueprintDelta {
     /// Where the next delta starts.
     pub next: Cursor,
 }
+
+new!(BlueprintDelta { next: Cursor }, blueprints, comments);
 
 /// The blueprints port's reads. A handle is bound to one project, one
 /// actor and one caller name.

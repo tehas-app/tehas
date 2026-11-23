@@ -286,6 +286,13 @@ pub struct Posted<T> {
     pub link: WebLink,
 }
 
+impl<T> Posted<T> {
+    /// What a write made, and where a person opens it.
+    pub fn new(id: T, link: WebLink) -> Self {
+        Self { id, link }
+    }
+}
+
 /// What a write made, with where a person opens it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value")]

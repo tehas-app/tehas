@@ -59,6 +59,15 @@ pub struct Account {
     pub kind: AccountKind,
 }
 
+new!(
+    Account {
+        realm: Realm,
+        login: Login,
+        kind: AccountKind
+    },
+    id
+);
+
 /// Who a handle acts as. Minting, keeping and renewing tokens is the
 /// adapter's; a caller names the kind of actor, never a token.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -158,6 +167,11 @@ pub struct Token {
     /// When it stops being good.
     pub until: At,
 }
+
+new!(Token {
+    secret: Secret,
+    until: At
+});
 
 /// The caller's store of person and deploy credentials, in memory. The
 /// adapter asks it per handle and keeps the answer no longer than the

@@ -63,6 +63,23 @@ pub struct TicketDigest {
     pub link: WebLink,
 }
 
+new!(
+    TicketDigest {
+        key: TicketKey,
+        state: TicketState,
+        created: At,
+        updated: At,
+        revision: Revision,
+        link: WebLink
+    },
+    title,
+    kind,
+    priority,
+    marks,
+    target,
+    author
+);
+
 /// A target by its id, with its title as the site names it now.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TargetName {
@@ -71,6 +88,11 @@ pub struct TargetName {
     /// Its title.
     pub title: String,
 }
+
+new!(TargetName {
+    id: TargetId,
+    title: String
+});
 
 /// A ticket, read whole to the depth asked.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -103,6 +125,21 @@ pub struct Ticket {
     pub history: Took<TicketEvent>,
 }
 
+new!(
+    Ticket {
+        digest: TicketDigest
+    },
+    text,
+    closed,
+    closer,
+    parts,
+    blockers,
+    assignees,
+    markers,
+    mentioned_by,
+    history
+);
+
 /// A part of a ticket, and whether it is open.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Part {
@@ -112,6 +149,8 @@ pub struct Part {
     pub open: bool,
 }
 
+new!(Part { key: Ref<TicketKey>, open: bool });
+
 /// A blocker may be a change where the site lets a ticket wait on one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Blocker {
@@ -120,6 +159,8 @@ pub struct Blocker {
     /// Its state.
     pub state: BlockerState,
 }
+
+new!(Blocker { on: Ref<Item>, state: BlockerState });
 
 /// The state of what a ticket waits on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -158,6 +199,8 @@ pub struct TicketEvent {
     /// When, if the site says.
     pub at: Option<At>,
 }
+
+new!(TicketEvent { what: Happened }, by, at);
 
 /// What happened to a ticket.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -282,6 +325,18 @@ pub struct Target {
     pub closed_count: u32,
 }
 
+new!(
+    Target {
+        id: TargetId,
+        title: String,
+        created: At
+    },
+    due,
+    open,
+    open_count,
+    closed_count
+);
+
 /// A change to a target.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TargetEdit {
@@ -377,6 +432,16 @@ pub struct ClosedTicket {
     pub merged: Vec<ChangeDigest>,
 }
 
+new!(
+    ClosedTicket {
+        digest: TicketDigest,
+        closed: At
+    },
+    closer,
+    part_count,
+    merged
+);
+
 /// A ticket's change since a cursor: its digest, its text and its close.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TicketChange {
@@ -388,6 +453,14 @@ pub struct TicketChange {
     pub closed: Option<At>,
 }
 
+new!(
+    TicketChange {
+        digest: TicketDigest
+    },
+    text,
+    closed
+);
+
 /// Tickets and notes changed since a cursor, and where to read on from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TicketDelta {
@@ -398,6 +471,8 @@ pub struct TicketDelta {
     /// Where the next delta starts.
     pub next: Cursor,
 }
+
+new!(TicketDelta { next: Cursor }, tickets, notes);
 
 /// A ticket an account filed, as a lost press finds it again.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -411,6 +486,15 @@ pub struct Filed {
     /// Where a person opens it.
     pub link: WebLink,
 }
+
+new!(
+    Filed {
+        key: TicketKey,
+        link: WebLink
+    },
+    title,
+    first_line
+);
 
 /// The tickets port's reads. A handle is bound to one project, one actor
 /// and one caller name.

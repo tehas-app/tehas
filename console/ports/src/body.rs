@@ -33,8 +33,11 @@ impl Blobs for NoBlobs {
     }
 }
 
-/// What a body names: an item here or elsewhere, or an account.
+/// What a body names: an item here or elsewhere, or an account. It may
+/// grow. It has no `Unknown`: it is what a caller asks `Cites::cite` for,
+/// never a record read back.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Cite {
     /// A ticket.
     Ticket(Ref<TicketKey>),

@@ -174,6 +174,14 @@ pub struct Notice {
     pub at: At,
 }
 
+new!(Notice {
+    host: HostId,
+    whose: Whose,
+    realm: Realm,
+    what: Health,
+    at: At
+});
+
 /// What a notice says. `TokenNotDropped`: a refused token could not be
 /// dropped from the `TokenStore`, so another process may still read it
 /// until it expires. `Unknown`: a value of a newer copy was read (see

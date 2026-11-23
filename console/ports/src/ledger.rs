@@ -41,6 +41,11 @@ pub struct Budget {
     pub resets: At,
 }
 
+new!(Budget {
+    left: u32,
+    resets: At
+});
+
 /// The health of a host, or of one holder on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HealthState {
@@ -79,6 +84,12 @@ pub struct Failure {
     /// What stopped it.
     pub outcome: Outcome,
 }
+
+new!(Failure {
+    at: At,
+    site: SiteId,
+    outcome: Outcome
+});
 
 /// The ledger could not be read or written: its file is missing, locked
 /// past its wait, or not whole.

@@ -9,8 +9,33 @@
 //! No supplier is named here. The crate has std and serde alone and no
 //! effects: no file, network, process, environment or clock. It is vendored
 //! at a tehas tag, which `VERSION` names.
+//!
+//! An implementer builds a port's answer one of two ways, never as a whole
+//! struct literal: a struct whose every field has an honest empty value
+//! derives `Default` and is built with `..Default::default()`; any other has
+//! `new`, which takes the fields an answer always has and leaves the rest
+//! empty, false or None, set after by name. So a field added later breaks
+//! no adapter. An enum that may grow is `#[non_exhaustive]`: a match on one
+//! outside this crate has an arm for the rest, and that arm fails closed.
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
+
+/// `new` for a port's answer: the fields named, every other field its
+/// default. Each struct lists its other fields, so one added later must be
+/// named here, with its default, or the crate does not build.
+macro_rules! new {
+    ($ty:ident { $($req:ident: $rt:ty),* $(,)? } $(, $rest:ident)* $(,)?) => {
+        impl $ty {
+            #[doc = concat!(
+                "A `", stringify!($ty), "` of the fields given, every other ",
+                "field empty, false or None, for an implementer to set by name."
+            )]
+            pub fn new($($req: $rt),*) -> Self {
+                Self { $($req,)* $($rest: Default::default(),)* }
+            }
+        }
+    };
+}
 
 mod account;
 mod blueprints;

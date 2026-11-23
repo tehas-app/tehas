@@ -29,14 +29,25 @@ pub struct Facts {
     pub default_branch: Branch,
 }
 
+new!(
+    Facts {
+        name: ProjectName,
+        default_branch: Branch
+    },
+    public,
+    tracker_on,
+    archived
+);
+
 /// Whether a change can merge now.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Mergeable {
     /// It can.
     Yes,
     /// It cannot, for this reason.
     No(NotMergeable),
-    /// The site has not worked it out yet.
+    /// The site has not worked it out yet. The default.
+    #[default]
     Unknown,
 }
 
@@ -83,7 +94,7 @@ pub enum ChangeState {
 }
 
 /// The size of a change.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Size {
     /// How many files it changes.
     pub files: u32,
@@ -136,6 +147,29 @@ pub struct ChangeDigest {
     pub link: WebLink,
 }
 
+new!(
+    ChangeDigest {
+        no: ChangeNo,
+        state: ChangeState,
+        head: Branch,
+        head_commit: CommitId,
+        base: Branch,
+        created: At,
+        link: WebLink
+    },
+    title,
+    author,
+    from_fork,
+    draft,
+    merge_state,
+    marks,
+    closes,
+    size,
+    body,
+    edited,
+    editor
+);
+
 /// A change, read whole.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Change {
@@ -151,6 +185,16 @@ pub struct Change {
     pub comments: Vec<Comment>,
 }
 
+new!(
+    Change {
+        digest: ChangeDigest
+    },
+    body,
+    files,
+    reviews,
+    comments
+);
+
 /// One file a change changes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ChangedFile {
@@ -161,6 +205,8 @@ pub struct ChangedFile {
     /// How many lines it deletes.
     pub deleted: u32,
 }
+
+new!(ChangedFile { path: RepoPath }, added, deleted);
 
 /// A review of a change.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -174,6 +220,15 @@ pub struct Review {
     /// Its notes.
     pub notes: Vec<ReviewNote>,
 }
+
+new!(
+    Review {
+        verdict: Verdict,
+        at: At
+    },
+    by,
+    notes
+);
 
 /// What a review says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -191,7 +246,7 @@ pub enum Verdict {
 }
 
 /// One note of a review, on a file or on the whole change.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ReviewNote {
     /// Who wrote it; None where the site names nobody.
     pub by: Option<Account>,
@@ -213,6 +268,15 @@ pub struct ChangeEvent {
     /// For a push, when its newest commit was made, which may be long before.
     pub committed: Option<At>,
 }
+
+new!(
+    ChangeEvent {
+        what: ChangeHappened,
+        at: At
+    },
+    by,
+    committed
+);
 
 /// What happened to a change.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -300,8 +364,10 @@ pub struct ChangeDelta {
     pub next: Cursor,
 }
 
+new!(ChangeDelta { next: Cursor }, changes, comments);
+
 /// The checks on a commit, and what they add up to.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Checks {
     /// Each check.
     pub runs: Vec<Check>,
@@ -317,6 +383,11 @@ pub struct Check {
     /// How far it is.
     pub status: CheckStatus,
 }
+
+new!(Check {
+    name: String,
+    status: CheckStatus
+});
 
 /// How far a check is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -347,7 +418,7 @@ pub enum Conclusion {
 }
 
 /// Never `Pass` from an answer that could not be read: that is `Unread`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Overall {
     /// Every check passed.
     Pass,
@@ -356,6 +427,7 @@ pub enum Overall {
     /// A check has not finished.
     Pending,
     /// There are no checks.
+    #[default]
     None,
 }
 
@@ -510,6 +582,8 @@ pub struct Proposed {
     pub head: CommitId,
 }
 
+new!(Proposed { change: Posted<ChangeNo>, head: CommitId });
+
 /// A tag of the project.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Tag {
@@ -522,6 +596,15 @@ pub struct Tag {
     /// It is an annotated tag.
     pub annotated: bool,
 }
+
+new!(
+    Tag {
+        name: TagName,
+        commit: CommitId
+    },
+    at,
+    annotated
+);
 
 /// A release of a tag.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -544,6 +627,19 @@ pub struct Release {
     pub link: WebLink,
 }
 
+new!(
+    Release {
+        id: ReleaseId,
+        tag: TagName,
+        link: WebLink
+    },
+    title,
+    draft,
+    prerelease,
+    published,
+    files
+);
+
 /// One file of a release.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ReleaseFile {
@@ -552,6 +648,11 @@ pub struct ReleaseFile {
     /// Its size in bytes.
     pub size: u64,
 }
+
+new!(ReleaseFile {
+    name: FileName,
+    size: u64
+});
 
 /// A release to make.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -586,6 +687,8 @@ pub struct Remote {
     /// The credential for it, if any.
     pub with: Option<GitCredential>,
 }
+
+new!(Remote { url: GitRemote }, with);
 
 /// A token for an `https` remote, or a deploy key for an `ssh` one, as the
 /// actor's credential is.

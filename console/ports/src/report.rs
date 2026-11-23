@@ -54,6 +54,14 @@ pub struct Report {
     pub calls: u32,
 }
 
+new!(
+    Report {
+        port: PortName,
+        outcome: Outcome
+    },
+    calls
+);
+
 /// What a handle met since the last take, for the pass to log once.
 pub trait Reports {
     /// The reports since the last take, each kind once with its count.
