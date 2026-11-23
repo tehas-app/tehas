@@ -48,12 +48,15 @@
     "how": {
       "description": "What started the cycle, as status and history print it: approved, refresh, outage-retry, millwright, host, reply, answer or hand. May grow.",
       "type": "string",
-      "pattern": "^[a-z][a-z-]{0,39}$"
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^[a-z][a-z-]*$"
     },
     "by": {
-      "description": "The login that started it. Left out for a cycle run by hand.",
+      "description": "The login that started it, as status prints running[].by. Left out for a cycle run by hand.",
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 40
     },
     "approval": {
       "type": "string",
