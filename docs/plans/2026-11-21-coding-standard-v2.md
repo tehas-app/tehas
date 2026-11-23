@@ -434,6 +434,10 @@ Findings:
 - No port operation marks a change ready or draft: `edit_change` takes no
   draft flag, so a `CycleMerge` cycle cannot take its own draft out of
   draft through the ports. T4.2+ decides.
+- The Ledger's file (`core/src/ledger.rs`, #2974) keeps one budget row
+  per host, holder and pool and never drops one, so each anonymous
+  holder adds a row for good. The step whose caller first writes budgets
+  bounds them, for one by dropping rows whose `resets` is long past.
 
 ### T5. Deep homes for files
 
