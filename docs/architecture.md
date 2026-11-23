@@ -67,7 +67,7 @@ T4.1c: the ledger and health: `Ledger`, the budget and health state
 shared across processes, keyed by `HostId` and `Whose` (the host, one
 `Holder` on it, or one pool of a holder), and `health::next`, the pure step from one outcome to the
 next state and the `Notice`, if the state changed. T4.1d: the fakes
-(`tehas_ports::fake`: `World`, `FakeSite`, `Faulty`, the `Notices` sink,
+(`tehas_ports::fake`: `World`, `FakeSite`, `Faulty`, the `NoticeLog` sink,
 `MemoryLedger`, `MemoryTokens`), the laws (`tehas_ports::laws`, the
 contract test of any adapter) and the `Writer`; with it the crate holds
 what step T4.1 names. A handle takes `&mut self` and is `Send`; a `Site` and the
