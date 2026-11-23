@@ -486,6 +486,22 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   A program that stops `tehas-energy.service` when it adopts a factory, or
   starts it when it creates or restores one, drops the unit from both
   lists.
+- **Panels leave core; the dock stays.**
+  #2900.
+  Gone: `tehas panel`, `live/panels.json` and `/panels.json` on the docs
+  server, and the feature word `panels` in `tehas api --json`. The dock
+  stays and is renamed: `host/fun/panels.js` and `panels.css` are
+  `host/fun/dock.js` and `dock.css`, the page's global `TEHAS_PANELS` is
+  `TEHAS_DOCK`, and the classes `panel-*` are `dock-*`. A plugin granted
+  only v1's `view` is listed in the plugins menu in place of a panel
+  `p-<name>`. Outside pages return in 2.1 as the plugin `panels`.
+  Readers: the consumer that runs many factories, Obeya (it vendors
+  `host/fun` and the dock, so the file and global renames reach it),
+  plugins.
+  Adopter action: `tehas update` removes the last `live/panels.json`.
+  `~/tehas/state/panels.json` stays: copy its entries whose id does not
+  start with `p-` (the operator's own pages) for the 2.1 `panels` grant,
+  then delete it, and `~/tehas/state/panel.lock` with it.
 - **analytics.db is at schema 5.**
   #2869.
   The migration drops `samples.watts`, which nothing writes since energy

@@ -7,4 +7,4 @@
 
 ### Adopter action
 
-Run `tehas update`: it removes the last `live/panels.json`. `~/tehas/state/panels.json` stays as it was: note its pages for the grant of the 2.1 `panels` plugin, then remove it.
+Run `tehas update`: it removes the last `live/panels.json`. `~/tehas/state/panels.json` stays as it was. Copy its entries whose id does not start with `p-`, the pages you set, for the grant of the 2.1 `panels` plugin; the `p-` entries were v1 plugin views, which the plugins menu now lists. Then delete it, and `~/tehas/state/panel.lock` with it.
