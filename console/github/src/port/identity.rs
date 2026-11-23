@@ -26,28 +26,58 @@ use tehas_ports::{
 const VIEWER: &str = "query { viewer { login databaseId } }";
 
 impl Identity for GitHub {
-    /// GraphQL's `viewer`, one priced call. The account carries GitHub's id.
-    /// A login GitHub gives with `[bot]` is a `Bot`; any other the viewer
-    /// answers is a `Person`, since GraphQL types every viewer a user.
+    /// GraphQL's `viewer`, one priced call, then the account read of the id
+    /// it names for the kind. GraphQL types every viewer a user and spells
+    /// an App's login more than one way, so the kind is the account read's
+    /// type: `Bot` or `Person`, `Unknown` for any other.
     fn me(&mut self) -> Got<Account> {
         let query = format!("query={VIEWER}");
         let out = self
             .call("who the handle acts as", &["api", "graphql", "-f", &query])
             .map_err(|e| priced(self.outcome(&e)))?;
-        read_me(&out, (self.now)())
+        let (login, id) = read_me(&out, (self.now)())?;
+        let user = format!("user/{id}");
+        let out = self
+            .call("the account", &["api", &user])
+            .map_err(|e| self.outcome(&e))?;
+        let kind = match read_user(&out, id)? {
+            Holder::User(_) => AccountKind::Person,
+            Holder::Bot => AccountKind::Bot,
+            Holder::Organisation => AccountKind::Unknown,
+        };
+        Ok(Account {
+            realm: Realm::CodeHost,
+            login,
+            id: Some(AccountId::new(id.to_string())),
+            kind,
+        })
     }
 
     /// GitHub's account by its id, then its permission on the repository by
-    /// the login that id has now. `NotFound` when no account has the id; an
-    /// account with no access answers `Standing::None` (on a public
-    /// repository GitHub answers every account `Read`). The second answer
-    /// must name the id asked: a login renamed and taken between the two
-    /// reads is read once more, then `Unread(Inconsistent)`.
+    /// the login that id has now. `NotFound` when no account has the id, or
+    /// when the permission read finds nothing twice under the same login (a
+    /// repository the token cannot see); an account with no access answers
+    /// `Standing::None` (on a public repository GitHub answers every account
+    /// `Read`). The second answer must name the id asked. A login renamed
+    /// between the two reads, to a free login or a taken one, is read once
+    /// more, then `Unread(Inconsistent)`.
     fn standing(&mut self, who: &AccountId) -> Got<Standing> {
         let id = id_of(who)?;
         match self.standing_once(id) {
-            Err(Outcome::Unread(Unread::Inconsistent)) => self.standing_once(id),
-            answer => answer,
+            Pass::Answer(Err(Outcome::Unread(Unread::Inconsistent))) => {
+                match self.standing_once(id) {
+                    Pass::Answer(answer) => answer,
+                    Pass::Unfound(_) => Err(Outcome::Unread(Unread::Inconsistent)),
+                }
+            }
+            Pass::Answer(answer) => answer,
+            Pass::Unfound(login) => match self.standing_once(id) {
+                Pass::Answer(answer) => answer,
+                Pass::Unfound(again) if accounts::folded(&again) == accounts::folded(&login) => {
+                    Err(Outcome::NotFound)
+                }
+                Pass::Unfound(_) => Err(Outcome::Unread(Unread::Inconsistent)),
+            },
         }
     }
 
@@ -86,30 +116,43 @@ impl Identity for GitHub {
     }
 }
 
+/// What one pass of `standing` found.
+enum Pass {
+    Answer(Got<Standing>),
+    /// The account was read, and the permission read under this login found
+    /// nothing: the login may have been renamed between the two reads.
+    Unfound(String),
+}
+
 impl GitHub {
     /// One pass of `standing`: the account read, then the permission read.
-    fn standing_once(&mut self, id: u64) -> Got<Standing> {
+    fn standing_once(&mut self, id: u64) -> Pass {
         let user = format!("user/{id}");
-        let out = self
-            .call("the account", &["api", &user])
-            .map_err(|e| self.outcome(&e))?;
-        let login = match read_user(&out, id)? {
-            Holder::User(login) => login,
+        let out = match self.call("the account", &["api", &user]) {
+            Ok(out) => out,
+            Err(e) => return Pass::Answer(Err(self.outcome(&e))),
+        };
+        let login = match read_user(&out, id) {
+            Ok(Holder::User(login)) => login,
             // An organisation holds no standing of its own on a repository.
-            Holder::Organisation => return Ok(Standing::None),
+            Ok(Holder::Organisation) => return Pass::Answer(Ok(Standing::None)),
             // An App's standing is its installation's permissions, which
             // `Standing` does not hold.
-            Holder::Bot => return unsupported(),
+            Ok(Holder::Bot) => return Pass::Answer(unsupported()),
+            Err(o) => return Pass::Answer(Err(o)),
         };
         let path = format!(
             "repos/{}/collaborators/{}/permission",
             self.repo,
             uri(&login)
         );
-        let out = self
-            .call("the account's permission", &["api", &path])
-            .map_err(|e| self.outcome(&e))?;
-        read_permission(&out, id)
+        match self.call("the account's permission", &["api", &path]) {
+            Ok(out) => Pass::Answer(read_permission(&out, id)),
+            Err(e) => match self.outcome(&e) {
+                Outcome::NotFound => Pass::Unfound(login),
+                o => Pass::Answer(Err(o)),
+            },
+        }
     }
 }
 
@@ -137,10 +180,10 @@ fn priced(o: Outcome) -> Outcome {
 /// An answer that does not parse.
 const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 
-/// The account of the viewer answer. An answer that carries errors is no
-/// whole viewer: a spent budget when GitHub says the rate is limited,
-/// `Unread(Inconsistent)` for any other.
-fn read_me(out: &str, now: i64) -> Got<Account> {
+/// The vouched login and the id of the viewer answer. An answer that
+/// carries errors is no whole viewer: a spent budget when GitHub says the
+/// rate is limited, `Unread(Inconsistent)` for any other.
+fn read_me(out: &str, now: i64) -> Got<(Login, u64)> {
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
     if let Some(errors) = v.get("errors").filter(|e| !e.is_null()) {
         let limited = errors.as_array().is_some_and(|all| {
@@ -171,11 +214,6 @@ fn read_me(out: &str, now: i64) -> Got<Account> {
         .and_then(Value::as_u64)
         .filter(|id| *id > 0)
         .ok_or(MALFORMED)?;
-    let kind = if raw.ends_with("[bot]") {
-        AccountKind::Bot
-    } else {
-        AccountKind::Person
-    };
     // The vouch keys a login as `accounts::account` gives it; it is given
     // that form first, so a renamed answer keeps the same spelling.
     viewer.insert(
@@ -187,12 +225,7 @@ fn read_me(out: &str, now: i64) -> Got<Account> {
         .pointer("/data/viewer/login")
         .and_then(Value::as_str)
         .ok_or(MALFORMED)?;
-    Ok(Account {
-        realm: Realm::CodeHost,
-        login: Login::new(accounts::folded(login)),
-        id: Some(AccountId::new(id.to_string())),
-        kind,
-    })
+    Ok((Login::new(accounts::folded(login)), id))
 }
 
 /// What an account read says of the account an id names.

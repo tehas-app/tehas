@@ -7,11 +7,20 @@ use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 use tehas_ports::Identity;
 
+/// The viewer answer given, then the account read of its id: a bot for an
+/// App's id, else a user.
 struct Viewer(&'static str);
 
 impl GhRunner for Viewer {
-    fn run(&mut self, _: &[&str]) -> Result<String, String> {
-        Ok(self.0.to_string())
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        match args {
+            ["api", path] => {
+                let id = path.strip_prefix("user/").expect("an account read");
+                let kind = if id.starts_with("90") { "Bot" } else { "User" };
+                Ok(format!(r#"{{"login":"x","id":{id},"type":"{kind}"}}"#))
+            }
+            _ => Ok(self.0.to_string()),
+        }
     }
 }
 

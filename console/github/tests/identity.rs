@@ -10,8 +10,8 @@ use std::rc::Rc;
 use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 use tehas_ports::{
-    Account, AccountId, Actor, Got, Identity, Login, Outcome, ProjectName, Refusal, Scope,
-    SignInCode, SignInState, Standing, Unread,
+    Account, AccountId, AccountKind, Actor, Got, Identity, Login, Outcome, ProjectName, Refusal,
+    Scope, SignInCode, SignInState, Standing, Unread,
 };
 
 const PROJECT: &str = "acme/widget";
@@ -29,7 +29,8 @@ type Asked = Rc<RefCell<Vec<String>>>;
 /// Answers from `tests/recorded/identity/`: the viewer question from
 /// `me-<case>`, an account read from `user-<id>`, a permission read from
 /// `permission-<login>`; `.json` is gh's answer, `.fail` the runner's
-/// reason. A call with no recording fails the test.
+/// reason. The second ask of a name is answered from `<name>.2` where that
+/// recording exists. A call with no recording fails the test.
 struct Replay {
     case: String,
     asked: Asked,
@@ -54,6 +55,21 @@ impl GhRunner for Replay {
             _ => panic!("no recording of {args:?}"),
         };
         let at = here().join("tests/recorded/identity");
+        let before = self
+            .asked
+            .borrow()
+            .iter()
+            .filter(|a| a.as_str() == args.join(" "))
+            .count();
+        let again = format!("{name}.2");
+        let name = if before >= 2
+            && (at.join(format!("{again}.json")).exists()
+                || at.join(format!("{again}.fail")).exists())
+        {
+            again
+        } else {
+            name
+        };
         if let Ok(out) = std::fs::read_to_string(at.join(format!("{name}.json"))) {
             return Ok(out);
         }
@@ -90,6 +106,10 @@ struct Me {
     case: String,
     fixture: String,
     answer: Got<Account>,
+    /// The id whose account read gives the account's kind, when the
+    /// viewer answer names one.
+    #[serde(default)]
+    kind_from: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -103,9 +123,9 @@ struct OfStanding {
 }
 
 #[test]
-fn me_answers_as_each_sample_says_in_one_call() {
+fn me_answers_as_each_sample_says() {
     let all: Vec<Me> = samples("identity-me.json");
-    assert!(all.len() >= 12);
+    assert!(all.len() >= 15);
     for s in all {
         assert_eq!(s.op, "Identity::me");
         assert!(
@@ -115,13 +135,25 @@ fn me_answers_as_each_sample_says_in_one_call() {
         );
         let (mut gh, asked) = adapter(&s.case);
         assert_eq!(gh.me(), s.answer, "{}: {}", s.case, s.fixture);
-        assert_eq!(
-            *asked.borrow(),
-            ["api graphql -f query=query { viewer { login databaseId } }"],
-            "{}",
-            s.case
-        );
+        let mut want =
+            vec!["api graphql -f query=query { viewer { login databaseId } }".to_string()];
+        want.extend(s.kind_from.map(|id| format!("api user/{id}")));
+        assert_eq!(*asked.borrow(), want, "{}", s.case);
     }
+}
+
+#[test]
+fn me_takes_the_kind_from_the_account_read_not_the_login() {
+    let kind = |case: &str| adapter(case).0.me().map(|a| (a.login, a.kind));
+    let app = Ok((Login::new("tehas-bot"), AccountKind::Bot));
+    assert_eq!(kind("app"), app);
+    assert_eq!(kind("app-graphql"), app);
+    assert_eq!(kind("app-gh"), app);
+    assert_eq!(
+        kind("operator"),
+        Ok((Login::new("alice"), AccountKind::Person))
+    );
+    assert_eq!(kind("org"), Ok((Login::new("acme"), AccountKind::Unknown)));
 }
 
 #[test]
@@ -252,10 +284,41 @@ fn a_rename_between_the_reads_is_settled_by_the_second_pair() {
 }
 
 #[test]
+fn a_rename_to_a_free_login_between_the_reads_is_settled_by_the_second_pair() {
+    let (got, asked) = standing_of("122");
+    assert_eq!(got, Ok(Standing::Admin));
+    assert_eq!(
+        asked,
+        [
+            "api user/122",
+            "api repos/acme/widget/collaborators/olivia/permission",
+            "api user/122",
+            "api repos/acme/widget/collaborators/olivia2/permission",
+        ]
+    );
+}
+
+#[test]
+fn a_permission_read_that_finds_nothing_twice_is_not_found_once_renamed_inconsistent() {
+    let (got, asked) = standing_of("117");
+    assert_eq!(got, Err(Outcome::NotFound));
+    let pair = [
+        "api user/117",
+        "api repos/acme/widget/collaborators/mallory/permission",
+    ];
+    assert_eq!(asked, [pair, pair].concat());
+    let (got, asked) = standing_of("123");
+    assert_eq!(got, Err(Outcome::Unread(Unread::Inconsistent)));
+    assert_eq!(asked.len(), 4);
+}
+
+#[test]
 fn a_login_that_is_no_path_segment_stays_one() {
     let asked = Asked::default();
     let stub = Stub {
         answers: vec![
+            Ok(recorded("user-105.json").replace("\"erin\"", "\"../../x?y\"")),
+            Err(": HTTP 404".to_string()),
             Ok(recorded("user-105.json").replace("\"erin\"", "\"../../x?y\"")),
             Err(": HTTP 404".to_string()),
         ],

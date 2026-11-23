@@ -12,7 +12,8 @@
       }
     },
     "case": "app",
-    "fixture": "The handle acts as the factory's GitHub App, whose installation token GitHub names tehas-bot[bot], id 900.",
+    "fixture": "The handle acts as the factory's GitHub App, named tehas-bot[bot] as REST names it, id 900; the account read of 900 says it is a bot.",
+    "kind_from": 900,
     "op": "Identity::me"
   },
   {
@@ -27,6 +28,73 @@
     },
     "case": "operator",
     "fixture": "The handle acts as the operator's own token, of the person Alice, id 101.",
+    "kind_from": 101,
+    "op": "Identity::me"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": {
+        "id": "900",
+        "kind": "Bot",
+        "login": "tehas-bot",
+        "realm": "CodeHost"
+      }
+    },
+    "case": "app-graphql",
+    "fixture": "The handle acts as the factory's GitHub App, named tehas-bot as GraphQL names an App, id 900; the account read of 900 says it is a bot, so the login's spelling decides nothing.",
+    "kind_from": 900,
+    "op": "Identity::me"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": {
+        "id": "900",
+        "kind": "Bot",
+        "login": "tehas-bot",
+        "realm": "CodeHost"
+      }
+    },
+    "case": "app-gh",
+    "fixture": "The handle acts as the factory's GitHub App, named app/tehas-bot as gh names an App, id 900.",
+    "kind_from": 900,
+    "op": "Identity::me"
+  },
+  {
+    "actor": "Operator",
+    "answer": {
+      "Ok": {
+        "id": "108",
+        "kind": "Unknown",
+        "login": "acme",
+        "realm": "CodeHost"
+      }
+    },
+    "case": "org",
+    "fixture": "The viewer answer names the id 108, whose account read says it is an organisation: no person and no bot, so the kind is unknown.",
+    "kind_from": 108,
+    "op": "Identity::me"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "sent": "Maybe",
+          "why": "Timeout"
+        }
+      }
+    },
+    "case": "kind-timeout",
+    "fixture": "The viewer answer names the id 115, and the account read that says its kind outlives its time limit.",
+    "kind_from": 115,
     "op": "Identity::me"
   },
   {
