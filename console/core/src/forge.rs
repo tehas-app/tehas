@@ -197,8 +197,20 @@ pub trait GhRunner {
     fn run(&mut self, args: &[&str]) -> Result<String, String>;
 }
 
+/// Given to every gh call of tehas's own, by `Bounded` and by `call`'s
+/// runners: the host's shim then sends a rate-limited write once, so a
+/// call's bound is not spent in the shim's minute of waiting. An operator's
+/// or a plugin's gh keeps the retry.
+pub const GH_NO_RETRY: (&str, &str) = ("TEHAS_GH_RETRY", "0");
+
+/// A program is gh by its file name: `gh` on the PATH, or a shim's path.
+pub fn is_gh(program: &str) -> bool {
+    std::path::Path::new(program).file_name() == Some("gh".as_ref())
+}
+
 /// The runner a host uses: gh of its own, in a bound of its own. One call per
-/// [`GhRunner::run`], so nothing one call set is seen by the next.
+/// [`GhRunner::run`], so nothing one call set is seen by the next. The call
+/// has the shim's retry off ([`GH_NO_RETRY`]).
 ///
 /// The child leads a process group and the group is signalled, as `timeout -k`
 /// does: TERM first, KILL after the grace, so gh and what it started are
@@ -239,6 +251,7 @@ impl GhRunner for Bounded {
 
         let mut child = Command::new(&self.program)
             .args(args)
+            .env(GH_NO_RETRY.0, GH_NO_RETRY.1)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -400,4 +413,25 @@ fn find_http(line: &str) -> Option<usize> {
         i += 1;
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_gh_call_of_call_turns_the_shims_retry_off_and_another_program_is_left_alone() {
+        use crate::call::{run, run_grace_env, GRACE};
+        let d = crate::testdir::TestDir::new("gh-no-retry");
+        let says = "#!/bin/sh\necho \"${TEHAS_GH_RETRY-unset}\"\n";
+        let (gh, other) = (d.join("gh"), d.join("not-gh"));
+        crate::testing::write_exe(&gh, says).unwrap();
+        crate::testing::write_exe(&other, says).unwrap();
+        let bound = std::time::Duration::from_secs(10);
+        assert_eq!(run(gh.to_str().unwrap(), &[], bound).out, "0\n");
+        assert_eq!(run(other.to_str().unwrap(), &[], bound).out, "unset\n");
+        let kept = d.join("out");
+        let f = std::fs::File::create(&kept).unwrap();
+        let rc = run_grace_env(gh.to_str().unwrap(), &[], Some(f), bound, GRACE, &[]);
+        assert_eq!(rc, Some(0));
+        assert_eq!(std::fs::read_to_string(&kept).unwrap(), "0\n");
+    }
 }
