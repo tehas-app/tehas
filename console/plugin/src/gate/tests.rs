@@ -1071,9 +1071,204 @@ fn a_session_past_twelve_hours_is_refused_rather_than_handed_off() {
 fn a_fresh_github_sign_in_starts_a_new_twelve_hours() {
     let f = fixture();
     // A person who signs in with GitHub starts their own 12 hours: that is a
-    // sign-in, not a hand-off, so it opens the name at `now`.
-    let (_, s) = sign_in_full(&f, P, T0);
-    assert_ends_at_the_limit(&f, S, &s, T0);
+    // sign-in, not a hand-off, so the name opens at `now`. Q is signed in on
+    // its own at `late`, a day after the first sign-in, and it is Q — the name
+    // that no hand-off touched — whose session runs the full 12 hours from
+    // `late`. P's own session keeps the limit of the first sign-in.
+    let (d, _) = sign_in_github(&f, P, T0);
+    let late = T0 + auth::TOTAL + 3600;
+    let (q, qs) = sign_in_github(&f, Q, late);
+    assert_ends_at_the_limit(&f, Q, &q, late);
+    assert_ends_at_the_limit(&f, S, &qs, late);
+    // The hand-off name from the first sign-in is still bounded by it: the
+    // fresh sign-in of another name starts no new hour for it.
+    assert_eq!(
+        f.gate
+            .answer(&fetch(P, "/_session", &d), late + auth::TOTAL + 1)
+            .status,
+        401
+    );
+}
+
+#[test]
+fn a_hand_off_opens_its_name_checked_at_the_take() {
+    let f = fixture();
+    // The take opens the new name checked at the take, the same as a sign-in,
+    // and not with the source session's last check. The new name has never
+    // been read for this person, so the first request on it asks GitHub
+    // again rather than riding the rest of the source session's 10 minutes:
+    // the manual's rule is that the gate asks again every 10 minutes, and a
+    // window measured from a check bought on another name is not that. A
+    // person whose access went would otherwise keep the new name to their
+    // next poll, and the take is the one moment that decides it.
+    let (_, s) = sign_in_github(&f, P, T0);
+    f.hub.set(|h| {
+        h.level = Some(Ok(Some(Level::Write)));
+        h.other_id = None;
+    });
+    // keep_busy asks half an idle window apart, which lands the source's
+    // last read just short of the take. That is the worst case the finding
+    // names: the code carries a stamp a hair under 10 minutes old, so the
+    // new name inherits a window all but unexpired, and the press below is
+    // short-circuited instead of asking who the person is.
+    let hand = T0 + 61 * auth::CHECK;
+    keep_busy(&f, S, &s, T0, hand - 1);
+    let (nonce, take) = f.hand_off_from(Q, "/", &s, hand - 1, hand);
+    let took = f.gate.answer(&nav(Q, &take, &nonce), hand);
+    assert_eq!(took.status, 303, "{}", location(&took));
+    let e = format!("{}={}", auth::SESSION, set(&took, auth::SESSION).unwrap());
+    // The take asks GitHub nothing — the code is what was checked, on the
+    // source's name.
+    let calls = f.hub.calls().1;
+    // The press is the request that cannot be answered off a stamp it never
+    // earned: it asks GitHub who the person is, and refuses outright while
+    // the session behind it has gone unverified for the window. A session
+    // opened at the source session's time is inside it here, and the press
+    // is a 403 that asked GitHub nothing.
+    assert_eq!(
+        f.gate
+            .answer(&post(Q, "/_actions/refresh", &e), hand + 1)
+            .status,
+        202,
+        "the new name pressed off a check made on another name"
+    );
+    assert_eq!(f.hub.calls().1, calls + 1, "the press asked no question");
+    // Every name of the person still ends with the first sign-in's hour.
+    for (host, c) in [(Q, &e), (S, &s)] {
+        assert_eq!(
+            f.gate
+                .answer(&fetch(host, "/_session", c), T0 + auth::TOTAL + 1)
+                .status,
+            401,
+            "{host} outlives the first sign-in"
+        );
+    }
+}
+
+#[test]
+fn a_hand_off_opens_its_name_at_the_carried_start() {
+    // The table the gate reads, for the two values a hand-off carries: the
+    // code is trusted with the first sign-in's hour, and the take opens the
+    // new name checked at the take. The source session's check was bought on
+    // `plugins.<domain>`, so it is not the new name's standing, and a check
+    // of the person stamps every name they hold, which is why the first two
+    // lines below are the place to see it.
+    let site = Site::Plugin(Q.to_string());
+    let person = Person {
+        id: 7,
+        login: "alice".to_string(),
+    };
+    // The person signs in at T0; the pass reads them a check window later and
+    // makes the code there; the take spends it inside the code's own minute.
+    let read = T0 + auth::CHECK;
+    let take = read + 1;
+    let mut m = Memory::default();
+    let src = m
+        .open(Site::SignIn, person.clone(), T0, T0, None)
+        .expect("the sign-in opens");
+    let s = m
+        .session(&src, &Site::SignIn, read)
+        .expect("the source is live");
+    assert_eq!(s.checked, T0, "a read rewrote the session it returned");
+    // The pass's own check of the person, which is what the code would carry.
+    m.checked(person.id, read);
+    let s = m
+        .session(&src, &Site::SignIn, read)
+        .expect("the source is live");
+    assert_eq!(s.checked, read, "the pass did not check the source");
+    let ask = auth::sha256("the ask of specs");
+    m.asks.insert(
+        ask.clone(),
+        auth::Ask {
+            plugin: "specs".to_string(),
+            at: read,
+        },
+    );
+    let (code, name) = m.code(&ask, "/", &s, read).expect("the pass made a code");
+    assert_eq!(name, "specs");
+    let c = m
+        .take(&code, "specs", Some("the ask of specs"), take)
+        .expect("the take spent the code");
+    assert_eq!(c.signed_in, T0, "the code carried no first sign-in");
+    assert_eq!(c.checked, read, "the code carried no check of the source");
+    // What the take hands the table: the carried hour, and a check of the
+    // take's own. A session opened at `read` instead would answer the next
+    // poll unchecked, and a person whose access went would keep the name.
+    let id = m
+        .open(
+            site.clone(),
+            c.person.clone(),
+            take,
+            take,
+            Some(c.signed_in),
+        )
+        .expect("the hand-off opens");
+    let s = m.session(&id, &site, take).expect("the hand-off is live");
+    assert_eq!(
+        s.started, T0,
+        "a hand-off did not carry the sign-in's start"
+    );
+    assert_eq!(
+        s.checked, take,
+        "a hand-off carried the source session's check"
+    );
+    // The carried start is clamped to the take: a code cannot open a session
+    // in the future, nor one born past its own limit, which would answer 401
+    // from its first request with no line anywhere. Each read below is a
+    // check window apart, so none is idle, and the clamp is read back one
+    // read before the take — where a sign-in's own start would already have
+    // been refused — and the session then lives its own 12 hours from there.
+    let late = T0 + 8 * 24 * 3600;
+    let mut m = Memory::default();
+    let id = m
+        .open(site.clone(), person.clone(), take, take, Some(late))
+        .expect("a late code still opens");
+    let mut t = take - auth::CHECK;
+    let s = m
+        .session(&id, &site, t)
+        .expect("the clamped session is live");
+    assert_eq!(s.started, take, "the start was not clamped to the take");
+    while t < take + auth::TOTAL {
+        t = (t + auth::CHECK).min(take + auth::TOTAL);
+        assert!(
+            m.session(&id, &site, t).is_some(),
+            "the clamped session died at {t}"
+        );
+    }
+    assert!(
+        m.session(&id, &site, take + auth::TOTAL + 1).is_none(),
+        "the clamped session outlived the 12 hours"
+    );
+    // And a start carried from far in the past ends the name at the hour the
+    // first sign-in's own session would have died, not 12 hours after the
+    // take. The take is near that hour, so the last window before it is still
+    // live and the minute after it is not.
+    let mut m = Memory::default();
+    let id = m
+        .open(site.clone(), person.clone(), take, take, Some(T0))
+        .expect("the hand-off opens");
+    let end = T0 + auth::TOTAL;
+    let mut t = take;
+    while t < end {
+        t = (t + auth::CHECK).min(end);
+        assert!(
+            m.session(&id, &site, t).is_some(),
+            "the hand-off died before the first sign-in at {t}"
+        );
+    }
+    assert!(
+        m.session(&id, &site, end + 1).is_none(),
+        "the hand-off outlived the first sign-in"
+    );
+    // A GitHub sign-in still opens its name at `now`, checked at `now`: the
+    // two cases of one open, told apart by the argument alone.
+    let mut m = Memory::default();
+    let id = m
+        .open(site.clone(), person, take, take, None)
+        .expect("a sign-in opens");
+    let s = m.session(&id, &site, take).expect("the sign-in is live");
+    assert_eq!(s.started, take, "a sign-in did not start its own hour");
+    assert_eq!(s.checked, take);
 }
 
 #[test]

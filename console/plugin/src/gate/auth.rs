@@ -165,25 +165,28 @@ impl Memory {
         Some(s.clone())
     }
 
-    pub fn open(&mut self, site: Site, person: Person, checked: u64, now: u64) -> Option<String> {
-        self.open_at(site, person, checked, now, now)
-    }
-
-    /// As [`Memory::open`], opening the session at `started` rather than at
-    /// `now`: a hand-off carries the first sign-in's start, so the 12-hour
-    /// limit is that one hour for every name, not a fresh 12 for each.
-    pub fn open_at(
+    /// Opens a session on `site` for `person`, used and last checked at
+    /// `now`. `started` is the first sign-in's hour, which a hand-off carries
+    /// so the 12-hour limit is one hour for every name and not a fresh 12 for
+    /// each; `None` is a sign-in, which starts its own. A carried start is
+    /// clamped to `now`, so a code can neither open a session in the future
+    /// nor one born past its own limit: [`Memory::session`] is the one place
+    /// that limit is read, and an unclamped start would only make a session
+    /// that answers 401 from its first request.
+    pub fn open(
         &mut self,
         site: Site,
         person: Person,
         checked: u64,
         now: u64,
-        started: u64,
+        started: Option<u64>,
     ) -> Option<String> {
-        let started = started.min(now);
-        self.sessions.retain(|_, s| {
-            now.saturating_sub(s.used) <= IDLE && now.saturating_sub(s.started) <= TOTAL
-        });
+        let started = started.map_or(now, |s| s.min(now));
+        // The sweep is the idle limit only, and only here: `session` ends a
+        // session on its total, and a start clamped to `now` cannot be past
+        // it, so the one reading of the 12 hours stays in `session`.
+        self.sessions
+            .retain(|_, s| now.saturating_sub(s.used) <= IDLE);
         keep(&mut self.sessions, SESSIONS_MOST, |s| s.used);
         let id = random()?;
         self.sessions.insert(

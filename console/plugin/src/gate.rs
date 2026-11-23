@@ -463,7 +463,8 @@ impl Gate {
                 ),
             ),
             Ok(true) => {
-                let opened = lock(&self.memory).open(Site::SignIn, person.clone(), now, now);
+                let opened =
+                    lock(&self.memory).open(Site::SignIn, person.clone(), now, now, None);
                 match opened {
                     None => Response::empty(500),
                     Some(id) => {
@@ -627,8 +628,10 @@ impl Gate {
         };
         let site = Site::Plugin(name.to_string());
         // The session starts at the first sign-in's time, which the code
-        // carries, so a hand-off cannot restart the 12-hour limit.
-        let Some(id) = memory.open_at(site, c.person, c.checked, now, c.signed_in) else {
+        // carries, so a hand-off cannot restart the 12-hour limit. The access
+        // check is stamped afresh at the take: the new name has never been
+        // checked for this person, and the 10-minute window runs from here.
+        let Some(id) = memory.open(site, c.person, now, now, Some(c.signed_in)) else {
             return Response::empty(500);
         };
         drop(memory);
