@@ -1,8 +1,7 @@
 //! What a poll decides to do, one action at a time. `apply` still reads
 //! each as JSON: `From<&Action> for Value` gives the keys it routes on.
 
-use super::note::ContextNote;
-use crate::snapshot::{Base, CommentId, Given};
+use crate::snapshot::{CommentId, Given};
 use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
 use tehas_core::grammar::SpecMark;
@@ -258,10 +257,6 @@ pub struct CycleStart {
     pub body_sha256: String,
     pub title_sha256: Option<String>,
     pub links: Vec<String>,
-    /// A start of the fixer's: the person's approval it rests on, and its
-    /// starts with this one.
-    pub(crate) rests_on: Option<(Base, u64)>,
-    pub(crate) park_lifted: Option<ContextNote>,
     pub spec: Option<SpecPin>,
     pub extra: StartExtra,
 }
@@ -303,7 +298,7 @@ pub struct RefreshOf {
 }
 
 /// The keys the start's own fields write; `StartExtra` adds the rest.
-const START_BASE: [&str; 16] = [
+const START_BASE: [&str; 13] = [
     "start",
     "by",
     "how",
@@ -316,9 +311,6 @@ const START_BASE: [&str; 16] = [
     "body_sha256",
     "title_sha256",
     "links",
-    "rests_on",
-    "fixer_starts",
-    "park_lifted",
     "spec",
 ];
 
@@ -524,16 +516,6 @@ impl From<&CycleStart> for Value {
             "body_sha256": st.body_sha256, "title_sha256": st.title_sha256,
             "links": st.links,
         });
-        let pairs = |p: &[(&'static str, &str)]| -> Map<String, Value> {
-            p.iter().map(|(k, v)| (k.to_string(), json!(v))).collect()
-        };
-        if let Some((base, count)) = &st.rests_on {
-            a["rests_on"] = Value::Object(pairs(&base.pairs()));
-            a["fixer_starts"] = json!(count);
-        }
-        if let Some(note) = &st.park_lifted {
-            a["park_lifted"] = Value::Object(pairs(&note.pairs()));
-        }
         if let Some(spec) = &st.spec {
             a["spec"] = Value::from(spec);
         }
@@ -597,21 +579,6 @@ mod tests {
             body_sha256: "b".into(),
             title_sha256: Some("t".into()),
             links: vec![],
-            rests_on: Some((
-                Base {
-                    at: "a".into(),
-                    by: "alice".into(),
-                    how: "label".into(),
-                    body_sha256: "b".into(),
-                },
-                2,
-            )),
-            park_lifted: Some(ContextNote {
-                source: "s".into(),
-                by: "b".into(),
-                at: "a".into(),
-                text: "t".into(),
-            }),
             spec: Some(SpecPin {
                 read: Err("why".into()),
                 off: vec![],
