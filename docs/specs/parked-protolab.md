@@ -150,11 +150,13 @@ the lab plugin to use:
 | Zip by address: the host allowlist, the redirect walk, the sha256 pin | in the pass | `console/attach/src/link.rs` (`is_external`), used by the item store |
 | Fetch, limits, sniff, zip unpack and manifest | `console/attach` | `console/attach`, unchanged |
 
-## Not removed here
+## Removed after
 
-The `tehas:prototype` label (`host/labels.tsv`, the label pins, the
-dispatcher's flow), the `prototype` kind (`console/core/src/kinds.rs`,
-`TEHAS_ISSUE_TYPES`) are removed by a separate T16 commit.
+A T16 commit removed the `tehas:prototype` label (`host/labels.tsv`, the
+label pins, the dispatcher's flow) and the `prototype` kind
+(`console/core/src/kinds.rs`, `TEHAS_ISSUE_TYPES`). They are at the commit
+above too. A `prototype=` pair of `TEHAS_ISSUE_TYPES` loads with a warning
+and is dropped.
 
 ## Bringing it back
 
