@@ -1003,6 +1003,20 @@ impl Site for StubSite {
     fn meter(&self) -> Vec<MeterRow> {
         vec![]
     }
+    /// The stub has no clock: every deadline has passed, so each handle
+    /// asked answers the timeout.
+    fn until(&self, _: At) -> Arc<dyn Site> {
+        Arc::new(StubSite {
+            realms: self.realms.clone(),
+            fail: Outcome::Unavailable {
+                why: Passing::Timeout,
+                sent: Sent::No,
+            },
+            tickets: None,
+            blueprints: None,
+            code_host: None,
+        })
+    }
 }
 
 const CALLER: Caller = Caller::new("test.join");

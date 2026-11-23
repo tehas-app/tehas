@@ -512,8 +512,10 @@ type Calls = Vec<(Op, Option<Actor>, u32)>;
 struct Shared {
     rules: Vec<Rule>,
     draws: Vec<(Op, Vec<Pool>)>,
-    calls: Mutex<Calls>,
-    requests: Mutex<Vec<(Actor, u32)>>,
+    /// Shared with the `until` views made of it.
+    calls: Arc<Mutex<Calls>>,
+    /// Shared with the `until` views made of it.
+    requests: Arc<Mutex<Vec<(Actor, u32)>>>,
     watch: Option<Watch>,
 }
 
@@ -566,8 +568,8 @@ impl<S: Site> Faulty<S> {
             shared: Arc::new(Shared {
                 rules: Vec::new(),
                 draws: Vec::new(),
-                calls: Mutex::new(Vec::new()),
-                requests: Mutex::new(Vec::new()),
+                calls: Arc::new(Mutex::new(Vec::new())),
+                requests: Arc::new(Mutex::new(Vec::new())),
                 watch: None,
             }),
         }
@@ -581,8 +583,8 @@ impl<S: Site> Faulty<S> {
             let copy = Shared {
                 rules: s.rules.clone(),
                 draws: s.draws.clone(),
-                calls: Mutex::new(lock(&s.calls).clone()),
-                requests: Mutex::new(lock(&s.requests).clone()),
+                calls: Arc::new(Mutex::new(lock(&s.calls).clone())),
+                requests: Arc::new(Mutex::new(lock(&s.requests).clone())),
                 watch: s.watch.clone(),
             };
             self.shared = Arc::new(copy);
@@ -681,6 +683,28 @@ impl<S: Site> Faulty<S> {
 impl<S: Site> Site for Faulty<S> {
     fn realms(&self) -> &[Realm] {
         self.site.realms()
+    }
+
+    /// The view of its site's `until`, under the same rules, counting its
+    /// calls and requests with this one's. With a watch, the watch's
+    /// `deadline` is `until`.
+    fn until(&self, until: At) -> Arc<dyn Site> {
+        let s = &*self.shared;
+        let watch = s.watch.clone().map(|mut w| {
+            w.deadline = Some(until);
+            w
+        });
+        Arc::new(Faulty {
+            site: self.site.until(until),
+            shared: Arc::new(Shared {
+                rules: s.rules.clone(),
+                draws: s.draws.clone(),
+                calls: Arc::clone(&s.calls),
+                requests: Arc::clone(&s.requests),
+                watch,
+            }),
+            log: self.log.clone(),
+        })
     }
 
     fn mark_name(&self, mark: &crate::Mark) -> String {

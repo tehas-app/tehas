@@ -1423,17 +1423,51 @@ fn health_held_calls_raise_no_recovered() {
 fn health_past_the_deadline_raises_no_unavailable() {
     let wired = Wired::new(World::new().ticket(1, |t| t.title("a")));
     let now = wired.world.now();
-    let faulty = Faulty::new(FakeSite::new(&wired.world)).watch(wired.watch(Some(now)));
-    let mut h = faulty.tickets(&full(), C).unwrap();
+    let faulty = wired.faulty();
     ok(laws::health::past_the_deadline_raises_no_unavailable(
-        h.as_mut(),
+        &faulty,
+        &full(),
         &wired.world.key(1),
+        now,
         wired.wiring(&|| faulty.requests()),
     ));
     assert_eq!(
         faulty.requests(),
-        0,
-        "a call past its deadline sends nothing"
+        1,
+        "the call past its deadline sent nothing"
+    );
+}
+
+#[test]
+fn a_site_seen_until_a_time_answers_a_timeout_from_then() {
+    let w = World::new().ticket(1, |t| t.title("a"));
+    let site = FakeSite::new(&w);
+    let view = site.until(At::new(w.now().secs() + 10));
+    let mut h = view.tickets(&full(), C).unwrap();
+    assert!(h.ticket(&w.key(1), Depth::Cut { notes: 0 }, None).is_ok());
+    let sent = w.sent();
+    w.advance(10);
+    let timeout = Outcome::Unavailable {
+        why: Passing::Timeout,
+        sent: Sent::No,
+    };
+    assert_eq!(
+        h.ticket(&w.key(1), Depth::Cut { notes: 0 }, None).map(drop),
+        Err(timeout.clone())
+    );
+    assert_eq!(
+        h.several(&[w.key(1)])[0].1.clone().map(drop),
+        Err(timeout.clone())
+    );
+    assert_eq!(w.sent(), sent, "a call past the deadline sends nothing");
+    assert_eq!(calls(&site), 1, "the view meters on the site's meter");
+    // A setup seen until a time sees each of its sites so.
+    let setup = Setup::One(Arc::new(site)).until(w.now());
+    let mut late = setup.tickets(&full(), C).unwrap();
+    assert_eq!(
+        late.ticket(&w.key(1), Depth::Cut { notes: 0 }, None)
+            .map(drop),
+        Err(timeout)
     );
 }
 

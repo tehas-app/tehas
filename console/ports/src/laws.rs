@@ -1831,10 +1831,10 @@ pub mod identity {
 /// reach the site, one that could not connect included, and never an answer
 /// it made without trying, so such an answer raises nothing.
 pub mod health {
-    use super::{hold, Law, Told};
+    use super::{broken, hold, Law, Told};
     use crate::{
-        At, Depth, Health, HealthState, Holder, HostId, Identity, Ledger, Outcome, Passing, Pool,
-        ProjectName, Scope, Sent, TicketKey, Tickets, Whose,
+        Actor, At, Caller, Depth, Health, HealthState, Holder, HostId, Identity, Ledger, Outcome,
+        Passing, Pool, ProjectName, Scope, Sent, Site, TicketKey, Tickets, Whose,
     };
 
     /// What the handle's site was wired with: the ledger, the sink and the
@@ -1994,16 +1994,30 @@ pub mod health {
         still_failing(wired, LAW, told, &failing, "an out-of-set token")
     }
 
-    /// A call past its pass's deadline answers `Unavailable { why: Timeout,
-    /// sent: No }` with no request, and raises no `Unavailable`: the host
-    /// stays healthy. The handle was made with its deadline passed; the
-    /// host is healthy in the ledger.
+    /// A call past its deadline answers `Unavailable { why: Timeout, sent:
+    /// No }` with no request, and raises no `Unavailable`: the host stays
+    /// healthy. The law makes a handle of `by` from `site.until(until)`,
+    /// `until` at or before the site's now, and asks it for `key`; a handle
+    /// made before the view, from `site` itself, still sends. The host is
+    /// healthy in the ledger.
     pub fn past_the_deadline_raises_no_unavailable(
-        h: &mut dyn Tickets,
+        site: &dyn Site,
+        by: &Actor,
         key: &TicketKey,
+        until: At,
         wired: Wiring<'_>,
     ) -> Law {
         const LAW: &str = "health::past_the_deadline_raises_no_unavailable";
+        let caller = Caller::new("laws.health");
+        let mut before_view = match site.tickets(by, caller) {
+            Ok(h) => h,
+            Err(o) => return broken(LAW, format!("a handle of the site: {}", o.line())),
+        };
+        let view = site.until(until);
+        let mut h = match view.tickets(by, caller) {
+            Ok(h) => h,
+            Err(o) => return broken(LAW, format!("a handle of the view: {}", o.line())),
+        };
         let Wiring {
             ledger,
             sink,
@@ -2018,6 +2032,15 @@ pub mod health {
         let sent = requests();
         let answer = h.ticket(key, Depth::Cut { notes: 0 }, None).map(|_| ());
         no_request(LAW, sent, requests(), "a call past the deadline")?;
+        let earlier = before_view
+            .ticket(key, Depth::Cut { notes: 0 }, None)
+            .map(|_| ());
+        hold(earlier.is_ok(), LAW, || {
+            format!("a handle made before the view answered {earlier:?}")
+        })?;
+        hold(requests() > sent, LAW, || {
+            "a handle made before the view sent nothing".into()
+        })?;
         let timeout = Outcome::Unavailable {
             why: Passing::Timeout,
             sent: Sent::No,
