@@ -145,7 +145,8 @@ pub struct Accounts {
 
 impl Accounts {
     /// Two pairs of one login in two cases that disagree record no id for
-    /// it, so it does not count until `tehas update` settles it.
+    /// it, so it does not count until `tehas update` settles it: it keeps
+    /// one pair a login, and a changed id stops it (console/ops/src/ids.rs).
     pub fn new(listed: Vec<String>, ids: BTreeMap<String, u64>) -> Accounts {
         let listed = listed.iter().map(|l| folded(l)).collect();
         let mut folds: BTreeMap<String, Option<u64>> = BTreeMap::new();
