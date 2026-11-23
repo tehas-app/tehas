@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 /// brings it, and taken out only with the feature itself. The shipped features
 /// of the registry (core/src/features.rs) follow these; a building one is not
 /// a word of `features`.
-const FEATURES: [&str; 30] = [
+const FEATURES: [&str; 32] = [
     "status",
     "limit",
     "drain",
@@ -44,6 +44,8 @@ const FEATURES: [&str; 30] = [
     "blockers",
     "answer",
     "question",
+    "cycle-ids",
+    "questions",
 ];
 
 /// The longest version text read, which `head -c` kept it to.
@@ -90,6 +92,14 @@ fn or_null(v: &Option<String>) -> J {
     v.clone().map_or(J::Null, J::str)
 }
 
+/// The store's id in its answer, null when it names none.
+fn store_of(answer: &J) -> J {
+    match answer.get("store") {
+        J::Str(id) if !id.is_empty() => J::Str(id.clone()),
+        _ => J::Null,
+    }
+}
+
 /// `{last, hour}` of the store's answer, or null when no poll is on record.
 fn poll_of(answer: &J) -> J {
     if answer.get("last").is_null() {
@@ -125,7 +135,13 @@ fn flags_line(flags: &[(&str, bool)]) -> String {
     words.join(" ")
 }
 
-fn object(version: &str, repo: &str, login: &str, flags: &[(&str, bool)], poll: J) -> J {
+fn object(
+    version: &str,
+    repo: &str,
+    login: &str,
+    flags: &[(&str, bool)],
+    (poll, store): (J, J),
+) -> J {
     let (tehas, commit) = split_version(version);
     let millwright = if login.is_empty() {
         J::Null
@@ -144,6 +160,7 @@ fn object(version: &str, repo: &str, login: &str, flags: &[(&str, bool)], poll: 
         ("flags", flags_object(flags)),
         ("millwright", millwright),
         ("poll", poll),
+        ("store", store),
     ])
 }
 
@@ -189,11 +206,13 @@ pub fn main(given: &[String]) -> u8 {
     let flags = tehas_core::features::flags();
     if json {
         let now = tehas_core::time::now().to_string();
-        let poll = store::line(&home, &["poll-show", "--api", "--now", &now])
+        let read = store::line(&home, &["poll-show", "--api", "--now", &now])
             .ok()
             .and_then(|text| J::parse(&text))
-            .map_or(J::Null, |answer| poll_of(&answer));
-        tehas_core::outln!("{}", object(&version, &repo, &login, &flags, poll).dump());
+            .map_or((J::Null, J::Null), |answer| {
+                (poll_of(&answer), store_of(&answer))
+            });
+        tehas_core::outln!("{}", object(&version, &repo, &login, &flags, read).dump());
     } else {
         let poll = store::call(&home, &["poll-show"]).ok();
         let line = poll.as_ref().and_then(|v| v["line"].as_str()).unwrap_or("");
@@ -231,12 +250,13 @@ mod tests {
     fn the_keys_stay_in_the_order_of_the_api() {
         let poll = J::parse(r#"{"z":1,"a":2}"#).unwrap();
         let flags = [("plugins", false), ("other", true)];
-        let printed = object("v1.2.3", "acme/widget", "mill", &flags, poll).dump();
+        let store = J::str("0123456789abcdef0123456789abcdef");
+        let printed = object("v1.2.3", "acme/widget", "mill", &flags, (poll, store)).dump();
         assert!(printed.starts_with(
             r#"{"api":1,"tehas":"v1.2.3","commit":null,"repo":"acme/widget","features":["status","#
         ));
         assert!(printed.ends_with(
-            r#""disk","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags","status-previews","wake","start-reasons","blockers","answer","question"],"flags":{"plugins":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2}}"#
+            r#""disk","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags","status-previews","wake","start-reasons","blockers","answer","question","cycle-ids","questions"],"flags":{"plugins":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2},"store":"0123456789abcdef0123456789abcdef"}"#
         ));
     }
 
@@ -348,6 +368,19 @@ mod tests {
             poll_of(&one).dump(),
             r#"{"last":{"z":1,"at":2},"hour":{"polls":1}}"#
         );
+    }
+
+    /// `store` is the store's id (T11.5), null when the store names none.
+    #[test]
+    fn the_store_is_the_id_the_store_names() {
+        let one = J::parse(r#"{"store":"0123456789abcdef0123456789abcdef","last":null}"#).unwrap();
+        assert_eq!(
+            store_of(&one).dump(),
+            r#""0123456789abcdef0123456789abcdef""#
+        );
+        for none in [r#"{"last":null}"#, r#"{"store":""}"#, r#"{"store":7}"#] {
+            assert!(store_of(&J::parse(none).unwrap()).is_null(), "{none}");
+        }
     }
 
     #[test]

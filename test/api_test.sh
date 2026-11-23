@@ -71,8 +71,8 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr"
 for gone in store-copy host-message-health refresh-pr-starts refresh-pr-lane refresh-pr-json; do
   t_eq "$gone $(jq --arg w "$gone" '.features | index($w)' <<<"$t_out")" "$gone null"
 done
-t_eq "$(jq -r '.features | last' <<<"$t_out")" "question"
-t_eq "$(jq -r '.features | length' <<<"$t_out")" 30
+t_eq "$(jq -r '.features | last' <<<"$t_out")" "questions"
+t_eq "$(jq -r '.features | length' <<<"$t_out")" 32
 t_eq "$(jq -r '.features | index("host-bridge-tokens")' <<<"$t_out")" null
 # Every word of features is in the manual's example and has its own entry,
 # with what it is, in the manual's row of features.
@@ -125,30 +125,29 @@ reset
 installed v0.8.0+cb6912a
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.flags' <<<"$t_out")" '{"spec-pipe":false,"lean":false,"plugins":false}'
-t_eq "$(jq -r '.features | index("spec-pipe")' <<<"$t_out")" null
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"lean":false,"plugins":false}'
 t_eq "$(jq -r '.features | index("lean")' <<<"$t_out")" null
-t_eq "$(jq -r 'keys_unsorted | join(" ")' <<<"$t_out")" "api tehas commit repo features flags millwright poll"
+t_eq "$(jq -r 'keys_unsorted | join(" ")' <<<"$t_out")" "api tehas commit repo features flags millwright poll store"
 t_run "$api"
-t_contains "$t_out" "flags       spec-pipe=off lean=off plugins=off"
+t_contains "$t_out" "flags       lean=off plugins=off"
 
 t_case "api --json: a test that turns a building feature on sees it on in flags only"
 reset
 installed v0.8.0+cb6912a
-t_instance "${T_MINIMAL[@]}" TEHAS_SPEC_PIPE=on
-T_ENV=(TEHAS_TEST_FEATURES=spec-pipe)
+t_instance "${T_MINIMAL[@]}" TEHAS_LEAN=on
+T_ENV=(TEHAS_TEST_FEATURES=lean)
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.flags' <<<"$t_out")" '{"spec-pipe":true,"lean":false,"plugins":false}'
-t_eq "$(jq -r '.features | index("spec-pipe")' <<<"$t_out")" null
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"lean":true,"plugins":false}'
+t_eq "$(jq -r '.features | index("lean")' <<<"$t_out")" null
 
 t_case "api: a building feature switched on is refused with 78 and its name"
 reset
 installed v0.8.0+cb6912a
-t_instance "${T_MINIMAL[@]}" TEHAS_SPEC_PIPE=on
+t_instance "${T_MINIMAL[@]}" TEHAS_LEAN=on
 t_run "$api --json"
 t_eq "$t_rc" 78
-t_contains "$t_out" "spec-pipe is still being built"
+t_contains "$t_out" "lean is still being built"
 
 t_case "api --json: the millwright is the app's login when the factory has one"
 reset
@@ -330,7 +329,7 @@ t_eq "$(jq -c '.flags | keys_unsorted' "$T_ROOT/api/api.sample.json")" "$(jq -c 
 t_case "api.schema.json refuses a field it does not name, a flag that is no boolean and a word of another form"
 reset
 t_eq "$(jq '.zz = 1 | .flags.lean = "on" | .features += ["Two words"]' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
-  "$(printf '%s\n' '.zz: not in the schema' '.features[30]: "Two words" does not match "^[a-z][a-z0-9-]*$"' '.flags.lean: string, not boolean')"
+  "$(printf '%s\n' '.zz: not in the schema' '.features[32]: "Two words" does not match "^[a-z][a-z0-9-]*$"' '.flags.lean: string, not boolean')"
 t_eq "$(jq 'del(.poll.last.ageMin) | .poll.hour.polls = -1' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
   "$(printf '%s\n' '.poll.last: ageMin is missing' '.poll.hour.polls: -1 is under 0')"
 
@@ -353,8 +352,8 @@ t_case "api --json prints the samples: no poll on record, a poll with no writes 
 # The clock and the wall time of the last poll are the run's, so the samples
 # keep their own; every other value is what the command printed.
 # TEHAS_SAMPLES_WRITE=1 writes the samples from the command instead.
-steady() { # <json text>: the object with the clock of its poll as the samples hold it
-  jq 'if .poll then .poll.last |= (.at = 1761400000 | .wallMs = 24000 | .ageMin = 0) else . end' <<<"$1"
+steady() { # <json text>: the object with the clock of its poll and its store's random id as the samples hold them
+  jq 'if .poll then .poll.last |= (.at = 1761400000 | .wallMs = 24000 | .ageMin = 0) else . end | .store |= if . then "8f14e45fceea167a5a36dedd4bea2543" else . end' <<<"$1"
 }
 sample_is() { # <name> <json text>: the object is api/api.<name>.json, but for the clock
   t_eq "$(fits_text "$2")" ""

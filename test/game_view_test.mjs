@@ -6,6 +6,7 @@
 //
 //   node --test test/game_view_test.mjs
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   ago, collectWords, DEFAULT_KW, finishingIssues, LINE, normalize, pauseInfo, REASON_MAX,
@@ -21,8 +22,8 @@ test("the labels tehas writes say which stage a ticket stands at", () => {
   assert.equal(stageOf(["tehas:awaiting-merge"], false), "review");
   assert.equal(stageOf(["needs-human-attention"], false), "stopped");
   // A label tehas does not write is not a stage.
-  assert.equal(stageOf(["bug", "help wanted"], false), "backlog");
-  assert.equal(stageOf([], false), "backlog");
+  assert.equal(stageOf(["bug", "help wanted"], false), "idea");
+  assert.equal(stageOf([], false), "idea");
 });
 
 test("a closed ticket has left the line, and a worse label answers first", () => {
@@ -32,8 +33,18 @@ test("a closed ticket has left the line, and a worse label answers first", () =>
   assert.equal(stageOf(["tehas:ready", "tehas:running"], false), "running");
 });
 
+test("an open ticket with no state label stands at Idea, which the floor draws as IDEA in both designs", () => {
+  for (const labels of [[], ["bug"], ["epic", "tehas:lean"]]) assert.equal(stageOf(labels, false), "idea");
+  assert.equal(STAGES.idea, "IDEA");
+  const page = readFileSync(new URL("../host/fun/index.html", import.meta.url), "utf8");
+  assert.match(page, /data-filter="idea"><span><b>IDEA<\/b>/);
+  assert.match(page, /<option value="idea">IDEA<\/option>/);
+  // One page for both designs: no template picks another word for it.
+  assert.equal((page.match(/IDEA/g) || []).length, 2);
+});
+
 test("every stage the data names has a name the page draws", () => {
-  for (const stage of [...LINE, "stopped", "backlog"]) {
+  for (const stage of [...LINE, "stopped", "idea"]) {
     assert.equal(typeof STAGES[stage], "string");
   }
 });
@@ -82,7 +93,7 @@ test("an export becomes the tickets the page can draw", () => {
   };
   const v = normalize(raw);
   assert.deepEqual(v.tickets.map((t) => t.number), [12, 13, 962, 16, 17, 18]);
-  assert.deepEqual(v.tickets.map((t) => t.stage), ["ready", "running", "shipped", "backlog", "backlog", "backlog"]);
+  assert.deepEqual(v.tickets.map((t) => t.stage), ["ready", "running", "shipped", "idea", "idea", "idea"]);
   // Labels are words, lower case, whatever the file writes them as.
   assert.deepEqual(v.tickets[0].labels, ["tehas:ready", "bug"]);
   assert.deepEqual(v.tickets[1].labels, ["tehas:running"]);

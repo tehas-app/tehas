@@ -390,9 +390,8 @@ drain_reading() { # <name>
 }
 
 # The seconds of the ends the history samples are read from, as the cursors of
-# api/history.sample.json name them: four ends of three issues, the first at
-# 2025-10-17T11:20:00Z and the last five minutes on. Named here so the writing
-# of the ends and the words of the samples say the same moments.
+# api/history.sample.json name them: the first at 2025-10-17T11:20:00Z and the
+# last five minutes on. Named so the ends and the samples say the same moments.
 history_end=1760700000
 
 # <name>: the world that sample is a reading of. `empty` is a store with no end
@@ -461,7 +460,8 @@ history_world() { # <name>
   # the line says nothing of a repeat, and it names no pull request either, so
   # `pr` is the field of the first line alone.
   t_history_end "$home" 9 "$((history_end + 120))" \
-    '{"kind":"work","rc":10,"status":"failed","step":"develop","cap":"step-failed:develop","park_reason":"findings-open","failure_kind":"review","failure_cause":"findings-open","provider":false,"parked":true}'
+    '{"kind":"work","rc":10,"status":"failed","step":"develop","cap":"step-failed:develop","park_reason":"findings-open","failure_kind":"review","failure_cause":"findings-open","provider":false,"parked":true,"signalled":true}'
+  t_history_end "$home" 5 "$((history_end + 180))" '{"by":"alice","started":1760699900,"lost":true}' # lost, ended 120 s after its start, so it has `recorded`
   # The plan end: a refine the factory started on its own, whose turn filed an
   # issue, so `label`, `auto` and `filed` are the fields of a line of that kind.
   # Its turn began with the minute the park of #12 ended, so the two lines of
@@ -1362,11 +1362,10 @@ $changes"
   done
 done
 
-# The objects whose samples the test of their own command holds to what it
-# prints, and that test: here each schema is held to the rules of the table's,
-# and its samples to the schema. A third word `open` is a file the docs server
-# serves rather than a --json object, which the schema leaves open; `own` is
-# an object whose own test walks its fields and the manual's names for them.
+# The objects whose samples their own command's test holds to what it prints,
+# and that test: here each schema is held to the table's rules and its samples
+# to the schema. A third word `open` is a file the docs server serves, whose
+# schema is left open; `own` is an object whose own test walks its fields.
 pinned=(
   'status	console/tests/status_contract.rs	own'
   'refresh	test/refresh_test.sh'
@@ -1381,6 +1380,7 @@ pinned=(
   'host-bridge	console/tests/host_bridge.rs	open'
   'answer	console/tests/answer.rs	'
   'question	console/tests/answer.rs	'
+  'questions	console/tests/answer.rs	'
 )
 
 t_case "every schema in api/ is a surface of the table or pinned by its own test"
@@ -1389,12 +1389,12 @@ for line in "${surfaces[@]}"; do
   [ "$(surface_line "$line" 1)" = surface ] && known+="$(surface_line "$line" 2) "
 done
 for line in "${pinned[@]}"; do known+="$(surface_line "$line" 1) "; done
-# test/api_test.sh holds api.schema.json itself. Plugins, still being built, are
-# held in Rust: console/core/src/plugin/ and console/ops/src/plugin.rs.
-known+="api plugin plugin-manifest plugin-context plugin-review plugin-skills plugin-verdict "
+# test/api_test.sh holds api.schema.json itself. Plugins and events are held in
+# Rust: console/core/src/plugin/, console/ops/src/plugin.rs, console/tests/events_contract.rs.
+known+="api plugin plugin-manifest plugin-context plugin-review plugin-skills plugin-verdict event gate-answer "
 for file in "$api"/*.schema.json; do
   name=$(basename "$file" .schema.json)
-  case $known in *" $name "*) ;; *) t_bad "api/$name.schema.json is held by no test of this file" ;; esac
+  [[ $name == event-* ]] || case $known in *" $name "*) ;; *) t_bad "api/$name.schema.json is held by no test of this file" ;; esac
 done
 
 manual_all=$(cat "$T_ROOT"/host/docs/*.md)

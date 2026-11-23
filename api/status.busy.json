@@ -30,7 +30,10 @@
   "running": [
     {
       "issue": 12,
+      "cycle": "12-3",
       "since": "2026-10-17T11:20:00Z",
+      "how": "approved",
+      "by": "alice",
       "progress": {
         "step": "review",
         "stepNumber": 7,
@@ -42,7 +45,9 @@
     },
     {
       "issue": 15,
-      "since": "2026-10-17T13:59:00Z"
+      "cycle": "15-1",
+      "since": "2026-10-17T13:59:00Z",
+      "how": "hand"
     }
   ],
   "planning": [

@@ -480,7 +480,7 @@ fn marker_laws() {
     let w = texts(w, 110, "", &[unreadable(MarkerKind::LastAttempt)]);
     let w = w.blueprint(111, |b| {
         b.marker(Marker::HoldCleared)
-            .marker(unreadable(MarkerKind::Spec))
+            .marker(unreadable(MarkerKind::LastAttempt))
     });
     let site = FakeSite::new(&w);
     let mut bl = site.blueprints(&full(), C).unwrap();

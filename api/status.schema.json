@@ -75,7 +75,10 @@
         "additionalProperties": false,
         "properties": {
           "issue": {"type": "integer", "minimum": 1},
+          "cycle": {"description": "The cycle id, <issue>-<attempt>: the cycle's line in tehas history has the same. Unique within one store (store in tehas api). With the feature cycle-ids.", "type": "string", "pattern": "^[1-9][0-9]{0,8}-[1-9][0-9]{0,8}$"},
           "since": {"type": "string", "format": "date-time"},
+          "how": {"description": "How the cycle was asked for, in the words of tehas history. With the feature cycle-ids.", "type": "string", "minLength": 1, "maxLength": 40},
+          "by": {"description": "Who asked for it; left out for a cycle run by hand. With the feature cycle-ids.", "type": "string", "minLength": 1, "maxLength": 40},
           "progress": {
             "description": "Where the cycle's step is, as its driver reports it. Driver-specific and may change in a minor release: a program shows it, and does not decide on it. Left out when nothing of it is known.",
             "type": "object",

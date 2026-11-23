@@ -154,6 +154,32 @@ The direction is not checked in CI yet. core itself mixes the pure
 rules with effects (`sandbox.rs`, `access.rs`, `call.rs`, `retry.rs`):
 T6 settles where the core ends.
 
+## Kept for the 2.1 plugins
+
+Some crates have no caller in 2.0 on purpose. They hold the plumbing of the
+features 2.0 took out of core (T14, T16), kept for the 2.1 plugins that bring
+those features back
+(`docs/specs/2026-11-22-plugin-lab.md`,
+`docs/specs/2026-11-22-plugin-surfaces-2.1.md`). A dead-code pass of 2.0.x
+leaves them alone.
+
+| Crate | Kept for |
+| --- | --- |
+| `console/items` | the lab plugin's issue feed and page writer |
+| `console/attach` | the `files:` grant and the plugin mode of attachments; 2.0's cycles use it too |
+| `console/describe` | the `given` plugin's image descriptions |
+| `console/review-render` | the `review` plugin's issue body |
+| `console/wiki-collect` | the `history:` grant's raw sources |
+| `console/wiki-render` | the `wiki` plugin's check, render and keep rules |
+| `console/mesh-feed` | the host-made `feed:mesh` |
+| `console/host-feed` | the host-made `feed:host` |
+
+`console/xtask/tests/kept_for_plugins.rs` fails when one of them leaves the
+workspace or loses its tests, and when this table does not name it. A crate
+leaves the list only with the plugin specification change that drops its
+use. core's `outside.rs`, the rules of an outside page for the `frame`
+surface, is kept too, but it is live: `tehas host-message` calls it.
+
 ## Grouping (R5)
 
 The plan's reading, to be checked by the grades: the store, mcp, attach

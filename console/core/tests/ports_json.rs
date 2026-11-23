@@ -93,16 +93,6 @@ fn every_marker() -> Vec<Marker> {
             result: FinishResult::Stopped,
             by_poll: true,
         }),
-        Marker::Spec(SpecMarker {
-            version: nz32(SPEC_VERSION),
-            link: "https://example.test/spec.md".into(),
-            sha256: sha('b'),
-            requirements: vec![Requirement {
-                id: "R1".into(),
-                met: false,
-                note: "not yet".into(),
-            }],
-        }),
         Marker::LastAttempt(LastAttemptMarker {
             base: sha('c'),
             note: "ran out of time".into(),
@@ -156,7 +146,6 @@ fn the_ports_values_read_back_from_json() {
         MarkerKind::HoldCleared,
         MarkerKind::Park,
         MarkerKind::Finish,
-        MarkerKind::Spec,
         MarkerKind::LastAttempt,
         MarkerKind::Millwright,
         MarkerKind::TicketOf,
@@ -276,6 +265,15 @@ fn the_ports_values_read_back_from_json() {
         siblings: Some(Bound::new(20).unwrap()),
         activity: None,
     });
+}
+
+#[test]
+fn an_old_spec_marker_reads_as_unknown() {
+    // The Spec marker left with the Spec marks (#2892): a record that still
+    // holds one reads under the one rule, as a tag this copy does not know.
+    let old = r#"{"type":"Spec","value":{"version":1,"link":"https://example.test/spec.md","sha256":"bbbb","requirements":[{"id":"R1","met":false,"note":"not yet"}]}}"#;
+    assert_eq!(read!(Marker, old), Marker::Unknown);
+    assert_eq!(read!(MarkerKind, r#"{"type":"Spec"}"#), MarkerKind::Unknown);
 }
 
 #[test]

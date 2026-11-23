@@ -5,7 +5,10 @@
 //! (an option of a planning question, given in place of an answer before it)
 //! are what the command prints. tehas question: api/question.schema.json,
 //! with api/question.sample.json (a stop) and api/question.plan.json (a
-//! planning question). Neither reads anything of GitHub. What the poll does
+//! planning question). tehas question with no issue: api/questions.schema.json,
+//! with api/questions.sample.json (every question that waits) and
+//! api/questions.after.json (every question after a number). None reads
+//! anything of GitHub. What the poll does
 //! with an answer is the dispatcher's: console/dispatch/tests/dispatch_answer.rs.
 //!
 //! To write the samples again after a change to the object:
@@ -27,12 +30,12 @@ fn sha(text: &str) -> String {
         .collect()
 }
 
-/// #12 stopped, its question 4001 on record.
-fn stopped(w: &World) {
-    let body = sha("Words.");
+/// The issue parked after one failed cycle, no question asked yet.
+fn parked(w: &World, issue: u64) {
+    let (body, n) = (sha("Words."), issue.to_string());
     w.store_ok(&[
         "approval-record",
-        "12",
+        &n,
         "--at",
         "1760000000",
         "--by",
@@ -42,10 +45,15 @@ fn stopped(w: &World) {
         "--body-sha",
         &body,
     ]);
-    assert_eq!(w.store_locked(12, &["cycle-start", "12"]).rc, 0);
-    let end = ["cycle-end", "12", "--attempt", "1", "--status", "failed"];
-    assert_eq!(w.store_locked(12, &end).rc, 0);
-    w.store_ok(&["park", "12", "--attempt", "1", "--reason", "failed"]);
+    assert_eq!(w.store_locked(issue, &["cycle-start", &n]).rc, 0);
+    let end = ["cycle-end", &n, "--attempt", "1", "--status", "failed"];
+    assert_eq!(w.store_locked(issue, &end).rc, 0);
+    w.store_ok(&["park", &n, "--attempt", "1", "--reason", "failed"]);
+}
+
+/// #12 stopped, its question 4001 on record.
+fn stopped(w: &World) {
+    parked(w, 12);
     w.store_ok(&["question-asked", "12", "--id", "4001", "--kind", "park"]);
 }
 
@@ -335,6 +343,102 @@ fn the_question_samples_are_what_the_command_prints() {
     sample_of("question", "plan", &r.out);
 }
 
+/// A verb of the store at `after` seconds past the samples' clock.
+fn store_past(w: &World, after: i64, args: &[&str]) {
+    let r = w.store_at(NOW.parse::<i64>().unwrap() + after, args);
+    assert_eq!(r.rc, 0, "store {args:?}: {}", r.out);
+}
+
+/// tehas question with these words, as one object.
+fn questions_at_now(w: &World, words: &str) -> Run {
+    question_at_now(w, &format!("{words} --json"))
+}
+
+/// The numbers of the questions a list printed, in its order.
+fn numbers(printed: &str) -> Vec<u64> {
+    let v: serde_json::Value = serde_json::from_str(printed).unwrap();
+    let all = v["questions"].as_array().unwrap().iter();
+    all.map(|q| q["id"].as_u64().unwrap()).collect()
+}
+
+/// With no issue the command lists the question each issue waits on, and with
+/// --after every question after a number, the withdrawn and the answered among
+/// them, in number order (docs/specs/2026-11-22-events.md, T11.6).
+#[test]
+fn the_questions_samples_are_the_waiting_ones_and_every_one_after_a_number() {
+    let w = World::new("questions-samples");
+    let r = questions_at_now(&w, "");
+    assert_eq!((r.rc, r.out.trim()), (0, r#"{"api":1,"questions":[]}"#));
+    // 1: a stop of #12, withdrawn. It is listed only after a number.
+    parked(&w, 12);
+    let asked = ["question-asked", "12", "--id", "4001", "--kind", "park"];
+    store_past(
+        &w,
+        0,
+        &[&asked[..], &["--offers", "retry-text,park"]].concat(),
+    );
+    assert_eq!(numbers(&questions_at_now(&w, "").out), [1]);
+    let withdraw = ["question-answered", "12", "--id", "4001", "--withdraw"];
+    store_past(&w, 30, &withdraw);
+    assert_eq!(numbers(&questions_at_now(&w, "").out), [0u64; 0]);
+    // 2: a planning question of #12, answered. 3: the next turn's, waiting.
+    planning(&w);
+    store_past(
+        &w,
+        60,
+        &["plan-answer", "12", "--turn", "2", "--by", "alice"],
+    );
+    let mut end = vec!["plan-end", "12", "--turn", "2", "--outcome", "finished"];
+    end.extend(["--rc", "0", "--session", "abc-123", "--option", "Ship it"]);
+    store_past(&w, 90, &end);
+    let asked = ["question-asked", "12", "--id", "4003", "--kind", "plan"];
+    store_past(&w, 120, &asked);
+    // 4: a stop of #13, waiting.
+    parked(&w, 13);
+    let asked = ["question-asked", "13", "--id", "4004", "--kind", "park"];
+    store_past(&w, 180, &asked);
+
+    let waiting = questions_at_now(&w, "");
+    assert_eq!(waiting.rc, 0, "{}", waiting.out);
+    assert_eq!(numbers(&waiting.out), [3, 4]);
+    sample_of("questions", "sample", &waiting.out);
+    // Each is the question tehas question <issue> prints for its issue.
+    let listed: serde_json::Value = serde_json::from_str(&waiting.out).unwrap();
+    for q in listed["questions"].as_array().unwrap() {
+        let r = question_at_now(&w, &format!("{} --json", q["issue"]));
+        let one: serde_json::Value = serde_json::from_str(&r.out).unwrap();
+        for field in ["id", "kind", "comment", "askedAt", "choices"] {
+            assert_eq!(one["question"][field], q[field], "{field} of {q}");
+        }
+    }
+
+    let all = questions_at_now(&w, "--after 0");
+    assert_eq!(all.rc, 0, "{}", all.out);
+    assert_eq!(numbers(&all.out), [1, 2, 3, 4]);
+    sample_of("questions", "after", &all.out);
+    let after = questions_at_now(&w, "--after 1");
+    assert_eq!(numbers(&after.out), [2, 3, 4]);
+    let v: serde_json::Value = serde_json::from_str(&after.out).unwrap();
+    assert_eq!(v["questions"][0]["answeredAt"], "2026-10-17T14:01:20Z");
+    assert_eq!(numbers(&questions_at_now(&w, "--after 4").out), [0u64; 0]);
+
+    // The same lists for a person, one line a question.
+    let r = question_at_now(&w, "--after 1");
+    assert_eq!(
+        r.out.lines().next(),
+        Some(
+            "question 2: #12 plan, asked at 2026-10-17T14:00:20Z, answered at 2026-10-17T14:01:20Z"
+        ),
+        "{}",
+        r.out
+    );
+    assert_eq!(question_at_now(&w, "").out.lines().count(), 2);
+    assert_eq!(
+        question_at_now(&w, "--after 4").out.trim(),
+        "no question after 4"
+    );
+}
+
 #[test]
 fn the_choices_listed_are_those_offered_and_each_is_an_answer() {
     let w = World::new("question-choices");
@@ -386,7 +490,9 @@ fn no_question_waiting_is_3_and_a_bad_argument_64() {
     let r = w.sh("\"$T_ROOT/bin/tehas\" question 12 2>&1");
     assert_eq!(r.rc, 3, "{}", r.out);
     assert!(r.out.contains("no question waits on #12"), "{}", r.out);
-    for words in ["", "0", "12 13", "12 --soon"] {
+    let r = w.sh("\"$T_ROOT/bin/tehas\" question 2>&1");
+    assert_eq!((r.rc, r.out.trim()), (0, "no question waits"));
+    for words in ["0", "12 13", "12 --soon", "--after", "12 --after 1"] {
         assert_eq!(
             w.sh(&format!("\"$T_ROOT/bin/tehas\" question {words}")).rc,
             64,

@@ -1,0 +1,15 @@
+{
+  "api": 1,
+  "event": "factory.limit-changed",
+  "data": {
+    "set": "2026-11-22T14:40:00Z",
+    "state": "ok",
+    "cycles": 0,
+    "plan": false,
+    "until": "2026-11-22T16:40:00Z",
+    "reason": "draining"
+  },
+  "when": "after",
+  "key": "2026-11-22T14:40:00Z",
+  "at": "2026-11-22T14:40:00Z"
+}
