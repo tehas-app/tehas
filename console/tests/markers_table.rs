@@ -162,14 +162,14 @@ fn a_row_of_three_columns_is_refused_and_a_comment_is_skipped() {
 enum Read {
     /// The marker, its known fields in the row's order.
     Marker(Vec<(String, String)>),
-    /// Not a marker: never acted on, never kept.
+    /// Not this row's marker at all: its wrapper is not there.
     NoMarker,
     /// The row's wrapper with what does not read inside it.
     Unreadable,
 }
 
-/// One inline marker of `row` in `text`, read as the header says: unknown
-/// fields skipped, a known one once and in order, each value of its type.
+/// One inline marker of `row` in `text`, read as the header says: each field
+/// of the row once and in order, no other field, each value of its type.
 fn read(row: &Row, text: &str) -> Read {
     // The opening two words of the row's open text, then a space.
     let head: Vec<&str> = row.open.split_whitespace().take(2).collect();
@@ -191,7 +191,7 @@ fn read(row: &Row, text: &str) -> Read {
             return Read::Unreadable;
         };
         let Some(at) = names.iter().position(|n| *n == name) else {
-            continue;
+            return Read::Unreadable;
         };
         if got.last().is_some_and(|(last, _, _)| *last >= at) {
             return Read::Unreadable;
@@ -207,12 +207,7 @@ fn read(row: &Row, text: &str) -> Read {
             return Read::Unreadable;
         };
         if !of_type(ty, value) {
-            let no_marker = ty.starts_with("key(") || (row.kind == "Link" && *name == "remove?");
-            return if no_marker {
-                Read::NoMarker
-            } else {
-                Read::Unreadable
-            };
+            return Read::Unreadable;
         }
     }
     Read::Marker(got.into_iter().map(|(_, n, v)| (n, v)).collect())
@@ -289,7 +284,7 @@ fn fields(pairs: &[(&str, &str)]) -> Read {
 }
 
 #[test]
-fn a_ticket_key_is_a_number_a_key_or_a_path_and_one_that_breaks_the_pattern_is_no_marker() {
+fn a_ticket_key_is_a_number_a_key_or_a_path_and_one_that_breaks_the_pattern_is_unreadable() {
     let r = row("TicketOf");
     for key in ["123", "KEY-123", "org/repo:12", "a.b_c", &"k".repeat(128)] {
         assert_eq!(
@@ -301,44 +296,42 @@ fn a_ticket_key_is_a_number_a_key_or_a_path_and_one_that_breaks_the_pattern_is_n
     for key in ["", "KEY#1", "a,b", &"k".repeat(129), "ä"] {
         assert_eq!(
             read(&r, &text(&r, &[("ticket", key)])),
-            Read::NoMarker,
+            Read::Unreadable,
             "{key:?}"
         );
     }
-    // White space ends the key: what follows is no field.
-    assert_ne!(
-        read(&r, &text(&r, &[("ticket", "a b")])),
-        fields(&[("ticket", "a b")])
-    );
+    // White space ends the key: what follows is no field, so the marker
+    // does not read.
+    assert_eq!(read(&r, &text(&r, &[("ticket", "a b")])), Read::Unreadable);
 }
 
 #[test]
-fn a_field_a_reader_does_not_know_is_skipped_in_every_marker() {
+fn a_field_not_of_the_row_makes_any_marker_unreadable() {
     assert_eq!(
         read(
             &row("Link"),
             &text(&row("Link"), &[("blueprint", "12"), ("later", "x")])
         ),
-        fields(&[("blueprint", "12")])
+        Read::Unreadable
     );
     assert_eq!(
         read(
             &row("TicketOf"),
             &text(&row("TicketOf"), &[("later", "x"), ("ticket", "KEY-1")])
         ),
-        fields(&[("ticket", "KEY-1")])
+        Read::Unreadable
     );
     assert_eq!(
         read(
             &row("Blocked"),
             &text(&row("Blocked"), &[("by", "3,4"), ("why", "later")])
         ),
-        fields(&[("by", "3,4")])
+        Read::Unreadable
     );
 }
 
 #[test]
-fn remove_other_than_1_makes_the_link_no_marker_never_a_link_without_removal() {
+fn remove_other_than_1_makes_the_link_unreadable_never_a_link_without_removal() {
     let r = row("Link");
     assert_eq!(
         read(&r, &text(&r, &[("blueprint", "12")])),
@@ -351,10 +344,22 @@ fn remove_other_than_1_makes_the_link_no_marker_never_a_link_without_removal() {
     for bad in ["2", "0", "", "yes"] {
         assert_eq!(
             read(&r, &text(&r, &[("blueprint", "12"), ("remove", bad)])),
-            Read::NoMarker,
+            Read::Unreadable,
             "{bad:?}"
         );
     }
+}
+
+#[test]
+fn another_rows_marker_or_one_with_no_close_is_not_this_rows_marker() {
+    let link = row("Link");
+    let ticket_of = row("TicketOf");
+    assert_eq!(
+        read(&link, &text(&ticket_of, &[("ticket", "KEY-1")])),
+        Read::NoMarker
+    );
+    let open = text(&link, &[("blueprint", "12")]);
+    assert_eq!(read(&link, open.trim_end_matches("-->")), Read::NoMarker);
 }
 
 #[test]
