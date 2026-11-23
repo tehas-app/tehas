@@ -80,8 +80,9 @@ pub struct Failure {
     pub outcome: Outcome,
 }
 
-/// The ledger could not be read or written: its file is missing, locked
-/// past its wait, or not whole.
+/// The ledger could not be read or written: the directory of its file is
+/// missing, its file is locked past its wait, or not whole. A missing file in
+/// its directory is an empty ledger, made on the first write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct LedgerDown;
 

@@ -1570,3 +1570,191 @@ pub mod health {
         })
     }
 }
+
+/// Laws of a `Ledger` itself, as its trait's docs give them. Each takes a
+/// ledger and a host it keeps nothing for yet, and a time of the caller's.
+pub mod ledger {
+    use super::{hold, Broken, Law};
+    use crate::{
+        At, Budget, Failure, HealthState, Holder, HolderId, HostId, Ledger, Outcome, Passing, Pool,
+        Sent, SiteId, Whose,
+    };
+
+    fn up<T>(law: &str, what: &str, answer: Result<T, crate::LedgerDown>) -> Result<T, Broken> {
+        answer.map_err(|_| Broken {
+            law: law.to_string(),
+            what: format!("{what}: the ledger is down"),
+        })
+    }
+
+    fn ours() -> Holder {
+        Holder::Ours(HolderId::new("law-ours"))
+    }
+
+    fn other() -> Holder {
+        Holder::Anonymous(HolderId::new("law-other"))
+    }
+
+    /// What is put for a holder's pool is what is read back, and each of
+    /// host, holder and pool is a key of its own. Nothing put reads None.
+    pub fn a_budget_is_read_back(l: &dyn Ledger, host: &HostId, now: At) -> Law {
+        const LAW: &str = "ledger::a_budget_is_read_back";
+        let first = up(LAW, "a read", l.budget(host, &ours(), Pool::Calls))?;
+        hold(first.is_none(), LAW, || {
+            format!("nothing put reads {first:?}")
+        })?;
+        let b = Budget {
+            left: 10,
+            resets: At::new(now.secs() + 60),
+        };
+        up(LAW, "a put", l.put_budget(host, &ours(), Pool::Calls, b))?;
+        let later = Budget { left: 9, ..b };
+        up(
+            LAW,
+            "a put",
+            l.put_budget(host, &ours(), Pool::Calls, later),
+        )?;
+        let read = up(LAW, "a read", l.budget(host, &ours(), Pool::Calls))?;
+        hold(read == Some(later), LAW, || {
+            format!("{later:?} was put last and {read:?} read")
+        })?;
+        for (holder, pool) in [(ours(), Pool::Search), (other(), Pool::Calls)] {
+            let read = up(LAW, "a read", l.budget(host, &holder, pool))?;
+            hold(read.is_none(), LAW, || {
+                format!("{holder:?}'s {pool:?}, never put, reads {read:?}")
+            })?;
+        }
+        let elsewhere = HostId::new(format!("{}-elsewhere", host.as_str()));
+        let read = up(LAW, "a read", l.budget(&elsewhere, &ours(), Pool::Calls))?;
+        hold(read.is_none(), LAW, || {
+            format!("another host reads {read:?}")
+        })
+    }
+
+    /// A state never written is `Healthy`, for the host, a holder and a
+    /// pool.
+    pub fn an_unkept_state_is_healthy(l: &dyn Ledger, host: &HostId) -> Law {
+        const LAW: &str = "ledger::an_unkept_state_is_healthy";
+        for whose in [
+            Whose::Host,
+            Whose::Holder(ours()),
+            Whose::Pool(ours(), Pool::Writes),
+        ] {
+            let s = up(LAW, "a read", l.health(host, &whose))?;
+            hold(s == HealthState::Healthy, LAW, || {
+                format!("{whose:?}, never written, is {s:?}")
+            })?;
+        }
+        Ok(())
+    }
+
+    /// `swap_health` writes only when the state is still what the caller
+    /// expects, answers whether it wrote, and a `Healthy` written reads
+    /// `Healthy` again. Whose states are apart.
+    pub fn a_swap_writes_only_on_a_match(l: &dyn Ledger, host: &HostId, now: At) -> Law {
+        const LAW: &str = "ledger::a_swap_writes_only_on_a_match";
+        let healthy = HealthState::Healthy;
+        let failing = HealthState::Failing {
+            since: now,
+            why: Passing::Timeout,
+        };
+        let spent = HealthState::Spent {
+            pool: Pool::Writes,
+            until: At::new(now.secs() + 60),
+        };
+        let pool = Whose::Pool(ours(), Pool::Writes);
+        let won = up(
+            LAW,
+            "a swap",
+            l.swap_health(host, &Whose::Host, &failing, &healthy),
+        )?;
+        hold(!won, LAW, || "a swap from a state not kept wrote".into())?;
+        let won = up(
+            LAW,
+            "a swap",
+            l.swap_health(host, &Whose::Host, &healthy, &failing),
+        )?;
+        hold(won, LAW, || {
+            "a swap from the kept state did not write".into()
+        })?;
+        let won = up(LAW, "a swap", l.swap_health(host, &pool, &healthy, &spent))?;
+        hold(won, LAW, || "a swap of a pool did not write".into())?;
+        let s = up(LAW, "a read", l.health(host, &Whose::Host))?;
+        hold(s == failing, LAW, || {
+            format!("the host is {s:?}, not {failing:?}")
+        })?;
+        let lost = up(
+            LAW,
+            "a swap",
+            l.swap_health(host, &Whose::Host, &healthy, &spent),
+        )?;
+        hold(!lost, LAW, || "a swap from a stale state wrote".into())?;
+        let s = up(LAW, "a read", l.health(host, &Whose::Host))?;
+        hold(s == failing, LAW, || format!("a lost swap left {s:?}"))?;
+        let won = up(
+            LAW,
+            "a swap",
+            l.swap_health(host, &Whose::Host, &failing, &healthy),
+        )?;
+        hold(won, LAW, || "a swap back to Healthy did not write".into())?;
+        let s = up(LAW, "a read", l.health(host, &Whose::Host))?;
+        hold(s == healthy, LAW, || {
+            format!("the host is {s:?} after its recovery")
+        })?;
+        let s = up(LAW, "a read", l.health(host, &pool))?;
+        hold(s == spent, LAW, || {
+            format!("the pool is {s:?}, not {spent:?}")
+        })
+    }
+
+    /// `failed` keeps what it is given and drops a host's failures older
+    /// than the newest one's time less `keep`. `failures` answers those at or
+    /// after `since`, oldest first, of that host alone.
+    pub fn failures_are_kept_within_keep_oldest_first(
+        l: &dyn Ledger,
+        host: &HostId,
+        now: At,
+    ) -> Law {
+        const LAW: &str = "ledger::failures_are_kept_within_keep_oldest_first";
+        let failure = |secs: i64| Failure {
+            at: At::new(now.secs() + secs),
+            site: SiteId::new("law-site"),
+            outcome: Outcome::Unavailable {
+                why: Passing::Server,
+                sent: Sent::No,
+            },
+        };
+        let elsewhere = HostId::new(format!("{}-elsewhere", host.as_str()));
+        up(
+            LAW,
+            "a failure kept",
+            l.failed(&elsewhere, failure(-500), 60),
+        )?;
+        for secs in [-100, -10, -30, 0] {
+            up(LAW, "a failure kept", l.failed(host, failure(secs), 60))?;
+        }
+        let all = up(LAW, "a read", l.failures(host, At::new(0)))?;
+        let want = vec![failure(-30), failure(-10), failure(0)];
+        hold(all == want, LAW, || {
+            format!("kept {all:?}, not the last 60 s oldest first")
+        })?;
+        let since = up(LAW, "a read", l.failures(host, At::new(now.secs() - 10)))?;
+        hold(since == want[1..], LAW, || {
+            format!("since 10 s ago answered {since:?}")
+        })?;
+        let theirs = up(LAW, "a read", l.failures(&elsewhere, At::new(0)))?;
+        hold(theirs == vec![failure(-500)], LAW, || {
+            format!("another host's failures are {theirs:?}")
+        })
+    }
+
+    /// Every law of this module, over one ledger, each on a host of its own
+    /// named after `host`.
+    pub fn all(l: &dyn Ledger, host: &HostId, now: At) -> Law {
+        let on = |law: &str| HostId::new(format!("{}-{law}", host.as_str()));
+        a_budget_is_read_back(l, &on("budget"), now)?;
+        an_unkept_state_is_healthy(l, &on("unkept"))?;
+        a_swap_writes_only_on_a_match(l, &on("swap"), now)?;
+        failures_are_kept_within_keep_oldest_first(l, &on("failures"), now)
+    }
+}
