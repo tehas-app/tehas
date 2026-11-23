@@ -1,0 +1,832 @@
+//! The blueprints port's writes as the adapter answers them: `open`,
+//! `edit` and `comment`, over samples of GitHub's answers in
+//! `tests/samples/blueprint-writes/` (hand-made from GitHub's documented
+//! shapes, no secret and no private name). A failure sample is gh's error
+//! stream, given to the adapter as `Bounded` would give it. No test calls
+//! GitHub.
+
+use serde::Deserialize;
+use serde_json::Value;
+use std::cell::RefCell;
+use std::collections::VecDeque;
+use std::path::PathBuf;
+use std::rc::Rc;
+use tehas_core::forge::GhRunner;
+use tehas_github::GitHub;
+use tehas_ports::laws;
+use tehas_ports::{
+    At, Attachment, AttachmentId, Blueprint, BlueprintDelta, BlueprintHit, BlueprintNo,
+    BlueprintWrites, Blueprints, Body, Bound, ChangeToken, Cite, Cites, Comment, CommentId, Cursor,
+    Depth, Did, Edit, Got, Lost, Marker, MarkerEdit, NewBlueprint, Outcome, Passing, Pool, Posted,
+    Refusal, Report, Reports, Revision, Sent, Sha256, Sum, Took, Unread, WebLink, Whole, Within,
+};
+
+const PROJECT: &str = "acme/widget";
+
+/// The words `Bounded` gives for a gh it stopped at its bound.
+const BOUND: &str = "gh ran out of its 30s bound";
+
+fn sample(name: &str) -> String {
+    let at = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/samples/blueprint-writes");
+    std::fs::read_to_string(at.join(name)).unwrap()
+}
+
+/// What the adapter is given for a failure sample: the reason `Bounded`
+/// makes of gh's error stream and exit status.
+fn failed(name: &str) -> String {
+    tehas_core::forge::why(&sample(name), Some(1))
+}
+
+fn now() -> i64 {
+    1_795_000_000
+}
+
+fn no(n: u64) -> BlueprintNo {
+    BlueprintNo::new(n).unwrap()
+}
+
+/// One call the runner was given: its arguments, and its standard input.
+#[derive(Clone, Debug, PartialEq)]
+struct Call {
+    args: Vec<String>,
+    input: Option<String>,
+}
+
+type Calls = Rc<RefCell<Vec<Call>>>;
+
+/// Answers each call from the list in turn and writes every call down. A
+/// call past the list fails.
+struct Script {
+    answers: VecDeque<Result<String, String>>,
+    calls: Calls,
+}
+
+impl Script {
+    fn next(&mut self, args: &[&str], input: Option<&str>) -> Result<String, String> {
+        self.calls.borrow_mut().push(Call {
+            args: args.iter().map(|a| a.to_string()).collect(),
+            input: input.map(str::to_string),
+        });
+        self.answers
+            .pop_front()
+            .unwrap_or_else(|| Err("no answer".into()))
+    }
+}
+
+impl GhRunner for Script {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        self.next(args, None)
+    }
+
+    fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
+        self.next(args, Some(input))
+    }
+}
+
+fn adapter(answers: Vec<Result<String, String>>) -> (GitHub, Calls) {
+    let calls = Calls::default();
+    let script = Script {
+        answers: answers.into(),
+        calls: Rc::clone(&calls),
+    };
+    let gh = GitHub::new(PROJECT, Box::new(script)).on_clock(now);
+    (gh, calls)
+}
+
+/// A body of 200 KiB, past what one argument may hold, and unlike any
+/// other text of a test.
+fn big_body() -> String {
+    let line = "A line of the plan that only this body holds, number ";
+    let mut body = String::new();
+    let mut i = 0;
+    while body.len() < 200 * 1024 {
+        body.push_str(&format!("{line}{i}.\n"));
+        i += 1;
+    }
+    body
+}
+
+const TITLE: &str = "Plan: the title only standard input carries";
+
+/// No argument holds the text, nor a 64-byte piece of it.
+fn kept_out_of_argv(calls: &[Call], text: &str) {
+    let probe = &text[..text.len().min(64)];
+    for c in calls {
+        for a in &c.args {
+            assert!(!a.contains(probe), "an argument holds the text: {a:.80}");
+        }
+    }
+}
+
+/// What a write sent on standard input: nothing but these fields.
+#[derive(Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Input {
+    title: Option<String>,
+    body: Option<String>,
+}
+
+fn input(c: &Call) -> Input {
+    serde_json::from_str(c.input.as_deref().unwrap()).unwrap()
+}
+
+fn sent(title: Option<&str>, body: Option<&str>) -> Input {
+    Input {
+        title: title.map(str::to_string),
+        body: body.map(str::to_string),
+    }
+}
+
+/// An issue's answer with its title and body set.
+fn issue_7(title: &str, body: &str) -> String {
+    let mut v: Value = serde_json::from_str(&sample("issue-7.json")).unwrap();
+    v["title"] = title.into();
+    v["body"] = body.into();
+    v.to_string()
+}
+
+/// The revision the relay reads today (`GitHub::text_revision`) of an
+/// answer.
+fn revision_of(answer: &str) -> Revision {
+    let (mut gh, _) = adapter(vec![Ok(answer.to_string())]);
+    Revision::new(gh.text_revision(7).unwrap())
+}
+
+fn new_blueprint(title: &str, body: &str) -> NewBlueprint {
+    NewBlueprint {
+        title: title.into(),
+        body: Body::Text(body.into()),
+        markers: Vec::new(),
+    }
+}
+
+fn args(words: &[&str]) -> Vec<String> {
+    words.iter().map(|w| w.to_string()).collect()
+}
+
+#[test]
+fn an_open_sends_a_200_kib_body_and_its_title_on_standard_input_alone() {
+    let body = big_body();
+    let (mut gh, calls) = adapter(vec![Ok(sample("issue-created.json"))]);
+    let got = gh.open(&new_blueprint(TITLE, &body)).unwrap();
+    assert_eq!(got.id, no(42));
+    // The issue's own link, as the container's gh prints it.
+    assert_eq!(
+        got.link.as_str(),
+        "https://github.com/acme/widget/issues/42"
+    );
+    let calls = calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(
+        calls[0].args,
+        args(&[
+            "api",
+            "-X",
+            "POST",
+            "repos/acme/widget/issues",
+            "--input",
+            "-"
+        ])
+    );
+    kept_out_of_argv(&calls, &body);
+    kept_out_of_argv(&calls, TITLE);
+    assert_eq!(input(&calls[0]), sent(Some(TITLE), Some(&body)));
+}
+
+#[test]
+fn a_comment_sends_a_200_kib_body_on_standard_input_and_answers_the_comments_link() {
+    let body = big_body();
+    let (mut gh, calls) = adapter(vec![Ok(sample("comment-created.json"))]);
+    let got = gh.comment(no(7), &body, &[]).unwrap();
+    assert_eq!(got.id, CommentId::new("2501234567"));
+    // The comment's link, as `gh issue comment` prints it.
+    assert_eq!(
+        got.link.as_str(),
+        "https://github.com/acme/widget/issues/7#issuecomment-2501234567"
+    );
+    let calls = calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(
+        calls[0].args,
+        args(&[
+            "api",
+            "-X",
+            "POST",
+            "repos/acme/widget/issues/7/comments",
+            "--input",
+            "-"
+        ])
+    );
+    kept_out_of_argv(&calls, &body);
+    assert_eq!(input(&calls[0]), sent(None, Some(&body)));
+}
+
+#[test]
+fn an_edit_reads_the_issue_then_sends_a_200_kib_body_and_title_on_standard_input() {
+    let body = big_body();
+    let read = sample("issue-7.json");
+    let since = revision_of(&read);
+    let (mut gh, calls) = adapter(vec![Ok(read), Ok(issue_7(TITLE, &body))]);
+    let got = gh
+        .edit(
+            no(7),
+            Some(TITLE),
+            Some(&body),
+            &MarkerEdit::default(),
+            &since,
+        )
+        .unwrap();
+    assert_eq!(got.as_str(), "https://github.com/acme/widget/issues/7");
+    let calls = calls.borrow();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(
+        calls[0],
+        Call {
+            args: args(&["api", "repos/acme/widget/issues/7"]),
+            input: None
+        }
+    );
+    assert_eq!(
+        calls[1].args,
+        args(&[
+            "api",
+            "-X",
+            "PATCH",
+            "repos/acme/widget/issues/7",
+            "--input",
+            "-"
+        ])
+    );
+    kept_out_of_argv(&calls, &body);
+    kept_out_of_argv(&calls, TITLE);
+    assert_eq!(input(&calls[1]), sent(Some(TITLE), Some(&body)));
+}
+
+#[test]
+fn an_edit_sends_only_what_it_is_given() {
+    let read = sample("issue-7.json");
+    let since = revision_of(&read);
+    let (mut gh, calls) = adapter(vec![Ok(read.clone()), Ok(read)]);
+    gh.edit(
+        no(7),
+        None,
+        Some("New body."),
+        &MarkerEdit::default(),
+        &since,
+    )
+    .unwrap();
+    assert_eq!(input(&calls.borrow()[1]), sent(None, Some("New body.")));
+}
+
+#[test]
+fn an_edit_of_an_issue_changed_since_its_revision_is_a_conflict_and_sends_nothing() {
+    let read = sample("issue-7.json");
+    let since = revision_of(&read);
+    let v: Value = serde_json::from_str(&read).unwrap();
+    let title = v["title"].as_str().unwrap();
+    let body = v["body"].as_str().unwrap();
+    for changed in [
+        issue_7(title, "Another account's body."),
+        issue_7("Retitled", body),
+    ] {
+        let (mut gh, calls) = adapter(vec![Ok(changed)]);
+        let got = gh.edit(no(7), Some("x"), Some("y"), &MarkerEdit::default(), &since);
+        assert_eq!(got, Err(Outcome::Conflict(Lost::Changed)));
+        assert_eq!(calls.borrow().len(), 1, "only the read");
+    }
+}
+
+#[test]
+fn a_label_or_a_comment_does_not_move_the_revision() {
+    let read = sample("issue-7.json");
+    let since = revision_of(&read);
+    let mut v: Value = serde_json::from_str(&read).unwrap();
+    v["labels"] = serde_json::json!([]);
+    v["comments"] = 3.into();
+    v["updated_at"] = "2026-11-23T11:00:00Z".into();
+    let (mut gh, calls) = adapter(vec![Ok(v.to_string()), Ok(read)]);
+    let got = gh.edit(no(7), Some("x"), None, &MarkerEdit::default(), &since);
+    assert!(got.is_ok(), "{got:?}");
+    assert_eq!(calls.borrow().len(), 2);
+}
+
+#[test]
+fn an_edit_whose_read_fails_sends_no_write_and_says_it_was_not_sent() {
+    let since = revision_of(&sample("issue-7.json"));
+    let cases = [
+        (failed("not-found.stderr"), Outcome::NotFound),
+        (failed("forbidden.stderr"), Outcome::Forbidden),
+        (
+            failed("server-error.stderr"),
+            Outcome::Unavailable {
+                why: Passing::Server,
+                sent: Sent::No,
+            },
+        ),
+        (
+            BOUND.to_string(),
+            Outcome::Unavailable {
+                why: Passing::Timeout,
+                sent: Sent::No,
+            },
+        ),
+        (
+            failed("rate-limited.stderr"),
+            Outcome::Spent {
+                pool: Pool::Calls,
+                until: At::new(now()),
+            },
+        ),
+    ];
+    for (why, want) in cases {
+        let (mut gh, calls) = adapter(vec![Err(why.clone())]);
+        let got = gh.edit(
+            no(7),
+            Some(TITLE),
+            Some("b"),
+            &MarkerEdit::default(),
+            &since,
+        );
+        assert_eq!(got, Err(want), "{why}");
+        assert_eq!(calls.borrow().len(), 1, "{why}");
+    }
+}
+
+#[test]
+fn an_edit_of_a_pull_request_is_not_found_and_sends_nothing() {
+    let read = sample("pull-8.json");
+    let since = revision_of(&read);
+    let (mut gh, calls) = adapter(vec![Ok(read)]);
+    let got = gh.edit(no(8), Some("x"), None, &MarkerEdit::default(), &since);
+    assert_eq!(got, Err(Outcome::NotFound));
+    assert_eq!(calls.borrow().len(), 1);
+}
+
+#[test]
+fn an_edit_that_would_drop_a_marker_is_refused_and_a_title_alone_is_made() {
+    let marked = issue_7(
+        "Plan",
+        "The plan.\n\n<!-- tehas:park issue=7 step=work kind=stopped provider=0 sig=0000000000000000000000000000000000000000000000000000000000000000 -->",
+    );
+    let since = revision_of(&marked);
+    let (mut gh, calls) = adapter(vec![Ok(marked.clone())]);
+    let got = gh.edit(no(7), None, Some("New."), &MarkerEdit::default(), &since);
+    assert_eq!(got, Err(Outcome::Refused(Refusal::Unsupported)));
+    assert_eq!(calls.borrow().len(), 1, "only the read");
+
+    let (mut gh, calls) = adapter(vec![Ok(marked.clone()), Ok(marked)]);
+    let got = gh.edit(
+        no(7),
+        Some("Retitled"),
+        None,
+        &MarkerEdit::default(),
+        &since,
+    );
+    assert!(got.is_ok(), "{got:?}");
+    assert_eq!(input(&calls.borrow()[1]), sent(Some("Retitled"), None));
+}
+
+#[test]
+fn an_edit_with_nothing_to_change_reads_and_writes_nothing() {
+    let read = sample("issue-7.json");
+    let since = revision_of(&read);
+    let (mut gh, calls) = adapter(vec![Ok(read)]);
+    let got = gh.edit(no(7), None, None, &MarkerEdit::default(), &since);
+    assert_eq!(
+        got.unwrap().as_str(),
+        "https://github.com/acme/widget/issues/7"
+    );
+    assert_eq!(calls.borrow().len(), 1);
+}
+
+#[test]
+fn markers_and_marked_texts_are_refused_before_any_request() {
+    let since = Revision::new("r");
+    let marker = Marker::HoldCleared;
+    let set = MarkerEdit {
+        set: vec![marker.clone()],
+        drop: Vec::new(),
+    };
+    let marked = "Text <!-- tehas:hold-cleared --> here";
+    let (mut gh, calls) = adapter(Vec::new());
+    let mut with_marker = new_blueprint("t", "b");
+    with_marker.markers = vec![marker.clone()];
+    let unsupported = Err(Outcome::Refused(Refusal::Unsupported));
+    let invalid = Err(Outcome::Refused(Refusal::Invalid));
+    assert_eq!(gh.open(&with_marker).map(|_| ()), unsupported);
+    assert_eq!(gh.comment(no(7), "b", &[marker]).map(|_| ()), unsupported);
+    assert_eq!(
+        gh.edit(no(7), None, Some("b"), &set, &since).map(|_| ()),
+        unsupported
+    );
+    assert_eq!(gh.open(&new_blueprint("t", marked)).map(|_| ()), invalid);
+    assert_eq!(gh.open(&new_blueprint(marked, "b")).map(|_| ()), invalid);
+    assert_eq!(gh.comment(no(7), marked, &[]).map(|_| ()), invalid);
+    let edit = gh.edit(no(7), None, Some(marked), &MarkerEdit::default(), &since);
+    assert_eq!(edit.map(|_| ()), invalid);
+    let summed = NewBlueprint {
+        title: "t".into(),
+        body: Body::Summed(Sum {
+            sha256: Sha256::new("a".repeat(64)).unwrap(),
+            len: 1,
+        }),
+        markers: Vec::new(),
+    };
+    assert_eq!(gh.open(&summed).map(|_| ()), invalid);
+    assert!(calls.borrow().is_empty());
+}
+
+#[test]
+fn a_repository_that_is_no_owner_and_name_gets_no_write() {
+    for repo in [
+        "acme",
+        "acme/widget/issues",
+        "acme/..",
+        "../widget",
+        "acme/wid get",
+        "acme/w?x=1",
+        "/widget",
+    ] {
+        let calls = Calls::default();
+        let script = Script {
+            answers: VecDeque::new(),
+            calls: Rc::clone(&calls),
+        };
+        let mut gh = GitHub::new(repo, Box::new(script));
+        let invalid = Err(Outcome::Refused(Refusal::Invalid));
+        assert_eq!(
+            gh.open(&new_blueprint("t", "b")).map(|_| ()),
+            invalid,
+            "{repo}"
+        );
+        assert_eq!(gh.comment(no(7), "b", &[]).map(|_| ()), invalid, "{repo}");
+        let edit = gh.edit(
+            no(7),
+            Some("t"),
+            None,
+            &MarkerEdit::default(),
+            &Revision::new("r"),
+        );
+        assert_eq!(edit.map(|_| ()), invalid, "{repo}");
+        assert!(calls.borrow().is_empty(), "{repo}");
+    }
+}
+
+/// Each write of the three, run once against `answers` after its own read
+/// where it has one: what it answered, and the calls it made.
+fn each_write(fail: &Result<String, String>) -> Vec<(&'static str, Got<()>, Vec<Call>)> {
+    let read = sample("issue-7.json");
+    let since = revision_of(&read);
+    let (mut gh, calls) = adapter(vec![fail.clone()]);
+    let open = gh.open(&new_blueprint(TITLE, &big_body())).map(|_| ());
+    let open_calls = calls.borrow().clone();
+    let (mut gh, calls) = adapter(vec![fail.clone()]);
+    let comment = gh.comment(no(7), &big_body(), &[]).map(|_| ());
+    let comment_calls = calls.borrow().clone();
+    let (mut gh, calls) = adapter(vec![Ok(read), fail.clone()]);
+    let edit = gh
+        .edit(
+            no(7),
+            Some(TITLE),
+            Some(&big_body()),
+            &MarkerEdit::default(),
+            &since,
+        )
+        .map(|_| ());
+    let edit_calls = calls.borrow().clone();
+    vec![
+        ("open", open, open_calls),
+        ("comment", comment, comment_calls),
+        ("edit", edit, edit_calls),
+    ]
+}
+
+#[test]
+fn every_failure_of_a_write_is_its_named_outcome_sent_once_and_echoes_no_input() {
+    let maybe = |why| Outcome::Unavailable {
+        why,
+        sent: Sent::Maybe,
+    };
+    let spent = Outcome::Spent {
+        pool: Pool::Writes,
+        until: At::new(now()),
+    };
+    let cases = [
+        (failed("not-found.stderr"), Outcome::NotFound),
+        (failed("gone.stderr"), Outcome::NotFound),
+        (failed("forbidden.stderr"), Outcome::Forbidden),
+        (failed("secondary-limit.stderr"), spent.clone()),
+        (failed("rate-limited.stderr"), spent),
+        (
+            failed("validation.stderr"),
+            Outcome::Refused(Refusal::Invalid),
+        ),
+        (failed("server-error.stderr"), maybe(Passing::Server)),
+        (BOUND.to_string(), maybe(Passing::Timeout)),
+        (
+            failed("unreachable.stderr"),
+            Outcome::Unavailable {
+                why: Passing::Unreachable,
+                sent: Sent::No,
+            },
+        ),
+    ];
+    let body = big_body();
+    for (why, want) in cases {
+        for (op, got, calls) in each_write(&Err(why.clone())) {
+            assert_eq!(got, Err(want.clone()), "{op}: {why}");
+            // Sent once: the write is the last call, and the only one with
+            // an input.
+            let writes = calls.iter().filter(|c| c.input.is_some()).count();
+            assert_eq!(writes, 1, "{op}: {why}");
+            assert!(calls.last().unwrap().input.is_some(), "{op}: {why}");
+            let said = format!("{got:?} {}", got.as_ref().unwrap_err().line());
+            assert!(
+                !said.contains(&body[..64]) && !said.contains(TITLE),
+                "{op}: {said}"
+            );
+        }
+    }
+}
+
+#[test]
+fn an_answer_that_does_not_read_is_unread_never_a_success() {
+    let created = sample("issue-created.json");
+    let cut = created[..created.len() / 2].to_string();
+    for answer in ["not json".to_string(), String::new(), "{}".to_string(), cut] {
+        for (op, got, _) in each_write(&Ok(answer.clone())) {
+            assert_eq!(
+                got,
+                Err(Outcome::Unread(Unread::Malformed)),
+                "{op}: {answer:.40}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_link_that_is_not_what_was_written_is_inconsistent() {
+    let other =
+        sample("issue-created.json").replace("acme/widget/issues/42", "acme/other/issues/42");
+    let (mut gh, _) = adapter(vec![Ok(other)]);
+    assert_eq!(
+        gh.open(&new_blueprint("t", "b")),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    // A comment answered on another issue, or on a pull request.
+    for (from, to) in [("issues/7#", "issues/9#"), ("issues/7#", "pull/7#")] {
+        let answer = sample("comment-created.json").replace(from, to);
+        let (mut gh, _) = adapter(vec![Ok(answer)]);
+        assert_eq!(
+            gh.comment(no(7), "b", &[]),
+            Err(Outcome::Unread(Unread::Inconsistent)),
+            "{to}"
+        );
+    }
+    // An edit answered with another issue.
+    let read = sample("issue-7.json");
+    let since = revision_of(&read);
+    let (mut gh, _) = adapter(vec![Ok(read), Ok(sample("issue-created.json"))]);
+    assert_eq!(
+        gh.edit(no(7), Some("t"), None, &MarkerEdit::default(), &since),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+}
+
+/// A runner of the trait's default, which takes no input.
+struct NoInput {
+    calls: Calls,
+}
+
+impl GhRunner for NoInput {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        self.calls.borrow_mut().push(Call {
+            args: args.iter().map(|a| a.to_string()).collect(),
+            input: None,
+        });
+        Err("no answer".into())
+    }
+}
+
+#[test]
+fn a_runner_that_takes_no_input_sends_nothing_and_never_puts_the_text_in_an_argument() {
+    let calls = Calls::default();
+    let runner = NoInput {
+        calls: Rc::clone(&calls),
+    };
+    let mut gh = GitHub::new(PROJECT, Box::new(runner));
+    let unsupported = Err(Outcome::Refused(Refusal::Unsupported));
+    assert_eq!(gh.open(&new_blueprint(TITLE, "b")).map(|_| ()), unsupported);
+    assert_eq!(gh.comment(no(7), "b", &[]).map(|_| ()), unsupported);
+    assert!(calls.borrow().is_empty());
+}
+
+#[test]
+fn the_unbuilt_writes_are_refused_before_any_request() {
+    let (mut gh, calls) = adapter(Vec::new());
+    let unsupported = Err(Outcome::Refused(Refusal::Unsupported));
+    let id = CommentId::new("1");
+    let edit = gh.edit_comment(&id, "b", &MarkerEdit::default(), &Revision::new("r"));
+    assert_eq!(edit.map(|_| ()), unsupported);
+    assert_eq!(gh.close(no(7), true), unsupported);
+    assert!(calls.borrow().is_empty());
+}
+
+/// Issue 7 as a site keeps it: a read answers its title and body, a
+/// `PATCH` changes them.
+#[derive(Default)]
+struct Kept {
+    title: String,
+    body: String,
+}
+
+struct Site {
+    kept: Rc<RefCell<Kept>>,
+}
+
+impl GhRunner for Site {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        if args != ["api", "repos/acme/widget/issues/7"] {
+            return Err(format!("no recording of {args:?}"));
+        }
+        let k = self.kept.borrow();
+        Ok(issue_7(&k.title, &k.body))
+    }
+
+    fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
+        if args
+            != [
+                "api",
+                "-X",
+                "PATCH",
+                "repos/acme/widget/issues/7",
+                "--input",
+                "-",
+            ]
+        {
+            return Err(format!("no recording of {args:?}"));
+        }
+        let sent: Input = serde_json::from_str(input).map_err(|_| "no JSON".to_string())?;
+        let mut k = self.kept.borrow_mut();
+        if let Some(t) = sent.title {
+            k.title = t;
+        }
+        if let Some(b) = sent.body {
+            k.body = b;
+        }
+        Ok(issue_7(&k.title, &k.body))
+    }
+}
+
+/// The adapter, with `blueprint` at `Depth::Cut { notes: 0 }` answered from
+/// the issue the site keeps and the revision the adapter reads
+/// (`GitHub::text_revision`), for the law: the adapter answers no
+/// `blueprint` yet. Every other call is the adapter's own.
+struct WithRead {
+    gh: GitHub,
+    kept: Rc<RefCell<Kept>>,
+}
+
+impl Reports for WithRead {
+    fn take_reports(&mut self) -> Vec<Report> {
+        self.gh.take_reports()
+    }
+}
+
+impl Cites for WithRead {
+    fn cite(&self, what: &Cite) -> String {
+        self.gh.cite(what)
+    }
+}
+
+impl Blueprints for WithRead {
+    fn blueprint(&mut self, n: BlueprintNo, depth: Depth) -> Got<Blueprint> {
+        assert_eq!(depth, Depth::Cut { notes: 0 });
+        let revision = Revision::new(
+            self.gh
+                .text_revision(n.get())
+                .map_err(|_| Outcome::NotFound)?,
+        );
+        let k = self.kept.borrow();
+        Ok(Blueprint {
+            no: n,
+            title: k.title.clone(),
+            body: k.body.clone(),
+            open: true,
+            author: None,
+            editor: None,
+            created: At::new(now()),
+            edited: None,
+            revision,
+            markers: Vec::new(),
+            comments: Took {
+                items: Vec::new(),
+                more: false,
+            },
+            link: WebLink::new("https://github.com/acme/widget/issues/7").unwrap(),
+        })
+    }
+
+    fn several(&mut self, nos: &[BlueprintNo], depth: Depth) -> Vec<(BlueprintNo, Got<Blueprint>)> {
+        self.gh.several(nos, depth)
+    }
+
+    fn comments(&mut self, n: BlueprintNo, bound: Bound) -> Got<Whole<Comment>> {
+        self.gh.comments(n, bound)
+    }
+
+    fn comments_by_id(&mut self, ids: &[CommentId]) -> Vec<(CommentId, Got<Comment>)> {
+        self.gh.comments_by_id(ids)
+    }
+
+    fn body_edits(&mut self, n: BlueprintNo, bound: Bound) -> Got<Whole<Edit>> {
+        self.gh.body_edits(n, bound)
+    }
+
+    fn comment_edits(&mut self, id: &CommentId, bound: Bound) -> Got<Whole<Edit>> {
+        self.gh.comment_edits(id, bound)
+    }
+
+    fn search(
+        &mut self,
+        words: &str,
+        within: Within,
+        open: Option<bool>,
+        first: std::num::NonZeroU32,
+    ) -> Got<Took<BlueprintHit>> {
+        self.gh.search(words, within, open, first)
+    }
+
+    fn attachments(&mut self, n: BlueprintNo) -> Got<Whole<Attachment>> {
+        self.gh.attachments(n)
+    }
+
+    fn fetch(&mut self, a: &AttachmentId, limit: u64, into: &mut dyn std::io::Write) -> Did {
+        self.gh.fetch(a, limit, into)
+    }
+
+    fn changed(&mut self, since: Option<&ChangeToken>) -> Got<(bool, ChangeToken)> {
+        self.gh.changed(since)
+    }
+
+    fn delta(&mut self, from: Option<&Cursor>, bound: Bound) -> Got<BlueprintDelta> {
+        self.gh.delta(from, bound)
+    }
+}
+
+impl BlueprintWrites for WithRead {
+    fn open(&mut self, new: &NewBlueprint) -> Got<Posted<BlueprintNo>> {
+        self.gh.open(new)
+    }
+
+    fn edit(
+        &mut self,
+        n: BlueprintNo,
+        title: Option<&str>,
+        body: Option<&str>,
+        markers: &MarkerEdit,
+        since: &Revision,
+    ) -> Got<WebLink> {
+        self.gh.edit(n, title, body, markers, since)
+    }
+
+    fn comment(
+        &mut self,
+        n: BlueprintNo,
+        body: &str,
+        markers: &[Marker],
+    ) -> Got<Posted<CommentId>> {
+        self.gh.comment(n, body, markers)
+    }
+
+    fn edit_comment(
+        &mut self,
+        id: &CommentId,
+        body: &str,
+        markers: &MarkerEdit,
+        since: &Revision,
+    ) -> Got<WebLink> {
+        self.gh.edit_comment(id, body, markers, since)
+    }
+
+    fn close(&mut self, n: BlueprintNo, done: bool) -> Did {
+        self.gh.close(n, done)
+    }
+}
+
+#[test]
+fn the_law_an_edit_moves_the_revision_holds_over_the_adapters_edit() {
+    let kept = Rc::new(RefCell::new(Kept {
+        title: "Plan: the widget's settings page".into(),
+        body: "One page for every setting.".into(),
+    }));
+    let site = Site {
+        kept: Rc::clone(&kept),
+    };
+    let mut h = WithRead {
+        gh: GitHub::new(PROJECT, Box::new(site)).on_clock(now),
+        kept: Rc::clone(&kept),
+    };
+    laws::blueprints::an_edit_moves_the_revision(&mut h, no(7)).unwrap();
+    assert_eq!(kept.borrow().body, "One page for every setting.\n\nEdited.");
+}
