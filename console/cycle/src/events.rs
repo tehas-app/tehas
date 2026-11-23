@@ -35,7 +35,7 @@ pub const LOG: &str = "log";
 /// feature `plugins` is on.
 pub fn wiring(home: &Path, get: Get) -> Dispatcher {
     let mut b = Builder::new();
-    b.log(LOG, |e| log(&line(e)));
+    b.log(LOG, |e| log(&e.line()));
     if tehas_core::features::on_in("plugins", &*get) {
         b.on_any(
             crate::hook::BRIDGE,
@@ -44,14 +44,6 @@ pub fn wiring(home: &Path, get: Get) -> Dispatcher {
         );
     }
     b.build()
-}
-
-/// The log's line of an event: `event` and its envelope as JSON.
-pub fn line(e: &Envelope) -> String {
-    match serde_json::to_string(e) {
-        Ok(json) => format!("event {json}"),
-        Err(_) => format!("event {} {}", e.name().as_str(), e.key.as_str()),
-    }
 }
 
 /// Raises `p`, and logs each listener that failed.
@@ -527,15 +519,51 @@ mod tests {
         let heard = Arc::new(Mutex::new(Vec::new()));
         let mut b = Builder::new();
         let h = Arc::clone(&heard);
-        b.log(LOG, move |e| h.lock().unwrap().push(line(e)));
+        b.log(LOG, move |e| h.lock().unwrap().push(e.line()));
         b.on_any("stops", 5, |_| Heard::Stop);
         b.on_any("never", 0, |_| panic!("called after a stop"));
         let d = b.build();
         let e = ended(12, 3, &[row(3, 9, |r| r.pr = Some(21))], None);
-        let want: Vec<String> = e.envelopes().iter().map(line).collect();
+        let want: Vec<String> = e.envelopes().iter().map(Envelope::line).collect();
         e.raise(&d);
         assert_eq!(*heard.lock().unwrap(), want);
         assert!(want[0].starts_with("event {\"api\":1,"), "{}", want[0]);
+    }
+
+    // The line the log wrote before `Envelope::line` owned it.
+    fn serde_json_line(e: &Envelope) -> String {
+        match serde_json::to_string(e) {
+            Ok(json) => format!("event {json}"),
+            Err(_) => format!("event {} {}", e.name().as_str(), e.key.as_str()),
+        }
+    }
+
+    #[test]
+    fn the_log_line_is_what_serde_json_writes_byte_for_byte() {
+        let source = tehas_ports::events::Source::new("tehas-tehas").unwrap();
+        let mut all = Vec::new();
+        for s in tehas_ports::events::samples() {
+            all.push(s.full.clone().from(source.clone()));
+            all.extend([s.full, s.bare]);
+        }
+        let e = ended(12, 3, &[row(3, 9, |r| r.pr = Some(21))], None);
+        all.extend(e.envelopes());
+        let asked = all
+            .iter()
+            .find(|e| e.name() == Name::QuestionAsked)
+            .unwrap();
+        let mut q = QuestionAsked::peek(&asked.event).unwrap().clone();
+        q.choices = vec![QuestionChoice {
+            choice: "odd".into(),
+            label: "a \"b\" \\ \n\r\t\u{8}\u{c}\u{1}\u{1f}\u{7f} \u{e9}/\u{2028}".into(),
+        }];
+        all.push(Envelope::new(q));
+        let mut unknown = all[0].clone();
+        unknown.event = tehas_ports::events::Event::Unknown;
+        all.push(unknown);
+        for e in &all {
+            assert_eq!(e.line(), serde_json_line(e));
+        }
     }
 
     #[test]

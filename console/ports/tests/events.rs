@@ -531,3 +531,115 @@ fn a_gate_answer_allows_or_refuses_with_a_short_why() {
         "a no-break space is no control"
     );
 }
+
+// The log and a listener of every name, each keeping what it heard.
+fn hear_all(b: &mut Builder, heard: &Arc<Mutex<Vec<Envelope>>>) {
+    let h = heard.clone();
+    b.log("log", move |e| h.lock().unwrap().push(e.clone()));
+    let h = heard.clone();
+    b.on_any("any", 1, move |e| {
+        h.lock().unwrap().push(e.clone());
+        Heard::Go
+    });
+}
+
+fn heard_all(heard: &Arc<Mutex<Vec<Envelope>>>) -> Dispatcher {
+    let mut b = Builder::new();
+    hear_all(&mut b, heard);
+    b.build()
+}
+
+#[test]
+fn raise_envelope_hands_every_listener_the_envelope_with_its_source() {
+    let calls: Calls = Arc::default();
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let mut b = Builder::new();
+    hear_all(&mut b, &heard);
+    b.on::<CycleEnded>("typed", 0, note(&calls, "typed", Heard::Go));
+    let relayed = Envelope::new(ended()).from(Source::new("tehas-tehas").unwrap());
+    assert_eq!(b.build().raise_envelope(&relayed), Raised::default());
+    assert_eq!(*heard.lock().unwrap(), [relayed.clone(), relayed]);
+    assert_eq!(*calls.lock().unwrap(), ["typed"]);
+}
+
+#[test]
+fn raise_is_raise_envelope_of_the_payload_s_envelope() {
+    let mut b = Builder::new();
+    b.on::<CycleEnded>("stops", 2, |_| Heard::Stop)
+        .on_any("fails", 3, |_| Heard::Failed("no disk".into()))
+        .on_any("never", 0, |_| panic!("called after a stop"));
+    let d = b.build();
+    assert_eq!(d.raise(ended()), d.raise_envelope(&Envelope::new(ended())));
+    let raised = d.raise(ended());
+    assert_eq!(raised.stopped_by, Some("stops"));
+    assert_eq!(raised.faults.len(), 1);
+    for s in samples() {
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let d = heard_all(&heard);
+        let by_raise = match s.full.event.clone() {
+            Event::CycleStarted(p) => d.raise(p),
+            Event::CycleParked(p) => d.raise(p),
+            Event::QuestionAsked(p) => d.raise(p),
+            Event::CycleEnded(p) => d.raise(p),
+            Event::ChangeOffered(p) => d.raise(p),
+            Event::FactoryLimitChanged(p) => d.raise(p),
+            Event::TicketActed(p) => d.raise(p),
+            Event::TicketClosed(p) => d.raise(p),
+            Event::ChangeMerged(p) => d.raise(p),
+            _ => panic!("a sample of a known name"),
+        };
+        let by_envelope = d.raise_envelope(&s.full);
+        assert_eq!(by_raise, by_envelope);
+        let heard = heard.lock().unwrap();
+        assert_eq!(heard[..2], heard[2..], "{:?}", s.name);
+    }
+}
+
+#[test]
+fn an_envelope_no_raise_makes_is_refused_and_reaches_no_listener() {
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let d = heard_all(&heard);
+    let mut unknown = Envelope::new(ended());
+    unknown.event = Event::Unknown;
+    let before = Envelope {
+        when: When::Before,
+        ..Envelope::new(ended())
+    };
+    assert!(!Name::CycleEnded.gate());
+    assert_eq!(d.raise_envelope(&unknown).refused, Some(Refused::Unknown));
+    assert_eq!(d.raise_envelope(&before).refused, Some(Refused::Before));
+    let relayed = before.from(Source::new("tehas-tehas").unwrap());
+    assert_eq!(d.raise_envelope(&relayed).refused, Some(Refused::Before));
+    assert!(heard.lock().unwrap().is_empty());
+    // `raise` makes none of them.
+    for s in samples() {
+        assert_eq!(d.raise_envelope(&s.full).refused, None, "{:?}", s.name);
+        assert_eq!(d.raise_envelope(&s.bare).refused, None, "{:?}", s.name);
+    }
+}
+
+#[test]
+fn the_line_is_event_and_the_envelope_as_compact_json() {
+    let source = Source::new("tehas-tehas").unwrap();
+    let asked = sample(Name::QuestionAsked);
+    assert_eq!(
+        asked.full.clone().from(source.clone()).line(),
+        r#"event {"api":1,"source":"tehas-tehas","event":"question.asked","data":{"question":5,"kind":"Park","blueprint":12,"cycle":"12-3","askedAt":"2026-11-22T13:20:00Z","choices":[{"choice":"retry","label":"Run the cycle again"}]},"when":"after","key":"5","at":"2026-11-22T13:20:00Z"}"#
+    );
+    assert_eq!(
+        asked.bare.line(),
+        r#"event {"api":1,"event":"question.asked","data":{"question":5,"kind":"Park","blueprint":12,"askedAt":"2026-11-22T13:20:00Z"},"when":"after","key":"5","at":"2026-11-22T13:20:00Z"}"#
+    );
+    assert_eq!(
+        sample(Name::TicketActed).full.from(source).line(),
+        r#"event {"api":1,"source":"tehas-tehas","event":"ticket.acted","data":{"ticket":{"Number":12},"act":"Approve","by":{"realm":"Tickets","login":"alice","id":"1001","kind":"Person"},"at":"2026-11-22T11:10:00Z"},"when":"after","key":"12@Approve@2026-11-22T11:10:00Z","at":"2026-11-22T11:10:00Z"}"#
+    );
+    let mut q: QuestionAsked = payload(&asked);
+    q.choices[0].label = "a \"b\" \\ \n\r\t\u{8}\u{c}\u{1}\u{1f}\u{7f} é/".into();
+    let line = Envelope::new(q).line();
+    let want = r#""label":"a \"b\" \\ \n\r\t\b\f\u0001\u001f"#.to_string() + "\u{7f} é/\"";
+    assert!(line.contains(&want), "{line}");
+    let mut unknown = asked.full;
+    unknown.event = Event::Unknown;
+    assert_eq!(unknown.line(), "event unknown 5");
+}
