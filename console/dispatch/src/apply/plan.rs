@@ -867,7 +867,7 @@ impl Writer {
                 ));
                 return false;
             };
-            if let Err(f) = self.store_try(
+            match self.store_try(
                 3,
                 &[
                     "question-asked",
@@ -878,11 +878,14 @@ impl Writer {
                     "plan",
                 ],
             ) {
-                log.push(format!(
-                    "WARN: the record of #{n} could not be updated after its question was posted ({})",
-                    word(&f)
-                ));
-                return false;
+                Ok(v) => self.raise_asked(n, &v.to_string(), log),
+                Err(f) => {
+                    log.push(format!(
+                        "WARN: the record of #{n} could not be updated after its question was posted ({})",
+                        word(&f)
+                    ));
+                    return false;
+                }
             }
         }
         let mut flags = vec![
