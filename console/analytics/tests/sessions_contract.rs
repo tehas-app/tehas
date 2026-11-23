@@ -113,7 +113,7 @@ fn write_snapshot(home: &PathBuf) {
 }
 
 fn answer(dirs: &mcp::tools::Dirs, name: &str, args: Value) -> Value {
-    match mcp::tools::call(dirs, name, &args).unwrap() {
+    match mcp::tools::call(dirs, name, &args.into()).unwrap() {
         mcp::tools::Output::Json(v) => v,
         other => panic!("{name} gave {other:?}"),
     }

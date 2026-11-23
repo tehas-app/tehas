@@ -67,7 +67,7 @@ fn line(t: i64, text: &str) -> String {
 }
 
 fn events_call(dirs: &Dirs, args: Value) -> Result<Value, ToolError> {
-    match call(dirs, "factory_events", &args)? {
+    match call(dirs, "factory_events", &args.into())? {
         Output::Json(v) => Ok(common::conforms("factory_events", v)),
         other => panic!("not JSON: {other:?}"),
     }
