@@ -13,29 +13,35 @@
 
 mod account;
 mod blueprints;
+mod board;
 mod body;
 mod bound;
 mod code_host;
 mod identity;
 mod ids;
+mod links;
 mod mark;
 mod marker;
 mod outcome;
 mod report;
+mod site;
 mod tickets;
 mod write;
 
 pub use account::*;
 pub use blueprints::*;
+pub use board::*;
 pub use body::*;
 pub use bound::*;
 pub use code_host::*;
 pub use identity::*;
 pub use ids::*;
+pub use links::*;
 pub use mark::*;
 pub use marker::*;
 pub use outcome::*;
 pub use report::*;
+pub use site::*;
 pub use tickets::*;
 pub use write::*;
 

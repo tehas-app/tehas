@@ -1,9 +1,8 @@
-//! The per-pass reports: `Caller`, `PortName`, `Report`, `Reports`, and the
-//! meter's line, `MeterRow`.
+//! The per-pass reports: `Caller`, `PortName`, `Report` and `Reports`.
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Outcome, Pool};
+use crate::Outcome;
 
 /// A caller's name for the meter: `"dispatch.poll"`, `"cycle.report"`. A
 /// `&'static str`, so it is written out but never read back.
@@ -57,19 +56,4 @@ pub struct Report {
 pub trait Reports {
     /// The reports since the last take, each kind once with its count.
     fn take_reports(&mut self) -> Vec<Report>;
-}
-
-/// One line of the meter. `Serialize` only: `Caller` is a `&'static str`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
-pub struct MeterRow {
-    /// Who made the calls.
-    pub caller: Caller,
-    /// The port they were to.
-    pub port: PortName,
-    /// The budget they drew on.
-    pub pool: Pool,
-    /// How many calls.
-    pub calls: u32,
-    /// How many points the site counted for them.
-    pub points: u32,
 }
