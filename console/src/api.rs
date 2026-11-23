@@ -373,7 +373,10 @@ mod tests {
     #[test]
     fn the_store_is_the_id_the_store_names() {
         let one = J::parse(r#"{"store":"0123456789abcdef0123456789abcdef","last":null}"#).unwrap();
-        assert_eq!(store_of(&one).dump(), r#""0123456789abcdef0123456789abcdef""#);
+        assert_eq!(
+            store_of(&one).dump(),
+            r#""0123456789abcdef0123456789abcdef""#
+        );
         for none in [r#"{"last":null}"#, r#"{"store":""}"#, r#"{"store":7}"#] {
             assert!(store_of(&J::parse(none).unwrap()).is_null(), "{none}");
         }

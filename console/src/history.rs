@@ -193,6 +193,15 @@ fn date(v: &J) -> Option<J> {
     Some(J::str(time::iso(v.as_f64()?.floor() as i64)))
 }
 
+/// The cycle id, `<blueprint>-<attempt>` (`12-3`), as the events' `CycleId`
+/// writes it: what `tehas status` prints on a running cycle and this listing
+/// on its work line. `None` for a part out of 1 to 999999999.
+pub fn cycle_id(blueprint: i64, attempt: i64) -> Option<String> {
+    let blueprint = tehas_ports::BlueprintNo::new(u64::try_from(blueprint).ok()?)?;
+    let attempt = std::num::NonZeroU32::new(u32::try_from(attempt).ok()?)?;
+    tehas_ports::events::CycleId::new(blueprint, attempt).map(|c| c.to_string())
+}
+
 /// A row of the store in the shape its line had before the store. A row of
 /// neither kind is no line, and an `at` that is no time none of the rows is:
 /// the read stops there.
@@ -344,7 +353,7 @@ fn publish(line: &J, seconds: i64) -> J {
             .parse()
             .ok()
             .zip(a.parse().ok())
-            .and_then(|(i, a)| tehas_core::outcome::cycle_id(i, a))
+            .and_then(|(i, a)| cycle_id(i, a))
             .map_or(J::Null, J::Str),
         _ => J::Null,
     };
@@ -655,6 +664,21 @@ mod tests {
         assert_eq!(first.runs[0].get("end").as_str(), Some("merged"));
         assert!(page(&next.next.clone().unwrap()).runs.is_empty());
         assert!(first.runs[0].get("recorded").is_null());
+    }
+
+    #[test]
+    fn a_cycle_id_is_the_blueprint_and_the_attempt() {
+        assert_eq!(cycle_id(12, 3).as_deref(), Some("12-3"));
+        assert_eq!(cycle_id(999_999_999, 1).as_deref(), Some("999999999-1"));
+        for (b, a) in [
+            (0, 1),
+            (1, 0),
+            (-1, 2),
+            (1_000_000_000, 1),
+            (1, 1_000_000_000),
+        ] {
+            assert_eq!(cycle_id(b, a), None, "{b}-{a}");
+        }
     }
 
     fn listed_after(after: Option<&str>) -> Listing {

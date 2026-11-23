@@ -833,7 +833,7 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
             let part = |k: &str| c.get(k).as_f64().filter(|n| n.fract() == 0.0);
             if let Some(id) = part("issue")
                 .zip(part("attempt"))
-                .and_then(|(i, a)| tehas_core::outcome::cycle_id(i as i64, a as i64))
+                .and_then(|(i, a)| crate::history::cycle_id(i as i64, a as i64))
             {
                 f.push(("cycle", J::Str(id)));
             }
