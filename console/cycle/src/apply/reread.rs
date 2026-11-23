@@ -190,9 +190,9 @@ mod tests {
     /// under a 1.x word would read with no argv, is never there.
     #[test]
     fn a_label_write_that_names_no_label_settles_nothing() {
-        let v = json!({"labels": [{"name": "tehas:running"}]});
+        let v = json!({"labels": [{"name": "a-label"}]});
         for kind in ["label-add", "label-remove"] {
-            for a in [vec![], args("issue edit 7 --repo a/b")] {
+            for a in [vec![], args("edit 7")] {
                 assert_eq!(
                     seen("a/b", 7, kind, &a, None, NOW, &mut with(Some(v.clone()))),
                     Seen::Unread,

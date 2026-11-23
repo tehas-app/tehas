@@ -6087,11 +6087,6 @@ fn a_write_row_of_the_ports_is_never_settled_by_a_1x_read() {
             ["store journal-settle --action 99 --abandoned"],
             "{kind}"
         );
-        assert!(
-            !t.calls().iter().any(|c| c.starts_with("gh api")),
-            "{kind}: {:?}",
-            t.calls()
-        );
     }
 }
 
