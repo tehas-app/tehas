@@ -11,6 +11,7 @@
 use crate::accounts::account;
 use crate::grant::{self, Actor, Change, LabelEvent};
 use serde_json::Value;
+use tehas_ports::{Act, Happened, Mark, TicketEvent};
 
 /// The account of an event that names nobody, as a person reads it: the
 /// same word decide's `or_unknown` answers for an empty login. A list may
@@ -102,6 +103,12 @@ impl Events {
 /// as lib/config.sh checks it. An empty name is nobody and is never allowed.
 pub fn allowed_in(list: &str, login: &str) -> bool {
     !login.is_empty() && list.split(' ').any(|l| l == login)
+}
+
+/// [`allowed_in`] for a login the ports' adapter folded to lower case: a
+/// login of the list matches in any case, as the site's logins do.
+pub fn allowed_folded(list: &str, login: &str) -> bool {
+    !login.is_empty() && list.split(' ').any(|l| l.eq_ignore_ascii_case(login))
 }
 
 /// Who applied `label` most recently, and when: tehas_label_actor. Events
@@ -282,6 +289,32 @@ pub fn pause_holds(events: &[Event], allowed: &dyn Fn(&str) -> bool) -> Option<(
         "unlabeled" | "labeled" => Some((e.event.clone(), e.actor.clone())),
         _ => None,
     }
+}
+
+/// [`pause_holds`] over the tickets port's history: whether the event that
+/// holds the host paused took the pause off, and by whom, or None. The same
+/// rule, for a caller that reads through the port; the two are one when the
+/// last caller of [`pause_holds`] moves.
+pub fn pause_holds_marks(
+    events: &[TicketEvent],
+    allowed: &dyn Fn(&str) -> bool,
+) -> Option<(bool, String)> {
+    let pause = Mark::Act(Act::Pause);
+    let mut v: Vec<(bool, &TicketEvent)> = events
+        .iter()
+        .filter_map(|e| match &e.what {
+            Happened::Unmarked(m) if *m == pause => Some((true, e)),
+            Happened::Marked(m) if *m == pause => Some((false, e)),
+            _ => None,
+        })
+        .collect();
+    v.sort_by_key(|(off, e)| (e.at, !off));
+    let (off, e) = v.last()?;
+    let by = e.by.as_ref().map(|a| a.login.as_str()).unwrap_or_default();
+    if *off && allowed(by) {
+        return None;
+    }
+    Some((*off, by.to_string()))
 }
 
 /// Whether a change `who` made at `at` is after an approval `approver` gave
