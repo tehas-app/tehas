@@ -393,13 +393,13 @@ mod tests {
         }
     }
 
-    /// Each way the file can be there and not be read: its name, and the
-    /// state dir of `d` made so. Permission denied is left out when the
-    /// tests can read a file of mode 000 (root).
     const READY: &str = GRANTING[0];
 
     type Case = (&'static str, Box<dyn Fn(&Path)>);
 
+    /// Each way the file can be there and not be read: its name, and the
+    /// state dir of `d` made so. Permission denied is left out when the
+    /// tests can read a file of mode 000 (root).
     fn unreadable_cases() -> Vec<Case> {
         use std::os::unix::fs::{symlink, PermissionsExt};
         let mut cases: Vec<Case> = vec![
