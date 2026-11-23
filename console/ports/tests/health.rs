@@ -60,6 +60,14 @@ fn down(why: Passing) -> Result<(), Outcome> {
     })
 }
 
+/// The site's answer that the work asked about errored.
+fn broken() -> Result<(), Outcome> {
+    Err(Outcome::Unavailable {
+        why: Passing::Broken,
+        sent: Sent::Maybe,
+    })
+}
+
 fn out_of(pool: Pool, until: i64) -> Result<(), Outcome> {
     Err(Outcome::Spent {
         pool,
@@ -82,6 +90,7 @@ fn every_seen() -> Vec<Result<(), Outcome>> {
             why: Passing::Server,
             sent: Sent::Maybe,
         }),
+        broken(),
         Err(Outcome::Unread(Unread::Malformed)),
     ]
 }
@@ -132,6 +141,8 @@ fn the_hosts_table() {
         (up, Err(Outcome::SignedOut), up, None),
         (up, out_of(Pool::Priced, NOW + 60), up, None),
         (up, Err(Outcome::Unread(Unread::Cut)), up, None),
+        // A job that errored is the site's answer: the host is up.
+        (up, broken(), up, None),
         // Out: more failures change nothing; the first answer ends it.
         (out, down(Passing::Server), out, None),
         (out, Ok(()), up, Some(Health::Recovered)),
@@ -148,6 +159,7 @@ fn the_hosts_table() {
             up,
             Some(Health::Recovered),
         ),
+        (out, broken(), up, Some(Health::Recovered)),
         // An answer that does not read tells nothing.
         (out, Err(Outcome::Unread(Unread::Malformed)), out, None),
     ];

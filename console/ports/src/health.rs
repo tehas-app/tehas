@@ -23,7 +23,8 @@ use crate::{unknown, At, HealthState, HostId, Outcome, Passing, Pool, Realm, Who
 /// token's `SignedOut`, an out-of-set `Forbidden`) is not given to `next`.
 ///
 /// The host reads `Unavailable` as an outage and any answer of the site as
-/// the host up. A holder reads `SignedOut` as its own and any other answer
+/// the host up, `Unavailable(Broken)` among them: the site answered that a
+/// check run or job errored. A holder reads `SignedOut` as its own and any other answer
 /// but `Spent` as a good call that clears it. A pool reads `Spent` of
 /// itself as its own and ignores `Spent` of another pool; a good call
 /// clears it from `until` on, and `SignedOut` tells it nothing. `Unread`
@@ -74,6 +75,13 @@ fn own(whose: &Whose, was: HealthState) -> HealthState {
 fn host_next(now: At, was: HealthState, seen: &Result<(), Outcome>) -> HealthState {
     match (was, seen) {
         (_, Err(Outcome::Unread(_))) => was,
+        (
+            _,
+            Err(Outcome::Unavailable {
+                why: Passing::Broken,
+                ..
+            }),
+        ) => HealthState::Healthy,
         (HealthState::Failing { .. }, Err(Outcome::Unavailable { .. })) => was,
         (_, Err(Outcome::Unavailable { why, .. })) => HealthState::Failing {
             since: now,
