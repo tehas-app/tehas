@@ -817,6 +817,12 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `hook:after:change.offered` and puts its hook at `after:change.offered`;
   a `TEHAS_PLUGIN_GRANTS_<NAME>` line that grants `hook:after:work` grants
   `hook:after:change.offered` for the plugin's commit.
+- **The relay's edit is conditional.** #2958. A cycle's `gh issue edit`
+  through the relay reads the issue's title and body twice and edits only
+  if the reads agree. Otherwise its `gh` exits 1 with one line asking it to
+  read the issue again. It guards the moment of the edit, not an earlier
+  edit by a person.
+  Readers: the agents of a cycle.
 - **The merge is no plugin's grant.** #2943.
   The grant and the ask `merge` are refused with 78, saying the merge is a
   person's and no plugin is granted it in this release, where before they

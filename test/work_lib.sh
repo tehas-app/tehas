@@ -328,7 +328,7 @@ push_fault_store() {
 # what the readers of part 3 will name. No read verb gives the word: `cycle-show`
 # shows only the row's own column, and the row that holds it is what publish
 # renders; a write verb cannot be asked of a cycle that has ended. The case reads
-# the host's own file, as state_test.sh does of its database (the store keeps no
+# the host's own file, as console/tests/state.rs does of its database (the store keeps no
 # verb for it, so there is nothing else to ask).
 push_fault_ended() { # <home> <issue>
   command -v sqlite3 >/dev/null 2>&1 || { echo skipped; return; }
