@@ -1,14 +1,15 @@
 //! The GitHub calls that failed lately, kept on the host so health can name an
 //! outage: `state/github-failures`, one line `<unix second>\t<line>` for each
 //! read the poll, `tehasbot status` or `tehas tidy` could not make. The line is
-//! the one the program logged, which holds gh's words of a fixed list and no
-//! token.
+//! a fixed one in our words for the kind of failure ([`line`]), never gh's
+//! text: the program's own log keeps that.
 //!
 //! Writing is best effort: a record that cannot be written changes nothing in
 //! the program that failed its call. The file is cut back to the lines of the
 //! last `WINDOW` once it is over `KEEP_BYTES`.
 
 use crate::home::{Home, State};
+use crate::retry::Fault;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -19,27 +20,30 @@ pub const WINDOW: i64 = 600;
 pub const THRESHOLD: usize = 3;
 /// The size past which a write cuts the file back to the window.
 const KEEP_BYTES: u64 = 64 * 1024;
-/// The longest line kept, in characters.
-const LINE_MAX: usize = 300;
 
 /// The file under a tehas home.
 pub fn path(home: &Path) -> PathBuf {
     Home::new(home).state(State::GithubFailures)
 }
 
-/// One line of a log made safe for the file: no control character, so no
-/// second line, and no more than `LINE_MAX` characters.
-fn clean(line: &str) -> String {
-    line.chars()
-        .map(|c| if c.is_control() { '?' } else { c })
-        .take(LINE_MAX)
-        .collect()
+/// The line the health check shows for a kind of failure.
+pub fn line(fault: Fault) -> &'static str {
+    match fault {
+        Fault::Limit => "GitHub's rate limit was reached",
+        Fault::Server => "GitHub failed with a server error",
+        Fault::Refused => "GitHub refused the call",
+        Fault::Slow => "GitHub did not answer in time",
+        Fault::Down => "GitHub could not be reached",
+        Fault::Unread => "GitHub's answer could not be read",
+        Fault::Other => "a call to GitHub failed",
+    }
 }
 
-/// Keep one failed call at `now`.
-pub fn note(home: &Path, now: i64, line: &str) {
+/// Keep one failed call at `now`, of the kind the logged line `said` names
+/// (`retry::fault_of`).
+pub fn note(home: &Path, now: i64, said: &str) {
     let file = path(home);
-    let entry = format!("{now}\t{}\n", clean(line));
+    let entry = format!("{now}\t{}\n", line(crate::retry::fault_of(said)));
     if fs::metadata(&file).is_ok_and(|m| m.len() > KEEP_BYTES) {
         let kept: String = lines(&file)
             .into_iter()
@@ -110,20 +114,14 @@ mod tests {
     #[test]
     fn the_window_counts_the_failures_of_the_last_ten_minutes() {
         let h = home("window");
-        note(&h, 1000, "ERROR: gh api graphql failed: HTTP 502");
-        note(&h, 1500, "WARN status: gh issue list failed: HTTP 502");
+        note(&h, 1000, "ERROR: gh api graphql failed: no such host");
+        note(&h, 1500, "WARN status: gh issue list failed: no such host");
         note(&h, 1590, "WARN: tidy: gh search issues failed: timed out");
         let r = recent(&h, 1600);
         assert_eq!(r.count, 2, "the one of 600 s and more ago is out");
-        assert_eq!(
-            r.last,
-            Some((
-                1590,
-                "WARN: tidy: gh search issues failed: timed out".into()
-            ))
-        );
+        assert_eq!(r.last, Some((1590, "GitHub did not answer in time".into())));
         assert!(!r.outage());
-        note(&h, 1595, "ERROR: gh issue list failed: HTTP 503");
+        note(&h, 1595, "ERROR: gh issue list failed: unexpected EOF");
         assert!(recent(&h, 1600).outage());
     }
 
@@ -134,9 +132,41 @@ mod tests {
     }
 
     #[test]
-    fn a_line_is_one_line_and_a_damaged_line_is_skipped() {
+    fn the_file_keeps_a_fixed_line_per_kind_and_none_of_ghs_words() {
+        let h = home("kinds");
+        let said = [
+            "WARN: tidy: gh search failed: secondary rate limit",
+            "ERROR: gh api graphql failed: HTTP 502 (tried 2 times)",
+            "ERROR: gh issue list failed: HTTP 404 at api.example.test",
+            "WARN status: gh issue list failed: connection reset",
+            "ERROR: gh api graphql failed: its answer could not be read",
+            "WARN status: gh issue list failed\nforged 999\tline",
+        ];
+        for (i, l) in said.iter().enumerate() {
+            note(&h, 1000 + i as i64, l);
+        }
+        let text = fs::read_to_string(path(&h)).unwrap();
+        let kept: Vec<&str> = text
+            .lines()
+            .map(|l| l.split_once('\t').unwrap().1)
+            .collect();
+        assert_eq!(
+            kept,
+            [
+                "GitHub's rate limit was reached",
+                "GitHub failed with a server error",
+                "GitHub refused the call",
+                "GitHub could not be reached",
+                "GitHub's answer could not be read",
+                "a call to GitHub failed",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_damaged_line_is_skipped() {
         let h = home("clean");
-        note(&h, 1000, "ERROR: x\nforged 999\tline");
+        note(&h, 1000, "ERROR: x");
         fs::write(
             path(&h),
             fs::read_to_string(path(&h)).unwrap() + "garbage\nnope\tx\n",
@@ -144,7 +174,7 @@ mod tests {
         .unwrap();
         let r = recent(&h, 1000);
         assert_eq!(r.count, 1);
-        assert_eq!(r.last.unwrap().1, "ERROR: x?forged 999?line");
+        assert_eq!(r.last.unwrap().1, "a call to GitHub failed");
     }
 
     #[test]
@@ -154,6 +184,6 @@ mod tests {
         fs::write(path(&h), old).unwrap();
         note(&h, 10_000, "ERROR: gh issue list failed");
         let text = fs::read_to_string(path(&h)).unwrap();
-        assert_eq!(text, "10000\tERROR: gh issue list failed\n");
+        assert_eq!(text, "10000\ta call to GitHub failed\n");
     }
 }

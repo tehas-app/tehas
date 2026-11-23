@@ -1238,7 +1238,7 @@ mod tests {
     #[test]
     fn stale_lists_and_failed_github_calls_have_their_lines() {
         let health = h(
-            r#"{"status":"warn","output":"x","time":"2026-10-17T14:00:00Z","checks":{"queue":{"time":"2026-10-17T13:40:20Z","inLine":0,"building":0,"review":0,"stopped":0,"stale":["queue","completed"]},"github":{"failed":3,"windowSeconds":600,"lastAt":"2026-10-17T13:59:20Z","last":"ERROR: gh api graphql failed: HTTP 502"}}}"#,
+            r#"{"status":"warn","output":"x","time":"2026-10-17T14:00:00Z","checks":{"queue":{"time":"2026-10-17T13:40:20Z","inLine":0,"building":0,"review":0,"stopped":0,"stale":["queue","completed"]},"github":{"failed":3,"windowSeconds":600,"lastAt":"2026-10-17T13:59:20Z","last":"GitHub failed with a server error"}}}"#,
         );
         let lines = state_lines(&health, NOW, false, "");
         assert_eq!(
@@ -1246,7 +1246,7 @@ mod tests {
             [
                 "queue     0 in line, 0 building, 0 in review, 0 stopped (20 min ago)",
                 "queue     stale: queue and completed kept from an earlier read, GitHub did not answer",
-                "github    3 failed calls in the last 10 min, the last 60 s ago: ERROR: gh api graphql failed: HTTP 502",
+                "github    3 failed calls in the last 10 min, the last 60 s ago: GitHub failed with a server error",
             ]
         );
         let quiet = h(

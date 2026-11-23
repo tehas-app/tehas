@@ -278,7 +278,12 @@ the age of its lists, so lists kept through ten minutes of failed reads warn as
 an old snapshot does. `checks.github` is `{failed, windowSeconds, lastAt, last}`:
 the GitHub reads the poll, `tehasbot status` and `console tidy run` could not make
 in the last ten minutes, from `~/tehas/state/github-failures`, and the newest
-of their log lines. A read cleared by its retry is not on it. `checks.cycles` has the
+of them. `last` is a fixed line in tehas's words for the kind of failure, not
+gh's text: `GitHub's rate limit was reached`, `GitHub failed with a server
+error`, `GitHub refused the call`, `GitHub did not answer in time`, `GitHub
+could not be reached`, `GitHub's answer could not be read`, or `a call to
+GitHub failed`. The log line of the poll, status or tidy still names gh's
+words. A read cleared by its retry is not on it. `checks.cycles` has the
 issue, status, step and times of every running cycle; `checks.cycle` is the
 first of them, or the cycle that finished last when none is running.
 `checks.plans` has the issue, the turn, `startedAt` and `state` of every

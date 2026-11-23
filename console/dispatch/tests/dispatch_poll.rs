@@ -315,18 +315,14 @@ fn a_read_the_poll_cannot_make_ends_the_poll_with_ghs_own_words() {
     lacks(&r.out, "ghs_poll");
     lacks(&r.out, "ghs_fresh");
     lacks(&r.out, "TEHAS_GH_TOKEN");
-    // The failed read is on the host's record that health counts, once.
+    // The failed read is on the host's record that health counts, once, in
+    // our words and not gh's.
     let failures = w.read_home("state/github-failures");
-    let logged = r
-        .out
-        .lines()
-        .find_map(|l| l.find("ERROR: gh api graphql failed").map(|i| &l[i..]))
-        .unwrap();
     let fields: Vec<&str> = failures
         .lines()
         .map(|l| l.split('\t').nth(1).unwrap_or(""))
         .collect();
-    assert_eq!(fields, vec![logged], "{failures}");
+    assert_eq!(fields, ["GitHub failed with a server error"], "{failures}");
     lacks(&failures, "ghs_");
     assert_eq!(w.started(), "");
     assert!(!w.t().join("calls/tidy.after-start").exists());

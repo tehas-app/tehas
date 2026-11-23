@@ -45,7 +45,7 @@ failed in the last ten minutes (`checks.github`):
 
 ```
 queue     stale: queue and completed kept from an earlier read, GitHub did not answer
-github    4 failed calls in the last 10 min, the last 40 s ago: ERROR: gh api graphql failed: HTTP 502
+github    4 failed calls in the last 10 min, the last 40 s ago: GitHub failed with a server error
 ```
 
 While [refreshes](/operating#refreshes) are held on this host, with requests
