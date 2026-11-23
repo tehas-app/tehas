@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tehas-app/tehas/api/plugin-context.schema.json",
   "title": "/run/context.json",
-  "description": "What a plugin's run is told, in the file /run/context.json of its container, read only. Plugins are a feature still being built, so this is not contract until the release that ships them. It names nothing of a person, and nothing of a capability the run is not given: head with product outside a call, model with model in a refresh only (a hook and a call have none), pr in a hook, tool in a call, whose arguments are in /run/call.json beside this file. The writer is console/core/src/plugin/run.rs; its tests hold what it writes to this schema.",
+  "description": "What a plugin's run is told, in the file /run/context.json of its container, read only. Plugins are a feature still being built, so this is not contract until the release that ships them. It names nothing of a person, and nothing of a capability the run is not given: head with product outside a call, model with model in a refresh only (a hook and a call have none), pr in a hook, event in a hook a cycle asked for, tool in a call, whose arguments are in /run/call.json beside this file. The writer is console/core/src/plugin/run.rs; its tests hold what it writes to this schema.",
   "type": "object",
   "required": ["kind", "trigger", "commit"],
   "additionalProperties": false,
@@ -22,6 +22,7 @@
       }
     },
     "tool": {"type": "string", "pattern": "^[a-z-]{1,16}$", "description": "Only in a call: the id of the tool called."},
+    "event": {"description": "Only in a hook a cycle asked for: the envelope of the event that asked, as api/event.schema.json gives it, an after envelope of change.offered. A person's run of tehas plugin hook has none."},
     "pr": {
       "type": "object",
       "required": ["number", "base", "head"],
@@ -36,6 +37,7 @@
   },
   "dependentSchemas": {
     "pr": {"properties": {"kind": {"const": "hook"}}},
+    "event": {"properties": {"kind": {"const": "hook"}}},
     "model": {"properties": {"kind": {"const": "refresh"}}},
     "tool": {"properties": {"kind": {"const": "call"}}}
   }

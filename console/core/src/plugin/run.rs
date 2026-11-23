@@ -99,6 +99,9 @@ pub struct Run<'a> {
     pub pr: Option<Pr>,
     /// A call's tool, by id.
     pub tool: Option<&'a str>,
+    /// The envelope of the event that asked for a hook, as JSON: none for a
+    /// person's run.
+    pub event: Option<&'a str>,
 }
 
 /// What a run is given beyond what every run has.
@@ -252,6 +255,13 @@ pub fn context(run: &Run) -> Result<Value, String> {
     if let Some(tool) = run.tool {
         c["tool"] = json!(tool);
     }
+    let event = run.event.map(serde_json::from_str::<Value>);
+    match (event, run.kind) {
+        (None, _) => {}
+        (Some(Ok(e)), Kind::Hook) if e.is_object() => c["event"] = e,
+        (Some(_), Kind::Hook) => return Err("a hook whose event is no envelope".to_string()),
+        (Some(_), _) => return Err(format!("a {} with an event", run.kind.word())),
+    }
     Ok(c)
 }
 
@@ -330,6 +340,7 @@ pub(crate) mod tests {
                 head: H.into(),
             }),
             tool: (kind == Kind::Call).then_some("find-doc"),
+            event: None,
         }
     }
 
@@ -446,6 +457,26 @@ pub(crate) mod tests {
             context(&run(&m, &g, Kind::Refresh)).unwrap()["model"],
             json!({"id": "plugin", "tokens": 2000000})
         );
+        let envelope = r#"{"api":1,"event":"x","key":"7-1"}"#;
+        let asked = Run {
+            event: Some(envelope),
+            ..run(&m, &g, Kind::Hook)
+        };
+        assert_eq!(
+            context(&asked).unwrap()["event"],
+            json!({"api": 1, "event": "x", "key": "7-1"})
+        );
+        for (kind, event) in [
+            (Kind::Hook, "[1]"),
+            (Kind::Hook, "{"),
+            (Kind::Refresh, envelope),
+        ] {
+            let r = Run {
+                event: Some(event),
+                ..run(&m, &g, kind)
+            };
+            assert!(context(&r).is_err(), "{event}");
+        }
     }
 
     #[test]

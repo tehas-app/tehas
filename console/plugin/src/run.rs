@@ -433,6 +433,9 @@ struct Started<'a> {
     trigger: Trigger,
     head: String,
     pr: Option<Pr>,
+    /// The envelope of the event that asked for a hook. A person's run has
+    /// none.
+    event: Option<String>,
 }
 
 fn by_of(trigger: Trigger, by: Option<&str>) -> String {
@@ -525,6 +528,7 @@ fn run_in(
         model: &model_id,
         pr: st.pr.clone(),
         tool: None,
+        event: st.event.as_deref(),
     };
     let given = match run.given() {
         Ok(g) => g,
@@ -822,6 +826,7 @@ fn refresh(h: &mut dyn Host, s: &Setup, ask: &Ask) -> u8 {
         trigger,
         head,
         pr: None,
+        event: None,
     };
     let came = one_run(h, s, &st, &by_of(trigger, by.as_deref()));
     drop(lock);
@@ -1007,6 +1012,7 @@ fn hook_at(h: &mut dyn Host, s: &Setup, p: &Plugin, ask: &Ask, req: &HookAsk) ->
             base,
             head: head.clone(),
         }),
+        event: req.event.clone().filter(|_| trigger == Trigger::Cycle),
     };
     (one_run(h, s, &st, &by_of(trigger, None)), head)
 }

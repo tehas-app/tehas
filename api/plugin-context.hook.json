@@ -3,5 +3,6 @@
   "trigger": "cycle",
   "commit": "0123456789abcdef0123456789abcdef01234567",
   "head": "89abcdef0123456789abcdef0123456789abcdef",
-  "pr": {"number": 42, "base": "fedcba9876543210fedcba9876543210fedcba98", "head": "89abcdef0123456789abcdef0123456789abcdef"}
+  "pr": {"number": 42, "base": "fedcba9876543210fedcba9876543210fedcba98", "head": "89abcdef0123456789abcdef0123456789abcdef"},
+  "event": {"api": 1, "event": "change.offered", "data": {"change": 42, "blueprint": 7, "cycle": "7-1", "end": "offered", "at": "2026-11-22T14:20:00Z"}, "when": "after", "key": "7-1", "at": "2026-11-22T14:20:00Z"}
 }
