@@ -1,8 +1,9 @@
 //! The blueprints port's writes, `BlueprintWrites`. Answered: a new
 //! blueprint (`open`), its title and body edited at a revision (`edit`) and
-//! a comment (`comment`). Each write is one request, sent once: its title
-//! and body go as JSON on gh's standard input, never in an argument, which
-//! holds at most 128 KiB and is seen by every process on the host.
+//! a comment (`comment`). Each write is one request, sent once, never
+//! again: its title and body go as JSON on gh's standard input, never in an
+//! argument, which holds at most 128 KiB and is seen by every process on
+//! the host. `edit` and `comment` read the issue first.
 //!
 //! Every write goes to this adapter's own repository, named by its typed
 //! number, and carries no marker: this adapter has no writer of markers
@@ -10,7 +11,7 @@
 //! before any request, and an edit that would drop one is refused too.
 
 use super::unsupported;
-use crate::{gh, ForgeError, GitHub};
+use crate::{gh, GitHub};
 use serde_json::Value;
 use tehas_core::text::has_marker;
 use tehas_ports::{
@@ -46,7 +47,9 @@ impl BlueprintWrites for GitHub {
     /// the moment between the read and the write stays open: another
     /// account's edit in it is overwritten. The revision is the issue's
     /// title and body, as [`revision`] makes it; labels and comments do not
-    /// move it.
+    /// move it. A `PATCH` that may have landed is settled by one read, never
+    /// sent again: at the revision sent it is done, at `since` it was not
+    /// sent, else it stays `sent: Maybe`.
     fn edit(
         &mut self,
         no: BlueprintNo,
@@ -63,14 +66,8 @@ impl BlueprintWrites for GitHub {
         let path = format!("{}/issues/{}", self.issues()?, no.get());
         // The read `blueprint(no, Depth::Cut { notes: 0 })` makes: the issue
         // alone, no comment.
-        let out = self
-            .issue_answer(no.get())
-            .map_err(|e| unsent(self.outcome(&e)))?;
-        let now = read_issue(&out, &self.repo)?;
-        if now.no != no {
-            return Err(Outcome::Unread(Unread::Inconsistent));
-        }
-        if revision(&out).as_ref() != Some(since) {
+        let (now, at) = self.read_before(no)?;
+        if at != *since {
             return Err(Outcome::Conflict(Lost::Changed));
         }
         // The body's markers cannot be read apart yet, so a new body would
@@ -88,16 +85,38 @@ impl BlueprintWrites for GitHub {
         if fields.is_empty() {
             return Ok(now.link);
         }
-        let out = self.send("PATCH", &path, &Value::Object(fields).to_string())?;
-        let edited = read_issue(&out, &self.repo)?;
-        if edited.no != no {
-            return Err(Outcome::Unread(Unread::Inconsistent));
+        let failed = match self.send("PATCH", &path, &Value::Object(fields).to_string()) {
+            Ok(out) => {
+                let edited = read_issue(&out, &self.repo)?;
+                if edited.no != no {
+                    return Err(Outcome::Unread(Unread::Inconsistent));
+                }
+                return Ok(edited.link);
+            }
+            Err(o) => o,
+        };
+        let Outcome::Unavailable {
+            why,
+            sent: Sent::Maybe,
+        } = failed
+        else {
+            return Err(failed);
+        };
+        let sent = text_revision(title.unwrap_or(&now.title), body.unwrap_or(&now.body));
+        match self.read_before(no) {
+            Ok((again, r)) if Some(&r) == sent.as_ref() => Ok(again.link),
+            Ok((_, r)) if r == at => Err(Outcome::Unavailable {
+                why,
+                sent: Sent::No,
+            }),
+            _ => Err(failed),
         }
-        Ok(edited.link)
     }
 
-    /// A comment on the issue, `POST` of its body. Its link is the
-    /// comment's own, the issue's with `#issuecomment-<id>`.
+    /// The issue read first, as `edit` does, so a pull request's number is
+    /// `NotFound` with nothing sent; then a comment on it, `POST` of its
+    /// body. Its link is the comment's own, the issue's with
+    /// `#issuecomment-<id>`.
     fn comment(
         &mut self,
         no: BlueprintNo,
@@ -109,6 +128,7 @@ impl BlueprintWrites for GitHub {
         }
         unmarked(&[body])?;
         let path = format!("{}/issues/{}/comments", self.issues()?, no.get());
+        self.read_before(no)?;
         let input = serde_json::json!({ "body": body }).to_string();
         let out = self.send("POST", &path, &input)?;
         read_comment(&out, &self.repo, no)
@@ -157,17 +177,17 @@ impl GitHub {
     /// nothing. No word of gh's answer, or of the input, is kept.
     fn send(&mut self, method: &str, path: &str, input: &str) -> Got<String> {
         let args = ["api", "-X", method, path, "--input", "-"];
-        let why = match self.runner.run_input(&args, input) {
+        let e = match self.call_input("the write", &args, input) {
             Ok(out) => return Ok(out),
-            Err(why) => why,
+            Err(e) => e,
         };
-        if why == NO_INPUT {
+        if e.why == NO_INPUT {
             return Err(Outcome::Refused(Refusal::Unsupported));
         }
-        if why.contains("HTTP 422") {
+        if e.why.contains("HTTP 422") {
             return Err(Outcome::Refused(Refusal::Invalid));
         }
-        Err(match self.outcome(&ForgeError::new("the write", why)) {
+        Err(match self.outcome(&e) {
             Outcome::Spent { until, .. } => Outcome::Spent {
                 pool: Pool::Writes,
                 until,
@@ -175,13 +195,41 @@ impl GitHub {
             other => other,
         })
     }
+
+    /// The issue `no` and its revision, read before a write or to settle
+    /// one. A failure of the read is its outcome, with nothing sent; a pull
+    /// request is `NotFound`; an answer with no title, or of another issue,
+    /// is unread.
+    fn read_before(&mut self, no: BlueprintNo) -> Got<(Issue, Revision)> {
+        let out = self
+            .issue_answer(no.get())
+            .map_err(|e| unsent(self.outcome(&e)))?;
+        let issue = read_issue(&out, &self.repo)?;
+        if issue.no != no {
+            return Err(Outcome::Unread(Unread::Inconsistent));
+        }
+        let at = revision(&out).ok_or(Outcome::Unread(Unread::Malformed))?;
+        Ok((issue, at))
+    }
 }
 
 /// The revision of an issue's REST read: its title and body, as the
 /// relay's read before an edit has it (`GitHub::text_revision`). None for
 /// an answer with no title.
+///
+/// The contract `Blueprints::blueprint` must keep when it is built: it
+/// answers the body without our markers, but its `revision` is this
+/// function over the RAW answer, markers in. A revision over the stripped
+/// body would never equal this one, and every edit at it would be
+/// `Conflict(Changed)`.
 pub(super) fn revision(out: &str) -> Option<Revision> {
     gh::text_revision(out).map(Revision::new)
+}
+
+/// The revision an issue of this title and body reads at, as [`revision`]
+/// reads it.
+fn text_revision(title: &str, body: &str) -> Option<Revision> {
+    revision(&serde_json::json!({ "title": title, "body": body }).to_string())
 }
 
 /// A failure of the read before a write: the write was not sent.
@@ -208,6 +256,7 @@ fn unmarked(texts: &[&str]) -> Did {
 /// An issue of this project as a read or a write answers it.
 struct Issue {
     no: BlueprintNo,
+    title: String,
     body: String,
     link: WebLink,
 }
@@ -233,6 +282,11 @@ fn read_issue(out: &str, repo: &str) -> Got<Issue> {
         Some(Value::String(s)) => s.clone(),
         Some(_) => return Err(malformed),
     };
+    let title = v
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
     if v.get("pull_request").is_some_and(|p| !p.is_null()) {
         return Err(Outcome::NotFound);
     }
@@ -240,7 +294,12 @@ fn read_issue(out: &str, repo: &str) -> Got<Issue> {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
     let link = WebLink::new(url).map_err(|_| malformed)?;
-    Ok(Issue { no, body, link })
+    Ok(Issue {
+        no,
+        title,
+        body,
+        link,
+    })
 }
 
 /// The comment in gh's answer: its id, and its link, which must be the
