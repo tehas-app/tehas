@@ -527,6 +527,16 @@ fn marker_laws() {
     });
     let mut h = site.blueprint_writes(&full(), C).unwrap();
     ok(m::an_unreadable_marker_is_kept(h.as_mut(), bp(111)));
+    for marker in [
+        park(101),
+        Marker::HoldCleared,
+        Marker::Millwright(MillwrightMarker {
+            blueprint: bp(101),
+            action: MillwrightAction::Finish,
+        }),
+    ] {
+        ok(m::a_cited_marker_is_no_marker(h.as_mut(), bp(101), &marker));
+    }
 }
 
 #[test]

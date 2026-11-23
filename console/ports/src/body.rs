@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{BlueprintNo, ChangeNo, Login, Ref, Sha256, TicketKey};
+use crate::{BlueprintNo, ChangeNo, Login, Marker, Ref, Sha256, TicketKey};
 
 /// A body or a file named by its sum: sha-256 in hex, and its length.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -47,11 +47,16 @@ pub enum Cite {
     Change(Ref<ChangeNo>),
     /// An account.
     Account(Login),
+    /// The text a person types to make this marker, quoted as the site
+    /// shows code, so it is no live marker: what a reply tells a person to
+    /// write. A marker that is not [`Marker::writable`] cites as `""`.
+    Marker(Marker),
 }
 
 /// `Tickets`, `Blueprints` and `CodeHost` have it. The text that names
 /// `what` in a body written through this handle, as its site links or
-/// mentions it. No request.
+/// mentions it. No request. A body that holds a cited marker holds no
+/// marker (`laws::markers::a_cited_marker_is_no_marker`).
 pub trait Cites {
     /// The text that names `what` in a body written through this handle.
     fn cite(&self, what: &Cite) -> String;

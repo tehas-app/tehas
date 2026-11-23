@@ -755,8 +755,8 @@ pub mod search {
 pub mod markers {
     use super::{got, hold, Broken, Law};
     use crate::{
-        BlueprintNo, BlueprintWrites, Blueprints, CommentId, Depth, Marker, MarkerEdit, MarkerKind,
-        TicketKey, Tickets, Window, ALL_MAX,
+        BlueprintNo, BlueprintWrites, Blueprints, Cite, CommentId, Depth, Marker, MarkerEdit,
+        MarkerKind, TicketKey, Tickets, Window, ALL_MAX,
     };
 
     /// The text a marker law reads, through the handle that reads it.
@@ -827,6 +827,48 @@ pub mod markers {
         const LAW: &str = "markers::a_quoted_marker_is_no_marker";
         let markers = read(&mut at, LAW)?;
         hold(markers.is_empty(), LAW, || format!("read {markers:?}"))
+    }
+
+    /// A cited marker is no marker: `Cite::Marker` of a writable marker is
+    /// text, written in a comment on the blueprint `no`, that reads back
+    /// holding that text and no marker. A marker that is not writable
+    /// (unknown, unreadable or bare of its kind) cites as `""`.
+    pub fn a_cited_marker_is_no_marker(
+        h: &mut dyn BlueprintWrites,
+        no: BlueprintNo,
+        marker: &Marker,
+    ) -> Law {
+        const LAW: &str = "markers::a_cited_marker_is_no_marker";
+        hold(marker.writable(), LAW, || {
+            format!("the fixture's {marker:?} is not writable")
+        })?;
+        let kind = marker.kind();
+        for not in [
+            Marker::Unknown,
+            Marker::Unreadable { kind: kind.clone() },
+            Marker::Bare { kind, read: None },
+        ] {
+            let text = h.cite(&Cite::Marker(not.clone()));
+            hold(text.is_empty(), LAW, || {
+                format!("{not:?} cites as {text:?}")
+            })?;
+        }
+        let text = h.cite(&Cite::Marker(marker.clone()));
+        hold(!text.trim().is_empty(), LAW, || {
+            format!("{marker:?} cites as nothing")
+        })?;
+        let posted = got(LAW, "the comment", h.comment(no, &text, &[]))?;
+        let mut answers = h.comments_by_id(std::slice::from_ref(&posted.id));
+        let c = match answers.pop() {
+            Some((_, answer)) => got(LAW, "the comment read back", answer)?,
+            None => return super::broken(LAW, "the comment was not answered"),
+        };
+        hold(c.markers.is_empty(), LAW, || {
+            format!("{text:?} read as {:?}", c.markers)
+        })?;
+        hold(c.body.contains(text.trim()), LAW, || {
+            format!("{text:?} read back as {:?}", c.body)
+        })
     }
 
     /// A wrapped marker with a field that does not parse is unreadable of

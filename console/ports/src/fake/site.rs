@@ -637,6 +637,8 @@ impl Cites for Handle {
             Cite::Blueprint(r) => named("blueprint", r, |n| n.get().to_string()),
             Cite::Change(r) => named("change", r, |n| n.get().to_string()),
             Cite::Account(login) => format!("account {}", login.as_str()),
+            Cite::Marker(m) if m.writable() => format!("`{:?} marker`", m.kind()),
+            Cite::Marker(_) => String::new(),
         }
     }
 }
