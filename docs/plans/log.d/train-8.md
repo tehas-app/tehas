@@ -1,0 +1,1 @@
+| 2026-11-23 | Merge train 8, tested as #3000 (verify run 45253904422), tree eaf1d8262d4330c11757515b8daac0b7061719b2, the tip after its last member: #2994 (code, the gh runner takes input on stdin), #2996 (docs). The first train to post the merge-train status on each member | #3000 |

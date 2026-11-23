@@ -23,6 +23,15 @@ pub trait GhRunner {
     /// Run gh with these arguments: its standard output, or the reason it
     /// gave for failing.
     fn run(&mut self, args: &[&str]) -> Result<String, String>;
+
+    /// Run gh with these arguments and `input` on its standard input, the way
+    /// a write sends a body: a body may be as long as 1 MiB, past what one
+    /// argument may hold (128 KiB), and an argument list is seen by every
+    /// process on the host. The reason a call failed never holds the input.
+    fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
+        let _ = (args, input);
+        Err("this runner takes no input".to_string())
+    }
 }
 
 /// Given to every gh call of tehas's own, by `Bounded` and by `call`'s
@@ -73,14 +82,30 @@ impl Bounded {
 
 impl GhRunner for Bounded {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        use std::io::Read;
+        self.call(args, None)
+    }
+
+    /// The input is written on a pipe of its own thread, closed once written,
+    /// within the call's bound: a gh that stops reading is stopped with it.
+    fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
+        self.call(args, Some(input))
+    }
+}
+
+impl Bounded {
+    fn call(&mut self, args: &[&str], input: Option<&str>) -> Result<String, String> {
+        use std::io::{Read, Write};
         use std::os::unix::process::CommandExt;
         use std::process::{Command, Stdio};
 
         let mut child = Command::new(&self.program)
             .args(args)
             .env(GH_NO_RETRY.0, GH_NO_RETRY.1)
-            .stdin(Stdio::null())
+            .stdin(if input.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .process_group(0)
@@ -100,8 +125,18 @@ impl GhRunner for Bounded {
         };
         let reading = drain(Box::new(out));
         let reading_err = drain(Box::new(child.stderr.take().expect("piped")));
+        // Dropped once written, so gh sees the end of its input.
+        let writing = child.stdin.take().map(|mut pipe| {
+            let text = input.unwrap_or_default().to_string();
+            std::thread::spawn(move || {
+                let _ = pipe.write_all(text.as_bytes());
+            })
+        });
 
         let code = wait(&mut child, self.bound, self.grace);
+        if let Some(w) = writing {
+            let _ = w.join();
+        }
         let out = reading.join().ok().flatten();
         let err = reading_err.join().ok().flatten().unwrap_or_default();
         match code {
@@ -129,7 +164,9 @@ fn wait(
     use std::os::unix::process::ExitStatusExt;
     use std::time::{Duration, Instant};
 
-    let group = child.id().to_string();
+    // Negative: kill signals the group whose id it is, the child and what it
+    // started, not the child alone.
+    let group = format!("-{}", child.id());
     let began = Instant::now();
     loop {
         match child.try_wait() {
@@ -261,5 +298,107 @@ mod tests {
         let rc = run_grace_env(gh.to_str().unwrap(), &[], Some(f), bound, GRACE, &[]);
         assert_eq!(rc, Some(0));
         assert_eq!(std::fs::read_to_string(&kept).unwrap(), "0\n");
+    }
+
+    use super::{Bounded, GhRunner};
+    use std::time::{Duration, Instant};
+
+    /// A runner whose program writes each argument on a line of `args` and
+    /// its standard input to `input`, then runs `then`.
+    fn recording(d: &crate::testdir::TestDir, then: &str) -> Bounded {
+        let program = d.join("runner");
+        crate::testing::write_exe(
+            &program,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" >'{a}'\ncat >'{i}'\n{then}\n",
+                a = d.join("args").display(),
+                i = d.join("input").display(),
+            ),
+        )
+        .unwrap();
+        Bounded::new(program.to_str().unwrap(), Duration::from_secs(10))
+    }
+
+    #[test]
+    fn an_input_goes_on_standard_input_and_never_into_an_argument() {
+        let d = crate::testdir::TestDir::new("forge-run-input");
+        let body = format!("{}end", "body ".repeat(200 * 1024 / 5));
+        let mut runner = recording(&d, "echo answered");
+        let got = runner.run_input(&["api", "repos/x/issues", "--input", "-"], &body);
+        assert_eq!(got, Ok("answered\n".to_string()));
+        assert_eq!(std::fs::read_to_string(d.join("input")).unwrap(), body);
+        let args = std::fs::read_to_string(d.join("args")).unwrap();
+        assert_eq!(args, "api\nrepos/x/issues\n--input\n-\n");
+    }
+
+    #[test]
+    fn a_failed_call_with_an_input_never_answers_the_input() {
+        let d = crate::testdir::TestDir::new("forge-run-input-fails");
+        let mut runner = recording(
+            &d,
+            &format!("cat '{}' >&2\nexit 1", d.join("input").display()),
+        );
+        let got = runner.run_input(&["api", "x"], "a private body\nof two lines\n");
+        let why = got.unwrap_err();
+        assert!(!why.contains("private"), "{why}");
+        assert_eq!(why, ": gh exited 1");
+    }
+
+    #[test]
+    fn a_gh_that_never_reads_its_input_is_stopped_within_its_bound() {
+        let d = crate::testdir::TestDir::new("forge-run-input-unread");
+        let program = d.join("runner");
+        crate::testing::write_exe(&program, "#!/bin/sh\nsleep 30\n").unwrap();
+        let mut runner = Bounded {
+            program: program.to_str().unwrap().to_string(),
+            bound: Duration::from_secs(1),
+            grace: Duration::from_secs(1),
+        };
+        let began = Instant::now();
+        let got = runner.run_input(&["api", "x"], &"x".repeat(1 << 20));
+        assert!(
+            began.elapsed() < Duration::from_secs(8),
+            "{:?}",
+            began.elapsed()
+        );
+        assert!(got.unwrap_err().contains("ran out of its 1s bound"));
+    }
+
+    #[test]
+    fn what_a_gh_started_is_stopped_with_it_within_its_bound() {
+        let d = crate::testdir::TestDir::new("forge-run-group");
+        let program = d.join("runner");
+        // A shim whose gh outlives it would hold the pipes open.
+        crate::testing::write_exe(&program, "#!/bin/sh\nsleep 30 &\nwait\n").unwrap();
+        let mut runner = Bounded {
+            program: program.to_str().unwrap().to_string(),
+            bound: Duration::from_secs(1),
+            grace: Duration::from_secs(1),
+        };
+        let began = Instant::now();
+        let got = runner.run(&["api", "x"]);
+        assert!(
+            began.elapsed() < Duration::from_secs(8),
+            "{:?}",
+            began.elapsed()
+        );
+        assert!(got.unwrap_err().contains("ran out of its 1s bound"));
+    }
+
+    #[test]
+    fn a_runner_that_takes_no_input_says_so_and_runs_nothing() {
+        struct Plain(u32);
+        impl GhRunner for Plain {
+            fn run(&mut self, _: &[&str]) -> Result<String, String> {
+                self.0 += 1;
+                Ok(String::new())
+            }
+        }
+        let mut plain = Plain(0);
+        assert_eq!(
+            plain.run_input(&["api"], "body"),
+            Err("this runner takes no input".to_string())
+        );
+        assert_eq!(plain.0, 0);
     }
 }
