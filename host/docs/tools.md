@@ -116,7 +116,7 @@ tehas of its own. Each release carries a small `tehas` for it, the asset
 install puts it in place as `/usr/local/bin/tehas`. It knows only its help
 and the parts' commands. The rule is in
 `docs/specs/2026-11-21-part-commands.md` of the platform repository, and
-[the contract](/contract#the-commands-of-other-parts) keeps it through 1.x.
+[the contract](/contract#the-commands-of-other-parts) keeps it through 2.x.
 
 ## Instance settings
 
