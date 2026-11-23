@@ -11,7 +11,6 @@ import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import "../host/fun/console-tabs.js";
 import "../host/fun/epics-view.js";
-import "../host/fun/panels.js";
 import "../host/fun/versions.js";
 import { analyticsView } from "../host/fun/analytics-data.js";
 import { boardRows, consoleView, lineView } from "../host/fun/business-view.js";
@@ -98,12 +97,10 @@ test("analytics.json draws the ten-day report", () => {
   assert.equal(v.versions.length, 2);
 });
 
-test("epics.json, panels.json and health.json draw their parts", () => {
+test("epics.json and health.json draw their parts", () => {
   const epics = globalThis.TEHAS_EPICS.view(read("epics.json"));
   assert.equal(epics.epics.length, 1);
   assert.equal(epics.epics[0].subs.length, 3);
-  assert.deepEqual(globalThis.TEHAS_PANELS.view(read("panels.json"), "https://example.org"),
-    [{ id: "support", label: "Support", url: "https://support.example.net/" }]);
   const { line, messages } = globalThis.TEHAS_VERSIONS;
   assert.equal(line(read("health.json")), "tehas v1.0.0 · pi-rukas v0.14.84 · manager v0.9.0");
   assert.deepEqual(messages(read("health.json"), NOW).map((m) => m.word), ["Notice"]);

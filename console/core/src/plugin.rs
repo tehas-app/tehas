@@ -36,8 +36,6 @@ pub const ACTION_MAX: usize = 16;
 /// mode 600: `tehas setup` writes them, the gate's sign-in reads them.
 pub const CLIENT_ID_FILE: &str = "github-app.client-id";
 pub const CLIENT_SECRET_FILE: &str = "github-app.client-secret";
-/// The id of a panel of a plugin's view starts so; a person's may not.
-pub const PANEL_PREFIX: &str = "p-";
 
 /// The words tehas-industry refuses as a part of a variable's name, since it
 /// takes such a variable for a secret when it pushes an instance. A plugin's
@@ -205,7 +203,7 @@ pub enum Cap {
     Tool(String),
     /// One view of `views`, by its id (the v2 menu part).
     ViewOf(String),
-    /// Its views in the plugins menu in place of a panel (the v2 menu part).
+    /// Its views in the plugins menu (the v2 menu part).
     Menu,
 }
 
@@ -476,7 +474,7 @@ pub fn is_client_value(s: &str) -> bool {
     (1..=255).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_graphic())
 }
 
-/// The address of a plugin's view, the URL of its panel.
+/// The address of a plugin's view.
 pub fn view_url(name: &str, domain: &str, one_level: bool) -> String {
     format!(
         "https://{}/",

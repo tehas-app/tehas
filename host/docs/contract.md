@@ -100,7 +100,7 @@ other issue the poll takes it off, as it does an outsider's.
 | MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
 | `tehas update` | From 1.4.x to 2.0 ([Upgrading to 2.0](#upgrading-to-20)). The release repository and the signing key are built into tehas: the `TEHAS_RELEASE_REPO` line of `host/versions.env` and `host/release/minisign.pub` when the release was built. An instance may name another repository with `TEHAS_RELEASE_REPO` in `instance.env`; the key stays the built-in one | The update's tests, and the tests of `console/core/src/release.rs` |
 | Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x; a renamed name is taken under both names through 2.x | `console/cycle/tests/work_container.rs` |
-| Host namespace | `/host/` on the factory's origin belongs to the host that fronts the factory's domain: tehas never serves a path under it, and its docs server answers 404 there, which the dashboard reads as no host. The host bridge, `/host/bridge.json`, is `bridge: 1`, by `api/host-bridge.schema.json` and [its rules](/api#the-host-bridge) | `console/tests/host_bridge.rs` (the 404 under `/host/`, the schema and its samples), `test/json_contract_test.sh`, `test/host_bridge_test.mjs` (what the dashboard keeps of an answer) and `test/panels_dock_test.mjs` (a menu item opens in the dock, and a page item in a new tab with no dock) |
+| Host namespace | `/host/` on the factory's origin belongs to the host that fronts the factory's domain: tehas never serves a path under it, and its docs server answers 404 there, which the dashboard reads as no host. The host bridge, `/host/bridge.json`, is `bridge: 1`, by `api/host-bridge.schema.json` and [its rules](/api#the-host-bridge) | `console/tests/host_bridge.rs` (the 404 under `/host/`, the schema and its samples), `test/json_contract_test.sh`, `test/host_bridge_test.mjs` (what the dashboard keeps of an answer) and `test/dock_test.mjs` (a menu item opens in the dock, and a page item in a new tab with no dock) |
 
 The surface list in `api/` names the frozen surface in one place: each
 public command, subcommand and flag, setting, role, label and `--json`
@@ -648,6 +648,21 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: run `tehas update`, which stops and removes
   `tehas-top.service` and the last `live/top.json`, then take `TEHAS_TOP` out
   of `instance.env`. A program that provisions `tehas-top.service` drops it.
+- **Panels leave core; the dock stays.**
+  #2900.
+  Gone: the command `panel` of tehas, `live/panels.json` and
+  `/panels.json` on the docs server, and the feature word `panels` in
+  `tehas api --json`. The dock stays and is renamed: `host/fun/panels.js`
+  and `panels.css` are `host/fun/dock.js` and `dock.css`, the page's
+  global `TEHAS_PANELS` is `TEHAS_DOCK`, and the classes `panel-*` are
+  `dock-*`. A plugin granted only v1's `view` is listed in the plugins
+  menu in place of a panel `p-<name>`. Outside pages return in 2.1 as the plugin `panels`.
+  Readers: the consumer that runs many factories, Obeya (it vendors
+  `host/fun` and the dock, so the file and global renames reach it),
+  plugins.
+  Adopter action: `tehas update` removes the last `live/panels.json`.
+  Leave `~/tehas/state/panels.json` in place: 2.0 no longer reads it, and
+  the 2.1 `panels` plugin migrates its pages into its grant.
 - **The state store is at schema 29.**
   #2794, #2830, #2843, #2867, #2889, #2886.
   The steps 24 to 29 are listed under [Upgrading to 2.0](#upgrading-to-20).
@@ -891,9 +906,7 @@ Off by default; `TEHAS_PLUGIN=on` stops every command with exit 78 and says
   `tehas-plugin-gate.service` are installed only while the feature is on, so
   a release installs neither. The edge router sends the names `plugin-*` and
   `plugins*` to the gate in every release; with no gate they answer 503.
-- A panel id starting `p-` is a plugin's view, which `tehas panel set`
-  refuses with 64 whether the feature is on or not. The flags
-  `--app-client-id` and `--app-secret-file` of `tehas setup` belong to the
+- The flags `--app-client-id` and `--app-secret-file` of `tehas setup` belong to the
   feature and are not contract until it ships.
 - No label, no `--json` field of another command, no MCP tool, no file under
   `live/`.
@@ -1136,13 +1149,13 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | 64 | No issue number, one that is not a positive number, or an argument it does not know |
 | 78 | The settings are missing or malformed, or the state store is not installed or cannot be used |
 
-### tehas panel and tehas host-message
+### tehas host-message
 
 | Status | When |
 | --- | --- |
 | 0 | Done |
 | 1 | The list could not be read or written, or another run held the lock |
-| 64 | A bad argument, one item over the limit, or for a panel a url on `TEHAS_DOMAIN`; nothing is written |
+| 64 | A bad argument, or one item over the limit; nothing is written |
 | 78 | The settings are missing or malformed; nothing is written |
 
 ### tehas dispatch
