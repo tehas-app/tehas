@@ -62,10 +62,7 @@ impl Blueprints for GitHub {
             Depth::Last { notes } => self.last_comments(no, count, notes.get())?,
             Depth::All => {
                 let all = self.whole_comments(no, count, ALL_MAX)?;
-                let mut took = Took {
-                    items: Vec::new(),
-                    more: false,
-                };
+                let mut took = Took::default();
                 took.items = all.into_items();
                 took
             }
@@ -116,10 +113,7 @@ impl Blueprints for GitHub {
             .map(str::to_ascii_lowercase)
             .collect();
         if words.is_empty() {
-            return Ok(Took {
-                items: Vec::new(),
-                more: false,
-            });
+            return Ok(Took::default());
         }
         let q = query(&self.repo, &words, within, open)?;
         let want = first.get() as usize;
@@ -147,11 +141,10 @@ impl Blueprints for GitHub {
                     && open.is_none_or(|o| o == hit.open)
                     && holds(&found, &words)
                 {
-                    kept.push(BlueprintHit {
-                        no: hit.no,
-                        title: hit.title,
-                        open: hit.open,
-                    });
+                    let mut found = BlueprintHit::new(hit.no);
+                    found.title = hit.title;
+                    found.open = hit.open;
+                    kept.push(found);
                 }
             }
             let held = read.total.min(REACH);
@@ -170,7 +163,10 @@ impl Blueprints for GitHub {
         }
         let more = kept.len() > want;
         kept.truncate(want);
-        Ok(Took { items: kept, more })
+        let mut took = Took::default();
+        took.items = kept;
+        took.more = more;
+        Ok(took)
     }
 
     fn attachments(&mut self, _: BlueprintNo) -> Got<Whole<Attachment>> {
@@ -215,23 +211,7 @@ impl GitHub {
         let created = time(f.created_at.as_deref())?;
         let count = f.comments.ok_or(malformed)? as usize;
         let read = markers::read(&issue.body, Some(no));
-        let mut blueprint = Blueprint {
-            no,
-            title: String::new(),
-            body: String::new(),
-            open: false,
-            author: None,
-            editor: None,
-            created,
-            edited: None,
-            revision: at,
-            markers: Vec::new(),
-            comments: Took {
-                items: Vec::new(),
-                more: false,
-            },
-            link: issue.link,
-        };
+        let mut blueprint = Blueprint::new(no, created, at, issue.link);
         blueprint.title = issue.title;
         blueprint.body = read.text;
         blueprint.open = open;
@@ -245,10 +225,7 @@ impl GitHub {
     /// `more` when it holds more than `n`.
     fn last_comments(&mut self, no: BlueprintNo, count: usize, n: u32) -> Got<Took<Comment>> {
         let from = count.saturating_sub(n as usize);
-        let mut took = Took {
-            items: Vec::new(),
-            more: false,
-        };
+        let mut took = Took::default();
         took.items = self.comments_from(no, count, from)?;
         took.more = from > 0;
         Ok(took)
@@ -424,17 +401,7 @@ fn read_comments(out: &str, repo: &str, no: BlueprintNo) -> Got<Vec<Comment>> {
         let updated = time(c.updated_at.as_deref())?;
         let read = markers::read(raw, Some(no));
         let sum = Revision::new(tehas_core::approval::body_sum(raw));
-        let mut comment = Comment {
-            id: CommentId::new(id.to_string()),
-            author: None,
-            editor: None,
-            created,
-            edited: None,
-            body: String::new(),
-            markers: Vec::new(),
-            revision: sum,
-            link,
-        };
+        let mut comment = Comment::new(CommentId::new(id.to_string()), created, sum, link);
         comment.author = author(c.user.as_ref());
         // REST keeps no edit time apart; an edit moves `updated_at`.
         comment.edited = (updated != created).then_some(updated);

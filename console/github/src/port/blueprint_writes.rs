@@ -36,10 +36,7 @@ impl BlueprintWrites for GitHub {
         let input = serde_json::json!({ "title": new.title, "body": body }).to_string();
         let out = self.send("POST", &path, &input)?;
         let issue = read_issue(&out, &self.repo)?;
-        Ok(Posted {
-            id: issue.no,
-            link: issue.link,
-        })
+        Ok(Posted::new(issue.no, issue.link))
     }
 
     /// The issue read, its revision compared with `since`, then a `PATCH`
@@ -321,10 +318,10 @@ fn read_comment(out: &str, repo: &str, no: BlueprintNo) -> Got<Posted<CommentId>
     ) {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
-    Ok(Posted {
-        id: CommentId::new(id.to_string()),
-        link: WebLink::new(url).map_err(|_| malformed)?,
-    })
+    Ok(Posted::new(
+        CommentId::new(id.to_string()),
+        WebLink::new(url).map_err(|_| malformed)?,
+    ))
 }
 
 /// `text` ends with `tail`, ASCII case folded: GitHub names a project in
