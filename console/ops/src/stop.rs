@@ -13,6 +13,10 @@
 //! What stays is the cycle's record: `.json`, `.manifest.json`, `.runner_exit`
 //! and `.status` beside the lock, and the logs.
 //!
+//! A record this run ended raises its `cycle.ended`: the line has no report,
+//! so no cycle raises it. One the store had ended already raises nothing
+//! here; its writer raised it. The event's line goes to the factory's log.
+//!
 //! Every path is the settings and the number, as a string, never a glob. The
 //! calls of systemctl, docker and gh keep the bounds of `timeout` they had in
 //! bash, and gh is the one on PATH.
@@ -29,7 +33,9 @@ use std::process::{Command, Stdio};
 use tehas_core::cycle_notes;
 use tehas_core::home::Home;
 use tehas_core::lock::{probe, Probe};
+use tehas_core::raise::{self, Writer};
 use tehas_core::settings::rules::is_repo;
+use tehas_ports::events::Dispatcher;
 
 pub const USAGE: &str = include_str!("../../src/usage/stop.txt");
 
@@ -355,7 +361,7 @@ impl Names {
         }
     }
 
-    fn run(&self, keep: bool) -> Result<u8, u8> {
+    fn run(&self, keep: bool, events: &Dispatcher) -> Result<u8, u8> {
         let n = &self.n;
         let home = Path::new(&self.home);
         let unit = self.unit();
@@ -501,6 +507,9 @@ impl Names {
             let already = answer["already"].as_bool().unwrap_or(false);
             let reason = answer.pointer("/cycle/end_reason").and_then(|r| r.as_str());
             say(&ended_line(n, already, reason));
+            if !already {
+                raise_stopped(home, n, &open_at, events);
+            }
         }
         if !held.as_ref().is_ok_and(|f| f.try_lock().is_ok()) {
             eprintln!("tehas stop: a cycle for #{n} holds its lock, so nothing was removed.");
@@ -616,7 +625,42 @@ pub fn main(given: &[String]) -> u8 {
         eprintln!("tehas stop: ERROR: the state store is not installed (run install.sh)");
         return 78;
     }
-    names.run(asked.keep).unwrap_or_else(|rc| rc)
+    let events = wiring(Path::new(&names.home));
+    names.run(asked.keep, &events).unwrap_or_else(|rc| rc)
+}
+
+/// The dispatcher of `tehas stop`: the log listener alone, which writes to
+/// the factory's log, or says the line when that cannot be written.
+fn wiring(home: &Path) -> Dispatcher {
+    let log = Home::new(home).factory_log();
+    raise::logged(move |line| {
+        let at = tehas_core::time::iso(tehas_core::time::now());
+        let wrote = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log)
+            .and_then(|mut f| writeln!(f, "{at} {line}"));
+        if wrote.is_err() {
+            eprintln!("tehas stop: {line}");
+        }
+    })
+    .build()
+}
+
+/// The end this run wrote of attempt `attempt` of issue `n`, raised. A read
+/// that fails raises nothing, and says so.
+fn raise_stopped(home: &Path, n: &str, attempt: &str, events: &Dispatcher) {
+    let (Ok(issue), Ok(attempt)) = (n.parse(), attempt.parse()) else {
+        return;
+    };
+    let warn = |line: &str| eprintln!("tehas stop: {line}");
+    let mut ask = |args: &[&str]| store::line(home, args).map_err(|r| r.word);
+    match raise::read_ended(&mut ask, issue, attempt, Writer::Short) {
+        Ok(e) => e.raise(events, &warn),
+        Err(why) => warn(&format!(
+            "WARN: the history of #{n} could not be read, so its end raises no event ({why})"
+        )),
+    }
 }
 
 /// What `tehas stop` says of the record it asked the store to end. One the
@@ -653,6 +697,61 @@ mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
     use tehas_core::testdir::TestDir;
+
+    // A home with a store of its own, made by the store's init.
+    fn store_home(name: &str) -> TestDir {
+        let home = TestDir::new(name);
+        fs::create_dir_all(Home::new(&*home).cycles_dir()).unwrap();
+        fs::create_dir_all(home.join("libexec")).unwrap();
+        tehas_core::testing::write_exe(store::program(&home), "#!/bin/sh\nexit 1\n").unwrap();
+        let init = [
+            "init",
+            "--version",
+            "v0.0.0",
+            "--commit",
+            "0123456789abcdef0123456789abcdef01234567",
+            "--instance",
+            "instance",
+            "--repo",
+            "acme/widget",
+        ];
+        store::call(&home, &init).unwrap();
+        home
+    }
+
+    // A start of #5 by hand, under the lock a cycle holds.
+    fn started(home: &Path) {
+        let lock = File::create(Home::new(home).cycle_note(5, "lock")).unwrap();
+        lock.try_lock().unwrap();
+        store::call(home, &["cycle-start", "5", "--by-hand"]).unwrap();
+    }
+
+    #[test]
+    fn a_record_this_run_ended_raises_its_end_and_one_a_report_ended_raises_none() {
+        use std::sync::{Arc, Mutex};
+        use tehas_ports::events::{End, Envelope, Event};
+        let home = store_home("stop-raise");
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let h = Arc::clone(&heard);
+        let events = raise::logged(move |l| h.lock().unwrap().push(l.to_string())).build();
+        started(&home);
+        let end = ["cycle-end", "5", "--attempt", "1", "--stopped"];
+        assert_eq!(store::call(&home, &end).unwrap()["already"], false);
+        raise_stopped(&home, "5", "1", &events);
+        let lines = heard.lock().unwrap().clone();
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        let e: Envelope = serde_json::from_str(lines[0].strip_prefix("event ").unwrap()).unwrap();
+        let Event::CycleEnded(p) = &e.event else {
+            panic!("{e:?}")
+        };
+        assert_eq!((e.key.as_str(), p.end), ("5-1", End::Stopped));
+        // A cycle that reported first wrote the line, and raised it.
+        started(&home);
+        let report = ["cycle-end", "5", "--attempt", "2", "--status", "failed"];
+        store::call(&home, &report).unwrap();
+        raise_stopped(&home, "5", "2", &events);
+        assert_eq!(heard.lock().unwrap().len(), 1);
+    }
 
     fn words(given: &[&str]) -> Vec<String> {
         given.iter().map(|w| w.to_string()).collect()
