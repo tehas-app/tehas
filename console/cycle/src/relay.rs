@@ -686,6 +686,22 @@ impl RelayGh {
             (_, err, rc) => Err(format!("gh exited {rc}{}", gh_why(&err))),
         }
     }
+
+    /// As `run`, with `input` on gh's standard input, in the time a write
+    /// has.
+    fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
+        let argv: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+        match run_gh(
+            &self.gh,
+            &self.token,
+            GH_WAIT - 2 * READ_WAIT,
+            &argv,
+            Some(input),
+        ) {
+            (out, _, 0) => Ok(out),
+            (_, err, rc) => Err(format!("gh exited {rc}{}", gh_why(&err))),
+        }
+    }
 }
 
 impl GhRunner for RelayGh {
@@ -1817,6 +1833,22 @@ mod tests {
             Err(format!("the relay's {GH_WAIT} s are up"))
         );
         assert!(!d.join("gh.log").exists());
+    }
+
+    #[test]
+    fn the_relays_gh_takes_an_input_on_standard_input_with_its_token() {
+        let d = TestDir::new("relay-gh-input");
+        let mut gh = RelayGh {
+            gh: stub_gh(&d),
+            token: "ghs_full".to_string(),
+        };
+        let body = "b".repeat(200 * 1024);
+        let got = gh.run_input(&["issue", "comment", "3", "--body-file=-"], &body);
+        assert_eq!(got, Ok("posted\n".to_string()));
+        assert_eq!(
+            read(d.join("gh.log")),
+            format!("issue|comment|3|--body-file=-|token=ghs_full,ghs_full\n{body}")
+        );
     }
 
     #[test]

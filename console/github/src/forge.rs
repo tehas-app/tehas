@@ -107,7 +107,7 @@ fn public(e: gh::Event) -> tehas_core::events::Event {
 pub struct GitHub {
     /// `owner/name`, as `TEHAS_REPO` gives it.
     pub repo: String,
-    runner: Box<dyn GhRunner>,
+    pub(crate) runner: Box<dyn GhRunner>,
     /// The clock a spent budget's time is read from.
     pub(crate) now: fn() -> i64,
     /// Mark names the site gave that no mark can have, not yet taken.
