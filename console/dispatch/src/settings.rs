@@ -218,9 +218,6 @@ mod tests {
         let unset = json!({});
         assert_eq!(Settings::parse(&unset).improvement_type, None);
         assert_eq!(Settings::refused(&unset), None);
-        let other = json!({k: "prototype=Prototype"});
-        assert_eq!(Settings::parse(&other).improvement_type, None);
-        assert_eq!(Settings::refused(&other), None);
         let typed = json!({k: "improvement=Improvement"});
         assert_eq!(
             Settings::parse(&typed).improvement_type.as_deref(),
@@ -230,9 +227,7 @@ mod tests {
         let bad = json!({k: "bug=Bug"});
         assert_eq!(
             Settings::refused(&bad).as_deref(),
-            Some(
-                "TEHAS_ISSUE_TYPES is not valid: bug is no kind: expected improvement or prototype"
-            )
+            Some("TEHAS_ISSUE_TYPES is not valid: bug is no kind: expected improvement")
         );
     }
 

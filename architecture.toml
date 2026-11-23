@@ -45,8 +45,8 @@ what = "the state labels and markers (tehas:...) are written only in the one mod
 pattern = 'tehas:[a-z]|\bneeds-human-attention\b|"epic"'
 files = ["console/**/*.rs", "bin/*", "lib/*.sh", "libexec/*", "install.sh", "bootstrap.sh", "host/env.sh", "host/sandbox/build.sh", "host/sandbox/gh-shim", "scripts/**/*.sh", "host/systemd/*", "host/fun/**/*.js"]
 comment = "//"
-max = 1856
-why = "Re-measured at T0's follow-up, with tests in files counted and needs-human-attention and epic added: dispatch 1010, cycle 228, core 189, the console 184, ops 137, store 70, the front pages 34, mcp 21, analytics 4, plugin 1. 930 are in test files. T2 gives the state words one owner in core, checked against host/labels.tsv. T15's port of test/store_paths_test.sh adds 1 in console/tests/store_paths.rs: a park marker as a line no forbidden pattern may take, data the check reads and no label anything writes, so a false positive."
+max = 1839
+why = "Re-measured at T0's follow-up, with tests in files counted and needs-human-attention and epic added: dispatch 1010, cycle 228, core 189, the console 184, ops 137, store 70, the front pages 34, mcp 21, analytics 4, plugin 1. 930 are in test files. T2 gives the state words one owner in core, checked against host/labels.tsv. T15's port of test/store_paths_test.sh adds 1 in console/tests/store_paths.rs: a park marker as a line no forbidden pattern may take, data the check reads and no label anything writes, so a false positive. T16's drop of tehas:prototype takes 17 out."
 
 [[check]]
 id = "home-layout"

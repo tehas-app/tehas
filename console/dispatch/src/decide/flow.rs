@@ -31,7 +31,7 @@ mod tests {
 
     /// The labels of the table that are not a flow, each with why. Together
     /// with `IN_FLOW` they are the whole table, and no name is in both.
-    const NOT_IN_FLOW: [(&str, &str); 15] = [
+    const NOT_IN_FLOW: [(&str, &str); 14] = [
         ("tehas:ready", "asks for a start, is not one"),
         ("tehas:shipped", "the mark of a merge, given by the bot"),
         ("tehas:pause", "a setting of the control issue, not of work"),
@@ -56,10 +56,6 @@ mod tests {
         (
             "tehas:finish",
             "a request a person applies; the finish reads it, not the flow",
-        ),
-        (
-            "tehas:prototype",
-            "a stage of the product, not a state of work",
         ),
         (
             "tehas:improvement",

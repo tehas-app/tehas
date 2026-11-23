@@ -721,7 +721,7 @@
       "rule": "issue-types",
       "when": "given",
       "default": null,
-      "reason": "expected kind=Type pairs, such as improvement=Improvement prototype=Prototype, not improvement"
+      "reason": "expected kind=Type pairs, such as improvement=Improvement, not improvement"
     },
     {
       "name": "TEHAS_CLEAN_DIRS",

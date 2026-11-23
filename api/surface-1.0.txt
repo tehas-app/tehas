@@ -240,7 +240,6 @@ label tehas:millwright-escalated
 label tehas:pause
 label tehas:plan
 label tehas:planning
-label tehas:prototype
 label tehas:question
 label tehas:ready
 label tehas:refine

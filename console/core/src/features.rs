@@ -805,12 +805,8 @@ mod tests {
             .filter_map(|l| l.split('\t').next())
             .filter(|n| !n.is_empty())
             .collect();
-        labels.extend(crate::label_pins::PINNED);
         labels.extend(crate::label_pins::GRANTING);
-        labels.extend([
-            crate::kinds::Kind::Improvement.label(),
-            crate::kinds::Kind::Prototype.label(),
-        ]);
+        labels.push(crate::kinds::Kind::Improvement.label());
         let page = include_str!("../../../host/docs/contract.md");
         for f in building() {
             let own = |label: &str| {

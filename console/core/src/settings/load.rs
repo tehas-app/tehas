@@ -166,6 +166,10 @@ pub(super) const IGNORED: &[(&str, &str)] = &[
 
 const GIVEN: &str = "this kind of attachment left core in 2.0 and returns as the given plugin";
 
+/// The kinds of `TEHAS_ISSUE_TYPES` 2.0 took out, each with why. A pair of
+/// one loads, warned of once and dropped, like a name of `IGNORED`.
+const IGNORED_KINDS: &[(&str, &str)] = &[("prototype", PROTOLAB)];
+
 /// Whether `name` is one the load warns of and drops (`IGNORED`).
 pub(super) fn ignored(name: &str) -> bool {
     IGNORED.iter().any(|(n, _)| *n == name)
@@ -515,6 +519,35 @@ fn ignored_names(vars: &mut Vars, host: &mut dyn Host, list: &[(&str, &str)]) {
             ));
         }
         vars.unset(name.as_bytes());
+    }
+}
+
+/// Each pair of `TEHAS_ISSUE_TYPES` that maps a kind of `list` warned of once
+/// and dropped. A value left with no pair is unset.
+fn ignored_kinds(vars: &mut Vars, host: &mut dyn Host, list: &[(&str, &str)]) {
+    let name = crate::kinds::SETTING;
+    if !vars.is_set(name) {
+        return;
+    }
+    let value = vars.text(name);
+    let mut kept: Vec<&str> = Vec::new();
+    let mut dropped = false;
+    for pair in value.split(' ').filter(|p| !p.is_empty()) {
+        let word = pair.split_once('=').map_or("", |(w, _)| w);
+        match list.iter().find(|(k, _)| *k == word) {
+            Some((kind, why)) => {
+                host.warn(&format!(
+                    "{name} maps {kind}, which is no longer read: {why}; remove the pair from the instance"
+                ));
+                dropped = true;
+            }
+            None => kept.push(pair),
+        }
+    }
+    match (dropped, kept.is_empty()) {
+        (false, _) => {}
+        (true, true) => vars.unset(name.as_bytes()),
+        (true, false) => vars.set(name, kept.join(" ")),
     }
 }
 
@@ -925,6 +958,7 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     tokens(vars, host, &text)?;
     retired_names(vars, &file)?;
     ignored_names(vars, host, IGNORED);
+    ignored_kinds(vars, host, IGNORED_KINDS);
     renamed(vars, host, &file)?;
     app_login(vars, host);
     let gave = given(vars);
@@ -2542,6 +2576,29 @@ mod tests {
         for name in names {
             assert!(!vars.is_set(name), "{name}");
         }
+    }
+
+    #[test]
+    fn a_pair_of_the_prototype_kind_loads_warns_once_and_is_dropped() {
+        let warning = "TEHAS_ISSUE_TYPES maps prototype, which is no longer read: the Protolab was removed in 2.0; remove the pair from the instance";
+        let mut vars = start(&[]);
+        let mut host =
+            Fake::with(&["TEHAS_ISSUE_TYPES=improvement=Improvement prototype=Prototype"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(host.warned, [warning]);
+        assert_eq!(vars.text("TEHAS_ISSUE_TYPES"), "improvement=Improvement");
+
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&["TEHAS_ISSUE_TYPES=prototype=Prototype"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(host.warned, [warning]);
+        assert!(!vars.is_set("TEHAS_ISSUE_TYPES"));
+
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&["TEHAS_ISSUE_TYPES=improvement=Improvement"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert!(host.warned.is_empty(), "{:?}", host.warned);
+        assert_eq!(vars.text("TEHAS_ISSUE_TYPES"), "improvement=Improvement");
     }
 
     #[test]

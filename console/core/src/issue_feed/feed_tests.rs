@@ -6,11 +6,10 @@
 use super::*;
 use crate::events::Event;
 use crate::forge::{Approval, ForgeError, LabelEvent};
-use crate::kinds::Kind;
 use std::collections::BTreeMap;
 
-const LABEL: &str = Kind::Prototype.label();
-const STAGE: &str = "the prototype stage";
+const LABEL: &str = crate::kinds::Kind::Improvement.label();
+const STAGE: &str = "the marked stage";
 const LIST: &str = "alice";
 
 /// A forge that answers from what a case gave it: the label events and the
@@ -372,7 +371,7 @@ fn only_the_pinned_label_read_from_github_puts_an_issue_at_the_stage() {
     let other = format!(r#"{{"name":"{LABEL}","node_id":"LA_bug"}}"#);
     assert_eq!(
         pin_refusal(&mut answers(Ok(&other)), &home, "acme/widget", LABEL, STAGE),
-        Ok(Some(format!("refused: the label {LABEL} is not the one pinned in state/labels (pinned LA_proto, now LA_bug): no ticket is at the prototype stage")))
+        Ok(Some(format!("refused: the label {LABEL} is not the one pinned in state/labels (pinned LA_proto, now LA_bug): no ticket is at {STAGE}")))
     );
     assert_eq!(
         pin_refusal(

@@ -9,11 +9,10 @@
 //! cannot be made stops none of the others. gh is the one on `PATH`: a first
 //! install runs this before `$TEHAS_HOME/shim/gh` has a gh to call.
 //!
-//! Once the labels are made it pins each granting `tehas:` label, and
-//! `tehas:prototype`, to its GitHub id in `$TEHAS_HOME/state/labels`
-//! (tehas_core::label_pins), so every such label has its pin before the
-//! dispatcher or the Protolab reads one, and a label renamed to one of those
-//! names later grants nothing. Once the file exists it
+//! Once the labels are made it pins each granting `tehas:` label to its
+//! GitHub id in `$TEHAS_HOME/state/labels` (tehas_core::label_pins), so every
+//! such label has its pin before the dispatcher reads one, and a label
+//! renamed to one of those names later grants nothing. Once the file exists it
 //! pins only a label it made this run, and never changes a pin: a label with
 //! no pin that was already there, or one that is not the pinned one, is said,
 //! and the command fails.
@@ -144,13 +143,13 @@ fn times(out: &str) -> BTreeMap<String, i64> {
 /// Each pinned label's id as `id_of` asks GitHub for it: the `before`
 /// half of what `pin` judges, read before the labels are made.
 fn ids(id_of: &mut dyn FnMut(&str) -> Option<String>) -> Vec<Option<String>> {
-    tehas_core::label_pins::PINNED
+    tehas_core::label_pins::GRANTING
         .iter()
         .map(|n| id_of(n))
         .collect()
 }
 
-/// Pins the labels of `PINNED`: `before` from `ids` before the labels were made,
+/// Pins the labels of `GRANTING`: `before` from `ids` before the labels were made,
 /// `id_of` asking GitHub for each one's id now, and `made` when each id's
 /// label was created.
 fn pin(
@@ -159,7 +158,7 @@ fn pin(
     id_of: &mut dyn FnMut(&str) -> Option<String>,
     made: &BTreeMap<String, i64>,
 ) -> u8 {
-    let seen: Vec<tehas_core::label_pins::Seen> = tehas_core::label_pins::PINNED
+    let seen: Vec<tehas_core::label_pins::Seen> = tehas_core::label_pins::GRANTING
         .iter()
         .zip(before)
         .map(|(n, before)| {
@@ -239,7 +238,7 @@ mod tests {
     #[test]
     fn the_table_of_the_repository_is_read_whole() {
         let labels = table(THE_TABLE).unwrap();
-        assert_eq!(labels.len(), 22);
+        assert_eq!(labels.len(), 21);
         assert_eq!(labels[0].name, "tehas:ready");
         assert_eq!(labels[0].color, "0e8a16");
         assert_eq!(
@@ -253,7 +252,7 @@ mod tests {
         let mut names: Vec<&str> = labels.iter().map(|l| l.name).collect();
         names.sort_unstable();
         names.dedup();
-        assert_eq!(names.len(), 22, "a name twice");
+        assert_eq!(names.len(), 21, "a name twice");
     }
 
     /// The labels a program names without the `tehas:` prefix.
@@ -351,7 +350,7 @@ mod tests {
     fn the_pinned_labels_are_pinned_after_they_are_made() {
         let d = tehas_core::testdir::TestDir::new("labels-pin");
         let mut asked = Vec::new();
-        let none = vec![None; tehas_core::label_pins::PINNED.len()];
+        let none = vec![None; tehas_core::label_pins::GRANTING.len()];
         let rc = pin(
             d.path(),
             none.clone(),
@@ -362,11 +361,10 @@ mod tests {
             &BTreeMap::new(),
         );
         assert_eq!(rc, 0);
-        assert_eq!(asked.len(), tehas_core::label_pins::PINNED.len());
+        assert_eq!(asked.len(), tehas_core::label_pins::GRANTING.len());
         let pins = tehas_core::label_pins::load(d.path());
         assert_eq!(pins["tehas:ready"], "LA_ready");
-        assert_eq!(pins["tehas:prototype"], "LA_prototype");
-        assert_eq!(pins.len(), tehas_core::label_pins::PINNED.len());
+        assert_eq!(pins.len(), tehas_core::label_pins::GRANTING.len());
         // A label gh cannot find fails the command and pins nothing for it.
         let d = tehas_core::testdir::TestDir::new("labels-pin-missing");
         let rc = pin(
