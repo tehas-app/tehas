@@ -864,7 +864,10 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   GitHub redirects it until the name is reused. An instance whose
   `TEHAS_RELEASE_REPO` names it loads and updates from it, and `tehas update`
   says `release: the repository tehas-app/tehas is now
-  tehas-app/tehas-factory` on each run. A 1.4.x host, whose built-in
+  tehas-app/tehas-factory` on each run, `--check` included. A host that
+  updates from its checkout (`TEHAS_UPDATE_FROM=git`) whose `origin` names
+  it fetches from it as it is, and `tehas update` says the same line with
+  `checkout:` in place of `release:`. A 1.4.x host, whose built-in
   repository is the old name, reaches 2.0 through the redirect.
   Readers: adopters, the consumer that runs many factories, Obeya and
   plugins where they compare a schema's `$id`, the end-to-end suite.

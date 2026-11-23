@@ -956,7 +956,8 @@ fn bring(host: &Host, target: &str, tree: &Path, arch: &str) -> u8 {
 pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
     let check = plan.mode == Mode::Check;
     let installed = installed(host);
-    if let Some(moved) = repo().ok().and_then(|r| release::moved(&r)) {
+    if let Some(moved) = release::repo().and_then(|r| release::moved(&r, release::Holder::Setting))
+    {
         say(&format!("release: {moved}"));
     }
     let list = match list() {

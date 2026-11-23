@@ -37,14 +37,50 @@ pub fn repo_of(setting: &str) -> &str {
 /// the old name is reused, so an instance that still names it is read as it is.
 pub const FORMER_REPO: &str = "tehas-app/tehas";
 
-/// What an update says when its releases come from the former name.
-pub fn moved(repo: &str) -> Option<String> {
+/// What still names the repository an update reads from.
+pub enum Holder<'a> {
+    /// The instance's TEHAS_RELEASE_REPO.
+    Setting,
+    /// The remote origin of the platform checkout at this path.
+    Origin(&'a str),
+}
+
+/// What an update says when it reads from the former name.
+pub fn moved(repo: &str, holder: Holder) -> Option<String> {
     repo.eq_ignore_ascii_case(FORMER_REPO).then(|| {
+        let (named, fix) = match holder {
+            Holder::Setting => (
+                "TEHAS_RELEASE_REPO".to_string(),
+                "remove the line or name the new one",
+            ),
+            Holder::Origin(checkout) => (
+                format!("the remote origin of {checkout}"),
+                "set its URL to the new one",
+            ),
+        };
         format!(
-            "the repository {FORMER_REPO} is now {}; TEHAS_RELEASE_REPO still names the old one, which works only while GitHub redirects it: remove the line or name the new one",
+            "the repository {FORMER_REPO} is now {}; {named} still names the old one, which works only while GitHub redirects it: {fix}",
             pinned_repo()
         )
     })
+}
+
+/// owner/name of a remote on GitHub as git writes its URL: https://github.com/o/n.git,
+/// git@github.com:o/n.git, ssh://git@github.com/o/n. None for another host or a path.
+pub fn on_github(url: &str) -> Option<String> {
+    let url = url.trim();
+    let (authority, path) = match url.split_once("://") {
+        Some((_, rest)) => rest.split_once('/')?,
+        None => url.split_once(':')?,
+    };
+    let host = authority.rsplit('@').next()?;
+    let host = host.split(':').next()?;
+    if !host.eq_ignore_ascii_case("github.com") {
+        return None;
+    }
+    let path = path.trim_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    repo_ok(path).then(|| path.to_string())
 }
 
 /// The repository releases are read from on this run: TEHAS_RELEASE_REPO, else
@@ -84,10 +120,15 @@ mod tests {
         assert_eq!(pinned_repo(), "tehas-app/tehas-factory");
         assert_eq!(FORMER_REPO, "tehas-app/tehas");
         assert!(repo_ok(FORMER_REPO));
-        let said = moved("Tehas-App/tehas").unwrap();
-        assert!(
-            said.starts_with("the repository tehas-app/tehas is now tehas-app/tehas-factory;"),
-            "{said}"
+        let said = moved("Tehas-App/tehas", Holder::Setting).unwrap();
+        assert_eq!(
+            said,
+            "the repository tehas-app/tehas is now tehas-app/tehas-factory; TEHAS_RELEASE_REPO still names the old one, which works only while GitHub redirects it: remove the line or name the new one"
+        );
+        let said = moved("tehas-app/TEHAS", Holder::Origin("/h/tehas/platform")).unwrap();
+        assert_eq!(
+            said,
+            "the repository tehas-app/tehas is now tehas-app/tehas-factory; the remote origin of /h/tehas/platform still names the old one, which works only while GitHub redirects it: set its URL to the new one"
         );
         for other in [
             "tehas-app/tehas-factory",
@@ -95,7 +136,40 @@ mod tests {
             "someone/tehas",
             "",
         ] {
-            assert_eq!(moved(other), None, "{other}");
+            assert_eq!(moved(other, Holder::Setting), None, "{other}");
+            assert_eq!(moved(other, Holder::Origin("/p")), None, "{other}");
+        }
+    }
+
+    #[test]
+    fn a_remote_on_github_is_read_as_owner_and_name() {
+        for (url, repo) in [
+            ("https://github.com/o/n.git", "o/n"),
+            ("https://github.com/o/n", "o/n"),
+            ("https://github.com/o/n/", "o/n"),
+            ("https://x-access-token:t@GitHub.com/o/n.git", "o/n"),
+            ("http://github.com/o/n.git", "o/n"),
+            ("git@github.com:o/n.git", "o/n"),
+            ("git@github.com:/o/n.git", "o/n"),
+            ("github.com:o/n", "o/n"),
+            ("ssh://git@github.com/o/n.git", "o/n"),
+            ("ssh://git@github.com:22/o/n", "o/n"),
+            ("git://github.com/o/n.git\n", "o/n"),
+        ] {
+            assert_eq!(on_github(url).as_deref(), Some(repo), "{url}");
+        }
+        for url in [
+            "",
+            "/srv/git/o/n.git",
+            "../origin",
+            "file:///srv/o/n.git",
+            "https://gitlab.com/o/n.git",
+            "https://github.com.evil/o/n.git",
+            "git@example.org:o/n.git",
+            "https://github.com/o/n/x",
+            "https://github.com/o",
+        ] {
+            assert_eq!(on_github(url), None, "{url}");
         }
     }
 
