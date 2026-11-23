@@ -98,13 +98,8 @@ fn ask(
         ));
         return;
     };
-    // The envelope as a value writes its keys in one order, so the request
-    // reads back as it was written.
-    let event = serde_json::to_value(e)
-        .map(|v| v.to_string())
-        .unwrap_or_default();
     let bot = get("TEHAS_BOT_LOGIN");
-    let asked = hook::requests(names, &pull, &repo, &bot, (pr, issue), &event);
+    let asked = hook::requests(names, &pull, &repo, &bot, (pr, issue), e);
     ask_each(home, issue, &asked, &mut systemctl_start);
 }
 
@@ -124,7 +119,10 @@ mod tests {
             base: B.into(),
             issue: Some(7),
             trigger: Trigger::Cycle,
-            event: Some(r#"{"api":1}"#.into()),
+            event: tehas_ports::events::samples()
+                .into_iter()
+                .find(|s| s.name == tehas_ports::events::Name::ChangeOffered)
+                .map(|s| s.full),
         };
         (name.to_string(), ask)
     }

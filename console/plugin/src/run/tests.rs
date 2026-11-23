@@ -989,14 +989,18 @@ fn a_hook_granted_the_model_gets_no_socket() {
 fn a_hook_an_event_asked_for_is_told_the_envelope() {
     let mut h = Fake::new();
     let w = world("plugin-run-hook-event", &mut h, "", "hook:after:work");
-    let envelope = json!({"api": 1, "key": "7-1", "when": "after"});
+    let envelope = tehas_ports::events::samples()
+        .into_iter()
+        .find(|s| s.name == tehas_ports::events::Name::ChangeOffered)
+        .unwrap()
+        .full;
     let ask = HookAsk {
         pr: 42,
         head: H.into(),
         base: B.into(),
         issue: Some(7),
         trigger: Trigger::Cycle,
-        event: Some(envelope.to_string()),
+        event: Some(envelope.clone()),
     };
     runs::ask_hook(&mut h.x, &w.home, "demo", &ask).unwrap();
     h.tars.insert(
@@ -1014,7 +1018,10 @@ fn a_hook_an_event_asked_for_is_told_the_envelope() {
             serde_json::from_slice(&fs::read(d.join("context.json")).unwrap()).unwrap();
     }));
     assert_eq!(go(&mut h, &w, &hook_ask()), 0);
-    assert_eq!(ctx.borrow()["event"], envelope);
+    assert_eq!(
+        ctx.borrow()["event"],
+        serde_json::to_value(&envelope).unwrap()
+    );
 }
 
 /// A world whose GitHub knows the repository, the bot and the pull request

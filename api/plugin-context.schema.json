@@ -22,7 +22,7 @@
       }
     },
     "tool": {"type": "string", "pattern": "^[a-z-]{1,16}$", "description": "Only in a call: the id of the tool called."},
-    "event": {"description": "Only in a hook a cycle asked for: the envelope of the event that asked, as api/event.schema.json gives it, an after envelope of change.offered. A person's run of tehas plugin hook has none."},
+    "event": {"type": "object", "$ref": "event.schema.json", "description": "Only in a hook a cycle asked for: the envelope of the event that asked, an after envelope of change.offered, the one event a hook is asked on. A person's run of tehas plugin hook has none. console/tests/events_contract.rs holds the sample to event.schema.json."},
     "pr": {
       "type": "object",
       "required": ["number", "base", "head"],

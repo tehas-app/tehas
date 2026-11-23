@@ -13,6 +13,7 @@ use crate::file::{write_atomic, Temp};
 use crate::grammar::commit_id;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+use tehas_ports::events::{Envelope, Name, When};
 
 /// `~/tehas/plugins/<name>/hooks`.
 pub fn dir(home: &Path, name: &str) -> PathBuf {
@@ -30,8 +31,9 @@ pub fn unit(name: &str, pr: u64) -> String {
 }
 
 /// The request of a hook: the pull request, its head as GitHub gave it, its
-/// base, the issue, what asked, and the event's envelope as JSON when an
-/// event asked (api/event.schema.json). A person's run has no event.
+/// base, the issue, what asked, and the envelope of the event that asked
+/// (api/event.schema.json): `change.offered`, the one event a hook is asked
+/// on. A person's run has no event.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HookAsk {
     pub pr: u64,
@@ -39,7 +41,7 @@ pub struct HookAsk {
     pub base: String,
     pub issue: Option<u64>,
     pub trigger: Trigger,
-    pub event: Option<String>,
+    pub event: Option<Envelope>,
 }
 
 impl HookAsk {
@@ -52,8 +54,7 @@ impl HookAsk {
             "issue": self.issue,
             "trigger": self.trigger.word(),
         });
-        let event = self.event.as_deref().map(serde_json::from_str::<Value>);
-        if let Some(Ok(event)) = event.filter(|e| e.as_ref().is_ok_and(Value::is_object)) {
+        if let Some(Ok(event)) = self.event.as_ref().map(serde_json::to_value) {
             v["event"] = event;
         }
         v
@@ -80,18 +81,31 @@ impl HookAsk {
             "host" => Trigger::Host,
             _ => return None,
         };
+        // An event is read as its envelope, and only the one a hook is
+        // asked on: anything else refuses the request.
+        let event = match v.get("event") {
+            None => None,
+            Some(e) => Some(
+                serde_json::from_value::<Envelope>(e.clone())
+                    .ok()
+                    .filter(asks)?,
+            ),
+        };
         Some(HookAsk {
             pr: v.get("pr")?.as_u64().filter(|n| *n > 0)?,
             head: commit("head")?,
             base: commit("base")?,
             issue,
             trigger,
-            event: v
-                .get("event")
-                .filter(|e| e.is_object())
-                .map(Value::to_string),
+            event,
         })
     }
+}
+
+/// Whether `e` is an event a hook is asked on: `change.offered`, after the
+/// fact.
+pub fn asks(e: &Envelope) -> bool {
+    e.name() == Name::ChangeOffered && e.when == When::After
 }
 
 pub fn read_request(home: &Path, name: &str, pr: u64) -> Option<HookAsk> {
@@ -159,7 +173,7 @@ pub fn requests(
     repo: &str,
     bot: &str,
     (pr, issue): (u64, u64),
-    event: &str,
+    event: &Envelope,
 ) -> Vec<(String, HookAsk)> {
     let Some((head, base)) = open_bot_pull(pull, repo, bot) else {
         return Vec::new();
@@ -173,7 +187,7 @@ pub fn requests(
                 base: base.clone(),
                 issue: Some(issue),
                 trigger: Trigger::Cycle,
-                event: Some(event.to_string()),
+                event: Some(event.clone()),
             };
             (name.clone(), ask)
         })
@@ -246,7 +260,14 @@ mod tests {
         assert!(granted(&vars(&[]), &|_: &str| None).is_empty());
     }
 
-    const EVENT: &str = r#"{"api":1,"key":"7-1"}"#;
+    /// The sample of `name` with every field.
+    fn sample(name: Name) -> Envelope {
+        tehas_ports::events::samples()
+            .into_iter()
+            .find(|s| s.name == name)
+            .unwrap()
+            .full
+    }
 
     fn pull() -> Value {
         json!({
@@ -266,7 +287,7 @@ mod tests {
             "acme/widget",
             "acme-bot[bot]",
             (42, 7),
-            EVENT,
+            &sample(Name::ChangeOffered),
         );
         assert_eq!(
             asked,
@@ -278,7 +299,7 @@ mod tests {
                     base: B.into(),
                     issue: Some(7),
                     trigger: Trigger::Cycle,
-                    event: Some(EVENT.into()),
+                    event: Some(sample(Name::ChangeOffered)),
                 }
             )]
         );
@@ -292,7 +313,15 @@ mod tests {
             let mut p = pull();
             *p.pointer_mut(ptr).unwrap() = v;
             assert!(
-                requests(&names, &p, "acme/widget", "acme-bot[bot]", (42, 7), EVENT).is_empty(),
+                requests(
+                    &names,
+                    &p,
+                    "acme/widget",
+                    "acme-bot[bot]",
+                    (42, 7),
+                    &sample(Name::ChangeOffered)
+                )
+                .is_empty(),
                 "{ptr}"
             );
         }
@@ -307,7 +336,7 @@ mod tests {
             base: B.into(),
             issue: Some(7),
             trigger: Trigger::Cycle,
-            event: Some(EVENT.into()),
+            event: Some(sample(Name::ChangeOffered)),
         };
         write_request(&home, "demo", &ask).unwrap();
         assert_eq!(read_request(&home, "demo", 42), Some(ask.clone()));
@@ -317,6 +346,15 @@ mod tests {
             ..ask.clone()
         };
         assert_eq!(by_hand.json().get("event"), None);
+        // An event other than the offer, or no envelope, refuses the request.
+        for event in [
+            serde_json::to_value(sample(Name::CycleEnded)).unwrap(),
+            json!({"api": 1, "key": "7-1"}),
+        ] {
+            let mut other = ask.json();
+            other["event"] = event;
+            assert_eq!(HookAsk::read(other.to_string().as_bytes()), None);
+        }
         assert_eq!(
             HookAsk::read(by_hand.json().to_string().as_bytes()),
             Some(by_hand)
