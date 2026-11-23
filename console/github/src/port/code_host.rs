@@ -157,7 +157,10 @@ impl CodeHost for GitHub {
             }
         }
         let overall = overall(&runs);
-        Ok(Checks { runs, overall })
+        let mut checks = Checks::default();
+        checks.runs = runs;
+        checks.overall = overall;
+        Ok(checks)
     }
 
     fn tags(&mut self, _: Bound) -> Got<Whole<Tag>> {
@@ -273,13 +276,14 @@ fn read_facts(out: &str) -> Option<Facts> {
     let v: Value = serde_json::from_str(out.trim()).ok()?;
     let flag = |k: &str| v.get(k).and_then(Value::as_bool);
     let text = |k: &str| v.get(k).and_then(Value::as_str);
-    Some(Facts {
-        name: ProjectName::new(text("full_name")?),
-        public: !flag("private")?,
-        tracker_on: flag("has_issues")?,
-        archived: flag("archived")?,
-        default_branch: Branch::new(text("default_branch")?).ok()?,
-    })
+    let mut facts = Facts::new(
+        ProjectName::new(text("full_name")?),
+        Branch::new(text("default_branch")?).ok()?,
+    );
+    facts.public = !flag("private")?;
+    facts.tracker_on = flag("has_issues")?;
+    facts.archived = flag("archived")?;
+    Some(facts)
 }
 
 /// The GraphQL question of one page of pull requests in `states`, with the
@@ -404,18 +408,17 @@ fn read_page(out: &str, me: bool, f: &ChangeFilter) -> Got<Page> {
             None | Some(Value::Null) => None,
             Some(i) => Some(i.as_u64().ok_or(malformed.clone())?),
         };
-        Ok(Some(Account {
-            realm: Realm::CodeHost,
-            login: Login::new(tehas_core::accounts::folded(
-                tehas_core::accounts::account(login),
-            )),
-            id: id.map(|i| AccountId::new(i.to_string())),
-            kind: match kind {
-                Some("User") => AccountKind::Person,
-                Some("Bot") => AccountKind::Bot,
-                _ => AccountKind::Unknown,
-            },
-        }))
+        let login = Login::new(tehas_core::accounts::folded(tehas_core::accounts::account(
+            login,
+        )));
+        let kind = match kind {
+            Some("User") => AccountKind::Person,
+            Some("Bot") => AccountKind::Bot,
+            _ => AccountKind::Unknown,
+        };
+        let mut account = Account::new(Realm::CodeHost, login, kind);
+        account.id = id.map(|i| AccountId::new(i.to_string()));
+        Ok(Some(account))
     };
     let repo = v.pointer("/data/repository").ok_or(malformed.clone())?;
     let here = repo.get("databaseId").and_then(Value::as_u64);
@@ -569,32 +572,30 @@ fn read_page(out: &str, me: bool, f: &ChangeFilter) -> Got<Page> {
             .collect::<Option<Vec<_>>>()
             .ok_or(malformed.clone())?;
         let edited = at("lastEditedAt")?;
-        let digest = ChangeDigest {
+        let mut digest = ChangeDigest::new(
             no,
-            title: text("title")?.to_string(),
             state,
-            head: Branch::new(text("headRefName")?).map_err(|_| malformed.clone())?,
-            head_commit: CommitId::new(text("headRefOid")?).map_err(|_| malformed.clone())?,
-            base: Branch::new(text("baseRefName")?).map_err(|_| malformed.clone())?,
-            author: who("author")?,
-            from_fork: flag("isCrossRepository")?,
-            draft: flag("isDraft")?,
-            merge_state,
-            marks: Vec::new(),
-            closes: closes()?,
-            size: Some(Size {
-                files: count("changedFiles")?,
-                added: count("additions")?,
-                deleted: count("deletions")?,
-            }),
-            body: None,
-            created: at("createdAt")?.ok_or(malformed.clone())?,
-            edited,
-            editor: match edited {
-                Some(_) => who("editor")?,
-                None => None,
-            },
-            link: WebLink::new(text("url")?).map_err(|_| malformed.clone())?,
+            Branch::new(text("headRefName")?).map_err(|_| malformed.clone())?,
+            CommitId::new(text("headRefOid")?).map_err(|_| malformed.clone())?,
+            Branch::new(text("baseRefName")?).map_err(|_| malformed.clone())?,
+            at("createdAt")?.ok_or(malformed.clone())?,
+            WebLink::new(text("url")?).map_err(|_| malformed.clone())?,
+        );
+        digest.title = text("title")?.to_string();
+        digest.author = who("author")?;
+        digest.from_fork = flag("isCrossRepository")?;
+        digest.draft = flag("isDraft")?;
+        digest.merge_state = merge_state;
+        digest.closes = closes()?;
+        let mut size = Size::default();
+        size.files = count("changedFiles")?;
+        size.added = count("additions")?;
+        size.deleted = count("deletions")?;
+        digest.size = Some(size);
+        digest.edited = edited;
+        digest.editor = match edited {
+            Some(_) => who("editor")?,
+            None => None,
         };
         at("updatedAt")?.ok_or(malformed.clone())?;
         pulls.push(Pull { digest, labels });
@@ -630,10 +631,7 @@ fn read_runs(out: &str) -> Option<(u64, Vec<(u64, Check)>)> {
             "in_progress" => CheckStatus::Running,
             _ => CheckStatus::Queued,
         };
-        let check = Check {
-            name: text("name")?.to_string(),
-            status,
-        };
+        let check = Check::new(text("name")?.to_string(), status);
         runs.push((r.get("id")?.as_u64()?, check));
     }
     Some((count, runs))
