@@ -1087,8 +1087,8 @@ impl<'a> Line<'a> {
 fn history_line(c: &Connection, issue: i64, row: &Row, l: &Line, now: i64) -> Result<(), Fail> {
     c.execute(
         "INSERT INTO cycle_history (issue, attempt, at, status, by_account, how, started_at, rc,
-           recorded_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+           recorded_at, reported)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0)",
         params![
             issue,
             row.attempt,

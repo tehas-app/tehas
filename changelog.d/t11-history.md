@@ -5,6 +5,9 @@
 - A work line written after its end, a lost cycle's, has `recorded`, when it was written; `--after` lists it once, in the order the lines were written. A line of a cycle a signal stopped has `signalled: true`.
 - The history keeps an issue's 50 newest lines by the order they were written, not by their end, so a line written late is never the one dropped first.
 
+- The state store moves to schema 31 (`tehas update` migrates it): a line of the history says whether a cycle's report wrote it (`cycle_history.reported`). The record of an approval reads only those lines, so a refused, stopped or lost start does not move the base a refresh rests on, the count of refreshes or the easy merge, as before.
+- `tehas stop` says the record of a cycle was already ended, and how, when the poll ended it as lost just before the stop did, in place of saying it ended it as stopped.
+
 ### Adopter action
 
 A program that reads `tehas history` or `tehas export` sees a line for each refused, stopped and lost start, which it did not see before, and a work line may have no `status`. One that counts runs from the history counts these too; one that keys lines on their cursor reads `recorded` on a lost line and takes it in the order it was written.

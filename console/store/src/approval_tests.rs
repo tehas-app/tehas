@@ -1212,3 +1212,77 @@ fn a_view_of_a_person_s_label_is_field_for_field_what_the_dispatcher_wrote() {
             "rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"approved","body_sha256":SHA}})
     );
 }
+
+/// A start the store ended with no report (a refused start, `tehas stop`, a
+/// lost cycle) writes a line of history since T11.3, and that line is no start
+/// to the record: `approval-current` and the keeping of the next start read
+/// the last line a report wrote, as they did before 2.0. The base stays the
+/// earlier real start's, a refresh on it still counts, and the keeping leaves
+/// the base's row. That start's report ended `stopped` with a signal, a word a
+/// short end also writes, so the line is told by who wrote it, not by its
+/// word: read by its word, the base would fall back to the start before it.
+#[test]
+fn a_start_with_no_report_is_no_start_to_the_record() {
+    for (i, short) in ["--refused", "--stopped", "--lost"].into_iter().enumerate() {
+        let issue = 81 + i as i64;
+        let n = issue.to_string();
+        let home = home(&format!("approval-short{i}"));
+        let (l, a) = start_by(&home, issue, "alice", "approved", NOW);
+        end(&home, issue, a, "handoff");
+        drop(l);
+        // Bob's start, the base, ended by its report: stopped by a signal.
+        let (l, a) = start_by(&home, issue, "bob", "approved", NOW);
+        drop(l);
+        let at = a.to_string();
+        let args = [
+            "cycle-end",
+            &n,
+            "--attempt",
+            &at,
+            "--status",
+            "stopped",
+            "--signalled",
+        ];
+        ok(&home, &args);
+        let want = current(&home, issue);
+        assert_eq!(
+            (&want["rests_on"]["by"], &want["rests_on"]["used_by"]),
+            (&json!("bob"), &json!(2)),
+            "{short}: {want}"
+        );
+        // Carol's approval starts a cycle the store ends with no report.
+        let (l, b) = start_by(&home, issue, "carol", "approved", NOW);
+        let at = b.to_string();
+        let args = ["cycle-end", &n, "--attempt", &at, short];
+        if short == "--refused" {
+            ok(&home, &args);
+            drop(l);
+        } else {
+            drop(l);
+            ok_at(&home, NOW + 1000, &args);
+        }
+        assert_eq!(
+            count(
+                &home,
+                &format!("cycle_history WHERE issue = {issue} AND reported = 0")
+            ),
+            1,
+            "{short}"
+        );
+        let v = current(&home, issue);
+        for k in ["rests_on", "refreshes", "easy"] {
+            assert_eq!(v[k], want[k], "{short} {k}: {v}");
+        }
+        // A refresh starts on bob's base, which a record reading carol's start
+        // as the last would have let go, and counts on it.
+        let (_l, _) = start_by(&home, issue, "bob", "refresh", NOW + 2000);
+        assert_eq!(
+            count(
+                &home,
+                &format!("approvals WHERE issue = {issue} AND used_by = 2")
+            ),
+            1,
+            "{short}"
+        );
+    }
+}
