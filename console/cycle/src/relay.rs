@@ -3,7 +3,7 @@
 //! the host's own. The three issue writes a cycle's agents make, `gh issue
 //! create`, `gh issue edit` and `gh issue comment`, go to the host instead:
 //! the container's gh (host/sandbox/gh-shim) leaves a request in the cycle's
-//! relay directory, and this runs it with the app's token when it is one of
+//! relay directory, and this makes it with the app's token when it is one of
 //! them and carries a title, a body and an issue number only.
 //!
 //! The directory is `<workspace>.state/relay` on the host and
@@ -18,11 +18,11 @@
 //! O_NOFOLLOW, and read only when it is a regular file of at most 1 MiB, so a
 //! link to a file of the host is never read. The answer directory is made
 //! here, after whatever stood at its name is removed, and its files are made
-//! with O_EXCL inside it, so nothing is written outside the directory. gh runs
-//! from an argument list made here, never through a shell, each value joined
-//! to its flag (`--title=...`), with `--repo=TEHAS_REPO` always given and
-//! the body, from --body or a body file, on its standard input as
-//! `--body-file=-`. The request is removed before gh runs, so it runs once.
+//! with O_EXCL inside it, so nothing is written outside the directory. A
+//! request is read into an [`Ask`], tehas's own terms, and made through the
+//! blueprints port's write handle the program's wiring gives, so no word of
+//! the request reaches the site as an argument. The request is removed before
+//! the write, so it is made once.
 //!
 //! Refused, with the reason in the answer and status 1: any verb but the
 //! three, any flag but --title/-t, --body/-b, --body-file/-F and --repo/-R,
@@ -44,19 +44,19 @@
 //! cycle created through the relay, and an edit only on one it created. An
 //! edit made with the app's token counts as the bot's, which the dispatcher
 //! trusts, so a cycle may not rewrite an approved text. An issue counts as
-//! created when gh's answer to `issue create` names its URL under TEHAS_REPO.
-//! A cycle has at most 50 writes run.
+//! created when the port answers the open with its number.
+//! A cycle has at most 50 writes made.
 //!
-//! An edit is conditional, as a port's edit at a revision is: the issue's
-//! title and body are read, then read again just before the write, and the
-//! edit is not made when they differ. Its answer is then status 1 and one
-//! line asking the agent to read the issue again.
+//! An edit is conditional, as the port's edit at a revision is: the issue is
+//! read, then edited at that revision, and the edit is not made when another
+//! account changed it in between. Its answer is then status 1 and one line
+//! asking the agent to read the issue again.
 //!
 //! The token is asked of `tehasbot github-token` for every request, bounded
 //! to 60 seconds: the one the start had runs out after an hour, and that
-//! command keeps a token with at least ten minutes left. gh is given it as
-//! GH_TOKEN and TEHAS_GH_TOKEN, so the host's shim (host/shim/gh) uses this
-//! token and still logs the write.
+//! command keeps a token with at least ten minutes left. The handle's gh is
+//! given it as GH_TOKEN and TEHAS_GH_TOKEN, so the host's shim (host/shim/gh)
+//! uses this token and still logs the write.
 
 use rustix::fs::{AtFlags, FileType, Mode, OFlags};
 use std::collections::HashSet;
@@ -70,6 +70,7 @@ use std::time::{Duration, Instant};
 use tehas_core::call::gh_why;
 use tehas_core::forge::GhRunner;
 use tehas_core::text::has_marker;
+use tehas_ports::{BlueprintNo, BlueprintWrites, Body, Depth, Lost, MarkerEdit, NewBlueprint, Outcome};
 
 /// The most a body file, or the arguments, may hold.
 pub const MAX_BODY: u64 = 1 << 20;
@@ -82,12 +83,8 @@ pub const MARKER: &str = "gh-shim: the relay refuses text with a tehas marker (<
 /// How often the directory is read.
 const POLL: Duration = Duration::from_millis(500);
 
-/// How long one gh may take. The shim waits 120 s.
+/// How long one request's gh runs may take together. The shim waits 120 s.
 const GH_WAIT: u64 = 100;
-
-/// How long each of an edit's two reads may take. Its write takes what is left
-/// of GH_WAIT.
-const READ_WAIT: u64 = 20;
 
 /// How long the token command may take.
 pub const TOKEN_WAIT: u64 = 60;
@@ -120,19 +117,44 @@ pub fn repo_shaped(repo: &str) -> bool {
     matches!(repo.split_once('/'), Some((o, n)) if ok(o) && ok(n))
 }
 
-/// The argument list gh runs with for a request, or why it is refused. `args`
-/// start at the verb; `body` is the request's body file. A body, from --body
-/// or the file, goes to gh as `--body-file=-`, its text on standard input.
-pub fn allowed(args: &[String], body: Option<&str>, repo: &str) -> Result<Vec<String>, String> {
-    plan(args, body, repo).map(|(argv, _)| argv)
+/// A cycle's issue write, as the relay planned it: its title and body masked
+/// and held to the relay's rules.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Ask {
+    /// `gh issue create`.
+    Open { title: String, body: String },
+    /// `gh issue edit`: a title, a body, or both.
+    Edit {
+        no: BlueprintNo,
+        title: Option<String>,
+        body: Option<String>,
+    },
+    /// `gh issue comment`.
+    Comment { no: BlueprintNo, body: String },
 }
 
-/// What `allowed` gives, and the text for gh's standard input.
-fn plan(
-    args: &[String],
-    body: Option<&str>,
-    repo: &str,
-) -> Result<(Vec<String>, Option<String>), String> {
+impl Ask {
+    /// gh's word for it, for the log.
+    fn verb(&self) -> &'static str {
+        match self {
+            Ask::Open { .. } => "create",
+            Ask::Edit { .. } => "edit",
+            Ask::Comment { .. } => "comment",
+        }
+    }
+
+    /// The issue it writes to; None for a new one.
+    fn no(&self) -> Option<BlueprintNo> {
+        match self {
+            Ask::Open { .. } => None,
+            Ask::Edit { no, .. } | Ask::Comment { no, .. } => Some(*no),
+        }
+    }
+}
+
+/// The write a request asks, or why it is refused. `args` start at the verb;
+/// `body` is the request's body file.
+pub fn plan(args: &[String], body: Option<&str>, repo: &str) -> Result<Ask, String> {
     if !repo_shaped(repo) {
         return Err(no(&format!(
             "has no TEHAS_REPO of the form <owner>/<name> ({repo:?}): it runs nothing"
@@ -208,16 +230,19 @@ fn plan(
         return Err(MARKER.to_string());
     }
     let title = title.as_deref().map(posted);
-    let input = input.as_deref().map(posted);
-    // Each value joined to its flag, so a title such as `--label` stays a title.
-    let mut argv = vec!["issue".to_string(), verb.to_string()];
-    argv.extend(number);
-    argv.extend(title.map(|t| format!("--title={t}")));
-    if input.is_some() {
-        argv.push("--body-file=-".to_string());
+    let body = input.as_deref().map(posted);
+    let issue = number.and_then(|n| n.parse().ok()).and_then(BlueprintNo::new);
+    match (verb, issue, title, body) {
+        ("create", _, Some(title), Some(body)) => Ok(Ask::Open { title, body }),
+        ("create", ..) => Err(no("needs a title and a body for issue create")),
+        (_, None, ..) => Err(no(
+            "takes one issue number in digits, and none for issue create",
+        )),
+        ("comment", Some(no), None, Some(body)) => Ok(Ask::Comment { no, body }),
+        ("comment", ..) => Err(no("takes a body and no title for issue comment")),
+        (_, Some(_), None, None) => Err(no("needs a title or a body for issue edit")),
+        (_, Some(no), title, body) => Ok(Ask::Edit { no, title, body }),
     }
-    argv.push(format!("--repo={repo}"));
-    Ok((argv, input))
 }
 
 /// A title or body as the host posts it: masked as the console masks a log,
@@ -254,64 +279,57 @@ impl Scope {
         }
     }
 
-    /// Whether the planned `argv` may run now, or why not.
-    pub fn permits(&self, argv: &[String]) -> Result<(), String> {
+    /// Whether `ask` may be made now, or why not.
+    pub fn permits(&self, ask: &Ask) -> Result<(), String> {
         if self.run >= MAX_WRITES {
             return Err(no(&format!(
                 "has run {MAX_WRITES} issue writes for this cycle, its limit"
             )));
         }
-        let number = argv.get(2).and_then(|n| n.parse::<u64>().ok());
-        match (argv.get(1).map(String::as_str), number) {
-            (Some("create"), _) => Ok(()),
-            (Some("comment"), Some(n)) if n == self.own || self.created.contains(&n) => Ok(()),
-            (Some("comment"), _) => Err(no(&format!(
+        let ours = |n: &BlueprintNo| self.created.contains(&n.get());
+        match ask {
+            Ask::Open { .. } => Ok(()),
+            Ask::Comment { no: n, .. } if n.get() == self.own || ours(n) => Ok(()),
+            Ask::Comment { .. } => Err(no(&format!(
                 "comments only on this cycle's issue #{} and on issues it created",
                 self.own
             ))),
-            (Some("edit"), Some(n)) if self.created.contains(&n) => Ok(()),
-            _ => Err(no(
+            Ask::Edit { no: n, .. } if ours(n) => Ok(()),
+            Ask::Edit { .. } => Err(no(
                 "edits only issues this cycle created, never its own or another",
             )),
         }
     }
 }
 
-/// The number of the issue gh's answer to `issue create` names, when its URL
-/// is under `repo`.
-pub fn created_number(out: &str, repo: &str) -> Option<u64> {
-    out.lines().rev().find_map(|line| {
-        let line = line.trim();
-        let rest = line.strip_prefix("https://")?;
-        let (_, path) = rest.split_once('/')?;
-        let (r, n) = path.rsplit_once("/issues/")?;
-        let shaped = r.eq_ignore_ascii_case(repo)
-            && !n.is_empty()
-            && n.len() <= 20
-            && n.bytes().all(|b| b.is_ascii_digit());
-        shaped.then(|| n.parse().ok()).flatten()
-    })
+/// A blueprints write handle whose requests go through the gh runner given.
+/// The program's wiring makes it, so the relay never names the adapter.
+pub type Writes = Box<dyn Fn(Box<dyn GhRunner>) -> Box<dyn BlueprintWrites> + Send + Sync>;
+
+/// The program's wiring of [`Writes`]: the handle of repository `repo` over
+/// the gh runner given.
+pub type WritesOf = fn(repo: &str, gh: Box<dyn GhRunner>) -> Box<dyn BlueprintWrites>;
+
+/// The handles of `repo` that `of` makes.
+pub fn writes_of(repo: &str, of: WritesOf) -> Writes {
+    let repo = repo.to_string();
+    Box::new(move |gh| of(&repo, gh))
 }
 
-/// The read of an issue's title and body as one revision, asked through the
-/// gh runner given, or the reason it could not be read, in tehas's words. The
-/// program's wiring gives it, so the relay never names the adapter.
-pub type ReadText = fn(repo: &str, gh: Box<dyn GhRunner>, issue: u64) -> Result<String, String>;
-
 /// What the relay runs: gh, the command that prints the app's token with the
-/// seconds it may take, and the read an edit is held to.
+/// seconds it may take, and the handle its writes go through.
 pub struct Via {
     pub gh: PathBuf,
     pub token: PathBuf,
     pub token_args: Vec<String>,
     pub token_wait: u64,
-    pub read_text: ReadText,
+    pub writes: Writes,
 }
 
 impl Via {
     /// gh from PATH (TEHAS_GH_BIN in tests) and `<home>/bin/tehasbot
     /// github-token`, the command the renewer asks too.
-    pub fn from_env(home: &Path, read_text: ReadText) -> Via {
+    pub fn from_env(home: &Path, writes: Writes) -> Via {
         let gh = std::env::var_os("TEHAS_GH_BIN")
             .filter(|v| !v.is_empty())
             .map_or_else(|| PathBuf::from("gh"), PathBuf::from);
@@ -320,7 +338,7 @@ impl Via {
             token: home.join("bin/tehasbot"),
             token_args: vec!["github-token".to_string()],
             token_wait: TOKEN_WAIT,
-            read_text,
+            writes,
         }
     }
 }
@@ -499,8 +517,8 @@ fn write_request(
     }
 }
 
-/// One request of a cycle, planned, held to its scope and run: gh's output,
-/// its error stream and its status, or why it is refused.
+/// One request of a cycle, planned, held to its scope and made: the output,
+/// error stream and status gh's would have, or why it is refused.
 fn answer_request(
     args: &[String],
     body: Option<&str>,
@@ -508,28 +526,85 @@ fn answer_request(
     via: &Via,
     scope: &mut Scope,
 ) -> Result<(String, String, i32), String> {
-    let (argv, input) = plan(args, body, repo)?;
-    scope.permits(&argv)?;
+    let ask = plan(args, body, repo)?;
+    scope.permits(&ask)?;
     scope.run += 1;
-    let (out, err, rc) = if argv[1] == "edit" {
-        edit(via, repo, &argv, input.as_deref())
-    } else {
-        run(via, &argv, input.as_deref())
-    };
-    if rc == 0 && argv[1] == "create" {
-        if let Some(n) = created_number(&out, repo) {
-            scope.created.insert(n);
+    let (out, err, rc) = match token(via) {
+        Some(token) => {
+            let gh = RelayGh {
+                gh: via.gh.clone(),
+                token,
+                until: Instant::now() + Duration::from_secs(GH_WAIT),
+            };
+            make(&mut *(via.writes)(Box::new(gh)), &ask, scope)
         }
-    }
+        None => (String::new(), no(NO_TOKEN), 1),
+    };
     eprintln!(
-        "tehas relay: gh {} {} {}: {rc}",
-        argv[0],
-        argv[1],
-        argv.get(2)
-            .filter(|a| !a.starts_with('-'))
-            .map_or("", |a| a)
+        "tehas relay: issue {} {}: {rc}",
+        ask.verb(),
+        ask.no().map_or(String::new(), |n| n.get().to_string())
     );
     Ok((out, err, rc))
+}
+
+/// `ask` made through `writes`: a link on standard output and status 0, as gh
+/// prints one, or one line in our words and status 1. A new issue joins the
+/// scope's.
+fn make(writes: &mut dyn BlueprintWrites, ask: &Ask, scope: &mut Scope) -> (String, String, i32) {
+    let made = match ask {
+        Ask::Open { title, body } => writes
+            .open(&NewBlueprint {
+                title: title.clone(),
+                body: Body::Text(body.clone()),
+                markers: Vec::new(),
+            })
+            .map(|p| {
+                scope.created.insert(p.id.get());
+                p.link
+            }),
+        Ask::Comment { no, body } => writes.comment(*no, body, &[]).map(|p| p.link),
+        Ask::Edit { no, title, body } => {
+            let read = match writes.blueprint(*no, Depth::Cut { notes: 0 }) {
+                Ok(b) => b,
+                Err(e) => {
+                    return failed(&format!(
+                        "could not read #{} before the edit, and did not edit it: {}",
+                        no.get(),
+                        e.line()
+                    ))
+                }
+            };
+            let edited = writes.edit(
+                *no,
+                title.as_deref(),
+                body.as_deref(),
+                &MarkerEdit::default(),
+                &read.revision,
+            );
+            if edited == Err(Outcome::Conflict(Lost::Changed)) {
+                return failed(&format!(
+                    "did not edit #{}: another account changed its title or body after the relay read it. Read it again",
+                    no.get()
+                ));
+            }
+            edited
+        }
+    };
+    match made {
+        Ok(link) => (format!("{}\n", link.as_str()), String::new(), 0),
+        Err(e) => failed(&format!(
+            "could not {} {}: {}",
+            ask.verb(),
+            ask.no().map_or("the issue".to_string(), |n| format!("#{}", n.get())),
+            e.line()
+        )),
+    }
+}
+
+/// The answer of a write not made: one line in our words.
+fn failed(why: &str) -> (String, String, i32) {
+    (String::new(), no(&format!("{why}\n")), 1)
 }
 
 /// The regular file `name` in `dir`, at most `max` bytes. None when there is
@@ -580,18 +655,12 @@ fn token(via: &Via) -> Option<String> {
 
 const NO_TOKEN: &str = "has no GitHub token from the host";
 
-/// gh with the app's token: its output, its error stream and its status.
-fn run(via: &Via, argv: &[String], input: Option<&str>) -> (String, String, i32) {
-    let Some(token) = token(via) else {
-        return (String::new(), no(NO_TOKEN), 1);
-    };
-    run_gh(&via.gh, &token, GH_WAIT, argv, input)
-}
-
-/// gh asked by the forge, with the relay's token and bound.
+/// gh asked by the write handle, with the relay's token. The runs of one
+/// request share its time, so a request is answered before the shim gives up.
 struct RelayGh {
     gh: PathBuf,
     token: String,
+    until: Instant,
 }
 
 impl GhRunner for RelayGh {
@@ -599,63 +668,16 @@ impl GhRunner for RelayGh {
     /// site's text, which goes back into the container, so only the words
     /// of `gh_why`'s fixed list are kept.
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        let left = self.until.saturating_duration_since(Instant::now()).as_secs();
+        if left == 0 {
+            return Err(format!("the relay's {GH_WAIT} s are up"));
+        }
         let argv: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-        match run_gh(&self.gh, &self.token, READ_WAIT, &argv, None) {
+        match run_gh(&self.gh, &self.token, left, &argv, None) {
             (out, _, 0) => Ok(out),
             (_, err, rc) => Err(format!("gh exited {rc}{}", gh_why(&err))),
         }
     }
-}
-
-/// An edit made only if the issue's title and body are unchanged between a
-/// read and the write: the revision read first is compared with one read just
-/// before the write, as a port's `edit` at a revision compares. gh cannot make
-/// the write itself conditional, so the window that stays is the moment
-/// between the second read and the write. It guards no edit made before the
-/// first read.
-fn edit(via: &Via, repo: &str, argv: &[String], input: Option<&str>) -> (String, String, i32) {
-    let Some(token) = token(via) else {
-        return (String::new(), no(NO_TOKEN), 1);
-    };
-    let issue = argv[2]
-        .parse::<u64>()
-        .expect("Scope::permits ran no edit whose number is not a u64");
-    let read = || {
-        let gh = RelayGh {
-            gh: via.gh.clone(),
-            token: token.clone(),
-        };
-        (via.read_text)(repo, Box::new(gh), issue).map_err(|why| {
-            no(&format!(
-                "could not read #{issue} before the edit, and did not edit it: {why}\n"
-            ))
-        })
-    };
-    let since = match read() {
-        Ok(r) => r,
-        Err(why) => return (String::new(), why, 1),
-    };
-    match read() {
-        Ok(now) if now == since => {}
-        Ok(_) => {
-            return (
-                String::new(),
-                no(&format!(
-                    "did not edit #{issue}: another account changed its title or body after the relay read it. Read it again\n"
-                )),
-                1,
-            )
-        }
-        Err(why) => return (String::new(), why, 1),
-    }
-    run_gh(&via.gh, &token, GH_WAIT - 2 * READ_WAIT, argv, input)
-}
-
-/// A read for tests: the stub gh's answer to `api <issue>`, whole, as the
-/// revision.
-#[cfg(test)]
-pub(crate) fn read_raw(_: &str, mut gh: Box<dyn GhRunner>, issue: u64) -> Result<String, String> {
-    gh.run(&["api", &issue.to_string()])
 }
 
 /// gh run with `token` for at most `wait` seconds: its output, its error

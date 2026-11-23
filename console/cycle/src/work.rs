@@ -356,8 +356,9 @@ pub struct Given {
     pub driver: Option<Driver>,
     /// The console beside the script, which the watch runs.
     pub console: String,
-    /// The read the relay holds an edit to.
-    pub read_text: relay::ReadText,
+    /// The blueprints write handle of a repository the relay's writes go
+    /// through, over the gh runner given.
+    pub writes: relay::WritesOf,
 }
 
 fn env(name: &str) -> String {
@@ -1078,7 +1079,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         &relay_dir,
         &env("TEHAS_REPO"),
         n,
-        relay::Via::from_env(home, g.read_text),
+        relay::Via::from_env(home, relay::writes_of(&env("TEHAS_REPO"), g.writes)),
         RELAY_END_WAIT,
     );
     let given = watch::Given {
