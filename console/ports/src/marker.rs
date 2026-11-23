@@ -453,7 +453,8 @@ impl Marker {
 
     /// True for a marker a write may set: one that keeps the port's limits,
     /// that the vendored table can write, and that is not `Unreadable`,
-    /// `Bare` or `Unknown`. The table writes a number of at most 9 digits,
+    /// `Bare` or `Unknown`. A `Question` of `QuestionKind::Unknown` is not
+    /// written. The table writes a number of at most 9 digits,
     /// and a `TicketOf` or `Blocked` names only a ticket of this realm and
     /// project: a ticket `Elsewhere` is not written as a marker. A
     /// `Blocked` names ticket numbers alone.
@@ -469,8 +470,14 @@ impl Marker {
         let fits = |n: u64| n <= NUMBER_MAX;
         match self {
             Marker::Question {
-                blueprint, turn, ..
-            } => fits(blueprint.get()) && fits(u64::from(turn.get())),
+                kind,
+                blueprint,
+                turn,
+            } => {
+                *kind != QuestionKind::Unknown
+                    && fits(blueprint.get())
+                    && fits(u64::from(turn.get()))
+            }
             Marker::Blocked { by } => by
                 .iter()
                 .all(|t| matches!(t, Ref::Here(TicketKey::Number(n)) if fits(n.get()))),
@@ -809,5 +816,20 @@ mod tests {
             };
             assert_eq!(edit.check(), Err(Outcome::Refused(Refusal::Invalid)));
         }
+    }
+
+    #[test]
+    fn a_question_of_an_unknown_kind_is_never_written() {
+        let q = |kind| Marker::Question {
+            kind,
+            blueprint: no(7),
+            turn: NonZeroU32::new(1).unwrap(),
+        };
+        assert!(q(QuestionKind::Plan).writable());
+        assert!(q(QuestionKind::Park).writable());
+        let unknown = q(QuestionKind::Unknown);
+        assert!(!unknown.writable());
+        assert_eq!(check_one(unknown.clone()), REFUSED);
+        assert_eq!(unknown.clone().checked(), unknown);
     }
 }
