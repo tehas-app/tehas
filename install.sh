@@ -552,7 +552,7 @@ refuse_home
 
 # The paths under the home's state/ that more than one line here names, each
 # written once, after the home is settled. Home (console/core/src/home.rs)
-# owns the layout; this script runs before any console is built.
+# owns the layout; no console verb prints its paths, so they are written here.
 state_dir=$TEHAS_HOME/state
 db_file=$TEHAS_HOME/state/tehas.db
 backup_dir=$TEHAS_HOME/state/backup
