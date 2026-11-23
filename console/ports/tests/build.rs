@@ -148,3 +148,15 @@ fn every_answer_has_new_or_default() {
         at(),
     );
 }
+
+#[test]
+fn a_marker_read_from_text_has_new() {
+    let sig = Sha256::new("a".repeat(64)).unwrap();
+    let park = ParkMarker::new(no(), sig.clone());
+    assert!(park.step.as_str().is_empty() && park.kind.as_str().is_empty());
+    assert!(!park.provider);
+    assert_eq!(MarkerWord::default().as_str(), "");
+    let _ = MillwrightMarker::new(no(), MillwrightAction::Retry);
+    assert!(!FinishMarker::new(no(), FinishResult::Opened).by_poll);
+    assert!(LastAttemptMarker::new(sig).note.is_empty());
+}

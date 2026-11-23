@@ -80,6 +80,13 @@ checked!(
     marker_word_ok
 );
 
+/// The empty word, which a marker writes when none was recorded.
+impl Default for MarkerWord {
+    fn default() -> Self {
+        Self(String::new())
+    }
+}
+
 fn marker_word_ok(s: &str) -> bool {
     s.len() <= 40
         && s.bytes()
@@ -285,6 +292,16 @@ pub struct ParkMarker {
     pub sig: Sha256,
 }
 
+new!(
+    ParkMarker {
+        blueprint: BlueprintNo,
+        sig: Sha256
+    },
+    step,
+    kind,
+    provider
+);
+
 /// A millwright's decision on a blueprint.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct MillwrightMarker {
@@ -294,6 +311,11 @@ pub struct MillwrightMarker {
     /// What the millwright decides.
     pub action: MillwrightAction,
 }
+
+new!(MillwrightMarker {
+    blueprint: BlueprintNo,
+    action: MillwrightAction
+});
 
 /// What the millwright decides. A word outside this set does not read: it
 /// is `Unreadable { kind: Millwright }`, a millwright's marker and no
@@ -329,6 +351,14 @@ pub struct FinishMarker {
     pub by_poll: bool,
 }
 
+new!(
+    FinishMarker {
+        blueprint: BlueprintNo,
+        result: FinishResult
+    },
+    by_poll
+);
+
 /// What came of a finish. A word outside this set does not read, as for
 /// `MillwrightAction`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -351,6 +381,8 @@ pub struct LastAttemptMarker {
     /// The enclosed text, kept out of the body a person or a caller reads.
     pub note: String,
 }
+
+new!(LastAttemptMarker { base: Sha256 }, note);
 
 impl Marker {
     /// The marker's kind. `Unreadable` and `Bare` answer the kind they name.
