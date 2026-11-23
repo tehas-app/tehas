@@ -398,7 +398,10 @@ mod tests {
         for (mut ans, a) in [
             (park!(), by_plugin("park", Choice::Retry)),
             (plan!(None), by_plugin("plan", Choice::Option(1))),
-            (plan!(None), by_plugin("plan", Choice::Text("Split it.".into()))),
+            (
+                plan!(None),
+                by_plugin("plan", Choice::Text("Split it.".into())),
+            ),
         ] {
             let before = ans.clone();
             let got = overlay(&mut ans, Some(&a), anyone);
