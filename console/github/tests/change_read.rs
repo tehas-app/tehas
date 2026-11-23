@@ -26,8 +26,46 @@ fn sample(name: &str) -> String {
     std::fs::read_to_string(at.join(name)).unwrap()
 }
 
-fn json_of(name: &str) -> Value {
-    serde_json::from_str(&sample(name)).unwrap()
+/// A sample of GitHub's JSON, parsed.
+macro_rules! json_of {
+    ($name:expr) => {
+        serde_json::from_str::<Value>(&sample($name)).unwrap()
+    };
+}
+
+/// The issue comments a site keeps.
+macro_rules! comments {
+    ($site:expr) => {
+        $site.lists.entry("comments").or_default()
+    };
+}
+
+/// An item of a list from its template, the `i`th.
+macro_rules! item {
+    ($list:expr, $template:expr, $i:expr) => {{
+        let (list, i): (&str, usize) = ($list, $i);
+        let mut v = json_of!($template);
+        match list {
+            "comments" => {
+                let id = 2_501_240_000 + i as u64;
+                v["id"] = id.into();
+                v["html_url"] =
+                    format!("https://github.com/acme/widget/pull/9#issuecomment-{id}").into();
+                v["body"] = format!("Comment {i}.").into();
+                v["node_id"] = format!("IC_kwDOAbCdEf6Vt{i:04}").into();
+            }
+            "files" => v["filename"] = format!("src/part_{i}.rs").into(),
+            "reviews" => {
+                v["id"] = (3_100_000_000 + i as u64).into();
+                v["body"] = format!("Review {i}.").into();
+            }
+            _ => {
+                v["id"] = (3_200_000_000 + i as u64).into();
+                v["body"] = format!("Note {i}.").into();
+            }
+        }
+        v
+    }};
 }
 
 /// What the adapter is given for a failure sample.
@@ -78,7 +116,7 @@ struct Site {
 impl Default for Site {
     fn default() -> Self {
         Site {
-            pull: json_of("pull-9.json"),
+            pull: json_of!("pull-9.json"),
             lists: BTreeMap::new(),
             edits: BTreeMap::new(),
             node: json!({
@@ -112,16 +150,12 @@ impl Site {
     /// `count` items of a list made from its template, ids rising.
     fn with(mut self, name: &str, count: usize) -> Self {
         let (key, counted, template) = list_of(name);
-        let made: Vec<Value> = (0..count).map(|i| item(key, template, i)).collect();
+        let made: Vec<Value> = (0..count).map(|i| item!(key, template, i)).collect();
         if let Some(field) = counted {
             self.pull[field] = count.into();
         }
         self.lists.insert(key, made);
         self
-    }
-
-    fn comments(&mut self) -> &mut Vec<Value> {
-        self.lists.entry("comments").or_default()
     }
 
     /// The pull request was touched now: GitHub moves its `updated_at`.
@@ -141,13 +175,6 @@ impl Site {
         self
     }
 
-    fn edit_of(&self, key: &str) -> Value {
-        self.edits
-            .get(key)
-            .cloned()
-            .unwrap_or(json!({"lastEditedAt": null, "editor": null}))
-    }
-
     fn graphql_answer(&self, args: &[&str]) -> Result<String, String> {
         if let Some(why) = &self.graphql {
             return Err(why.clone());
@@ -156,13 +183,19 @@ impl Site {
             .iter()
             .find_map(|a| a.strip_prefix("query="))
             .ok_or("no query")?;
+        let edit_of = |key: &str| {
+            self.edits
+                .get(key)
+                .cloned()
+                .unwrap_or(json!({"lastEditedAt": null, "editor": null}))
+        };
         let mut data = json!({"repository": {"databaseId": 500001}});
         if q.contains("pullRequest(number: $number)") {
             if !args.contains(&"number=9") {
                 return Err("no number".into());
             }
             let mut node = self.node.clone();
-            let edit = self.edit_of("pull");
+            let edit = edit_of("pull");
             node["lastEditedAt"] = edit["lastEditedAt"].clone();
             node["editor"] = edit["editor"].clone();
             data["repository"]["pullRequest"] = node;
@@ -173,7 +206,7 @@ impl Site {
                 .split(", ")
                 .map(|id| {
                     let id = id.trim_matches('"');
-                    let mut e = self.edit_of(id);
+                    let mut e = edit_of(id);
                     e["__typename"] = "IssueComment".into();
                     e["id"] = id.into();
                     e
@@ -241,40 +274,15 @@ impl Site {
     }
 }
 
-/// An item of a list from its template, the `i`th.
-fn item(list: &str, template: &str, i: usize) -> Value {
-    let mut v = json_of(template);
-    match list {
-        "comments" => {
-            let id = 2_501_240_000 + i as u64;
-            v["id"] = id.into();
-            v["html_url"] =
-                format!("https://github.com/acme/widget/pull/9#issuecomment-{id}").into();
-            v["body"] = format!("Comment {i}.").into();
-            v["node_id"] = format!("IC_kwDOAbCdEf6Vt{i:04}").into();
-        }
-        "files" => v["filename"] = format!("src/part_{i}.rs").into(),
-        "reviews" => {
-            v["id"] = (3_100_000_000 + i as u64).into();
-            v["body"] = format!("Review {i}.").into();
-        }
-        _ => {
-            v["id"] = (3_200_000_000 + i as u64).into();
-            v["body"] = format!("Note {i}.").into();
-        }
-    }
-    v
-}
-
 /// The first comment deleted and a new one posted: the count holds, the
 /// pull request's `updated_at` moves, and every later comment moves up a
 /// place, so a read across pages skips one.
 fn shift(site: &mut Site) {
-    let last = site.comments().last().unwrap()["id"].as_u64().unwrap();
+    let last = comments!(site).last().unwrap()["id"].as_u64().unwrap();
     let next = (last - 2_501_240_000 + 1000) as usize;
-    site.comments().remove(0);
-    let added = item("comments", "comment-template.json", next);
-    site.comments().push(added);
+    comments!(site).remove(0);
+    let added = item!("comments", "comment-template.json", next);
+    comments!(site).push(added);
     site.touch();
 }
 
@@ -594,7 +602,7 @@ fn a_site_that_moves_between_pages_every_time_is_inconsistent() {
 fn comment_ids_out_of_order_are_inconsistent() {
     // Within a page.
     let mut site = Site::default().with("comments", 3);
-    site.comments().swap(1, 2);
+    comments!(site).swap(1, 2);
     let (mut gh, _, _) = adapter(site);
     assert_eq!(
         gh.change(nine(), bound(100)).map(|_| ()),
@@ -602,10 +610,10 @@ fn comment_ids_out_of_order_are_inconsistent() {
     );
     // Across pages: page 2's first comment older than page 1's last.
     let mut site = Site::default().with("comments", 101);
-    let first = site.comments()[0]["id"].clone();
-    site.comments()[100]["id"] = (first.as_u64().unwrap() - 1).into();
-    let id = site.comments()[100]["id"].as_u64().unwrap();
-    site.comments()[100]["html_url"] =
+    let first = comments!(site)[0]["id"].clone();
+    comments!(site)[100]["id"] = (first.as_u64().unwrap() - 1).into();
+    let id = comments!(site)[100]["id"].as_u64().unwrap();
+    comments!(site)[100]["html_url"] =
         format!("https://github.com/acme/widget/pull/9#issuecomment-{id}").into();
     let (mut gh, _, _) = adapter(site);
     assert_eq!(
@@ -617,7 +625,7 @@ fn comment_ids_out_of_order_are_inconsistent() {
 #[test]
 fn a_comment_of_another_item_is_inconsistent() {
     let mut site = Site::default().with("comments", 2);
-    site.comments()[1]["html_url"] =
+    comments!(site)[1]["html_url"] =
         "https://github.com/acme/widget/pull/8#issuecomment-2501240001".into();
     let (mut gh, _, _) = adapter(site);
     assert_eq!(
@@ -629,9 +637,9 @@ fn a_comment_of_another_item_is_inconsistent() {
 #[test]
 fn this_items_markers_are_taken_out_and_typed_and_another_items_left_in() {
     let mut site = Site::default().with("comments", 2);
-    site.comments()[0]["body"] =
+    comments!(site)[0]["body"] =
         "<!-- tehas:question kind=plan issue=9 turn=2 -->\r\nWhich parts count?".into();
-    site.comments()[1]["body"] =
+    comments!(site)[1]["body"] =
         "See there:\n<!-- tehas:question kind=plan issue=7 turn=1 -->".into();
     let (mut gh, _, _) = adapter(site);
     let c = gh.change(nine(), bound(100)).unwrap();
@@ -656,11 +664,11 @@ fn an_edited_comment_by_another_account_carries_that_editor() {
         Some(("User", "Octo-Person", 200002)),
         "2026-11-20T10:05:00Z",
     );
-    site.comments()[0]["user"] = json!({"login": "tehas-bot[bot]", "id": 100001, "type": "Bot"});
-    site.comments()[1]["user"] = json!({"login": "tehas-bot[bot]", "id": 100001, "type": "Bot"});
-    site.comments()[1]["updated_at"] = "2026-11-20T10:05:00Z".into();
+    comments!(site)[0]["user"] = json!({"login": "tehas-bot[bot]", "id": 100001, "type": "Bot"});
+    comments!(site)[1]["user"] = json!({"login": "tehas-bot[bot]", "id": 100001, "type": "Bot"});
+    comments!(site)[1]["updated_at"] = "2026-11-20T10:05:00Z".into();
     // Touched but never edited: a reaction moved it, say.
-    site.comments()[0]["updated_at"] = "2026-11-20T10:01:00Z".into();
+    comments!(site)[0]["updated_at"] = "2026-11-20T10:01:00Z".into();
     let (mut gh, _, calls) = adapter(site);
     let c = gh.change(nine(), bound(100)).unwrap();
     assert_eq!(c.comments[0].editor, None);
@@ -713,7 +721,7 @@ fn a_later_page_with_an_edited_comment_asks_its_own_question() {
         Some(("Bot", "other-bot", 300003)),
         "2026-11-20T10:07:00Z",
     );
-    site.comments()[100]["updated_at"] = "2026-11-20T10:07:00Z".into();
+    comments!(site)[100]["updated_at"] = "2026-11-20T10:07:00Z".into();
     let (mut gh, _, calls) = adapter(site);
     let c = gh.change(nine(), bound(200)).unwrap();
     let editor = c.comments[100].editor.as_ref().unwrap();
@@ -973,10 +981,10 @@ fn the_comments_answer_what_the_settle_of_a_maybe_sent_comment_compares() {
     // site's wiring names the factory's account `Ours`.
     let sent = "The refresh is done.\n\nSee the new head.";
     let mut site = Site::default().with("comments", 2);
-    site.comments()[1]["user"] = json!({"login": "tehas-bot[bot]", "id": 100001, "type": "Bot"});
-    site.comments()[1]["body"] = sent.into();
-    site.comments()[1]["created_at"] = "2026-11-20T10:00:30Z".into();
-    site.comments()[1]["updated_at"] = "2026-11-20T10:00:30Z".into();
+    comments!(site)[1]["user"] = json!({"login": "tehas-bot[bot]", "id": 100001, "type": "Bot"});
+    comments!(site)[1]["body"] = sent.into();
+    comments!(site)[1]["created_at"] = "2026-11-20T10:00:30Z".into();
+    comments!(site)[1]["updated_at"] = "2026-11-20T10:00:30Z".into();
     let (mut gh, _, _) = adapter(site);
     let mut read = gh.change(nine(), bound(100)).unwrap().comments;
     let mine = &read[1];
