@@ -365,6 +365,11 @@ pub struct Filter {
     pub open: Option<bool>,
     /// Tickets carrying every one of these marks.
     pub carrying: Vec<Mark>,
+    /// Tickets carrying at least one of these marks. Empty narrows
+    /// nothing. Beside `carrying`, a ticket must meet both. Missing, it
+    /// reads as empty.
+    #[serde(default)]
+    pub carrying_any: Vec<Mark>,
     /// Tickets of this type.
     pub kind: Option<Kind>,
     /// Tickets of this target.
@@ -511,6 +516,10 @@ new!(
     first_line
 );
 
+/// A ticket's digest with what closed it, as `Tickets::several_with_closers`
+/// answers it.
+pub type WithCloser = (TicketDigest, Option<Closer>);
+
 /// The tickets port's reads. A handle is bound to one project, one actor
 /// and one caller name.
 pub trait Tickets: Reports + Cites {
@@ -530,6 +539,11 @@ pub trait Tickets: Reports + Cites {
     /// caller that may hold either asks `what_are` first; an adapter may
     /// answer both from one question and keep the answer for the pass.
     fn several(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<TicketDigest>)>;
+    /// `several`, each digest with what closed the ticket, in the same
+    /// request: the closer `Ticket.closer` gives, from the newest close in
+    /// its history, and None while it is open or where the site names
+    /// nothing. A key that names a change is `NotFound`, as in `several`.
+    fn several_with_closers(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<WithCloser>)>;
     /// A ticket's history, oldest first: the events of the kinds in
     /// `only`, or every event for None. The window counts the events taken.
     fn history(

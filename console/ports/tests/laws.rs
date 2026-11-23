@@ -130,6 +130,63 @@ fn tickets_removing_an_absent_mark_is_done() {
 }
 
 #[test]
+fn tickets_carrying_any_takes_any_of_the_marks() {
+    for w in both() {
+        let w = w
+            .ticket(1, |t| t.title("running").mark(Mark::State(State::Running)))
+            .ticket(2, |t| t.title("plain"))
+            .ticket(3, |t| {
+                t.title("both")
+                    .mark(Mark::State(State::Running))
+                    .mark(Mark::Epic)
+            })
+            .ticket(4, |t| t.title("an epic").mark(Mark::Epic));
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let marks = [Mark::State(State::Running), Mark::Epic];
+        ok(laws::tickets::carrying_any_takes_any_of_the_marks(
+            h.as_mut(),
+            &marks,
+            b(50),
+        ));
+        let any = Filter {
+            carrying_any: marks.to_vec(),
+            ..Filter::default()
+        };
+        let keys: Vec<_> = h
+            .list(&any, b(50))
+            .unwrap()
+            .into_items()
+            .into_iter()
+            .map(|d| d.key)
+            .collect();
+        assert_eq!(keys, vec![w.key(1), w.key(3), w.key(4)]);
+    }
+}
+
+#[test]
+fn tickets_several_carries_each_closer() {
+    for w in both() {
+        let w = w
+            .ticket(1, |t| t.title("open"))
+            .ticket(2, |t| t.title("closed").closed(CloseReason::Done));
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let keys = [w.key(1), w.key(2)];
+        ok(laws::tickets::several_carries_each_closer(
+            h.as_mut(),
+            &keys,
+        ));
+        let answers = h.several_with_closers(&keys);
+        assert_eq!(answers[0].1.as_ref().unwrap().1, None);
+        assert!(matches!(
+            answers[1].1.as_ref().unwrap().1,
+            Some(Closer::Account(_))
+        ));
+    }
+}
+
+#[test]
 fn code_host_merge_at_a_moved_head_is_a_conflict() {
     for w in both() {
         let no = first_change(&w);

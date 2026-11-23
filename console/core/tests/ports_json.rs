@@ -276,6 +276,20 @@ fn a_delta_stored_without_more_reads_as_not_more() {
 }
 
 #[test]
+fn a_filter_stored_without_carrying_any_reads_as_narrowing_nothing() {
+    let filter = read!(
+        Filter,
+        r#"{"open":true,"carrying":[],"kind":null,"target":null}"#
+    );
+    assert!(filter.carrying_any.is_empty());
+    let any = Filter {
+        carrying_any: vec![Mark::State(State::Running), Mark::Epic],
+        ..Filter::default()
+    };
+    round!(any);
+}
+
+#[test]
 fn an_old_spec_marker_reads_as_unknown() {
     // The Spec marker left with the Spec marks (#2892): a record that still
     // holds one reads under the one rule, as a tag this copy does not know.

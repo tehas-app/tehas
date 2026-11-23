@@ -66,10 +66,85 @@ fn got<T>(law: &str, what: &str, answer: crate::Got<T>) -> Result<T, Broken> {
     })
 }
 
-/// Laws of the tickets port's writes.
+/// Laws of the tickets port.
 pub mod tickets {
     use super::{got, hold, Law};
-    use crate::{Depth, Mark, TicketKey, TicketWrites};
+    use crate::{Bound, Depth, Filter, Mark, TicketKey, TicketWrites, Tickets};
+
+    /// `Filter.carrying_any` takes the tickets that carry any one of the
+    /// marks: the tickets each mark's own `carrying` list takes, together,
+    /// in list order, each once. The fixture
+    /// holds tickets of more than one of `marks` within `bound`.
+    pub fn carrying_any_takes_any_of_the_marks(
+        h: &mut dyn Tickets,
+        marks: &[Mark],
+        bound: Bound,
+    ) -> Law {
+        const LAW: &str = "tickets::carrying_any_takes_any_of_the_marks";
+        let every = got(LAW, "every ticket", h.list(&Filter::default(), bound))?.into_items();
+        let mut keys = Vec::new();
+        for m in marks {
+            let one = Filter {
+                carrying: vec![m.clone()],
+                ..Filter::default()
+            };
+            keys.extend(
+                got(LAW, "one mark's list", h.list(&one, bound))?
+                    .into_items()
+                    .into_iter()
+                    .map(|d| d.key),
+            );
+        }
+        let want: Vec<_> = every
+            .iter()
+            .map(|d| d.key.clone())
+            .filter(|k| keys.contains(k))
+            .collect();
+        let any = Filter {
+            carrying_any: marks.to_vec(),
+            ..Filter::default()
+        };
+        let have: Vec<_> = got(LAW, "carrying_any", h.list(&any, bound))?
+            .into_items()
+            .into_iter()
+            .map(|d| d.key)
+            .collect();
+        hold(have == want, LAW, || {
+            format!("carrying_any took {have:?}, the marks' lists {want:?}")
+        })
+    }
+
+    /// `several_with_closers` answers each ticket's digest as `several`
+    /// does, with the closer its `Ticket.closer` gives, None while it is
+    /// open. The fixture holds `keys`, closed and open.
+    pub fn several_carries_each_closer(h: &mut dyn Tickets, keys: &[TicketKey]) -> Law {
+        const LAW: &str = "tickets::several_carries_each_closer";
+        let plain = h.several(keys);
+        let with = h.several_with_closers(keys);
+        hold(with.len() == plain.len(), LAW, || {
+            format!("{} answers for {} of several", with.len(), plain.len())
+        })?;
+        for ((k, digest), (k2, answer)) in plain.into_iter().zip(with) {
+            hold(k == k2, LAW, || {
+                format!("{k2:?} answered in the place of {k:?}")
+            })?;
+            let digest = got(LAW, "several", digest)?;
+            let (d, closer) = got(LAW, "several_with_closers", answer)?;
+            hold(d == digest, LAW, || {
+                format!("{k:?}'s digest is not several's")
+            })?;
+            let t = got(
+                LAW,
+                "the ticket",
+                h.ticket(&k, Depth::Cut { notes: 0 }, None),
+            )?;
+            let want = if t.closed.is_some() { t.closer } else { None };
+            hold(closer == want, LAW, || {
+                format!("{k:?}'s closer is {closer:?}, the ticket says {want:?}")
+            })?;
+        }
+        Ok(())
+    }
 
     /// Taking off a mark a ticket does not carry is done, and leaves it
     /// without the mark. The fixture's ticket must not carry `mark`.

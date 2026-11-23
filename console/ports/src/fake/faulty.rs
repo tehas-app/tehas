@@ -24,7 +24,7 @@ use crate::{
     Rev, Revision, Scope, Secret, Sent, SignInCode, SignInState, Site, SiteId, Standing, Status,
     Step, StepPart, Sum, Tag, TagName, Target, TargetEdit, TargetId, Ticket, TicketDelta,
     TicketDigest, TicketEvent, TicketKey, TicketWrites, Tickets, Token, Took, Unprepared, Unread,
-    WebLink, Whole, Whose, Window, Within, WorkItem,
+    WebLink, Whole, Whose, Window, WithCloser, Within, WorkItem,
 };
 
 /// How many seconds of failures a `Faulty` asks its ledger to keep: the
@@ -44,6 +44,8 @@ pub enum TicketsOp {
     List,
     /// `Tickets::several`.
     Several,
+    /// `Tickets::several_with_closers`.
+    SeveralWithClosers,
     /// `Tickets::history`.
     History,
     /// `Tickets::notes`.
@@ -1064,6 +1066,12 @@ impl<H: Tickets + ?Sized> Tickets for Wrap<H> {
     fn several(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<TicketDigest>)> {
         let fail = |o: Outcome| keys.iter().map(|k| (k.clone(), Err(o.clone()))).collect();
         self.call(Op::Tickets(T::Several), fail, |h| h.several(keys))
+    }
+    fn several_with_closers(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<WithCloser>)> {
+        let fail = |o: Outcome| keys.iter().map(|k| (k.clone(), Err(o.clone()))).collect();
+        self.call(Op::Tickets(T::SeveralWithClosers), fail, |h| {
+            h.several_with_closers(keys)
+        })
     }
     fn history(
         &mut self,

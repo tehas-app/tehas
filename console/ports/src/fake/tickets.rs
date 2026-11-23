@@ -14,7 +14,7 @@ use crate::{
     Happened, HappenedKind, Item, Kind, Mark, MarkSpec, Marker, MarkerEdit, MarkerKey, MarkerKind,
     NewTicket, Outcome, Part, Pool, Posted, Priority, Ref, Refusal, Step, StepPart, Target,
     TargetEdit, TargetId, Ticket, TicketChange, TicketDelta, TicketDigest, TicketEvent, TicketKey,
-    TicketWrites, Tickets, Took, Unprepared, WebLink, Whole, Window, Within, Write,
+    TicketWrites, Tickets, Took, Unprepared, WebLink, Whole, Window, WithCloser, Within, Write,
 };
 
 fn at_ticket(s: &State, key: &TicketKey) -> Got<usize> {
@@ -242,6 +242,8 @@ impl Tickets for Handle {
             let all = listed(s, |i| {
                 filter.open.is_none_or(|o| i.open == o)
                     && filter.carrying.iter().all(|m| i.marks.contains(m))
+                    && (filter.carrying_any.is_empty()
+                        || filter.carrying_any.iter().any(|m| i.marks.contains(m)))
                     && filter
                         .kind
                         .as_ref()
@@ -259,6 +261,16 @@ impl Tickets for Handle {
         self.each(keys, |s, _, k| {
             let at = at_ticket(s, k)?;
             digest(s, &s.items[at]).ok_or(Outcome::NotFound)
+        })
+    }
+
+    fn several_with_closers(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<WithCloser>)> {
+        self.each(keys, |s, _, k| {
+            let at = at_ticket(s, k)?;
+            let item = &s.items[at];
+            let digest = digest(s, item).ok_or(Outcome::NotFound)?;
+            let closer = if item.open { None } else { item.closer.clone() };
+            Ok((digest, closer))
         })
     }
 

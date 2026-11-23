@@ -208,6 +208,11 @@ impl Tickets for StubTickets {
             .map(|k| (k.clone(), self.find(k).map(|t| t.digest)))
             .collect()
     }
+    fn several_with_closers(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<WithCloser>)> {
+        keys.iter()
+            .map(|k| (k.clone(), self.find(k).map(|t| (t.digest, t.closer))))
+            .collect()
+    }
     fn history(
         &mut self,
         _: &TicketKey,

@@ -911,6 +911,7 @@ fn tickets_read_back() {
     round(Filter {
         open: Some(true),
         carrying: vec![Mark::Act(Act::Plan)],
+        carrying_any: vec![Mark::State(State::Running), Mark::Epic],
         kind: Some(Kind::Feature),
         target: Some(TargetId::new("t")),
     });
