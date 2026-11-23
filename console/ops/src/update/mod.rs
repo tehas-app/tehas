@@ -70,7 +70,7 @@
 mod assets;
 mod checkout;
 mod files;
-mod findings;
+pub(crate) mod findings;
 mod finish;
 mod host;
 #[cfg(test)]

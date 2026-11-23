@@ -547,7 +547,7 @@ kept=$T/home/tehas/state/cycles/7.manifest.json
 # kept here in the shape approval-view gives it back (the shape the
 # record file had). record_put puts it on a fresh store with a start that used
 # it, so a run of tehas work on its own finds it as the latest start's. A
-# fixer's or a refresh's rests on an earlier start of the person's approval in
+# millwright's or a refresh's rests on an earlier start of the person's approval in
 # rests_on.
 record_json=""
 record_put() { t_record "$T/home/tehas" 7 "$record_json"; }

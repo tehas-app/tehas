@@ -5,10 +5,10 @@
 
 use super::clean::iso;
 
-/// Why the fixer may not answer this session's question, empty when it may.
-fn fixer_why(c: &Settings, view: Option<&PlanView>) -> String {
+/// Why the millwright may not answer this session's question, empty when it may.
+fn millwright_why(c: &Settings, view: Option<&PlanView>) -> String {
     if c.millwright.is_empty() {
-        return "there is no fixer".into();
+        return "there is no millwright".into();
     }
     let Some(view) = view else {
         return "the session has no record on this host".into();
@@ -17,22 +17,23 @@ fn fixer_why(c: &Settings, view: Option<&PlanView>) -> String {
     if by.is_empty() || !c.allowed(by) {
         return "no person's tehas:plan started this session, as far as its record says".into();
     }
-    let Some(answers) = &view.fixers else {
+    let Some(answers) = &view.millwrights else {
         return "its record does not say who answered its turns".into();
     };
     let had = answers.iter().filter(|f| **f).count();
     if answers.last() == Some(&true) {
-        return "the fixer answered the question before this one; a person answers this one".into();
+        return "the millwright answered the question before this one; a person answers this one"
+            .into();
     }
-    if had as i64 >= c.fixer_max_plan_answers {
-        return format!("the fixer has answered {had} questions in this session, the limit");
+    if had as i64 >= c.millwright_max_plan_answers {
+        return format!("the millwright has answered {had} questions in this session, the limit");
     }
     String::new()
 }
-/// fixer_why of a session in `shape`'s JSON.
+/// millwright_why of a session in `shape`'s JSON.
 #[cfg(test)]
-fn fixer_answer_why(c: &Settings, view: &Value) -> String {
-    fixer_why(c, crate::snapshot::plan_view(view).as_ref())
+fn millwright_answer_why(c: &Settings, view: &Value) -> String {
+    millwright_why(c, crate::snapshot::plan_view(view).as_ref())
 }
 use super::{has, or_unknown, Action, End, NoteKind, Poll, Room, Spend, Step, Turn};
 use crate::questions::Asked;
@@ -125,25 +126,27 @@ impl Poll<'_> {
         });
     }
 
-    /// fixer_answer_ok: whether the fixer's reply may run the turn.
-    fn fixer_answer_ok(&mut self, n: u64, view: &PlanView, ans: &Asked) -> bool {
-        let why = fixer_why(self.c, Some(view));
+    /// millwright_answer_ok: whether the millwright's reply may run the turn.
+    fn millwright_answer_ok(&mut self, n: u64, view: &PlanView, ans: &Asked) -> bool {
+        let why = millwright_why(self.c, Some(view));
         if why.is_empty() {
             return true;
         }
-        let Some(id) = digits(ans.fixer_reply.as_ref().and_then(|f| f.id.as_ref())) else {
+        let Some(id) = digits(ans.millwright_reply.as_ref().and_then(|f| f.id.as_ref())) else {
             return false;
         };
         if listed(&view.refused, &id) {
             return false;
         }
-        self.log(format!("skip #{n}: the fixer's answer runs no turn: {why}"));
+        self.log(format!(
+            "skip #{n}: the millwright's answer runs no turn: {why}"
+        ));
         if !self.dry {
             self.act(Action::PlanNote {
                 issue: n,
                 kind: NoteKind::MillwrightRefused,
                 id,
-                say: format!("Tehas did not take the fixer's reply as an answer: {why}. A person answers this question."),
+                say: format!("Tehas did not take the millwright's reply as an answer: {why}. A person answers this question."),
             });
         }
         false
@@ -169,14 +172,14 @@ impl Poll<'_> {
             .trim_end_matches('\n')
             .to_string();
         let mut reply_id = String::new();
-        let mut fixer_said = "";
+        let mut millwright_said = "";
         if !reply.is_empty() {
             let r = ans.reply.as_ref();
             by = r.map(|r| r.by.clone()).unwrap_or_default();
             reply_id = digits(r.and_then(|r| r.id.as_ref())).unwrap_or_default();
         } else if tick == "one" {
-        } else if ans.fixer_reply.is_some() {
-            fixer_said = "reply";
+        } else if ans.millwright_reply.is_some() {
+            millwright_said = "reply";
         } else {
             return Ok(());
         }
@@ -199,20 +202,20 @@ impl Poll<'_> {
             return Ok(());
         }
         let mut speaker = "The operator";
-        if !fixer_said.is_empty() {
+        if !millwright_said.is_empty() {
             let Some(p) = open else {
                 self.log(format!(
                     "skip #{n}: its planning session on record could not be read"
                 ));
                 return Ok(());
             };
-            if !self.fixer_answer_ok(n, &p.view, ans) {
+            if !self.millwright_answer_ok(n, &p.view, ans) {
                 return Ok(());
             }
-            speaker = "The fixer";
+            speaker = "The millwright";
             by = self.c.millwright.clone();
-            if fixer_said == "reply" {
-                let f = ans.fixer_reply.as_ref();
+            if millwright_said == "reply" {
+                let f = ans.millwright_reply.as_ref();
                 reply = f
                     .map_or("", |f| f.text.as_str())
                     .trim_end_matches('\n')
@@ -222,8 +225,8 @@ impl Poll<'_> {
         }
         let boxes = ans.boxes as u64;
         let mut index = ans.tick.index.map(|i| i as u64);
-        // The fixer's reply that names a choice makes it, as a person's does.
-        if fixer_said == "reply" {
+        // The millwright's reply that names a choice makes it, as a person's does.
+        if millwright_said == "reply" {
             if let Some(i) = crate::questions::choice_of(&reply, "plan", &ans.labels) {
                 index = Some(i as u64);
                 reply.clear();
@@ -240,8 +243,8 @@ impl Poll<'_> {
         } else {
             let i = index.unwrap_or(u64::MAX);
             if i.checked_add(1) == Some(boxes) {
-                if !fixer_said.is_empty() {
-                    self.log(format!("skip #{n}: the fixer's answer runs no turn: it would end the session, which only a person may"));
+                if !millwright_said.is_empty() {
+                    self.log(format!("skip #{n}: the millwright's answer runs no turn: it would end the session, which only a person may"));
                     return Ok(());
                 }
                 if !self.dry {
@@ -268,10 +271,10 @@ impl Poll<'_> {
             return Ok(());
         }
         self.mesh_ok()?;
-        let from = if fixer_said.is_empty() {
+        let from = if millwright_said.is_empty() {
             by.clone()
         } else {
-            format!("{by}, the fixer")
+            format!("{by}, the millwright")
         };
         if self.dry {
             self.log(format!(
@@ -455,7 +458,7 @@ impl Poll<'_> {
         &mut self,
         n: u64,
         label: &str,
-        fixer: &str,
+        millwright: &str,
     ) -> Step<Option<(String, String, u64)>> {
         match self.epic_part(n)? {
             super::EpicPart::Granted(g) => {
@@ -465,27 +468,27 @@ impl Poll<'_> {
                     n,
                     &at,
                     &who,
-                    &format!("the fixer applied {label}"),
-                    "the fixer or a person applies it again",
+                    &format!("the millwright applied {label}"),
+                    "the millwright or a person applies it again",
                 )? {
                     return Ok(None);
                 }
                 let said = format!(
-                    " as the fixer, on {}'s `tehas:ready` on epic #{} at {}",
+                    " as the millwright, on {}'s `tehas:ready` on epic #{} at {}",
                     g.by, g.epic, g.at
                 );
                 Ok(Some((g.by, said, g.epic)))
             }
             super::EpicPart::Refused(why) => {
                 self.log(format!(
-                    "skip #{n}: {label} from the fixer starts nothing: {why}"
+                    "skip #{n}: {label} from the millwright starts nothing: {why}"
                 ));
-                self.clear_unauthorised(n, label, fixer);
+                self.clear_unauthorised(n, label, millwright);
                 Ok(None)
             }
             super::EpicPart::None => {
-                self.deny("skip", n, label, fixer);
-                self.clear_unauthorised(n, label, fixer);
+                self.deny("skip", n, label, millwright);
+                self.clear_unauthorised(n, label, millwright);
                 Ok(None)
             }
         }
@@ -695,73 +698,73 @@ impl Poll<'_> {
 mod tests {
     use super::*;
 
-    fn with_fixer(max: &str) -> Settings {
+    fn with_millwright(max: &str) -> Settings {
         Settings::parse(&json!({
             "TEHAS_ALLOWED_LABELERS": "alice bob",
-            "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+            "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
             "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS": max,
         }))
     }
 
-    /// A session alice started, with the fixer flags of its answers, oldest
+    /// A session alice started, with the millwright flags of its answers, oldest
     /// first.
     fn turns(flags: &[bool]) -> Value {
         let answers: Vec<Value> = flags
             .iter()
             .enumerate()
             .map(|(i, f)| {
-                json!({"turn": i + 2, "by": if *f { "tehas-fixer" } else { "alice" }, "fixer": f})
+                json!({"turn": i + 2, "by": if *f { "tehas-millwright" } else { "alice" }, "millwright": f})
             })
             .collect();
         json!({"session": "s", "turns": flags.len() + 1, "by": "alice", "answers": answers})
     }
 
     #[test]
-    fn the_fixer_may_answer_in_a_session_a_person_started() {
-        let c = with_fixer("3");
+    fn the_millwright_may_answer_in_a_session_a_person_started() {
+        let c = with_millwright("3");
         let (p, f) = (false, true);
         let one = json!({"session": "s", "turns": 1, "by": "alice"});
-        assert_eq!(fixer_answer_why(&c, &one), "");
-        assert_eq!(fixer_answer_why(&c, &turns(&[p, f, p])), "");
+        assert_eq!(millwright_answer_why(&c, &one), "");
+        assert_eq!(millwright_answer_why(&c, &turns(&[p, f, p])), "");
     }
 
     #[test]
-    fn a_session_no_allowed_account_started_takes_no_fixer_answer() {
-        let c = with_fixer("3");
+    fn a_session_no_allowed_account_started_takes_no_millwright_answer() {
+        let c = with_millwright("3");
         for bad in [
             json!({"session": "s", "turns": 1}),
             json!({"session": "s", "turns": 1, "by": "mallory"}),
             json!({"session": "s", "turns": 1, "by": 7}),
         ] {
             assert_eq!(
-                fixer_answer_why(&c, &bad),
+                millwright_answer_why(&c, &bad),
                 "no person's tehas:plan started this session, as far as its record says"
             );
         }
     }
 
     #[test]
-    fn the_fixer_never_answers_two_turns_in_a_row() {
+    fn the_millwright_never_answers_two_turns_in_a_row() {
         assert_eq!(
-            fixer_answer_why(&with_fixer("3"), &turns(&[false, true])),
-            "the fixer answered the question before this one; a person answers this one"
+            millwright_answer_why(&with_millwright("3"), &turns(&[false, true])),
+            "the millwright answered the question before this one; a person answers this one"
         );
     }
 
     #[test]
-    fn at_the_limit_the_fixer_answers_no_more_in_the_session() {
+    fn at_the_limit_the_millwright_answers_no_more_in_the_session() {
         let (p, f) = (false, true);
         let view = turns(&[f, p, f, p, f, p]);
         assert_eq!(
-            fixer_answer_why(&with_fixer("3"), &view),
-            "the fixer has answered 3 questions in this session, the limit"
+            millwright_answer_why(&with_millwright("3"), &view),
+            "the millwright has answered 3 questions in this session, the limit"
         );
-        assert_eq!(fixer_answer_why(&with_fixer("4"), &view), "");
+        assert_eq!(millwright_answer_why(&with_millwright("4"), &view), "");
     }
 
     #[test]
-    fn answers_of_a_shape_tehas_does_not_know_take_no_fixer_answer() {
-        let c = with_fixer("3");
+    fn answers_of_a_shape_tehas_does_not_know_take_no_millwright_answer() {
+        let c = with_millwright("3");
         for bad in [
             json!("lots"),
             json!([{"turn": 2, "by": "alice"}]),
@@ -770,34 +773,34 @@ mod tests {
         ] {
             let view = json!({"session": "s", "turns": 1, "by": "alice", "answers": bad});
             assert_eq!(
-                fixer_answer_why(&c, &view),
+                millwright_answer_why(&c, &view),
                 "its record does not say who answered its turns"
             );
         }
     }
 
     #[test]
-    fn no_record_or_no_fixer_takes_no_fixer_answer() {
+    fn no_record_or_no_millwright_takes_no_millwright_answer() {
         assert_eq!(
-            fixer_answer_why(&with_fixer("3"), &Value::Null),
+            millwright_answer_why(&with_millwright("3"), &Value::Null),
             "the session has no record on this host"
         );
         let none = Settings::parse(&json!({"TEHAS_ALLOWED_LABELERS": "alice bob"}));
         assert_eq!(
-            fixer_answer_why(&none, &json!({"session": "s", "turns": 1, "by": "alice"})),
-            "there is no fixer"
+            millwright_answer_why(&none, &json!({"session": "s", "turns": 1, "by": "alice"})),
+            "there is no millwright"
         );
     }
 
     #[test]
-    fn a_mark_that_is_no_boolean_is_not_read_as_the_fixers() {
+    fn a_mark_that_is_no_boolean_is_not_read_as_the_millwrights() {
         assert_eq!(
             shape(&json!({"answers": [{"turn": 1, "by": "alice", "millwright": "yes"}]})),
             json!({"answers": [{"turn": 1, "by": "alice", "millwright": "yes"}]})
         );
         assert_eq!(
-            shape(&json!({"answers": [{"turn": 2, "by": "tehas-fixer", "millwright": true}]})),
-            json!({"answers": [{"turn": 2, "by": "tehas-fixer", "fixer": true}]})
+            shape(&json!({"answers": [{"turn": 2, "by": "tehas-millwright", "millwright": true}]})),
+            json!({"answers": [{"turn": 2, "by": "tehas-millwright", "millwright": true}]})
         );
     }
 }

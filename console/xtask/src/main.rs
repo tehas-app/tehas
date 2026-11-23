@@ -65,6 +65,7 @@ fn main() -> ExitCode {
         Some("kani-shard") => kani_shard(&args[1..]),
         Some("lean-test") => lean_test(&args[1..]),
         Some("lean-roster") => lean_roster(&args[1..]),
+        Some("config-check") => config_check(&args[1..]),
         _ => {
             eprintln!("xtask: usage: xtask select-tests --root <dir> <path>...");
             eprintln!("       xtask pack-release --script <path> <argument>...");
@@ -77,6 +78,7 @@ fn main() -> ExitCode {
             eprintln!("       xtask kani-shard <kani-list.json> <index> <count>");
             eprintln!("       xtask lean-test --root <dir> <file>");
             eprintln!("       xtask lean-roster --root <dir> --report <file>");
+            eprintln!("       xtask config-check --settings <instance dir>");
             ExitCode::from(64)
         }
     }
@@ -93,6 +95,30 @@ fn workspace(root: &std::path::Path) -> Option<Vec<lean::Target>> {
             })
             .collect(),
     )
+}
+
+/// `config-check --settings <dir>`: an instance's settings held against this
+/// version's load (tehas_ops::settings::config_check). 78 before anything is
+/// read when the directory is not given or is not there; then 0 on a pass and
+/// 78 on a fail.
+fn config_check(args: &[String]) -> ExitCode {
+    let [flag, dir] = args else {
+        eprintln!("xtask: usage: xtask config-check --settings <instance dir>");
+        return ExitCode::from(78);
+    };
+    if flag != "--settings" {
+        eprintln!("xtask: usage: xtask config-check --settings <instance dir>");
+        return ExitCode::from(78);
+    }
+    if !std::path::Path::new(dir).is_dir() {
+        eprintln!("xtask: config-check: no instance directory at {dir}");
+        return ExitCode::from(78);
+    }
+    let (lines, pass) = tehas_ops::settings::config_check(dir, "bash");
+    for line in lines {
+        tehas_core::outln!("{line}");
+    }
+    ExitCode::from(if pass { 0 } else { 78 })
 }
 
 fn lean_test(args: &[String]) -> ExitCode {

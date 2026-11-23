@@ -56,7 +56,7 @@ and the 2.0.0 and 1.0.0 of the two repositories that read it. For tehas:
    refuses it today, and finishing it is 2.1 work. The refactor moves
    the plugin code with its behaviour kept, and builds no new plugin
    features.
-6. **pi-rukas v0.15.5 or later.** 2.0.0 needs pi-rukas v0.15.5 at the
+6. **pi-rukas v0.15.6 or later.** 2.0.0 needs pi-rukas v0.15.6 at the
    least (the trio's program manager, 2026-11-22). T13's proof found two
    faults: on 0.15.1 a roster that exits 0 reports no exit, so lean hands
    back on every pass (fixed in 0.15.2), and lean verify's base probes
@@ -64,7 +64,9 @@ and the 2.0.0 and 1.0.0 of the two repositories that read it. For tehas:
    (fixed in 0.15.4, which checks them out under the repository's
    `.worktrees/`). 0.15.5 adds `.worktrees/` to each clone's
    `.git/info/exclude`, so nothing that stages at the repository's root
-   sees lean's trees. tehas refuses a lean start on a
+   sees lean's trees. 0.15.6 deletes lean's roster report before and after
+   each run and excludes it, so a stale report cannot pass a verify tier.
+   tehas refuses a lean start on a
    sandbox image whose pi-rukas is older, saying why. At the trio's
    readiness review the newest pi-rukas release on the 0.15 line is the one
    pinned (`PI_RUKAS_FOLLOW=release:0.15`): pi-rukas 0.16, which moves it
@@ -387,12 +389,17 @@ dispatcher and a cycle running, with one report.
 
 T4's Done also clears every row of "Temporary rises" in
 `docs/architecture.md` that is still there when it ends, whatever step
-the row names. At #2866 they are: `github-rest` (#2859 and #2860),
-`gh-argv` (#2859 and #2866), `raw-statuses` (#2859), `tests-stub-gh`
-(#2866) and `untyped-signatures` (#2866). A row added later joins the
-list in the same pull request. A T15 port is kept rise-neutral where it
-can be: what it adds to a count it takes out elsewhere in the same pull
-request.
+the row names. Since #2890 the table is empty: a T15 port that raises a
+count narrows the check in the same pull request, or takes out what it
+adds elsewhere. #2890 moved two of its findings here, to fix:
+
+- `github-rest`: the `updatedAt` and `closedAt` of the items of
+  `live/status.json` in `console/tests/top/mod.rs` (#2859), GitHub's
+  names that the queue copies through unchanged. T4 renames them or
+  gives them one owner.
+- `github-rest`: the `--json` of `tehas order` in
+  `console/tests/console_run.rs` (#2879), tehas's own word in a file
+  that also stubs gh, so the file is not allowed.
 
 ### T5. Deep homes for files
 
@@ -421,7 +428,12 @@ the crate graph holds R8.
 typed (T3 to T5). What is left is moved, or written down as a floor.
 
 Done when `untyped-signatures` and `untyped-fields` are 0 or at written
-floors.
+floors. A finding #2890 moved here from "Temporary rises", to fix:
+
+- `untyped-signatures`: the test helper `edited` in
+  `console/src/preview/choose_tests.rs` (#2866), which edits a row of
+  GitHub's list, the untyped value `preview::choose` takes. It goes when
+  T7 types that list.
 
 ### T8. The bash that stays
 
@@ -512,7 +524,8 @@ driver in 2.0 (the owner).
    #2403 (the lens review is not recorded), #2501 (the rest of #2410)
    and #2511 (a typed setup refusal, for part 4). All are merged and
    ship in 0.15.0, and the roster fix of 0.15.2, the base-probe fix of
-   0.15.4 and the exclude of 0.15.5 join them, so the pin is 0.15.5 or later
+   0.15.4, the exclude of 0.15.5 and the roster report of 0.15.6 join them,
+   so the pin is 0.15.6 or later
    on the 0.15 line
    (`PI_RUKAS_FOLLOW=release:0.15`). Each release
    candidate checks this as it checks the pin.
@@ -855,3 +868,8 @@ of main, each grade.
 | 2026-11-22 | The minimum pi-rukas is v0.15.4, for lean's base probes in a cycle container (found by T13's proof) | #2873 |
 | 2026-11-22 | T16: describe, text files, zips and comment links leave core | #2875 |
 | 2026-11-22 | The minimum pi-rukas is v0.15.5, so lean's trees stay out of a product's commits | #2882 |
+| 2026-11-23 | T14: the Protolab is parked, and the first stage is Idea | #2877 |
+| 2026-11-23 | The events spec for T11 | #2878 |
+| 2026-11-23 | Port main @ 9a83945c (`.gitignore` ignores lean's roster report, #2884) | 6625b5f2 |
+| 2026-11-23 | The minimum pi-rukas is v0.15.6, so a stale roster report cannot pass a verify tier | #2891 |
+| 2026-11-23 | "Temporary rises" is empty: T15's false positives are allowed by name or have one owner; two findings move to T4, one to T7 and one is a floor | #2890 |

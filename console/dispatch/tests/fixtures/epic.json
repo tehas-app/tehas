@@ -1,9 +1,9 @@
 {
  "cases": [
   {
-   "case": "the fixer's tehas:ready on a sub-issue of an epic alice made ready starts it, recorded as her label",
+   "case": "the millwright's tehas:ready on a sub-issue of an epic alice made ready starts it, recorded as her label",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -26,7 +26,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -116,8 +116,8 @@
       "by": "alice",
       "given": "label",
       "at": "2026-10-02T00:00:00Z",
-      "verb": "approved on epic #5, labelled by the fixer,",
-      "how": "`tehas:ready` label on epic #5 at 2026-10-01T00:00:00Z, which the fixer carried to this sub-issue"
+      "verb": "approved on epic #5, labelled by the millwright,",
+      "how": "`tehas:ready` label on epic #5 at 2026-10-01T00:00:00Z, which the millwright carried to this sub-issue"
      }
     ],
     "no_actions": [
@@ -130,7 +130,7 @@
   {
    "case": "with TEHAS_MILLWRIGHT_EPICS off the epic approves nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -152,7 +152,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -234,7 +234,7 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: tehas:ready from the fixer starts nothing: no person approved an earlier cycle of it, so the fixer may not start one"
+     "skip #7: tehas:ready from the millwright starts nothing: no person approved an earlier cycle of it, so the fixer may not start one"
     ],
     "actions": [
      {
@@ -249,7 +249,7 @@
   {
    "case": "an epic with needs-human-attention approves nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -272,7 +272,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -358,14 +358,14 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: tehas:ready from the fixer starts nothing: no person approved an earlier cycle of it, so the fixer may not start one"
+     "skip #7: tehas:ready from the millwright starts nothing: no person approved an earlier cycle of it, so the fixer may not start one"
     ]
    }
   },
   {
    "case": "an epic made ready by an account outside the list approves nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -388,7 +388,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -460,14 +460,14 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: tehas:ready from the fixer starts nothing: no person approved an earlier cycle of it, so the fixer may not start one"
+     "skip #7: tehas:ready from the millwright starts nothing: no person approved an earlier cycle of it, so the fixer may not start one"
     ]
    }
   },
   {
    "case": "an epic whose tehas:ready alice took off approves nothing, though tehas's own removal does not end it",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -490,7 +490,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -592,14 +592,14 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: tehas:ready from the fixer starts nothing: no person approved an earlier cycle of it, so the fixer may not start one"
+     "skip #7: tehas:ready from the millwright starts nothing: no person approved an earlier cycle of it, so the fixer may not start one"
     ]
    }
   },
   {
    "case": "an epic whose tehas:ready an outsider took off approves nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -622,7 +622,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -724,14 +724,14 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: tehas:ready from the fixer starts nothing: no person approved an earlier cycle of it, so the fixer may not start one"
+     "skip #7: tehas:ready from the millwright starts nothing: no person approved an earlier cycle of it, so the fixer may not start one"
     ]
    }
   },
   {
    "case": "an epic with no sub-issue open approves nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -754,7 +754,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -836,14 +836,14 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: tehas:ready from the fixer starts nothing: no person approved an earlier cycle of it, so the fixer may not start one"
+     "skip #7: tehas:ready from the millwright starts nothing: no person approved an earlier cycle of it, so the fixer may not start one"
     ]
    }
   },
   {
    "case": "a closed epic, not in the poll's page, approves nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -866,7 +866,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -917,14 +917,14 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: tehas:ready from the fixer starts nothing: no person approved an earlier cycle of it, so the fixer may not start one"
+     "skip #7: tehas:ready from the millwright starts nothing: no person approved an earlier cycle of it, so the fixer may not start one"
     ]
    }
   },
   {
    "case": "a sub-issue an outsider edited after the planner is refused, and says why",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -947,7 +947,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -1029,7 +1029,7 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: tehas:ready from the fixer starts nothing: its epic #5 is approved, but its text was last changed by mallory"
+     "skip #7: tehas:ready from the millwright starts nothing: its epic #5 is approved, but its text was last changed by mallory"
     ],
     "actions": [
      {
@@ -1044,7 +1044,7 @@
   {
    "case": "a sub-issue whose edit record does not say whether it was edited is refused, not read as unedited",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -1067,7 +1067,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -1138,7 +1138,7 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: tehas:ready from the fixer starts nothing: its epic #5 is approved, but whether its text was changed since it was written could not be read"
+     "skip #7: tehas:ready from the millwright starts nothing: its epic #5 is approved, but whether its text was changed since it was written could not be read"
     ],
     "actions": [
      {
@@ -1153,7 +1153,7 @@
   {
    "case": "a sub-issue whose edit record was not read is refused",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -1176,7 +1176,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -1246,7 +1246,7 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: tehas:ready from the fixer starts nothing: its epic #5 is approved, but whether its text was changed since it was written could not be read"
+     "skip #7: tehas:ready from the millwright starts nothing: its epic #5 is approved, but whether its text was changed since it was written could not be read"
     ],
     "actions": [
      {
@@ -1261,7 +1261,7 @@
   {
    "case": "a sub-issue whose edit time is not a time is refused",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -1284,7 +1284,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -1366,7 +1366,7 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: tehas:ready from the fixer starts nothing: its epic #5 is approved, but whether its text was changed since it was written could not be read"
+     "skip #7: tehas:ready from the millwright starts nothing: its epic #5 is approved, but whether its text was changed since it was written could not be read"
     ],
     "actions": [
      {
@@ -1381,7 +1381,7 @@
   {
    "case": "a sub-issue an outsider wrote is refused",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -1404,7 +1404,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -1480,7 +1480,7 @@
   {
    "case": "a sub-issue that carries tehas:improvement is refused",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -1506,7 +1506,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -1598,7 +1598,7 @@
   {
    "case": "a sub-issue a person wrote and the planner rewrote starts too",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -1621,7 +1621,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -1716,7 +1716,7 @@
   {
    "case": "a sub-issue an outsider renamed is refused",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -1746,7 +1746,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -1835,7 +1835,7 @@
   {
    "case": "the planner's rename of a sub-issue keeps it startable",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -1865,7 +1865,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -1951,9 +1951,9 @@
    }
   },
   {
-   "case": "a sub-issue changed after the fixer's label waits for a new one",
+   "case": "a sub-issue changed after the millwright's label waits for a new one",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -1976,7 +1976,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -2058,14 +2058,14 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: its text was changed by 'tehas-bot' after the fixer applied tehas:ready"
+     "skip #7: its text was changed by 'tehas-bot' after the millwright applied tehas:ready"
     ]
    }
   },
   {
    "case": "a retry of an epic's sub-issue rests on the recorded label as any person's approval",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -2088,7 +2088,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-03T00:00:00Z"
        }
@@ -2174,7 +2174,7 @@
     "actions": [
      {
       "start": 7,
-      "by": "tehas-fixer",
+      "by": "tehas-millwright",
       "given": "millwright",
       "fixer_starts": 1,
       "rests_on": {
@@ -2196,7 +2196,7 @@
   {
    "case": "alice's tehas:ready on an epic says its sub-issues are the millwright's",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -2256,7 +2256,7 @@
   {
    "case": "with the setting off the epic's comment is as before",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -2372,9 +2372,9 @@
    }
   },
   {
-   "case": "the fixer's tehas:plan on a sub-issue of an approved epic starts a session on record as alice's",
+   "case": "the millwright's tehas:plan on a sub-issue of an approved epic starts a session on record as alice's",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -2401,7 +2401,7 @@
          "name": "tehas:plan"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -2472,7 +2472,7 @@
    "expect": {
     "exit": 0,
     "log": [
-     "start planning #7 (labelled by alice as the fixer, on alice's `tehas:ready` on epic #5 at 2026-10-01T00:00:00Z)"
+     "start planning #7 (labelled by alice as the millwright, on alice's `tehas:ready` on epic #5 at 2026-10-01T00:00:00Z)"
     ],
     "actions": [
      {
@@ -2487,9 +2487,9 @@
    }
   },
   {
-   "case": "the fixer's tehas:plan with no approved epic is taken off as before",
+   "case": "the millwright's tehas:plan with no approved epic is taken off as before",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [],
@@ -2515,7 +2515,7 @@
          "name": "tehas:plan"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -2585,7 +2585,7 @@
    },
    "expect": {
     "log": [
-     "skip #7: tehas:plan was applied by 'tehas-fixer', not an allowed account"
+     "skip #7: tehas:plan was applied by 'tehas-millwright', not an allowed account"
     ],
     "actions": [
      {
@@ -2603,9 +2603,9 @@
    }
   },
   {
-   "case": "the fixer's tehas:plan under an epic with needs-human-attention is taken off",
+   "case": "the millwright's tehas:plan under an epic with needs-human-attention is taken off",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -2632,7 +2632,7 @@
          "name": "tehas:plan"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -2706,7 +2706,7 @@
    },
    "expect": {
     "log": [
-     "skip #7: tehas:plan was applied by 'tehas-fixer', not an allowed account"
+     "skip #7: tehas:plan was applied by 'tehas-millwright', not an allowed account"
     ],
     "no_actions": [
      {
@@ -2718,7 +2718,7 @@
   {
    "case": "a sub-issue an outsider edited before the planner's last edit is refused",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_EPICS": "1"
    },
    "snapshot": {
@@ -2741,7 +2741,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -2829,7 +2829,7 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: tehas:ready from the fixer starts nothing: its epic #5 is approved, but its text was changed by mallory"
+     "skip #7: tehas:ready from the millwright starts nothing: its epic #5 is approved, but its text was changed by mallory"
     ],
     "actions": [
      {
@@ -3059,7 +3059,7 @@
    "expect": {
     "exit": 0,
     "log": [
-     "start planning #7 (labelled by alice as the fixer, on alice's `tehas:ready` on epic #5 at 2026-10-01T00:00:00Z)"
+     "start planning #7 (labelled by alice as the millwright, on alice's `tehas:ready` on epic #5 at 2026-10-01T00:00:00Z)"
     ],
     "actions": [
      {

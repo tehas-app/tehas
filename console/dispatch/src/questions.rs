@@ -16,15 +16,15 @@ use std::sync::OnceLock;
 /// tell a person something, never to start work. The marker's issue number
 /// is reported for the caller to compare.
 ///
-/// A tick the fixer saved has the status "fixer", or "held" when anyone but
-/// the bot and the fixer edited the question too, or the edits read are not
+/// A tick the millwright saved has the status "millwright", or "held" when anyone but
+/// the bot and the millwright edited the question too, or the edits read are not
 /// all of them: GitHub names who saved a comment, not who ticked which box,
 /// so the tick may be a person's. It is "unread" when the question's edit
 /// history could not be read this poll: the rules wait for the next poll
-/// without acting. The fixer's newest reply, edited by nobody
-/// else, is fixer_reply, and only a comment whose first line is
-/// <!-- tehas:millwright issue=<n> action=answer --> is a reply: the fixer is
-/// the bot, so every note the host writes is the fixer's comment too, and none
+/// without acting. The millwright's newest reply, edited by nobody
+/// else, is millwright_reply, and only a comment whose first line is
+/// <!-- tehas:millwright issue=<n> action=answer --> is a reply: the millwright is
+/// the bot, so every note the host writes is the millwright's comment too, and none
 /// starts with that line. Its text leaves the marker out; a reply with nothing
 /// after the marker is none. Whether either counts is the caller's to decide.
 ///
@@ -39,10 +39,10 @@ pub fn answer(
     bot_id: Option<u64>,
     allowed: &[String],
     id: &str,
-    fixer: &str,
+    millwright: &str,
 ) -> Option<Value> {
     let c = Comments::parse(comments);
-    let a = answer_of(c.or_none()?, bot, bot_id, allowed, id, fixer)?;
+    let a = answer_of(c.or_none()?, bot, bot_id, allowed, id, millwright)?;
     let q = match a {
         Answer::NotAsked {
             written_by: Some(by),
@@ -73,8 +73,8 @@ pub fn answer(
         "reply": q.reply.map(|r| json!({"by": r.by, "text": Given::json(r.text.as_ref()),
             "at": Given::json(r.at.as_ref()), "id": Given::json(r.id.as_ref())})),
     });
-    if !fixer.is_empty() {
-        out["fixer_reply"] = match q.fixer_reply {
+    if !millwright.is_empty() {
+        out["millwright_reply"] = match q.millwright_reply {
             None => Value::Null,
             Some(f) => json!({"by": f.by, "text": f.text, "at": Given::json(f.at.as_ref()),
                 "id": Given::json(f.id.as_ref()), "marked": true}),
@@ -111,8 +111,8 @@ pub struct Asked {
     pub labels: Vec<String>,
     pub tick: Tick,
     pub reply: Option<Reply>,
-    /// None also when no fixer was named.
-    pub fixer_reply: Option<FixerReply>,
+    /// None also when no millwright was named.
+    pub millwright_reply: Option<MillwrightReply>,
 }
 
 impl Asked {
@@ -188,9 +188,9 @@ pub struct Reply {
     pub id: Option<Given>,
 }
 
-/// The fixer's marked reply: its text leaves the marker out.
+/// The millwright's marked reply: its text leaves the marker out.
 #[derive(Clone, Debug, PartialEq)]
-pub struct FixerReply {
+pub struct MillwrightReply {
     pub by: String,
     pub text: String,
     pub at: Option<Given>,
@@ -204,7 +204,7 @@ pub fn answer_of(
     bot_id: Option<u64>,
     allowed: &[String],
     id: &str,
-    fixer: &str,
+    millwright: &str,
 ) -> Option<Answer> {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| {
@@ -318,7 +318,7 @@ pub fn answer_of(
     };
     let tick = chosen.unwrap_or_else(Tick::none);
     let issue = &m["issue"];
-    let fixer_reply = if fixer.is_empty() {
+    let millwright_reply = if millwright.is_empty() {
         None
     } else {
         let mark = format!("<!-- tehas:millwright issue={issue} action=answer -->");
@@ -330,14 +330,14 @@ pub fn answer_of(
             .iter()
             .rfind(|x| {
                 let e = x.editor_login();
-                x.author.login == fixer
-                    && (e.is_empty() || e == fixer)
+                x.author.login == millwright
+                    && (e.is_empty() || e == millwright)
                     && marked(x.body_text().unwrap_or(""))
             })
             .and_then(|f| {
                 let b = f.body_text().unwrap_or("");
                 let text = b.split_once('\n').map_or("", |(_, rest)| rest);
-                (!text.trim().is_empty()).then(|| FixerReply {
+                (!text.trim().is_empty()).then(|| MillwrightReply {
                     by: f.author.login.clone(),
                     text: text.to_string(),
                     at: f.created_at.clone(),
@@ -361,7 +361,7 @@ pub fn answer_of(
             at: r.created_at.clone(),
             id: r.id.clone(),
         }),
-        fixer_reply,
+        millwright_reply,
     })))
 }
 
@@ -434,7 +434,7 @@ mod tests {
     }
 
     const BOT: &str = "tehas-bot";
-    const FIXER: &str = "tehas-fixer";
+    const MILLWRIGHT: &str = "tehas-millwright";
     const MARK: &str = "<!-- tehas:millwright issue=7 action=answer -->";
     const BODY: &str = "Adopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\nTick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->";
     const TURN_3: &str =
@@ -468,8 +468,8 @@ mod tests {
         answer(c, BOT, None, &people(), "", "").unwrap()
     }
 
-    fn read_with_fixer(c: &Value) -> Value {
-        answer(c, BOT, None, &people(), "", FIXER).unwrap()
+    fn read_with_millwright(c: &Value) -> Value {
+        answer(c, BOT, None, &people(), "", MILLWRIGHT).unwrap()
     }
 
     /// A comment by `login` with its body, its time and its id as given.
@@ -479,8 +479,8 @@ mod tests {
         };
     }
 
-    fn fixer_said(body: &str) -> Value {
-        json!([said!(FIXER, body, "2026-01-01T05:00:00Z", 8)])
+    fn millwright_said(body: &str) -> Value {
+        json!([said!(MILLWRIGHT, body, "2026-01-01T05:00:00Z", 8)])
     }
 
     #[test]
@@ -710,17 +710,17 @@ mod tests {
     }
 
     #[test]
-    fn the_fixers_newest_reply_is_reported_apart_with_its_marker_taken_off() {
+    fn the_millwrights_newest_reply_is_reported_apart_with_its_marker_taken_off() {
         let later = json!([
-            {"databaseId": 6, "author": {"login": FIXER}, "body": format!("{MARK}\nolder"), "createdAt": "2026-01-01T03:00:00Z"},
+            {"databaseId": 6, "author": {"login": MILLWRIGHT}, "body": format!("{MARK}\nolder"), "createdAt": "2026-01-01T03:00:00Z"},
             {"databaseId": 7, "author": {"login": "alice"}, "body": "mine", "createdAt": "2026-01-01T04:00:00Z"},
-            {"databaseId": 8, "author": {"login": FIXER}, "body": format!("{MARK}\nAdopt all, as in #12."), "createdAt": "2026-01-01T05:00:00Z"},
+            {"databaseId": 8, "author": {"login": MILLWRIGHT}, "body": format!("{MARK}\nAdopt all, as in #12."), "createdAt": "2026-01-01T05:00:00Z"},
         ]);
-        let a = read_with_fixer(&asked(BODY, "", later));
+        let a = read_with_millwright(&asked(BODY, "", later));
         assert_eq!(a["reply"]["by"], "alice");
         assert_eq!(
-            a["fixer_reply"],
-            json!({"by": FIXER, "text": "Adopt all, as in #12.", "at": "2026-01-01T05:00:00Z",
+            a["millwright_reply"],
+            json!({"by": MILLWRIGHT, "text": "Adopt all, as in #12.", "at": "2026-01-01T05:00:00Z",
                 "id": 8, "marked": true})
         );
     }
@@ -733,14 +733,14 @@ mod tests {
             format!("{MARK}\n  \n\t"),
         ] {
             assert_eq!(
-                read_with_fixer(&asked(BODY, "", fixer_said(&b)))["fixer_reply"],
+                read_with_millwright(&asked(BODY, "", millwright_said(&b)))["millwright_reply"],
                 Value::Null
             );
         }
     }
 
     #[test]
-    fn a_fixer_comment_without_the_marker_of_this_issue_at_its_top_is_no_reply() {
+    fn a_millwright_comment_without_the_marker_of_this_issue_at_its_top_is_no_reply() {
         for b in [
             "Adopt all.".to_string(),
             "<!-- tehas:millwright issue=8 action=answer -->\nAdopt all.".to_string(),
@@ -749,33 +749,33 @@ mod tests {
             "<!-- tehas:millwrightx issue=7 action=answer -->\nAdopt all.".to_string(),
             "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.".to_string(),
         ] {
-            let a = read_with_fixer(&asked(BODY, "", fixer_said(&b)));
-            assert_eq!(a["fixer_reply"], Value::Null, "{b}");
+            let a = read_with_millwright(&asked(BODY, "", millwright_said(&b)));
+            assert_eq!(a["millwright_reply"], Value::Null, "{b}");
         }
     }
 
     #[test]
-    fn a_host_note_after_the_fixers_reply_leaves_the_reply_as_it_was() {
+    fn a_host_note_after_the_millwrights_reply_leaves_the_reply_as_it_was() {
         let later = json!([
-            {"databaseId": 8, "author": {"login": FIXER}, "body": format!("{MARK}\nAdopt all."), "createdAt": "2026-01-01T05:00:00Z"},
-            {"databaseId": 9, "author": {"login": FIXER}, "body": "Tehas did not take the fixer's reply as an answer.", "createdAt": "2026-01-01T06:00:00Z"},
+            {"databaseId": 8, "author": {"login": MILLWRIGHT}, "body": format!("{MARK}\nAdopt all."), "createdAt": "2026-01-01T05:00:00Z"},
+            {"databaseId": 9, "author": {"login": MILLWRIGHT}, "body": "Tehas did not take the millwright's reply as an answer.", "createdAt": "2026-01-01T06:00:00Z"},
         ]);
-        let a = read_with_fixer(&asked(BODY, "", later));
-        assert_eq!(a["fixer_reply"]["id"], 8);
+        let a = read_with_millwright(&asked(BODY, "", later));
+        assert_eq!(a["millwright_reply"]["id"], 8);
     }
 
     #[test]
-    fn a_fixer_reply_edited_by_anyone_but_the_fixer_is_not_the_fixers() {
+    fn a_millwright_reply_edited_by_anyone_but_the_millwright_is_not_the_millwrights() {
         let reply = |editor: &str| {
-            json!([{"databaseId": 8, "author": {"login": FIXER}, "body": format!("{MARK}\nx"),
+            json!([{"databaseId": 8, "author": {"login": MILLWRIGHT}, "body": format!("{MARK}\nx"),
                 "createdAt": "t", "editor": {"login": editor}}])
         };
         assert_eq!(
-            read_with_fixer(&asked(BODY, "", reply("alice")))["fixer_reply"],
+            read_with_millwright(&asked(BODY, "", reply("alice")))["millwright_reply"],
             Value::Null
         );
-        let a = read_with_fixer(&asked(BODY, "", reply(FIXER)));
-        assert_eq!(a["fixer_reply"]["id"], 8);
+        let a = read_with_millwright(&asked(BODY, "", reply(MILLWRIGHT)));
+        assert_eq!(a["millwright_reply"]["id"], 8);
         // And it is not a person's reply.
         assert_eq!(a["reply"], Value::Null);
     }
@@ -785,16 +785,16 @@ mod tests {
         let c = nodes(json!([
             {"author": {"login": BOT}, "databaseId": true, "body": TURN_3},
             said!("alice", 7, 12345, json!({"x": 1})),
-            said!(FIXER, format!("{MARK}\nyes"), [1], false),
+            said!(MILLWRIGHT, format!("{MARK}\nyes"), [1], false),
         ]));
-        let a = answer(&c, BOT, None, &people(), "", FIXER).unwrap();
+        let a = answer(&c, BOT, None, &people(), "", MILLWRIGHT).unwrap();
         assert_eq!(a["comment"], json!(true));
         assert_eq!(
             a["reply"],
             json!({"by": "alice", "text": 7, "at": 12345, "id": {"x": 1}})
         );
-        assert_eq!(a["fixer_reply"]["at"], json!([1]));
-        assert_eq!(a["fixer_reply"]["id"], json!(false));
+        assert_eq!(a["millwright_reply"]["at"], json!([1]));
+        assert_eq!(a["millwright_reply"]["id"], json!(false));
     }
 
     #[test]

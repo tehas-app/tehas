@@ -655,7 +655,7 @@ mod tests {
         assert_eq!(d("stop #975: its issue is closed"), "done");
         assert_eq!(d("planning #3 ended"), "done");
         assert_eq!(
-            d("planning #7 continues (answer from mill-bot, the fixer)"),
+            d("planning #7 continues (answer from mill-bot, the millwright)"),
             "start"
         );
         assert_eq!(d("wait #462: tehas:blocked holds it"), "wait");

@@ -1978,6 +1978,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tehas-core",
+ "tehas-ops",
 ]
 
 [[package]]
