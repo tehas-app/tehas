@@ -89,6 +89,31 @@ pass and 78 on a fail, and 78 before it reads anything when `--settings` is
 missing or names no directory. It reads only the instance directory: no
 GitHub, Docker or git, and no writes.
 
+`--env <file>` stands a file for the host's `~/.config/tehas/env`, for a
+program that renders instance directories for many factories, or a test
+suite, where the host's file is not at hand:
+
+```
+cargo xtask config-check --settings ~/tehas-instance --env host.env
+```
+
+The file is read as tehas reads `~/.config/tehas/env`: `NAME=value` lines,
+an `export ` in front, blank lines and `#` comments. Its settings are given
+to the load as the host's file gives them, so a `TEHAS_MODEL_KEY_<NAME>`
+that `models.json` names counts as set. A line `NAME=<redacted>`, the
+marker unquoted, means the setting is set and its value is not shown: it
+counts as set and its value is not checked. No working file holds that
+line, since a shell that sources it stops at the `<`. Quoted,
+`NAME='<redacted>'` is an ordinary value and is checked like any other.
+Every other value is checked against its rule. `TEHAS_HOME` and
+`TEHAS_INSTANCE_DIR` are checked and not used: `--settings` names the
+directory and no home is read. The check fails with 78, before the load,
+when the file has a line that is no assignment, a value a shell would
+expand, a name that is not a [host setting](/tools#host-settings) or
+`TEHAS_MANAGER_VERSION`, or a value its rule refuses. A missing file is 78
+before anything is read. The output names settings and lines by number,
+never a value.
+
 A required `PI_ENSEMBLE_*` setting that is not set fails, and its line adds
 that a manager which renders `instance.env` for the factories it runs
 supplies it: for such a factory, check the `instance.env` the manager pushes,
@@ -96,8 +121,9 @@ not its raw instance directory.
 
 A pass does not promise the update goes through:
 
-- the credential file is not read. A `GH_TOKEN` line, or a setting
-  `api/renames-1.0.tsv` lists, in `~/.config/tehas/env` still stops 2.0;
+- without `--env`, the credential file is not read. A `GH_TOKEN` line, or a
+  setting `api/renames-1.0.tsv` lists, in `~/.config/tehas/env` still stops
+  2.0, and a key `models.json` names fails as not set;
 - who owns the files is not judged. The update refuses settings another
   account can write;
 - a finding can hide what comes after it. The load stops at its first

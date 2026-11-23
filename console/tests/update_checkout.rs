@@ -281,7 +281,7 @@ fn a_pulled_checkout_has_no_console_beside_it_so_install_sh_checks_the_settings(
     let h = host(1, "echo \"installed: nothing\"");
     h.push_settings_change();
     fs::create_dir_all(h.home.join("libexec")).unwrap();
-    fs::copy(h.console(), h.home.join("libexec/console")).unwrap();
+    tehas_core::testing::copy_exe(h.console(), h.home.join("libexec/console")).unwrap();
     let r = h.sh(r#"unset TEHAS_SETTINGS_CMD; "$TEHAS_CONSOLE" update run "$TEHAS_CONSOLE""#);
     has(
         &r.out,

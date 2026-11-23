@@ -58,6 +58,7 @@ use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::process::{Command, Stdio};
+use tehas_core::env_file::{self, Entry};
 use tehas_core::features;
 use tehas_core::jq::{self, J};
 use tehas_core::sandbox;
@@ -341,7 +342,12 @@ fn rewrites() -> &'static [(&'static str, &'static str)] {
 /// drops, as its own warning names it, one for each finding, then `pass` or
 /// `fail`; true on a pass. A finding can hide the stages after it, so a fail
 /// is run again once it is put right.
-pub fn config_check(dir: &str, bash: &str) -> (Vec<String>, bool) {
+///
+/// `env`, when given, is a file in the form of ~/.config/tehas/env that
+/// stands for the host's ([`host_env`]). Its settings are given to the load
+/// as env.sh gives that file's, and a name it holds as
+/// [`env_file::REDACTED`] counts as set with its value unchecked.
+pub fn config_check(dir: &str, env: Option<&str>, bash: &str) -> (Vec<String>, bool) {
     // The load takes an absolute path only.
     let dir = fs::canonicalize(dir).map_or_else(|_| dir.to_string(), |d| d.display().to_string());
     let text = fs::read(format!("{dir}/instance.env")).unwrap_or_default();
@@ -354,16 +360,37 @@ pub fn config_check(dir: &str, bash: &str) -> (Vec<String>, bool) {
     }
     // A home that does not exist, so no credential file and no other file of
     // this machine takes part.
-    let vars = Vars::new([
+    let mut vars = Vars::new([
         (b"HOME".to_vec(), b"/nonexistent".to_vec()),
         (b"TEHAS_INSTANCE_DIR".to_vec(), dir.as_bytes().to_vec()),
     ]);
+    let mut redacted = Vec::new();
+    if let Some(file) = env {
+        match host_env(file) {
+            Ok(host) => {
+                for (name, value) in host.values {
+                    vars.set(&name, value);
+                }
+                redacted = host.redacted;
+            }
+            Err((name, why)) => {
+                out.push(format!("fail {name}: {why}"));
+                out.push("fail".to_string());
+                return (out, false);
+            }
+        }
+    }
     let uid = sandbox::user();
     let uid = uid.split(':').next().unwrap_or_default().to_string();
     let mut warned = Vec::new();
     let found = crate::update::findings::settings_findings(vars, |vars| {
         load_keeping_warnings(vars, &uid, bash, &mut warned)
-            .map_err(|line| format!("tehas: {line}"))
+            .map_err(|line| format!("tehas: {line}"))?;
+        // After the load, which would check the marker as a value.
+        for name in &redacted {
+            vars.set(name, env_file::REDACTED);
+        }
+        Ok(())
     });
     for line in &warned {
         let name = line.split(' ').next().unwrap_or_default();
@@ -380,6 +407,57 @@ pub fn config_check(dir: &str, bash: &str) -> (Vec<String>, bool) {
     let pass = found.is_empty();
     out.push(if pass { "pass" } else { "fail" }.to_string());
     (out, pass)
+}
+
+/// What a host env file gives [`config_check`]: the values for the load,
+/// and the names that are set and not shown.
+struct HostEnv {
+    values: Vec<(String, String)>,
+    redacted: Vec<String>,
+}
+
+/// The host env file `file`, read as tehas_core::env_file reads it. Each
+/// name must be one the host's file may set (rules::in_host_env) and each
+/// value one of its rule. TEHAS_HOME and TEHAS_INSTANCE_DIR are checked and
+/// not given: the check reads nothing of a home and names its directory
+/// itself. Err is the name to report and why, never a value.
+fn host_env(file: &str) -> Result<HostEnv, (String, String)> {
+    let refuse = |name: &str, why: String| Err((name.to_string(), format!("{why} (see {file})")));
+    let Ok(text) = fs::read_to_string(file) else {
+        return refuse("env", "the file cannot be read as text".to_string());
+    };
+    let entries = match env_file::entries(&text) {
+        Ok(entries) => entries,
+        Err(why) => return refuse("env", why),
+    };
+    let mut host = HostEnv {
+        values: Vec::new(),
+        redacted: Vec::new(),
+    };
+    for (name, entry) in entries {
+        if !rules::in_host_env(&name) {
+            return refuse(
+                &name,
+                format!("{name} is not a setting of ~/.config/tehas/env"),
+            );
+        }
+        let value = match entry {
+            Entry::Value(value) if value.is_empty() => continue,
+            Entry::Value(value) => Some(value),
+            Entry::Redacted => None,
+        };
+        if let Some(Err(why)) = value.as_ref().map(|v| rules::check(&name, v)) {
+            return refuse(&name, format!("{name} is not valid: {why}"));
+        }
+        if name == "TEHAS_HOME" || name == "TEHAS_INSTANCE_DIR" {
+            continue;
+        }
+        match value {
+            Some(value) => host.values.push((name, value)),
+            None => host.redacted.push(name),
+        }
+    }
+    Ok(host)
 }
 
 /// What a refusal of a required model setting that is not set adds: a
