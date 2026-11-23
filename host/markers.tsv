@@ -9,6 +9,9 @@
 # it. Every other field is there once, in the row's order. A field missing,
 # repeated, out of order or not of the row, or a value outside its type,
 # makes the marker Unreadable of the row's kind: reported, never acted on.
+# So a field not of a row, such as an extra asked= on a Millwright marker,
+# reads the marker as Unreadable; a consumer's own fields go in a Project
+# marker.
 #
 # Field types:
 #   blueprint        the blueprint's number, decimal, no leading zero, at
