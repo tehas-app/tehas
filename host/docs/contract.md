@@ -161,6 +161,9 @@ a key. `rows` itself is public.
   and the words `lean` and `classic` of `TEHAS_DRIVER` are kept, not
   renamed, through 2.x. Today `TEHAS_DRIVER=lean` stops with 78 and
   `tehas:lean` starts nothing, while lean is building.
+- **The default driver.** Which driver is the default is not contract; a
+  2.x release may make lean the default once it is proven, without a new
+  major.
 - **No levers for older APIs.** 2.x keeps no alias, renamed command,
   deprecated flag or setting that brings back a behaviour of 1.x.
 - **Release repository and key.** The update reads releases from the
@@ -839,13 +842,17 @@ adopter action as the pull request states them.
   lost end and the ticket and change events are still to come.
   Readers: the consumer that runs many factories, the consumer that reads
   the analytics copies, MCP clients, the end-to-end suite, plugins.
-- **Lean is the default driver.** T13. An issue with a `pi-spec v1` block
-  runs the lean driver; an issue without one runs classic. When lean is
-  only the default and refuses the repository's setup, the same cycle runs
+- **Lean, experimental and opt-in.** T13. The default driver stays
+  classic. Lean ships in 2.0 as an experimental feature, not proven, that
+  an instance opts into: `TEHAS_DRIVER=lean`, or an issue with a
+  `pi-spec v1` block. When a start runs lean because no label chose its
+  driver, and lean refuses the repository's setup, the same cycle runs
   classic, with a host message and one comment on the issue. A lean start
-  on a sandbox image with pi-rukas older than v0.15.9 is refused.
+  on a sandbox image with pi-rukas older than v0.15.9 is refused. None of
+  this is built yet: today lean is still being built and every cycle runs
+  classic ([lean](#lean)).
   Readers: adopters, the consumer that runs many factories.
-  Adopter action: set `verify.roster`, or `TEHAS_DRIVER=classic`.
+  Adopter action: none for an instance that stays on classic.
 - **The rest of clean house.** T16. Panels and the Business page leave
   core for plugins; the store keeps only the migration from 1.4.x.
   Readers: as each pull request names them.
@@ -888,7 +895,8 @@ What each registered feature leaves visible while its flag is off:
 
 ### lean
 
-Building. Planned to ship in 2.0 as the default driver (T13, Pending). Off by
+Building. Planned to ship in 2.0 as experimental and opt-in, with classic
+the default (T13, Pending). Off by
 default; `TEHAS_LEAN=on` stops every command with exit 78 and says `lean` is
 still being built, and so does `TEHAS_DRIVER=lean`, which names the feature
 it needs.

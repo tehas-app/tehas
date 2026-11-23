@@ -514,7 +514,21 @@ T9 lists it in "Changed in 2.0" with its readers.
 
 Done when #2782's "Done when" holds.
 
-### T13. Lean is the default driver
+### T13. Lean available, classic default
+
+Done as "lean available, classic default" (the owner, 2026-11-23). The
+default driver stays classic in 2.0.0. The first round of the proof
+(part 1) finished 0 green of 8, so lean is not proven, and the owner
+decided on 2026-11-23 not to flip the default. Lean ships in 2.0 as
+experimental and opt-in: `TEHAS_DRIVER=lean`, or an issue with a
+`pi-spec v1` block. The fallback to classic on a setup refusal (part 4)
+and the pi-rukas floor of v0.15.9 (part 2) are kept. Which driver is the
+default is not contract (`host/docs/contract.md`, the rules for 2.x): a
+2.x release may make lean the default once it is proven, without a new
+major. What 2.0 still needs for this is under "Pending for 2.0" there.
+
+The history of the step follows. The default flip of part 4 and the
+words of part 5 are dropped; the rest stands.
 
 The owner, 2026-11-22: 2.0.0 runs the lean driver by default. This is a
 behaviour change, made in its own pull requests and not inside a
@@ -547,8 +561,12 @@ driver in 2.0 (the owner).
    candidate checks this as it checks the pin.
 3. **Ship it.** `lean` in `console/core/src/features.rs` moves to
    shipped, and `host/docs/features.md` marks it proven with the dates
-   and issues of the proof.
-4. **The default.** With no `TEHAS_DRIVER`, a start runs lean. An issue
+   and issues of the proof. Since 2026-11-23: it ships as experimental,
+   and `features.md` keeps it experimental until a proof is green.
+4. **The default.** Dropped on 2026-11-23: with no `TEHAS_DRIVER`, a
+   start runs classic. The words below were the plan for a lean default;
+   the fallback in them is kept for a start that runs lean because no
+   label chose its driver. With no `TEHAS_DRIVER`, a start runs lean. An issue
    with no `pi-spec v1` block runs classic, as under `TEHAS_DRIVER=lean`
    today. `TEHAS_DRIVER=classic` and `tehas:classic` keep classic.
    When lean is only the default and its result says `failure.kind` is
@@ -570,15 +588,18 @@ driver in 2.0 (the owner).
    is the one rule. #2511 blocks this part only. If it is not in by the
    trio's readiness review, 2.0.0 ships lean available but not the
    default, and the owner decides.
-5. **The contract.** T9 lists the new default in "Changed in 2.0", with
+5. **The contract.** Dropped on 2026-11-23: there is no new default to
+   list. The plan was: T9 lists the new default in "Changed in 2.0", with
    its readers, in these words: "An issue with a `pi-spec v1` block runs
    the lean driver; an issue without one runs classic." The changelog's
    adopter action: "set `verify.roster`, or `TEHAS_DRIVER=classic`".
+   Instead the rules for 2.x say the default driver is not contract, and
+   "Pending for 2.0" lists lean as experimental and opt-in.
 
-Done when the proof is in `features.md`, the pinned pi-rukas has the
-fixes of trail-openers/pi-rukas#2493, and the dispatcher's and the
-cycle's tests show a start with no driver setting running lean, and
-falling back to classic on lean's setup refusal.
+Done, as "lean available, classic default". The plan's earlier test,
+a start with no driver setting running lean, is dropped. The code of
+"Pending for 2.0" (lean shipped as experimental, the opt-in, the
+fallback and the floor) is built in its own pull requests.
 
 ### T14. The Protolab removed, its plumbing kept
 
