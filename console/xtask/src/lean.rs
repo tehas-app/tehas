@@ -177,6 +177,19 @@ pub fn run_test(root: &Path, all: &[Target], file: &str) -> u8 {
             return 64;
         }
     };
+    let path = root.join(file);
+    let missing = std::fs::read_to_string(&path)
+        .map(|src| missing_modules(&src, path.parent().unwrap_or(root)))
+        .unwrap_or_default();
+    if !missing.is_empty() {
+        // Not the file's name: lean reads an exit that names the file as a
+        // red test, and a test red for want of its own module is no proof.
+        eprintln!(
+            "lean-test: the test declares modules with no file: {}",
+            missing.join(", ")
+        );
+        return 1;
+    }
     match cargo_test(root, t).status() {
         Ok(s) => s.code().map_or(1, |c| u8::try_from(c).unwrap_or(1)),
         Err(e) => {
@@ -237,6 +250,20 @@ pub fn run_roster(root: &Path, all: &[Target], report_to: &Path) -> u8 {
         return 2;
     }
     status
+}
+
+/// The `mod x;` lines of `src` whose `x.rs` or `x/mod.rs` is not in `dir`.
+pub fn missing_modules(src: &str, dir: &Path) -> Vec<String> {
+    src.lines()
+        .filter_map(|l| {
+            let l = l.trim();
+            let l = l.strip_prefix("pub ").unwrap_or(l);
+            let name = l.strip_prefix("mod ")?.strip_suffix(';')?.trim();
+            (!name.is_empty() && name.chars().all(|c| c == '_' || c.is_ascii_alphanumeric()))
+                .then(|| name.to_string())
+        })
+        .filter(|m| !dir.join(format!("{m}.rs")).is_file() && !dir.join(m).join("mod.rs").is_file())
+        .collect()
 }
 
 /// rustfmt calls standard input `<stdin>`; lean needs the file named.
@@ -408,6 +435,18 @@ test result: FAILED. 1 passed; 1 failed; 1 ignored
         }];
         assert!(report(&[(t("p", "a", "f"), broken)])
             .contains("<testcase classname=\"p::a\" name=\"(build)\"><failure"));
+    }
+
+    #[test]
+    fn a_module_the_test_names_must_exist() {
+        let dir = std::env::temp_dir().join(format!("lean-mods-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("common")).unwrap();
+        std::fs::write(dir.join("common/mod.rs"), "").unwrap();
+        std::fs::write(dir.join("helper.rs"), "").unwrap();
+        let src =
+            "mod common;\npub mod helper;\nmod setup_dry;\nmod inline {}\n// mod commented;\n";
+        assert_eq!(missing_modules(src, &dir), ["setup_dry"]);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
