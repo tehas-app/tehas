@@ -1,13 +1,14 @@
 //! The one module of the adapter that writes a label: the label of each of
-//! tehas's words, and the rule a label name keeps. The rest of the adapter
-//! names a word, never its label. The table is `host/labels.tsv`, and a test
-//! of the adapter holds this copy of it to that file.
+//! tehas's words, its colour and text, and the rule a label name keeps. The
+//! rest of the adapter names a word, never its label. The table is
+//! `host/labels.tsv`, read when the adapter is built, and a test of the
+//! adapter holds the words here to that file.
 //!
 //! The rule, [`is_label`], stays in core while `console/src/labels.rs` reads
 //! it there, and comes here when that caller moves behind the ports.
 
 pub use tehas_core::forge::is_label;
-use tehas_ports::{Act, Choice, Mark, State};
+use tehas_ports::{Act, Choice, Colour, Mark, MarkName, MarkSpec, State};
 
 /// The label whose latest application approves work.
 pub const APPROVAL_LABEL: &str = "tehas:ready";
@@ -58,4 +59,25 @@ pub fn label(mark: &Mark) -> Option<String> {
             .find(|(_, m)| m == mark)
             .map(|(l, _)| l.to_string()),
     }
+}
+
+/// `host/labels.tsv` as the adapter was built with it. Nothing reads the
+/// installed copy at run time.
+const FILE: &str = include_str!("../../../host/labels.tsv");
+
+/// The name, colour and text of each label of the table, in its order, as
+/// `prepare` makes them. A line the file does not give whole is left out;
+/// the table's test holds the file to none.
+pub fn specs() -> Vec<MarkSpec> {
+    FILE.lines()
+        .filter_map(|line| {
+            let mut fields = line.split('\t');
+            let (name, colour, about) = (fields.next()?, fields.next()?, fields.next()?);
+            Some(MarkSpec {
+                name: MarkName::new(name).ok()?,
+                colour: Some(Colour::new(colour).ok()?),
+                about: Some(about.to_string()).filter(|a| !a.is_empty()),
+            })
+        })
+        .collect()
 }

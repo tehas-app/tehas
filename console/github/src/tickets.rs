@@ -1,12 +1,14 @@
-//! The tickets port's marks and history, answered over the forge's reads in
-//! the ports' types. The rest of the tickets port comes with the moves that
-//! need it.
+//! The tickets port's digest, marks and history, answered over the forge's
+//! reads in the ports' types. The traits are answered in `port.rs`; the rest
+//! of the tickets port comes with the moves that need it.
 
 use crate::{gh, table, GitHub};
+use serde_json::Value;
 use tehas_core::forge::ForgeError;
 use tehas_ports::{
-    Account, AccountId, AccountKind, At, Got, Happened, HappenedKind, Login, Mark, MarkName,
-    Outcome, Passing, Pool, Realm, Refusal, Sent, TicketEvent, TicketKey, Took, Unread, Window,
+    Account, AccountId, AccountKind, At, CloseReason, Got, Happened, HappenedKind, Kind, Login,
+    Mark, MarkName, Outcome, Passing, Pool, Priority, Realm, Refusal, Revision, Sent, TargetId,
+    TargetName, TicketDigest, TicketEvent, TicketKey, TicketState, Took, Unread, WebLink, Window,
 };
 
 impl GitHub {
@@ -18,6 +20,17 @@ impl GitHub {
         let out = self.issue_answer(issue).map_err(|e| self.outcome(&e))?;
         let labels = gh::parse_labels(&out).ok_or(Outcome::Unread(Unread::Malformed))?;
         Ok(self.read_marks(&labels).into_iter().flatten().collect())
+    }
+
+    /// A ticket's digest, from the issue's REST read: the answer of
+    /// `Tickets::several` for one key. GitHub has no priority: every ticket
+    /// is `Normal`. The revision is the time GitHub last saw it change.
+    pub(crate) fn digest(&mut self, key: &TicketKey) -> Got<TicketDigest> {
+        let issue = number(key)?;
+        let out = self.issue_answer(issue).map_err(|e| self.outcome(&e))?;
+        let labels = gh::parse_labels(&out).ok_or(Outcome::Unread(Unread::Malformed))?;
+        let marks = self.read_marks(&labels).into_iter().flatten().collect();
+        read_digest(&out, key.clone(), marks).ok_or(Outcome::Unread(Unread::Malformed))
     }
 
     /// A ticket's marks going on and off, oldest first, as `Tickets::history`
@@ -113,6 +126,61 @@ fn number(key: &TicketKey) -> Got<u64> {
         TicketKey::Number(n) => Ok(n.get()),
         TicketKey::Key(_) => Err(Outcome::Refused(Refusal::Invalid)),
     }
+}
+
+/// The digest of an issue's REST read, its marks read already. None for an
+/// answer that lacks a field every issue has.
+fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDigest> {
+    let mut v: Value = serde_json::from_str(out.trim()).ok()?;
+    tehas_core::accounts::vouch(&mut v);
+    let text = |k: &str| v.get(k).and_then(Value::as_str);
+    let time = |k: &str| text(k).and_then(tehas_core::time::from_iso).map(At::new);
+    let state = match (text("state")?, text("state_reason")) {
+        ("open", _) => TicketState::Open,
+        // The REST read names no original of a duplicate: a reader that
+        // needs it reads the timeline.
+        ("closed", Some("not_planned" | "duplicate")) => {
+            TicketState::Closed(CloseReason::NotPlanned)
+        }
+        ("closed", _) => TicketState::Closed(CloseReason::Done),
+        _ => return None,
+    };
+    let kind = match v.pointer("/type/name").and_then(Value::as_str) {
+        None => None,
+        Some("Feature") => Some(Kind::Feature),
+        Some("Bug") => Some(Kind::Bug),
+        Some("Task") => Some(Kind::Task),
+        Some("Epic") => Some(Kind::Epic),
+        Some(other) => Some(MarkName::new(other).map_or(Kind::Unknown, Kind::Other)),
+    };
+    let target = match v.get("milestone").filter(|m| !m.is_null()) {
+        None => None,
+        Some(m) => Some(TargetName {
+            id: TargetId::new(m.get("number")?.as_u64()?.to_string()),
+            title: m.get("title")?.as_str()?.to_string(),
+        }),
+    };
+    let author = v.get("user").and_then(|u| {
+        let facts = gh::Facts {
+            id: u.get("id").and_then(Value::as_u64),
+            kind: u.get("type").and_then(Value::as_str).map(str::to_string),
+        };
+        account(u.get("login")?.as_str()?, &facts)
+    });
+    Some(TicketDigest {
+        key,
+        title: text("title")?.to_string(),
+        state,
+        kind,
+        priority: Priority::Normal,
+        marks,
+        target,
+        author,
+        created: time("created_at")?,
+        updated: time("updated_at")?,
+        revision: Revision::new(text("updated_at")?),
+        link: WebLink::new(text("html_url")?).ok()?,
+    })
 }
 
 /// The account of an event, None where it names nobody. The login is folded

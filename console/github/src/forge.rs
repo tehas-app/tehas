@@ -67,7 +67,7 @@ impl GitHub {
 
     /// Ask gh, keeping the reason a failed call gave. `args` are the words
     /// after gh; `call` is what a [`ForgeError`] names.
-    fn call(&mut self, call: &str, args: &[&str]) -> Result<String, ForgeError> {
+    pub(crate) fn call(&mut self, call: &str, args: &[&str]) -> Result<String, ForgeError> {
         match self.runner.run(args) {
             Ok(out) => Ok(out),
             Err(why) => Err(ForgeError::new(call, why)),
@@ -237,7 +237,7 @@ impl Forge for GitHub {
 /// its own past the segment it sits in. Applied to the one part of a path the
 /// site's own answer fills: the label of a removal. The dispatcher's
 /// `read::build::uri` holds the same function, for the branch of a query.
-fn uri(s: &str) -> String {
+pub(crate) fn uri(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
