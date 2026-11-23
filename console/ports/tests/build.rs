@@ -96,6 +96,10 @@ fn every_answer_has_new_or_default() {
     let account = Account::new(Realm::CodeHost, Login::new("someone"), AccountKind::Person);
     assert_eq!(account.id, None);
     let _ = TargetName::new(TargetId::new("t1"), "Target".into());
+    let held = MarkHeld::new(Mark::State(State::Running), MarkId::new("m1"));
+    let with = WithCloser::new(digest());
+    assert_eq!(with.closer, None);
+    assert_eq!(held.id, MarkId::new("m1"));
     let _ = Part::new(Ref::Here(key()), true);
     let _ = Blocker::new(Ref::Here(Item::Ticket(key())), BlockerState::Open);
     assert_eq!(TicketEvent::new(Happened::Marked(Mark::Epic)).at, None);
