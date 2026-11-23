@@ -683,7 +683,6 @@ files=(
   "systemd/tehas-preview.timer|$units/tehas-preview.timer|644"
   "systemd/tehas-preview-sweep.service|$units/tehas-preview-sweep.service|644"
   "systemd/tehas-preview-sweep.timer|$units/tehas-preview-sweep.timer|644"
-  "systemd/tehas-top.service|$units/tehas-top.service|644"
   # 600 as Pi keeps its own files: Pi 1.5 lets the global mcp.json hold a
   # server's auth. A container runs as this account, so it still reads it.
   "pi/mcp.json|$agent/mcp.json|600"
@@ -1097,16 +1096,17 @@ done <<<"$retired"
 
 # The units of features this version does not have: the timed refresh scan
 # (refreshes are asked for one pull request at a time), the improvement loop,
-# the review loop, the product wiki and the energy sampler, which left core in
-# 2.0, the Protolab, removed in 2.0, and the model proxy of outsource, which
-# 2.0 dropped. Found here; in step 5 each timer and path unit, or a service
-# none starts, is stopped and disabled and its files go.
+# the review loop, the product wiki, the energy sampler and the host panel's
+# publisher, which left core in 2.0, the Protolab, removed in 2.0, and the
+# model proxy of outsource, which 2.0 dropped. Found here; in step 5 each timer
+# and path unit, or a service none starts, is stopped and disabled and its
+# files go.
 old_units=()
 scan_units=$units
 for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-improve.service \
   tehas-review.timer tehas-review.service \
   tehas-wiki-status.timer tehas-wiki-status.service tehas-wiki.timer tehas-wiki.path tehas-wiki.service \
-  tehas-energy.service tehas-protolab.timer tehas-protolab.service tehas-outsource-proxy.service; do
+  tehas-energy.service tehas-top.service tehas-protolab.timer tehas-protolab.service tehas-outsource-proxy.service; do
   [ -e "$scan_units/$unit" ] || [ -L "$scan_units/$unit" ] || continue
   old_units+=("$unit")
   [ "$check" = 0 ] || note "stale: $scan_units/$unit"

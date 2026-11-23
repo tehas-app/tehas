@@ -9,9 +9,6 @@
 
 page=$T_ROOT/host/fun/index.html
 game=$T_ROOT/host/fun/game-view.css
-hostjs=$T_ROOT/host/fun/host-view.js
-hostdata=$T_ROOT/host/fun/host-data.js
-hostcss=$T_ROOT/host/fun/host-view.css
 board=$T_ROOT/host/fun/game-view.js
 manual=$T_ROOT/host/docs/operating.md
 features=$T_ROOT/host/docs/features.md
@@ -21,13 +18,9 @@ manual_text=$(cat "$manual")
 features_text=$(cat "$features")
 frag_text=$(cat "$frag")
 dashjs_text=$(cat "$factory"/*.js)
-hostisl_text=$(cat "$factory"/tehas-factory-host.*)
 page_text=$(cat "$page")
 game_text=$(cat "$game")
 board_text=$(cat "$board")
-hostjs_text=$(cat "$hostjs")
-hostdata_text=$(cat "$hostdata")
-hostcss_text=$(cat "$hostcss")
 
 # The markup of one element: from the line that opens it to the line that
 # closes it. Each of these holds no element of its own kind, so the first line
@@ -111,7 +104,7 @@ area_of() { # <class>
       print substr($0, RSTART + 11, RLENGTH - 11); found = 1; exit
     }
     on && index($0, "}") { on = 0 }
-    END { if (!found) print no }' "$game" "$hostcss"
+    END { if (!found) print no }' "$game"
 }
 
 # Every rule that opens with this selector and holds this declaration, printed
@@ -235,11 +228,10 @@ t_lacks "$(rule '.doors {')" 'max-width'
 
 # The rows the monitor column named go with it, so the one-column template names
 # them in its own order. A panel that names no area is placed after every named
-# one: on a host that shows the host panel, the console would
-# be dropped below the breakroom.
+# one, below the breakroom.
 t_case "every panel of the one-column stage names its row"
 medium_areas=$(awk '/^  \.stage \{/,/^  \}/' <<<"$medium" | grep -o '"[a-z ]*"' | tr '\n' ' ')
-t_eq "$medium_areas" '"floor" "doors" "desk" "console" "epics" "host" "break" '
+t_eq "$medium_areas" '"floor" "doors" "desk" "console" "epics" "break" '
 t_lacks "$medium_body" 'grid-area: auto'
 
 # That list is only right while it matches the markup. These are the elements the
@@ -266,7 +258,7 @@ stage_children=$(awk '
     }
     if (first != "" && depth == before + 1 && depth == 1) print first
   }' "$page")
-t_eq "$(tr '\n' ' ' <<<"$stage_children")" "floor doors desk epics host break-room "
+t_eq "$(tr '\n' ' ' <<<"$stage_children")" "floor doors desk epics break-room "
 t_case "every panel the markup puts in the stage has a row of its own"
 for panel in $stage_children; do
   t_contains "$medium_areas" "\"$(area_of "$panel")\""
@@ -381,7 +373,7 @@ t_case "the page closes every element it opens"
 t_eq "$unbalanced" ""
 # The head panel ends at its own closing tag: with that tag gone the block below
 # it would be read as part of the panel.
-t_contains "$head_panel" 'id="floor-host"'
+t_contains "$head_panel" 'id="floor-summary"'
 t_lacks "$head_panel" '<div class="line">'
 t_lacks "$head_panel" 'class="stations"'
 
@@ -422,126 +414,29 @@ t_lacks "$topbar" "$how_to_write"
 # the stylesheet, not copied here.
 t_eq "$(awk -v no="$NO_WIDTH" '/^\.floor-intro \{/ { on = 1 } on && match($0, /max-width: [0-9]+ch/) { print substr($0, RSTART + 11, RLENGTH - 11); found = 1 } on && /\}/ { on = 0 } END { if (!found) print no }' "$game")" 110ch
 
-# The Host panel: what the page holds for host-view.js, and the row of the
-# stage it stands in.
-host_section=$(block '<section class="host" id="host"' '</section>')
-host_looks_up() { t_contains "$hostjs_text" "\$(\"$1\")"; }
 # The rows the stage names, in the order they are drawn.
 stage_areas=$(awk '/^\.stage \{/,/^\}/' "$game" | grep -o '"[a-z ]*"' | tr '\n' ' ')
 
-t_case "the page loads the host view and holds every element it names"
-t_contains "$page_text" '<link rel="stylesheet" href="/fun/host-view.css">'
-t_contains "$page_text" '<script type="module" src="/fun/host-view.js"></script>'
-for id in host menu-host floor-host host-cpus host-load host-cpu host-cpu-gauge host-mem host-mem-percent host-mem-gauge host-state host-rows host-units host-unit-rows floor-host-cpu; do
-  t_contains "$page_text" "id=\"$id\""
-done
-for id in host menu-host floor-host host-cpus host-load host-cpu host-mem host-state host-rows host-unit-rows; do
-  host_looks_up "$id"
-done
+t_case "the host panel left core in 2.0: no section, link, chip or feed of it"
+t_eq "$stage_areas" '"head head" "line monitor" "doors monitor" "board monitor" "console monitor" "epics epics" "break break" '
+t_lacks "$page_text" 'host-view'
+t_lacks "$page_text" 'href="#host"'
+t_lacks "$page_text" 'floor-host'
+t_lacks "$frag_text" 'top.json'
+t_lacks "$frag_text" 'tehas-factory-host'
 
-t_case "the panel, its link and its chip start hidden: nothing shows before the file is read"
-t_contains "$host_section" '<section class="host" id="host" aria-labelledby="host-title" hidden>'
-t_contains "$page_text" '<a href="#host" id="menu-host" hidden>HOST</a>'
-t_contains "$page_text" 'id="floor-host" href="#host" aria-label="Host. Opens Host." hidden'
-# The three are shown or hidden together, and only where the file answers.
-t_contains "$hostjs_text" 'section.hidden = menuLink.hidden = floorHost.hidden = !data'
-t_contains "$hostjs_text" 'if (r.status === 404) { data = null; missedAt = Date.now(); }'
-t_eq "$(awk '/href="#host"/ { n++ } END { print n }' <<<"$page_text")" 2
-
-# A panel that spans the columns and names no area is placed by the grid's own
-# rules, and those rules move it: with every other panel shown every named row is
-# taken, and the panel lands after the breakroom. The row is named here so that
-# the panel stands in one place on every host.
-t_case "the panel takes a row of its own, between the epics and the breakroom"
-t_contains "$hostcss_text" 'grid-area: host;'
-t_lacks "$hostcss_text" 'grid-column:'
-t_eq "$stage_areas" '"head head" "line monitor" "doors monitor" "board monitor" "console monitor" "epics epics" "host host" "break break" '
-# The one-column stage names the row too, in its own order, at the stage's own
-# band.
-t_eq "$(query_of 'grid-template-areas: "floor" "doors" "desk" "console" "epics" "host" "break";' "$game")" \
-  "$stage_band"
-t_lacks "$game_text" '.host '
-# The chip is part of the head panel only where it is shown.
-t_contains "$hostcss_text" '.floor-host'
-t_contains "$hostcss_text" '.floor-head:has(> .floor-host:not([hidden]))'
-
-t_case "what the host says reaches the page as text, never as markup"
-for text in "$hostjs_text" "$hostdata_text" "$frag_text" "$dashjs_text"; do
+t_case "what a file says reaches the plain dashboard as text, never as markup"
+for text in "$frag_text" "$dashjs_text"; do
   t_lacks "$text" 'innerHTML'
   t_lacks "$text" 'insertAdjacentHTML'
   t_lacks "$text" 'outerHTML'
 done
-t_contains "$hostjs_text" 'th.textContent = name;'
-t_contains "$hostdata_text" 'const text = (v) => (typeof v === "string" ? v.slice(0, 64) : "");'
-# The published file is the snapshot of tehas top, and both pages read it on the
-# publisher's own period.
-t_contains "$hostjs_text" 'fetch("/live/top.json", { cache: "no-store" })'
-t_contains "$frag_text" '<tehas-factory-host data-tehas-island="contents" src="/live/top.json">'
-t_contains "$hostdata_text" 'export const PERIOD = 5;'
-# A file older than half a minute of publishes is shown as stale, not as live.
-t_contains "$hostdata_text" 'export const STALE_AFTER = 30;'
-t_lacks "$hostdata_text" 'STALE_AFTER = 45'
-t_lacks "$hostisl_text" 'HOST_STALE'
-
-# The panel judges the age of a snapshot by the server's clock: a host whose
-# clock runs behind would else read its own dead file as fresh. The plain
-# dashboard reads the file through the kit's feed, which gives no headers,
-# and judges by the viewer's clock. That is a regression waiting on the
-# owner, so it is not pinned here.
-t_contains "$hostjs_text" 'Date.parse(r.headers.get("Date") || "")'
-
-# One copy of what live/top.json means. The panel draws tables and the plain
-# dashboard draws a list, but both ask the same module for the figures, the
-# words for age and the bound on rows: the two cannot drift apart.
-t_case "the plain dashboard draws the host from the module the panel draws from"
-t_contains "$hostjs_text" 'import { MISS_RETRY, PERIOD, dueToRead, layout } from "./host-data.js";'
-t_contains "$hostisl_text" 'import { agoText, layout } from "../host-data.js";'
-t_contains "$frag_text" '<script type="module" src="/fun/factory/tehas-factory-host.js"></script>'
 t_lacks "$frag_text" '<script type="module">'
-# The dashboard's own copy of the reading is gone: no bound of its own for
-# staleness, no uptime of its own, no rounding of a percentage of its own.
-t_lacks "$hostisl_text" 'hostUptime'
-t_lacks "$hostisl_text" 'const figure ='
-t_contains "$hostisl_text" 'const view = layout(top, nowMs);'
-t_contains "$hostisl_text" 'rows: view.rows.map('
-t_contains "$hostisl_text" 'units: view.units.map('
-# It is still a plain list: a ul per section, not the panel's tables.
-t_contains "$hostisl_text" '<ul class="issues" id="host-list">'
-t_contains "$hostisl_text" '<ul class="issues" id="unit-list">'
 t_lacks "$dashjs_text" 'insertRow'
-
-t_case "the panel lists the units below the processes, as tehas top lists them"
-t_contains "$host_section" '<table class="host-table host-units" id="host-units" aria-label="Units of the factory">'
-t_contains "$host_section" '<tbody id="host-unit-rows"></tbody>'
-for name in UNIT INSTALLED STATE NEXT; do
-  t_contains "$host_section" ">$name</th>"
-done
-t_contains "$hostdata_text" 'units: list(file.units)'
-t_contains "$hostjs_text" 'unitRows.replaceChildren();'
-# The plain dashboard gives the same as a simple list.
-t_contains "$hostisl_text" '<ul class="issues" id="unit-list">'
-t_contains "$hostisl_text" 'u.installed + "  " + u.state'
-
-t_case "a page that publishes nothing is not asked for every five seconds"
-t_contains "$hostdata_text" 'export const MISS_RETRY = 60;'
-t_contains "$hostdata_text" 'if (hidden) return false;'
-t_contains "$hostjs_text" 'if (!dueToRead({ hidden: document.hidden, missedAt }, Date.now())) return;'
-# The plain dashboard asks once a minute while the file is not there, and
-# every ten seconds while it is (test/browser/dashboard-check.mjs).
-t_contains "$hostisl_text" 'const SOON = 10000, LATER = 60000;'
-t_contains "$hostisl_text" 'const good = createMemo(() => live.error() == null);'
-# The rest of what the plain dashboard polls: the queue every ten seconds, and
-# the console of a cycle every two.
+# What the plain dashboard polls: the queue every ten seconds, and the console
+# of a cycle every two.
 t_contains "$(cat "$factory/tehas-factory-state.render.js")" 'feed(props.src, { every: 10000 })'
 t_contains "$(cat "$factory/tehas-factory-tail.js")" 'const EVERY = 2000;'
-
-t_case "the manual and the feature list say the host panel exists"
-t_contains "$features_text" 'Host panel'
-t_contains "$features_text" 'tehasbot top` writes that snapshot'
-t_contains "$features_text" 'then the units as'
-t_contains "$features_text" 'lists them. A snapshot older than 30 seconds is called stale'
-t_lacks "$features_text" 'the host panel is planned'
-t_contains "$frag_text" '<section id="host" hidden>'
 
 t_case "a paused factory is said as paused, and as finishing the issue it has"
 t_contains "$board_text" 'FACTORY PAUSED, FINISHING #'

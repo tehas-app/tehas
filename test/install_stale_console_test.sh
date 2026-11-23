@@ -26,8 +26,8 @@ for f in $gone; do
   t_contains "$t_out" "removed: $f"
   t_eq "$([ -e "$f" ] && echo there)" ""
 done
-# tehasbot top of before runs with-settings at each mark: the unit restarts.
-t_contains "$(cat "$th/state/update-pending")" "tehas-top.service"
+# The host panel's publisher, which ran with-settings, left core in 2.0.
+t_lacks "$(cat "$th/state/update-pending" 2>/dev/null)" "tehas-top.service"
 for f in dev-login setup update; do
   t_eq "$([ -x "$th/libexec/$f" ] && echo there)" "there"
 done

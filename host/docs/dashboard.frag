@@ -31,10 +31,6 @@
 <section id="previews" hidden></section>
 </tehas-factory-previews>
 
-<tehas-factory-host data-tehas-island="contents" src="/live/top.json">
-<section id="host" hidden></section>
-</tehas-factory-host>
-
 <link rel="stylesheet" href="/fun/kit/kit.css">
 <link rel="stylesheet" href="/fun/factory/factory.css">
 <script src="/fun/host-bridge.js"></script>
@@ -44,4 +40,3 @@
 <script type="module" src="/fun/factory/tehas-factory-readonly.js"></script>
 <script type="module" src="/fun/factory/tehas-factory-days.js"></script>
 <script type="module" src="/fun/factory/tehas-factory-previews.js"></script>
-<script type="module" src="/fun/factory/tehas-factory-host.js"></script>
