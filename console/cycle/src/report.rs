@@ -16,7 +16,7 @@ use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
 use tehas_core::question::{q_clean, q_render, Kind};
 use tehas_core::text::disarm;
-use tehas_ports::{Mark, State};
+use tehas_ports::{BlueprintNo, Mark, Marker, MarkerWord, ParkMarker, Sha256, State};
 
 /// What a report asks GitHub, as the bash asks it: each with its tries and
 /// bounds, which are the caller's.
@@ -165,6 +165,9 @@ pub struct Park {
     /// pi-rukas's handoff marker and tehas's park marker.
     pub marker: String,
     pub park_marker: String,
+    /// The park's marker typed, for a write of the ports. The text above
+    /// stays for q_render until T4.7.
+    pub park: Option<ParkMarker>,
     /// The host's line when this park repeats the one before it.
     pub repeat: String,
     /// It ended at child-timeout:develop with no stop: once it is on record
@@ -225,6 +228,21 @@ impl Park {
         (text, body)
     }
 
+    /// [`Park::question`] as a write of the ports takes it: the body as
+    /// q_render writes it, whose sum goes on record, then its text without
+    /// our markers and the markers beside it.
+    pub fn question_parts(&self, issue: u64, stuck: bool) -> Option<(String, String, Vec<Marker>)> {
+        let (_, full) = self.question(issue, stuck);
+        let bare = Park {
+            park_marker: String::new(),
+            ..self.clone()
+        };
+        let (_, rendered) = bare.question(issue, stuck);
+        let (text, markers) =
+            tehas_core::question::q_parts(&rendered, Kind::Park, issue, 1, self.park.clone())?;
+        Some((full, text, markers))
+    }
+
     /// The comment of a park that asks no question: one not on record, or
     /// one whose question could not be posted. It has no boxes.
     pub fn comment(&self, stuck: bool, on_record: bool) -> String {
@@ -254,6 +272,23 @@ impl Park {
             format!("\n\n{}", self.park_marker)
         };
         format!("{marker}{words}{park}")
+    }
+
+    /// [`Park::comment`] as a write of the ports takes it: the text without
+    /// the park's marker, and the marker beside it.
+    pub fn comment_parts(&self, stuck: bool, on_record: bool) -> (String, Vec<Marker>) {
+        let mut said = Park {
+            park_marker: String::new(),
+            ..self.clone()
+        }
+        .comment(stuck, on_record);
+        if self.park.is_none() {
+            said = self.comment(stuck, on_record);
+        }
+        (
+            said,
+            self.park.clone().map(Marker::Park).into_iter().collect(),
+        )
     }
 
     fn handoff_part(&self) -> String {
@@ -457,6 +492,29 @@ fn text(o: &Value, k: &str) -> String {
     }
 }
 
+/// The fields of a park's marker: its step and kind, cut to the marker's
+/// words, whether the model provider failed, and its sig, its free text in
+/// the hash only.
+fn park_fields(
+    step: &str,
+    cap: &str,
+    park_reason: &str,
+    kind: &str,
+    cause: &str,
+) -> (String, String, String) {
+    let low = |s: &str| {
+        cut(
+            &kept(s, |c| {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'
+            }),
+            40,
+        )
+    };
+    let s = if step == "-" { "" } else { step };
+    let sig = tehas_core::question::park_sig(step, cap, park_reason, kind, cause);
+    (low(s), low(kind), sig)
+}
+
 /// tehas_park_marker: the fields of a park for the millwright, its free
 /// text in the hash only.
 pub fn park_marker(
@@ -468,22 +526,30 @@ pub fn park_marker(
     cause: &str,
     provider: bool,
 ) -> String {
-    let low = |s: &str| {
-        cut(
-            &kept(s, |c| {
-                c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'
-            }),
-            40,
-        )
-    };
-    let s = if step == "-" { "" } else { step };
-    let sig = tehas_core::question::park_sig(step, cap, park_reason, kind, cause);
+    let (s, k, sig) = park_fields(step, cap, park_reason, kind, cause);
     format!(
-        "<!-- tehas:park issue={issue} step={} kind={} provider={} sig={sig} -->",
-        low(s),
-        low(kind),
+        "<!-- tehas:park issue={issue} step={s} kind={k} provider={} sig={sig} -->",
         u8::from(provider)
     )
+}
+
+/// The park's marker as a write of the ports carries it beside the body:
+/// the same fields as [`park_marker`]'s text.
+pub fn park_typed(
+    issue: u64,
+    step: &str,
+    cap: &str,
+    park_reason: &str,
+    kind: &str,
+    cause: &str,
+    provider: bool,
+) -> Option<ParkMarker> {
+    let (s, k, sig) = park_fields(step, cap, park_reason, kind, cause);
+    let mut m = ParkMarker::new(BlueprintNo::new(issue)?, Sha256::new(sig).ok()?);
+    m.step = MarkerWord::new(s).ok()?;
+    m.kind = MarkerWord::new(k).ok()?;
+    m.provider = provider;
+    Some(m)
 }
 
 /// q_park_repeat: the line a repeating park says of itself, in the host's
@@ -1364,6 +1430,15 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         &failure_cause,
         provider,
     );
+    let typed = park_typed(
+        issue,
+        &step,
+        &cap,
+        &park_reason,
+        &failure_kind,
+        &failure_cause,
+        provider,
+    );
     let sig =
         tehas_core::question::park_sig(&step, &cap, &park_reason, &failure_kind, &failure_cause);
     let base = Park {
@@ -1371,6 +1446,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         usage: usage.clone(),
         marker: marker.clone(),
         park_marker: pm,
+        park: typed,
         repeat: if !provider && repeats(f, &sig, &step) {
             repeat_line(&step, &cap)
         } else {
