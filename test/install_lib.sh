@@ -5,10 +5,8 @@
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck disable=SC2034  # the variables here are read by the test files
 
-# install_fixture <checkout> <dir>: <checkout>'s tracked files as the working
-# tree holds them, deleted ones left out, so an untracked file cannot change what
-# an install sees. With no .git it names itself as a release tree does: COMMIT,
-# and VERSION as <newest tag>+<short hash>, the hash alone with no tag.
+# install_fixture <checkout> <dir>: the tracked files as the tree holds them. With
+# no .git it names itself as a release does: COMMIT, and VERSION <tag>+<hash>.
 install_fixture() { # <checkout> <dir>
   local from=$1 to=$2 kept=$T/ls-files deleted=$T/ls-deleted tag hash
   # A tree whose tracked files cannot be read fails here, not as a fixture of
@@ -58,8 +56,7 @@ t_stub systemctl
 # A first install makes the labels in the product repository.
 t_stub gh
 t_stub_cargo
-# What cargo stands in for is no program, and the labels and tehas api are verbs
-# of the console: these run the console of this checkout.
+# The labels and tehas api are verbs of the console: run this checkout's.
 # shellcheck disable=SC2154  # t_console_why is set by test/lib.sh
 t_console || t_bad "$t_console_why"
 T_APP_WORLD=0
@@ -75,8 +72,7 @@ EOF
 }
 # Everything install.sh put on the host, relative to the scratch home.
 installed_files() { (cd "$home" && find . -type f ! -name '*.prev' | LC_ALL=C sort); }
-# The host facts after an install as one JSON object, from `tehas api --json`
-# in a clean environment, as the factory's user would run it.
+# The host facts after an install: `tehas api --json` in a clean environment.
 # shellcheck disable=SC2154  # t_out is set by test/lib.sh, which the part sources first
 api_json() { t_run "'$th/bin/tehas' api --json"; printf '%s\n' "$t_out"; }
 
@@ -148,9 +144,8 @@ files="./.bashrc
 ./tehas/sandbox/npm/playwright/package.json
 ./tehas/shim/gh
 ./tehas/versions.env"
-# Left out of the exact comparison and checked on their own: the manual and the
-# front page, whole directories, and what is the host's own, not install.sh's:
-# state/ and the marker that says the home is tehas's, which nothing removes.
+# Checked on their own: the manual, the front page, whole directories, state/
+# and the marker that says the home is tehas's.
 install_marker=.tehas-home
 core_files() {
   installed_files | grep -v -e '^./tehas/docs/' -e '^./tehas/fun/' -e '^./tehas/state/' -e "^./tehas/$install_marker"
@@ -186,10 +181,8 @@ checkout() {
 # A home installed from such a checkout, which owes no build.
 installed_checkout() { fresh; instance; checkout; t_run "$part/install.sh"; }
 
-# install_list_report: the names of a home that the files= list above does not
-# name, and the names it promises that the home lacks, one line each, with the
-# direction in each line. Each side is a newline separated set of names in any
-# order; a side that names nothing is refused, as a mistake of the caller.
+# install_list_report: the names a home holds that files= lacks, and the reverse,
+# one line each; a side that names nothing is refused.
 install_list_report() { # <names the list promises> <names the home holds>
   local expected installed one
   if [ "$#" != 2 ]; then
@@ -219,4 +212,29 @@ install_list_report() { # <names the list promises> <names the home holds>
   while read -r one; do
     printf 'missing installed file %s: install.sh does not copy it into the home\n' "$one"
   done < <(comm -23 <(printf '%s' "$expected") <(printf '%s' "$installed"))
+}
+
+# The labels of the sandbox image, as docker image inspect answers them
+# (install_images_*_test.sh).
+docker_labels() { # <label value, blank for an image with no label, absent for no image>
+  case "$1" in
+    absent)
+      t_stub docker 'case "$1 $2" in "version --format") echo 29.1.3 ;; "network inspect") echo "true bridge false isolated" ;; "image inspect") exit 1 ;; esac'
+      ;;
+    blank)
+      t_stub docker 'case "$1 $2" in "version --format") echo 29.1.3 ;; "network inspect") echo "true bridge false isolated" ;; "image inspect") exit 0 ;; esac'
+      ;;
+    *)
+      t_stub docker "case \"\$1 \$2\" in \"version --format\") echo 29.1.3 ;; \"network inspect\") echo \"true bridge false isolated\" ;; \"image inspect\") echo \"$1\" ;; esac"
+      ;;
+  esac
+}
+img_commit=$(printf 'c%.0s' {1..40})
+img_name=tehas/pi-rukas:uid$(id -u)
+
+# Before bin/tehas there was one file for each command in ~/tehas/bin.
+old_layout() {
+  for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-index tehas-protolab \
+    tehas-status tehas-test tehas-work; do echo "# old" >"$th/bin/$f"; done
+  echo "# older" >"$th/bin/tehas-dispatch.prev"
 }
