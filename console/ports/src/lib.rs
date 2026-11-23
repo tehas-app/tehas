@@ -1,5 +1,9 @@
 //! The ports of tehas, in tehas's own words: tickets, blueprints and the
-//! code host, and the types they share.
+//! code host, identity and the joined reads, and the types they share.
+//!
+//! A `Site` is `Send + Sync`, takes `&self` and makes the handles of one
+//! realm of one project. A handle is made per pass, takes `&mut self`, owns
+//! what it uses and is `Send`, not `Sync`. The traits are synchronous.
 //!
 //! No supplier is named here. The crate has std and serde alone and no
 //! effects: no file, network, process, environment or clock. It is vendored
@@ -8,20 +12,38 @@
 #![deny(missing_docs)]
 
 mod account;
+mod blueprints;
+mod board;
 mod body;
 mod bound;
+mod code_host;
+mod identity;
 mod ids;
+mod links;
 mod mark;
 mod marker;
 mod outcome;
+mod report;
+mod site;
+mod tickets;
+mod write;
 
 pub use account::*;
+pub use blueprints::*;
+pub use board::*;
 pub use body::*;
 pub use bound::*;
+pub use code_host::*;
+pub use identity::*;
 pub use ids::*;
+pub use links::*;
 pub use mark::*;
 pub use marker::*;
 pub use outcome::*;
+pub use report::*;
+pub use site::*;
+pub use tickets::*;
+pub use write::*;
 
 /// The tehas tag these files came from. The crate has no version of its own.
 pub const VERSION: &str = "v2.0.0";

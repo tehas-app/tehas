@@ -216,7 +216,7 @@ fn gives_nothing(issue: u64, dir: &Path, record: &str, data: &str) -> Result<(),
     let approval = if !record.is_empty() {
         let r = record_value(Path::new(record)).ok_or(NO_ATTACH)?;
         let mut given = 0;
-        for key in ["links", "comment_links", "retry_context"] {
+        for key in ["links", "retry_context"] {
             given += array_or_none(&r, key).ok_or(NO_ATTACH)?.len();
         }
         if given != 0 {
@@ -277,7 +277,6 @@ pub fn issue_images(
         return gives_nothing(issue, dir, record, data);
     };
     let (issue_str, repo, dir_str) = (issue.to_string(), env("TEHAS_REPO"), dir.to_string_lossy());
-    let allowed = env("TEHAS_ALLOWED_LABELERS");
     let args: Vec<&str> = [
         issue_str.as_str(),
         dir_str.as_ref(),
@@ -287,8 +286,6 @@ pub fn issue_images(
         record,
         "--repo",
         &repo,
-        "--allowed",
-        &allowed,
     ]
     .to_vec();
     take(&bin, "issue", &args, &format!("{data}\n"))
@@ -1135,9 +1132,13 @@ mod tests {
             manifest(&dir)["approval"],
             json!({"at": "2026-10-14T00:00:00Z", "by": "alice", "how": "label"})
         );
-        // Comment links, the words of a retry, or a record of another shape.
+        // A record written before 2.0 may carry comment_links: ignored.
+        let mut e = r.clone();
+        e["comment_links"] = json!([{"link": "L"}]);
+        fs::write(&record, e.to_string()).unwrap();
+        assert_eq!(issue_images(&d, 7, &dir, "approved", &path, linked), Ok(()));
+        // The words of a retry, or a record of another shape.
         for edit in [
-            json!({"comment_links": [{"link": "L"}]}),
             json!({"retry_context": [{"source": "refresh", "text": "t"}]}),
             json!({"links": 7}),
         ] {
