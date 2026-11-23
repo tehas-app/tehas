@@ -269,9 +269,9 @@ reads it as `<login>#<id>`, which no list matches, and says why on standard
 error. With no id recorded for a login, nothing of it counts until
 `tehas update` records one. GitHub logins are one account in any case, so
 the check ignores ASCII case: `Alice` is checked against the id recorded for
-`alice`, and does not count with another id. Two pairs of one login in two
-cases with different ids record no id for it. `tehas update` records ignoring
-case too: a pair of the login in another case is its pair, so a change of
+`alice`, and does not count with another id. A file that gives one login
+two different ids in two cases cannot be read, as below. `tehas update`
+records ignoring case too: a pair of the login in another case is its pair, so a change of
 case in the settings meets the check below, and the recorded pair is kept
 under the login as the settings write it, in place of every other case.
 
@@ -283,9 +283,31 @@ GitHub spells it.
 - A login that does not resolve stops `install.sh` and `tehas update` with 78
   and names it. Take it out of the settings or correct it.
 - A login whose id is not the recorded one stops them with 78 and names both
-  ids. If the account was renamed and is still the person the settings mean,
+  ids: the login may have changed hands. If it is the same person,
   `tehas update --accept-id <login>` records the new id. If not, take the login
   out of the settings.
+- A file whose lines only end in spaces, tabs or carriage returns is read as
+  the pairs it holds. The ids are checked against those pairs as above, and
+  only when the check passes is the file written back in its plain form.
+- A file that cannot be read with certainty stops them with 78 before GitHub
+  is asked, and nothing is written. The message names the file, the line if
+  there is one, what is wrong and how to repair it:
+  - A line that is not `<login> <id>` with one space between, a login that
+    is not a GitHub login, an id that is not a number, a login given two ids
+    in one case or two, or text that is not UTF-8: fix or remove that line,
+    then run `tehas update`.
+  - A link or other file that is not a regular one, a file over 64 KiB, or
+    a file that is there but holds no pairs: make it a regular file of
+    `<login> <id>` lines, or remove it, then run `tehas update`. A removed
+    file is recorded afresh, as on a first install, with no recorded id to
+    check against.
+  - A file the factory's user cannot read: give it back read and write for
+    that user, then run `tehas update`. Do not remove it; its pairs are what
+    the ids are checked against.
+- Until the file is repaired no listed login counts: the dispatcher and the
+  cycles say on standard error that the file cannot be read. The dispatcher
+  still knows its own questions by the bot's login, as it does before the
+  first record.
 - GitHub that cannot be asked stops them with 78 as well, before anything is
   installed.
 - The ids are asked with the app's token, made from its key as
