@@ -1,0 +1,14 @@
+# The words of a description of an issue's images: the prompt, the head of
+# images.md, the quoting of an answer and the manifest's mark. Nothing in core
+# calls it in 2.0: the given plugin of 2.1 vendors it. A member of the
+# workspace in ../Cargo.toml.
+[package]
+name = "tehas-describe"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+
+[dependencies]
+serde = "1"
+serde_json = "1"

@@ -107,8 +107,8 @@ t_stub docker 'case "$1" in
   run)
     # The smoke run the build starts in the image it made is asked of bash,
     # and the answer that lets the tag move is a step that started. Every
-    # case of this file builds an image that passes: test/sandbox_build_test
-    # .sh is where a refusal of the smoke run is checked.
+    # case of this file builds an image that passes: a refusal of the smoke run
+    # is checked in test/sandbox_build_smoke_test.sh.
     # Its vipune check, the run with a cpuset, answers the quiet line.
     for a in "$@"; do [ "$a" != --cpuset-cpus ] || { echo quiet; exit 0; }; done
     for a in "$@"; do

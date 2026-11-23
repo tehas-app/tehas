@@ -13,8 +13,8 @@ fun=$T_ROOT/host/fun
 themes=$(cd "$fun" && ls theme-*.css)
 # The stylesheets that draw the pages, and the files that write their markup or
 # paint their canvases.
-sheets=(game-view.css manual.css protolab.css host-view.css business.css)
-markup=("$fun/index.html" "$fun/business.html" "$T_ROOT/host/docs/_layout.html" "$T_ROOT/host/docs/dashboard.frag" "$T_ROOT/console/src/protolab.rs")
+sheets=(game-view.css manual.css host-view.css business.css)
+markup=("$fun/index.html" "$fun/business.html" "$T_ROOT/host/docs/_layout.html" "$T_ROOT/host/docs/dashboard.frag" "$T_ROOT/console/items/src/page.rs")
 
 # The tokens a file sets: every custom property declared in it.
 sets() { grep -oE '^ *--[a-z0-9-]+:' "$1" | tr -d ' :' | sort -u; }
@@ -79,11 +79,6 @@ for f in "$fun/index.html" "$fun/business.html" "$T_ROOT/host/docs/_layout.html"
   first=$(grep -oE 'href="/fun/theme-[^"]+\.css' "$f" | head -1 | sed 's/.*"//')
   t_eq "$first" '/fun/theme-{{ $design }}.css'
   t_eq "$(sed -n '1,/theme-{{ \$design }}\.css/p' "$f" | grep -c 'rel="stylesheet"')" 1
-done
-# The Protolab's pages are written by the console: its look() names both.
-look=$(sed -n '/^fn look(design: &str)/,/^}/p' "$T_ROOT/console/src/protolab.rs")
-for want in 'design == "pixel"' '"theme-pixel.css"' '"factory.svg' '"theme-beesknees26.css"' '"favicon.svg'; do
-  t_contains "$look" "$want"
 done
 order=$(grep -oE 'src="/fun/[a-z-]+\.js"' "$fun/index.html" | sed 's/src="\/fun\///; s/"//' | xargs)
 t_contains "$order" "theme.js sample-issues.js brick-wall.js"
@@ -151,7 +146,7 @@ t_case "the business page reads the dispatcher's files and loads its sample firs
 order=$(grep -oE 'src="/fun/[a-z-]+\.js"' "$fun/business.html" | sed 's/src="\/fun\///; s/"//' | xargs)
 t_eq "$order" "mode.js host-bridge.js sample-issues.js console-tabs.js dom.js business-view.js epics-view.js versions.js panels.js"
 t_contains "$(cat "$fun/business.html")" '<script type="module" src="/fun/business-view.js">'
-t_eq "$(grep -oE '"/live/[a-z]+\.json"' "$fun/business-view.js" | tr -d '"' | sort -u | xargs)" '/live/analytics.json /live/protolab.json /live/running.json /live/status.json'
+t_eq "$(grep -oE '"/live/[a-z]+\.json"' "$fun/business-view.js" | tr -d '"' | sort -u | xargs)" '/live/analytics.json /live/running.json /live/status.json'
 
 t_case "the plain dashboard loads the host bridge before its islands, which hold the page's script"
 frag=$T_ROOT/host/docs/dashboard.frag

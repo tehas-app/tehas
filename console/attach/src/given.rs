@@ -31,7 +31,7 @@ pub const MOST_LEFT: usize = 100;
 static AT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9T:.Z-]+\z").unwrap());
 static BY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9-]+\z").unwrap());
 static HOW: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(label|outage-retry|fixer|refresh|host|answer|reply)\z").unwrap()
+    Regex::new(r"^(label|outage-retry|millwright|refresh|host|answer|reply)\z").unwrap()
 });
 static COMMENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(pr-)?comment:[0-9]+\z").unwrap());
 
@@ -514,9 +514,14 @@ fn record_ok(r: &Value) -> bool {
 }
 
 /// The reason of a link and the settings' own words, or nothing for a cycle
-/// that is given attachments by tehas_issue_images.
+/// that is given attachments by tehas_issue_images. No `files` is a caller
+/// that gives no files, as a cycle of 2.0.
 fn not_given(images: &str, files: &str) -> Option<(&'static str, &'static str)> {
     match (images, files) {
+        ("0", "") => Some((
+            "This instance gives a cycle no images (TEHAS_WORK_IMAGES=0).",
+            "TEHAS_WORK_IMAGES=0",
+        )),
         ("0", "0") => Some((
             "This instance gives a cycle no images and no files (TEHAS_WORK_IMAGES=0, TEHAS_WORK_FILES=0).",
             "TEHAS_WORK_IMAGES=0, TEHAS_WORK_FILES=0",

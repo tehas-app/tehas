@@ -2,13 +2,13 @@
  "suite": "test/dispatch_millwright_test.sh",
  "later": [],
  "not_ported": [
-  "the fixer's marked comment before its label is the retry's context, and without such a comment the record has no context: the approval record the start writes, #254"
+  "the millwright's marked comment before its label is the retry's context, and without such a comment the record has no context: the approval record the start writes, #254"
  ],
  "cases": [
   {
-   "case": "the fixer's tehas:ready on an issue alice approved starts a cycle that rests on her approval",
+   "case": "the millwright's tehas:ready on an issue alice approved starts a cycle that rests on her approval",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -39,7 +39,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -66,7 +66,7 @@
     "actions": [
      {
       "start": 7,
-      "by": "tehas-fixer",
+      "by": "tehas-millwright",
       "given": "millwright",
       "fixer_starts": 1,
       "how": "`tehas:ready` label as the fixer, on alice's approval of 2026-10-01T00:00:00Z",
@@ -82,7 +82,7 @@
   {
    "case": "the start takes the escalation label off with the rest of the earlier outcome",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -113,7 +113,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -146,9 +146,9 @@
    }
   },
   {
-   "case": "a dry run of the fixer's start says who labelled it",
+   "case": "a dry run of the millwright's start says who labelled it",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -179,7 +179,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -204,14 +204,14 @@
      7
     ],
     "log": [
-     "would run a cycle for #7 (labelled by the fixer by tehas-fixer)"
+     "would run a cycle for #7 (labelled by the fixer by tehas-millwright)"
     ]
    }
   },
   {
-   "case": "a second fixer start counts on from the first and keeps the person's approval",
+   "case": "a second millwright start counts on from the first and keeps the person's approval",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -242,7 +242,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -278,9 +278,9 @@
    }
   },
   {
-   "case": "at the limit the fixer's label comes off, and the issue says a person decides",
+   "case": "at the limit the millwright's label comes off, and the issue says a person decides",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -311,7 +311,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -333,7 +333,7 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: tehas:ready from the fixer starts nothing: the fixer has started 2 cycles on it since alice approved it, the limit"
+     "skip #7: tehas:ready from the millwright starts nothing: the fixer has started 2 cycles on it since alice approved it, the limit"
     ],
     "log_lacks": [
      "not an allowed account"
@@ -344,15 +344,15 @@
       "remove": [
        "tehas:ready"
       ],
-      "say": "Tehas took `tehas:ready` off this issue and started nothing. The fixer applied it, and the fixer may not start this issue: the fixer has started 2 cycles on it since alice approved it, the limit. A person decides now: an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to start a cycle."
+      "say": "Tehas took `tehas:ready` off this issue and started nothing. The millwright applied it, and the millwright may not start this issue: the fixer has started 2 cycles on it since alice approved it, the limit. A person decides now: an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to start a cycle."
      }
     ]
    }
   },
   {
-   "case": "no approval by a person before: the fixer's label starts nothing",
+   "case": "no approval by a person before: the millwright's label starts nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -383,7 +383,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -402,9 +402,9 @@
    }
   },
   {
-   "case": "a person's approval whose start never ran is no base for the fixer",
+   "case": "a person's approval whose start never ran is no base for the millwright",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -435,7 +435,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -454,9 +454,9 @@
    }
   },
   {
-   "case": "a body changed since the person's approval: the fixer's label starts nothing",
+   "case": "a body changed since the person's approval: the millwright's label starts nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -487,7 +487,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -514,9 +514,9 @@
    }
   },
   {
-   "case": "a busy store leaves the fixer's label for the next poll: no label comes off, nothing is said",
+   "case": "a busy store leaves the millwright's label for the next poll: no label comes off, nothing is said",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -547,7 +547,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -570,9 +570,9 @@
    }
   },
   {
-   "case": "the fixer's label on the control issue starts nothing",
+   "case": "the millwright's label on the control issue starts nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -594,7 +594,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -620,7 +620,7 @@
    }
   },
   {
-   "case": "with no fixer on the instance, its account is an outsider like any other",
+   "case": "with no millwright on the instance, its account is an outsider like any other",
    "settings": {},
    "snapshot": {
     "ready": [
@@ -651,7 +651,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -675,15 +675,15 @@
     "actions": [
      {
       "issue": 7,
-      "log": "clear #7: tehas:ready off, applied by 'tehas-fixer' who may not authorise work here"
+      "log": "clear #7: tehas:ready off, applied by 'tehas-millwright' who may not authorise work here"
      }
     ]
    }
   },
   {
-   "case": "a title changed by an outsider since the person's approval: the fixer's label starts nothing",
+   "case": "a title changed by an outsider since the person's approval: the millwright's label starts nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -721,7 +721,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -756,9 +756,9 @@
    }
   },
   {
-   "case": "a text changed by an outsider since the fixer's label waits, with its label left",
+   "case": "a text changed by an outsider since the millwright's label waits, with its label left",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -789,7 +789,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        },
@@ -824,9 +824,9 @@
    }
   },
   {
-   "case": "a dry run of a refused fixer label says it and changes nothing",
+   "case": "a dry run of a refused millwright label says it and changes nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -857,7 +857,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -881,15 +881,15 @@
     "picked": [],
     "nothing": true,
     "log": [
-     "skip #7: tehas:ready from the fixer starts nothing: the fixer has started 2 cycles on it since alice approved it, the limit",
+     "skip #7: tehas:ready from the millwright starts nothing: the fixer has started 2 cycles on it since alice approved it, the limit",
      "would take tehas:ready off #7"
     ]
    }
   },
   {
-   "case": "an approval by an account no longer allowed is no base for the fixer",
+   "case": "an approval by an account no longer allowed is no base for the millwright",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "body": {
     "7": "Words."
@@ -914,7 +914,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -936,9 +936,9 @@
    }
   },
   {
-   "case": "an approval of a kind the fixer may not rest on is no base",
+   "case": "an approval of a kind the millwright may not rest on is no base",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "body": {
     "7": "Words."
@@ -963,7 +963,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -987,7 +987,7 @@
   {
    "case": "an approval whose hash is not one is no base",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "body": {
     "7": "Words."
@@ -1012,7 +1012,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -1034,9 +1034,9 @@
    }
   },
   {
-   "case": "a fixer start with no person's approval under it is no base",
+   "case": "a millwright start with no person's approval under it is no base",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "body": {
     "7": "Words."
@@ -1061,14 +1061,14 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
       ],
       "approval": {
-       "how": "fixer",
-       "by": "tehas-fixer",
+       "how": "millwright",
+       "by": "tehas-millwright",
        "fixer_starts": 1,
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       }
@@ -1083,9 +1083,9 @@
    }
   },
   {
-   "case": "a refresh's approval rests on the person's, and carries no fixer starts",
+   "case": "a refresh's approval rests on the person's, and carries no millwright starts",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "body": {
     "7": "Words."
@@ -1110,7 +1110,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -1148,9 +1148,9 @@
    }
   },
   {
-   "case": "a fixer record that counts no fixer start does not say how many",
+   "case": "a millwright record that counts no millwright start does not say how many",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "body": {
     "7": "Words."
@@ -1175,14 +1175,14 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
       ],
       "approval": {
-       "how": "fixer",
-       "by": "tehas-fixer",
+       "how": "millwright",
+       "by": "tehas-millwright",
        "fixer_starts": 0,
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "rests_on": {
@@ -1198,14 +1198,14 @@
    "expect": {
     "picked": [],
     "log": [
-     "tehas:ready from the fixer starts nothing: its approval record does not say how many cycles the fixer started"
+     "tehas:ready from the millwright starts nothing: its approval record does not say how many cycles the fixer started"
     ]
    }
   },
   {
    "case": "a snapshot that lacks the approval names it, and refuses nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "body": {
     "7": "Words."
@@ -1230,7 +1230,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -1250,7 +1250,7 @@
    ]
   },
   {
-   "case": "a marked reply of the fixer's runs the turn",
+   "case": "a marked reply of the millwright's runs the turn",
    "snapshot": {
     "ready": [],
     "asking": [
@@ -1281,13 +1281,13 @@
         "answers": [
          {
           "turn": 2,
-          "by": "tehas-fixer",
-          "fixer": true
+          "by": "tehas-millwright",
+          "millwright": true
          },
          {
           "turn": 3,
           "by": "alice",
-          "fixer": false
+          "millwright": false
          }
         ]
        },
@@ -1305,7 +1305,7 @@
       {
        "databaseId": 4003,
        "author": {
-        "login": "tehas-fixer"
+        "login": "tehas-millwright"
        },
        "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all, as alice chose in #12.",
        "createdAt": "2026-01-01T02:00:00Z"
@@ -1314,18 +1314,18 @@
     ]
    },
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "expect": {
     "log": [
-     "planning #7 continues (answer from tehas-fixer, the fixer)"
+     "planning #7 continues (answer from tehas-millwright, the millwright)"
     ],
     "actions": [
      {
       "plan_turn": 7,
       "kind": "next",
-      "answer": "The fixer replied on the issue:\n\nAdopt all, as alice chose in #12.",
-      "by": "tehas-fixer",
+      "answer": "The millwright replied on the issue:\n\nAdopt all, as alice chose in #12.",
+      "by": "tehas-millwright",
       "reply": "4003"
      }
     ]
@@ -1376,7 +1376,7 @@
       {
        "databaseId": 4003,
        "author": {
-        "login": "tehas-fixer"
+        "login": "tehas-millwright"
        },
        "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
@@ -1385,25 +1385,25 @@
     ]
    },
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "expect": {
     "log": [
-     "planning #7 continues (answer from tehas-fixer, the fixer)"
+     "planning #7 continues (answer from tehas-millwright, the millwright)"
     ],
     "actions": [
      {
       "plan_turn": 7,
       "kind": "next",
-      "answer": "The fixer chose: Adopt all",
-      "by": "tehas-fixer",
+      "answer": "The millwright chose: Adopt all",
+      "by": "tehas-millwright",
       "reply": "4003"
      }
     ]
    }
   },
   {
-   "case": "a person's reply wins over a newer reply of the fixer's",
+   "case": "a person's reply wins over a newer reply of the millwright's",
    "snapshot": {
     "ready": [],
     "asking": [
@@ -1455,7 +1455,7 @@
       {
        "databaseId": 4004,
        "author": {
-        "login": "tehas-fixer"
+        "login": "tehas-millwright"
        },
        "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
@@ -1464,7 +1464,7 @@
     ]
    },
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "expect": {
     "actions": [
@@ -1477,7 +1477,7 @@
    }
   },
   {
-   "case": "never two in a row: after the fixer's answer its next one runs no turn, and the issue says so once",
+   "case": "never two in a row: after the millwright's answer its next one runs no turn, and the issue says so once",
    "snapshot": {
     "ready": [],
     "asking": [
@@ -1508,8 +1508,8 @@
         "answers": [
          {
           "turn": 2,
-          "by": "tehas-fixer",
-          "fixer": true
+          "by": "tehas-millwright",
+          "millwright": true
          }
         ]
        },
@@ -1527,7 +1527,7 @@
       {
        "databaseId": 4003,
        "author": {
-        "login": "tehas-fixer"
+        "login": "tehas-millwright"
        },
        "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
@@ -1536,18 +1536,18 @@
     ]
    },
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "expect": {
     "log": [
-     "skip #7: the fixer's answer runs no turn: the fixer answered the question before this one; a person answers this one"
+     "skip #7: the millwright's answer runs no turn: the millwright answered the question before this one; a person answers this one"
     ],
     "actions": [
      {
       "plan_note": 7,
       "kind": "millwright-refused",
       "id": "4003",
-      "say": "Tehas did not take the fixer's reply as an answer: the fixer answered the question before this one; a person answers this one. A person answers this question."
+      "say": "Tehas did not take the millwright's reply as an answer: the millwright answered the question before this one; a person answers this one. A person answers this question."
      }
     ],
     "no_actions": [
@@ -1589,12 +1589,12 @@
         "answers": [
          {
           "turn": 2,
-          "by": "tehas-fixer",
-          "fixer": true
+          "by": "tehas-millwright",
+          "millwright": true
          }
         ],
         "notes": {
-         "fixer_refused": [
+         "millwright_refused": [
           4003
          ]
         }
@@ -1613,7 +1613,7 @@
       {
        "databaseId": 4003,
        "author": {
-        "login": "tehas-fixer"
+        "login": "tehas-millwright"
        },
        "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
@@ -1622,12 +1622,12 @@
     ]
    },
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "expect": {
     "nothing": true,
     "log_lacks": [
-     "the fixer's answer runs no turn"
+     "the millwright's answer runs no turn"
     ]
    }
   },
@@ -1663,8 +1663,8 @@
         "answers": [
          {
           "turn": 2,
-          "by": "tehas-fixer",
-          "fixer": true
+          "by": "tehas-millwright",
+          "millwright": true
          }
         ]
        },
@@ -1682,7 +1682,7 @@
       {
        "databaseId": 4003,
        "author": {
-        "login": "tehas-fixer"
+        "login": "tehas-millwright"
        },
        "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
@@ -1699,7 +1699,7 @@
     ]
    },
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "expect": {
     "actions": [
@@ -1712,7 +1712,7 @@
    }
   },
   {
-   "case": "a comment of the fixer's without its marker is no reply: no turn and no note",
+   "case": "a comment of the millwright's without its marker is no reply: no turn and no note",
    "snapshot": {
     "ready": [],
     "asking": [
@@ -1756,7 +1756,7 @@
       {
        "databaseId": 4003,
        "author": {
-        "login": "tehas-fixer"
+        "login": "tehas-millwright"
        },
        "body": "Adopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
@@ -1765,7 +1765,7 @@
     ]
    },
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "expect": {
     "no_actions": [
@@ -1777,13 +1777,13 @@
      }
     ],
     "log_lacks": [
-     "the fixer's answer runs no turn"
+     "the millwright's answer runs no turn"
     ],
     "nothing": true
    }
   },
   {
-   "case": "a dry run says the fixer's reply would be refused and changes nothing",
+   "case": "a dry run says the millwright's reply would be refused and changes nothing",
    "snapshot": {
     "ready": [],
     "asking": [
@@ -1814,77 +1814,7 @@
         "answers": [
          {
           "turn": 2,
-          "by": "tehas-fixer",
-          "fixer": true
-         }
-        ]
-       },
-       "id": "4001",
-       "kind": "plan"
-      }
-     }
-    }
-   },
-   "asked": {
-    "7": [
-     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
-     "",
-     [
-      {
-       "databaseId": 4003,
-       "author": {
-        "login": "tehas-fixer"
-       },
-       "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
-       "createdAt": "2026-01-01T02:00:00Z"
-      }
-     ]
-    ]
-   },
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
-   },
-   "dry": true,
-   "expect": {
-    "log": [
-     "skip #7: the fixer's answer runs no turn"
-    ],
-    "nothing": true
-   }
-  },
-  {
-   "case": "an answer on record by its old name, millwright, counts as the fixer's",
-   "snapshot": {
-    "ready": [],
-    "asking": [
-     {
-      "number": 7
-     }
-    ],
-    "plan_open": [
-     {
-      "issue": 7
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "question": {
-       "plan": {
-        "by": "alice",
-        "label": "tehas:plan",
-        "turns": 1,
-        "options": [
-         "Adopt all",
-         "Change some"
-        ],
-        "comment_id": 4001,
-        "answers": [
-         {
-          "turn": 2,
-          "by": "tehas-fixer",
+          "by": "tehas-millwright",
           "millwright": true
          }
         ]
@@ -1903,7 +1833,7 @@
       {
        "databaseId": 4003,
        "author": {
-        "login": "tehas-fixer"
+        "login": "tehas-millwright"
        },
        "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
@@ -1912,11 +1842,81 @@
     ]
    },
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
+   },
+   "dry": true,
+   "expect": {
+    "log": [
+     "skip #7: the millwright's answer runs no turn"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "an answer on record by its old name, millwright, counts as the millwright's",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": [
+         {
+          "turn": 2,
+          "by": "tehas-millwright",
+          "millwright": true
+         }
+        ]
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "tehas-millwright"
+       },
+       "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "expect": {
     "log": [
-     "the fixer answered the question before this one; a person answers this one"
+     "the millwright answered the question before this one; a person answers this one"
     ],
     "no_actions": [
      {
@@ -1957,8 +1957,8 @@
         "answers": [
          {
           "turn": 2,
-          "by": "tehas-fixer",
-          "fixer": true
+          "by": "tehas-millwright",
+          "millwright": true
          }
         ],
         "notes": {
@@ -1981,7 +1981,7 @@
       {
        "databaseId": 4003,
        "author": {
-        "login": "tehas-fixer"
+        "login": "tehas-millwright"
        },
        "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
@@ -1990,19 +1990,19 @@
     ]
    },
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "expect": {
     "nothing": true,
     "log_lacks": [
-     "the fixer's answer runs no turn"
+     "the millwright's answer runs no turn"
     ]
    }
   },
   {
-   "case": "the feed: the fixer's tehas:ready on an issue alice wrote starts its first cycle, resting on her issue",
+   "case": "the feed: the millwright's tehas:ready on an issue alice wrote starts its first cycle, resting on her issue",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_FEED": "1"
    },
    "snapshot": {
@@ -2025,7 +2025,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -2045,7 +2045,7 @@
     "actions": [
      {
       "start": 7,
-      "by": "tehas-fixer",
+      "by": "tehas-millwright",
       "given": "millwright",
       "fixer_starts": 1,
       "how": "`tehas:ready` label as the fixer, on the issue alice wrote at 2026-09-30T00:00:00Z",
@@ -2073,9 +2073,9 @@
    }
   },
   {
-   "case": "without the feed, the fixer's label on an issue never approved starts nothing",
+   "case": "without the feed, the millwright's label on an issue never approved starts nothing",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
    },
    "snapshot": {
     "ready": [
@@ -2097,7 +2097,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -2133,7 +2133,7 @@
   {
    "case": "the feed starts nothing an outsider wrote: the label comes off and the issue says why",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_FEED": "1"
    },
    "snapshot": {
@@ -2156,7 +2156,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -2200,7 +2200,7 @@
   {
    "case": "the feed starts no improvement proposal",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_FEED": "1"
    },
    "snapshot": {
@@ -2226,7 +2226,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -2270,7 +2270,7 @@
   {
    "case": "the feed starts nothing a person escalated",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_FEED": "1"
    },
    "snapshot": {
@@ -2296,7 +2296,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -2340,7 +2340,7 @@
   {
    "case": "the feed starts nothing a person took tehas:ready off before",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_FEED": "1"
    },
    "snapshot": {
@@ -2383,7 +2383,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -2427,7 +2427,7 @@
   {
    "case": "the feed waits on a text an outsider changed since alice wrote it",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_FEED": "1"
    },
    "snapshot": {
@@ -2450,7 +2450,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -2488,7 +2488,7 @@
   {
    "case": "the feed waits at its cap, with the label left",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_FEED": "1"
    },
    "snapshot": {
@@ -2511,7 +2511,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -2550,7 +2550,7 @@
   {
    "case": "the feed waits when the fed cycles cannot be counted",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_FEED": "1"
    },
    "snapshot": {
@@ -2573,7 +2573,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }
@@ -2608,7 +2608,7 @@
   {
    "case": "an issue a person approved before is the grant's, not the feed's: at the limit the label comes off",
    "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
     "TEHAS_MILLWRIGHT_FEED": "1",
     "TEHAS_MILLWRIGHT_MAX_RETRIES": "1"
    },
@@ -2632,7 +2632,7 @@
          "name": "tehas:ready"
         },
         "actor": {
-         "login": "tehas-fixer"
+         "login": "tehas-millwright"
         },
         "created_at": "2026-10-02T00:00:00Z"
        }

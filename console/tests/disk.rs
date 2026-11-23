@@ -17,10 +17,12 @@ const DF: &str = r#"[ -e "$T/fx/df" ] || exit "${DF_RC:-0}"
 cat "$T/fx/df""#;
 
 /// Every question a case asks of the daemon, answered from a file under
-/// `$T/fx` named for the call. No file is no answer. The exact listing of the
+/// `$T/fx` named for the call. No file is no answer. The images' directory is
+/// one no host has, so it is a file system of its own on every host: a real
+/// /var/lib/docker may share the home's. The exact listing of the
 /// cycles comes before `ps `, which the stopped containers are asked with.
 const DOCKER: &str = r#"case "$*" in
-  *DockerRootDir*) echo /var/lib/docker ;;
+  *DockerRootDir*) echo /nonexistent/docker ;;
   "system df"*) printf "TYPE\tTOTAL\tACTIVE\tSIZE\tRECLAIMABLE\nImages\t2\t1\t1.2GB\t0B (0%%)\n" ;;
   "ps --format {{.Names}}") [ -e "$T/fx/ps" ] || exit "${PS_RC:-0}"; cat "$T/fx/ps" ;;
   "ps "*) [ -e "$T/fx/containers" ] || exit "${PS_RC:-0}"; cat "$T/fx/containers" ;;
@@ -112,7 +114,7 @@ fn it_prints_each_file_system_once_and_asks_df_once_each() {
     assert_eq!(r.rc, 0, "{}", r.out);
     has(&r.out, &format!("disk      {}:", w.home.display()));
     has(&r.out, "40 GiB of");
-    has(&r.out, "disk      /var/lib/docker:");
+    has(&r.out, "disk      /nonexistent/docker:");
     let calls = w.calls("df");
     let mut seen = BTreeSet::new();
     for line in calls.lines() {
@@ -140,13 +142,16 @@ fn the_json_names_the_home_docker_tmp_and_the_scratch_disk_of_the_settings() {
     let scratch = scratch.to_string_lossy();
     assert_eq!(
         paths(&r.out),
-        sorted(&[&home, "/var/lib/docker", "/tmp", &scratch])
+        sorted(&[&home, "/nonexistent/docker", "/tmp", &scratch])
     );
 
     // With no scratch disk in the settings the answer has no entry for one.
     w.minimal(&[]);
     let r = disk_json(&w, "", "");
-    assert_eq!(paths(&r.out), sorted(&[&home, "/var/lib/docker", "/tmp"]));
+    assert_eq!(
+        paths(&r.out),
+        sorted(&[&home, "/nonexistent/docker", "/tmp"])
+    );
 }
 
 /// A figure that cannot be read is no figure and a reason, never 0. How many
@@ -166,7 +171,7 @@ fn a_df_that_answers_nothing_leaves_each_entry_with_no_figure_and_a_reason() {
     let got = paths(&r.out);
     for p in [
         &*w.home.to_string_lossy(),
-        "/var/lib/docker",
+        "/nonexistent/docker",
         "/tmp",
         &scratch.to_string_lossy(),
     ] {
@@ -510,7 +515,7 @@ fn an_instance_env_that_starts_with_a_comment_still_names_the_scratch_disk() {
         paths(&r.out),
         sorted(&[
             &w.home.to_string_lossy(),
-            "/var/lib/docker",
+            "/nonexistent/docker",
             "/tmp",
             &scratch.to_string_lossy()
         ])

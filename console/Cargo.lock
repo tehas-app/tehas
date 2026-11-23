@@ -1806,23 +1806,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "tehas-contractor"
-version = "0.1.0"
-dependencies = [
- "rusqlite",
- "rustix",
- "serde_json",
- "sha2 0.10.9",
- "store",
- "tehas-core",
- "tehas-cycle",
- "tehas-proxy",
-]
-
-[[package]]
 name = "tehas-core"
 version = "0.1.0"
 dependencies = [
+ "attach",
  "libc",
  "regex",
  "serde_json",
@@ -1843,6 +1830,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tehas-describe"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "tehas-dispatch"
 version = "0.1.0"
 dependencies = [
@@ -1858,6 +1853,15 @@ dependencies = [
 name = "tehas-front"
 version = "0.1.0"
 dependencies = [
+ "tehas-core",
+]
+
+[[package]]
+name = "tehas-items"
+version = "0.1.0"
+dependencies = [
+ "attach",
+ "serde_json",
  "tehas-core",
 ]
 
@@ -1915,18 +1919,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tehas-proxy"
-version = "0.1.0"
-dependencies = [
- "rusqlite",
- "serde_json",
- "sha2 0.10.9",
- "store",
- "tehas-core",
- "tehas-cycle",
-]
-
-[[package]]
 name = "tehas-review-render"
 version = "0.1.0"
 dependencies = [
@@ -1960,6 +1952,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tehas-core",
+ "tehas-ops",
 ]
 
 [[package]]

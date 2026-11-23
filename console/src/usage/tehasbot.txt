@@ -7,14 +7,11 @@ Usage:
   tehasbot health               write the health file, live/health.json
   tehasbot top [--every]        publish the host section for the dashboard
                                 (the service)
-  tehasbot protolab             build the Protolab pages (the timer)
   tehasbot preview [--sweep]    keep the previews of pull requests (the timers)
   tehasbot refresh --pr N       tehas refresh --pr N, by its old name
   tehasbot clean                remove what the host can make again (the timer)
   tehasbot mcp serve            the read-only MCP server (the service)
   tehasbot mcp fetch            fetch the MCP server's shared checkout (tehas-mcp-fetch.socket)
-  tehasbot outsource-proxy      the model proxy of outsource, while it is on
-                                (the service)
   tehasbot plugin tick          a refresh of each plugin whose default branch moved
                                 (the timer), while plugins are on
   tehasbot plugin run <name> --kind refresh|hook

@@ -173,14 +173,14 @@ fn who_started_a_session_and_who_answered_each_turn_stay_on_record_after_the_tur
     w.t_plan(
         7,
         json!({"by": "alice", "turns": 2, "options": ["Adopt all", "Change some"], "comment": 4001,
-            "answers": [{"turn": 2, "by": "bob", "fixer": false}]}),
+            "answers": [{"turn": 2, "by": "bob", "millwright": false}]}),
     );
     w.comments(7, &plan_body(" ", "x", " ", 2, ""), "alice", json!([]));
     w.poll();
     assert_eq!(
         rec_jq(&w, "[.turns, .by, .answers]"),
         v(
-            r#"[3,"alice",[{"turn":2,"by":"bob","fixer":false},{"turn":3,"by":"alice","fixer":false}]]"#
+            r#"[3,"alice",[{"turn":2,"by":"bob","millwright":false},{"turn":3,"by":"alice","millwright":false}]]"#
         )
     );
 }
@@ -194,7 +194,7 @@ fn a_turn_that_fails_keeps_them_too() {
     w.poll();
     assert_eq!(
         rec_jq(&w, "[.failed, .by, .answers]"),
-        v(r#"[true,"alice",[{"turn":2,"by":"alice","fixer":false}]]"#)
+        v(r#"[true,"alice",[{"turn":2,"by":"alice","millwright":false}]]"#)
     );
 }
 

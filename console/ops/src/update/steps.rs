@@ -44,14 +44,12 @@ pub(crate) const UNITS: &[&str] = &[
     "tehas-mcp-fetch.socket",
     "tehas-preview.timer",
     "tehas-preview-sweep.timer",
-    "tehas-protolab.timer",
     "tehas-clean.timer",
 ];
 
 /// The programs a long-running unit runs, and that unit.
 const SERVERS: &[(&str, &str)] = &[
     ("tehas-mcp", "tehas-mcp.service"),
-    ("tehas-proxy", "tehas-outsource-proxy.service"),
     ("tehas-plugin-gate", "tehas-plugin-gate.service"),
 ];
 
@@ -63,11 +61,13 @@ pub(crate) const RETIRED_UNITS: &[&str] = &[
     "tehas-improve.timer",
     "tehas-review.timer",
     "tehas-energy.service",
+    "tehas-outsource-proxy.service",
     "tehas-wiki-status.service",
     "tehas-wiki-status.timer",
     "tehas-wiki.service",
     "tehas-wiki.timer",
     "tehas-wiki.path",
+    "tehas-protolab.timer",
 ];
 
 /// The ids, in the order they run: systemd first, because a unit file is not in
@@ -437,18 +437,6 @@ mod tests {
         steps_for_in(&lines(sources), &|_| String::new())
     }
 
-    /// With outsource on, as a test turns a building feature on.
-    fn asked_on(sources: &[&str]) -> Vec<String> {
-        steps_for_in(&lines(sources), &|name| {
-            match name {
-                "TEHAS_OUTSOURCE" => "on",
-                "TEHAS_TEST_FEATURES" => "outsource",
-                _ => "",
-            }
-            .to_string()
-        })
-    }
-
     #[test]
     fn the_changed_sources_ask_for_the_steps_systemd_first() {
         let units = format!("units {}", UNITS.join(" "));
@@ -485,38 +473,6 @@ mod tests {
             [format!("units {}", UNITS.join(" "))]
         );
         assert!(asked(&["libexec/dispatch"]).is_empty());
-    }
-
-    #[test]
-    fn a_new_model_proxy_or_its_unit_restarts_the_proxy_and_the_line_is_unchanged_without_them() {
-        let one = ["units tehas-outsource-proxy.service"];
-        assert_eq!(asked(&["/src/console/target/release/tehas-proxy"]), one);
-        assert_eq!(asked(&["libexec/tehas-proxy"]), one);
-        assert_eq!(
-            asked(&["libexec/tehas-mcp", "libexec/tehas-proxy"]),
-            ["units tehas-mcp.service tehas-outsource-proxy.service"]
-        );
-        let all = format!("units {}", UNITS.join(" "));
-        assert_eq!(asked(&["systemd/tehas-top.service"]), [all.as_str()]);
-        assert_eq!(
-            asked(&[
-                "systemd/tehas-top.service",
-                "systemd/tehas-outsource-proxy.service"
-            ]),
-            [format!("{all} tehas-outsource-proxy.service")]
-        );
-        assert_eq!(
-            asked(&["systemd/tehas-top.service", "libexec/tehas-proxy"]),
-            [format!("{all} tehas-outsource-proxy.service")]
-        );
-        // The contractor program runs on another host: no unit here.
-        assert!(asked(&["libexec/tehas-contractor"]).is_empty());
-        for step in asked(&[
-            "systemd/tehas-outsource-proxy.service",
-            "libexec/tehas-proxy",
-        ]) {
-            assert!(valid(&step), "{step}");
-        }
     }
 
     #[test]
@@ -560,26 +516,6 @@ mod tests {
                 "{source}"
             );
         }
-    }
-
-    #[test]
-    fn with_outsource_on_env_sh_and_the_unit_files_restart_the_proxy_too() {
-        let all = format!("units {}", UNITS.join(" "));
-        let with_proxy = format!("{all} tehas-outsource-proxy.service");
-        for source in [
-            "env.sh",
-            "systemd/tehas-top.service",
-            "libexec/with-settings",
-        ] {
-            assert_eq!(asked_on(&[source]), [with_proxy.as_str()], "{source}");
-            assert_eq!(asked(&[source]), [all.as_str()], "{source}");
-        }
-        assert_eq!(
-            asked_on(&["libexec/tehas-proxy"]),
-            ["units tehas-outsource-proxy.service"]
-        );
-        assert!(asked_on(&["libexec/dispatch"]).is_empty());
-        assert!(valid(&with_proxy));
     }
 
     #[test]
@@ -788,7 +724,6 @@ mod tests {
         for good in [
             all.as_str(),
             "units tehas-mcp.service",
-            "units tehas-outsource-proxy.service",
             "sandbox",
             "docs --force-recreate",
             "edge --force-recreate",
@@ -924,10 +859,13 @@ mod tests {
         assert_eq!(current("units tehas-refresh.timer"), None);
         assert_eq!(current("units tehas-improve.timer"), None);
         assert_eq!(current("units tehas-energy.service"), None);
+        assert_eq!(current("units tehas-outsource-proxy.service"), None);
         assert_eq!(
             current("units tehas-review.timer tehas-clean.timer").as_deref(),
             Some("units tehas-clean.timer")
         );
+        assert_eq!(current("units tehas-protolab.timer"), None);
+        assert!(!UNITS.contains(&"tehas-protolab.timer"));
         assert_eq!(
             current("units tehas-improve.timer tehas-clean.timer").as_deref(),
             Some("units tehas-clean.timer")

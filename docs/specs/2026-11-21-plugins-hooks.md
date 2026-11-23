@@ -5,10 +5,25 @@
 **Status**: Draft 2026-11-21. Part of `2026-11-21-plugins.md`. Nothing is
 built.
 
-v1 has one hook point, `after:work`, and it reports only. It never holds an
-issue, a slot, a lock or a label. A factory that wants a plugin to stop a
-merge makes the plugin's status a required check in branch protection; that
-is GitHub's gate, and the person's choice.
+v1 has one hook point, the event after a cycle, and it reports only. It
+never holds an issue, a slot, a lock or a label. A factory that wants a
+plugin to stop a merge makes the plugin's status a required check in
+branch protection; that is GitHub's gate, and the person's choice.
+
+## Its name
+
+The names are those of T11's events spec (#2878), in its grant form
+`hook:<when>:<event>` (1.6.0). The event is `change.offered`, a notify
+event: it comes after the fact and waits for no answer. The ask and the
+grant are `hook:after:change.offered`. The manifest's hook `at` is
+`after:change.offered`. The hook before a cycle is
+`hook:before:cycle.started=<policy>` (1.5.0). There is no alias for the 1.x
+names `hook:after:work` and `after:work`.
+
+The reader's rule is for any event: a hook whose `at` is `<event>` needs
+the ask `hook:<when>:<event>` for the same event, with the `<when>` #2878
+gives it. A manifest has at most one hook for each event. An `at` that
+#2878 does not list is refused by name.
 
 ## When it runs
 
@@ -18,7 +33,7 @@ refreshes included, and on `tehas plugin hook <name> <pr>`.
 The seam is in `console/cycle/src/supervise.rs`, after `apply::run` has done
 the report: the label is set, the park comment posted, the issue's lock
 released by the supervisor's normal end. The supervisor then writes one
-request file per plugin with `hook:after:work` granted,
+request file per plugin with `hook:after:change.offered` granted,
 `~/tehas/plugins/<name>/hooks/<pr>.json` (the pull request, its head commit
 as GitHub gave it, the issue, the base), and starts
 `tehas-plugin-hook@<name>-<pr>.service` with `systemctl --user start --no-block`.
@@ -40,6 +55,13 @@ A hook is a run of the plugin's image as the security part says, with kind
 `hook`, `/state` read only, `/product` at the pull request's head, its
 `timeout` from the manifest (60 to 1800 seconds), no `model` in v1, and
 `/run/context.json` holding the pull request's number, base and head.
+
+From 1.6.0 the context also holds `at`, `after:change.offered`, and `issue`,
+the cycle's issue number, as the hook before a cycle has them (1.5.3). The
+host takes the issue from the request file. A plugin needs it to find its
+issue's files under `/given/<issue>/`. `2026-11-22-plugins-1.6.md` adds,
+each behind its grant: `model` in this hook, the approved spec (`spec`),
+and the pull request's range under `history:`.
 
 At most one hook of a plugin at a time, and at most two hooks in all at once.
 They run in `tehas.slice` and count in admission by room. A hook waits for a
@@ -73,6 +95,11 @@ the verdict is posted for the head the hook read and no new request is made.
 `api/plugin-verdict.schema.json` holds it, with samples. A verdict that breaks
 the schema, a hook that fails or runs out of time: tehas posts the status
 `error` with "the plugin's hook did not finish".
+
+The schema stays closed. A hook's counts and its report are files of their
+own beside the verdict, `/out/_tehas/counts.json` and
+`/out/_tehas/report.md` (1.6.0, `2026-11-22-plugins-1.6.md`). The findings
+page shows the report under the findings.
 
 The verdict read is kept as `~/tehas/plugins/<name>/hooks/<pr>.verdict.json`
 for the gate's findings page. A new hook on the pull request deletes the old
@@ -122,4 +149,5 @@ findings as a `note`: their kind, file and line, never a value. Nothing new:
 
 `gate:`, `before:` points, `plan` and `refresh` points, a `fail` verdict,
 `model` in a hook, and hooks for a cycle with no pull request. See the v2
-handover.
+handover. 1.5.0 adds the hook before a cycle, with `model` in it. 1.6.0
+allows `model` in this hook too.

@@ -488,8 +488,7 @@ pub fn store(
     store_answering(program, args, verb, bound, grace, extra)
 }
 
-/// [`store`] for a verb whose answer names another word: `contractor-list`
-/// answers `contractors`.
+/// [`store`] for a verb whose answer names another word.
 pub fn store_answering(
     program: &str,
     args: &[&str],

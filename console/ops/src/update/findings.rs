@@ -93,7 +93,7 @@ pub fn verb(given: &[String]) -> u8 {
 /// Every finding about the instance `vars` names, in the order of the module's
 /// list. `load` is tehas_load on the variables, Err its line.
 pub(crate) fn findings(
-    mut vars: Vars,
+    vars: Vars,
     me: &Me,
     load: impl FnOnce(&mut Vars) -> Result<(), String>,
 ) -> Vec<String> {
@@ -110,6 +110,17 @@ pub(crate) fn findings(
             return vec![line];
         }
     }
+    settings_findings(vars, load)
+}
+
+/// Steps 2 and 3 of the module's list, with no file's owner judged: what
+/// `cargo xtask config-check` holds an instance directory against.
+pub(crate) fn settings_findings(
+    mut vars: Vars,
+    load: impl FnOnce(&mut Vars) -> Result<(), String>,
+) -> Vec<String> {
+    let dir = settings::instance_dir(&vars);
+    let config = format!("{}/.config/tehas", vars.text("HOME"));
     if let Err(line) = load(&mut vars) {
         return settings::refused(line, &dir, &config);
     }

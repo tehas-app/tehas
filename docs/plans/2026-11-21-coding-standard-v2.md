@@ -56,10 +56,17 @@ and the 2.0.0 and 1.0.0 of the two repositories that read it. For tehas:
    refuses it today, and finishing it is 2.1 work. The refactor moves
    the plugin code with its behaviour kept, and builds no new plugin
    features.
-6. **pi-rukas v0.15.2 or later.** 2.0.0 needs pi-rukas v0.15.2 at the
-   least (the trio's program manager, 2026-11-22): T13's proof found that
-   on 0.15.1 a roster that exits 0 reports no exit, so lean hands back on
-   every pass, and 0.15.2 fixes it. tehas refuses a lean start on a
+6. **pi-rukas v0.15.6 or later.** 2.0.0 needs pi-rukas v0.15.6 at the
+   least (the trio's program manager, 2026-11-22). T13's proof found two
+   faults: on 0.15.1 a roster that exits 0 reports no exit, so lean hands
+   back on every pass (fixed in 0.15.2), and lean verify's base probes
+   checked out beside the repository, which no cycle container can write
+   (fixed in 0.15.4, which checks them out under the repository's
+   `.worktrees/`). 0.15.5 adds `.worktrees/` to each clone's
+   `.git/info/exclude`, so nothing that stages at the repository's root
+   sees lean's trees. 0.15.6 deletes lean's roster report before and after
+   each run and excludes it, so a stale report cannot pass a verify tier.
+   tehas refuses a lean start on a
    sandbox image whose pi-rukas is older, saying why. At the trio's
    readiness review the newest pi-rukas release on the 0.15 line is the one
    pinned (`PI_RUKAS_FOLLOW=release:0.15`): pi-rukas 0.16, which moves it
@@ -382,12 +389,17 @@ dispatcher and a cycle running, with one report.
 
 T4's Done also clears every row of "Temporary rises" in
 `docs/architecture.md` that is still there when it ends, whatever step
-the row names. At #2866 they are: `github-rest` (#2859 and #2860),
-`gh-argv` (#2859 and #2866), `raw-statuses` (#2859), `tests-stub-gh`
-(#2866) and `untyped-signatures` (#2866). A row added later joins the
-list in the same pull request. A T15 port is kept rise-neutral where it
-can be: what it adds to a count it takes out elsewhere in the same pull
-request.
+the row names. Since #2890 the table is empty: a T15 port that raises a
+count narrows the check in the same pull request, or takes out what it
+adds elsewhere. #2890 moved two of its findings here, to fix:
+
+- `github-rest`: the `updatedAt` and `closedAt` of the items of
+  `live/status.json` in `console/tests/top/mod.rs` (#2859), GitHub's
+  names that the queue copies through unchanged. T4 renames them or
+  gives them one owner.
+- `github-rest`: the `--json` of `tehas order` in
+  `console/tests/console_run.rs` (#2879), tehas's own word in a file
+  that also stubs gh, so the file is not allowed.
 
 ### T5. Deep homes for files
 
@@ -416,7 +428,12 @@ the crate graph holds R8.
 typed (T3 to T5). What is left is moved, or written down as a floor.
 
 Done when `untyped-signatures` and `untyped-fields` are 0 or at written
-floors.
+floors. A finding #2890 moved here from "Temporary rises", to fix:
+
+- `untyped-signatures`: the test helper `edited` in
+  `console/src/preview/choose_tests.rs` (#2866), which edits a row of
+  GitHub's list, the untyped value `preview::choose` takes. It goes when
+  T7 types that list.
 
 ### T8. The bash that stays
 
@@ -455,7 +472,8 @@ them, are dropped with no alias (the plugins lead, through the trio's
 program manager, 2026-11-22).
 
 Done when the dispatcher and its events are in, each event has its
-schema in `api/`, and the contract lists them.
+schema in `api/`, and the contract lists them. The spec is
+`docs/specs/2026-11-22-events.md`.
 
 ### T12. Answers in words
 
@@ -505,8 +523,10 @@ driver in 2.0 (the owner).
    without a JUnit report), #2480 (a killed lean job keeps running),
    #2403 (the lens review is not recorded), #2501 (the rest of #2410)
    and #2511 (a typed setup refusal, for part 4). All are merged and
-   ship in 0.15.0, and the roster fix of 0.15.2 joins them, so the pin is
-   0.15.2 or later on the 0.15 line
+   ship in 0.15.0, and the roster fix of 0.15.2, the base-probe fix of
+   0.15.4, the exclude of 0.15.5 and the roster report of 0.15.6 join them,
+   so the pin is 0.15.6 or later
+   on the 0.15 line
    (`PI_RUKAS_FOLLOW=release:0.15`). Each release
    candidate checks this as it checks the pin.
 3. **Ship it.** `lean` in `console/core/src/features.rs` moves to
@@ -560,22 +580,28 @@ Removed:
 - the Protolab pass and its pages (`console/src/protolab.rs`, `tehasbot
   protolab`), its timer units, `live/protolab.json` and the `protolab/`
   directory of the home; `tehas update` stops and removes the old units
-  and the directory (`retired.list`);
-- `prototype-file` (`tehas prototype file`, `console/src/prototype.rs`,
-  `TEHAS_PROTOTYPE_FILE`, `TEHAS_PROTOLAB_URL`);
+  (`retired.list`) and the directory (`RETIRED_DIRS`, a list other
+  retired folders join);
+- `prototype-file` (`tehas prototype file`, `console/src/prototype.rs`)
+  and the four settings `TEHAS_PROTOLAB_URL`, `TEHAS_PROTOLAB_ZIP_URL`,
+  `TEHAS_PROTOLAB_ZIP_HOSTS` and `TEHAS_PROTOTYPE_FILE`, which load, warn
+  once and are dropped (`IGNORED`);
 - the `tehas:prototype` label (`host/labels.tsv`, the label pins, the
   dispatcher's flow) and the `prototype` kind (`TEHAS_ISSUE_TYPES`
-  keeps `improvement`). This part waits for T3, which owns the
-  dispatcher's files until it is done;
-- `host/docs/tools-protolab.md`, the rows of `features.md`, and the
-  `prototypes` field of `tehas status --json` with its schemas.
+  keeps `improvement`), with the `prototypes` field of `tehas status
+  --json` and its schemas. A separate T16 commit removes these;
+- `host/docs/tools-protolab.md` and the rows of `features.md`;
+- on the front pages, the Protolab's door, panel and link. The stage
+  stays, as Idea (below).
 
 Kept, under neutral names:
 
 - `console/attach`: fetch, limits, sniff, zip unpack and manifest, which
   cycles already use;
 - the safe store of a ticket's files and the page writer of
-  `console/src/protolab/build.rs`, moved to a module of their own;
+  `console/src/protolab/build.rs`, as the crate `console/items`, and the
+  reading of marked issues as the issue feed,
+  `console/core/src/issue_feed.rs`;
 - the edge's static serving: a directory per item, sandboxed HTML, the
   no-script policy on the generated page, the per-item host name and
   its port, with their tests;
@@ -635,11 +661,12 @@ trio are supported, so 2.0 carries no backwards compatibility.
 - **Every existing configuration works or migrates.** The owner,
   2026-11-22: "make sure existing configurations either work as is or
   can be migrated." Each setting, environment variable, key or file of
-  an instance's layout that 2.0 removes or renames is either still read
-  as it is, or rewritten by `tehas update` to its 2.0 form, beside the
-  store's migration, with one line saying what changed. A 1.4.x
-  configuration never fails to load. What the update rewrites, 2.0 no
-  longer reads, so the rewrite is no lever. A test runs instance
+  an instance's layout that 2.0 removes is still loaded: a removed
+  setting goes on `IGNORED` (it loads, warns once and is dropped), and
+  2.0 refuses only what 1.4.0 already refused. 2.0 rewrites no setting.
+  A 1.4.x configuration never fails to load, and
+  `cargo xtask config-check` (#2885) shows, before an update, which
+  settings are kept, dropped or refused. A test runs instance
   directories of every shape 1.4.x accepts, `instances/example/`
   included, through the migration and then through `lib/config.sh` and
   the settings loader. The real instances, which live outside this
@@ -670,6 +697,12 @@ trio are supported, so 2.0 carries no backwards compatibility.
   T16 corrects the manual's words where they say so.
   Each has its line in T9's "Changed in 2.0", its settings handled by the
   configuration migration, and `cargo xtask config-check` covers them.
+  A store table, column or stored key that exists only for a removed
+  feature goes through a state-store step with a migration test, not left
+  unread. The store's steps run one after another with no gap, so they
+  land in number order: 28 the fixer-to-millwright rename, which also
+  removes the `comment_links` key #2875 leaves in an approval's input, and
+  29 Outsource's tables.
 
 An inventory comes first, then one pull request per kind of thing
 removed, each green alone, each lowering the counts and ceilings it
@@ -824,3 +857,23 @@ of main, each grade.
 | 2026-11-22 | The minimum pi-rukas is v0.15.2, for the roster's exit (found by T13's proof); lean refuses an older image | #2861 |
 | 2026-11-22 | T15: the index and mcp, top, and headless shell tests are Rust tests; the raises they need are recorded in `docs/architecture.md` under "Temporary rises" | #2858, #2859, #2860 |
 | 2026-11-22 | T16: the product wiki leaves core; its renderer and collector stay as crates | #2862 |
+| 2026-11-22 | T12.2 and T12.3: answers in words, no boxes, and nothing reads a tick | #2843 |
+| 2026-11-22 | T16: energy use leaves core | #2864 |
+| 2026-11-22 | `docs/architecture.md` records each check's fork value | #2865 |
+| 2026-11-22 | T15: the analytics command and preview choose shell tests are Rust tests | #2866 |
+| 2026-11-22 | T16: the review loop leaves core; the review's container kind and its argv fixtures go (a narrowing) | #2857 |
+| 2026-11-22 | Analytics schema 5 drops `samples.watts`, pinned by the consumer that reads the analytics copies before the merge | #2869 |
+| 2026-11-22 | T4's Done clears every row of "Temporary rises" | #2870 |
+| 2026-11-22 | T12.4: `retry-tick` is `reply` in both stores, and a question open at the upgrade is asked again once in 2.0's words | #2867 |
+| 2026-11-22 | T15: the install and bootstrap shell tests split so the quick check runs fewer of them | #2868 |
+| 2026-11-22 | The minimum pi-rukas is v0.15.4, for lean's base probes in a cycle container (found by T13's proof) | #2873 |
+| 2026-11-22 | T16: describe, text files, zips and comment links leave core | #2875 |
+| 2026-11-22 | The minimum pi-rukas is v0.15.5, so lean's trees stay out of a product's commits | #2882 |
+| 2026-11-23 | T14: the Protolab is parked, and the first stage is Idea | #2877 |
+| 2026-11-23 | The events spec for T11 | #2878 |
+| 2026-11-23 | Port main @ 9a83945c (`.gitignore` ignores lean's roster report, #2884) | 6625b5f2 |
+| 2026-11-23 | The minimum pi-rukas is v0.15.6, so a stale roster report cannot pass a verify tier | #2891 |
+| 2026-11-23 | "Temporary rises" is empty: T15's false positives are allowed by name or have one owner; two findings move to T4, one to T7 and one is a floor | #2890 |
+| 2026-11-23 | T16: the millwright's old name goes, and #686's alias with it | #2889 |
+| 2026-11-23 | T16: `cargo xtask config-check` shows which settings 2.0 keeps, drops or refuses | #2885 |
+| 2026-11-22 | T16: Outsource is dropped, with the model proxy and the contractor; the state store drops its five tables, and analytics goes to schema 6 without `runs.contractor_id`, pinned by the consumer that reads the analytics copies before the merge | #2886 |

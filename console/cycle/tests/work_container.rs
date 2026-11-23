@@ -646,51 +646,6 @@ fn exactly_the_documented_variables_are_passed_in() {
 }
 
 #[test]
-fn the_remote_path_on_a_contractor_the_container_gets_exactly_the_same_mounts_and_variables() {
-    // A cycle run for a contractor (outsource on, TEHAS_CONTRACTOR named)
-    // renews its token and relays its issue writes through the contractor
-    // program, and gives its container nothing more and nothing else
-    // (AGENTS.md rule 4).
-    let (w, _) = ran("contractor");
-    let local_mounts = mounts(&w);
-    w.stub(
-        "contractor",
-        r#"case $1 in token) echo ghs_from_factory ;; relay) printf %s "{\"out\":\"\",\"err\":\"\",\"rc\":0}" ;; own) printf %s "$3" >"$T/calls/contractor.own.as"; shift 3; printf "%s\n" "$@" >"$T/calls/contractor.own" ;; esac"#,
-    );
-    w.minimal(&[ALIAS, "TEHAS_OUTSOURCE=on"]);
-    w.env("TEHAS_TEST_FEATURES", "outsource");
-    let contractor = w.path("bin/contractor").to_string_lossy().into_owned();
-    w.env("TEHAS_CONTRACTOR", &contractor);
-    w.clear_calls();
-    let r = w.work7();
-    ok2(&r);
-    assert_eq!(mounts(&w), local_mounts);
-    assert_eq!(env_names(&w), want_and(&[]));
-    let renew = w.read("renew.calls");
-    has(
-        renew.lines().last().unwrap_or_default(),
-        &format!("renew --cmd {contractor} --arg token "),
-    );
-    // A contractor holds no app token: the container's token is the cycle
-    // token the factory made, and no app token was asked for.
-    assert_eq!(out(&w.calls("docker.token")), "ghs_from_factory");
-    lacks(&cat_calls(&w, "docker.args."), "ghs_from_factory");
-    lacks(&w.calls("docker.token"), "ghs_app");
-    // Before the container starts, the program is asked to hand the factory's
-    // account every folder the container writes: the sources of its
-    // read-write mounts, no more.
-    let written: Vec<String> = w
-        .after("-v")
-        .into_iter()
-        .filter(|m| !m.ends_with(":ro"))
-        .map(|m| m.split(':').next().unwrap().to_string())
-        .collect();
-    assert_eq!(sorted(lines(&w.calls("contractor.own"))), sorted(written));
-    // They go only to the account the container runs as: its --user.
-    assert_eq!(w.calls("contractor.own.as"), w.after("--user").join("\n"));
-}
-
-#[test]
 fn read_only_a_kept_cycle_token_made_before_the_setting_which_may_write_reaches_no_container() {
     let w = World::new("read-only-kept");
     w.minimal(&[ALIAS, "TEHAS_READ_ONLY=1"]);

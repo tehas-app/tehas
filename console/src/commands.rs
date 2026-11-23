@@ -24,8 +24,6 @@
 //!   console tehas dev <arguments>
 //!   console tehas dev-login "Name <email>" [-- <pi arguments>]
 //!   console tehas github writes
-//!   console tehas outsource invite|list|status|revoke|drain [...] [--json]
-//!   console tehas prototype file ...
 //!   console tehas plugin [--json]
 //!   console tehas|tehasbot mcp serve|key
 //!   console tehasbot health
@@ -213,8 +211,6 @@ pub fn tehas(given: &[String]) -> u8 {
         "dev-login" => dev::login(rest),
         "mcp" => mcp::main(rest),
         "github" => github_verb(rest),
-        "outsource" => crate::outsource::main(rest),
-        "prototype" => crate::prototype::main(rest),
         "wake" => wake::main(rest),
         _ => {
             eprintln!("console tehas: no such command: {command}");
@@ -334,14 +330,6 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "api"] => api::words(rest).map(|_| ()),
         ["tehas", "wake"] => wake::words(rest).map(|_| ()),
         ["tehas", "labels"] => labels::words(rest),
-        ["tehas", "outsource"] => match crate::outsource::words(rest) {
-            Ok(None) => {
-                say(crate::outsource::USAGE);
-                Err(ANSWERED)
-            }
-            Ok(Some(_)) => Ok(()),
-            Err(rc) => Err(rc),
-        },
         ["tehas", "panel"] => panel::words(rest).map(|_| ()),
         ["tehas", "plugin"] => tehas_ops::plugin::words(rest).map(|_| ()),
         ["tehas", "host-message"] => host_message::words(rest).map(|_| ()),
@@ -419,17 +407,12 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
             "TEHAS_CONTROL_ISSUE",
             "TEHAS_ALLOWED_LABELERS",
         ],
-        ["tehasbot", "clean" | "dispatch" | "refresh" | "outsource-proxy" | "plugin-gate"] => {
-            &INSTANCE_SETTINGS
-        }
+        ["tehasbot", "clean" | "dispatch" | "refresh" | "plugin-gate"] => &INSTANCE_SETTINGS,
         ["tehas", "plan" | "work"] => &[
             "TEHAS_REPO",
             "PI_ENSEMBLE_SUBAGENT_MODEL",
             "PI_ENSEMBLE_SUBAGENT_PROVIDER",
         ],
-        ["tehasbot", "protolab"] | ["tehas", "prototype"] => {
-            &["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"]
-        }
         _ => &[],
     }
 }
@@ -459,7 +442,6 @@ pub fn text(command: &str) -> Option<&'static str> {
         "limit" => include_str!("usage/limit.txt"),
         "mcp" => include_str!("usage/mcp.txt"),
         "order" => include_str!("usage/order.txt"),
-        "outsource" => crate::outsource::USAGE,
         "start" => include_str!("usage/start.txt"),
         "answer" => include_str!("usage/answer.txt"),
         "question" => include_str!("usage/question.txt"),
@@ -468,7 +450,6 @@ pub fn text(command: &str) -> Option<&'static str> {
         "plugin" => include_str!("usage/plugin.txt"),
         "pause" => include_str!("usage/pause.txt"),
         "plan" => include_str!("usage/plan.txt"),
-        "prototype" => include_str!("usage/prototype.txt"),
         // The dispatcher's own text, which `tehasbot refresh --help` prints.
         "refresh" => include_str!("../dispatch/src/usage/refresh.txt"),
         "resume" => include_str!("usage/resume.txt"),
@@ -683,7 +664,6 @@ mod tests {
             &["tehasbot", "preview", ""],
             &["tehasbot", "preview", "--sweep"],
             &["tehasbot", "preview", "--sweep", "kept"],
-            &["tehasbot", "protolab", "ignored"],
             &["tehasbot", "refresh", "--help"],
         ] {
             assert_eq!(says(good), 0, "{good:?}");
@@ -763,23 +743,13 @@ mod tests {
         ] {
             assert_eq!(required(&words(repo)), ["TEHAS_REPO"], "{repo:?}");
         }
-        for all in [
-            "clean",
-            "dispatch",
-            "refresh",
-            "outsource-proxy",
-            "plugin-gate",
-        ] {
+        for all in ["clean", "dispatch", "refresh", "plugin-gate"] {
             assert_eq!(
                 required(&words(&["tehasbot", all])),
                 INSTANCE_SETTINGS,
                 "{all}"
             );
         }
-        assert_eq!(
-            required(&words(&["tehasbot", "protolab"])),
-            ["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"]
-        );
     }
 
     #[test]

@@ -12,6 +12,8 @@
 # None is taken out or changed within 1.x. console/tests/surface.rs fails
 # when the surface loses a name of this file, and when it has one this file
 # does not list yet. The settings of energy use went in 2.0, and so did
+# the Protolab's setting and its status field, TEHAS_WORK_DESCRIBE,
+# TEHAS_WORK_FILES, TEHAS_WORK_ZIPS and TEHAS_WORK_COMMENTS, and so did
 # the label tehas:all-hands and status.allHands.
 
 command analytics
@@ -194,7 +196,6 @@ setting TEHAS_POLL_SECS
 setting TEHAS_PREVIEWS
 setting TEHAS_PREVIEW_MAX
 setting TEHAS_PREVIEW_MIN_FREE
-setting TEHAS_PROTOLAB_URL
 setting TEHAS_READ_ONLY
 setting TEHAS_REFRESH_MAX_PER_PR
 setting TEHAS_REFRESH_SLOTS
@@ -218,14 +219,10 @@ setting TEHAS_UPDATE_LOCK_WAIT
 setting TEHAS_VERIFY_TIMEOUT
 setting TEHAS_WORKSPACE_KEEP_DAYS
 setting TEHAS_WORKSTREAMS
-setting TEHAS_WORK_COMMENTS
-setting TEHAS_WORK_DESCRIBE
-setting TEHAS_WORK_FILES
 setting TEHAS_WORK_IMAGES
 setting TEHAS_WORK_REPO
 setting TEHAS_WORK_STALL
 setting TEHAS_WORK_TIMEOUT
-setting TEHAS_WORK_ZIPS
 role ADVERSARIAL_DEVELOPER
 role CODE_REVIEW_SPECIALIST
 role DEVELOPER
@@ -518,7 +515,6 @@ field status.planning
 field status.planning[].issue
 field status.planning[].since
 field status.planning[].turn
-field status.prototypes
 field status.pushFault
 field status.pushFault.at
 field status.pushFault.line

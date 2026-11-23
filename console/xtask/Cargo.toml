@@ -19,3 +19,4 @@ rustix = { version = "1", default-features = false, features = ["std", "fs"] }
 serde_json = "1"
 sha2 = "0.10"
 tehas-core = { path = "../core" }
+tehas-ops = { path = "../ops" }

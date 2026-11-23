@@ -194,15 +194,11 @@ const SETTINGS: &[(&str, &str)] = &[
     ("TEHAS_LEAN", "0"),
     ("TEHAS_MAX_CYCLES", "127"),
     ("TEHAS_MILLWRIGHT_LOGIN", "tehas-bot[bot]"),
-    ("TEHAS_OUTSOURCE", "0"),
     ("TEHAS_READ_ONLY", "0"),
     ("TEHAS_REPO", "acme/widget"),
     ("TEHAS_RUKAS_WORKAROUNDS", ""),
     ("TEHAS_STATUS_CMD", "fake-status"),
     ("TEHAS_WORK_CMD", "fake-work"),
-    ("TEHAS_WORK_COMMENTS", "0"),
-    ("TEHAS_WORK_DESCRIBE", "0"),
-    ("TEHAS_WORK_FILES", "0"),
     ("TEHAS_WORK_IMAGES", "0"),
     ("TEHAS_WORK_STALL", "3600"),
     ("TEHAS_WORK_TIMEOUT", "21600"),
@@ -216,7 +212,7 @@ const LOGINS: &[&str] = &[
     "bob-2",
     "carol",
     "boss",
-    "tehas-fixer",
+    "tehas-millwright",
     "tehas-mill",
     "millbot",
     "mill-bot",
@@ -684,7 +680,7 @@ impl World {
             "--how",
             how,
         ];
-        if matches!(how, "label" | "fixer") {
+        if matches!(how, "label" | "millwright") {
             a.extend(["--label", "tehas:ready"]);
         }
         let sum = wsum();

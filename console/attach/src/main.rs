@@ -1,7 +1,7 @@
 //! attach: the files attached to an issue, fetched and judged by a program and
 //! not by the shell, and what a cycle was given, said as text. tehas-cycle
 //! runs it as $TEHAS_HOME/libexec/attach for tehas work, and the console for
-//! tehas plan, tehas dev and tehasbot protolab. It reads no setting: the caller
+//! tehas plan, tehas dev and the item store. It reads no setting: the caller
 //! passes each as a flag, the approval word (rule 5) among them. Only `issue` and
 //! `answer` hold GH_TOKEN and reach the network, through curl and gh, and they
 //! read what was fetched through `sniff` and `unpack` run as a child with no
@@ -33,8 +33,9 @@
 //!     approval, or null, also when a manifest cannot be read.
 //!   attach left-out <issue> <file> <record> --images 0|1 --files 0|1
 //!     What a cycle given nothing was not given, into <file> whole or not at
-//!     all. --images and --files are the instance's settings. Answers "gap":
-//!     the line that says it, or null when there is nothing to say.
+//!     all. --images and --files are the instance's settings; a cycle, which
+//!     gives no files, leaves --files out. Answers "gap": the line that says
+//!     it, or null when there is nothing to say.
 //!
 //!   attach issue <issue> <dir> --approved WORD --record PATH --repo R
 //!       --comments 0|1 --allowed LOGINS --millwright LOGIN

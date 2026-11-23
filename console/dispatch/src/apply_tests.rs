@@ -63,7 +63,6 @@ case "$name $1" in
   "store plan-answer")
     for a; do [ "${prev:-}" != --text-file ] || cp "$a" "$d/answer"; prev=$a; done
     cat "$d/answered" 2>/dev/null || echo '{"api":1,"verb":"plan-answer","ok":true,"planning":{"answer":"Do A.\n"}}' ;;
-  "store job-stamp") cat "$d/job" 2>/dev/null || echo '{"api":1,"verb":"job-stamp","ok":true,"job":null}' ;;
   "store plan-show") cat "$d/plan" 2>/dev/null || echo '{"api":1,"verb":"plan-show","ok":true,"planning":null}' ;;
   "store plan-end") case "$*" in
       *--turn*) if [ -f "$d/plan" ]; then sed 's/"verb":"plan-show"/"verb":"plan-end"/' "$d/plan"; else echo '{"api":1,"verb":"plan-end","ok":true}'; fi ;;
@@ -177,13 +176,11 @@ fn world() -> World {
         store_retry: Duration::from_secs(1),
         host: start::Host {
             name: "tehas-tehas".into(),
-            comments: false,
             allowed: vec!["alice".into()],
             millwright: "mill-bot".into(),
             refused_labels: Vec::new(),
             bot: "tehas-bot".into(),
             owner: String::new(),
-            outsource: false,
             systemctl: s("start"),
             start_cmd: Some(s("start")),
             stop_cmd: Some(s("start")),
@@ -1215,19 +1212,19 @@ fn a_spec_that_stops_a_refresh_drops_its_request() {
 fn a_start_on_an_epics_approval_is_recorded_as_the_persons_label() {
     let mut t = world();
     let mut st = start_of(7, "label");
-    st["verb"] = json!("approved on epic #5, labelled by the fixer,");
-    st["how"] = json!("`tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the fixer carried to this sub-issue");
+    st["verb"] = json!("approved on epic #5, labelled by the millwright,");
+    st["how"] = json!("`tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the millwright carried to this sub-issue");
     let a = t.apply(json!([st]));
     assert_eq!(a.exit, None);
     assert_eq!(
         a.log,
-        vec!["start #7 (approved on epic #5, labelled by the fixer, by alice)"]
+        vec!["start #7 (approved on epic #5, labelled by the millwright, by alice)"]
     );
     let c = t.writes();
     assert!(c[0].contains("approval-record 7 --at 1793008800 --by alice --how label"));
     assert!(c[0].contains("--label tehas:ready"));
     assert!(c[4].contains(
-        "(authorized by @alice's `tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the fixer carried to this sub-issue)."
+        "(authorized by @alice's `tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the millwright carried to this sub-issue)."
     ));
 }
 
@@ -1331,61 +1328,6 @@ fn a_start_records_marks_says_and_starts_in_that_order() {
 }
 
 #[test]
-fn with_outsource_off_the_start_comment_asks_no_stamp() {
-    let mut t = world();
-    t.apply(json!([start_of(7, "label")]));
-    let all = t.writes().join("\n");
-    assert!(all.contains("Tehas cycle started"), "{all}");
-    assert!(!all.contains("Built by"), "{all}");
-    assert!(!all.contains("job-stamp"), "{all}");
-}
-
-#[test]
-fn with_outsource_on_the_start_comment_says_who_builds_it() {
-    let mut t = world();
-    t.w.host.outsource = true;
-    t.apply(json!([start_of(7, "label")]));
-    let c = t.writes();
-    assert!(
-        c.iter()
-            .any(|w| w == "store job-stamp --issue 7 --since 1793008800 --open"),
-        "{c:#?}"
-    );
-    let all = c.join("\n");
-    assert!(all.contains("is removed.\n\nBuilt by: in-house\n"), "{all}");
-
-    let mut t = world();
-    t.w.host.outsource = true;
-    fs::write(
-        t.dir.join("job"),
-        r#"{"api":1,"verb":"job-stamp","ok":true,"job":4,"contractor":"box-1"}"#,
-    )
-    .unwrap();
-    t.apply(json!([start_of(7, "label")]));
-    let all = t.writes().join("\n");
-    assert!(
-        all.contains("is removed.\n\nBuilt by contractor: box-1 (job 4)\n"),
-        "{all}"
-    );
-
-    // A store that cannot say leaves the comment without a stamp.
-    let mut t = world();
-    t.w.host.outsource = true;
-    t.fail("store", "job-stamp");
-    let a = t.apply(json!([start_of(7, "label")]));
-    let all = t.writes().join("\n");
-    assert!(all.contains("Tehas cycle started"), "{all}");
-    assert!(!all.contains("Built by"), "{all}");
-    assert!(
-        a.log
-            .iter()
-            .any(|l| l.starts_with("WARN: #7: the store did not say who builds it")),
-        "{:#?}",
-        a.log
-    );
-}
-
-#[test]
 fn a_start_binds_its_driver_in_the_record_and_a_classic_one_names_none() {
     let mut t = world();
     let mut a = start_of(7, "label");
@@ -1394,17 +1336,6 @@ fn a_start_binds_its_driver_in_the_record_and_a_classic_one_names_none() {
     let input: Value =
         serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
     assert_eq!(input["driver"], "lean");
-}
-
-#[test]
-fn an_outsourced_start_binds_its_contractor_in_the_record() {
-    let mut t = world();
-    let mut a = start_of(7, "label");
-    a["contractor"] = json!("box-1");
-    t.apply(json!([a]));
-    let input: Value =
-        serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
-    assert_eq!(input["contractor"], "box-1");
 }
 
 #[test]
@@ -1695,23 +1626,16 @@ fn a_start_takes_its_park_question_off_and_spends_the_retry_after_the_mark() {
 }
 
 #[test]
-fn the_approval_names_the_comments_an_allowed_account_wrote_before_it() {
+fn the_approval_names_no_link_of_a_comment_and_reads_no_comment() {
     let mut t = world();
-    t.w.host.comments = true;
     let comments = r#"[{"id": 1, "body": "see https://github.com/user-attachments/assets/2", "user": {"login": "alice"},
-        "created_at": "2026-10-26T09:00:00Z", "updated_at": "2026-10-26T09:00:00Z"},
-      {"id": 2, "body": "https://github.com/user-attachments/assets/3", "user": {"login": "mallory"},
-        "created_at": "2026-10-26T09:00:00Z", "updated_at": "2026-10-26T09:00:00Z"},
-      {"id": 3, "body": "later https://github.com/user-attachments/assets/4", "user": {"login": "alice"},
-        "created_at": "2026-10-26T11:00:00Z", "updated_at": "2026-10-26T11:00:00Z"}]"#;
+        "created_at": "2026-10-26T09:00:00Z", "updated_at": "2026-10-26T09:00:00Z"}]"#;
     fs::write(t.dir.join("comments"), comments).unwrap();
     t.apply(json!([start_of(7, "label")]));
     let input: Value =
         serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
-    assert_eq!(
-        input["comment_links"],
-        json!([{"link": "https://github.com/user-attachments/assets/2", "source": "comment:1", "by": "alice"}])
-    );
+    assert!(input.get("comment_links").is_none(), "{input}");
+    assert!(!t.calls().iter().any(|c| c.contains("issues/7/comments")));
 }
 
 #[test]
@@ -1777,30 +1701,6 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
         .calls()
         .iter()
         .any(|c| c.starts_with("store approval-record")));
-}
-
-#[test]
-fn with_outsource_on_a_refresh_start_says_who_builds_it() {
-    let mut t = world();
-    t.w.host.outsource = true;
-    fs::write(
-        t.dir.join("job"),
-        r#"{"api":1,"verb":"job-stamp","ok":true,"job":4,"contractor":"box-1"}"#,
-    )
-    .unwrap();
-    let mut a = start_of(7, "refresh");
-    a["how"] = json!("approval");
-    a["refresh_pr"] = json!(12);
-    a["refresh_url"] = json!("https://github.com/example-owner/example-product/pull/12");
-    a["refresh_of"] =
-        json!({"pr": 12, "head_sha": "c".repeat(40), "base_sha": "d".repeat(40), "branch": "main"});
-    t.apply(json!([a]));
-    let all = t.writes().join("\n");
-    assert!(all.contains("Tehas refresh started"), "{all}");
-    assert!(
-        all.contains("is removed.\n\nBuilt by contractor: box-1 (job 4)\n"),
-        "{all}"
-    );
 }
 
 #[test]
@@ -1972,7 +1872,7 @@ fn a_comments_retry_records_the_text_of_the_issue_and_its_pull_requests() {
         .to_string(),
     )
     .unwrap();
-    // TEHAS_WORK_COMMENTS is off: the tick is the opt-in.
+    // The tick is the opt-in.
     t.apply(json!([comments_retry()]));
     assert!(!t.calls().iter().any(|c| c.contains("issues/31/comments")));
     let input = input_of(&t);
@@ -1997,7 +1897,7 @@ fn a_comments_retry_records_the_text_of_the_issue_and_its_pull_requests() {
     );
     assert_eq!(ctx[5]["text"].as_str().unwrap().len(), 4000);
     assert_eq!(ctx[5]["pr"], 32);
-    // Links are fetched only with TEHAS_WORK_COMMENTS.
+    // No record names the links of comments.
     assert!(input.get("comment_links").is_none());
     // A list that cannot be read starts nothing.
     for fail in ["pr list", "pulls/30/reviews", "pulls/30/comments"] {
@@ -2017,9 +1917,8 @@ fn a_comments_retry_records_the_text_of_the_issue_and_its_pull_requests() {
 }
 
 #[test]
-fn a_comments_retry_with_comments_on_names_the_links_of_its_pull_request_too() {
+fn a_comments_retry_names_no_link_of_its_pull_request() {
     let mut t = world();
-    t.w.host.comments = true;
     fs::write(
         t.dir.join("prs"),
         r#"[{"number": 30, "headRefName": "feature/issue-7-x", "body": ""}]"#,
@@ -2037,10 +1936,13 @@ fn a_comments_retry_with_comments_on_names_the_links_of_its_pull_request_too() {
     )
     .unwrap();
     t.apply(json!([comments_retry()]));
-    assert_eq!(
-        input_of(&t)["comment_links"],
-        json!([{"link": "https://github.com/user-attachments/assets/9", "source": "pr-comment:3", "by": "alice"}])
-    );
+    let input = input_of(&t);
+    assert!(input.get("comment_links").is_none(), "{input}");
+    assert!(input["retry_context"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|c| c["id"] == 3 && c["source"] == "pr-comment"));
 }
 
 #[test]
@@ -2169,13 +2071,11 @@ fn a_comments_retry_over_the_record_bound_keeps_the_newest() {
 }
 
 /// The tick of `Retry with the issue text only`: the start names no comment
-/// of the issue or of its pull request, so with the host reading comments it
-/// asks for neither and its record holds neither. Were the guard dropped, this start
+/// of the issue or of its pull request, so it asks for neither and its record holds neither. Were the guard dropped, this start
 /// would read both, and these are the two calls that say it did.
 #[test]
 fn a_start_of_the_issue_alone_reads_no_comment_of_the_issue_or_its_pull_request() {
     let mut t = world();
-    t.w.host.comments = true;
     // Both reads would answer if they were asked for: the issue's comments
     // link one file, the pull request's would go into retry_context.
     fs::write(
@@ -2212,7 +2112,6 @@ fn a_start_of_the_issue_alone_reads_no_comment_of_the_issue_or_its_pull_request(
     // A tick of the comments retry under the same host asks for both, so the two
     // cases above really are the guard and not a world that reads nothing.
     let mut t = world();
-    t.w.host.comments = true;
     fs::write(
         t.dir.join("comments"),
         r#"[{"id": 1, "body": "see https://github.com/user-attachments/assets/2", "user": {"login": "alice"},
@@ -2232,7 +2131,6 @@ fn a_start_of_the_issue_alone_reads_no_comment_of_the_issue_or_its_pull_request(
     assert!(w.iter().any(|c| c.contains("issues/7/comments")));
     let input: Value =
         serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
-    assert!(input.get("comment_links").is_some());
     assert!(input.get("retry_context").is_some());
 }
 
@@ -2242,7 +2140,6 @@ fn a_start_of_the_issue_alone_reads_no_comment_of_the_issue_or_its_pull_request(
 fn a_start_whose_issue_alone_is_not_a_bool_is_said_and_reads_its_comments() {
     for v in [json!("true"), json!(1), json!("yes")] {
         let mut t = world();
-        t.w.host.comments = true;
         fs::write(
             t.dir.join("comments"),
             r#"[{"id": 1, "body": "see https://github.com/user-attachments/assets/2", "user": {"login": "alice"},
@@ -4502,7 +4399,7 @@ fn the_plan_view_is_the_whole_shape_the_analytics_reads() {
         v,
         json!({"session": "s-1", "turns": 2, "options": ["A"], "pending": false, "failed": false,
         "running": true, "startedAt": "2026-10-26T07:33:20Z", "comment": 55, "by": "alice", "label": "tehas:plan",
-        "answers": [{"turn": 2, "by": "mill-bot", "fixer": true}], "held": [1]})
+        "answers": [{"turn": 2, "by": "mill-bot", "millwright": true}], "held": [1]})
     );
     assert_eq!(plan_view(&json!(null)), json!(null));
 }
@@ -4550,7 +4447,7 @@ fn a_turns_end_gives_the_analytics_the_session_in_the_shape_its_record_had() {
         facts,
         json!({"session": "s", "turns": 1, "options": [], "pending": false, "failed": false,
         "running": true, "startedAt": "2026-10-26T07:33:20Z", "by": "alice", "label": "tehas:refine",
-        "answers": [{"turn": 2, "by": "alice", "fixer": false}]})
+        "answers": [{"turn": 2, "by": "alice", "millwright": false}]})
     );
     let events = fs::read_to_string(t.dir.join("events")).unwrap();
     let path = events.split(' ').nth(3).unwrap();
@@ -5059,12 +4956,12 @@ fn a_next_turn_is_given_the_answer_on_record_with_what_was_filed() {
     fs::write(t.dir.join("works/.tehas-workspaces"), "").unwrap();
     let a = t.apply(
         json!([{"plan_turn": 7, "kind": "next", "answer": "Do A.", "by": "mill-bot", "reply": 55,
-        "log": "planning #7 continues (answer from mill-bot, the fixer)"}]),
+        "log": "planning #7 continues (answer from mill-bot, the millwright)"}]),
     );
     assert_eq!(
         a.log,
         vec![
-            "planning #7 continues (answer from mill-bot, the fixer)",
+            "planning #7 continues (answer from mill-bot, the millwright)",
             "planning #7: turn 3 runs as tehas-plan-7.service"
         ]
     );

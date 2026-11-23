@@ -24,19 +24,14 @@
 #                           plain run builds it again, and a release replaces it
 #
 # What is installed: the commands and units (issue to pull request), the
-# sandbox files, the docs server, the edge router, the Protolab and the
-# manual, plus Pi's model list and settings, made from
+# sandbox files, the docs server, the edge router and the manual, plus Pi's model list and settings, made from
 # the instance's models.json and settings.json (see section 2).
 #
 # It copies files, and compiles seven: the console of a running cycle, the
 # analytics program, the MCP server, the state store, the attachment checker,
 # the dispatcher and the cycle's supervisor, Rust programs in the Cargo
 # workspace console/ (the other six in console/analytics, console/mcp,
-# console/store, console/attach, console/dispatch and console/cycle). While
-# outsource is on (TEHAS_OUTSOURCE) it compiles two more, the model proxy
-# (console/proxy, libexec/tehas-proxy) and the contractor program
-# (console/contractor, libexec/tehas-contractor), and installs the proxy's
-# unit, tehas-outsource-proxy.service; off, none of the three. While plugins
+# console/store, console/attach, console/dispatch and console/cycle). While plugins
 # are on (TEHAS_PLUGIN) it compiles the runner (console/plugin,
 # libexec/tehas-plugin) and installs its units: the templates of a run,
 # tehas-plugin@.service and tehas-plugin-hook@.service, and tehas-plugin.timer
@@ -413,8 +408,8 @@ home_marker=.tehas-home
 # code (tehas-cycle run). docs and fun are not among them: a home that has
 # them without the marker is not known to be tehas's, and this run would remove
 # the pages of someone else from them.
-home_dirs=(bin libexec lib live logs mcp platform preview protolab repos sandbox
-  state tmp tools work target .cargo versions current run)
+home_dirs=(bin libexec lib live logs mcp platform preview items repos
+  sandbox state tmp tools work target .cargo versions current run)
 
 home_refusal() { # the reason $TEHAS_HOME is not provably tehas's, or nothing
   local path=${TEHAS_HOME:-} entry part rest
@@ -662,7 +657,6 @@ files=(
   "sandbox/base.Dockerfile|$TEHAS_HOME/sandbox/base.Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
   "sandbox/gh-shim|$TEHAS_HOME/sandbox/gh-shim|755"
-  "sandbox/vipune-shim|$TEHAS_HOME/sandbox/vipune-shim|755"
   "sandbox/npm/playwright/package.json|$TEHAS_HOME/sandbox/npm/playwright/package.json|644"
   "sandbox/npm/playwright/package-lock.json|$TEHAS_HOME/sandbox/npm/playwright/package-lock.json|644"
   # The npm trees the sandbox base installs pi, ctx7 and parallel-cli from.
@@ -685,8 +679,6 @@ files=(
   "systemd/tehas-mcp.service|$units/tehas-mcp.service|644"
   "systemd/tehas-mcp-fetch.socket|$units/tehas-mcp-fetch.socket|644"
   "systemd/tehas-mcp-fetch@.service|$units/tehas-mcp-fetch@.service|644"
-  "systemd/tehas-protolab.service|$units/tehas-protolab.service|644"
-  "systemd/tehas-protolab.timer|$units/tehas-protolab.timer|644"
   "systemd/tehas-preview.service|$units/tehas-preview.service|644"
   "systemd/tehas-preview.timer|$units/tehas-preview.timer|644"
   "systemd/tehas-preview-sweep.service|$units/tehas-preview-sweep.service|644"
@@ -722,8 +714,7 @@ for f in "$root"/lib/polyfill-*.sh; do
   files+=("lib/${f##*/}|$TEHAS_HOME/lib/${f##*/}|644")
 done
 shopt -u nullglob
-# What a feature that is on installs besides the rest: outsource's model proxy,
-# its unit and the contractor program, the plugins' runner and units
+# What a feature that is on installs besides the rest: the plugins' runner and units
 # (console/ops/src/update/host.rs). Off,
 # none of it is installed or compared.
 featured=$(export "${!TEHAS_@}"; "$loaded_console" update featured) ||
@@ -984,12 +975,13 @@ fi
 had_versions=0
 [ -f "$TEHAS_HOME/versions.env" ] && had_versions=1
 # The home's own directories are made here, before the first copy: the servers
-# mount live/ and protolab/, preview/ is where `tehasbot preview` keeps each pull
-# request, and an empty home has none of them yet. Making them here rather than
-# after the copies is what lets the marker go into a home that is not yet there.
+# mount live/ and items/, which Docker would otherwise make as root, preview/ is
+# where `tehasbot preview` keeps each pull request, and an empty home has none
+# of them yet. Making them here rather than after the copies is what lets the
+# marker go into a home that is not yet there.
 # --check changes nothing, so it makes neither.
 if [ "$check" != 1 ]; then
-  mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
+  mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/items" \
     "$TEHAS_HOME/preview"
   # A home with no env.sh has never been installed.
   [ -f "$TEHAS_HOME/env.sh" ] || : >"$first_owed"
@@ -1106,14 +1098,15 @@ done <<<"$retired"
 # The units of features this version does not have: the timed refresh scan
 # (refreshes are asked for one pull request at a time), the improvement loop,
 # the review loop, the product wiki and the energy sampler, which left core in
-# 2.0. Found here; in step 5 each timer and path unit, or a service none
-# starts, is stopped and disabled and its files go.
+# 2.0, the Protolab, removed in 2.0, and the model proxy of outsource, which
+# 2.0 dropped. Found here; in step 5 each timer and path unit, or a service
+# none starts, is stopped and disabled and its files go.
 old_units=()
 scan_units=$units
 for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-improve.service \
   tehas-review.timer tehas-review.service \
   tehas-wiki-status.timer tehas-wiki-status.service tehas-wiki.timer tehas-wiki.path tehas-wiki.service \
-  tehas-energy.service; do
+  tehas-energy.service tehas-protolab.timer tehas-protolab.service tehas-outsource-proxy.service; do
   [ -e "$scan_units/$unit" ] || [ -L "$scan_units/$unit" ] || continue
   old_units+=("$unit")
   [ "$check" = 0 ] || note "stale: $scan_units/$unit"
@@ -1379,7 +1372,12 @@ if [ "${#old[@]}" -gt 0 ]; then
     retire_later="once systemctl --user daemon-reload works   (systemd still holds the units that name the old commands and server files in $TEHAS_HOME, so they were left)"
   elif [ "$dispatch_held" = 1 ]; then
     for to in "${old[@]}"; do
-      rm -f "$to" "$to.prev"
+      # A path the list ends with a slash is a directory, removed with what it
+      # holds; a link in its place is unlinked, never followed.
+      case $to in
+        */) if [ -L "${to%/}" ]; then rm -f "${to%/}"; else rm -rf "${to%/}"; fi ;;
+        *) rm -f "$to" "$to.prev" ;;
+      esac
       echo "removed: $to"
     done
   fi

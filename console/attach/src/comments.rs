@@ -76,7 +76,7 @@ fn item(e: &Value, how: &str, issue: u64, repo: &str, millwright: &str) -> Optio
         if fixer {
             let mine = !millwright.is_empty()
                 && no_bot(by.as_str()?) == no_bot(millwright)
-                && matches!(how, "millwright" | "fixer");
+                && how == tehas_core::grammar::MILLWRIGHT;
             if !mine {
                 return None;
             }
@@ -291,6 +291,8 @@ mod tests {
             ]
         );
         assert_eq!(of("reply", json!([note(2, "mw")])), None);
+        // A record under the millwright's old name gives no note.
+        assert_eq!(of("fixer", json!([note(2, "mw")])), None);
     }
 
     #[test]

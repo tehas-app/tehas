@@ -232,13 +232,13 @@ mod tests {
     #[test]
     fn the_keys_stay_in_the_order_of_the_api() {
         let poll = J::parse(r#"{"z":1,"a":2}"#).unwrap();
-        let flags = [("outsource", false), ("other", true)];
+        let flags = [("plugins", false), ("other", true)];
         let printed = object("v1.2.3", "acme/widget", "mill", &flags, poll).dump();
         assert!(printed.starts_with(
             r#"{"api":1,"tehas":"v1.2.3","commit":null,"repo":"acme/widget","features":["status","#
         ));
         assert!(printed.ends_with(
-            r#""disk","panels","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags","status-previews","wake","start-reasons","blockers","answer","question"],"flags":{"outsource":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2}}"#
+            r#""disk","panels","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags","status-previews","wake","start-reasons","blockers","answer","question"],"flags":{"plugins":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2}}"#
         ));
     }
 
@@ -354,10 +354,10 @@ mod tests {
 
     #[test]
     fn the_poll_line_takes_the_column_of_the_others() {
-        let flags = [("outsource", false), ("other", true)];
+        let flags = [("plugins", false), ("other", true)];
         let got = lines("cb6912a", "a/b", "", &flags, "poll  last 2 s wall");
         assert_eq!(got[1], "tehas       unknown (cb6912a)");
-        assert_eq!(got[4], "flags       outsource=off other=on");
+        assert_eq!(got[4], "flags       plugins=off other=on");
         assert_eq!(got[5], "millwright  none");
         assert_eq!(got[6], "poll        last 2 s wall");
         assert_eq!(lines("", "a/b", "", &flags, "").len(), 6);

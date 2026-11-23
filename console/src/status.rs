@@ -18,10 +18,8 @@
 //!     nothing.
 //!
 //! The files of live/ beside the health file are read when they are there:
-//! protolab.json as `prototypes`, previews.json, which the factory writes only
-//! with previews on, as `previews`, and contractors.json, which the factory
-//! writes only with outsource on, as `contractors`, the `outsource:` line and
-//! where each running cycle is built.
+//! previews.json, which the factory writes only with previews on, as
+//! `previews`.
 //!
 //! <now> is epoch seconds. A health file older than ten minutes is not
 //! believed: its first line says stale.
@@ -32,7 +30,6 @@
 
 use crate::holds::epoch;
 use crate::jq::{first, obj, J};
-use crate::outsource;
 use crate::store;
 use crate::update::release::{older, prerelease, tag_ok};
 use std::env;
@@ -212,19 +209,10 @@ fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>, ends: &[Str
         }
     };
     let stale = stale(&health, now);
-    let hands = fs::read_to_string(beside(file, outsource::LIVE_FILE))
-        .ok()
-        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .filter(|v| v["contractors"].is_array());
     match lines {
         Some((poll, product)) => {
             let mut lines = state_lines(&health, now, stale, poll);
-            lines.extend(
-                cycles(&health)
-                    .iter()
-                    .map(|c| cycle_line(c, now) + &built_where(c, hands.as_ref())),
-            );
-            lines.extend(hands.as_ref().map(|h| outsource::status_line(&h["counts"])));
+            lines.extend(cycles(&health).iter().map(|c| cycle_line(c, now)));
             lines.extend(ends.iter().cloned());
             lines.extend(plan_lines(&health, now));
             lines.push(slice_line(&health, now));
@@ -236,20 +224,11 @@ fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>, ends: &[Str
         }
         None => {
             let mut said = status_json(&health, now, stale);
-            let list = fs::read_to_string(beside(file, "protolab.json"))
-                .ok()
-                .and_then(|t| J::parse(&t));
-            if let (J::Obj(o), Some(p)) = (&mut said, list.as_ref().and_then(prototypes)) {
-                o.push(("prototypes".to_string(), p));
-            }
             let shown = fs::read_to_string(beside(file, "previews.json"))
                 .ok()
                 .and_then(|t| J::parse(&t));
             if let (J::Obj(o), Some(p)) = (&mut said, shown.as_ref().and_then(previews)) {
                 o.push(("previews".to_string(), p));
-            }
-            if let (J::Obj(o), Some(c)) = (&mut said, hands.as_ref().and_then(contractors)) {
-                o.push(("contractors".to_string(), c));
             }
             tehas_core::outln!("{}", said.dump())
         }
@@ -261,52 +240,13 @@ fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>, ends: &[Str
     }
 }
 
-/// A file of live/ beside the health file: live/protolab.json for
+/// A file of live/ beside the health file: live/previews.json for
 /// live/health.json, and so for a sample's <name>.health.json.
 fn beside(file: &str, name: &str) -> String {
     match file.strip_suffix("health.json") {
         Some(stem) => format!("{stem}{name}"),
         None => Path::new(file).with_file_name(name).display().to_string(),
     }
-}
-
-/// Where a running cycle is built, when live/contractors.json is there, which
-/// it is only with outsource on: on the contractor whose job is the issue's,
-/// or in-house.
-fn built_where(c: &J, hands: Option<&serde_json::Value>) -> String {
-    let (Some(hands), true) = (hands, c.get("running").truthy()) else {
-        return String::new();
-    };
-    let issue = c.get("issue").as_f64().unwrap_or_default() as i64;
-    match outsource::contractor_on(hands, issue) {
-        Some(name) => format!(", outsourced to {}", oneline(name)),
-        None => ", in-house".to_string(),
-    }
-}
-
-/// The `contractors` of the object: the counts of live/contractors.json and
-/// its list as `list`.
-pub fn contractors(hands: &serde_json::Value) -> Option<J> {
-    let counts = hands["counts"].as_object()?;
-    let of = |v: &serde_json::Value| J::parse(&v.to_string()).unwrap_or(J::Null);
-    let mut fields: Vec<(String, J)> = outsource::COUNTED
-        .iter()
-        .map(|w| Some((w.to_string(), J::int(counts.get(*w)?.as_i64()?))))
-        .collect::<Option<_>>()?;
-    let list = hands["contractors"]
-        .as_array()?
-        .iter()
-        .map(|c| {
-            let kept: Vec<(String, J)> = outsource::SHOWN
-                .iter()
-                .filter(|k| !c[**k].is_null())
-                .map(|k| (k.to_string(), of(&c[*k])))
-                .collect();
-            J::Obj(kept)
-        })
-        .collect();
-    fields.push(("list".to_string(), J::Arr(list)));
-    Some(J::Obj(fields))
 }
 
 /// Older than the rule, or written at a time that cannot be read.
@@ -1048,32 +988,6 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
     obj(fields)
 }
 
-/// The tickets with a Protolab page, from the list the Protolab writes beside
-/// the health file: each issue, and when its page was built where that is
-/// known. None when there is no list to read, as on a host without the lab.
-pub fn prototypes(list: &J) -> Option<J> {
-    let J::Arr(tickets) = list.get("tickets") else {
-        return None;
-    };
-    Some(J::Arr(
-        tickets
-            .iter()
-            .filter(|t| {
-                t.get("number")
-                    .as_f64()
-                    .is_some_and(|n| n >= 1.0 && n.fract() == 0.0)
-            })
-            .map(|t| {
-                let mut f = vec![("issue", t.get("number").clone())];
-                if t.get("builtAt").as_str().and_then(epoch).is_some() {
-                    f.push(("builtAt", t.get("builtAt").clone()));
-                }
-                obj(f)
-            })
-            .collect(),
-    ))
-}
-
 /// The previews of the open pull requests, from the list the previews write
 /// beside the health file: each pull request's number, the preview's own word
 /// for its state, and its address while it serves. The default branch's
@@ -1499,14 +1413,14 @@ mod tests {
     #[test]
     fn the_test_variable_is_a_line_and_a_field_only_where_health_says_it() {
         let lab = h(
-            r#"{"status":"warn","output":"A lab build.","time":"2026-10-17T14:00:00Z","checks":{"testFeatures":{"read":true,"features":["outsource","lean",7]}}}"#,
+            r#"{"status":"warn","output":"A lab build.","time":"2026-10-17T14:00:00Z","checks":{"testFeatures":{"read":true,"features":["plugins","lean",7]}}}"#,
         );
         assert_eq!(
             status_json(&lab, NOW, false).get("testFeatures").dump(),
-            r#"{"read":true,"features":["outsource","lean"],"lab":false}"#
+            r#"{"read":true,"features":["plugins","lean"],"lab":false}"#
         );
         assert!(state_lines(&lab, NOW, false, "").contains(
-            &"features  a lab build: TEHAS_TEST_FEATURES names outsource, lean, still being built"
+            &"features  a lab build: TEHAS_TEST_FEATURES names plugins, lean, still being built"
                 .to_string()
         ));
         let release = h(
@@ -1566,18 +1480,6 @@ mod tests {
     }
 
     #[test]
-    fn the_prototypes_are_the_tickets_of_the_lab_s_list() {
-        let list = h(
-            r#"{"generatedAt":"2026-10-17T14:00:00Z","tickets":[{"number":7,"builtAt":"2026-10-17T12:00:00Z","files":2},{"number":9},{"number":"x"}]}"#,
-        );
-        assert_eq!(
-            prototypes(&list).unwrap().dump(),
-            r#"[{"issue":7,"builtAt":"2026-10-17T12:00:00Z"},{"issue":9}]"#
-        );
-        assert!(prototypes(&h("{}")).is_none());
-    }
-
-    #[test]
     fn the_previews_are_the_pull_requests_of_the_list_with_an_address_only_while_serving() {
         let list = h(r#"{"generatedAt":"2026-10-17T14:00:00Z","previews":[
               {"number":null,"name":"main","state":"serving","address":"https://uat-main.example.org/"},
@@ -1593,24 +1495,5 @@ mod tests {
         );
         assert_eq!(previews(&h(r#"{"previews":[]}"#)).unwrap().dump(), "[]");
         assert!(previews(&h("{}")).is_none());
-    }
-
-    #[test]
-    fn with_the_contractors_file_a_running_cycle_says_where_it_is_built() {
-        let hands = serde_json::json!({"counts": {"idle": 1, "working": 1, "stopping": 0, "silent": 0,
-                                                  "resting": 0, "draining": 0, "revoked": 0, "outsourced": 1},
-            "contractors": [{"name": "box1", "status": "working", "issue": 12, "jobsDone": 0, "jobsLost": 0}]});
-        let on = h(r#"{"issue":12,"running":true}"#);
-        let home = h(r#"{"issue":13,"running":true}"#);
-        let ended = h(r#"{"issue":12,"running":false}"#);
-        assert_eq!(built_where(&on, Some(&hands)), ", outsourced to box1");
-        assert_eq!(built_where(&home, Some(&hands)), ", in-house");
-        assert_eq!(built_where(&ended, Some(&hands)), "");
-        assert_eq!(built_where(&on, None), "");
-        assert_eq!(
-            contractors(&hands).unwrap().dump(),
-            r#"{"idle":1,"working":1,"stopping":0,"silent":0,"resting":0,"draining":0,"revoked":0,"outsourced":1,"list":[{"name":"box1","status":"working","issue":12,"jobsDone":0,"jobsLost":0}]}"#
-        );
-        assert!(contractors(&serde_json::json!({})).is_none());
     }
 }

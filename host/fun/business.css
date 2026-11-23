@@ -83,7 +83,7 @@ svg text { fill: var(--text-faint); font: max(var(--type-small), 11px) var(--fon
 .pipeline { display: flex; flex-wrap: wrap; perspective: 900px; }
 .stage { --c: var(--text); --c-soft: var(--surface-quiet); flex: 1 1 150px; padding: 23px 18px 20px; min-height: 218px; display: grid; grid-template-rows: auto auto 1fr; align-content: start; gap: 17px; box-shadow: calc(-1 * var(--edge)) 0 0 var(--rule), 0 calc(-1 * var(--edge)) 0 var(--rule); min-width: 0; }
 .s-plan { --c: var(--stage-proto); --c-soft: var(--stage-proto-soft); }
-.s-proto { --c: var(--stage-proto); --c-soft: var(--stage-proto-soft); }
+.s-idea { --c: var(--stage-proto); --c-soft: var(--stage-proto-soft); }
 .s-line { --c: var(--stage-line); --c-soft: var(--stage-line-soft); }
 .s-build { --c: var(--stage-build); --c-soft: var(--stage-build-soft); }
 .s-review { --c: var(--stage-review); --c-soft: var(--stage-review-soft); }

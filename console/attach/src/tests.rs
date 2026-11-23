@@ -396,7 +396,7 @@ fn a_file_where_a_folder_is_needed_leaves_the_second_out() {
         skips(&out),
         [(
             "d.txt/inner.txt".to_string(),
-            "A name the lab cannot use.".to_string()
+            "A name the host cannot use.".to_string()
         )]
     );
 }
@@ -414,7 +414,7 @@ fn a_name_that_cleans_to_nothing_or_has_an_empty_part_is_left_out() {
     assert_eq!(skips(&out).len(), 3);
     assert!(skips(&out)
         .iter()
-        .all(|(_, r)| r == "A name the lab cannot use."));
+        .all(|(_, r)| r == "A name the host cannot use."));
 }
 
 #[test]
@@ -452,9 +452,12 @@ fn only_the_types_the_lab_hosts_and_md() {
         [
             (
                 "notes.pdf".to_string(),
-                "Not a type the lab hosts.".to_string()
+                "Not a type the host serves.".to_string()
             ),
-            ("noext".to_string(), "Not a type the lab hosts.".to_string()),
+            (
+                "noext".to_string(),
+                "Not a type the host serves.".to_string()
+            ),
         ]
     );
 }

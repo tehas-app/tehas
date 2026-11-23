@@ -893,14 +893,14 @@ fn attempt_counts_earlier_runs_and_how_is_kept() {
         &[
             line(t, "label"),
             line(t + 1000, "reply"),
-            line(t + 2000, "fixer"),
+            line(t + 2000, "millwright"),
         ],
     );
     fact(
         &home,
         9,
         "approval",
-        json!({"at": iso(t + 1900), "how": "fixer"}),
+        json!({"at": iso(t + 1900), "how": "millwright"}),
     );
     let conn = record(&home, 9, t + 3000);
     assert_eq!(
@@ -908,7 +908,7 @@ fn attempt_counts_earlier_runs_and_how_is_kept() {
             &conn,
             "SELECT attempt || ' ' || how || ' ' || queue_wait FROM runs"
         ),
-        "3 fixer 100"
+        "3 millwright 100"
     );
     // Recorded again, it replaces itself.
     execute(&home, &Cmd::Run(9, given(&home, 9)), t + 3000).unwrap();
@@ -1186,7 +1186,7 @@ fn the_run_takes_its_history_approval_settings_and_commit_from_the_facts_alone()
     );
     put_at(
         h(&home).cycle_note(7, "approved.json"),
-        &json!({"at": iso(started - 9000), "how": "fixer"}).to_string(),
+        &json!({"at": iso(started - 9000), "how": "millwright"}).to_string(),
     );
     put_at(
         h(&home).cycle_note(7, "settings"),
@@ -1585,8 +1585,8 @@ fn a_write_lock_held_past_the_busy_timeout_is_waited_out() {
 /// v0.30.0 wrote schema 4 already, so a database of an older schema is no
 /// 0.30 host's: it is kept aside under its version, as a newer one is.
 #[test]
-fn a_database_of_schema_1_to_3_or_6_is_kept_aside() {
-    for v in [1, 2, 3, 6] {
+fn a_database_of_schema_1_to_3_or_7_is_kept_aside() {
+    for v in [1, 2, 3, 7] {
         let home = scratch(&format!("schema-{v}"));
         let file = db::path(&home);
         {
@@ -2088,7 +2088,7 @@ fn schema_is_pinned() {
         if version_line(&dump) == version_line(pinned) {
             panic!(
                 "the schema changed and user_version did not: a column added within the \
-                 version goes last in its table and in db::ADDED, anything else raises \
+                 version goes last in its table, anything else raises \
                  SCHEMA_VERSION in db.rs; then replace src/schema.pinned with:\n{dump}"
             );
         }
@@ -2617,7 +2617,7 @@ fn plan_stores_the_turn_with_its_times_turn_and_outcome_and_no_usage() {
         &home,
         json!({"session": "s1", "turns": 1, "options": [], "pending": false, "failed": false,
                "running": true, "startedAt": iso(started), "by": "alice",
-               "answers": [{"turn": 2, "by": "alice", "fixer": false}]}),
+               "answers": [{"turn": 2, "by": "alice", "millwright": false}]}),
         Some(json!({"session": "s1", "text": "Which one?", "question": null})),
     );
     execute(&home, &plan_cmd(&home, "0"), now).unwrap();
@@ -2657,7 +2657,6 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
     let now = 1_792_000_000;
     let at = iso(now - 60);
     let rec = |turns: i64, answers: Value| json!({"session": "s", "turns": turns, "running": true, "startedAt": at, "answers": answers});
-    let fixer = json!([{"turn": 3, "by": "fixer-bot", "fixer": true}]);
     let millwright = json!([{"turn": 3, "by": "millwright-bot", "millwright": true}]);
     for (rc, record, out, outcome, status, how) in [
         (
@@ -2676,16 +2675,8 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
             "-",
             "label",
         ),
-        (
-            "2",
-            rec(2, fixer.clone()),
-            Some(json!({"session": "s"})),
-            "failed",
-            "-",
-            "millwright",
-        ),
-        // An answer marked `millwright` is the millwright's too, and a record
-        // marked with neither word is an answer of a person.
+        // An answer marked `millwright` is the millwright's, and a record
+        // not marked so is an answer of a person.
         (
             "2",
             rec(2, millwright.clone()),
@@ -2753,12 +2744,12 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
 }
 
 #[test]
-fn plan_how_words_are_the_pair_of_the_core_grammar() {
-    // Each reader of the class has a test of its own that its words are these
-    // two: this is analytics', beside the MCP server's and the core pair's.
+fn plan_how_words_are_the_word_of_the_core_grammar() {
+    // Each reader of the word has a test of its own that its word is this
+    // one: this is analytics', beside the MCP server's and the core word's.
     assert_eq!(
-        crate::plan::MILLWRIGHT_MARKS,
-        tehas_core::grammar::MILLWRIGHT_WORDS
+        crate::plan::MILLWRIGHT_MARK,
+        tehas_core::grammar::MILLWRIGHT
     );
     let now = 1_792_000_000;
     let at = iso(now - 60);
@@ -2773,18 +2764,18 @@ fn plan_how_words_are_the_pair_of_the_core_grammar() {
         let conn = Connection::open(db::path(&home)).unwrap();
         one::<String>(&conn, "SELECT how FROM runs")
     };
-    // Each word of the pair marks the turn the millwright's and neither word
-    // is an answer: were the marks anything else, one of these three disagrees.
+    // The word marks the turn the millwright's, and the old one is no mark:
+    // were the mark anything else, one of these three disagrees.
     assert_eq!(
         mark(json!({"turn": 3, "by": "bot", "millwright": true})),
         "millwright"
     );
     assert_eq!(
         mark(json!({"turn": 3, "by": "bot", "fixer": true})),
-        "millwright"
+        "answer"
     );
     assert_eq!(
-        mark(json!({"turn": 3, "by": "bot", "millwright": false, "fixer": false})),
+        mark(json!({"turn": 3, "by": "bot", "millwright": false})),
         "answer"
     );
 }
@@ -6197,6 +6188,33 @@ fn out_writes_the_file_and_its_stamp_the_first_time() {
     );
 }
 
+/// A run whose old how an open rewrites changes no count and no end, and the
+/// published sessions still follow it: the next call writes the file again
+/// in the new word, for each old word.
+#[test]
+fn out_after_a_rewrite_of_old_hows_writes_the_sessions_again() {
+    let now = 1_792_000_000i64 - 1_792_000_000i64.rem_euclid(86_400) + 43_200;
+    for (old, new) in db::OLD_HOWS {
+        let (home, dir) = home_of_one_ended_run(&format!("out-rewrite-{old}"), now);
+        let before = written(&dir, "sessions");
+        let conn = Connection::open(db::path(&home)).unwrap();
+        conn.execute("UPDATE runs SET how = ?1", [old]).unwrap();
+        drop(conn);
+        execute(&home, &sessions_cmd(&home), now + 60).unwrap();
+        let after = written(&dir, "sessions");
+        assert_ne!(after.1, before.1, "{old}: the line did not move");
+        let body = String::from_utf8(after.0).unwrap();
+        assert!(
+            body.contains(&format!("\"how\":\"{new}\"")),
+            "{old}: {body}"
+        );
+        assert!(!body.contains(&format!("\"{old}\"")), "{old}: {body}");
+        // Nothing more to rewrite: the next call writes nothing.
+        execute(&home, &sessions_cmd(&home), now + 120).unwrap();
+        assert_eq!(written(&dir, "sessions").1, after.1, "{old}");
+    }
+}
+
 #[test]
 fn out_of_two_calls_with_no_change_touches_nothing() {
     let (home, dir) = home_of_one_ended_run("out-unchanged", 1_792_000_000);
@@ -6628,17 +6646,85 @@ const SCHEMA_4: [(&str, &str); 2] = [
 ];
 
 #[test]
-fn a_new_database_is_schema_5_with_no_watts() {
-    let home = scratch("schema-5-new");
+fn a_new_database_is_schema_6_with_no_watts_and_no_contractor() {
+    let home = scratch("schema-6-new");
     let (conn, _) = db::open(&db::path(&home), 0).unwrap();
-    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 5);
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 6);
     assert!(!columns(&conn, "samples").contains(&"watts".to_string()));
-    assert!(columns(&conn, "runs").contains(&"contractor_id".to_string()));
+    assert!(!columns(&conn, "runs").contains(&"contractor_id".to_string()));
+}
+
+/// A file of schema 5 as the 2.0 branch wrote it before schema 6: the
+/// v1.4.0 fixture without samples.watts, with a contractor on one run and
+/// none on the other.
+fn schema_5_file(file: &Path) {
+    let old = Connection::open(file).unwrap();
+    old.execute_batch(SCHEMA_4[0].1).unwrap();
+    old.execute_batch(
+        "ALTER TABLE samples DROP COLUMN watts;
+         INSERT INTO meta (key, value) VALUES ('schema', '5'), ('retention_days', '365'),
+           ('created', '100');
+         INSERT INTO runs (id, kind, issue, started, outcome, contractor_id)
+           VALUES ('work-7-100', 'work', 7, 100, 'pr', 'box-1'),
+                  ('work-8-110', 'work', 8, 110, 'parked', NULL);
+         INSERT INTO run_roles (run_id, role, model, input) VALUES ('work-7-100', 'worker', 'm', 12);
+         INSERT INTO samples (at, in_line, running, awaiting, stopped, planning, cycle_limit,
+           paused, held) VALUES (150, 1, 2, 3, 4, 5, 6, 0, 'limit');
+         PRAGMA user_version = 5;",
+    )
+    .unwrap();
+    assert!(columns(&old, "runs").contains(&"contractor_id".to_string()));
+    assert!(!columns(&old, "samples").contains(&"watts".to_string()));
+}
+
+#[test]
+fn a_schema_5_file_migrates_in_place_and_keeps_every_row_without_its_contractor() {
+    let fresh = scratch("schema-6-fresh-from-5");
+    let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
+    let home = scratch("schema-5");
+    let file = db::path(&home);
+    schema_5_file(&file);
+    let (conn, moved) = db::open(&file, 200).unwrap();
+    assert_eq!(moved, None, "a file of schema 5 is not moved aside");
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 6);
+    assert_eq!(
+        one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
+        "6"
+    );
+    assert_eq!(shape(&conn), shape(&made));
+    assert!(!columns(&conn, "runs").contains(&"contractor_id".to_string()));
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT group_concat(row, ' | ') FROM (SELECT id || ' ' || issue || ' ' || outcome
+               AS row FROM runs ORDER BY id)"
+        ),
+        "work-7-100 7 pr | work-8-110 8 parked"
+    );
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT o.model || ' ' || o.input FROM runs r JOIN run_roles o ON o.run_id = r.id"
+        ),
+        "m 12"
+    );
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM samples"), 1);
+    assert_eq!(
+        one::<i64>(&conn, "SELECT count(*) FROM pragma_foreign_key_check"),
+        0
+    );
+    drop(conn);
+    // Opened again it is a 6 already: nothing is written.
+    let before = fs::read(&file).unwrap();
+    let (again, moved) = db::open(&file, 300).unwrap();
+    assert_eq!(moved, None);
+    drop(again);
+    assert!(fs::read(&file).unwrap() == before, "a second open wrote");
 }
 
 #[test]
 fn a_schema_4_file_of_either_age_migrates_in_place_to_the_shape_of_a_new_one() {
-    let fresh = scratch("schema-5-fresh");
+    let fresh = scratch("schema-6-fresh");
     let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
     for (age, fixture) in SCHEMA_4 {
         let home = scratch(&format!("schema-4-{age}"));
@@ -6646,11 +6732,11 @@ fn a_schema_4_file_of_either_age_migrates_in_place_to_the_shape_of_a_new_one() {
         schema_4_file(&file, fixture);
         let (conn, moved) = db::open(&file, 200).unwrap();
         assert_eq!(moved, None, "{age}: a file of schema 4 is not moved aside");
-        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 5, "{age}");
+        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 6, "{age}");
         assert_eq!(shape(&conn), shape(&made), "{age}");
         assert_eq!(
             one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
-            "5",
+            "6",
             "{age}"
         );
         assert_eq!(
@@ -6668,10 +6754,10 @@ fn a_schema_4_file_of_either_age_migrates_in_place_to_the_shape_of_a_new_one() {
         assert_eq!(
             one::<String>(
                 &conn,
-                "SELECT r.id || ' ' || r.outcome || ' ' || coalesce(r.contractor_id, 'null') || ' '
-                   || o.model || ' ' || o.input FROM runs r JOIN run_roles o ON o.run_id = r.id"
+                "SELECT r.id || ' ' || r.outcome || ' ' || o.model || ' ' || o.input
+                   FROM runs r JOIN run_roles o ON o.run_id = r.id"
             ),
-            "work-7-100 pr null m 12",
+            "work-7-100 pr m 12",
             "{age}"
         );
         assert_eq!(
@@ -6680,7 +6766,7 @@ fn a_schema_4_file_of_either_age_migrates_in_place_to_the_shape_of_a_new_one() {
             "{age}"
         );
         drop(conn);
-        // Opened again it is a 5 already: nothing is written.
+        // Opened again it is a 6 already: nothing is written.
         let before = fs::read(&file).unwrap();
         let (again, moved) = db::open(&file, 300).unwrap();
         assert_eq!(moved, None, "{age}");
@@ -6703,7 +6789,7 @@ fn a_schema_4_file_another_program_migrated_meanwhile_is_not_migrated_again() {
     let mut late = Connection::open(&file).unwrap();
     db::open(&file, 200).unwrap();
     assert!(db::settle(&mut late, 4, 300).is_ok());
-    assert_eq!(one::<i64>(&late, "PRAGMA user_version"), 5);
+    assert_eq!(one::<i64>(&late, "PRAGMA user_version"), 6);
     assert!(!columns(&late, "samples").contains(&"watts".to_string()));
     assert_eq!(one::<i64>(&late, "SELECT count(*) FROM samples"), 2);
 }
@@ -6731,40 +6817,17 @@ fn programs_that_open_a_schema_4_file_at_once_all_get_it_migrated() {
             );
         }
         let conn = Connection::open(&file).unwrap();
-        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 5);
+        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 6);
         assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 8);
         assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM samples"), 2);
     }
 }
 
-#[test]
-fn the_contractor_of_a_run_is_kept_and_an_in_house_run_or_a_bad_word_keeps_none() {
-    let started = secs("2026-10-18T10:16:39Z");
-    let line = json!({"at": iso(started + 30), "started": started, "rc": 10,
-                      "status": "handoff", "parked": true});
-    for (name, contractor, want) in [
-        ("contractor-named", json!("box-1.lan"), "box-1.lan"),
-        ("contractor-none", Value::Null, "null"),
-        ("contractor-spaced", json!("box 1"), "null"),
-        ("contractor-long", json!("b".repeat(65)), "null"),
-        ("contractor-number", json!(7), "null"),
-    ] {
-        let home = scratch(name);
-        cycle(&home, "headless-316134e", started, line.clone());
-        fact(&home, 7, "contractor", contractor);
-        let conn = record(&home, 7, started + 60);
-        assert_eq!(
-            one::<String>(&conn, "SELECT coalesce(contractor_id, 'null') FROM runs"),
-            want,
-            "{name}"
-        );
-    }
-}
-
 /// A store of before 2.0 holds runs a ticked retry started, `how`
-/// `retry-tick`. Each open rewrites them to `reply` as data, on the schema the
-/// file has, and an open with none left writes nothing; the sessions then list
-/// those runs with `reply` (#2782).
+/// `retry-tick`, and runs recorded under the millwright's old name, `fixer`.
+/// Each open rewrites them to `reply` and `millwright` as data, on the schema
+/// the file has, and an open with none left writes nothing; the sessions then
+/// list those runs with the new words (#2782).
 #[test]
 fn an_open_rewrites_the_hows_of_before_2_0_once_and_the_sessions_list_them() {
     let home = scratch("old-hows");
@@ -6772,9 +6835,10 @@ fn an_open_rewrites_the_hows_of_before_2_0_once_and_the_sessions_list_them() {
     drop(db::open(&db::path(&home), now).unwrap());
     let conn = Connection::open(db::path(&home)).unwrap();
     add_run(&conn, "work-7-old", 7, now - 3600);
-    conn.execute(
-        "UPDATE runs SET how = 'retry-tick' WHERE id = 'work-7-old'",
-        [],
+    add_run(&conn, "work-8-old", 8, now - 3600);
+    conn.execute_batch(
+        "UPDATE runs SET how = 'retry-tick' WHERE id = 'work-7-old';
+         UPDATE runs SET how = 'fixer' WHERE id = 'work-8-old';",
     )
     .unwrap();
     let version: i64 = one(&conn, "PRAGMA user_version");
@@ -6789,6 +6853,10 @@ fn an_open_rewrites_the_hows_of_before_2_0_once_and_the_sessions_list_them() {
             one::<String>(&c, "SELECT how FROM runs WHERE id = 'work-7-old'"),
             "reply"
         );
+        assert_eq!(
+            one::<String>(&c, "SELECT how FROM runs WHERE id = 'work-8-old'"),
+            "millwright"
+        );
         assert_eq!(one::<i64>(&c, "PRAGMA user_version"), version);
         drop(c);
     }
@@ -6798,4 +6866,9 @@ fn an_open_rewrites_the_hows_of_before_2_0_once_and_the_sessions_list_them() {
         .find(|l| l["id"] == "work-7-old")
         .expect("the run is listed");
     assert_eq!(run["how"], "reply", "{run}");
+    let run = listed
+        .iter()
+        .find(|l| l["id"] == "work-8-old")
+        .expect("the run is listed");
+    assert_eq!(run["how"], "millwright", "{run}");
 }

@@ -175,7 +175,7 @@ pull request a [refresh](/operating#refreshes) works on),
 `tehas:lean` and `tehas:classic` (see [choosing the driver](/operating#choosing-the-driver)),
 `epic` (see [epics](/operating#3-what-happens-next)), `tehas:finish` (see
 [finishing a stopped cycle](/operating#finishing-a-stopped-cycle)),
-`tehas:prototype` (see [the Protolab](/tools-protolab#tehasbot-protolab)), and
+`tehas:prototype` (the Protolab's, which is parked), and
 `tehas:improvement` (a proposal the factory files).
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. The labels are

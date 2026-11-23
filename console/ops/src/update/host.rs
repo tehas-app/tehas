@@ -188,11 +188,7 @@ fn featured(get: &dyn Fn(&str) -> String) -> Vec<String> {
 
 /// The units a first install enables, from the settings `get` reads.
 fn first_units(get: impl Fn(&str) -> Option<String>) -> Vec<&'static str> {
-    let set = |name: &str| get(name).filter(|v| !v.is_empty());
     let mut units = vec!["tehas-dispatch.timer", "tehas-dispatch.path"];
-    if set("TEHAS_DOMAIN").is_some() {
-        units.push("tehas-protolab.timer");
-    }
     let on = |name: &str| get(name).and_then(|v| switch(&v)) == Some(true);
     if on("TEHAS_PREVIEWS") {
         units.extend(["tehas-preview.timer", "tehas-preview-sweep.timer"]);
@@ -383,20 +379,18 @@ mod tests {
                 // Energy use left core in 2.0: its unit is never enabled.
                 ("TEHAS_ENERGY", "on"),
             ],),
-            "tehas-dispatch.timer tehas-dispatch.path tehas-protolab.timer \
+            "tehas-dispatch.timer tehas-dispatch.path \
              tehas-preview.timer tehas-preview-sweep.timer"
         );
     }
 
     #[test]
-    fn a_first_install_enables_the_proxy_only_while_outsource_is_on() {
+    fn a_domain_enables_no_timer_of_its_own_and_the_previews_bring_theirs() {
         let base = "tehas-dispatch.timer tehas-dispatch.path";
-        assert_eq!(units(&[("TEHAS_OUTSOURCE", "on")]), base);
-        let tested = |v| [("TEHAS_OUTSOURCE", v), ("TEHAS_TEST_FEATURES", "outsource")];
-        assert_eq!(units(&tested("off")), base);
+        assert_eq!(units(&[("TEHAS_DOMAIN", "example.org")]), base);
         assert_eq!(
-            units(&tested("on")),
-            format!("{base} tehas-outsource-proxy.service")
+            units(&[("TEHAS_DOMAIN", "example.org"), ("TEHAS_PREVIEWS", "on")]),
+            format!("{base} tehas-preview.timer tehas-preview-sweep.timer")
         );
     }
 
@@ -424,18 +418,13 @@ mod tests {
         };
         let idle = ["idle tehas-plugin.timer"];
         assert_eq!(featured(&get(&[])), idle);
-        assert_eq!(featured(&get(&[("TEHAS_OUTSOURCE", "on")])), idle);
+        // Outsource was dropped in 2.0: its switch installs nothing.
         assert_eq!(
             featured(&get(&[
                 ("TEHAS_OUTSOURCE", "on"),
                 ("TEHAS_TEST_FEATURES", "outsource")
             ])),
-            [
-                "program tehas-proxy",
-                "program tehas-contractor",
-                "unit tehas-outsource-proxy.service",
-                "idle tehas-plugin.timer"
-            ]
+            idle
         );
         // On, the timer is installed and no longer idle.
         assert_eq!(

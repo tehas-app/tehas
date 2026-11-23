@@ -126,33 +126,30 @@ reset
 installed v0.8.0+cb6912a
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.flags' <<<"$t_out")" '{"outsource":false,"spec-pipe":false,"protolab-zip-url":false,"prototype-file":false,"lean":false,"plugins":false}'
-t_eq "$(jq -r '.features | index("outsource")' <<<"$t_out")" null
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"spec-pipe":false,"lean":false,"plugins":false}'
 t_eq "$(jq -r '.features | index("spec-pipe")' <<<"$t_out")" null
-t_eq "$(jq -r '.features | index("protolab-zip-url")' <<<"$t_out")" null
-t_eq "$(jq -r '.features | index("prototype-file")' <<<"$t_out")" null
 t_eq "$(jq -r '.features | index("lean")' <<<"$t_out")" null
 t_eq "$(jq -r 'keys_unsorted | join(" ")' <<<"$t_out")" "api tehas commit repo features flags millwright poll"
 t_run "$api"
-t_contains "$t_out" "flags       outsource=off spec-pipe=off protolab-zip-url=off prototype-file=off lean=off plugins=off"
+t_contains "$t_out" "flags       spec-pipe=off lean=off plugins=off"
 
 t_case "api --json: a test that turns a building feature on sees it on in flags only"
 reset
 installed v0.8.0+cb6912a
-t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on
-T_ENV=(TEHAS_TEST_FEATURES=outsource)
+t_instance "${T_MINIMAL[@]}" TEHAS_SPEC_PIPE=on
+T_ENV=(TEHAS_TEST_FEATURES=spec-pipe)
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.flags' <<<"$t_out")" '{"outsource":true,"spec-pipe":false,"protolab-zip-url":false,"prototype-file":false,"lean":false,"plugins":false}'
-t_eq "$(jq -r '.features | index("outsource")' <<<"$t_out")" null
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"spec-pipe":true,"lean":false,"plugins":false}'
+t_eq "$(jq -r '.features | index("spec-pipe")' <<<"$t_out")" null
 
 t_case "api: a building feature switched on is refused with 78 and its name"
 reset
 installed v0.8.0+cb6912a
-t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on
+t_instance "${T_MINIMAL[@]}" TEHAS_SPEC_PIPE=on
 t_run "$api --json"
 t_eq "$t_rc" 78
-t_contains "$t_out" "outsource is still being built"
+t_contains "$t_out" "spec-pipe is still being built"
 
 t_case "api --json: the millwright is the app's login when the factory has one"
 reset
@@ -340,7 +337,7 @@ t_eq "$(jq 'del(.poll.last.ageMin) | .poll.hour.polls = -1' "$T_ROOT/api/api.sam
 
 t_case "api.schema.json: a building feature's key is not required in flags"
 reset
-t_eq "$(jq 'del(.flags.outsource, .flags.lean)' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" ""
+t_eq "$(jq 'del(.flags.plugins, .flags.lean)' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" ""
 
 t_case "api --json: features is api/features.txt, word for word and in its order"
 reset

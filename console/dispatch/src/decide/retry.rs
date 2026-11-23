@@ -567,7 +567,6 @@ impl Poll<'_> {
                     fixer: None,
                     park_lifted: None,
                     extra,
-                    placed: None,
                 },
             );
             // The answer of `tehas answer` is spent; a reply needs nothing: its
@@ -718,7 +717,6 @@ impl Poll<'_> {
                     fixer: None,
                     park_lifted: None,
                     extra,
-                    placed: None,
                 },
             );
             return Err(End(0));
@@ -986,7 +984,6 @@ impl Poll<'_> {
             fixer: None,
             park_lifted: None,
             extra,
-            placed: None,
         }))
     }
 }

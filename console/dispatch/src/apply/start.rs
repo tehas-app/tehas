@@ -29,9 +29,6 @@ const FROM_POLL: (&str, &str) = ("TEHAS_FROM_POLL", "1");
 pub struct Host {
     /// hostname, for the comments.
     pub name: String,
-    /// TEHAS_WORK_COMMENTS is 1: the approval names the comments' links. The
-    /// text of the comments a comments retry is given does not depend on it.
-    pub comments: bool,
     /// TEHAS_ALLOWED_LABELERS.
     pub allowed: Vec<String>,
     /// TEHAS_MILLWRIGHT_LOGIN, as `settings::account` has it.
@@ -43,8 +40,6 @@ pub struct Host {
     pub bot: String,
     /// TEHAS_ASSIGNEE: the person a claimed issue is assigned to, or empty.
     pub owner: String,
-    /// The outsource feature is on: the start comment says who builds it.
-    pub outsource: bool,
     pub systemctl: String,
     /// TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD, which a test sets.
     pub start_cmd: Option<String>,
@@ -239,23 +234,6 @@ pub(crate) fn window(
         window_order((&x.0, x.1), (&y.0, y.1))
     });
     Some(out)
-}
-
-/// The links of the comments, each link once, with where it came from.
-fn comment_links(comments: &[Value], source: &str) -> Vec<Value> {
-    let mut out: Vec<Value> = Vec::new();
-    for c in comments {
-        let body = c.get("body").and_then(Value::as_str).unwrap_or("");
-        for link in crate::text::link_list(body) {
-            if !out.iter().any(|x| x["link"] == json!(link)) {
-                out.push(
-                    json!({"link": link, "source": format!("{source}:{}", c["id"]),
-                    "by": c.pointer("/user/login").cloned().unwrap_or(Value::Null)}),
-                );
-            }
-        }
-    }
-    out
 }
 
 /// A comment as retry_context has it: its first 4000 characters, without
@@ -845,7 +823,6 @@ impl Writer {
             let _ = std::fs::remove_file(self.home.join(format!("state/refresh/{n}.json")));
             let url = text(a, "refresh_url");
             let said = format!("Tehas refresh started on `{host}` at {when} UTC: {url} conflicts with `{branch}`. This cycle merges that branch into it, resolves the conflicts and pushes to the same pull request. It rests on {whose} {how}. This issue is owned by the cycle until `tehas:running` is removed.");
-            let said = self.stamped(n, recorded, said, log);
             self.say(n, &said, log);
         } else {
             let left = if left_out.is_empty() {
@@ -855,7 +832,6 @@ impl Writer {
                 format!(" The comments of {} are left out: their permission on the repository could not be read.", names.join(", "))
             };
             let said = format!("Tehas cycle started on `{host}` at {when} UTC (authorized by {whose} {how}). This issue is owned by the cycle until `tehas:running` is removed.{left}");
-            let said = self.stamped(n, recorded, said, log);
             self.say(n, &said, log);
         }
         if let Some(say) = self.say_now {
@@ -900,35 +876,6 @@ impl Writer {
         };
         self.say(n, &format!("Tehas could not start the cycle for this issue on `{host}`: `tehas-cycle@{n}.service` did not come up: {why}. See `journalctl --user -u tehas-cycle@{n}` and `~/tehas/logs/dispatch.log` there. To retry, {retry}."), log);
         Then::Failed
-    }
-
-    /// The start comment with the line of who builds the cycle, where
-    /// outsource is on: the contractor of the issue's job open since the
-    /// approval at `since`, or in-house. Placement gives the job out before
-    /// this comment, so the comment names the hand that holds it; a job of an
-    /// earlier attempt, lost or ended, is not this start's. A store that
-    /// cannot say leaves the comment as it was rather than guess.
-    fn stamped(&mut self, n: u64, since: i64, said: String, log: &mut Vec<String>) -> String {
-        if !self.host.outsource {
-            return said;
-        }
-        let (issue, since) = (n.to_string(), since.to_string());
-        match self.store_try(
-            3,
-            &["job-stamp", "--issue", &issue, "--since", &since, "--open"],
-        ) {
-            Ok(v) => format!(
-                "{said}\n\n{}",
-                tehas_core::stamp::Built::of_answer(&v).line()
-            ),
-            Err(f) => {
-                log.push(format!(
-                    "WARN: #{n}: the store did not say who builds it ({}): its start comment carries no stamp",
-                    word(&f)
-                ));
-                said
-            }
-        }
     }
 
     /// spec_holds: with the spec-pipe feature on, a start whose body marks a
@@ -1047,10 +994,8 @@ impl Writer {
         let given_at = text(a, "at").to_string();
         let mut input = Map::new();
         input.insert("links".into(), a.get("links").cloned().unwrap_or(json!([])));
-        for k in ["driver", "contractor"] {
-            if let Some(v) = a.get(k) {
-                input.insert(k.into(), v.clone());
-            }
+        if let Some(v) = a.get("driver") {
+            input.insert("driver".into(), v.clone());
         }
         // The pin spec_holds fetched the spec's bytes to.
         if let Some(s) = a.get("spec").filter(|s| s.get("sha256").is_some()) {
@@ -1060,40 +1005,13 @@ impl Writer {
             );
         }
         let mut retry = Value::Null;
-        let mut from: Vec<Value> = Vec::new();
         let alone = issue_alone(a, log, n);
-        // The comment policy of the links, derived once: the host fetches what
-        // comments link, and the tick of the issue text only asks for none of
-        // them, so its record reads as the one of an instance with comments off.
-        let comments = self.host.comments && !alone;
-        let mut list = None;
-        if comments {
-            let Some(l) = self.comments(n) else {
-                log.push(format!("ERROR: the comments of #{n} could not be read"));
-                return Err(none());
-            };
-            let allowed = self.host.allowed.clone();
-            let who = |l: &str| allowed.iter().any(|x| x == l);
-            let Some(w) = window(&l, "", &given_at, &who) else {
-                log.push(format!("ERROR: the comments of #{n} could not be read"));
-                return Err(none());
-            };
-            from = comment_links(&w, "comment");
-            list = Some(l);
-        }
         // The tick of the comments retry is its own opt-in: what allowed
-        // accounts wrote up to it goes on the record whatever
-        // TEHAS_WORK_COMMENTS says.
+        // accounts wrote up to it goes on the record.
         if matches!(given.as_str(), "answer" | "reply") && !alone {
-            let list = match list.take() {
-                Some(l) => l,
-                None => match self.comments(n) {
-                    Some(l) => l,
-                    None => {
-                        log.push(format!("ERROR: the comments of #{n} could not be read"));
-                        return Err(none());
-                    }
-                },
+            let Some(list) = self.comments(n) else {
+                log.push(format!("ERROR: the comments of #{n} could not be read"));
+                return Err(none());
             };
             let Some(r) = self.retry_comments(n, &list, &given_at, log) else {
                 log.push(format!(
@@ -1115,7 +1033,7 @@ impl Writer {
         // of the fixer or of a refresh stays out of its record whatever asks.
         if !alone {
             if let Some(note) = a.get("park_lifted").filter(|_| given == "millwright") {
-                retry = json!({"links": [], "context": [note]});
+                retry = json!({"context": [note]});
             } else if given == "millwright" {
                 let Some(r) = self.fixer_note(n, &given_at) else {
                     log.push(format!(
@@ -1130,19 +1048,9 @@ impl Writer {
                     .pointer("/refresh_of/branch")
                     .and_then(Value::as_str)
                     .unwrap_or("");
-                retry = json!({"links": [], "context": [{"source": "refresh", "by": "tehas", "at": iso(tehas_core::time::now() as u64),
+                retry = json!({"context": [{"source": "refresh", "by": "tehas", "at": iso(tehas_core::time::now() as u64),
                     "text": format!("This pull request conflicts with `{b}`. Merge `{b}` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate in `.pi/verify-cmd`, and push to the same branch. Do no other work.")}]});
             }
-        }
-        if comments {
-            from.extend(
-                retry
-                    .get("links")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default(),
-            );
-            input.insert("comment_links".into(), Value::Array(from));
         }
         if retry
             .get("context")
@@ -1290,7 +1198,8 @@ impl Writer {
     /// review comments - written at or before the tick `at` and not edited
     /// after it, by an account of TEHAS_ALLOWED_LABELERS that may write to the
     /// repository at the tick. The bot's own comments are left out. `links`
-    /// are those of the pull requests' conversation comments; `left_out` the
+    /// are those of the pull requests' conversation comments, which no record
+    /// names in 2.0; `left_out` the
     /// authors whose permission could not be read, said in the log here. None
     /// when a list could not be read.
     fn retry_comments(
@@ -1338,11 +1247,8 @@ impl Writer {
         }
         mine.sort_unstable();
         mine.dedup();
-        let mut said = Vec::new();
         for pr in mine {
-            let talk = window(&self.comments(pr)?, "", at, &who)?;
-            said.extend(talk.iter().cloned());
-            for c in talk {
+            for c in window(&self.comments(pr)?, "", at, &who)? {
                 items.push(item(&c, "pr-comment", Some(pr)));
             }
             let path = format!("repos/{repo}/pulls/{pr}/reviews?per_page=100");
@@ -1409,17 +1315,7 @@ impl Writer {
         if dropped > 0 {
             log.push(format!("WARN: #{n}: {dropped} older comments are left out of the retry's record, which holds {RECORD_TEXT} bytes of their text"));
         }
-        let said: Vec<Value> = said
-            .into_iter()
-            .filter(|c| {
-                c.pointer("/user/login")
-                    .and_then(Value::as_str)
-                    .is_some_and(|b| keep.iter().any(|k| k == b))
-            })
-            .collect();
-        Some(
-            json!({"links": comment_links(&said, "pr-comment"), "context": given, "left_out": left_out}),
-        )
+        Some(json!({"context": given, "left_out": left_out}))
     }
 
     /// fixer_note: the millwright's comment behind its tehas:ready, written
@@ -1444,7 +1340,7 @@ impl Writer {
             .map(|c| context(c, "millwright"))
             .into_iter()
             .collect();
-        Some(json!({"links": [], "context": last}))
+        Some(json!({"context": last}))
     }
 
     /// park_unask: the question of the issue's park off the record. Whether

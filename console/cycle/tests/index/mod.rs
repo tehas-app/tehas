@@ -81,9 +81,6 @@ const TIMEOUT: &str = r#"real=$(PATH=${PATH#"$T/bin:"} command -v timeout)
 if [ -n "${TIMEOUT_BOUND:-}" ] && [ "$1" = -k ]; then exec "$real" -k 1 "$TIMEOUT_BOUND" "${@:4}"; fi
 exec "$real" "$@""#;
 
-/// The programs no stub may leave to the host's own.
-const DENIED: &str = "docker gh systemctl curl ssh";
-
 /// The checkout of this source: lib/ comes from it.
 pub fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -218,7 +215,7 @@ impl Host {
             ),
         )
         .unwrap();
-        for name in DENIED.split(' ') {
+        for name in tehas_core::testing::DENIED {
             write_exe(
                 h.t.join("deny").join(name),
                 format!(

@@ -15,7 +15,7 @@ units() { "$T_CONSOLE" update steps units; }
 t_case "the changed sources ask for the steps, systemd first"
 t_eq "$(steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
   edge/docs.compose.yaml edge/router.compose.yaml libexec/dispatch)" \
-  "units tehas-dispatch.timer tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer
+  "units tehas-dispatch.timer tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-clean.timer
 sandbox
 docs --force-recreate
 edge --force-recreate"
@@ -62,7 +62,7 @@ t_eq "$(steps_for labels.tsv libexec/dispatch)" "labels"
 t_eq "$(steps_for labels.tsv-test old-labels.tsv lib/labels.sh libexec/console libexec/labels)" ""
 t_eq "$(steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
   edge/docs.compose.yaml edge/router.compose.yaml labels.tsv)" \
-  "units tehas-dispatch.timer tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer
+  "units tehas-dispatch.timer tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-clean.timer
 sandbox
 docs --force-recreate
 edge --force-recreate
@@ -114,7 +114,7 @@ while read -r kind unit; do
     *" $unit "* | *" ${unit%.service}.timer "*) ;;
     *) missing="$missing $unit" ;;
   esac
-done < <(TEHAS_OUTSOURCE=on TEHAS_PLUGIN=on TEHAS_TEST_FEATURES="outsource plugins" "$T_CONSOLE" update featured)
+done < <(TEHAS_PLUGIN=on TEHAS_TEST_FEATURES="plugins" "$T_CONSOLE" update featured)
 # The gate itself has to see the table: an empty list would pass it vacuously.
 t_eq "$found" "$(find "$T_ROOT/host/systemd" -type f | wc -l)"
 t_eq "$missing" ""

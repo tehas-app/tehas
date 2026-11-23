@@ -33,7 +33,7 @@ pub const LOGINS: &[&str] = &[
     "bob-2",
     "carol",
     "boss",
-    "tehas-fixer",
+    "tehas-millwright",
     "tehas-mill",
     "millbot",
     "mill-bot",
@@ -43,9 +43,6 @@ pub const LOGINS: &[&str] = &[
 
 /// The commit a scratch tree names in COMMIT (T_COMMIT).
 pub const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
-
-/// The programs no case may reach without a stub of its own.
-const DENIED: &[&str] = &["docker", "gh", "systemctl", "curl", "ssh"];
 
 /// The gh stub's head: the call's number under a lock, and the call recorded
 /// with a body from standard input written as an argument.
@@ -249,7 +246,7 @@ impl Host {
             fs::create_dir_all(t.join(d)).unwrap();
         }
         let denied = t.join("denied");
-        for d in DENIED {
+        for d in tehas_core::testing::DENIED {
             write_exe(
                 t.join("deny").join(d),
                 format!(
