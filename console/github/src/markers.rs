@@ -86,7 +86,7 @@ pub fn read(body: &str, item: Option<BlueprintNo>) -> Read {
 /// the blank lines at its start and the white space at its end.
 ///
 /// `read(&write(text, markers, item)?, item)` answers that text and
-/// `markers`, or the write is refused. Before any request:
+/// `markers`, or it is refused, so a write that uses it sends nothing:
 /// `Refused(Invalid)` for a marker that is not writable, for a text or a
 /// block's note that holds anything [`read`] reports as a marker (wrapped,
 /// badly wrapped or bare, of this item or another), and for a whole that
