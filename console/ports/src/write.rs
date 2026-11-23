@@ -9,8 +9,8 @@ use crate::mark::unknown_tag;
 use crate::{
     unknown, AccountId, At, Blobs, BlueprintNo, Body, ChangeNo, CloseReason, CommentId, CommitId,
     FileName, Got, Item, Kind, Mark, MarkSpec, Marker, MarkerEdit, MergeHow, NewBlueprint,
-    NewChange, NewRelease, NewTicket, Priority, Proposal, Proposed, ReleaseId, Revision, Status,
-    Sum, TagName, TargetEdit, TargetId, TicketKey, WebLink,
+    NewChange, NewRelease, NewTicket, Outcome, Priority, Proposal, Proposed, Refusal, ReleaseId,
+    Revision, Sha256, Status, Sum, TagName, TargetEdit, TargetId, TicketKey, WebLink,
 };
 
 /// One write, as the journal records it before it is sent. A row names its
@@ -509,11 +509,14 @@ impl Write {
     }
 
     /// The same write with every `Body::Text` as `Body::Summed`: what the
-    /// journal's row keeps.
-    pub fn summed(&self) -> Write {
+    /// journal's row keeps. The ports never hash; the caller gives the sum:
+    /// `sha256` answers the sha-256 of a body's text, as an adapter computes
+    /// it at the edge, and the length is the text's. A body whose digest it
+    /// does not give (None) makes the write `Refused(Invalid)`. A body
+    /// already summed asks for none.
+    pub fn summed(&self, mut sha256: impl FnMut(&str) -> Option<Sha256>) -> Got<Write> {
         let mut w = self.clone();
-        let sum = |b: &mut Body| *b = b.summed();
-        match &mut w {
+        let body = match &mut w {
             Write::TicketNote { body, .. }
             | Write::Comment { body, .. }
             | Write::EditComment { body, .. }
@@ -534,10 +537,13 @@ impl Write {
                 change: NewChange { body, .. },
                 ..
             })
-            | Write::NewRelease(NewRelease { notes: body, .. }) => sum(body),
-            _ => {}
-        }
-        w
+            | Write::NewRelease(NewRelease { notes: body, .. }) => body,
+            _ => return Ok(w),
+        };
+        *body = body
+            .summed(&mut sha256)
+            .ok_or(Outcome::Refused(Refusal::Invalid))?;
+        Ok(w)
     }
 }
 

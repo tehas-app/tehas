@@ -1605,7 +1605,7 @@ fn tag_of(n: &Node) -> String {
 fn every_write_and_receipt_reads_back() {
     for w in every_write() {
         round(w.clone());
-        round(w.summed());
+        round(w.summed(given).unwrap());
         round(w.kind());
     }
     for r in every_receipt() {
@@ -1629,6 +1629,22 @@ fn a_writes_kind_is_named_as_its_variant() {
     assert_eq!(kinds.len(), writes.len(), "one kind per variant");
 }
 
+/// The standard sha-256 of "abc".
+const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+/// The standard sha-256 of the empty string.
+const EMPTY: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+/// The digests the tests give, as literals: the ports never hash. Any other
+/// body takes a stand-in, but "unsummed", whose digest it does not give.
+fn given(body: &str) -> Option<Sha256> {
+    match body {
+        "abc" => Sha256::new(ABC).ok(),
+        "" => Sha256::new(EMPTY).ok(),
+        "unsummed" => None,
+        _ => Some(sha('7')),
+    }
+}
+
 #[test]
 fn a_summed_write_keeps_no_text() {
     let texts = |w: &Write| {
@@ -1642,30 +1658,32 @@ fn a_summed_write_keeps_no_text() {
         "every body"
     );
     for w in every_write() {
-        let summed = to_node(&w.summed()).unwrap();
+        let summed = w.summed(given).unwrap();
         assert!(
-            !format!("{summed:?}").contains(r#"Text("Text")"#),
+            !format!("{:?}", to_node(&summed).unwrap()).contains(r#"Text("Text")"#),
             "{:?} keeps a text",
             w.kind()
         );
-        assert_eq!(w.summed().kind(), w.kind());
+        assert_eq!(summed.kind(), w.kind());
+        assert_eq!(summed.summed(|_| None), Ok(summed.clone()), "asks for none");
     }
-    let note = Write::TicketNote {
-        ticket: tkey(1),
-        body: Body::Text("abc".into()),
-        markers: vec![],
-    };
-    let Write::TicketNote { body, .. } = note.summed() else {
-        unreachable!()
-    };
-    assert_eq!(
-        body,
-        Body::Summed(Sum {
-            sha256: Sha256::new("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
-                .unwrap(),
-            len: 3,
-        })
-    );
+    for (body, digest, len) in [("abc", ABC, 3), ("", EMPTY, 0)] {
+        let note = Write::TicketNote {
+            ticket: tkey(1),
+            body: Body::Text(body.into()),
+            markers: vec![],
+        };
+        let Ok(Write::TicketNote { body, .. }) = note.summed(given) else {
+            unreachable!()
+        };
+        assert_eq!(
+            body,
+            Body::Summed(Sum {
+                sha256: Sha256::new(digest).unwrap(),
+                len,
+            })
+        );
+    }
     // A title is no body: it stays as written.
     let edit = Write::EditTicket {
         ticket: tkey(1),
@@ -1674,7 +1692,30 @@ fn a_summed_write_keeps_no_text() {
         markers: MarkerEdit::default(),
         since: Revision::new("r"),
     };
-    assert_eq!(edit.summed(), edit);
+    assert_eq!(edit.summed(|_| None), Ok(edit));
+}
+
+#[test]
+fn a_body_whose_sum_is_not_given_refuses_the_write() {
+    let mut refused = 0;
+    for w in every_write() {
+        let has_body = format!("{:?}", to_node(&w).unwrap()).contains(r#"Text("Text")"#);
+        let got = w.summed(|_| None);
+        if has_body {
+            assert_eq!(got, Err(Outcome::Refused(Refusal::Invalid)), "{w:?}");
+            refused += 1;
+        } else {
+            assert_eq!(got, Ok(w));
+        }
+    }
+    assert_eq!(refused, 12, "every body");
+    // A lookup that holds other texts makes no guess either.
+    let note = Write::Comment {
+        on: bp(1),
+        body: Body::Text("unsummed".into()),
+        markers: vec![],
+    };
+    assert_eq!(note.summed(given), Err(Outcome::Refused(Refusal::Invalid)));
 }
 
 fn work_item() -> WorkItem {
