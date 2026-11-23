@@ -1,0 +1,130 @@
+[
+  {
+    "op": "Tickets::ticket",
+    "part": "digest.marks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Ticket 7 carries the project's mark bug, the approval and the running state, and a name no mark can have. Its marks went on and off five times, read in two parts: bug and the approval by alice, then in one second the running state on and the approval off by the factory's bot, then the approval by an account that is gone. A title change sits among them.",
+    "ticket": {
+      "Number": 7
+    },
+    "answer": {
+      "Ok": [
+        {
+          "type": "Project",
+          "value": "bug"
+        },
+        {
+          "type": "Act",
+          "value": "Approve"
+        },
+        {
+          "type": "State",
+          "value": "Running"
+        }
+      ]
+    }
+  },
+  {
+    "op": "Tickets::ticket",
+    "part": "digest.marks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Ticket 8 comes back cut off part way.",
+    "ticket": {
+      "Number": 8
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    }
+  },
+  {
+    "op": "Tickets::ticket",
+    "part": "digest.marks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Ticket 9 does not exist.",
+    "ticket": {
+      "Number": 9
+    },
+    "answer": {
+      "Err": "NotFound"
+    }
+  },
+  {
+    "op": "Tickets::ticket",
+    "part": "digest.marks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "No answer comes in time when ticket 10 is read.",
+    "ticket": {
+      "Number": 10
+    },
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "why": "Timeout",
+          "sent": "Maybe"
+        }
+      }
+    }
+  },
+  {
+    "op": "Tickets::ticket",
+    "part": "digest.marks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Ticket 11 was deleted, so the site says it is gone.",
+    "ticket": {
+      "Number": 11
+    },
+    "answer": {
+      "Err": "NotFound"
+    }
+  },
+  {
+    "op": "Tickets::ticket",
+    "part": "digest.marks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "The site answers that too many requests came when ticket 12 is read.",
+    "ticket": {
+      "Number": 12
+    },
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Calls",
+          "until": 1767225600
+        }
+      }
+    }
+  },
+  {
+    "op": "Tickets::ticket",
+    "part": "digest.marks",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "The site says the rate of requests is limited when ticket 13 is read.",
+    "ticket": {
+      "Number": 13
+    },
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Calls",
+          "until": 1767225600
+        }
+      }
+    }
+  }
+]

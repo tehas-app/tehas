@@ -31,8 +31,24 @@
           "minimum": 1,
           "maximum": 20
         },
-        "by": {"type": "string", "minLength": 1, "maxLength": 39},
-        "how": {"const": "answer"},
+        "by": {
+          "description": "The account the answer was given for: a login. With how plugin, the bot account.",
+          "type": "string", "minLength": 1, "maxLength": 39
+        },
+        "how": {
+          "description": "answer for a person's answer. plugin is reserved for 2.1, for a plugin's answer under an answer:<kind> grant: no command prints it in 2.0, and a reader never takes it for a person's act.",
+          "enum": ["answer", "plugin"]
+        },
+        "plugin": {
+          "description": "The plugin that answered, with how plugin alone, and left out otherwise. Reserved for 2.1: api/answer.plugin.json is its shape, which no command prints in 2.0.",
+          "type": "object",
+          "required": ["name", "commit"],
+          "additionalProperties": false,
+          "properties": {
+            "name": {"type": "string", "pattern": "^[a-z][a-z0-9]{0,11}$"},
+            "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+          }
+        },
         "at": {"type": "string", "format": "date-time"}
       }
     },

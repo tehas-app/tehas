@@ -635,13 +635,17 @@ account as the one who answered it.
 | `answer` | What was recorded |
 | `answer.choice` | `retry`, `retry-text`, `park`, `option`, `update`, `end` or `text` |
 | `answer.option` | The number of the option, from 1, of `option` and `update`; `null` for the rest |
-| `answer.by` | The account the answer was given for |
-| `answer.how` | `answer` |
+| `answer.by` | The account the answer was given for. With `how` `plugin`, the bot account |
+| `answer.how` | `answer`. `plugin` is reserved for 2.1, for a plugin's answer under an `answer:<kind>` grant; no command prints it in 2.0, and a reader never takes it for a person's act |
+| `answer.plugin` | The plugin that answered, with `how` `plugin` alone; left out otherwise. Reserved for 2.1 |
+| `answer.plugin.name` | The plugin's name |
+| `answer.plugin.commit` | The plugin's pinned commit, 40 hex digits |
 | `answer.at` | When it was recorded |
 | `replaced` | `true` when an answer given before to the same question was waiting, and this one took its place |
 
 `api/answer.schema.json` in the source says what the object holds, and
 `api/answer.sample.json` and `api/answer.option.json` are samples of it.
+`api/answer.plugin.json` is the shape reserved for a plugin's answer.
 
 Exit 0 recorded; 1 the store refused or is not installed; 3 no question of that
 kind waits on the issue, or the question does not offer that option; 64 on a
