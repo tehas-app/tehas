@@ -64,6 +64,11 @@ nothing reads it: take it out. The update stops and removes
 `tehas-review.timer` and `tehas-review.service` where an earlier release left
 them.
 
+The host panel left core in 2.0 and returns as a plugin; `tehas top` stays.
+A line of `TEHAS_TOP` still loads, with one warning, and nothing reads it:
+take it out. The update stops and removes `tehas-top.service` and the last
+`~/tehas/live/top.json` where an earlier release left them.
+
 ### From v0.30.x, v0.31.x or v0.32.x
 
 1.0 updates a host on any v0.30.x, v0.31.x or v0.32.x release, with
@@ -532,7 +537,7 @@ production host.
    mkdir -p ~/.config/environment.d
    echo 'TEHAS_TEST_FEATURES=outsource' > ~/.config/environment.d/tehas-lab.conf
    systemctl --user daemon-reload
-   systemctl --user restart tehas-mcp.service tehas-top.service   # the long-running units that are active
+   systemctl --user restart tehas-mcp.service   # the long-running units that are active
    ```
 
    Names are separated by spaces. A word that is no building feature is

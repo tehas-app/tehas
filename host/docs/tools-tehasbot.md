@@ -21,7 +21,6 @@ tehasbot dispatch             # one poll; what tehas-dispatch.timer runs
 tehasbot cycle <issue>        # one cycle and its report; what tehas-cycle@<issue>.service runs
 tehasbot status               # write the queue snapshot
 tehasbot health               # write the health file
-tehasbot top [--every]        # publish the snapshot of tehas top; what tehas-top.service runs
 tehasbot preview              # keep the previews; what tehas-preview.timer runs
 tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer runs
 tehasbot refresh --pr N       # tehas refresh --pr N, by its old name
@@ -39,8 +38,7 @@ tehasbot plugin-gate          # the gate of the plugins' views; what tehas-plugi
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
-as a cycle ends), `tehas-top.service`,
-the previews' `tehas-preview.timer` and
+as a cycle ends), the previews' `tehas-preview.timer` and
 `tehas-preview-sweep.timer`, the cleaner's `tehas-clean.timer` (installed, and enabled
 by a person), `tehas-mcp.service` (installed, and enabled by a person; it runs
 `tehasbot mcp serve` only while `TEHAS_MCP=1`, and

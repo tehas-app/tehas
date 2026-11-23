@@ -804,15 +804,11 @@ reads "loading", the lists are empty and the optional sections are hidden.
 | `tehas-factory-readonly` | `status.json` | What a read-only factory's starts left |
 | `tehas-factory-days` | `analytics.json` | Last 10 days |
 | `tehas-factory-previews` | `previews.json` | The previews |
-| `tehas-factory-host` | `top.json` | The host and its units, the snapshot's age by the server's clock |
 
 - Seven islands read `status.json` through one feed, polled every ten seconds;
-  `running.json` the same. `analytics.json` is read once a minute. `top.json`
-  is read every ten seconds while the last answer was good and once a minute
-  while there is none: the island reads it at a minute, and a second reader
-  that asks for ten seconds lives only while the file is there.
+  `running.json` the same. `analytics.json` is read once a minute.
 - A file that is not there leaves its island's server HTML: a host with no
-  previews, no `top.json` or no report has those sections hidden, as before.
+  previews or no report has those sections hidden, as before.
   The section comes when the file does.
 - The host bridge's answer (`fun/host-bridge.js`) reaches the islands that
   draw tickets through the page store of `factory/bridge.state.js`.

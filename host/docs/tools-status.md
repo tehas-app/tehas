@@ -258,7 +258,7 @@ draws the rest. The factory line and the queue counts are the ones `tehas status
 prints: both commands take them from the console (`console/src/status.rs`), so
 they cannot drift apart.
 A section added to the snapshot appears in `--json` without anything else
-changing. The snapshot is not public: it is the dashboard's own, has no schema
+changing. The snapshot is not public: it has no schema
 in `api/` and may change in any release. A program reads
 [`tehas status --json`](/api#tehas-status---json) instead.
 
@@ -268,10 +268,9 @@ them, and up to fifteen processes with their pid, their short name from
 `/proc/<pid>/stat`, their share of a cpu, their share of memory and how long they
 have been running. A view that redraws hands the reading of one frame to the
 next, so a redraw measures the seconds since that frame instead of waiting; only
-a first frame, and `--json`, `--once` and `tehasbot top`, take a second reading a
-second after the first. The reading a snapshot was computed from is in it under
-`reading`, which is how it is handed on; no frame draws it and the published file
-does not hold it. A process is named by that short name only: the command line,
+a first frame, `--json` and `--once` take a second reading a second after the
+first. The reading a snapshot was computed from is in it under `reading`, which
+is how it is handed on; no frame draws it. A process is named by that short name only: the command line,
 and everything else under `/proc/<pid>/`, is never opened. A pid that was reused
 between the two readings is not shown. The figures are what changed between the
 readings, not the average since a process began. They sit between the cycle rows
