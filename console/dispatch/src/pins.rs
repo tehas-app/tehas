@@ -261,6 +261,30 @@ mod tests {
         assert!(j.said.is_empty() && j.pinned.is_empty() && j.refused.is_empty());
     }
 
+    // A plugin phase's label. The read of the repository's `tehas:` labels
+    // names one, and its application by an allowed account is in the
+    // events: it is not pinned, not refused, not said, and the application
+    // keeps its account, as any person's label does.
+    #[test]
+    fn a_plugin_phase_label_is_neither_pinned_nor_judged() {
+        use tehas_core::label_pins::PLUGIN_PHASE;
+        assert!(!GRANTING.iter().any(|n| n.starts_with(PLUGIN_PHASE)));
+        let name = format!("{PLUGIN_PHASE}x");
+        let applied = json!({"event": "labeled", "label": {"name": name, "id": "LA_px"},
+            "actor": {"login": "alice"}, "created_at": "2026-10-02T00:00:00Z"});
+        for kept in [false, true] {
+            let mut pins = Pins::new();
+            let mut s = snap(
+                json!([{"name": name, "id": "LA_px"}]),
+                json!([applied.clone()]),
+            );
+            let j = judge(&mut pins, kept, &mut s);
+            assert_eq!(actor(&s), "alice");
+            assert!(pins.is_empty(), "{pins:?}");
+            assert!(j.said.is_empty() && j.pinned.is_empty() && j.refused.is_empty());
+        }
+    }
+
     // A person's `bug` renamed to tehas:ready: its events name tehas:ready
     // with the id of the old label.
     #[test]

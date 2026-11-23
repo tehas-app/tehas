@@ -93,7 +93,7 @@ other issue the poll takes it off, as it does an outsider's.
 | Commands | The `tehas` commands, their subcommands and the flags of each, but the flags marked `internal` | `api/commands.txt`, held to the commands tehas knows and to the synopsis lines of each command's text by the tests of `console/src/front.rs` |
 | Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
 | Labels | The rows of `host/labels.tsv`: the name, what the dispatcher does with it, and the word of the ports it is (the fourth column, such as `State::Running`) | The dispatcher's and the tidy's tests, and the table's own test in `console/src/labels.rs` |
-| Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 29 | The store's migration tests |
+| Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 30 | The store's migration tests |
 | analytics.db | `user_version` 7, tables and columns only added | `console/analytics/src/schema.pinned` |
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints, and the tests of `console/src/front.rs`, which fail when a public `--json` row of `api/commands.txt` has no schema |
@@ -132,6 +132,16 @@ a key. `rows` itself is public.
   may be added. An existing field, value or exit status keeps its meaning and
   is never removed. A reader treats an enum value it does not know as
   unknown, not as an error.
+- **The flow's states.** The states of the status flow and the `why` of a
+  held ticket may gain values in 2.x, plugin phases among them. A reader
+  treats a state or a `why` it does not know as unknown.
+- **Plugin phase labels.** Labels starting `tehas:p-` belong to plugin
+  phases. In 2.x tehas may write them, for display only; the dispatcher
+  never acts on them and they never authorise anything (hard rule 5). No
+  other core label takes the prefix, and 2.0 neither writes nor reads
+  them: the tidy and `tehas labels` leave them as they are. The prefix
+  matches the `p-` that named a plugin's panel
+  ([Panels leave core](#changed-in-20)).
 - **Building features.** A feature still being built is outside the contract:
   its rows in `api/settings-rules.json` (each marked `"building": true`), its
   key in the `flags` object of `tehas api --json`, its `--json` fields, its
@@ -179,12 +189,15 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
 2. **Run `tehas update`.** It stops and removes the units and files of the
    features 2.0 took out of core, and migrates the state store and analytics.
 3. **The state store** (`state/tehas.db`) goes from schema 23, 1.4.x's, to
-   29 in one run, step by step: 24 adds the answers of `tehas answer`, 25
+   30 in one run, step by step: 24 adds the answers of `tehas answer`, 25
    keeps a stop's question with its choices, 26 lets a cycle's `how` say
    `reply`, 27 rewrites every `retry-tick` to `reply` and marks a question
    open at the upgrade to be asked again, 28 rewrites `fixer` to
    `millwright` and drops `comment_links` from an approval's input, 29 drops
-   the tables of outsource and keeps every other row.
+   the tables of outsource and keeps every other row, and 30 rewrites the
+   how word `label` to `approved`, numbers each question in the store's own
+   order, keeps a withdrawn question with when it was withdrawn, keeps when
+   each history line was written, and gives the store an id.
    `tehas state check --json` prints the schema.
 4. **Analytics** (`state/analytics.db`) goes from schema 4 to 7 the first
    time it is opened after the update: it drops `samples.watts` and
@@ -674,20 +687,42 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   global `TEHAS_PANELS` is `TEHAS_DOCK`, and the classes `panel-*` are
   `dock-*`. A plugin granted only v1's `view` is listed in the plugins
   menu in place of a panel `p-<name>`. Outside pages return in 2.1 as the plugin `panels`.
+  The label prefix `tehas:p-` is the plugins' too
+  ([the rules for 2.x](#the-rules-for-2x)).
   Readers: the consumer that runs many factories, Obeya (it vendors
   `host/fun` and the dock, so the file and global renames reach it),
   plugins.
   Adopter action: `tehas update` removes the last `live/panels.json`.
   Leave `~/tehas/state/panels.json` in place: 2.0 no longer reads it, and
   the 2.1 `panels` plugin migrates its pages into its grant.
-- **The state store is at schema 29.**
-  #2794, #2830, #2843, #2867, #2889, #2886.
-  The steps 24 to 29 are listed under [Upgrading to 2.0](#upgrading-to-20).
-  `tehas state check --json` prints `schema` 29, and `rows` counts the new
-  table `answers` and no longer the tables of outsource.
+- **The state store is at schema 30.**
+  #2794, #2830, #2843, #2867, #2889, #2886, #2911.
+  The steps 24 to 30 are listed under [Upgrading to 2.0](#upgrading-to-20).
+  `tehas state check --json` prints `schema` 30, and `rows` counts the new
+  table `answers` and no longer the tables of outsource. Later 2.x
+  releases migrate the store forward by numbered steps, so a new table in
+  2.1 is an ordinary step.
   Readers: `tehas update`, readers of `tehas state check` and of a state
   copy, the end-to-end suite.
   Adopter action: `tehas update` migrates the store.
+- **Labels starting `tehas:p-` belong to plugin phases.**
+  #2930.
+  No core label takes the prefix. 2.0 neither writes nor reads them: the
+  dispatcher, the tidy and `tehas labels` leave a `tehas:p-` label as it
+  is, and it authorises nothing. In 2.x tehas may write them, for display
+  only, as [the rules for 2.x](#the-rules-for-2x) say.
+  Readers: plugins, adopters, the consumer that runs many factories.
+  Adopter action: none.
+- **The flow may gain states, and no plugin removes approval or the merge.**
+  #2930.
+  The states of the status flow and a held ticket's `why` may gain values
+  in 2.x, plugin phases among them, and a reader treats an unknown one as
+  unknown. A plugin may add phases and skip or hide an optional one under a
+  grant shown in review, but no plugin can remove approval or the human
+  merge ([plugins](#plugins)).
+  Readers: plugins, adopters, the consumer that runs many factories.
+  Adopter action: none. A program that reads the flow's states or a `why`
+  treats a value it does not know as unknown.
 - **The spec mark goes.** #2892. The building feature `spec-pipe` is
   removed. A `Spec:` line in an issue body is plain text, no pull request
   is checked for a spec block, the key `spec-pipe` leaves `flags`, and
@@ -850,6 +885,12 @@ Off by default; `TEHAS_PLUGIN=on` stops every command with exit 78 and says
 
 The plugin API as 2.0 holds it, for the work of 2.1:
 
+- **What no plugin removes.** A plugin may add phases anywhere in the
+  status flow, and may skip or hide an optional phase under a grant
+  `tehas plugin review` lists. No plugin can remove approval, `tehas:ready`
+  applied by an account of `TEHAS_ALLOWED_LABELERS` (hard rule 5), or the
+  human merge. Its phase labels are `tehas:p-`
+  ([the rules for 2.x](#the-rules-for-2x)).
 - **The grants.** A plugin asks in its manifest and a person grants for the
   plugin's commit; `tehas plugin review` lists each grant, and every
   install, enable and pin move checks them again. The one hook grant the
