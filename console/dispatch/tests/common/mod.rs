@@ -518,7 +518,7 @@ const LOGINS: &[&str] = &[
     "bob-2",
     "carol",
     "boss",
-    "tehas-fixer",
+    "tehas-millwright",
     "tehas-mill",
     "millbot",
     "mill-bot",
@@ -1322,11 +1322,11 @@ impl World {
 
     /// An approval of issue `n` on record, as the dispatcher records one: the
     /// body of "Words." unless `extra` names one, tehas:ready for label and
-    /// fixer (t_approve).
+    /// millwright (t_approve).
     pub fn t_approve(&self, n: u64, by: &str, how: &str, at: i64, extra: &[&str]) {
         let (n, at, sum) = (n.to_string(), at.to_string(), wsum());
         let mut a = vec!["approval-record", &n, "--at", &at, "--by", by, "--how", how];
-        if matches!(how, "label" | "fixer") {
+        if matches!(how, "label" | "millwright") {
             a.extend(["--label", "tehas:ready"]);
         }
         if !extra.contains(&"--body-sha") {
@@ -1391,7 +1391,7 @@ impl World {
     /// On a fresh session of issue `n`, the planning session `j` describes in
     /// the shape its record file had (t_plan): by [alice], label
     /// [tehas:plan], turns, session [abc-123], options and filed of the last
-    /// turn, failed, pending, comment, running, lost, answers, fixer_refused,
+    /// turn, failed, pending, comment, running, lost, answers, millwright_refused,
     /// held, auto and startedAt.
     pub fn t_plan(&self, n: u64, j: Value) {
         let ns = n.to_string();
@@ -1424,7 +1424,7 @@ impl World {
                 "--text-file",
                 &brief,
             ];
-            if a["fixer"].as_bool() == Some(true) {
+            if a["millwright"].as_bool() == Some(true) {
                 args.push("--millwright");
             }
             self.store_must(&args, when, None);
@@ -1514,7 +1514,10 @@ impl World {
                 "2",
             ]);
         }
-        for (k, kind) in [("fixer_refused", "fixer-refused"), ("held", "held")] {
+        for (k, kind) in [
+            ("millwright_refused", "millwright-refused"),
+            ("held", "held"),
+        ] {
             for v in j[k].as_array().into_iter().flatten() {
                 s(&["plan-note", &ns, "--kind", kind, "--id", &text_of(v)]);
             }

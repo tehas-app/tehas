@@ -837,8 +837,8 @@ fn a_start_of_how_outage_retry_never_passes_continue_pr_also_when_the_image_take
 }
 
 #[test]
-fn a_start_of_how_fixer_never_passes_continue_pr_also_when_the_image_takes_it() {
-    never_continues("fixer");
+fn a_start_of_how_millwright_never_passes_continue_pr_also_when_the_image_takes_it() {
+    never_continues("millwright");
 }
 
 #[test]
