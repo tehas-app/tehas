@@ -566,6 +566,21 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `~/tehas/state/all-hands.ignored` where an earlier version wrote it. A
   program that read `allHands` or checked `features` for `all-hands` finds
   them gone.
+- **`host/markers.tsv`, and a fourth field in `host/labels.tsv`.**
+  #2901.
+  `host/markers.tsv` is new: one row per kind of marker, the machine-read
+  notes tehas writes inside a comment or a body, with its open text, its
+  close text for a block, and its fields and their types. It adds the text
+  of two markers new in 2.0, `tehas:ticket-of` and `tehas:link`, which
+  nothing writes yet. A marker with a field missing, repeated, out of order
+  or not of its row, or a value outside its type, reads as unreadable and
+  is never acted on. No program reads the file at run time: the adapters
+  compile it in. `tehas labels` takes a line of `host/labels.tsv` with three
+  fields or four; the fourth, a word of the ports such as `State::Running`,
+  is checked and not used, and no row has one yet.
+  Readers: the consumer that runs many factories, which reads tehas's
+  markers and takes the table with the ports at the tag.
+  Adopter action: none.
 - **The state store is at schema 29.**
   #2794, #2830, #2843, #2867, #2889, #2886.
   The steps 24 to 29 are listed under [Upgrading to 2.0](#upgrading-to-20).
@@ -659,8 +674,8 @@ adopter action as the pull request states them.
   `tehas:prototype` in its queue and starts `tehas-top.service`, and parts
   that read the label.
 - **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
-  `host/labels.tsv` gains a fourth column, `word`, and `host/markers.tsv`
-  is new. Two settings choose the adapters: `TEHAS_CODE_HOST` and
+  Each row of `host/labels.tsv` gains its fourth field, `word`, once the
+  label drops have taken their rows out. The ports themselves. Two settings choose the adapters: `TEHAS_CODE_HOST` and
   `TEHAS_TICKETS`. In 2.0 each accepts only `github`; a missing setting
   means `github`, so a 1.4.x instance still loads, and any other value is
   refused with 78.
