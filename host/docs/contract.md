@@ -253,6 +253,10 @@ line is one of three:
   - a value for a setting of a feature still being built, which names the
     feature.
 
+Settings of features removed in 2.0 stay dropped with a warning
+(`IGNORED`) through 2.x, never refused (`RETIRED`), so 2.1 can move them
+into plugin grants and a 2.0 `instance.env` loads under 2.1 unchanged.
+
 Pending: #2892 drops `TEHAS_SPEC_PIPE` with a warning. Until it lands, a
 value for `TEHAS_SPEC_PIPE` is refused as a building feature's.
 
@@ -702,6 +706,9 @@ adopter action as the pull request states them.
   history line, `tehas api --json` prints `store`, and `features` gains
   `cycle-ids`, `questions` and `events`. A further store step and an
   analytics step carry the words.
+  T11.7 adds the schemas (the envelope, a payload schema per event,
+  `api/events.txt`, the gate's answer and `StartAsk`) and their place in
+  this contract.
   Readers: the consumer that runs many factories, the consumer that reads
   the analytics copies, MCP clients, the end-to-end suite, plugins.
 - **The plugin hook is named by its event.** T11.8. The grant
