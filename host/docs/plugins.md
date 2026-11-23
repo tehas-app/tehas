@@ -144,7 +144,7 @@ the line of this table. Read it before you write the grant.
 | `model:<tokens>` | Chat completions through a socket, up to the tokens of the grant a run |
 | `model:images` | Images in its model requests, each carried in the request and never fetched: what it sends of the product's pages goes to the model |
 | `action:<id>` | A button in the view: a signed-in person asks for a refresh |
-| `hook:after:change.offered` | A run on each change a cycle offers for review, the event `change.offered`; its summary is on the pull request for every reader of the repository |
+| `hook:after:change.offered` | A run on each change a cycle offers for review, the event change.offered; its summary is on the pull request for every reader of the repository |
 | `skill:<id>` | Its text from the pinned commit goes into the chats' instructions |
 | `needs:<name>` | Runs only while the named plugin is ready, and its chat gets the skills that plugin grants to a plugin's chat; it grants the other plugin nothing |
 | `tool:<id>` | The chats it names may call it: each call is a run with the caller's arguments and the plugin's /state read only, and its answer goes to the model |
