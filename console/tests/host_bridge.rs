@@ -269,13 +269,16 @@ fn the_front_page_draws_no_token_table() {
 }
 
 #[test]
-fn the_docs_server_answers_every_path_under_host_with_404_before_anything_else_it_serves() {
+fn the_docs_server_answers_every_path_under_host_and_pages_with_404_before_anything_else_it_serves()
+{
     let caddyfile = text("host/edge/docs.Caddyfile");
     has(&caddyfile, "@host path /host/*");
     has(&caddyfile, "respond @host 404");
-    // The first thing in the route, so no handler below can answer under
-    // /host/.
-    let (mut r, mut h, mut f) = (0, 0, 0);
+    has(&caddyfile, "@pages path /pages/*");
+    has(&caddyfile, "respond @pages 404");
+    // The first things in the route, so no handler below can answer under
+    // /host/ or /pages/.
+    let (mut r, mut h, mut p, mut f) = (0, 0, 0, 0);
     for (i, line) in caddyfile.lines().enumerate() {
         let n = i + 1;
         if line.starts_with("    route {") {
@@ -283,6 +286,9 @@ fn the_docs_server_answers_every_path_under_host_with_404_before_anything_else_i
         }
         if line.contains("respond @host 404") {
             h = n;
+        }
+        if line.contains("respond @pages 404") {
+            p = n;
         }
         let handler = ["handle", "rewrite", "file_server"]
             .iter()
@@ -292,8 +298,8 @@ fn the_docs_server_answers_every_path_under_host_with_404_before_anything_else_i
         }
     }
     assert!(
-        r > 0 && h > 0 && h < f,
-        "the 404 is not first: route {r}, 404 {h}, first handler {f}"
+        r > 0 && h > 0 && h < f && p > 0 && p < f,
+        "the 404s are not first: route {r}, /host/ {h}, /pages/ {p}, first handler {f}"
     );
     if on_path("caddy") {
         let out = Command::new("caddy")
@@ -318,17 +324,24 @@ fn curl_code(url: &str) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
-// What the contract freezes: the host owns /host/, so a file put there is never
-// served. Bare /host is left out: the manual's page "The host" is named so.
+// What the contract freezes: the host owns /host/ and plugins' public pages own
+// /pages/, so a file put there is never served. Bare /host is left out: the
+// manual's page "The host" is named so.
 #[test]
-fn the_docs_server_answers_404_for_any_path_under_host_even_where_a_file_stands() {
+fn the_docs_server_answers_404_for_any_path_under_host_or_pages_even_where_a_file_stands() {
     if !(on_path("caddy") && on_path("curl")) {
         eprintln!("SKIP: no caddy or no curl here; the lines of the Caddyfile are checked above");
         return;
     }
     let t = TestDir::new("host-bridge-caddy");
     let srv = t.join("srv");
-    for d in ["docs/host/ticket", "docs/host/x", "fun", "../xdg"] {
+    for d in [
+        "docs/host/ticket",
+        "docs/host/x",
+        "docs/pages",
+        "fun",
+        "../xdg",
+    ] {
         fs::create_dir_all(srv.join(d)).unwrap();
     }
     // The docs server's own tree, /srv/live in its container: not a home.
@@ -340,6 +353,10 @@ fn the_docs_server_answers_404_for_any_path_under_host_even_where_a_file_stands(
     for f in ["bridge.json", "index.html", "ticket/7", "x/y"] {
         fs::write(srv.join("docs/host").join(f), "tehas\n").unwrap();
     }
+    fs::write(srv.join("docs/pages.md"), "# Pages\n").unwrap();
+    for f in ["index.html", "x"] {
+        fs::write(srv.join("docs/pages").join(f), "tehas\n").unwrap();
+    }
     let paths = [
         "/host/",
         "/host/bridge.json",
@@ -348,6 +365,9 @@ fn the_docs_server_answers_404_for_any_path_under_host_even_where_a_file_stands(
         "/host/index.html",
         "/host/.x",
         "/Host/bridge.json",
+        "/pages/",
+        "/pages/x",
+        "/pages/index.html",
     ];
     let want: String = paths.iter().map(|p| format!("{p} 404 ")).collect();
     let caddyfile = text("host/edge/docs.Caddyfile");
@@ -519,5 +539,22 @@ fn the_contract_freezes_the_host_namespace_and_names_the_tests_that_hold_it() {
             root().join(f).is_file(),
             "the contract names {f}, which is not there"
         );
+    }
+}
+
+#[test]
+fn the_contract_reserves_the_plugin_pages_namespace_and_names_the_test_that_holds_it() {
+    let contract = text("host/docs/contract.md");
+    let row = contract
+        .lines()
+        .find(|l| l.starts_with("| Plugin pages namespace |"))
+        .expect("contract.md has no row for the plugin pages namespace");
+    for words in [
+        "`/pages/`",
+        "never serves a path under it",
+        "answers 404 there",
+        "`console/tests/host_bridge.rs`",
+    ] {
+        has(row, words);
     }
 }
