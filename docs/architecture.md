@@ -227,6 +227,7 @@ its reason, as a floor; a departure from a should rule (R5) likewise.
 | Check | Floor | Where | Reason |
 | --- | --- | --- | --- |
 | gh-argv, tests-stub-gh | 1 each | `console/tests/top_snapshot.rs` | the short name "gh" of a process in a fixture of /proc (`"name":"gh"`, #2859), which tehas top shows. Nothing runs gh. A pattern that skipped it would be fragile and allowing the file would hide a later gh call there, so it stays counted as a floor |
+| gh-argv 3, tests-stub-gh 2 | `console/ops/src/pins/tools.rs` 1, `console/ops/src/pins/tests.rs` 2 (gh-argv) and 2 (tests-stub-gh) | the pinned tool named "gh" in the release's list of pinned tools (`host/versions.env`) and its tests (ports spec, Decided 71). Nothing runs gh there; the name is the tool's |
 
 ### Temporary rises
 

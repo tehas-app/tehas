@@ -407,6 +407,14 @@ adds elsewhere. #2890 moved two of its findings here, to fix:
   `console/tests/console_run.rs` (#2879), tehas's own word in a file
   that also stubs gh, so the file is not allowed.
 
+The branch owner's rulings on T4 of 2026-11-23 are in the ports spec,
+Decided 69 to 80. Two bear on this Done. `github-rest` keeps tehas's own
+`--json` flag, 165 lines in 46 files, until the end of T4: once the nine
+real `gh --json` reads have moved, the pattern drops `"--json"` and keeps
+`--jq`, if the owner asks (Decided 72). And the adapter's operations are
+built in pull requests that change `console/github/` alone, before the
+consumer that needs them (Decided 80).
+
 Findings:
 
 - The planner's confirm files an issue with the session token, which is
