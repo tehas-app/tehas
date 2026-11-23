@@ -305,7 +305,6 @@ pub const TABLE: &[Setting] = &[
         Rule::OneOf(&["beesknees26", "pixel"], "expected beesknees26 or pixel"),
         "beesknees26",
     ),
-    always("TEHAS_TOP", SWITCH, "0"),
     always(
         "TEHAS_DRIVER",
         Rule::OneOf(&["classic", "lean"], "expected classic or lean"),
@@ -996,7 +995,7 @@ mod tests {
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 14);
+        assert_eq!(switches.len(), 13);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);

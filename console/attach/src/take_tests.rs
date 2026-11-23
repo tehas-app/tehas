@@ -88,7 +88,6 @@ fn take<'a>(net: &'a Fake, dir: &'a str, wants: Wants) -> Take<'a> {
         wants,
         approved: true,
         who: "",
-        allowed: "alice bob",
         n: Counts::default(),
         images: Vec::new(),
         files: Vec::new(),
@@ -96,16 +95,15 @@ fn take<'a>(net: &'a Fake, dir: &'a str, wants: Wants) -> Take<'a> {
     }
 }
 
-fn linked(source: &str, link: &str, by: &str) -> Linked {
+fn linked(source: &str, link: &str) -> Linked {
     Linked {
         source: source.to_string(),
         link: link.to_string(),
-        by: by.to_string(),
     }
 }
 
 fn body(link: &str) -> Linked {
-    linked("body", link, "")
+    linked("body", link)
 }
 
 fn file(n: usize, name: &str) -> String {
@@ -342,17 +340,6 @@ fn no_name_of_a_link_reaches_the_disk() {
     assert_eq!(listing(&dir), ["file-1.md"]);
 }
 
-#[test]
-fn a_comments_author_is_held_to_whole_logins() {
-    assert!(allowed_login("alice bob", "alice"));
-    assert!(allowed_login("alice bob", "bob"));
-    assert!(!allowed_login("alice bob", "ali"));
-    assert!(!allowed_login("alice bob", "ice bob"));
-    assert!(!allowed_login("alice bob", ""));
-    assert!(!allowed_login("", ""));
-    assert!(!allowed_login("", "alice"));
-}
-
 // --- Who may attach ------------------------------------------------------------
 
 #[test]
@@ -378,29 +365,12 @@ fn who_may_attach() {
     let mut t = take(&net, &dir, ALL);
     t.approved = false;
     t.who = "OWNER";
-    t.all(&[
-        linked("answer:1", &png, ""),
-        linked("comment:1", &png, "alice"),
-    ])
-    .unwrap();
+    t.all(&[linked("answer:1", &png)]).unwrap();
     assert!(t.images.is_empty());
     assert_eq!(
         reasons(&t),
-        [
-            "The reply was not written by an allowed account.",
-            "The comment was not written by an allowed account, or the start was not approved by one."
-        ]
+        ["The reply was not written by an allowed account."]
     );
-
-    let mut t = take(&net, &dir, ALL);
-    t.all(&[
-        linked("comment:1", &png, "mallory"),
-        linked("pr-comment:2", &png, "bob"),
-    ])
-    .unwrap();
-    assert_eq!(t.images.len(), 1);
-    assert_eq!(t.left.len(), 1);
-    assert!(net.fetched.borrow().iter().all(|(l, _)| *l == png));
 }
 
 // --- Budgets and bytes ---------------------------------------------------------
@@ -733,7 +703,6 @@ fn a_path_out_of_a_child_is_held_to_the_shape_of_a_cleaned_name() {
         wants,
         approved: true,
         who: "",
-        allowed: "",
         n: Counts::default(),
         images: Vec::new(),
         files: Vec::new(),
@@ -824,8 +793,6 @@ fn run_of<'a>(dir: &'a str, data: &'a str, record: &'a str) -> IssueRun<'a> {
         approved: "approved",
         record,
         wants: ALL,
-        comments: true,
-        allowed: "alice",
         data,
     }
 }
@@ -903,6 +870,7 @@ fn a_text_with_no_link_says_so_and_one_with_links_lists_each() {
 
 #[test]
 fn with_a_record_only_its_links_are_taken_and_it_is_named() {
+    // A record written before 2.0 may still carry comment_links: they are ignored.
     let (_scratch, base) = scratch();
     let dir = format!("{base}/images");
     let record = format!("{base}/record.json");
@@ -935,9 +903,8 @@ fn with_a_record_only_its_links_are_taken_and_it_is_named() {
         .iter()
         .map(|(l, _)| l.clone())
         .collect();
-    assert_eq!(fetched, [link, file(2, "b.png")]);
-    assert_eq!(m["leftOut"][0]["link"], file(3, "c.png"));
-    assert_eq!(m["leftOut"].as_array().unwrap().len(), 1);
+    assert_eq!(fetched, [link]);
+    assert_eq!(m["leftOut"].as_array().map_or(0, Vec::len), 0);
 }
 
 #[test]

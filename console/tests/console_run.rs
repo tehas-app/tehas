@@ -633,7 +633,6 @@ cases!(with_no_instance_env {
     tehas_init_product_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehas init-product";
     tehasbot_health_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot health";
     tehasbot_status_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot status";
-    tehasbot_top_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot top";
     tehasbot_mcp_serve_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot mcp serve";
     tehasbot_dispatch_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot dispatch";
     tehasbot_preview_with_no_instance_env_is_78_and_calls_and_writes_nothing: "tehasbot preview";
@@ -659,7 +658,6 @@ cases!(with_a_setting_no_rule_allows {
     tehas_init_product_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehas init-product";
     tehasbot_health_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot health";
     tehasbot_status_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot status";
-    tehasbot_top_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot top";
     tehasbot_mcp_serve_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot mcp serve";
     tehasbot_dispatch_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot dispatch";
     tehasbot_preview_with_a_setting_no_rule_allows_is_78_and_calls_and_writes_nothing: "tehasbot preview";
@@ -685,7 +683,6 @@ cases!(with_an_instance_file_that_ends_its_shell {
     tehas_init_product_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehas init-product";
     tehasbot_health_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot health";
     tehasbot_status_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot status";
-    tehasbot_top_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot top";
     tehasbot_mcp_serve_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot mcp serve";
     tehasbot_dispatch_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot dispatch";
     tehasbot_preview_with_an_instance_file_that_ends_its_shell_is_78_and_calls_and_writes_nothing: "tehasbot preview";

@@ -124,6 +124,20 @@ pub enum TicketKey {
     Key(KeyText),
 }
 
+impl TicketKey {
+    /// The blueprint that is this ticket, where ticket and blueprint are one
+    /// item: the blueprint of the same number for a `Number`, None for a
+    /// `Key`. This leans on "one ticket, one key": a code-host adapter
+    /// writes a ticket of its own tracker as a `Number`, and a separate
+    /// tracker's tickets are `Key`s, never one item with a blueprint.
+    pub fn same_item(&self) -> Option<BlueprintNo> {
+        match self {
+            TicketKey::Number(n) => Some(BlueprintNo::from(*n)),
+            TicketKey::Key(_) => None,
+        }
+    }
+}
+
 checked!(
     /// A ticket's key. Checked when made: 1 to 128 of ASCII letters, digits,
     /// `.`, `_`, `:`, `/` and `-`, the rule of `key(n)` in the vendored
@@ -414,6 +428,14 @@ impl At {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_numbered_ticket_is_the_blueprint_of_its_number() {
+        let n = NonZeroU64::new(7).unwrap();
+        assert_eq!(TicketKey::Number(n).same_item(), BlueprintNo::new(7));
+        let key = TicketKey::Key(KeyText::new("7").unwrap());
+        assert_eq!(key.same_item(), None);
+    }
 
     #[test]
     fn key_text_is_1_to_128_of_the_tables_key_set() {

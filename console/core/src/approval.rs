@@ -66,10 +66,6 @@ fn record_ok(r: &Value) -> bool {
                     | "reply"
             )
         )
-        && matches!(
-            r.get("comment_links"),
-            None | Some(Value::Null) | Some(Value::Array(_))
-        )
         && hex64(r.get("body_sha256"))
         && (matches!(r.get("title_sha256"), None | Some(Value::Null))
             || hex64(r.get("title_sha256")))
@@ -204,13 +200,12 @@ mod tests {
         let good = approved("Words.", None);
         let issue = json!({"body": "Words."});
         assert_eq!(hold(None, &issue), Err(Refusal::Record));
-        let bad: [(&str, Value); 9] = [
+        let bad: [(&str, Value); 8] = [
             ("at", json!("2026\n")),
             ("by", json!("two words")),
             ("by", json!("alice\n")),
             ("how", json!("nobody")),
             ("links", json!("x")),
-            ("comment_links", json!("x")),
             ("body_sha256", json!("abc")),
             ("body_sha256", json!(format!("{}\n", "a".repeat(64)))),
             ("title_sha256", json!(7)),
@@ -221,6 +216,15 @@ mod tests {
             assert_eq!(hold(Some(&r), &issue), Err(Refusal::Record), "{k}");
         }
         assert_eq!(hold(Some(&json!([])), &issue), Err(Refusal::Record));
+    }
+
+    #[test]
+    fn a_record_s_comment_links_are_ignored() {
+        for held in [json!([{"link": "L"}]), json!("x")] {
+            let mut r = approved("Words.", None);
+            r["comment_links"] = held;
+            assert_eq!(hold(Some(&r), &json!({"body": "Words."})), Ok(()));
+        }
     }
 
     #[test]

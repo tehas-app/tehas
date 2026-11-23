@@ -2,7 +2,7 @@
 // mark, how old the queue is and the link to all issues, from
 // live/status.json and live/running.json. Pure: the clock is nowMs.
 import "../console-tabs.js";
-import { ago, webHref } from "../host-data.js";
+import { ago, webHref } from "../page-data.js";
 
 const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
 

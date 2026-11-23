@@ -676,7 +676,7 @@ t_console_source() {
   local member from=${2:-$T_ROOT}
   mkdir -p "$1/console"
   cp -R "$from/console/Cargo.toml" "$from/console/Cargo.lock" "$from/console/src" "$1/console/"
-  for member in analytics attach core cycle describe dispatch front items mcp mesh-feed ops plugin plugin-gate ports review-render store wiki-collect wiki-render xtask; do
+  for member in analytics attach core cycle describe dispatch front host-feed items mcp mesh-feed ops plugin plugin-gate ports review-render store wiki-collect wiki-render xtask; do
     mkdir -p "$1/console/$member"
     cp -R "$from/console/$member/Cargo.toml" "$from/console/$member/src" "$1/console/$member/"
     [ ! -d "$from/console/$member/assets" ] || cp -R "$from/console/$member/assets" "$1/console/$member/"
@@ -1084,7 +1084,7 @@ t_record() { # <home> <issue> <JSON>
   fi
   [ "$t_at" -gt "$t_last" ] || t_at=$((t_last + 10))
   jq --arg how "$t_how" '{links: (.links // [])}
-    + with_entries(select(.key == "comment_links" or .key == "retry_context" or .key == "driver" or .key == "spec"))
+    + with_entries(select(.key == "retry_context" or .key == "driver" or .key == "spec"))
     + (if $how == "refresh" then {refresh_of: (.refresh_of // null)} else {} end)' <<<"$t_j" >"$t_in"
   t_args=(approval-record "$t_n" --at "$t_at" --by "$(jq -r .by <<<"$t_j")" --how "$t_how"
     --body-sha "$(jq -r .body_sha256 <<<"$t_j")" --input-file "$t_in")

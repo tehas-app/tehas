@@ -60,10 +60,6 @@ async function run() {
   s.previews = document.querySelectorAll("#preview-list li").length;
   s.previewsHidden = $("#previews").hidden;
   s.notServing = text("#preview-list li:last-child .when");
-  s.hostRows = document.querySelectorAll("#host-list li").length;
-  s.units = document.querySelectorAll("#unit-list li").length;
-  s.hostHidden = $("#host").hidden;
-  s.hostNote = text("#host-note");
   s.analyticsHidden = $("#analytics").hidden;
   s.figures = document.querySelectorAll("#an-figures .an-figure").length;
   s.days = document.querySelectorAll("#an-chart .an-day").length;
@@ -71,8 +67,6 @@ async function run() {
   const bar = $("#an-chart .an-bars span");
   s.barHeight = !!bar && /%$/.test(bar.style.getPropertyValue("--tehas-factory-share")) && getComputedStyle(bar).height !== "auto";
   s.versions = document.querySelectorAll("#an-versions tr").length;
-  // Every ten seconds while the file is there.
-  await wait(() => fetches["/live/top.json"] >= 2, 11000);
   s.fetches = fetches;
 }
 

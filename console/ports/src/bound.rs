@@ -40,23 +40,50 @@ pub enum Window {
     Last(NonZeroU32),
 }
 
-/// How much of a ticket or a blueprint a read takes.
+/// The most notes or events `Depth::All` takes. More is `Unread(Cut)`.
+pub const ALL_MAX: Bound = Bound(NonZeroU32::new(1000).unwrap());
+
+/// How much of a ticket or a blueprint a read takes: its notes, and a
+/// ticket's history (`Depth::notes`, `Depth::history`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Depth {
-    /// The last `notes` notes, text cut to the adapter's bound.
+    /// The last `notes` notes, text cut to the adapter's bound. No history:
+    /// a ticket's is empty, with `more`.
     Cut {
         /// How many notes.
         notes: u8,
     },
     /// The newest `notes` notes, oldest first, each with its text whole,
     /// answered as `Took` with `more`. A note too large to give whole makes
-    /// the read `Unread(TooLarge)`, never a cut text.
+    /// the read `Unread(TooLarge)`, never a cut text. A ticket's history is
+    /// its newest `notes` events, with `more`.
     Last {
         /// How many notes.
         notes: NonZeroU32,
     },
-    /// Every note and event, paged whole or `Unread(Cut)`.
+    /// Every note and event, paged whole, or `Unread(Cut)` past `ALL_MAX`.
     All,
+}
+
+impl Depth {
+    /// The window of notes this depth takes; None takes no note.
+    pub fn notes(self) -> Option<Window> {
+        match self {
+            Depth::Cut { notes } => NonZeroU32::new(u32::from(notes)).map(Window::Last),
+            Depth::Last { notes } => Some(Window::Last(notes)),
+            Depth::All => Some(Window::Whole(ALL_MAX)),
+        }
+    }
+
+    /// The window of a ticket's history this depth takes. None takes none,
+    /// answered as an empty history with `more`: possibly cut.
+    pub fn history(self) -> Option<Window> {
+        match self {
+            Depth::Cut { .. } => None,
+            Depth::Last { notes } => Some(Window::Last(notes)),
+            Depth::All => Some(Window::Whole(ALL_MAX)),
+        }
+    }
 }
 
 /// Where a search looks for its words.
@@ -76,5 +103,19 @@ mod tests {
     fn a_bound_is_never_zero() {
         assert_eq!(Bound::new(0), None);
         assert_eq!(Bound::new(50).map(Bound::get), Some(50));
+    }
+
+    #[test]
+    fn a_depth_names_its_windows_of_notes_and_history() {
+        let five = NonZeroU32::new(5).unwrap();
+        let last = Depth::Last { notes: five };
+        assert_eq!(last.history(), Some(Window::Last(five)));
+        assert_eq!(last.notes(), Some(Window::Last(five)));
+        assert_eq!(Depth::All.history(), Some(Window::Whole(ALL_MAX)));
+        assert_eq!(Depth::All.notes(), Some(Window::Whole(ALL_MAX)));
+        assert_eq!(Depth::Cut { notes: 5 }.history(), None);
+        assert_eq!(Depth::Cut { notes: 5 }.notes(), Some(Window::Last(five)));
+        assert_eq!(Depth::Cut { notes: 0 }.notes(), None);
+        assert_eq!(ALL_MAX.get(), 1000);
     }
 }
