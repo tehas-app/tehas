@@ -623,6 +623,91 @@ fn identity_a_given_token_is_never_minted() {
     assert_eq!(w.signed_out_keys(), vec![PersonKey::new("old")]);
 }
 
+/// An identity handle that answers its given token for any scope asked,
+/// the bug the given-token law must catch.
+struct AnyScope {
+    inner: Box<dyn Identity + Send>,
+}
+
+impl Reports for AnyScope {
+    fn take_reports(&mut self) -> Vec<Report> {
+        self.inner.take_reports()
+    }
+}
+
+impl Identity for AnyScope {
+    fn me(&mut self) -> Got<Account> {
+        self.inner.me()
+    }
+    fn standing(&mut self, who: &AccountId) -> Got<Standing> {
+        self.inner.standing(who)
+    }
+    fn account(&mut self, who: &AccountId) -> Got<Account> {
+        self.inner.account(who)
+    }
+    fn account_by_login(&mut self, login: &Login) -> Got<Account> {
+        self.inner.account_by_login(login)
+    }
+    fn is_organisation(&mut self, name: &Login) -> Got<bool> {
+        self.inner.is_organisation(name)
+    }
+    fn assignable(&mut self, who: &AccountId) -> Got<bool> {
+        self.inner.assignable(who)
+    }
+    fn token(&mut self, _scope: Scope) -> Got<Token> {
+        self.inner.token(Scope::Cycle)
+    }
+    fn token_over(&mut self, scope: Scope, projects: &[ProjectName]) -> Got<Token> {
+        self.inner.token_over(scope, projects)
+    }
+    fn sign_in_link(&self, state: &SignInState) -> WebLink {
+        self.inner.sign_in_link(state)
+    }
+    fn signed_in(&mut self, code: &SignInCode) -> Got<(Account, Secret)> {
+        self.inner.signed_in(code)
+    }
+}
+
+#[test]
+fn the_given_token_law_breaks_where_a_wider_scope_is_answered() {
+    let w = World::new();
+    let now = w.now();
+    let given = Token {
+        secret: Secret::new("handed-in"),
+        until: At::new(now.secs() + 1200),
+    };
+    let w = w.given("fresh", Scope::Cycle, given.clone()).given(
+        "old",
+        Scope::Cycle,
+        Token {
+            secret: Secret::new("stale"),
+            until: At::new(now.secs() - 1),
+        },
+    );
+    let tokens = Arc::new(MemoryTokens::new(w.clock()));
+    let site = FakeSite::new(&w).with_tokens(tokens.clone());
+    let mut h = AnyScope {
+        inner: site
+            .identity(&Actor::Given(PersonKey::new("fresh")), C)
+            .unwrap(),
+    };
+    let broke = laws::identity::a_given_token_is_never_minted(
+        &mut h,
+        tokens.as_ref(),
+        Scope::Cycle,
+        &given,
+        || site.identity(&Actor::Given(PersonKey::new("old")), C),
+        || {
+            w.signed_out_keys()
+                .iter()
+                .filter(|k| **k == PersonKey::new("old"))
+                .count()
+        },
+        || calls(&site),
+    );
+    assert!(broke.is_err(), "the law passed a token answered for Full");
+}
+
 #[test]
 fn the_given_token_law_breaks_where_a_sign_out_is_told_every_time() {
     let w = World::new();

@@ -601,10 +601,18 @@ impl Handle {
     /// any for `Full`.
     fn scope_ok(&self, scope: Scope) -> bool {
         match &self.actor {
-            Actor::Ours(Scope::Full) => scope != Scope::Unknown,
-            Actor::Ours(own) => *own == scope,
+            Actor::Ours(own) => covers(*own, scope),
             _ => false,
         }
+    }
+}
+
+/// Whether a token of scope `own` may answer for `asked`: a full token for
+/// any known scope, any other only for itself.
+fn covers(own: Scope, asked: Scope) -> bool {
+    match own {
+        Scope::Full => asked != Scope::Unknown,
+        own => own == asked,
     }
 }
 
@@ -700,8 +708,18 @@ impl Identity for Handle {
         let now = self.world.now();
         let answer = match self.actor.clone() {
             Actor::Given(key) => match crate::Keyring::given(&self.world, &key) {
-                Some(t) if t.until > now => Ok(t),
-                _ => {
+                Some(t) if t.until <= now => {
+                    self.world.given_signed_out(&key);
+                    Err(Outcome::SignedOut)
+                }
+                // A given token answers for its own scope alone: a wider
+                // one is `Forbidden`, as `token_over` refuses, with no
+                // request.
+                Some(t) => match self.world.given_scope(&key) {
+                    Some(own) if covers(own, scope) => Ok(t),
+                    _ => Err(Outcome::Forbidden),
+                },
+                None => {
                     self.world.given_signed_out(&key);
                     Err(Outcome::SignedOut)
                 }

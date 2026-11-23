@@ -1209,6 +1209,19 @@ pub mod identity {
         hold(kept_since(tokens, from).is_empty(), LAW, || {
             "a given token was kept".into()
         })?;
+        // A given token answers for its own scope alone: a wider one is
+        // refused, as `token_over` refuses, with no request.
+        if scope != Scope::Full {
+            let sent = requests();
+            let wide = h.token(Scope::Full).map(|_| ());
+            hold(wide == Err(Outcome::Forbidden), LAW, || {
+                format!("a given token of {scope:?} answered {wide:?} for Full")
+            })?;
+            let now = requests();
+            hold(now == sent, LAW, || {
+                format!("a refused wider scope sent {} requests", now - sent)
+            })?;
+        }
         // Asked twice, by two handles, each asked twice: the keyring is told
         // once, however often the token is asked for.
         for _ in 0..2 {
