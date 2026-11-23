@@ -752,7 +752,7 @@ fn scopes_a_cycle_with_the_merge_grant_merges_its_own_change() {
 
 #[test]
 fn scopes_a_cycle_marks_and_closes_no_ticket() {
-    for scope in [Scope::Cycle, Scope::CycleMerge, Scope::Session] {
+    for scope in [Scope::Cycle, Scope::CycleMerge] {
         for w in both() {
             let on = Mark::State(State::Running);
             let off = Mark::State(State::Question);
@@ -846,23 +846,13 @@ fn each_scope_writes_on_tickets_what_it_may() {
             Err(Outcome::Forbidden),
             "a cycle's note carries no marker"
         );
-        // A session's planner files; it notes and edits nothing.
-        let mut session = site.ticket_writes(&Actor::Ours(Scope::Session), C).unwrap();
-        session.file(&new_ticket()).unwrap();
-        assert_eq!(
-            session.note(&key, "a note", &[]).map(|_| ()),
-            Err(Outcome::Forbidden)
-        );
-        let since = rev(&site);
-        assert_eq!(
-            session
-                .edit(&key, Some("x"), None, &none, &since)
-                .map(|_| ()),
-            Err(Outcome::Forbidden)
-        );
-        // Read and Files write nothing.
-        for scope in [Scope::Read, Scope::Files] {
-            assert!(site.ticket_writes(&Actor::Ours(scope), C).is_err());
+        // A session, Read and Files write no ticket.
+        for scope in [Scope::Session, Scope::Read, Scope::Files] {
+            assert_eq!(
+                site.ticket_writes(&Actor::Ours(scope), C).map(drop),
+                Err(Outcome::Forbidden),
+                "{scope:?}"
+            );
         }
     }
 }
@@ -888,12 +878,10 @@ fn each_scope_writes_on_blueprints_what_it_may() {
             Err(Outcome::Forbidden)
         );
         assert_eq!(cycle.close(bp(n), true), Err(Outcome::Forbidden));
-        let mut session = site
-            .blueprint_writes(&Actor::Ours(Scope::Session), C)
-            .unwrap();
-        session.open(&plan(vec![])).unwrap();
+        // A session writes no blueprint.
         assert_eq!(
-            session.comment(bp(n), "a note", &[]).map(|_| ()),
+            site.blueprint_writes(&Actor::Ours(Scope::Session), C)
+                .map(drop),
             Err(Outcome::Forbidden)
         );
     }

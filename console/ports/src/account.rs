@@ -111,9 +111,8 @@ pub enum Scope {
     /// its own change; the grant is off by default.
     CycleMerge,
     /// A planning turn or a dev session: a cycle's reads and change writes,
-    /// the ticket and blueprint reads planning asks for, and a new ticket
-    /// or blueprint of text alone, as a planner's confirm files it. No note
-    /// or edit of a ticket or blueprint.
+    /// and the ticket and blueprint reads planning asks for. No ticket or
+    /// blueprint write.
     Session,
     /// Read tickets, blueprints and files.
     Read,

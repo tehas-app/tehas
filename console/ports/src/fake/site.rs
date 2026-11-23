@@ -170,10 +170,11 @@ fn may_make(by: &Actor, scope: Option<Scope>, port: PortName, write: bool) -> Go
                 (scope, port, write),
                 (Scope::Full | Scope::Agent, _, _)
                     | (
-                        Scope::Cycle | Scope::CycleMerge | Scope::Session,
+                        Scope::Cycle | Scope::CycleMerge,
                         PortName::CodeHost | PortName::Tickets | PortName::Blueprints,
                         _
                     )
+                    | (Scope::Session, PortName::CodeHost, _)
                     | (
                         Scope::Cycle | Scope::CycleMerge | Scope::Session | Scope::Read,
                         _,
@@ -196,12 +197,11 @@ fn may_make(by: &Actor, scope: Option<Scope>, port: PortName, write: bool) -> Go
 /// file, a merge, a tag or a release. A cycle's or a session's proposes,
 /// opens, edits and comments on a change, and merges, tags and releases
 /// nothing; a cycle's with the product's merge grant also merges its own
-/// change (checked in the merge). A cycle's also files, notes and edits a ticket and opens,
-/// comments on and edits a blueprint, as its relay does; a session's files
-/// a ticket or opens a blueprint, as a planner's confirm does. Those carry
-/// text alone (`Ctx::text_alone`). Anonymous asks identity only about
-/// others. A person's standing is checked over the world, in
-/// `Handle::write`.
+/// change (checked in the merge). A cycle's also files, notes and edits a
+/// ticket and opens, comments on and edits a blueprint, as its relay does,
+/// with text alone (`Ctx::text_alone`); a session's writes no ticket or
+/// blueprint. Anonymous asks identity only about others. A person's
+/// standing is checked over the world, in `Handle::write`.
 pub(crate) fn allowed(by: &Actor, scope: Option<Scope>, op: Op) -> Got<()> {
     use super::faulty::{BlueprintsOp as B, CodeHostOp as C, IdentityOp as I, TicketsOp as T};
     let scoped = matches!(by, Actor::Ours(_) | Actor::Given(_));
@@ -237,7 +237,6 @@ pub(crate) fn allowed(by: &Actor, scope: Option<Scope>, op: Op) -> Got<()> {
                 Op::Tickets(T::File | T::Note | T::Edit)
                     | Op::Blueprints(B::Open | B::Comment | B::Edit)
             ),
-            Some(Scope::Session) => matches!(op, Op::Tickets(T::File) | Op::Blueprints(B::Open)),
             _ => false,
         },
         _ => true,
@@ -387,17 +386,12 @@ impl Ctx {
         Ok(())
     }
 
-    /// `Forbidden` where a cycle's or a session's ticket or blueprint
-    /// write carries more than text (`bare` false): a marker, a mark, a
-    /// kind, a priority, a target or a parent. Its relay passes a title, a
-    /// body and an item alone.
+    /// `Forbidden` where a cycle's ticket or blueprint write carries more
+    /// than text (`bare` false): a marker, a mark, a kind, a priority, a
+    /// target or a parent. Its relay passes a title, a body and an item
+    /// alone.
     pub fn text_alone(&self, bare: bool) -> Got<()> {
-        if !bare
-            && matches!(
-                self.scope,
-                Some(Scope::Cycle | Scope::CycleMerge | Scope::Session)
-            )
-        {
+        if !bare && matches!(self.scope, Some(Scope::Cycle | Scope::CycleMerge)) {
             return Err(Outcome::Forbidden);
         }
         Ok(())

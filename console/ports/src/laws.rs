@@ -1080,12 +1080,12 @@ pub mod scopes {
         })
     }
 
-    /// A cycle's or a session's token marks, unmarks and closes no ticket,
-    /// and files none that carries more than text: each is `Forbidden`, the
-    /// ticket reads as it did and no ticket is filed. Marks on a ticket are
-    /// the factory's own writes. `h` acts as `Ours(Cycle)` or
-    /// `Ours(Session)`; `key` is an open ticket that carries `on` and not
-    /// `off`; `marked` is a ticket to file that carries a mark.
+    /// A cycle's token marks, unmarks and closes no ticket, and files none
+    /// that carries more than text: each is `Forbidden`, the ticket reads
+    /// as it did and no ticket is filed. Marks on a ticket are the
+    /// factory's own writes. `h` acts as `Ours(Cycle)` or
+    /// `Ours(CycleMerge)`; `key` is an open ticket that carries `on` and
+    /// not `off`; `marked` is a ticket to file that carries a mark.
     pub fn a_cycle_marks_and_closes_no_ticket(
         h: &mut dyn TicketWrites,
         key: &TicketKey,
