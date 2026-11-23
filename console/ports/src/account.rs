@@ -7,7 +7,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::ids::opaque;
-use crate::{At, ProjectName};
+use crate::{At, NotValid, ProjectName};
 
 // T4.1b: `Keyring`, the trait of the caller's store of person and deploy
 // credentials, and `TokenStore`, the trait of where the caller keeps the
@@ -174,10 +174,8 @@ opaque!(
 );
 
 /// What a kept token covers: one project, or a set of projects that one
-/// grant covers. The set is kept sorted and without repeats, so two equal
-/// sets are one key: make it with `Covers::projects`.
+/// grant covers.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(from = "CoversRead")]
 pub enum Covers {
     /// One project.
     Site(SiteId),
@@ -185,36 +183,57 @@ pub enum Covers {
     Projects {
         /// The grant.
         grant: GrantId,
-        /// Its projects, sorted, without repeats.
-        projects: Vec<ProjectName>,
+        /// Its projects.
+        projects: ProjectSet,
     },
 }
 
 impl Covers {
-    /// A set of projects of one grant, sorted and without repeats.
-    pub fn projects(grant: GrantId, mut projects: Vec<ProjectName>) -> Self {
-        projects.sort();
-        projects.dedup();
-        Self::Projects { grant, projects }
+    /// A set of projects of one grant, sorted and without repeats. An empty
+    /// set is refused.
+    pub fn projects(grant: GrantId, projects: Vec<ProjectName>) -> Result<Self, NotValid> {
+        Ok(Self::Projects {
+            grant,
+            projects: ProjectSet::new(projects)?,
+        })
     }
 }
 
-/// `Covers` as written, sorted when read.
-#[derive(Deserialize)]
-enum CoversRead {
-    Site(SiteId),
-    Projects {
-        grant: GrantId,
-        projects: Vec<ProjectName>,
-    },
+/// A set of projects: at least one, sorted and without repeats, so two
+/// equal sets are one key. Checked when made, and again when read back.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "Vec<ProjectName>", into = "Vec<ProjectName>")]
+pub struct ProjectSet(Vec<ProjectName>);
+
+impl ProjectSet {
+    /// The set, sorted and without repeats; refused when empty.
+    pub fn new(mut projects: Vec<ProjectName>) -> Result<Self, NotValid> {
+        if projects.is_empty() {
+            return Err(NotValid {
+                what: "set of projects",
+            });
+        }
+        projects.sort();
+        projects.dedup();
+        Ok(Self(projects))
+    }
+
+    /// The projects, sorted.
+    pub fn as_slice(&self) -> &[ProjectName] {
+        &self.0
+    }
 }
 
-impl From<CoversRead> for Covers {
-    fn from(read: CoversRead) -> Self {
-        match read {
-            CoversRead::Site(site) => Covers::Site(site),
-            CoversRead::Projects { grant, projects } => Covers::projects(grant, projects),
-        }
+impl TryFrom<Vec<ProjectName>> for ProjectSet {
+    type Error = NotValid;
+    fn try_from(projects: Vec<ProjectName>) -> Result<Self, Self::Error> {
+        Self::new(projects)
+    }
+}
+
+impl From<ProjectSet> for Vec<ProjectName> {
+    fn from(set: ProjectSet) -> Self {
+        set.0
     }
 }
 
@@ -247,12 +266,25 @@ mod tests {
     #[test]
     fn a_set_of_projects_is_sorted_without_repeats() {
         let p = |s: &str| ProjectName::new(s);
-        let a = Covers::projects(GrantId::new("g"), vec![p("b"), p("a"), p("b")]);
-        let b = Covers::projects(GrantId::new("g"), vec![p("a"), p("b")]);
+        let a = Covers::projects(GrantId::new("g"), vec![p("b"), p("a"), p("b")]).unwrap();
+        let b = Covers::projects(GrantId::new("g"), vec![p("a"), p("b")]).unwrap();
         assert_eq!(a, b);
         match a {
-            Covers::Projects { projects, .. } => assert_eq!(projects, vec![p("a"), p("b")]),
+            Covers::Projects { projects, .. } => {
+                assert_eq!(projects.as_slice(), [p("a"), p("b")]);
+            }
             Covers::Site(_) => panic!("a set"),
         }
+        let set = ProjectSet::new(vec![p("c"), p("a"), p("b")]).unwrap();
+        assert_eq!(set.as_slice(), [p("a"), p("b"), p("c")]);
+    }
+
+    #[test]
+    fn an_empty_set_of_projects_is_refused() {
+        let refused = NotValid {
+            what: "set of projects",
+        };
+        assert_eq!(ProjectSet::new(vec![]), Err(refused));
+        assert_eq!(Covers::projects(GrantId::new("g"), vec![]), Err(refused));
     }
 }

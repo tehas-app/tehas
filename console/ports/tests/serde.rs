@@ -177,10 +177,13 @@ fn accounts_read_back() {
     round(SiteId::new("s"));
     round(GrantId::new("g"));
     round(Covers::Site(SiteId::new("s")));
-    round(Covers::projects(
-        GrantId::new("g"),
-        vec![ProjectName::new("b"), ProjectName::new("a")],
-    ));
+    round(
+        Covers::projects(
+            GrantId::new("g"),
+            vec![ProjectName::new("b"), ProjectName::new("a")],
+        )
+        .unwrap(),
+    );
     round(Kept::Me);
     round(Kept::Grant);
 }
@@ -201,7 +204,14 @@ fn a_set_of_projects_is_sorted_when_read() {
             GrantId::new("g"),
             vec![ProjectName::new("a"), ProjectName::new("b")]
         )
+        .unwrap()
     );
+    let empty = map(vec![(
+        "Projects",
+        map(vec![("grant", text("g")), ("projects", Node::Seq(vec![]))]),
+    )]);
+    assert!(from_node::<Covers>(empty).is_err());
+    assert!(from_node::<ProjectSet>(Node::Seq(vec![])).is_err());
 }
 
 #[test]
