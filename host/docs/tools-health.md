@@ -41,7 +41,7 @@ event of the label applied it. When that read failed too, `pause.label` and
 `pause.lifted` are the file's of the run before, and `paused` follows them.
 `stale` names each part kept so, `queue`, `completed` or `pause`, and is absent
 when every read answered. A part the file before did not hold is left out. The
-pause flag, all-hands and the words are this run's. `planned` lists the open issues labelled `tehas:plan` or
+pause flag and the words are this run's. `planned` lists the open issues labelled `tehas:plan` or
 `tehas:planning`, found by the same search as the lists, and `planning` counts
 them. `completedCount` is a count, not a list: a whole number from 0 of the closed issues that
 carry `tehas:shipped`, counted by a search of its own, so it keeps rising past
@@ -407,10 +407,6 @@ of `console health report` that is given no `--mcp` leaves it `null`.
 refused writes it, and the poll holds new cycles while it stands (see
 [the sandbox cannot push](/troubleshooting#the-sandbox-cannot-push)). `output`
 then says `The sandbox cannot push: <line> (<login>).`
-
-`checks.allHands` is the snapshot's `allHands`: true while
-[`tehas:all-hands`](/operating#all-hands) holds, false when it does not, and
-`null` when the snapshot is older than ten minutes or could not read it.
 
 `checks.demand` is what the dispatcher's last poll wrote to
 `live/demand.json`: `{time, waiting, oldest}`, the issues that would start if

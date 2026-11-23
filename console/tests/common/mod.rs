@@ -38,7 +38,7 @@ case "$*" in
   "issue list"*) [ ! -e "$T/all-down" ] || exit 1; cat "$T/all.json" ;;
   # The names of the labels of the control issue, as --jq joins them.
   "issue view"*) [ ! -e "$T/control-down" ] || exit 1
-    { [ "$(cat "$T/paused")" != true ] || echo tehas:pause; [ ! -e "$T/allhands" ] || echo tehas:all-hands; } | paste -sd " " ;;
+    { [ "$(cat "$T/paused")" != true ] || echo tehas:pause; } | paste -sd " " ;;
   "issue edit"*) [ -z "${GH_EDIT_FAILS:-}" ] || exit 1 ;;
   "auth status") exit "${GH_AUTH:-0}" ;;
   "api repos/acme/widget/issues/"*"/events"*) cat "$T/events.json" 2>/dev/null || exit 1 ;;
@@ -100,7 +100,6 @@ const RESET: &[&str] = &[
     "shipped-down",
     "count-down",
     "control-down",
-    "allhands",
     "epics-down",
     "tickets-page.json",
     "rel.json",

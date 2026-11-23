@@ -876,3 +876,4 @@ of main, each grade.
 | 2026-11-23 | "Temporary rises" is empty: T15's false positives are allowed by name or have one owner; two findings move to T4, one to T7 and one is a floor | #2890 |
 | 2026-11-23 | T16: the millwright's old name goes, and #686's alias with it | #2889 |
 | 2026-11-23 | T16: `cargo xtask config-check` shows which settings 2.0 keeps, drops or refuses | #2885 |
+| 2026-11-22 | T16: Outsource is dropped, with the model proxy and the contractor; the state store drops its five tables, and analytics goes to schema 6 without `runs.contractor_id`, pinned by the consumer that reads the analytics copies before the merge | #2886 |

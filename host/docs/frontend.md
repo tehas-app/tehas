@@ -807,7 +807,7 @@ reads "loading", the lists are empty and the optional sections are hidden.
 
 | Element | Reads | Draws |
 | --- | --- | --- |
-| `tehas-factory-state` | `status.json`, `running.json` | The state, the all-hands and read-only marks, how old the queue is, the link to all issues |
+| `tehas-factory-state` | `status.json`, `running.json` | The state, the read-only mark, how old the queue is, the link to all issues |
 | `tehas-factory-console` | `running.json`, `status.json` | The tabs of the cycles, the shown cycle's title and step, and the console |
 | `tehas-factory-issues` | `status.json` | One list, named by `list`: `queued`, `awaiting`, `stopped` or `completed` |
 | `tehas-factory-readonly` | `status.json` | What a read-only factory's starts left |

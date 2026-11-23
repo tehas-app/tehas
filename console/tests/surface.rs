@@ -25,7 +25,7 @@ const BASELINE: &str = "api/surface-1.0.txt";
 
 /// Fields of a building feature's `--json` output, with the feature. When the
 /// feature ships its row goes and the field joins the surface.
-const BUILDING_FIELDS: &[(&str, &str)] = &[("status.contractors", "outsource")];
+const BUILDING_FIELDS: &[(&str, &str)] = &[];
 
 /// Schemas of api/ that are a building feature's whole, with the feature:
 /// none of their fields is on the surface until it ships.
@@ -434,7 +434,7 @@ fn the_read_refuses_a_flag_of_no_feature() {
 fn the_reads_leave_out_what_is_not_public() {
     let mut out = BTreeSet::new();
     commands(
-        "# c\nplan --kind --out internal=--kind\noutsource list --json building=outsource\n",
+        "# c\nplan --kind --out internal=--kind\nplugin runs --json building=plugins\n",
         &mut out,
     );
     let got: Vec<&str> = out.iter().map(String::as_str).collect();
@@ -443,7 +443,6 @@ fn the_reads_leave_out_what_is_not_public() {
     let mut out = BTreeSet::new();
     let schema: Value = serde_json::from_str(
         r#"{"properties": {
-            "contractors": {"type": "array"},
             "running": {"items": {"properties": {"progress": {"properties": {"step": {}}}}}}
         }}"#,
     )
@@ -458,7 +457,7 @@ fn the_reads_leave_out_what_is_not_public() {
     let mut out = BTreeSet::new();
     settings(
         r#"{"required": ["TEHAS_REPO"], "roles": ["OPS"],
-            "settings": [{"name": "TEHAS_OUTSOURCE_REPOS"}, {"name": "TEHAS_LEAN"}],
+            "settings": [{"name": "TEHAS_PLUGINS"}, {"name": "TEHAS_LEAN"}],
             "host": [{"name": "TEHAS_HOME"}]}"#,
         &mut out,
     );

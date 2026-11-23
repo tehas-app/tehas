@@ -9,18 +9,14 @@ use tehas_core::file::side_file;
 use tehas_core::home::{Home, State};
 
 /// PRAGMA user_version of the schema in schema.sql. v0.30.0 wrote 4 already,
-/// and a file of 4 is migrated in place; a database of any other schema is
-/// moved aside whole under its version.
-pub const SCHEMA_VERSION: i64 = 5;
-/// The one schema `settle` migrates from.
-const MIGRATES_FROM: i64 = 4;
+/// and a file of 4 or 5 is migrated in place; a database of any other schema
+/// is moved aside whole under its version.
+pub const SCHEMA_VERSION: i64 = 6;
+/// The schemas `settle` migrates from: 4, which 0.30.x and 1.x wrote, and 5.
+const MIGRATES_FROM: std::ops::RangeInclusive<i64> = 4..=5;
 pub const SCHEMA: &str = include_str!("schema.sql");
 pub const RETENTION_DAYS: i64 = 365;
 
-/// The columns added within schema 4, after v0.30.0 wrote it: table, column
-/// and type. A file a release before them wrote gains each as it is opened or
-/// migrated, last in its table, where schema.sql has it too.
-pub const ADDED: [(&str, &str, &str); 1] = [("runs", "contractor_id", "TEXT")];
 const DAY: i64 = 86_400;
 
 /// How long to keep trying the journal switch, and how often, when another
@@ -41,7 +37,7 @@ pub fn path(home: &Path) -> PathBuf {
 /// Opens the database, making it when there is none. A file that is not a
 /// database is moved to analytics.db.broken and a new one is made: the data
 /// is at most RETENTION_DAYS deep.
-/// One of schema 4 is migrated to 5 in place.
+/// One of schema 4 or 5 is migrated to 6 in place.
 /// One of any other schema version is moved, with its -wal and -shm, to
 /// analytics.db.schema-<version>, where a reader can still fetch it, and
 /// prune_aside deletes it RETENTION_DAYS after its last write. Any other
@@ -171,7 +167,6 @@ fn try_open(file: &Path, now: i64) -> Result<Connection, Unusable> {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(classify)?;
     settle(&mut conn, version, now)?;
-    add_missing(&mut conn)?;
     rewrite_hows(&mut conn)?;
     // Only now: a file that is moved aside is moved as it was found.
     set_wal(&mut conn)?;
@@ -217,14 +212,14 @@ fn is_busy(e: &rusqlite::Error) -> bool {
 }
 
 /// Makes the schema of a database whose user_version read `seen`, or
-/// migrates one of schema 4. The version is read again under a write lock:
+/// migrates one of schema 4 or 5. The version is read again under a write lock:
 /// another program may have done it since, and its database is not a broken
 /// one.
 pub(crate) fn settle(conn: &mut Connection, seen: i64, now: i64) -> Result<(), Unusable> {
     if seen == SCHEMA_VERSION {
         return Ok(());
     }
-    if seen != 0 && seen != MIGRATES_FROM {
+    if seen != 0 && !MIGRATES_FROM.contains(&seen) {
         return Err(foreign(seen));
     }
     let tx = conn
@@ -246,7 +241,7 @@ pub(crate) fn settle(conn: &mut Connection, seen: i64, now: i64) -> Result<(), U
             }
             create(&tx, now).map_err(classify)?;
         }
-        MIGRATES_FROM => migrate(&tx).map_err(classify)?,
+        from if MIGRATES_FROM.contains(&from) => migrate(&tx).map_err(classify)?,
         other => return Err(foreign(other)),
     }
     tx.commit().map_err(classify)
@@ -299,51 +294,26 @@ fn rewrite_hows(conn: &mut Connection) -> Result<(), Unusable> {
     tx.commit().map_err(classify)
 }
 
-/// Schema 4 to 5: samples.watts goes, nothing has written it since 2.0. A
-/// file of 0.30 gains the columns of [`ADDED`] first, so a 4 of either age
-/// ends as a new 5 is.
+/// Schema 4 or 5 to 6. samples.watts goes, which 5 dropped: energy use left
+/// core in 2.0. runs.contractor_id goes, which 6 drops: outsource was dropped
+/// in 2.0. A file of 0.30.x never had the second, and a 5 has lost the first,
+/// so each is dropped where it is, and every row stays.
 fn migrate(tx: &Transaction) -> rusqlite::Result<()> {
-    for (table, column, kind) in lacking(tx)? {
-        tx.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {kind}"))?;
+    for (table, column) in [("samples", "watts"), ("runs", "contractor_id")] {
+        let there: i64 = tx.query_row(
+            "SELECT count(*) FROM pragma_table_info(?1) WHERE name = ?2",
+            params![table, column],
+            |r| r.get(0),
+        )?;
+        if there != 0 {
+            tx.execute_batch(&format!("ALTER TABLE {table} DROP COLUMN {column}"))?;
+        }
     }
-    tx.execute_batch("ALTER TABLE samples DROP COLUMN watts")?;
     tx.execute(
         "UPDATE meta SET value = ?1 WHERE key = 'schema'",
         [SCHEMA_VERSION.to_string()],
     )?;
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)
-}
-
-/// The columns of [`ADDED`] the file does not hold yet. Read first without a
-/// lock, so an open of a file that has them all writes nothing, and again
-/// under the write lock, where another opener may have added them since.
-fn add_missing(conn: &mut Connection) -> Result<(), Unusable> {
-    if lacking(conn).map_err(classify)?.is_empty() {
-        return Ok(());
-    }
-    let tx = conn
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(classify)?;
-    for (table, column, kind) in lacking(&tx).map_err(classify)? {
-        tx.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {kind}"))
-            .map_err(classify)?;
-    }
-    tx.commit().map_err(classify)
-}
-
-fn lacking(conn: &Connection) -> rusqlite::Result<Vec<(&'static str, &'static str, &'static str)>> {
-    let mut out = Vec::new();
-    for (table, column, kind) in ADDED {
-        let there: i64 = conn.query_row(
-            "SELECT count(*) FROM pragma_table_info(?1) WHERE name = ?2",
-            params![table, column],
-            |r| r.get(0),
-        )?;
-        if there == 0 {
-            out.push((table, column, kind));
-        }
-    }
-    Ok(out)
 }
 
 // A schema this program does not write is kept aside.

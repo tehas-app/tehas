@@ -24,7 +24,7 @@ on [the contract](/contract).
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
 | `~/tehas/lib/github-app.sh`          | With a GitHub App: puts the `gh` shim first on `PATH` and gives git its credential helper; sourced by `env.sh` |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units, each a few lines that run the console's front (`console/src/front.rs`), which chooses the command. Without a console both stop with exit 78, except `tehas setup`, which builds one. Plus `gh` |
-| `~/tehas/libexec/`                   | The scripts behind the two commands, and the programs they run. Three bash scripts (`dev-login`, `setup` and `update`) and the Rust programs `install.sh` builds: the console, analytics, the MCP server, the state store, the attachment checker, the dispatcher and the cycle supervisor, and while outsource is on the model proxy and the contractor program. Every other command is a verb of one of those programs. Not on `PATH` |
+| `~/tehas/libexec/`                   | The scripts behind the two commands, and the programs they run. Three bash scripts (`dev-login`, `setup` and `update`) and the Rust programs `install.sh` builds: the console, analytics, the MCP server, the state store, the attachment checker, the dispatcher and the cycle supervisor. Every other command is a verb of one of those programs. Not on `PATH` |
 | `~/tehas/run/`                       | One copy of `bin/`, `libexec/` and `lib/` for each running cycle (`cycle-<issue>-<pid>`) and planning turn (`plan-<issue>-<pid>`), as hardlinks, so an update leaves the code of what runs as it started. The next start removes the copies whose process has ended |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
@@ -592,12 +592,7 @@ A real run builds each with `cargo` in the checkout and installs them as
 `~/tehas/libexec/console`, `~/tehas/libexec/analytics`,
 `~/tehas/libexec/tehas-mcp`, `~/tehas/libexec/store`,
 `~/tehas/libexec/attach`, `~/tehas/libexec/tehas-dispatch`,
-and `~/tehas/libexec/tehas-cycle`. While [outsource](/outsource) is on,
-two more are built and installed: the model proxy, `console/proxy/`, as
-`~/tehas/libexec/tehas-proxy`, with its unit `tehas-outsource-proxy.service`,
-and the contractor program, `console/contractor/`, as
-`~/tehas/libexec/tehas-contractor`. With it off none of the three is built,
-copied or compared. The attachment checker fetches the files of an issue
+and `~/tehas/libexec/tehas-cycle`. The attachment checker fetches the files of an issue
 and of a planning reply, judges who may attach them and how much is given,
 reads their bytes, unpacks their zips, and composes what a cycle is told it was
 given (see [Tools](/tools)). It holds `GH_TOKEN` only to pass it to `gh` and to
@@ -767,7 +762,7 @@ No container is given it. Only one program writes it: the store,
 `~/tehas/libexec/store`, which `install.sh` builds and installs with the
 console, or takes from the release.
 
-What is in it today: the schema, version 28 (`PRAGMA user_version`); `meta`,
+What is in it today: the schema, version 29 (`PRAGMA user_version`); `meta`,
 which says when the database was made, by which version and commit of tehas,
 and for which instance and repository; and the cycles' records: the approval
 each start rests on (the dispatcher's), each cycle's start and end with its
@@ -815,11 +810,11 @@ JSON answer:
   v0.32.0 wrote 17. The step to 13 keeps on
   each approval what its start was, the step to 14 rebuilds `cycles` so its
   `how` may say `host`, a start [`tehas start`](/api#tehas-start) approved,
-  the step to 15 adds the five outsource tables, empty, the step to 16
+  the step to 16
   lets the action journal keep a write as `unknown` and writes `millwright`
-  in every row that still said `fixer`, and the step to 17 adds to the
-  outsource tables, empty, the hash of a job's token and a contractor's last
-  report. Every step keeps every row.
+  in every row that still said `fixer`, and the step to 29 drops the five
+  tables schemas 15 to 28 held for outsource, which 2.0 dropped and no
+  release wrote a row of. Every other step keeps every row.
 - A store older than that, from a release before v0.30, is refused and left
   as it was, with no backup written: `store: unreadable ... is at schema <n>,
   older than v0.30.0 wrote: update to a v0.30 release first, then to this
@@ -961,9 +956,7 @@ While the backup is in use, each poll logs
 `tehas work`, `tehas plan` and `tehas dev` ask again when they start a
 container. They give it a `models.json` of its own,
 `<state directory>/models.json`, on the endpoint that answered and without
-the backup keys, and the tokens it names as variables, by name. A contractor's container of [outsource](/outsource) gets the same file
-with every provider on the model proxy and its key named as
-`${PI_ENSEMBLE_API_KEY_<PROVIDER>}`; no endpoint is asked for it. `tehas work`
+the backup keys, and the tokens it names as variables, by name. `tehas work`
 prints `tehas work: model endpoint: provider fleet is on its backup` and writes
 it to the preflight log. A container stays on its endpoint: when the main one
 fails mid-cycle, Pi retries it as [Provider retry](#provider-retry) says, and

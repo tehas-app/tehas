@@ -545,34 +545,6 @@ run --rm --init --name tehas-mcp --user {}:{} --network tehas-mcp --read-only --
 }
 
 #[test]
-fn with_outsource_on_in_a_test_build_the_server_is_told_to_serve_factory_contractors_and_only_then()
-{
-    let h = Host::new("outsource");
-    h.minimal(&["TEHAS_OUTSOURCE=on"]);
-    h.set_env(&[
-        "TEHAS_MCP=1",
-        &format!("TEHAS_MCP_KEYS={KEY1}"),
-        "TEHAS_TEST_FEATURES=outsource",
-    ]);
-    let r = h.serve();
-    rc(&r, 0);
-    assert_eq!(
-        h.run_tail("--server-version "),
-        "--server-version v0.7.30+abc1234 --outsource"
-    );
-    h.reset();
-    h.minimal(&["TEHAS_OUTSOURCE=off"]);
-    h.set_env(&[
-        "TEHAS_MCP=1",
-        &format!("TEHAS_MCP_KEYS={KEY1}"),
-        "TEHAS_TEST_FEATURES=outsource",
-    ]);
-    let r = h.serve();
-    rc(&r, 0);
-    lacks(&h.docker(), "--outsource");
-}
-
-#[test]
 fn the_secret_values_the_host_masks_reach_the_container_as_sums_by_name_never_as_values() {
     let h = Host::new("mask");
     let model_key = "Qw8rTy3uIo1pAs6dFg";

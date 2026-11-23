@@ -40,8 +40,6 @@ pub const PROGRAMS: &[(&str, &str)] = &[
     ("--attach", "attach"),
     ("--dispatch", "tehas-dispatch"),
     ("--cycle", "tehas-cycle"),
-    ("--proxy", "tehas-proxy"),
-    ("--contractor", "tehas-contractor"),
     ("--plugin", "tehas-plugin"),
     ("--plugin-gate", "tehas-plugin-gate"),
 ];
