@@ -5,6 +5,8 @@
 //! decides a lost write again, and nothing decides a cycle's report again, so
 //! a cycle asks a busy store again, and then makes the write with no row.
 
+pub mod settle;
+
 use crate::call::{gh_why, run_full, Ran};
 use crate::read_only;
 use regex::Regex;

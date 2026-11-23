@@ -1,0 +1,129 @@
+[
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": [
+        {
+          "key": {
+            "Here": {
+              "Number": 21
+            }
+          },
+          "open": true
+        },
+        {
+          "key": {
+            "Here": {
+              "Number": 22
+            }
+          },
+          "open": false
+        },
+        {
+          "key": {
+            "Elsewhere": {
+              "item": "5",
+              "project": "octo/tools"
+            }
+          },
+          "open": true
+        }
+      ]
+    },
+    "fixture": "Ticket 20 is closed as done by the merged change 31. It is a feature of the target v2, filed by alice and assigned to alice and bob, and carries the project's mark bug, the shipped state and a name no mark can have. Its text quotes a blocked marker, names one bare and holds one wrapped. It waits on the open ticket 23; its parts are the open ticket 21, the closed ticket 22 and an open ticket of another project; the change 31 names it twice, a ticket once and a change of another project once. Its history: bug on, the type set, a target that is gone set and taken off, the target v2 set, bob assigned, a new title, the wait on 23, the running state on, then in one second the running state off, the shipped state on and the close, and last a mark no name can have, put on by an account that is gone.",
+    "op": "Tickets::parts",
+    "ticket": {
+      "Number": 20
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": []
+    },
+    "fixture": "Ticket 21 is open, filed by bob, with the approval put on by alice, a text of 390 characters and no marker, and nothing beside it.",
+    "op": "Tickets::parts",
+    "ticket": {
+      "Number": 21
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "NotFound"
+    },
+    "fixture": "Ticket 9 does not exist.",
+    "op": "Tickets::parts",
+    "ticket": {
+      "Number": 9
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "sent": "Maybe",
+          "why": "Timeout"
+        }
+      }
+    },
+    "fixture": "No answer comes in time when ticket 10's parts are read.",
+    "op": "Tickets::parts",
+    "ticket": {
+      "Number": 10
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Calls",
+          "until": 1767225600
+        }
+      }
+    },
+    "fixture": "The site answers that the rate is limited when ticket 12's parts are read.",
+    "op": "Tickets::parts",
+    "ticket": {
+      "Number": 12
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "Forbidden"
+    },
+    "fixture": "The actor may not read ticket 14.",
+    "op": "Tickets::parts",
+    "ticket": {
+      "Number": 14
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "NotFound"
+    },
+    "fixture": "The number 30 names a change, where tickets and changes share one number space.",
+    "op": "Tickets::parts",
+    "ticket": {
+      "Number": 30
+    }
+  }
+]
