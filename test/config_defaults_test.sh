@@ -222,11 +222,10 @@ t_eq "$t_out" "192.0.2.7"
 t_case "the worked example takes its private addresses from a file on the host"
 t_stub nproc 'echo 12'
 # A copy with the renames of api/renames-1.0.tsv: a running factory's instance.
+# awk keeps an empty field in place, where read would close the gap of tabs.
 cp -R "$T_ROOT/instances/tehas-tehas" "$T/worked"
-while IFS=$'\t' read -r kind old new _; do
-  [ "$kind" = setting ] && [ -n "$new" ] || continue
-  sed -i "s/^$old=/$new=/" "$T/worked/instance.env"
-done <"$T_ROOT/api/renames-1.0.tsv"
+awk -F'\t' '$1 == "setting" && $3 != "" { print $2, $3 }' "$T_ROOT/api/renames-1.0.tsv" |
+  while read -r old new; do sed -i "s/^$old=/$new=/" "$T/worked/instance.env"; done
 TEHAS_INSTANCE_DIR=$T/worked
 mkdir -p "$T/home/.config/tehas"
 echo TEHAS_GITHUB_APP_ID=1 >"$T/home/.config/tehas/private.env"
