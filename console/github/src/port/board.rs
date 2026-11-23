@@ -10,13 +10,14 @@ use std::collections::HashSet;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
+use super::mergeable::mergeable;
 use super::unsupported;
 use crate::{gh, GitHub};
 use tehas_ports::{
     Account, At, BlueprintNo, Board, BoardAsk, Bound, Branch, ChangeAsk, ChangeDigest,
     ChangeFilter, ChangeItem, ChangeNo, ChangeState, ChangeStates, ChangedFile, CommitId, Got,
-    ItemName, Mergeable, NotMergeable, OpenWork, Outcome, ProjectName, Ref, RepoPath, Size,
-    TargetId, TicketKey, Unread, WebLink, Whole, WorkItem,
+    ItemName, OpenWork, Outcome, ProjectName, Ref, RepoPath, Size, TargetId, TicketKey, Unread,
+    WebLink, Whole, WorkItem,
 };
 
 /// The changes one page asks for, as the dispatcher's read of open pull
@@ -42,7 +43,7 @@ const ACCOUNT: &str = "__typename login ...on User { databaseId } ...on Bot { da
 /// One page of the changes a filter takes. `{STATES}`, `{HEAD_VAR}`,
 /// `{HEAD}`, `{FILES}`, `{ACCOUNT}` and the page sizes are filled in by
 /// [`changes_query`].
-const CHANGES: &str = "query($owner: String!, $name: String!, $cursor: String{HEAD_VAR}) { repository(owner: $owner, name: $name) { pullRequests(states: [{STATES}], first: {PULL_PAGE}, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}{HEAD}) { totalCount pageInfo { hasNextPage endCursor } nodes { number title url state isDraft isCrossRepository headRefName headRefOid baseRefName mergeable mergeStateStatus createdAt lastEditedAt mergedAt closedAt additions deletions changedFiles author { {ACCOUNT} } editor { {ACCOUNT} } mergedBy { {ACCOUNT} } mergeCommit { oid } renames: timelineItems(itemTypes: [RENAMED_TITLE_EVENT], last: 1) { nodes { ... on RenamedTitleEvent { createdAt actor { {ACCOUNT} } } } } labels(first: {LABELS_MAX}) { totalCount nodes { name } } closingIssuesReferences(first: {CLOSES_MAX}) { totalCount nodes { number repository { nameWithOwner } } }{FILES} } } } }";
+const CHANGES: &str = "query($owner: String!, $name: String!, $cursor: String{HEAD_VAR}) { repository(owner: $owner, name: $name) { pullRequests(states: [{STATES}], first: {PULL_PAGE}, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}{HEAD}) { totalCount pageInfo { hasNextPage endCursor } nodes { number title url state isDraft isCrossRepository headRefName headRefOid baseRefName baseRefOid mergeable mergeStateStatus createdAt updatedAt lastEditedAt mergedAt closedAt additions deletions changedFiles author { {ACCOUNT} } editor { {ACCOUNT} } mergedBy { {ACCOUNT} } mergeCommit { oid } renames: timelineItems(itemTypes: [RENAMED_TITLE_EVENT], last: 1) { nodes { ... on RenamedTitleEvent { createdAt actor { {ACCOUNT} } } } } labels(first: {LABELS_MAX}) { totalCount nodes { name } } closingIssuesReferences(first: {CLOSES_MAX}) { totalCount nodes { number repository { nameWithOwner } } }{FILES} } } } }";
 
 /// A change's files, a page, nested in [`CHANGES`] or asked after it.
 const FILES: &str = "files(first: {FILE_PAGE}, after: $files) { totalCount pageInfo { hasNextPage endCursor } nodes { path additions deletions } }";
@@ -160,6 +161,7 @@ fn answered(ask: &ChangeAsk) -> bool {
         || f.merged_since.is_some()
         || f.updated_since.is_some()
         || !f.numbers.is_empty()
+        || !f.carrying.is_empty()
         || f.bodies;
     let every_open = *f == ChangeFilter::default();
     !narrow && !ask.closing && ask.activity.is_none() && (ask.siblings.is_none() || every_open)
@@ -371,14 +373,26 @@ impl GitHub {
         let head = Branch::new(p.head_ref_name).map_err(|_| malformed())?;
         let head_commit = commit(Some(p.head_ref_oid))?;
         let base = Branch::new(p.base_ref_name).map_err(|_| malformed())?;
+        let base_commit = commit(Some(p.base_ref_oid))?;
         let marks = self.read_marks(&labels).into_iter().flatten().collect();
         let mut size = Size::default();
         size.files = count(p.changed_files)?;
         size.added = count(p.additions)?;
         size.deleted = count(p.deletions)?;
         let created = time(Some(&p.created_at))?;
+        let updated = time(Some(&p.updated_at))?;
         let link = WebLink::new(p.url).map_err(|_| malformed())?;
-        let mut digest = ChangeDigest::new(no, state, head, head_commit, base, created, link);
+        let mut digest = ChangeDigest::new(
+            no,
+            state,
+            head,
+            head_commit,
+            base,
+            base_commit,
+            created,
+            updated,
+            link,
+        );
         digest.title = p.title;
         digest.author = p.author.as_ref().and_then(Actor::account);
         digest.from_fork = p.is_cross_repository;
@@ -462,20 +476,6 @@ fn edited(
         Some((at, by)) => (Some(at), by),
         None => (None, None),
     })
-}
-
-/// Whether a change can merge, from GitHub's two words for it. Checks that
-/// fail but do not hold the merge leave it mergeable; a word this adapter
-/// does not know is not yet worked out.
-fn mergeable(mergeable: &str, status: &str) -> Mergeable {
-    match (mergeable, status) {
-        ("CONFLICTING", _) | (_, "DIRTY") => Mergeable::No(NotMergeable::Conflict),
-        ("MERGEABLE", "CLEAN" | "HAS_HOOKS" | "UNSTABLE") => Mergeable::Yes,
-        ("MERGEABLE", "BEHIND") => Mergeable::No(NotMergeable::Behind),
-        ("MERGEABLE", "BLOCKED") => Mergeable::No(NotMergeable::Blocked),
-        ("MERGEABLE", "DRAFT") => Mergeable::No(NotMergeable::Draft),
-        _ => Mergeable::Unknown,
-    }
 }
 
 fn malformed() -> Outcome {
@@ -567,9 +567,11 @@ struct Pull {
     head_ref_name: String,
     head_ref_oid: String,
     base_ref_name: String,
+    base_ref_oid: String,
     mergeable: String,
     merge_state_status: String,
     created_at: String,
+    updated_at: String,
     last_edited_at: Option<String>,
     merged_at: Option<String>,
     closed_at: Option<String>,

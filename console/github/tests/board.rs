@@ -581,3 +581,20 @@ fn merged_alone_and_closed_alone_are_asked_and_read_as_in_every_state() {
         );
     }
 }
+
+#[test]
+fn a_filter_carrying_marks_is_unsupported_before_any_request() {
+    let (mut gh, asked) = scripted(|_| panic!("asked"));
+    let ask = ChangeAsk {
+        filter: ChangeFilter {
+            carrying: vec![tehas_ports::Mark::Epic],
+            ..ChangeFilter::default()
+        },
+        ..open_changes(None, None)
+    };
+    assert_eq!(
+        gh.open_changes(&ask, bound(10)).err(),
+        Some(Outcome::Refused(Refusal::Unsupported))
+    );
+    assert_eq!(*asked.lock().unwrap(), 0);
+}
