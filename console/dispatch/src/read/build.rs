@@ -14,6 +14,7 @@ use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use tehas_core::events::{pause_holds, Events};
+use tehas_core::home::{Home, State};
 
 /// Where the snapshot reads from, and with what.
 pub struct Sources<'a> {
@@ -76,10 +77,10 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     s["limit"] = host::limit(home, src.now);
     s["last_why"] = json!(host::last_why(home));
     // As $(head -c 1000) leaves it: no final newlines.
-    s["branch_note"] = json!(host::head(&home.join("state/branch-check"), 1000)
+    s["branch_note"] = json!(host::head(&Home::new(home).state(State::BranchCheck), 1000)
         .trim_end_matches('\n')
         .to_string());
-    s["refresh_held"] = json!(host::head(&home.join("state/refresh/.held"), 300));
+    s["refresh_held"] = json!(host::head(&Home::new(home).state(State::RefreshHeld), 300));
     s["push_fault"] = host::push_fault(home);
     if c.read_only {
         s["read_only_ran"] = json!(tehas_core::read_only::recorded(home));
@@ -2054,6 +2055,22 @@ esac"#,
         );
         assert_eq!(parsed.issues[&22].plan_start, None);
         assert!(!parsed.issues.contains_key(&99), "no candidate, no read");
+    }
+
+    /// The last poll's two notes are read where the writer leaves them.
+    #[test]
+    fn the_notes_of_the_last_poll_are_read_from_their_files() {
+        let _clock = crate::read::run::no_case_clock();
+        let dir = host(&world(), &[]);
+        std::fs::write(dir.join("state/branch-check"), "main is gone\n\n").unwrap();
+        std::fs::write(dir.join("state/refresh/.held"), "no continue-pr").unwrap();
+        let mut src = sources(&dir);
+        let snap = match snapshot(&mut src, &settings()) {
+            Ok(s) => s,
+            Err(f) => panic!("the stubs answer: {}", f.line),
+        };
+        assert_eq!(snap["branch_note"], json!("main is gone"));
+        assert_eq!(snap["refresh_held"], json!("no continue-pr"));
     }
 
     /// The host's approvals reach the rules only for the issues open on the
