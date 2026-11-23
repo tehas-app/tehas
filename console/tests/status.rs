@@ -152,80 +152,6 @@ fn hold(p: &Path) -> File {
     f
 }
 
-#[track_caller]
-fn store_must(w: &World, args: &[&str]) {
-    let r = w.store(args);
-    assert_eq!(r.rc, 0, "the store refused {args:?}: {}", r.out);
-}
-
-/// A planning turn in flight (t_plan): its session running on the state
-/// store after `before` turns, the turn started `ago` seconds back, and its
-/// lock held until the File is dropped, as the turn's unit holds it.
-fn turn(w: &World, n: u64, before: u32, ago: i64) -> File {
-    let brief = w.t().join("plan-brief.md");
-    fs::write(&brief, "# Faster search\n\nMake it fast.\n").unwrap();
-    let brief = brief.to_string_lossy().into_owned();
-    let n_s = n.to_string();
-    store_must(
-        w,
-        &[
-            "plan-begin",
-            &n_s,
-            "--by",
-            "alice",
-            "--label",
-            "tehas:plan",
-            "--brief-file",
-            &brief,
-        ],
-    );
-    let answer = |t: u32, at: Option<i64>| {
-        let t = t.to_string();
-        let args = [
-            "plan-answer",
-            &n_s,
-            "--turn",
-            &t,
-            "--by",
-            "alice",
-            "--text-file",
-            &brief,
-        ];
-        let r = match at {
-            Some(e) => w.store_at(e, &args),
-            None => w.store(&args),
-        };
-        assert_eq!(r.rc, 0, "the store refused {args:?}: {}", r.out);
-    };
-    for t in 1..=before {
-        if t > 1 {
-            answer(t, None);
-        }
-        let ts = t.to_string();
-        let end = [
-            "plan-end",
-            &n_s,
-            "--turn",
-            &ts,
-            "--outcome",
-            "finished",
-            "--rc",
-            "0",
-            "--session",
-            "abc",
-        ];
-        store_must(w, &end);
-        if t < before {
-            store_must(w, &["plan-end", &n_s, "--posted"]);
-        }
-    }
-    if before > 0 {
-        store_must(w, &["plan-end", &n_s, "--posted"]);
-        answer(before + 1, Some(now() - ago));
-    }
-    hold(&w.at().plan_file(n, ".lock"))
-}
-
 /// A cycle of issue `n` that ended as `status`, started and ended so many
 /// seconds ago.
 fn ended(w: &World, n: u64, status: &str, started: i64, updated: i64) {
@@ -1494,7 +1420,7 @@ fn summary_two_running_cycles_are_both_named_each_on_a_line() {
 #[test]
 fn summary_a_planning_turn_in_flight_has_its_own_line() {
     let w = World::new("plan-turn");
-    let lock = turn(&w, 7, 1, 720);
+    let lock = w.plan_turn(7, 1, 720);
     let r = status_and_summary(&w);
     ok(&r);
     has(&r.out, "plan      #7 turn 2 running, started 12 min ago");
@@ -1510,7 +1436,7 @@ fn summary_a_planning_turn_in_flight_has_its_own_line() {
 #[test]
 fn summary_a_turn_whose_lock_is_free_or_that_left_its_status_is_not_shown_as_running() {
     let w = World::new("plan-free");
-    drop(turn(&w, 7, 1, 720));
+    drop(w.plan_turn(7, 1, 720));
     lacks(&status_and_summary(&w).out, "plan      ");
     assert_eq!(jq(".planning", &w.summary(&["--json"]).out), "[]");
     let lock = hold(&w.at().plan_file(7, ".lock"));
