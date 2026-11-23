@@ -600,3 +600,4 @@ field order.starts.issues[].reason.text
 field order.starts.issues[].start
 flag blockers --json
 setting TEHAS_MCP_CHECKOUT
+field status.analytics

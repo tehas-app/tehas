@@ -1,5 +1,6 @@
 {
   "api": 1,
+  "analytics": "on",
   "time": "2026-10-17T13:59:40Z",
   "age": 40,
   "stale": false,

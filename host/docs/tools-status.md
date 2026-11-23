@@ -120,7 +120,8 @@ factory prints them yet.
 
 It reads
 that one file, and `contractors.json` beside it when it is there, and nothing
-else: no GitHub call, no instance settings, and it writes nothing. So it is as fresh as the dispatcher's last poll, and the first
+else but the one setting of the instance its `analytics` field holds: no GitHub
+call, and it writes nothing. So it is as fresh as the dispatcher's last poll, and the first
 line says how old that is.
 
 A stopped dispatcher cannot report itself: its file just stops changing. A

@@ -4,10 +4,11 @@
   "title": "tehas status --json",
   "description": "The object tehas status --json prints, version 1. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. console/tests/status_contract.rs checks the samples beside this file against it.",
   "type": "object",
-  "required": ["api", "time", "age", "stale", "state", "reasons", "paused", "limit", "running", "planning", "demand", "hold", "held", "room", "versions"],
+  "required": ["api", "time", "age", "stale", "state", "reasons", "paused", "limit", "running", "planning", "demand", "hold", "held", "room", "versions", "analytics"],
   "additionalProperties": false,
   "properties": {
     "api": {"const": 1},
+    "analytics": {"description": "Whether the factory records its runs, as its instance says: TEHAS_ANALYTICS of instance.env, in the words the manual writes. A program asks this instead of running tehas analytics copy and reading why it ended: with it off, that command ends 78 and writes nothing.", "enum": ["on", "off"]},
     "time": {"type": "string", "format": "date-time"},
     "age": {"type": "integer", "minimum": 0},
     "stale": {"type": "boolean"},

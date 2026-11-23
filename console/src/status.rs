@@ -14,8 +14,8 @@
 //!   console tehas status [--json]
 //!     The command a person types (`print`): the lines or the object of the
 //!     health file of this home, at this moment, with the poll line the store
-//!     gives. No network, no model, no instance settings, and it writes
-//!     nothing.
+//!     gives. No network, no model, and it writes nothing. The object holds one
+//!     setting of the instance, `analytics`, read of the instance's file.
 //!
 //! The files of live/ beside the health file are read when they are there:
 //! protolab.json as `prototypes`, previews.json, which the factory writes only
@@ -869,7 +869,9 @@ fn test_features(checks: &J) -> Option<(bool, bool, Vec<String>)> {
     Some((*read, lab, named))
 }
 
-/// The object tehas status --json prints.
+/// The object tehas status --json prints. Everything of it is what the health
+/// file wrote, but for `analytics`, which is the instance's own setting, read
+/// with a load that changes nothing of this process (tehas-ops).
 pub fn status_json(h: &J, now: i64, stale: bool) -> J {
     let checks = h.get("checks");
     let empty = obj(vec![]);
@@ -1008,6 +1010,9 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
     };
     let mut fields = vec![
         ("api", J::num(1.0)),
+        // The setting of the instance, read of the instance's file: the rest
+        // of the object is the health file and nothing else.
+        ("analytics", tehas_ops::settings::analytics_of_instance()),
         ("time", h.get("time").clone()),
         ("age", since(h.get("time"), now)),
         ("stale", J::Bool(stale)),
@@ -1436,7 +1441,7 @@ mod tests {
             h(r#"{"status":"pass","output":"Idle.","time":"2026-10-17T14:00:00Z","checks":{}}"#);
         assert_eq!(
             status_json(&health, NOW, false).dump(),
-            r#"{"api":1,"time":"2026-10-17T14:00:00Z","age":20,"stale":false,"state":"pass","reasons":[],"paused":{"local":false,"label":false},"running":[],"planning":[],"demand":null,"hold":null,"held":[],"room":null,"versions":{"platform":{"release":null,"commit":null,"latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":null}}}"#
+            r#"{"api":1,"analytics":"on","time":"2026-10-17T14:00:00Z","age":20,"stale":false,"state":"pass","reasons":[],"paused":{"local":false,"label":false},"running":[],"planning":[],"demand":null,"hold":null,"held":[],"room":null,"versions":{"platform":{"release":null,"commit":null,"latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":null}}}"#
         );
     }
 

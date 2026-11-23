@@ -190,6 +190,7 @@ tehas status --json
 ```json
 {
   "api": 1,
+  "analytics": "on",
   "time": "2026-10-17T13:59:40Z",
   "age": 40,
   "stale": false,
@@ -216,6 +217,7 @@ tehas status --json
 
 | Field | Meaning |
 | --- | --- |
+| `analytics` | Whether the factory records its runs: `TEHAS_ANALYTICS` of `instance.env`, in the words the manual writes (`1` and `0` are the same two as `on` and `off`). A program asks this before it fetches an archive, so that it can treat every 78 of [`tehas analytics copy`](#tehas-analytics-copy) as a fault of the settings. Always there, and by every release since it was added |
 | `time` | When the health file was written: at the dispatcher's last poll, or when a cycle last ended |
 | `age` | Seconds since `time` |
 | `stale` | `true` when `time` is more than ten minutes ago. The exit status is then 3 |
@@ -297,8 +299,9 @@ four samples made by the code that prints it, `api/status.busy.json`,
 them in step, and a program can copy the samples into its own tests.
 
 It reads `~/tehas/live/health.json`, and `protolab.json`, `previews.json` and
-`contractors.json` beside it when they are there, and nothing else: no network, no instance
-settings, and it writes nothing. Without a health file it prints nothing on
+`contractors.json` beside it when they are there, and nothing else of the host
+but `TEHAS_ANALYTICS` of the instance's `instance.env`, which is what the
+`analytics` field holds: no network, and it writes nothing. Without a health file it prints nothing on
 standard output and exits 3. Exit 0 on `pass` and `warn`; 3 on `fail`, a stale
 file or no file; 64 on an argument other than `--json`.
 
@@ -1152,11 +1155,14 @@ A copy fetched again holds the same rows, and more: rows are keyed so that
 storing them twice is harmless (see [Analytics](/analytics#fetching-it)).
 
 The feature `analytics` in [`tehas api`](#tehas-api) says the command exists.
-It does not say analytics is on: exit 0; 1 when the program is not installed,
-the database cannot be read, or `<file>` exists or cannot be made; 64 on a bad
-argument; 78 without an instance or when the instance has
-`TEHAS_ANALYTICS=off`, which writes nothing. `tehas analytics export <file>`, the
-name before 1.0, exits 64 and names `tehas analytics copy --to`.
+It does not say analytics is on: `analytics` of
+[`tehas status --json`](#tehas-status---json) does, so a program asks that
+before it fetches an archive and reads every 78 of the copy as a fault of the
+settings. Exit 0; 1 when the program is not installed, the database cannot be
+read, or `<file>` exists or cannot be made; 64 on a bad argument; 78 without an
+instance or when the instance has `TEHAS_ANALYTICS=off`, which writes nothing.
+`tehas analytics export <file>`, the name before 1.0, exits 64 and names
+`tehas analytics copy --to`.
 
 ## tehasbot clean
 

@@ -307,6 +307,32 @@ pub fn load_here(uid: &str, bash: &str) -> Result<Vars, u8> {
     }
 }
 
+/// `analytics` of `tehas status --json`: `TEHAS_ANALYTICS` of the instance's
+/// own file, not of the environment, which the load clears before it reads the
+/// file (load.rs: sweep). The command prints the health file and nothing else
+/// of the host, so it asks the one setting of the one file a manager may not
+/// read, and it writes nothing (#2729).
+pub fn analytics_of_instance() -> J {
+    let vars = this_environment();
+    let file = format!("{}/instance.env", instance_dir(&vars));
+    let text = Real {
+        bash: String::new(),
+        warned: None,
+    }
+    .read(&file)
+    .unwrap_or_default();
+    // `off` only when the file says so: the switch's default is `on`, so an
+    // instance that never wrote the line is an instance with analytics on
+    // (rules.rs). A word no switch takes is refused by the load, so no command
+    // runs under such an instance, and the object says what is true of this
+    // host today: `tehas analytics copy` ends 78 and records nothing.
+    let on = match renamed::value_in(&text, "TEHAS_ANALYTICS") {
+        Some(said) => rules::switch(&said) == Some(true),
+        None => true,
+    };
+    J::str(if on { "on" } else { "off" })
+}
+
 /// tehas_require on what [`load_here`] loaded.
 pub fn require(names: &[&str], vars: &Vars) -> Result<(), u8> {
     match refusal(names, vars) {
@@ -575,5 +601,41 @@ mod tests {
     #[test]
     fn a_line_with_two_lines_in_it_stays_one_value() {
         assert_eq!(pairs(b"A=1\n2\0"), [(b"A".to_vec(), b"1\n2".to_vec())]);
+    }
+
+    /// The one word of the `analytics` field for an instance whose file holds
+    /// these lines, and no others: the command's own read of the file, which
+    /// sources it as a shell would, so the last line is the value.
+    #[cfg(test)]
+    fn field(lines: &[&str]) -> String {
+        let dir = tehas_core::testdir::TestDir::new("analytics-field");
+        let file = dir.join("instance.env");
+        let mut text = lines.join("\n");
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        fs::write(&file, &text).unwrap();
+        // The reader takes the directory from the environment, as tehas_load does.
+        let was = env::var_os("TEHAS_INSTANCE_DIR");
+        env::set_var("TEHAS_INSTANCE_DIR", dir.path());
+        let said = analytics_of_instance().text();
+        match was {
+            Some(was) => env::set_var("TEHAS_INSTANCE_DIR", was),
+            None => env::remove_var("TEHAS_INSTANCE_DIR"),
+        }
+        said
+    }
+
+    #[test]
+    fn the_analytics_of_the_instance_reads_the_switch_in_the_words_of_its_default() {
+        for (word, want) in [("on", "on"), ("off", "off"), ("1", "on"), ("0", "off")] {
+            assert_eq!(field(&[&format!("TEHAS_ANALYTICS={word}")]), want);
+        }
+        // The last line of the file is its value, as the load's source leaves
+        // it, and the switch's own default answers an instance that never
+        // wrote the line (#2729).
+        assert_eq!(field(&["TEHAS_ANALYTICS=on", "TEHAS_ANALYTICS=off"]), "off");
+        assert_eq!(field(&["TEHAS_REPO=acme/widget"]), "on");
+        assert_eq!(field(&[]), "on");
     }
 }
