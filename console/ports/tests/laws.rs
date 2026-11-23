@@ -130,6 +130,339 @@ fn tickets_removing_an_absent_mark_is_done() {
 }
 
 #[test]
+fn tickets_carrying_any_takes_any_of_the_marks() {
+    for w in both() {
+        let w = w
+            .ticket(1, |t| t.title("running").mark(Mark::State(State::Running)))
+            .ticket(2, |t| t.title("plain"))
+            .ticket(3, |t| {
+                t.title("both")
+                    .mark(Mark::State(State::Running))
+                    .mark(Mark::Epic)
+            })
+            .ticket(4, |t| t.title("an epic").mark(Mark::Epic));
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let marks = [Mark::State(State::Running), Mark::Epic];
+        ok(laws::tickets::carrying_any_takes_any_of_the_marks(
+            h.as_mut(),
+            &marks,
+            b(50),
+        ));
+        let any = Filter {
+            carrying_any: marks.to_vec(),
+            ..Filter::default()
+        };
+        let keys: Vec<_> = h
+            .list(&any, b(50))
+            .unwrap()
+            .into_items()
+            .into_iter()
+            .map(|d| d.key)
+            .collect();
+        assert_eq!(keys, vec![w.key(1), w.key(3), w.key(4)]);
+    }
+}
+
+#[test]
+fn tickets_a_mark_event_names_the_marks_id() {
+    for w in both() {
+        let w = w.ticket(1, |t| t.title("a").mark(Mark::Epic));
+        let site = FakeSite::new(&w);
+        let mut h = site.ticket_writes(&full(), C).unwrap();
+        let ready = Mark::Act(Act::Approve);
+        ok(laws::tickets::a_mark_event_names_the_marks_id(
+            h.as_mut(),
+            &w.key(1),
+            &ready,
+            b(100),
+        ));
+        let marks = h.marks(b(100)).unwrap().into_items();
+        assert!(marks.iter().any(|m| m.mark == Mark::Epic));
+        // An event the site gave with no id is None: the caller compares
+        // the id `marks` gives with its pin.
+        let w = w.ticket(2, |t| {
+            t.title("b")
+                .event(Happened::Marked(ready.clone()), Some("alice"), None)
+        });
+        let mut h = FakeSite::new(&w).tickets(&full(), C).unwrap();
+        let only = [HappenedKind::Marked];
+        let events = h
+            .history(&w.key(2), Window::Whole(b(10)), Some(&only))
+            .unwrap();
+        assert_eq!(events.items[0].mark_id, None);
+    }
+}
+
+#[test]
+fn tickets_a_renamed_mark_keeps_its_id() {
+    for w in both() {
+        let w = w.ticket(1, |t| t.title("a"));
+        let site = FakeSite::new(&w);
+        let mut h = site.ticket_writes(&full(), C).unwrap();
+        let bug = Mark::Project(MarkName::new("bug").unwrap());
+        let ready = Mark::Act(Act::Approve);
+        ok(laws::tickets::a_renamed_mark_keeps_its_id(
+            h.as_mut(),
+            &w.key(1),
+            &bug,
+            &ready,
+            b(100),
+            &mut || w.rename_mark(&bug, &ready),
+        ));
+        // A site that never renames fails the law.
+        let w2 = World::new().ticket(1, |t| t.title("a"));
+        let mut h2 = FakeSite::new(&w2).ticket_writes(&full(), C).unwrap();
+        assert!(laws::tickets::a_renamed_mark_keeps_its_id(
+            h2.as_mut(),
+            &w2.key(1),
+            &bug,
+            &ready,
+            b(100),
+            &mut || {},
+        )
+        .is_err());
+        // The ready mark put on after the rename is a new mark, with an id
+        // of its own: the pin of the old one tells them apart.
+        let w3 = World::new().ticket(1, |t| t.title("a"));
+        let mut h3 = FakeSite::new(&w3).ticket_writes(&full(), C).unwrap();
+        h3.mark(&w3.key(1), &ready).unwrap();
+        let pinned = h3.marks(b(100)).unwrap().into_items();
+        w3.rename_mark(&ready, &bug);
+        h3.mark(&w3.key(1), &ready).unwrap();
+        let now = h3.marks(b(100)).unwrap().into_items();
+        let id = |ms: &[MarkHeld], m: &Mark| ms.iter().find(|h| h.mark == *m).map(|h| h.id.clone());
+        assert_eq!(id(&now, &bug), id(&pinned, &ready));
+        assert_ne!(id(&now, &ready), id(&pinned, &ready));
+    }
+}
+
+#[test]
+fn tickets_a_parent_holds_its_parts() {
+    for w in both() {
+        let w = w
+            .ticket(2, |t| t.title("a part"))
+            .ticket(3, |t| t.title("another part").closed(CloseReason::Done))
+            .ticket(4, |t| t.title("alone"));
+        let (k2, k3, k4) = (w.key(2), w.key(3), w.key(4));
+        let w = w.ticket(1, |t| {
+            t.title("the whole")
+                .part(k2.clone())
+                .part(k3.clone())
+                .blocker(Item::Ticket(k4.clone()))
+        });
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let keys = [w.key(1), k2.clone(), k3, k4.clone()];
+        ok(laws::tickets::a_parent_holds_its_parts(h.as_mut(), &keys));
+        let d = h.several(&[k2, k4]);
+        assert_eq!(d[0].1.as_ref().unwrap().parent, Some(Ref::Here(w.key(1))));
+        assert_eq!(d[1].1.as_ref().unwrap().parent, None);
+    }
+}
+
+#[test]
+fn tickets_several_carries_each_closer() {
+    for w in both() {
+        let w = w
+            .ticket(1, |t| t.title("open"))
+            .ticket(2, |t| t.title("closed").closed(CloseReason::Done));
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let keys = [w.key(1), w.key(2)];
+        ok(laws::tickets::several_carries_each_closer(
+            h.as_mut(),
+            &keys,
+        ));
+        let answers = h.several_with_closers(&keys);
+        assert_eq!(answers[0].1.as_ref().unwrap().closer, None);
+        assert!(matches!(
+            answers[1].1.as_ref().unwrap().closer,
+            Some(Closer::Account(_))
+        ));
+    }
+}
+
+#[test]
+fn code_host_updated_is_at_or_after_every_time() {
+    for w in both() {
+        let n = first_change(&w);
+        let w = w
+            .change(n, "work", |c| c.title("open").comment("alice", "a note"))
+            .change(n + 1, "gone", |c| {
+                c.title("closed")
+                    .state(ChangeState::Closed { at: At::new(5) })
+            });
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        ok(laws::code_host::updated_is_at_or_after_every_time(
+            h.as_mut(),
+        ));
+    }
+}
+
+#[test]
+fn code_host_checks_hold_the_newest_run_of_each_name() {
+    let run = |name: &str, status: CheckStatus| Check::new(name.into(), status);
+    for w in both() {
+        let at = w.head("main").unwrap();
+        let w = w
+            .check(&at, run("gate", CheckStatus::Done(Conclusion::Failed)))
+            .check(&at, run("lint", CheckStatus::Done(Conclusion::Passed)))
+            .check(&at, run("gate", CheckStatus::Done(Conclusion::Passed)));
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        ok(laws::code_host::checks_hold_the_newest_run_of_each_name(
+            h.as_mut(),
+            &at,
+            "gate",
+            &CheckStatus::Done(Conclusion::Passed),
+        ));
+        // A site that keeps the oldest run fails the law.
+        assert!(laws::code_host::checks_hold_the_newest_run_of_each_name(
+            h.as_mut(),
+            &at,
+            "gate",
+            &CheckStatus::Done(Conclusion::Failed),
+        )
+        .is_err());
+        // The old failure beside its passing re-run is not read.
+        assert_eq!(h.checks(&at, None).unwrap().overall, Overall::Pass);
+    }
+}
+
+/// `Overall::of` adds the runs up as the dispatcher's check_state reads
+/// them.
+#[test]
+fn overall_follows_the_dispatchers_reading() {
+    let run = |status: CheckStatus| Check::new("c".into(), status);
+    let done = |c: Conclusion| run(CheckStatus::Done(c));
+    let cases = [
+        (vec![], Overall::None),
+        (vec![done(Conclusion::Passed)], Overall::Pass),
+        (vec![done(Conclusion::Skipped)], Overall::Pass),
+        (vec![done(Conclusion::Failed)], Overall::Fail),
+        (vec![done(Conclusion::Cancelled)], Overall::Unknown),
+        (vec![done(Conclusion::Unknown)], Overall::Unknown),
+        (vec![run(CheckStatus::Queued)], Overall::Pending),
+        (vec![run(CheckStatus::Running)], Overall::Pending),
+        (
+            vec![done(Conclusion::Cancelled), run(CheckStatus::Running)],
+            Overall::Pending,
+        ),
+        (
+            vec![done(Conclusion::Passed), done(Conclusion::Failed)],
+            Overall::Fail,
+        ),
+        (
+            vec![done(Conclusion::Failed), run(CheckStatus::Running)],
+            Overall::Fail,
+        ),
+        (
+            vec![done(Conclusion::Passed), done(Conclusion::Cancelled)],
+            Overall::Unknown,
+        ),
+    ];
+    for (runs, want) in cases {
+        assert_eq!(Overall::of(&runs), want, "{runs:?}");
+    }
+}
+
+#[test]
+fn code_host_carrying_takes_changes_with_every_mark() {
+    for w in both() {
+        let n = first_change(&w);
+        let refreshing = Mark::State(State::Refreshing);
+        let w = w
+            .change(n, "work", |c| c.title("a").mark(refreshing.clone()))
+            .change(n + 1, "other", |c| c.title("b"));
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        ok(laws::code_host::carrying_takes_changes_with_every_mark(
+            h.as_mut(),
+            &[refreshing],
+        ));
+    }
+}
+
+#[test]
+fn a_change_records_its_base_commit_and_what_its_text_closes() {
+    for w in both() {
+        let n = first_change(&w);
+        let blueprint = first_blueprint(&w);
+        let w = w
+            .blueprint(blueprint, |b| b.title("plan"))
+            .change(n, "work", |c| c.title("c").closes(blueprint));
+        let base = w.head("main").unwrap();
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        let no = ChangeNo::new(n).unwrap();
+        ok(
+            laws::code_host::a_change_gives_its_base_and_what_its_text_closes(
+                h.as_mut(),
+                no,
+                &base,
+                &[Ref::Here(bp(blueprint))],
+            ),
+        );
+        let read = |h: &mut Box<dyn CodeHost + Send>, bodies: bool| {
+            let filter = ChangeFilter {
+                bodies,
+                ..Default::default()
+            };
+            h.changes(&filter, b(10)).unwrap().into_items().remove(0)
+        };
+        let d = read(&mut h, false);
+        assert_eq!(d.base_commit, base);
+        assert!(d.says_closes.is_empty(), "no bodies, no text read");
+        assert_eq!(
+            read(&mut h, true).says_closes,
+            vec![Ref::Here(bp(blueprint))]
+        );
+        // The base moves on; the change keeps its recorded base until its
+        // head moves.
+        let moved = w.push("main", "later", "alice");
+        assert_eq!(read(&mut h, false).base_commit, base);
+        w.push("work", "more", "alice");
+        assert_eq!(read(&mut h, false).base_commit, moved);
+    }
+}
+
+#[test]
+fn anonymous_reads_public_releases_and_writes_nothing() {
+    for w in both() {
+        let at = w.head("main").unwrap();
+        let w = w
+            .tag("v2.0.0", &at)
+            .release("v2.0.0", &[("tehas.tar.gz", b"bytes")]);
+        let site = FakeSite::new(&w);
+        ok(laws::anonymous::reads_public_releases_and_writes_nothing(
+            &site,
+            C,
+            &TagName::new("v2.0.0").unwrap(),
+            &FileName::new("tehas.tar.gz").unwrap(),
+            &at,
+            1 << 20,
+        ));
+    }
+}
+
+#[test]
+fn blueprints_a_changes_number_is_no_blueprint() {
+    let w = World::same_item();
+    let n = first_change(&w);
+    let w = w
+        .blueprint(1, |b| b.title("plan"))
+        .change(n, "work", |c| c.title("a change"));
+    let site = FakeSite::new(&w);
+    let mut h = site.blueprints(&full(), C).unwrap();
+    ok(laws::blueprints::a_changes_number_is_no_blueprint(
+        h.as_mut(),
+        bp(n),
+    ));
+}
+
+#[test]
 fn code_host_merge_at_a_moved_head_is_a_conflict() {
     for w in both() {
         let no = first_change(&w);
@@ -1295,18 +1628,99 @@ fn health_held_calls_raise_no_recovered() {
 fn health_past_the_deadline_raises_no_unavailable() {
     let wired = Wired::new(World::new().ticket(1, |t| t.title("a")));
     let now = wired.world.now();
-    let faulty = Faulty::new(FakeSite::new(&wired.world)).watch(wired.watch(Some(now)));
-    let mut h = faulty.tickets(&full(), C).unwrap();
+    let faulty = wired.faulty();
     ok(laws::health::past_the_deadline_raises_no_unavailable(
-        h.as_mut(),
+        &faulty,
+        &full(),
         &wired.world.key(1),
+        now,
         wired.wiring(&|| faulty.requests()),
     ));
     assert_eq!(
         faulty.requests(),
-        0,
-        "a call past its deadline sends nothing"
+        1,
+        "the call past its deadline sent nothing"
     );
+}
+
+#[test]
+fn a_site_seen_until_a_time_answers_a_timeout_from_then() {
+    let w = World::new().ticket(1, |t| t.title("a"));
+    let site = FakeSite::new(&w);
+    let view = site.until(At::new(w.now().secs() + 10));
+    let mut h = view.tickets(&full(), C).unwrap();
+    assert!(h.ticket(&w.key(1), Depth::Cut { notes: 0 }, None).is_ok());
+    let sent = w.sent();
+    w.advance(10);
+    let timeout = Outcome::Unavailable {
+        why: Passing::Timeout,
+        sent: Sent::No,
+    };
+    assert_eq!(
+        h.ticket(&w.key(1), Depth::Cut { notes: 0 }, None).map(drop),
+        Err(timeout.clone())
+    );
+    assert_eq!(
+        h.several(&[w.key(1)])[0].1.clone().map(drop),
+        Err(timeout.clone())
+    );
+    assert_eq!(w.sent(), sent, "a call past the deadline sends nothing");
+    assert_eq!(calls(&site), 1, "the view meters on the site's meter");
+    // A setup seen until a time sees each of its sites so.
+    let setup = Setup::One(Arc::new(site)).until(w.now());
+    let mut late = setup.tickets(&full(), C).unwrap();
+    assert_eq!(
+        late.ticket(&w.key(1), Depth::Cut { notes: 0 }, None)
+            .map(drop),
+        Err(timeout)
+    );
+}
+
+#[test]
+fn a_view_past_its_deadline_mints_and_answers_no_token() {
+    let w = World::new().given("p", Scope::Full, good_token(&World::new(), "given"));
+    let site = FakeSite::new(&w);
+    let view = site.until(w.now());
+    let timeout = Outcome::Unavailable {
+        why: Passing::Timeout,
+        sent: Sent::No,
+    };
+    let mut ours = view.identity(&full(), C).unwrap();
+    assert_eq!(ours.token(Scope::Full).err(), Some(timeout.clone()));
+    assert_eq!(
+        ours.token_over(Scope::Full, &[w.project()]).err(),
+        Some(timeout.clone())
+    );
+    let given = Actor::Given(PersonKey::new("p"));
+    let mut theirs = view.identity(&given, C).unwrap();
+    assert_eq!(theirs.token(Scope::Full).err(), Some(timeout));
+    assert_eq!(w.sent(), 0, "a view past its deadline mints nothing");
+    assert_eq!(calls(&site), 0);
+}
+
+#[test]
+fn a_view_of_a_view_keeps_the_earlier_deadline() {
+    let w = World::new().ticket(1, |t| t.title("a"));
+    let early = At::new(w.now().secs() + 10);
+    let late = At::new(w.now().secs() + 100);
+    let timeout = Outcome::Unavailable {
+        why: Passing::Timeout,
+        sent: Sent::No,
+    };
+    let site = FakeSite::new(&w);
+    let faulty = Faulty::new(FakeSite::new(&w));
+    for view in [
+        site.until(early).until(late),
+        faulty.until(early).until(late),
+    ] {
+        let mut h = view.tickets(&full(), C).unwrap();
+        w.set_now(early);
+        assert_eq!(
+            h.ticket(&w.key(1), Depth::Cut { notes: 0 }, None).map(drop),
+            Err(timeout.clone())
+        );
+        w.set_now(At::new(early.secs() - 10));
+    }
 }
 
 /// Every call the site's meter counted: its requests.

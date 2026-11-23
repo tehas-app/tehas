@@ -864,6 +864,7 @@ fn a_list_asks_githubs_filter_and_holds_every_ticket_to_the_callers() {
             Mark::Project(MarkName::new("bug").unwrap()),
             Mark::Act(Act::Pause),
         ],
+        carrying_any: vec![],
         kind: None,
         target: Some(TargetId::new("3")),
     };
