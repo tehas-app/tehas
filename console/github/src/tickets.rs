@@ -218,7 +218,10 @@ fn take<T>(mut items: Vec<T>, window: Window) -> Got<Took<T>> {
 }
 
 /// [`GitHub::outcome`] at the time `now`. A 410 is an issue deleted or
-/// issues turned off: `NotFound`, as the ports spec's table says.
+/// issues turned off: `NotFound`, as the ports spec's table says. The
+/// status is found anywhere in the reason: `Bounded` gives `: HTTP 403`,
+/// the relay's runner `gh exited 1: HTTP 403`, and its `gh exited 124` is a
+/// gh it stopped at its bound.
 fn outcome(e: &ForgeError, now: i64) -> Outcome {
     if gh::says_not_found(&e.why) {
         return Outcome::NotFound;
@@ -228,7 +231,11 @@ fn outcome(e: &ForgeError, now: i64) -> Outcome {
         why,
         sent: Sent::Maybe,
     };
-    match why.strip_prefix("HTTP ").and_then(|s| s.get(..3)) {
+    let status = why.match_indices("HTTP ").find_map(|(i, _)| {
+        why.get(i + 5..i + 8)
+            .filter(|d| d.bytes().all(|b| b.is_ascii_digit()))
+    });
+    match status {
         Some("401") => Outcome::SignedOut,
         Some("410") => Outcome::NotFound,
         Some("429") => Outcome::Spent {
@@ -241,7 +248,11 @@ fn outcome(e: &ForgeError, now: i64) -> Outcome {
             pool: Pool::Calls,
             until: At::new(now),
         },
-        _ if why.contains("timed out") || why.contains("timeout") || why.contains("bound") => {
+        _ if why.contains("timed out")
+            || why.contains("timeout")
+            || why.contains("bound")
+            || e.why.starts_with("gh exited 124") =>
+        {
             maybe(Passing::Timeout)
         }
         _ if why.contains("connection refused") || why.contains("no such host") => {
