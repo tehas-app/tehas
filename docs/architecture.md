@@ -57,6 +57,24 @@ v2 adds three ports, with GitHub as their one adapter (T4): **tickets**
 (the work level), **blueprints** (the issues a cycle works from) and the
 **code host** (changes, checks, merges, tags, releases). Each gets a fake.
 
+Their types are in a crate of their own, `console/ports/` (`tehas-ports`),
+which a consumer vendors at the tag: std and serde alone, no supplier word,
+no effects. T4.1 lands it in four parts. T4.1a: the data types (ids,
+bodies, bounds, accounts, outcomes, marks and markers). T4.1b: the traits,
+the board, the site, the links and the write, with the per-pass reports
+the traits take (`Reports`, `Report`, `Caller`, `PortName`).
+T4.1c: the ledger and health: `Ledger`, the budget and health state
+shared across processes, keyed by `HostId` and `Whose` (the host, one
+`Holder` on it, or one pool of a holder), and `health::next`, the pure step from one outcome to the
+next state and the `Notice`, if the state changed. T4.1d: the fakes
+(`tehas_ports::fake`: `World`, `FakeSite`, `Faulty`, the `NoticeLog` sink,
+`MemoryLedger`, `MemoryTokens`), the laws (`tehas_ports::laws`, the
+contract test of any adapter) and the `Writer`; with it the crate holds
+what step T4.1 names. A handle takes `&mut self` and is `Send`; a `Site` and the
+caller's stores (`Links`, `Keyring`, `TokenStore`) are `Send + Sync` and
+take `&self`. `Join` is the board of a split setup: pure code over three
+owned read handles and the links, each ticket answered alone.
+
 ## Checks of the core (R3, R8)
 
 The core today is the dispatcher's `decide` and the modules it decides
@@ -68,15 +86,48 @@ uses of the shell in `decide.rs` (the push fault's hold from
 tehas-core is not the core: it holds the forge, the sandbox and the
 process runner. T6 settles where the core ends.
 
+## Checks of the ports (R1, R3, R8)
+
+Three checks hold `console/ports/` at 0, as the ports spec's "The crate"
+asks. `ports-deps`: its manifest holds its package keys and serde alone,
+so no other dependency, feature or build script, and serde only on the
+spec's exact line (version 1, default features off, `std` and `derive`);
+any other serde line counts. `ports-words`: no supplier name, `repos/`,
+`api.`, `graphql` or label word in its source or manifest, doc lines
+included. `ports-effects`: no file, network, process, environment, thread
+or clock in its source, whether reached by a path, a grouped import
+(`use std::{fs, ...}`, also spread over lines) or an alias
+(`use std::{env as e}`, `std as`); no standard stream (`stdin`,
+`stdout`, `stderr`); and no `print!`, `println!`, `eprint!`, `eprintln!`
+or `dbg!`; no `thread_local!`, state kept per thread being hidden global
+state. In-process sharing (`std::sync`), which the fakes use for
+`Send + Sync`, is no effect and is not counted. The crate's tests round-trip
+its types through a small serde format of their own, since the crate takes
+no serde_json; `untyped-signatures` allows that one file by name, as its
+matches are serde's own `Visitor::Value`.
+
+`event-names` (R1, T11.1) holds an event name's string to the ports'
+events module: a string literal equal to a name, quotes included, counts
+anywhere else in `console/`, comments too. Code names `Name::CycleEnded`;
+a test that needs a name in JSON takes it from `Name::as_str`. A new name
+joins the pattern in the pull request that adds it.
+
 ## Write guards
 
-Each of these decides whether a GitHub call writes. They encode one rule
-and may stay separate on purpose; the owner decides (T4).
+Each of these decides whether a GitHub call writes. They are kept
+separate on purpose; whether any merge is the owner's (T4). Where each
+sits against the ports is in `docs/specs/2026-11-22-ports.md`, "The write
+guards".
 
-- the dispatcher's read guard (`console/core/src/read_only.rs`);
-- the console's gh shim (`console/src/gh_shim.rs`, `gh_writes.rs`);
-- the sandbox's gh shim (`host/sandbox/gh-shim`);
-- cycle's relay (`console/cycle/src/relay.rs`).
+- the dispatcher's read guard, `gh_reads` in
+  `console/dispatch/src/read/run.rs`, inside the poll;
+- the read-only host, `TEHAS_READ_ONLY` (`console/core/src/read_only.rs`),
+  asked by the console's shim and by git pushes;
+- the console's gh shim (`host/shim/gh`, with `console/src/gh_shim.rs` and
+  `gh_writes.rs`), under every host `gh` call;
+- the sandbox's gh shim (`host/sandbox/gh-shim`), in a cycle's container;
+- cycle's relay (`console/cycle/src/relay.rs`), between the container and
+  the host.
 
 ## Crate graph
 
@@ -84,6 +135,7 @@ From `cargo metadata`. Tests' own dependencies are in the last column.
 
 | Crate | Depends on | Its tests also use |
 | --- | --- | --- |
+| tehas-ports | nothing of the workspace, serde alone | |
 | tehas-core | nothing of the workspace | attach |
 | store, attach, tehas-front, tehas-mcp, tehas-xtask | tehas-core | |
 | analytics | tehas-core | tehas-mcp |

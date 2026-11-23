@@ -30,8 +30,8 @@ for pair in 1:on 0:off; do
 done
 
 t_case "every switch takes on and off, and exports the form its readers compare with"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_SITE_INDEXING=on TEHAS_READ_ONLY=off TEHAS_TOP=1 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_SITE_INDEXING][\$TEHAS_READ_ONLY][\$TEHAS_TOP]\""
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_SITE_INDEXING=on TEHAS_READ_ONLY=off TEHAS_SITE_CONSOLE=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_SITE_INDEXING][\$TEHAS_READ_ONLY][\$TEHAS_SITE_CONSOLE]\""
 t_eq "$t_out" "[1][0][1]"
 
 for bad in TEHAS_ANALYTICS=On TEHAS_ANALYTICS=yes TEHAS_ANALYTICS=2 "TEHAS_ANALYTICS=on off"; do
@@ -308,9 +308,9 @@ t_case "TEHAS_ISSUE_TYPES: unset stays unset, kind=Type pairs are kept, another 
 t_instance "${T_MINIMAL[@]}"
 t_run "$load && echo \"[\${TEHAS_ISSUE_TYPES-unset}]\""
 t_eq "$t_out" "[unset]"
-printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ISSUE_TYPES='improvement=Improvement prototype=Prototype'" >"$TEHAS_INSTANCE_DIR/instance.env"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ISSUE_TYPES=improvement=Improvement >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_ISSUE_TYPES]\""
-t_eq "$t_out" "[improvement=Improvement prototype=Prototype]"
+t_eq "$t_out" "[improvement=Improvement]"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ISSUE_TYPES=bug=Bug >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
@@ -502,22 +502,11 @@ t_case "loading sets no cgroup root of its own"
 t_run "$load && echo \"[\${TEHAS_CGROUP_ROOT:-}]\""
 t_eq "$t_out" "[]"
 
-t_case "the host section is published only when the instance asks for it"
-t_instance "${T_MINIMAL[@]}"
-t_run "$load && echo \"\$TEHAS_TOP\""
-t_eq "$t_out" "0"
+t_case "a TEHAS_TOP line of a 1.4 instance loads with a warning and is not read"
 t_instance "${T_MINIMAL[@]}" TEHAS_TOP=1
-t_run "$load && echo \"\$TEHAS_TOP\""
-t_eq "$t_out" "1"
-t_instance "${T_MINIMAL[@]}" TEHAS_TOP=0
-t_run "$load && echo \"\$TEHAS_TOP\""
-t_eq "$t_out" "0"
-# A line in the environment is not the instance asking for it.
-t_instance "${T_MINIMAL[@]}"
-T_ENV=(TEHAS_TOP=1)
-t_run "$load && echo \"\$TEHAS_TOP\""
-t_eq "$t_out" "0"
-T_ENV=()
+t_run "$load; echo \"rc=\$? [\${TEHAS_TOP:-}]\""
+t_contains "$t_out" "TEHAS_TOP is no longer read: the host panel left core in 2.0"
+t_contains "$t_out" "rc=0 []"
 
 t_case "the energy settings a 1.4 host left in ~/.config/tehas/env load and are not read"
 t_instance "${T_MINIMAL[@]}"
@@ -800,18 +789,18 @@ names=(PI_ENSEMBLE_MODEL_ PI_ENSEMBLE_PROVIDER_ PI_ENSEMBLE_SUBAGENT_MODEL PI_EN
   TEHAS_CYCLE_RESERVE TEHAS_DESIGN TEHAS_DOMAIN TEHAS_GITHUB_APP_ID TEHAS_HOME
   TEHAS_HOST_ADDR
   TEHAS_SITE_INDEXING TEHAS_INSTANCE_DIR TEHAS_MAX_AWAITING
-  TEHAS_MILLWRIGHT_EPICS TEHAS_MILLWRIGHT_FEED TEHAS_MILLWRIGHT_MAX_FEEDS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
-  TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT TEHAS_POLL_BUDGET TEHAS_PREVIEWS TEHAS_PREVIEW_MAX
+  TEHAS_MILLWRIGHT_EPICS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
+  TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT TEHAS_POLL_BUDGET TEHAS_PREVIEWS TEHAS_PREVIEW_MAX
   TEHAS_PREVIEW_MIN_FREE TEHAS_READ_ONLY TEHAS_REFRESH_MAX_PER_PR
   TEHAS_REFRESH_SLOTS TEHAS_RELEASE_REPO TEHAS_REPO TEHAS_RUKAS_WORKAROUNDS
   TEHAS_SCRATCH_DIR TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_FILES TEHAS_SIZE_MAX_LINES TEHAS_SLICE_CONTAINERS
-  TEHAS_MAX_CYCLES TEHAS_TOP TEHAS_UPDATE_FROM TEHAS_VERIFY_TIMEOUT
+  TEHAS_MAX_CYCLES TEHAS_UPDATE_FROM TEHAS_VERIFY_TIMEOUT
   TEHAS_WORK_IMAGES TEHAS_WORK_REPO TEHAS_WORK_STALL TEHAS_WORK_TIMEOUT)
 for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "8933acd0eebd22025aaac7aa08d5259c2cf527b8ef8025ba1415d9dff7ea5d78"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "7637314c7a02592293d965dc40b0af4e3b4b0b5fb244b17d7627a210641ee83c"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"
@@ -867,10 +856,10 @@ TEHAS_WORK_CPUS=3
 TEHAS_WORK_MEMORY=8g
 TEHAS_CLONES=1|TEHAS_WORK_CPUS=4
 TEHAS_THEME=neon
-TEHAS_THEME=neon|TEHAS_TOP=9
+TEHAS_THEME=neon|TEHAS_READ_ONLY=9
 TEHAS_DESIGN=pixel
 TEHAS_DESIGN=paper
-TEHAS_TOP=9|TEHAS_BRANCH='a b'
+TEHAS_READ_ONLY=9|TEHAS_BRANCH='a b'
 TEHAS_CYCLE_MIN_FREE=010g
 TEHAS_CYCLE_MIN_FREE=08m
 TEHAS_CYCLE_MIN_FREE=0
@@ -910,7 +899,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "5260f627cbdab5f95657b0c48617525d41f2eecb0456973ac3bfb1f14f5c1afa"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "64235dda5f1dbd52827d913feee41ff534992f649249e63beb69eb5d2e262b86"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"
@@ -950,8 +939,8 @@ t_contains "$t_out" "rc=78"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "what instance.env prints is not read as settings"
-t_instance "${T_MINIMAL[@]}" "echo 'export TEHAS_REPO=evil/repo'" "TEHAS_TOP=1"
-t_run "$load; echo rc=\$? \$TEHAS_TOP \$TEHAS_REPO"
+t_instance "${T_MINIMAL[@]}" "echo 'export TEHAS_REPO=evil/repo'" "TEHAS_MAX_CYCLES=1"
+t_run "$load; echo rc=\$? \$TEHAS_MAX_CYCLES \$TEHAS_REPO"
 t_contains "$t_out" "rc=0 1 acme/widget"
 t_contains "$t_out" "export TEHAS_REPO=evil/repo"
 
@@ -967,8 +956,8 @@ t_run "cd \"\$T\" && $load; echo rc=\$? \"\$PWD\""
 t_eq "$t_out" "rc=0 $T"
 
 t_case "instance.env sees the environment, and the name of a host's setting is gone from it"
-t_instance "${T_MINIMAL[@]}" 'TEHAS_ASSIGNEE=${TEHAS_TOP:-seen-${HOME##*/}}'
-T_ENV=(TEHAS_TOP=1)
+t_instance "${T_MINIMAL[@]}" 'TEHAS_ASSIGNEE=${TEHAS_READ_ONLY:-seen-${HOME##*/}}'
+T_ENV=(TEHAS_READ_ONLY=1)
 t_run "$load && echo \"\$TEHAS_ASSIGNEE\""
 T_ENV=()
 t_eq "$t_out" "seen-home"

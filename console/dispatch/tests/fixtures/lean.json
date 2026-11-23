@@ -20,7 +20,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label"
+      "given": "approved"
      }
     ],
     "no_actions": [
@@ -48,7 +48,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label",
+      "given": "approved",
       "driver": "lean"
      }
     ]
@@ -279,324 +279,6 @@
    }
   },
   {
-   "case": "the millwright's retry keeps the driver of the start it rests on",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:lean"
-       }
-      ]
-     }
-    ],
-    "issues": {
-     "7": {
-      "events": [
-       {
-        "event": "labeled",
-        "label": {
-         "name": "tehas:ready"
-        },
-        "actor": {
-         "login": "tehas-millwright"
-        },
-        "created_at": "2026-10-01T00:01:00Z"
-       },
-       {
-        "event": "labeled",
-        "label": {
-         "name": "tehas:lean"
-        },
-        "actor": {
-         "login": "alice"
-        },
-        "created_at": "2026-10-01T00:01:00Z"
-       }
-      ]
-     }
-    }
-   },
-   "body": {
-    "7": "Words."
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "after": {
-    "issues": {
-     "7": {
-      "approval": {
-       "driver": "lean"
-      }
-     }
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [
-     7
-    ],
-    "actions": [
-     {
-      "start": 7,
-      "given": "millwright",
-      "driver": "lean"
-     }
-    ]
-   }
-  },
-  {
-   "case": "a millwright start on a millwright start keeps it too",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:lean"
-       }
-      ]
-     }
-    ],
-    "issues": {
-     "7": {
-      "events": [
-       {
-        "event": "labeled",
-        "label": {
-         "name": "tehas:ready"
-        },
-        "actor": {
-         "login": "tehas-millwright"
-        },
-        "created_at": "2026-10-01T00:01:00Z"
-       },
-       {
-        "event": "labeled",
-        "label": {
-         "name": "tehas:lean"
-        },
-        "actor": {
-         "login": "alice"
-        },
-        "created_at": "2026-10-01T00:01:00Z"
-       }
-      ]
-     }
-    }
-   },
-   "body": {
-    "7": "Words."
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 1
-    }
-   },
-   "after": {
-    "issues": {
-     "7": {
-      "approval": {
-       "driver": "lean"
-      }
-     }
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [
-     7
-    ],
-    "actions": [
-     {
-      "start": 7,
-      "given": "millwright",
-      "driver": "lean"
-     }
-    ]
-   }
-  },
-  {
-   "case": "the millwright's retry with the label off is classic",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       }
-      ]
-     }
-    ],
-    "issues": {
-     "7": {
-      "events": [
-       {
-        "event": "labeled",
-        "label": {
-         "name": "tehas:ready"
-        },
-        "actor": {
-         "login": "tehas-millwright"
-        },
-        "created_at": "2026-10-01T00:01:00Z"
-       }
-      ]
-     }
-    }
-   },
-   "body": {
-    "7": "Words."
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "after": {
-    "issues": {
-     "7": {
-      "approval": {
-       "driver": "lean"
-      }
-     }
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [
-     7
-    ],
-    "actions": [
-     {
-      "start": 7,
-      "given": "millwright"
-     }
-    ],
-    "no_actions": [
-     {
-      "driver": "lean"
-     }
-    ]
-   }
-  },
-  {
-   "case": "the millwright's retry of a classic start stays classic: a label added since changes nothing",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:lean"
-       }
-      ]
-     }
-    ],
-    "issues": {
-     "7": {
-      "events": [
-       {
-        "event": "labeled",
-        "label": {
-         "name": "tehas:ready"
-        },
-        "actor": {
-         "login": "tehas-millwright"
-        },
-        "created_at": "2026-10-01T00:01:00Z"
-       },
-       {
-        "event": "labeled",
-        "label": {
-         "name": "tehas:lean"
-        },
-        "actor": {
-         "login": "alice"
-        },
-        "created_at": "2026-10-01T00:01:00Z"
-       }
-      ]
-     }
-    }
-   },
-   "body": {
-    "7": "Words."
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [
-     7
-    ],
-    "actions": [
-     {
-      "start": 7,
-      "given": "millwright"
-     }
-    ],
-    "no_actions": [
-     {
-      "driver": "lean"
-     }
-    ]
-   }
-  },
-  {
    "case": "a retry tick keeps the driver of the start it follows",
    "world": "parked",
    "park_q": [
@@ -652,7 +334,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -707,7 +389,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -775,7 +457,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": []
       }
@@ -1092,7 +774,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -1308,7 +990,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -1395,7 +1077,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -1502,7 +1184,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -1585,7 +1267,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -1638,7 +1320,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -1731,7 +1413,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -1777,7 +1459,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -1867,7 +1549,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -1922,7 +1604,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -2014,7 +1696,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": []
       }
@@ -2094,7 +1776,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": []
       }
@@ -2174,7 +1856,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": []
       }
@@ -2418,7 +2100,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": []
       }
@@ -2494,7 +2176,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -2569,7 +2251,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label",
+      "given": "approved",
       "driver": "lean"
      }
     ],
@@ -2857,90 +2539,6 @@
    }
   },
   {
-   "note": "A millwright's feed is the one millwright start that rests on no sum check: `feed_ok` credits the issue's author rather than comparing the body with a record, so `millwright` is Some while nothing has bound the text to an approval. It is therefore asked for its block like any other new start: the exemption `spec_ok` gives a start that follows a record is earned by a sum check, not by the flag alone.",
-   "case": "a millwright's fed lean start with no block is asked for it: the feed checks no sum",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-millwright",
-    "TEHAS_MILLWRIGHT_FEED": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "tehas:lean"
-       }
-      ]
-     }
-    ],
-    "issues": {
-     "7": {
-      "events": [
-       {
-        "event": "labeled",
-        "label": {
-         "name": "tehas:ready"
-        },
-        "actor": {
-         "login": "tehas-millwright"
-        },
-        "created_at": "2026-10-02T00:00:00Z"
-       },
-       {
-        "event": "labeled",
-        "label": {
-         "name": "tehas:lean"
-        },
-        "actor": {
-         "login": "alice"
-        },
-        "created_at": "2026-10-01T00:00:00Z"
-       }
-      ]
-     }
-    },
-    "fed": 0
-   },
-   "body": {
-    "7": "A plain body with no block."
-   },
-   "after": {
-    "issues": {
-     "7": {
-      "edit": {
-       "createdAt": "2026-09-30T00:00:00Z",
-       "author": {
-        "login": "alice"
-       },
-       "lastEditedAt": null,
-       "editor": null
-      }
-     }
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [],
-    "actions": [
-     {
-      "issue": 7,
-      "remove": [
-       "tehas:ready"
-      ]
-     }
-    ],
-    "no_actions": [
-     {
-      "start": 7
-     }
-    ]
-   }
-  },
-  {
    "case": "an issue with no block runs classic when nobody chose lean",
    "queue": [
     "7"
@@ -2956,7 +2554,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label"
+      "given": "approved"
      }
     ],
     "no_actions": [
@@ -3046,7 +2644,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "f87711f83b43cb6faad019e9592a28faaf623ff8ad3249d846d38cec0f1cf18f"
       },
       "history": [],
@@ -3099,7 +2697,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "f87711f83b43cb6faad019e9592a28faaf623ff8ad3249d846d38cec0f1cf18f",
        "links": [],
        "driver": "lean"
@@ -3137,7 +2735,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label",
+      "given": "approved",
       "driver": "lean"
      }
     ],
@@ -3165,7 +2763,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label",
+      "given": "approved",
       "remove": [
        "tehas:ready"
       ]
@@ -3205,7 +2803,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label"
+      "given": "approved"
      }
     ],
     "no_actions": [
@@ -3664,7 +3262,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label"
+      "given": "approved"
      }
     ],
     "no_actions": [
@@ -3789,7 +3387,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -3847,7 +3445,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -3898,7 +3496,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": []
       }
@@ -3968,7 +3566,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -4040,7 +3638,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": []
       }
@@ -4088,7 +3686,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -4169,7 +3767,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -4386,7 +3984,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": []
       }
@@ -4472,7 +4070,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "68a4d922128ed44ad7c7103b2763ea9832c18cd1dad0ed0bc180d81533bdc4d1"
       },
       "history": [],
@@ -4514,7 +4112,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "68a4d922128ed44ad7c7103b2763ea9832c18cd1dad0ed0bc180d81533bdc4d1",
        "links": [],
        "driver": "lean"
@@ -4768,7 +4366,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -4858,7 +4456,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -4904,7 +4502,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -5002,7 +4600,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label"
+      "given": "approved"
      }
     ],
     "no_actions": [
@@ -5109,7 +4707,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -5219,7 +4817,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -5306,7 +4904,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -5361,7 +4959,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"

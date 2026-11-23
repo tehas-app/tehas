@@ -913,7 +913,6 @@ pub struct Approval {
     /// [`Driver::of_record`] of it.
     pub driver: Option<Driver>,
     pub rests_on: RestsOn,
-    pub fixer_starts: Starts,
     pub refreshes: RefreshCount,
 }
 
@@ -935,14 +934,6 @@ pub struct Rests {
     pub by: Option<String>,
     pub how: Option<String>,
     pub body_sha256: Option<String>,
-}
-
-/// The record's fixer_starts. None is absent or null.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Starts {
-    None,
-    Num(f64),
-    Other,
 }
 
 /// The record's refreshes.
@@ -983,13 +974,6 @@ impl Approval {
                 }),
                 Some(_) => RestsOn::Other,
             },
-            fixer_starts: match v.get("fixer_starts") {
-                None | Some(Value::Null) => Starts::None,
-                _ => match num("fixer_starts") {
-                    Some(Ok(f)) => Starts::Num(f),
-                    _ => Starts::Other,
-                },
-            },
             refreshes: match num("refreshes") {
                 None => RefreshCount::Absent,
                 Some(Ok(f)) => RefreshCount::Num(f),
@@ -1018,33 +1002,6 @@ impl Approval {
             r.how.as_deref()?,
             r.body_sha256.as_deref()?,
         )
-    }
-
-    /// The sum of the body the record binds, by the rule of [`Approval::base`]:
-    /// a millwright's or a refresh's with no rests_on binds its own.
-    pub fn bound_sum(&self) -> Option<&str> {
-        if !self.rests() {
-            return self.body_sha256.as_deref();
-        }
-        match &self.rests_on {
-            RestsOn::Absent => self.body_sha256.as_deref(),
-            RestsOn::Record(r) => r.body_sha256.as_deref(),
-            RestsOn::Null | RestsOn::Other => None,
-        }
-    }
-
-    /// The fixer starts it counts, at most six digits.
-    pub fn fixer_starts(&self) -> Option<u64> {
-        let whole = |f: f64, min: f64| (f >= min && f.fract() == 0.0).then_some(f);
-        let n = match (self.how.as_str(), self.fixer_starts) {
-            (MILLWRIGHT, Starts::Num(f)) => whole(f, 1.0)?,
-            (MILLWRIGHT, _) => return None,
-            ("refresh", Starts::None) => 0.0,
-            ("refresh", Starts::Num(f)) => whole(f, 0.0)?,
-            ("refresh", Starts::Other) => return None,
-            _ => 0.0,
-        };
-        (n < 1_000_000.0).then_some(n as u64)
     }
 
     /// The refreshes it counts on that base.
@@ -1082,7 +1039,7 @@ impl Base {
                 .all(|b| b.is_ascii_digit() || matches!(b, b'T' | b':' | b'.' | b'Z' | b'-'))
             && !by.is_empty()
             && by.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-            && matches!(how, "label" | "outage-retry" | HOST | "answer" | "reply")
+            && matches!(how, "approved" | "outage-retry" | HOST | "answer" | "reply")
             && sum.len() == 64
             && sum.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
         ok.then(|| Base {
@@ -1158,11 +1115,6 @@ pub(crate) fn base_stands(c: &Settings, base: &Value) -> bool {
 pub(crate) fn base_approver(base: &Value) -> &str {
     let s = |k: &str| base.get(k).and_then(Value::as_str).unwrap_or("");
     approver(s("how"), s("by"))
-}
-
-/// [`Approval::fixer_starts`] of a record.
-pub(crate) fn fixer_starts(record: &Value) -> Option<u64> {
-    Approval::of(record).fixer_starts()
 }
 
 /// [`Approval::refresh_count`] of a record on a base of at least {at, by}.
@@ -1403,9 +1355,6 @@ pub struct Snapshot {
     pub continues: Option<bool>,
     /// The pull requests a refresh reads, by number.
     pub pulls: BTreeMap<u64, PullNode>,
-    /// With TEHAS_MILLWRIGHT_FEED: the running cycles a fed start began, None
-    /// when that could not be read.
-    pub fed: Option<u64>,
     /// gh issue list --label tehas:question; Some(None) when it gave no list.
     pub asking: Option<Option<Vec<Asked>>>,
     /// park-show --automatic's parks, owed a retry after an outage.
@@ -1707,13 +1656,15 @@ fn issue(v: &Value) -> Issue {
             })
         }),
         // The question read's, or the park's for a park whose hold may lift.
+        // The poll knows a question by its comment: the store's `comment`, not
+        // the store's own number in `question`.
         answer: ["/question/answer", "/park/answer"]
             .iter()
             .find_map(|p| v.pointer(p).filter(|a| a.is_object()))
             .and_then(|a| {
                 let s = |k: &str| a.get(k).and_then(Value::as_str);
                 crate::answer::Answer::new(
-                    a.get("question")?.as_u64()?,
+                    a.get("comment")?.as_u64()?,
                     s("kind")?,
                     s("choice")?,
                     a.get("option").and_then(Value::as_u64),
@@ -2099,7 +2050,6 @@ impl Snapshot {
                         .collect()
                 })
                 .unwrap_or_default(),
-            fed: v.get("fed").and_then(Value::as_u64),
             asking: v
                 .get("asking")
                 .map(|a| a.as_array().map(|a| a.iter().map(asked).collect())),

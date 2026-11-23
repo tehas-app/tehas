@@ -92,19 +92,6 @@
       "reason": "expected beesknees26 or pixel"
     },
     {
-      "name": "TEHAS_TOP",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "on",
-        "off",
-        "1",
-        "0"
-      ],
-      "reason": "expected on or off"
-    },
-    {
       "name": "TEHAS_DRIVER",
       "rule": "one-of",
       "when": "always",
@@ -141,20 +128,6 @@
         "0"
       ],
       "reason": "expected on or off"
-    },
-    {
-      "name": "TEHAS_SPEC_PIPE",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "on",
-        "off",
-        "1",
-        "0"
-      ],
-      "reason": "expected on or off",
-      "building": true
     },
     {
       "name": "TEHAS_PLUGIN",
@@ -296,37 +269,10 @@
       "reason": "expected a positive whole number"
     },
     {
-      "name": "TEHAS_MILLWRIGHT_MAX_RETRIES",
-      "rule": "count",
-      "when": "always",
-      "default": "2",
-      "reason": "expected a positive whole number"
-    },
-    {
       "name": "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS",
       "rule": "count",
       "when": "always",
       "default": "3",
-      "reason": "expected a positive whole number"
-    },
-    {
-      "name": "TEHAS_MILLWRIGHT_FEED",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "on",
-        "off",
-        "1",
-        "0"
-      ],
-      "reason": "expected on or off"
-    },
-    {
-      "name": "TEHAS_MILLWRIGHT_MAX_FEEDS",
-      "rule": "count",
-      "when": "always",
-      "default": "2",
       "reason": "expected a positive whole number"
     },
     {
@@ -635,7 +581,7 @@
       "rule": "issue-types",
       "when": "given",
       "default": null,
-      "reason": "expected kind=Type pairs, such as improvement=Improvement prototype=Prototype, not improvement"
+      "reason": "expected kind=Type pairs, such as improvement=Improvement, not improvement"
     },
     {
       "name": "TEHAS_CLEAN_DIRS",

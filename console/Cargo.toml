@@ -5,15 +5,16 @@
 # mcp/, the attachment checker in attach/, the library they share in core/,
 # the dispatcher's decisions in dispatch/, the words of an image's
 # description in describe/, a cycle's report in cycle/, the files of an item
-# and their page in items/, the operations modules in ops/, the mesh read of
-# the 2.1 `feed:mesh` in mesh-feed/, the plugins' program in
-# plugin/, the plugins' gate in plugin-gate/, the review's renderer in
+# and their page in items/, the operations modules in ops/, the cut of the
+# 2.1 `feed:host` in host-feed/, the mesh read of the 2.1 `feed:mesh` in
+# mesh-feed/, the plugins' program in plugin/, the plugins' gate in
+# plugin-gate/, the ports' types in ports/, the review's renderer in
 # review-render/, the product wiki's kept rules in wiki-render/ and its
 # collector in wiki-collect/, and the development tasks behind scripts/ in
 # xtask/ as well.
 [workspace]
-members = ["analytics", "attach", "core", "cycle", "describe", "dispatch", "front", "items", "mcp", "mesh-feed", "ops", "plugin", "plugin-gate", "review-render", "store", "wiki-collect", "wiki-render", "xtask"]
-default-members = [".", "analytics", "attach", "core", "cycle", "describe", "dispatch", "front", "items", "mcp", "mesh-feed", "ops", "plugin", "plugin-gate", "review-render", "store", "wiki-collect", "wiki-render", "xtask"]
+members = ["analytics", "attach", "core", "cycle", "describe", "dispatch", "front", "host-feed", "items", "mcp", "mesh-feed", "ops", "plugin", "plugin-gate", "ports", "review-render", "store", "wiki-collect", "wiki-render", "xtask"]
+default-members = [".", "analytics", "attach", "core", "cycle", "describe", "dispatch", "front", "host-feed", "items", "mcp", "mesh-feed", "ops", "plugin", "plugin-gate", "ports", "review-render", "store", "wiki-collect", "wiki-render", "xtask"]
 
 [package]
 name = "console"

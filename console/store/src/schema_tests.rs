@@ -157,6 +157,7 @@ fn step_sql(to: i64) -> &'static str {
         27 => db::STEP_27,
         28 => db::STEP_28,
         db::DROP_OUTSOURCE_STEP => db::DROP_OUTSOURCE,
+        30 => db::STEP_30,
         _ => unreachable!("no step to {to}"),
     }
 }
@@ -235,9 +236,14 @@ fn migrate_at(home: &Path, now: i64) -> Result<String, (u8, String)> {
     )
 }
 
+/// The tables of the schema, SQLite's own (sqlite_sequence, which the
+/// AUTOINCREMENT of `questions` lays) left out.
 fn tables(c: &Connection) -> Vec<String> {
     let mut q = c
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+        .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+             ORDER BY name",
+        )
         .unwrap();
     q.query_map([], |r| r.get(0))
         .unwrap()
@@ -291,13 +297,38 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_29() {
-    assert_eq!(db::SCHEMA_VERSION, 29);
-    let home = home("schema-29");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 29);
+fn init_writes_schema_30() {
+    assert_eq!(db::SCHEMA_VERSION, 30);
+    let home = home("schema-30");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 30);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "29"
+        "30"
+    );
+    // Schema 30: the store's id; `approved` in place of `label`; the history's
+    // recorded_at and signalled; the store's own numbers of the questions.
+    crate::tests::assert_store_id(&conn(&home));
+    let how = checks(&conn(&home), "cycles");
+    assert!(how.iter().any(|c| c.contains("'approved'")), "{how:?}");
+    assert!(how.iter().all(|c| !c.contains("'label'")), "{how:?}");
+    let history = columns(&conn(&home), "cycle_history");
+    assert_eq!(history[history.len() - 2..], ["recorded_at", "signalled"]);
+    assert_eq!(
+        columns(&conn(&home), "questions"),
+        [
+            "id",
+            "comment_id",
+            "issue",
+            "attempt",
+            "kind",
+            "posted_at",
+            "body_sha256",
+            "answered_at",
+            "answered_by",
+            "offers",
+            "reask",
+            "withdrawn_at"
+        ]
     );
     // Schema 28: the millwright's old name is no word of a CHECK.
     for t in ["cycles", "planning_notes"] {
@@ -441,7 +472,9 @@ fn a_store_of_each_release_1_0_updates_from_comes_to_18_with_every_row() {
             one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
             db::SCHEMA_VERSION.to_string()
         );
-        assert_eq!(count(&home, "meta"), meta, "{version}");
+        // The store's id is the one row the steps add (schema 30).
+        assert_eq!(count(&home, "meta"), meta + 1, "{version}");
+        crate::tests::assert_store_id(&conn(&home));
         // Every row kept; the outsource tables are gone.
         let after = host_rows(&conn(&home));
         assert_eq!(after, before, "{version}");
@@ -587,7 +620,8 @@ fn the_step_that_drops_outsource_takes_its_tables_and_keeps_every_other_row() {
         assert!(!tables(&conn(&home)).iter().any(|n| n == t), "{t}");
     }
     assert_eq!(count(&home, "meta WHERE key = 'outsource'"), 0);
-    assert_eq!(count(&home, "meta"), meta - 1);
+    // The outsource row gone, the store's id given (schema 30).
+    assert_eq!(count(&home, "meta"), meta);
     assert_eq!(host_rows(&conn(&home)), before);
     same_shape_as_init(&home, &conn(&made), "the schema before the drop");
 }
@@ -1119,6 +1153,178 @@ fn the_step_from_27_drops_the_millwrights_old_name() {
     drop(c);
     let made = crate::verbs_tests::home("step-28-shape");
     same_shape_as_init(&home, &conn(&made), "27");
+}
+
+/// A store at 29: v1.4.0's, brought forward by the real steps to 29 and no
+/// further, as a host on 2.0 before the step to 30 holds it.
+fn at_29(name: &str) -> TestDir {
+    let home = release(name, 23);
+    let mut c = conn(&home);
+    for (to, run) in db::STEPS {
+        if (24..=29).contains(to) {
+            run(&mut c).unwrap();
+        }
+    }
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 29);
+    home
+}
+
+/// The step to 30 from a store at 29 that says `label` in every place a how
+/// is kept, has history lines without a start time, and questions known by
+/// their comments with answers on two of them: every `label` is `approved`
+/// and `cycles.how` takes `label` no more; every history line has its
+/// `recorded_at` (its `at`), a start time, and `signalled` 0; the questions
+/// are numbered by the store in the order they were asked, each with its
+/// comment beside it, and the answers moved with them; and `meta` has the
+/// store's id. No `label` word is left in the store.
+#[test]
+fn the_step_to_30_rewrites_label_numbers_the_questions_and_gives_the_store_an_id() {
+    let home = at_29("step-30");
+    conn(&home)
+        .execute_batch(
+            "UPDATE approvals SET started_how = 'label' WHERE issue = 7;
+             INSERT INTO approvals (issue, at, by_account, how, label, body_sha256)
+               VALUES (8, 1790000300, 'alice', 'label', 'label', 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc');
+             INSERT INTO cycle_history (issue, attempt, at, status, how, started_at)
+               VALUES (7, 2, 1790000500, 'failed', 'label', 1790000100);
+             INSERT INTO questions (id, issue, attempt, kind, posted_at) VALUES (5000, 8, 1, 'park', 1789990650);
+             INSERT INTO questions (id, issue, attempt, kind, posted_at, answered_at, answered_by)
+               VALUES (40, 8, 1, 'park', 1789990800, 1789990900, 'bob');
+             INSERT INTO answers (question, issue, at, by_account, choice) VALUES (900, 7, 1789990750, 'bob', 'retry');
+             INSERT INTO answers (question, issue, at, by_account, choice) VALUES (40, 8, 1789990850, 'carol', 'park');",
+        )
+        .unwrap();
+    let label = "(SELECT count(*) FROM cycles WHERE how = 'label')
+        + (SELECT count(*) FROM cycle_history WHERE how = 'label')
+        + (SELECT count(*) FROM approvals WHERE 'label' IN (how, label, started_how))";
+    assert_eq!(one::<i64>(&home, &format!("SELECT {label}")), 5);
+    assert!(count(&home, "cycle_history WHERE started_at IS NULL") > 0);
+    let before: Vec<(i64, i64, Option<i64>)> = {
+        let c = conn(&home);
+        let mut q = c
+            .prepare("SELECT id, at, started_at FROM cycle_history ORDER BY id")
+            .unwrap();
+        q.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    let rows = host_rows(&conn(&home));
+    let meta = count(&home, "meta");
+    assert_eq!(count(&home, "meta WHERE key = 'store'"), 0);
+    migrate(&home).unwrap();
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 30);
+    assert_eq!(host_rows(&conn(&home)), rows);
+    // Every `label` is `approved`, and none is left.
+    assert_eq!(one::<i64>(&home, &format!("SELECT {label}")), 0);
+    assert_eq!(
+        count(&home, "cycles WHERE issue = 7 AND how = 'approved'"),
+        1
+    );
+    assert_eq!(count(&home, "cycle_history WHERE how = 'approved'"), 2);
+    assert_eq!(
+        count(
+            &home,
+            "approvals WHERE issue = 7 AND how = 'approved' AND started_how = 'approved'"
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            &home,
+            "approvals WHERE issue = 8 AND how = 'approved' AND label = 'approved'"
+        ),
+        1
+    );
+    assert_eq!(count(&home, "approvals WHERE label LIKE 'tehas_%'"), 2);
+    let c = conn(&home);
+    assert!(c
+        .execute("UPDATE cycles SET how = 'label' WHERE issue = 7", [])
+        .is_err());
+    c.execute("UPDATE cycles SET how = 'approved' WHERE issue = 8", [])
+        .unwrap();
+    drop(c);
+    // The history: recorded at its `at`, a start time on every line, the one
+    // it had kept, and no signal on record.
+    for (id, at, started) in before {
+        let (recorded, start, signalled): (i64, i64, i64) = conn(&home)
+            .query_row(
+                "SELECT recorded_at, started_at, signalled FROM cycle_history WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (recorded, start, signalled),
+            (at, started.unwrap_or(at), 0),
+            "{id}"
+        );
+    }
+    assert!(conn(&home)
+        .execute("UPDATE cycle_history SET signalled = 2", [])
+        .is_err());
+    // The questions, numbered in the order they were asked, the comments
+    // beside them, and the answers moved with their questions.
+    let numbered: Vec<(i64, i64, i64)> = {
+        let c = conn(&home);
+        let mut q = c
+            .prepare("SELECT id, comment_id, issue FROM questions ORDER BY id")
+            .unwrap();
+        q.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    assert_eq!(numbered, [(1, 5000, 8), (2, 900, 7), (3, 40, 8)]);
+    assert_eq!(
+        one::<String>(
+            &home,
+            "SELECT group_concat(question || ':' || issue || ':' || by_account, ' ')
+             FROM (SELECT * FROM answers ORDER BY question)"
+        ),
+        "2:7:bob 3:8:carol"
+    );
+    assert_eq!(count(&home, "questions WHERE withdrawn_at IS NOT NULL"), 0);
+    assert_eq!(
+        count(
+            &home,
+            "questions WHERE comment_id = 40 AND answered_by = 'bob'"
+        ),
+        1
+    );
+    // A number is never given again: the newest question gone, the next one
+    // asked takes the number after it.
+    conn(&home)
+        .execute_batch(
+            "DELETE FROM answers WHERE question = 3; DELETE FROM questions WHERE id = 3;
+             INSERT INTO questions (comment_id, issue, attempt, kind, posted_at)
+               VALUES (41, 8, 1, 'park', 1790000000);",
+        )
+        .unwrap();
+    assert_eq!(
+        one::<i64>(&home, "SELECT id FROM questions WHERE comment_id = 41"),
+        4
+    );
+    // The store's id, the one row of meta the step adds.
+    assert_eq!(count(&home, "meta"), meta + 1);
+    crate::tests::assert_store_id(&conn(&home));
+    let made = crate::verbs_tests::home("step-30-shape");
+    same_shape_as_init(&home, &conn(&made), "29");
+}
+
+/// Two stores laid apart have two ids, and a migrate run again keeps the id.
+#[test]
+fn each_store_has_its_own_id_and_keeps_it() {
+    let a = crate::verbs_tests::home("store-id-a");
+    let b = crate::verbs_tests::home("store-id-b");
+    let id = |h: &Path| one::<String>(h, "SELECT value FROM meta WHERE key = 'store'");
+    assert_ne!(id(&a), id(&b));
+    let held = id(&a);
+    migrate(&a).unwrap();
+    assert_eq!(id(&a), held);
+    let ids: std::collections::BTreeSet<String> =
+        (0..64).map(|_| db::store_id().unwrap()).collect();
+    assert_eq!(ids.len(), 64);
 }
 
 /// The step to 26 keeps every cycle, and a cycle's start may then say

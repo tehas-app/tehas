@@ -167,7 +167,7 @@ fn with_nothing_given_the_links_of_the_approval_record_are_said_and_kept_and_onl
     assert_eq!(gapline(&w), format!("{NONE_GIVEN} (TEHAS_WORK_IMAGES=0): no directory is mounted and PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not set"));
     assert_eq!(
         kept(&w, "{images, approval}"),
-        r#"{"images":[],"approval":{"at":"2026-10-14T00:00:00Z","by":"alice","how":"label"}}"#
+        r#"{"images":[],"approval":{"at":"2026-10-14T00:00:00Z","by":"alice","how":"approved"}}"#
     );
     assert_eq!(
         kept(&w, "[.leftOut[] | [.link, .source]]"),
@@ -389,29 +389,6 @@ fn a_link_of_the_record_that_is_not_of_githubs_storage_is_not_counted() {
     assert_eq!(r.rc, 2, "{}", r.out);
     lacks(&r.out, "gives a cycle none");
     assert_eq!(kept_manifests(&w), 0);
-}
-
-#[test]
-fn a_record_written_while_the_instance_took_links_from_comments_keeps_them_each_with_its_source() {
-    let w = world("comment-links");
-    w.images_off();
-    let l = format!("{A}/1111");
-    let body = format!("![shot]({l})");
-    w.record_is("alice", &body, &[&l]);
-    w.record_edit(|v| {
-        v["comment_links"] = serde_json::json!([
-            {"link": format!("{A}/2222"), "source": "comment:51", "by": "alice"},
-            {"link": "https://example.com/y.png", "source": "comment:52", "by": "alice"}
-        ])
-    });
-    w.issue_is(&body, "NONE", "");
-    let r = w.work7();
-    assert_eq!(r.rc, 2, "{}", r.out);
-    has(&r.out, "lists 2 attachments");
-    assert_eq!(
-        kept(&w, "[.leftOut[] | [.link, .source]]"),
-        format!("[[\"{l}\",\"body\"],[\"{A}/2222\",\"comment:51\"]]")
-    );
 }
 
 /// The issue and its approval: one image at `A/1111`.

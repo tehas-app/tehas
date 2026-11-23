@@ -19,17 +19,20 @@
 # panels.css, which both pages load: page business 101015 40730 and page
 # floor 146222 68698.
 # Energy use left core in 2.0, and the business and floor lines went down.
-# The business page left core in 2.0: its line went, and the floor's went down.
-# The floor names an open ticket with no state label Idea, and went down again.
-page floor 123744 53708
-page dashboard 88967 53986
-page manual 0 49838
+# The host panel left core in 2.0, and the floor, dashboard and manual lines
+# went down.
+# Panels left core in 2.0, and the business and floor lines went down again.
+# The business page left core in 2.0: its line went, and the floor and
+# dashboard lines went down.
+# The floor names an open ticket with no state label Idea.
+page floor 112261 49092
+page dashboard 78498 51741
+page manual 0 47910
 island factory/tehas-factory-console 4156
-island factory/tehas-factory-days 4686
+island factory/tehas-factory-days 4684
 island factory/parts 847
-island factory/tehas-factory-host 4410
 island factory/tehas-factory-issues 3728
 island factory/tehas-factory-previews 4073
 island factory/tehas-factory-readonly 2877
-island factory/tehas-factory-state 3261
+island factory/tehas-factory-state 3008
 library solid 123689

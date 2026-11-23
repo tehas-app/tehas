@@ -401,6 +401,16 @@ adds elsewhere. #2890 moved two of its findings here, to fix:
   `console/tests/console_run.rs` (#2879), tehas's own word in a file
   that also stubs gh, so the file is not allowed.
 
+Findings:
+
+- The planner's confirm files an issue with the session token, which is
+  issues read-only, so the site refuses it (`console/src/plan/turn.rs`
+  ~485). It must file with the factory's token or not at all. T4.7 fixes
+  it.
+- No port operation marks a change ready or draft: `edit_change` takes no
+  draft flag, so a `CycleMerge` cycle cannot take its own draft out of
+  draft through the ports. T4.2+ decides.
+
 ### T5. Deep homes for files
 
 - A `Home` type owns the `state/`, `live/` and `run/` paths. `run/` holds
@@ -813,7 +823,11 @@ v2.0.0.
 ## Log
 
 Append a line per event: the fork, each step's pull requests, each port
-of main, each grade.
+of main, each grade. From #2905 on, each pull request adds its own row
+as a one-line file, `docs/plans/log.d/<pull request>.md`, in the same form
+as the table's rows, so two open pull requests never conflict here. The
+log is this table and the files in `log.d/` together, and they are folded
+into the table now and then.
 
 | Date | What | Commit or PR |
 | --- | --- | --- |
@@ -877,3 +891,11 @@ of main, each grade.
 | 2026-11-23 | T16: the millwright's old name goes, and #686's alias with it | #2889 |
 | 2026-11-23 | T16: `cargo xtask config-check` shows which settings 2.0 keeps, drops or refuses | #2885 |
 | 2026-11-22 | T16: Outsource is dropped, with the model proxy and the contractor; the state store drops its five tables, and analytics goes to schema 6 without `runs.contractor_id`, pinned by the consumer that reads the analytics copies before the merge | #2886 |
+| 2026-11-22 | T15: gate tests stop reading the host they run on | #2874 |
+| 2026-11-22 | T15: six more slow shell test files run in parts | #2883 |
+| 2026-11-23 | T15: the preview build, main, network, remove and settle shell tests are Rust tests | #2893 |
+| 2026-11-23 | T9: the contract for 2.x, with what changed in 2.0 and for whom | #2895 |
+| 2026-11-23 | The plan says 2.0 rewrites no setting; the ports spec records the owner's adapter settings | #2896 |
+| 2026-11-23 | T16: every setting v1.4.0 accepted still loads on 2.0, pinned by a test | #2897 |
+| 2026-11-23 | T16: the All hands label is dropped | #2881 |
+| 2026-11-23 | T4: `tehas labels` reads a fourth field, and `host/markers.tsv` | #2901 |

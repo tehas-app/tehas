@@ -461,7 +461,7 @@ fn an_answer_that_still_carries_notices_fits_the_schema_and_no_page_or_module_dr
     let pages = at(&[
         "host/fun/index.html",
         "host/fun/host-bridge.js",
-        "host/fun/panels.css",
+        "host/fun/dock.css",
     ]);
     assert_eq!(
         lines_holding(&pages, &["host-notice", "drawNotices", "notices"]),
@@ -505,7 +505,7 @@ fn the_contract_freezes_the_host_namespace_and_names_the_tests_that_hold_it() {
         "`console/tests/host_bridge.rs`",
         "`test/json_contract_test.sh`",
         "`test/host_bridge_test.mjs`",
-        "`test/panels_dock_test.mjs`",
+        "`test/dock_test.mjs`",
     ] {
         has(row, words);
     }
@@ -513,7 +513,7 @@ fn the_contract_freezes_the_host_namespace_and_names_the_tests_that_hold_it() {
         "console/tests/host_bridge.rs",
         "test/json_contract_test.sh",
         "test/host_bridge_test.mjs",
-        "test/panels_dock_test.mjs",
+        "test/dock_test.mjs",
     ] {
         assert!(
             root().join(f).is_file(),

@@ -3,7 +3,6 @@
 # taken out within 2.x. A feature still being built is in `flags` only, never
 # here. test/api_test.sh holds what the command prints to this list.
 status
-millwright-grant
 limit
 drain
 history
@@ -13,7 +12,6 @@ state-move
 mcp-dashboard-keys
 clean
 disk
-panels
 state-check
 finish
 status-versions

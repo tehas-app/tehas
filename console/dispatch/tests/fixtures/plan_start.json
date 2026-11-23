@@ -12,7 +12,7 @@
         "log": ["start #7 (planned by alice)"],
         "actions": [
           {
-            "start": 7, "by": "alice", "given": "label", "at": "2026-10-01T00:20:01Z",
+            "start": 7, "by": "alice", "given": "approved", "at": "2026-10-01T00:20:01Z",
             "approved_label": "tehas:plan", "remove": ["tehas:ready"],
             "how": "`tehas:plan` label, on a plan with no open points"
           }

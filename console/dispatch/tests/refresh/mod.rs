@@ -93,7 +93,7 @@ pub fn refresh_setup(w: &World, more: &[&str]) {
     fs::create_dir_all(w.cycles_dir()).unwrap();
     request(w, "2026-10-17T09:00:00Z");
     // alice's label started the last cycle, which waits for a merge.
-    w.past(7, "alice", "label", "2026-10-01T00:00:00Z", &[]);
+    w.past(7, "alice", "approved", "2026-10-01T00:00:00Z", &[]);
 }
 
 /// A new world of the refresh tests.
@@ -141,7 +141,7 @@ pub fn refresh_record(w: &World, k: i64, parked: bool) {
 /// A running refresh of issue `n`: an open cycle the store says started as
 /// one, on alice's approval of an earlier cycle.
 pub fn running_refresh(w: &World, n: u64) {
-    w.past(n, "alice", "label", "2026-09-30T00:00:00Z", &[]);
+    w.past(n, "alice", "approved", "2026-09-30T00:00:00Z", &[]);
     w.t_approve(
         n,
         "alice",

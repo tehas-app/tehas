@@ -71,7 +71,7 @@
 #                                    a cycle of issue N on record that has
 #                                    ended (cycle-end ARGS, status failed
 #                                    unless given), started on BY's approval
-#                                    of HOW [label], or by hand when BY is -
+#                                    of HOW [approved], or by hand when BY is -
 #   t_record HOME N JSON             on a fresh store, the approval JSON
 #                                    describes in the shape the record file had
 #                                    (approval-view's), used by a start of
@@ -676,7 +676,7 @@ t_console_source() {
   local member from=${2:-$T_ROOT}
   mkdir -p "$1/console"
   cp -R "$from/console/Cargo.toml" "$from/console/Cargo.lock" "$from/console/src" "$1/console/"
-  for member in analytics attach core cycle describe dispatch front items mcp mesh-feed ops plugin plugin-gate review-render store wiki-collect wiki-render xtask; do
+  for member in analytics attach core cycle describe dispatch front host-feed items mcp mesh-feed ops plugin plugin-gate ports review-render store wiki-collect wiki-render xtask; do
     mkdir -p "$1/console/$member"
     cp -R "$from/console/$member/Cargo.toml" "$from/console/$member/src" "$1/console/$member/"
     [ ! -d "$from/console/$member/assets" ] || cp -R "$from/console/$member/assets" "$1/console/$member/"
@@ -1014,7 +1014,7 @@ t_approve() { # <home> <issue> <by> <how> [<at>] [<approval-record args>...]
   local t_home=$1 t_n=$2 t_by=$3 t_how=$4 t_when=${5:-1760000000} t_args
   if [ "$#" -ge 5 ]; then shift 5; else shift "$#"; fi
   t_args=(approval-record "$t_n" --at "$t_when" --by "$t_by" --how "$t_how")
-  case $t_how in label | millwright) t_args+=(--label tehas:ready) ;; esac
+  case $t_how in approved | millwright) t_args+=(--label tehas:ready) ;; esac
   case " $* " in *" --body-sha "*) ;; *) t_args+=(--body-sha "$T_WSUM") ;; esac
   TEHAS_HOME=$t_home "$T_STORE" "${t_args[@]}" "$@" >/dev/null ||
     t_bad "t_approve: the store refused ${t_args[*]} $*"
@@ -1027,7 +1027,7 @@ t_started() { # <home> <issue> [<cycle-start args>...]
     t_bad "t_started: the store refused cycle-start $t_n $*"
 }
 t_ended() { # <home> <issue> <by|-> [<how>] [<cycle-end args>...]
-  local t_home=$1 t_n=$2 t_by=$3 t_how=${4:-label} t_a
+  local t_home=$1 t_n=$2 t_by=$3 t_how=${4:-approved} t_a
   if [ "$#" -ge 4 ]; then shift 4; else shift "$#"; fi
   t_a=$(TEHAS_HOME=$t_home "$T_STORE" cycle-show "$t_n" | jq '.cycle.attempt // 0')
   if [ "$t_by" = - ]; then
@@ -1075,9 +1075,6 @@ t_record() { # <home> <issue> <JSON>
   if { [ "$t_how" = millwright ] || [ "$t_how" = refresh ]; } && [ -n "$t_base" ]; then
     _t_used "$(jq -r .by <<<"$t_base")" "$(jq -r .how <<<"$t_base")" "$(date -u -d "$(jq -r .at <<<"$t_base")" +%s)" \
       --body-sha "$(jq -r .body_sha256 <<<"$t_base")"
-    t_count=$(jq -r '.fixer_starts // 0' <<<"$t_j")
-    [ "$t_how" != millwright ] || t_count=$((t_count - 1))
-    for ((t_k = 0; t_k < t_count; t_k++)); do _t_used tehas-millwright millwright $((t_last + 10)); done
     if [ "$t_how" = refresh ]; then
       t_count=$(jq -r '.refreshes // 1' <<<"$t_j")
       for ((t_k = 1; t_k < t_count; t_k++)); do
@@ -1087,11 +1084,11 @@ t_record() { # <home> <issue> <JSON>
   fi
   [ "$t_at" -gt "$t_last" ] || t_at=$((t_last + 10))
   jq --arg how "$t_how" '{links: (.links // [])}
-    + with_entries(select(.key == "comment_links" or .key == "retry_context" or .key == "driver" or .key == "spec"))
+    + with_entries(select(.key == "retry_context" or .key == "driver" or .key == "spec"))
     + (if $how == "refresh" then {refresh_of: (.refresh_of // null)} else {} end)' <<<"$t_j" >"$t_in"
   t_args=(approval-record "$t_n" --at "$t_at" --by "$(jq -r .by <<<"$t_j")" --how "$t_how"
     --body-sha "$(jq -r .body_sha256 <<<"$t_j")" --input-file "$t_in")
-  case $t_how in label | millwright) t_args+=(--label tehas:ready) ;; esac
+  case $t_how in approved | millwright) t_args+=(--label tehas:ready) ;; esac
   t_k=$(jq -r '.title_sha256 // ""' <<<"$t_j")
   [ -z "$t_k" ] || t_args+=(--title-sha "$t_k")
   [ "$t_how" != refresh ] ||
@@ -1106,7 +1103,7 @@ t_history_end() { # <home> <issue> <epoch of the end> [<fields>]
   started=$(jq -r --argjson e "$e" '.started // ($e - 60)' <<<"$x")
   a=$(TEHAS_HOME=$home "$T_STORE" cycle-show "$n" | jq '.cycle.attempt // 0')
   if [ "$(jq -r '.by // ""' <<<"$x")" != "" ]; then
-    t_approve "$home" "$n" "$(jq -r .by <<<"$x")" "$(jq -r '.how // "label"' <<<"$x")" $((started - 1 - a))
+    t_approve "$home" "$n" "$(jq -r .by <<<"$x")" "$(jq -r '.how // "approved"' <<<"$x")" $((started - 1 - a))
     TEHAS_STORE_TEST_NOW=$started t_started "$home" "$n"
   else
     TEHAS_STORE_TEST_NOW=$started t_started "$home" "$n" --by-hand

@@ -57,7 +57,6 @@ pub fn code_of(text: &str) -> &'static str {
         ("not an allowed account", code::NOT_ALLOWED),
         ("was taken off by", code::LABEL_OFF),
         ("from the millwright", code::MILLWRIGHT),
-        ("TEHAS_MILLWRIGHT_MAX_FEEDS", code::MILLWRIGHT),
         ("from the bot starts nothing", code::NOT_ALLOWED),
         ("tehas:ready was applied by", code::NOT_ALLOWED),
         ("it carries both", code::DRIVER),
@@ -72,7 +71,6 @@ pub fn code_of(text: &str) -> &'static str {
         ("the refresh lane is full", code::REFRESH_LANE),
         ("carries tehas:refreshing", code::REFRESH_LANE),
         ("GitHub has not said yet", code::UNREADABLE),
-        ("Spec:", code::SPEC),
         ("could not be read", code::UNREADABLE),
     ];
     ARMS.iter()

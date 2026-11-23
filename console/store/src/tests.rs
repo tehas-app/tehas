@@ -99,8 +99,9 @@ fn init_writes_the_row_of_meta_and_the_caller_s_settings() {
     let conn = Connection::open(db::path(&home)).unwrap();
     let got = one::<String>(
         &conn,
-        "SELECT group_concat(key || '=' || value, ' ') FROM (SELECT * FROM meta ORDER BY key)",
+        "SELECT group_concat(key || '=' || value, ' ') FROM (SELECT * FROM meta WHERE key <> 'store' ORDER BY key)",
     );
+    assert_store_id(&conn);
     let schema = format!("schema={}", db::SCHEMA_VERSION);
     let mut want = [
         "created_at=1792000000",
@@ -113,6 +114,17 @@ fn init_writes_the_row_of_meta_and_the_caller_s_settings() {
     .to_vec();
     want.sort_unstable();
     assert_eq!(got.split(' ').collect::<Vec<_>>(), want);
+}
+
+/// The store's id in meta: 32 lower-case hex digits.
+pub(crate) fn assert_store_id(conn: &Connection) {
+    let id = one::<String>(conn, "SELECT value FROM meta WHERE key = 'store'");
+    assert_eq!(id.len(), 32, "{id}");
+    assert!(
+        id.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+        "{id}"
+    );
 }
 
 #[test]
@@ -366,7 +378,7 @@ fn check_reports_its_schema_and_an_integrity_of_ok() {
         "{line}"
     );
     assert!(line.contains("\"integrity\":\"ok\""), "{line}");
-    assert!(line.contains("\"meta\":6"), "{line}");
+    assert!(line.contains("\"meta\":7"), "{line}");
     assert!(line.contains("\"issues\":0"), "{line}");
     assert!(line.ends_with('}'), "{line}");
     // One object on stdout, one line, valid JSON.
@@ -1419,7 +1431,7 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
         db::SCHEMA_VERSION,
         "the copy is of the database as it was"
     );
-    assert_eq!(one::<i64>(&copy_conn, "SELECT count(*) FROM meta"), 6);
+    assert_eq!(one::<i64>(&copy_conn, "SELECT count(*) FROM meta"), 7);
     drop(copy_conn);
     assert_eq!(
         fs::read(&file).unwrap(),
@@ -1622,11 +1634,12 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
         db::SCHEMA_VERSION.to_string()
     );
     // The migration writes the rows a database at 1 holds and has no way to
-    // get: the four the caller gave, and the instant.
+    // get: the four the caller gave, and the instant, and the store's id.
     let got = one::<String>(
         &conn,
-        "SELECT group_concat(key || '=' || value, ' ') FROM (SELECT * FROM meta ORDER BY key)",
+        "SELECT group_concat(key || '=' || value, ' ') FROM (SELECT * FROM meta WHERE key <> 'store' ORDER BY key)",
     );
+    assert_store_id(&conn);
     let schema = format!("schema={}", db::SCHEMA_VERSION);
     assert_eq!(
         got.split(' ').collect::<Vec<_>>(),
@@ -2208,7 +2221,7 @@ fn the_schema_holds_every_table_of_the_spec_with_its_checks() {
             "cycles.how",
         ),
         (
-            "INSERT INTO questions (id, issue, attempt, kind, posted_at) VALUES (1, 1, 1, 'blockers', 1)",
+            "INSERT INTO questions (comment_id, issue, attempt, kind, posted_at) VALUES (1, 1, 1, 'blockers', 1)",
             "questions.kind",
         ),
         (
@@ -2222,7 +2235,7 @@ fn the_schema_holds_every_table_of_the_spec_with_its_checks() {
     // further than the key.
     assert!(conn
         .execute(
-            "INSERT INTO cycles (issue, started_at, started_by, how) VALUES (7, 1, 'a', 'label')",
+            "INSERT INTO cycles (issue, started_at, started_by, how) VALUES (7, 1, 'a', 'approved')",
             []
         )
         .is_err());
@@ -2232,7 +2245,7 @@ fn the_schema_holds_every_table_of_the_spec_with_its_checks() {
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO cycles (issue, started_at, started_by, how) VALUES (7, 1, 'a', 'label')",
+        "INSERT INTO cycles (issue, started_at, started_by, how) VALUES (7, 1, 'a', 'approved')",
         [],
     )
     .unwrap();
@@ -2553,7 +2566,7 @@ fn asked(home: &Path, issue: i64, id: i64) {
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -2751,7 +2764,7 @@ fn a_batch_refuses_every_write_the_store_has() {
         "plan-end 12 --close",
         "plan-show --open",
         "plan-note 12 --kind brief --id 1",
-        "approval-record 12 --at 1 --by alice --how label --label r --body-sha aaaaaaaa",
+        "approval-record 12 --at 1 --by alice --how approved --label r --body-sha aaaaaaaa",
         "approval-undo 12 --at 1",
         "live-open 12",
         "upkeep-backup",

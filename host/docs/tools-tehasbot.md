@@ -21,7 +21,6 @@ tehasbot dispatch             # one poll; what tehas-dispatch.timer runs
 tehasbot cycle <issue>        # one cycle and its report; what tehas-cycle@<issue>.service runs
 tehasbot status               # write the queue snapshot
 tehasbot health               # write the health file
-tehasbot top [--every]        # publish the snapshot of tehas top; what tehas-top.service runs
 tehasbot preview              # keep the previews; what tehas-preview.timer runs
 tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer runs
 tehasbot refresh --pr N       # tehas refresh --pr N, by its old name
@@ -38,8 +37,7 @@ tehasbot plugin-gate          # the gate of the plugins' views; what tehas-plugi
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
-as a cycle ends), `tehas-top.service`,
-the previews' `tehas-preview.timer` and
+as a cycle ends), the previews' `tehas-preview.timer` and
 `tehas-preview-sweep.timer`, the cleaner's `tehas-clean.timer` (installed, and enabled
 by a person), `tehas-mcp.service` (installed, and enabled by a person; it runs
 `tehasbot mcp serve` only while `TEHAS_MCP=1`, and
@@ -214,7 +212,7 @@ poll that started the unit takes such a cycle as one that came up: the issue
 keeps `tehas:running`, and the next poll clears it in silence.
 
 **The start on record.** The record holds the attempt, when it started, the
-approval it used and who gave it, how (`label`, `reply`, `answer`, `millwright`,
+approval it used and who gave it, how (`approved`, `reply`, `answer`, `millwright`,
 `refresh`, `outage-retry`, `host`, or `hand`), whether it is the one retry after an
 outage, and the pi-rukas commit of the sandbox image. Docker is asked for that
 commit before the record starts, and a daemon that has not answered in 30

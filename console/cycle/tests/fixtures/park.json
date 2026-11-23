@@ -17,7 +17,7 @@
    "start": {
     "attempt": 1,
     "by": "alice",
-    "how": "label",
+    "how": "approved",
     "approval_at": 1760000000,
     "requeued": false
    },
@@ -45,7 +45,7 @@
      "attempt": 1,
      "started_at": 1793525960,
      "started_by": "alice",
-     "how": "label",
+     "how": "approved",
      "requeued": false,
      "rukas_commit": null,
      "image": null,
@@ -75,7 +75,7 @@
      "issue": 7,
      "at": 1760000000,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -90,12 +90,10 @@
     "rests_on": {
      "at": 1760000000,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -232,8 +230,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -375,8 +371,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -518,8 +512,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -677,8 +669,6 @@
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -819,8 +809,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -962,8 +950,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1105,8 +1091,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1248,8 +1232,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1386,8 +1368,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1529,8 +1509,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1672,8 +1650,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1815,8 +1791,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1958,8 +1932,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2049,7 +2021,7 @@
    "start": {
     "attempt": 1,
     "by": "alice",
-    "how": "label",
+    "how": "approved",
     "approval_at": 1760000000,
     "requeued": false
    },
@@ -2073,7 +2045,7 @@
      "attempt": 1,
      "started_at": 1793526042,
      "started_by": "alice",
-     "how": "label",
+     "how": "approved",
      "requeued": false,
      "rukas_commit": null,
      "image": null,
@@ -2103,7 +2075,7 @@
      "issue": 7,
      "at": 1760000000,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -2118,12 +2090,10 @@
     "rests_on": {
      "at": 1760000000,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2213,7 +2183,7 @@
    "start": {
     "attempt": 1,
     "by": "alice",
-    "how": "label",
+    "how": "approved",
     "approval_at": 1760000000,
     "requeued": false
    },
@@ -2237,7 +2207,7 @@
      "attempt": 1,
      "started_at": 1793526048,
      "started_by": "alice",
-     "how": "label",
+     "how": "approved",
      "requeued": false,
      "rukas_commit": null,
      "image": null,
@@ -2267,7 +2237,7 @@
      "issue": 7,
      "at": 1760000000,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -2282,12 +2252,10 @@
     "rests_on": {
      "at": 1760000000,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2425,8 +2393,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2568,8 +2534,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2711,8 +2675,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2854,8 +2816,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2999,8 +2959,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3144,8 +3102,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3285,8 +3241,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3423,8 +3377,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3568,8 +3520,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3712,8 +3662,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3857,8 +3805,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -4024,8 +3970,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -4169,8 +4113,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -4336,8 +4278,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -4524,8 +4464,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -4669,8 +4607,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -4802,8 +4738,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -4939,7 +4873,7 @@
      "issue": 7,
      "at": 1700000000,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -4954,12 +4888,10 @@
     "rests_on": {
      "at": 1700000000,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -5098,7 +5030,7 @@
      "issue": 7,
      "at": 1700000000,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -5113,12 +5045,10 @@
     "rests_on": {
      "at": 1700000000,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -5259,8 +5189,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -5404,8 +5332,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -5549,8 +5475,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -5694,8 +5618,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -5832,8 +5754,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -5981,7 +5901,7 @@
      "issue": 7,
      "at": 1700000000,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -5996,12 +5916,10 @@
     "rests_on": {
      "at": 1700000000,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -6135,8 +6053,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -6271,8 +6187,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -6406,8 +6320,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -6537,8 +6449,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -6617,7 +6527,7 @@
    "start": {
     "attempt": 1,
     "by": "alice",
-    "how": "label",
+    "how": "approved",
     "approval_at": 1760000000,
     "requeued": false
    },
@@ -6641,7 +6551,7 @@
      "attempt": 1,
      "started_at": 1793526188,
      "started_by": "alice",
-     "how": "label",
+     "how": "approved",
      "requeued": false,
      "rukas_commit": null,
      "image": null,
@@ -6671,7 +6581,7 @@
      "issue": 7,
      "at": 1760000000,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -6686,12 +6596,10 @@
     "rests_on": {
      "at": 1760000000,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -6822,8 +6730,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -6958,8 +6864,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -7098,8 +7002,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -7235,8 +7137,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -7371,8 +7271,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -7522,8 +7420,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -7675,8 +7571,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -7811,8 +7705,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -7947,8 +7839,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -8109,8 +7999,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -8245,8 +8133,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -8386,8 +8272,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -8474,7 +8358,7 @@
    "start": {
     "attempt": 1,
     "by": "alice",
-    "how": "label",
+    "how": "approved",
     "approval_at": 1767225600,
     "requeued": false
    },
@@ -8498,7 +8382,7 @@
      "attempt": 1,
      "started_at": 1793526239,
      "started_by": "alice",
-     "how": "label",
+     "how": "approved",
      "requeued": false,
      "rukas_commit": null,
      "image": null,
@@ -8528,7 +8412,7 @@
      "issue": 7,
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -8546,12 +8430,10 @@
     "rests_on": {
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -8636,7 +8518,7 @@
    "start": {
     "attempt": 1,
     "by": "alice",
-    "how": "label",
+    "how": "approved",
     "approval_at": 1767225600,
     "requeued": false
    },
@@ -8659,7 +8541,7 @@
      "attempt": 1,
      "started_at": 1793526243,
      "started_by": "alice",
-     "how": "label",
+     "how": "approved",
      "requeued": false,
      "rukas_commit": null,
      "image": null,
@@ -8689,7 +8571,7 @@
      "issue": 7,
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -8704,12 +8586,10 @@
     "rests_on": {
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -8793,7 +8673,7 @@
    "start": {
     "attempt": 1,
     "by": "alice",
-    "how": "label",
+    "how": "approved",
     "approval_at": 1767225600,
     "requeued": false
    },
@@ -8816,7 +8696,7 @@
      "attempt": 1,
      "started_at": 1793526247,
      "started_by": "alice",
-     "how": "label",
+     "how": "approved",
      "requeued": false,
      "rukas_commit": null,
      "image": null,
@@ -8846,7 +8726,7 @@
      "issue": 7,
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -8864,12 +8744,10 @@
     "rests_on": {
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -8953,7 +8831,7 @@
    "start": {
     "attempt": 1,
     "by": "alice",
-    "how": "label",
+    "how": "approved",
     "approval_at": 1767225600,
     "requeued": false
    },
@@ -8976,7 +8854,7 @@
      "attempt": 1,
      "started_at": 1793526250,
      "started_by": "alice",
-     "how": "label",
+     "how": "approved",
      "requeued": false,
      "rukas_commit": null,
      "image": null,
@@ -9006,7 +8884,7 @@
      "issue": 7,
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -9024,12 +8902,10 @@
     "rests_on": {
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -9113,7 +8989,7 @@
    "start": {
     "attempt": 1,
     "by": "alice",
-    "how": "label",
+    "how": "approved",
     "approval_at": 1767225600,
     "requeued": false
    },
@@ -9136,7 +9012,7 @@
      "attempt": 1,
      "started_at": 1793526253,
      "started_by": "alice",
-     "how": "label",
+     "how": "approved",
      "requeued": false,
      "rukas_commit": null,
      "image": null,
@@ -9166,7 +9042,7 @@
      "issue": 7,
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -9181,12 +9057,10 @@
     "rests_on": {
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -9339,12 +9213,10 @@
     "rests_on": {
      "at": 1700000000,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 1,
     "easy": false
    },
@@ -9363,7 +9235,7 @@
       "status": "handoff",
       "step": null,
       "by": "alice",
-      "how": "label",
+      "how": "approved",
       "pr": null,
       "started_at": 1793526257,
       "rc": null,
@@ -9527,8 +9399,6 @@
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -9613,7 +9483,7 @@
    "start": {
     "attempt": 1,
     "by": "alice",
-    "how": "label",
+    "how": "approved",
     "approval_at": 1767225600,
     "requeued": false
    },
@@ -9636,7 +9506,7 @@
      "attempt": 1,
      "started_at": 1793526266,
      "started_by": "alice",
-     "how": "label",
+     "how": "approved",
      "requeued": false,
      "rukas_commit": null,
      "image": null,
@@ -9666,7 +9536,7 @@
      "issue": 7,
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -9681,12 +9551,10 @@
     "rests_on": {
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -9771,7 +9639,7 @@
    "start": {
     "attempt": 1,
     "by": "alice",
-    "how": "label",
+    "how": "approved",
     "approval_at": 1767225600,
     "requeued": false
    },
@@ -9795,7 +9663,7 @@
      "attempt": 1,
      "started_at": 1793526271,
      "started_by": "alice",
-     "how": "label",
+     "how": "approved",
      "requeued": false,
      "rukas_commit": null,
      "image": null,
@@ -9825,7 +9693,7 @@
      "issue": 7,
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -9840,12 +9708,10 @@
     "rests_on": {
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -9979,8 +9845,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -10065,7 +9929,7 @@
    "start": {
     "attempt": 1,
     "by": "alice",
-    "how": "label",
+    "how": "approved",
     "approval_at": 1767225600,
     "requeued": false
    },
@@ -10088,7 +9952,7 @@
      "attempt": 1,
      "started_at": 1793526279,
      "started_by": "alice",
-     "how": "label",
+     "how": "approved",
      "requeued": false,
      "rukas_commit": null,
      "image": null,
@@ -10118,7 +9982,7 @@
      "issue": 7,
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
      "title_sha256": null,
@@ -10133,12 +9997,10 @@
     "rests_on": {
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -10275,7 +10137,7 @@
      "issue": 7,
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
      "title_sha256": null,
@@ -10290,12 +10152,10 @@
     "rests_on": {
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -10314,7 +10174,7 @@
       "status": "unknown",
       "step": "-",
       "by": "alice",
-      "how": "label",
+      "how": "approved",
       "pr": null,
       "started_at": 1793526279,
       "rc": 30,
@@ -10453,8 +10313,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -10617,8 +10475,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -10777,8 +10633,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -10941,8 +10795,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -11105,8 +10957,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },

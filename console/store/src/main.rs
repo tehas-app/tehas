@@ -100,7 +100,7 @@
 //!   store question-show <issue>
 //!   store approval-record <issue> --at <unix> --by <account> --how <how> ...
 //!                [--input-file <file>] | --undo --at <unix>
-//!                (the hows are label, refresh, outage-retry, answer, reply,
+//!                (the hows are approved, refresh, outage-retry, answer, reply,
 //!                millwright and host)
 //!   store approval-current <issue>
 //!   store approval-hosts

@@ -184,7 +184,6 @@ body[data-factory="live"] .console-state::before {
     "board monitor"
     "console monitor"
     "epics epics"
-    "host host"
     "break break";
   column-gap: 24px;
   max-width: 1488px;
@@ -643,13 +642,11 @@ body[data-factory="live"] .console-state::before {
    between the stylesheet and the script. */
 
 @media not all and (min-width: 1440px) {
-  /* The template names every row it draws, the console included. A panel
-     that names no area is placed after the named ones, and on a host that
-     shows the host panel every row up to the breakroom is taken: the console
-     would be dropped below the breakroom. */
+  /* The template names every row it draws, the console included: a panel
+     that names no area is placed after the named ones, below the breakroom. */
   .stage {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "floor" "doors" "desk" "console" "epics" "host" "break";
+    grid-template-areas: "floor" "doors" "desk" "console" "epics" "break";
   }
   .floor { display: block; grid-area: floor; }
   /* Here the work order is a panel in the column: it scrolls away with the
@@ -672,9 +669,9 @@ body[data-factory="live"] .console-state::before {
   /* One row of links beside the wordmark row: what the manual's header, which
      holds four links, still makes. */
   :root { --header: 128px; }
-  /* The front page wraps its menu, so its band is the wordmark row plus two
-     rows of links. Only this page has .desk. */
-  :root:has(.desk) { --header: 174px; }
+  /* The front page wraps its menu, so its band is the wordmark row plus the
+     rows of links it wraps to. Only this page has .desk. */
+  :root:has(.desk) { --header: 126px; }
   .topbar { flex-wrap: wrap; }
   .menu { order: 3; flex-basis: 100%; margin-left: 0; }
   /* Wrapping, not a row that scrolls with its scrollbar hidden: below about
@@ -744,7 +741,7 @@ body[data-factory="live"] .console-state::before {
   .footer { padding: 24px 16px 32px; }
 }
 
-/* A host's notes (host-bridge.js; the chips are in panels.css, and in
+/* A host's notes (host-bridge.js; the chips are in dock.css, and in
    manual.css for /dashboard). Under a sign's ticket, under a row's title with
    the row's rule below both, and on the monitor in the screen's colours. */
 .slot > .host-notes { display: flex; margin-top: 4px; }

@@ -39,15 +39,6 @@ pub struct Feature {
 
 pub const FEATURES: &[Feature] = &[
     Feature {
-        name: "spec-pipe",
-        stage: Stage::Building,
-        setting: "TEHAS_SPEC_PIPE",
-        settings: &[],
-        since: "v1.0.0-alpha.3",
-        programs: &[],
-        units: &[],
-    },
-    Feature {
         name: "lean",
         stage: Stage::Building,
         setting: "TEHAS_LEAN",
@@ -380,8 +371,8 @@ mod tests {
         );
         // A release does not read it, and says what it names all the same.
         assert_eq!(
-            test_features_in(&vars(&[(TEST_VAR, "spec-pipe")]), false, false),
-            tested(false, false, true, &["spec-pipe"])
+            test_features_in(&vars(&[(TEST_VAR, "lean")]), false, false),
+            tested(false, false, true, &["lean"])
         );
         assert_eq!(
             test_features_in(&vars(&[(TEST_VAR, "nothing")]), true, false),
@@ -477,19 +468,6 @@ mod tests {
     }
 
     #[test]
-    fn the_spec_pipe_is_building_and_follows_its_switch_only_in_a_test() {
-        assert_eq!(find("spec-pipe").map(|f| f.stage), Some(Stage::Building));
-        assert!(!shipped().contains(&"spec-pipe"));
-        assert!(!on_in("spec-pipe", &vars(&[("TEHAS_SPEC_PIPE", "on")])));
-        let tested = vars(&[("TEHAS_SPEC_PIPE", "on"), (TEST_VAR, "spec-pipe")]);
-        assert!(on_in("spec-pipe", &tested));
-        assert_eq!(
-            refuse_building(&vars(&[("TEHAS_SPEC_PIPE", "1")])),
-            Err("TEHAS_SPEC_PIPE is on and spec-pipe is still being built in this release: set it to off or take the line out".to_string())
-        );
-    }
-
-    #[test]
     fn lean_is_building_and_follows_its_switch_only_in_a_test() {
         let name = "lean";
         assert_eq!(find(name).map(|f| f.stage), Some(Stage::Building));
@@ -569,7 +547,7 @@ mod tests {
 
     #[test]
     fn every_line_of_a_building_feature_in_a_file_is_found() {
-        let text = b"TEHAS_REPO=acme/widget\nexport TEHAS_PLUGIN=on\nTEHAS_PLUGINS='floorplan'\nTEHAS_LEAN=off\nTEHAS_SPEC_PIPE=\n";
+        let text = b"TEHAS_REPO=acme/widget\nexport TEHAS_PLUGIN=on\nTEHAS_PLUGINS='floorplan'\nTEHAS_LEAN=off\n";
         assert_eq!(
             found_in_with(text, "/i/instance.env", &vars(&[])),
             [
@@ -768,12 +746,8 @@ mod tests {
             .filter_map(|l| l.split('\t').next())
             .filter(|n| !n.is_empty())
             .collect();
-        labels.extend(crate::label_pins::PINNED);
         labels.extend(crate::label_pins::GRANTING);
-        labels.extend([
-            crate::kinds::Kind::Improvement.label(),
-            crate::kinds::Kind::Prototype.label(),
-        ]);
+        labels.push(crate::kinds::Kind::Improvement.label());
         let page = include_str!("../../../host/docs/contract.md");
         for f in building() {
             let own = |label: &str| {

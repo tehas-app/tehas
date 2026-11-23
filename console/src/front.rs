@@ -66,7 +66,7 @@ fn script(which: &str, command: &str) -> Option<&'static str> {
 
 /// The verbs of `tehas`. work and index are tehas-cycle's, which takes their
 /// lock (src/run.rs).
-const VERBS: [&str; 35] = [
+const VERBS: [&str; 34] = [
     "work",
     "index",
     "dispatch",
@@ -79,7 +79,6 @@ const VERBS: [&str; 35] = [
     "limit",
     "order",
     "start",
-    "panel",
     "host-message",
     "pause",
     "analytics",
@@ -137,8 +136,8 @@ fn tehasbot(words: &[String]) -> Go {
     match words.first().map(String::as_str) {
         None | Some("help" | "-h" | "--help") => Go::Usage,
         Some(
-            "health" | "status" | "top" | "refresh" | "clean" | "preview" | "dispatch"
-            | "github-token" | "cycle" | "plugin" | "plugin-gate",
+            "health" | "status" | "refresh" | "clean" | "preview" | "dispatch" | "github-token"
+            | "cycle" | "plugin" | "plugin-gate",
         ) => Go::Run,
         Some("mcp") if words.get(1).map(String::as_str) == Some("serve") => Go::Run,
         Some("mcp" | "github-writes") => Go::Verb,
@@ -353,7 +352,6 @@ mod tests {
             "start",
             "answer",
             "question",
-            "panel",
             "host-message",
             "pause",
             "analytics",
@@ -420,7 +418,6 @@ mod tests {
         for c in [
             "health",
             "status",
-            "top",
             "refresh",
             "clean",
             "preview",
@@ -432,8 +429,10 @@ mod tests {
         }
         // The improvement loop is gone, and so is its command.
         assert_eq!(b(&["improve"]), Go::Unknown("improve".into()));
-        // The review loop and the product wiki left core in 2.0.
+        // The review loop, the product wiki and the host panel's publisher
+        // left core in 2.0.
         assert_eq!(b(&["review"]), Go::Unknown("review".into()));
+        assert_eq!(b(&["top"]), Go::Unknown("top".into()));
         assert_eq!(t(&["wiki"]), Go::Unknown("wiki".into()));
         assert_eq!(b(&["wiki"]), Go::Unknown("wiki".into()));
         // The Protolab is parked (docs/specs/parked-protolab.md), and so is its command.
@@ -452,6 +451,8 @@ mod tests {
         assert_eq!(b(&["github-writes"]), Go::Verb);
         // Energy use left core in 2.0, and so did its sampler.
         assert_eq!(b(&["energy", "--every"]), Go::Unknown("energy".into()));
+        // Panels left core in 2.0, and so did their command.
+        assert_eq!(t(&["panel"]), Go::Unknown("panel".into()));
         for w in [&[][..], &["help"], &["-h"], &["--help"]] {
             assert_eq!(b(w), Go::Usage, "{w:?}");
         }
@@ -828,7 +829,7 @@ mod tests {
 
     /// Each public `--json` row of api/commands.txt and the schemas in api/ of
     /// the objects it prints.
-    const JSON_SCHEMAS: [(&str, Option<&str>, &[&str]); 25] = [
+    const JSON_SCHEMAS: [(&str, Option<&str>, &[&str]); 24] = [
         ("analytics", Some("copy"), &["analytics-copy"]),
         ("answer", None, &["answer"]),
         ("api", None, &["api"]),
@@ -844,7 +845,6 @@ mod tests {
         ("order", None, &["order"]),
         ("order", Some("clear"), &["order"]),
         ("order", Some("set"), &["order"]),
-        ("panel", None, &["panel"]),
         ("question", None, &["question"]),
         ("refresh", None, &["refresh"]),
         ("start", None, &["start"]),

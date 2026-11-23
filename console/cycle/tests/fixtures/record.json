@@ -73,8 +73,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -229,8 +227,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -369,8 +365,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -509,8 +503,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -671,8 +663,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -811,8 +801,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -951,8 +939,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1090,8 +1076,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1227,8 +1211,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1379,8 +1361,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1520,8 +1500,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1664,8 +1642,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1807,8 +1783,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1964,8 +1938,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2121,8 +2093,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2265,8 +2235,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2409,8 +2377,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2551,8 +2517,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2697,8 +2661,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2843,8 +2805,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2989,8 +2949,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3135,8 +3093,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3281,8 +3237,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3426,8 +3380,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3571,8 +3523,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3719,8 +3669,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3862,8 +3810,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -4004,8 +3950,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -4146,8 +4090,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -4291,8 +4233,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -4429,8 +4369,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -4574,8 +4512,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -4717,8 +4653,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -4860,8 +4794,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -5000,8 +4932,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -5155,8 +5085,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -5295,8 +5223,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -5438,8 +5364,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -5580,8 +5504,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -5721,8 +5643,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -5859,8 +5779,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -5994,8 +5912,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -6151,8 +6067,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -6329,8 +6243,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -6528,8 +6440,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -6748,8 +6658,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -6883,8 +6791,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -7045,8 +6951,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -7180,8 +7084,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -7315,8 +7217,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -7444,8 +7344,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -7580,8 +7478,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -7721,8 +7617,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -7861,8 +7755,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -7997,8 +7889,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -8133,8 +8023,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -8269,8 +8157,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -8406,8 +8292,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -8538,8 +8422,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -8658,8 +8540,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -8798,8 +8678,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -8936,8 +8814,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -9066,8 +8942,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -9202,8 +9076,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -9341,8 +9213,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -9478,8 +9348,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -9615,8 +9483,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -9752,8 +9618,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -9889,8 +9753,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -10028,8 +9890,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -10164,8 +10024,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -10305,8 +10163,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -10446,8 +10302,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -10587,8 +10441,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -10728,8 +10580,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -10869,8 +10719,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -11010,8 +10858,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -11151,8 +10997,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -11292,8 +11136,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -11431,8 +11273,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -11571,8 +11411,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -11707,8 +11545,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -11847,8 +11683,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -11983,8 +11817,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -12119,8 +11951,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -12257,8 +12087,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -12396,8 +12224,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -12536,8 +12362,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -12621,7 +12445,7 @@
    "start": {
     "attempt": 1,
     "by": "alice",
-    "how": "label",
+    "how": "approved",
     "approval_at": 1767225600,
     "requeued": false
    },
@@ -12644,7 +12468,7 @@
      "attempt": 1,
      "started_at": 1793526367,
      "started_by": "alice",
-     "how": "label",
+     "how": "approved",
      "requeued": false,
      "rukas_commit": null,
      "image": null,
@@ -12674,7 +12498,7 @@
      "issue": 7,
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "label": "tehas:ready",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "title_sha256": null,
@@ -12689,12 +12513,10 @@
     "rests_on": {
      "at": 1767225600,
      "by": "alice",
-     "how": "label",
+     "how": "approved",
      "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
      "used_by": 1
     },
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -12830,8 +12652,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -12967,8 +12787,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -13108,8 +12926,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -13248,8 +13064,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -13384,8 +13198,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -13520,8 +13332,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },

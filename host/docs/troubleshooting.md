@@ -563,55 +563,6 @@ apply `tehas:ready` again. The block is the only text pi-rukas's lean driver
 plans from, and its `/plan` writes one; [Choosing the
 driver](/operating#choosing-the-driver) says what the block must look like.
 
-With `TEHAS_SPEC_PIPE=on`, a start whose issue has a `Spec:` line tehas cannot
-read starts nothing either: the poll takes the label off and says once why,
-for example `` its `Spec:` line is not a link and its sha256 `` or `` the link
-of its `Spec:` line is not a file attached on GitHub ``. Write the one line
-`Spec: <link of the attached file> sha256:<64 hex digits of its bytes>`, or
-take it out, and apply `tehas:ready` again.
-
-A start with a `Spec:` line also fetches the file and checks that its bytes
-have the sha256 the line names. When they do not, or GitHub refuses the link
-with a 4xx, nothing starts and the poll says once why, for example `` the
-bytes of its spec are not the ones its `Spec:` line names: they have sha256
-<hex> ``. The file attached is not the one the line was written for: attach
-the spec, write its link and the sha256 of its bytes (`sha256sum spec.md`),
-and apply `tehas:ready` again. A start from `tehas start` is not told on the
-issue: the line is in `~/tehas/logs/dispatch.log`, and the host's approval is
-taken off the record, so run `tehas start <n>` again once the line is right.
-An outage's retry or a refresh stopped this way is not tried again on its
-own: apply `tehas:ready`. `ERROR: the spec of #<n> could not be fetched
-(curl exited <n>)`, with `HTTP <status>` when GitHub answered, is a fetch
-that failed on the way, a 5xx among them: nothing changed, the poll ends
-with 1, and the next poll tries again.
-
-The cycle fetches the spec once more as it starts and holds it to the same
-pin. `Tehas started no cycle: the bytes of its spec are not the ones
-approved` means the file changed between the poll and the start; `its spec
-could not be fetched (curl exited <n>)` is a fetch that failed. Nothing ran:
-apply `tehas:ready` again once the spec is right. `tehas work: <image> does
-not support what this cycle is given` followed by `the feature issueSpec`
-means the sandbox image's pi-rukas does not read a spec: the start stops with
-78 rather than run a cycle that would never see it. Rebuild the image on a
-pi-rukas that lists `issueSpec`, or take the `Spec:` line out and approve the
-issue again.
-
-A cycle with a pinned spec that hands off with its pull request open parks,
-rather than wait for a merge, when the pull request does not answer to that
-spec. The park reason is `spec-block`, and the comment says `Its pull request
-does not answer to the approved spec:` and then one of:
-
-- `its body has no spec block`;
-- `its spec block names sha256 <got>, not <pinned>, the one approved`;
-- `its spec block cannot be read: <why>`, with the reason of the parser;
-- `the approval of this start could not be read, so its spec block could not
-  be checked`, when the state store did not answer.
-
-Fix the block in the pull request's body so that it is [one tehas
-reads](/contract#the-pull-request-spec-block) and names the approved sha256,
-then retry. Or, when the issue should not be held to a spec, take the `Spec:`
-line out of the issue and approve it again.
-
 The caps this factory has posted are explained one by one in the next
 section.
 
@@ -967,7 +918,7 @@ already done is not reused.
 
 The gate passed, but the change lacks a part the plan declared. The comment
 names the missing parts by id and path, for example `d5
-(host/fun/host-data.js)`. pi-rukas has already tried once to add them.
+(host/fun/page-data.js)`. pi-rukas has already tried once to add them.
 The work is committed on a local branch in the workspace and was not pushed.
 There is no pull request. Retry: a new cycle gets a new attempt at the
 missing parts. If a missing part is one the issue does not want, say so in

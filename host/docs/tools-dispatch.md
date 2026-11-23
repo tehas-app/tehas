@@ -85,7 +85,7 @@ state labels off closed issues: `tehas:running`, `tehas:awaiting-merge`,
 `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:blocked`,
 `tehas:ready`, `tehas:plan` and `tehas:refine`. Not `tehas:shipped`, not
 `needs-human-attention`, and not the labels a person chooses (`tehas:lean`,
-`tehas:classic`, `tehas:prototype`). It is one console verb
+`tehas:classic`). It is one console verb
 (`console/ops/src/tidy.rs`), with the settings of the poll's environment: the list,
 the searches, the decision of what comes off which issue and the edits are all
 there. It makes one search,
@@ -455,7 +455,7 @@ off, the change was made and the cycle starts.
 Before it marks an issue, the poll records what the start rests on in the
 state store (`~/tehas/state/tehas.db`, through `libexec/store`
 `approval-record`): `at` and `by`, when and by whom it was approved, `how`
-(`label`, `reply` for a retry a person's reply answered, `answer` for one
+(`approved` for a label an allowed account applied, `reply` for a retry a person's reply answered, `answer` for one
 `tehas answer` gave, `millwright`, `refresh`, `outage-retry` for the one start
 after a provider outage, or `host` for an approval of `tehas start`, whose `by`
 is `host` too), `body_sha256`, the sha256 of the body that approval

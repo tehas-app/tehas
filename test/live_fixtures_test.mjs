@@ -11,14 +11,11 @@ import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import "../host/fun/console-tabs.js";
 import "../host/fun/epics-view.js";
-import "../host/fun/panels.js";
 import "../host/fun/versions.js";
 import { analyticsView } from "../host/fun/analytics-data.js";
 import { normalize } from "../host/fun/game-data.js";
-import { layout as hostLayout } from "../host/fun/host-data.js";
 import { consoleModel } from "../host/fun/factory/tehas-factory-console.model.js";
 import { daysModel } from "../host/fun/factory/tehas-factory-days.model.js";
-import { hostModel } from "../host/fun/factory/tehas-factory-host.model.js";
 import { issuesModel } from "../host/fun/factory/tehas-factory-issues.model.js";
 import { previewsModel } from "../host/fun/factory/tehas-factory-previews.model.js";
 import { readonlyModel } from "../host/fun/factory/tehas-factory-readonly.model.js";
@@ -85,18 +82,10 @@ test("analytics.json draws the ten-day report", () => {
   assert.equal(v.versions.length, 2);
 });
 
-test("top.json draws the host section", () => {
-  const v = hostLayout(read("top.json"), NOW);
-  assert.equal(v.rows.length, 3);
-  assert.equal(v.units.length, 2);
-});
-
-test("epics.json, panels.json and health.json draw their parts", () => {
+test("epics.json and health.json draw their parts", () => {
   const epics = globalThis.TEHAS_EPICS.view(read("epics.json"));
   assert.equal(epics.epics.length, 1);
   assert.equal(epics.epics[0].subs.length, 3);
-  assert.deepEqual(globalThis.TEHAS_PANELS.view(read("panels.json"), "https://example.org"),
-    [{ id: "support", label: "Support", url: "https://support.example.net/" }]);
   const { line, messages } = globalThis.TEHAS_VERSIONS;
   assert.equal(line(read("health.json")), "tehas v1.0.0 · pi-rukas v0.14.84 · manager v0.9.0");
   assert.deepEqual(messages(read("health.json"), NOW).map((m) => m.word), ["Notice"]);
@@ -116,8 +105,6 @@ test("the plain dashboard's islands make every section from the samples", () => 
   assert.deepEqual([c.tabs.length, c.title, c.file], [2, "Working on #41  Export the report as CSV", "console-41.txt"]);
   const previews = previewsModel(read("previews.json"), NOW);
   assert.deepEqual([previews.present, previews.rows.length], [true, 3]);
-  const host = hostModel(read("top.json"), NOW);
-  assert.deepEqual([host.present, host.rows.length, host.units.length], [true, 3, 2]);
   const days = daysModel(read("analytics.json"));
   assert.deepEqual([days.present, days.chart.length, days.versions.length > 0], [true, 10, true]);
 });

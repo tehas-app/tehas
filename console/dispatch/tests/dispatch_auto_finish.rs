@@ -204,7 +204,7 @@ fn a_finish_already_asked_for_is_not_run_twice() {
             "<!-- tehas:millwright issue=7 action=finish -->\nGitHub failed the push."
         )]),
     );
-    w.past(7, "alice", "label", "2026-10-01T00:00:00Z", &[]);
+    w.past(7, "alice", "approved", "2026-10-01T00:00:00Z", &[]);
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(finishes(&w), 1);

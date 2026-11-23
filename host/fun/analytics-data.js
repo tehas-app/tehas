@@ -43,7 +43,7 @@ export function tokens(v) {
 }
 
 // Heights for a row of bars: each value's share of the largest, 0 where all
-// are 0, so an empty ten days draws flat rather than full.
+// are 0, so an empty ten days draws flat.
 function heights(values) {
   const max = Math.max(0, ...values);
   return values.map((v) => (max > 0 ? v / max : 0));
@@ -120,12 +120,12 @@ export function analyticsView(data) {
   const versions = list(r.versions).slice(0, 10).map((v) => {
     const o = obj(v);
     const n = num(o.n) ?? 0;
-    const full = n >= VERSION_FLOOR && num(o.prShare) != null;
+    const full = n >= VERSION_FLOOR && num(o.changeShare) != null;
     return {
       tehas: text(o.tehas, 40) || "unknown",
       rukas: text(o.rukas, 40) || "unknown",
       runs: String(n),
-      pr: full ? percent(o.prShare) : "",
+      pr: full ? percent(o.changeShare) : "",
       minutes: full ? duration(o.medianSeconds) : "",
       tokens: full ? tokens(o.medianTokens) : "",
       few: !full,

@@ -564,8 +564,6 @@ impl Poll<'_> {
                     given_at: at,
                     given_how: if ans.tick.answered { "answer" } else { "reply" }.into(),
                     remove,
-                    fixer: None,
-                    park_lifted: None,
                     extra,
                 },
             );
@@ -714,8 +712,6 @@ impl Poll<'_> {
                     given_at: iso(started),
                     given_how: "outage-retry".into(),
                     remove,
-                    fixer: None,
-                    park_lifted: None,
                     extra,
                 },
             );
@@ -981,8 +977,6 @@ impl Poll<'_> {
             given_at: at,
             given_how: "refresh".into(),
             remove,
-            fixer: None,
-            park_lifted: None,
             extra,
         }))
     }
@@ -997,7 +991,7 @@ mod tests {
         let base = json!({"at": "2026-10-01T00:00:00Z", "by": "alice"});
         let r = json!({"how": "refresh", "refreshes": 2, "rests_on": {"at": "2026-10-01T00:00:00Z", "by": "alice"}});
         assert_eq!(refresh_count(&r, &base), Some(2));
-        assert_eq!(refresh_count(&json!({"how": "label"}), &base), Some(0));
+        assert_eq!(refresh_count(&json!({"how": "approved"}), &base), Some(0));
         let other = json!({"how": "refresh", "refreshes": 2, "rests_on": {"at": "2026-09-01T00:00:00Z", "by": "alice"}});
         assert_eq!(refresh_count(&other, &base), Some(0));
         let bad = json!({"how": "refresh", "refreshes": 0, "rests_on": base});
@@ -1049,7 +1043,7 @@ mod tests {
             ),
             (
                 "the park of a cycle that was no refresh",
-                json!({"how": "label", "parked": true, "started": 1790899201}),
+                json!({"how": "approved", "parked": true, "started": 1790899201}),
                 false,
             ),
         ];

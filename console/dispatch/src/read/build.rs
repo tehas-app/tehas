@@ -331,14 +331,6 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         per_issue.extend(reads);
     }
 
-    // The running cycles a fed start began count against the feed's cap.
-    if c.millwright_feed {
-        want(
-            &mut per_issue,
-            locks.iter().copied().map(store::Read::Approval),
-        );
-    }
-
     // Refreshes: the history, the marks, the requests and what they read.
     let history = store::refreshed(calls);
     let mut from: Vec<u64> = history
@@ -462,9 +454,6 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     for n in lean {
         entry(&mut issues, n)["approval"] = store::approval(&asked, n).0;
     }
-    if c.millwright_feed {
-        s["fed"] = store::fed(&asked, &locks);
-    }
     s["refresh_requests"] = json!(requests.iter().map(|(n, _)| n).collect::<Vec<_>>());
     for (n, req) in &requests {
         if !open.contains(n) {
@@ -499,7 +488,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     let blocked = blocked_list(&q, &candidates, &asking);
     // The list is built from the park answers the batch above already holds, so
     // it is planned after that run and before this one.
-    let lifting = lifting_parks(&asked, &q, &candidates, &asking, c);
+    let lifting = lifting_parks(&asked, &q, &candidates, &asking);
     let wanted: Vec<u64> = asking
         .iter()
         .chain(&blocked)
@@ -693,15 +682,13 @@ fn blocked_list(q: &github::Queue, candidates: &[u64], asking: &[u64]) -> Vec<u6
         .collect()
 }
 
-/// Whether the millwright's note, or a Retry ticked in the park's question, may
-/// lift `park`'s hold: the test rule 6 applies to a candidate, held here so the
+/// Whether a Retry ticked in the park's question may lift `park`'s hold: the test rule 6 applies to a candidate, held here so the
 /// batch of comment reads and the rule ask the same issues (#1773). The read
 /// says nothing either way, so a park whose read failed is no park to lift on.
-fn park_lifts(park: &Value, c: &Settings) -> bool {
+fn park_lifts(park: &Value) -> bool {
     park.is_object()
         && park.get("failed").is_none()
-        && ((!c.millwright.is_empty() && c.work_images)
-            || park.get("question").is_some_and(|q| !q.is_null()))
+        && park.get("question").is_some_and(|q| !q.is_null())
 }
 
 /// The unblocked candidates of rule 6 whose comments the poll reads beside the
@@ -714,13 +701,12 @@ fn lifting_parks(
     q: &github::Queue,
     candidates: &[u64],
     asking: &[u64],
-    c: &Settings,
 ) -> Vec<u64> {
     candidates
         .iter()
         .copied()
         .filter(|n| {
-            !is_blocked(q, *n) && !asking.contains(n) && park_lifts(&store::park(asked, *n), c)
+            !is_blocked(q, *n) && !asking.contains(n) && park_lifts(&store::park(asked, *n))
         })
         .collect()
 }
@@ -1184,24 +1170,6 @@ mod tests {
             ["plan-show", "history-show", "park-show"].join("\n"),
         )
         .unwrap();
-        // A world whose issues are parked names them in `parks`, and the store
-        // answers their `park-show` and `approval-current` with the records of
-        // the lifted-park case rather than the quiet ones. The answer of each
-        // issue is the single line the store itself writes for the verb, held in
-        // a file beside the programs named for the call and its number.
-        for n in world["parks"].as_array().into_iter().flatten() {
-            let Some(n) = n.as_u64() else {
-                continue;
-            };
-            let sum = tehas_core::approval::body_sha256(&json!({"body": "Words."}));
-            let at = world["ready_at"].as_str().unwrap_or("2026-10-30T23:58:00Z");
-            std::fs::write(dir.join(format!(".park-show-{n}")), park_answer(&sum)).unwrap();
-            std::fs::write(
-                dir.join(format!(".approval-current-{n}")),
-                approval_answer(at, &sum),
-            )
-            .unwrap();
-        }
         // `approvals`: the store's answer of `approval-current <n>`, as its line.
         for (n, said) in world["approvals"].as_object().into_iter().flatten() {
             std::fs::write(
@@ -1495,93 +1463,6 @@ esac"#,
             "b11": {"state": "CLOSED"}, "b12": {"state": "CLOSED"},
             "b13": {"state": "CLOSED"}}}});
         w
-    }
-
-    /// The world of the lifted-park case: #21 to #23 sit open on the queue's
-    /// page with `tehas:ready` and no other flow, so rule 6 reads each of them
-    /// and none of them is in the blocked or the asking batch. `at` is when the
-    /// millwright applied the label, and `note_at` ten minutes before it is when
-    /// its guidance comment was written.
-    fn parked_world(count: u64, at: &str, note_at: &str) -> Value {
-        let mut w = world();
-        let numbers: Vec<u64> = (21..21 + count).collect();
-        let node = |n: u64| {
-            json!({
-                "number": n, "title": format!("issue {n}"), "body": "Words.",
-                "createdAt": "2026-10-01T00:00:00Z", "author": {"login": "alice"},
-                "lastEditedAt": null, "editor": null,
-                "labels": {"nodes": [{"name": "tehas:ready"}]},
-                // The page's timeline holds the label's event, so the poll
-                // trusts the page and pays no read by name for these issues.
-                "timelineItems": {"nodes": [
-                    {"__typename": "LabeledEvent",
-                     "createdAt": at,
-                     "actor": {"login": "tehas-millwright"}, "label": {"name": "tehas:ready"}}
-                ]},
-                "closedByPullRequestsReferences": {"nodes": []}
-            })
-        };
-        // The millwright's comment of guidance for the issue: what `change_note`
-        // lifts the park's hold on, and the read the batch now pays once.
-        let note = |n: u64| {
-            json!({"data": {"repository": {"issue": {"comments": {"nodes": [
-                {"databaseId": 600 + n, "author": {"login": "tehas-millwright"},
-                 "body": format!("<!-- tehas:millwright issue={n} action=change -->\\nDo not run the whole suite."),
-                 "createdAt": note_at, "lastEditedAt": null, "editor": null,
-                 "userContentEdits": {"totalCount": 0, "nodes": []}}
-            ]}}}}})
-        };
-        w["queue"]["data"]["repository"]["issues"]["nodes"] =
-            Value::Array(numbers.iter().map(|n| node(*n)).collect());
-        w["ready"] = numbers
-            .iter()
-            .map(|n| json!({"number": n, "labels": [{"name": "tehas:ready"}]}))
-            .collect();
-        w["blocked"] = json!([]);
-        w["states"] = json!({"data": {"repository": {}}});
-        w["comments"] = numbers
-            .iter()
-            .map(|n| (n.to_string(), note(*n)))
-            .collect::<serde_json::Map<String, Value>>()
-            .into();
-        // The events of the control issue are read by name, so its answer is
-        // the empty list rather than the blocked world's label events.
-        w["events"] = json!({"1": []});
-        w["parks"] = Value::Array(numbers.iter().map(|n| json!(n)).collect());
-        w["ready_at"] = json!(at);
-        w
-    }
-
-    /// The settings of the lifted-park case: the millwright has an account, and
-    /// a cycle is given the images its issue links, which is what makes the
-    /// millwright's comment of guidance able to lift a park's hold.
-    fn millwright_settings() -> Settings {
-        let mut c = settings();
-        c.millwright = "tehas-millwright".into();
-        c.work_images = true;
-        c
-    }
-
-    /// The store's answer of one `park-show <n>`: a park of the issue's own,
-    /// told, with no retries and its question off, so only the millwright's
-    /// comment of guidance can lift its hold.
-    fn park_answer(sum: &str) -> String {
-        format!(
-            "{{\"api\":1,\"ok\":true,\"verb\":\"park-show\",\"park\":{{\"reason\":\"intent-park\",\"body_sha256\":\"{sum}\",\"retries\":0,\"question\":null,\"told_at\":\"2026-10-01T03:00:00Z\"}}}}"
-        )
-    }
-
-    /// The store's answer of one `approval-current <n>`: the millwright's start on
-    /// the text `sum` of the issue, resting on alice's approval of the same
-    /// text, with a start left to the millwright. `at` is the instant the millwright
-    /// applied the label again, an hour after that start, so the label and the
-    /// approval cover one text and the label is newer than the start that took
-    /// the last one off.
-    fn approval_answer(at: &str, sum: &str) -> String {
-        let at = tehas_core::time::from_iso(at).unwrap_or_default() - 3600;
-        format!(
-"{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"current\":{{\"at\":{at},\"by\":\"tehas-millwright\",\"how\":\"millwright\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"{sum}\"}},\"millwright_starts\":1,\"fixer_starts\":1}}"
-        )
     }
 
     /// A snapshot given the room of a quiet host, as the fixtures' world has it:
@@ -1998,7 +1879,7 @@ esac"#,
         let sum = tehas_core::approval::body_sha256(&json!({"body": "Words."}));
         let at = tehas_core::time::from_iso("2026-10-02T22:13:03Z").unwrap();
         let said = format!(
-            "{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"approval\":null,\"current\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":null,\"millwright_starts\":0,\"fixer_starts\":0}}"
+            "{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"approval\":null,\"current\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"approved\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":null}}"
         );
         w["approvals"] = json!({"50": said, "51": said});
         let full: Vec<Value> = whole.iter().map(rest).collect();
@@ -2502,150 +2383,6 @@ esac"#,
             parsed.issues[&22].blockers,
             states(&[(11, "OPEN"), (12, "CLOSED")])
         );
-    }
-
-    /// Three parked issues whose park may lift read their comments in the one
-    /// batched call the asking and the blocked issues are read in: three of them
-    /// cost the same gh calls as one, and the poll pays no read of one issue at a
-    /// time (#1773). Each keeps its own answer, and what the rule lifts on is the
-    /// comment the batch read, so the hold lets the issue start.
-    ///
-    /// The count is the contract, not the snapshot's shape: a read that went back
-    /// to one comment read of a single issue per lifted park pays one gh process for
-    /// each, and `calls.gh_count` moves with the number of issues.
-    #[test]
-    fn the_lifted_parks_read_their_comments_in_the_one_batched_call() {
-        // The millwright applied `tehas:ready` at 23:58 and wrote its comment of
-        // guidance in the ten minutes before, which is what `change_note` lifts
-        // the park's hold on.
-        let at = "2026-10-30T23:58:00Z";
-        let note_at = "2026-10-30T23:55:00Z";
-        let mut counts: Vec<(u32, usize, Vec<usize>)> = Vec::new();
-        // The runs of `store batch` one poll of this host asks, counted once here
-        // and asserted again for every width of the park list: three parks pay
-        // what one does, and neither number is read from the world.
-        let mut one_batch_runs: Vec<String> = Vec::new();
-        for count in [1u64, 3] {
-            let w = parked_world(count, at, note_at);
-            let (snap, calls, gh_count, store) = poll_with(&w, &[], &millwright_settings());
-            if count == 1 {
-                one_batch_runs = batch_runs(&store);
-                assert!(
-                    !one_batch_runs.is_empty(),
-                    "the poll asks the store's batch: {store:?}"
-                );
-            }
-            let comment_calls = queries(&calls, COMMENT_MARK);
-            let parks: Vec<Value> = (21..21 + count)
-                .map(|n| snap["issues"][n.to_string()]["park"].clone())
-                .collect();
-            assert_eq!(
-                parks.iter().filter(|p| p.is_object()).count(),
-                count as usize,
-                "{count} parks are read from the store: {parks:?}"
-            );
-            counts.push((
-                gh_count,
-                comment_calls.len(),
-                comment_calls
-                    .iter()
-                    .map(|c| c.matches(": issue(number:").count())
-                    .collect::<Vec<usize>>(),
-            ));
-
-            // One call of the chunked read, not one per issue, and it asked each
-            // of the parked issues exactly once.
-            assert_eq!(
-                comment_calls.len(),
-                1,
-                "{count} lifted parks are one comment call: {calls:?}"
-            );
-            assert_eq!(
-                comment_calls[0].matches(": issue(number:").count(),
-                count as usize,
-                "the query asks of the lifted parks and of no other: {}",
-                comment_calls[0]
-            );
-            for n in 21..21 + count {
-                assert!(
-                    asks(&comment_calls[0], n),
-                    "issue {n} is asked for its comments: {}",
-                    comment_calls[0]
-                );
-                assert_eq!(
-                    snap["issues"][n.to_string()]["comments"],
-                    w["comments"][n.to_string()],
-                    "issue {n} keeps the answer the batch gave"
-                );
-            }
-            // The per-issue read is gone: no call asks one issue by the single
-            // query's own argument, only the aliased chunk of the batch.
-            assert!(
-                !calls.iter().any(|c| c.contains("number=2")),
-                "no per-issue comment read is paid: {calls:?}"
-            );
-            // The parks and the approvals are asked in the batch, not one call
-            // apiece, and the runs the store was asked in do not move with the
-            // number of issues.
-            let calls_of_runs = batched_calls(&store);
-            for n in 21..21 + count {
-                assert!(
-                    calls_of_runs
-                        .iter()
-                        .any(|c| c == &["park-show".to_string(), n.to_string()]),
-                    "issue {n}'s park is asked in the batch: {store:?}"
-                );
-                assert!(
-                    calls_of_runs
-                        .iter()
-                        .any(|c| c == &["approval-current".to_string(), n.to_string()]),
-                    "issue {n}'s approval is asked in the batch: {store:?}"
-                );
-            }
-            // The runs are the same shape whatever the width of the park list:
-            // the parks go in the run that asks the candidates, so three pay what
-            // one does. Only the request of each run differs, by its calls.
-            let shape = |runs: &Vec<String>| {
-                runs.iter()
-                    .map(|c| {
-                        c.split_once(REQUEST_SEP)
-                            .map_or_else(|| c.clone(), |(v, _)| format!("{v}{REQUEST_SEP}"))
-                    })
-                    .collect::<Vec<String>>()
-            };
-            assert_eq!(
-                shape(&batch_runs(&store)),
-                shape(&one_batch_runs),
-                "{count} lifted parks pay the runs one does: {store:?}"
-            );
-
-            // The decision the comments carry: the hold lifts and the issue starts.
-            let d = crate::decide::decide(
-                &Snapshot::parse(&roomy(snap.clone())),
-                &millwright_settings(),
-                true,
-            );
-            let picked: Vec<u64> = (21..21 + count).collect();
-            assert_eq!(d.picked, picked, "every lifted park starts: {:?}", d.log);
-            for n in 21..21 + count {
-                assert!(
-                    d.log.iter().any(|l| l
-                        == &format!("lift #{n}: its last cycle parked on intent-park and the body has not changed since, lifted on the fixer's guidance comment")),
-                    "issue {n} says what lifted it: {:?}",
-                    d.log
-                );
-            }
-        }
-        // Three parks cost what one does: the poll's own count, the number of
-        // comment calls and the width of that one query all held still.
-        let (one, one_calls, _) = &counts[0];
-        let (three, three_calls, three_sizes) = &counts[1];
-        assert_eq!(
-            three, one,
-            "three lifted parks pay the gh calls one does: {counts:?}"
-        );
-        assert_eq!(three_calls, one_calls, "{counts:?}");
-        assert_eq!(three_sizes, &vec![3], "{counts:?}");
     }
 
     /// An issue the blocked list carries but the queue's page left out is not a

@@ -1480,7 +1480,7 @@ impl World {
     pub fn approve(&self, n: u64, by: &str, how: &str, at: i64, extra: &[&str]) {
         let (n, at) = (n.to_string(), at.to_string());
         let mut a = vec!["approval-record", &n, "--at", &at, "--by", by, "--how", how];
-        if matches!(how, "label" | "millwright") {
+        if matches!(how, "approved" | "millwright") {
             a.extend(["--label", "tehas:ready"]);
         }
         let sum = wsum();
@@ -1581,8 +1581,8 @@ impl World {
 
     /// On a fresh store, the approval `j` describes in the shape approval-view
     /// gives it, used by a start of `n`: with the person's approval it rests
-    /// on (`rests_on`), and the millwright's (`fixer_starts`) and the refreshes'
-    /// (`refreshes`) starts it counts, as ended starts before it (t_record).
+    /// on (`rests_on`), and the refreshes' (`refreshes`) starts it counts, as
+    /// ended starts before it (t_record).
     pub fn record_on(&self, n: u64, j: &Value) {
         self.store_db();
         let how = j["how"].as_str().unwrap_or_default().to_string();
@@ -1608,13 +1608,6 @@ impl World {
                 epoch(&text_of(&base["at"])),
                 &["--body-sha", &text_of(&base["body_sha256"])],
             );
-            let mut count = j["fixer_starts"].as_i64().unwrap_or(0);
-            if how == "millwright" {
-                count -= 1;
-            }
-            for _ in 0..count.max(0) {
-                last = used("tehas-millwright", "millwright", last + 10, &[]);
-            }
             if how == "refresh" {
                 let head = "a".repeat(40);
                 for _ in 1..j["refreshes"].as_i64().unwrap_or(1) {
@@ -1632,7 +1625,7 @@ impl World {
         }
         let mut input =
             json!({"links": j.get("links").cloned().filter(|v| !v.is_null()).unwrap_or(json!([]))});
-        for k in ["comment_links", "retry_context", "driver", "spec"] {
+        for k in ["retry_context", "driver"] {
             if let Some(v) = j.get(k) {
                 input[k] = v.clone();
             }
@@ -1659,7 +1652,7 @@ impl World {
             "--input-file",
             &file,
         ];
-        if matches!(how.as_str(), "label" | "millwright") {
+        if matches!(how.as_str(), "approved" | "millwright") {
             a.extend(["--label", "tehas:ready"]);
         }
         let title = text_of(&j["title_sha256"]);
@@ -1694,7 +1687,7 @@ impl World {
     /// The approval of a start: by `by`, of `body`, with `links`, by label on
     /// 2026-10-14 (record_is).
     pub fn record_is(&self, by: &str, body: &str, links: &[&str]) {
-        *self.record.borrow_mut() = json!({"at": "2026-10-14T00:00:00Z", "by": by, "how": "label",
+        *self.record.borrow_mut() = json!({"at": "2026-10-14T00:00:00Z", "by": by, "how": "approved",
             "body_sha256": body_sha256(body), "links": links});
         self.record_put();
     }

@@ -173,7 +173,7 @@ fn cycle(home: &Path, name: &str, started: i64, line: Value) {
         home,
         7,
         "approval",
-        json!({"at": iso(started - 90), "how": "label"}),
+        json!({"at": iso(started - 90), "how": "approved"}),
     );
     fact(home, 7, "rukas", json!("abcdef1"));
     put(home, "docs/version.txt", "v0.7.22+1234abc\n");
@@ -217,11 +217,11 @@ fn each_fixture_result_is_stored_with_what_the_outcome_drops() {
         let ended = started + 80;
         let line = if status == "unknown" {
             json!({"at": iso(ended), "started": started, "rc": 10, "status": "unknown",
-                   "step": "-", "parked": true, "provider": false, "how": "label"})
+                   "step": "-", "parked": true, "provider": false, "how": "approved"})
         } else {
             json!({"at": iso(ended), "started": started, "rc": 10, "status": "handoff",
                    "step": "explore", "cap": "explore-bodies-empty", "failure_kind": "cap",
-                   "parked": true, "provider": false, "how": "label"})
+                   "parked": true, "provider": false, "how": "approved"})
         };
         cycle(&home, name, started, line);
         let conn = record(&home, 7, ended + 60);
@@ -891,7 +891,7 @@ fn attempt_counts_earlier_runs_and_how_is_kept() {
         &home,
         9,
         &[
-            line(t, "label"),
+            line(t, "approved"),
             line(t + 1000, "reply"),
             line(t + 2000, "millwright"),
         ],
@@ -931,19 +931,12 @@ fn every_outcome_of_a_run_is_an_outcome_word() {
                             failure_kind: kind.map(str::to_string),
                             ..run::Run::default()
                         };
-                        let o = run::outcome(&r, parked);
+                        let o = tehas_core::outcome::end(&r.line(parked));
                         assert!(OUTCOMES.contains(&o), "{o} from {status:?}");
                     }
                 }
             }
         }
-    }
-}
-
-#[test]
-fn every_failed_status_is_a_cycle_status() {
-    for s in run::FAILED {
-        assert!(tehas_core::outcome::STATUSES.contains(&s), "{s}");
     }
 }
 
@@ -959,7 +952,7 @@ fn outcomes_follow_how_the_cycle_ended() {
         ),
         (
             json!({"status": "handoff", "rc": 10, "pr": "https://github.com/o/r/pull/42", "parked": false}),
-            "pr",
+            "offered",
             Some(42),
         ),
         (
@@ -985,6 +978,19 @@ fn outcomes_follow_how_the_cycle_ended() {
         ),
         (
             json!({"status": "parked", "rc": 10, "cap": "intent-park", "failure_kind": "cap", "parked": true}),
+            "parked",
+            None,
+        ),
+        // The four ends that moved in 2.0.
+        (json!({"status": "stopped", "rc": 143}), "stopped", None),
+        (json!({"status": "lost", "rc": 10}), "failed", None),
+        (
+            json!({"status": "merged", "rc": 0, "cap": "merged-claimed", "parked": true}),
+            "parked",
+            None,
+        ),
+        (
+            json!({"status": "interrupted", "rc": 21, "parked": true}),
             "parked",
             None,
         ),
@@ -1203,7 +1209,7 @@ fn the_run_takes_its_history_approval_settings_and_commit_from_the_facts_alone()
         7,
         &[
             json!({"at": iso(started + 60), "started": started, "rc": 0, "status": "merged",
-                 "how": "label"}),
+                 "how": "approved"}),
         ],
     );
     fact(&home, 7, "attempt", json!(4));
@@ -1241,7 +1247,7 @@ fn the_run_takes_its_history_approval_settings_and_commit_from_the_facts_alone()
         7,
         &[
             json!({"at": iso(started + 60), "started": started, "rc": 0, "status": "merged",
-                 "how": "label"}),
+                 "how": "approved"}),
         ],
     );
     fact(&home, 7, "rukas", json!("not hex"));
@@ -1252,7 +1258,7 @@ fn the_run_takes_its_history_approval_settings_and_commit_from_the_facts_alone()
             "SELECT how || ' ' || coalesce(queue_wait, '-') || ' ' || coalesce(concurrent, '-') ||
                ' ' || coalesce(rukas_commit, '-') || ' ' || attempt FROM runs"
         ),
-        "label - - - 1"
+        "approved - - - 1"
     );
 }
 
@@ -1585,8 +1591,8 @@ fn a_write_lock_held_past_the_busy_timeout_is_waited_out() {
 /// v0.30.0 wrote schema 4 already, so a database of an older schema is no
 /// 0.30 host's: it is kept aside under its version, as a newer one is.
 #[test]
-fn a_database_of_schema_1_to_3_or_7_is_kept_aside() {
-    for v in [1, 2, 3, 7] {
+fn a_database_of_schema_1_to_3_or_8_is_kept_aside() {
+    for v in [1, 2, 3, 8] {
         let home = scratch(&format!("schema-{v}"));
         let file = db::path(&home);
         {
@@ -1615,18 +1621,22 @@ fn a_run_stores_the_driver_its_approval_bound_and_nothing_else() {
     let home = scratch("driver");
     let started = secs("2026-10-18T10:16:39Z");
     for (issue, approval, want) in [
-        (1, json!({"how": "label", "driver": "lean"}), Some("lean")),
+        (
+            1,
+            json!({"how": "approved", "driver": "lean"}),
+            Some("lean"),
+        ),
         (
             2,
-            json!({"how": "label", "driver": "classic"}),
+            json!({"how": "approved", "driver": "classic"}),
             Some("classic"),
         ),
-        (3, json!({"how": "label"}), None),
-        (4, json!({"how": "label", "driver": null}), None),
-        (5, json!({"how": "label", "driver": "fast"}), None),
-        (6, json!({"how": "label", "driver": "LEAN"}), None),
-        (7, json!({"how": "label", "driver": "le an"}), None),
-        (8, json!({"how": "label", "driver": 1}), None),
+        (3, json!({"how": "approved"}), None),
+        (4, json!({"how": "approved", "driver": null}), None),
+        (5, json!({"how": "approved", "driver": "fast"}), None),
+        (6, json!({"how": "approved", "driver": "LEAN"}), None),
+        (7, json!({"how": "approved", "driver": "le an"}), None),
+        (8, json!({"how": "approved", "driver": 1}), None),
         (9, Value::Null, None),
     ] {
         let line = json!({"at": "2026-10-18T10:20:00Z", "started": started, "rc": 0,
@@ -1892,7 +1902,7 @@ fn the_views_answer_for_a_known_data_set() {
     );
     let versions: Vec<(String, i64, f64, f64, f64, f64)> = conn
         .prepare(
-            "SELECT tehas_version, runs, pr_share, handoff_share, median_minutes, median_tokens
+            "SELECT tehas_version, runs, change_share, handoff_share, median_minutes, median_tokens
              FROM v_versions ORDER BY tehas_version",
         )
         .unwrap()
@@ -2154,7 +2164,7 @@ fn a_kept_lean_record_gives_a_lean_run_its_steps() {
         &home,
         7,
         "approval",
-        json!({"at": iso(started - 90), "how": "label", "driver": "lean"}),
+        json!({"at": iso(started - 90), "how": "approved", "driver": "lean"}),
     );
     let r = run::read(&home, 7, &given(&home, 7)).unwrap();
     assert_eq!(
@@ -2665,7 +2675,7 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
             Some(json!({"session": "s", "text": "t"})),
             "handoff",
             "-",
-            "label",
+            "approved",
         ),
         (
             "0",
@@ -2673,7 +2683,7 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
             Some(json!({"text": "t"})),
             "failed",
             "-",
-            "label",
+            "approved",
         ),
         // An answer marked `millwright` is the millwright's, and a record
         // not marked so is an answer of a person.
@@ -2701,8 +2711,8 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
             "lost",
             "answer",
         ),
-        ("4", rec(0, json!([])), None, "refused", "-", "label"),
-        ("64", rec(0, json!([])), None, "refused", "-", "label"),
+        ("4", rec(0, json!([])), None, "refused", "-", "approved"),
+        ("64", rec(0, json!([])), None, "refused", "-", "approved"),
         (
             "not-started",
             rec(1, json!([])),
@@ -2786,8 +2796,8 @@ fn a_refining_session_s_first_turn_is_how_refine_and_its_later_turns_are_answers
     let at = iso(now - 60);
     for (turns, label, how) in [
         (0, Some("tehas:refine"), "refine"),
-        (0, Some("tehas:plan"), "label"),
-        (0, None, "label"),
+        (0, Some("tehas:plan"), "approved"),
+        (0, None, "approved"),
         (1, Some("tehas:refine"), "answer"),
     ] {
         let mut record = json!({"session": "s", "turns": turns, "running": true, "startedAt": at, "answers": []});
@@ -2818,7 +2828,7 @@ fn the_refine_figures_follow_the_refined_issues_and_compare_them_with_the_rest()
         (1, day0 + 100, "refine"),
         (2, day0 + 200, "refine"),
         (3, day0 - DAY, "refine"),
-        (4, day0 + 300, "label"),
+        (4, day0 + 300, "approved"),
     ] {
         conn.execute(
             "INSERT INTO runs (id, kind, issue, how, started, ended) VALUES (?1, 'plan', ?2, ?3, ?4, ?4)",
@@ -3554,7 +3564,7 @@ fn report_data(conn: &Connection, day0: i64, to: i64) {
             2,
             day0 + 3000,
             1800,
-            "pr",
+            "offered",
             Some(2000),
             Some(500),
             None,
@@ -3770,7 +3780,7 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
         "to": to,
         "shipped": {"n": 3},
         "planned": {"n": 6, "inLine": 5, "planning": 1, "trend": trend},
-        "runs": {"n": 6, "pr": 1, "merged": 1, "handoff": 1, "parked": 0, "failed": 2,
+        "runs": {"n": 6, "offered": 1, "merged": 1, "handoff": 1, "parked": 0, "failed": 2,
                  "refused": 1, "stopped": 0},
         "planningTurns": {"n": 1},
         "handoffRate": {"n": 6, "share": 0.167},
@@ -3815,7 +3825,7 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
         ]},
         // Three runs or more show their figures; fewer, the count only.
         "versions": [
-            {"tehas": "v1", "rukas": "0.13.0", "n": 4, "prShare": 0.5, "medianSeconds": 900,
+            {"tehas": "v1", "rukas": "0.13.0", "n": 4, "changeShare": 0.5, "medianSeconds": 900,
              "medianTokens": 2500, "tokensN": 3},
             {"tehas": "v2", "n": 1},
             {"tehas": "v2", "rukas": "0.13.0", "n": 1},
@@ -3828,7 +3838,7 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
                 // Two pull requests and one run are under VERSION_FLOOR: their
                 // counts stand and their shares are left out. The hand-back of
                 // each entry is set below.
-                "0.13.0": {"n": 5, "ran": 4, "prShare": 0.5, "parkedShare": 0.25,
+                "0.13.0": {"n": 5, "ran": 4, "changeShare": 0.5, "parkedShare": 0.25,
                            "minutes": {"n": 4, "total": 65, "median": 15},
                            "tokens": {"n": 3, "total": 6500, "median": 2500},
                            "pullRequests": {"n": 2, "merged": 2}},
@@ -3940,23 +3950,23 @@ fn the_report_splits_by_driver_and_counts_a_null_row_as_classic() {
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     // Classic: two pull requests, one merged by the driver, one parked run.
     driver_run(&conn, "a", 1, day0, "merged", Some(100), None);
-    driver_run(&conn, "b", 2, day0, "pr", Some(200), Some("classic"));
+    driver_run(&conn, "b", 2, day0, "offered", Some(200), Some("classic"));
     driver_run(&conn, "c", 3, day0, "parked", Some(300), None);
     driver_run(&conn, "d", 4, day0, "failed", Some(400), None);
     // Lean: no usage yet. One pull request a person merged later, one not.
-    driver_run(&conn, "e", 5, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "f", 6, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "e", 5, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "f", 6, day0, "offered", None, Some("lean"));
     driver_run(&conn, "g", 7, day0, "parked", None, Some("lean"));
     db::event(&conn, 5, "merged", day0 + 3600).unwrap();
     let got = crate::report::build(&conn, to).unwrap();
     assert_eq!(
         got["drivers"],
         json!({
-            "classic": {"none": {"n": 4, "ran": 4, "prShare": 0.5, "parkedShare": 0.25,
+            "classic": {"none": {"n": 4, "ran": 4, "changeShare": 0.5, "parkedShare": 0.25,
                                  "minutes": {"n": 4, "total": 40, "median": 10},
                                  "tokens": {"n": 4, "total": 1000, "median": 250},
                                  "pullRequests": {"n": 2, "merged": 1}}},
-            "lean": {"none": {"n": 3, "ran": 3, "prShare": 0.667, "parkedShare": 0.333,
+            "lean": {"none": {"n": 3, "ran": 3, "changeShare": 0.667, "parkedShare": 0.333,
                               "minutes": {"n": 3, "total": 30, "median": 10},
                               "tokens": {"n": 0},
                               "pullRequests": {"n": 2, "merged": 1}}},
@@ -3982,11 +3992,11 @@ fn a_merge_is_credited_to_the_version_of_the_run_that_reached_the_pull_request()
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     // One issue, two releases: the older reached a pull request first, the
     // newer last, and the merge followed both.
-    lean_run(&conn, "a", 5, day0, "pr", "0.14.49");
-    lean_run(&conn, "b", 5, day0 + 1000, "pr", "0.14.50");
+    lean_run(&conn, "a", 5, day0, "offered", "0.14.49");
+    lean_run(&conn, "b", 5, day0 + 1000, "offered", "0.14.50");
     db::event(&conn, 5, "merged", day0 + 2000).unwrap();
     // The newer version needs enough runs for its own share to be published.
-    for (id, issue, outcome) in [("c", 6, "pr"), ("d", 7, "failed"), ("e", 8, "pr")] {
+    for (id, issue, outcome) in [("c", 6, "offered"), ("d", 7, "failed"), ("e", 8, "offered")] {
         lean_run(&conn, id, issue, day0, outcome, "0.14.50");
     }
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
@@ -4019,16 +4029,16 @@ fn a_drivers_shares_are_of_its_runs_that_ran() {
     let home = scratch("report-driver-ran");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
     driver_run(&conn, "b", 2, day0, "failed", None, Some("lean"));
     driver_run(&conn, "c", 3, day0, "refused", None, Some("lean"));
     driver_run(&conn, "d", 4, day0, "stopped", None, Some("lean"));
-    driver_run(&conn, "e", 5, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "e", 5, day0, "offered", None, Some("lean"));
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
     let lean = &got["drivers"]["lean"]["none"];
     assert_eq!(lean["n"], 5);
     assert_eq!(lean["ran"], 3);
-    assert_eq!(lean["prShare"], 0.667);
+    assert_eq!(lean["changeShare"], 0.667);
     assert_eq!(lean["parkedShare"], 0.0);
 }
 
@@ -4041,7 +4051,7 @@ fn a_driver_with_only_refused_runs_has_no_shares() {
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
     let lean = &got["drivers"]["lean"]["none"];
     assert_eq!((&lean["n"], &lean["ran"]), (&json!(1), &json!(0)));
-    assert_eq!(lean.get("prShare"), None);
+    assert_eq!(lean.get("changeShare"), None);
     assert_eq!(lean.get("parkedShare"), None);
 }
 
@@ -4052,8 +4062,8 @@ fn a_run_handed_off_to_a_person_counts_as_parked_for_its_driver() {
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     driver_run(&conn, "a", 1, day0, "handoff", None, Some("lean"));
     driver_run(&conn, "b", 2, day0, "parked", None, Some("lean"));
-    driver_run(&conn, "c", 3, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "d", 4, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "c", 3, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "d", 4, day0, "offered", None, Some("lean"));
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
     assert_eq!(got["drivers"]["lean"]["none"]["parkedShare"], 0.5);
     assert_eq!(got["handoffRate"]["share"], 0.5);
@@ -4067,12 +4077,12 @@ fn a_shipped_issue_whose_runs_reported_no_usage_is_no_zero_in_tokens_per_shipped
     let tokens =
         |conn: &Connection| crate::report::build(conn, day0 + DAY).unwrap()["tokens"].clone();
     driver_run(&conn, "a", 1, day0, "merged", Some(1_000_000), None);
-    driver_run(&conn, "b", 2, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "b", 2, day0, "offered", None, Some("lean"));
     db::event(&conn, 2, "merged", day0 + 3600).unwrap();
     assert_eq!(tokens(&conn)["perShipped"], 1_000_000);
     assert_eq!(tokens(&conn)["shipped"], 1);
     // One run with a figure is enough for the issue to count.
-    driver_run(&conn, "c", 2, day0 + 1, "pr", Some(0), Some("lean"));
+    driver_run(&conn, "c", 2, day0 + 1, "offered", Some(0), Some("lean"));
     assert_eq!(tokens(&conn)["perShipped"], 500_000);
     assert_eq!(tokens(&conn)["shipped"], 2);
     // No run here at all: no driver left a gap, so the issue counts as it did.
@@ -4098,9 +4108,9 @@ fn empty_tokens_are_left_out_of_a_drivers_sum_and_not_counted() {
     let home = scratch("report-part-tokens");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    driver_run(&conn, "a", 1, day0, "pr", Some(0), Some("lean"));
-    driver_run(&conn, "b", 2, day0, "pr", Some(400), Some("lean"));
-    driver_run(&conn, "c", 3, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "a", 1, day0, "offered", Some(0), Some("lean"));
+    driver_run(&conn, "b", 2, day0, "offered", Some(400), Some("lean"));
+    driver_run(&conn, "c", 3, day0, "offered", None, Some("lean"));
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
     // A reported 0 is a figure; an empty run is not in the median either.
     assert_eq!(
@@ -4117,14 +4127,14 @@ fn a_pull_request_counts_once_and_only_a_merge_after_it_was_reached() {
     let to = day0 + DAY;
     let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
     // Two runs of one pull request, the second a follow-up by another how.
-    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "b", 1, day0 + 1000, "pr", None, Some("lean"));
+    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "b", 1, day0 + 1000, "offered", None, Some("lean"));
     db::event(&conn, 1, "merged", day0 + 2000).unwrap();
     // Merged before this cycle of the issue: an earlier pull request's.
     db::event(&conn, 2, "merged", day0 - 8 * DAY).unwrap();
-    driver_run(&conn, "c", 2, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "c", 2, day0, "offered", None, Some("lean"));
     // Merged after the report's end: not yet, in this report.
-    driver_run(&conn, "d", 3, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "d", 3, day0, "offered", None, Some("lean"));
     db::event(&conn, 3, "merged", to + 1).unwrap();
     // No pull request, so it is in no count of them, merged or not.
     driver_run(&conn, "e", 4, day0, "failed", None, Some("lean"));
@@ -4142,14 +4152,14 @@ fn a_merge_is_of_the_driver_that_last_reached_a_pull_request_before_it() {
     let to = day0 + DAY;
     let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
     // Lean's pull request was closed, classic's merged.
-    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "b", 1, day0 + 1000, "pr", None, None);
+    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "b", 1, day0 + 1000, "offered", None, None);
     db::event(&conn, 1, "merged", day0 + 2000).unwrap();
     // The other way round, and a classic run after the merge changes nothing.
-    driver_run(&conn, "c", 2, day0, "pr", None, None);
-    driver_run(&conn, "d", 2, day0 + 1000, "pr", None, Some("lean"));
+    driver_run(&conn, "c", 2, day0, "offered", None, None);
+    driver_run(&conn, "d", 2, day0 + 1000, "offered", None, Some("lean"));
     db::event(&conn, 2, "merged", day0 + 2000).unwrap();
-    driver_run(&conn, "e", 2, day0 + 3000, "pr", None, None);
+    driver_run(&conn, "e", 2, day0 + 3000, "offered", None, None);
     let report = crate::report::build(&conn, to).unwrap();
     // Two pull requests are under VERSION_FLOOR: the counts, and no share.
     assert_eq!(
@@ -4167,7 +4177,7 @@ fn a_refused_run_is_in_no_minutes_of_its_driver() {
     let home = scratch("report-minutes-ran");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
-    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
     driver_run(&conn, "b", 2, day0, "refused", None, Some("lean"));
     driver_run(&conn, "c", 3, day0, "stopped", None, Some("lean"));
     let report = crate::report::build(&conn, day0 + DAY).unwrap();
@@ -4204,11 +4214,11 @@ fn each_drivers_entry_carries_the_keys_the_terminal_prints() {
     let home = scratch("report-drivers-shape");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    lean_run(&conn, "a", 1, day0, "pr", "0.14.50");
+    lean_run(&conn, "a", 1, day0, "offered", "0.14.50");
     // A classic run of the same version that reached a pull request.
     conn.execute(
         "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, rukas_version)
-         VALUES ('c', 'work', 2, ?1, ?1 + 600, 600, 'pr', '0.14.50')",
+         VALUES ('c', 'work', 2, ?1, ?1 + 600, 600, 'offered', '0.14.50')",
         rusqlite::params![day0],
     )
     .unwrap();
@@ -4229,7 +4239,7 @@ fn each_drivers_entry_carries_the_keys_the_terminal_prints() {
             // A figure the report cannot work out is left out, never null: a
             // key that is there holds a value of the shape `text` prints.
             assert!(
-                e.get("prShare").is_none_or(Value::is_number),
+                e.get("changeShare").is_none_or(Value::is_number),
                 "{driver} {version}"
             );
             assert!(
@@ -4255,7 +4265,7 @@ fn each_drivers_entry_carries_the_keys_the_terminal_prints() {
     }
     // And the two figures of the comparison hold what their lines print.
     let e = &got["drivers"]["lean"]["0.14.50"];
-    assert!(e["oneAttempt"]["pr"].is_number() && e["oneAttempt"]["n"].is_number());
+    assert!(e["oneAttempt"]["change"].is_number() && e["oneAttempt"]["n"].is_number());
     let back = e["handBack"]["steps"].as_array().unwrap();
     assert!(back[0]["step"].is_string() && back[0]["n"].is_number());
     assert!(back[0]["passed"].is_number() && back[0]["share"].is_number());
@@ -4266,18 +4276,18 @@ fn the_drivers_section_never_pools_two_pi_rukas_versions() {
     let home = scratch("report-drivers-versions");
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
-    lean_run(&conn, "a", 1, day0, "pr", "0.14.49");
-    lean_run(&conn, "b", 2, day0, "pr", "0.14.49");
+    lean_run(&conn, "a", 1, day0, "offered", "0.14.49");
+    lean_run(&conn, "b", 2, day0, "offered", "0.14.49");
     lean_run(&conn, "c", 3, day0, "parked", "0.14.49");
     // The next release, one run: it stands on its own with its own count, and
     // one run is too few for a share, as in `versions`.
-    lean_run(&conn, "d", 4, day0, "pr", "0.14.50");
+    lean_run(&conn, "d", 4, day0, "offered", "0.14.50");
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
     let lean = &got["drivers"]["lean"];
     assert_eq!(lean["0.14.49"]["n"], json!(3));
-    assert_eq!(lean["0.14.49"]["prShare"], json!(0.667));
+    assert_eq!(lean["0.14.49"]["changeShare"], json!(0.667));
     assert_eq!(lean["0.14.50"]["n"], json!(1));
-    assert_eq!(lean["0.14.50"].get("prShare"), None);
+    assert_eq!(lean["0.14.50"].get("changeShare"), None);
     assert_eq!(lean["0.14.50"].get("parkedShare"), None);
     // The terminal prints one line per pair, the version in its own column.
     let text = crate::report::text(&got);
@@ -4295,7 +4305,7 @@ fn two_versions_the_report_cannot_name_are_one_other_entry_whose_runs_are_summed
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     // One past the length a version may hold, and one with a word no release
     // carries: both are rejected, and both are the same entry.
-    lean_run(&conn, "a", 1, day0, "pr", &"0".repeat(41));
+    lean_run(&conn, "a", 1, day0, "offered", &"0".repeat(41));
     lean_run(&conn, "b", 2, day0, "parked", "v0.14.50$");
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
     let lean = got["drivers"]["lean"].clone();
@@ -4316,10 +4326,10 @@ fn a_drivers_entry_gives_the_one_attempt_success_and_the_hand_back_by_step() {
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     // Issue 1: the first attempt parked at verify, the second reached a PR.
     lean_run(&conn, "a", 1, day0, "parked", "0.14.50");
-    lean_run(&conn, "b", 1, day0 + 1000, "pr", "0.14.50");
+    lean_run(&conn, "b", 1, day0 + 1000, "offered", "0.14.50");
     // Issues 2 and 3: first attempts that reached a PR; issue 4: one refused.
-    lean_run(&conn, "c", 2, day0, "pr", "0.14.50");
-    lean_run(&conn, "d", 3, day0, "pr", "0.14.50");
+    lean_run(&conn, "c", 2, day0, "offered", "0.14.50");
+    lean_run(&conn, "d", 3, day0, "offered", "0.14.50");
     lean_run(&conn, "e", 4, day0, "refused", "0.14.50");
     for (id, attempt) in [("a", 1), ("b", 2), ("c", 1), ("d", 1), ("e", 1)] {
         conn.execute(
@@ -4338,7 +4348,10 @@ fn a_drivers_entry_gives_the_one_attempt_success_and_the_hand_back_by_step() {
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
     let e = &got["drivers"]["lean"]["0.14.50"];
     // Three first attempts ran (the refused one did not), two reached a PR.
-    assert_eq!(e["oneAttempt"], json!({"n": 3, "pr": 2, "share": 0.667}));
+    assert_eq!(
+        e["oneAttempt"],
+        json!({"n": 3, "change": 2, "share": 0.667})
+    );
     // Four runs in the funnel; the fix step is the second run's alone.
     assert_eq!(e["handBack"]["n"], json!(4));
     let steps: BTreeMap<String, (i64, i64)> = e["handBack"]["steps"]
@@ -4371,15 +4384,15 @@ fn a_run_with_no_usage_is_no_zero_in_a_version_pairs_median() {
         let row = &got["versions"][0];
         (row["medianTokens"].clone(), row["tokensN"].clone())
     };
-    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "b", 2, day0, "pr", None, Some("lean"));
-    driver_run(&conn, "c", 3, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "a", 1, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "b", 2, day0, "offered", None, Some("lean"));
+    driver_run(&conn, "c", 3, day0, "offered", None, Some("lean"));
     assert_eq!(pair(&conn), (Value::Null, Value::Null));
     // The floor holds for the runs behind the figure, not the pair's.
-    driver_run(&conn, "d", 4, day0, "pr", Some(500), None);
-    driver_run(&conn, "e", 5, day0, "pr", Some(600), None);
+    driver_run(&conn, "d", 4, day0, "offered", Some(500), None);
+    driver_run(&conn, "e", 5, day0, "offered", Some(600), None);
     assert_eq!(pair(&conn), (Value::Null, Value::Null));
-    driver_run(&conn, "f", 6, day0, "pr", Some(700), None);
+    driver_run(&conn, "f", 6, day0, "offered", Some(700), None);
     assert_eq!(pair(&conn), (json!(600), json!(3)));
 }
 
@@ -4391,13 +4404,13 @@ fn v_versions_leaves_runs_with_no_usage_out_of_its_median_tokens() {
     let (fresh, _) = db::open(&db::path(&new), 1_792_022_400).unwrap();
     {
         let conn = &fresh;
-        driver_run(conn, "a", 1, 1_792_022_400, "pr", None, Some("lean"));
-        driver_run(conn, "b", 2, 1_792_022_400, "pr", None, Some("lean"));
+        driver_run(conn, "a", 1, 1_792_022_400, "offered", None, Some("lean"));
+        driver_run(conn, "b", 2, 1_792_022_400, "offered", None, Some("lean"));
         assert_eq!(median(conn), None);
-        driver_run(conn, "c", 3, 1_792_022_400, "pr", Some(500), None);
+        driver_run(conn, "c", 3, 1_792_022_400, "offered", Some(500), None);
         assert_eq!(median(conn), Some(500.0));
         // A reported 0 is a figure.
-        driver_run(conn, "d", 4, 1_792_022_400, "pr", Some(0), None);
+        driver_run(conn, "d", 4, 1_792_022_400, "offered", Some(0), None);
         assert_eq!(median(conn), Some(250.0));
     }
 }
@@ -4409,7 +4422,7 @@ fn a_version_pair_reaches_its_figures_at_three_runs() {
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     let pair =
         |conn: &Connection| crate::report::build(conn, day0 + DAY).unwrap()["versions"][0].clone();
-    for (i, outcome) in ["pr", "failed", "pr"].iter().enumerate() {
+    for (i, outcome) in ["offered", "failed", "offered"].iter().enumerate() {
         conn.execute(
             "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input,
                                tehas_version, rukas_version)
@@ -4425,7 +4438,7 @@ fn a_version_pair_reaches_its_figures_at_three_runs() {
         let want = if i < 2 {
             json!({"tehas": "v0.7.22", "rukas": "0.13.0", "n": i + 1})
         } else {
-            json!({"tehas": "v0.7.22", "rukas": "0.13.0", "n": 3, "prShare": 0.667,
+            json!({"tehas": "v0.7.22", "rukas": "0.13.0", "n": 3, "changeShare": 0.667,
                    "medianSeconds": 60, "medianTokens": 10, "tokensN": 3})
         };
         assert_eq!(pair(&conn), want);
@@ -4515,7 +4528,7 @@ fn ten_days_of_data_report_well_inside_the_time_limit() {
                 i / 2,
                 started,
                 started + 600,
-                if i % 3 == 0 { "failed" } else { "pr" },
+                if i % 3 == 0 { "failed" } else { "offered" },
                 format!("0.{}.0", i % 7)
             ],
         )
@@ -4596,7 +4609,7 @@ fn the_text_report_says_the_figures_with_their_counts() {
         "Last 10 days, 2026-10-15 to 2026-10-24 (UTC)\n",
         "\nShipped            3 issues\n",
         "\nPlanned            6 now: 5 in line, 1 in planning\n",
-        "\nRuns               6: 1 pr, 1 merged, 1 handoff, 0 parked, 2 failed, 1 refused, 0 stopped\n",
+        "\nRuns               6: 1 offered, 1 merged, 1 handoff, 0 parked, 2 failed, 1 refused, 0 stopped\n",
         "\nHandoff rate       16.7%  (n=6)\n",
         "\nFirst-pass yield   50%  (n=2)\n",
         "\nLead time          median 12h03m, p90 23h13m  (n=2)\n",
@@ -4805,7 +4818,7 @@ fn a_wrong_typed_samples_cell_no_longer_ends_the_published_report() {
 
 fn add_run(conn: &Connection, id: &str, issue: i64, started: i64) {
     conn.execute(
-        "INSERT INTO runs (id, kind, issue, started, ended, outcome) VALUES (?1, 'work', ?2, ?3, ?3 + 600, 'pr')",
+        "INSERT INTO runs (id, kind, issue, started, ended, outcome) VALUES (?1, 'work', ?2, ?3, ?3 + 600, 'offered')",
         rusqlite::params![id, issue, started],
     )
     .unwrap();
@@ -6044,7 +6057,7 @@ fn the_build_time_options_are_read() {
 /// carries the kind, so a test that runs both commands adds one run each.
 fn one_ended_run(conn: &Connection, id: &str, at: i64) {
     conn.execute(
-        "INSERT INTO runs (id, kind, issue, started, ended, outcome) VALUES (?1, ?2, 1, ?3, ?3, 'pr')",
+        "INSERT INTO runs (id, kind, issue, started, ended, outcome) VALUES (?1, ?2, 1, ?3, ?3, 'offered')",
         rusqlite::params![id, if id.starts_with("plan") { "plan" } else { "work" }, at],
     )
     .unwrap();
@@ -6622,8 +6635,8 @@ fn schema_4_file(file: &Path, fixture: &str) {
     old.execute_batch(
         "INSERT INTO meta (key, value) VALUES ('schema', '4'), ('retention_days', '365'),
            ('created', '100');
-         INSERT INTO runs (id, kind, issue, started, outcome)
-           VALUES ('work-7-100', 'work', 7, 100, 'pr');
+         INSERT INTO runs (id, kind, issue, started, outcome, how)
+           VALUES ('work-7-100', 'work', 7, 100, 'pr', 'label');
          INSERT INTO run_roles (run_id, role, model, input) VALUES ('work-7-100', 'worker', 'm', 12);
          INSERT INTO samples (at, in_line, running, awaiting, stopped, planning, cycle_limit,
            paused, held, watts) VALUES (150, 1, 2, 3, 4, 5, 6, 0, 'limit', 412.5),
@@ -6646,10 +6659,10 @@ const SCHEMA_4: [(&str, &str); 2] = [
 ];
 
 #[test]
-fn a_new_database_is_schema_6_with_no_watts_and_no_contractor() {
-    let home = scratch("schema-6-new");
+fn a_new_database_is_schema_7_with_no_watts_and_no_contractor() {
+    let home = scratch("schema-7-new");
     let (conn, _) = db::open(&db::path(&home), 0).unwrap();
-    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 6);
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7);
     assert!(!columns(&conn, "samples").contains(&"watts".to_string()));
     assert!(!columns(&conn, "runs").contains(&"contractor_id".to_string()));
 }
@@ -6679,17 +6692,17 @@ fn schema_5_file(file: &Path) {
 
 #[test]
 fn a_schema_5_file_migrates_in_place_and_keeps_every_row_without_its_contractor() {
-    let fresh = scratch("schema-6-fresh-from-5");
+    let fresh = scratch("schema-7-fresh-from-5");
     let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
     let home = scratch("schema-5");
     let file = db::path(&home);
     schema_5_file(&file);
     let (conn, moved) = db::open(&file, 200).unwrap();
     assert_eq!(moved, None, "a file of schema 5 is not moved aside");
-    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 6);
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7);
     assert_eq!(
         one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
-        "6"
+        "7"
     );
     assert_eq!(shape(&conn), shape(&made));
     assert!(!columns(&conn, "runs").contains(&"contractor_id".to_string()));
@@ -6699,7 +6712,7 @@ fn a_schema_5_file_migrates_in_place_and_keeps_every_row_without_its_contractor(
             "SELECT group_concat(row, ' | ') FROM (SELECT id || ' ' || issue || ' ' || outcome
                AS row FROM runs ORDER BY id)"
         ),
-        "work-7-100 7 pr | work-8-110 8 parked"
+        "work-7-100 7 offered | work-8-110 8 parked"
     );
     assert_eq!(
         one::<String>(
@@ -6714,7 +6727,7 @@ fn a_schema_5_file_migrates_in_place_and_keeps_every_row_without_its_contractor(
         0
     );
     drop(conn);
-    // Opened again it is a 6 already: nothing is written.
+    // Opened again it is a 7 already: nothing is written.
     let before = fs::read(&file).unwrap();
     let (again, moved) = db::open(&file, 300).unwrap();
     assert_eq!(moved, None);
@@ -6724,7 +6737,7 @@ fn a_schema_5_file_migrates_in_place_and_keeps_every_row_without_its_contractor(
 
 #[test]
 fn a_schema_4_file_of_either_age_migrates_in_place_to_the_shape_of_a_new_one() {
-    let fresh = scratch("schema-6-fresh");
+    let fresh = scratch("schema-7-fresh");
     let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
     for (age, fixture) in SCHEMA_4 {
         let home = scratch(&format!("schema-4-{age}"));
@@ -6732,11 +6745,11 @@ fn a_schema_4_file_of_either_age_migrates_in_place_to_the_shape_of_a_new_one() {
         schema_4_file(&file, fixture);
         let (conn, moved) = db::open(&file, 200).unwrap();
         assert_eq!(moved, None, "{age}: a file of schema 4 is not moved aside");
-        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 6, "{age}");
+        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7, "{age}");
         assert_eq!(shape(&conn), shape(&made), "{age}");
         assert_eq!(
             one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
-            "6",
+            "7",
             "{age}"
         );
         assert_eq!(
@@ -6754,10 +6767,10 @@ fn a_schema_4_file_of_either_age_migrates_in_place_to_the_shape_of_a_new_one() {
         assert_eq!(
             one::<String>(
                 &conn,
-                "SELECT r.id || ' ' || r.outcome || ' ' || o.model || ' ' || o.input
+                "SELECT r.id || ' ' || r.outcome || ' ' || r.how || ' ' || o.model || ' ' || o.input
                    FROM runs r JOIN run_roles o ON o.run_id = r.id"
             ),
-            "work-7-100 pr m 12",
+            "work-7-100 offered approved m 12",
             "{age}"
         );
         assert_eq!(
@@ -6766,7 +6779,7 @@ fn a_schema_4_file_of_either_age_migrates_in_place_to_the_shape_of_a_new_one() {
             "{age}"
         );
         drop(conn);
-        // Opened again it is a 6 already: nothing is written.
+        // Opened again it is a 7 already: nothing is written.
         let before = fs::read(&file).unwrap();
         let (again, moved) = db::open(&file, 300).unwrap();
         assert_eq!(moved, None, "{age}");
@@ -6789,7 +6802,7 @@ fn a_schema_4_file_another_program_migrated_meanwhile_is_not_migrated_again() {
     let mut late = Connection::open(&file).unwrap();
     db::open(&file, 200).unwrap();
     assert!(db::settle(&mut late, 4, 300).is_ok());
-    assert_eq!(one::<i64>(&late, "PRAGMA user_version"), 6);
+    assert_eq!(one::<i64>(&late, "PRAGMA user_version"), 7);
     assert!(!columns(&late, "samples").contains(&"watts".to_string()));
     assert_eq!(one::<i64>(&late, "SELECT count(*) FROM samples"), 2);
 }
@@ -6817,11 +6830,131 @@ fn programs_that_open_a_schema_4_file_at_once_all_get_it_migrated() {
             );
         }
         let conn = Connection::open(&file).unwrap();
-        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 6);
+        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7);
         assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 8);
         assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM samples"), 2);
     }
 }
+
+/// A file of schema 6 as the 2.0 branch wrote it before schema 7, with runs
+/// that ended `pr` and were started by `label`, and the steps and roles of
+/// one of them.
+fn schema_6_file(file: &Path) {
+    let old = Connection::open(file).unwrap();
+    old.execute_batch(include_str!("../tests/fixtures/schema-6.sql"))
+        .unwrap();
+    old.execute_batch(
+        "INSERT INTO meta (key, value) VALUES ('schema', '6'), ('retention_days', '365'),
+           ('created', '100');
+         INSERT INTO runs (id, kind, issue, how, started, ended, seconds, outcome, tehas_version)
+           VALUES ('work-7-100', 'work', 7, 'label', 100, 700, 600, 'pr', 'v1.4.0'),
+                  ('work-8-110', 'work', 8, 'reply', 110, 710, 600, 'merged', 'v1.4.0'),
+                  ('work-9-120', 'work', 9, 'label', 120, 720, 600, 'parked', 'v1.4.0'),
+                  ('plan-5-130', 'plan', 5, 'label', 130, 190, 60, NULL, 'v1.4.0');
+         INSERT INTO run_roles (run_id, role, model, input) VALUES ('work-7-100', 'worker', 'm', 12);
+         INSERT INTO run_steps (run_id, step, round, seconds) VALUES ('work-7-100', 'develop', 1, 300);
+         INSERT INTO run_gate_runs (run_id, seq, ok, ms) VALUES ('work-7-100', 1, 1, 900);
+         PRAGMA user_version = 6;",
+    )
+    .unwrap();
+}
+
+/// Schema 6 to 7: `runs.outcome` takes `offered` and no longer `pr`, every
+/// `pr` outcome and every `label` how is rewritten, every row of runs and of
+/// its children stays, `v_versions` counts `change_share`, the file has the
+/// shape of a new one, the rewrite is counted for the published sessions, and
+/// a second open writes nothing. No `pr` outcome and no `label` how is left.
+#[test]
+fn a_schema_6_file_takes_the_words_of_2_0_and_keeps_every_row() {
+    let fresh = scratch("schema-7-fresh-from-6");
+    let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
+    let home = scratch("schema-6");
+    let file = db::path(&home);
+    schema_6_file(&file);
+    let (conn, moved) = db::open(&file, 200).unwrap();
+    assert_eq!(moved, None, "a file of schema 6 is not moved aside");
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 7);
+    assert_eq!(
+        one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
+        "7"
+    );
+    assert_eq!(shape(&conn), shape(&made));
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT group_concat(row, ' | ') FROM (SELECT id || ' ' || how || ' '
+               || coalesce(outcome, '-') AS row FROM runs ORDER BY id)"
+        ),
+        "plan-5-130 approved - | work-7-100 approved offered | work-8-110 reply merged | \
+         work-9-120 approved parked"
+    );
+    assert_eq!(
+        one::<i64>(
+            &conn,
+            "SELECT count(*) FROM runs WHERE outcome = 'pr' OR how = 'label'"
+        ),
+        0
+    );
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT o.model || ' ' || o.input || ' ' || s.step || ' ' || g.ms FROM run_roles o
+               JOIN run_steps s ON s.run_id = o.run_id JOIN run_gate_runs g ON g.run_id = o.run_id
+               WHERE o.run_id = 'work-7-100'"
+        ),
+        "m 12 develop 900"
+    );
+    assert_eq!(
+        one::<i64>(&conn, "SELECT count(*) FROM pragma_foreign_key_check"),
+        0
+    );
+    assert!(conn
+        .execute("UPDATE runs SET outcome = 'pr' WHERE id = 'work-7-100'", [])
+        .is_err());
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT runs || ' ' || change_share FROM v_versions WHERE tehas_version = 'v1.4.0'"
+        ),
+        "3 0.667"
+    );
+    assert_eq!(
+        one::<String>(
+            &conn,
+            &format!(
+                "SELECT value FROM meta WHERE key = '{}'",
+                db::HOWS_REWRITTEN
+            )
+        ),
+        "1"
+    );
+    drop(conn);
+    // Opened again it is a 7 already: nothing is written.
+    let before = fs::read(&file).unwrap();
+    let (again, moved) = db::open(&file, 300).unwrap();
+    assert_eq!(moved, None);
+    drop(again);
+    assert!(fs::read(&file).unwrap() == before, "a second open wrote");
+}
+
+/// The view columns and values schema 7 renamed: none of the old words is
+/// left in the schema's views, and the new ones are there.
+#[test]
+fn the_views_of_schema_7_say_offered_and_approved_and_never_pr_or_label() {
+    let home = scratch("schema-7-views");
+    let (conn, _) = db::open(&db::path(&home), 0).unwrap();
+    let views = one::<String>(
+        &conn,
+        "SELECT group_concat(sql, ' ') FROM sqlite_master WHERE type = 'view'",
+    );
+    assert!(views.contains("change_share"), "{views}");
+    for old in ["'pr'", " pr,", "pr_share", "'label'"] {
+        assert!(!views.contains(old), "{old} in {views}");
+    }
+    assert!(!SCHEMA_TEXT.contains("'pr'"));
+}
+
+const SCHEMA_TEXT: &str = include_str!("schema.sql");
 
 /// A store of before 2.0 holds runs a ticked retry started, `how`
 /// `retry-tick`, and runs recorded under the millwright's old name, `fixer`.

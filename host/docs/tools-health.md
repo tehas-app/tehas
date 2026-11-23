@@ -1,9 +1,9 @@
 ---
-title: The console, health and top
-description: "The files that feed the dashboard, and what watches the host's health, its models and its load."
+title: The console and health
+description: "The files that feed the dashboard, and what watches the host's health and its models."
 ---
 
-# The console, health and top
+# The console and health
 
 ## tehasbot status and the console
 
@@ -123,7 +123,7 @@ turns are only counted.
 | `from`, `to` | The window |
 | `shipped` | `n`: issues whose merge is in the window, by their `merged` event or a run that merged |
 | `planned` | Work to do, from the latest sample: `n` is `inLine` plus `planning`; `trend` is one `{day, n}` per day, the day's last sample, `n` left out on a day with none. Left out with no sample |
-| `runs` | `n` work runs, and how many ended as `pr`, `merged`, `handoff`, `parked`, `failed`, `refused` and `stopped` |
+| `runs` | `n` work runs, and how many ended as `offered`, `merged`, `handoff`, `parked`, `failed`, `refused` and `stopped` |
 | `planningTurns` | `n` planning turns that ended |
 | `handoffRate` | `share` of the `n` runs that ended needing a person: handed off or parked |
 | `firstPassYield` | `share` of the `n` shipped issues with a run here that took exactly one work run |
@@ -135,7 +135,7 @@ turns are only counted.
 | `daily` | Ten `{day, shipped, runs, failed, minutes}`, oldest first: issues shipped, runs ended and of them failed, and their minutes |
 | `stopReasons` | `top`: the five most common `{reason, n}` among the `n` runs that ended without a pull request, not counting those a person stopped. The reason is the failure kind, the cap for a failure that is a cap, else the park reason, else how the run ended |
 | `stations` | `steps`: per step, in the order runs reach it, the `n` runs that reached it, how many `passed` and the `share`. A run that reached a pull request passed every step it ran; one handed off, parked or failed stopped in its failed step, else its last. `n` is the runs counted: refused and stopped runs are not |
-| `versions` | One `{tehas, rukas, n}` per version pair, the pair that ran last first, at most ten. With three runs or more also `prShare` (reached a pull request) and `medianSeconds`; with three that reported usage also `medianTokens` (input, output and cache read, of those runs) and their count `tokensN`. A version that is not known is left out |
+| `versions` | One `{tehas, rukas, n}` per version pair, the pair that ran last first, at most ten. With three runs or more also `changeShare` (reached a pull request) and `medianSeconds`; with three that reported usage also `medianTokens` (input, output and cache read, of those runs) and their count `tokensN`. A version that is not known is left out |
 
 `tehasbot status` also writes `~/tehas/live/platform.json`: what platform the
 host runs. On a host with the platform checkout `~/tehas/platform` that is the
@@ -481,54 +481,3 @@ minutes old. `tehasbot health` calls neither `systemctl` nor `docker`.
 A stopped dispatcher cannot report itself: the file simply stops changing and
 the endpoint keeps answering with the last state. A monitor should also treat
 a `time` older than about ten minutes as down.
-
-## tehasbot top
-
-Optional. It publishes what `tehas top` draws, so that the factory floor and the
-plain dashboard can show the same numbers a person sees on the host. Nothing on
-the host reads its file.
-
-```
-tehasbot top                 # one snapshot; prints nothing; writes ~/tehas/live/top.json
-tehasbot top --every         # one snapshot at every 5-second mark; what the service runs
-systemctl --user enable --now tehas-top.service
-```
-
-It builds the snapshot with the same code the terminal view uses, in the
-console (`console/src/top.rs`), and writes it as one line of JSON holding the keys the pages draw and nothing else:
-`generatedAt`, `factory`, `queue`, `cycle`, `host` and `units`. The
-list is `PUBLISHED` in `console/src/top.rs`. A key added to the snapshot
-later is not in the file until someone puts it on that list, which is how the
-console of a cycle and the raw reading a host section was computed from stay
-out. The command reads the instance settings, so a setting that is missing or
-malformed stops it with 78;
-with `--every` the same 78 ends the loop, and systemd shows the failing service.
-It writes the file only when `TEHAS_TOP` is `1`; with `0`, which is the default,
-it removes the file and exits 0. It writes to `top.json.new` and moves it into
-place, so a reader never sees half a file, and a snapshot it cannot write leaves
-the one that is there in place.
-
-`TEHAS_TOP` is set in the instance directory. The unit is installed on every
-instance and starts only when you enable it; nothing enables it for you. The
-service reads its settings when it starts, so run `systemctl --user restart
-tehas-top.service` after changing the setting. Stopping the service does not hide
-the section: the last file stays until the page calls it stale, and the way to
-remove it is `TEHAS_TOP=off` with one run of `tehasbot top`, or deleting the file.
-
-The file is readable by anyone who can open the dashboard. It names the host's
-cpu count, load averages, memory, its units, and up to fifteen processes by pid
-and short name. It holds no command line, no path outside `/proc`, no token and
-nothing about the sandbox: a cycle's container is one process among those rows,
-and the console of a cycle is not in it.
-
-The factory floor reads it every 5 seconds, the plain dashboard on its own
-10-second refresh. Neither asks while the page is hidden, and both show no host
-section where the file is not there: a host that publishes nothing is asked again
-once a minute rather than at every period. Both pages work out what the file
-means with one module, `host/fun/host-data.js` - the figures, the words for how
-old a reading is, and the rule for when to ask again - so the panel and the plain
-list cannot say different things about the same file. The panel gives the
-readings, then the processes, then the units as `tehas top` lists them: name,
-whether systemd has it installed, its state, and when a timer next fires; the
-plain dashboard gives the same as a list. A snapshot older than 30 seconds is
-called stale rather than live.

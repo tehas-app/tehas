@@ -5,7 +5,6 @@
   "repo": "acme/widget",
   "features": [
     "status",
-    "millwright-grant",
     "limit",
     "drain",
     "history",
@@ -15,7 +14,6 @@
     "mcp-dashboard-keys",
     "clean",
     "disk",
-    "panels",
     "state-check",
     "finish",
     "status-versions",
@@ -38,7 +36,6 @@
     "question"
   ],
   "flags": {
-    "spec-pipe": false,
     "lean": false,
     "plugins": false
   },

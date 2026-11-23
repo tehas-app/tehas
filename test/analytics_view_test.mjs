@@ -35,7 +35,7 @@ function report(over = {}) {
       { step: "review", n: 1, passed: 1, share: 1 },
     ] },
     versions: [
-      { tehas: "v1", rukas: "0.13.0", n: 4, prShare: 0.5, medianSeconds: 900, medianTokens: 1750 },
+      { tehas: "v1", rukas: "0.13.0", n: 4, changeShare: 0.5, medianSeconds: 900, medianTokens: 1750 },
       { tehas: "v2", n: 1 },
       { tehas: "v2", rukas: "0.13.0", n: 1 },
     ],

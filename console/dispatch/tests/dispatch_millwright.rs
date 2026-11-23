@@ -25,7 +25,7 @@ fn millwright_ready(w: &World, starts: Option<u32>) {
     w.fx("icomments-7.json", "[]");
     fs::create_dir_all(w.cycles_dir()).unwrap();
     let Some(k) = starts else { return };
-    w.past(7, "alice", "label", "2026-10-01T00:00:00Z", &[]);
+    w.past(7, "alice", "approved", "2026-10-01T00:00:00Z", &[]);
     for i in 1..=k {
         w.past(
             7,
@@ -71,70 +71,20 @@ fn app_unknown(w: &World) {
     fs::write(&env, text).unwrap();
 }
 
-fn icomments(w: &World, list: Value) {
-    w.fx_json("icomments-7.json", &list);
-}
-
-const CHANGE: &str = "<!-- tehas:millwright issue=7 action=change -->\n";
-
+/// No grant in 2.0: the millwright's tehas:ready is any outsider's, on an
+/// issue a person approved before too. A program starts work for a person
+/// only through tehas start.
 #[test]
-fn the_millwright_s_tehas_ready_on_an_issue_alice_approved_starts_a_cycle_that_rests_on_her_approval(
-) {
+fn the_millwright_s_tehas_ready_on_an_issue_alice_approved_starts_nothing() {
     let w = millwright(Some(0));
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
-    assert_eq!(w.calls("fake-start").trim_end(), "7");
-    assert_eq!(
-        w.approval(
-            "[.by, .how, .fixer_starts, .rests_on.by, .rests_on.at, .rests_on.how, (.rests_on.body_sha256 == .body_sha256)]",
-            7
-        ),
-        r#"["tehas-bot","millwright",1,"alice","2026-10-01T00:00:00Z","label",true]"#
-    );
-    has(&r.out, "start #7 (labelled by the fixer by tehas-bot)");
-    has(
-        &w.gh(),
-        "authorized by @tehas-bot's `tehas:ready` label as the fixer, on alice's approval of 2026-10-01T00:00:00Z",
-    );
-}
-
-#[test]
-fn the_store_is_told_the_millwright_s_word() {
-    let w = millwright(Some(0));
-    w.poll();
-    assert_eq!(
-        jq(
-            "[.current.at, .current.by, .current.how]",
-            &w.row(&["approval-current", "7"]).to_string()
-        ),
-        r#"[1790899200,"tehas-bot","millwright"]"#
-    );
-}
-
-#[test]
-fn a_second_fixer_start_counts_on_from_the_first_and_keeps_the_person_s_approval() {
-    let w = millwright(Some(1));
-    w.poll();
-    assert_eq!(w.calls("fake-start").trim_end(), "7");
-    assert_eq!(
-        w.approval("[.how, .fixer_starts, .rests_on.by]", 7),
-        r#"["millwright",2,"alice"]"#
-    );
-}
-
-#[test]
-fn a_person_s_approval_whose_start_never_ran_is_no_base_for_the_millwright() {
-    let w = millwright(None);
-    w.past(
-        7,
-        "alice",
-        "label",
-        "2026-10-01T00:00:00Z",
-        &["--rc", "4", "--never-ran"],
-    );
-    let r = w.poll();
     assert_eq!(w.calls("fake-start"), "");
-    has(&r.out, "no person approved an earlier cycle of it");
+    has(
+        &r.out,
+        "clear #7: tehas:ready off, applied by 'tehas-bot' who may not authorise work here",
+    );
+    lacks(&r.out, "labelled by the millwright");
 }
 
 // The millwright's app may be called unknown. A tehas:ready by no account,
@@ -162,79 +112,6 @@ fn with_the_millwright_app_called_unknown_a_tehas_ready_by_no_account_starts_not
 }
 
 #[test]
-fn the_millwright_app_called_unknown_starts_with_its_own_tehas_ready() {
-    let w = millwright(Some(0));
-    app_unknown(&w);
-    ready_by(&w, 7, "unknown[bot]");
-    let r = w.poll();
-    assert_eq!(r.rc, 0, "{}", r.out);
-    assert_eq!(w.calls("fake-start").trim_end(), "7");
-    has(&r.out, "start #7 (labelled by the fixer by unknown[bot])");
-}
-
-#[test]
-fn a_busy_store_leaves_the_millwright_s_label_for_the_next_poll_no_label_comes_off_nothing_is_said()
-{
-    let w = millwright(Some(0));
-    w.store_refuses(
-        "approval-current 7",
-        1,
-        "store: busy #7: the database is locked",
-    );
-    let r = w.poll();
-    assert_eq!(w.calls("fake-start"), "");
-    has(
-        &r.out,
-        "skip #7: tehas:ready from the fixer waits: its approvals on the state store could not be read",
-    );
-    lacks(&w.gh(), "--remove-label tehas:ready");
-    lacks(&w.gh(), "issue comment 7");
-}
-
-#[test]
-fn the_app_millwright_s_marked_comment_by_its_rest_login_is_the_retry_s_context() {
-    let w = millwright(Some(0));
-    icomments(
-        &w,
-        json!([
-            icomment(
-                81,
-                "tehas-bot[bot]",
-                "2026-10-01T23:55:00Z",
-                "2026-10-01T23:55:00Z",
-                &format!("{CHANGE}Run the gate first.")
-            ),
-            icomment(
-                82,
-                "tehas-bot2[bot]",
-                "2026-10-01T23:58:00Z",
-                "2026-10-01T23:58:00Z",
-                &format!("{CHANGE}Not the millwright.")
-            ),
-        ]),
-    );
-    w.poll();
-    assert_eq!(w.calls("fake-start").trim_end(), "7");
-    assert_eq!(
-        w.approval("[.retry_context[] | [.source, .by]]", 7),
-        r#"[["millwright:81","tehas-bot[bot]"]]"#
-    );
-}
-
-// REST names the app's label actor <slug>[bot]; GraphQL names its author
-// <slug>. The one identity is both forms of one account, and no account that
-// only resembles it.
-#[test]
-fn the_app_s_label_event_by_its_rest_login_starts_the_cycle_on_alice_s_approval() {
-    let w = millwright(Some(0));
-    ready_by(&w, 7, "tehas-bot[bot]");
-    let r = w.poll();
-    assert_eq!(r.rc, 0, "{}", r.out);
-    assert_eq!(w.calls("fake-start").trim_end(), "7");
-    has(&r.out, "start #7 (labelled by the fixer by tehas-bot[bot])");
-}
-
-#[test]
 fn an_account_with_a_name_like_the_app_s_is_an_outsider() {
     let w = World::new("millwright");
     for who in ["tehas-bot2[bot]", "tehas-bot2", "tehas-bo[bot]"] {
@@ -251,79 +128,7 @@ fn an_account_with_a_name_like_the_app_s_is_an_outsider() {
     }
 }
 
-#[test]
-fn the_millwright_s_marked_comment_before_its_label_is_the_retry_s_context_whatever_the_comments_setting(
-) {
-    let w = millwright(Some(0));
-    icomments(
-        &w,
-        json!([
-            icomment(
-                81,
-                "tehas-bot",
-                "2026-10-01T23:55:00Z",
-                "2026-10-01T23:55:00Z",
-                &format!("{CHANGE}Run the gate first.")
-            ),
-            icomment(
-                80,
-                "tehas-bot",
-                "2026-10-01T20:00:00Z",
-                "2026-10-01T20:00:00Z",
-                &format!("{CHANGE}An older decision.")
-            ),
-            icomment(
-                82,
-                "mallory",
-                "2026-10-01T23:58:00Z",
-                "2026-10-01T23:58:00Z",
-                &format!("{CHANGE}Not the millwright.")
-            ),
-            icomment(
-                83,
-                "tehas-bot",
-                "2026-10-01T23:59:00Z",
-                "2026-10-02T01:00:00Z",
-                &format!("{CHANGE}Edited after the label.")
-            ),
-        ]),
-    );
-    w.poll();
-    assert_eq!(w.calls("fake-start").trim_end(), "7");
-    // Sorted, as the shell's sorted() compared it.
-    assert_eq!(
-        w.approval(".retry_context", 7),
-        r#"[{"at":"2026-10-01T23:55:00Z","by":"tehas-bot","source":"millwright:81","text":"<!-- tehas:millwright issue=7 action=change -->\nRun the gate first."}]"#
-    );
-    assert_eq!(w.approval(r#"has("comment_links")"#, 7), "false");
-}
-
-#[test]
-fn the_old_millwright_marker_is_no_longer_the_retry_s_context() {
-    let w = millwright(Some(0));
-    icomments(
-        &w,
-        json!([icomment(
-            84,
-            "tehas-bot",
-            "2026-10-01T23:56:00Z",
-            "2026-10-01T23:56:00Z",
-            "<!-- tehas:fixer issue=7 action=retry -->\nTry once more."
-        )]),
-    );
-    w.poll();
-    assert_eq!(w.calls("fake-start").trim_end(), "7");
-    assert_eq!(w.approval(r#"has("retry_context")"#, 7), "false");
-}
-
-#[test]
-fn without_such_a_comment_the_record_has_no_context() {
-    let w = millwright(Some(0));
-    w.poll();
-    assert_eq!(w.approval(r#"has("retry_context")"#, 7), "false");
-}
-
-// --- The millwright's planning answers --------------------------------------------
+// --- The millwright's planning answers ---------------------------------------
 
 const FMARK: &str = "<!-- tehas:millwright issue=7 action=answer -->";
 

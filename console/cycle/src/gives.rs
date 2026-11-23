@@ -216,7 +216,7 @@ fn gives_nothing(issue: u64, dir: &Path, record: &str, data: &str) -> Result<(),
     let approval = if !record.is_empty() {
         let r = record_value(Path::new(record)).ok_or(NO_ATTACH)?;
         let mut given = 0;
-        for key in ["links", "comment_links", "retry_context"] {
+        for key in ["links", "retry_context"] {
             given += array_or_none(&r, key).ok_or(NO_ATTACH)?.len();
         }
         if given != 0 {
@@ -277,7 +277,6 @@ pub fn issue_images(
         return gives_nothing(issue, dir, record, data);
     };
     let (issue_str, repo, dir_str) = (issue.to_string(), env("TEHAS_REPO"), dir.to_string_lossy());
-    let (allowed, millwright) = (env("TEHAS_ALLOWED_LABELERS"), env("TEHAS_MILLWRIGHT_LOGIN"));
     let args: Vec<&str> = [
         issue_str.as_str(),
         dir_str.as_ref(),
@@ -287,10 +286,6 @@ pub fn issue_images(
         record,
         "--repo",
         &repo,
-        "--allowed",
-        &allowed,
-        "--millwright",
-        &millwright,
     ]
     .to_vec();
     take(&bin, "issue", &args, &format!("{data}\n"))
@@ -436,86 +431,6 @@ fn plugin_files_of(
     .map_err(|_| "the manifest of the plugin files could not be written".to_string())
 }
 
-/// The feature whose cycles are handed what was approved.
-pub const SPEC_PIPE: &str = "spec-pipe";
-
-/// Whether this start hands its cycle what was approved, beside the issue's
-/// files: the spec pipe is on and the start has an approval record. A run by
-/// hand is its own approval and is handed nothing.
-pub fn hands_over(record: &str) -> bool {
-    tehas_core::features::on(SPEC_PIPE) && is_record(record)
-}
-
-/// The pin of the spec the approval record keeps: its link and sha256.
-pub fn spec_pin(record: &str) -> Option<(String, String)> {
-    let r = record_value(Path::new(record))?;
-    let spec = r.get("spec")?;
-    let link = spec.get("link")?.as_str()?;
-    let sha256 = spec.get("sha256")?.as_str()?;
-    Some((link.to_string(), sha256.to_string()))
-}
-
-/// Into <dir>: the spec the approval pinned, fetched again and held to the
-/// pin, and the title and body of `answer`, the issue as the start read it and
-/// held to the approval, each named in the manifest. A directory that holds no
-/// manifest yet, of a start that gives no images or comments, is made
-/// with one that lists nothing. Ok is the line that says what was handed, Err
-/// why nothing may start.
-pub fn hand_over(issue: u64, dir: &Path, record: &str, answer: &str) -> Result<String, String> {
-    use attach::given::Ordered;
-    let unread = "the approval record could not be read for what to give the cycle";
-    let r = record_value(Path::new(record)).ok_or(unread)?;
-    let pin = spec_pin(record);
-    if r.get("spec").is_some_and(|s| !s.is_null()) && pin.is_none() {
-        return Err(unread.to_string());
-    }
-    if let Some((link, _)) = &pin {
-        if !attach::link::is_link(link) {
-            return Err("the link of its spec is not a file attached on GitHub".to_string());
-        }
-    }
-    let issue_read = "the issue could not be read for its title and body";
-    let answer: Value = serde_json::from_str(answer).map_err(|_| issue_read)?;
-    if !dir.join("manifest.json").is_file() {
-        let unmade = "the directory for what was approved could not be made";
-        let _ = fs::remove_dir_all(dir);
-        fs::create_dir_all(dir).map_err(|_| unmade)?;
-        fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).map_err(|_| unmade)?;
-        let field = |k: &str| Ordered::Plain(r.get(k).cloned().unwrap_or(Value::Null));
-        let approval = Ordered::map([
-            ("at", field("at")),
-            ("by", field("by")),
-            ("how", field("how")),
-        ]);
-        let m = attach::manifest::of_issue(
-            Vec::new(),
-            None,
-            Vec::new(),
-            None,
-            Value::from(issue),
-            approval,
-            None,
-        );
-        let manifest = dir.join("manifest.json");
-        fs::write(&manifest, m.pretty()).map_err(|_| unmade)?;
-        fs::set_permissions(&manifest, fs::Permissions::from_mode(0o644)).map_err(|_| unmade)?;
-    }
-    let token = env("GH_TOKEN");
-    attach::handoff::hand_over(&attach::handoff::Handoff {
-        dir,
-        number: issue,
-        answer: &answer,
-        spec: pin.as_ref().map(|(l, s)| (l.as_str(), s.as_str())),
-        token: &token,
-    })?;
-    Ok(match &pin {
-        Some((link, sha256)) => format!(
-            "tehas work: the cycle is given its spec {link} (sha256 {sha256}) and the approved title and body"
-        ),
-        None => "tehas work: the cycle is given the approved title and body".to_string(),
-    })
-}
-
 /// Whether the approval record gives the cycle comments: its retry_context
 /// holds an entry, which console/attach makes comments.json of.
 pub fn comments_given(record: &str) -> bool {
@@ -556,8 +471,6 @@ pub fn comments_only(home: &Path, issue: u64, dir: &Path, record: &str) -> Resul
         record.to_string(),
         "--repo".into(),
         env("TEHAS_REPO"),
-        "--millwright".into(),
-        env("TEHAS_MILLWRIGHT_LOGIN"),
     ];
     let answer = ask(home, "comments", &args).map_err(|no| {
         format!(
@@ -763,7 +676,7 @@ fn base(r: &Value, allowed: &str) -> Option<Value> {
     }) && shaped(base, "by", |s| {
         s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
     }) && shaped(base, "how", |s| {
-        matches!(s, "label" | "outage-retry" | "host" | "answer" | "reply")
+        matches!(s, "approved" | "outage-retry" | "host" | "answer" | "reply")
     }) && shaped(base, "body_sha256", |s| {
         s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
     });
@@ -876,7 +789,7 @@ mod tests {
         let body = format!("Make it so.\n\ntehas-files: pageticket/p-1 {tree}\n");
         let answer = json!({"body": body}).to_string();
         let record = d.path().join("record.json");
-        let approval = json!({"at": "2026-11-21T00:00:00Z", "by": "alice", "how": "label", "links": [],
+        let approval = json!({"at": "2026-11-21T00:00:00Z", "by": "alice", "how": "approved", "links": [],
             "body_sha256": tehas_core::approval::body_sha256(&json!({"body": body}))});
         fs::write(&record, approval.to_string()).unwrap();
         let mut r = json!({"plugin": "pageticket", "id": "p-1", "kind": "prototype", "issue": 7,
@@ -1001,21 +914,21 @@ mod tests {
     }
 
     fn person(by: &str) -> Value {
-        json!({"at": "2026-10-01T00:00:00Z", "by": by, "how": "label",
+        json!({"at": "2026-10-01T00:00:00Z", "by": by, "how": "approved",
             "body_sha256": "a".repeat(64), "links": []})
     }
 
     #[test]
     fn a_record_rests_on_the_persons_approval_in_each_shape_a_start_has() {
         let millwright = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-millwright", "how": "millwright",
-            "body_sha256": "a".repeat(64), "fixer_starts": 1, "rests_on": person("alice")});
+            "body_sha256": "a".repeat(64), "rests_on": person("alice")});
         let refresh = json!({"at": "2026-10-01T00:00:00Z", "by": "alice", "how": "refresh",
             "body_sha256": "a".repeat(64), "refreshes": 1, "rests_on": person("alice")});
         for mut shape in [person("alice"), millwright, refresh] {
             shape["driver"] = json!("lean");
             let got = base(&shape, "alice bob").expect("an approval");
             assert_eq!(got["by"], "alice");
-            assert_eq!(got["how"], "label");
+            assert_eq!(got["how"], "approved");
         }
     }
 
@@ -1025,7 +938,7 @@ mod tests {
         let mut host = person("host");
         host["how"] = json!("host");
         let millwright = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-millwright", "how": "millwright",
-            "body_sha256": "a".repeat(64), "fixer_starts": 1, "rests_on": host.clone()});
+            "body_sha256": "a".repeat(64), "rests_on": host.clone()});
         for shape in [host, millwright] {
             let got = base(&shape, "alice").expect("an approval");
             assert_eq!(got["how"], "host");
@@ -1124,7 +1037,7 @@ mod tests {
         let dir = d.join("images");
         let record = d.join("record.json");
         let path = record.to_string_lossy().into_owned();
-        let mut r = json!({"at": "2026-10-14T00:00:00Z", "by": "alice", "how": "label",
+        let mut r = json!({"at": "2026-10-14T00:00:00Z", "by": "alice", "how": "approved",
             "body_sha256": "a".repeat(64), "links": ["https://github.com/user-attachments/assets/1111"]});
         fs::write(&record, r.to_string()).unwrap();
         assert_eq!(
@@ -1137,11 +1050,15 @@ mod tests {
         assert_eq!(issue_images(&d, 7, &dir, "approved", &path, linked), Ok(()));
         assert_eq!(
             manifest(&dir)["approval"],
-            json!({"at": "2026-10-14T00:00:00Z", "by": "alice", "how": "label"})
+            json!({"at": "2026-10-14T00:00:00Z", "by": "alice", "how": "approved"})
         );
-        // Comment links, the words of a retry, or a record of another shape.
+        // A record written before 2.0 may carry comment_links: ignored.
+        let mut e = r.clone();
+        e["comment_links"] = json!([{"link": "L"}]);
+        fs::write(&record, e.to_string()).unwrap();
+        assert_eq!(issue_images(&d, 7, &dir, "approved", &path, linked), Ok(()));
+        // The words of a retry, or a record of another shape.
         for edit in [
-            json!({"comment_links": [{"link": "L"}]}),
             json!({"retry_context": [{"source": "refresh", "text": "t"}]}),
             json!({"links": 7}),
         ] {

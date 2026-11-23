@@ -23,7 +23,7 @@ CREATE TABLE runs (
   ended INTEGER,
   seconds INTEGER,
   queue_wait INTEGER,
-  outcome TEXT CHECK (outcome IN ('pr', 'merged', 'handoff', 'parked', 'failed', 'refused', 'stopped')),
+  outcome TEXT CHECK (outcome IN ('offered', 'merged', 'handoff', 'parked', 'failed', 'refused', 'stopped')),
   status TEXT,
   exit_code INTEGER,
   last_step TEXT,
@@ -149,8 +149,12 @@ CREATE TABLE samples (
 -- or 3 is moved aside whole under its version too, as schema 1 is. Within 4,
 -- v1.0.0 added contractor_id on runs.
 -- schema 5: watts on samples goes; energy use left core in 2.0.
--- schema 6: contractor_id on runs goes; outsource was dropped in 2.0. db::open
--- migrates a database of schema 4 or 5 in place, the only versions it
+-- schema 6: contractor_id on runs goes; outsource was dropped in 2.0.
+-- schema 7: the words of 2.0's events. runs.outcome says offered where it said
+-- pr (its CHECK and every row), runs.how says approved where it said label,
+-- and v_versions names the share of the runs that reached a change, offered
+-- or merged, change_share (it was pr_share). db::open
+-- migrates a database of schema 4, 5 or 6 in place, the only versions it
 -- migrates.
 
 -- schema, retention_days and created. Nothing about the host.
@@ -198,10 +202,12 @@ SELECT
 FROM days d;
 
 -- Per tehas and pi-rukas version pair, of the work runs that ended: how many,
--- the share of each outcome, the median minutes, and the median tokens of the
+-- the share of each outcome (change_share counts the runs that reached a
+-- change, offered or merged), the median minutes, and the median tokens of the
 -- runs that reported usage: an empty count is no zero. A pi-rukas without a
--- version is named by its commit. migrate in db.rs takes this view from here to
--- the end of the file, so it stays last.
+-- version is named by its commit. The views are the end of the file: the step
+-- to 7 in db.rs lays them again from CREATE VIEW v_lead to the end, so they
+-- stay last.
 CREATE VIEW v_versions AS
 WITH r AS (
   SELECT
@@ -227,7 +233,7 @@ mt AS (
 ),
 pairs AS (
   SELECT tv, rv, count(*) AS runs,
-    sum(outcome IN ('pr', 'merged')) AS pr,
+    sum(outcome IN ('offered', 'merged')) AS reached,
     sum(outcome = 'handoff') AS handoff,
     sum(outcome = 'parked') AS parked,
     sum(outcome = 'failed') AS failed
@@ -237,7 +243,7 @@ SELECT
   p.tv AS tehas_version,
   p.rv AS rukas_version,
   p.runs AS runs,
-  round(1.0 * p.pr / p.runs, 3) AS pr_share,
+  round(1.0 * p.reached / p.runs, 3) AS change_share,
   round(1.0 * p.handoff / p.runs, 3) AS handoff_share,
   round(1.0 * p.parked / p.runs, 3) AS parked_share,
   round(1.0 * p.failed / p.runs, 3) AS failed_share,

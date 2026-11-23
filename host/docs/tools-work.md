@@ -438,31 +438,7 @@ the directory is still mounted and named in
 gives a cycle the comments (`native`, `polyfill` or `off`), which decides
 whether a park offers the comments retry.
 
-With `TEHAS_SPEC_PIPE=on`, a feature still being built (a release refuses
-`on` with 78), a start with an approval record also gives its cycle what was
-approved, in the same directory. The spec the approval pinned is fetched
-again, at most 1 MiB, and held to the pin: its file is `spec`, or
-`spec.<ext>` for a text file's extension, named in the manifest as `"spec":
-{"file", "link", "name", "bytes", "sha256", "block"}`, the sha256 the
-approval's, and `block` the version of [the pull request spec
-block](/contract#the-pull-request-spec-block) the cycle writes, now 1. The
-title and body the start read and compared with the approval are written to
-`approved.json` (`number`, `title`, `body`, as GitHub gave them), named as
-`"approvedText": {"file", "bytes", "sha256"}`. Both keys come last in the
-manifest, which stays at `version` 1. A spec of other bytes, one that cannot
-be fetched or a file that cannot be written stops the start with 4 and says
-why on the issue. A cycle given a spec starts only on a runner whose
-`--capabilities` sets the feature `issueSpec` to true, which says it reads
-the spec and writes the block of the version in `block`: any other stops with
-78 before anything is fetched, naming `the feature issueSpec`, so a spec is
-never dropped without a word. The approved text alone needs no such runner:
-one that does not read it reads the issue from GitHub, as before. With images
-and comments off the directory is still mounted and named in
-`PI_ENSEMBLE_EXTRA_IMAGE_DIRS` for these files, and holds the manifest and
-them alone. A start by hand, with no record, is handed nothing. With the
-feature off nothing of this is fetched, written or mounted.
-
-With `TEHAS_WORK_IMAGES=off`, no comments and nothing handed over by the spec pipe, a cycle is given nothing:
+With `TEHAS_WORK_IMAGES=off` and no comments, a cycle is given nothing:
 no directory is mounted and no `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` is passed on,
 whatever the instance file says. The issue's text is still read once, to
 compare it with the dispatcher's record, and a body that is not the approved
@@ -478,8 +454,8 @@ what it holds is this command's own), and keeps a manifest at
 `~/tehas/state/cycles/<issue>.manifest.json` with no image, that approval, and
 each link left out with that reason. The links are the approved text's: the
 line counts what the record lists, not what the issue links, and it says which
-approval it did count. A record written while
-the instance took links from comments keeps them, each with its own `source`.
+approval it did count. The comment links an approval recorded before 2.0
+are ignored.
 At most 100 links are listed and `leftOutMore` counts the rest, 0 when there
 are none, so the file stays small. An
 issue the dispatcher never started has no approval record, and then nothing of
