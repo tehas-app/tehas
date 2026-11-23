@@ -40,7 +40,6 @@ With --json the same facts as one object on standard output, for a program
 (host/docs/api.md has every field):
   {"api": 1, "time": "...", "age": 40, "stale": false, "state": "pass",
    "reasons": [], "paused": {"local": false, "label": false},
-   "allHands": false,
    "pushFault": {"at": "...", "login": "tehas-bot", "line": "..."},
    "limit": {"state": "none"},
    "running": [{"issue": 12, "since": "...", "progress": {"step": "review"}}],

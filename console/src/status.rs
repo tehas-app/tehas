@@ -313,7 +313,7 @@ fn oneline_of(v: &J) -> String {
 }
 
 /// The factory line, the poll line, the queue, each switch that holds the
-/// factory, the limit, a held refresh and all-hands.
+/// factory, the limit and a held refresh.
 pub fn state_lines(h: &J, now: i64, stale: bool, poll: &str) -> Vec<String> {
     let mut lines = Vec::new();
     let output = h.get("output").text_or_empty();
@@ -428,12 +428,6 @@ pub fn state_lines(h: &J, now: i64, stale: bool, poll: &str) -> Vec<String> {
             "blocked   by the label alone, no blockers named: {}. Each waits until an allowed account comments a `<!-- tehas:blocked by=N -->` marker on it or a person takes tehas:blocked off",
             list.join(", ")
         ));
-    }
-    if checks.get("allHands").is_true() {
-        lines.push(
-            "all-hands tehas:all-hands is on the control issue, applied by an allowed account"
-                .to_string(),
-        );
     }
     lines
 }
@@ -961,7 +955,6 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
                 ("label", J::Bool(label || lifted)),
             ]),
         ),
-        ("allHands", checks.get("allHands").clone()),
         // The fault of a sandbox that cannot push, as health read it off the
         // host's file: the panel asks the same question of it as of `limit`.
         ("pushFault", checks.get("pushFault").clone()),
@@ -975,9 +968,7 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
         ("room", room),
         ("versions", versions(checks)),
     ];
-    fields.retain(|(k, v)| {
-        !matches!(*k, "allHands" | "limit" | "order" | "pushFault") || !v.is_null()
-    });
+    fields.retain(|(k, v)| !matches!(*k, "limit" | "order" | "pushFault") || !v.is_null());
     // A read-only instance (#608) says so; any other leaves the key out.
     if checks.get("readOnly").is_true() {
         fields.push(("readOnly", J::Bool(true)));
@@ -1193,7 +1184,7 @@ mod tests {
           "checks":{"queue":{"inLine":2,"building":0,"review":1,"stopped":0,"paused":true,"time":"2026-10-17T14:00:00Z"},
           "pause":{"flag":{"at":"2026-10-17T13:00:20Z","reason":"a\nb"},"label":true,"lifted":false},
           "limit":{"state":"ok","cycles":1,"plan":false,"reason":"night"},
-          "demand":{"refreshHold":"two in review"},"allHands":true,
+          "demand":{"refreshHold":"two in review"},
           "slice":{"why":"","held":[{"issue":7,"why":"parked","text":"its last cycle parked on `gate`","clear":"edit the body"}]}}}"#,
         );
         assert_eq!(
@@ -1207,7 +1198,6 @@ mod tests {
                 "limit     1 cycle at once, planning off, until cleared: night",
                 "refresh   held: two in review",
                 "held      #7: its last cycle parked on `gate`; edit the body",
-                "all-hands tehas:all-hands is on the control issue, applied by an allowed account",
             ]
         );
         assert_eq!(
