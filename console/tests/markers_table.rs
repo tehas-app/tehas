@@ -171,7 +171,7 @@ enum Read {
 /// One inline marker of `row` in `text`, read as the header says: unknown
 /// fields skipped, a known one once and in order, each value of its type.
 fn read(row: &Row, text: &str) -> Read {
-    // The opening two words, as `<!-- tehas:link`, then a space.
+    // The opening two words of the row's open text, then a space.
     let head: Vec<&str> = row.open.split_whitespace().take(2).collect();
     let head = format!("{} ", head.join(" "));
     let Some(rest) = text.strip_prefix(head.as_str()) else {
@@ -267,6 +267,18 @@ fn row(kind: &str) -> Row<'static> {
     rows().into_iter().find(|r| r.kind == kind).unwrap()
 }
 
+/// A marker of `row` as its open text starts it, with `pairs` as its fields
+/// in the order given: the cases are made from the table, not written out.
+fn text(row: &Row, pairs: &[(&str, &str)]) -> String {
+    let head: Vec<&str> = row.open.split_whitespace().take(2).collect();
+    let mut out = head.join(" ");
+    for (name, value) in pairs {
+        out.push_str(&format!(" {name}={value}"));
+    }
+    out.push_str(" -->");
+    out
+}
+
 fn fields(pairs: &[(&str, &str)]) -> Read {
     Read::Marker(
         pairs
@@ -280,16 +292,22 @@ fn fields(pairs: &[(&str, &str)]) -> Read {
 fn a_ticket_key_is_a_number_a_key_or_a_path_and_one_that_breaks_the_pattern_is_no_marker() {
     let r = row("TicketOf");
     for key in ["123", "KEY-123", "org/repo:12", "a.b_c", &"k".repeat(128)] {
-        let text = format!("<!-- tehas:ticket-of ticket={key} -->");
-        assert_eq!(read(&r, &text), fields(&[("ticket", key)]), "{key}");
+        assert_eq!(
+            read(&r, &text(&r, &[("ticket", key)])),
+            fields(&[("ticket", key)]),
+            "{key}"
+        );
     }
     for key in ["", "KEY#1", "a,b", &"k".repeat(129), "ä"] {
-        let text = format!("<!-- tehas:ticket-of ticket={key} -->");
-        assert_eq!(read(&r, &text), Read::NoMarker, "{key:?}");
+        assert_eq!(
+            read(&r, &text(&r, &[("ticket", key)])),
+            Read::NoMarker,
+            "{key:?}"
+        );
     }
     // White space ends the key: what follows is no field.
     assert_ne!(
-        read(&r, "<!-- tehas:ticket-of ticket=a b -->"),
+        read(&r, &text(&r, &[("ticket", "a b")])),
         fields(&[("ticket", "a b")])
     );
 }
@@ -297,18 +315,24 @@ fn a_ticket_key_is_a_number_a_key_or_a_path_and_one_that_breaks_the_pattern_is_n
 #[test]
 fn a_field_a_reader_does_not_know_is_skipped_in_every_marker() {
     assert_eq!(
-        read(&row("Link"), "<!-- tehas:link blueprint=12 later=x -->"),
+        read(
+            &row("Link"),
+            &text(&row("Link"), &[("blueprint", "12"), ("later", "x")])
+        ),
         fields(&[("blueprint", "12")])
     );
     assert_eq!(
         read(
             &row("TicketOf"),
-            "<!-- tehas:ticket-of later=x ticket=KEY-1 -->"
+            &text(&row("TicketOf"), &[("later", "x"), ("ticket", "KEY-1")])
         ),
         fields(&[("ticket", "KEY-1")])
     );
     assert_eq!(
-        read(&row("Blocked"), "<!-- tehas:blocked by=3,4 why=later -->"),
+        read(
+            &row("Blocked"),
+            &text(&row("Blocked"), &[("by", "3,4"), ("why", "later")])
+        ),
         fields(&[("by", "3,4")])
     );
 }
@@ -317,16 +341,19 @@ fn a_field_a_reader_does_not_know_is_skipped_in_every_marker() {
 fn remove_other_than_1_makes_the_link_no_marker_never_a_link_without_removal() {
     let r = row("Link");
     assert_eq!(
-        read(&r, "<!-- tehas:link blueprint=12 -->"),
+        read(&r, &text(&r, &[("blueprint", "12")])),
         fields(&[("blueprint", "12")])
     );
     assert_eq!(
-        read(&r, "<!-- tehas:link blueprint=12 remove=1 -->"),
+        read(&r, &text(&r, &[("blueprint", "12"), ("remove", "1")])),
         fields(&[("blueprint", "12"), ("remove", "1")])
     );
     for bad in ["2", "0", "", "yes"] {
-        let text = format!("<!-- tehas:link blueprint=12 remove={bad} -->");
-        assert_eq!(read(&r, &text), Read::NoMarker, "{bad:?}");
+        assert_eq!(
+            read(&r, &text(&r, &[("blueprint", "12"), ("remove", bad)])),
+            Read::NoMarker,
+            "{bad:?}"
+        );
     }
 }
 
@@ -335,13 +362,19 @@ fn another_value_outside_its_type_is_unreadable_of_the_kind() {
     assert_eq!(
         read(
             &row("Question"),
-            "<!-- tehas:question kind=plan issue=7 turn=01 -->"
+            &text(
+                &row("Question"),
+                &[("kind", "plan"), ("issue", "7"), ("turn", "01")]
+            )
         ),
         Read::Unreadable
     );
     assert_eq!(
-        read(&row("Link"), "<!-- tehas:link blueprint=012 -->"),
+        read(&row("Link"), &text(&row("Link"), &[("blueprint", "012")])),
         Read::Unreadable
     );
-    assert_eq!(read(&row("Link"), "<!-- tehas:link -->"), Read::Unreadable);
+    assert_eq!(
+        read(&row("Link"), &text(&row("Link"), &[])),
+        Read::Unreadable
+    );
 }
