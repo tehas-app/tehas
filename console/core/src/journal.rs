@@ -120,7 +120,7 @@ impl Journal<'_> {
         files: &dyn Blobs,
     ) -> Journaled {
         if writes.read_only() {
-            eprintln!("{}", read_only::line(&format!("send {:?}", write.kind())));
+            read_only::tell(&format!("send {:?}", write.kind()));
             return Journaled::Answered(Err(Outcome::Refused(Refusal::ReadOnly)));
         }
         let row = match write.summed(|text| Sha256::new(sha256(text)).ok()) {
@@ -626,9 +626,13 @@ mod tests {
         assert!(w.sent.is_empty());
     }
 
-    /// A read-only host records no row and sends nothing.
+    /// A read-only host records no row and sends nothing, and keeps the
+    /// write it did not make in its log, as `read_only::refuse` does.
     #[test]
     fn a_read_only_writer_is_refused_with_no_row() {
+        let home = std::env::temp_dir().join(format!("tehas-send-ro-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        read_only::TEST_HOME.with(|t| *t.borrow_mut() = Some(home.clone()));
         let (mut at, mut no_row, mut asked) = (0, false, vec![]);
         let mut j = journal(&mut at, &mut no_row, "true", None);
         let mut w = script(vec![]);
@@ -640,5 +644,9 @@ mod tests {
         );
         assert!(asked.is_empty());
         assert!(w.sent.is_empty());
+        read_only::TEST_HOME.with(|t| *t.borrow_mut() = None);
+        let log = std::fs::read_to_string(read_only::log_path(&home)).unwrap();
+        assert!(log.ends_with("\tread-only: would send TicketNote\n"), "{log}");
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
