@@ -646,7 +646,10 @@ mod tests {
         assert!(w.sent.is_empty());
         read_only::TEST_HOME.with(|t| *t.borrow_mut() = None);
         let log = std::fs::read_to_string(read_only::log_path(&home)).unwrap();
-        assert!(log.ends_with("\tread-only: would send TicketNote\n"), "{log}");
+        assert!(
+            log.ends_with("\tread-only: would send TicketNote\n"),
+            "{log}"
+        );
         let _ = std::fs::remove_dir_all(&home);
     }
 }

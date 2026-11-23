@@ -6082,7 +6082,11 @@ fn a_write_row_of_the_ports_is_never_settled_by_a_1x_read() {
             log[0],
             format!("WARN: the journal's action {id} ({kind} on #7, 10s old) could not be settled: it is a write of the ports, which no read settles yet; the next poll tries again"),
         );
-        assert_eq!(settled(&t), ["store journal-settle --action 99 --abandoned"], "{kind}");
+        assert_eq!(
+            settled(&t),
+            ["store journal-settle --action 99 --abandoned"],
+            "{kind}"
+        );
         assert!(
             !t.calls().iter().any(|c| c.starts_with("gh api")),
             "{kind}: {:?}",
