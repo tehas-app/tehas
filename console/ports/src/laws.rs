@@ -603,7 +603,34 @@ pub mod history {
 /// Laws of the blueprints port.
 pub mod blueprints {
     use super::{got, hold, Law};
-    use crate::{BlueprintNo, BlueprintWrites, Depth, Lost, MarkerEdit, Outcome};
+    use crate::{BlueprintNo, BlueprintWrites, Blueprints, Depth, Lost, MarkerEdit, Outcome};
+
+    /// Each attachment of the blueprint `no` has its own link, and a name
+    /// unless it was pasted. `named` are the fixture's named files, in the
+    /// order its text links them; it also holds `pasted` pasted images.
+    pub fn an_attachment_has_a_link_and_a_pasted_one_no_name(
+        h: &mut dyn Blueprints,
+        no: BlueprintNo,
+        named: &[&str],
+        pasted: usize,
+    ) -> Law {
+        const LAW: &str = "blueprints::an_attachment_has_a_link_and_a_pasted_one_no_name";
+        let all = got(LAW, "the attachments", h.attachments(no))?.into_items();
+        let names: Vec<&str> = all.iter().filter_map(|a| a.name.as_deref()).collect();
+        hold(names == named, LAW, || {
+            format!("named {names:?}, not {named:?}")
+        })?;
+        let unnamed = all.iter().filter(|a| a.name.is_none()).count();
+        hold(unnamed == pasted, LAW, || {
+            format!("{unnamed} with no name, not {pasted}")
+        })?;
+        let mut links: Vec<&str> = all.iter().map(|a| a.link.as_str()).collect();
+        links.sort_unstable();
+        links.dedup();
+        hold(links.len() == all.len(), LAW, || {
+            format!("{} links for {} attachments", links.len(), all.len())
+        })
+    }
 
     /// An edit moves the revision, and an edit at the old revision is then
     /// `Conflict(Changed)`.
@@ -637,6 +664,238 @@ pub mod blueprints {
         hold(again == Err(Outcome::Conflict(Lost::Changed)), LAW, || {
             format!("an edit at the old revision answered {again:?}")
         })
+    }
+}
+
+/// Laws of naming a mark: on a terminal, in a log and in a body.
+pub mod marks {
+    use super::{got, hold, Law};
+    use crate::{Act, BlueprintNo, BlueprintWrites, Choice, Cite, Mark, Site, State};
+
+    /// The variants listed, every one of the enum but `Unknown`. The match
+    /// has no arm for the rest, so a variant added to the enum stops the
+    /// build here until it is listed.
+    macro_rules! every {
+        ($ty:ident: $($v:ident),+ $(,)?) => {{
+            let _ = |w: $ty| match w {
+                $($ty::$v)|+ | $ty::Unknown => (),
+            };
+            [$($ty::$v),+]
+        }};
+    }
+
+    /// Every word of the factory this copy knows, as a mark: each act,
+    /// state and choice, and the epic mark.
+    pub fn factory_marks() -> Vec<Mark> {
+        let acts = every!(Act: Approve, Plan, Refine, Finish, Block, Pause);
+        let states = every!(
+            State: Running,
+            Planning,
+            Refreshing,
+            AwaitingMerge,
+            Shipped,
+            Question,
+            NeedsPerson,
+            Replaced,
+            Refined,
+            Escalated,
+            Proposal
+        );
+        let choices = every!(Choice: Lean, Classic);
+        let mut all: Vec<Mark> = acts.into_iter().map(Mark::Act).collect();
+        all.extend(states.into_iter().map(Mark::State));
+        all.extend(choices.into_iter().map(Mark::Choice));
+        all.push(Mark::Epic);
+        all
+    }
+
+    /// Every mark names a word: each of `factory_marks` and each of the
+    /// fixture's `project` marks names a word of its own, not empty and
+    /// unlike any other. `Mark::Unknown` names `""`.
+    pub fn every_mark_names_a_word(site: &dyn Site, project: &[Mark]) -> Law {
+        const LAW: &str = "marks::every_mark_names_a_word";
+        let mut seen: Vec<(String, Mark)> = Vec::new();
+        for m in factory_marks().iter().chain(project) {
+            let name = site.mark_name(m);
+            hold(!name.trim().is_empty(), LAW, || {
+                format!("{m:?} names nothing")
+            })?;
+            if let Some((_, other)) = seen.iter().find(|(n, _)| *n == name) {
+                return super::broken(LAW, format!("{m:?} and {other:?} both name {name:?}"));
+            }
+            seen.push((name, m.clone()));
+        }
+        let unknown = site.mark_name(&Mark::Unknown);
+        hold(unknown.is_empty(), LAW, || {
+            format!("an unknown mark names {unknown:?}")
+        })
+    }
+
+    /// `Cite::Mark` in a body reads back as that mark's name: written in a
+    /// comment on the blueprint `no`, the text reads back holding the word
+    /// `Site::mark_name` gives, and no marker. `Mark::Unknown` cites as
+    /// `""`. `h` is a handle of `site`.
+    pub fn a_cited_mark_reads_back_as_its_name(
+        site: &dyn Site,
+        h: &mut dyn BlueprintWrites,
+        no: BlueprintNo,
+        mark: &Mark,
+    ) -> Law {
+        const LAW: &str = "marks::a_cited_mark_reads_back_as_its_name";
+        let unknown = h.cite(&Cite::Mark(Mark::Unknown));
+        hold(unknown.is_empty(), LAW, || {
+            format!("an unknown mark cites as {unknown:?}")
+        })?;
+        let name = site.mark_name(mark);
+        hold(!name.is_empty(), LAW, || format!("{mark:?} names nothing"))?;
+        let text = h.cite(&Cite::Mark(mark.clone()));
+        let posted = got(LAW, "the comment", h.comment(no, &text, &[]))?;
+        let mut answers = h.comments_by_id(std::slice::from_ref(&posted.id));
+        let c = match answers.pop() {
+            Some((_, answer)) => got(LAW, "the comment read back", answer)?,
+            None => return super::broken(LAW, "the comment was not answered"),
+        };
+        hold(c.body.contains(&name), LAW, || {
+            format!("{text:?} read back as {:?}, without {name:?}", c.body)
+        })?;
+        hold(c.markers.is_empty(), LAW, || {
+            format!("{text:?} read as {:?}", c.markers)
+        })
+    }
+}
+
+/// Laws of the deltas: a long history read over several passes.
+pub mod delta {
+    use std::fmt::Debug;
+
+    use super::{got, hold, Law};
+    use crate::{Blueprints, Bound, CodeHost, Cursor, Got, Tickets, ALL_MAX};
+
+    /// A page as the law reads it: the two lists, where the next starts,
+    /// and whether more wait.
+    type Page<A, B> = (Vec<A>, Vec<B>, Cursor, bool);
+
+    /// Read from `from` a page of `page` at a time: every page but the last
+    /// holds at most `page` changes with `more`, never none, the last holds
+    /// the rest without,
+    /// and the pages in order are the whole delta, each list in its order.
+    /// Read on from the last `next`, nothing has changed. Past the bound is
+    /// never `Unread(Cut)`. The fixture holds more changes than a page and
+    /// no more than `ALL_MAX`, and nothing writes while the law reads.
+    fn pages_resume<A: PartialEq + Debug, B: PartialEq + Debug>(
+        law: &str,
+        mut read: impl FnMut(Option<&Cursor>, Bound) -> Got<Page<A, B>>,
+        from: Option<&Cursor>,
+        page: Bound,
+    ) -> Law {
+        let (whole_a, whole_b, _, more) = got(law, "the whole delta", read(from, ALL_MAX))?;
+        hold(!more, law, || "the whole delta says more".into())?;
+        let total = whole_a.len() + whole_b.len();
+        let size = page.get() as usize;
+        hold(total > size, law, || {
+            format!("the fixture holds {total} changes, no more than a page")
+        })?;
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        let mut at = from.cloned();
+        let mut done = false;
+        for _ in 0..=total {
+            let (pa, pb, next, more) = got(law, "a page", read(at.as_ref(), page))?;
+            let n = pa.len() + pb.len();
+            hold(
+                if more { 0 < n && n <= size } else { n <= size },
+                law,
+                || format!("a page of {n} changes with more {more}, the bound {size}"),
+            )?;
+            a.extend(pa);
+            b.extend(pb);
+            at = Some(next);
+            if !more {
+                done = true;
+                break;
+            }
+        }
+        hold(done, law, || "the pages never ended".into())?;
+        hold(a == whole_a && b == whole_b, law, || {
+            format!("the pages read {a:?} and {b:?}, not {whole_a:?} and {whole_b:?}")
+        })?;
+        let (ra, rb, _, more) = got(law, "the delta after", read(at.as_ref(), page))?;
+        hold(ra.is_empty() && rb.is_empty() && !more, law, || {
+            format!("after the last page read {ra:?} and {rb:?}")
+        })
+    }
+
+    /// `Tickets::delta` pages from `from`, `page` changes at a time.
+    pub fn tickets_page_on(h: &mut dyn Tickets, from: Option<&Cursor>, page: Bound) -> Law {
+        pages_resume(
+            "delta::tickets_page_on",
+            |f, b| h.delta(f, b).map(|d| (d.tickets, d.notes, d.next, d.more)),
+            from,
+            page,
+        )
+    }
+
+    /// `Blueprints::delta` pages from `from`, `page` changes at a time.
+    pub fn blueprints_page_on(h: &mut dyn Blueprints, from: Option<&Cursor>, page: Bound) -> Law {
+        pages_resume(
+            "delta::blueprints_page_on",
+            |f, b| {
+                h.delta(f, b)
+                    .map(|d| (d.blueprints, d.comments, d.next, d.more))
+            },
+            from,
+            page,
+        )
+    }
+
+    /// `CodeHost::delta` pages from `from`, `page` changes at a time.
+    pub fn changes_page_on(h: &mut dyn CodeHost, from: Option<&Cursor>, page: Bound) -> Law {
+        pages_resume(
+            "delta::changes_page_on",
+            |f, b| {
+                h.delta(f, b)
+                    .map(|d| (d.changes, d.comments, d.next, d.more))
+            },
+            from,
+            page,
+        )
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// Five changes in the first list, read from a cursor that is the
+        /// index of the next one, at most `most` a page past the bound.
+        fn paged(most: usize) -> impl FnMut(Option<&Cursor>, Bound) -> Got<Page<u32, u32>> {
+            move |from, bound| {
+                let all: Vec<u32> = (0..5).collect();
+                let start: usize = from.map_or(0, |c| c.as_str().parse().unwrap());
+                let take = if bound == ALL_MAX { all.len() } else { most };
+                let end = (start + take).min(all.len());
+                let more = end < all.len();
+                Ok((
+                    all[start..end].to_vec(),
+                    vec![],
+                    Cursor::new(end.to_string()),
+                    more,
+                ))
+            }
+        }
+
+        #[test]
+        fn a_short_page_with_more_holds() {
+            assert!(pages_resume("short", paged(1), None, Bound::new(2).unwrap()).is_ok());
+        }
+
+        #[test]
+        fn an_empty_page_with_more_breaks_the_law() {
+            assert!(pages_resume("empty", paged(0), None, Bound::new(2).unwrap()).is_err());
+        }
+
+        #[test]
+        fn a_page_past_the_bound_breaks_the_law() {
+            assert!(pages_resume("long", paged(3), None, Bound::new(2).unwrap()).is_err());
+        }
     }
 }
 
@@ -755,8 +1014,8 @@ pub mod search {
 pub mod markers {
     use super::{got, hold, Broken, Law};
     use crate::{
-        BlueprintNo, BlueprintWrites, Blueprints, CommentId, Depth, Marker, MarkerEdit, MarkerKind,
-        TicketKey, Tickets, Window, ALL_MAX,
+        BlueprintNo, BlueprintWrites, Blueprints, Cite, CommentId, Depth, Marker, MarkerEdit,
+        MarkerKind, TicketKey, Tickets, Window, ALL_MAX,
     };
 
     /// The text a marker law reads, through the handle that reads it.
@@ -827,6 +1086,54 @@ pub mod markers {
         const LAW: &str = "markers::a_quoted_marker_is_no_marker";
         let markers = read(&mut at, LAW)?;
         hold(markers.is_empty(), LAW, || format!("read {markers:?}"))
+    }
+
+    /// A cited marker is no marker to the port's reader, which skips
+    /// quotes and code: `Cite::Marker` of a writable marker holds `typed`,
+    /// the text a person types to make it as the site's adapter writes it,
+    /// and, written in a comment on the blueprint `no`, reads back holding
+    /// that text and no marker. A marker that is not writable (unknown,
+    /// unreadable or bare of its kind) cites as `""`.
+    pub fn a_cited_marker_is_no_marker(
+        h: &mut dyn BlueprintWrites,
+        no: BlueprintNo,
+        marker: &Marker,
+        typed: &str,
+    ) -> Law {
+        const LAW: &str = "markers::a_cited_marker_is_no_marker";
+        hold(marker.writable(), LAW, || {
+            format!("the fixture's {marker:?} is not writable")
+        })?;
+        let kind = marker.kind();
+        for not in [
+            Marker::Unknown,
+            Marker::Unreadable { kind: kind.clone() },
+            Marker::Bare { kind, read: None },
+        ] {
+            let text = h.cite(&Cite::Marker(not.clone()));
+            hold(text.is_empty(), LAW, || {
+                format!("{not:?} cites as {text:?}")
+            })?;
+        }
+        let text = h.cite(&Cite::Marker(marker.clone()));
+        hold(!typed.trim().is_empty(), LAW, || {
+            format!("the fixture types {marker:?} as nothing")
+        })?;
+        hold(text.contains(typed), LAW, || {
+            format!("{marker:?} cites as {text:?}, without {typed:?}")
+        })?;
+        let posted = got(LAW, "the comment", h.comment(no, &text, &[]))?;
+        let mut answers = h.comments_by_id(std::slice::from_ref(&posted.id));
+        let c = match answers.pop() {
+            Some((_, answer)) => got(LAW, "the comment read back", answer)?,
+            None => return super::broken(LAW, "the comment was not answered"),
+        };
+        hold(c.markers.is_empty(), LAW, || {
+            format!("{text:?} read as {:?}", c.markers)
+        })?;
+        hold(c.body.contains(typed), LAW, || {
+            format!("{text:?} read back as {:?}", c.body)
+        })
     }
 
     /// A wrapped marker with a field that does not parse is unreadable of

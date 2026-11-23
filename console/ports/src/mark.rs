@@ -138,11 +138,12 @@ fn kind_unknown<'de, D: Deserializer<'de>>(d: D) -> Result<(), D::Error> {
 }
 
 /// How soon a ticket is to be worked on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Priority {
     /// Before the rest.
     Urgent,
-    /// In its turn.
+    /// In its turn. The default.
+    #[default]
     Normal,
 }
 
