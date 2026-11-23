@@ -461,6 +461,7 @@ impl World {
             };
             let author =
                 Some(s.account(spec.author.as_deref().unwrap_or(FACTORY), Realm::CodeHost));
+            let base_commit = s.branch_at(&base).unwrap_or_else(|| head_commit.clone());
             let seq = s.bump();
             let no = ChangeNo::from(nz(n));
             s.changes.push(ChangeRec {
@@ -472,6 +473,7 @@ impl World {
                 head,
                 head_commit,
                 base,
+                base_commit,
                 author,
                 draft: false,
                 merge_state: Mergeable::Yes,

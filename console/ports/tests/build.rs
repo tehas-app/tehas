@@ -48,6 +48,8 @@ fn change() -> ChangeDigest {
         branch("work"),
         commit(),
         branch("main"),
+        commit(),
+        at(),
         at(),
         link(),
     )

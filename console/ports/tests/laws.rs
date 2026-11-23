@@ -187,6 +187,58 @@ fn tickets_several_carries_each_closer() {
 }
 
 #[test]
+fn code_host_updated_is_at_or_after_every_time() {
+    for w in both() {
+        let n = first_change(&w);
+        let w = w
+            .change(n, "work", |c| c.title("open").comment("alice", "a note"))
+            .change(n + 1, "gone", |c| {
+                c.title("closed")
+                    .state(ChangeState::Closed { at: At::new(5) })
+            });
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        ok(laws::code_host::updated_is_at_or_after_every_time(
+            h.as_mut(),
+        ));
+    }
+}
+
+#[test]
+fn a_change_records_its_base_commit_and_what_its_text_closes() {
+    for w in both() {
+        let n = first_change(&w);
+        let blueprint = first_blueprint(&w);
+        let w = w
+            .blueprint(blueprint, |b| b.title("plan"))
+            .change(n, "work", |c| c.title("c").closes(blueprint));
+        let base = w.head("main").unwrap();
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        let read = |h: &mut Box<dyn CodeHost + Send>, bodies: bool| {
+            let filter = ChangeFilter {
+                bodies,
+                ..Default::default()
+            };
+            h.changes(&filter, b(10)).unwrap().into_items().remove(0)
+        };
+        let d = read(&mut h, false);
+        assert_eq!(d.base_commit, base);
+        assert!(d.says_closes.is_empty(), "no bodies, no text read");
+        assert_eq!(
+            read(&mut h, true).says_closes,
+            vec![Ref::Here(bp(blueprint))]
+        );
+        // The base moves on; the change keeps its recorded base until its
+        // head moves.
+        let moved = w.push("main", "later", "alice");
+        assert_eq!(read(&mut h, false).base_commit, base);
+        w.push("work", "more", "alice");
+        assert_eq!(read(&mut h, false).base_commit, moved);
+    }
+}
+
+#[test]
 fn code_host_merge_at_a_moved_head_is_a_conflict() {
     for w in both() {
         let no = first_change(&w);

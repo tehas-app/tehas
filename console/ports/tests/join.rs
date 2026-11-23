@@ -92,6 +92,8 @@ fn change(no: u64, state: ChangeState, closes: Vec<Ref<BlueprintNo>>) -> ChangeD
             Branch::new("work").unwrap(),
             CommitId::new("abc1234").unwrap(),
             Branch::new("main").unwrap(),
+            CommitId::new("abc1230").unwrap(),
+            At::new(0),
             At::new(0),
             link(),
         );

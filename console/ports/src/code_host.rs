@@ -122,6 +122,10 @@ pub struct ChangeDigest {
     pub head_commit: CommitId,
     /// The branch it merges into.
     pub base: Branch,
+    /// The base commit the site records for the change, from the same
+    /// answer as `head_commit`: what a hook names as the change's base. It
+    /// may lag the tip of `base`, which `CodeHost::branch` gives.
+    pub base_commit: CommitId,
     /// Who opened it; None where the site names nobody.
     pub author: Option<Account>,
     /// Its head is in another project.
@@ -133,7 +137,13 @@ pub struct ChangeDigest {
     /// The marks it carries.
     pub marks: Vec<Mark>,
     /// The blueprints this change says it closes, as the site records it.
+    /// A site may record none for a change into a branch other than the
+    /// default: `says_closes` reads the text.
     pub closes: Vec<Ref<BlueprintNo>>,
+    /// The blueprints the change's text names with the site's closing
+    /// syntax, whatever its base. Given when the filter asks for bodies,
+    /// empty otherwise. The adapter owns the syntax.
+    pub says_closes: Vec<Ref<BlueprintNo>>,
     /// Its size, if the site says.
     pub size: Option<Size>,
     /// Given when the filter asks for bodies. Without our markers, as every
@@ -141,6 +151,10 @@ pub struct ChangeDigest {
     pub body: Option<String>,
     /// When it was opened.
     pub created: At,
+    /// When the site last saw the change change, as it records it: at or
+    /// after `created`, `edited` and its merge or close. A caller compares
+    /// it with a time it stored.
+    pub updated: At,
     /// When its title or body was last edited; None when unedited.
     pub edited: Option<At>,
     /// The last account to edit the change's title or body; None when
@@ -157,7 +171,9 @@ new!(
         head: Branch,
         head_commit: CommitId,
         base: Branch,
+        base_commit: CommitId,
         created: At,
+        updated: At,
         link: WebLink
     },
     title,
@@ -167,6 +183,7 @@ new!(
     merge_state,
     marks,
     closes,
+    says_closes,
     size,
     body,
     edited,

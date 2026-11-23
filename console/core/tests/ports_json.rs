@@ -290,6 +290,28 @@ fn a_filter_stored_without_carrying_any_reads_as_narrowing_nothing() {
 }
 
 #[test]
+fn a_change_digest_carries_its_base_commit_update_and_what_its_text_closes() {
+    let commit = |c: char| CommitId::new(c.to_string().repeat(40)).unwrap();
+    let mut d = ChangeDigest::new(
+        ChangeNo::new(5).unwrap(),
+        ChangeState::Open,
+        Branch::new("work").unwrap(),
+        commit('a'),
+        Branch::new("main").unwrap(),
+        commit('b'),
+        At::new(10),
+        At::new(20),
+        WebLink::new("https://example.test/c/5").unwrap(),
+    );
+    d.says_closes = vec![Ref::Here(bp(7))];
+    let json = serde_json::to_value(&d).unwrap();
+    assert_eq!(json["base_commit"], "b".repeat(40));
+    assert_eq!(json["updated"], 20);
+    assert_eq!(json["says_closes"], serde_json::json!([{"Here": 7}]));
+    round!(d);
+}
+
+#[test]
 fn an_old_spec_marker_reads_as_unknown() {
     // The Spec marker left with the Spec marks (#2892): a record that still
     // holds one reads under the one rule, as a tag this copy does not know.

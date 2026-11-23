@@ -1055,7 +1055,9 @@ fn change_digest() -> ChangeDigest {
             branch("work"),
             commit(),
             branch("main"),
+            commit(),
             At::new(1),
+            At::new(2),
             link(),
         );
         change_digest.title = "c".into();
@@ -1063,6 +1065,7 @@ fn change_digest() -> ChangeDigest {
         change_digest.merge_state = Mergeable::No(NotMergeable::Behind);
         change_digest.marks = vec![Mark::State(State::Refreshing)];
         change_digest.closes = vec![Ref::Here(bp(7)), elsewhere()];
+        change_digest.says_closes = vec![Ref::Here(bp(7)), Ref::Here(bp(8))];
         change_digest.size = Some({
             let mut size = Size::default();
             size.files = 1;

@@ -86,6 +86,7 @@ pub(crate) struct ChangeRec {
     pub head: Branch,
     pub head_commit: CommitId,
     pub base: Branch,
+    pub base_commit: CommitId,
     pub author: Option<Account>,
     pub draft: bool,
     pub merge_state: Mergeable,
@@ -372,9 +373,17 @@ impl State {
             Some((_, c)) => *c = at.clone(),
             None => self.branches.push((name.clone(), at.clone())),
         }
-        for change in &mut self.changes {
+        let tips: Vec<Option<CommitId>> = self
+            .changes
+            .iter()
+            .map(|c| self.branch_at(&c.base))
+            .collect();
+        for (change, tip) in self.changes.iter_mut().zip(tips) {
             if change.head == *name && change.state == ChangeState::Open {
                 change.head_commit = at.clone();
+                if let Some(tip) = tip {
+                    change.base_commit = tip;
+                }
             }
         }
     }

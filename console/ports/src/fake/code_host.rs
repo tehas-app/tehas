@@ -20,32 +20,58 @@ use crate::{
 };
 use crate::{Author, Bound};
 
-/// A change's fields, its body when `bodies`.
+/// A change's fields, its body and what its text closes when `bodies`.
 pub(crate) fn change_digest(s: &State, c: &ChangeRec, bodies: bool) -> ChangeDigest {
-    ChangeDigest {
-        no: c.no,
-        title: c.title.clone(),
-        state: c.state.clone(),
-        head: c.head.clone(),
-        head_commit: c.head_commit.clone(),
-        base: c.base.clone(),
-        author: c.author.clone(),
-        from_fork: false,
-        draft: c.draft,
-        merge_state: c.merge_state,
-        marks: c.marks.clone(),
-        closes: c.closes.iter().map(|n| Ref::Here(*n)).collect(),
-        size: Some(crate::Size {
-            files: c.files.len() as u32,
-            added: c.files.iter().map(|f| f.added).sum(),
-            deleted: c.files.iter().map(|f| f.deleted).sum(),
-        }),
-        body: bodies.then(|| c.body.clone()),
-        created: c.created,
-        edited: c.edited,
-        editor: c.editor.clone(),
-        link: s.change_link(c.no),
+    let closes: Vec<_> = c.closes.iter().map(|n| Ref::Here(*n)).collect();
+    let mut d = ChangeDigest::new(
+        c.no,
+        c.state.clone(),
+        c.head.clone(),
+        c.head_commit.clone(),
+        c.base.clone(),
+        c.base_commit.clone(),
+        c.created,
+        updated_of(s, c),
+        s.change_link(c.no),
+    );
+    d.title = c.title.clone();
+    d.author = c.author.clone();
+    d.draft = c.draft;
+    d.merge_state = c.merge_state;
+    d.marks = c.marks.clone();
+    if bodies {
+        d.says_closes = closes.clone();
+        d.body = Some(c.body.clone());
     }
+    d.closes = closes;
+    d.size = Some(crate::Size {
+        files: c.files.len() as u32,
+        added: c.files.iter().map(|f| f.added).sum(),
+        deleted: c.files.iter().map(|f| f.deleted).sum(),
+    });
+    d.edited = c.edited;
+    d.editor = c.editor.clone();
+    d
+}
+
+/// When the fake last saw a change change: its making, edit, end, events
+/// and comments.
+fn updated_of(s: &State, c: &ChangeRec) -> crate::At {
+    let comments = c
+        .comments
+        .iter()
+        .filter_map(|id| s.comment_at(id))
+        .flat_map(|at| {
+            let k = &s.comments[at];
+            [Some(k.created), k.edited]
+        });
+    [Some(c.created), c.edited, ended_at(c)]
+        .into_iter()
+        .chain(c.events.iter().map(|e| Some(e.at)))
+        .chain(comments)
+        .flatten()
+        .max()
+        .unwrap_or(c.created)
 }
 
 fn at_change(s: &State, no: ChangeNo) -> Got<usize> {
@@ -88,17 +114,13 @@ fn taken(s: &State, ctx: &Ctx, c: &ChangeRec, f: &ChangeFilter) -> bool {
     let merged_ok = f
         .merged_since
         .is_none_or(|since_at| matches!(c.state, ChangeState::Merged { at, .. } if at >= since_at));
-    let updated = [Some(c.created), c.edited, ended_at(c)]
-        .into_iter()
-        .flatten()
-        .max();
+    let updated = updated_of(s, c);
     state_ok
         && author_ok
         && merged_ok
         && f.head.as_ref().is_none_or(|h| c.head == *h)
         && (f.closing.is_empty() || c.closes.iter().any(|n| f.closing.contains(n)))
-        && f.updated_since
-            .is_none_or(|u| updated.is_some_and(|x| x >= u))
+        && f.updated_since.is_none_or(|u| updated >= u)
         && (f.numbers.is_empty() || f.numbers.contains(&c.no))
 }
 
@@ -433,7 +455,8 @@ fn open_change(s: &mut State, ctx: &Ctx, new: &NewChange) -> Got<Posted<ChangeNo
     let head_commit = s
         .branch_at(&new.head)
         .ok_or(Outcome::Refused(Refusal::Invalid))?;
-    s.branch_at(&new.base)
+    let base_commit = s
+        .branch_at(&new.base)
         .ok_or(Outcome::Refused(Refusal::Invalid))?;
     if s.changes
         .iter()
@@ -453,6 +476,7 @@ fn open_change(s: &mut State, ctx: &Ctx, new: &NewChange) -> Got<Posted<ChangeNo
         head: new.head.clone(),
         head_commit,
         base: new.base.clone(),
+        base_commit,
         author,
         draft: new.draft,
         merge_state: Mergeable::Yes,

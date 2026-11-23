@@ -235,6 +235,38 @@ pub mod code_host {
         Ok(got(law, "the change", h.change(no, ALL_MAX))?.digest.state)
     }
 
+    /// A change's `updated` is at or after its `created`, its `edited` and
+    /// its merge or close, in every state; and with bodies asked, what it
+    /// says it closes is given beside them. The fixture holds changes
+    /// within `ALL_MAX`.
+    pub fn updated_is_at_or_after_every_time(h: &mut dyn crate::CodeHost) -> Law {
+        const LAW: &str = "code_host::updated_is_at_or_after_every_time";
+        let filter = crate::ChangeFilter {
+            states: crate::ChangeStates::All,
+            bodies: true,
+            ..Default::default()
+        };
+        for c in got(LAW, "every change", h.changes(&filter, ALL_MAX))?.into_items() {
+            let ended = match c.state {
+                ChangeState::Open => None,
+                ChangeState::Merged { at, .. } | ChangeState::Closed { at } => Some(at),
+            };
+            let times = [Some(c.created), c.edited, ended];
+            let newest = times.into_iter().flatten().max();
+            hold(newest.is_none_or(|t| c.updated >= t), LAW, || {
+                format!(
+                    "change {} was updated at {:?}, before {newest:?}",
+                    c.no.get(),
+                    c.updated
+                )
+            })?;
+            hold(c.body.is_some(), LAW, || {
+                format!("change {} has no body though bodies were asked", c.no.get())
+            })?;
+        }
+        Ok(())
+    }
+
     use super::Broken;
 
     /// The change is merged, as a merge that succeeded leaves it.
