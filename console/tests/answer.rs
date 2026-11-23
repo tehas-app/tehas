@@ -3,7 +3,8 @@
 //! refuses, and its contract. api/answer.schema.json says what the object
 //! holds; api/answer.sample.json (a retry of a stop) and api/answer.option.json
 //! (an option of a planning question, given in place of an answer before it)
-//! are what the command prints. tehas question: api/question.schema.json,
+//! are what the command prints. api/answer.plugin.json is the shape 2.1
+//! reserves for a plugin's answer, which no command prints in 2.0. tehas question: api/question.schema.json,
 //! with api/question.sample.json (a stop) and api/question.plan.json (a
 //! planning question). tehas question with no issue: api/questions.schema.json,
 //! with api/questions.sample.json (every question that waits) and
