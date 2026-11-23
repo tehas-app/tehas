@@ -38,7 +38,7 @@ With --json, one object on standard output and nothing else:
       "status": 0, "outcome": "handoff", "pr": "https://github.com/...",
       "progress": {"step": "review"}, "cap": "awaiting-human-merge", "parkReason": "merge",
       "failureKind": "review", "failureCause": "...", "provider": false,
-      "parked": true, "repeat": 1, "by": "alice", "how": "label"},
+      "parked": true, "repeat": 1, "by": "alice", "how": "approved"},
      {"cursor": "1760700300-7-42", "kind": "plan", "issue": 7,
       "started": "2026-10-17T13:20:00Z", "ended": "2026-10-17T13:25:00Z",
       "status": 0, "outcome": "finished", "turn": 3, "by": "alice",

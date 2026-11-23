@@ -44,7 +44,7 @@ A plugin takes two lines of `instance.env`, its pin and its grants, and
 ```
 TEHAS_PLUGIN=on
 TEHAS_PLUGINS="floorplan=https://github.com/tehas-app/tehas-plugin-floorplan@<commit>"
-TEHAS_PLUGIN_GRANTS_FLOORPLAN="<commit> view product model:15000000 action:refresh hook:after:work"
+TEHAS_PLUGIN_GRANTS_FLOORPLAN="<commit> view product model:15000000 action:refresh hook:after:change.offered"
 TEHAS_PLUGIN_ACCESS=write
 TEHAS_PLUGIN_MODEL_DAY=20000000
 ```
@@ -83,7 +83,7 @@ each setting.
 A new commit grants nothing until both lines name it again. Run `tehas
 plugin review <name> <commit>` on it first: it says what changed since the
 pin. A grant taken away applies at the next `tehas update`. A plugin taken
-out of `TEHAS_PLUGINS` loses its images, its view, its panel and its
+out of `TEHAS_PLUGINS` loses its images, its view, its menu entry and its
 directory at the next update; its rows in the state store stay.
 
 ### What the model costs
@@ -115,7 +115,8 @@ Every run, whatever is granted:
   `disk` the run fails; a `/state` past it is emptied and the plugin waits
   for `tehas plugin run`.
 - `/run/context.json`: the kind of run, the plugin's commit, and what its
-  grants make of it. Nothing about a person.
+  grants make of it. A hook a cycle asked for has the envelope of its
+  event, `change.offered`, as `event`. Nothing about a person.
 - `docker kill` at the manifest's timeout.
 
 No grant gives, in any version: a GitHub token or the App's key, the Docker
@@ -136,14 +137,14 @@ the line of this table. Read it before you write the grant.
 
 | Capability | What it lets the plugin do |
 | --- | --- |
-| `view` | Its /out is served behind the sign-in, and a panel in the dock: everyone the sign-in lets in sees it |
+| `view` | Its /out is served behind the sign-in, and a view in the plugins menu that opens in the dock: everyone the sign-in lets in sees it |
 | `view:<id>` | One of its views, the part of its /out at that view's path, is served behind the sign-in and opens from the plugins menu: everyone the sign-in lets in sees it |
-| `menu` | Its granted views are listed in the plugins menu of both front pages, by its name and their labels, in place of a panel in the dock: names and labels are public, as live/ is |
+| `menu` | Its granted views are listed in the plugins menu of the front page, by its name and their labels, each in the dock or a new tab: names and labels are public, as live/ is |
 | `product` | Reads all of the product's code, read only, in every run |
 | `model:<tokens>` | Chat completions through a socket, up to the tokens of the grant a run |
 | `model:images` | Images in its model requests, each carried in the request and never fetched: what it sends of the product's pages goes to the model |
 | `action:<id>` | A button in the view: a signed-in person asks for a refresh |
-| `hook:after:work` | A run on each pull request a cycle leaves; its summary is on the pull request for every reader of the repository |
+| `hook:after:change.offered` | A run on each change a cycle offers for review, the event change.offered; its summary is on the pull request for every reader of the repository |
 | `skill:<id>` | Its text from the pinned commit goes into the chats' instructions |
 | `needs:<name>` | Runs only while the named plugin is ready, and its chat gets the skills that plugin grants to a plugin's chat; it grants the other plugin nothing |
 | `tool:<id>` | The chats it names may call it: each call is a run with the caller's arguments and the plugin's /state read only, and its answer goes to the model |
@@ -162,7 +163,7 @@ What to weigh:
   model costs](#what-the-model-costs).
 - **`action:<id>`.** Anyone the sign-in lets in can start a refresh, one at
   a time.
-- **`hook:after:work`.** The status's summary, 140 characters, is public to
+- **`hook:after:change.offered`.** The status's summary, 140 characters, is public to
   every reader of the repository. The findings stay behind the sign-in.
 
 ### The build
@@ -229,9 +230,9 @@ A refresh makes the view. A hook reports on a pull request.
   same head.
 - **On demand.** `tehas plugin run <name>`, or a press of the view's button.
   One refresh of a plugin runs at a time.
-- **After a cycle.** A cycle that leaves an open pull request of the bot's
-  asks each ready plugin granted `hook:after:work` for a hook on it, and
-  waits for none. A hook holds no slot, lock or label. By hand: `tehas plugin
+- **After a cycle.** A cycle that offers a change, its event
+  `change.offered`, asks each ready plugin granted `hook:after:change.offered` for a
+  hook on the pull request while it is open, and waits for none. A hook holds no slot, lock or label. By hand: `tehas plugin
   hook <name> <pr>`.
 - **What it said.** `tehas plugin log <name>` prints the last refresh's log,
   and `--hook <pr>` the last hook's on that pull request. Each control
@@ -261,7 +262,7 @@ refuses the status, `tehas plugin` says "the status could not be written"
 until one is written. The tick removes a hook's findings when its head is in
 the default branch, or after 30 days.
 
-### The gate and the panel
+### The gate and the menu
 
 `tehas-plugin-gate.service` runs the gate, `tehasbot plugin-gate`. It listens
 on `TEHAS_PLUGIN_GATE_ADDR`, by default `TEHAS_HOST_ADDR`'s address on port
@@ -269,22 +270,17 @@ on `TEHAS_PLUGIN_GATE_ADDR`, by default `TEHAS_HOST_ADDR`'s address on port
 again, when a setting or the App's client files are missing.
 [The gate of the views](/tools-control#the-gate-of-the-views) has the rest.
 
-`tehas update` docks each ready view as the panel `p-<name>`, labelled from
-the manifest, and takes it away when the plugin goes or is refused. A view
-takes one of the dashboard's four panels; one that would be a fifth is left
-out of the dock and the update says so. `tehas panel set` refuses an id that
-starts `p-`.
-
 ### The plugins menu
 
-A plugin granted `menu` takes no panel in the dock. `tehas update` lists it
-in `live/plugins.json` instead: its name, its label, and each of its views it
-is granted, with the view's label, its address and whether it opens in the
-dock or a new tab. Both front pages read the file and show each plugin's
-label in the menu, after the person's panels, with its views as links under
-it. `live/` is public, so a plugin's name and labels are, as a panel's are;
-what a view shows is behind the sign-in. A plugin without `menu` keeps the
-one panel of its `view`, as before.
+`tehas update` lists each ready plugin with a view granted in
+`live/plugins.json`: its name, its label, and each of its views it is
+granted, with the view's label, its address and whether it opens in the dock
+or a new tab. v1's `view` is the view `view`, labelled from the manifest,
+and opens in the dock. A plugin that goes or is refused leaves the file.
+The front page reads the file and shows each plugin's label in the menu,
+after the host bridge's items, with its views as links under it. `live/` is
+public, so a plugin's name and labels are; what a view shows is behind the
+sign-in.
 
 ## Before you turn it on
 
@@ -329,7 +325,7 @@ the view, with a Refresh button. A hook rebuilds the map from a pull
 request's head with no model call and reports what the change added to
 Floorplan's Health check: kinds of finding, file and line, never a value. Its
 verdict is `note` or `pass`. It asks for `view`, `product`, `model`,
-`action:refresh` and `hook:after:work`, the grants of the example above.
+`action:refresh` and `hook:after:change.offered`, the grants of the example above.
 
 To try it now, follow "Try it by hand" in its README: Node 22, git, a model
 endpoint that speaks chat completions with tools, and a checkout of a

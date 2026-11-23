@@ -9,7 +9,7 @@ description: "An outside cap, a drain, the records of what ended, and stopping a
 
 ```
 tehas limit [--json]
-tehas limit set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT]
+tehas limit set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] [--json]
 tehas limit clear
 ```
 
@@ -215,7 +215,9 @@ so on stderr.
 A cycle killed outright never reports, so its record in the state store stays
 open. Once the unit is gone and the lock is free, `tehas stop` ends that record
 as stopped, before the lock file goes, and says `ended the record of the cycle
-of #12 as stopped`. An open record counts as something to stop. A record that
+of #12 as stopped`. A cycle quiet for two minutes may have been ended as
+`lost` by the poll in the moment before; then it says `the record of the
+cycle of #12 was already ended as lost`. An open record counts as something to stop. A record that
 cannot be read or ended leaves the lock file and everything else where it is,
 is said on stderr, and exits 1: run it again. A state store that is not
 installed changes nothing, exit 78.
@@ -335,20 +337,25 @@ and two in all run at once, and a request for the same pull request written
 while one runs, even at the same head, runs after it. A hook takes its
 request before it runs, and reads the plugin's pin, grants and state again
 before each run: a plugin no longer ready at its pin or no longer granted
-`hook:after:work` runs nothing and posts nothing. With `product` granted the
+`hook:after:change.offered` runs nothing and posts nothing. With `product` granted the
 hook fetches the pull request's head into the mirror as
 `refs/tehas/plugin-pr/<name>/<pr>`, one ref for each plugin, and when that
 head moved since the request it asks GitHub for the head and base together
 and runs with both, or does not run when GitHub gives another head.
 
-A cycle asks for the hooks itself. After its report, a cycle that was not
-stopped by a signal, was not refused at its start and left an open pull
-request of the bot's, a refresh's too, reads that pull request from GitHub.
-For each plugin granted `hook:after:work` and ready at its pin it writes
+A cycle asks for the hooks itself, on its event `change.offered`
+([Events](/api#events)). After its report the cycle raises the events of its
+history line; a line that names a pull request, was not stopped by a signal,
+and did not end `refused` or `merged` raises `change.offered`, a refresh's
+too. The plugins' bridge, a listener of the cycle's events while plugins are
+on, then reads that pull request from GitHub. For each plugin granted
+`hook:after:change.offered` and ready at its pin it writes
 `~/tehas/plugins/<name>/hooks/<pr>.json` (the pull request, its head as
-GitHub gave it, its base and the issue) and starts
+GitHub gave it, its base, the issue and the event's envelope) and starts
 `tehas-plugin-hook@<name>-<pr>.service`. It waits for none of them. A hook
 holds no slot, lock or label. A merged or closed pull request gets no hook.
+The hook's `/run/context.json` has the envelope as `event`; a hook run by
+hand with `tehas plugin hook` has none.
 
 When a hook ends, `tehas-plugin` asks GitHub for the pull request's head and
 posts one commit status on the head the hook read, and nothing else, never
@@ -449,12 +456,10 @@ The client comes from `tehas setup --new-app`, which keeps it beside the
 app's key, or, for an app made before, from `tehas setup --app-client-id <id>
 --app-secret-file <file>` ([A GitHub App](/github-app#the-client-for-the-plugins-sign-in)).
 
-`tehas update` docks each view: for each plugin that is ready at its pin, has
-`view` granted and a `view` in its manifest, it sets the panel `p-<name>`
-with the manifest's `view.label` and the URL `https://plugin-<name>.<domain>/`
-(`plugin-<name>-<sub>.<domain>` with `TEHAS_EDGE_ONE_LEVEL=on`), as
-[`tehas panel set`](/api#tehas-panel) does. A plugin that goes or is refused
-loses its panel, and so does every plugin while the feature is off. Ids that
-start `p-` are kept for this: `tehas panel set p-...` exits 64. A view that
-would be a fifth panel is left out of the dock with a line that says so; the
-update goes on and does not exit 1 for it.
+`tehas update` lists each view in the plugins menu: for each plugin that is
+ready at its pin, has `view` granted and a `view` in its manifest, it lists
+the view `view` in `live/plugins.json` with the manifest's `view.label` and
+the URL `https://plugin-<name>.<domain>/` (`plugin-<name>-<sub>.<domain>`
+with `TEHAS_EDGE_ONE_LEVEL=on`), opening in the dock
+([The plugins menu](/plugins#the-plugins-menu)). A plugin that goes or is
+refused leaves the menu, and so does every plugin while the feature is off.

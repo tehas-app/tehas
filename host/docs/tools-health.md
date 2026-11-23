@@ -46,7 +46,7 @@ pause flag and the words are this run's. `planned` lists the open issues labelle
 them. `completedCount` is a count, not a list: a whole number from 0 of the closed issues that
 carry `tehas:shipped`, counted by a search of its own, so it keeps rising past
 the hundred `completed` holds. The figure of the Shipped stage of the business
-layout is that count where the file has one, and the length of the list where
+plugin's page is that count where the file has one, and the length of the list where
 it has none. The call for that count may take 60 seconds, the same limit the
 platform reads go under; a call that fails or runs out of time leaves the key
 out of the snapshot. The key is absent whenever the search gave no such number, so
@@ -57,7 +57,7 @@ issue, the one `TEHAS_CONTROL_ISSUE` names, is left out of every list and every
 count: it holds the pause label and is not work, whatever label it carries.
 
 `tehasbot status` also writes `~/tehas/live/epics.json`, the epics panel of
-both front pages: every open issue with sub-issues, GitHub's own links, newest
+the front page: every open issue with sub-issues, GitHub's own links, newest
 first, with GitHub's count of its sub-issues and how many are closed, and its
 sub-issues in their order with their state. Only sub-issues of the instance's
 repository are named; one elsewhere is counted in `more` and not named. A closed
@@ -123,7 +123,7 @@ turns are only counted.
 | `from`, `to` | The window |
 | `shipped` | `n`: issues whose merge is in the window, by their `merged` event or a run that merged |
 | `planned` | Work to do, from the latest sample: `n` is `inLine` plus `planning`; `trend` is one `{day, n}` per day, the day's last sample, `n` left out on a day with none. Left out with no sample |
-| `runs` | `n` work runs, and how many ended as `pr`, `merged`, `handoff`, `parked`, `failed`, `refused` and `stopped` |
+| `runs` | `n` work runs, and how many ended as `offered`, `merged`, `handoff`, `parked`, `failed`, `refused` and `stopped` |
 | `planningTurns` | `n` planning turns that ended |
 | `handoffRate` | `share` of the `n` runs that ended needing a person: handed off or parked |
 | `firstPassYield` | `share` of the `n` shipped issues with a run here that took exactly one work run |
@@ -135,7 +135,7 @@ turns are only counted.
 | `daily` | Ten `{day, shipped, runs, failed, minutes}`, oldest first: issues shipped, runs ended and of them failed, and their minutes |
 | `stopReasons` | `top`: the five most common `{reason, n}` among the `n` runs that ended without a pull request, not counting those a person stopped. The reason is the failure kind, the cap for a failure that is a cap, else the park reason, else how the run ended |
 | `stations` | `steps`: per step, in the order runs reach it, the `n` runs that reached it, how many `passed` and the `share`. A run that reached a pull request passed every step it ran; one handed off, parked or failed stopped in its failed step, else its last. `n` is the runs counted: refused and stopped runs are not |
-| `versions` | One `{tehas, rukas, n}` per version pair, the pair that ran last first, at most ten. With three runs or more also `prShare` (reached a pull request) and `medianSeconds`; with three that reported usage also `medianTokens` (input, output and cache read, of those runs) and their count `tokensN`. A version that is not known is left out |
+| `versions` | One `{tehas, rukas, n}` per version pair, the pair that ran last first, at most ten. With three runs or more also `changeShare` (reached a pull request) and `medianSeconds`; with three that reported usage also `medianTokens` (input, output and cache read, of those runs) and their count `tokensN`. A version that is not known is left out |
 
 `tehasbot status` also writes `~/tehas/live/platform.json`: what platform the
 host runs. On a host with the platform checkout `~/tehas/platform` that is the

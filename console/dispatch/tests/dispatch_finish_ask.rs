@@ -36,7 +36,7 @@ echo "https://github.com/acme/widget/pull/90""#,
         &json!([icomment(71, who, "2026-10-01T23:59:00Z", "2026-10-01T23:59:00Z",
             "<!-- tehas:millwright issue=7 action=finish -->\nThe flaky test in other.rs failed, not the change.")]),
     );
-    w.past(7, "alice", "label", "2026-10-01T00:00:00Z", &[]);
+    w.past(7, "alice", "approved", "2026-10-01T00:00:00Z", &[]);
     w
 }
 

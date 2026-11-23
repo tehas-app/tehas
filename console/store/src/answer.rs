@@ -1,4 +1,5 @@
-//! The answer verbs: answer-record and answer-drop (#2782).
+//! The answer verbs: answer-record and answer-drop (#2782), and the reads of
+//! the questions they answer, question-show and question-list.
 //!
 //! An answer is what `tehas answer` gave for a person to the question on
 //! record of an issue: a park's or a planning turn's. It is one row per
@@ -45,6 +46,11 @@ pub enum Call {
     Show {
         issue: i64,
     },
+    /// `question-list [--after <id>]`: every question that waits, or every
+    /// question numbered above `after`.
+    List {
+        after: Option<i64>,
+    },
 }
 
 pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
@@ -60,8 +66,20 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
         }
         "question-show" => Args::parse("question-show", rest, &[], true)
             .and_then(|a| Ok(Call::Show { issue: a.issue()? })),
+        "question-list" => Args::parse("question-list", rest, &[("--after", Kind::Value)], false)
+            .and_then(|a| {
+                Ok(Call::List {
+                    after: a.strict("--after", "a question's number, or 0", after_number)?,
+                })
+            }),
         _ => return None,
     })
+}
+
+/// A question's number, or 0 for before the first: SQLite's rowid is 19
+/// digits at most, and 18 are any number the store gives.
+fn after_number(s: &str) -> Option<i64> {
+    tehas_core::grammar::digits(s, 18, true)
 }
 
 fn record_args(rest: &[String]) -> Result<Call, String> {
@@ -120,26 +138,32 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         } => record(home, *issue, by, *choice, *option, text.as_deref(), now),
         Call::Drop { issue, id } => drop(home, *issue, *id),
         Call::Show { issue } => verbs::look(home, |c| show(c, *issue)),
+        Call::List { after } => verbs::look(home, |c| list(c, *after)),
     }
 }
 
 /// The names of an answer's columns, in the order `waiting_json` reads them;
 /// the text is read past them.
-const ANSWER_NAMES: [&str; 7] = ["question", "issue", "kind", "choice", "option", "by", "at"];
+const ANSWER_NAMES: [&str; 8] = [
+    "question", "comment", "issue", "kind", "choice", "option", "by", "at",
+];
 
-/// The answer waiting on question `id` of the issue: null for none. `text` is
-/// the reply in words, null for a choice, and `how` is always `answer`.
+/// The answer waiting on question `id` of the issue, by the store's number:
+/// null for none. `question` is the store's number and `comment` the id of
+/// the comment that asked it, which the dispatcher matches with the issue's
+/// comments. `text` is the reply in words, null for a choice, and `how` is
+/// always `answer`.
 pub(crate) fn waiting_json(c: &Connection, issue: i64, id: i64) -> Result<String, Fail> {
     let row = c
         .query_row(
-            "SELECT a.question, a.issue, q.kind, a.choice, a.option_key, a.by_account, a.at,
-               a.text
+            "SELECT a.question, q.comment_id, a.issue, q.kind, a.choice, a.option_key,
+               a.by_account, a.at, a.text
              FROM answers a JOIN questions q ON q.id = a.question
              WHERE a.question = ?1 AND a.issue = ?2",
             params![id, issue],
             |r| {
                 let mut p = row_json(r, &ANSWER_NAMES)?;
-                p.push(("text", j(r.get::<_, Option<String>>(7)?)));
+                p.push(("text", j(r.get::<_, Option<String>>(8)?)));
                 p.push(("how", j("answer")));
                 Ok(p)
             },
@@ -149,13 +173,14 @@ pub(crate) fn waiting_json(c: &Connection, issue: i64, id: i64) -> Result<String
     Ok(row.map_or("null".to_string(), |p| obj(&p)))
 }
 
-/// The open planning session's question, while it waits for an answer, and
-/// the options the turn offered.
+/// The open planning session's question, by the store's number, while it
+/// waits for an answer, and the options the turn offered.
 fn plan_question(c: &Connection, issue: i64) -> Result<Option<(i64, Option<String>)>, Fail> {
     c.query_row(
-        "SELECT q.id, p.options_json FROM planning p JOIN questions q ON q.id = p.comment_id
+        "SELECT q.id, p.options_json FROM planning p JOIN questions q ON q.comment_id = p.comment_id
          WHERE p.issue = ?1 AND p.ended_at IS NULL AND p.running = 0
-           AND q.issue = ?1 AND q.kind = 'plan' AND q.answered_at IS NULL",
+           AND q.issue = ?1 AND q.kind = 'plan' AND q.answered_at IS NULL
+           AND q.withdrawn_at IS NULL",
         [issue],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )
@@ -163,39 +188,103 @@ fn plan_question(c: &Connection, issue: i64) -> Result<Option<(i64, Option<Strin
     .q()
 }
 
-/// `question-show <issue>`: the question that waits for an answer, a
-/// planning session's open question or else the park question on record,
-/// with when it was asked, the choices a park's question offers (null for a
-/// question asked before they were kept) and a planning question's options.
-/// `question` is null when none waits.
-fn show(c: &Connection, issue: i64) -> Result<String, Fail> {
-    let (id, kind, options) = match plan_question(c, issue)? {
-        Some((id, json)) => (id, "plan", Some(options(issue, json.as_deref())?)),
-        None => match crate::park::question_on_record(c, issue)? {
-            Some(id) => (id, "park", None),
-            None => return Ok(line("question-show", &[("question", "null".into())])),
-        },
-    };
-    let (posted, offers): (i64, Option<String>) = c
+/// A question by the store's number, with the options a planning turn offered.
+type Waiting = (i64, Option<Vec<String>>);
+
+/// The question the issue waits on: a planning session's open question, or
+/// else the park question on record.
+fn waiting(c: &Connection, issue: i64) -> Result<Option<Waiting>, Fail> {
+    Ok(match plan_question(c, issue)? {
+        Some((id, json)) => Some((id, Some(options(issue, json.as_deref())?))),
+        None => crate::park::question_on_record(c, issue)?.map(|id| (id, None)),
+    })
+}
+
+const QUESTION_NAMES: [&str; 8] = [
+    "id",
+    "issue",
+    "kind",
+    "attempt",
+    "posted_at",
+    "answered_at",
+    "withdrawn_at",
+    "comment",
+];
+
+/// Question `id` as `question-show` and `question-list` give it: the store's
+/// number, its issue and kind, the attempt of the cycle that parked (a
+/// planning question's is its turn), when it was asked, answered and
+/// withdrawn, the id of the comment that asked it (null for none), the choices a park's question offers (null for one asked before
+/// they were kept) and a planning question's options. The options are kept
+/// with the session, not the question, so they are null for a planning
+/// question the issue no longer waits on.
+fn question(c: &Connection, id: i64) -> Result<String, Fail> {
+    let (mut p, issue, offers): (_, i64, Option<String>) = c
         .query_row(
-            "SELECT posted_at, offers FROM questions WHERE id = ?1",
+            "SELECT id, issue, kind, attempt, posted_at, answered_at, withdrawn_at, comment_id,
+               offers
+             FROM questions WHERE id = ?1",
             [id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((row_json(r, &QUESTION_NAMES)?, r.get(1)?, r.get(8)?)),
         )
         .q()?;
     let offers = offers.map(|o| o.split(',').map(str::to_string).collect::<Vec<_>>());
+    let options = waiting(c, issue)?
+        .filter(|(on, _)| *on == id)
+        .and_then(|(_, options)| options);
+    p.push(("offers", j(offers)));
+    p.push(("options", j(options)));
+    Ok(obj(&p))
+}
+
+/// `question-show <issue>`: the question that waits for an answer, as
+/// `question` gives it. `question` is null when none waits.
+fn show(c: &Connection, issue: i64) -> Result<String, Fail> {
+    let shown = match waiting(c, issue)? {
+        Some((id, _)) => question(c, id)?,
+        None => "null".into(),
+    };
+    Ok(line("question-show", &[("question", shown)]))
+}
+
+/// `question-list [--after <id>]`: with no `--after`, the question each issue
+/// waits on, the one `question-show` gives for it; with it, every question
+/// numbered above `<id>`, the answered and the withdrawn among them. Both in
+/// number order, each as `question` gives it.
+fn list(c: &Connection, after: Option<i64>) -> Result<String, Fail> {
+    let numbers = |sql: &str, arg: Option<i64>| -> Result<Vec<i64>, Fail> {
+        let mut s = c.prepare(sql).q()?;
+        let rows = s
+            .query_map(rusqlite::params_from_iter(arg), |r| r.get(0))
+            .q()?;
+        rows.collect::<Result<_, _>>().q()
+    };
+    let ids = match after {
+        Some(n) => numbers(
+            "SELECT id FROM questions WHERE id > ?1 ORDER BY id",
+            Some(n),
+        )?,
+        None => {
+            let open = numbers(
+                "SELECT DISTINCT issue FROM questions
+                 WHERE answered_at IS NULL AND withdrawn_at IS NULL",
+                None,
+            )?;
+            let mut ids = Vec::new();
+            for issue in open {
+                ids.extend(waiting(c, issue)?.map(|(id, _)| id));
+            }
+            ids.sort_unstable();
+            ids
+        }
+    };
+    let listed: Vec<String> = ids
+        .iter()
+        .map(|id| question(c, *id))
+        .collect::<Result<_, _>>()?;
     Ok(line(
-        "question-show",
-        &[(
-            "question",
-            obj(&[
-                ("id", j(id)),
-                ("kind", j(kind)),
-                ("posted_at", j(posted)),
-                ("offers", j(offers)),
-                ("options", j(options)),
-            ]),
-        )],
+        "question-list",
+        &[("questions", verbs::list(&listed))],
     ))
 }
 
@@ -304,13 +393,15 @@ fn record(
     })
 }
 
-/// `answer-drop <issue> --id <id>`: the answer to question `id` taken away.
-/// One already gone is done.
+/// `answer-drop <issue> --id <id>`: the answer to the question comment `id`
+/// asked taken away. One already gone is done.
 fn drop(home: &Path, issue: i64, id: i64) -> Result<String, Fail> {
     verbs::write(home, |c| {
         let gone = c
             .execute(
-                "DELETE FROM answers WHERE question = ?1 AND issue = ?2",
+                "DELETE FROM answers WHERE issue = ?2
+                   AND question = (SELECT q.id FROM questions q
+                     WHERE q.comment_id = ?1 AND q.withdrawn_at IS NULL)",
                 params![id, issue],
             )
             .q()?;

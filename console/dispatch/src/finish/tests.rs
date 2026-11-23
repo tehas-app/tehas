@@ -39,7 +39,7 @@ fn ask_comment(by: &str) -> Value {
 }
 
 fn approved() -> Value {
-    json!({"at": "2026-10-30T10:00:00Z", "by": "alice", "how": "label",
+    json!({"at": "2026-10-30T10:00:00Z", "by": "alice", "how": "approved",
         "body_sha256": body_sha256(&json!({"body": BODY}))})
 }
 

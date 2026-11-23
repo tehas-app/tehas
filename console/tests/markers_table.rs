@@ -6,13 +6,12 @@
 const TABLE: &str = include_str!("../../host/markers.tsv");
 
 /// The kinds of the ports' MarkerKind, `Project` aside, in the table's order.
-const KINDS: [&str; 10] = [
+const KINDS: [&str; 9] = [
     "Question",
     "Blocked",
     "HoldCleared",
     "Park",
     "Finish",
-    "Spec",
     "LastAttempt",
     "Millwright",
     "TicketOf",
@@ -20,10 +19,10 @@ const KINDS: [&str; 10] = [
 ];
 
 /// The kinds that are a block: an open line, a payload, a close line.
-const BLOCKS: [&str; 2] = ["Spec", "LastAttempt"];
+const BLOCKS: [&str; 1] = ["LastAttempt"];
 
 /// The field types the table's header defines, each without its arguments.
-const TYPES: [&str; 10] = [
+const TYPES: [&str; 8] = [
     "blueprint",
     "number",
     "numbers",
@@ -31,8 +30,6 @@ const TYPES: [&str; 10] = [
     "word",
     "hex",
     "key",
-    "link",
-    "requirements",
     "text",
 ];
 
@@ -142,7 +139,7 @@ fn the_open_text_holds_each_field_it_names_and_every_other_is_a_blocks_payload()
                 );
                 let base = ty.split('(').next().unwrap_or_default();
                 assert!(
-                    ["link", "hex", "requirements", "text"].contains(&base),
+                    ["hex", "text"].contains(&base),
                     "{} {name}: {ty} is no payload",
                     row.kind
                 );

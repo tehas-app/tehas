@@ -1,15 +1,23 @@
-//! The seam of the hook after work (docs/specs/2026-11-21-plugins-hooks.md,
-//! "When it runs"): once the report is done, a request for each plugin
-//! granted `hook:after:work` and ready, and its unit started. It waits for
+//! The plugins' bridge (docs/specs/2026-11-22-events.md, "Plugins"): an
+//! `on_any` listener of the cycle's events. On `change.offered` it writes a
+//! request for each plugin granted `hook:after:change.offered` and ready, for the
+//! change while it is open at its head, and starts its unit
+//! (docs/specs/2026-11-21-plugins-hooks.md, "When it runs"). It waits for
 //! nothing and holds no slot, lock or label: the unit runs the hook after
-//! the cycle has ended.
+//! the cycle has ended. It never stops an event, so no plugin hides one
+//! from another.
 
 use crate::after::log;
+use crate::events::Get;
 use serde_json::Value;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tehas_core::call::{run_full, GH_BOUND, GRACE};
-use tehas_core::plugin::hook::{self, Ending, HookAsk};
+use tehas_core::plugin::hook::{self, HookAsk};
+use tehas_ports::events::{ChangeOffered, Envelope, Event, Heard};
+
+/// The bridge's id in the cycle's dispatcher.
+pub const BRIDGE: &str = "plugin-hooks";
 
 /// `systemctl --user start --no-block` waits for no job, so it answers soon.
 const START_BOUND: Duration = Duration::from_secs(30);
@@ -53,13 +61,30 @@ fn systemctl_start(unit: &str) -> Result<(), String> {
     }
 }
 
-/// The hooks of the cycle of `issue` that ended as `e`. `get` reads the
-/// settings the cycle started with.
-pub fn ask(home: &Path, issue: u64, e: &Ending, get: &dyn Fn(&str) -> String) {
-    let names = hook::after_work(e, get, &|name: &str| hook::read_state(home, name));
-    let Some(pr) = e.pr.filter(|_| !names.is_empty()) else {
-        return;
-    };
+/// The bridge: on `change.offered`, the hooks of the plugins granted one.
+/// `get` reads the settings the cycle started with.
+pub fn bridge(home: PathBuf, get: Get) -> impl Fn(&Envelope) -> Heard + Send + Sync + 'static {
+    move |e: &Envelope| {
+        if let Event::ChangeOffered(offer) = &e.event {
+            let names = hook::granted(&*get, &|name: &str| hook::read_state(&home, name));
+            if !names.is_empty() {
+                ask(&home, offer, e, &names, &*get);
+            }
+        }
+        Heard::Go
+    }
+}
+
+/// The hooks of `names` on the change `offer` names, when it is open at its
+/// head, each asked with the envelope `e`.
+fn ask(
+    home: &Path,
+    offer: &ChangeOffered,
+    e: &Envelope,
+    names: &[String],
+    get: &dyn Fn(&str) -> String,
+) {
+    let (issue, pr) = (offer.blueprint.get(), offer.change.get());
     let repo = get("TEHAS_REPO");
     let args = vec!["api".to_string(), format!("repos/{repo}/pulls/{pr}")];
     let read = run_full("gh", &args, None, GH_BOUND, GRACE, &[]);
@@ -73,7 +98,8 @@ pub fn ask(home: &Path, issue: u64, e: &Ending, get: &dyn Fn(&str) -> String) {
         ));
         return;
     };
-    let asked = hook::requests(&names, &pull, &repo, &get("TEHAS_BOT_LOGIN"), pr, issue);
+    let bot = get("TEHAS_BOT_LOGIN");
+    let asked = hook::requests(names, &pull, &repo, &bot, (pr, issue), e);
     ask_each(home, issue, &asked, &mut systemctl_start);
 }
 
@@ -93,6 +119,10 @@ mod tests {
             base: B.into(),
             issue: Some(7),
             trigger: Trigger::Cycle,
+            event: tehas_ports::events::samples()
+                .into_iter()
+                .find(|s| s.name == tehas_ports::events::Name::ChangeOffered)
+                .map(|s| s.full),
         };
         (name.to_string(), ask)
     }
@@ -123,16 +153,22 @@ mod tests {
     }
 
     #[test]
-    fn a_cycle_that_asks_no_plugin_asks_github_nothing() {
+    fn an_offer_no_plugin_is_granted_asks_github_nothing() {
         let home = TestDir::new("cycle-hook-none");
-        let e = Ending {
-            signalled: true,
-            refused: false,
-            pr: Some(42),
+        let offer = ChangeOffered {
+            change: tehas_ports::ChangeNo::new(42).unwrap(),
+            blueprint: tehas_ports::BlueprintNo::new(7).unwrap(),
+            cycle: tehas_ports::events::CycleId::read("7-1").unwrap(),
+            end: tehas_ports::events::End::Offered,
+            at: tehas_ports::At::new(1_763_820_000),
         };
         // No plugin is granted, and plugins are off: nothing is read or
         // written, so no gh runs.
-        ask(&home, 7, &e, &|_| String::new());
+        let listen = bridge(
+            home.to_path_buf(),
+            std::sync::Arc::new(|_: &str| String::new()),
+        );
+        assert_eq!(listen(&Envelope::new(offer)), Heard::Go);
         assert!(!home.join("plugins").exists());
     }
 }

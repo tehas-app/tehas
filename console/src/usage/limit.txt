@@ -12,7 +12,7 @@ factory stays paused under any limit.
 
 Usage:
   tehas limit [--json]          show the limit, or "none"
-  tehas limit set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT]
+  tehas limit set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] [--json]
   tehas limit clear
 
   --cycles N     the most cycles running at once, 0 to 9999. Room for a new
@@ -26,15 +26,21 @@ Usage:
   --reason TEXT  shown as the hold's reason: one line of at most 200
                  characters, control characters become spaces. It is shown
                  on pages that may be public
+  --json         with set, print the limit as tehas limit --json does, in
+                 place of the words
 
 Setting replaces the whole limit; setting it twice the same way leaves the
-same file. Each command prints the limit as it then is:
+same file. The limit keeps the time it was set at while its cycles, plan
+and reason stay the same, also when only its expiry moves. Another limit
+takes the time it is set at, or the second after the one before it: no two
+limits share a time. Each command prints the limit as it then is:
 
   limit     1 cycle at once, planning off, until 2026-10-17T14:05:00Z: held for alpha
 
 With --json, {"api": 1, "state": "ok", "cycles": 1, "plan": false,
-"until": "...", "reason": "..."}: state is none, ok, expired or unreadable,
-and a field without a value is left out.
+"until": "...", "reason": "...", "set": "..."}: state is none, ok, expired
+or unreadable, set is when the limit was set, and a field without a value
+is left out. A limit set by tehas 1.4 or older has no set until it changes.
 
 The settings are loaded here, and the arguments of set, the
 reading, the writing and the printing are the console's (console/ops/src/holds.rs).

@@ -10,7 +10,7 @@
 // that breaks a rule is dropped, a link is used only when it passes its rule,
 // and every word is set with textContent.
 //
-// The front pages and /dashboard load this file before the views, and it
+// The front page and /dashboard load this file before the views, and it
 // unregisters any service worker on the origin: tehas registers none, and one
 // left there would answer for pages it does not own.
 (() => {
@@ -21,7 +21,7 @@
   const TIMEOUT = 5 * 1000;
   const RFC3339 = /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
   const ID = /^[a-z0-9-]{1,32}$/;
-  // A control character, or a line or paragraph separator, as panels.js folds them.
+  // A control character, or a line or paragraph separator, as dock.js folds them.
   const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
   const SPACE_OR_CONTROL = /[\s\u0000-\u001f\u007f-\u009f]/;
   const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -51,7 +51,7 @@
   }
 
   // A page for the menu: an http: or https: address with no user or
-  // password, at most 512 characters. panels.js drops one on the page's own
+  // password, at most 512 characters. dock.js drops one on the page's own
   // origin.
   function page(s) {
     if (typeof s !== "string" || s.length > 512 || SPACE_OR_CONTROL.test(s)) return null;

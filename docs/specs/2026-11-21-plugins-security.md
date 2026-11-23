@@ -235,6 +235,10 @@ What it answers:
   `http://` or `https://` (through `curl`, as `models.rs` reaches the
   endpoint), with a 300-second bound. The answer is passed back as JSON, at
   most 4 MiB.
+- From 1.7.0 a grant may name the provider, `model:<tokens>@<provider>`,
+  and the request goes to that provider's main endpoint. A provider whose
+  `api` is `anthropic-messages` is reached through a translation, and the
+  plugin still speaks chat completions (`2026-11-23-plugins-endpoints.md`).
 - From 1.6.0 every answer carries `Tehas-Tokens-Left: <n>`: the lesser of
   what the run's grant and the day's budget have left, after this answer.
   `GET /v1/models` carries it too and spends nothing

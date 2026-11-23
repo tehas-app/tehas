@@ -9,10 +9,10 @@
 use crate::jq::{obj, J};
 use crate::snapshot;
 use crate::store;
-use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 use tehas_core::grammar;
+use tehas_core::outcome::ParkLine;
 use tehas_core::time;
 
 /// A cursor of a shape this command can print: at most 10 digits of seconds,
@@ -193,6 +193,15 @@ fn date(v: &J) -> Option<J> {
     Some(J::str(time::iso(v.as_f64()?.floor() as i64)))
 }
 
+/// The cycle id, `<blueprint>-<attempt>` (`12-3`), as the events' `CycleId`
+/// writes it: what `tehas status` prints on a running cycle and this listing
+/// on its work line. `None` for a part out of 1 to 999999999.
+pub fn cycle_id(blueprint: i64, attempt: i64) -> Option<String> {
+    let blueprint = tehas_ports::BlueprintNo::new(u64::try_from(blueprint).ok()?)?;
+    let attempt = std::num::NonZeroU32::new(u32::try_from(attempt).ok()?)?;
+    tehas_ports::events::CycleId::new(blueprint, attempt).map(|c| c.to_string())
+}
+
 /// A row of the store in the shape its line had before the store. A row of
 /// neither kind is no line, and an `at` that is no time none of the rows is:
 /// the read stops there.
@@ -229,6 +238,10 @@ fn line_of(row: &J, repo: &str) -> Option<Option<J>> {
                     ("pr", pr),
                     ("by", f("by")),
                     ("how", f("how")),
+                    ("recorded", date(row.get("recorded_at")).unwrap_or(J::Null)),
+                    ("signalled", f("signalled")),
+                    ("attempt", f("attempt")),
+                    ("change", f("pr")),
                 ],
                 no_empty,
             ));
@@ -286,10 +299,13 @@ fn above_zero(v: &J) -> bool {
 }
 
 /// The seconds of a line this release can read. A line it cannot is left out,
-/// so an older or a newer row breaks no listing.
+/// so an older or a newer row breaks no listing. A work line may have no exit
+/// status: a stopped, lost or refused start left none (T11.3), and its line
+/// is listed without one.
 fn seconds_of(line: &J) -> Option<i64> {
     let at = line.get("at").as_str()?;
-    let rc = matches!(line.get("rc"), J::Num(_) | J::Str(_));
+    let rc = matches!(line.get("rc"), J::Num(_) | J::Str(_))
+        || (line.get("kind").as_str() == Some("work") && line.get("rc").is_null());
     let readable = above_zero(line.get("issue"))
         && above_zero(line.get("seq"))
         && rc
@@ -326,7 +342,33 @@ fn publish(line: &J, seconds: i64) -> J {
         J::Bool(_) => f(key),
         _ => J::Null,
     };
-    let started = whole(line.get("started")).and_then(|t| Some(J::str(time::iso(t.parse().ok()?))));
+    let work = line.get("kind").as_str() == Some("work");
+    // A work line always has its start: one the store holds none for (a
+    // ledger of v0.30) started when it ended, as the store's step to 30 says.
+    let started = whole(line.get("started"))
+        .and_then(|t| Some(J::str(time::iso(t.parse().ok()?))))
+        .or_else(|| work.then(|| f("at")));
+    let cycle = match (whole(line.get("issue")), whole(line.get("attempt"))) {
+        (Some(i), Some(a)) if work => i
+            .parse()
+            .ok()
+            .zip(a.parse().ok())
+            .and_then(|(i, a)| cycle_id(i, a))
+            .map_or(J::Null, J::Str),
+        _ => J::Null,
+    };
+    let change = whole(line.get("change")).and_then(|n| n.parse::<i64>().ok());
+    let end = if work {
+        J::str(tehas_core::outcome::end(&tehas_core::outcome::Line {
+            outcome: line.get("status").as_str(),
+            status: whole(line.get("rc")).and_then(|n| n.parse().ok()),
+            change: change.is_some(),
+            parked: line.get("parked").is_true(),
+            failure_kind: line.get("failure_kind").as_str().filter(|k| !k.is_empty()),
+        }))
+    } else {
+        J::Null
+    };
     let filed: Vec<J> = line
         .get("filed")
         .items()
@@ -361,10 +403,12 @@ fn publish(line: &J, seconds: i64) -> J {
             ),
             ("kind", f("kind")),
             ("issue", f("issue")),
+            ("cycle", cycle),
             ("ended", f("at")),
             ("started", started.unwrap_or(J::Null)),
             ("status", number("rc")),
             ("outcome", f("status")),
+            ("end", end),
             ("turn", number("turn")),
             ("progress", progress),
             ("cap", word("cap")),
@@ -374,9 +418,21 @@ fn publish(line: &J, seconds: i64) -> J {
             ("provider", boolean("provider")),
             ("parked", boolean("parked")),
             ("pr", word("pr")),
+            ("change", if work { number("change") } else { J::Null }),
             ("by", word("by")),
             ("how", word("how")),
             ("label", word("label")),
+            // When the line was written, on a line written after its end (a
+            // lost cycle's), and a cycle a signal stopped (T11.3).
+            ("recorded", word("recorded")),
+            (
+                "signalled",
+                if line.get("signalled").is_true() {
+                    J::Bool(true)
+                } else {
+                    J::Null
+                },
+            ),
             (
                 "auto",
                 if line.get("auto").is_true() {
@@ -398,50 +454,30 @@ fn publish(line: &J, seconds: i64) -> J {
     ))
 }
 
-/// A park, and not the park of a provider outage, which has its own rule of
-/// retries: never the park that starts a run and never the one that breaks it.
-fn is_park(line: &J) -> bool {
-    line.get("parked").is_true() && !line.get("provider").is_true()
-}
-
-fn same_park(a: &J, b: &J) -> bool {
-    a.get("progress").get("step") == b.get("progress").get("step")
-        && ["cap", "parkReason", "failureKind", "failureCause"]
-            .iter()
-            .all(|key| a.get(key) == b.get(key))
-}
-
 /// The count of the parks in a row that stopped exactly as this one did, on
-/// each line that has one. A run is the parks of one issue with step, cap and
-/// the three words of the failure all equal, each the end written just after
-/// the other, the parks of an outage skipped. The first of them counts 1, the
-/// next 2. A merge, a handoff or any other end breaks a run. It is worked out on
-/// these lines and none besides: a listing that begins partway through a run
-/// gives its first line no count.
+/// each line that has one (`tehas_core::outcome::repeats`).
 fn count_repeats(lines: &mut [J]) {
-    let mut counts = vec![0u64; lines.len()];
-    // By issue: its end written last, outages skipped, and its park seen last.
-    let (mut end, mut park) = (HashMap::new(), HashMap::new());
-    for i in 0..lines.len() {
-        let line = &lines[i];
-        let issue = line.get("issue").text();
-        let work = line.get("kind").as_str() == Some("work");
-        if is_park(line) {
-            let run = end
-                .get(&issue)
-                .map(|&e: &usize| &lines[e])
-                .is_some_and(|before| is_park(before) && same_park(line, before));
-            if run {
-                counts[i] = park.get(&issue).map_or(0, |&p: &usize| counts[p]) + 1;
-            }
-            park.insert(issue.clone(), i);
-        } else if work && !line.get("parked").is_true() {
-            park.remove(&issue);
-        }
-        if work && !line.get("provider").is_true() {
-            end.insert(issue, i);
-        }
-    }
+    let issues: Vec<String> = lines.iter().map(|l| l.get("issue").text()).collect();
+    let counts = {
+        let parks: Vec<ParkLine> = lines
+            .iter()
+            .zip(&issues)
+            .map(|(line, issue)| ParkLine {
+                issue: issue.parse().unwrap_or(0),
+                work: line.get("kind").as_str() == Some("work"),
+                parked: line.get("parked").is_true(),
+                provider: line.get("provider").is_true(),
+                how: [
+                    line.get("progress").get("step").as_str(),
+                    line.get("cap").as_str(),
+                    line.get("parkReason").as_str(),
+                    line.get("failureKind").as_str(),
+                    line.get("failureCause").as_str(),
+                ],
+            })
+            .collect();
+        tehas_core::outcome::repeats(&parks)
+    };
     for (line, count) in lines.iter_mut().zip(counts) {
         if let (J::Obj(fields), true) = (line, count > 0) {
             fields.push(("repeat".to_string(), J::Num(count.to_string())));
@@ -452,16 +488,30 @@ fn count_repeats(lines: &mut [J]) {
 /// The lines after the cursor, in the order the store wrote the ends: the order
 /// `--after` reads, so a program that keeps `next` and asks again is given each
 /// line once.
+///
+/// `repeat` is counted over every line the store keeps, before the cursor
+/// takes its page, so a line has the same count in every listing, and the
+/// count `cycle.parked` carries.
 fn listed(lines: Vec<J>, after: Option<&Cursor>) -> Listing {
-    let mut read: Vec<(J, J)> = lines
+    let mut read: Vec<(J, bool, J)> = lines
         .iter()
         .filter_map(|line| Some((line, seconds_of(line)?)))
-        .filter(|(line, seconds)| after.is_none_or(|c| c.before(line, *seconds)))
-        .map(|(line, seconds)| (line.get("seq").clone(), publish(line, seconds)))
+        .map(|(line, seconds)| {
+            let listed = after.is_none_or(|c| c.before(line, seconds));
+            (line.get("seq").clone(), listed, publish(line, seconds))
+        })
         .collect();
     read.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut runs: Vec<J> = read.into_iter().map(|(_, line)| line).collect();
-    count_repeats(&mut runs);
+    let (kept, mut all): (Vec<bool>, Vec<J>) = read
+        .into_iter()
+        .map(|(_, listed, line)| (listed, line))
+        .unzip();
+    count_repeats(&mut all);
+    let runs: Vec<J> = all
+        .into_iter()
+        .zip(kept)
+        .filter_map(|(line, listed)| listed.then_some(line))
+        .collect();
     let last = runs.last().map(|line| line.get("cursor").text());
     Listing {
         next: last.or_else(|| after.map(|c| c.text.clone())),
@@ -542,25 +592,26 @@ mod tests {
     // Outputs in this file were captured from the jq of v0.21.0.
     const ROWS: &str = r#"{"api":1,"ok":true,"verb":"history-show","rows":[
 {"kind":"plan","id":1,"issue":12,"turn":1,"at":1760699940,"outcome":"finished","session":"abc","started_at":1760699880,"rc":0,"by":"alice","label":"tehas:refine","seq":1,"filed":["https://github.com/acme/widget/issues/41","not an issue",7,"https://github.com/acme/widget/issues/42\n"],"auto":true},
-{"kind":"cycle","id":1,"issue":12,"attempt":1,"at":1760700000,"status":"failed","step":"develop","by":"alice","how":"label","pr":9,"started_at":1760696400,"rc":10,"cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","provider":false,"parked":true,"seq":2},
+{"kind":"cycle","id":1,"issue":12,"attempt":1,"at":1760700000,"status":"failed","step":"develop","by":"alice","how":"approved","pr":9,"started_at":1760696400,"rc":10,"cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","provider":false,"parked":true,"seq":2},
 {"kind":"cycle","id":2,"issue":7,"attempt":1,"at":1760700060,"status":"merged","step":null,"by":null,"how":"hand","pr":null,"started_at":null,"rc":0,"cap":null,"park_reason":null,"failure_kind":null,"failure_cause":null,"provider":false,"parked":false,"seq":3},
-{"kind":"cycle","id":3,"issue":12,"attempt":2,"at":1760700120,"status":"failed","step":"develop","by":"alice","how":"label","pr":9,"started_at":1760700060,"rc":10,"cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","provider":false,"parked":true,"seq":4},
+{"kind":"cycle","id":3,"issue":12,"attempt":2,"at":1760700120,"status":"failed","step":"develop","by":"alice","how":"approved","pr":9,"started_at":1760700060,"rc":10,"cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","provider":false,"parked":true,"seq":4},
 {"kind":"cycle","id":4,"issue":12,"attempt":3,"at":1760700180,"status":"failed","step":"develop","by":null,"how":"outage-retry","pr":null,"started_at":1760700120,"rc":10,"cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","provider":true,"parked":true,"seq":5},
-{"kind":"cycle","id":5,"issue":12,"attempt":4,"at":1760700240,"status":"failed","step":"develop","by":"alice","how":"label","pr":9,"started_at":1760700180,"rc":10,"cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","provider":false,"parked":true,"seq":6},
+{"kind":"cycle","id":5,"issue":12,"attempt":4,"at":1760700240,"status":"failed","step":"develop","by":"alice","how":"approved","pr":9,"started_at":1760700180,"rc":10,"cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","provider":false,"parked":true,"seq":6},
 {"kind":"plan","id":2,"issue":7,"turn":2,"at":1760700300,"outcome":"not-started","session":null,"started_at":null,"rc":null,"by":"ä\u007f\"\\\t\u0001","label":"tehas:plan","seq":7,"filed":[],"auto":false},
-{"kind":"cycle","id":6,"issue":12,"attempt":5,"at":1760700360,"status":"merged","step":"merge","by":"alice","how":"label","pr":9,"started_at":1760700300,"rc":0,"cap":null,"park_reason":null,"failure_kind":null,"failure_cause":null,"provider":false,"parked":false,"seq":8},
+{"kind":"cycle","id":6,"issue":12,"attempt":5,"at":1760700360,"status":"merged","step":"merge","by":"alice","how":"approved","pr":9,"started_at":1760700300,"rc":0,"cap":null,"park_reason":null,"failure_kind":null,"failure_cause":null,"provider":false,"parked":false,"seq":8},
 {"kind":"cycle","id":7,"issue":12,"attempt":6,"at":1760700420,"status":"failed","step":"develop","by":null,"how":"hand","pr":null,"started_at":1760700360,"rc":null,"cap":null,"park_reason":null,"failure_kind":null,"failure_cause":null,"provider":false,"parked":true,"seq":9}
 ]}"#;
 
-    const CYCLES: [&str; 8] = [
+    const CYCLES: [&str; 9] = [
         r#"{"cursor":"1760699940-12-1","kind":"plan","issue":12,"ended":"2025-10-17T11:19:00Z","started":"2025-10-17T11:18:00Z","status":0,"outcome":"finished","turn":1,"by":"alice","label":"tehas:refine","auto":true,"filed":["https://github.com/acme/widget/issues/41","https://github.com/acme/widget/issues/42\n"]}"#,
-        r#"{"cursor":"1760700000-12-2","kind":"work","issue":12,"ended":"2025-10-17T11:20:00Z","started":"2025-10-17T10:20:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label"}"#,
-        r#"{"cursor":"1760700060-7-3","kind":"work","issue":7,"ended":"2025-10-17T11:21:00Z","status":0,"outcome":"merged","provider":false,"parked":false,"how":"hand"}"#,
-        r#"{"cursor":"1760700120-12-4","kind":"work","issue":12,"ended":"2025-10-17T11:22:00Z","started":"2025-10-17T11:21:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label","repeat":1}"#,
-        r#"{"cursor":"1760700180-12-5","kind":"work","issue":12,"ended":"2025-10-17T11:23:00Z","started":"2025-10-17T11:22:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":true,"parked":true,"how":"outage-retry"}"#,
-        r#"{"cursor":"1760700240-12-6","kind":"work","issue":12,"ended":"2025-10-17T11:24:00Z","started":"2025-10-17T11:23:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label","repeat":2}"#,
+        r#"{"cursor":"1760700000-12-2","kind":"work","issue":12,"cycle":"12-1","ended":"2025-10-17T11:20:00Z","started":"2025-10-17T10:20:00Z","status":10,"outcome":"failed","end":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","change":9,"by":"alice","how":"approved"}"#,
+        r#"{"cursor":"1760700060-7-3","kind":"work","issue":7,"cycle":"7-1","ended":"2025-10-17T11:21:00Z","started":"2025-10-17T11:21:00Z","status":0,"outcome":"merged","end":"merged","provider":false,"parked":false,"how":"hand"}"#,
+        r#"{"cursor":"1760700120-12-4","kind":"work","issue":12,"cycle":"12-2","ended":"2025-10-17T11:22:00Z","started":"2025-10-17T11:21:00Z","status":10,"outcome":"failed","end":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","change":9,"by":"alice","how":"approved","repeat":1}"#,
+        r#"{"cursor":"1760700180-12-5","kind":"work","issue":12,"cycle":"12-3","ended":"2025-10-17T11:23:00Z","started":"2025-10-17T11:22:00Z","status":10,"outcome":"failed","end":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":true,"parked":true,"how":"outage-retry"}"#,
+        r#"{"cursor":"1760700240-12-6","kind":"work","issue":12,"cycle":"12-4","ended":"2025-10-17T11:24:00Z","started":"2025-10-17T11:23:00Z","status":10,"outcome":"failed","end":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","change":9,"by":"alice","how":"approved","repeat":2}"#,
         r#"{"cursor":"1760700300-7-7","kind":"plan","issue":7,"ended":"2025-10-17T11:25:00Z","outcome":"not-started","turn":2,"by":"ä\u007f\"\\\t\u0001","label":"tehas:plan"}"#,
-        r#"{"cursor":"1760700360-12-8","kind":"work","issue":12,"ended":"2025-10-17T11:26:00Z","started":"2025-10-17T11:25:00Z","status":0,"outcome":"merged","progress":{"step":"merge"},"provider":false,"parked":false,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label"}"#,
+        r#"{"cursor":"1760700360-12-8","kind":"work","issue":12,"cycle":"12-5","ended":"2025-10-17T11:26:00Z","started":"2025-10-17T11:25:00Z","status":0,"outcome":"merged","end":"merged","progress":{"step":"merge"},"provider":false,"parked":false,"pr":"https://github.com/acme/widget/pull/9","change":9,"by":"alice","how":"approved"}"#,
+        r#"{"cursor":"1760700420-12-9","kind":"work","issue":12,"cycle":"12-6","ended":"2025-10-17T11:27:00Z","started":"2025-10-17T11:26:00Z","outcome":"failed","end":"failed","progress":{"step":"develop"},"provider":false,"parked":true,"how":"hand"}"#,
     ];
 
     const TEXT: &str = r#"1760699940-12-1  plan  #12  finished  turn 1  refine (auto)  filed https://github.com/acme/widget/issues/41 https://github.com/acme/widget/issues/42
@@ -572,7 +623,57 @@ mod tests {
 1760700240-12-6  work  #12  failed  rc 10  step develop  parked  repeat 2  pr https://github.com/acme/widget/pull/9
 1760700300-7-7  plan  #7  not-started  turn 2
 1760700360-12-8  work  #12  merged  rc 0  step merge  pr https://github.com/acme/widget/pull/9
+1760700420-12-9  work  #12  failed  rc ?  step develop  parked
 "#;
+
+    /// A lost cycle's line is written after a line that ended later, with an
+    /// `ended` before it: `--after` the cursor of that later line lists it,
+    /// once, with `recorded`, and the next page lists nothing (T11.3). A
+    /// signalled line says so.
+    #[test]
+    fn a_line_written_late_is_listed_after_the_cursor_of_the_line_before_it() {
+        let rows = r#"{"api":1,"ok":true,"verb":"history-show","rows":[
+{"kind":"cycle","id":1,"issue":12,"attempt":1,"at":1760700000,"status":"merged","step":null,"by":"alice","how":"approved","pr":null,"started_at":1760699000,"rc":0,"cap":null,"park_reason":null,"failure_kind":null,"failure_cause":null,"provider":false,"parked":false,"seq":1,"signalled":true},
+{"kind":"cycle","id":2,"issue":7,"attempt":3,"at":1760699500,"status":"lost","step":null,"by":"alice","how":"approved","pr":null,"started_at":1760699300,"rc":null,"cap":null,"park_reason":null,"failure_kind":null,"failure_cause":null,"provider":false,"parked":false,"seq":2,"recorded_at":1760700100}
+]}"#;
+        let answer = J::parse(rows).unwrap();
+        let page = |after: &str| {
+            let after = Cursor::parse(after).unwrap();
+            listed(lines(&answer, "acme/widget"), Some(&after))
+        };
+        let first = listed(lines(&answer, "acme/widget"), None);
+        assert_eq!(first.runs[0].get("signalled"), &J::Bool(true));
+        assert!(first.runs[1].get("signalled").is_null());
+        let after = first.runs[0].get("cursor").text();
+        let next = page(&after);
+        assert_eq!(next.runs.len(), 1);
+        let lost = &next.runs[0];
+        assert_eq!(lost.get("outcome").as_str(), Some("lost"));
+        assert_eq!(lost.get("ended").as_str(), Some("2025-10-17T11:11:40Z"));
+        assert_eq!(lost.get("recorded").as_str(), Some("2025-10-17T11:21:40Z"));
+        assert!(lost.get("cursor").text().ends_with("-7-2"));
+        // The same cycle id and the end a lost line is given (T11.5).
+        assert_eq!(lost.get("cycle").as_str(), Some("7-3"));
+        assert_eq!(lost.get("end").as_str(), Some("failed"));
+        assert_eq!(first.runs[0].get("end").as_str(), Some("merged"));
+        assert!(page(&next.next.clone().unwrap()).runs.is_empty());
+        assert!(first.runs[0].get("recorded").is_null());
+    }
+
+    #[test]
+    fn a_cycle_id_is_the_blueprint_and_the_attempt() {
+        assert_eq!(cycle_id(12, 3).as_deref(), Some("12-3"));
+        assert_eq!(cycle_id(999_999_999, 1).as_deref(), Some("999999999-1"));
+        for (b, a) in [
+            (0, 1),
+            (1, 0),
+            (-1, 2),
+            (1_000_000_000, 1),
+            (1, 1_000_000_000),
+        ] {
+            assert_eq!(cycle_id(b, a), None, "{b}-{a}");
+        }
+    }
 
     fn listed_after(after: Option<&str>) -> Listing {
         let answer = J::parse(ROWS).unwrap();
@@ -606,7 +707,7 @@ mod tests {
         let got: Vec<String> = listing.runs.iter().map(J::dump).collect();
         assert_eq!(got, CYCLES);
         let want = format!(
-            "{{\"api\":1,\"runs\":[{}],\"next\":\"1760700360-12-8\"}}",
+            "{{\"api\":1,\"runs\":[{}],\"next\":\"1760700420-12-9\"}}",
             CYCLES.join(",")
         );
         assert_eq!(listing.object().dump(), want);
@@ -627,8 +728,8 @@ mod tests {
         assert_eq!(
             got,
             [
-                r#"{"cursor":"1760700000-12-1","kind":"work","issue":12,"ended":"2025-10-17T11:20:00Z","status":10,"outcome":"failed","progress":{"step":"lens-review","stepNumber":7,"stepTotal":9,"round":3},"provider":false,"parked":true}"#,
-                r#"{"cursor":"1760700060-13-2","kind":"work","issue":13,"ended":"2025-10-17T11:21:00Z","status":10,"outcome":"failed","progress":{"step":"ci"},"provider":false,"parked":true}"#,
+                r#"{"cursor":"1760700000-12-1","kind":"work","issue":12,"cycle":"12-1","ended":"2025-10-17T11:20:00Z","started":"2025-10-17T11:20:00Z","status":10,"outcome":"failed","end":"failed","progress":{"step":"lens-review","stepNumber":7,"stepTotal":9,"round":3},"provider":false,"parked":true}"#,
+                r#"{"cursor":"1760700060-13-2","kind":"work","issue":13,"cycle":"13-1","ended":"2025-10-17T11:21:00Z","started":"2025-10-17T11:21:00Z","status":10,"outcome":"failed","end":"failed","progress":{"step":"ci"},"provider":false,"parked":true}"#,
             ]
         );
     }
@@ -650,30 +751,30 @@ mod tests {
         );
     }
 
+    /// A work line with no exit status is listed: a stopped, lost or
+    /// refused start leaves none, and has its line (T11.3).
     #[test]
-    fn a_park_with_no_exit_status_is_a_line_left_out() {
+    fn a_work_line_with_no_exit_status_is_listed() {
         assert!(ROWS.contains(r#""seq":9"#));
-        assert!(!cursors(&listed_after(None))
+        assert!(cursors(&listed_after(None))
             .iter()
             .any(|c| c.ends_with("-9")));
     }
 
     #[test]
-    fn a_repeat_counts_the_run_past_an_outage_and_only_what_is_listed() {
+    fn a_repeat_counts_the_run_past_an_outage_whatever_page_is_listed() {
         let all = repeats(&listed_after(None));
         assert_eq!(
             all,
-            ["null", "null", "null", "1", "null", "2", "null", "null"]
+            ["null", "null", "null", "1", "null", "2", "null", "null", "null"]
         );
+        // A page has the counts of the whole history.
         assert_eq!(
             repeats(&listed_after(Some("1760700000-12-4"))),
-            ["null", "null", "null", "null"]
+            all[all.len() - 5..]
         );
         let from_two = listed_after(Some("1-1-1"));
-        assert_eq!(
-            repeats(&from_two),
-            ["null", "null", "1", "null", "2", "null", "null"]
-        );
+        assert_eq!(repeats(&from_two), all[1..]);
     }
 
     #[test]
@@ -689,7 +790,7 @@ mod tests {
         ] {
             let listing = listed_after(Some(cursor));
             assert_eq!(cursors(&listing), all[skipped..], "{cursor}");
-            assert_eq!(listing.next.as_deref(), Some("1760700360-12-8"), "{cursor}");
+            assert_eq!(listing.next.as_deref(), Some("1760700420-12-9"), "{cursor}");
         }
     }
 

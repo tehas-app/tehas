@@ -9,11 +9,11 @@ use tehas_core::file::side_file;
 use tehas_core::home::{Home, State};
 
 /// PRAGMA user_version of the schema in schema.sql. v0.30.0 wrote 4 already,
-/// and a file of 4 or 5 is migrated in place; a database of any other schema
-/// is moved aside whole under its version.
-pub const SCHEMA_VERSION: i64 = 6;
-/// The schemas `settle` migrates from: 4, which 0.30.x and 1.x wrote, and 5.
-const MIGRATES_FROM: std::ops::RangeInclusive<i64> = 4..=5;
+/// and a file of 4, 5 or 6 is migrated in place; a database of any other
+/// schema is moved aside whole under its version.
+pub const SCHEMA_VERSION: i64 = 7;
+/// The schemas `settle` migrates from: 4, which 0.30.x and 1.x wrote, 5 and 6.
+const MIGRATES_FROM: std::ops::RangeInclusive<i64> = 4..=6;
 pub const SCHEMA: &str = include_str!("schema.sql");
 pub const RETENTION_DAYS: i64 = 365;
 
@@ -37,7 +37,7 @@ pub fn path(home: &Path) -> PathBuf {
 /// Opens the database, making it when there is none. A file that is not a
 /// database is moved to analytics.db.broken and a new one is made: the data
 /// is at most RETENTION_DAYS deep.
-/// One of schema 4 or 5 is migrated to 6 in place.
+/// One of schema 4, 5 or 6 is migrated to 7 in place.
 /// One of any other schema version is moved, with its -wal and -shm, to
 /// analytics.db.schema-<version>, where a reader can still fetch it, and
 /// prune_aside deletes it RETENTION_DAYS after its last write. Any other
@@ -212,7 +212,7 @@ fn is_busy(e: &rusqlite::Error) -> bool {
 }
 
 /// Makes the schema of a database whose user_version read `seen`, or
-/// migrates one of schema 4 or 5. The version is read again under a write lock:
+/// migrates one of schema 4, 5 or 6. The version is read again under a write lock:
 /// another program may have done it since, and its database is not a broken
 /// one.
 pub(crate) fn settle(conn: &mut Connection, seen: i64, now: i64) -> Result<(), Unusable> {
@@ -241,7 +241,7 @@ pub(crate) fn settle(conn: &mut Connection, seen: i64, now: i64) -> Result<(), U
             }
             create(&tx, now).map_err(classify)?;
         }
-        from if MIGRATES_FROM.contains(&from) => migrate(&tx).map_err(classify)?,
+        from if MIGRATES_FROM.contains(&from) => migrate(&tx, from).map_err(classify)?,
         other => return Err(foreign(other)),
     }
     tx.commit().map_err(classify)
@@ -294,26 +294,112 @@ fn rewrite_hows(conn: &mut Connection) -> Result<(), Unusable> {
     tx.commit().map_err(classify)
 }
 
-/// Schema 4 or 5 to 6. samples.watts goes, which 5 dropped: energy use left
-/// core in 2.0. runs.contractor_id goes, which 6 drops: outsource was dropped
-/// in 2.0. A file of 0.30.x never had the second, and a 5 has lost the first,
-/// so each is dropped where it is, and every row stays.
-fn migrate(tx: &Transaction) -> rusqlite::Result<()> {
-    for (table, column) in [("samples", "watts"), ("runs", "contractor_id")] {
-        let there: i64 = tx.query_row(
-            "SELECT count(*) FROM pragma_table_info(?1) WHERE name = ?2",
-            params![table, column],
-            |r| r.get(0),
-        )?;
-        if there != 0 {
-            tx.execute_batch(&format!("ALTER TABLE {table} DROP COLUMN {column}"))?;
+/// Schema 4, 5 or 6 to 7, every row kept. To 6: samples.watts goes, which 5
+/// dropped (energy use left core in 2.0), and runs.contractor_id goes, which
+/// 6 drops (outsource was dropped in 2.0); a file of 0.30.x never had the
+/// second, and a 5 has lost the first, so each is dropped where it is. To 7:
+/// [`step_7`].
+fn migrate(tx: &Transaction, from: i64) -> rusqlite::Result<()> {
+    if from < 6 {
+        for (table, column) in [("samples", "watts"), ("runs", "contractor_id")] {
+            let there: i64 = tx.query_row(
+                "SELECT count(*) FROM pragma_table_info(?1) WHERE name = ?2",
+                params![table, column],
+                |r| r.get(0),
+            )?;
+            if there != 0 {
+                tx.execute_batch(&format!("ALTER TABLE {table} DROP COLUMN {column}"))?;
+            }
         }
     }
+    step_7(tx)?;
     tx.execute(
         "UPDATE meta SET value = ?1 WHERE key = 'schema'",
         [SCHEMA_VERSION.to_string()],
     )?;
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)
+}
+
+/// The words schema 7 rewrites, column by column: the end word `pr` is
+/// `offered` and the how `label` is `approved` (docs/specs/2026-11-22-events.md,
+/// T11.2), as the state store's step to 30 has the how.
+pub const STEP_7_WORDS: [(&str, &str, &str); 2] =
+    [("outcome", "pr", "offered"), ("how", "label", "approved")];
+
+/// The step to 7: `runs.outcome` takes `offered` in place of `pr` in its
+/// CHECK, so `runs` is laid again as schema.sql has it, with its indexes, and
+/// every row copied back with the words of [`STEP_7_WORDS`] rewritten. The
+/// views read `runs`, so they go first and are laid again after, as schema.sql
+/// has them (its last part, from `CREATE VIEW v_lead`). The steps, gates and
+/// roles of the runs are copied aside and back with them, so a drop that
+/// cascades loses none of them. A
+/// rewrite counts in meta under [`HOWS_REWRITTEN`], so the published sessions
+/// are written again in the new words.
+fn step_7(tx: &Transaction) -> rusqlite::Result<()> {
+    let table = SCHEMA
+        .find("CREATE TABLE runs (")
+        .expect("schema.sql lays runs");
+    let last = "CREATE INDEX runs_issue ON runs (issue, started);";
+    let indexed = SCHEMA.find(last).expect("schema.sql indexes runs") + last.len();
+    let views = SCHEMA
+        .find("CREATE VIEW v_lead")
+        .expect("schema.sql ends with its views");
+    let mut columns = Vec::new();
+    {
+        let mut q = tx.prepare("SELECT name FROM pragma_table_info('runs') ORDER BY cid")?;
+        for name in q.query_map([], |r| r.get::<_, String>(0))? {
+            columns.push(name?);
+        }
+    }
+    let read: Vec<String> = columns
+        .iter()
+        .map(|c| match STEP_7_WORDS.iter().find(|(col, _, _)| col == c) {
+            Some((col, old, new)) => format!("CASE {col} WHEN '{old}' THEN '{new}' ELSE {col} END"),
+            None => c.clone(),
+        })
+        .collect();
+    let mut rewritten = 0i64;
+    for (col, old, _) in STEP_7_WORDS {
+        rewritten += tx.query_row(
+            &format!("SELECT count(*) FROM runs WHERE {col} = ?1"),
+            [old],
+            |r| r.get::<_, i64>(0),
+        )?;
+    }
+    let children = ["run_gate_runs", "run_steps", "run_roles"];
+    let aside: String = children
+        .iter()
+        .map(|c| format!("CREATE TEMP TABLE {c}_6 AS SELECT * FROM {c};\n"))
+        .collect();
+    let back: String = children
+        .iter()
+        .map(|c| format!("DELETE FROM {c}; INSERT INTO {c} SELECT * FROM temp.{c}_6; DROP TABLE temp.{c}_6;\n"))
+        .collect();
+    tx.execute_batch(&format!(
+        "CREATE TEMP TABLE runs_6 AS SELECT * FROM runs;
+         {aside}
+         DROP VIEW v_versions;
+         DROP VIEW v_daily;
+         DROP VIEW v_lead;
+         DROP TABLE runs;
+         {}
+         INSERT INTO runs ({}) SELECT {} FROM temp.runs_6;
+         DROP TABLE temp.runs_6;
+         {back}
+         {}",
+        &SCHEMA[table..indexed],
+        columns.join(", "),
+        read.join(", "),
+        &SCHEMA[views..],
+    ))?;
+    if rewritten > 0 {
+        tx.execute(
+            "INSERT INTO meta (key, value) VALUES (?1, '1')
+             ON CONFLICT (key) DO UPDATE SET value = CAST(value AS INTEGER) + 1",
+            [HOWS_REWRITTEN],
+        )?;
+    }
+    Ok(())
 }
 
 // A schema this program does not write is kept aside.

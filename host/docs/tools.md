@@ -20,7 +20,6 @@ tehas index                      # build the code index the agents search
 tehas setup [options]            # write this host's instance and start the factory
 tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
-tehas panel [set ...|clear ...]  # the pages of the project the dashboard links
 tehas host-message [set ...|clear ...]  # short messages for this factory
 tehas check-product [--sandbox]  # check the product against the contract
 tehas init-product [--dry-run]   # propose the missing contract files
@@ -33,6 +32,7 @@ tehas blockers [--json]          # which issues hold which, as the last poll rea
 tehas start <issue> [--clear]    # approve an issue for a start, from the host
 tehas answer <issue> <choice> --by LOGIN  # answer a stop or a planning question, for a person
 tehas question <issue> [--json]  # the question an issue waits on, and its choices
+tehas question [--after ID] [--json]  # every question that waits, or every one after a number
 tehas refresh --pr N [--json]    # ask for the refresh of pull request N
 tehas wake [--json]              # ask for a poll now, return at once
 tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles
@@ -82,10 +82,9 @@ Every command that needs the instance settings loads them first and stops with
 exit 78 and one line if a setting it needs is missing or malformed. See
 [The host](/host).
 
-The two lists name every command the two programs route. Four of them have no
-section of these pages and are on the page that describes them: `tehas panel`
-and `tehas host-message` on [the factory API](/api#tehas-panel) and
-[the factory API](/api#tehas-host-message), `tehas mcp key` and
+The two lists name every command the two programs route. Three of them have no
+section of these pages and are on the page that describes them:
+`tehas host-message` on [the factory API](/api#tehas-host-message), `tehas mcp key` and
 `tehasbot mcp serve` on [The MCP server](/mcp-server#how-it-runs), which
 `tehas-mcp.service` runs. `tehas state copy --to <file>` and
 `tehas state load --from <file>` are the two verbs `tehas state` holds beside
@@ -127,9 +126,9 @@ default, or an example where there is none.
 
 A switch takes `on` or `off`. `1` and `0` mean the same and keep working;
 any other value stops every command with 78. A switch of an optional feature
-that is still being built, `TEHAS_SPEC_PIPE` and
-`TEHAS_LEAN` in this release, stops every command with 78 when it is `on`. So
-does a line that gives a value to one of such a feature's own settings.
+that is still being built, `TEHAS_LEAN` in this release, stops every command
+with 78 when it is `on`. So does a line that gives a value to one of such a
+feature's own settings.
 
 | Setting                         | Default                                  | Meaning                                                         |
 | ------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
@@ -145,7 +144,7 @@ does a line that gives a value to one of such a feature's own settings.
 | `TEHAS_SITE_CONSOLE`                 | `off`                                    | `on` serves the live console of each running cycle under `/live/` to anyone who can reach the site. `off` answers 404 for those files and the console panels of the site stay empty; the site has no sign-in. A full key of [the MCP server](/mcp-server) reads the console either way. Anything but `on`, `off`, `1` or `0` stops every command with 78. See [The live console on the site](/host#the-live-console-on-the-site) |
 | `TEHAS_SITE_ANALYTICS_SRC`, `_NAME`  | empty                                    | Optional. The https address of a visitor analytics script and the site name it reports under. Both set: every page loads it |
 | `TEHAS_SITE_ANALYTICS_COOKIE`        | `off`                                    | `on` adds `data-cookie="true"` to that script tag                |
-| `TEHAS_DESIGN`                  | `beesknees26`                            | The look of the whole site and its front page: `beesknees26` (the business page at `/`) or `pixel` (the factory floor at `/`). Any other value is exit 78. See [Designs](/host#designs) |
+| `TEHAS_DESIGN`                  | `beesknees26`                            | The look of the whole site: `beesknees26` or `pixel`. The factory floor is at `/` in both. Any other value is exit 78. See [Designs](/host#designs) |
 | `TEHAS_ANALYTICS`               | `on`                                     | The factory's own analytics, not the visitor analytics above: 365 days of runs, issue events and poll samples in `~/tehas/state/analytics.db`. `off` stops every write and leaves the file as it is. Anything but `on` or `off` stops every command with 78 |
 | `TEHAS_DOMAIN`                  | none                                     | The domain the edge's names are made under, as `tehas.app`: `uat-<pr>.` for a preview, `item-<issue>.` for an item's page |
 | `TEHAS_EDGE_ONE_LEVEL`          | `off`                                    | `on` names the edge one level under `TEHAS_DOMAIN`'s parent, for a domain that is itself a subdomain: with `demo.example.org`, `uat-<pr>-demo.example.org`, and `item-<issue>-demo.example.org`. The notice and the dashboard say these names; the proxy maps each onto the router's `<label>.<domain>`. See [Previews on the internet](/edge#a-domain-that-is-itself-a-subdomain). Refused unless `TEHAS_DOMAIN` has three labels or more |
@@ -157,7 +156,7 @@ does a line that gives a value to one of such a feature's own settings.
 | `TEHAS_CYCLE_MIN_FREE`          | `10g`                                    | Free disk space below which no cycle starts: the smaller of the file system of `~/tehas` and the one Docker keeps its images on, read with `df`. Space that cannot be read holds too. Running cycles are not touched (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A size such as `512m` or `10g`, else every command stops with 78 |
 | `TEHAS_PLUGIN`                  | `off`                                    | `on` turns on plugins: programs from pinned git repositories, each with the grants a person wrote for its commit. Still being built in this release: `on` stops every command with 78, and so does a line of any `TEHAS_PLUGIN*` setting below |
 | `TEHAS_PLUGINS`                 | empty                                    | The plugins, at most 4, one space apart, each `<name>=<url>@<commit>`: a name of `a-z` and `0-9`, a letter first, 1 to 12 characters, each once, and none of the words tehas-industry takes for a secret (`key`, `token`, `secret`, `private`, `password`, `passwd`, each also with an `s`); an `https://` address with no user, password, query or fragment; the whole commit, 40 lower-case hex digits. Anything else stops every command with 78 |
-| `TEHAS_PLUGIN_GRANTS_<NAME>`    | unset                                    | What the plugin `<name>` may have, its name in upper case: its commit, then its grants one space apart, from `view`, `view:<id>`, `product`, `model:<tokens a run>`, `model:images`, `action:<id>`, `hook:after:work`, `skill:<id>`, `needs:<name>` and `tool:<id>`, each once ([what each gives](/plugins#what-each-capability-gives)). Grants for a commit other than the pin's grant nothing. A grant of a later version (`gate:`, another `hook:`, `net:`, `factory-read`, `factory-sessions`) is refused naming it, and so is a line for a plugin `TEHAS_PLUGINS` does not name, both with 78. `view` or `action:` stops every command with 78 without `TEHAS_DOMAIN` and `TEHAS_PLUGIN_ACCESS` |
+| `TEHAS_PLUGIN_GRANTS_<NAME>`    | unset                                    | What the plugin `<name>` may have, its name in upper case: its commit, then its grants one space apart, from `view`, `view:<id>`, `product`, `model:<tokens a run>`, `model:images`, `action:<id>`, `hook:after:change.offered`, `skill:<id>`, `needs:<name>` and `tool:<id>`, each once ([what each gives](/plugins#what-each-capability-gives)). Grants for a commit other than the pin's grant nothing. A grant of a later version (`gate:`, another `hook:`, `net:`, `factory-read`, `factory-sessions`) is refused naming it, and so is a line for a plugin `TEHAS_PLUGINS` does not name, both with 78. `view` or `action:` stops every command with 78 without `TEHAS_DOMAIN` and `TEHAS_PLUGIN_ACCESS` |
 | `TEHAS_PLUGIN_ACCESS`           | unset                                    | The least permission on `TEHAS_REPO` that lets a person see a plugin's view: `read`, `triage`, `write`, `maintain` or `admin`. Required when a plugin is granted `view` or `action:` |
 | `TEHAS_PLUGIN_LIMITS`           | `memory=2 cpus=2 disk=4`                 | The most one run of a plugin may have: `memory=<GiB> cpus=<n> disk=<GiB>`, all three in this order, each a whole number from 1 to 999 |
 | `TEHAS_PLUGIN_MODEL_DAY`        | `5000000`                                | The model's tokens a day for all plugins together |
@@ -172,7 +171,6 @@ does a line that gives a value to one of such a feature's own settings.
 | `TEHAS_DRIVER`                 | `classic`                                | The driver an approved start runs when no label chooses one: `classic` (`work`) or `lean` (`work-lean`). With `lean`, a start with no driver label runs lean when the issue's text holds a `pi-spec v1` block and classic when it does not, and the poll logs which and why; `tehas:classic` and `tehas:lean` from an allowed account choose for one issue. Under `classic`, `tehas:lean` runs an issue on lean. An issue with both labels starts nothing. A retry keeps the driver its approval record binds. Anything else stops every command with 78, and so does `lean` while `TEHAS_LEAN` is not on: lean is still being built in this release. See [Choosing the driver](/operating#choosing-the-driver) |
 | `TEHAS_LEAN`                   | `off`                                    | `on` turns on the lean driver: `tehas:lean`, `TEHAS_DRIVER=lean` and `tehas work --driver lean`. Off, a start that would run lean starts nothing and says why, and classic does not run in its place. Anything but `on`, `off`, `1` or `0` stops every command with 78. Still being built in this release, so `on` stops every command with 78 too, naming `lean` |
 | `TEHAS_READ_ONLY`              | `off`                                    | `on` writes nothing to GitHub: every write of the host and of a cycle's container is refused and said, and the dispatcher keeps its starts on the host (see [read-only](/operating#read-only)). Anything but `on`, `off`, `1` or `0` stops every command with 78 |
-| `TEHAS_SPEC_PIPE`              | `off`                                    | `on` reads the `Spec: <link> sha256:<64 hex digits>` line of an issue's body at a start: a line of another form, a link that is no file attached on GitHub, or two such lines start nothing, and the poll says why once. A start fetches the file and holds its bytes to that sha256, and its approval keeps the pin: other bytes start nothing either (see [the feature list](/features)). The cycle is given the spec, fetched again and held to the pin, and the approved title and body as files beside the images, and a cycle with a spec starts only on a sandbox image whose pi-rukas lists `issueSpec` (see [tehas work](/tools-work)). Anything but `on`, `off`, `1` or `0` stops every command with 78. The spec pipe is still being built in this release, so `on` stops every command with 78 too, naming `spec-pipe` |
 | `TEHAS_REFRESH_MAX_PER_PR`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
 | `TEHAS_REFRESH_SLOTS`          | `1`                                      | Refreshes side by side in a lane of their own, from 0 to 8. They do not count against `TEHAS_MAX_CYCLES`, and new cycles leave room in the slice for them (see [refreshes](/operating#refreshes)). 0 has refreshes share the cycles' slots |
 | `TEHAS_CLEAN_AFTER`            | `24`                                     | Hours a thing must have gone unused before `tehasbot clean` removes it: build output in a kept workspace, Docker's build cache and host scratch. A whole number of at least 1, else every command stops with 78 (see [tehasbot clean](/tools-clean#tehasbot-clean)) |

@@ -25,11 +25,6 @@
 #   key(n)           1 to n of A-Z, a-z, 0-9, ., _, :, / and -: a number,
 #                    a KEY-123, a path-like key; no white space and never
 #                    -->
-#   link             one word. A Spec block's first enclosed line is
-#                    `Spec: {link} sha256:{sha256}`
-#   requirements(1-) the block's lines `- <id> met: <note>` or
-#                    `- <id> not met: <note>`, at least one, each id once,
-#                    no backquote in an id, a note never empty
 #   text             the block's enclosed text, its payload, never the body
 #
 # A TicketOf or Blocked marker names only a ticket of this realm and
@@ -44,7 +39,6 @@ Blocked	<!-- tehas:blocked by={by} -->		by numbers(1-20,9)
 HoldCleared	<!-- tehas:hold-cleared -->		
 Park	<!-- tehas:park issue={issue} step={step} kind={kind} provider={provider} sig={sig} -->		issue blueprint; step word(40); kind word(40); provider words(0|1); sig hex(64)
 Finish	<!-- tehas:finish issue={issue} result={result} by={by} -->		issue blueprint; result words(opened|refused|stopped); by? words(poll)
-Spec	<!-- tehas:spec v{version} -->	<!-- /tehas:spec -->	version words(1); link link; sha256 hex(64); requirements requirements(1-)
 LastAttempt	<!-- tehas:last-attempt base={base} -->	<!-- /tehas:last-attempt -->	base hex(64); note text
 Millwright	<!-- tehas:millwright issue={issue} action={action} -->		issue blueprint; action words(retry|change|answer|finish|person|ask)
 TicketOf	<!-- tehas:ticket-of ticket={ticket} -->		ticket key(128)

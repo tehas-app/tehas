@@ -43,11 +43,11 @@ cursors() { jq -r '[.runs[].cursor] | @tsv' <<<"$1"; }
 
 t_case "one cycle: the object, its fields and their types"
 reset
-work 12 "$T0" '{"kind":"work","started":1760696400,"rc":10,"status":"handoff","step":"review","cap":"awaiting-human-merge","park_reason":"merge","failure_kind":"review","failure_cause":"findings-open","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label"}'
+work 12 "$T0" '{"kind":"work","started":1760696400,"rc":10,"status":"handoff","step":"review","cap":"awaiting-human-merge","park_reason":"merge","failure_kind":"review","failure_cause":"findings-open","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"approved"}'
 run_json
 t_eq "$t_rc" 0
 t_eq "$(jq -c 'del(.runs)' <<<"$t_out")" '{"api":1,"next":"1760700000-12-1"}'
-t_eq "$(jq -c '.runs[0]' <<<"$t_out")" "{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso 1760696400)\",\"status\":10,\"outcome\":\"handoff\",\"progress\":{\"step\":\"review\"},\"cap\":\"awaiting-human-merge\",\"parkReason\":\"merge\",\"failureKind\":\"review\",\"failureCause\":\"findings-open\",\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"by\":\"alice\",\"how\":\"label\"}"
+t_eq "$(jq -c '.runs[0]' <<<"$t_out")" "{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"cycle\":\"12-1\",\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso 1760696400)\",\"status\":10,\"outcome\":\"handoff\",\"end\":\"handoff\",\"progress\":{\"step\":\"review\"},\"cap\":\"awaiting-human-merge\",\"parkReason\":\"merge\",\"failureKind\":\"review\",\"failureCause\":\"findings-open\",\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"change\":9,\"by\":\"alice\",\"how\":\"approved\"}"
 t_eq "$(jq -r '.runs[0] | (.status|type), (.parked|type), (.provider|type), (.issue|type), (.turn|type)' <<<"$t_out")" "number
 boolean
 boolean
@@ -58,17 +58,17 @@ t_eq "$(t_calls gh)$(t_calls git)" ""
 
 t_case "the object is printed byte for byte, keys in their order"
 reset
-work 12 "$T0" '{"kind":"work","started":1760696400,"rc":10,"status":"handoff","step":"review","cap":"awaiting-human-merge","park_reason":"merge","failure_kind":"review","failure_cause":"findings-open","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label"}'
+work 12 "$T0" '{"kind":"work","started":1760696400,"rc":10,"status":"handoff","step":"review","cap":"awaiting-human-merge","park_reason":"merge","failure_kind":"review","failure_cause":"findings-open","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"approved"}'
 plan 7 "$((T0 + 300))" '{"kind":"plan","started":1760700000,"rc":0,"status":"finished","turn":1,"by":"alice","label":"tehas:refine","filed":["https://github.com/acme/widget/issues/41"],"auto":true}'
 run_json
 t_eq "$t_rc" 0
-t_eq "$t_out" "{\"api\":1,\"runs\":[{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso 1760696400)\",\"status\":10,\"outcome\":\"handoff\",\"progress\":{\"step\":\"review\"},\"cap\":\"awaiting-human-merge\",\"parkReason\":\"merge\",\"failureKind\":\"review\",\"failureCause\":\"findings-open\",\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"by\":\"alice\",\"how\":\"label\"},{\"cursor\":\"1760700300-7-2\",\"kind\":\"plan\",\"issue\":7,\"ended\":\"$(iso "$((T0 + 300))")\",\"started\":\"$(iso 1760700000)\",\"status\":0,\"outcome\":\"finished\",\"turn\":1,\"by\":\"alice\",\"label\":\"tehas:refine\",\"auto\":true,\"filed\":[\"https://github.com/acme/widget/issues/41\"]}],\"next\":\"1760700300-7-2\"}"
+t_eq "$t_out" "{\"api\":1,\"runs\":[{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"cycle\":\"12-1\",\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso 1760696400)\",\"status\":10,\"outcome\":\"handoff\",\"end\":\"handoff\",\"progress\":{\"step\":\"review\"},\"cap\":\"awaiting-human-merge\",\"parkReason\":\"merge\",\"failureKind\":\"review\",\"failureCause\":\"findings-open\",\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"change\":9,\"by\":\"alice\",\"how\":\"approved\"},{\"cursor\":\"1760700300-7-2\",\"kind\":\"plan\",\"issue\":7,\"ended\":\"$(iso "$((T0 + 300))")\",\"started\":\"$(iso 1760700000)\",\"status\":0,\"outcome\":\"finished\",\"turn\":1,\"by\":\"alice\",\"label\":\"tehas:refine\",\"auto\":true,\"filed\":[\"https://github.com/acme/widget/issues/41\"]}],\"next\":\"1760700300-7-2\"}"
 
 t_case "a field the line does not have is left out, never null"
 reset
 work 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 run_json
-t_eq "$(jq -c '.runs[0]' <<<"$t_out")" "{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso $((T0 - 60)))\",\"status\":0,\"outcome\":\"merged\",\"provider\":false,\"parked\":false,\"how\":\"hand\"}"
+t_eq "$(jq -c '.runs[0]' <<<"$t_out")" "{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"cycle\":\"12-1\",\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso $((T0 - 60)))\",\"status\":0,\"outcome\":\"merged\",\"end\":\"merged\",\"provider\":false,\"parked\":false,\"how\":\"hand\"}"
 t_eq "$(jq -r '.runs[0] | has("progress"), has("cap"), has("parkReason"), has("pr"), has("by")' <<<"$t_out")" "false
 false
 false
@@ -251,16 +251,16 @@ t_eq "$(jq -r '.runs[0] | has("repeat")' <<<"$t_out")" false
 t_run "$history"
 t_eq "$t_out" "1760700000-12-1  work  #12  failed  rc 10  step develop  parked"
 
-t_case "the count counts the parks the listing holds, and none besides"
+t_case "the count counts every park the store keeps, whatever the page"
 reset
-# The run begins with a park the listing does not hold: the two it holds are 0
-# and 1, the first of them a park the reader cannot know repeats anything.
+# The run begins with a park the page does not hold: the two it holds still
+# count 1 and 2, as the whole history and cycle.parked count them.
 parked='{"kind":"work","rc":10,"status":"failed","step":"develop","cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","parked":true}'
 work 12 "$T0" "$parked"
 work 12 "$((T0 + 60))" "$parked"
 work 12 "$((T0 + 120))" "$parked"
 run_json --after 1760700000-12-1
-t_eq "$(jq -c '[.runs[] | .repeat]' <<<"$t_out")" '[null,1]'
+t_eq "$(jq -c '[.runs[] | .repeat]' <<<"$t_out")" '[1,2]'
 
 t_case "a repeat is a whole number of a cycle line only"
 reset

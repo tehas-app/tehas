@@ -302,6 +302,7 @@ mod tests {
             base: B.into(),
             issue: Some(7),
             trigger: Trigger::Cycle,
+            event: None,
         };
         ask_hook(&mut x, &home, "demo", &ask).unwrap();
         assert_eq!(
@@ -329,6 +330,7 @@ mod tests {
             base: B.into(),
             issue: None,
             trigger: Trigger::Host,
+            event: None,
         };
         assert_eq!(claim_hook(&home, "demo", 42), None);
         ask_hook(&mut x, &home, "demo", &ask).unwrap();

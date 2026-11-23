@@ -93,16 +93,6 @@ fn every_marker() -> Vec<Marker> {
             result: FinishResult::Stopped,
             by_poll: true,
         }),
-        Marker::Spec(SpecMarker {
-            version: nz32(SPEC_VERSION),
-            link: "https://example.test/spec.md".into(),
-            sha256: sha('b'),
-            requirements: vec![Requirement {
-                id: "R1".into(),
-                met: false,
-                note: "not yet".into(),
-            }],
-        }),
         Marker::LastAttempt(LastAttemptMarker {
             base: sha('c'),
             note: "ran out of time".into(),
@@ -156,7 +146,6 @@ fn the_ports_values_read_back_from_json() {
         MarkerKind::HoldCleared,
         MarkerKind::Park,
         MarkerKind::Finish,
-        MarkerKind::Spec,
         MarkerKind::LastAttempt,
         MarkerKind::Millwright,
         MarkerKind::TicketOf,
@@ -173,7 +162,7 @@ fn the_ports_values_read_back_from_json() {
         set: vec![Marker::HoldCleared],
         drop: vec![(MarkerKind::Blocked, None)],
     });
-    for s in [Scope::Agent, Scope::Unknown] {
+    for s in [Scope::Agent, Scope::CycleMerge, Scope::Unknown] {
         round!(s);
         round!(Actor::Ours(s));
     }
@@ -279,6 +268,15 @@ fn the_ports_values_read_back_from_json() {
 }
 
 #[test]
+fn an_old_spec_marker_reads_as_unknown() {
+    // The Spec marker left with the Spec marks (#2892): a record that still
+    // holds one reads under the one rule, as a tag this copy does not know.
+    let old = r#"{"type":"Spec","value":{"version":1,"link":"https://example.test/spec.md","sha256":"bbbb","requirements":[{"id":"R1","met":false,"note":"not yet"}]}}"#;
+    assert_eq!(read!(Marker, old), Marker::Unknown);
+    assert_eq!(read!(MarkerKind, r#"{"type":"Spec"}"#), MarkerKind::Unknown);
+}
+
+#[test]
 fn an_unknown_tag_with_content_of_any_shape_reads_as_unknown_in_json() {
     for json in [
         r#"{"type":"Future"}"#,
@@ -294,6 +292,10 @@ fn an_unknown_tag_with_content_of_any_shape_reads_as_unknown_in_json() {
     }
     assert_eq!(read!(Act, r#""Future""#), Act::Unknown);
     assert_eq!(read!(Scope, r#""Future""#), Scope::Unknown);
+    assert_eq!(
+        serde_json::to_string(&Scope::CycleMerge).unwrap(),
+        r#""CycleMerge""#
+    );
     assert_eq!(
         serde_json::to_string(&Marker::Unknown).unwrap(),
         r#"{"type":"Unknown"}"#
@@ -343,6 +345,15 @@ fn a_known_tag_of_another_enum_whose_content_does_not_read_is_unknown_in_json() 
     // A value with no tag is no record of the enum.
     assert!(serde_json::from_str::<Mark>("3").is_err());
     assert!(serde_json::from_str::<Mark>(r#"{"value":3}"#).is_err());
+    // The tag is a map's one string `type`: a sequence, a tag of another
+    // type and a tag given twice are no record of the enum.
+    for json in [
+        r#"["Act"]"#,
+        r#"{"type":3}"#,
+        r#"{"type":"Future","type":"Other"}"#,
+    ] {
+        assert!(serde_json::from_str::<Mark>(json).is_err(), "{json}");
+    }
 }
 
 #[test]
@@ -558,4 +569,35 @@ fn a_health_or_word_the_reader_cannot_read_is_unknown_in_json() {
     assert!(serde_json::from_str::<HealthState>(r#"{"Future":1}"#).is_err());
     assert!(serde_json::from_str::<Holder>(r#"{"Future":"x"}"#).is_err());
     assert!(serde_json::from_str::<Whose>(r#"{"Future":"x"}"#).is_err());
+}
+
+#[test]
+fn the_fakes_and_the_laws_values_read_back_from_json() {
+    use tehas_ports::fake::{Asked, BoardOp, Fault, Op, TicketsOp, Wrote};
+    let factory = Account {
+        realm: Realm::CodeHost,
+        login: Login::new("factory"),
+        id: Some(AccountId::new("id-factory")),
+        kind: AccountKind::Ours,
+    };
+    round!(Wrote {
+        by: factory,
+        what: Write::Reopen {
+            ticket: TicketKey::Number(nz(7)),
+        },
+    });
+    round!(Op::Board(BoardOp::OpenWork));
+    round!(Op::Tickets(TicketsOp::Note));
+    round!(Fault::TimeoutMaybe { applied: true });
+    round!(Fault::Server { applied: false });
+    round!(Fault::Broken);
+    round!(Fault::Spent {
+        pool: Pool::Priced,
+        until: At::new(9),
+    });
+    round!(Asked::Forget(Covers::Site(SiteId::new("p")), None));
+    round!(tehas_ports::laws::Broken {
+        law: "lists::more_is_exact".into(),
+        what: "more".into(),
+    });
 }

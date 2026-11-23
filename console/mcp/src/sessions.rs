@@ -3,6 +3,7 @@
 //! time and copy only the fields of the contract in `tehas_core::snapshot`,
 //! which the analytics writer reads too. A log's file name is never returned.
 
+use crate::args::{Arg, Args};
 use crate::snapshot::Snapshot;
 use crate::tools::{self, Dirs, ToolError};
 use regex::Regex;
@@ -23,7 +24,7 @@ pub const KINDS: [&str; 2] = ["work", "plan"];
 // crate names it; the test of the filter reads it here, so it pins the tool to
 // what it says rather than to a list written twice.
 pub const HOWS: [&str; 9] = [
-    "label",
+    "approved",
     "refresh",
     "outage-retry",
     "millwright",
@@ -409,18 +410,18 @@ fn session_links(repo: &Option<String>, s: &Value) -> (Option<String>, Option<St
     }
 }
 
-fn word(args: &Value, key: &str) -> Result<Option<String>, ToolError> {
-    match &args[key] {
-        Value::Null => Ok(None),
-        Value::String(s) if WORD.is_match(s) => Ok(Some(s.clone())),
+fn word(args: &Args, key: &str) -> Result<Option<String>, ToolError> {
+    match args.get(key) {
+        Arg::Absent => Ok(None),
+        Arg::Text(s) if WORD.is_match(s) => Ok(Some(s.to_string())),
         _ => Err(bad(&format!("{key} is 1 to 64 of A-Za-z0-9._+-"))),
     }
 }
 
-fn one_of(args: &Value, key: &str, allowed: &[&str]) -> Result<Option<String>, ToolError> {
-    match &args[key] {
-        Value::Null => Ok(None),
-        Value::String(s) if allowed.contains(&s.as_str()) => Ok(Some(s.clone())),
+fn one_of(args: &Args, key: &str, allowed: &[&str]) -> Result<Option<String>, ToolError> {
+    match args.get(key) {
+        Arg::Absent => Ok(None),
+        Arg::Text(s) if allowed.contains(&s) => Ok(Some(s.to_string())),
         _ => Err(bad(&format!("{key} is one of {}", allowed.join(", ")))),
     }
 }
@@ -433,40 +434,87 @@ fn open(dirs: &Dirs) -> Result<Snapshot, ToolError> {
     Snapshot::open(&dirs.sessions, tools::now())
 }
 
-pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let outcome = one_of(args, "outcome", &OUTCOMES)?;
-    let kind = one_of(args, "kind", &KINDS)?;
-    let how = one_of(args, "how", &HOWS)?;
-    let failure_kind = word(args, "failureKind")?;
-    let tehas = word(args, "tehasVersion")?;
-    let rukas = word(args, "rukasVersion")?;
-    let image = match &args["image"] {
-        Value::Null => None,
-        Value::String(s) if IMAGE.is_match(s) => {
-            Some(s.strip_prefix("sha256:").unwrap_or(s).to_string())
-        }
-        _ => {
-            return Err(bad(
-                "image is an image id sha256:<hex>, or 12 to 64 of its hex",
-            ))
-        }
-    };
-    let issue = match &args["issue"] {
-        Value::Null => None,
-        v => Some(i64::from(tools::issue_arg(v)?)),
-    };
-    let limit = match &args["limit"] {
-        Value::Null => DEFAULT_LIMIT,
-        v => v
-            .as_u64()
-            .filter(|n| (1..=MAX_LIMIT).contains(n))
-            .ok_or_else(|| bad(&format!("limit is from 1 to {MAX_LIMIT}")))?,
-    } as usize;
-    let before = match &args["before"] {
-        Value::Null => None,
-        Value::String(s) if ID.is_match(s) => Some(s.as_str()),
-        _ => return Err(bad("before is a session id")),
-    };
+/// What `factory_sessions` takes: the filters, each given or not, the most
+/// sessions of a page and the session the page comes after.
+#[derive(Debug)]
+pub struct ListArgs {
+    outcome: Option<String>,
+    kind: Option<String>,
+    how: Option<String>,
+    failure_kind: Option<String>,
+    tehas: Option<String>,
+    rukas: Option<String>,
+    /// The image id's hex, without `sha256:`.
+    image: Option<String>,
+    issue: Option<i64>,
+    limit: usize,
+    before: Option<String>,
+}
+
+impl ListArgs {
+    pub(crate) fn read(args: &Args) -> Result<Self, ToolError> {
+        let outcome = one_of(args, "outcome", &OUTCOMES)?;
+        let kind = one_of(args, "kind", &KINDS)?;
+        let how = one_of(args, "how", &HOWS)?;
+        let failure_kind = word(args, "failureKind")?;
+        let tehas = word(args, "tehasVersion")?;
+        let rukas = word(args, "rukasVersion")?;
+        let image = match args.get("image") {
+            Arg::Absent => None,
+            Arg::Text(s) if IMAGE.is_match(s) => {
+                Some(s.strip_prefix("sha256:").unwrap_or(s).to_string())
+            }
+            _ => {
+                return Err(bad(
+                    "image is an image id sha256:<hex>, or 12 to 64 of its hex",
+                ))
+            }
+        };
+        let issue = match args.get("issue") {
+            Arg::Absent => None,
+            v => Some(i64::from(tools::issue_arg(&v)?)),
+        };
+        let limit = match args.get("limit") {
+            Arg::Absent => DEFAULT_LIMIT,
+            v => v
+                .whole()
+                .filter(|n| (1..=MAX_LIMIT).contains(n))
+                .ok_or_else(|| bad(&format!("limit is from 1 to {MAX_LIMIT}")))?,
+        } as usize;
+        let before = match args.get("before") {
+            Arg::Absent => None,
+            Arg::Text(s) if ID.is_match(s) => Some(s.to_string()),
+            _ => return Err(bad("before is a session id")),
+        };
+        Ok(ListArgs {
+            outcome,
+            kind,
+            how,
+            failure_kind,
+            tehas,
+            rukas,
+            image,
+            issue,
+            limit,
+            before,
+        })
+    }
+}
+
+pub(crate) fn list(dirs: &Dirs, asked: &ListArgs) -> Result<Map<String, Value>, ToolError> {
+    let ListArgs {
+        outcome,
+        kind,
+        how,
+        failure_kind,
+        tehas,
+        rukas,
+        image,
+        issue,
+        limit,
+        before,
+    } = asked;
+    let (limit, before) = (*limit, before.as_deref());
 
     let snap = open(dirs)?;
     let repo = repo(dirs)?;
@@ -490,11 +538,11 @@ pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
             passed = s["id"].as_str() == before;
             continue;
         }
-        let keep = eq(&s, "outcome", &outcome)
-            && eq(&s, "kind", &kind)
-            && eq(&s, "how", &how)
-            && eq(&s, "failureKind", &failure_kind)
-            && eq(&s, "tehasVersion", &tehas)
+        let keep = eq(&s, "outcome", outcome)
+            && eq(&s, "kind", kind)
+            && eq(&s, "how", how)
+            && eq(&s, "failureKind", failure_kind)
+            && eq(&s, "tehasVersion", tehas)
             && rukas.as_deref().is_none_or(|w| {
                 s["rukasVersion"].as_str() == Some(w) || s["rukasCommit"].as_str() == Some(w)
             })
@@ -571,13 +619,27 @@ fn pick_object(src: &Value, spec: &Value) -> Map<String, Value> {
     }
 }
 
-pub(crate) fn one(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let id = args["id"]
-        .as_str()
-        .ok_or_else(|| bad("id is a string like work-12-1792485967"))?;
-    if !ID.is_match(id) {
-        return Err(bad("id is like work-12-1792485967"));
+/// What `factory_session` takes: the id of one session.
+#[derive(Debug)]
+pub struct OneArgs {
+    id: String,
+}
+
+impl OneArgs {
+    pub(crate) fn read(args: &Args) -> Result<Self, ToolError> {
+        let id = args
+            .get("id")
+            .text()
+            .ok_or_else(|| bad("id is a string like work-12-1792485967"))?;
+        if !ID.is_match(id) {
+            return Err(bad("id is like work-12-1792485967"));
+        }
+        Ok(OneArgs { id: id.to_string() })
     }
+}
+
+pub(crate) fn one(dirs: &Dirs, asked: &OneArgs) -> Result<Map<String, Value>, ToolError> {
+    let id = asked.id.as_str();
     let snap = open(dirs)?;
     let raw = find(&snap, id)?;
     let keys: Vec<&str> = FIELDS.iter().map(|f| f.0).collect();
@@ -630,9 +692,24 @@ struct Cause {
     issues: Vec<i64>,
 }
 
-pub(crate) fn failures(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let by_image = one_of(args, "by", &GROUPS)?.as_deref() == Some("image");
-    let only = word(args, "rukasVersion")?;
+/// What `factory_failures` takes: whether to group by image, and the one
+/// rukas version to count.
+#[derive(Debug)]
+pub struct FailuresArgs {
+    by_image: bool,
+    only: Option<String>,
+}
+
+impl FailuresArgs {
+    pub(crate) fn read(args: &Args) -> Result<Self, ToolError> {
+        let by_image = one_of(args, "by", &GROUPS)?.as_deref() == Some("image");
+        let only = word(args, "rukasVersion")?;
+        Ok(FailuresArgs { by_image, only })
+    }
+}
+
+pub(crate) fn failures(dirs: &Dirs, asked: &FailuresArgs) -> Result<Map<String, Value>, ToolError> {
+    let (by_image, only) = (asked.by_image, &asked.only);
     let snap = open(dirs)?;
     let repo = repo(dirs)?;
     let mut pairs: BTreeMap<(Option<String>, Option<String>, String), Pair> = BTreeMap::new();
@@ -770,11 +847,24 @@ pub(crate) fn issue_spec() -> Value {
     Value::Object(s)
 }
 
+/// What `factory_issue` takes: the issue's number.
+#[derive(Debug)]
+pub struct IssueArgs {
+    issue: i64,
+}
+
+impl IssueArgs {
+    pub(crate) fn read(args: &Args) -> Result<Self, ToolError> {
+        let issue = i64::from(tools::issue_arg(&args.get("issue"))?);
+        Ok(IssueArgs { issue })
+    }
+}
+
 /// One issue's story: the stage the dashboard lists it under, the cycle that
 /// owns it now, and its runs of the snapshot's window. The caller does not
 /// join `factory_issues`, `factory_sessions` and `factory_session`.
-pub(crate) fn issue(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let issue = i64::from(tools::issue_arg(&args["issue"])?);
+pub(crate) fn issue(dirs: &Dirs, asked: &IssueArgs) -> Result<Map<String, Value>, ToolError> {
+    let issue = asked.issue;
     // The snapshot first: its header is the one file this tool must read, and
     // a host without it has nothing to answer with.
     let snap = open(dirs)?;

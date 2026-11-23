@@ -22,7 +22,7 @@ pub struct Call {
 /// release, in the order a refusal prints them.
 pub const HOWS: [(&str, &str); 8] = [
     (crate::approval::MILLWRIGHT, crate::approval::MILLWRIGHT),
-    ("label", "label"),
+    (crate::approval::APPROVED, crate::approval::APPROVED),
     ("refresh", "refresh"),
     ("outage-retry", "outage-retry"),
     ("hand", "hand"),
@@ -128,7 +128,8 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
                (SELECT count(*) > 0 FROM approvals a
                   WHERE a.issue = h.issue AND a.started_how = 'refresh'
                     AND a.started_by = h.attempt AND a.started_easy = 1),
-               h.seq, h.step_number, h.step_total, h.round
+               h.seq, h.step_number, h.step_total, h.round, h.recorded_at, h.signalled,
+               h.reported
              FROM cycle_history h
              WHERE (?1 IS NULL OR h.issue = ?1)
                AND (?2 IS NULL OR h.how = ?2)",
@@ -138,12 +139,14 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
         .query_map(rusqlite::params![issue, how], |r| {
             let n = CYCLE_NAMES.len();
             let at: [Option<i64>; 3] = [r.get(n)?, r.get(n + 1)?, r.get(n + 2)?];
-            Ok((r.get(n - 1)?, row_json(r, &CYCLE_NAMES)?, at))
+            let written: (i64, Option<i64>, bool, bool) =
+                (r.get(3)?, r.get(n + 3)?, r.get(n + 4)?, r.get(n + 5)?);
+            Ok((r.get(n - 1)?, row_json(r, &CYCLE_NAMES)?, at, written))
         })
         .q()?;
     let mut out = Vec::new();
     for row in rows {
-        let (seq, mut p, at) = row.q()?;
+        let (seq, mut p, at, (ended, recorded, signalled, reported)) = row.q()?;
         p.insert(0, ("kind", j("cycle")));
         // Every cycle row answers `easy`, not only a refresh's, so a reader of
         // one kind reads one answer for every row.
@@ -152,6 +155,20 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
             if let Some(v) = v {
                 p.push((k, j(v)));
             }
+        }
+        // When the line was written, where that is not its end (a lost
+        // cycle's line, written by the start or the poll after it), and
+        // whether a signal stopped the cycle, only when one did (T11.3).
+        if let Some(recorded) = recorded.filter(|r| *r != ended) {
+            p.push(("recorded_at", j(recorded)));
+        }
+        if signalled {
+            p.push(("signalled", j(true)));
+        }
+        // A line no report wrote (T11.9): its writer raises its end, not the
+        // cycle.
+        if !reported {
+            p.push(("reported", j(false)));
         }
         out.push((seq, obj(&p)));
     }

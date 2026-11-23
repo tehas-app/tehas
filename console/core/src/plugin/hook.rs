@@ -1,7 +1,9 @@
 //! The hook after work (docs/specs/2026-11-21-plugins-hooks.md): its request,
 //! which a cycle and `tehas plugin hook` write and the runner reads, and which
-//! plugins a cycle's end asks for one. Written once here, since the cycle's
-//! supervisor and the console's operations both write the request.
+//! plugins are asked for one. Written once here, since the cycle's
+//! supervisor and the console's operations both write the request. Which
+//! ends ask for a hook is the event's rule: a cycle asks on `change.offered`
+//! (docs/specs/2026-11-22-events.md, "Plugins").
 
 use super::run::Trigger;
 use super::state::{State, Word};
@@ -11,6 +13,7 @@ use crate::file::{write_atomic, Temp};
 use crate::grammar::commit_id;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+use tehas_ports::events::{Envelope, Name, When};
 
 /// `~/tehas/plugins/<name>/hooks`.
 pub fn dir(home: &Path, name: &str) -> PathBuf {
@@ -28,7 +31,9 @@ pub fn unit(name: &str, pr: u64) -> String {
 }
 
 /// The request of a hook: the pull request, its head as GitHub gave it, its
-/// base, the issue, and what asked.
+/// base, the issue, what asked, and the envelope of the event that asked
+/// (api/event.schema.json): `change.offered`, the one event a hook is asked
+/// on. A person's run has no event.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HookAsk {
     pub pr: u64,
@@ -36,18 +41,23 @@ pub struct HookAsk {
     pub base: String,
     pub issue: Option<u64>,
     pub trigger: Trigger,
+    pub event: Option<Envelope>,
 }
 
 impl HookAsk {
     pub fn json(&self) -> Value {
-        json!({
+        let mut v = json!({
             "api": 1,
             "pr": self.pr,
             "head": self.head,
             "base": self.base,
             "issue": self.issue,
             "trigger": self.trigger.word(),
-        })
+        });
+        if let Some(Ok(event)) = self.event.as_ref().map(serde_json::to_value) {
+            v["event"] = event;
+        }
+        v
     }
 
     pub fn read(text: &[u8]) -> Option<HookAsk> {
@@ -71,14 +81,31 @@ impl HookAsk {
             "host" => Trigger::Host,
             _ => return None,
         };
+        // An event is read as its envelope, and only the one a hook is
+        // asked on: anything else refuses the request.
+        let event = match v.get("event") {
+            None => None,
+            Some(e) => Some(
+                serde_json::from_value::<Envelope>(e.clone())
+                    .ok()
+                    .filter(asks)?,
+            ),
+        };
         Some(HookAsk {
             pr: v.get("pr")?.as_u64().filter(|n| *n > 0)?,
             head: commit("head")?,
             base: commit("base")?,
             issue,
             trigger,
+            event,
         })
     }
+}
+
+/// Whether `e` is an event a hook is asked on: `change.offered`, after the
+/// fact.
+pub fn asks(e: &Envelope) -> bool {
+    e.name() == Name::ChangeOffered && e.when == When::After
 }
 
 pub fn read_request(home: &Path, name: &str, pr: u64) -> Option<HookAsk> {
@@ -117,35 +144,18 @@ pub fn open_bot_pull(pull: &Value, repo: &str, bot: &str) -> Option<(String, Str
     ok.then(|| (s("/head/sha").to_string(), s("/base/sha").to_string()))
 }
 
-/// How a cycle ended, as far as its hooks go.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Ending {
-    /// A signal stopped it.
-    pub signalled: bool,
-    /// tehas work refused its start before the runner ran.
-    pub refused: bool,
-    /// The pull request its report names, open or merged.
-    pub pr: Option<u64>,
-}
-
-/// The plugins a cycle's end asks a hook of, in the order of TEHAS_PLUGINS:
-/// none when the cycle was stopped, refused at start or left no pull
-/// request, or plugins are off. A plugin is asked when it is granted
-/// `hook:after:work` at its pin and ready there. `state` reads a plugin's
-/// state.json.
-pub fn after_work(
-    e: &Ending,
-    get: &dyn Fn(&str) -> String,
-    state: &dyn Fn(&str) -> Option<State>,
-) -> Vec<String> {
-    if e.signalled || e.refused || e.pr.is_none() || !crate::features::on_in("plugins", get) {
+/// The plugins asked for a hook, in the order of TEHAS_PLUGINS: none while
+/// plugins are off. A plugin is asked when it is granted `hook:after:change.offered`
+/// at its pin and ready there. `state` reads a plugin's state.json.
+pub fn granted(get: &dyn Fn(&str) -> String, state: &dyn Fn(&str) -> Option<State>) -> Vec<String> {
+    if !crate::features::on_in("plugins", get) {
         return Vec::new();
     }
     let pins = super::pins(&get("TEHAS_PLUGINS")).unwrap_or_default();
     pins.into_iter()
         .filter(|pin| {
             let granted = super::grants(&get(&super::grants_setting(&pin.name)))
-                .is_ok_and(|g| g.commit == pin.commit && g.caps.contains(&Cap::HookAfterWork));
+                .is_ok_and(|g| g.commit == pin.commit && g.caps.contains(&Cap::HOOK));
             let ready =
                 state(&pin.name).is_some_and(|s| s.commit == pin.commit && s.state == Word::Ready);
             granted && ready
@@ -155,15 +165,15 @@ pub fn after_work(
 }
 
 /// The request of each plugin of `names` for the pull request GitHub gave
-/// as `pull`: none when it is merged, closed, or no pull request of the
-/// bot's in `repo`.
+/// as `pull`, asked by the envelope `event`: none when it is merged, closed,
+/// or no pull request of the bot's in `repo`.
 pub fn requests(
     names: &[String],
     pull: &Value,
     repo: &str,
     bot: &str,
-    pr: u64,
-    issue: u64,
+    (pr, issue): (u64, u64),
+    event: &Envelope,
 ) -> Vec<(String, HookAsk)> {
     let Some((head, base)) = open_bot_pull(pull, repo, bot) else {
         return Vec::new();
@@ -177,6 +187,7 @@ pub fn requests(
                 base: base.clone(),
                 issue: Some(issue),
                 trigger: Trigger::Cycle,
+                event: Some(event.clone()),
             };
             (name.clone(), ask)
         })
@@ -204,9 +215,9 @@ mod tests {
             ),
             (
                 "TEHAS_PLUGIN_GRANTS_FLOORPLAN",
-                format!("{C} view hook:after:work"),
+                format!("{C} view hook:after:change.offered"),
             ),
-            ("TEHAS_PLUGIN_GRANTS_SPEC", format!("{C} hook:after:work")),
+            ("TEHAS_PLUGIN_GRANTS_SPEC", format!("{C} hook:after:change.offered")),
         ] {
             map.insert(k.to_string(), v);
         }
@@ -220,41 +231,22 @@ mod tests {
         Some(State::new(Word::Ready, C))
     }
 
-    const LEFT: Ending = Ending {
-        signalled: false,
-        refused: false,
-        pr: Some(42),
-    };
-
     #[test]
-    fn a_cycle_that_left_a_pull_request_asks_each_ready_granted_plugin() {
-        assert_eq!(after_work(&LEFT, &vars(&[]), &ready), ["floorplan", "spec"]);
-        for e in [
-            Ending {
-                signalled: true,
-                ..LEFT
-            },
-            Ending {
-                refused: true,
-                ..LEFT
-            },
-            Ending { pr: None, ..LEFT },
-        ] {
-            assert!(after_work(&e, &vars(&[]), &ready).is_empty(), "{e:?}");
-        }
-        assert!(after_work(&LEFT, &vars(&[("TEHAS_PLUGIN", "off")]), &ready).is_empty());
+    fn each_ready_granted_plugin_is_asked_while_plugins_are_on() {
+        assert_eq!(granted(&vars(&[]), &ready), ["floorplan", "spec"]);
+        assert!(granted(&vars(&[("TEHAS_PLUGIN", "off")]), &ready).is_empty());
     }
 
     #[test]
     fn a_plugin_refused_unbuilt_or_not_granted_the_hook_is_not_asked() {
         let ungranted = vars(&[("TEHAS_PLUGIN_GRANTS_SPEC", &format!("{C} view"))]);
-        assert_eq!(after_work(&LEFT, &ungranted, &ready), ["floorplan"]);
+        assert_eq!(granted(&ungranted, &ready), ["floorplan"]);
         let other = "f".repeat(40);
         let elsewhere = vars(&[(
             "TEHAS_PLUGIN_GRANTS_SPEC",
-            &format!("{other} hook:after:work"),
+            &format!("{other} hook:after:change.offered"),
         )]);
-        assert_eq!(after_work(&LEFT, &elsewhere, &ready), ["floorplan"]);
+        assert_eq!(granted(&elsewhere, &ready), ["floorplan"]);
         let refused = |name: &str| {
             Some(if name == "spec" {
                 State::refused(C, "no build")
@@ -262,10 +254,19 @@ mod tests {
                 State::new(Word::Ready, C)
             })
         };
-        assert_eq!(after_work(&LEFT, &vars(&[]), &refused), ["floorplan"]);
+        assert_eq!(granted(&vars(&[]), &refused), ["floorplan"]);
         let old = |_: &str| Some(State::new(Word::Ready, &"f".repeat(40)));
-        assert!(after_work(&LEFT, &vars(&[]), &old).is_empty());
-        assert!(after_work(&LEFT, &vars(&[]), &|_: &str| None).is_empty());
+        assert!(granted(&vars(&[]), &old).is_empty());
+        assert!(granted(&vars(&[]), &|_: &str| None).is_empty());
+    }
+
+    /// The sample of `name` with every field.
+    fn sample(name: Name) -> Envelope {
+        tehas_ports::events::samples()
+            .into_iter()
+            .find(|s| s.name == name)
+            .unwrap()
+            .full
     }
 
     fn pull() -> Value {
@@ -280,7 +281,14 @@ mod tests {
     #[test]
     fn an_open_pull_request_of_the_bot_is_asked_for_at_its_head() {
         let names = vec!["floorplan".to_string()];
-        let asked = requests(&names, &pull(), "acme/widget", "acme-bot[bot]", 42, 7);
+        let asked = requests(
+            &names,
+            &pull(),
+            "acme/widget",
+            "acme-bot[bot]",
+            (42, 7),
+            &sample(Name::ChangeOffered),
+        );
         assert_eq!(
             asked,
             [(
@@ -291,6 +299,7 @@ mod tests {
                     base: B.into(),
                     issue: Some(7),
                     trigger: Trigger::Cycle,
+                    event: Some(sample(Name::ChangeOffered)),
                 }
             )]
         );
@@ -304,7 +313,15 @@ mod tests {
             let mut p = pull();
             *p.pointer_mut(ptr).unwrap() = v;
             assert!(
-                requests(&names, &p, "acme/widget", "acme-bot[bot]", 42, 7).is_empty(),
+                requests(
+                    &names,
+                    &p,
+                    "acme/widget",
+                    "acme-bot[bot]",
+                    (42, 7),
+                    &sample(Name::ChangeOffered)
+                )
+                .is_empty(),
                 "{ptr}"
             );
         }
@@ -319,9 +336,29 @@ mod tests {
             base: B.into(),
             issue: Some(7),
             trigger: Trigger::Cycle,
+            event: Some(sample(Name::ChangeOffered)),
         };
         write_request(&home, "demo", &ask).unwrap();
         assert_eq!(read_request(&home, "demo", 42), Some(ask.clone()));
+        let by_hand = HookAsk {
+            event: None,
+            trigger: Trigger::Host,
+            ..ask.clone()
+        };
+        assert_eq!(by_hand.json().get("event"), None);
+        // An event other than the offer, or no envelope, refuses the request.
+        for event in [
+            serde_json::to_value(sample(Name::CycleEnded)).unwrap(),
+            json!({"api": 1, "key": "7-1"}),
+        ] {
+            let mut other = ask.json();
+            other["event"] = event;
+            assert_eq!(HookAsk::read(other.to_string().as_bytes()), None);
+        }
+        assert_eq!(
+            HookAsk::read(by_hand.json().to_string().as_bytes()),
+            Some(by_hand)
+        );
         assert_eq!(read_request(&home, "demo", 43), None);
         assert_eq!(unit("demo", 42), "tehas-plugin-hook@demo-42.service");
         let mut timer = ask.json();

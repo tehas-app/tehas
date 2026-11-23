@@ -102,13 +102,13 @@ pub fn read(home: &Path, issue: i64, given: &Given, now: i64) -> Result<Run, Str
 }
 
 /// Who started the turn: the label the first (`refine` when tehas:refine
-/// started the session, else `label`), an answer each later one, or the
+/// started the session, else `approved`), an answer each later one, or the
 /// millwright's answer, marked `millwright` on record. The mark alone decides: the `by` account of the answer is not consulted.
 fn how(rec: &serde_json::Map<String, Value>, turn: i64) -> &'static str {
     if turn == 1 {
         return match rec.get("label").and_then(Value::as_str) {
             Some("tehas:refine") => "refine",
-            _ => "label",
+            _ => "approved",
         };
     }
     let millwright = rec

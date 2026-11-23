@@ -7,7 +7,6 @@
 pub mod comments;
 pub mod fetch;
 pub mod given;
-pub mod handoff;
 pub mod link;
 pub mod manifest;
 pub mod plugin_files;

@@ -66,7 +66,7 @@ fn script(which: &str, command: &str) -> Option<&'static str> {
 
 /// The verbs of `tehas`. work and index are tehas-cycle's, which takes their
 /// lock (src/run.rs).
-const VERBS: [&str; 35] = [
+const VERBS: [&str; 34] = [
     "work",
     "index",
     "dispatch",
@@ -79,7 +79,6 @@ const VERBS: [&str; 35] = [
     "limit",
     "order",
     "start",
-    "panel",
     "host-message",
     "pause",
     "analytics",
@@ -353,7 +352,6 @@ mod tests {
             "start",
             "answer",
             "question",
-            "panel",
             "host-message",
             "pause",
             "analytics",
@@ -453,6 +451,8 @@ mod tests {
         assert_eq!(b(&["github-writes"]), Go::Verb);
         // Energy use left core in 2.0, and so did its sampler.
         assert_eq!(b(&["energy", "--every"]), Go::Unknown("energy".into()));
+        // Panels left core in 2.0, and so did their command.
+        assert_eq!(t(&["panel"]), Go::Unknown("panel".into()));
         for w in [&[][..], &["help"], &["-h"], &["--help"]] {
             assert_eq!(b(w), Go::Usage, "{w:?}");
         }
@@ -842,11 +842,11 @@ mod tests {
         ("host-message", None, &["host-messages"]),
         ("host-message", Some("list"), &["host-messages"]),
         ("limit", None, &["limit"]),
+        ("limit", Some("set"), &["limit"]),
         ("order", None, &["order"]),
         ("order", Some("clear"), &["order"]),
         ("order", Some("set"), &["order"]),
-        ("panel", None, &["panel"]),
-        ("question", None, &["question"]),
+        ("question", None, &["question", "questions"]),
         ("refresh", None, &["refresh"]),
         ("start", None, &["start"]),
         ("state", Some("check"), &["state-check"]),
@@ -896,7 +896,10 @@ mod tests {
         let mut found = Vec::new();
         for e in fs::read_dir(api).unwrap() {
             let name = e.unwrap().file_name().to_string_lossy().into_owned();
-            if let Some(name) = name.strip_suffix(".schema.json") {
+            // The events' schemas are no command's output: tests/events_contract.rs
+            // holds them.
+            let event = |n: &str| n == "event" || n.starts_with("event-") || n == "gate-answer";
+            if let Some(name) = name.strip_suffix(".schema.json").filter(|n| !event(n)) {
                 found.push(name.to_string());
             }
         }

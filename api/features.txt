@@ -12,7 +12,6 @@ state-move
 mcp-dashboard-keys
 clean
 disk
-panels
 state-check
 finish
 status-versions
@@ -33,3 +32,6 @@ start-reasons
 blockers
 answer
 question
+cycle-ids
+questions
+events

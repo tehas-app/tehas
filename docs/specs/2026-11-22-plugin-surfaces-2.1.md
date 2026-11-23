@@ -66,9 +66,35 @@ server. A view cannot read them: its policy is `connect-src 'self'`.
 - The ask and the grant are the same word, `live:<feed>`. The feed is one
   of a closed list: `status`, `running`, `analytics`, `plugins`. A feed a
   later release adds is a revision.
-- The gate answers `GET /_live/<feed>.json` on the plugin's name with the
-  file as it is, under the session and the web part's `Sec-Fetch` rules,
-  with `Cache-Control: no-store`. A feed that is not there is 404.
+- The gate answers `GET /_live/<feed>.json` on the plugin's name, under
+  the session and the web part's `Sec-Fetch` rules, with
+  `Cache-Control: no-store`. A feed that is not there is 404.
+- **Each feed has a schema of its own**, `api/plugin-live-<feed>.schema.json`
+  (revision 1.6.2). The files in `~/tehas/live/` are not contract: the
+  dashboard changes with core, and 2.0's contract leaves `live/` out on
+  purpose. A plugin is not core, so it reads the feed through its schema,
+  never the file as it is. The gate builds the answer from the file and
+  keeps only the schema's fields. A field the schema does not name is
+  dropped, so a field a later release adds to `live/` reaches no plugin
+  until a revision names it. When `live/` changes shape, the gate's
+  projection changes with it, and the schema does not. Within plugins'
+  `plugin: 1`, a schema's fields are only added.
+- The frozen `--json` objects (`tehas status`, `history`) are not the
+  feeds' source of shape. They hold neither ticket titles nor the line's
+  stages, and the report of `tehas analytics report` has no `--json`
+  object. The feeds stay their own plugin-API objects.
+
+  | Feed | Fields |
+  | --- | --- |
+  | `status` | `api`; `generatedAt`; `repo` (`owner/name`); `paused` (bool); `planning` and `completedCount` (whole numbers); the lists `queued`, `planned`, `running`, `awaiting`, `stopped`, `completed`, each of `{number, title, url}` with `url` a `https://github.com/` address |
+  | `running` | `api`; `cycles`, a list, and `last`, one or null, each `{issue, running, status, step, statusText, startedAt, updatedAt}`, times in Unix seconds. Never the cycle's console output: the dashboard's file has it, and the projection drops it |
+  | `analytics` | `api`; the report of `tehas analytics report`: `report`, `from`, `to`, `daily` (`day`, `shipped`, `failed`, `runs`, `minutes`), `runs`, `shipped`, `planned`, `firstPassYield`, `leadTime`, `cycleTime`, `machineTime`, `tokens`, `availability`, `stopReasons`, `stations`, as the schema spells out each |
+  | `plugins` | `api`; `plugins`, each `{name, label, views}`, as 1.5.2 gives it |
+
+  No feed holds a login, a token, a path on the host or a cycle's output.
+  The samples are the business plugin's fixtures
+  (`tehas-plugin-business/test/fixtures/`), and a test holds the
+  projection of each sample to its schema.
 - At most 4 feeds a plugin, and for each feed at most 30 requests a
   minute per login. Over it: 429.
 
@@ -412,7 +438,7 @@ TEHAS_PLUGIN_GRANTS_BUSINESS="<commit> view menu live:status live:running live:a
 ```
 
 A refresh copies the page's files to `/out`. The page reads the feeds from
-`/_live/` and draws the production line, the last 10 days and the board.
+`/_live/`, through the feeds' schemas, and draws the production line, the last 10 days and the board.
 `live:plugins` gives it the other plugins' views, which it draws as links,
 as the dock did. Its power figures come back when a later revision lets one
 plugin read another's feed.
@@ -607,7 +633,10 @@ After plugins are on in a release (2.1), and after the lab's Work 2 and 3
 Each is a pull request; a security change says so.
 
 1. **The clock.** `every:`, the tick's rule, the `clock` trigger.
-2. **Live feeds.** `live:`, `/_live`. Security change: a gate route.
+2. **Live feeds.** `live:`, `/_live`, the four schemas
+   `api/plugin-live-<feed>.schema.json` with the business plugin's
+   fixtures as samples, and the projection that keeps only their fields.
+   Security change: a gate route.
 3. **Host feeds.** `feed:host` and `feed:mesh`, the unit, `/_feed`.
    Security change: a host unit for a plugin, a fetch of a listed address.
 4. **Outside pages.** `frame`, `/_outside`, the menu items. Security

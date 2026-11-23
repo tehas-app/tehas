@@ -312,7 +312,6 @@ pub const TABLE: &[Setting] = &[
     ),
     always("TEHAS_LEAN", SWITCH, "0"),
     always("TEHAS_READ_ONLY", SWITCH, "0"),
-    always("TEHAS_SPEC_PIPE", SWITCH, "0"),
     // Plugins. TEHAS_PLUGIN_GRANTS_<NAME> is a family, one per plugin of
     // TEHAS_PLUGINS: every name with the front plugin::GRANTS takes its rule,
     // and the load checks what the lines mean together.
@@ -989,13 +988,12 @@ mod tests {
             "TEHAS_EDGE_ONE_LEVEL",
             "TEHAS_MILLWRIGHT_EPICS",
             "TEHAS_ANALYTICS",
-            "TEHAS_SPEC_PIPE",
             "TEHAS_LEAN",
             "TEHAS_PLUGIN",
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 13);
+        assert_eq!(switches.len(), 12);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);
@@ -1553,7 +1551,9 @@ mod tests {
             takes(name, PIN);
             takes(
                 name,
-                &format!("{PIN} view product model:2000000 action:refresh hook:after:work"),
+                &format!(
+                    "{PIN} view product model:2000000 action:refresh hook:after:change.offered"
+                ),
             );
             refuses(
                 name,

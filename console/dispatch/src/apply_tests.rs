@@ -68,6 +68,10 @@ case "$name $1" in
       *--turn*) if [ -f "$d/plan" ]; then sed 's/"verb":"plan-show"/"verb":"plan-end"/' "$d/plan"; else echo '{"api":1,"verb":"plan-end","ok":true}'; fi ;;
       *) echo '{"api":1,"verb":"plan-end","ok":true}' ;;
     esac ;;
+  "store cycle-end") cat "$d/end" 2>/dev/null || echo '{"api":1,"verb":"cycle-end","ok":true}' ;;
+  "store history-show") cat "$d/history" 2>/dev/null || echo '{"api":1,"verb":"history-show","ok":true,"rows":[]}' ;;
+  "store question-asked") cat "$d/asked" 2>/dev/null || echo '{"api":1,"verb":"question-asked","ok":true}' ;;
+  "store question-list") cat "$d/questions" 2>/dev/null || echo '{"api":1,"verb":"question-list","ok":true,"questions":[]}' ;;
   "store cycle-note") cat "$d/note" 2>/dev/null || echo '{"api":1,"verb":"cycle-note","ok":true,"times":0,"stop_asked_at":0}' ;;
   "store plan-note") echo "{\"api\":1,\"verb\":\"plan-note\",\"ok\":true,\"said\":$(cat "$d/said" 2>/dev/null || echo true)}" ;;
   "store "*) echo "{\"api\":1,\"verb\":\"$1\",\"ok\":true}" ;;
@@ -119,6 +123,8 @@ struct World {
     dir: TestDir,
     _stub: Arc<TestDir>,
     w: Writer,
+    /// The lines the events' log listener wrote.
+    heard: Arc<Mutex<Vec<String>>>,
 }
 
 fn world() -> World {
@@ -153,6 +159,8 @@ fn world() -> World {
         std::os::unix::fs::symlink(&stub, dir.join(name)).unwrap();
     }
     let s = |n: &str| dir.join(n).to_string_lossy().into_owned();
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let h = Arc::clone(&heard);
     let w = Writer {
         repo: "example-owner/example-product".into(),
         home: dir.join("home"),
@@ -229,11 +237,13 @@ fn world() -> World {
         say_now: None,
         plans_ended: Vec::new(),
         asked_again: false,
+        events: tehas_core::raise::logged(move |l| h.lock().unwrap().push(l.to_string())).build(),
     };
     World {
         dir,
         _stub: held,
         w,
+        heard,
     }
 }
 
@@ -371,7 +381,7 @@ fn a_probe_that_passes_takes_the_fault_off_and_lets_the_poll_start() {
     );
     assert!(holds, "the record is the rules' to read");
     assert!(push_fault_of(&t).is_none(), "a passing probe takes it off");
-    let a = t.apply(json!([start_of(7, "label")]));
+    let a = t.apply(json!([start_of(7, "approved")]));
     assert_eq!(a.exit, None);
     assert!(
         t.calls().iter().any(|c| c.starts_with("start 7")),
@@ -852,7 +862,7 @@ fn a_status_that_did_not_end_0_says_so() {
 fn a_start_whose_status_failed_logs_it() {
     let mut t = world();
     t.fail("status", "");
-    let a = t.apply(json!([start_of(7, "label")]));
+    let a = t.apply(json!([start_of(7, "approved")]));
     assert_eq!(
         a.log.last().map(String::as_str),
         Some(
@@ -1128,6 +1138,101 @@ fn a_container_removed_is_said_and_one_not_there_is_not() {
         .is_empty());
 }
 
+/// A lost cycle is ended through the store's `cycle-end --lost` (T11.3). A
+/// cycle that took the lock since is running, and nothing is said; another
+/// failure is said.
+#[test]
+fn a_lost_cycle_is_ended_through_the_store_and_a_running_one_is_left_alone() {
+    let mut t = world();
+    let a = t.apply(json!([{"lost_cycle": 7, "attempt": 3}]));
+    assert!(t
+        .calls()
+        .contains(&"store cycle-end 7 --attempt 3 --lost".to_string()));
+    assert_eq!(
+        a.log,
+        vec!["lost #7: attempt 3 died without a word and no cycle holds its lock; ended as lost"]
+    );
+    let mut t = world();
+    t.fail("store", "cycle-end 7|running");
+    assert!(t
+        .apply(json!([{"lost_cycle": 7, "attempt": 3}]))
+        .log
+        .is_empty());
+    let mut t = world();
+    t.fail("store", "cycle-end 7|heard");
+    assert!(t
+        .apply(json!([{"lost_cycle": 7, "attempt": 3}]))
+        .log
+        .is_empty());
+    let mut t = world();
+    t.fail("store", "cycle-end 7");
+    assert_eq!(
+        t.apply(json!([{"lost_cycle": 7, "attempt": 3}])).log,
+        vec!["WARN: the lost cycle of #7 could not be ended (busy)"]
+    );
+}
+
+/// The poll raises `cycle.ended` of a lost record only when the store
+/// answered that its own call wrote the line (T11.9). A record another
+/// writer ended first raises nothing here, so no end is raised twice.
+#[test]
+fn a_lost_end_is_raised_by_the_poll_that_wrote_it_and_only_then() {
+    let lost = r#"{"api":1,"verb":"history-show","ok":true,"rows":[{"kind":"cycle","issue":7,"attempt":3,"at":1000,"status":"lost","started_at":900,"recorded_at":1200,"seq":4,"reported":false}]}"#;
+    let end = |already: bool| {
+        format!(r#"{{"api":1,"verb":"cycle-end","ok":true,"cycle":{{}},"already":{already}}}"#)
+    };
+    let mut t = world();
+    fs::write(t.dir.join("history"), lost).unwrap();
+    fs::write(t.dir.join("end"), end(false)).unwrap();
+    t.apply(json!([{"lost_cycle": 7, "attempt": 3}]));
+    let heard = t.heard.lock().unwrap().clone();
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    let e: tehas_ports::events::Envelope =
+        serde_json::from_str(heard[0].strip_prefix("event ").unwrap()).unwrap();
+    assert_eq!(e.key.as_str(), "7-3");
+    let tehas_ports::events::Event::CycleEnded(p) = &e.event else {
+        panic!("{e:?}")
+    };
+    assert_eq!(
+        (p.end, p.outcome.as_str()),
+        (tehas_ports::events::End::Failed, "lost")
+    );
+    let mut t = world();
+    fs::write(t.dir.join("history"), lost).unwrap();
+    fs::write(t.dir.join("end"), end(true)).unwrap();
+    t.apply(json!([{"lost_cycle": 7, "attempt": 3}]));
+    assert!(t.heard.lock().unwrap().is_empty());
+    assert!(!t
+        .calls()
+        .iter()
+        .any(|c| c.starts_with("store history-show")));
+}
+
+/// A question the poll records raises `question.asked`, read back from the
+/// store; a replay of one on record raises nothing.
+#[test]
+fn a_question_the_poll_records_is_raised_once() {
+    let mut t = world();
+    fs::write(
+        t.dir.join("questions"),
+        r#"{"api":1,"verb":"question-list","ok":true,"questions":[{"id":5,"issue":12,"kind":"plan","attempt":1,"posted_at":1000,"offers":null,"options":["Adopt all"]}]}"#,
+    )
+    .unwrap();
+    let asked =
+        r#"{"api":1,"verb":"question-asked","ok":true,"question":{"id":5},"already":false}"#;
+    let mut log = Vec::new();
+    t.w.raise_asked(12, asked, &mut log);
+    assert!(log.is_empty(), "{log:?}");
+    assert!(t
+        .calls()
+        .contains(&"store question-list --after 4".to_string()));
+    let heard = t.heard.lock().unwrap().clone();
+    assert_eq!(heard.len(), 1, "{heard:?}");
+    assert!(heard[0].contains(r#""kind":"Plan""#), "{}", heard[0]);
+    t.w.raise_asked(12, &asked.replace("false", "true"), &mut log);
+    assert_eq!(t.heard.lock().unwrap().len(), 1);
+}
+
 #[test]
 fn an_action_of_no_kind_apply_knows_is_left() {
     let mut t = world();
@@ -1151,67 +1256,10 @@ fn steps(t: &World) -> Vec<String> {
         .collect()
 }
 
-/// A start whose `Spec:` line stops it, with no label of a person's to take
-/// off: what asked for it is used up, so the next poll does not pick it again.
-fn spec_stopped(n: u64, given: &str) -> Value {
-    let mut a = start_of(n, given);
-    a["remove"] = json!([]);
-    a["spec"] = json!({"why": "its `Spec:` line is not a link and its sha256", "off": []});
-    a
-}
-
-#[test]
-fn a_spec_that_stops_a_host_start_takes_the_hosts_approval_off_the_record() {
-    let mut t = world();
-    let a = t.apply(json!([spec_stopped(7, "host"), start_of(8, "label")]));
-    assert_eq!(a.exit, None);
-    assert_eq!(
-        &a.log[..2],
-        &[
-            "skip #7: its `Spec:` line is not a link and its sha256",
-            "the host's approval of #7 of 2026-10-26T10:00:00Z is off the record: run `tehas start 7` again once its `Spec:` line is right",
-        ]
-    );
-    let w = t.writes();
-    assert_eq!(w[0], "store approval-record 7 --undo --at 1793008800");
-    // The host reads the log: nothing is said on the issue.
-    assert!(!w.iter().any(|c| c.starts_with("gh ") && c.contains(" 7 ")));
-    assert!(!w.iter().any(|c| c == "start 7"));
-    assert!(w.iter().any(|c| c == "start 8"));
-}
-
-#[test]
-fn a_spec_that_stops_an_outage_retry_spends_the_retry() {
-    let mut t = world();
-    let a = t.apply(json!([spec_stopped(7, "outage-retry")]));
-    assert_eq!(a.exit, None);
-    let w = t.writes();
-    assert!(w.iter().any(|c| c == "store park-retry 7"), "{w:?}");
-    assert!(w.iter().any(|c| c.starts_with("gh issue comment 7 ")
-        && c.contains("Tehas started nothing on this issue: its `Spec:` line is not a link")));
-    assert!(!w.iter().any(|c| c == "start 7"));
-}
-
-#[test]
-fn a_spec_that_stops_a_refresh_drops_its_request() {
-    let mut t = world();
-    let request = t.w.home.join("state/refresh/7.json");
-    fs::write(&request, "{}").unwrap();
-    let mut a = spec_stopped(7, "refresh");
-    a["refresh_pr"] = json!(12);
-    let got = t.apply(json!([a]));
-    assert_eq!(got.exit, None);
-    assert!(!request.exists());
-    let w = t.writes();
-    assert!(!w.iter().any(|c| c.contains("tehas:refreshing")));
-    assert!(w.iter().any(|c| c.starts_with("gh issue comment 7 ")));
-    assert!(!w.iter().any(|c| c == "start 7"));
-}
-
 #[test]
 fn a_start_on_an_epics_approval_is_recorded_as_the_persons_label() {
     let mut t = world();
-    let mut st = start_of(7, "label");
+    let mut st = start_of(7, "approved");
     st["verb"] = json!("approved on epic #5, labelled by the millwright,");
     st["how"] = json!("`tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the millwright carried to this sub-issue");
     let a = t.apply(json!([st]));
@@ -1221,7 +1269,7 @@ fn a_start_on_an_epics_approval_is_recorded_as_the_persons_label() {
         vec!["start #7 (approved on epic #5, labelled by the millwright, by alice)"]
     );
     let c = t.writes();
-    assert!(c[0].contains("approval-record 7 --at 1793008800 --by alice --how label"));
+    assert!(c[0].contains("approval-record 7 --at 1793008800 --by alice --how approved"));
     assert!(c[0].contains("--label tehas:ready"));
     assert!(c[4].contains(
         "(authorized by @alice's `tehas:ready` label on epic #5 at 2026-10-25T09:00:00Z, which the millwright carried to this sub-issue)."
@@ -1232,21 +1280,21 @@ fn a_start_on_an_epics_approval_is_recorded_as_the_persons_label() {
 fn a_read_only_start_that_worked_is_kept_on_record_and_one_that_failed_is_not() {
     let mut t = world();
     t.w.host.read_only = true;
-    let a = t.apply(json!([start_of(7, "label")]));
+    let a = t.apply(json!([start_of(7, "approved")]));
     assert_eq!(a.exit, None);
     let home = t.w.home.clone();
     assert_eq!(tehas_core::read_only::recorded(&home), vec![7]);
     let r = tehas_core::read_only::read_records(&home);
     assert_eq!(r[0]["how"], "cycle");
     t.fail("gh", "--add-label tehas:running");
-    t.apply(json!([start_of(8, "label")]));
+    t.apply(json!([start_of(8, "approved")]));
     assert_eq!(tehas_core::read_only::recorded(&home), vec![7]);
 }
 
 #[test]
 fn a_start_off_read_only_leaves_no_record() {
     let mut t = world();
-    t.apply(json!([start_of(7, "label")]));
+    t.apply(json!([start_of(7, "approved")]));
     assert!(tehas_core::read_only::recorded(&t.w.home).is_empty());
 }
 
@@ -1274,7 +1322,7 @@ fn a_start_writes_its_line_before_its_unit_runs() {
     let mut t = world();
     CALLS_LOG.with(|p| *p.borrow_mut() = t.dir.join("calls.log"));
     t.w.say_now = Some(say_now);
-    let a = t.apply(json!([start_of(7, "label")]));
+    let a = t.apply(json!([start_of(7, "approved")]));
     assert_eq!(a.exit, None);
     let said = SAID_NOW.with(|s| s.borrow().clone());
     assert_eq!(
@@ -1292,7 +1340,7 @@ fn a_start_writes_its_line_before_its_unit_runs() {
 #[test]
 fn a_start_records_marks_says_and_starts_in_that_order() {
     let mut t = world();
-    let a = t.apply(json!([start_of(7, "label")]));
+    let a = t.apply(json!([start_of(7, "approved")]));
     assert_eq!(a.exit, None);
     assert_eq!(a.log, vec!["start #7 (labelled by alice)"]);
     assert_eq!(a.printed, vec!["the status line"]);
@@ -1310,7 +1358,7 @@ fn a_start_records_marks_says_and_starts_in_that_order() {
         ]
     );
     let c = t.writes();
-    assert!(c[0].contains("approval-record 7 --at 1793008800 --by alice --how label"));
+    assert!(c[0].contains("approval-record 7 --at 1793008800 --by alice --how approved"));
     assert!(c[0].contains(&format!("--body-sha {} ", "a".repeat(64))));
     assert!(c[0].contains("--label tehas:ready"));
     assert!(c[0].contains(&format!("--title-sha {}", "b".repeat(64))));
@@ -1330,7 +1378,7 @@ fn a_start_records_marks_says_and_starts_in_that_order() {
 #[test]
 fn a_start_binds_its_driver_in_the_record_and_a_classic_one_names_none() {
     let mut t = world();
-    let mut a = start_of(7, "label");
+    let mut a = start_of(7, "approved");
     a["driver"] = json!("lean");
     t.apply(json!([a]));
     let input: Value =
@@ -1342,7 +1390,7 @@ fn a_start_binds_its_driver_in_the_record_and_a_classic_one_names_none() {
 fn an_approval_the_store_refuses_starts_nothing() {
     let mut t = world();
     t.fail("store", "approval-record 7|busy");
-    let a = t.apply(json!([start_of(7, "label"), start_of(8, "label")]));
+    let a = t.apply(json!([start_of(7, "approved"), start_of(8, "approved")]));
     assert_eq!(a.exit, Some(1));
     assert_eq!(
         &a.log[..2],
@@ -1360,7 +1408,7 @@ fn an_approval_the_store_refuses_starts_nothing() {
 fn an_approval_that_started_a_cycle_already_is_skipped() {
     let mut t = world();
     t.fail("store", "approval-record|used");
-    let a = t.apply(json!([start_of(7, "label")]));
+    let a = t.apply(json!([start_of(7, "approved")]));
     assert_eq!(a.exit, None);
     assert_eq!(
         a.log,
@@ -1375,7 +1423,7 @@ fn an_approval_that_started_a_cycle_already_is_skipped() {
 fn a_store_that_cannot_be_used_ends_the_poll_with_78_before_any_mark() {
     let mut t = world();
     t.fail("store", "approval-record|absent");
-    let a = t.apply(json!([start_of(7, "label"), {"branch_note": "x"}]));
+    let a = t.apply(json!([start_of(7, "approved"), {"branch_note": "x"}]));
     assert_eq!(a.exit, Some(78));
     assert!(a.log[1].starts_with(
         "ERROR: the state store cannot be used, not starting a cycle for #7: store: absent"
@@ -1388,7 +1436,7 @@ fn a_store_that_cannot_be_used_ends_the_poll_with_78_before_any_mark() {
 fn a_mark_that_fails_takes_the_approval_back_and_starts_nothing() {
     let mut t = world();
     t.fail("gh", "--add-label tehas:running");
-    let a = t.apply(json!([start_of(7, "label")]));
+    let a = t.apply(json!([start_of(7, "approved")]));
     assert_eq!(a.exit, Some(1));
     assert_eq!(
         a.log.last().unwrap(),
@@ -1405,7 +1453,7 @@ fn a_mark_that_fails_takes_the_approval_back_and_starts_nothing() {
 fn a_unit_that_never_says_it_started_is_put_back_and_said() {
     let mut t = world();
     t.fail("start", "7");
-    let a = t.apply(json!([start_of(7, "label")]));
+    let a = t.apply(json!([start_of(7, "approved")]));
     assert_eq!(a.exit, Some(1));
     assert_eq!(
         a.log.last().unwrap(),
@@ -1489,7 +1537,7 @@ fn a_mark_answered_unknown_that_landed_starts_the_cycle() {
         r#"{"labels":[{"name":"tehas:running"},{"name":"bug"}]}"#,
     )
     .unwrap();
-    let a = t.apply(json!([start_of(7, "label")]));
+    let a = t.apply(json!([start_of(7, "approved")]));
     assert_eq!(a.exit, None, "{:?}", a.log);
     assert!(
         a.log.contains(
@@ -1521,7 +1569,7 @@ fn a_mark_answered_unknown_that_did_not_land_starts_nothing() {
             Some(body) => fs::write(t.dir.join("issue-7"), body).unwrap(),
             None => t.fail("gh", "api repos/example-owner/example-product/issues/7"),
         }
-        let a = t.apply(json!([start_of(7, "label")]));
+        let a = t.apply(json!([start_of(7, "approved")]));
         assert_eq!(a.exit, Some(1), "{issue:?}");
         assert_eq!(
             a.log.last().unwrap(),
@@ -1561,7 +1609,7 @@ fn a_start_not_taken_says_what_the_store_said_while_it_waited() {
     ] {
         let mut t = world();
         start_then_store(&mut t, word);
-        let a = t.apply(json!([start_of(7, "label")]));
+        let a = t.apply(json!([start_of(7, "approved")]));
         assert_eq!(a.exit, Some(1), "{word}");
         assert!(
             a.log
@@ -1601,7 +1649,7 @@ fn a_retry_records_the_question_it_answered() {
 fn a_start_takes_its_park_question_off_and_spends_the_retry_after_the_mark() {
     let mut t = world();
     fs::write(t.dir.join("park"), r#"{"question": 41}"#).unwrap();
-    t.apply(json!([start_of(7, "label")]));
+    t.apply(json!([start_of(7, "approved")]));
     let s = steps(&t);
     let w = t.writes();
     let withdraw = w
@@ -1618,7 +1666,7 @@ fn a_start_takes_its_park_question_off_and_spends_the_retry_after_the_mark() {
     let mut t = world();
     fs::write(t.dir.join("park"), r#"{"question": 41}"#).unwrap();
     t.fail("gh", "--add-label tehas:running");
-    t.apply(json!([start_of(7, "label")]));
+    t.apply(json!([start_of(7, "approved")]));
     assert!(t
         .writes()
         .iter()
@@ -1631,7 +1679,7 @@ fn the_approval_names_no_link_of_a_comment_and_reads_no_comment() {
     let comments = r#"[{"id": 1, "body": "see https://github.com/user-attachments/assets/2", "user": {"login": "alice"},
         "created_at": "2026-10-26T09:00:00Z", "updated_at": "2026-10-26T09:00:00Z"}]"#;
     fs::write(t.dir.join("comments"), comments).unwrap();
-    t.apply(json!([start_of(7, "label")]));
+    t.apply(json!([start_of(7, "approved")]));
     let input: Value =
         serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
     assert!(input.get("comment_links").is_none(), "{input}");
@@ -1641,7 +1689,7 @@ fn the_approval_names_no_link_of_a_comment_and_reads_no_comment() {
 #[test]
 fn a_start_with_no_text_read_records_nothing() {
     let mut t = world();
-    let mut a = start_of(7, "label");
+    let mut a = start_of(7, "approved");
     a["text"] = json!(false);
     let r = t.apply(json!([a]));
     assert_eq!(
@@ -1751,7 +1799,7 @@ fn a_refresh_start_is_the_full_refresh_even_marked_easy() {
 #[test]
 fn a_time_the_approval_cannot_be_dated_by_is_now() {
     let mut t = world();
-    let mut a = start_of(7, "label");
+    let mut a = start_of(7, "approved");
     a["at"] = json!("yesterday");
     t.apply(json!([a]));
     let at: i64 = t.writes()[0]
@@ -2169,7 +2217,7 @@ fn a_unit_that_did_not_start_is_stopped_when_its_approval_stays() {
     t.w.host.start_wait = Duration::from_millis(200);
     t.fail("start", "7");
     t.fail("store", "--undo|conflict");
-    let a = t.apply(json!([start_of(7, "label")]));
+    let a = t.apply(json!([start_of(7, "approved")]));
     assert!(a.log.contains(
         &"WARN: could not take the approval of #7 off the record (conflict)".to_string()
     ));
@@ -2184,7 +2232,7 @@ fn a_unit_that_did_not_start_is_stopped_when_its_approval_stays() {
     t.w.host.start_cmd = Some(t.dir.join("gh").to_string_lossy().into_owned());
     t.fail("gh", "7");
     t.w.host.stop_cmd = Some(t.dir.join("status").to_string_lossy().into_owned());
-    let a = t.apply(json!([start_of(8, "label")]));
+    let a = t.apply(json!([start_of(8, "approved")]));
     assert!(!a.log.iter().any(|l| l.starts_with("WARN: could not stop")));
 }
 
@@ -2193,9 +2241,9 @@ fn a_store_unusable_after_a_mark_ends_the_starts_with_1() {
     let mut t = world();
     t.fail("store", "approval-record 8|absent");
     let a = t.apply(json!([
-        start_of(7, "label"),
-        start_of(8, "label"),
-        start_of(9, "label")
+        start_of(7, "approved"),
+        start_of(8, "approved"),
+        start_of(9, "approved")
     ]));
     assert_eq!(a.exit, Some(1));
     assert!(a
@@ -2211,7 +2259,7 @@ fn a_store_unusable_after_a_mark_ends_the_starts_with_1() {
 fn a_start_tells_the_analytics_when_it_was_ready_and_that_it_started() {
     let mut t = world();
     t.w.host.analytics = Some(t.dir.join("analytics").to_string_lossy().into_owned());
-    t.apply(json!([start_of(7, "label")]));
+    t.apply(json!([start_of(7, "approved")]));
     assert_eq!(
         fs::read_to_string(t.dir.join("events")).unwrap(),
         "event 7 ready --at 1793008800\nevent 7 started\n"
@@ -2219,7 +2267,7 @@ fn a_start_tells_the_analytics_when_it_was_ready_and_that_it_started() {
     let mut t = world();
     t.w.host.analytics = Some(t.dir.join("analytics").to_string_lossy().into_owned());
     t.fail("analytics", "ready");
-    let a = t.apply(json!([start_of(7, "label")]));
+    let a = t.apply(json!([start_of(7, "approved")]));
     assert!(a.log.contains(&"WARN analytics event: exit 1".to_string()));
 }
 
@@ -2234,7 +2282,7 @@ fn a_lock_held_without_a_start_on_record_is_taken_as_started() {
     fs::create_dir_all(&cycles).unwrap();
     let lock = fs::File::create(cycles.join("7.lock")).unwrap();
     lock.lock().unwrap();
-    let a = t.apply(json!([start_of(7, "label")]));
+    let a = t.apply(json!([start_of(7, "approved")]));
     assert_eq!(a.exit, None);
     assert!(a.log.contains(
         &"WARN: the cycle for #7 holds its lock but did not say so in 0s; taking it as started"
@@ -4229,7 +4277,7 @@ fn a_start_spends_the_record_and_one_refused_drops_it() {
     let mut t = world();
     fs::create_dir_all(t.w.home.join("state/plan-start")).unwrap();
     fs::write(the_record(&t), "{}").unwrap();
-    let mut s = start_of(7, "label");
+    let mut s = start_of(7, "approved");
     s["approved_label"] = json!("tehas:plan");
     t.apply(json!([s]));
     assert!(!the_record(&t).exists());
@@ -4238,7 +4286,7 @@ fn a_start_spends_the_record_and_one_refused_drops_it() {
         .iter()
         .find(|c| c.starts_with("store approval-record"))
         .unwrap();
-    assert!(rec.contains("--how label --"), "{rec}");
+    assert!(rec.contains("--how approved --"), "{rec}");
     assert!(rec.contains("--label tehas:plan"), "{rec}");
 
     fs::write(the_record(&t), "{}").unwrap();
@@ -5385,7 +5433,7 @@ fn a_planning_turns_refresh_does_not_stand_in_for_a_starts() {
     t.w.host.lock_poll = Duration::from_millis(200);
     t.w.host.launch_poll = Duration::from_millis(200);
     t.apply(json!([first_turn(7)]));
-    t.apply(json!([start_of(8, "label")]));
+    t.apply(json!([start_of(8, "approved")]));
     assert_eq!(
         t.calls()
             .iter()

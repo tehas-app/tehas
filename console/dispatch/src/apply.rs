@@ -83,6 +83,8 @@ pub struct Writer {
     pub plans_ended: Vec<u64>,
     /// A session ended this poll and asked for the poll after it.
     pub asked_again: bool,
+    /// The events the writes raise (src/events.rs).
+    pub events: tehas_ports::events::Dispatcher,
 }
 
 /// What the settle's read found of an open write that this poll may decide
@@ -257,6 +259,12 @@ impl Writer {
             if std::fs::write(&path, format!("{note}\n")).is_err() {
                 log.push(format!("WARN: could not write {}", path.display()));
             }
+        } else if let Some(n) = a.get("lost_cycle").and_then(Value::as_u64) {
+            self.lost(
+                n,
+                a.get("attempt").and_then(Value::as_u64).unwrap_or(0),
+                log,
+            );
         } else if let Some(name) = a.get("reap").and_then(Value::as_str) {
             self.reap(name, text(a, "why"), log);
         } else if let Some(n) = a.get("quiet").and_then(Value::as_u64) {
@@ -534,6 +542,28 @@ impl Writer {
         }
     }
 
+    /// lost_cycle: the open record of a cycle that died without a word, ended
+    /// as lost with its line of history. The store takes it only with the
+    /// lock free and the cycle quiet: a cycle that took the lock since is
+    /// running, and one heard from just now is not lost yet; nothing is said
+    /// of either.
+    fn lost(&mut self, n: u64, attempt: u64, log: &mut Vec<String>) {
+        let (issue, attempt) = (n.to_string(), attempt.to_string());
+        match self.store_try(3, &["cycle-end", &issue, "--attempt", &attempt, "--lost"]) {
+            Ok(v) => {
+                log.push(format!(
+                    "lost #{n}: attempt {attempt} died without a word and no cycle holds its lock; ended as lost"
+                ));
+                self.raise_lost(n, attempt.parse().unwrap_or(0), &v.to_string(), log);
+            }
+            Err(f) if matches!(word(&f).as_str(), "running" | "attempt" | "heard") => {}
+            Err(f) => log.push(format!(
+                "WARN: the lost cycle of #{n} could not be ended ({})",
+                word(&f)
+            )),
+        }
+    }
+
     /// answer_drop: the answer `tehas answer` gave, taken away as a box is
     /// unticked, then its note.
     fn answer_drop(
@@ -598,12 +628,15 @@ impl Writer {
             if !r.offers.is_empty() {
                 args.extend(["--offers", r.offers]);
             }
-            if let Err(f) = self.store_try(3, &args) {
-                log.push(format!(
-                    "WARN: the question of #{n} was asked again as comment {id}, but it could not be recorded ({})",
-                    word(&f)
-                ));
-                return;
+            match self.store_try(3, &args) {
+                Ok(v) => self.raise_asked(n, &v.to_string(), log),
+                Err(f) => {
+                    log.push(format!(
+                        "WARN: the question of #{n} was asked again as comment {id}, but it could not be recorded ({})",
+                        word(&f)
+                    ));
+                    return;
+                }
             }
             new = id.parse().ok();
         }

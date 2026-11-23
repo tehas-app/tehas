@@ -240,6 +240,11 @@ struct View {
     started_at: i64,
     updated_at: i64,
     at: StepAt,
+    /// The start's attempt, how and account, `None` for a cycle run by hand:
+    /// what `tehas status` prints as the cycle's id, `how` and `by`.
+    attempt: i64,
+    how: String,
+    by: Option<String>,
 }
 
 impl View {
@@ -254,7 +259,12 @@ impl View {
             ("startedAt", j(self.started_at)),
             ("updatedAt", j(self.updated_at)),
             ("console", j(format!("console-{}.txt", self.issue))),
+            ("attempt", j(self.attempt)),
+            ("how", j(self.how.as_str())),
         ];
+        if let Some(by) = &self.by {
+            pairs.push(("by", j(by.as_str())));
+        }
         for (k, v) in [
             ("stepNumber", self.at.number),
             ("stepTotal", self.at.total),
@@ -320,7 +330,8 @@ fn read(home: &Path, c: &Connection, now: i64) -> Result<Read, Fail> {
     let mut q = c
         .prepare(
             "SELECT h.issue, h.running, h.status, h.step, h.text, c.started_at, h.at,
-               h.step_number, h.step_total, h.round, h.round_limit, h.step_since
+               h.step_number, h.step_total, h.round, h.round_limit, h.step_since,
+               c.attempt, c.how, c.started_by
              FROM heartbeats h JOIN cycles c ON c.issue = h.issue
              WHERE h.at = (SELECT max(at) FROM heartbeats WHERE issue = h.issue)
                AND h.at >= c.started_at",
@@ -343,6 +354,9 @@ fn read(home: &Path, c: &Connection, now: i64) -> Result<Read, Fail> {
                     limit: r.get(10)?,
                     since: r.get(11)?,
                 },
+                attempt: r.get(12)?,
+                how: r.get(13)?,
+                by: r.get(14)?,
             })
         })
         .q()?

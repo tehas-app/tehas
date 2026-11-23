@@ -175,7 +175,7 @@ pub fn approve(home: &Path, issue: i64, by: &str, how: &str) -> i64 {
         "--body-sha",
         SHA,
     ];
-    if how == "label" || crate::approval::is_millwright(how) {
+    if how == "approved" || crate::approval::is_millwright(how) {
         args.extend(["--label", "tehas:ready"]);
     }
     if how == "refresh" {
@@ -199,7 +199,7 @@ pub fn start_by(home: &Path, issue: i64, by: &str, how: &str, now: i64) -> (Held
 }
 
 pub fn start(home: &Path, issue: i64) -> (Held, i64) {
-    start_by(home, issue, "alice", "label", NOW)
+    start_by(home, issue, "alice", "approved", NOW)
 }
 
 /// Ends the cycle of `issue` with `status`.
@@ -317,11 +317,11 @@ fn every_64_names_the_flag_and_an_enumerated_word() {
             &[
                 "approval-record", "1", "--at", "5", "--by", "a", "--how", "bogus", "--body-sha", SHA,
             ][..],
-            "usage approval-record: --how is not one of millwright, label, refresh, outage-retry, host, answer, reply: \"bogus\"",
+            "usage approval-record: --how is not one of millwright, approved, refresh, outage-retry, host, answer, reply: \"bogus\"",
         ),
         (
             &[
-                "approval-record", "1", "--at", "5", "--by", "a", "--how", "label", "--label",
+                "approval-record", "1", "--at", "5", "--by", "a", "--how", "approved", "--label",
                 "Bad Word", "--body-sha", SHA,
             ][..],
             "usage approval-record: --label is not a tehas:* label: \"Bad Word\"",
@@ -459,7 +459,7 @@ fn samples(brief: &str, input: &str) -> Vec<Vec<String>> {
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -516,7 +516,7 @@ fn samples(brief: &str, input: &str) -> Vec<Vec<String>> {
         vec!["prune", "--days", "90"],
         vec!["sweep-locks"],
         vec!["upkeep"],
-        vec!["history-show", "1", "--kind", "cycle", "--how", "label"],
+        vec!["history-show", "1", "--kind", "cycle", "--how", "approved"],
     ];
     raw.into_iter().map(|v| strings(&v)).collect()
 }
@@ -697,7 +697,7 @@ fn a_refused_verb_leaves_no_issues_row() {
                 "--by",
                 "bob",
                 "--how",
-                "label",
+                "approved",
                 "--label",
                 "tehas:ready",
                 "--body-sha",

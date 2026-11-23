@@ -408,7 +408,7 @@ pub fn prepare(x: &mut dyn Exec, home: &Path, pin: &Pin, grants: Option<&Grants>
 
 /// [`prepare`], with the label of the manifest's view at the pin when the
 /// plugin is ready and its manifest has one.
-/// What the dashboard may show of a ready plugin: its label, v1's panel
+/// What the dashboard may show of a ready plugin: its label, v1's view's
 /// label when the manifest has `view`, and the views of `views`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Shown {

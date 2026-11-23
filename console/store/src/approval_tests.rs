@@ -39,7 +39,7 @@ fn record_args(issue: i64, at: i64, by: &str, how: &str, extra: &[&str]) -> Vec<
         "--body-sha",
         SHA,
     ];
-    if how == "label" || crate::approval::is_millwright(how) {
+    if how == "approved" || crate::approval::is_millwright(how) {
         args.extend(["--label", "tehas:ready"]);
     }
     args.extend(extra);
@@ -63,7 +63,7 @@ fn a_plan_with_no_open_points_is_recorded_as_the_tehas_plan_that_approved_it() {
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:plan",
             "--body-sha",
@@ -72,7 +72,7 @@ fn a_plan_with_no_open_points_is_recorded_as_the_tehas_plan_that_approved_it() {
     );
     assert_eq!(v["approval"]["label"], "tehas:plan");
     assert_eq!(v["approval"]["by"], "alice");
-    assert_eq!(v["approval"]["how"], "label");
+    assert_eq!(v["approval"]["how"], "approved");
 }
 
 #[test]
@@ -88,7 +88,7 @@ fn approval_record_stores_every_field() {
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -101,7 +101,7 @@ fn approval_record_stores_every_field() {
     );
     assert_eq!(
         v["approval"],
-        json!({"issue":10,"at":1791000000,"by":"alice","how":"label","label":"tehas:ready",
+        json!({"issue":10,"at":1791000000,"by":"alice","how":"approved","label":"tehas:ready",
                "body_sha256":SHA,"title_sha256":SHA_B,"comment_id":123456,"refresh_pr":null,
                "refresh_head":null,"used_at":null,"used_by":null,"input":null,"easy":false})
     );
@@ -153,7 +153,7 @@ fn a_millwright_start_is_written_under_its_word_and_the_old_one_is_refused() {
 fn a_millwright_start_rests_on_the_person_and_is_a_base_of_its_own() {
     // The row's own word is the new one, so rests_on still steps over it.
     let home = home("approval-millwright-base");
-    let (l, a) = start_by(&home, 44, "alice", "label", NOW);
+    let (l, a) = start_by(&home, 44, "alice", "approved", NOW);
     end(&home, 44, a, "failed");
     drop(l);
     let (l, b) = start_by(&home, 44, "tehas-millwright", "millwright", NOW);
@@ -184,16 +184,16 @@ fn approval_record_refuses_bad_arguments() {
         v.extend(extra);
         usage(&v)
     };
-    assert!(with(&["--how", "label"]).contains("--label is required with --how label"));
+    assert!(with(&["--how", "approved"]).contains("--label is required with --how approved"));
     assert!(with(&["--how", "reply", "--label", "tehas:ready"]).contains("--label is not taken"));
     assert!(
-        with(&["--how", "label", "--label", "ready"]).contains("--label is not a tehas:* label")
+        with(&["--how", "approved", "--label", "ready"]).contains("--label is not a tehas:* label")
     );
     assert!(with(&["--how", "refresh"]).contains("--refresh-pr and --refresh-head"));
     assert!(with(&["--how", "refresh", "--refresh-pr", "4"]).contains("--refresh-head is required"));
     assert!(with(&[
         "--how",
-        "label",
+        "approved",
         "--label",
         "tehas:ready",
         "--refresh-pr",
@@ -227,7 +227,7 @@ fn approval_record_refuses_bad_arguments() {
             "--by",
             "a",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -239,7 +239,7 @@ fn approval_record_refuses_bad_arguments() {
             "--at",
             "5",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -253,7 +253,7 @@ fn approval_record_refuses_bad_arguments() {
             "--by",
             "a",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
         ][..],
@@ -281,15 +281,15 @@ fn approval_record_refuses_bad_arguments() {
 #[test]
 fn approval_record_keeps_one_unused_row() {
     let home = home("approval-one");
-    record(&home, 20, 5, "alice", "label");
-    record(&home, 20, 9, "bob", "label");
+    record(&home, 20, 5, "alice", "approved");
+    record(&home, 20, 9, "bob", "approved");
     assert_eq!(count(&home, "approvals WHERE issue = 20"), 1);
     assert_eq!(
         one::<String>(&home, "SELECT by_account FROM approvals"),
         "bob"
     );
     // The same at again replaces its fields.
-    record(&home, 20, 9, "carol", "label");
+    record(&home, 20, 9, "carol", "approved");
     assert_eq!(
         one::<String>(&home, "SELECT by_account FROM approvals"),
         "carol"
@@ -312,7 +312,7 @@ fn approval_record_over_a_used_approval_is_refused() {
                 "--by",
                 "bob",
                 "--how",
-                "label",
+                "approved",
                 "--label",
                 "tehas:ready",
                 "--body-sha",
@@ -332,7 +332,7 @@ fn approval_undo_removes_only_the_unused_row() {
     let home = home("approval-undo");
     let (_l, _) = start(&home, 22);
     let used_at = one::<i64>(&home, "SELECT at FROM approvals WHERE issue = 22");
-    record(&home, 22, 5, "bob", "label");
+    record(&home, 22, 5, "bob", "approved");
     assert_eq!(
         ok(
             &home,
@@ -366,7 +366,7 @@ fn approval_current_approval_is_null_once_used() {
         json!({"api":1,"verb":"approval-current","ok":true,"approval":null,"current":null,
                "rests_on":null,"refreshes":0,"easy":false})
     );
-    approve(&home, 23, "alice", "label");
+    approve(&home, 23, "alice", "approved");
     let v = current(&home, 23);
     assert_eq!(v["approval"]["by"], "alice");
     assert_eq!(v["current"], Value::Null);
@@ -382,7 +382,7 @@ fn approval_current_approval_is_null_once_used() {
 #[test]
 fn approval_current_rests_only_on_used_rows() {
     let home = home("approval-rests");
-    let (l, a) = start_by(&home, 24, "alice", "label", NOW);
+    let (l, a) = start_by(&home, 24, "alice", "approved", NOW);
     end(&home, 24, a, "failed");
     drop(l);
     let (l, b) = start_by(&home, 24, "millbot", "millwright", NOW);
@@ -392,7 +392,7 @@ fn approval_current_rests_only_on_used_rows() {
     let v = current(&home, 24);
     assert_eq!(v["current"]["how"], "refresh");
     assert_eq!(v["current"]["used_by"], c);
-    assert_eq!(v["rests_on"]["how"], "label");
+    assert_eq!(v["rests_on"]["how"], "approved");
     assert_eq!(v["rests_on"]["used_by"], a);
     assert_eq!(v["refreshes"], 1);
 }
@@ -403,7 +403,7 @@ fn an_unused_label_approval_is_never_a_base() {
     let (l, a) = start_by(&home, 25, "millbot", "millwright", NOW);
     end(&home, 25, a, "failed");
     drop(l);
-    approve(&home, 25, "mallory", "label");
+    approve(&home, 25, "mallory", "approved");
     let v = current(&home, 25);
     assert_eq!(v["rests_on"], Value::Null);
     assert_eq!(v["approval"]["by"], "mallory");
@@ -445,7 +445,7 @@ fn a_start_taken_by_the_unit_but_not_yet_ended_still_names_its_base() {
         "the tick is the current approval, its cycle not on the history: {v}"
     );
     assert_eq!(
-        v["rests_on"]["how"], "label",
+        v["rests_on"]["how"], "approved",
         "and the start the tick made rests on the person's approval, read before the row          of its own cycle exists: {v}"
     );
     assert_eq!(
@@ -509,9 +509,9 @@ fn a_refresh_after_a_tick_that_is_not_yet_taken_rests_on_that_tick() {
 fn approvals_keep_only_the_base_and_its_starts() {
     let home = home("approval-retain");
     for (by, how) in [
-        ("alice", "label"),
+        ("alice", "approved"),
         ("millbot", "millwright"),
-        ("bob", "label"),
+        ("bob", "approved"),
         ("millbot", "millwright"),
         ("alice", "refresh"),
     ] {
@@ -533,7 +533,7 @@ fn approvals_keep_only_the_base_and_its_starts() {
     assert_eq!(
         rows,
         vec![
-            (3, "label".into()),
+            (3, "approved".into()),
             (4, "millwright".into()),
             (5, "refresh".into())
         ]
@@ -564,7 +564,7 @@ fn record_with(home: &Path, issue: i64, at: i64, input: &Path) -> Result<Value, 
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -591,13 +591,13 @@ fn approval_record_keeps_its_inputs_and_current_returns_them() {
     assert_eq!(v["current"]["input"], want);
     // An approval given without inputs has none, and the next one replaces
     // the unused row with its own.
-    let v = record(&home, 30, 6, "bob", "label");
+    let v = record(&home, 30, 6, "bob", "approved");
     assert_eq!(v["approval"]["input"], Value::Null);
     assert_eq!(current(&home, 30)["current"]["input"], want);
     // A record made again at the same time takes the inputs it is given now.
     record_with(&home, 31, 7, &file).unwrap();
     assert_eq!(
-        record(&home, 31, 7, "alice", "label")["approval"]["input"],
+        record(&home, 31, 7, "alice", "approved")["approval"]["input"],
         Value::Null
     );
     let empty = write_file(&home, "empty.json", b"{}");
@@ -679,60 +679,6 @@ fn approval_record_refuses_an_input_file_it_cannot_take() {
     );
 }
 
-// sha256 of "spec".
-const SPEC_SHA: &str = "d4f02eaafd1a9e9de7d10972ca8e47fa7a985825c3c9c1e249c72683cb3e4f19";
-
-#[test]
-fn approval_record_keeps_the_pin_of_a_spec() {
-    let home = home("approval-spec");
-    let spec = json!({"spec": {"link": "https://github.com/user-attachments/files/1/spec.md", "sha256": SPEC_SHA}});
-    let file = write_file(&home, "spec.json", spec.to_string().as_bytes());
-    assert_eq!(
-        record_with(&home, 43, 5, &file).unwrap()["approval"]["input"],
-        spec
-    );
-    used(&home, 43);
-    assert_eq!(view(&home, 43, None)["spec"], spec["spec"]);
-    let link = "https://github.com/user-attachments/files/1/spec.md";
-    for (name, bad) in [
-        ("list", json!([])),
-        ("null", Value::Null),
-        ("empty", json!({})),
-        ("no-sum", json!({"link": link})),
-        ("no-link", json!({"sha256": SPEC_SHA})),
-        (
-            "more",
-            json!({"link": link, "sha256": SPEC_SHA, "bytes": 4}),
-        ),
-        ("short", json!({"link": link, "sha256": &SPEC_SHA[1..]})),
-        (
-            "upper",
-            json!({"link": link, "sha256": SPEC_SHA.to_uppercase()}),
-        ),
-        ("number", json!({"link": 1, "sha256": SPEC_SHA})),
-        (
-            "http",
-            json!({"link": "http://github.com/user-attachments/files/1/s.md", "sha256": SPEC_SHA}),
-        ),
-        (
-            "space",
-            json!({"link": "https://github.com/a b", "sha256": SPEC_SHA}),
-        ),
-    ] {
-        let file = write_file(
-            &home,
-            &format!("{name}.json"),
-            json!({"spec": bad}).to_string().as_bytes(),
-        );
-        let (code, line) = record_with(&home, 44, 5, &file).unwrap_err();
-        assert_eq!(code, 1, "{name}: {line}");
-        assert!(
-            line.contains("holds spec of another type"),
-            "{name}: {line}"
-        );
-    }
-}
-
 #[test]
 fn approval_record_input_file_usage() {
     let base = [
@@ -743,7 +689,7 @@ fn approval_record_input_file_usage() {
         "--by",
         "a",
         "--how",
-        "label",
+        "approved",
         "--label",
         "tehas:ready",
         "--body-sha",
@@ -782,7 +728,7 @@ fn the_driver_is_kept_with_the_inputs_and_a_record_without_one_names_none() {
     let classic = write_file(&home, "classic.json", br#"{"links":[]}"#);
     record_with(&home, 44, 5, &classic).unwrap();
     assert_eq!(current(&home, 44)["approval"]["input"].get("driver"), None);
-    record(&home, 45, 5, "alice", "label");
+    record(&home, 45, 5, "alice", "approved");
     assert_eq!(current(&home, 45)["approval"]["input"], Value::Null);
 }
 
@@ -815,7 +761,7 @@ fn an_easy_refresh_start_is_marked_and_counted() {
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -867,7 +813,7 @@ fn an_easy_refresh_start_is_marked_and_counted() {
 #[test]
 fn the_easy_mark_is_a_refresh_switch_and_defaults_to_no() {
     let home = home("approval-easy-usage");
-    approve(&home, 52, "alice", "label");
+    approve(&home, 52, "alice", "approved");
     let v = current(&home, 52);
     assert_eq!(v["approval"]["easy"], false);
 
@@ -880,7 +826,7 @@ fn the_easy_mark_is_a_refresh_switch_and_defaults_to_no() {
         "--by",
         "alice",
         "--how",
-        "label",
+        "approved",
         "--label",
         "tehas:ready",
         "--body-sha",
@@ -932,7 +878,7 @@ fn input(home: &Path, text: &str) -> String {
 #[test]
 fn a_view_is_the_record_file_key_for_key_and_in_its_order() {
     let answer = json!({
-        "current": {"at": 1792497600, "by": "alice", "how": "label", "body_sha256": "s",
+        "current": {"at": 1792497600, "by": "alice", "how": "approved", "body_sha256": "s",
             "title_sha256": "t", "used_by": 1,
             "input": {"links": ["l"], "comment_links": null, "driver": "lean",
                 "retry_context": ["r"]}},
@@ -941,7 +887,7 @@ fn a_view_is_the_record_file_key_for_key_and_in_its_order() {
     assert_eq!(
         crate::approval::view_of(&answer, None).unwrap(),
         concat!(
-            r#"{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":"s","#,
+            r#"{"at":"2026-10-20T12:00:00Z","by":"alice","how":"approved","body_sha256":"s","#,
             r#""links":["l"],"title_sha256":"t","driver":"lean","#,
             r#""retry_context":["r"]}"#
         )
@@ -952,13 +898,13 @@ fn a_view_is_the_record_file_key_for_key_and_in_its_order() {
 fn a_view_leaves_out_what_is_not_on_record() {
     let home = home("approval-view-empty");
     assert_eq!(view(&home, 7, None), Value::Null);
-    record(&home, 7, 1792497600, "alice", "label");
+    record(&home, 7, 1792497600, "alice", "approved");
     // Recorded, and started nothing yet.
     assert_eq!(view(&home, 7, None), Value::Null);
     used(&home, 7);
     assert_eq!(
         view(&home, 7, None),
-        json!({"at": "2026-10-20T12:00:00Z", "by": "alice", "how": "label",
+        json!({"at": "2026-10-20T12:00:00Z", "by": "alice", "how": "approved",
             "body_sha256": SHA, "links": []})
     );
 }
@@ -966,7 +912,7 @@ fn a_view_leaves_out_what_is_not_on_record() {
 #[test]
 fn a_view_with_an_attempt_is_the_approval_of_that_start_only() {
     let home = home("approval-view-attempt");
-    record(&home, 7, 1792497600, "alice", "label");
+    record(&home, 7, 1792497600, "alice", "approved");
     used(&home, 7);
     let asked =
         |attempt: &str| ok(&home, &["approval-view", "7", "--attempt", attempt])["view"].clone();
@@ -987,7 +933,7 @@ fn a_view_takes_only_the_number_of_a_start() {
 #[test]
 fn a_millwright_start_in_a_view_says_millwright_and_rests_on_the_person() {
     let home = home("approval-view-millwright");
-    record(&home, 7, 1792497600, "alice", "label");
+    record(&home, 7, 1792497600, "alice", "approved");
     let first = used(&home, 7);
     end(&home, 7, first, "merged");
     record(&home, 7, 1792584000, "tehas-millwright", "millwright");
@@ -998,7 +944,7 @@ fn a_millwright_start_in_a_view_says_millwright_and_rests_on_the_person() {
     assert_eq!(v["at"], "2026-10-21T12:00:00Z");
     assert_eq!(
         v["rests_on"],
-        json!({"at": "2026-10-20T12:00:00Z", "by": "alice", "how": "label", "body_sha256": SHA})
+        json!({"at": "2026-10-20T12:00:00Z", "by": "alice", "how": "approved", "body_sha256": SHA})
     );
 }
 
@@ -1007,7 +953,7 @@ fn a_refresh_in_a_view_names_the_person_s_approval() {
     let answer = json!({
         "current": {"at": 1792584000, "by": "tehas-bot", "how": "refresh", "body_sha256": "s",
             "used_by": 2, "input": {"links": []}},
-        "rests_on": {"at": 1792497600, "by": "alice", "how": "label", "body_sha256": "p",
+        "rests_on": {"at": 1792497600, "by": "alice", "how": "approved", "body_sha256": "p",
             "used_by": 1},
         "refreshes": 1
     });
@@ -1015,7 +961,7 @@ fn a_refresh_in_a_view_names_the_person_s_approval() {
         crate::approval::view_of(&answer, None).unwrap(),
         concat!(
             r#"{"at":"2026-10-20T12:00:00Z","by":"alice","how":"refresh","body_sha256":"s","#,
-            r#""links":[],"rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","#,
+            r#""links":[],"rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"approved","#,
             r#""body_sha256":"p"},"refreshes":1,"refresh_of":null}"#
         )
     );
@@ -1026,9 +972,9 @@ fn a_refresh_in_a_view_names_the_person_s_approval() {
 #[test]
 fn a_view_refuses_what_is_no_approval() {
     for current in [
-        json!({"at": "soon", "how": "label"}),
-        json!({"at": 1792497600, "how": "label", "input": ["a"]}),
-        json!({"at": 1792497600, "how": "label", "input": {"retry_context": true}}),
+        json!({"at": "soon", "how": "approved"}),
+        json!({"at": 1792497600, "how": "approved", "input": ["a"]}),
+        json!({"at": 1792497600, "how": "approved", "input": {"retry_context": true}}),
         json!({"at": 1792497600}),
         json!("an approval"),
     ] {
@@ -1053,7 +999,7 @@ fn a_retry_context_with_nothing_in_it_is_no_key_of_a_view() {
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -1151,16 +1097,16 @@ fn a_view_names_the_driver_on_record_and_no_driver_when_none() {
         7,
         1760000000,
         "alice",
-        "label",
+        "approved",
         &["--input-file", &lean],
     );
-    record(&home, 8, 1760000000, "alice", "label");
+    record(&home, 8, 1760000000, "alice", "approved");
     used(&home, 7);
     used(&home, 8);
     let v = view(&home, 7, None);
     assert_eq!(
         (v["how"].clone(), v["driver"].clone()),
-        (json!("label"), json!("lean"))
+        (json!("approved"), json!("lean"))
     );
     let v8 = view(&home, 8, None);
     assert!(v8.is_object(), "no view of issue 8: {v8}");
@@ -1179,14 +1125,14 @@ fn a_view_of_a_person_s_label_is_field_for_field_what_the_dispatcher_wrote() {
         7,
         1792497600,
         "alice",
-        "label",
+        "approved",
         &["--title-sha", SHA_B, "--input-file", &file],
     );
     used(&home, 7);
     let v = view(&home, 7, None);
     assert_eq!(
         v,
-        json!({"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":SHA,
+        json!({"at":"2026-10-20T12:00:00Z","by":"alice","how":"approved","body_sha256":SHA,
             "links":["https://github.com/user-attachments/assets/1"],"title_sha256":SHA_B})
     );
     assert_eq!(v.get("driver"), None);
@@ -1209,6 +1155,80 @@ fn a_view_of_a_person_s_label_is_field_for_field_what_the_dispatcher_wrote() {
         view(&home, 7, Some(2)),
         json!({"at":"2026-10-21T12:00:00Z","by":"tehas-millwright","how":"millwright","body_sha256":SHA,
             "links":[],"retry_context":[{"source":"comment:9","by":"tehas-millwright","at":"2026-10-21T11:59:00Z","text":"Try the other way."}],
-            "rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":SHA}})
+            "rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"approved","body_sha256":SHA}})
     );
+}
+
+/// A start the store ended with no report (a refused start, `tehas stop`, a
+/// lost cycle) writes a line of history since T11.3, and that line is no start
+/// to the record: `approval-current` and the keeping of the next start read
+/// the last line a report wrote, as they did before 2.0. The base stays the
+/// earlier real start's, a refresh on it still counts, and the keeping leaves
+/// the base's row. That start's report ended `stopped` with a signal, a word a
+/// short end also writes, so the line is told by who wrote it, not by its
+/// word: read by its word, the base would fall back to the start before it.
+#[test]
+fn a_start_with_no_report_is_no_start_to_the_record() {
+    for (i, short) in ["--refused", "--stopped", "--lost"].into_iter().enumerate() {
+        let issue = 81 + i as i64;
+        let n = issue.to_string();
+        let home = home(&format!("approval-short{i}"));
+        let (l, a) = start_by(&home, issue, "alice", "approved", NOW);
+        end(&home, issue, a, "handoff");
+        drop(l);
+        // Bob's start, the base, ended by its report: stopped by a signal.
+        let (l, a) = start_by(&home, issue, "bob", "approved", NOW);
+        drop(l);
+        let at = a.to_string();
+        let args = [
+            "cycle-end",
+            &n,
+            "--attempt",
+            &at,
+            "--status",
+            "stopped",
+            "--signalled",
+        ];
+        ok(&home, &args);
+        let want = current(&home, issue);
+        assert_eq!(
+            (&want["rests_on"]["by"], &want["rests_on"]["used_by"]),
+            (&json!("bob"), &json!(2)),
+            "{short}: {want}"
+        );
+        // Carol's approval starts a cycle the store ends with no report.
+        let (l, b) = start_by(&home, issue, "carol", "approved", NOW);
+        let at = b.to_string();
+        let args = ["cycle-end", &n, "--attempt", &at, short];
+        if short == "--refused" {
+            ok(&home, &args);
+            drop(l);
+        } else {
+            drop(l);
+            ok_at(&home, NOW + 1000, &args);
+        }
+        assert_eq!(
+            count(
+                &home,
+                &format!("cycle_history WHERE issue = {issue} AND reported = 0")
+            ),
+            1,
+            "{short}"
+        );
+        let v = current(&home, issue);
+        for k in ["rests_on", "refreshes", "easy"] {
+            assert_eq!(v[k], want[k], "{short} {k}: {v}");
+        }
+        // A refresh starts on bob's base, which a record reading carol's start
+        // as the last would have let go, and counts on it.
+        let (_l, _) = start_by(&home, issue, "bob", "refresh", NOW + 2000);
+        assert_eq!(
+            count(
+                &home,
+                &format!("approvals WHERE issue = {issue} AND used_by = 2")
+            ),
+            1,
+            "{short}"
+        );
+    }
 }

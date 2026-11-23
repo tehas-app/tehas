@@ -286,7 +286,7 @@ fn expand(c: &Value, snap: &mut Value) {
     // hold: cycles that hold their lock.
     if let Some(list) = c.get("hold").and_then(Value::as_array) {
         let mut running = snap["running"].as_array().cloned().unwrap_or_default();
-        running.extend(list.iter().map(|n| json!({"issue": n, "how": "label"})));
+        running.extend(list.iter().map(|n| json!({"issue": n, "how": "approved"})));
         snap["running"] = json!(running);
     }
     // other: a container in the slice that is no cycle's, using the bytes.
@@ -364,7 +364,7 @@ fn expand(c: &Value, snap: &mut Value) {
         let mut is = issues(snap);
         for (n, x) in m {
             let sum = body_sha256(&json!({"body": x["body"]}));
-            let base = json!({"at": x["at"], "by": x["by"], "how": x.get("how").unwrap_or(&json!("label")), "body_sha256": sum});
+            let base = json!({"at": x["at"], "by": x["by"], "how": x.get("how").unwrap_or(&json!("approved")), "body_sha256": sum});
             let i = is.entry(n.clone()).or_insert_with(|| json!({}));
             i["approval"] = base;
         }

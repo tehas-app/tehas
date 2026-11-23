@@ -11,7 +11,6 @@
 //!   console tehas top [--once | --json] [--every <seconds>]
 //!   console tehas api [--json]
 //!   console tehas labels
-//!   console tehas panel [--json] | set <id> ... | clear <id>
 //!   console tehas host-message [list] [--json] | set <id> ... | clear <id>
 //!   console tehas resume
 //!   console tehas drain [--wait SECONDS] [--json]
@@ -45,8 +44,7 @@
 
 use crate::{
     answer, api, blockers, clean, dev, disk, export, freeze, github, health, history, holds,
-    host_message, labels, mcp, order, panel, question, queue, start, state, status, stop, top,
-    wake,
+    host_message, labels, mcp, order, question, queue, start, state, status, stop, top, wake,
 };
 use std::env;
 use std::os::unix::fs::PermissionsExt;
@@ -72,7 +70,7 @@ fn limit_words(given: &[String]) -> Result<Vec<String>, u8> {
         (Some("clear"), 1) => Ok(strings(&["limit", "clear"], &[])),
         (Some("set"), _) => Ok(strings(&["limit", "set"], &given[1..])),
         _ => {
-            eprintln!("usage: tehas limit [--json] | set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] | clear");
+            eprintln!("usage: tehas limit [--json] | set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] [--json] | clear");
             Err(64)
         }
     }
@@ -196,7 +194,6 @@ pub fn tehas(given: &[String]) -> u8 {
         "top" => top::view(rest),
         "api" => api::main(rest),
         "labels" => labels::main(rest),
-        "panel" => panel::main(rest),
         "plugin" => tehas_ops::plugin::main(rest),
         "host-message" => host_message::main(rest),
         "resume" => holds::resume(rest),
@@ -328,7 +325,6 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "api"] => api::words(rest).map(|_| ()),
         ["tehas", "wake"] => wake::words(rest).map(|_| ()),
         ["tehas", "labels"] => labels::words(rest),
-        ["tehas", "panel"] => panel::words(rest).map(|_| ()),
         ["tehas", "plugin"] => tehas_ops::plugin::words(rest).map(|_| ()),
         ["tehas", "host-message"] => host_message::words(rest).map(|_| ()),
         ["tehas", "resume"] => holds::resume_words(rest),
@@ -399,8 +395,8 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
         // What writes or calls GitHub stops on the three before it does.
         ["tehas", "resume"]
         | ["tehasbot", "status"]
-        | ["tehas", "start" | "answer" | "limit" | "order" | "blockers" | "panel" | "host-message"
-        | "freeze" | "thaw" | "pause" | "drain" | "wake"] => &[
+        | ["tehas", "start" | "answer" | "limit" | "order" | "blockers" | "host-message" | "freeze"
+        | "thaw" | "pause" | "drain" | "wake"] => &[
             "TEHAS_REPO",
             "TEHAS_CONTROL_ISSUE",
             "TEHAS_ALLOWED_LABELERS",
@@ -444,7 +440,6 @@ pub fn text(command: &str) -> Option<&'static str> {
         "answer" => include_str!("usage/answer.txt"),
         "question" => include_str!("usage/question.txt"),
         "dev" => dev::USAGE,
-        "panel" => include_str!("usage/panel.txt"),
         "plugin" => include_str!("usage/plugin.txt"),
         "pause" => include_str!("usage/pause.txt"),
         "plan" => include_str!("usage/plan.txt"),
@@ -615,8 +610,6 @@ mod tests {
         assert_eq!(check(&words(&["tehas", "api", "--jsn"])), 64);
         assert_eq!(check(&words(&["tehas", "api", "--json"])), 0);
         assert_eq!(check(&words(&["tehas", "labels", "--force"])), 64);
-        assert_eq!(check(&words(&["tehas", "panel", "show"])), 64);
-        assert_eq!(check(&words(&["tehas", "panel", "--json"])), 0);
         assert_eq!(check(&words(&["tehas", "host-message", "show"])), 64);
         assert_eq!(
             check(&words(&["tehas", "host-message", "list", "--json"])),
@@ -718,7 +711,6 @@ mod tests {
             "answer",
             "limit",
             "order",
-            "panel",
             "host-message",
             "freeze",
             "thaw",
@@ -805,7 +797,6 @@ mod tests {
             "init-product",
             "labels",
             "limit",
-            "panel",
             "pause",
             "resume",
             "setup",

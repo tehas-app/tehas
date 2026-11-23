@@ -1,0 +1,19 @@
+{
+  "api": 1,
+  "event": "ticket.acted",
+  "data": {
+    "ticket": {
+      "Number": 12
+    },
+    "act": "Approve",
+    "by": {
+      "realm": "Tickets",
+      "login": "alice",
+      "kind": "Person"
+    },
+    "at": "2026-11-22T11:10:00Z"
+  },
+  "when": "after",
+  "key": "12@Approve@2026-11-22T11:10:00Z",
+  "at": "2026-11-22T11:10:00Z"
+}

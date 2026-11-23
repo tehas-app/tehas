@@ -13,7 +13,12 @@ fn known(home: &Path, issue: i64, id: i64) -> String {
 
 /// #40 parked, its question 41 on record.
 fn parked(home: &Path) {
-    let (_l, a) = start_by(home, 40, "alice", "label", NOW);
+    parked_as(home, "41");
+}
+
+/// #40 parked, the question of comment `comment` on record.
+fn parked_as(home: &Path, comment: &str) {
+    let (_l, a) = start_by(home, 40, "alice", "approved", NOW);
     end(home, 40, a, "failed");
     let a = a.to_string();
     ok(
@@ -26,7 +31,7 @@ fn parked(home: &Path) {
             "--reason",
             "failed",
             "--comment-id",
-            "41",
+            comment,
             "--body-sha",
             &"a".repeat(64),
         ],
@@ -61,8 +66,8 @@ fn a_park_question_takes_a_retry_and_question_known_gives_it() {
     .unwrap();
     assert_eq!(
         v["answer"],
-        json!({"question": 41, "issue": 40, "kind": "park", "choice": "retry", "option": null,
-            "by": "bob", "at": NOW + 60, "text": null, "how": "answer"})
+        json!({"question": 1, "comment": 41, "issue": 40, "kind": "park", "choice": "retry",
+            "option": null, "by": "bob", "at": NOW + 60, "text": null, "how": "answer"})
     );
     assert_eq!(v["replaced"], false);
     assert_eq!(known(&home, 40, 41), v["answer"].to_string());
@@ -177,6 +182,9 @@ fn an_option_the_question_does_not_offer_is_refused() {
     assert_eq!(count(&home, "answers"), 0);
 }
 
+/// A withdrawn question keeps its row and its answer (schema 30), and neither
+/// is on record: the answer is given no more, and a new question takes the
+/// next number.
 #[test]
 fn the_answer_goes_with_its_question() {
     let home = home("answer-gone");
@@ -186,15 +194,28 @@ fn the_answer_goes_with_its_question() {
         &home,
         &["question-answered", "40", "--id", "41", "--withdraw"],
     );
-    assert_eq!(count(&home, "answers"), 0);
+    assert_eq!(count(&home, "answers"), 1);
+    assert_eq!(count(&home, "questions WHERE withdrawn_at IS NOT NULL"), 1);
+    assert_eq!(known(&home, 40, 41), "null");
+    assert_eq!(
+        ok(&home, &["park-show", "40"])["park"]["answer"],
+        Value::Null
+    );
     // An answer to a question no longer on record is not given.
-    parked(&home);
-    call(&home, &answer("40", &["--choice", "retry"])).unwrap();
+    parked_as(&home, "44");
+    let v = call(&home, &answer("40", &["--choice", "retry"])).unwrap();
+    assert_eq!(
+        (
+            v["answer"]["question"].clone(),
+            v["answer"]["comment"].clone()
+        ),
+        (json!(2), json!(44))
+    );
     ok(
         &home,
-        &["question-answered", "40", "--id", "41", "--by", "alice"],
+        &["question-answered", "40", "--id", "44", "--by", "alice"],
     );
-    assert_eq!(known(&home, 40, 41), "null");
+    assert_eq!(known(&home, 40, 44), "null");
 }
 
 #[test]
@@ -276,4 +297,96 @@ fn answer_record_refuses_what_it_cannot_take() {
         assert!(usage(args).starts_with("usage answer-record: "), "{args:?}");
     }
     assert!(usage(&["answer-drop", "40"]).starts_with("usage answer-drop: "));
+}
+
+/// The numbers of the questions a question-list with `args` answers with, in
+/// its order.
+fn listed(home: &Path, args: &[&str]) -> Vec<i64> {
+    let v = ok(home, &[&["question-list"], args].concat());
+    let rows = v["questions"].as_array().expect("questions");
+    rows.iter().map(|q| q["id"].as_i64().expect("id")).collect()
+}
+
+/// With no --after, the question each issue waits on, exactly the one
+/// question-show gives for it; with it, every question after the number, the
+/// withdrawn and the answered among them, in number order.
+#[test]
+fn question_list_gives_the_waiting_ones_or_every_one_after_a_number() {
+    let home = home("question-list");
+    assert_eq!(ok(&home, &["question-list"])["questions"], json!([]));
+    parked(&home);
+    planning(&home, &["Adopt all"]);
+    let waiting = ok(&home, &["question-list"]);
+    assert_eq!(listed(&home, &[]), [1, 2]);
+    assert_eq!(
+        waiting["questions"][0],
+        json!({"id": 1, "issue": 40, "kind": "park", "attempt": 1, "posted_at": NOW,
+            "answered_at": null, "withdrawn_at": null, "comment": 41, "offers": null,
+            "options": null})
+    );
+    assert_eq!(waiting["questions"][1]["options"], json!(["Adopt all"]));
+    for (at, issue) in [(0, "40"), (1, "42")] {
+        assert_eq!(
+            ok(&home, &["question-show", issue])["question"],
+            waiting["questions"][at]
+        );
+    }
+    // The stop's question withdrawn, asked again as another and answered.
+    let withdraw = ["question-answered", "40", "--id", "41", "--withdraw"];
+    ok_at(&home, NOW + 10, &withdraw);
+    let again = ["question-asked", "40", "--id", "44", "--kind", "park"];
+    ok_at(
+        &home,
+        NOW + 20,
+        &[&again[..], &["--offers", "park"]].concat(),
+    );
+    assert_eq!(listed(&home, &[]), [2, 3]);
+    let answered = ["question-answered", "40", "--id", "44", "--by", "alice"];
+    ok_at(&home, NOW + 30, &answered);
+    assert_eq!(listed(&home, &[]), [2]);
+    // An issue the list leaves out waits on none.
+    assert_eq!(ok(&home, &["question-show", "40"])["question"], json!(null));
+    let all = ok(&home, &["question-list", "--after", "0"]);
+    assert_eq!(listed(&home, &["--after", "0"]), [1, 2, 3]);
+    let times = |q: &Value| (q["answered_at"].clone(), q["withdrawn_at"].clone());
+    assert_eq!(times(&all["questions"][0]), (json!(null), json!(NOW + 10)));
+    assert_eq!(times(&all["questions"][2]), (json!(NOW + 30), json!(null)));
+    assert_eq!(all["questions"][2]["offers"], json!(["park"]));
+    // A question with no comment on record says null, not a number.
+    let c = conn(&home);
+    c.execute("UPDATE questions SET comment_id = NULL WHERE id = 1", [])
+        .unwrap();
+    let all = ok(&home, &["question-list", "--after", "0"]);
+    let comments: Vec<&Value> = all["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|q| &q["comment"])
+        .collect();
+    assert_eq!(comments, [&json!(null), &json!(43), &json!(44)]);
+    assert_eq!(listed(&home, &["--after", "1"]), [2, 3]);
+    assert_eq!(
+        ok(&home, &["question-list", "--after", "3"])["questions"],
+        json!([])
+    );
+    // A planning question answered: its options went with the turn.
+    let turn = ["plan-answer", "42", "--turn", "2", "--by", "bob"];
+    ok(&home, &turn);
+    let all = ok(&home, &["question-list", "--after", "1"]);
+    assert_eq!(all["questions"][0]["options"], json!(null));
+    assert!(all["questions"][0]["answered_at"].is_i64(), "{all}");
+}
+
+#[test]
+fn question_list_refuses_an_issue_and_a_number_that_is_none() {
+    let home = home("question-list-args");
+    for args in [
+        &["question-list", "40"][..],
+        &["question-list", "--after"],
+        &["question-list", "--after", "-1"],
+        &["question-list", "--after", "01"],
+        &["question-list", "--after", "x"],
+    ] {
+        assert_eq!(call(&home, args).unwrap_err().0, 64, "{args:?}");
+    }
 }

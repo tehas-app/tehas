@@ -17,8 +17,12 @@
 //!
 //! The report is `apply`, in this process. It goes by the settings of this
 //! environment and loads none: instance.env may have changed during the cycle.
-//! After it, a cycle that was not stopped and left an open pull request asks
-//! for the plugins' hooks on it (src/hook.rs), and waits for none of them.
+//! The start once on record raises `cycle.started`, and the end once on record
+//! raises the events of its line (src/events.rs): the plugins' hooks are asked
+//! on `change.offered` (src/hook.rs), and none is waited for. A start that
+//! ended an open record as lost raises that end first, and a start refused
+//! after it is on record raises its `cycle.ended` here: this process wrote
+//! both lines.
 //!
 //! The --work program is tehas work, which runs the cycle on this host.
 
@@ -37,8 +41,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tehas_core::call::{gh_why, run_full, GRACE};
 use tehas_core::home::Home;
-use tehas_core::plugin::hook::Ending;
+use tehas_core::raise::{EndAnswer, StartRow, Writer};
 use tehas_core::{cycle_notes, time};
+use tehas_ports::events::Dispatcher;
 
 /// What tehasbot cycle gives this.
 pub struct Given {
@@ -164,7 +169,7 @@ fn commit_of(cmd: &[&str], image: &str, bound: Duration) -> Option<String> {
 }
 
 /// The start on record, or the status to exit with.
-fn start_on_record(home: &Path, n: &str) -> Result<Value, i32> {
+fn start_on_record(home: &Path, n: &str, events: &Dispatcher) -> Result<Value, i32> {
     let rukas = rukas_commit();
     let mut args = vec!["cycle-start", n];
     if let Some(r) = &rukas {
@@ -193,9 +198,28 @@ fn start_on_record(home: &Path, n: &str) -> Result<Value, i32> {
                 }
                 Ok(shown) => {
                     if let Some(took) = took_late(&shown, began) {
-                        let end = ["cycle-end", n, "--attempt", &took, "--refused"];
-                        if let Err(r) = host::store_try(home, 5, &end) {
-                            log(&format!("ERROR: the start of #{n} the store took late is not ended ({}): cycle-end {n} --attempt {took} --refused", r.word));
+                        // On record, so started; its answer was lost, so a
+                        // record it ended as lost raises nothing.
+                        let start = shown.get("cycle").cloned().unwrap_or_default();
+                        if let Some(p) = serde_json::from_value::<StartRow>(start)
+                            .ok()
+                            .as_ref()
+                            .and_then(tehas_core::raise::started)
+                        {
+                            crate::events::raise(events, p);
+                        }
+                        let end = [
+                            "cycle-end",
+                            n,
+                            "--attempt",
+                            &took,
+                            "--refused",
+                            "--rc",
+                            "75",
+                        ];
+                        match host::store_try(home, 5, &end) {
+                            Ok(v) => raise_short(home, n, &took, &v.to_string(), events),
+                            Err(r) => log(&format!("ERROR: the start of #{n} the store took late is not ended ({}): cycle-end {n} --attempt {took} --refused --rc 75", r.word)),
                         }
                         log(&format!(
                             "refuse #{n}: the state store took the start only after it timed out: {}",
@@ -241,15 +265,35 @@ fn start_on_record(home: &Path, n: &str) -> Result<Value, i32> {
     }
 }
 
+/// The end of a line this process wrote with no report: raised when the
+/// store's answer says this call wrote it.
+fn raise_short(home: &Path, n: &str, attempt: &str, answer: &str, events: &Dispatcher) {
+    let wrote = serde_json::from_str::<EndAnswer>(answer).is_ok_and(|a| !a.already);
+    if let (true, Ok(issue), Ok(attempt)) = (wrote, n.parse(), attempt.parse()) {
+        crate::events::raise_ended(events, home, issue, attempt, Writer::Short);
+    }
+}
+
 /// A start that refuses its number ends its record, so the next start of the
-/// issue is not one that replaces an open row.
-fn end_refused(home: &Path, n: &str, attempt: &str) {
-    let end = ["cycle-end", n, "--attempt", attempt, "--refused"];
-    if let Err(r) = host::store_try(home, 5, &end) {
-        log(&format!(
-            "ERROR: the refused start of #{n} is not on record ({}): cycle-end {n} --attempt {attempt} --refused",
+/// issue is not one that replaces an open row, and its line of history keeps
+/// the exit status the unit leaves. Its `cycle.ended` is raised here.
+fn end_refused(home: &Path, n: &str, attempt: &str, rc: u8, events: &Dispatcher) {
+    let rc = rc.to_string();
+    let end = [
+        "cycle-end",
+        n,
+        "--attempt",
+        attempt,
+        "--refused",
+        "--rc",
+        &rc,
+    ];
+    match host::store_try(home, 5, &end) {
+        Ok(v) => raise_short(home, n, attempt, &v.to_string(), events),
+        Err(r) => log(&format!(
+            "ERROR: the refused start of #{n} is not on record ({}): cycle-end {n} --attempt {attempt} --refused --rc {rc}",
             r.word
-        ));
+        )),
     }
 }
 
@@ -376,10 +420,11 @@ fn supervise(
     }
 }
 
-/// A cycle's start, its supervision and its report. Its exit status.
-pub fn run(home: &Path, g: &Given) -> i32 {
+/// A cycle's start, its supervision and its report, and their events raised
+/// on `events`. Its exit status.
+pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
     let n = g.issue.to_string();
-    let answer = match start_on_record(home, &n) {
+    let answer = match start_on_record(home, &n, events) {
         Ok(a) => a,
         Err(rc) => return rc,
     };
@@ -399,6 +444,17 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         ));
         return 78;
     }
+    let start: Option<StartRow> = serde_json::from_value(answer.clone()).ok();
+    // The record this start ended as lost: its line is this start's.
+    if let Some(lost) = start.as_ref().and_then(|s| s.replaced) {
+        crate::events::raise_ended(events, home, g.issue, lost, Writer::Short);
+    }
+    match start.as_ref().and_then(tehas_core::raise::started) {
+        Some(p) => crate::events::raise(events, p),
+        None => log(&format!(
+            "WARN: #{n}: the start on record could not be read, so it raises no event"
+        )),
+    }
     let approval_at = match answer.get("approval_at") {
         Some(Value::Number(x)) => x.to_string(),
         _ => String::new(),
@@ -410,7 +466,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
             log(&format!(
                 "refuse #{n}: GitHub could not be asked what the number is (3 tries, the last: {why})"
             ));
-            end_refused(home, &n, &attempt);
+            end_refused(home, &n, &attempt, 65, events);
             return 65;
         }
     };
@@ -424,7 +480,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
                 Number::Closed => format!("refuse #{n}: the issue is closed"),
                 _ => format!("refuse #{n}: GitHub's answer for it could not be read"),
             });
-            end_refused(home, &n, &attempt);
+            end_refused(home, &n, &attempt, 65, events);
             return 65;
         }
     }
@@ -451,7 +507,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     ] {
         if signal_hook::flag::register(sig, Arc::clone(&stop)).is_err() {
             log(&format!("ERROR: #{n}: cannot listen for signal {sig}"));
-            end_refused(home, &n, &attempt);
+            end_refused(home, &n, &attempt, 78, events);
             return 78;
         }
     }
@@ -482,14 +538,8 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         status_args: g.status_args.clone(),
     };
     let reported = apply::reported(home, &start);
-    let ending = Ending {
-        signalled,
-        refused: reported.refused,
-        pr: reported.pr,
-    };
-    crate::hook::ask(home, g.issue, &ending, &|name: &str| {
-        std::env::var(name).unwrap_or_default()
-    });
+    let attempt = u32::try_from(start.attempt).unwrap_or(0);
+    crate::events::raise_ended(events, home, g.issue, attempt, Writer::Report);
     reported.rc
 }
 

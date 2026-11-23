@@ -86,6 +86,7 @@ impl Poll<'_> {
             }
         }
         self.quiet(&running);
+        self.lost();
         self.finished(&running)?;
         self.marked()?;
         self.planning();
@@ -101,6 +102,21 @@ impl Poll<'_> {
             .ok()
             .and_then(|c| c.get(&n).cloned())
             .unwrap_or_default()
+    }
+
+    /// An open record whose lock no process holds: the cycle died without a
+    /// word. The store ends it as lost, with its line of history, and only
+    /// while the lock is still free (T11.3).
+    fn lost(&mut self) {
+        for (n, attempt) in self.s.lost.clone() {
+            if self.dry {
+                self.log(format!(
+                    "would end #{n} as lost: its record is open and no cycle holds its lock"
+                ));
+                continue;
+            }
+            self.act(Action::Lost { issue: n, attempt });
+        }
     }
 
     /// A cycle that holds its lock and has not been heard from for 20

@@ -2,7 +2,7 @@
   "api": 1,
   "issue": 12,
   "question": {
-    "asked_at": "2026-10-17T14:00:20Z",
+    "askedAt": "2026-10-17T14:00:20Z",
     "choices": [
       {
         "choice": "retry",
@@ -17,7 +17,8 @@
         "label": "Leave it parked"
       }
     ],
-    "id": 4001,
+    "comment": 4003,
+    "id": 2,
     "kind": "park"
   }
 }

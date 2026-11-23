@@ -36,8 +36,7 @@ use std::path::{Component, Path, PathBuf};
 
 /// The pages, each with the files of `host` that make it. The dashboard is a
 /// fragment the manual's layout renders.
-const PAGES: [(&str, &[&str]); 4] = [
-    ("business", &["fun/business.html"]),
+const PAGES: [(&str, &[&str]); 3] = [
     ("floor", &["fun/index.html"]),
     ("dashboard", &["docs/_layout.html", "docs/dashboard.frag"]),
     ("manual", &["docs/_layout.html"]),
@@ -412,19 +411,18 @@ mod tests {
         d.0.join("host")
     }
 
-    /// A host with the four pages, one module that imports another, and a
+    /// A host with the three pages, one module that imports another, and a
     /// theme named by a template.
     fn small(name: &str) -> Dir {
         let d = dir(name);
         d.file(
-            "host/fun/business.html",
+            "host/fun/index.html",
             "<link rel=\"stylesheet\" href=\"/fun/theme-{{ $design }}.css\">\n\
              <link rel=\"stylesheet\" href=\"/fun/a.css\">\n\
              <script src=\"/fun/one.js\"></script>\n\
              <script type=\"module\" src=\"/fun/view.js\"></script>\n\
              <script async src=\"{{ env \"X\" }}\"></script>",
         );
-        d.file("host/fun/index.html", "<p>floor</p>");
         d.file("host/docs/_layout.html", "<main></main>");
         d.file(
             "host/docs/dashboard.frag",
@@ -462,17 +460,14 @@ mod tests {
     #[test]
     fn a_page_counts_its_scripts_their_imports_once_and_its_stylesheets() {
         let d = small("pages-measure");
-        let s = size(&d, &["fun/business.html"]);
+        let s = size(&d, &["fun/index.html"]);
         let script: u64 = ["fun/one.js", "fun/view.js", "fun/data.js"]
             .iter()
             .map(|f| len(&d, f))
             .sum();
         assert_eq!(s.script, script);
         // The page and a.css; the theme a template names is left out.
-        assert_eq!(
-            s.markup,
-            len(&d, "fun/business.html") + len(&d, "fun/a.css")
-        );
+        assert_eq!(s.markup, len(&d, "fun/index.html") + len(&d, "fun/a.css"));
     }
 
     #[test]
@@ -506,11 +501,11 @@ mod tests {
         d.file("host/fun/data.js", "export const x = 10;");
         let wrong = check(&host, &max);
         assert_eq!(wrong.len(), 1, "{wrong:?}");
-        assert!(wrong[0].starts_with("page business: script"), "{wrong:?}");
+        assert!(wrong[0].starts_with("page floor: script"), "{wrong:?}");
         d.file("host/fun/a.css", "a{ }");
         assert!(check(&host, &max)
             .iter()
-            .any(|w| w.starts_with("page business: markup and style")));
+            .any(|w| w.starts_with("page floor: markup and style")));
     }
 
     #[test]
@@ -526,7 +521,7 @@ mod tests {
         assert!(wrong.contains(&"page flour: in pages.max but no such page".to_string()));
         let wrong = check(&host, &format!("{}page floor 1\n", exact(&d)));
         assert!(
-            wrong[0].starts_with("pages.max line 5: cannot read"),
+            wrong[0].starts_with("pages.max line 4: cannot read"),
             "{wrong:?}"
         );
     }
@@ -638,7 +633,7 @@ mod tests {
     }
 
     /// `small` with the kit: its library, a kit file that draws with it, a
-    /// manifest of both, and a view of the business page that imports both.
+    /// manifest of both, and a view of the floor that imports both.
     fn with_kit(name: &str) -> Dir {
         let d = small(name);
         d.file(
@@ -683,7 +678,7 @@ mod tests {
     fn the_library_is_counted_once_on_its_own_line_and_in_no_page() {
         let d = with_kit("pages-library-line");
         let host = host_of(&d);
-        let s = size(&d, &["fun/business.html"]);
+        let s = size(&d, &["fun/index.html"]);
         let script: u64 = [
             "fun/one.js",
             "fun/view.js",
@@ -750,7 +745,7 @@ mod tests {
             "export const For: any;\nexport function html(s: TemplateStringsArray): any;\n",
         );
         // A kit module that draws nothing and one that draws name types in the
-        // .d.ts from JSDoc, and the business page loads both.
+        // .d.ts from JSDoc, and the floor loads both.
         d.file(
             "host/fun/kit/island.js",
             "/** @import { For } from \"./vendor/solid.d.ts\" */\n\
@@ -795,7 +790,7 @@ mod tests {
         .iter()
         .map(|f| len(&d, f))
         .sum();
-        assert_eq!(size(&d, &["fun/business.html"]).script, script);
+        assert_eq!(size(&d, &["fun/index.html"]).script, script);
         let max = format!(
             "{}library solid {}\n",
             exact(&d),

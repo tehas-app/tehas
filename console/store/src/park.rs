@@ -4,7 +4,15 @@
 //! The current park of an issue is its `parks` row of the cycle's attempt. The
 //! question on record is the one comment a tick may count in: for a park the
 //! newest unanswered park question of the current attempt, for a plan the open
-//! session's `comment_id` while its question is unanswered.
+//! session's `comment_id` while its question is unanswered. A withdrawn
+//! question is never on record.
+//!
+//! A question has two numbers (schema 30): `id`, the store's own, given in
+//! order and never reused, which `tehas question` and `tehas answer` print;
+//! and `comment_id`, the comment that asked it. The verbs here are the code
+//! host's door: `--id` and `--comment-id` take the comment's id, and `park`'s
+//! `question` is the comment's id, which the dispatcher compares with the
+//! issue's comments.
 
 use crate::verbs::{
     self, cap_char, j, line, list, obj, refuse, row_json, stub, word_char, Args, Cleaned, Fail,
@@ -276,15 +284,16 @@ const PARK_SELECT: &str = "SELECT p.issue, p.attempt, p.at, p.reason, p.step, p.
     c.started_at, c.started_by,
     (p.reason = 'provider-outage' AND p.retries = 0 AND c.requeued = 0 AND c.how <> 'hand'
       AND c.started_by IS NOT NULL),
-    (SELECT q.id FROM questions q WHERE q.issue = p.issue AND q.kind = 'park'
-      AND q.answered_at IS NULL AND q.attempt = c.attempt ORDER BY q.posted_at DESC, q.id DESC LIMIT 1),
+    (SELECT q.comment_id FROM questions q WHERE q.issue = p.issue AND q.kind = 'park'
+      AND q.answered_at IS NULL AND q.withdrawn_at IS NULL AND q.attempt = c.attempt
+      ORDER BY q.posted_at DESC, q.id DESC LIMIT 1),
     p.told_at,
     (SELECT a.body_sha256 FROM approvals a WHERE a.issue = p.issue AND a.used_by = p.attempt
       ORDER BY a.used_at DESC, a.at DESC LIMIT 1),
     h.park_reason,
     h.cap,
     (p.reason = 'intent-park' AND h.park_reason IN ('underspecified', 'too-large')
-      AND p.retries = 0 AND c.how IN ('label', 'outage-retry', 'host', 'answer', 'reply')
+      AND p.retries = 0 AND c.how IN ('approved', 'outage-retry', 'host', 'answer', 'reply')
       AND c.started_by IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM planning g WHERE g.issue = p.issue)
       AND NOT EXISTS (SELECT 1 FROM plan_history g WHERE g.issue = p.issue))
@@ -317,14 +326,14 @@ const PARK_NAMES: [&str; 16] = [
 fn park_json(c: &Connection, issue: i64) -> Result<String, Fail> {
     let row = c
         .query_row(&format!("{PARK_SELECT} WHERE p.issue = ?1"), [issue], |r| {
-            Ok((row_json(r, &PARK_NAMES)?, r.get::<_, Option<i64>>(10)?))
+            row_json(r, &PARK_NAMES)
         })
         .optional()
         .q()?;
-    let Some((mut p, question)) = row else {
+    let Some(mut p) = row else {
         return Ok("null".to_string());
     };
-    let answer = match question {
+    let answer = match question_on_record(c, issue)? {
         Some(id) => crate::answer::waiting_json(c, issue, id)?,
         None => "null".to_string(),
     };
@@ -332,7 +341,8 @@ fn park_json(c: &Connection, issue: i64) -> Result<String, Fail> {
     Ok(obj(&p))
 }
 
-/// `(retries, automatic, question on record)` of the current park.
+/// `(retries, automatic, the comment of the question on record)` of the
+/// current park.
 fn current(c: &Connection, issue: i64) -> Result<Option<(i64, bool, Option<i64>)>, Fail> {
     c.query_row(&format!("{PARK_SELECT} WHERE p.issue = ?1"), [issue], |r| {
         Ok((r.get(6)?, r.get(9)?, r.get(10)?))
@@ -341,18 +351,30 @@ fn current(c: &Connection, issue: i64) -> Result<Option<(i64, bool, Option<i64>)
     .q()
 }
 
-/// The park question on record of the issue: the newest unanswered one of
-/// the current park's attempt.
+/// The park question on record of the issue, by the store's number: the
+/// newest unanswered one of the current park's attempt that was not withdrawn,
+/// as `PARK_SELECT` reads its comment.
 pub(crate) fn question_on_record(c: &Connection, issue: i64) -> Result<Option<i64>, Fail> {
-    Ok(current(c, issue)?.and_then(|(_, _, q)| q))
+    c.query_row(
+        "SELECT q.id FROM parks p JOIN cycles c ON c.issue = p.issue AND c.attempt = p.attempt
+         JOIN questions q ON q.issue = p.issue AND q.kind = 'park' AND q.answered_at IS NULL
+           AND q.withdrawn_at IS NULL AND q.attempt = c.attempt
+         WHERE p.issue = ?1 ORDER BY q.posted_at DESC, q.id DESC LIMIT 1",
+        [issue],
+        |r| r.get(0),
+    )
+    .optional()
+    .q()
 }
 
-/// The id is taken when it is a question of another issue or of `kind`'s other
-/// kind. Some(true) when the same question is already on record.
+/// The comment is taken when it is a question of another issue or of `kind`'s
+/// other kind. Some(true) when the same question is already on record. A
+/// withdrawn question takes nothing: its comment asked again is a new
+/// question, with the next number.
 fn taken(c: &Connection, issue: i64, id: i64, kind: &str) -> Result<Option<bool>, Fail> {
     let had: Option<(i64, String)> = c
         .query_row(
-            "SELECT issue, kind FROM questions WHERE id = ?1",
+            "SELECT issue, kind FROM questions WHERE comment_id = ?1 AND withdrawn_at IS NULL",
             [id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
@@ -365,8 +387,9 @@ fn taken(c: &Connection, issue: i64, id: i64, kind: &str) -> Result<Option<bool>
     }
 }
 
-/// Records `id` as a park question of `attempt`. A replay of the same question
-/// changes nothing; an id that is another question is refused.
+/// Records comment `id` as a park question of `attempt`, given the store's
+/// next number. A replay of the same question changes nothing; a comment that
+/// is another question is refused.
 fn park_question(
     c: &Connection,
     issue: i64,
@@ -377,7 +400,8 @@ fn park_question(
 ) -> Result<(), Fail> {
     let had: Option<(i64, String, i64)> = c
         .query_row(
-            "SELECT issue, kind, attempt FROM questions WHERE id = ?1",
+            "SELECT issue, kind, attempt FROM questions
+             WHERE comment_id = ?1 AND withdrawn_at IS NULL",
             [id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
@@ -386,7 +410,7 @@ fn park_question(
     match had {
         None => {
             c.execute(
-                "INSERT INTO questions (id, issue, attempt, kind, posted_at, body_sha256)
+                "INSERT INTO questions (comment_id, issue, attempt, kind, posted_at, body_sha256)
                  VALUES (?1, ?2, ?3, 'park', ?4, ?5)",
                 params![id, issue, attempt, now, sha],
             )
@@ -544,8 +568,9 @@ fn open_plan(c: &Connection, issue: i64) -> Result<Option<(i64, Option<i64>)>, F
     .q()
 }
 
-const QUESTION_NAMES: [&str; 8] = [
+const QUESTION_NAMES: [&str; 10] = [
     "id",
+    "comment_id",
     "issue",
     "attempt",
     "kind",
@@ -553,12 +578,16 @@ const QUESTION_NAMES: [&str; 8] = [
     "body_sha256",
     "answered_at",
     "answered_by",
+    "withdrawn_at",
 ];
 
+/// The newest question that comment `id` asked, with the store's number as
+/// `id`.
 fn question_json(c: &Connection, id: i64) -> Result<String, Fail> {
     Ok(c.query_row(
-        "SELECT id, issue, attempt, kind, posted_at, body_sha256, answered_at, answered_by
-             FROM questions WHERE id = ?1",
+        "SELECT id, comment_id, issue, attempt, kind, posted_at, body_sha256, answered_at,
+               answered_by, withdrawn_at
+             FROM questions WHERE comment_id = ?1 ORDER BY id DESC LIMIT 1",
         [id],
         |r| row_json(r, &QUESTION_NAMES),
     )
@@ -597,7 +626,8 @@ fn asked(
                 &format!("the question is for {derived}"),
             ));
         }
-        match taken(c, issue, id, kind)? {
+        let had = taken(c, issue, id, kind)?;
+        match had {
             None => {
                 return Err(refuse(
                     "taken",
@@ -608,7 +638,8 @@ fn asked(
             Some(true) => {}
             Some(false) => {
                 c.execute(
-                    "INSERT INTO questions (id, issue, attempt, kind, posted_at, body_sha256, offers)
+                    "INSERT INTO questions (comment_id, issue, attempt, kind, posted_at,
+                       body_sha256, offers)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                     params![id, issue, derived, kind, now, body_sha, offers],
                 )
@@ -622,23 +653,29 @@ fn asked(
                 }
             }
         }
+        // `already` for a replay: the call that recorded the question
+        // raises it (T11.9).
         Ok(line(
             "question-asked",
-            &[("question", question_json(c, id)?)],
+            &[
+                ("question", question_json(c, id)?),
+                ("already", j(had == Some(true))),
+            ],
         ))
     })
 }
 
-/// Whether `id` is the question on record of the issue.
+/// Whether comment `id` is the question on record of the issue.
 pub fn on_record(c: &Connection, issue: i64, id: i64) -> Result<bool, Fail> {
     if current(c, issue)?.is_some_and(|(_, _, q)| q == Some(id)) {
         return Ok(true);
     }
     let plan: bool = c
         .query_row(
-            "SELECT count(*) > 0 FROM planning p JOIN questions q ON q.id = p.comment_id
+            "SELECT count(*) > 0 FROM planning p JOIN questions q ON q.comment_id = p.comment_id
              WHERE p.issue = ?1 AND p.ended_at IS NULL AND p.comment_id = ?2
-               AND q.issue = ?1 AND q.kind = 'plan' AND q.answered_at IS NULL",
+               AND q.issue = ?1 AND q.kind = 'plan' AND q.answered_at IS NULL
+               AND q.withdrawn_at IS NULL",
             params![issue, id],
             |r| r.get(0),
         )
@@ -647,14 +684,16 @@ pub fn on_record(c: &Connection, issue: i64, id: i64) -> Result<bool, Fail> {
 }
 
 /// `question-known <issue> --id <id>`: whether the comment is the question the
-/// host has on record for the issue. The single call reads it through
+/// host has on record for the issue. A withdrawn question is not recorded:
+/// its row is kept, and it asks nothing. The single call reads it through
 /// `verbs::look`; `verbs::look_many` hands it the connection of the batch.
 pub(crate) fn known(c: &Connection, issue: i64, id: i64) -> Result<String, Fail> {
-    let row: Option<(String, Option<i64>, bool)> = c
+    let row: Option<(String, Option<i64>, bool, i64)> = c
         .query_row(
-            "SELECT kind, answered_at, reask FROM questions WHERE id = ?1 AND issue = ?2",
+            "SELECT kind, answered_at, reask, id FROM questions
+             WHERE comment_id = ?1 AND issue = ?2 AND withdrawn_at IS NULL",
             params![id, issue],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()
         .q()?;
@@ -671,21 +710,25 @@ pub(crate) fn known(c: &Connection, issue: i64, id: i64) -> Result<String, Fail>
             ("reask", j(row.as_ref().is_some_and(|r| r.2))),
             (
                 "answer",
-                if known {
-                    crate::answer::waiting_json(c, issue, id)?
-                } else {
-                    "null".to_string()
+                match row.as_ref().filter(|_| known) {
+                    Some(r) => crate::answer::waiting_json(c, issue, r.3)?,
+                    None => "null".to_string(),
                 },
             ),
         ],
     ))
 }
 
+/// `question-answered`: the question comment `id` asked, answered by `by`, or
+/// withdrawn when `by` is None. A withdrawal keeps the row and its answer,
+/// with when it was withdrawn, and takes it off the record; a withdrawn
+/// question is answered and withdrawn no more.
 fn answered(home: &Path, issue: i64, id: i64, by: Option<&str>, now: i64) -> Result<String, Fail> {
     verbs::write(home, |c| {
         let there: bool = c
             .query_row(
-                "SELECT count(*) > 0 FROM questions WHERE id = ?1 AND issue = ?2",
+                "SELECT count(*) > 0 FROM questions
+                 WHERE comment_id = ?1 AND issue = ?2 AND withdrawn_at IS NULL",
                 params![id, issue],
                 |r| r.get(0),
             )
@@ -701,7 +744,7 @@ fn answered(home: &Path, issue: i64, id: i64, by: Option<&str>, now: i64) -> Res
             Some(by) => {
                 c.execute(
                     "UPDATE questions SET answered_at = ?2, answered_by = ?3
-                     WHERE id = ?1 AND answered_at IS NULL",
+                     WHERE comment_id = ?1 AND answered_at IS NULL AND withdrawn_at IS NULL",
                     params![id, now, by],
                 )
                 .q()?;
@@ -716,8 +759,16 @@ fn answered(home: &Path, issue: i64, id: i64, by: Option<&str>, now: i64) -> Res
                     params![issue, id],
                 )
                 .q()?;
-                c.execute("DELETE FROM questions WHERE id = ?1", [id]).q()?;
-                Ok(line("question-answered", &[("withdrawn", j(true))]))
+                c.execute(
+                    "UPDATE questions SET withdrawn_at = ?2
+                     WHERE comment_id = ?1 AND withdrawn_at IS NULL",
+                    params![id, now],
+                )
+                .q()?;
+                Ok(line(
+                    "question-answered",
+                    &[("withdrawn", j(true)), ("question", question_json(c, id)?)],
+                ))
             }
         }
     })

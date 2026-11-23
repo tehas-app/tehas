@@ -5,6 +5,7 @@
 //! file holds no issue number, title, failure cause or log content, and this
 //! tool would not serve one if it did.
 
+use crate::args::{Arg, Args};
 use crate::tools::{self, bad, word, Dirs, ToolError};
 use regex::Regex;
 use serde_json::{json, Map, Value};
@@ -78,11 +79,11 @@ pub static BOUND: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)?$").unwrap()
 });
 
-fn bound(args: &Value, key: &str) -> Result<Option<i64>, ToolError> {
+fn bound(args: &Args, key: &str) -> Result<Option<i64>, ToolError> {
     let why = || bad(&format!("{key} is YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ"));
-    match &args[key] {
-        Value::Null => Ok(None),
-        Value::String(s) if BOUND.is_match(s) => seconds(s).map(Some).ok_or_else(why),
+    match args.get(key) {
+        Arg::Absent => Ok(None),
+        Arg::Text(s) if BOUND.is_match(s) => seconds(s).map(Some).ok_or_else(why),
         _ => Err(why()),
     }
 }
@@ -190,16 +191,50 @@ impl File_ {
     }
 }
 
-pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let by = match &args["by"] {
-        Value::Null => "version",
-        Value::String(s) if BYS.contains(&s.as_str()) => s.as_str(),
-        _ => return Err(bad(&format!("by is one of {}", BYS.join(", ")))),
-    };
-    let tehas = word(args, "tehasVersion")?;
-    let rukas = word(args, "rukasVersion")?;
-    let since = bound(args, "since")?;
-    let until = bound(args, "until")?;
+/// What `factory_outcomes` takes: the grouping, the versions to count and
+/// the window, in seconds since 1970.
+#[derive(Debug)]
+pub struct OutcomesArgs {
+    by: &'static str,
+    tehas: Option<String>,
+    rukas: Option<String>,
+    since: Option<i64>,
+    until: Option<i64>,
+}
+
+impl OutcomesArgs {
+    pub(crate) fn read(args: &Args) -> Result<Self, ToolError> {
+        let by = match args.get("by") {
+            Arg::Absent => "version",
+            Arg::Text(s) => BYS
+                .into_iter()
+                .find(|b| *b == s)
+                .ok_or_else(|| bad(&format!("by is one of {}", BYS.join(", "))))?,
+            _ => return Err(bad(&format!("by is one of {}", BYS.join(", ")))),
+        };
+        let tehas = word(args, "tehasVersion")?;
+        let rukas = word(args, "rukasVersion")?;
+        let since = bound(args, "since")?;
+        let until = bound(args, "until")?;
+        Ok(OutcomesArgs {
+            by,
+            tehas,
+            rukas,
+            since,
+            until,
+        })
+    }
+}
+
+pub(crate) fn call(dirs: &Dirs, asked: &OutcomesArgs) -> Result<Map<String, Value>, ToolError> {
+    let OutcomesArgs {
+        by,
+        tehas,
+        rukas,
+        since,
+        until,
+    } = asked;
+    let (by, since, until) = (*by, *since, *until);
 
     let file = File_::open(&dirs.sessions, tools::now())?;
     // The host writes the file grouped one way and the header says which. An
@@ -220,8 +255,8 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
                 want.as_ref()
                     .is_none_or(|w| e[key].as_str() == Some(w.as_str()))
             };
-            named("tehasVersion", &tehas)
-                && named("rukasVersion", &rukas)
+            named("tehasVersion", tehas)
+                && named("rukasVersion", rukas)
                 && in_window(e, since, until)
         })
         .map(|e| match tools::pick(&e, &spec) {

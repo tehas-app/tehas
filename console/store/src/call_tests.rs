@@ -39,7 +39,7 @@ const RECORD: [&str; 12] = [
     "--by",
     "alice",
     "--how",
-    "label",
+    "approved",
     "--label",
     "tehas:ready",
     "--body-sha",
