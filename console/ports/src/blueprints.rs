@@ -13,6 +13,7 @@ use crate::{
 
 /// A blueprint, read to the depth asked.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Blueprint {
     /// The blueprint.
     pub no: BlueprintNo,
@@ -42,8 +43,26 @@ pub struct Blueprint {
     pub link: WebLink,
 }
 
+new!(
+    Blueprint {
+        no: BlueprintNo,
+        created: At,
+        revision: Revision,
+        link: WebLink
+    },
+    title,
+    body,
+    open,
+    author,
+    editor,
+    edited,
+    markers,
+    comments
+);
+
 /// A comment, or a note on a ticket, with its author and last editor.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Comment {
     /// The comment.
     pub id: CommentId,
@@ -65,9 +84,24 @@ pub struct Comment {
     pub link: WebLink,
 }
 
+new!(
+    Comment {
+        id: CommentId,
+        created: At,
+        revision: Revision,
+        link: WebLink
+    },
+    author,
+    editor,
+    edited,
+    body,
+    markers
+);
+
 /// One edit of a body or a comment: who, when, the text after it without
 /// our markers, and the markers after it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Edit {
     /// Who edited; None where the site names nobody.
     pub by: Option<Account>,
@@ -79,16 +113,33 @@ pub struct Edit {
     pub markers: Vec<Marker>,
 }
 
+new!(Edit { at: At }, by, after, markers);
+
 /// A file a blueprint's text links to on the site's own store.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Attachment {
     /// The attachment.
     pub id: AttachmentId,
-    /// Its name, as the site gives it.
-    pub name: String,
+    /// The link in the text, as it stands there: what a manifest records
+    /// and how a changed attachment is told apart.
+    pub link: WebLink,
+    /// Its name, as the site gives it. None for a file pasted into the
+    /// text that the site only ever stores as an image: the caller types it
+    /// as an image, not by an extension.
+    pub name: Option<String>,
     /// Its size in bytes, if the site says.
     pub size: Option<u64>,
 }
+
+new!(
+    Attachment {
+        id: AttachmentId,
+        link: WebLink
+    },
+    name,
+    size
+);
 
 /// A blueprint to open.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -103,6 +154,7 @@ pub struct NewBlueprint {
 
 /// One hit of a search of blueprints.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct BlueprintHit {
     /// The blueprint.
     pub no: BlueprintNo,
@@ -112,8 +164,11 @@ pub struct BlueprintHit {
     pub open: bool,
 }
 
+new!(BlueprintHit { no: BlueprintNo }, title, open);
+
 /// A blueprint's change since a cursor, whole but for its comments.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct BlueprintChange {
     /// The blueprint.
     pub no: BlueprintNo,
@@ -129,17 +184,35 @@ pub struct BlueprintChange {
     pub revision: Revision,
 }
 
+new!(
+    BlueprintChange {
+        no: BlueprintNo,
+        revision: Revision
+    },
+    title,
+    body,
+    open,
+    closed
+);
+
 /// Blueprints and comments changed since a cursor, and where to read on
 /// from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct BlueprintDelta {
     /// The blueprints that changed.
     pub blueprints: Vec<BlueprintChange>,
     /// The comments that changed, each with its blueprint.
     pub comments: Vec<(BlueprintNo, Comment)>,
-    /// Where the next delta starts.
+    /// Where the next delta starts: after the last change it holds.
     pub next: Cursor,
+    /// More changes wait past `next`: the bound cut this delta. Missing,
+    /// it reads as false, as `new` leaves it.
+    #[serde(default)]
+    pub more: bool,
 }
+
+new!(BlueprintDelta { next: Cursor }, blueprints, comments, more);
 
 /// The blueprints port's reads. A handle is bound to one project, one
 /// actor and one caller name.
@@ -172,7 +245,11 @@ pub trait Blueprints: Reports + Cites {
     fn fetch(&mut self, a: &AttachmentId, limit: u64, into: &mut dyn std::io::Write) -> Did;
     /// Has anything changed since this token.
     fn changed(&mut self, since: Option<&ChangeToken>) -> Got<(bool, ChangeToken)>;
-    /// Blueprints and comments changed since the cursor.
+    /// Blueprints and comments changed since the cursor, each list oldest
+    /// first. `bound` counts both lists together. Past it, a page of the
+    /// first changes with `more`, and a `next` that resumes after the last
+    /// change of either list: never `Unread(Cut)`. A page with `more` holds
+    /// at most `bound` changes and never none; it may hold fewer.
     fn delta(&mut self, from: Option<&Cursor>, bound: Bound) -> Got<BlueprintDelta>;
 }
 

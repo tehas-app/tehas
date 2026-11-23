@@ -16,6 +16,7 @@ use crate::{
 /// own tracker is on, so it can hold blueprints (and tickets, where they
 /// come from it).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Facts {
     /// The project, as the site names it.
     pub name: ProjectName,
@@ -29,14 +30,25 @@ pub struct Facts {
     pub default_branch: Branch,
 }
 
+new!(
+    Facts {
+        name: ProjectName,
+        default_branch: Branch
+    },
+    public,
+    tracker_on,
+    archived
+);
+
 /// Whether a change can merge now.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Mergeable {
     /// It can.
     Yes,
     /// It cannot, for this reason.
     No(NotMergeable),
-    /// The site has not worked it out yet.
+    /// The site has not worked it out yet. The default.
+    #[default]
     Unknown,
 }
 
@@ -83,7 +95,8 @@ pub enum ChangeState {
 }
 
 /// The size of a change.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Size {
     /// How many files it changes.
     pub files: u32,
@@ -95,6 +108,7 @@ pub struct Size {
 
 /// A change's fields without its files, reviews or comments.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ChangeDigest {
     /// The change.
     pub no: ChangeNo,
@@ -136,8 +150,32 @@ pub struct ChangeDigest {
     pub link: WebLink,
 }
 
+new!(
+    ChangeDigest {
+        no: ChangeNo,
+        state: ChangeState,
+        head: Branch,
+        head_commit: CommitId,
+        base: Branch,
+        created: At,
+        link: WebLink
+    },
+    title,
+    author,
+    from_fork,
+    draft,
+    merge_state,
+    marks,
+    closes,
+    size,
+    body,
+    edited,
+    editor
+);
+
 /// A change, read whole.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Change {
     /// Its fields.
     pub digest: ChangeDigest,
@@ -151,8 +189,19 @@ pub struct Change {
     pub comments: Vec<Comment>,
 }
 
+new!(
+    Change {
+        digest: ChangeDigest
+    },
+    body,
+    files,
+    reviews,
+    comments
+);
+
 /// One file a change changes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ChangedFile {
     /// The file.
     pub path: RepoPath,
@@ -162,8 +211,11 @@ pub struct ChangedFile {
     pub deleted: u32,
 }
 
+new!(ChangedFile { path: RepoPath }, added, deleted);
+
 /// A review of a change.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Review {
     /// Who reviewed; None where the site names nobody.
     pub by: Option<Account>,
@@ -174,6 +226,15 @@ pub struct Review {
     /// Its notes.
     pub notes: Vec<ReviewNote>,
 }
+
+new!(
+    Review {
+        verdict: Verdict,
+        at: At
+    },
+    by,
+    notes
+);
 
 /// What a review says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -191,7 +252,8 @@ pub enum Verdict {
 }
 
 /// One note of a review, on a file or on the whole change.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ReviewNote {
     /// Who wrote it; None where the site names nobody.
     pub by: Option<Account>,
@@ -203,6 +265,7 @@ pub struct ReviewNote {
 
 /// One event of a change.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ChangeEvent {
     /// What happened.
     pub what: ChangeHappened,
@@ -213,6 +276,15 @@ pub struct ChangeEvent {
     /// For a push, when its newest commit was made, which may be long before.
     pub committed: Option<At>,
 }
+
+new!(
+    ChangeEvent {
+        what: ChangeHappened,
+        at: At
+    },
+    by,
+    committed
+);
 
 /// What happened to a change.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -291,17 +363,25 @@ pub struct ChangeFilter {
 
 /// Changes and their comments changed since a cursor, with their bodies.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ChangeDelta {
     /// The changes that changed.
     pub changes: Vec<ChangeDigest>,
     /// The comments on changes since the cursor, each with its change.
     pub comments: Vec<(ChangeNo, Comment)>,
-    /// Where the next delta starts.
+    /// Where the next delta starts: after the last change it holds.
     pub next: Cursor,
+    /// More changes wait past `next`: the bound cut this delta. Missing,
+    /// it reads as false, as `new` leaves it.
+    #[serde(default)]
+    pub more: bool,
 }
 
+new!(ChangeDelta { next: Cursor }, changes, comments, more);
+
 /// The checks on a commit, and what they add up to.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Checks {
     /// Each check.
     pub runs: Vec<Check>,
@@ -311,12 +391,18 @@ pub struct Checks {
 
 /// One check on a commit.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Check {
     /// Its name.
     pub name: String,
     /// How far it is.
     pub status: CheckStatus,
 }
+
+new!(Check {
+    name: String,
+    status: CheckStatus
+});
 
 /// How far a check is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -347,7 +433,7 @@ pub enum Conclusion {
 }
 
 /// Never `Pass` from an answer that could not be read: that is `Unread`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Overall {
     /// Every check passed.
     Pass,
@@ -356,6 +442,7 @@ pub enum Overall {
     /// A check has not finished.
     Pending,
     /// There are no checks.
+    #[default]
     None,
 }
 
@@ -503,6 +590,7 @@ pub enum Takeover {
 /// What `propose` made: the change, and the head commit it opened at, so a
 /// caller merges at that head without a read that races an outside push.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Proposed {
     /// The change.
     pub change: Posted<ChangeNo>,
@@ -510,8 +598,11 @@ pub struct Proposed {
     pub head: CommitId,
 }
 
+new!(Proposed { change: Posted<ChangeNo>, head: CommitId });
+
 /// A tag of the project.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Tag {
     /// Its name.
     pub name: TagName,
@@ -523,8 +614,18 @@ pub struct Tag {
     pub annotated: bool,
 }
 
+new!(
+    Tag {
+        name: TagName,
+        commit: CommitId
+    },
+    at,
+    annotated
+);
+
 /// A release of a tag.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Release {
     /// The release.
     pub id: ReleaseId,
@@ -544,14 +645,33 @@ pub struct Release {
     pub link: WebLink,
 }
 
+new!(
+    Release {
+        id: ReleaseId,
+        tag: TagName,
+        link: WebLink
+    },
+    title,
+    draft,
+    prerelease,
+    published,
+    files
+);
+
 /// One file of a release.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ReleaseFile {
     /// Its name.
     pub name: FileName,
     /// Its size in bytes.
     pub size: u64,
 }
+
+new!(ReleaseFile {
+    name: FileName,
+    size: u64
+});
 
 /// A release to make.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -580,12 +700,15 @@ pub enum Access {
 /// Where git fetches or pushes, and a credential narrowed to it. None for an
 /// anonymous fetch. Holds a credential, so it is no data type.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Remote {
     /// The remote.
     pub url: GitRemote,
     /// The credential for it, if any.
     pub with: Option<GitCredential>,
 }
+
+new!(Remote { url: GitRemote }, with);
 
 /// A token for an `https` remote, or a deploy key for an `ssh` one, as the
 /// actor's credential is.
@@ -641,7 +764,12 @@ pub trait CodeHost: Reports + Cites {
     fn archive(&mut self, at: &CommitId, limit: u64, into: &mut dyn std::io::Write) -> Did;
     /// Has anything changed since this token.
     fn changed(&mut self, since: Option<&ChangeToken>) -> Got<(bool, ChangeToken)>;
-    /// Changes and their comments changed since the cursor, with bodies.
+    /// Changes and their comments changed since the cursor, with bodies,
+    /// each list oldest first. `bound` counts both lists together. Past
+    /// it, a page of the first changes with `more`, and a `next` that
+    /// resumes after the last change of either list: never `Unread(Cut)`.
+    /// A page with `more` holds at most `bound` changes and never none; it
+    /// may hold fewer.
     fn delta(&mut self, from: Option<&Cursor>, bound: Bound) -> Got<ChangeDelta>;
     /// The remote for git, with a credential for this handle's actor.
     fn remote(&mut self, access: Access) -> Got<Remote>;
