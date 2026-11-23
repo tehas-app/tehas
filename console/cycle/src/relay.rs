@@ -660,6 +660,9 @@ fn token(via: &Via) -> Option<String> {
 
 const NO_TOKEN: &str = "has no GitHub token from the host";
 
+/// A run the request's time ran out before.
+const NOT_STARTED: &str = "not started: out of time";
+
 /// gh asked by the write handle, with the relay's token. The runs of one
 /// request share its time, so a request is answered before the shim gives up.
 struct RelayGh {
@@ -677,8 +680,10 @@ impl RelayGh {
             .until
             .saturating_duration_since(Instant::now())
             .as_secs();
+        // The adapter reads this exact reason as a time-out that sent
+        // nothing.
         if left == 0 {
-            return Err(format!("the relay's {GH_WAIT} s are up"));
+            return Err(NOT_STARTED.to_string());
         }
         let argv: Vec<String> = args.iter().map(|a| a.to_string()).collect();
         match run_gh(&self.gh, &self.token, left, &argv, input) {
@@ -1814,7 +1819,7 @@ mod tests {
         };
         assert_eq!(
             gh.run_input(&["api", "x"], "b"),
-            Err(format!("the relay's {GH_WAIT} s are up"))
+            Err("not started: out of time".to_string())
         );
         assert!(!d.join("gh.log").exists());
     }
