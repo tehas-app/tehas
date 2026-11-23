@@ -20,6 +20,7 @@ use crate::home::Home;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
+use tehas_ports::{Outcome, Passing};
 
 /// The most tries the poll makes.
 pub const TRIES: usize = 3;
@@ -123,6 +124,26 @@ impl EndFault {
             tries: Vec::new(),
             stopped: String::new(),
             said: false,
+        }
+    }
+
+    /// A record of a step whose write of the ports the site answered with
+    /// `answer`. The site was at fault when it gave no answer in time, could
+    /// not be reached, failed itself or had spent the budget, as a 5xx, a
+    /// time-out, a connection error or a limit in gh's words was; a refusal,
+    /// a missing item or a forbidden write is the request's own. Its `why`
+    /// is the answer's fixed line, never the site's text.
+    pub fn of_outcome(issue: u64, attempt: u64, step: &str, answer: &Outcome, at: i64) -> EndFault {
+        EndFault {
+            github: matches!(
+                answer,
+                Outcome::Unavailable {
+                    why: Passing::Timeout | Passing::Unreachable | Passing::Server,
+                    ..
+                } | Outcome::Spent { .. }
+            ),
+            why: answer.line().to_string(),
+            ..EndFault::new(issue, attempt, step, "", at)
         }
     }
 
@@ -286,6 +307,56 @@ mod tests {
         EndFault {
             host: true,
             ..rec(step, err)
+        }
+    }
+
+    #[test]
+    fn an_answer_of_the_ports_is_the_sites_fault_when_the_site_did_not_answer_or_failed() {
+        use tehas_ports::{Pool, Refusal, Sent, Unread};
+        let site = [
+            Outcome::Unavailable {
+                why: Passing::Timeout,
+                sent: Sent::Maybe,
+            },
+            Outcome::Unavailable {
+                why: Passing::Timeout,
+                sent: Sent::No,
+            },
+            Outcome::Unavailable {
+                why: Passing::Unreachable,
+                sent: Sent::No,
+            },
+            Outcome::Unavailable {
+                why: Passing::Server,
+                sent: Sent::Maybe,
+            },
+            Outcome::Spent {
+                pool: Pool::Writes,
+                until: tehas_ports::At::new(2000),
+            },
+        ];
+        let own = [
+            Outcome::Refused(Refusal::Invalid),
+            Outcome::NotFound,
+            Outcome::Forbidden,
+            Outcome::SignedOut,
+            Outcome::Unread(Unread::Malformed),
+            Outcome::Unavailable {
+                why: Passing::Broken,
+                sent: Sent::No,
+            },
+        ];
+        for (answers, github) in [(&site[..], true), (&own[..], false)] {
+            for a in answers {
+                let r = EndFault::of_outcome(7, 2, "handoff", a, 1000);
+                assert_eq!(r.github, github, "{a:?}");
+                assert_eq!(r.why, a.line(), "{a:?}");
+                assert_eq!(
+                    (r.issue, r.attempt, r.step.as_str(), r.at),
+                    (7, 2, "handoff", 1000)
+                );
+                assert!(!r.host);
+            }
         }
     }
 
