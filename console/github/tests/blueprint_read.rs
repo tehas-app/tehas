@@ -351,6 +351,45 @@ fn comments_at_each_depth_carry_their_markers_apart_and_their_accounts() {
 }
 
 #[test]
+fn the_comments_of_an_issue_at_a_bound_of_100_carry_what_a_settle_compares() {
+    let (mut gh, _, calls) = adapter(Site::default().seven());
+    let whole = gh.comments(no(7), Bound::new(100).unwrap()).unwrap();
+    assert_eq!(*calls.lock().unwrap(), [ISSUE_7.to_string(), page(7, 1)]);
+    let page_1 = json::<Value>("comments-7-page-1.json");
+    let recorded = page_1.as_array().unwrap();
+    assert_eq!(whole.items().len(), recorded.len());
+    for (c, r) in whole.items().iter().zip(recorded) {
+        // The REST comment id, and GitHub's created_at exactly.
+        assert_eq!(c.id.as_str(), r["id"].as_u64().unwrap().to_string());
+        assert_eq!(
+            c.created,
+            At::new(tehas_core::time::from_iso(r["created_at"].as_str().unwrap()).unwrap())
+        );
+        // The text without this item's markers, the markers typed.
+        let read = markers::read(r["body"].as_str().unwrap(), Some(no(7)));
+        assert_eq!(c.body, read.text);
+        assert_eq!(c.markers, read.markers);
+        // The author with its id and kind, or nobody.
+        match r["user"].as_object() {
+            None => assert_eq!(c.author, None),
+            Some(u) => {
+                let a = c.author.as_ref().unwrap();
+                assert_eq!(a.id.as_ref().unwrap().as_str(), u["id"].to_string());
+                let kind = match u["type"].as_str() {
+                    Some("Bot") => AccountKind::Bot,
+                    _ => AccountKind::Person,
+                };
+                assert_eq!(a.kind, kind);
+            }
+        }
+    }
+    let question = &whole.items()[1];
+    assert_eq!(question.markers.len(), 1);
+    assert_eq!(question.markers[0].kind(), MarkerKind::Question);
+    assert!(!question.body.contains("tehas:"));
+}
+
+#[test]
 fn the_newest_n_read_only_the_pages_that_hold_them() {
     let (mut gh, _, calls) = adapter(Site::default().issue(9, "Plan", "T.").with_comments(9, 205));
     let b = gh.blueprint(no(9), Depth::Last { notes: n32(5) }).unwrap();
