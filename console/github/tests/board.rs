@@ -411,12 +411,13 @@ fn scripted(
     (gh, asked)
 }
 
-/// The open change 30 of the recording of every state, as a page's node.
-fn change_30() -> serde_json::Value {
+/// The open change 30 of the recording of every state, as a page's node,
+/// in JSON.
+fn change_30() -> String {
     let at = here().join("tests/recorded/board/every-state/pulls-first.json");
     let page: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(at).unwrap()).unwrap();
-    page["data"]["repository"]["pullRequests"]["nodes"][0].clone()
+    page["data"]["repository"]["pullRequests"]["nodes"][0].to_string()
 }
 
 #[test]
@@ -448,7 +449,7 @@ fn an_answer_carrying_an_error_beside_its_data_gives_no_partial_list() {
         "data": {"repository": {"pullRequests": {
             "totalCount": 1,
             "pageInfo": {"hasNextPage": false, "endCursor": "Y3Vyc29yOnYyOpHOAAAAAQ=="},
-            "nodes": [change_30()],
+            "nodes": [serde_json::from_str::<serde_json::Value>(&change_30()).unwrap()],
         }}},
         "errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}],
     })
@@ -500,7 +501,7 @@ fn files_asked_and_not_in_the_answer_are_malformed() {
 
 #[test]
 fn past_fifty_pages_the_list_is_too_large() {
-    let node = change_30();
+    let node: serde_json::Value = serde_json::from_str(&change_30()).unwrap();
     let (mut gh, asked) = scripted(move |n| {
         let mut node = node.clone();
         node["number"] = serde_json::json!(n + 1);
