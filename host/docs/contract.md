@@ -146,6 +146,17 @@ a key. `rows` itself is public.
   them: the tidy and `tehas labels` leave them as they are. The prefix
   matches the `p-` that named a plugin's panel
   ([Panels leave core](#changed-in-20)).
+- **The merge is a person's.** The merge is a gate whose only policy in 2.x
+  is a person. The grant word `merge` is reserved and refused with 78 as not
+  in this release; a later release may open it behind an explicit owner
+  setting. Approval, `tehas:ready` applied by an account of
+  `TEHAS_ALLOWED_LABELERS` (hard rule 5), is never removed by a plugin.
+- **A plugin's answer.** From 2.1 a plugin may answer a question, or skip
+  it, under a grant `answer:<kind>`, one plugin per kind, and a person's
+  answer always wins. Its answer has `how` `plugin`, `by` the bot account,
+  and `plugin` naming the plugin and its commit. A reader never takes a
+  plugin's answer for a person's act. 2.0 refuses `answer:<kind>` as
+  reserved, and nothing in it writes `how` `plugin`.
 - **Building features.** A feature still being built is outside the contract:
   its rows in `api/settings-rules.json` (each marked `"building": true`), its
   key in the `flags` object of `tehas api --json`, its `--json` fields, its
@@ -751,7 +762,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   stays.
   Readers: adopters, the consumer that runs many factories (`flags`).
   Adopter action: take `TEHAS_SPEC_PIPE` out of `instance.env`.
-- **A cycle raises its events.** #2937.
+- **A cycle raises its events.** #2937, #2940.
   `tehas-cycle` raises `cycle.started` once a start is on record, and after
   the report `cycle.parked` (a parked line), `question.asked` (a park's
   question), `cycle.ended` and `change.offered` (a line that names a change,
@@ -763,19 +774,27 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `tehas api --json` gains `events`. The plugins' hook after a cycle is
   asked by a listener of `change.offered`, the plugins' bridge, in place of
   the cycle's own call; its request and the hook's `/run/context.json` carry
-  the envelope as `event` (plugins stay off in 2.0). The other raisers come
-  with T11.9 and T11.10: until then the end of a start refused before its
-  runner, of a cycle `tehas stop` ended and of a lost cycle raises no
-  `cycle.ended`, and a consumer reads `tehas history` for them. A line that
-  ends `refused` by its exit status alone (64, 78 and the rest) is not
-  offered, where the 1.x hook asked on it. `repeat` on a line of
+  the envelope as `event` (plugins stay off in 2.0). The end of a start is
+  raised by the process that wrote its line (T11.9, #2940): the cycle for a
+  start it refused before its runner and for an open record its start
+  ended as lost, `tehas stop` for a record it ended, and the poll for a
+  cycle it ended as lost. One that finds the line written raises nothing,
+  so a late report, stop or poll raises no second end. The poll raises
+  `question.asked` for each question it records, a planning turn's, one
+  asked again and a park's question a start puts back. Each end and each
+  question is raised at most once: a writer whose store answer was lost
+  raises nothing, and a consumer reads `tehas history` and `tehas question
+  --after`, the record, for what it missed. `tehas stop` writes its event
+  lines to `logs/dispatch.log`.
+  A line that ends `refused` by its exit status alone (64, 78 and the
+  rest) is not offered, where the 1.x hook asked on it. `repeat` on a line of
   `tehas history --json` is counted over every line the store keeps,
   before `--after` takes its page, so a page shows the same count as the
   whole history and as the event.
   Readers: the consumer that runs many factories, the end-to-end suite,
   plugins.
-  Adopter action: none. A program that reads a cycle's log sees the
-  `event` lines.
+  Adopter action: none. A program that reads a cycle's log, or
+  `logs/dispatch.log`, sees the `event` lines.
 - **The plugin hook is named by its event.** #2939.
   The grant and the ask `hook:after:work` are `hook:after:change.offered`,
   and a manifest's hook `at` is `after:change.offered`, not `after:work`.
@@ -789,6 +808,25 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `hook:after:change.offered` and puts its hook at `after:change.offered`;
   a `TEHAS_PLUGIN_GRANTS_<NAME>` line that grants `hook:after:work` grants
   `hook:after:change.offered` for the plugin's commit.
+- **The merge is no plugin's grant.** #2943.
+  The grant and the ask `merge` are refused with 78, saying the merge is a
+  person's and no plugin is granted it in this release, where before they
+  were refused as no capability. The merge is a gate whose only policy in
+  2.x is a person; a later release may open it behind an explicit owner
+  setting. Approval is never removed by a plugin.
+  Readers: plugins, the consumer that runs many factories.
+  Adopter action: none.
+- **A plugin's answer is reserved.** #2943.
+  The grant and the ask `answer:<kind>` are refused as reserved for plugins
+  v2, for 2.1, where a plugin may answer a question or skip it, one plugin
+  per kind, and a person's answer wins. In `api/answer.schema.json`, `how`
+  may be `plugin`, with `by` the bot account and an optional `plugin`,
+  `{name, commit}`, naming the plugin; `api/answer.plugin.json` is its
+  shape. Nothing in 2.0 writes it, and the dispatcher refuses such an
+  answer and takes it away: it is never a person's tick or reply.
+  Readers: plugins, the consumer that runs many factories.
+  Adopter action: none. A program that reads an answer takes `how`
+  `plugin` for no person's act.
 - **2.0 is supported from 1.4.x.** This page. The update to 2.0 is
   supported from 1.4.x only, and a host upgrades its factories and the
   programs that run them together.
@@ -948,9 +986,16 @@ The plugin API as 2.0 holds it, for the work of 2.1:
 
 - **What no plugin removes.** A plugin may add phases anywhere in the
   status flow, and may skip or hide an optional phase under a grant
-  `tehas plugin review` lists. No plugin can remove approval, `tehas:ready`
-  applied by an account of `TEHAS_ALLOWED_LABELERS` (hard rule 5), or the
-  human merge. Its phase labels are `tehas:p-`
+  `tehas plugin review` lists. Approval, `tehas:ready` applied by an account
+  of `TEHAS_ALLOWED_LABELERS` (hard rule 5), is never removed by a plugin.
+  The merge is a gate whose only policy in 2.x is a person. The grant word
+  `merge` is reserved and refused with 78 as not in this release; a later
+  release may open it behind an explicit owner setting. Its phase labels
+  are `tehas:p-` ([the rules for 2.x](#the-rules-for-2x)).
+- **Questions.** A plugin may answer a question, or skip it, under
+  `answer:<kind>` from 2.1: one plugin per kind, and a person's answer
+  wins. 2.0 refuses the word as reserved, like the other words of 2.1, and
+  reserves `how` `plugin` and the field `plugin` in `api/answer.schema.json`
   ([the rules for 2.x](#the-rules-for-2x)).
 - **The grants.** A plugin asks in its manifest and a person grants for the
   plugin's commit; `tehas plugin review` lists each grant, and every

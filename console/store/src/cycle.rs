@@ -577,6 +577,12 @@ fn start(
                 ("requeued", j(requeued)),
                 ("approval_at", j(approval.map(|a| a.0))),
                 ("replaced_unended", j(unended)),
+                // The attempt this start ended as lost: its writer raises
+                // that end (T11.9).
+                (
+                    "replaced",
+                    j(prev.as_ref().filter(|_| unended).map(|r| r.attempt)),
+                ),
             ],
         ))
     })

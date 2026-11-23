@@ -32,6 +32,7 @@ fn cycle_start_records_the_approval_s_account_and_uses_it() {
     assert_eq!(v["requeued"], false);
     assert_eq!(v["approval_at"], at);
     assert_eq!(v["replaced_unended"], false);
+    assert_eq!(v["replaced"], Value::Null);
     let c = conn(&home);
     let row: (i64, i64, String, String, i64, Option<String>, Option<i64>) = c
         .query_row(
@@ -261,8 +262,17 @@ fn a_start_over_an_unended_row_says_so_and_replaces_it() {
     approve(&home, 22, "alice", "approved");
     let v = ok(&home, &["cycle-start", "22"]);
     assert_eq!(v["replaced_unended"], true);
+    // The attempt it ended as lost, whose end this start raises (T11.9).
+    assert_eq!(v["replaced"], a);
     assert_eq!(v["attempt"], a + 1);
     assert_eq!(count(&home, "cycles WHERE issue = 22"), 1);
+    // Its line was written with no report, and says so; a reported line
+    // says nothing.
+    let rows = ok(&home, &["history-show", "22"])["rows"].clone();
+    assert_eq!(rows[0]["reported"], false);
+    end(&home, 22, a + 1, "closed");
+    let rows = ok(&home, &["history-show", "22"])["rows"].clone();
+    assert_eq!(rows[1].get("reported"), None);
 }
 
 #[test]

@@ -13,7 +13,7 @@
 use crate::forge::{gh_program, repo, repo_shaped, CALL_BOUND};
 use std::env;
 use tehas_core::events::allowed_in;
-use tehas_core::forge::{Bounded, Forge, GitHub};
+use tehas_core::forge::{Bounded, Forge};
 
 const USAGE: &str = "usage: console label allowed <issue> <label>";
 
@@ -38,7 +38,7 @@ pub fn allowed_issue(issue: &str, label: &str) -> u8 {
         return 2;
     };
     let runner = Box::new(Bounded::new(program, CALL_BOUND));
-    match GitHub::new(repository, runner).applied_by(number, label) {
+    match tehas_github::GitHub::new(repository, runner).applied_by(number, label) {
         Ok(Some(applied)) if allowed(&applied.actor) => 0,
         Ok(_) => 1,
         Err(_) => 2,

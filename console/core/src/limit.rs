@@ -7,6 +7,11 @@
 //! passed, and `unreadable` when what is there is not a limit of version 1,
 //! including an object which names one key twice: a reader could keep either
 //! value, so no reader keeps one.
+//!
+//! `set` is when the limit was written. `tehas limit --json` and
+//! `tehas drain --json` print it. It is not one of `fields`, so the object
+//! of every other reader is as it was. A
+//! file written before tehas kept the time has none, and reads as before.
 
 use serde_json::Value;
 use std::fs;
@@ -21,6 +26,8 @@ pub const REASON: usize = 200;
 pub struct Limit {
     pub state: &'static str,
     pub fields: Vec<(String, String)>,
+    /// When the limit was written, as the file holds it.
+    pub set: Option<String>,
 }
 
 impl Limit {
@@ -28,7 +35,45 @@ impl Limit {
         Limit {
             state,
             fields: Vec::new(),
+            set: None,
         }
+    }
+
+    /// The JSON text of one field, when the reading has it.
+    fn field(&self, want: &str) -> Option<&str> {
+        self.fields
+            .iter()
+            .find(|(name, _)| name == want)
+            .map(|(_, value)| value.as_str())
+    }
+
+    /// Whether this is the limit of these cycles, plan and reason. `until` is
+    /// not asked, nor whether it has passed: a write that only moves it is a
+    /// renewal of the same limit. No limit and an unreadable one are the same
+    /// as nothing.
+    pub fn same(&self, cycles: &str, plan: bool, reason: &str) -> bool {
+        let held = match self.field("reason") {
+            Some(text) => quoted(text).unwrap_or_default(),
+            None => String::new(),
+        };
+        matches!(self.state, "ok" | "expired")
+            && self.field("cycles") == Some(cycles)
+            && self.field("plan") == Some(if plan { "true" } else { "false" })
+            && held == oneline(reason)
+    }
+
+    /// The `set` a write of these cycles, plan and reason carries: the one
+    /// there when it is the same limit, even if that is none, and `now`
+    /// for any other. Two limits never share a `set`, which is a whole
+    /// second: another limit written in the second of the one there, or
+    /// before it by a clock set back, takes the second after it.
+    pub fn set_of(&self, cycles: &str, plan: bool, reason: &str, now: i64) -> Option<String> {
+        if self.same(cycles, plan, reason) {
+            return self.set.clone();
+        }
+        let there = self.set.as_deref().and_then(crate::time::from_iso);
+        let at = there.map_or(now, |there| now.max(there.saturating_add(1)));
+        Some(crate::time::iso(at))
     }
 
     /// The reading as one compact object, `state` first: the object
@@ -187,7 +232,17 @@ pub fn parse(bytes: &[u8], now: i64) -> Limit {
             None => return Limit::of("unreadable"),
         },
     };
+    // A time as tehas writes one, read strictly, or the file is no limit:
+    // the key of an event is read from it, and it is printed as it stands.
+    let set = match held("set") {
+        None | Some("null") => None,
+        Some(value) => match quoted(value).filter(|s| crate::time::from_iso(s).is_some()) {
+            Some(s) => Some(s),
+            None => return Limit::of("unreadable"),
+        },
+    };
     let mut out = Limit::of(if expired { "expired" } else { "ok" });
+    out.set = set;
     out.fields.push(("cycles".into(), cycles.to_string()));
     out.fields
         .push(("plan".into(), held("plan").unwrap_or("null").to_string()));
@@ -208,8 +263,8 @@ pub fn object(bytes: &[u8]) -> Option<Vec<(String, (usize, usize))>> {
     Skip::new(bytes).object()
 }
 
-/// The text of a quoted string, with its escapes as they came. Only a reason
-/// and an until are wanted, and both are text.
+/// The text of a quoted string, with its escapes as they came. Only a reason,
+/// an until and a set are wanted, and all three are text.
 pub fn quoted(value: &str) -> Option<String> {
     let unescaped = value.strip_prefix('"')?.strip_suffix('"')?;
     // The escapes of a JSON string become the characters the file meant, the
@@ -489,6 +544,124 @@ mod tests {
                 "{cycles}"
             );
         }
+    }
+
+    const SET: &str = "2026-10-17T13:30:00Z";
+
+    #[test]
+    fn set_is_read_and_is_no_field_of_the_object() {
+        let l = parse(
+            format!(r#"{{"v":1,"cycles":2,"plan":false,"set":"{SET}"}}"#).as_bytes(),
+            NOW,
+        );
+        assert_eq!(l.set.as_deref(), Some(SET));
+        assert_eq!(l.json(), r#"{"state":"ok","cycles":2,"plan":false}"#);
+    }
+
+    #[test]
+    fn a_file_of_1_4_has_no_set_and_reads_as_it_did() {
+        let old = br#"{"v":1,"cycles":2,"plan":false,"until":null,"reason":"r"}"#;
+        let l = parse(old, NOW);
+        assert_eq!(l.set, None);
+        assert_eq!(
+            l.json(),
+            r#"{"state":"ok","cycles":2,"plan":false,"reason":"r"}"#
+        );
+        assert_eq!(
+            parse(br#"{"v":1,"cycles":2,"plan":false,"set":null}"#, NOW).set,
+            None
+        );
+    }
+
+    #[test]
+    fn a_set_that_is_no_time_is_unreadable() {
+        // A day no month has is a time to jq's reader and none here: the
+        // schema of what is printed refuses it.
+        let no_day = "\"2026-10-99T00:00:00Z\"";
+        for set in ["1", "\"soon\"", "\"\"", "true", "[]", no_day] {
+            assert_eq!(
+                state(&format!(r#"{{"v":1,"cycles":1,"plan":true,"set":{set}}}"#)),
+                "unreadable",
+                "{set}"
+            );
+        }
+    }
+
+    fn held(reason: &str, until: &str) -> Limit {
+        parse(
+            format!(
+                r#"{{"v":1,"cycles":2,"plan":false,"until":{until},"reason":"{reason}","set":"{SET}"}}"#
+            )
+            .as_bytes(),
+            NOW,
+        )
+    }
+
+    #[test]
+    fn the_same_limit_is_the_same_cycles_plan_and_reason() {
+        let l = held("r", "null");
+        assert!(l.same("2", false, "r"));
+        assert!(!l.same("3", false, "r"));
+        assert!(!l.same("2", true, "r"));
+        assert!(!l.same("2", false, "other"));
+        assert!(!l.same("2", false, ""));
+        // The reason is compared as it is kept: one line.
+        assert!(l.same("2", false, " r\n"));
+        assert!(held("a \\\"b\\\"", "null").same("2", false, "a \"b\""));
+        // No reason in the file and none asked for are the same.
+        let bare = parse(br#"{"v":1,"cycles":2,"plan":false}"#, NOW);
+        assert!(bare.same("2", false, ""));
+        assert!(!bare.same("2", false, "r"));
+    }
+
+    #[test]
+    fn until_and_its_passing_are_not_compared() {
+        let ok = held("r", "\"2036-01-01T00:00:00Z\"");
+        let expired = held("r", "\"2026-10-17T13:00:00Z\"");
+        assert_eq!((ok.state, expired.state), ("ok", "expired"));
+        assert!(ok.same("2", false, "r") && expired.same("2", false, "r"));
+    }
+
+    #[test]
+    fn no_limit_and_an_unreadable_one_are_the_same_as_nothing() {
+        assert!(!Limit::of("none").same("0", false, ""));
+        assert!(!Limit::of("unreadable").same("0", false, ""));
+    }
+
+    #[test]
+    fn the_same_limit_keeps_its_set_and_another_takes_the_moment() {
+        let l = held("r", "null");
+        assert_eq!(l.set_of("2", false, "r", NOW).as_deref(), Some(SET));
+        let now = "2026-10-17T14:00:20Z";
+        assert_eq!(l.set_of("3", false, "r", NOW).as_deref(), Some(now));
+        assert_eq!(
+            Limit::of("none").set_of("2", false, "r", NOW).as_deref(),
+            Some(now)
+        );
+        // A file of 1.4 set again the same stays without one; a change gives it one.
+        let old = parse(br#"{"v":1,"cycles":2,"plan":false,"reason":"r"}"#, NOW);
+        assert_eq!(old.set_of("2", false, "r", NOW), None);
+        assert_eq!(old.set_of("1", false, "r", NOW).as_deref(), Some(now));
+    }
+
+    #[test]
+    fn another_limit_in_the_second_of_the_one_there_takes_the_next() {
+        let at = epoch(SET).unwrap();
+        let l = held("r", "null");
+        let next = "2026-10-17T13:30:01Z";
+        assert_eq!(l.set_of("3", false, "r", at).as_deref(), Some(next));
+        // A clock set back does not give a key that was given before.
+        assert_eq!(l.set_of("3", false, "r", at - 60).as_deref(), Some(next));
+        assert_eq!(
+            l.set_of("3", false, "r", at + 1).as_deref(),
+            Some("2026-10-17T13:30:01Z")
+        );
+        assert_eq!(
+            l.set_of("3", false, "r", at + 2).as_deref(),
+            Some("2026-10-17T13:30:02Z")
+        );
+        // The same limit in the same second is still the same limit.
+        assert_eq!(l.set_of("2", false, "r", at).as_deref(), Some(SET));
     }
 
     #[test]

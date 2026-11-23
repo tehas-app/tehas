@@ -100,7 +100,7 @@ impl Env {
     fn log(&self, args: Value) -> Result<Output, ToolError> {
         let mut a = args;
         a["id"] = json!(self.id());
-        call(&self.dirs, "factory_log", &a)
+        call(&self.dirs, "factory_log", &a.into())
     }
 
     fn plain(&self, args: Value) -> Value {
@@ -331,7 +331,7 @@ impl Search {
     fn plain(&self, id: &str, args: Value) -> Value {
         let mut a = args;
         a["id"] = json!(id);
-        match call(&self.dirs, "factory_log", &a) {
+        match call(&self.dirs, "factory_log", &a.into()) {
             Ok(Output::Json(v)) => common::conforms("factory_log", v),
             other => panic!("not plain: {other:?}"),
         }
@@ -342,7 +342,7 @@ impl Search {
     // of the tool asserts its answer with `searched` or `refused`, so one of
     // those fails when the answer is not the kind it asks for.
     fn asked(&self, args: Value) -> Result<Value, String> {
-        match call(&self.dirs, "factory_search", &args) {
+        match call(&self.dirs, "factory_search", &args.into()) {
             Ok(Output::Json(v)) => Ok(common::conforms("factory_search", v)),
             Ok(other) => panic!("not JSON: {other:?}"),
             Err(ToolError::BadArgs(why)) => Err(why),
@@ -800,7 +800,7 @@ fn the_id_is_checked_before_a_place_and_the_snapshot() {
         match call(
             &dirs,
             "factory_log",
-            &json!({"id": id, "file": "transcript"}),
+            &json!({"id": id, "file": "transcript"}).into(),
         ) {
             Err(ToolError::BadArgs(why)) => assert_eq!(why, "id is like work-12-1792485967"),
             other => panic!("{id:?}: {other:?}"),
@@ -1895,11 +1895,11 @@ fn a_running_cycles_log_is_read_by_its_issue_or_its_id() {
     std::fs::write(logs.join("dispatch-work-9.log"), "d\n").unwrap();
     let id = format!("work-9-{t}");
 
-    let read = |args: Value| match call(&env.dirs, "factory_log", &args) {
+    let read = |args: Value| match call(&env.dirs, "factory_log", &args.clone().into()) {
         Ok(Output::Json(v)) => common::conforms("factory_log", v),
         other => panic!("{args}: {other:?}"),
     };
-    let fail = |args: Value| match call(&env.dirs, "factory_log", &args) {
+    let fail = |args: Value| match call(&env.dirs, "factory_log", &args.clone().into()) {
         Err(ToolError::BadArgs(why)) => why,
         other => panic!("{args}: not a tool error: {other:?}"),
     };
@@ -1948,7 +1948,7 @@ fn a_running_cycles_log_is_read_by_its_issue_or_its_id() {
         "console\n"
     );
     let args = json!({"id": format!("work-8-{t}"), "file": "transcript"});
-    match call(&env.dirs, "factory_log", &args) {
+    match call(&env.dirs, "factory_log", &args.clone().into()) {
         Err(ToolError::File { why, .. }) => assert!(why.contains("not written"), "{why}"),
         other => panic!("{args}: {other:?}"),
     }
