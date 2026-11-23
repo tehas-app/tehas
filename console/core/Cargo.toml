@@ -33,6 +33,8 @@ attach = { path = "../attach" }
 # The patterns of api/plugin-manifest.schema.json, which the manifest's tests
 # hold the reader to.
 regex = "1"
+# The ports' values as JSON, which ports_json.rs reads back.
+tehas-ports = { path = "../ports" }
 
 # Kani proofs sit in #[cfg(kani)] modules; the Kani job of
 # the release gate (.github/workflows/release-gate.yml) runs them.
