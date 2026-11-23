@@ -128,7 +128,20 @@ const EVENTS: [(HappenedKind, &str, &str, &str); 14] = [
     ),
 ];
 
-/// A question of one issue of the repository.
+/// The events that read as `Happened::Unknown` when GitHub leaves out what
+/// they name: an account that is gone, a milestone not the issue's now, an
+/// issue type or a blocking issue that is gone.
+const MAY_BE_UNKNOWN: [&str; 7] = [
+    "AssignedEvent",
+    "UnassignedEvent",
+    "MilestonedEvent",
+    "IssueTypeAddedEvent",
+    "IssueTypeChangedEvent",
+    "BlockedByAddedEvent",
+    "BlockedByRemovedEvent",
+];
+
+/// A question of one issue of the repository. `asks` uses `$cursor`.
 fn of_issue(asks: &str) -> String {
     format!("query($owner: String!, $name: String!, $number: Int!, $cursor: String) {{ repository(owner: $owner, name: $name) {{ issue(number: $number) {{ number {asks} }} }} }}")
 }
@@ -137,13 +150,14 @@ fn of_issue(asks: &str) -> String {
 /// whole read, the newest for the last n. Empty when GitHub has no event of
 /// those kinds. A milestone's event names its title alone, so the issue's
 /// milestone is asked beside it; one this read cannot name is `Unknown`.
+/// `Unknown` asks every event that can read as it.
 fn events(kinds: Option<&[HappenedKind]>, window: Window) -> String {
-    let asked = |k: &HappenedKind| {
+    let asked = |(k, _, node, _): &&(HappenedKind, &str, &str, &str)| {
         kinds.is_none_or(|ks| {
-            ks.contains(k) || (*k == HappenedKind::Targeted && ks.contains(&HappenedKind::Unknown))
+            ks.contains(k) || (ks.contains(&HappenedKind::Unknown) && MAY_BE_UNKNOWN.contains(node))
         })
     };
-    let rows: Vec<_> = EVENTS.iter().filter(|(k, ..)| asked(k)).collect();
+    let rows: Vec<_> = EVENTS.iter().filter(asked).collect();
     if rows.is_empty() {
         return String::new();
     }
@@ -494,7 +508,18 @@ impl GitHub {
         window: Window,
         only: Option<&[HappenedKind]>,
     ) -> Got<Took<TicketEvent>> {
-        self.pages(number(key)?, only, window, None, true)
+        let issue = number(key)?;
+        if events(only, window).is_empty() {
+            // GitHub keeps no event of these kinds: the issue's read alone
+            // says whether it is there.
+            let out = self.issue_answer(issue).map_err(|e| self.outcome(&e))?;
+            if gh::is_pull(&out) {
+                return Err(Outcome::NotFound);
+            }
+            part::<Rest>(&out, "")?;
+            return take(Vec::new(), window);
+        }
+        self.pages(issue, only, window, None, true)
     }
 
     /// A ticket's parts, whole: `Tickets::parts`.
@@ -636,7 +661,8 @@ impl GitHub {
 
     /// A history, read page by page: a whole one from its oldest event to
     /// its end or one past the bound, the newest n from the end back until
-    /// n are sure. `first` is a first page already asked.
+    /// n are sure. `first` is a first page already asked. At least one kind
+    /// asked has events on GitHub.
     fn pages(
         &mut self,
         issue: u64,
@@ -658,9 +684,6 @@ impl GitHub {
                 Some(a) => a,
                 None => self.ask_issue(issue, &question, cursor.as_deref(), settle)?,
             };
-            if asks.is_empty() {
-                return take(Vec::new(), window);
-            }
             let page = answer.events.ok_or(MALFORMED)?;
             let mut read = Vec::new();
             for e in page.nodes.into_iter().flatten() {
@@ -975,6 +998,39 @@ mod tests {
         }
     }
 
+    /// GitHub refuses a question that declares a variable it does not use.
+    #[test]
+    fn every_question_uses_each_variable_it_declares() {
+        let whole = Window::Whole(ALL_MAX);
+        let last = Window::Last(std::num::NonZeroU32::MIN);
+        let mut all = vec![
+            of_issue(&format!("{} {}", beside(), events(None, whole))),
+            of_issue(&format!("{} {}", beside(), events(None, last))),
+            of_issue(&beside()),
+            of_issue(&mentions()),
+            of_issue(&parts()),
+            listed(""),
+        ];
+        for k in [
+            HappenedKind::Marked,
+            HappenedKind::Closed,
+            HappenedKind::Unknown,
+            HappenedKind::BlockerRemoved,
+        ] {
+            all.push(of_issue(&events(Some(&[k]), whole)));
+            all.push(of_issue(&events(Some(&[k]), last)));
+        }
+        for q in all {
+            let (head, body) = q.split_once(')').unwrap();
+            for var in head.split('$').skip(1) {
+                let name = &var[..var.find(':').unwrap()];
+                assert!(body.contains(&format!("${name}")), "${name}: {q}");
+            }
+        }
+        // A kind GitHub keeps no event of asks nothing.
+        assert!(events(Some(&[HappenedKind::Priority]), whole).is_empty());
+    }
+
     #[test]
     fn a_history_asks_for_the_kinds_named_and_no_other() {
         let whole = Window::Whole(ALL_MAX);
@@ -983,9 +1039,12 @@ mod tests {
         assert!(closes.contains("first: 100, after: $cursor"));
         // GitHub has no priority: nothing is asked for.
         assert_eq!(events(Some(&[HappenedKind::Priority]), whole), "");
-        // A milestone this read cannot name answers as an unknown event.
+        // Every event that can read as unknown is asked for the unknown.
         let unknown = events(Some(&[HappenedKind::Unknown]), whole);
-        assert!(unknown.contains("itemTypes: [MILESTONED_EVENT, DEMILESTONED_EVENT]"));
+        assert!(
+            unknown.contains("itemTypes: [ASSIGNED_EVENT, UNASSIGNED_EVENT, MILESTONED_EVENT, ISSUE_TYPE_ADDED_EVENT, ISSUE_TYPE_CHANGED_EVENT, BLOCKED_BY_ADDED_EVENT, BLOCKED_BY_REMOVED_EVENT]"),
+            "{unknown}"
+        );
         let last = events(None, Window::Last(std::num::NonZeroU32::MIN));
         assert!(last.contains("last: 100, before: $cursor"));
         assert!(last.contains("hasPreviousPage startCursor"));

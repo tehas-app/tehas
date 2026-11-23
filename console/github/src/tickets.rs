@@ -197,14 +197,18 @@ pub(crate) fn kind_of(name: &str) -> Kind {
 }
 
 /// The account of an event, None where it names nobody. The login is folded
-/// to lower case, as GitHub compares logins.
+/// to lower case, as GitHub compares logins, and an app's spellings
+/// (`x[bot]` in REST, `x` in GraphQL, `app/x`) to one, as the spec's `Login`
+/// says.
 pub(crate) fn account(login: &str, facts: &gh::Facts) -> Option<Account> {
     if login.is_empty() {
         return None;
     }
     Some(Account {
         realm: Realm::CodeHost,
-        login: Login::new(tehas_core::accounts::folded(login)),
+        login: Login::new(tehas_core::accounts::folded(tehas_core::accounts::account(
+            login,
+        ))),
         id: facts.id.map(|id| AccountId::new(id.to_string())),
         kind: match facts.kind.as_deref() {
             Some("User") => AccountKind::Person,

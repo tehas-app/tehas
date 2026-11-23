@@ -53,8 +53,27 @@ fn samples<T: for<'de> Deserialize<'de>>(file: &str) -> Vec<T> {
         None => here.join("../ports/samples/github").join(file),
     };
     let text = std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()));
-    let all: Vec<T> =
+    let mut all: serde_json::Value =
         serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", at.display()));
+    // The ports' samples still give REST's `x[bot]` for an app until their
+    // owner takes the adapter's one spelling in.
+    let mut left = vec![&mut all];
+    while let Some(v) = left.pop() {
+        match v {
+            serde_json::Value::Object(o) => {
+                if o.contains_key("realm") {
+                    if let Some(serde_json::Value::String(login)) = o.get_mut("login") {
+                        *login = tehas_core::accounts::folded(tehas_core::accounts::account(login));
+                    }
+                }
+                left.extend(o.values_mut());
+            }
+            serde_json::Value::Array(a) => left.extend(a.iter_mut()),
+            _ => {}
+        }
+    }
+    let all: Vec<T> =
+        serde_json::from_value(all).unwrap_or_else(|e| panic!("{}: {e}", at.display()));
     assert!(!all.is_empty(), "{file}");
     all
 }
@@ -166,6 +185,57 @@ fn a_list_answers_as_each_sample_says() {
         let got = adapter().list(&s.filter, s.bound);
         assert_eq!(got, s.answer, "{:?}: {}", s.filter, s.fixture);
     }
+}
+
+#[test]
+fn an_unknown_history_is_every_events_unknown_ones() {
+    // Ticket 7's unknown events: an assignee whose account is gone and a
+    // target that is gone, as every kind's history reads them.
+    let whole = Window::Whole(ALL_MAX);
+    let unknown = Some(&[HappenedKind::Unknown][..]);
+    let only = adapter().history(&key(7), whole, unknown).unwrap();
+    let all = adapter().history(&key(7), whole, None).unwrap();
+    let cut: Vec<TicketEvent> = all
+        .items
+        .into_iter()
+        .filter(|e| e.what.kind() == HappenedKind::Unknown)
+        .collect();
+    assert_eq!(cut.len(), 2);
+    assert_eq!(only.items, cut);
+}
+
+#[test]
+fn one_account_has_one_login_in_every_read() {
+    // REST spells an app `x[bot]`, GraphQL `x`; the ids are the same.
+    let mut seen: std::collections::HashMap<String, String> = Default::default();
+    let mut hold = |a: &tehas_ports::Account, read: &str| {
+        let id = a.id.as_ref().unwrap().as_str().to_string();
+        let login = a.login.as_str().to_string();
+        let was = seen.entry(id.clone()).or_insert(login.clone());
+        assert_eq!(*was, login, "account {id} in {read}");
+    };
+    let whole = Window::Whole(ALL_MAX);
+    let marks = [HappenedKind::Marked, HappenedKind::Unmarked];
+    for (read, only) in [("the marks", Some(&marks[..])), ("every kind", None)] {
+        for e in adapter().history(&key(7), whole, only).unwrap().items {
+            e.by.iter().for_each(|a| hold(a, read));
+        }
+    }
+    for (_, d) in adapter().several(&[key(20), key(21), key(25)]) {
+        d.unwrap().author.iter().for_each(|a| hold(a, "several"));
+    }
+    let t = adapter().ticket(&key(20), Depth::All, None).unwrap();
+    t.assignees
+        .iter()
+        .for_each(|a| hold(a, "the ticket's assignees"));
+    for d in adapter()
+        .list(&Filter::default(), bound(50))
+        .unwrap()
+        .items()
+    {
+        d.author.iter().for_each(|a| hold(a, "the list"));
+    }
+    assert_eq!(seen.get("900").map(String::as_str), Some("tehas-bot"));
 }
 
 fn ok(law: laws::Law) {
@@ -588,6 +658,44 @@ fn a_question_gh_gives_no_reason_for_is_settled_by_the_issues_read() {
         Err(Outcome::Refused(Refusal::Invalid))
     );
     assert!(asked.borrow().is_empty());
+}
+
+#[test]
+fn a_kind_github_keeps_no_event_of_asks_no_question_and_settles_the_issue() {
+    let priority = Some(&[HappenedKind::Priority][..]);
+    let whole = Window::Whole(ALL_MAX);
+    // There: nothing happened of that kind, from the issue's read alone.
+    let (mut gh, asked) = stub(vec![Ok(REST.to_string())]);
+    assert_eq!(
+        gh.history(&key(7), whole, priority),
+        Ok(Took {
+            items: Vec::new(),
+            more: false
+        })
+    );
+    assert_eq!(*asked.borrow(), ["api repos/acme/widget/issues/7"]);
+    let (mut gh, _) = stub(vec![Ok(REST.to_string())]);
+    assert_eq!(
+        gh.history(&key(7), last(3), priority),
+        Ok(Took {
+            items: Vec::new(),
+            more: false
+        })
+    );
+    // Not there, a change's number, a failure, an answer that is no issue.
+    let pull = r#"{"number":7,"pull_request":{"url":"x"}}"#.to_string();
+    for (answer, want) in [
+        (Err(": HTTP 404"), Outcome::NotFound),
+        (Ok(pull), Outcome::NotFound),
+        (Err(": HTTP 403"), Outcome::Forbidden),
+        (Err("HTTP 502"), SERVER),
+        (Ok(r#"{"number":7}"#.to_string()), MALFORMED),
+    ] {
+        let shown = format!("{answer:?}");
+        let (mut gh, asked) = stub(vec![answer]);
+        assert_eq!(gh.history(&key(7), whole, priority), Err(want), "{shown}");
+        assert_eq!(asked.borrow().len(), 1, "{shown}");
+    }
 }
 
 fn sub(n: u64) -> String {

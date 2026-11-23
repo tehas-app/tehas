@@ -465,5 +465,219 @@
     "window": {
       "Last": 5
     }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": {
+        "items": [
+          {
+            "at": 1767225600,
+            "by": {
+              "id": "101",
+              "kind": "Person",
+              "login": "alice",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "Project",
+                "value": "bug"
+              }
+            }
+          },
+          {
+            "at": 1767225630,
+            "by": {
+              "id": "101",
+              "kind": "Person",
+              "login": "alice",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Retitled",
+              "value": {
+                "from": "A ticket",
+                "to": "A fixture ticket"
+              }
+            }
+          },
+          {
+            "at": 1767225660,
+            "by": {
+              "id": "101",
+              "kind": "Person",
+              "login": "alice",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "Act",
+                "value": "Approve"
+              }
+            }
+          },
+          {
+            "at": 1767225720,
+            "by": {
+              "id": "900",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "State",
+                "value": "Running"
+              }
+            }
+          },
+          {
+            "at": 1767225720,
+            "by": {
+              "id": "900",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Unmarked",
+              "value": {
+                "type": "Act",
+                "value": "Approve"
+              }
+            }
+          },
+          {
+            "at": 1767225780,
+            "by": null,
+            "what": {
+              "type": "Marked",
+              "value": {
+                "type": "Act",
+                "value": "Approve"
+              }
+            }
+          },
+          {
+            "at": 1767225840,
+            "by": {
+              "id": "900",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Assigned",
+              "value": {
+                "id": "101",
+                "kind": "Person",
+                "login": "alice",
+                "realm": "CodeHost"
+              }
+            }
+          },
+          {
+            "at": 1767225900,
+            "by": {
+              "id": "900",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Unknown"
+            }
+          },
+          {
+            "at": 1767225960,
+            "by": {
+              "id": "101",
+              "kind": "Person",
+              "login": "alice",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Unknown"
+            }
+          },
+          {
+            "at": 1767226020,
+            "by": {
+              "id": "101",
+              "kind": "Person",
+              "login": "alice",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Targeted",
+              "value": null
+            }
+          }
+        ],
+        "more": false
+      }
+    },
+    "fixture": "Ticket 7 has no target now. Its history: bug on by alice, a new title, the approval on by alice, then in one second the running state on and the approval off by the factory's bot, the approval on by an account that is gone, alice assigned by the bot, an assignee taken off by the bot whose account is gone, a target that is gone set by alice and taken off.",
+    "only": null,
+    "op": "Tickets::history",
+    "ticket": {
+      "Number": 7
+    },
+    "window": {
+      "Whole": 1000
+    }
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": {
+        "items": [
+          {
+            "at": 1767225900,
+            "by": {
+              "id": "900",
+              "kind": "Bot",
+              "login": "tehas-bot",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Unknown"
+            }
+          },
+          {
+            "at": 1767225960,
+            "by": {
+              "id": "101",
+              "kind": "Person",
+              "login": "alice",
+              "realm": "CodeHost"
+            },
+            "what": {
+              "type": "Unknown"
+            }
+          }
+        ],
+        "more": false
+      }
+    },
+    "fixture": "Ticket 7 has no target now. Its history: bug on by alice, a new title, the approval on by alice, then in one second the running state on and the approval off by the factory's bot, the approval on by an account that is gone, alice assigned by the bot, an assignee taken off by the bot whose account is gone, a target that is gone set by alice and taken off.",
+    "only": [
+      "Unknown"
+    ],
+    "op": "Tickets::history",
+    "ticket": {
+      "Number": 7
+    },
+    "window": {
+      "Whole": 1000
+    }
   }
 ]

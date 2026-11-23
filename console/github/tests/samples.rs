@@ -57,7 +57,26 @@ fn adapter() -> GitHub {
 fn samples<T: for<'de> Deserialize<'de>>(file: &str) -> Vec<T> {
     let at = here().join("../ports/samples/github").join(file);
     let text = std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()));
-    serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", at.display()))
+    let mut all: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", at.display()));
+    // The ports' samples still give REST's `x[bot]` for an app until their
+    // owner takes the adapter's one spelling in.
+    let mut left = vec![&mut all];
+    while let Some(v) = left.pop() {
+        match v {
+            serde_json::Value::Object(o) => {
+                if o.contains_key("realm") {
+                    if let Some(serde_json::Value::String(login)) = o.get_mut("login") {
+                        *login = tehas_core::accounts::folded(tehas_core::accounts::account(login));
+                    }
+                }
+                left.extend(o.values_mut());
+            }
+            serde_json::Value::Array(a) => left.extend(a.iter_mut()),
+            _ => {}
+        }
+    }
+    serde_json::from_value(all).unwrap_or_else(|e| panic!("{}: {e}", at.display()))
 }
 
 #[derive(Deserialize)]
