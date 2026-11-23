@@ -35,6 +35,7 @@ pub enum CloseReason {
 
 /// A ticket's fields without its text, notes or history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct TicketDigest {
     /// The ticket.
     pub key: TicketKey,
@@ -63,8 +64,26 @@ pub struct TicketDigest {
     pub link: WebLink,
 }
 
+new!(
+    TicketDigest {
+        key: TicketKey,
+        state: TicketState,
+        created: At,
+        updated: At,
+        revision: Revision,
+        link: WebLink
+    },
+    title,
+    kind,
+    priority,
+    marks,
+    target,
+    author
+);
+
 /// A target by its id, with its title as the site names it now.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct TargetName {
     /// The target.
     pub id: TargetId,
@@ -72,8 +91,14 @@ pub struct TargetName {
     pub title: String,
 }
 
+new!(TargetName {
+    id: TargetId,
+    title: String
+});
+
 /// A ticket, read whole to the depth asked.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Ticket {
     /// Its fields.
     pub digest: TicketDigest,
@@ -103,8 +128,24 @@ pub struct Ticket {
     pub history: Took<TicketEvent>,
 }
 
+new!(
+    Ticket {
+        digest: TicketDigest
+    },
+    text,
+    closed,
+    closer,
+    parts,
+    blockers,
+    assignees,
+    markers,
+    mentioned_by,
+    history
+);
+
 /// A part of a ticket, and whether it is open.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Part {
     /// The part.
     pub key: Ref<TicketKey>,
@@ -112,14 +153,19 @@ pub struct Part {
     pub open: bool,
 }
 
+new!(Part { key: Ref<TicketKey>, open: bool });
+
 /// A blocker may be a change where the site lets a ticket wait on one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Blocker {
     /// What the ticket waits on.
     pub on: Ref<Item>,
     /// Its state.
     pub state: BlockerState,
 }
+
+new!(Blocker { on: Ref<Item>, state: BlockerState });
 
 /// The state of what a ticket waits on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -150,6 +196,7 @@ pub enum Closer {
 
 /// One event of a ticket's history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct TicketEvent {
     /// What happened.
     pub what: Happened,
@@ -158,6 +205,8 @@ pub struct TicketEvent {
     /// When, if the site says.
     pub at: Option<At>,
 }
+
+new!(TicketEvent { what: Happened }, by, at);
 
 /// What happened to a ticket.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -265,6 +314,7 @@ pub enum HappenedKind {
 
 /// A target: a set of tickets with a title and maybe a due date.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Target {
     /// The target.
     pub id: TargetId,
@@ -281,6 +331,18 @@ pub struct Target {
     /// How many of its tickets are closed.
     pub closed_count: u32,
 }
+
+new!(
+    Target {
+        id: TargetId,
+        title: String,
+        created: At
+    },
+    due,
+    open,
+    open_count,
+    closed_count
+);
 
 /// A change to a target.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -363,6 +425,7 @@ pub enum StepPart {
 
 /// A ticket that closed, with what closed it and its size of work.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ClosedTicket {
     /// Its fields.
     pub digest: TicketDigest,
@@ -377,8 +440,19 @@ pub struct ClosedTicket {
     pub merged: Vec<ChangeDigest>,
 }
 
+new!(
+    ClosedTicket {
+        digest: TicketDigest,
+        closed: At
+    },
+    closer,
+    part_count,
+    merged
+);
+
 /// A ticket's change since a cursor: its digest, its text and its close.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct TicketChange {
     /// Its fields.
     pub digest: TicketDigest,
@@ -388,19 +462,35 @@ pub struct TicketChange {
     pub closed: Option<At>,
 }
 
+new!(
+    TicketChange {
+        digest: TicketDigest
+    },
+    text,
+    closed
+);
+
 /// Tickets and notes changed since a cursor, and where to read on from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct TicketDelta {
     /// The tickets that changed.
     pub tickets: Vec<TicketChange>,
     /// The notes that changed, each with its ticket.
     pub notes: Vec<(TicketKey, Comment)>,
-    /// Where the next delta starts.
+    /// Where the next delta starts: after the last change it holds.
     pub next: Cursor,
+    /// More changes wait past `next`: the bound cut this delta. Missing,
+    /// it reads as false, as `new` leaves it.
+    #[serde(default)]
+    pub more: bool,
 }
+
+new!(TicketDelta { next: Cursor }, tickets, notes, more);
 
 /// A ticket an account filed, as a lost press finds it again.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Filed {
     /// The ticket.
     pub key: TicketKey,
@@ -411,6 +501,15 @@ pub struct Filed {
     /// Where a person opens it.
     pub link: WebLink,
 }
+
+new!(
+    Filed {
+        key: TicketKey,
+        link: WebLink
+    },
+    title,
+    first_line
+);
 
 /// The tickets port's reads. A handle is bound to one project, one actor
 /// and one caller name.
@@ -489,7 +588,12 @@ pub trait Tickets: Reports + Cites {
     /// Has anything changed since this token. Free on a site that answers
     /// conditional requests or pushes events.
     fn changed(&mut self, since: Option<&ChangeToken>) -> Got<(bool, ChangeToken)>;
-    /// Tickets and notes changed since the cursor, with their text and close.
+    /// Tickets and notes changed since the cursor, with their text and
+    /// close, each list oldest first. `bound` counts both lists together.
+    /// Past it, a page of the first changes with `more`, and a `next` that
+    /// resumes after the last change of either list: never `Unread(Cut)`,
+    /// so a long history spreads over passes. A page with `more` holds at
+    /// most `bound` changes and never none; it may hold fewer.
     fn delta(&mut self, from: Option<&Cursor>, bound: Bound) -> Got<TicketDelta>;
     /// A link a visitor opens to file a ticket with this text filled in.
     fn new_ticket_link(&self, title: &str, text: &str) -> WebLink;
@@ -497,6 +601,7 @@ pub trait Tickets: Reports + Cites {
 
 /// What `prepare` could not do.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Unprepared {
     /// The first mark it could not make; None when the site failed before
     /// it tried one.
@@ -504,6 +609,8 @@ pub struct Unprepared {
     /// Why.
     pub why: Outcome,
 }
+
+new!(Unprepared { why: Outcome }, mark);
 
 impl From<Outcome> for Unprepared {
     fn from(why: Outcome) -> Unprepared {

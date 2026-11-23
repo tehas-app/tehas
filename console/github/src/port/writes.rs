@@ -27,10 +27,8 @@ impl TicketWrites for GitHub {
         } else {
             None
         };
-        let applied = Applied {
-            done: Vec::new(),
-            stopped: first.map(|p| (p, Outcome::Refused(Refusal::Unsupported))),
-        };
+        let mut applied = Applied::default();
+        applied.stopped = first.map(|p| (p, Outcome::Refused(Refusal::Unsupported)));
         (applied, None)
     }
 
@@ -41,10 +39,9 @@ impl TicketWrites for GitHub {
         for spec in table::specs() {
             let made = self.ensure_mark(&spec);
             if let (Ok(()), Err(why)) = (&first, made) {
-                first = Err(Unprepared {
-                    mark: Some(spec.name.clone()),
-                    why,
-                });
+                let mut unprepared = Unprepared::new(why);
+                unprepared.mark = Some(spec.name.clone());
+                first = Err(unprepared);
             }
         }
         first
