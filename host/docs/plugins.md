@@ -195,7 +195,11 @@ and has at least `TEHAS_PLUGIN_ACCESS` on `TEHAS_REPO`. The sign-in goes
 through the factory's GitHub App at `plugins.<domain>`. The gate checks the
 person's permission again every 10 minutes and on every press, by user id,
 and keeps no GitHub token. A session ends after 2 hours unused or 12 in all,
-and a restart of the gate signs everyone out. The gate reads its settings
+and the 12 hours are counted from the first sign-in: a plugin whose view you
+open later takes its session from one you already hold, and ends with it, so
+one sign-in does not buy 12 hours on every name. Signing in with GitHub again
+is a new sign-in and starts its own 12 hours. A restart of the gate signs
+everyone out. The gate reads its settings
 when it starts, so `tehas update` restarts a running gate: a changed
 `TEHAS_PLUGIN_ACCESS`, pin or grant applies, and everyone signed in signs in
 again.

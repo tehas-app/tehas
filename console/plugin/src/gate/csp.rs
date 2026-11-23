@@ -8,10 +8,9 @@
 
 use sha2::{Digest, Sha256};
 
-/// `Permissions-Policy` of every answer of the gate.
-pub const PERMISSIONS: &str = "camera=(), microphone=(), geolocation=()";
-/// `Permissions-Policy` of a page.
-pub const PAGE_PERMISSIONS: &str =
+/// `Permissions-Policy` of every answer of the gate, a page or not: the one
+/// list the web spec names, so a redirect or a file says the same as a page.
+pub const PERMISSIONS: &str =
     "camera=(), microphone=(), geolocation=(), usb=(), payment=(), clipboard-read=()";
 pub const OPENER: &str = "same-origin-allow-popups";
 

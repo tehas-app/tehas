@@ -145,7 +145,11 @@ GitHub's web flow, through the factory's GitHub App.
 - A random id in a `__Host-tehas-plugin` cookie, `HttpOnly`, `Secure`,
   `SameSite=Lax`, `Path=/`, one per name. The gate holds the session in
   memory: user id, login, the time of the last check. No token.
-- It ends after 2 hours unused or 12 hours in all. A restart of the gate
+- It ends after 2 hours unused or 12 hours in all. The 12 hours run from the
+  first sign-in, not from each name: a hand-off to another plugin name opens
+  its session at that start, so one GitHub sign-in is good for 12 hours
+  across every name, not 12 hours apiece. A sign-in with GitHub is a new
+  sign-in and starts its own 12 hours. A restart of the gate
   signs everyone out.
 - `POST /_signout`, with the `Origin` rule, ends that person's sessions on
   every plugin name and `plugins.<domain>`, clears the cookie, and answers 200

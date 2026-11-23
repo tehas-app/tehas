@@ -265,6 +265,35 @@ fn sign_in_full(f: &Fix, host: &str, now: u64) -> (String, String) {
     )
 }
 
+/// Signs in with GitHub alone at `now` — no second hand-off — and returns the
+/// person's cookie on `host` and on `plugins.<domain>`. The two names open at
+/// the same hour, which is the one the 12-hour limit runs from.
+fn sign_in_github(f: &Fix, host: &str, now: u64) -> (String, String) {
+    let ask = f.gate.answer(&nav(host, "/_auth/ask?back=/sub/", ""), now);
+    assert_eq!(ask.status, 303);
+    let nonce = set(&ask, auth::ASK).unwrap();
+    let pass = f.gate.answer(&nav(S, &target(&location(&ask)), ""), now);
+    assert_eq!(pass.status, 303, "{}", location(&pass));
+    let github = location(&pass);
+    let signin = set(&pass, auth::SIGNIN).unwrap();
+    let back = format!("/_auth/callback?code=good&state={}", q(&github, "state"));
+    let cb = f
+        .gate
+        .answer(&nav(S, &back, &format!("{}={signin}", auth::SIGNIN)), now);
+    assert_eq!(cb.status, 303);
+    let s_session = set(&cb, auth::SESSION).unwrap();
+    let take = location(&cb);
+    let took = f.gate.answer(
+        &nav(host, &target(&take), &format!("{}={nonce}", auth::ASK)),
+        now,
+    );
+    assert_eq!(took.status, 303);
+    (
+        format!("{}={}", auth::SESSION, set(&took, auth::SESSION).unwrap()),
+        format!("{}={s_session}", auth::SESSION),
+    )
+}
+
 const BASE: [(&str, &str); 5] = [
     ("Cache-Control", "private, no-store"),
     ("Vary", "Cookie"),
@@ -278,10 +307,7 @@ fn assert_base(r: &Response, what: &str) {
         assert_eq!(r.header(k), Some(v), "{k} on {what}");
     }
     let pp = r.header("Permissions-Policy").unwrap_or("");
-    assert!(
-        pp.starts_with(csp::PERMISSIONS),
-        "Permissions-Policy on {what}: {pp}"
-    );
+    assert_eq!(pp, csp::PERMISSIONS, "Permissions-Policy on {what}");
     assert!(
         r.header("Content-Security-Policy").is_some(),
         "CSP on {what}"
@@ -371,7 +397,7 @@ fn a_page_carries_the_browsers_policy_and_the_longer_permissions() {
     let f = fixture();
     let c = sign_in(&f, P, T0);
     let r = f.gate.answer(&nav(P, "/", &c), T0);
-    assert_eq!(r.header("Permissions-Policy"), Some(csp::PAGE_PERMISSIONS));
+    assert_eq!(r.header("Permissions-Policy"), Some(csp::PERMISSIONS));
     assert_eq!(
         r.header("Cross-Origin-Opener-Policy"),
         Some("same-origin-allow-popups")
@@ -387,6 +413,46 @@ fn a_page_carries_the_browsers_policy_and_the_longer_permissions() {
         Some("text/javascript; charset=utf-8")
     );
     assert_eq!(js.header("Permissions-Policy"), Some(csp::PERMISSIONS));
+}
+
+#[test]
+fn every_answer_carries_the_same_permissions_policy_a_page_or_not() {
+    let f = fixture();
+    let c = sign_in(&f, P, T0);
+    std::fs::write(
+        f.dir.join("plugins/floorplan/view/bad.html"),
+        "<a onclick=x()>",
+    )
+    .unwrap();
+    let keep = f.dir.join("plugins/floorplan/keep/p-1");
+    std::fs::create_dir_all(&keep).unwrap();
+    std::fs::write(keep.join("v2.html"), "<p>kept</p>").unwrap();
+    let answers = [
+        ("page", nav(P, "/", &c), 200),
+        ("refused page", nav(P, "/bad.html", &c), 500),
+        ("file", fetch(P, "/app.js", &c), 200),
+        ("framed file", fetch(P, "/_frame/p-1/v2.html", &c), 200),
+        ("kit", fetch(P, "/_kit/press.js", &c), 200),
+        ("actions", fetch(P, "/_actions", &c), 200),
+        ("hooks", nav(P, "/_hooks/12", &c), 404),
+        ("redirect", nav(P, "/_auth/ask", ""), 303),
+        ("start", nav(S, "/_auth/start?for=floorplan", ""), 303),
+        ("no session", fetch(P, "/app.js", ""), 401),
+        ("missing", fetch(P, "/nope.js", &c), 404),
+    ];
+    for (what, req, status) in answers {
+        let r = f.gate.answer(&req, T0);
+        assert_eq!(r.status, status, "{what}");
+        assert_eq!(
+            r.header("Permissions-Policy"),
+            Some(csp::PERMISSIONS),
+            "{what}"
+        );
+    }
+    // A busy answer, made outside `answer`, carries it too.
+    let mut busy = Response::empty(503);
+    base(&mut busy, "https://example.org");
+    assert_eq!(busy.header("Permissions-Policy"), Some(csp::PERMISSIONS));
 }
 
 #[test]
@@ -843,16 +909,171 @@ fn the_cookies_are_host_only_https_only_and_out_of_scripts_reach() {
     );
 }
 
+impl Fix {
+    /// The steps of a hand-off up to the code, at `now`: the ask's nonce
+    /// cookie and the take's address. The person is read at `seen` first, so
+    /// the session on the sign-in's name is live when the pass reads it.
+    fn hand_off_from(
+        &self,
+        host: &str,
+        back: &str,
+        s: &str,
+        seen: u64,
+        now: u64,
+    ) -> (String, String) {
+        let ask = self
+            .gate
+            .answer(&nav(host, &format!("/_auth/ask?back={back}"), ""), now);
+        assert_eq!(ask.status, 303, "the ask at {now}");
+        let nonce = set(&ask, auth::ASK).expect("the ask set its nonce");
+        // The browser carries the person's cookie on the sign-in's name; it
+        // was last read at `seen`, which is what makes the pass a hand-off
+        // rather than a fresh sign-in.
+        self.busy(S, s, seen);
+        let pass = self.gate.answer(&nav(S, &target(&location(&ask)), s), now);
+        assert!(
+            location(&pass).starts_with(&format!("https://{host}/_auth/take?code=")),
+            "the pass at {now} did not hand the code to {host}: {}",
+            location(&pass)
+        );
+        (format!("{}={nonce}", auth::ASK), target(&location(&pass)))
+    }
+
+    /// One read of a session at `t`, which keeps it from idling out, and the
+    /// access check behind it answered good.
+    fn busy(&self, host: &str, c: &str, t: u64) {
+        self.hub.set(|h| {
+            h.level = Some(Ok(Some(Level::Write)));
+            h.other_id = None;
+        });
+        assert_eq!(
+            self.gate.answer(&fetch(host, "/_session", c), t).status,
+            200,
+            "{host} at {t}"
+        );
+    }
+}
+
 /// The steps of a hand-off up to the code: the ask's nonce and the take's
-/// address.
+/// address. The person signs in on the plugin's own name at `now` first, so
+/// `plugins.<domain>` holds a session to hand off from.
 fn hand_off(f: &Fix, host: &str, back: &str, now: u64) -> (String, String) {
     let (_, s) = sign_in_full(f, P, now);
-    let ask = f
+    f.hand_off_from(host, back, &s, now, now)
+}
+
+/// Keeps a session alive on every check, and keeps GitHub's answer good, so
+/// only the 12-hour limit can end it. The last moment of the 12 hours answers
+/// 200 and the moment after it answers 401.
+fn assert_ends_at_the_limit(f: &Fix, host: &str, c: &str, started: u64) {
+    let mut t = started;
+    while t < started + auth::TOTAL {
+        t = (t + auth::CHECK).min(started + auth::TOTAL);
+        f.hub.set(|h| {
+            h.level = Some(Ok(Some(Level::Write)));
+            h.other_id = None;
+        });
+        assert_eq!(
+            f.gate.answer(&fetch(host, "/_session", c), t).status,
+            200,
+            "{host} at {t}"
+        );
+    }
+    f.hub.set(|h| {
+        h.level = Some(Ok(Some(Level::Write)));
+        h.other_id = None;
+    });
+    let after = f
         .gate
-        .answer(&nav(host, &format!("/_auth/ask?back={back}"), ""), now);
-    let nonce = set(&ask, auth::ASK).unwrap();
-    let pass = f.gate.answer(&nav(S, &target(&location(&ask)), &s), now);
-    (format!("{}={nonce}", auth::ASK), target(&location(&pass)))
+        .answer(&fetch(host, "/_session", c), started + auth::TOTAL + 1);
+    assert_eq!(after.status, 401, "{host} outlives the 12 hours");
+}
+
+/// Keeps a session busy from `started` to `until`, asking half an idle window
+/// apart and answering 200 the whole way, so only the 12-hour limit could end
+/// it.
+fn keep_busy(f: &Fix, host: &str, c: &str, started: u64, until: u64) {
+    let mut t = started;
+    while t <= until {
+        f.hub.set(|h| {
+            h.level = Some(Ok(Some(Level::Write)));
+            h.other_id = None;
+        });
+        assert_eq!(
+            f.gate.answer(&fetch(host, "/_session", c), t).status,
+            200,
+            "{host} at {t}"
+        );
+        t += auth::IDLE / 2;
+    }
+}
+
+#[test]
+fn a_hand_off_carries_the_first_sign_ins_start() {
+    let f = fixture();
+    // One sign-in at T0, kept busy the whole 12 hours so nothing but the
+    // limit can end it. 30 minutes short of that end, a second name is handed
+    // off from it: its session must end with the first sign-in, not 12 hours
+    // after the hand-off. The source session is kept busy right up to the
+    // hand-off, which is what an active person does.
+    let (d, s) = sign_in_github(&f, P, T0);
+    let hand = T0 + auth::TOTAL - 30 * 60;
+    // The person is busy on both names they hold up to the hand-off, which is
+    // what keeps the limit — and nothing else — the thing that ends them.
+    keep_busy(&f, P, &d, T0, hand);
+    keep_busy(&f, S, &s, T0, hand);
+    let (nonce, take) = f.hand_off_from(Q, "/", &s, hand, hand);
+    let took = f.gate.answer(&nav(Q, &take, &nonce), hand);
+    assert_eq!(took.status, 303);
+    let e = format!("{}={}", auth::SESSION, set(&took, auth::SESSION).unwrap());
+    // The new name was live when it took the code…
+    assert_eq!(f.gate.answer(&fetch(Q, "/_session", &e), hand).status, 200);
+    // …and it ends with the first sign-in.
+    assert_eq!(
+        f.gate
+            .answer(&fetch(Q, "/_session", &e), T0 + auth::TOTAL + 1)
+            .status,
+        401
+    );
+    assert_eq!(
+        f.gate
+            .answer(&fetch(P, "/_session", &d), T0 + auth::TOTAL + 1)
+            .status,
+        401
+    );
+}
+
+#[test]
+fn a_session_past_twelve_hours_is_refused_rather_than_handed_off() {
+    let f = fixture();
+    // The carry is bounded by the same 12 hours: a person whose sign-in is
+    // already past them is refused at the pass, and signs in with GitHub
+    // again, which starts a new 12 hours.
+    let (d, s) = sign_in_github(&f, P, T0);
+    keep_busy(&f, P, &d, T0, T0 + auth::TOTAL - 30 * 60);
+    let late = T0 + auth::TOTAL + 60;
+    f.hub.set(|h| {
+        h.level = Some(Ok(Some(Level::Write)));
+        h.other_id = None;
+    });
+    let ask = f.gate.answer(&nav(Q, "/_auth/ask?back=/", ""), late);
+    assert_eq!(ask.status, 303);
+    let pass = f.gate.answer(&nav(S, &target(&location(&ask)), &s), late);
+    assert_eq!(pass.status, 303, "{}", location(&pass));
+    assert!(
+        location(&pass).starts_with("https://github.example/login/oauth/authorize?"),
+        "the past session was used rather than refused: {}",
+        location(&pass)
+    );
+}
+
+#[test]
+fn a_fresh_github_sign_in_starts_a_new_twelve_hours() {
+    let f = fixture();
+    // A person who signs in with GitHub starts their own 12 hours: that is a
+    // sign-in, not a hand-off, so it opens the name at `now`.
+    let (_, s) = sign_in_full(&f, P, T0);
+    assert_ends_at_the_limit(&f, S, &s, T0);
 }
 
 #[test]

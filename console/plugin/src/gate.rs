@@ -137,7 +137,7 @@ fn document(status: u16, bytes: Vec<u8>, dashboard: &str) -> Response {
         Ok(policy) => {
             let mut r = Response::with(status, "text/html; charset=utf-8", bytes);
             r.set("Content-Security-Policy", &policy);
-            r.set("Permissions-Policy", csp::PAGE_PERMISSIONS);
+            r.set("Permissions-Policy", csp::PERMISSIONS);
             r.set("Cross-Origin-Opener-Policy", csp::OPENER);
             r
         }
@@ -626,7 +626,9 @@ impl Gate {
             return self.stale();
         };
         let site = Site::Plugin(name.to_string());
-        let Some(id) = memory.open(site, c.person, c.checked, now) else {
+        // The session starts at the first sign-in's time, which the code
+        // carries, so a hand-off cannot restart the 12-hour limit.
+        let Some(id) = memory.open_at(site, c.person, c.checked, now, c.signed_in) else {
             return Response::empty(500);
         };
         drop(memory);

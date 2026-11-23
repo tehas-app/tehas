@@ -71,6 +71,10 @@ pub struct Code {
     pub person: Person,
     pub checked: u64,
     pub at: u64,
+    /// When this person's first sign-in began, carried from the session the
+    /// code came from. A hand-off opens its session at this time, so the
+    /// 12-hour limit runs from the first sign-in, not from the hand-off.
+    pub signed_in: u64,
 }
 
 #[derive(Default)]
@@ -162,6 +166,21 @@ impl Memory {
     }
 
     pub fn open(&mut self, site: Site, person: Person, checked: u64, now: u64) -> Option<String> {
+        self.open_at(site, person, checked, now, now)
+    }
+
+    /// As [`Memory::open`], opening the session at `started` rather than at
+    /// `now`: a hand-off carries the first sign-in's start, so the 12-hour
+    /// limit is that one hour for every name, not a fresh 12 for each.
+    pub fn open_at(
+        &mut self,
+        site: Site,
+        person: Person,
+        checked: u64,
+        now: u64,
+        started: u64,
+    ) -> Option<String> {
+        let started = started.min(now);
         self.sessions.retain(|_, s| {
             now.saturating_sub(s.used) <= IDLE && now.saturating_sub(s.started) <= TOTAL
         });
@@ -172,7 +191,7 @@ impl Memory {
             Session {
                 site,
                 person,
-                started: now,
+                started,
                 used: now,
                 checked,
             },
@@ -266,6 +285,7 @@ impl Memory {
                 person: s.person.clone(),
                 checked: s.checked,
                 at: now,
+                signed_in: s.started,
             },
         );
         Some((code, ask.plugin))
