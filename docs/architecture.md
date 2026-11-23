@@ -99,7 +99,8 @@ or clock in its source, whether reached by a path, a grouped import
 (`use std::{fs, ...}`, also spread over lines) or an alias
 (`use std::{env as e}`, `std as`); no standard stream (`stdin`,
 `stdout`, `stderr`); and no `print!`, `println!`, `eprint!`, `eprintln!`
-or `dbg!`. In-process sharing (`std::sync`), which the fakes use for
+or `dbg!`; no `thread_local!`, state kept per thread being hidden global
+state. In-process sharing (`std::sync`), which the fakes use for
 `Send + Sync`, is no effect and is not counted. The crate's tests round-trip
 its types through a small serde format of their own, since the crate takes
 no serde_json; `untyped-signatures` allows that one file by name, as its
