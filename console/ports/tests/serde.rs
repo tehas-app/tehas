@@ -478,6 +478,65 @@ fn markers_read_back() {
     });
 }
 
+#[test]
+fn a_marker_read_back_is_checked() {
+    let over = Marker::Blocked {
+        by: (1..=21)
+            .map(|n| Ref::Here(TicketKey::Number(nz(n))))
+            .collect(),
+    };
+    let node = to_node(&over).unwrap();
+    assert_eq!(
+        from_node::<Marker>(node).unwrap(),
+        Marker::Unreadable {
+            kind: MarkerKind::Blocked
+        }
+    );
+    let v2 = Marker::Spec(SpecMarker {
+        version: nz32(SPEC_VERSION + 1),
+        link: "https://example.test/spec.md".into(),
+        sha256: sha('b'),
+        requirements: vec![Requirement {
+            id: "R1".into(),
+            met: true,
+            note: "done".into(),
+        }],
+    });
+    let node = to_node(&v2).unwrap();
+    assert_eq!(
+        from_node::<Marker>(node).unwrap(),
+        Marker::Unreadable {
+            kind: MarkerKind::Spec
+        }
+    );
+    // Inside a bare marker and an edit too.
+    let bare = Marker::Bare {
+        kind: MarkerKind::Spec,
+        read: Some(Box::new(v2.clone())),
+    };
+    assert_eq!(
+        from_node::<Marker>(to_node(&bare).unwrap()).unwrap(),
+        Marker::Bare {
+            kind: MarkerKind::Spec,
+            read: Some(Box::new(Marker::Unreadable {
+                kind: MarkerKind::Spec
+            })),
+        }
+    );
+    let edit = MarkerEdit {
+        set: vec![over],
+        drop: vec![],
+    };
+    assert_eq!(
+        from_node::<MarkerEdit>(to_node(&edit).unwrap())
+            .unwrap()
+            .set,
+        [Marker::Unreadable {
+            kind: MarkerKind::Blocked
+        }]
+    );
+}
+
 /// A tag this copy does not know, with content of any shape.
 fn future(content: Node) -> Node {
     map(vec![("type", text("Future")), ("value", content)])

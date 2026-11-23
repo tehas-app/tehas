@@ -4,7 +4,7 @@
 
 use std::num::NonZeroU32;
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::ids::checked;
 use crate::mark::unknown_tag;
@@ -122,9 +122,11 @@ fn sha256_ok(s: &str) -> bool {
 /// One marker, as the adapter reads it from a comment or a body, with a
 /// typed payload per kind. The comment's author and last editor are the
 /// comment's own fields. A text's markers are in the order they stand in
-/// it, the first first.
+/// it, the first first. Read through serde, it is [`Marker::checked`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(tag = "type", content = "value")]
+// `remote = "Self"` makes the derives inherent functions, so the trait impls
+// below can check what is read.
+#[serde(remote = "Self", tag = "type", content = "value")]
 #[non_exhaustive]
 pub enum Marker {
     /// A question of the factory's, on the blueprint it asks about.
@@ -204,6 +206,18 @@ pub enum Marker {
         serialize_with = "unknown_tag"
     )]
     Unknown,
+}
+
+impl Serialize for Marker {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        Marker::serialize(self, s)
+    }
+}
+
+impl<'de> Deserialize<'de> for Marker {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Marker::deserialize(d).map(Marker::checked)
+    }
 }
 
 /// The tags of `Marker` but `Unknown`.
