@@ -71,8 +71,9 @@ and the 2.0.0 and 1.0.0 of the two repositories that read it. For tehas:
    0.15.8 the roster's run at the base commit read its report from the
    wrong path whenever the head suite had a failure, so lean handed back;
    0.15.9 fixes it, and a failing head suite is lean's normal path.
-   tehas refuses a lean start on a
-   sandbox image whose pi-rukas is older, saying why. At the trio's
+   This floor applies to lean on a lab host, and no code checks it yet:
+   a check that refuses a lean start on a sandbox image whose pi-rukas
+   is older is 2.x work (T13). At the trio's
    readiness review the newest pi-rukas release on the 0.15 line is the one
    pinned (`PI_RUKAS_FOLLOW=release:0.15`): pi-rukas 0.16, which moves it
    to npm, is not for this trio. A tag
@@ -532,7 +533,22 @@ T9 lists it in "Changed in 2.0" with its readers.
 
 Done when #2782's "Done when" holds.
 
-### T13. Lean is the default driver
+### T13. Classic is 2.0's driver; lean stays a lab feature
+
+Done as "classic is 2.0's driver; lean stays a lab feature (building)"
+(the owner, 2026-11-23). The first round of the proof (part 1) finished
+0 green of 8, so lean is not proven, and the owner decided on 2026-11-23
+not to flip the default. In 2.0 `lean` stays `Stage::Building` in
+`console/core/src/features.rs`: every release refuses it, and it runs
+only on a lab host. No lean code is built for 2.0. The fallback to
+classic on a setup refusal (part 4), the pi-rukas floor of v0.15.9
+(part 2) and lean's move to shipped (part 3) are 2.x work, possible
+without a new major. Which driver is the default is not contract
+(`host/docs/contract.md`, the rules for 2.x): a 2.x release may make
+lean the default once it is proven.
+
+The history of the step follows. The default flip of part 4 and the
+words of part 5 are dropped; parts 2 to 4 are 2.x work.
 
 The owner, 2026-11-22: 2.0.0 runs the lean driver by default. This is a
 behaviour change, made in its own pull requests and not inside a
@@ -565,8 +581,11 @@ driver in 2.0 (the owner).
    candidate checks this as it checks the pin.
 3. **Ship it.** `lean` in `console/core/src/features.rs` moves to
    shipped, and `host/docs/features.md` marks it proven with the dates
-   and issues of the proof.
-4. **The default.** With no `TEHAS_DRIVER`, a start runs lean. An issue
+   and issues of the proof. Since 2026-11-23: 2.x work. In 2.0 lean stays
+   building, and `features.md` keeps it building and experimental.
+4. **The default.** Dropped on 2026-11-23: with no `TEHAS_DRIVER`, a
+   start runs classic. The words below were the plan for a lean default.
+   The fallback in them is not built, and is 2.x work. With no `TEHAS_DRIVER`, a start runs lean. An issue
    with no `pi-spec v1` block runs classic, as under `TEHAS_DRIVER=lean`
    today. `TEHAS_DRIVER=classic` and `tehas:classic` keep classic.
    When lean is only the default and its result says `failure.kind` is
@@ -588,15 +607,16 @@ driver in 2.0 (the owner).
    is the one rule. #2511 blocks this part only. If it is not in by the
    trio's readiness review, 2.0.0 ships lean available but not the
    default, and the owner decides.
-5. **The contract.** T9 lists the new default in "Changed in 2.0", with
+5. **The contract.** Dropped on 2026-11-23: there is no new default to
+   list. The plan was: T9 lists the new default in "Changed in 2.0", with
    its readers, in these words: "An issue with a `pi-spec v1` block runs
    the lean driver; an issue without one runs classic." The changelog's
    adopter action: "set `verify.roster`, or `TEHAS_DRIVER=classic`".
+   Instead the rules for 2.x say the default driver is not contract.
 
-Done when the proof is in `features.md`, the pinned pi-rukas has the
-fixes of trail-openers/pi-rukas#2493, and the dispatcher's and the
-cycle's tests show a start with no driver setting running lean, and
-falling back to classic on lean's setup refusal.
+Done, as "classic is 2.0's driver; lean stays a lab feature
+(building)". The plan's earlier test, a start with no driver setting
+running lean, is dropped.
 
 ### T14. The Protolab removed, its plumbing kept
 
@@ -707,8 +727,9 @@ trio are supported, so 2.0 carries no backwards compatibility.
   repository, are run through it by a person before the trio is tagged.
 - **T9 has no renames table.** The changes of 2.0 are listed once, in
   "Changed in 2.0", with no old name kept beside a new one.
-- **Classic stays.** `TEHAS_DRIVER=classic` and T13's fallback to it are
-  a supported 2.0 driver, not a lever (the owner, 2026-11-22).
+- **Classic stays.** `TEHAS_DRIVER=classic` is a supported 2.0 driver,
+  not a lever (the owner, 2026-11-22). Classic is 2.0's driver, and T13's
+  fallback to it is 2.x work (the owner, 2026-11-23).
 - **The unused features** of `docs/plans/2026-11-22-unused-features.md`,
   every row approved by the owner, 2026-11-22, one step per kind:
   - dropped in 2.0: the All hands label, the Spec marks, Outsource with
