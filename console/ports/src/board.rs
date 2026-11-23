@@ -139,9 +139,12 @@ new!(
 pub trait Board: Reports {
     /// The open tickets the filter takes, each with its own answer, and the
     /// control ticket with its own. Open tickets alone, whatever the
-    /// filter's `open` says.
+    /// filter's `open` says. Each ticket's parts and blockers are whole at
+    /// every `Depth`, as `Ticket.parts` says: past a bound that item is
+    /// `Unread(Cut)`, never a short list.
     fn open_work(&mut self, ask: &BoardAsk, bound: Bound) -> Got<OpenWork>;
-    /// One ticket whole, as the ask names.
+    /// One ticket whole, as the ask names: its parts and blockers whole at
+    /// every `Depth`, or the item `Unread(Cut)`.
     fn work_item(&mut self, key: &TicketKey, ask: &BoardAsk) -> Got<WorkItem>;
     /// The tickets closed since a time. Per item, as `OpenWork.items`. The
     /// ask's filter is not applied: every ticket closed since then.

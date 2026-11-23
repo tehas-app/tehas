@@ -157,6 +157,43 @@ pub mod tickets {
         )
     }
 
+    /// A ticket's `parent` names P exactly when `parts(P)` holds it, and
+    /// `Ticket.parts` and `Ticket.blockers` are whole at every depth, the
+    /// same as `parts` and `blockers` answer, `Depth::Cut` included. The
+    /// fixture's `keys` hold a ticket with parts and one with blockers, and
+    /// the parent of every ticket among them.
+    pub fn a_parent_holds_its_parts(h: &mut dyn Tickets, keys: &[TicketKey]) -> Law {
+        const LAW: &str = "tickets::a_parent_holds_its_parts";
+        let mut parts_of = Vec::new();
+        for k in keys {
+            let parts = got(LAW, "parts", h.parts(k))?.into_items();
+            let blockers = got(LAW, "blockers", h.blockers(k))?.into_items();
+            for depth in [Depth::Cut { notes: 0 }, Depth::All] {
+                let t = got(LAW, "the ticket", h.ticket(k, depth, None))?;
+                hold(t.parts == parts && t.blockers == blockers, LAW, || {
+                    format!("{k:?} at {depth:?} holds parts or blockers apart from the lists")
+                })?;
+            }
+            parts_of.push((k.clone(), parts));
+        }
+        for (k, answer) in h.several(keys) {
+            let d = got(LAW, "several", answer)?;
+            let holders: Vec<&TicketKey> = parts_of
+                .iter()
+                .filter(|(_, parts)| parts.iter().any(|p| p.key == crate::Ref::Here(k.clone())))
+                .map(|(p, _)| p)
+                .collect();
+            let want = holders.first().map(|p| crate::Ref::Here((*p).clone()));
+            hold(holders.len() <= 1 && d.parent == want, LAW, || {
+                format!(
+                    "{k:?}'s parent is {:?}, the parts say {holders:?}",
+                    d.parent
+                )
+            })?;
+        }
+        Ok(())
+    }
+
     /// `several_with_closers` answers each ticket's digest as `several`
     /// does, with the closer its `Ticket.closer` gives, None while it is
     /// open. The fixture holds `keys`, closed and open.

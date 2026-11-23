@@ -791,6 +791,7 @@ fn digest() -> TicketDigest {
         ticket_digest.marks = vec![Mark::Act(Act::Approve)];
         ticket_digest.target = Some(TargetName::new(TargetId::new("t1"), "2.0".into()));
         ticket_digest.author = Some(account());
+        ticket_digest.parent = Some(Ref::Here(tkey(9)));
         ticket_digest
     }
 }

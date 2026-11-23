@@ -1033,8 +1033,15 @@ pub(crate) fn digest(s: &State, item: &ItemRec) -> Option<TicketDigest> {
             .map(|t| t.title.clone())
             .unwrap_or_default(),
     });
+    let parent = s
+        .items
+        .iter()
+        .find(|i| i.parts.contains(&key))
+        .and_then(|i| i.ticket.clone())
+        .map(Ref::Here);
     Some(TicketDigest {
         link: s.ticket_link(&key),
+        parent,
         key,
         title: item.title.clone(),
         state,

@@ -325,6 +325,24 @@ fn a_ticket_event_stored_without_a_mark_id_reads_as_none() {
 }
 
 #[test]
+fn a_ticket_digest_stored_without_a_parent_reads_as_none() {
+    let mut d = TicketDigest::new(
+        TicketKey::Number(nz(3)),
+        TicketState::Open,
+        At::new(1),
+        At::new(2),
+        Revision::new("r"),
+        WebLink::new("https://example.test/t/3").unwrap(),
+    );
+    let mut json = serde_json::to_value(&d).unwrap();
+    json.as_object_mut().unwrap().remove("parent");
+    let back: TicketDigest = serde_json::from_value(json).unwrap();
+    assert_eq!(back, d);
+    d.parent = Some(here(1));
+    round!(d);
+}
+
+#[test]
 fn an_old_spec_marker_reads_as_unknown() {
     // The Spec marker left with the Spec marks (#2892): a record that still
     // holds one reads under the one rule, as a tag this copy does not know.

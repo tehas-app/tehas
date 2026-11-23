@@ -195,6 +195,30 @@ fn tickets_a_mark_event_names_the_marks_id() {
 }
 
 #[test]
+fn tickets_a_parent_holds_its_parts() {
+    for w in both() {
+        let w = w
+            .ticket(2, |t| t.title("a part"))
+            .ticket(3, |t| t.title("another part").closed(CloseReason::Done))
+            .ticket(4, |t| t.title("alone"));
+        let (k2, k3, k4) = (w.key(2), w.key(3), w.key(4));
+        let w = w.ticket(1, |t| {
+            t.title("the whole")
+                .part(k2.clone())
+                .part(k3.clone())
+                .blocker(Item::Ticket(k4.clone()))
+        });
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let keys = [w.key(1), k2.clone(), k3, k4.clone()];
+        ok(laws::tickets::a_parent_holds_its_parts(h.as_mut(), &keys));
+        let d = h.several(&[k2, k4]);
+        assert_eq!(d[0].1.as_ref().unwrap().parent, Some(Ref::Here(w.key(1))));
+        assert_eq!(d[1].1.as_ref().unwrap().parent, None);
+    }
+}
+
+#[test]
 fn tickets_several_carries_each_closer() {
     for w in both() {
         let w = w

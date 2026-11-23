@@ -53,6 +53,11 @@ pub struct TicketDigest {
     pub target: Option<TargetName>,
     /// Who filed it; None where the site names nobody.
     pub author: Option<Account>,
+    /// The ticket it is a part of: P exactly when `Tickets::parts(P)`
+    /// holds this ticket. None when it is a part of none. Missing, it reads
+    /// as None.
+    #[serde(default)]
+    pub parent: Option<Ref<TicketKey>>,
     /// When it was filed.
     pub created: At,
     /// When the site last saw the ticket change, as it records it: a
@@ -78,7 +83,8 @@ new!(
     priority,
     marks,
     target,
-    author
+    author,
+    parent
 );
 
 /// A target by its id, with its title as the site names it now.
@@ -110,9 +116,12 @@ pub struct Ticket {
     pub closed: Option<At>,
     /// What closed it, from the newest close in its history.
     pub closer: Option<Closer>,
-    /// Its parts.
+    /// Its parts, whole at every `Depth`, `Depth::Cut` included: as
+    /// `Tickets::parts` answers. Past the read's bound the ticket is
+    /// `Unread(Cut)`, never a short list.
     pub parts: Vec<Part>,
-    /// What it waits on.
+    /// What it waits on, whole at every `Depth` as `parts` is: as
+    /// `Tickets::blockers` answers.
     pub blockers: Vec<Blocker>,
     /// The accounts it is assigned to.
     pub assignees: Vec<Account>,
