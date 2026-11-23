@@ -25,7 +25,7 @@ fn millwright_ready(w: &World, starts: Option<u32>) {
     w.fx("icomments-7.json", "[]");
     fs::create_dir_all(w.cycles_dir()).unwrap();
     let Some(k) = starts else { return };
-    w.past(7, "alice", "label", "2026-10-01T00:00:00Z", &[]);
+    w.past(7, "alice", "approved", "2026-10-01T00:00:00Z", &[]);
     for i in 1..=k {
         w.past(
             7,

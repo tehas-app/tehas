@@ -68,7 +68,7 @@ fn home_with_a_run(name: &str) -> (PathBuf, String) {
                 endpoint, pr, tehas_version, tehas_commit, rukas_version, rukas_commit,
                 image, input, output, cache_read, cache_write, turns, dispatches, cost,
                 runner_ms, oom_kills, forks_refused, concurrent, result_schema)
-             VALUES ('{id}', 'work', 7, 2, 'label', {started}, {started} + 600, 600,
+             VALUES ('{id}', 'work', 7, 2, 'approved', {started}, {started} + 600, 600,
                 5, 'failed', 'failed', 3, 'review', 'review', 'time', 'loop', 1,
                 'model', 'the model said no', 0, 'main', 8, 'v0.7.31', 'c1', 'v0.14.0',
                 'c2', 'sha256:ab', 1, 2, 3, 4, 9, 6, 0.5, 700, 0, 1, 2, 4)"

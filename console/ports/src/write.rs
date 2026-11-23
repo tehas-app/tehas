@@ -7,10 +7,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::mark::unknown_tag;
 use crate::{
-    unknown, AccountId, At, Blobs, BlueprintNo, Body, ChangeNo, CloseReason, CommentId, CommitId,
-    FileName, Got, Item, Kind, Mark, MarkSpec, Marker, MarkerEdit, MergeHow, NewBlueprint,
-    NewChange, NewRelease, NewTicket, Outcome, Priority, Proposal, Proposed, Refusal, ReleaseId,
-    Revision, Sha256, Status, Sum, TagName, TargetEdit, TargetId, TicketKey, WebLink,
+    unknown, AccountId, At, Blobs, BlueprintNo, BlueprintWrites, Body, ChangeNo, CloseReason,
+    CodeHostWrites, CommentId, CommitId, Did, FileName, Got, Item, Kind, Mark, MarkSpec, Marker,
+    MarkerEdit, MergeHow, NewBlueprint, NewChange, NewRelease, NewTicket, Outcome, Priority,
+    Proposal, Proposed, Refusal, ReleaseId, Revision, Sha256, Status, Sum, TagName, TargetEdit,
+    TargetId, TicketKey, TicketWrites, WebLink,
 };
 
 /// One write, as the journal records it before it is sent. A row names its
@@ -495,6 +496,130 @@ pub trait Writes {
     fn read_only(&self) -> bool;
 }
 
-// T4.1d: `Writer`, which sends each variant to its port's write method over
-// three owned write handles, comes with the fakes, whose write handles test
-// it.
+/// Sends each variant to its port's write method. Owns its handles.
+pub struct Writer {
+    /// The tickets write handle.
+    pub tickets: Box<dyn TicketWrites + Send>,
+    /// The blueprints write handle.
+    pub blueprints: Box<dyn BlueprintWrites + Send>,
+    /// The code host write handle.
+    pub code_host: Box<dyn CodeHostWrites + Send>,
+}
+
+/// The text of a body as a port method takes it. A `Body::Summed` is
+/// `Refused(Invalid)`: a summed row is never sent.
+fn text(body: &Body) -> Got<&str> {
+    match body {
+        Body::Text(t) => Ok(t),
+        Body::Summed(_) => Err(Outcome::Refused(Refusal::Invalid)),
+    }
+}
+
+fn opt_text(body: &Option<Body>) -> Got<Option<&str>> {
+    body.as_ref().map(text).transpose()
+}
+
+impl Writes for Writer {
+    /// An unknown write is `Refused(Invalid)` before any request. A write
+    /// that makes nothing answers `Receipt::Done`; an edit, where a person
+    /// opens what it edited.
+    fn send(&mut self, w: &Write, files: &dyn Blobs) -> Got<Receipt> {
+        let done = |r: Did| r.map(|()| Receipt::Done);
+        let t = &mut self.tickets;
+        let b = &mut self.blueprints;
+        let c = &mut self.code_host;
+        match w {
+            Write::Mark { ticket, mark } => done(t.mark(ticket, mark)),
+            Write::Unmark { ticket, mark } => done(t.unmark(ticket, mark)),
+            Write::Close { ticket, reason } => done(t.close(ticket, reason)),
+            Write::Reopen { ticket } => done(t.reopen(ticket)),
+            Write::TicketNote {
+                ticket,
+                body,
+                markers,
+            } => t.note(ticket, text(body)?, markers).map(Receipt::Comment),
+            Write::FileTicket(new) => t.file(new).map(Receipt::Ticket),
+            Write::EditTicket {
+                ticket,
+                title,
+                text: body,
+                markers,
+                since,
+            } => t
+                .edit(ticket, title.as_deref(), opt_text(body)?, markers, since)
+                .map(Receipt::Edited),
+            Write::SetKind { ticket, kind } => done(t.set_kind(ticket, kind.as_ref())),
+            Write::SetPriority { ticket, priority } => done(t.set_priority(ticket, *priority)),
+            Write::WaitOn { ticket, on } => done(t.wait_on(ticket, on)),
+            Write::StopWaiting { ticket, on } => done(t.stop_waiting(ticket, on)),
+            Write::Assign { ticket, who } => done(t.assign(ticket, who)),
+            Write::AddPart { parent, child } => done(t.add_part(parent, child)),
+            Write::RemovePart { parent, child } => done(t.remove_part(parent, child)),
+            Write::NewTarget { title, due } => t.new_target(title, *due).map(Receipt::Target),
+            Write::EditTarget { id, edit } => done(t.edit_target(id, edit)),
+            Write::SetTarget { ticket, target } => done(t.set_target(ticket, target.as_ref())),
+            Write::Prepare => done(t.prepare()),
+            Write::EnsureMark(spec) => done(t.ensure_mark(spec)),
+            Write::OpenBlueprint(new) => b.open(new).map(Receipt::Blueprint),
+            Write::EditBlueprint {
+                no,
+                title,
+                body,
+                markers,
+                since,
+            } => b
+                .edit(*no, title.as_deref(), opt_text(body)?, markers, since)
+                .map(Receipt::Edited),
+            Write::Comment { on, body, markers } => {
+                b.comment(*on, text(body)?, markers).map(Receipt::Comment)
+            }
+            Write::EditComment {
+                id,
+                body,
+                markers,
+                since,
+            } => b
+                .edit_comment(id, text(body)?, markers, since)
+                .map(Receipt::Edited),
+            Write::CloseBlueprint { no, done: d } => done(b.close(*no, *d)),
+            Write::OpenChange(new) => c.open_change(new).map(Receipt::Change),
+            Write::EditChange {
+                no,
+                title,
+                body,
+                markers,
+            } => c
+                .edit_change(*no, title.as_deref(), opt_text(body)?, markers)
+                .map(Receipt::Edited),
+            Write::MarkChange { no, mark } => done(c.mark_change(*no, mark)),
+            Write::UnmarkChange { no, mark } => done(c.unmark_change(*no, mark)),
+            Write::CommentChange { no, body, markers } => c
+                .comment_change(*no, text(body)?, markers)
+                .map(Receipt::Comment),
+            Write::CloseChange { no } => done(c.close_change(*no)),
+            Write::Merge { no, head, how } => done(c.merge(*no, head, *how)),
+            Write::Propose(p) => match c.propose(p, files) {
+                Ok(proposed) => Ok(Receipt::Proposed(proposed)),
+                Err(applied) => Err(applied
+                    .stopped
+                    .map_or(Outcome::Unread(crate::Unread::Inconsistent), |(_, o)| o)),
+            },
+            Write::Tag { name, at } => done(c.tag(name, at)),
+            Write::SetStatus { at, status } => done(c.set_status(at, status)),
+            Write::NewRelease(new) => c.new_release(new).map(Receipt::Release),
+            Write::Upload {
+                release,
+                name,
+                file,
+            } => done(c.upload(release, name, file, files)),
+            Write::PublishRelease { release } => done(c.publish_release(release)),
+            Write::Unknown => Err(Outcome::Refused(Refusal::Invalid)),
+        }
+    }
+
+    /// False: a `Writer` sends every write. A read-only host's writer is
+    /// the guard's, above it.
+    fn read_only(&self) -> bool {
+        false
+    }
+}

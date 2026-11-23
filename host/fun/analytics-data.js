@@ -7,7 +7,6 @@
 // (test/analytics_view_test.mjs). Every figure says its count as "n=N": with
 // ten days of data the numbers are small.
 
-export const READ_EVERY = 60; // seconds: the file changes once a poll, every two minutes
 export const VERSION_FLOOR = 3; // the report gives a pair's figures from three runs
 
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -44,18 +43,10 @@ export function tokens(v) {
 }
 
 // Heights for a row of bars: each value's share of the largest, 0 where all
-// are 0, so an empty ten days draws flat rather than full.
+// are 0, so an empty ten days draws flat.
 function heights(values) {
   const max = Math.max(0, ...values);
   return values.map((v) => (max > 0 ? v / max : 0));
-}
-
-// Should the page read the file now? Not while it is hidden, and not more
-// than once in READ_EVERY seconds, whether the last answer was a file or not.
-// readAt: when it was last asked for, 0 for never.
-export function dueToRead({ hidden = false, readAt = 0 } = {}, nowMs = Date.now()) {
-  if (hidden) return false;
-  return !readAt || nowMs - readAt >= READ_EVERY * 1000;
 }
 
 // data: the parsed file, or null where there is none.
@@ -129,12 +120,12 @@ export function analyticsView(data) {
   const versions = list(r.versions).slice(0, 10).map((v) => {
     const o = obj(v);
     const n = num(o.n) ?? 0;
-    const full = n >= VERSION_FLOOR && num(o.prShare) != null;
+    const full = n >= VERSION_FLOOR && num(o.changeShare) != null;
     return {
       tehas: text(o.tehas, 40) || "unknown",
       rukas: text(o.rukas, 40) || "unknown",
       runs: String(n),
-      pr: full ? percent(o.prShare) : "",
+      pr: full ? percent(o.changeShare) : "",
       minutes: full ? duration(o.medianSeconds) : "",
       tokens: full ? tokens(o.medianTokens) : "",
       few: !full,

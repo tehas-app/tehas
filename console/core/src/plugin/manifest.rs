@@ -81,7 +81,7 @@ pub struct Manifest {
     pub timeout: Option<u64>,
     /// `ui: {"kit": 1}`: the gate serves the kit to the view.
     pub kit: bool,
-    /// The panel's label, when the manifest has a view.
+    /// The view's label, when the manifest has one.
     pub view: Option<String>,
     /// The views of `views`, which excludes `view`.
     pub views: Vec<View>,
@@ -633,7 +633,7 @@ fn tools(v: &Value, caps: &[Cap], out: &mut Refusals) -> Vec<Tool> {
 /// Where a view opens from the plugins menu.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Open {
-    /// In the dock, beside the dashboard's own panels.
+    /// In the dock, a frame at the side of the page.
     Dock,
     /// In a page of its own, a new tab.
     Page,

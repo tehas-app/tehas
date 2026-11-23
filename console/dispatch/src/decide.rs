@@ -32,8 +32,8 @@ mod starts;
 
 pub(crate) use crate::snapshot::{base_approver, base_stands, named_blockers, record_base, shape};
 pub use action::{
-    Action, CommentRef, CycleStart, LabelChange, NoteKind, QuietDue, RefreshOf, RetryTick, SpecPin,
-    Spend, StartExtra, Turn,
+    Action, CommentRef, CycleStart, LabelChange, NoteKind, QuietDue, RefreshOf, RetryTick, Spend,
+    StartExtra, Turn,
 };
 pub(crate) use clean::{iso, quiet_due, quiet_why, Due, QUIET_ASKS};
 pub(crate) use flow::in_flow;
@@ -1718,25 +1718,6 @@ impl<'a> Poll<'a> {
         Ok(false)
     }
 
-    /// mark_ok: with the spec-pipe feature on, an issue whose body has a
-    /// `Spec:` line tehas cannot read starts nothing: the labels that asked
-    /// come off and the reason is said once. A body with no such line starts
-    /// as before. Off, the body is asked nothing.
-    fn mark_ok(&mut self, n: u64, ask: &str, labels: &[String]) -> Step<bool> {
-        if !self.c.spec_pipe {
-            return Ok(true);
-        }
-        let Some(body) = self.body(n) else {
-            return Err(self.fail(format!("ERROR: the text of #{n} could not be read"), 1));
-        };
-        let Err(why) = text::spec_mark(&body) else {
-            return Ok(true);
-        };
-        self.log(format!("skip #{n}: {why}"));
-        self.refuse_start(n, ask, labels, &text::no_mark_said(ask, &why), &why);
-        Ok(false)
-    }
-
     /// taken_off: who took the driver label `label` off, when an allowed
     /// account's choice went and that account may not take it. An issue whose
     /// events were not read names nobody: each start reads them itself.
@@ -2802,9 +2783,6 @@ impl<'a> Poll<'a> {
             if !self.size_ok(n, ask, &labels)? {
                 continue;
             }
-            if !self.mark_ok(n, ask, &labels)? {
-                continue;
-            }
             if let Some(url) = self.open_pr(n)? {
                 self.holds_on_pr(n, ask, &url);
                 continue;
@@ -2856,7 +2834,7 @@ impl<'a> Poll<'a> {
                 verb: "labelled".into(),
                 how: format!("`{ask}` label"),
                 given_at: at,
-                given_how: "label".into(),
+                given_how: "approved".into(),
                 remove,
                 extra: StartExtra::default(),
             };
@@ -2932,11 +2910,6 @@ impl<'a> Poll<'a> {
         } else {
             format!("start #{n} ({} by {})", st.verb, st.starter)
         };
-        let spec = if self.c.spec_pipe {
-            spec_pin(body, &st.remove)
-        } else {
-            None
-        };
         self.act(Action::Start(Box::new(CycleStart {
             issue: n,
             by: st.starter,
@@ -2950,30 +2923,9 @@ impl<'a> Poll<'a> {
             body_sha256: text::body_sum(body),
             title_sha256: text::title_sum(t.title.as_deref()),
             links: text::link_list(body),
-            spec,
             extra: st.extra,
         })));
     }
-}
-
-/// The spec a start pins, from the body its approval binds: the `Spec:` line
-/// read, or why tehas cannot read it, so a start that did not pass `mark_ok` (a retry, a refresh) fails closed too. `off` is
-/// what comes off when the spec stops the start: of the labels the start takes
-/// off, those that asked for it. None for a body with no such line.
-fn spec_pin(body: &str, remove: &[String]) -> Option<SpecPin> {
-    let off: Vec<String> = remove
-        .iter()
-        .filter(|l| matches!(l.as_str(), "tehas:ready" | "tehas:blocked" | "tehas:plan"))
-        .cloned()
-        .collect();
-    let read = text::spec_mark(body).transpose()?;
-    Some(SpecPin { read, off })
-}
-
-/// [`spec_pin`] as the start's JSON writes it.
-#[cfg(test)]
-fn spec_of(body: &str, remove: &[String]) -> Option<Value> {
-    spec_pin(body, remove).as_ref().map(Value::from)
 }
 
 /// The most numbers `labelAlone` lists, so the line status prints is bounded.
@@ -3055,40 +3007,6 @@ mod label_tests {
 }
 
 #[cfg(test)]
-mod spec_tests {
-    use super::spec_of;
-    use serde_json::json;
-
-    #[test]
-    fn a_start_pins_the_spec_its_body_marks_and_names_what_asked_for_it() {
-        let h = "e".repeat(64);
-        let link = "https://github.com/user-attachments/files/3/spec.md";
-        let remove = [
-            "tehas:ready",
-            "tehas:blocked",
-            "tehas:question",
-            "tehas:awaiting-merge",
-        ]
-        .map(String::from);
-        assert_eq!(
-            spec_of(&format!("Do it.\n\nSpec: {link} sha256:{h}"), &remove),
-            Some(json!({"link": link, "sha256": h, "off": ["tehas:ready", "tehas:blocked"]}))
-        );
-        assert_eq!(spec_of("Do it.", &remove), None);
-        assert_eq!(
-            spec_of("Spec: docs/spec.md", &["tehas:question".to_string()]),
-            Some(json!({"why": "its `Spec:` line is not a link and its sha256", "off": []}))
-        );
-        assert_eq!(
-            spec_of(&format!("Spec: https://example.com/s.md sha256:{h}"), &[]),
-            Some(
-                json!({"why": "the link of its `Spec:` line is not a file attached on GitHub", "off": []})
-            )
-        );
-    }
-}
-
-#[cfg(test)]
 mod millwright_tests {
     use super::{base_approver, base_stands, record_base};
     use serde_json::{json, Value};
@@ -3096,7 +3014,7 @@ mod millwright_tests {
     const SUM: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     fn person(by: &str) -> Value {
-        json!({"at": "2026-10-01T00:00:00Z", "by": by, "how": "label", "body_sha256": SUM, "links": []})
+        json!({"at": "2026-10-01T00:00:00Z", "by": by, "how": "approved", "body_sha256": SUM, "links": []})
     }
 
     fn by_millwright(rests_on: Value) -> Value {
@@ -3111,7 +3029,7 @@ mod millwright_tests {
 
     #[test]
     fn a_base_is_the_persons_approval_a_record_rests_on() {
-        let want = json!({"at": "2026-10-01T00:00:00Z", "by": "alice", "how": "label", "body_sha256": SUM});
+        let want = json!({"at": "2026-10-01T00:00:00Z", "by": "alice", "how": "approved", "body_sha256": SUM});
         assert_eq!(record_base(&person("alice")), Some(want.clone()));
         assert_eq!(
             record_base(&by_millwright(person("alice"))),

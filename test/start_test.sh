@@ -100,11 +100,11 @@ t_eq "$(t_calls gh)" "api repos/acme/widget/issues/12"
 
 t_case "--clear leaves an approval of another kind alone"
 reset
-t_approve "$th" 12 alice label
+t_approve "$th" 12 alice approved
 t_run "$start_cmd 12 --clear"
 t_eq "$t_rc" 0
 t_contains "$t_out" "#12 has no approval from the host waiting"
-t_eq "$(t_row approval-current 12 -- '.approval.how')" label
+t_eq "$(t_row approval-current 12 -- '.approval.how')" approved
 
 t_case "a bad argument writes nothing and exits 64"
 reset

@@ -22,7 +22,7 @@ pub struct Call {
 /// release, in the order a refusal prints them.
 pub const HOWS: [(&str, &str); 8] = [
     (crate::approval::MILLWRIGHT, crate::approval::MILLWRIGHT),
-    ("label", "label"),
+    (crate::approval::APPROVED, crate::approval::APPROVED),
     ("refresh", "refresh"),
     ("outage-retry", "outage-retry"),
     ("hand", "hand"),

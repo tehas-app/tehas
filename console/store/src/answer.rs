@@ -125,21 +125,26 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
 
 /// The names of an answer's columns, in the order `waiting_json` reads them;
 /// the text is read past them.
-const ANSWER_NAMES: [&str; 7] = ["question", "issue", "kind", "choice", "option", "by", "at"];
+const ANSWER_NAMES: [&str; 8] = [
+    "question", "comment", "issue", "kind", "choice", "option", "by", "at",
+];
 
-/// The answer waiting on question `id` of the issue: null for none. `text` is
-/// the reply in words, null for a choice, and `how` is always `answer`.
+/// The answer waiting on question `id` of the issue, by the store's number:
+/// null for none. `question` is the store's number and `comment` the id of
+/// the comment that asked it, which the dispatcher matches with the issue's
+/// comments. `text` is the reply in words, null for a choice, and `how` is
+/// always `answer`.
 pub(crate) fn waiting_json(c: &Connection, issue: i64, id: i64) -> Result<String, Fail> {
     let row = c
         .query_row(
-            "SELECT a.question, a.issue, q.kind, a.choice, a.option_key, a.by_account, a.at,
-               a.text
+            "SELECT a.question, q.comment_id, a.issue, q.kind, a.choice, a.option_key,
+               a.by_account, a.at, a.text
              FROM answers a JOIN questions q ON q.id = a.question
              WHERE a.question = ?1 AND a.issue = ?2",
             params![id, issue],
             |r| {
                 let mut p = row_json(r, &ANSWER_NAMES)?;
-                p.push(("text", j(r.get::<_, Option<String>>(7)?)));
+                p.push(("text", j(r.get::<_, Option<String>>(8)?)));
                 p.push(("how", j("answer")));
                 Ok(p)
             },
@@ -149,13 +154,14 @@ pub(crate) fn waiting_json(c: &Connection, issue: i64, id: i64) -> Result<String
     Ok(row.map_or("null".to_string(), |p| obj(&p)))
 }
 
-/// The open planning session's question, while it waits for an answer, and
-/// the options the turn offered.
+/// The open planning session's question, by the store's number, while it
+/// waits for an answer, and the options the turn offered.
 fn plan_question(c: &Connection, issue: i64) -> Result<Option<(i64, Option<String>)>, Fail> {
     c.query_row(
-        "SELECT q.id, p.options_json FROM planning p JOIN questions q ON q.id = p.comment_id
+        "SELECT q.id, p.options_json FROM planning p JOIN questions q ON q.comment_id = p.comment_id
          WHERE p.issue = ?1 AND p.ended_at IS NULL AND p.running = 0
-           AND q.issue = ?1 AND q.kind = 'plan' AND q.answered_at IS NULL",
+           AND q.issue = ?1 AND q.kind = 'plan' AND q.answered_at IS NULL
+           AND q.withdrawn_at IS NULL",
         [issue],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )
@@ -167,7 +173,8 @@ fn plan_question(c: &Connection, issue: i64) -> Result<Option<(i64, Option<Strin
 /// planning session's open question or else the park question on record,
 /// with when it was asked, the choices a park's question offers (null for a
 /// question asked before they were kept) and a planning question's options.
-/// `question` is null when none waits.
+/// `id` is the store's number of the question. `question` is null when none
+/// waits.
 fn show(c: &Connection, issue: i64) -> Result<String, Fail> {
     let (id, kind, options) = match plan_question(c, issue)? {
         Some((id, json)) => (id, "plan", Some(options(issue, json.as_deref())?)),
@@ -304,13 +311,15 @@ fn record(
     })
 }
 
-/// `answer-drop <issue> --id <id>`: the answer to question `id` taken away.
-/// One already gone is done.
+/// `answer-drop <issue> --id <id>`: the answer to the question comment `id`
+/// asked taken away. One already gone is done.
 fn drop(home: &Path, issue: i64, id: i64) -> Result<String, Fail> {
     verbs::write(home, |c| {
         let gone = c
             .execute(
-                "DELETE FROM answers WHERE question = ?1 AND issue = ?2",
+                "DELETE FROM answers WHERE issue = ?2
+                   AND question = (SELECT q.id FROM questions q
+                     WHERE q.comment_id = ?1 AND q.withdrawn_at IS NULL)",
                 params![id, issue],
             )
             .q()?;

@@ -237,7 +237,7 @@ t_lists_of() { # <tehas|tehasbot> <file>
 t_case "the front's verbs and the lists of the pages are both read"
 t_front_verbs tehas "$T/verbs-tehas"
 t_front_verbs tehasbot "$T/verbs-tehasbot"
-t_eq "$(sort -u "$T/verbs-tehas" | grep -c . | tr -d ' ')" 37
+t_eq "$(sort -u "$T/verbs-tehas" | grep -c . | tr -d ' ')" 36
 t_eq "$(sort -u "$T/verbs-tehasbot" | grep -c . | tr -d ' ')" 12
 t_lists_of tehas "$T/list-tehas"
 t_lists_of tehasbot "$T/list-tehasbot"
@@ -359,7 +359,7 @@ done
 t_case "each row of a feature still being built says so in its status"
 rows=$(awk -F' \\| ' '/^\| / && tolower($2) ~ /still being built/ {
   status = $3; sub(/ *\|$/, "", status); print status }' "$features")
-[ "$(grep -c . <<<"$rows")" -ge 4 ] || t_bad "fewer than 4 rows of building features: $rows"
+[ "$(grep -c . <<<"$rows")" -ge 3 ] || t_bad "fewer than 3 rows of building features: $rows"
 while IFS= read -r status; do
   case $status in
   'Still being built'*) ;;

@@ -35,13 +35,13 @@ t_eq "$(cd "$th/fun" && find . -type f ! -name version.txt -regextype posix-exte
 t_eq "$(cd "$th/fun" && find . -name '*.d.ts')" ""
 # Two pages name some of these files, so the copies are fewer than the tags.
 t_eq "$(cd "$th/fun" && find . -type f -regextype posix-extended \
-      -regex '.*/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)' | wc -l)" 24
+      -regex '.*/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)' | wc -l)" 21
 
 t_case "a tag of a dashboard page names the hashed copy, which is installed"
 # The name holds the first 12 hex digits of the sha256 of the file's bytes, the
 # same 12 the docs server treats as immutable, and the page asks for that name
 # and no other.
-for name in panels.js panels.css; do
+for name in dock.js dock.css; do
   stem=${name%%.*}
   extension=${name##*.}
   hash=$(sha256sum "$fixture/host/fun/$name" | cut -c1-12)
@@ -60,13 +60,13 @@ t_eq "$(cd "$th/fun" && find . -name 'theme-*.css' | wc -l)" 2
 t_case "a hashed name of older content is removed, and --check says so"
 # An earlier install's name, of bytes the checkout no longer has: it is stale by
 # the same rule as a page that went away, and a real run takes it back.
-echo "// the panel as it was" >"$th/fun/panels.0123456789ab.js"
-echo "// older still" >"$th/fun/panels.0123456789ab.js.prev"
+echo "// the dock as it was" >"$th/fun/dock.0123456789ab.js"
+echo "// older still" >"$th/fun/dock.0123456789ab.js.prev"
 t_run "$install --check"
-t_contains "$t_out" "panels.0123456789ab.js"
+t_contains "$t_out" "dock.0123456789ab.js"
 t_run "$install"
-t_eq "$([ -e "$th/fun/panels.0123456789ab.js" ] && echo there)" ""
-t_eq "$([ -e "$th/fun/panels.0123456789ab.js.prev" ] && echo there)" ""
+t_eq "$([ -e "$th/fun/dock.0123456789ab.js" ] && echo there)" ""
+t_eq "$([ -e "$th/fun/dock.0123456789ab.js.prev" ] && echo there)" ""
 t_eq "$(cd "$th/fun" && find . -name '*.new' | wc -l)" 0
 
 t_case "the installed pages are the stage, byte for byte"

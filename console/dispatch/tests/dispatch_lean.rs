@@ -27,7 +27,7 @@ fn lean_parked(w: &World, input: &str, reason: &str) {
     w.t_approve(
         7,
         "alice",
-        "label",
+        "approved",
         1_700_000_000,
         &["--input-file", &file.to_string_lossy()],
     );

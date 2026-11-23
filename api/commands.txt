@@ -42,9 +42,6 @@ mcp key
 order --json
 order clear --json
 order set --for --issues --json --only --reason --until
-panel --json
-panel clear
-panel set --label --url
 pause --reason
 plan --answer --brief --comment --keep --kind --out --session internal=--answer,--brief,--comment,--keep,--kind,--out,--session
 plugin --json building=plugins

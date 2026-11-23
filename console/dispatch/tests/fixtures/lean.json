@@ -20,7 +20,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label"
+      "given": "approved"
      }
     ],
     "no_actions": [
@@ -48,7 +48,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label",
+      "given": "approved",
       "driver": "lean"
      }
     ]
@@ -334,7 +334,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -389,7 +389,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -457,7 +457,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": []
       }
@@ -774,7 +774,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -990,7 +990,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -1077,7 +1077,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -1184,7 +1184,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -1267,7 +1267,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -1320,7 +1320,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -1413,7 +1413,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -1459,7 +1459,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -1549,7 +1549,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -1604,7 +1604,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -1696,7 +1696,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": []
       }
@@ -1776,7 +1776,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": []
       }
@@ -1856,7 +1856,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": []
       }
@@ -2100,7 +2100,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": []
       }
@@ -2176,7 +2176,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -2251,7 +2251,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label",
+      "given": "approved",
       "driver": "lean"
      }
     ],
@@ -2554,7 +2554,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label"
+      "given": "approved"
      }
     ],
     "no_actions": [
@@ -2644,7 +2644,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "f87711f83b43cb6faad019e9592a28faaf623ff8ad3249d846d38cec0f1cf18f"
       },
       "history": [],
@@ -2697,7 +2697,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "f87711f83b43cb6faad019e9592a28faaf623ff8ad3249d846d38cec0f1cf18f",
        "links": [],
        "driver": "lean"
@@ -2735,7 +2735,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label",
+      "given": "approved",
       "driver": "lean"
      }
     ],
@@ -2763,7 +2763,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label",
+      "given": "approved",
       "remove": [
        "tehas:ready"
       ]
@@ -2803,7 +2803,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label"
+      "given": "approved"
      }
     ],
     "no_actions": [
@@ -3262,7 +3262,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label"
+      "given": "approved"
      }
     ],
     "no_actions": [
@@ -3387,7 +3387,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -3445,7 +3445,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -3496,7 +3496,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": []
       }
@@ -3566,7 +3566,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -3638,7 +3638,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": []
       }
@@ -3686,7 +3686,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -3767,7 +3767,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -3984,7 +3984,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": []
       }
@@ -4070,7 +4070,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "68a4d922128ed44ad7c7103b2763ea9832c18cd1dad0ed0bc180d81533bdc4d1"
       },
       "history": [],
@@ -4112,7 +4112,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "68a4d922128ed44ad7c7103b2763ea9832c18cd1dad0ed0bc180d81533bdc4d1",
        "links": [],
        "driver": "lean"
@@ -4366,7 +4366,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -4456,7 +4456,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -4502,7 +4502,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -4600,7 +4600,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label"
+      "given": "approved"
      }
     ],
     "no_actions": [
@@ -4707,7 +4707,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -4817,7 +4817,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"
@@ -4904,7 +4904,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -4959,7 +4959,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
        "links": [],
        "driver": "lean"

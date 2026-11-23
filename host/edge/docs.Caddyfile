@@ -43,7 +43,7 @@
             # The two lists are one, and test/edge_test.sh says so; a name a
             # writer adds under live/ is served once both name it. The health
             # handlers below read /srv/live outside this list on purpose.
-            @unnamed not path /status.json /running.json /endings.json /epics.json /health.json /health.down /dispatch.json /demand.json /analytics.json /panels.json /disk.json /platform.json /rukas.json /previews.json /cycles/*.json /console-*.txt /console-*.txt.now
+            @unnamed not path /status.json /running.json /endings.json /epics.json /health.json /health.down /dispatch.json /demand.json /analytics.json /disk.json /platform.json /rukas.json /previews.json /cycles/*.json /console-*.txt /console-*.txt.now
             respond @unnamed 404
             # The consoles are what the agents of a running cycle did. This
             # server has no sign-in, so they are not served at all unless the
@@ -84,25 +84,15 @@
             header Cache-Control "no-store"
             file_server
         }
-        # The instance's design (TEHAS_DESIGN) picks the front page: the
-        # business page for beesknees26, the default, and the factory floor for
-        # pixel. Both are always at /business and /floor too. Static pages are
-        # outside both; their assets stay under /fun/. The plain dashboard is
-        # at /dashboard.
+        # The front page is the factory floor, also at /floor, drawn in the
+        # instance's design (TEHAS_DESIGN). Static pages are outside it; their
+        # assets stay under /fun/. The plain dashboard is at /dashboard.
         redir /fun /
         redir /fun/ /
         # The pages keep their names and are revalidated every time: install.sh
         # may have replaced them, and a page is small enough to ask about. The
         # scripts and stylesheets it names keep their content under a hashed
         # name, cached for ever, which is why a page is never cached.
-        @business expression `path('/business') || (path('/') && "{$TEHAS_DESIGN:beesknees26}" != "pixel")`
-        handle @business {
-            root * /srv/fun
-            rewrite * /business.html
-            header Cache-Control "no-cache"
-            templates
-            file_server
-        }
         @front path / /floor
         handle @front {
             root * /srv/fun

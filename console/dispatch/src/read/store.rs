@@ -579,7 +579,7 @@ mod approval_shape_tests {
     use serde_json::{json, Value};
 
     fn shaped(how: &str, input: Value) -> Value {
-        let base = json!({"at": 1, "by": "alice", "how": "label", "body_sha256": "a"});
+        let base = json!({"at": 1, "by": "alice", "how": "approved", "body_sha256": "a"});
         super::approval_shape(&json!({"rests_on": base, "current": {"at": 2, "by": "bot",
             "how": how, "body_sha256": "a", "input": input}}))
         .unwrap()
@@ -589,7 +589,7 @@ mod approval_shape_tests {
     /// with none, as every record before the driver is, names none.
     #[test]
     fn the_driver_of_a_start_is_read_off_its_own_record() {
-        for how in ["label", "reply", "outage-retry", "millwright", "refresh"] {
+        for how in ["approved", "reply", "outage-retry", "millwright", "refresh"] {
             assert_eq!(shaped(how, json!({"driver": "lean"}))["driver"], "lean");
             assert_eq!(shaped(how, json!({})).get("driver"), None);
             assert_eq!(shaped(how, Value::Null).get("driver"), None);
@@ -827,7 +827,7 @@ printf 'store %s %s\\n' \"$*\" \"$(cat \"$0.request\")\" >>\"$0.calls\"\nexec {b
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",

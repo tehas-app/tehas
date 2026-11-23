@@ -26,8 +26,8 @@ fn each_row_of_the_table_decides_its_end() {
         (3, row("refused", 10, true, true), "refused"),
         (4, row("running", 3, true, false), "refused"),
         (4, row("handoff", 40, false, true), "refused"),
-        (5, row("handoff", 10, true, false), "pr"),
-        (5, row("running", 30, true, false), "pr"),
+        (5, row("handoff", 10, true, false), "offered"),
+        (5, row("running", 30, true, false), "offered"),
         (6, row("handoff", 10, true, true), "handoff"),
         (6, row("handoff", 10, false, false), "handoff"),
         (7, row("lost", 10, false, false), "failed"),
@@ -66,7 +66,7 @@ fn each_sample_line_of_the_spec_ends_as_it_says() {
         json!({"cycle": "7-1", "outcome": "merged", "status": 0, "parked": false, "change": 9, "end": "merged"}),
         json!({"cycle": "12-4", "outcome": "closed", "status": 10, "parked": false, "end": "stopped"}),
         json!({"cycle": "14-2", "outcome": "refused", "status": 78, "parked": false, "end": "refused"}),
-        json!({"cycle": "15-1", "outcome": "handoff", "status": 10, "parked": false, "change": 21, "end": "pr"}),
+        json!({"cycle": "15-1", "outcome": "handoff", "status": 10, "parked": false, "change": 21, "end": "offered"}),
         json!({"cycle": "16-3", "outcome": "handoff", "status": 10, "parked": true, "change": 22, "end": "handoff"}),
         json!({"cycle": "12-3", "outcome": "failed", "status": 10, "failureKind": "verify-failed", "parked": true, "end": "failed"}),
         json!({"cycle": "18-1", "outcome": "running", "status": 10, "cap": "step-failed:develop", "failureKind": "cap", "parked": true, "end": "parked"}),
@@ -86,8 +86,8 @@ fn each_sample_line_of_the_spec_ends_as_it_says() {
     assert_eq!(seen.len(), OUTCOMES.len(), "one sample per word");
 }
 
-// The decision as the analytics made it before the move. It stays here only
-// to pin which ends moved.
+// The decision as the analytics made it before the move, in its own words
+// (`pr` for `offered`). It stays here only to pin which ends moved.
 fn before(l: &Line) -> &'static str {
     let status = l.outcome.unwrap_or(UNKNOWN);
     let kind = l.failure_kind.unwrap_or("");
@@ -148,7 +148,10 @@ fn every_combination_the_analytics_ran_ends_as_before_or_by_one_of_the_four_move
                         if parked {
                             assert!(STOPS.contains(&now), "a parked line ends {now}: {l:?}");
                         }
-                        let was = before(&l);
+                        let was = match before(&l) {
+                            "pr" => "offered",
+                            w => w,
+                        };
                         if was != now {
                             let why = moved(&l, was, now);
                             assert!(why.is_some(), "{l:?} was {was}, is {now}");

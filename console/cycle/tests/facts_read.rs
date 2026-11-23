@@ -197,7 +197,7 @@ fn the_end_comment_says_how_many_comments_the_runner_read() {
         .contains("does not read comments"));
     // Only a comments retry says anything.
     assert_eq!(
-        comments_said(&comments_facts(Some("native"), "label", None)),
+        comments_said(&comments_facts(Some("native"), "approved", None)),
         ""
     );
 }
