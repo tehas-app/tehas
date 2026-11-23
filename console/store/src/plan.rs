@@ -81,24 +81,21 @@ const BRIEF_BOUND: u64 = tehas_core::file::READ_BOUND;
 // A GitHub comment is up to 65,536 characters of up to four bytes each.
 const TEXT_BOUND: u64 = tehas_core::file::READ_BOUND;
 
-/// The kinds of `plan-note`, each with the key plan-show lists it under and,
-/// for the refused class, the old name #686 takes beside it.
-const NOTES: [(&str, &str, &str); 2] = [
-    ("millwright-refused", "millwright_refused", "fixer-refused"),
-    ("held", "held", "held"),
+/// The kinds of `plan-note`, each with the key plan-show lists it under.
+const NOTES: [(&str, &str); 2] = [
+    ("millwright-refused", "millwright_refused"),
+    ("held", "held"),
 ];
-/// The kinds of this release, which `Args::word` prints in a refusal, with the
-/// alias of each: `plan-note --kind` takes the old `fixer-refused` and writes
-/// the current word, and no note of this release carries the old one.
-const NOTE_KINDS: [(&str, &str); 2] = [(NOTES[0].0, NOTES[0].2), (NOTES[1].0, NOTES[1].2)];
+/// The kinds of this release, which `Args::word` prints in a refusal.
+const NOTE_KINDS: [(&str, &str); 2] = [(NOTES[0].0, NOTES[0].0), (NOTES[1].0, NOTES[1].0)];
 
-/// Whether `kind` names a note of either spelling, and the word it is written
-/// as. `plan-note` is the only writer and the words come from `NOTE_KINDS`, so
-/// a kind is known here or it was never a `plan-note` argument.
+/// Whether `kind` names a note, and the word it is written as. `plan-note` is
+/// the only writer and the words come from `NOTE_KINDS`, so a kind is known
+/// here or it was never a `plan-note` argument.
 pub fn kept_note_kind(kind: &str) -> Option<&'static str> {
     NOTE_KINDS
         .into_iter()
-        .find(|(w, a)| *w == kind || *a == kind)
+        .find(|(w, _)| *w == kind)
         .map(|(w, _)| w)
 }
 pub const MAX_OPTIONS: usize = 20;
@@ -169,8 +166,6 @@ fn note_args(rest: &[String]) -> Result<Call, String> {
     a.need("--kind")?;
     Ok(Call::Note {
         issue,
-        // The old `fixer-refused` is normalised here, at the parse boundary, so
-        // the Call carries only a word of today and a refusal names only those.
         // Both lists come from `NOTES`, so a word `Args::word` took is a word
         // `kept_note_kind` knows.
         kind: kept_note_kind(a.word("--kind", &NOTE_KINDS)?.expect("--kind was given"))
@@ -481,7 +476,7 @@ pub fn planning_json(c: &Connection, issue: i64) -> Result<String, Fail> {
         .flatten();
     p.push(("answer", j(answer)));
     let mut notes = Vec::new();
-    for (kind, key, _) in NOTES {
+    for (kind, key) in NOTES {
         let mut q = c
             .prepare(
                 "SELECT comment_id FROM planning_notes WHERE issue = ?1 AND kind = ?2
@@ -922,17 +917,10 @@ fn listed(v: &Value) -> Option<String> {
 }
 
 /// A planning object of plan-show as its record file had it before the store.
-/// `fixer` and `fixer_refused` are #686's alias: the readers of the view have
-/// the old words until part 5, and the refused comments go under either name.
 pub fn view_of(p: &Value) -> Result<String, Fail> {
     if !p.is_object() {
         return Ok("null".to_string());
     }
-    let refused: Vec<String> = ["millwright_refused", "fixer_refused"]
-        .iter()
-        .flat_map(|k| p["notes"][k].as_array().into_iter().flatten())
-        .map(Value::to_string)
-        .collect();
     let mut o = vec![
         (
             "session",
@@ -959,8 +947,8 @@ pub fn view_of(p: &Value) -> Result<String, Fail> {
     if !p["label"].is_null() {
         o.push(("label", p["label"].to_string()));
     }
-    // A mark that is not a boolean is not renamed: the reader's type test
-    // refuses it under the name it came with.
+    // A mark that is not a boolean is passed on as it is: the reader's type
+    // test refuses it.
     let answers: Vec<String> = p["answers"]
         .as_array()
         .into_iter()
@@ -969,7 +957,7 @@ pub fn view_of(p: &Value) -> Result<String, Fail> {
             Some(mark) => obj(&[
                 ("turn", a["turn"].to_string()),
                 ("by", a["by"].to_string()),
-                ("fixer", j(mark)),
+                ("millwright", j(mark)),
             ]),
             None => a.to_string(),
         })
@@ -978,8 +966,8 @@ pub fn view_of(p: &Value) -> Result<String, Fail> {
     if let Some(filed) = listed(&p["filed"]) {
         o.push(("filed", filed));
     }
-    if !refused.is_empty() {
-        o.push(("fixer_refused", list(&refused)));
+    if let Some(refused) = listed(&p["notes"]["millwright_refused"]) {
+        o.push(("millwright_refused", refused));
     }
     if let Some(held) = listed(&p["notes"]["held"]) {
         o.push(("held", held));

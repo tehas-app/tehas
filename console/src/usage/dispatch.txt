@@ -305,14 +305,15 @@ and the parked cycle's pull request between the park and the answer as
 retry_context, [{source, by, at, text}] - only for the comments retry
 (`retry`): the retry of the issue text only (`retry-text`) names none. tehas
 work fetches the body's links only while the body still has that hash. A
-start of the fixer's has how "fixer", the
+start of the millwright's has how "millwright", the
 person's approval it rests on as rests_on {at, by, how, body_sha256}, the
-fixer's starts since that approval as fixer_starts, and the fixer's marked comment on the issue written in
-the ten minutes before its label as retry_context, source "fixer:<id>". A
+millwright's starts since that approval as fixer_starts, and the millwright's
+marked comment on the issue written in the ten minutes before its label as
+retry_context, source "millwright:<id>". A
 refresh has how "refresh", by and at of the person's approval it rests on,
 that approval as rests_on, the refreshes since it as refreshes, what it
-refreshes as refresh_of {pr, head_sha, base_sha, branch}, the fixer's starts
-carried on as fixer_starts, and one fixed retry_context entry, source
+refreshes as refresh_of {pr, head_sha, base_sha, branch}, the millwright's
+starts carried on as fixer_starts, and one fixed retry_context entry, source
 "refresh", the task tehas sets it: no comment text. An approval that cannot
 be recorded, or comments that cannot be read, start nothing, exit 1. A start
 that gives up after the record takes the approval off it again.
