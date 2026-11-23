@@ -428,6 +428,34 @@ mod tests {
         assert!(page.contains("aria-label=\"Open proto.html by itself\">OPEN FULL SIZE</a>"));
     }
 
+    /// The page of a `.meta.json`, drawn as the store draws it.
+    fn page_of(meta: &str, outside: i64) -> String {
+        let row = serde_json::from_str::<Value>(meta).unwrap();
+        item(
+            &row,
+            row["files"].as_array().unwrap(),
+            row["skipped"].as_array().unwrap(),
+            outside,
+            LIMIT,
+            "ITEM",
+        )
+    }
+
+    // The whole page, byte for byte: of a meta as the store writes one, and
+    // of one whose values are of no kind the store writes, which the page
+    // reads as nothing rather than refusing.
+    #[test]
+    fn the_page_of_a_meta_is_these_bytes() {
+        assert_eq!(
+            page_of(include_str!("testdata/meta-plain.json"), 2),
+            include_str!("testdata/page-plain.html")
+        );
+        assert_eq!(
+            page_of(include_str!("testdata/meta-odd.json"), 0),
+            include_str!("testdata/page-odd.html")
+        );
+    }
+
     #[test]
     fn an_item_with_nothing_attached_says_so() {
         let page = item(
