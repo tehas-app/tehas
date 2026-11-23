@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # Tests for tehas stop: what a cycle leaves on the host, what a stop by hand
-# removes, what it keeps, what it refuses to touch, and the label it takes off
-# the issue. systemctl, docker and gh are stubbed. The gh stub prints what gh
-# really prints for `issue view --json labels`, an object, and applies the
-# --jq filter it is given with real jq, so a filter that does not fit gh's
-# output fails here as it fails on a host. The cases that reach no GitHub are
-# in console/tests/stop.rs.
+# removes, what it keeps and what it refuses to touch, end to end through the
+# console's wiring. systemctl, docker and gh are stubbed. The cases that reach
+# no GitHub are in console/tests/stop.rs, and the cases of the running mark
+# (read, taken off, kept, and what could not be done) on the ports' fake in
+# console/ops/src/stop.rs.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -45,30 +44,23 @@ docker_stub() {
   "rm -f") mkdir -p "$T/gone"; : >"$T/gone/$3"; printf "%s\n" "$3" ;;
 esac'
 }
-# gh: the labels of the issue, read from $T/labels.json as gh reads them (an
-# object, with the --jq filter applied by real jq), and the label change.
-# GH_VIEW_RC makes the read fail and GH_EDIT_RC makes the change fail, as a gh
-# that cannot reach GitHub or that is refused the change does.
-GH_LABELS=$T/labels.json
+# gh: the issue, read from $T/issue.json, and the label change, which
+# answers nothing.
+GH_ISSUE=$T/issue.json
 gh_stub() {
   t_stub gh 'case "$1 $2" in
-  "issue view")
-    [ "${GH_VIEW_RC:-0}" = 0 ] || exit "$GH_VIEW_RC"
-    filter="" prev=""
-    for a in "$@"; do [ "$prev" != --jq ] || filter=$a; prev=$a; done
-    jq -r "$filter" "$T/labels.json" ;;
-  "issue edit") [ "${GH_EDIT_RC:-0}" = 0 ] || exit "$GH_EDIT_RC" ;;
+  "api repos/"*) cat "$T/issue.json" ;;
 esac'
 }
-# The labels the stub reports for the issue: names as arguments.
+# The issue the stub reports, with these labels: names as arguments.
 gh_labels() { # <name...>
   local out="" l
   for l in "$@"; do out="$out{\"name\":\"$l\"},"; done
-  printf '{"labels":[%s]}\n' "${out%,}" >"$GH_LABELS"
+  printf '{"number":5,"title":"t","state":"open","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","html_url":"https://example.com/5","labels":[%s]}\n' "${out%,}" >"$GH_ISSUE"
 }
 # What gh was asked to do, one call per line.
-gh_views() { t_calls gh | grep '^issue view' || true; }
-gh_edits() { t_calls gh | grep '^issue edit' || true; }
+gh_views() { t_calls gh | grep '^api repos/' || true; }
+gh_edits() { t_calls gh | grep '^api -X' || true; }
 
 reset() {
   release
@@ -212,9 +204,11 @@ t_contains "$t_out" "removed work/widget-5.state"
 t_contains "$t_out" "removed work/widget-5.images"
 t_contains "$t_out" "removed work/widget-5.before-retry"
 t_contains "$t_out" "removed tehas:running from #5"
+# The issue's half comes after the host's: the last line said.
+t_eq "$(tail -n 1 <<<"$t_out")" "removed tehas:running from #5"
 t_eq "$(t_calls systemctl | sed -n '/ stop /p' | wc -l)" 1
-t_eq "$(gh_views | wc -l)" 1
-t_eq "$(gh_edits)" "issue edit 5 --repo acme/widget --remove-label tehas:running"
+t_eq "$(gh_views)" "api repos/acme/widget/issues/5"
+t_eq "$(gh_edits)" "api -X DELETE repos/acme/widget/issues/5/labels/tehas%3Arunning"
 
 t_case "the marker of a stop goes with the leftovers of the cycle it ended"
 reset
@@ -331,7 +325,7 @@ t_eq "$(leftovers 5)" ""
 t_eq "$(wc -w <<<"$(leftovers 51)")" "$LEFTOVERS_N"
 t_eq "$(wc -w <<<"$(leftovers 55)")" "$LEFTOVERS_N"
 t_eq "$(removed_containers)" "tehas-work-5 "
-t_eq "$(gh_edits)" "issue edit 5 --repo acme/widget --remove-label tehas:running"
+t_eq "$(gh_edits)" "api -X DELETE repos/acme/widget/issues/5/labels/tehas%3Arunning"
 t_lacks "$(t_calls gh)" "51"
 t_lacks "$(t_calls gh)" "55"
 t_lacks "$t_out" "51"
@@ -377,7 +371,7 @@ t_eq "$(removed_containers)" "tehas-work-5 "
 # One read for the first run, none for the second: a host with nothing to clear
 # is not sent to GitHub.
 t_eq "$(gh_views | wc -l)" 1
-t_eq "$(gh_edits)" "issue edit 5 --repo acme/widget --remove-label tehas:running"
+t_eq "$(gh_edits)" "api -X DELETE repos/acme/widget/issues/5/labels/tehas%3Arunning"
 
 t_case "no instance settings: 78, nothing removed and nothing called"
 reset
@@ -428,106 +422,6 @@ t_run "$stop_cmd 5"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$works/widget-5x" ] && echo x) $([ -e "$state/5.5.lock" ] && echo dot)" "x dot"
 t_eq "$(record 5)" "json manifest.json runner_exit status"
-
-t_case "tehas:running is on the issue: one read and one edit take it off, as the last step"
-reset
-cycle_files 5
-systemctl_idle
-T_ENV=(CONTAINERS=tehas-work-5)
-gh_labels bug tehas:running documentation
-t_run "$stop_cmd 5"
-t_eq "$t_rc" 0
-t_eq "$(gh_views)" "issue view 5 --repo acme/widget --json labels --jq .labels[].name"
-t_eq "$(gh_edits)" "issue edit 5 --repo acme/widget --remove-label tehas:running"
-t_contains "$t_out" "removed tehas:running from #5"
-# It is the issue's half, so it comes after the host's: the last line said.
-t_eq "$(tail -n 1 <<<"$t_out")" "removed tehas:running from #5"
-# No other label, and nothing written on the issue.
-t_lacks "$(t_calls gh)" "--add-label"
-t_lacks "$(t_calls gh)" "issue comment"
-
-t_case "tehas:running is not on the issue: the read is asked for, no change is, and the host is cleared all the same"
-reset
-cycle_files 5
-systemctl_idle
-T_ENV=(CONTAINERS=tehas-work-5)
-gh_labels bug documentation tehas:refreshing tehas:awaiting-merge
-t_run "$stop_cmd 5"
-t_eq "$t_rc" 0
-t_eq "$(gh_views | wc -l)" 1
-t_eq "$(gh_edits)" ""
-t_eq "$(leftovers 5)" ""
-t_lacks "$t_out" "tehas:running"
-t_lacks "$t_out" "WARN"
-
-t_case "the labels cannot be read: WARN, exit 1, and everything this host removed is still gone"
-reset
-cycle_files 5
-systemctl_idle
-T_ENV=(CONTAINERS=tehas-work-5 GH_VIEW_RC=1)
-gh_labels tehas:running
-t_run "$stop_cmd 5"
-t_eq "$t_rc" 1
-t_contains "$t_out" "WARN: the labels of #5 could not be read"
-t_eq "$(leftovers 5)" ""
-t_eq "$(record 5)" "json manifest.json runner_exit status"
-t_eq "$(removed_containers)" "tehas-work-5 "
-t_eq "$(gh_edits)" ""
-
-t_case "the label cannot be taken off: WARN, exit 1, and the host is still clear"
-reset
-cycle_files 5
-systemctl_idle
-T_ENV=(CONTAINERS=tehas-work-5 GH_EDIT_RC=1)
-gh_labels tehas:running
-t_run "$stop_cmd 5"
-t_eq "$t_rc" 1
-t_contains "$t_out" "WARN: tehas:running could not be taken off #5"
-t_eq "$(leftovers 5)" ""
-t_eq "$(gh_edits)" "issue edit 5 --repo acme/widget --remove-label tehas:running"
-
-t_case "a cycle that took the lock again while the host was cleared keeps its label, and no edit is asked for"
-reset
-cycle_files 5
-systemctl_idle
-T_ENV=(CONTAINERS=tehas-work-5)
-gh_labels tehas:running
-# The next cycle of #5 starts between the host's half and the issue's: the read
-# is answered, and the stub then holds the lock as tehasbot cycle does. The
-# label of a cycle that runs is another cycle's label, so it stays.
-t_stub gh 'case "$1 $2" in
-"issue view")
-  filter="" prev=""
-  for a in "$@"; do [ "$prev" != --jq ] || filter=$a; prev=$a; done
-  jq -r "$filter" "$T/labels.json"
-  lock=$TEHAS_HOME/state/cycles/5.lock
-  rm -f "$T/held"
-  ( exec 9>"$lock"; flock -n 9 || exit 1; : >"$T/held"; exec sleep 30 ) </dev/null >/dev/null 2>&1 &
-  echo "$!" >"$T/holder"
-  for try in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-    [ -e "$T/held" ] && break
-    sleep 0.1
-  done
-  [ -e "$T/held" ] || echo "the stub could not hold the lock" >&2 ;;
-"issue edit") echo "the label of a running cycle was asked for" >&2; exit 1 ;;
-esac'
-t_run "$stop_cmd 5"
-t_eq "$t_rc" 1
-t_contains "$t_out" "WARN: a cycle for #5 holds its lock again, so tehas:running stays on the issue"
-t_eq "$(gh_views | wc -l)" 1
-t_eq "$(gh_edits)" ""
-# The host's half went clean; what is left is the new cycle's own lock.
-t_eq "$(leftovers 5)" "$state/5.lock"
-t_eq "$(record 5)" "json manifest.json runner_exit status"
-release
-
-t_case "the read fits what gh really prints: gh's labels are an object, so a filter that indexes it as an array is a failure, not an empty answer"
-reset
-gh_labels tehas:running
-t_run 'gh issue view 5 --repo acme/widget --json labels --jq ".labels[].name"'
-t_eq "$t_out" "tehas:running"
-t_run 'gh issue view 5 --repo acme/widget --json labels --jq ".[].name" >/dev/null 2>&1 || echo refused'
-t_eq "$t_out" "refused"
 
 # --- The cycle's record on the state store ------------------------------------
 t_case "a cycle killed outright has its record ended as stopped, before its lock file goes"

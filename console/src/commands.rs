@@ -200,7 +200,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "drain" => holds::drain(rest),
         "history" => history::main(rest),
         "export" => export::main(rest),
-        "stop" => stop::main(rest),
+        "stop" => stop::main(rest, path_tickets),
         "freeze" => freeze::freeze(rest),
         "thaw" => freeze::thaw(rest),
         "dev" => dev::start(rest),
@@ -472,12 +472,17 @@ pub fn usage(given: &[String]) -> u8 {
     }
 }
 
-/// The handle `tehas resume` reads the control issue with: gh of `PATH`.
-/// `host/env.sh` puts the shim first there where the instance has one, and a
-/// person's shell without it reads with their own gh.
+/// The handle `tehas resume` reads the control issue with.
 fn control_tickets() -> Box<dyn tehas_ports::TicketWrites> {
     let repo = env::var("TEHAS_REPO").unwrap_or_default();
-    crate::wiring::tickets(&repo, "gh", crate::forge::CALL_BOUND)
+    path_tickets(&repo, crate::forge::CALL_BOUND)
+}
+
+/// A tickets handle on `repo` that asks with gh of `PATH`, each call in
+/// `bound`. `host/env.sh` puts the shim first there where the instance has
+/// one, and a person's shell without it asks with their own gh.
+fn path_tickets(repo: &str, bound: std::time::Duration) -> Box<dyn tehas_ports::TicketWrites> {
+    crate::wiring::tickets(repo, "gh", bound)
 }
 
 #[cfg(test)]
