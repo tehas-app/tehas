@@ -217,9 +217,13 @@ new!(BlueprintDelta { next: Cursor }, blueprints, comments, more);
 /// The blueprints port's reads. A handle is bound to one project, one
 /// actor and one caller name.
 pub trait Blueprints: Reports + Cites {
-    /// One blueprint, to the depth asked.
+    /// One blueprint, to the depth asked. A number that names a change,
+    /// where they share one number space, is `NotFound`, never a
+    /// `Blueprint`: a caller that must tell the two apart asks
+    /// `CodeHost::change` after.
     fn blueprint(&mut self, no: BlueprintNo, depth: Depth) -> Got<Blueprint>;
-    /// Several blueprints, each with its own answer.
+    /// Several blueprints, each with its own answer; a change's number is
+    /// `NotFound`, as in `blueprint`.
     fn several(&mut self, nos: &[BlueprintNo], depth: Depth) -> Vec<(BlueprintNo, Got<Blueprint>)>;
     /// A blueprint's comments, whole.
     fn comments(&mut self, no: BlueprintNo, bound: Bound) -> Got<Whole<Comment>>;
