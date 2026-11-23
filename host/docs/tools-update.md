@@ -267,7 +267,18 @@ comment count only when the account that made them carries the recorded id
 login and another id, or with no id at all, does not count: the dispatcher
 reads it as `<login>#<id>`, which no list matches, and says why on standard
 error. With no id recorded for a login, nothing of it counts until
-`tehas update` records one.
+`tehas update` records one. GitHub logins are one account in any case, so
+the check ignores ASCII case: `Alice` is checked against the id recorded for
+`alice`, and does not count with another id. A file that gives one login
+two different ids in two cases cannot be read, as below. `tehas update`
+records ignoring case too: a pair of the login in another case is its pair, so a change of
+case in the settings meets the check below, and the recorded pair is kept
+under the login as the settings write it, in place of every other case.
+
+Which logins are allowed is matched ignoring ASCII case by `tehas resume`,
+`tehas plan`, `tehas dev` and a cycle started by hand. The dispatcher still
+matches `TEHAS_ALLOWED_LABELERS` in exact case, so write each login there as
+GitHub spells it.
 
 - A login that does not resolve stops `install.sh` and `tehas update` with 78
   and names it. Take it out of the settings or correct it.
@@ -283,8 +294,8 @@ error. With no id recorded for a login, nothing of it counts until
   there is one, what is wrong and how to repair it:
   - A line that is not `<login> <id>` with one space between, a login that
     is not a GitHub login, an id that is not a number, a login given two ids
-    or text that is not UTF-8: fix or remove that line, then run
-    `tehas update`.
+    in one case or two, or text that is not UTF-8: fix or remove that line,
+    then run `tehas update`.
   - A link or other file that is not a regular one, a file over 64 KiB, or
     a file that is there but holds no pairs: make it a regular file of
     `<login> <id>` lines, or remove it, then run `tehas update`. A removed

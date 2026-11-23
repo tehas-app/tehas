@@ -393,6 +393,13 @@ Done when `github-rest` is 0 and `gh-argv` is at 0 or at its written
 floor, and a fake code host that times out or rate-limits leaves the
 dispatcher and a cycle running, with one report.
 
+T4's Done, and so the tag, also needs T4.7 to make `allowed_in` and
+`allowed_folded` one rule. Since #2962 the console matches the allowed
+labellers ignoring ASCII case, and the dispatcher still in exact case,
+which is stricter and fails closed. Then the test in
+`console/core/src/events.rs` that pins `!allowed_in("alice", "Alice")` and
+the dispatcher's `until_t4_7_` test flip.
+
 T4's Done also clears every row of "Temporary rises" in
 `docs/architecture.md` that is still there when it ends, whatever step
 the row names. Since #2890 the table is empty: a T15 port that raises a
@@ -407,15 +414,38 @@ adds elsewhere. #2890 moved two of its findings here, to fix:
   `console/tests/console_run.rs` (#2879), tehas's own word in a file
   that also stubs gh, so the file is not allowed.
 
+The branch owner's rulings on T4 of 2026-11-23 are in the ports spec,
+Decided 69 to 80. Two bear on this Done. `github-rest` keeps tehas's own
+`--json` flag, 165 lines in 46 files, until the end of T4: once the nine
+real `gh --json` reads have moved, the pattern drops `"--json"` and keeps
+`--jq`, if the owner asks (Decided 72). And the adapter's operations are
+built in pull requests that change `console/github/` alone, before the
+consumer that needs them (Decided 80).
+
 Findings:
 
 - The planner's confirm files an issue with the session token, which is
   issues read-only, so the site refuses it (`console/src/plan/turn.rs`
   ~485). It must file with the factory's token or not at all. T4.7 fixes
   it.
+- `events::mark_actor`, like core's `label_actor` and the search it
+  replaced, answers the newest application of a label even when the
+  label was removed since, so `console label allowed` can say yes to
+  fetching an issue's images and links for a label that is no longer on,
+  when its last applier was allowed. 1.4.x did the same. T4.7 decides
+  whether these checks ask for the label standing or its last
+  application, and gives `mark_actor` and `label_actor` one timeline
+  helper: today they build it twice, on ports and core types (#2962).
+- The spec folds a login's `[bot]` too, and the GitHub adapter folds
+  only its case (`console/github/src/tickets.rs`, `account`). The law of
+  `AccountKind::Ours` settles it (#2962).
 - No port operation marks a change ready or draft: `edit_change` takes no
   draft flag, so a `CycleMerge` cycle cannot take its own draft out of
   draft through the ports. T4.2+ decides.
+- The Ledger's file (`core/src/ledger.rs`, #2974) keeps one budget row
+  per host, holder and pool and never drops one, so each anonymous
+  holder adds a row for good. The step whose caller first writes budgets
+  bounds them, for one by dropping rows whose `resets` is long past.
 
 ### T5. Deep homes for files
 

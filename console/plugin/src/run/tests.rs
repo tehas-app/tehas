@@ -211,7 +211,11 @@ impl World {
 /// A home with the plugin demo ready at C, granted `grants`, whose manifest
 /// asks `asks`; `h` answers for its repository and the mirror at H.
 pub fn world(name: &str, h: &mut Fake, asks: &str, grants: &str) -> World {
-    let home = TestDir::new(name);
+    world_in(TestDir::new(name), h, asks, grants)
+}
+
+/// [`world`] in `home`: a short one for a run that serves the model socket.
+pub fn world_in(home: TestDir, h: &mut Fake, asks: &str, grants: &str) -> World {
     let mut asked = Vec::new();
     for a in grants.split_whitespace() {
         let word = a.split(':').next().unwrap();
@@ -310,7 +314,7 @@ fn view(w: &World) -> PathBuf {
 #[test]
 fn a_refresh_with_every_grant_runs_its_container_and_swaps_its_view_in() {
     let mut h = Fake::new();
-    let w = world("plugin-run-all", &mut h, "", "view product model:2000");
+    let w = world_in(TestDir::short(), &mut h, "", "view product model:2000");
     fs::create_dir_all(view(&w)).unwrap();
     fs::write(view(&w).join("old.html"), "old").unwrap();
     h.tars.insert(

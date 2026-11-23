@@ -30,7 +30,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::Path;
-use tehas_core::accounts::{self, account};
+use tehas_core::accounts::{self, account, folded};
 use tehas_core::forge::{Bounded, GhRunner};
 use tehas_core::settings::rules::is_login;
 
@@ -51,7 +51,9 @@ pub type Recorded = Result<(BTreeMap<String, u64>, Vec<String>), Vec<String>>;
 
 /// The pairs to record, or the lines that stop the run. `logins` are the
 /// settings' logins as written, `had` the recorded pairs, `accept` the logins
-/// whose new id a person confirmed.
+/// whose new id a person confirmed. Logins compare as `accounts::folded`
+/// gives them, as the vouch reads the file: a pair of the login in another
+/// case is its pair, and is replaced by the login as written.
 pub fn record(
     logins: &[String],
     had: &BTreeMap<String, u64>,
@@ -64,28 +66,38 @@ pub fn record(
     let mut said = Vec::new();
     for login in logins {
         let key = account(login).to_string();
-        if asked.contains(&key) {
+        let fold = folded(&key);
+        if asked.contains(&fold) {
             continue;
         }
-        asked.push(key.clone());
-        let accepted = accept.iter().any(|a| account(a) == key);
-        match (ask(login), had.get(&key)) {
-            (Asked::Missing, _) => faults.push(format!(
+        let accepted = accept.iter().any(|a| folded(account(a)) == fold);
+        let cases: Vec<&String> = had.keys().filter(|l| folded(l) == fold).collect();
+        asked.push(fold);
+        match ask(login) {
+            Asked::Missing => faults.push(format!(
                 "tehas: the login {login} does not resolve to a GitHub account; take it out of the settings or correct it"
             )),
-            (Asked::Failed(why), _) => faults.push(format!(
+            Asked::Failed(why) => faults.push(format!(
                 "tehas: GitHub could not be asked for the user id of {login}{why}"
             )),
-            (Asked::Id(id), Some(was)) if *was != id && !accepted => faults.push(format!(
-                "tehas: the login {login} now has the user id {id}, not the recorded {was}: the login may have changed hands. If it is the same person, run tehas update --accept-id {login}"
-            )),
-            (Asked::Id(id), was) => {
-                if let Some(w) = was.filter(|w| **w != id) {
-                    said.push(format!(
-                        "accounts: {login} is recorded with the user id {id} (it was {w})"
-                    ));
+            Asked::Id(id) => {
+                let other = cases.iter().map(|l| had[*l]).find(|w| *w != id);
+                match other {
+                    Some(was) if !accepted => faults.push(format!(
+                        "tehas: the login {login} now has the user id {id}, not the recorded {was}: the login may have changed hands. If it is the same person, run tehas update --accept-id {login}"
+                    )),
+                    _ => {
+                        if let Some(w) = other {
+                            said.push(format!(
+                                "accounts: {login} is recorded with the user id {id} (it was {w})"
+                            ));
+                        }
+                        cases.iter().for_each(|l| {
+                            ids.remove(*l);
+                        });
+                        ids.insert(key, id);
+                    }
                 }
-                ids.insert(key, id);
             }
         }
     }
@@ -94,6 +106,15 @@ pub fn record(
     } else {
         Err(faults)
     }
+}
+
+/// The first of `accept` that names none of `logins`, in any case.
+fn unlisted<'a>(accept: &'a [String], logins: &[String]) -> Option<&'a String> {
+    accept.iter().find(|a| {
+        !logins
+            .iter()
+            .any(|l| folded(account(l)) == folded(account(a)))
+    })
 }
 
 /// The settings' logins as written, the allowed ones first.
@@ -194,10 +215,7 @@ pub fn record_here(accept: &[String]) -> u8 {
         return 78;
     };
     let logins = logins();
-    if let Some(a) = accept
-        .iter()
-        .find(|a| !logins.iter().any(|l| account(l) == account(a)))
-    {
+    if let Some(a) = unlisted(accept, &logins) {
         eprintln!(
             "tehas: --accept-id {a} names no login of TEHAS_ALLOWED_LABELERS or the millwright"
         );
@@ -351,6 +369,62 @@ mod tests {
         let had = accounts::parse("alice 1001\nbob 1002\n").unwrap();
         let (ids, _) = record(&logins(&["alice"]), &had, &[], &mut github).unwrap();
         assert_eq!(ids, had);
+    }
+
+    fn alice_is(id: u64) -> impl FnMut(&str) -> Asked {
+        move |l: &str| {
+            if l.eq_ignore_ascii_case("alice") {
+                Asked::Id(id)
+            } else {
+                Asked::Missing
+            }
+        }
+    }
+
+    #[test]
+    fn a_pair_of_the_login_in_another_case_is_its_pair() {
+        // The list said alice, a person writes Alice, and the login has
+        // changed hands meanwhile.
+        let had = accounts::parse("alice 5\n").unwrap();
+        let faults = record(&logins(&["Alice"]), &had, &[], &mut alice_is(99)).unwrap_err();
+        assert!(faults[0].contains("changed hands") && faults[0].contains("5"));
+        // A pair in another case of the same id is taken over by the login as
+        // written, so the file holds one pair for it.
+        let (ids, said) = record(&logins(&["Alice"]), &had, &[], &mut alice_is(5)).unwrap();
+        assert_eq!(accounts::text(&ids), "Alice 5\n");
+        assert!(said.is_empty());
+    }
+
+    #[test]
+    fn an_accepted_id_replaces_the_pairs_of_every_case() {
+        // The file reader stops on such a file; record still settles a map
+        // that holds both cases.
+        let had = BTreeMap::from([
+            ("Alice".to_string(), 5),
+            ("alice".to_string(), 99),
+            ("bob".to_string(), 7),
+        ]);
+        let faults = record(&logins(&["alice"]), &had, &[], &mut alice_is(99)).unwrap_err();
+        assert!(faults[0].contains("99") && faults[0].contains("recorded 5"));
+        let (ids, said) = record(
+            &logins(&["alice"]),
+            &had,
+            &logins(&["ALICE"]),
+            &mut alice_is(99),
+        )
+        .unwrap();
+        assert_eq!(accounts::text(&ids), "alice 99\nbob 7\n");
+        assert!(said[0].contains("99") && said[0].contains("it was 5"));
+    }
+
+    #[test]
+    fn an_accept_names_a_listed_login_in_any_case() {
+        let listed = logins(&["Alice", "mill[bot]"]);
+        assert_eq!(unlisted(&logins(&["alice", "MILL"]), &listed), None);
+        assert_eq!(
+            unlisted(&logins(&["bob"]), &listed),
+            Some(&"bob".to_string())
+        );
     }
 
     #[test]
