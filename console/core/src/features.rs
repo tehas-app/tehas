@@ -67,24 +67,6 @@ pub const FEATURES: &[Feature] = &[
         units: &[],
     },
     Feature {
-        name: "protolab-zip-url",
-        stage: Stage::Building,
-        setting: "TEHAS_PROTOLAB_ZIP_URL",
-        settings: &["TEHAS_PROTOLAB_ZIP_HOSTS"],
-        since: "v1.0.0-alpha.3",
-        programs: &[],
-        units: &[],
-    },
-    Feature {
-        name: "prototype-file",
-        stage: Stage::Building,
-        setting: "TEHAS_PROTOTYPE_FILE",
-        settings: &[],
-        since: "v1.0.0-alpha.3",
-        programs: &[],
-        units: &[],
-    },
-    Feature {
         name: "lean",
         stage: Stage::Building,
         setting: "TEHAS_LEAN",
@@ -505,12 +487,7 @@ mod tests {
 
     #[test]
     fn a_building_setting_is_a_building_features_switch_or_own_setting() {
-        for name in [
-            "TEHAS_OUTSOURCE",
-            "TEHAS_OUTSOURCE_REPOS",
-            "TEHAS_PROTOLAB_ZIP_HOSTS",
-            "TEHAS_LEAN",
-        ] {
+        for name in ["TEHAS_OUTSOURCE", "TEHAS_OUTSOURCE_REPOS", "TEHAS_LEAN"] {
             assert!(building_setting(name), "{name}");
         }
         for name in ["TEHAS_REPO", "TEHAS_DRIVER", "TEHAS_NOPE"] {
@@ -534,34 +511,6 @@ mod tests {
         assert_eq!(
             refuse_building(&vars(&[("TEHAS_SPEC_PIPE", "1")])),
             Err("TEHAS_SPEC_PIPE is on and spec-pipe is still being built in this release: set it to off or take the line out".to_string())
-        );
-    }
-
-    #[test]
-    fn the_protolab_zip_url_is_building_and_follows_its_switch_only_in_a_test() {
-        let name = "protolab-zip-url";
-        assert_eq!(find(name).map(|f| f.stage), Some(Stage::Building));
-        assert!(!shipped().contains(&name));
-        assert!(!on_in(name, &vars(&[("TEHAS_PROTOLAB_ZIP_URL", "on")])));
-        let tested = vars(&[("TEHAS_PROTOLAB_ZIP_URL", "on"), (TEST_VAR, name)]);
-        assert!(on_in(name, &tested));
-        assert_eq!(
-            refuse_building(&vars(&[("TEHAS_PROTOLAB_ZIP_URL", "1")])),
-            Err("TEHAS_PROTOLAB_ZIP_URL is on and protolab-zip-url is still being built in this release: set it to off or take the line out".to_string())
-        );
-    }
-
-    #[test]
-    fn the_prototype_file_is_building_and_follows_its_switch_only_in_a_test() {
-        let name = "prototype-file";
-        assert_eq!(find(name).map(|f| f.stage), Some(Stage::Building));
-        assert!(!shipped().contains(&name));
-        assert!(!on_in(name, &vars(&[("TEHAS_PROTOTYPE_FILE", "on")])));
-        let tested = vars(&[("TEHAS_PROTOTYPE_FILE", "on"), (TEST_VAR, name)]);
-        assert!(on_in(name, &tested));
-        assert_eq!(
-            refuse_building(&vars(&[("TEHAS_PROTOTYPE_FILE", "on")])),
-            Err("TEHAS_PROTOTYPE_FILE is on and prototype-file is still being built in this release: set it to off or take the line out".to_string())
         );
     }
 
@@ -738,14 +687,10 @@ mod tests {
             refuse_building_settings(&set(&["TEHAS_OUTSOURCE_REPOS"]), &vars(&[])),
             Err("TEHAS_OUTSOURCE_REPOS is set and outsource is still being built in this release: take the line out".to_string())
         );
-        assert_eq!(
-            refuse_building_settings(&set(&["TEHAS_PROTOLAB_ZIP_HOSTS"]), &vars(&[])),
-            Err("TEHAS_PROTOLAB_ZIP_HOSTS is set and protolab-zip-url is still being built in this release: take the line out".to_string())
-        );
         assert_eq!(refuse_building_settings(&set(&[]), &vars(&[])), Ok(()));
         // A test that can turn the feature on may set its settings with it off.
-        let tested = vars(&[(TEST_VAR, "outsource protolab-zip-url")]);
-        let both = set(&["TEHAS_OUTSOURCE_TIMEOUT", "TEHAS_PROTOLAB_ZIP_HOSTS"]);
+        let tested = vars(&[(TEST_VAR, "outsource")]);
+        let both = set(&["TEHAS_OUTSOURCE_TIMEOUT", "TEHAS_OUTSOURCE_REPOS"]);
         assert_eq!(refuse_building_settings(&both, &tested), Ok(()));
     }
 

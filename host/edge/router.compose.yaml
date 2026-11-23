@@ -1,4 +1,4 @@
-# The edge router: the Protolab's pages and the previews of pull requests, on
+# The edge router: the items' pages and the previews of pull requests, on
 # port 8081, picked by name (router.Caddyfile). Part of every install; it does
 # not need the docs server, and it is started only where it is wanted.
 #
@@ -32,7 +32,7 @@ services:
     image: caddy@sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0
     volumes:
       - "./router.Caddyfile:/etc/caddy/Caddyfile:ro"
-      - "../protolab:/srv/protolab:ro"
+      - "../items:/srv/items:ro"
       - "../fun:/srv/fun:ro"
     ports:
       - "${TEHAS_HOST_ADDR:-127.0.0.1}:8081:8081"

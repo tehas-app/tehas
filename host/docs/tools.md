@@ -67,8 +67,8 @@ it, and exit with its status. `tehas status`, `tehas disk`, `tehas top`,
 `tehasbot mcp key` and `tehasbot github-writes` are verbs too.
 The verbs
 that do, `tehas state`, `limit`, `pause`, `analytics`, `stop`, `init-product` and
-`tehas refresh`, `tehas github check`, `tehasbot health`, `clean`, `preview`
-and `protolab` among them, run
+`tehas refresh`, `tehas github check`, `tehasbot health`, `clean` and
+`preview` among them, run
 under `console run`, which checks the arguments, loads the settings, requires
 what the command cannot run without and runs it (`console/src/run.rs`), and so
 do `tehas dispatch`, `plan`, `check-product` and `tehasbot dispatch` and
@@ -127,17 +127,16 @@ default, or an example where there is none.
 
 A switch takes `on` or `off`. `1` and `0` mean the same and keep working;
 any other value stops every command with 78. A switch of an optional feature
-that is still being built, `TEHAS_OUTSOURCE`, `TEHAS_SPEC_PIPE`,
-`TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOTYPE_FILE` and `TEHAS_LEAN` in this
-release, stops every command with 78 when it is `on`. So does a line that
-gives a value to one of such a feature's own settings, the `TEHAS_OUTSOURCE_*`
-settings and `TEHAS_PROTOLAB_ZIP_HOSTS` in this release.
+that is still being built, `TEHAS_OUTSOURCE`, `TEHAS_SPEC_PIPE` and
+`TEHAS_LEAN` in this release, stops every command with 78 when it is `on`. So
+does a line that gives a value to one of such a feature's own settings, the
+`TEHAS_OUTSOURCE_*` settings in this release.
 
 | Setting                         | Default                                  | Meaning                                                         |
 | ------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
 | `TEHAS_REPO`                    | required                                 | `owner/name` of the repository whose issues are the queue       |
 | `TEHAS_CONTROL_ISSUE`           | required                                 | Issue that carries `tehas:pause`                                |
-| `TEHAS_ALLOWED_LABELERS`        | required                                 | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish`, `tehas:blocked`, `tehas:lean` and `tehas:classic` for the dispatcher, `tehas:prototype` for the Protolab. Each counts only with the GitHub user id `install.sh` and `tehas update` recorded for it, see [Accounts by user id](/tools-update#accounts-by-user-id) |
+| `TEHAS_ALLOWED_LABELERS`        | required                                 | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish`, `tehas:blocked`, `tehas:lean` and `tehas:classic` for the dispatcher, `tehas:prototype` for the Protolab, which is parked. Each counts only with the GitHub user id `install.sh` and `tehas update` recorded for it, see [Accounts by user id](/tools-update#accounts-by-user-id) |
 | `PI_ENSEMBLE_SUBAGENT_MODEL`    | required                                 | Model for every subagent role without one of its own            |
 | `PI_ENSEMBLE_SUBAGENT_PROVIDER` | required                                 | Its provider, as named in `models.json`                         |
 | `PI_ENSEMBLE_MODEL_<ROLE>`      | `PI_ENSEMBLE_SUBAGENT_MODEL`             | Model for one role: `EXPLORE`, `DEVELOPER`, `ADVERSARIAL_DEVELOPER`, `CODE_REVIEW_SPECIALIST` (the six lens reviewers) or `OPS`. Another name is refused. See [A model per role](/host#a-model-per-role) |
@@ -150,12 +149,8 @@ settings and `TEHAS_PROTOLAB_ZIP_HOSTS` in this release.
 | `TEHAS_SITE_ANALYTICS_COOKIE`        | `off`                                    | `on` adds `data-cookie="true"` to that script tag                |
 | `TEHAS_DESIGN`                  | `beesknees26`                            | The look of the whole site and its front page: `beesknees26` (the business page at `/`) or `pixel` (the factory floor at `/`). Any other value is exit 78. See [Designs](/host#designs) |
 | `TEHAS_ANALYTICS`               | `on`                                     | The factory's own analytics, not the visitor analytics above: 365 days of runs, issue events and poll samples in `~/tehas/state/analytics.db`. `off` stops every write and leaves the file as it is. Anything but `on` or `off` stops every command with 78 |
-| `TEHAS_PROTOLAB_URL`            | `https://lab.<domain>`, or port 8081     | Address people reach the Protolab at, when it is published elsewhere, as `https://lab.example`. The dashboard links to it. Without it: `https://lab.<domain>` when `TEHAS_DOMAIN` is set, else port 8081 of the dashboard's host |
-| `TEHAS_PROTOLAB_ZIP_URL`        | `off`                                    | `on` lets a ticket at the prototype stage name a zip by address and sha256, `Zip: <address> sha256:<hex>`, from a host of `TEHAS_PROTOLAB_ZIP_HOSTS` ([a zip by address](/tools-protolab#a-zip-by-address)). Anything but `on`, `off`, `1` or `0` stops every command with 78. Still being built in this release, so `on` stops every command with 78 too, naming `protolab-zip-url` |
-| `TEHAS_PROTOLAB_ZIP_HOSTS`      | empty                                    | Optional. The hosts such a zip may come from, lower-case domains separated by single spaces, as `files.example.org`. A host must match exactly: no subdomain, no port. Empty: no host. Anything else stops every command with 78 |
-| `TEHAS_PROTOTYPE_FILE`          | `off`                                    | `on` turns on [`tehas prototype file`](/tools-protolab#tehas-prototype-file), which opens a ticket for the Protolab with the caller's own gh login. Anything but `on`, `off`, `1` or `0` stops every command with 78. Still being built in this release, so `on` stops every command with 78 too, naming `prototype-file` |
-| `TEHAS_DOMAIN`                  | none                                     | The domain the edge's names are made under, as `tehas.app`: `uat-<pr>.` for a preview, `lab-<issue>.` for a ticket of the Protolab, `lab.` for its list |
-| `TEHAS_EDGE_ONE_LEVEL`          | `off`                                    | `on` names the edge one level under `TEHAS_DOMAIN`'s parent, for a domain that is itself a subdomain: with `demo.example.org`, `uat-<pr>-demo.example.org`, `lab-<issue>-demo.example.org` and `lab-demo.example.org`. The notice, the dashboard and the Protolab say these names; the proxy maps each onto the router's `<label>.<domain>`. See [Previews and the Protolab on the internet](/edge#a-domain-that-is-itself-a-subdomain). Refused unless `TEHAS_DOMAIN` has three labels or more |
+| `TEHAS_DOMAIN`                  | none                                     | The domain the edge's names are made under, as `tehas.app`: `uat-<pr>.` for a preview, `item-<issue>.` for an item's page |
+| `TEHAS_EDGE_ONE_LEVEL`          | `off`                                    | `on` names the edge one level under `TEHAS_DOMAIN`'s parent, for a domain that is itself a subdomain: with `demo.example.org`, `uat-<pr>-demo.example.org`, and `item-<issue>-demo.example.org`. The notice and the dashboard say these names; the proxy maps each onto the router's `<label>.<domain>`. See [Previews on the internet](/edge#a-domain-that-is-itself-a-subdomain). Refused unless `TEHAS_DOMAIN` has three labels or more |
 | `TEHAS_PREVIEWS`                | `off`                                    | `on` builds a preview of every open pull request whose branch is in the product repository and that an owner, member or collaborator opened. Needs `TEHAS_DOMAIN` |
 | `TEHAS_EGRESS`                  | `off`                                    | `on` puts every cycle, planning turn and `tehas dev` session on an internal network whose one way out is a proxy that connects only to listed hosts. See [Where a container may connect](/host#where-a-container-may-connect) |
 | `TEHAS_EGRESS_HOSTS`            | empty                                    | Hosts the proxy allows beside its own list, one space apart, each a name on port 443 or `name:port`, as `pypi.org files.pythonhosted.org`. A name is letters, digits, `-` and at least one dot (no `_`); a port is 1 to 65535 with no leading zero. The load checks each word by the rule that makes the proxy's list, so a word it takes is a word the proxy allows |
@@ -201,7 +196,7 @@ settings and `TEHAS_PROTOLAB_ZIP_HOSTS` in this release.
 | `TEHAS_SCRATCH_MAX`             | `20g`                                    | What one cycle's scratch under `TEHAS_SCRATCH_DIR` may hold, measured every 10 seconds by tehas work; a cycle whose scratch holds more is stopped at the cap `disk`. A scratch of more than 500,000 files and directories is not read to the end and counts as over the cap, and as the largest under `TEHAS_CYCLE_STOP_FREE`. Only with `TEHAS_SCRATCH_DIR`. A size such as `512m` or `20g`, else every command stops with 78 |
 | `TEHAS_CLEAN_DIRS`             | `target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle` | The directory names `tehasbot clean` removes anywhere in a kept workspace, separated by single spaces. Names, not paths: one with a `/`, a bare `.` or `..`, or a dot-name in the family of the two a workspace keeps, stops every command with 78 (see [tehasbot clean](/tools-clean#tehasbot-clean)) |
 | `TEHAS_BRANCH_CHECK`           | empty                                    | Optional. The name of a check that runs on every push to `TEHAS_BRANCH`, as `verify`. While it failed on the branch's head commit no new cycle starts (see [Limits that hold work back](/operating#limits-that-hold-work-back)). Words of letters, digits and `._()/-` separated by single spaces, else every command stops with 78. Empty: the poll does not ask |
-| `TEHAS_ISSUE_TYPES`            | empty                                    | Optional. `kind=Type` pairs separated by single spaces, such as `improvement=Improvement prototype=Prototype`: the organisation's issue type that marks a kind in place of its label, `tehas:improvement` for the dispatcher, `tehas:prototype` for the Protolab. A kind left out stays its label. Another kind, a kind named twice, or a type name of anything but letters, digits, `-` and `_` stops every command with 78; a type the organisation does not have stops the poll and the Protolab with 78 (see [Kinds as issue types](/operating#kinds-as-issue-types)). Empty: the labels |
+| `TEHAS_ISSUE_TYPES`            | empty                                    | Optional. `kind=Type` pairs separated by single spaces, such as `improvement=Improvement prototype=Prototype`: the organisation's issue type that marks a kind in place of its label, `tehas:improvement` for the dispatcher, `tehas:prototype` for the Protolab, which is parked. A kind left out stays its label. Another kind, a kind named twice, or a type name of anything but letters, digits, `-` and `_` stops every command with 78; a type the organisation does not have stops the poll with 78 (see [Kinds as issue types](/operating#kinds-as-issue-types)). Empty: the labels |
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from: an absolute path of letters, digits and `._-`, else every command stops with 78. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
 | `TEHAS_CLONE_DEPTH`             | `100`                                    | Commits of history a cycle's workspace is given, counted back from the tip of `TEHAS_BRANCH`: the clone fetches that one branch with `git fetch --depth`, from the product checkout. A refresh deepens its workspace until it holds the commit the pull request's branch started from (see [tehas work](/tools-work#the-workspace-and-its-history)). Planning turns, the code index and `tehas check-product` clone the same way, and a later planning turn deepens its own to the commit it starts from. `0` gives full history. A whole number of 0 or more, else every command stops with 78 |
@@ -691,7 +686,6 @@ hand)` and `## scripts/test.sh` stay here.
 | [tehas status, api, disk, top and analytics](/tools-status) | What the factory is doing, what it speaks to a program, how full the host is, and its runs. |
 | [tehasbot and tehasbot cycle](/tools-tehasbot) | The command the units run, and one cycle for one issue with its report. |
 | [The console, health and top](/tools-health) | The files that feed the dashboard, and what watches the host's health, its models and its load. |
-| [The Protolab](/tools-protolab) | The page of a prototype. |
 | [The GitHub commands](/tools-github) | Asking for refreshes, the App's tokens, and the writes of the last day. |
 | [tehasbot clean and tehasbot preview](/tools-clean) | What the cleaner removes and when, and the preview of every pull request. |
 | [tehas update, install.sh and bootstrap.sh](/tools-update) | Bringing a host up to date, installing one, and preparing a fresh one. |

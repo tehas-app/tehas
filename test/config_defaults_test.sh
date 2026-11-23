@@ -209,18 +209,10 @@ t_instance "${T_MINIMAL[@]}"
 t_case "the example instance names the minimum the cleaner defaults to"
 t_contains "$(grep '^#TEHAS_CLEAN_MIN_FREE=' "$T_ROOT/instances/example/optional.env")" "=30g"
 
-t_case "without a domain there are no previews and no derived address"
+t_case "without a domain there are no previews"
 t_instance "${T_MINIMAL[@]}"
-t_run "$load && echo \"[\$TEHAS_DOMAIN] \$TEHAS_PREVIEWS [\${TEHAS_PROTOLAB_URL:-}]\""
-t_eq "$t_out" "[] 0 []"
-
-t_case "a domain gives the Protolab its address, and a written one is kept"
-t_instance "${T_MINIMAL[@]}" TEHAS_DOMAIN=example.org
-t_run "$load && echo \"\$TEHAS_PROTOLAB_URL\""
-t_eq "$t_out" "https://lab.example.org"
-t_instance "${T_MINIMAL[@]}" TEHAS_DOMAIN=example.org TEHAS_PROTOLAB_URL=https://proto.example.net
-t_run "$load && echo \"\$TEHAS_PROTOLAB_URL\""
-t_eq "$t_out" "https://proto.example.net"
+t_run "$load && echo \"[\$TEHAS_DOMAIN] \$TEHAS_PREVIEWS\""
+t_eq "$t_out" "[] 0"
 
 t_case "an explicit host address is kept"
 t_instance "${T_MINIMAL[@]}" TEHAS_HOST_ADDR=192.0.2.7
@@ -730,7 +722,7 @@ T_ENV=()
 t_instance "${T_MINIMAL[@]}"
 
 t_case "a building feature's own setting stops a command with 78 before it calls GitHub"
-for line in TEHAS_OUTSOURCE_TIMEOUT=1800 TEHAS_OUTSOURCE_REPOS=acme/widget TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org; do
+for line in TEHAS_OUTSOURCE_TIMEOUT=1800 TEHAS_OUTSOURCE_REPOS=acme/widget; do
   t_instance "${T_MINIMAL[@]}" "$line"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
@@ -871,7 +863,7 @@ names=(PI_ENSEMBLE_MODEL_ PI_ENSEMBLE_PROVIDER_ PI_ENSEMBLE_SUBAGENT_MODEL PI_EN
   TEHAS_SITE_INDEXING TEHAS_INSTANCE_DIR TEHAS_MAX_AWAITING
   TEHAS_MILLWRIGHT_EPICS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
   TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT TEHAS_POLL_BUDGET TEHAS_PREVIEWS TEHAS_PREVIEW_MAX
-  TEHAS_PREVIEW_MIN_FREE TEHAS_PROTOLAB_URL TEHAS_READ_ONLY TEHAS_REFRESH_MAX_PER_PR
+  TEHAS_PREVIEW_MIN_FREE TEHAS_READ_ONLY TEHAS_REFRESH_MAX_PER_PR
   TEHAS_REFRESH_SLOTS TEHAS_RELEASE_REPO TEHAS_REPO TEHAS_RUKAS_WORKAROUNDS
   TEHAS_SCRATCH_DIR TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_FILES TEHAS_SIZE_MAX_LINES TEHAS_SLICE_CONTAINERS
   TEHAS_MAX_CYCLES TEHAS_TOP TEHAS_UPDATE_FROM TEHAS_VERIFY_TIMEOUT
@@ -880,7 +872,7 @@ for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "78f2ca0917d920e09bafb6a033c2e3e3f73295e13f50de46a2e7a92a58e1f731"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "4651874a62d22bd2e3a898950972894f68fb8cb606f29aa62f5abca1cffbe26e"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"
@@ -910,7 +902,6 @@ TEHAS_MAX_CYCLES=4
 TEHAS_WORKSTREAMS=4|TEHAS_MAX_CYCLES=1
 TEHAS_MAX_AWAITING=3
 TEHAS_DOMAIN=example.org
-TEHAS_DOMAIN=example.org|TEHAS_PROTOLAB_URL=https://p.example
 TEHAS_VERIFY_TIMEOUT=600
 PI_ENSEMBLE_VERIFY_TIMEOUT_MS=1
 PI_ENSEMBLE_MAX_WORKSTREAMS=4
@@ -979,7 +970,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "e99c73f9e4c981df80c84d673c58c2157b2d1600060da1c133c8222a0988e9fc"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "d9936535689ca0133d699044468aae94ff9cef524680a5075abcc0361e517b76"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

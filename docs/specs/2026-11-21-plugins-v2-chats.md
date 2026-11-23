@@ -63,6 +63,7 @@ well-meant. None of them adds a step to the path above.
 | `about` | One line, 1 to 120 characters, control characters refused |
 | `path` | A Markdown file in the repository at the pinned commit, no `..`, at most 2 KiB |
 | `chats` | 1 or more of `obeya`, `wizard`, `assistant` |
+| `entry` | Optional (1.6.0). A label of 1 to 32 characters, one line, control characters refused. A skill with an entry reaches only a chat the person opened from that entry. Skills of one plugin with the same `entry` are one entry |
 
 A plugin granted both `skill:` and `tool:` puts text that steers and text
 that answers into the same chat. `review` says so for that pair, as v1's
@@ -120,6 +121,13 @@ One section per plugin. The heading names its label, its name and the first
 - A host may show the person which plugin skills shape this chat, as a line
   under the chat's title. Picking a skill by name, or the model choosing from
   the `about` lines, is the host's choice.
+- **Entry skills** (1.6.0). A skill with `entry` is left out of the answer
+  unless the host asks with `--entries`; each such skill then carries its
+  `entry`. The host draws the entry's label where a person starts a chat,
+  as text beside the plugin's label, and gives the entry's skills only to
+  a chat opened from it. The 8192 bytes count the skills with no entry
+  together and each entry's skills on their own. A host that draws no
+  entries asks without the flag and never gets one.
 
 ### Proposals in a shaped turn
 

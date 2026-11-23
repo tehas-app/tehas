@@ -44,7 +44,6 @@ pub(crate) const UNITS: &[&str] = &[
     "tehas-mcp-fetch.socket",
     "tehas-preview.timer",
     "tehas-preview-sweep.timer",
-    "tehas-protolab.timer",
     "tehas-clean.timer",
 ];
 
@@ -68,6 +67,7 @@ pub(crate) const RETIRED_UNITS: &[&str] = &[
     "tehas-wiki.service",
     "tehas-wiki.timer",
     "tehas-wiki.path",
+    "tehas-protolab.timer",
 ];
 
 /// The ids, in the order they run: systemd first, because a unit file is not in
@@ -928,6 +928,8 @@ mod tests {
             current("units tehas-review.timer tehas-clean.timer").as_deref(),
             Some("units tehas-clean.timer")
         );
+        assert_eq!(current("units tehas-protolab.timer"), None);
+        assert!(!UNITS.contains(&"tehas-protolab.timer"));
         assert_eq!(
             current("units tehas-improve.timer tehas-clean.timer").as_deref(),
             Some("units tehas-clean.timer")

@@ -100,8 +100,9 @@ refused while the feature is building, as every building feature's name is.
 2.0 takes the names of the features it moves out of core off the list,
 `TEHAS_REVIEW` and `TEHAS_REVIEW_REPO` among them.
 
-In `tehas status --json` the fields of `running[].progress` and `prototypes`
-describe one driver's steps and the Protolab, and may change. The fields of
+In `tehas status --json` the fields of `running[].progress` describe one
+driver's steps and may change. `prototypes`, the Protolab's list, went
+in 2.0 with the Protolab. The fields of
 `contractors` may change while outsource is still being built, and so may
 `api/status.outsourced.json`, the sample that shows them.
 
@@ -137,8 +138,8 @@ Decided for 1.0 on 2026-11-18.
   `api/api.schema.json` requires only those. A name that was on `api/surface-1.0.txt`
   before its feature became building stays on it and keeps its meaning,
   though its row is marked `"building": true` and the release refuses it.
-- **The building features of 1.0 come in 1.1.** outsource, spec-pipe,
-  protolab-zip-url, prototype-file and lean are planned for 1.1
+- **The building features of 1.0 come in 1.1.** outsource, spec-pipe
+  and lean are planned for 1.1
   (decided 2026-11-19). The names [listed for each below](#names-reserved-for-11) are
   the ones 1.1 adds to the frozen surface: no other feature takes them, and
   1.1 ships each under the same name. Their shapes may still be settled
@@ -347,8 +348,6 @@ already and keep their meaning in 1.0.
 | --- | --- | --- | --- | --- | --- |
 | outsource | `TEHAS_OUTSOURCE` and `TEHAS_OUTSOURCE_TIMEOUT`, `_GRACE`, `_RETRIES`, `_REST`, `_REPOS`, `_CONTRACTORS`, `_JOIN_TTL`, `_PROXY_ADDR`, `_PROXY_IDLE` | `tehas outsource invite [--name NAME]`, `list`, `status`, `revoke <contractor>`, `drain <contractor>`, each with `--json` | `contractors` in `tehas status --json` (`api/status.outsourced.json`), the MCP tool `factory_contractors`, the job channel `/outsource/v1/<call>`, the column `runs.contractor_id` of `analytics.db` (frozen) | none | `tehas-proxy`, `tehas-contractor`, `tehas-outsource-proxy.service` |
 | spec-pipe | `TEHAS_SPEC_PIPE` | none | the issue line `Spec: <link> sha256:<hex>`, [the pull request spec block](#the-pull-request-spec-block) version 1, the cycle's `spec` and `approved.json` and their manifest keys `spec` and `approvedText`, the runner capability `issueSpec` | none | none |
-| protolab-zip-url | `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOLAB_ZIP_HOSTS` | none | the ticket line `Zip: <address> sha256:<hex>` | `tehas:prototype` (frozen) | none |
-| prototype-file | `TEHAS_PROTOTYPE_FILE` | `tehas prototype file` with `--title`, `--body-file`, `--spec`, `--spec-sha256`, `--zip`, `--zip-sha256` | none | `tehas:prototype` (frozen) | none |
 | lean | `TEHAS_LEAN`, and the word `lean` of `TEHAS_DRIVER` (frozen) | `tehas work --driver lean` (the flag is frozen) | the issue's `pi-spec v1` block, the `driver` columns of `analytics.db` (frozen) | `tehas:lean`, `tehas:classic` (frozen) | none |
 
 Each feature's name is its key in `flags` and the word 1.1 appends to
@@ -397,36 +396,6 @@ Building, planned for 1.1. Off by default; `TEHAS_SPEC_PIPE=on` stops every comm
 - No command, no label, no `--json` field, no MCP tool.
 
 [tehas work](/tools-work) says what the feature gives a cycle once it ships.
-
-### protolab-zip-url
-
-Building, planned for 1.1. Off by default; `TEHAS_PROTOLAB_ZIP_URL=on` stops every command with
-exit 78 and says `protolab-zip-url` is still being built.
-
-- `tehas api --json` has `"protolab-zip-url": false` in `flags`, and no word
-  `protolab-zip-url` in `features`.
-- The setting `TEHAS_PROTOLAB_ZIP_HOSTS` is in `api/settings-rules.json`, but
-  it is not contract: a line that gives it a value stops every command with
-  exit 78 and names `protolab-zip-url`.
-- A `Zip:` line in a ticket is text on the Protolab page, as it always was.
-- No command, no label, no `--json` field, no MCP tool.
-
-[A zip by address](/tools-protolab#a-zip-by-address) says what the feature
-does once it ships.
-
-### prototype-file
-
-Building, planned for 1.1. Off by default; `TEHAS_PROTOTYPE_FILE=on` stops every command with
-exit 78 and says `prototype-file` is still being built.
-
-- `tehas api --json` has `"prototype-file": false` in `flags`, and no word
-  `prototype-file` in `features`.
-- `tehas prototype file` exits 78 and files nothing. `tehas help prototype`
-  prints its text, and the list of `tehas help` does not name it.
-- No label, no `--json` field, no MCP tool.
-
-[`tehas prototype file`](/tools-protolab#tehas-prototype-file) says what the
-feature does once it ships.
 
 ### lean
 

@@ -141,19 +141,6 @@
         }
       }
     },
-    "prototypes": {
-      "description": "The issues with a Protolab page, as the Protolab last listed them. Its fields may change in a minor release: a program shows them, and does not decide on them. Left out when there is no such list.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["issue"],
-        "additionalProperties": false,
-        "properties": {
-          "issue": {"type": "integer", "minimum": 1},
-          "builtAt": {"type": "string", "format": "date-time"}
-        }
-      }
-    },
     "previews": {
       "description": "The previews of the open pull requests, as the previews last listed them, newest pull request first. The preview of the default branch is not one of them. Left out when there is no such list, as on a host that does not run previews.",
       "type": "array",

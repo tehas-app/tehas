@@ -1,5 +1,5 @@
-//! What tehasbot protolab and tehasbot preview share: a numbered set under
-//! the home, and the previews' network.
+//! What the commands that publish on the edge share: a numbered set under
+//! the home, written in place, and the previews' network.
 //!
 //!   console preview network check|create|ensure|install <network>
 //!
