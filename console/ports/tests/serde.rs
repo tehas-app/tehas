@@ -1968,6 +1968,7 @@ fn every_word() -> Vec<Word> {
         Word::MarkerKind,
         Word::Scope,
         Word::Happened,
+        Word::HappenedKind,
         Word::ChangeHappened,
         Word::Marker,
         Word::QuestionKind,

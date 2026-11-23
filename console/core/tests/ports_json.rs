@@ -502,9 +502,19 @@ fn the_ledger_and_health_read_back_from_json() {
             at: At::new(2),
         });
     }
-    for word in [Word::Takeover, Word::Health, Word::PortName, Word::Unknown] {
+    for word in [
+        Word::HappenedKind,
+        Word::Takeover,
+        Word::Health,
+        Word::PortName,
+        Word::Unknown,
+    ] {
         round!(word);
     }
+    assert_eq!(
+        serde_json::to_string(&Word::HappenedKind).unwrap(),
+        r#""HappenedKind""#
+    );
 }
 
 #[test]

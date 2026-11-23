@@ -152,7 +152,7 @@ fn pool_next(mine: Pool, now: At, was: HealthState, seen: &Result<(), Outcome>) 
 pub struct Notice {
     /// The host it is about.
     pub host: HostId,
-    /// The host's own health, or one holder's.
+    /// The host's own health, a holder's, or one pool's.
     pub whose: Whose,
     /// The realm of the site that saw it.
     pub realm: Realm,
@@ -249,6 +249,8 @@ pub enum Word {
     Scope,
     /// `Happened`.
     Happened,
+    /// `HappenedKind`.
+    HappenedKind,
     /// `ChangeHappened`.
     ChangeHappened,
     /// `Marker`.
