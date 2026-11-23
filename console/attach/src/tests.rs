@@ -269,6 +269,22 @@ fn files_are_written_with_what_their_bytes_say() {
     assert_eq!(out[0]["sha256"].as_str().unwrap().len(), 64);
 }
 
+// What `attach unpack` answers of an archive, byte for byte: a file of each
+// kind of content and an entry left out.
+#[test]
+fn the_entries_of_an_answer_are_these_bytes() {
+    let s = TestDir::new("attach-entries");
+    let mut png = e("img/b.png", "");
+    png.data = b"\x89PNG\r\n\x1a\nDATA".to_vec();
+    png.deflate = true;
+    let zip = zip_of(&[e("a.md", "# A\n"), png, e("../x.md", "x"), e("b.exe", "x")]);
+    let out = run(&zip, &s, MB, 16);
+    assert_eq!(
+        serde_json::json!({"entries": out}).to_string(),
+        r#"{"entries":[{"bytes":4,"image":null,"kind":"part","name":"a.md","sha256":"aa1237b773c38dbddef583c4868aaea7a44c5237ea7923aecca5513764b42d80","text":true},{"bytes":12,"image":"png","kind":"image","name":"img/b.png","sha256":"dfd6805bbaba870fe8fee00c971c05bab5e2300e170b863284812daef46b3d2e","text":false},{"reason":"A path outside the archive.","skip":"../x.md"},{"reason":"Not a type the host serves.","skip":"b.exe"}]}"#
+    );
+}
+
 #[test]
 fn a_path_out_of_the_directory_writes_nothing() {
     let s = TestDir::new("attach");
