@@ -574,7 +574,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   an instance's settings.
   Adopter action: take the lines out when it suits you.
 - **`cargo xtask config-check`, the settings checked before the update.**
-  #2885.
+  #2885, #2949.
   `cargo xtask config-check --settings <instance dir>`, in a checkout of the
   release, runs on an instance directory the checks `tehas update` runs on
   the settings before it installs. It prints `dropped <NAME>: <reason>` for
@@ -586,7 +586,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `models.json` names can be set. A line `NAME=<redacted>`, unquoted, counts
   as set with its value unchecked; any other value is checked, and a
   malformed file or a name the host's file may not set fails with 78.
-  It prints names, never a value. #PRNUM.
+  It prints names, never a value.
   Readers: adopters, the consumer that runs many factories where it keeps
   an instance's settings.
   Adopter action: run it before the update, and again after each fix,
