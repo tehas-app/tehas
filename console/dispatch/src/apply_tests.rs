@@ -948,6 +948,7 @@ fn a_pull_request_without_the_mark_is_unmarked_already() {
     let act = json!([{"pr": 12, "remove": ["tehas:refreshing"], "log": "unmark #12"}]);
     let mut t = world();
     assert_eq!(t.apply(act.clone()).log, vec!["unmark #12"]);
+    assert!(t.calls()[0].contains("--kind change-unmark --issue 12"));
     // GitHub's Not Found: the mark is not there, which is what was wanted.
     let mut t = world();
     t.fail("gh", "DELETE");
@@ -1716,6 +1717,11 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
     t.apply(json!([a.clone()]));
     let w = t.writes();
     assert!(w[0].starts_with("gh api -X POST repos/example-owner/example-product/issues/12/labels -f labels[]=tehas:refreshing"));
+    assert!(t
+        .calls()
+        .iter()
+        .any(|c| c.starts_with("store journal-record")
+            && c.contains("--kind change-mark --issue 12")));
     // A refresh is on record at the time the poll decided it.
     assert!(!w[1].contains("--at 1793008800"));
     assert!(!w[1].contains("--label"));
@@ -6169,6 +6175,43 @@ fn an_action_without_its_intended_time_is_not_said_to_be_new() {
     assert_eq!(log, vec![
         "journal: action 3 (label-add on #7, of unknown age) did not happen (it was never attempted); this poll decides it again",
     ]);
+}
+
+/// The refreshing mark on and off a pull request is settled by its labels,
+/// under its words and under the 1.x words of a row from before the update.
+#[test]
+fn a_changes_mark_is_settled_by_its_labels_under_either_word() {
+    let mut t = world();
+    let row = |id: u64, kind: &str| {
+        json!({"id": id, "kind": kind, "issue": 12, "state": "attempted", "intended_at": 990,
+            "attempted_at": 991, "args": {}})
+    };
+    left_open(
+        &t,
+        json!([
+            row(3, "change-mark"),
+            row(4, "refresh-begin"),
+            row(5, "change-unmark"),
+            row(6, "refresh-end")
+        ]),
+    );
+    fs::write(
+        t.dir.join("issue-12"),
+        r#"{"title":"t","body":"b","labels":[]}"#,
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    let not = "did not happen (the pull request's mark is not as it wanted it); this poll decides it again";
+    assert_eq!(
+        log,
+        vec![
+            format!("journal: action 3 (change-mark on #12, 10s old) {not}"),
+            format!("journal: action 4 (refresh-begin on #12, 10s old) {not}"),
+            "journal: action 5 (change-unmark on #12, 10s old) was done".to_string(),
+            "journal: action 6 (refresh-end on #12, 10s old) was done".to_string(),
+        ]
+    );
 }
 
 /// A row from before the journal kept the sum of what it wrote.

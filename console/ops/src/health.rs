@@ -2525,7 +2525,7 @@ mod tests {
             said(&r),
             (
                 "warn".into(),
-                "GitHub failed 3 calls in the last 10 min, the last: ERROR: gh api graphql failed: HTTP 504 (tried 2 times)".into()
+                "GitHub failed 3 calls in the last 10 min, the last: GitHub failed with a server error".into()
             )
         );
         assert_eq!(

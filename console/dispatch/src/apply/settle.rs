@@ -348,13 +348,15 @@ impl Writer {
                     Found::Abandoned("the comment was not edited since")
                 }
             }
-            "refresh-begin" | "refresh-end" => {
+            // refresh-begin and refresh-end are the 1.x words of a row
+            // written before the update.
+            "change-mark" | "change-unmark" | "refresh-begin" | "refresh-end" => {
                 let v = match read(self, format!("repos/{repo}/issues/{n}"), false) {
                     Ok(v) => v,
                     Err(e) => return Found::Unread(e),
                 };
                 let marked = names(&v).iter().any(|l| l == "tehas:refreshing");
-                if marked == (kind == "refresh-begin") {
+                if marked == matches!(kind, "change-mark" | "refresh-begin") {
                     Found::Done(json!({"labels": names(&v)}))
                 } else {
                     Found::Abandoned("the pull request's mark is not as it wanted it")

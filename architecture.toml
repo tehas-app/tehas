@@ -37,7 +37,7 @@ allowed = [
   "console/tests/top_view.rs",
 ]
 comment = "//"
-max = 788
+max = 783
 why = "Re-measured at T0's follow-up, with tests in files counted and GitHub's JSON fields, --json and --jq added: the console 240, dispatch 225, ops 98, cycle 93, the front pages 69, mcp 38, store 37, core 21 outside the forge, analytics 8, xtask 6, the sandbox 4, the rest 1 or 2. 219 are in test files. Some field names (createdAt, updatedAt) are also tehas's own JSON keys where it copied GitHub's: T4 and T7 rename or own them. T4 moves the rest behind the three ports. T15's ports added 33 matches. Test files whose every match is tehas's own word are allowed: console/cycle/tests/headless_caps.rs (the pi-rukas runner's --json flag given to tehascycle's caps check), console/tests/top_snapshot.rs and console/tests/top_view.rs (tehas top's --json), console/tests/top_frame.rs (tehas top's --json and the updatedAt key of tehas's own running.json). Still counted from those ports: the updatedAt and closedAt of the items of live/status.json in console/tests/top/mod.rs, GitHub's names that the queue copies through unchanged, which T4/T7 rename or own; and the --json of tehas order in console/tests/console_run.rs, in a file with gh stubs; both are findings in T4's Done in the plan. Below its fork value (846) by 27. Each allowed test file is listed in `allowed` with a comment saying what it covers. T16's drop of the millwright's grant takes out 6, the drop of All hands 3. T16's drop of the Spec mark takes out 2. T4.2 moves the forge's GitHub side into the adapter, console/github/ (tehas-github), and the allowed with it: console/github/** in place of console/core/src/forge/**. console/core/src/forge.rs stays allowed while Bounded and GhRunner are in it, until T4.11. The count is unchanged."
 
 [[check]]
@@ -55,7 +55,7 @@ allowed = [
   "console/core/src/testing.rs",
 ]
 comment = "//"
-max = 375
+max = 363
 why = "Re-measured at T0's follow-up, with tests in files counted: dispatch 207, cycle 67, the console 62, ops 34, core 13, store 11, mcp and xtask 4 each, the rest 1 or 2. 255 are in test files, which T1 moves onto the ports' fakes. The security shims that decide whether a gh call writes are among the rest: whether they stay separate is the owner's (T4), and those that stay become a written floor. console/core/src/testing.rs is allowed: it owns DENIED and UNREACHED, the lists of tools every test stubs to fail; nothing runs them. Eight harnesses had their own copy of the deny list and three tests their own list of tools stubbed to fail; they use the two lists now, which takes out 10 (5 of them from T15's ports, 5 older), and console_run reads the calls of each tool in UNREACHED in place of calls(\"gh\"). Still counted from T15's ports: the short name \"gh\" of a process in a fixture of /proc in console/tests/top_snapshot.rs, a false positive kept as a written floor of 1 in docs/architecture.md, because a pattern that skipped it would be fragile. Below its fork value (408) by 22. Each allowed test file is listed in `allowed` with a comment saying what it covers. T16's drop of the Spec mark takes out 2. T4.2 moves the forge's GitHub side into the adapter, console/github/ (tehas-github), and the allowed with it: console/github/** in place of console/core/src/forge/**. console/core/src/forge.rs stays allowed while Bounded and GhRunner are in it, until T4.11. The count is unchanged."
 
 [[check]]
@@ -105,8 +105,8 @@ allowed = [
   "console/ports/tests/tree/mod.rs",
 ]
 comment = "//"
-max = 1244
-why = "console/ports/tests/tree/mod.rs is allowed (T4.1): its 11 matches are serde's associated type Value of a Visitor or a DeserializeSeed, which every deserializer names in its signatures, in the small format the ports' tests round-trip their types through, since tehas-ports takes serde alone and no serde_json. None is serde_json::Value, and an untyped seam may never be allowed here on that ground. Re-measured at T0's follow-up, with tests in files counted: dispatch 366, mcp 251, cycle 181, the console 162, core 128, ops 89, store 77, analytics 45, attach 42, plugin 33. 377 are in test files. T3 types the dispatcher's core, T4 the ports, T5 the store client; T7 moves the rest or writes a floor for an adapter's own parsing. T15's port of test/preview_choose_test.sh adds 1, the test helper in console/src/preview/choose_tests.rs that edits a row of GitHub's list as the shell's jq did: the row is the untyped value preview::choose itself takes, so it is no new untyped interface and goes when T7 types that list. T16's drop of the millwright's grant takes out 12. T16's drop of the Spec mark takes out 10. T7 types what wiki-collect returns (Commit, Tag, Changed) and the build.json wiki-render reads (Build): 4 fewer. T7 reads the arguments of a tools/call where the request comes in, into the tool's own type (mcp's tools::Call and tickets::Call), and refuses them there in the tool's words: 8 fewer, the two readers of Args and tickets::run counted; Args, which holds the request's JSON, is what those readers take. T7 reads an item's .meta.json into items' Meta (Ticket, File, Skipped) and the unpack answer into its entries: 9 fewer."
+max = 1239
+why = "console/ports/tests/tree/mod.rs is allowed (T4.1): its 11 matches are serde's associated type Value of a Visitor or a DeserializeSeed, which every deserializer names in its signatures, in the small format the ports' tests round-trip their types through, since tehas-ports takes serde alone and no serde_json. None is serde_json::Value, and an untyped seam may never be allowed here on that ground. Re-measured at T0's follow-up, with tests in files counted: dispatch 366, mcp 251, cycle 181, the console 162, core 128, ops 89, store 77, analytics 45, attach 42, plugin 33. 377 are in test files. T3 types the dispatcher's core, T4 the ports, T5 the store client; T7 moves the rest or writes a floor for an adapter's own parsing. T15's port of test/preview_choose_test.sh adds 1, the test helper in console/src/preview/choose_tests.rs that edits a row of GitHub's list as the shell's jq did: the row is the untyped value preview::choose itself takes, so it is no new untyped interface and goes when T7 types that list. T16's drop of the millwright's grant takes out 12. T16's drop of the Spec mark takes out 10. T7 types what wiki-collect returns (Commit, Tag, Changed) and the build.json wiki-render reads (Build): 4 fewer. T7 reads the arguments of a tools/call where the request comes in, into the tool's own type (mcp's tools::Call and tickets::Call), and refuses them there in the tool's words: 8 fewer, the two readers of Args and tickets::run counted; Args, which holds the request's JSON, is what those readers take. T7 reads an item's .meta.json into items' Meta (Ticket, File, Skipped) and the unpack answer into its entries: 9 fewer. T7 types what attach's unpack returns (Unpacked, which serialises to the answer's entries): 5 fewer."
 
 [[check]]
 id = "untyped-fields"
@@ -115,8 +115,8 @@ what = "no serde_json::Value in a public field, an enum variant or a tuple field
 pattern = '^\s*pub(\([^)]*\))?\s+[a-z_][a-z0-9_]*\s*:.*\bValue\b|^\s*[A-Z][A-Za-z0-9]*\s*\([^()]*\bValue\b[^()]*\),?\s*$|^\s*(pub(\([^)]*\))?\s+)?struct\s+\w+\s*(<[^>]*>)?\s*\(.*\bValue\b'
 files = ["console/**/*.rs"]
 comment = "//"
-max = 29
-why = "Re-measured at T0's follow-up, with enum variants and tuple fields added: dispatch 23 (Snapshot and its rows, after T3 typed the closing pull requests, the pause flag, the limit, the start order, the host's approvals, the branch check, the push fault, the lists of issues and pull requests and the parks owed a retry or a refine), cycle 7, ops 5, attach, core and the console 3 each, mcp, plugin and store 1 each. T3 types Snapshot; T7 the rest, or a written floor. T16's drop of the Spec mark takes out 1. T7 types the entries of items' unpack answer: 1 fewer."
+max = 28
+why = "Re-measured at T0's follow-up, with enum variants and tuple fields added: dispatch 23 (Snapshot and its rows, after T3 typed the closing pull requests, the pause flag, the limit, the start order, the host's approvals, the branch check, the push fault, the lists of issues and pull requests and the parks owed a retry or a refine), cycle 7, ops 5, attach, core and the console 3 each, mcp, plugin and store 1 each. T3 types Snapshot; T7 the rest, or a written floor. T16's drop of the Spec mark takes out 1. T7 types the entries of items' unpack answer: 1 fewer. T7 types what attach's unpack writes of an entry: 1 fewer."
 
 [[report]]
 id = "public-items"
@@ -172,7 +172,7 @@ allowed = [
   "console/tests/host_bridge.rs",
 ]
 comment = "//"
-max = 252
+max = 248
 why = "The map at T0: core 92 outside the forge (end_fault, journal, retry, call read gh's error text), dispatch 51, the console 46, ops 31, cycle 26, plugin 6, the rest 1 or 2. 55 are in test files. T4 turns them into the ports' named outcomes, read in the adapter. console/tests/host_bridge.rs is allowed: its one match is the docs server's own 404 for /host, which tehas serves, not GitHub's status. At its fork value (259). Each allowed test file is listed in `allowed` with a comment saying what it covers. T16's drop of the Spec mark takes out 3. T4.2 moves the forge's GitHub side into the adapter, console/github/ (tehas-github), and the allowed with it: console/github/** in place of console/core/src/forge/**. console/core/src/forge.rs stays allowed while Bounded and GhRunner are in it, until T4.11: its one status is the 404 of says_not_found, which reads the reason Bounded makes. The count is unchanged."
 
 # R7: tests drive the ports' fakes, not gh's argument lists.
@@ -188,7 +188,7 @@ allowed = [
   "console/github/**",
 ]
 comment = "#"
-max = 389
+max = 387
 why = "The map at T0: dispatch's tests 191, the shell tests of test/ 123 (84 of them t_stub gh), cycle 45, the console 31, store 17, core, mcp 4 each, ops 2, analytics, attach 1 each. T1 moves each crate's tests onto the ports' fakes, with the same answers, before its calls move; the forge's own pins stay. The test harnesses take the lists of tools every test stubs to fail from console/core/src/testing.rs, which is not in this check's files, in place of eight copies of the deny list and three lists of their own; that takes out 10 (5 of them from T15's ports, 5 older), console_run's calls(\"gh\") among them. Still counted from T15's ports: the short name \"gh\" of a process in a fixture of /proc in console/tests/top_snapshot.rs, a false positive kept as a written floor of 1 in docs/architecture.md. Below its fork value (419) by 18. T16's drop of the Spec mark takes out 2. T4.2 moves the forge's tests to the adapter's, console/github/tests/, and the allowed with them: console/github/** in place of console/core/src/forge/**. The count is unchanged."
 
 # The ports' crate (T4.1): std and serde alone, no supplier, no effects, as

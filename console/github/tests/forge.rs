@@ -1039,3 +1039,9 @@ fn a_gh_answer_with_a_byte_that_is_not_utf8_is_kept_and_not_emptied() {
     let mut gh = tehas_core::forge::Bounded::new("printf", std::time::Duration::from_secs(10));
     assert_eq!(gh.run(&["[1]\\377"]), Ok("[1]\u{fffd}".to_string()));
 }
+
+#[test]
+fn a_bounded_call_turns_the_shims_retry_off() {
+    let mut gh = tehas_core::forge::Bounded::new("printenv", std::time::Duration::from_secs(10));
+    assert_eq!(gh.run(&["TEHAS_GH_RETRY"]), Ok("0\n".to_string()));
+}

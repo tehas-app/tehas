@@ -77,12 +77,12 @@ pub(super) fn seen(
                 None => Seen::Missing,
             }
         }
-        "label-add" | "label-remove" | "refresh-end" => {
+        "label-add" | "label-remove" | "change-unmark" => {
             let Some(v) = read(&issue, false) else {
                 return Seen::Unread;
             };
             let have = names(&v);
-            let (on, off) = if kind == "refresh-end" {
+            let (on, off) = if kind == "change-unmark" {
                 (vec![], vec!["tehas:refreshing"])
             } else {
                 (after(args, "--add-label"), after(args, "--remove-label"))
@@ -205,7 +205,7 @@ mod tests {
     #[test]
     fn a_refresh_mark_is_off_when_the_label_is_gone() {
         let a = args("api -X DELETE repos/a/b/issues/9/labels/tehas:refreshing");
-        let r = |v: Value| seen("a/b", 9, "refresh-end", &a, None, NOW, &mut with(Some(v)));
+        let r = |v: Value| seen("a/b", 9, "change-unmark", &a, None, NOW, &mut with(Some(v)));
         assert_eq!(r(json!({"labels": []})), Seen::There(String::new()));
         assert_eq!(
             r(json!({"labels": [{"name": "tehas:refreshing"}]})),

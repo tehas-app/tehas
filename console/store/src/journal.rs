@@ -37,9 +37,12 @@ use std::path::Path;
 use tehas_ports::{TicketKey, Write, WriteKind};
 
 /// The kinds of section 5's table, and the three a planning session's end
-/// writes: an issue's body, a sub-issue link and a close. Then the words of
-/// the writes of the ports that 1.x had none for (T4.4).
-pub const KINDS: [&str; 37] = [
+/// writes: an issue's body, a sub-issue link and a close. The refreshing mark
+/// on and off a pull request is `change-mark` and `change-unmark`;
+/// `refresh-begin` and `refresh-end` are its 1.x words, still read in the
+/// rows written before the update. Then the words of the writes of the
+/// ports that 1.x had none for (T4.4).
+pub const KINDS: [&str; 39] = [
     "label-add",
     "label-remove",
     "label-remove-only",
@@ -49,6 +52,8 @@ pub const KINDS: [&str; 37] = [
     "unit-stop",
     "refresh-begin",
     "refresh-end",
+    "change-mark",
+    "change-unmark",
     "issue-edit",
     "sub-issue-add",
     "issue-close",
@@ -80,8 +85,8 @@ pub const KINDS: [&str; 37] = [
 ];
 
 /// The word a write's row holds, the 1.x word where it had one. None for a
-/// kind the journal does not record yet: a change's mark and edit take
-/// theirs in B3, and an unknown write is never sent. Every kind is named,
+/// kind the journal does not record: a change's edit, which has no word,
+/// and an unknown write, which is never sent. Every kind is named,
 /// so a new one is decided here.
 pub fn word(kind: WriteKind) -> Option<&'static str> {
     use WriteKind as K;
@@ -118,7 +123,9 @@ pub fn word(kind: WriteKind) -> Option<&'static str> {
         K::NewRelease => "release-new",
         K::Upload => "release-upload",
         K::PublishRelease => "release-publish",
-        K::MarkChange | K::UnmarkChange | K::EditChange | K::Unknown => return None,
+        K::MarkChange => "change-mark",
+        K::UnmarkChange => "change-unmark",
+        K::EditChange | K::Unknown => return None,
         // The ports may add a kind (`non_exhaustive`): not recorded, so
         // not sent, until it is named above.
         _ => return None,

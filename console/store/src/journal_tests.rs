@@ -306,10 +306,21 @@ fn an_action_never_attempted_has_no_result_and_is_only_abandoned() {
 }
 
 #[test]
-fn the_kinds_of_a_planning_sessions_end_are_taken() {
+fn the_kinds_of_a_planning_sessions_end_and_of_a_changes_mark_are_taken() {
     let home = home("journal-kinds");
     ok_at(&home, 7000, &["poll-begin"]);
-    for kind in ["issue-edit", "sub-issue-add", "issue-close"] {
+    // refresh-begin and refresh-end are the 1.x words of change-mark and
+    // change-unmark, kept for the rows written before the update.
+    let kinds = [
+        "issue-edit",
+        "sub-issue-add",
+        "issue-close",
+        "change-mark",
+        "change-unmark",
+        "refresh-begin",
+        "refresh-end",
+    ];
+    for kind in kinds {
         let v = ok_at(
             &home,
             7000,
@@ -329,7 +340,7 @@ fn the_kinds_of_a_planning_sessions_end_are_taken() {
         );
         assert!(v["action"].as_i64().is_some(), "{kind}");
     }
-    assert_eq!(count(&home, "actions"), 3);
+    assert_eq!(count(&home, "actions"), kinds.len() as i64);
 }
 
 #[test]
@@ -476,8 +487,8 @@ fn a_write_row_takes_no_kind_no_issue_and_no_body_in_text() {
 }
 
 /// Every word a write is recorded by is one of `KINDS`, and no two kinds
-/// share one but the two notes and the two edits, as 1.x wrote them. The
-/// words of a change's mark and edit are B3's, so those kinds are not here.
+/// share one but the two notes and the two edits, as 1.x wrote them. A
+/// change's edit has no word, so it is not here.
 #[test]
 fn each_write_kind_has_its_own_word_in_kinds() {
     use tehas_ports::WriteKind as K;
@@ -508,6 +519,8 @@ fn each_write_kind_has_its_own_word_in_kinds() {
         K::CloseBlueprint,
         K::OpenChange,
         K::CommentChange,
+        K::MarkChange,
+        K::UnmarkChange,
         K::CloseChange,
         K::Merge,
         K::Propose,
@@ -535,5 +548,6 @@ fn each_write_kind_has_its_own_word_in_kinds() {
     words.sort_unstable();
     words.dedup();
     assert_eq!(words.len(), all.len() - 2);
+    assert_eq!(crate::journal::word(K::EditChange), None);
     assert_eq!(crate::journal::word(K::Unknown), None);
 }
