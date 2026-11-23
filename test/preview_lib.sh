@@ -330,13 +330,6 @@ page_with() {
   shift 2
   printf '%s\n' "$@" | jq -c -s --argjson b "$base" '$b + .' >"$fx/pulls-$p.json"
 }
-# close <number>: GitHub answers that pull request as closed, which is what it
-# does when one is merged or closed. The list of open pull requests no longer
-# has it, and what the run asks for when it means to remove something is this
-# answer about the pull request by itself.
-close() {
-  jq -c '.state = "closed"' "$fx/pull-$1.json" >"$fx/x" && mv "$fx/x" "$fx/pull-$1.json"
-}
 reset() {
   rm -rf "$fx" "$T/home/tehas" "$T"/calls/* "$upstream"
   mkdir -p "$fx" "$T/home/tehas/repos"
