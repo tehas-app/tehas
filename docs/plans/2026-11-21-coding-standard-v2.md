@@ -424,6 +424,16 @@ consumer that needs them (Decided 80).
 
 Findings:
 
+- A question goes on record by its comment's id as a number
+  (`store question-asked --id`, the contract's `comment` in
+  api/question.schema.json and questions.schema.json, the store's
+  INTEGER `comment_id`), and `tehas_ports::CommentId` is opaque. 2.0 runs
+  on GitHub, whose ids are numbers, so the cycle records the number and a
+  question whose id is no number under 2^53 is not recorded, with one
+  WARN and nothing more posted (T4.5 (b), the owner's ruling of
+  2026-11-23). Another site's opaque ids are a 2.x expand: a new store
+  column and a new contract field beside the integer, such as a string
+  `commentRef`.
 - The planner's confirm files an issue with the session token, which is
   issues read-only, so the site refuses it (`console/src/plan/turn.rs`
   ~485). It must file with the factory's token or not at all. T4.7 fixes
