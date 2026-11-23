@@ -537,16 +537,26 @@ impl Writer<'_> {
         }
         let n = self.issue;
         let key = self.ticket();
-        let Ok(t) = self
-            .ports
-            .tickets
-            .ticket(&key, Depth::Cut { notes: 0 }, None)
-        else {
-            return;
-        };
-        let result = f.file("result.json").text();
-        let note =
-            match last_attempt::of_ticket(n, &t.text, &t.markers, result, f.work_state.as_ref()) {
+        // The ticket's revision moves with a comment or a mark too: an edit
+        // that lost to one reads again and tries once more.
+        for _ in 0..2 {
+            // Its whole text: a cut one would give the note a wrong base.
+            let one = std::num::NonZeroU32::new(1).expect("1 is no zero");
+            let Ok(t) = self
+                .ports
+                .tickets
+                .ticket(&key, Depth::Last { notes: one }, None)
+            else {
+                return;
+            };
+            let result = f.file("result.json").text();
+            let note = match last_attempt::of_ticket(
+                n,
+                &t.text,
+                &t.markers,
+                result,
+                f.work_state.as_ref(),
+            ) {
                 Some(last_attempt::Parts::Repeat) => {
                     p.no_retry = true;
                     p.say = last_attempt::REPEAT.to_string();
@@ -555,21 +565,25 @@ impl Writer<'_> {
                 Some(last_attempt::Parts::Note(note)) => note,
                 _ => return,
             };
-        let edit = Write::EditTicket {
-            ticket: key,
-            title: None,
-            text: None,
-            markers: tehas_ports::MarkerEdit {
-                set: vec![tehas_ports::Marker::LastAttempt(note)],
-                drop: vec![],
-            },
-            since: t.digest.revision,
-        };
-        if !matches!(self.send(&edit), Sent::Done(_)) {
-            log(&format!(
-                "WARN: could not leave the last attempt's note in the body of #{n}"
-            ));
+            let edit = Write::EditTicket {
+                ticket: key.clone(),
+                title: None,
+                text: None,
+                markers: tehas_ports::MarkerEdit {
+                    set: vec![tehas_ports::Marker::LastAttempt(note)],
+                    drop: vec![],
+                },
+                since: t.digest.revision,
+            };
+            match self.send(&edit) {
+                Sent::Done(_) => return,
+                Sent::Failed(Outcome::Conflict(tehas_ports::Lost::Changed)) => continue,
+                _ => break,
+            }
         }
+        log(&format!(
+            "WARN: could not leave the last attempt's note in the body of #{n}"
+        ));
     }
 
     /// The question posted as a note, its markers beside its text: its id,
@@ -1311,6 +1325,8 @@ esac
         log: PathBuf,
         numbered: bool,
         next: u64,
+        /// The first edit of a ticket loses, as one another change beat.
+        conflict_once: bool,
     }
 
     fn said_write(w: &Write) -> String {
@@ -1340,6 +1356,9 @@ esac
                 .open(&self.log)
                 .unwrap();
             writeln!(f, "write {}", said_write(w)).unwrap();
+            if matches!(w, Write::EditTicket { .. }) && std::mem::take(&mut self.conflict_once) {
+                return Err(Outcome::Conflict(tehas_ports::Lost::Changed));
+            }
             let mut got = self.inner.send(w, files);
             if let (true, Ok(Receipt::Comment(p))) = (self.numbered, &mut got) {
                 self.next += 1;
@@ -1395,6 +1414,7 @@ esac
                     log: self.dir.join("calls.log"),
                     numbered,
                     next: 0,
+                    conflict_once: self.dir.join("conflict-once").exists(),
                 }),
                 tickets: site.tickets(&by, c).unwrap(),
                 blueprints: site.blueprints(&by, c).unwrap(),
@@ -1831,7 +1851,8 @@ esac
         let site = FakeSite::new(&w);
         let mut t = site.tickets(&Actor::Operator, Caller::new("test")).unwrap();
         let key = TicketKey::Number(std::num::NonZeroU64::new(7).unwrap());
-        let read = t.ticket(&key, Depth::Cut { notes: 0 }, None).unwrap();
+        let one = std::num::NonZeroU32::new(1).unwrap();
+        let read = t.ticket(&key, Depth::Last { notes: one }, None).unwrap();
         let note = read
             .markers
             .iter()
@@ -1852,6 +1873,49 @@ esac
         );
         // The text itself is not touched.
         assert!(!read.text.contains("last attempt"), "{}", read.text);
+    }
+
+    #[test]
+    fn the_note_of_a_long_body_takes_the_sum_of_all_of_it() {
+        let h = Host::new("park-last-attempt-long");
+        // A ticket of a long body: the note's base is the sum of all of it.
+        let long = "word ".repeat(200);
+        let w = World::new()
+            .on_clock(Clock::new(At::new(tehas_core::time::now())))
+            .ticket(7, |t| t.title("the issue").text(&long).mark(running()));
+        case(&h, &FakeSite::new(&w), "park", 70, 3);
+        let site = FakeSite::new(&w);
+        let mut t = site.tickets(&Actor::Operator, Caller::new("test")).unwrap();
+        let key = TicketKey::Number(std::num::NonZeroU64::new(7).unwrap());
+        let one = std::num::NonZeroU32::new(1).unwrap();
+        let read = t.ticket(&key, Depth::Last { notes: one }, None).unwrap();
+        let base = read
+            .markers
+            .iter()
+            .find_map(|m| match m {
+                tehas_ports::Marker::LastAttempt(l) => Some(l.base.as_str().to_string()),
+                _ => None,
+            })
+            .expect("the note is on");
+        assert_eq!(base, crate::last_attempt::sha(long.trim()));
+    }
+
+    #[test]
+    fn a_note_that_lost_to_another_change_of_the_issue_is_read_again_and_tried_once_more() {
+        let h = Host::new("park-last-attempt-conflict");
+        fs::write(h.dir.join("conflict-once"), "").unwrap();
+        let w = world();
+        case(&h, &FakeSite::new(&w), "park", 70, 3);
+        assert_eq!(h.count("write EditTicket"), 2, "{:#?}", h.calls());
+        let site = FakeSite::new(&w);
+        let mut t = site.tickets(&Actor::Operator, Caller::new("test")).unwrap();
+        let key = TicketKey::Number(std::num::NonZeroU64::new(7).unwrap());
+        let one = std::num::NonZeroU32::new(1).unwrap();
+        let read = t.ticket(&key, Depth::Last { notes: one }, None).unwrap();
+        assert!(read
+            .markers
+            .iter()
+            .any(|m| matches!(m, tehas_ports::Marker::LastAttempt(_))));
     }
 
     #[test]
