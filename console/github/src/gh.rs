@@ -224,6 +224,15 @@ pub(crate) fn parse_labels(out: &str) -> Option<Vec<String>> {
     )
 }
 
+/// Whether the REST issue read answered a pull request: GitHub answers one
+/// at an issue's path, with a `pull_request` beside its fields.
+pub(crate) fn is_pull(out: &str) -> bool {
+    serde_json::from_str::<Value>(out.trim())
+        .ok()
+        .and_then(|v| v.get("pull_request").map(|p| !p.is_null()))
+        .unwrap_or(false)
+}
+
 /// An issue's title and body as one revision, or None when the answer is no
 /// issue with a title.
 pub(crate) fn text_revision(out: &str) -> Option<String> {
