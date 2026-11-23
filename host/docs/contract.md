@@ -175,7 +175,12 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
    `api/settings-rules.json` since 1.4.0 is dropped with a warning, not
    refused: twenty-two of its instance settings and two of its host settings,
    `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, which `~/.config/tehas/env`
-   held.
+   held. `api/settings-1.4.0.txt` lists every setting 1.4.0 accepted, 101
+   instance and 10 host settings, and the test
+   `every_setting_v1_4_0_accepted_is_kept_or_dropped_with_a_warning_never_refused`
+   in `console/core/src/settings/load.rs` holds each to today's load: in
+   its table or dropped with a warning, never refused. The names it drops
+   are exactly those `IGNORED` holds.
 2. **Run `tehas update`.** It stops and removes the units and files of the
    features 2.0 took out of core, and migrates the state store and analytics.
 3. **The state store** (`state/tehas.db`) goes from schema 23, 1.4.x's, to
