@@ -217,12 +217,25 @@ fn take<T>(mut items: Vec<T>, window: Window) -> Got<Took<T>> {
     }
 }
 
+/// The reason a runner gives when its time ran out before it started gh,
+/// exactly: a runner's own words are never read.
+const NOT_STARTED: &str = "not started: out of time";
+
 /// [`GitHub::outcome`] at the time `now`. A 410 is an issue deleted or
 /// issues turned off: `NotFound`, as the ports spec's table says. The
 /// status is found anywhere in the reason: `Bounded` gives `: HTTP 403`,
 /// the relay's runner `gh exited 1: HTTP 403`, and its `gh exited 124` is a
 /// gh it stopped at its bound.
+///
+/// [`NOT_STARTED`] is the one form any runner returns when it gives up
+/// before it starts gh because its time is up: nothing was sent.
 fn outcome(e: &ForgeError, now: i64) -> Outcome {
+    if e.why == NOT_STARTED {
+        return Outcome::Unavailable {
+            why: Passing::Timeout,
+            sent: Sent::No,
+        };
+    }
     if gh::says_not_found(&e.why) {
         return Outcome::NotFound;
     }

@@ -1125,3 +1125,108 @@ fn the_revision_is_over_the_raw_body_markers_in() {
     );
     assert!(got.is_ok(), "{got:?}");
 }
+
+/// What each of the three writes answers when its write call fails with
+/// `why` (after a good read where it reads first), and the edit's read when
+/// that read fails with it, with the calls of each.
+fn every_way(why: &str) -> Vec<(&'static str, Got<()>, Vec<Call>)> {
+    let mut all = each_write(&Err(why.to_string()));
+    let since = revision_of(&sample("issue-7.json"));
+    let (mut gh, calls) = adapter(vec![Err(why.to_string())]);
+    let read = gh
+        .edit(no(7), Some(TITLE), None, &MarkerEdit::default(), &since)
+        .map(|_| ());
+    all.push(("the edit's read", read, calls.borrow().clone()));
+    all
+}
+
+#[test]
+fn a_runner_that_gave_up_before_starting_gh_sent_nothing_and_nothing_is_settled() {
+    let not_sent = Err(Outcome::Unavailable {
+        why: Passing::Timeout,
+        sent: Sent::No,
+    });
+    for (op, got, calls) in every_way("not started: out of time") {
+        assert_eq!(got, not_sent, "{op}");
+        // No read after the write to settle it: nothing was sent.
+        let last = calls.last().unwrap();
+        assert!(op == "the edit's read" || last.input.is_some(), "{op}");
+        assert!(
+            calls.iter().filter(|c| c.input.is_some()).count() <= 1,
+            "{op}"
+        );
+    }
+    // Only that exact form: another sentence with the same start is not it.
+    for (op, got, _) in every_way("not started: something else") {
+        assert_ne!(got, not_sent, "{op}");
+    }
+}
+
+#[test]
+fn the_relay_runners_network_failures_keep_their_meaning() {
+    // gh's own network time limit: the request may have gone out.
+    for (op, got, _) in every_way("gh exited 1: timed out") {
+        let sent = if op == "the edit's read" {
+            Sent::No
+        } else {
+            Sent::Maybe
+        };
+        assert_eq!(
+            got,
+            Err(Outcome::Unavailable {
+                why: Passing::Timeout,
+                sent
+            }),
+            "{op}"
+        );
+    }
+    // Refused at the connection: nothing went out.
+    for (op, got, _) in every_way("gh exited 1: connection refused") {
+        assert_eq!(
+            got,
+            Err(Outcome::Unavailable {
+                why: Passing::Unreachable,
+                sent: Sent::No
+            }),
+            "{op}"
+        );
+    }
+    // The relay's bound stopped gh: it may have sent.
+    for (op, got, _) in every_way("gh exited 124") {
+        let sent = if op == "the edit's read" {
+            Sent::No
+        } else {
+            Sent::Maybe
+        };
+        assert_eq!(
+            got,
+            Err(Outcome::Unavailable {
+                why: Passing::Timeout,
+                sent
+            }),
+            "{op}"
+        );
+    }
+}
+
+#[test]
+fn what_today_answers_for_the_relays_own_sentence() {
+    // The relay's own words are no form the adapter knows: read as a server
+    // failure that may have been sent. The relay returns
+    // "not started: out of time" instead.
+    for (op, got, _) in every_way("the relay's 100 s are up") {
+        let sent = if op == "the edit's read" {
+            Sent::No
+        } else {
+            Sent::Maybe
+        };
+        assert_eq!(
+            got,
+            Err(Outcome::Unavailable {
+                why: Passing::Server,
+                sent
+            }),
+            "{op}"
+        );
+    }
+}
