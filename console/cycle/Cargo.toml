@@ -29,5 +29,7 @@ serde_json = "1"
 sha2 = "0.10"
 signal-hook = "0.3"
 tehas-core = { path = "../core", features = ["mask"] }
+# The relay's read before an edit, wired in src/main.rs.
+tehas-github = { path = "../github" }
 # The events a cycle raises and their dispatcher (src/events.rs).
 tehas-ports = { path = "../ports" }
