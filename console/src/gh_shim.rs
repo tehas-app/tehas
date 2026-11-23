@@ -429,8 +429,11 @@ pub fn main(given: &[OsString]) -> u8 {
         let _ = writeln!(io::stderr(), "gh: {}: {e}", Path::new(gh).display());
         127
     };
-    let again = retry_on(std::env::var(tehas_core::forge::GH_NO_RETRY.0).ok().as_deref())
-        && may_resend(&args, io::stdin().is_terminal(), io::stdout().is_terminal());
+    let again = retry_on(
+        std::env::var(tehas_core::forge::GH_NO_RETRY.0)
+            .ok()
+            .as_deref(),
+    ) && may_resend(&args, io::stdin().is_terminal(), io::stdout().is_terminal());
     let (mut rc, mut out, mut logged) = match attempt(gh, words, &w, log, again) {
         Ok(first) => first,
         Err(e) => return cannot(e),
