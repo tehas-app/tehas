@@ -35,7 +35,8 @@
     "answer",
     "question",
     "cycle-ids",
-    "questions"
+    "questions",
+    "events"
   ],
   "flags": {
     "lean": false,
