@@ -1032,7 +1032,7 @@ while [ "$i" -lt "${#surfaces[@]}" ]; do
     t_bad "the required of the schema is $(jq -c '.required' "$schema" 2>&1), the table says $required_json"
   fi
   t_eq "$(jq -r '."$schema"' "$schema")" "https://json-schema.org/draft/2020-12/schema"
-  t_eq "$(jq -r '."$id"' "$schema")" "https://github.com/tehas-app/tehas/api/$surface.schema.json"
+  t_eq "$(jq -r '."$id"' "$schema")" "https://github.com/tehas-app/tehas-factory/api/$surface.schema.json"
   t_eq "$(jq '.additionalProperties' "$schema")" "false"
   # The description is kept to what a keyword of this file or a case below
   # carries: version 1 (`api` is the const 1), that objects are closed
@@ -1410,7 +1410,7 @@ for line in "${pinned[@]}"; do
 
   t_case "api/$surface.schema.json is 2020-12, names its test, and $owner reads it"
   t_eq "$(jq -r '."$schema"' "$schema")" "https://json-schema.org/draft/2020-12/schema"
-  t_eq "$(jq -r '."$id"' "$schema")" "https://github.com/tehas-app/tehas/api/$surface.schema.json"
+  t_eq "$(jq -r '."$id"' "$schema")" "https://github.com/tehas-app/tehas-factory/api/$surface.schema.json"
   t_contains "$(jq -r '.description' "$schema")" "$owner"
   t_contains "$(cat "$T_ROOT/$owner")" "api/$surface."
   [ "$how" = open ] || t_eq "$(jq '.additionalProperties' "$schema")" "false"

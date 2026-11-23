@@ -174,6 +174,10 @@ Releases are read from the repository built into tehas, the
 An instance may name another, owner/name on GitHub, with `TEHAS_RELEASE_REPO`
 in `instance.env`. The `versions.env` on the host is not read for it: a
 release writes that file, so it cannot choose where the next one comes from.
+The repository was `tehas-app/tehas` before 2.0. An instance that still
+names it updates from it while GitHub redirects the old name, and each
+update says `release: the repository tehas-app/tehas is now
+tehas-app/tehas-factory`: remove the line or name the new one.
 The list and the download use `gh` when it is signed in, which
 reaches a private repository with the bot's token, and `curl` from the public
 address otherwise.

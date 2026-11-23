@@ -360,7 +360,7 @@ fn every_schema_is_2020_12_and_names_this_test() {
         assert_eq!(s["$schema"], "https://json-schema.org/draft/2020-12/schema");
         assert_eq!(
             s["$id"],
-            format!("https://github.com/tehas-app/tehas/api/{name}")
+            format!("https://github.com/tehas-app/tehas-factory/api/{name}")
         );
         let d = s["description"].as_str().unwrap_or_default();
         assert!(d.contains("console/tests/events_contract.rs"), "{name}");

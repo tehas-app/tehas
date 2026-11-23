@@ -139,4 +139,4 @@ pie.
 - [Bootstrap a host](/bootstrap): preparing a fresh machine.
 - [For agents](/agents): handing the setup to a coding agent, starting from
   [`/llms.txt`](/llms.txt).
-- Source: [github.com/tehas-app/tehas](https://github.com/tehas-app/tehas).
+- Source: [github.com/tehas-app/tehas-factory](https://github.com/tehas-app/tehas-factory).

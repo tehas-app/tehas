@@ -203,7 +203,7 @@ mod tests {
         let s = api("plugin-verdict.schema.json");
         assert_eq!(
             s["$id"],
-            "https://github.com/tehas-app/tehas/api/plugin-verdict.schema.json"
+            "https://github.com/tehas-app/tehas-factory/api/plugin-verdict.schema.json"
         );
         closed(&s);
         for name in ["note", "pass"] {

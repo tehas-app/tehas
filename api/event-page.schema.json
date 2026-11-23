@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tehas-app/tehas/api/event-page.schema.json",
+  "$id": "https://github.com/tehas-app/tehas-factory/api/event-page.schema.json",
   "title": "An event a page raises",
   "description": "What raise of host/fun/kit/events.js accepts: an envelope of api/event.schema.json with when after, since gates never reach a page. console/tests/events_contract.rs checks the samples against it.",
   "$ref": "event.schema.json",

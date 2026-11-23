@@ -8,7 +8,7 @@ description: "Writing this host's instance and starting the factory, and the che
 ## tehas setup
 
 ```
-tehas setup --repo tehas-app/tehas --labelers janit --new-app \
+tehas setup --repo tehas-app/tehas-factory --labelers janit --new-app \
   --endpoint http://gb1:8086/v1
 ```
 

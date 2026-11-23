@@ -373,7 +373,7 @@ its `.sha256` and its `.minisig`, which are the three names `tehas update`
 downloads:
 
 ```
-curl -fsSL https://github.com/tehas-app/tehas/releases/latest/download/install | sudo sh -s -- boss
+curl -fsSL https://github.com/tehas-app/tehas-factory/releases/latest/download/install | sudo sh -s -- boss
 ```
 
 It downloads the newest release (or the release or prerelease `--version` names) of this machine: the

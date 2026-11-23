@@ -387,13 +387,13 @@ fn bad_ids() {
 #[test]
 fn links_and_odd_repos() {
     assert_eq!(
-        links(Some("tehas-app/tehas"), 12, Some(34)),
+        links(Some("tehas-app/tehas-factory"), 12, Some(34)),
         (
-            Some("https://github.com/tehas-app/tehas/issues/12".into()),
-            Some("https://github.com/tehas-app/tehas/pull/34".into())
+            Some("https://github.com/tehas-app/tehas-factory/issues/12".into()),
+            Some("https://github.com/tehas-app/tehas-factory/pull/34".into())
         )
     );
-    assert_eq!(links(Some("tehas-app/tehas"), 12, None).1, None);
+    assert_eq!(links(Some("tehas-app/tehas-factory"), 12, None).1, None);
     for r in ["a/b/c", "../x", "a b/c", "a/..", "a/b..c", "", "/b"] {
         assert_eq!(links(Some(r), 1, Some(2)), (None, None), "{r:?}");
     }
@@ -402,7 +402,7 @@ fn links_and_odd_repos() {
     let s = sess("work", 7, 60, json!({"pr": 8}));
     let bare = sess("work", 9, 120, json!({}));
     for (name, repo, linked) in [
-        ("good", Some("tehas-app/tehas"), true),
+        ("good", Some("tehas-app/tehas-factory"), true),
         ("odd", Some("a/b/c"), false),
         ("none", None, false),
     ] {
@@ -759,7 +759,7 @@ fn failures_per_version_pair() {
             json!({"outcome": "failed", "failureKind": "model", "failureCause": "c1"}),
         ),
     ];
-    let env = Env::new("pairs", Some("tehas-app/tehas"), &rows);
+    let env = Env::new("pairs", Some("tehas-app/tehas-factory"), &rows);
     let out = env.call("factory_failures", json!({})).unwrap();
     assert_eq!(out["days"], 30);
     assert_eq!(out["stale"], false);
@@ -776,8 +776,8 @@ fn failures_per_version_pair() {
     assert_eq!(
         v[0]["causes"][0]["issues"],
         json!([
-            "https://github.com/tehas-app/tehas/issues/1",
-            "https://github.com/tehas-app/tehas/issues/3"
+            "https://github.com/tehas-app/tehas-factory/issues/1",
+            "https://github.com/tehas-app/tehas-factory/issues/3"
         ])
     );
     assert_eq!(v[1]["tehasVersion"], "v0.7.30");

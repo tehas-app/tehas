@@ -319,7 +319,7 @@ Exit 0; 3 none; 64; 78.
 
 A run is one container of the plugin's image, started by `tehas-plugin`:
 the arguments of [the security part of the
-spec](https://github.com/tehas-app/tehas/blob/main/docs/specs/2026-11-21-plugins-security.md),
+spec](https://github.com/tehas-app/tehas-factory/blob/main/docs/specs/2026-11-21-plugins-security.md),
 a row in `plugin_runs`, a clone of the product's mirror at the run's head
 when `product` is granted, the model socket when `model` is (a refresh only:
 a hook gets no model in v1), `docker kill` at

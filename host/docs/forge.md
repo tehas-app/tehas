@@ -88,7 +88,7 @@ site's whole answer, which may name a host or carry a token. Its line is
 ## Who made a change
 
 Authorisation is the account that applied a label, and only an allowed account
-counts ([AGENTS.md](https://github.com/tehas-app/tehas/blob/main/AGENTS.md)
+counts ([AGENTS.md](https://github.com/tehas-app/tehas-factory/blob/main/AGENTS.md)
 rule 5). The forge answers who; it never answers whether that account may start
 anything. The caller compares the account with `TEHAS_ALLOWED_LABELERS`.
 
