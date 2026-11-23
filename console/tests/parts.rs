@@ -3,14 +3,14 @@
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
+use tehas_core::testdir::TestDir;
 
 const CONSOLE: &str = env!("CARGO_BIN_EXE_console");
 
-fn scratch(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
-    let _ = fs::remove_dir_all(&dir);
+fn scratch(name: &str) -> TestDir {
+    let dir = TestDir::new(&format!("parts-{name}"));
     for d in ["home/libexec", "home/bin", "parts"] {
         fs::create_dir_all(dir.join(d)).unwrap();
     }
