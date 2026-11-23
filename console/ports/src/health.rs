@@ -17,7 +17,10 @@ use crate::{unknown, At, HealthState, HostId, Outcome, Passing, Pool, Realm, Who
 /// A caller keeps `Failing` under `Whose::Host`, `SignedOut` under
 /// `Whose::Holder` and `Spent` of a pool under `Whose::Pool` of that pool,
 /// and gives a call's outcome to each of the three it touches: the host,
-/// the holder and the pool the call drew on.
+/// the holder and the pool the call drew on. `seen` is the answer of a
+/// request that went out; an answer the adapter makes without one (a held
+/// pool's `Spent`, a passed deadline's `Unavailable`, an expired kept
+/// token's `SignedOut`, an out-of-set `Forbidden`) is not given to `next`.
 ///
 /// The host reads `Unavailable` as an outage and any answer of the site as
 /// the host up. A holder reads `SignedOut` as its own and any other answer
@@ -109,7 +112,9 @@ fn pool_next(mine: Pool, now: At, was: HealthState, seen: &Result<(), Outcome>) 
     }
 }
 
-/// One change of health, to report once.
+/// One change of health, to report once. Its `until`, where it has one, is
+/// the first estimate; the ledger and each call's outcome carry the
+/// current one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Notice {
     /// The host it is about.
@@ -138,12 +143,12 @@ pub enum Health {
     Spent {
         /// The pool that is out.
         pool: Pool,
-        /// When it has budget again.
+        /// When it has budget again, as first estimated.
         until: At,
     },
     /// The holder's credential is no longer good.
     SignedOut,
-    /// The host or the holder is healthy again.
+    /// The host, the holder or the pool is healthy again.
     Recovered,
     /// The ledger could not be read or written, so a change may be
     /// reported twice.

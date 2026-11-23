@@ -104,6 +104,13 @@ pub enum Whose {
 /// that calls one host. The caller gives it to the adapter at wiring. A
 /// ledger that fails answers `LedgerDown`, and the adapter then fails
 /// toward reporting.
+///
+/// It keeps health for the host, and for each holder and each pool of a
+/// holder whose state is other than `Healthy`. It may drop a `Healthy`
+/// entry, and `health` answers `Healthy` for one it does not keep, so a
+/// ledger does not grow with each anonymous caller. A person's `SignedOut`
+/// notice goes to the `Notices` sink beside `Keyring::signed_out`, never as
+/// a host message.
 pub trait Ledger: Send + Sync {
     /// What is left of a holder's pool on a host, or None if unknown.
     fn budget(
@@ -131,8 +138,8 @@ pub trait Ledger: Send + Sync {
         expect: &HealthState,
         new: &HealthState,
     ) -> Result<bool, LedgerDown>;
-    /// Keep one failed call, with the project it was for; the ledger cuts
-    /// what is older than `keep` seconds before it.
+    /// Keep one failed call, with the project it was for. Failures older
+    /// than `f.at - keep` are dropped, `keep` in seconds.
     fn failed(&self, host: &HostId, f: Failure, keep: u32) -> Result<(), LedgerDown>;
     /// The failed calls on a host at or after `since`, oldest first.
     fn failures(&self, host: &HostId, since: At) -> Result<Vec<Failure>, LedgerDown>;
