@@ -12,7 +12,7 @@ use std::fs;
 use std::process::Command;
 
 /// Where the old name stays, and why. A path ending in `/` is a directory.
-const KEPT: [(&str, &str); 13] = [
+const KEPT: [(&str, &str); 10] = [
     ("docs/", "records of what was true when they were written"),
     ("CHANGELOG.md", "the notes of past releases"),
     ("changelog.d/", "the note of the rename itself"),
@@ -31,15 +31,6 @@ const KEPT: [(&str, &str); 13] = [
         "test/fixtures/install-0.32/versions.env",
         "what a 0.32.x release left on a host",
     ),
-    (
-        "host/fun/index.html",
-        "at its ceiling in host/fun/pages.max: a raise is a person's call",
-    ),
-    (
-        "host/docs/_layout.html",
-        "at its ceiling in host/fun/pages.max: a raise is a person's call",
-    ),
-    ("test/structured_data_test.sh", "pins host/fun/index.html"),
     (
         "instances/tehas-tehas/",
         "a real instance: a person changes it",
