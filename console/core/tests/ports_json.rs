@@ -276,6 +276,89 @@ fn a_delta_stored_without_more_reads_as_not_more() {
 }
 
 #[test]
+fn a_filter_stored_without_carrying_any_reads_as_narrowing_nothing() {
+    let filter = read!(
+        Filter,
+        r#"{"open":true,"carrying":[],"kind":null,"target":null}"#
+    );
+    assert!(filter.carrying_any.is_empty());
+    let any = Filter {
+        carrying_any: vec![Mark::State(State::Running), Mark::Epic],
+        ..Filter::default()
+    };
+    round!(any);
+}
+
+#[test]
+fn a_change_digest_carries_its_base_commit_update_and_what_its_text_closes() {
+    let commit = |c: char| CommitId::new(c.to_string().repeat(40)).unwrap();
+    let mut d = ChangeDigest::new(
+        ChangeNo::new(5).unwrap(),
+        ChangeState::Open,
+        Branch::new("work").unwrap(),
+        commit('a'),
+        Branch::new("main").unwrap(),
+        commit('b'),
+        At::new(10),
+        At::new(20),
+        WebLink::new("https://example.test/c/5").unwrap(),
+    );
+    d.says_closes = vec![Ref::Here(bp(7))];
+    let json = serde_json::to_value(&d).unwrap();
+    assert_eq!(json["base_commit"], "b".repeat(40));
+    assert_eq!(json["updated"], 20);
+    assert_eq!(json["says_closes"], serde_json::json!([{"Here": 7}]));
+    round!(d);
+}
+
+#[test]
+fn a_ticket_event_stored_without_a_mark_id_reads_as_none() {
+    let e = read!(
+        TicketEvent,
+        r#"{"what":{"type":"Reopened"},"by":null,"at":null}"#
+    );
+    assert_eq!(e, TicketEvent::new(Happened::Reopened));
+    let mut marked = TicketEvent::new(Happened::Marked(Mark::Epic));
+    marked.mark_id = Some(MarkId::new("LA_kwDO"));
+    assert_eq!(serde_json::to_value(&marked).unwrap()["mark_id"], "LA_kwDO");
+    round!(marked);
+}
+
+#[test]
+fn a_ticket_digest_stored_without_a_parent_reads_as_none() {
+    let mut d = TicketDigest::new(
+        TicketKey::Number(nz(3)),
+        TicketState::Open,
+        At::new(1),
+        At::new(2),
+        Revision::new("r"),
+        WebLink::new("https://example.test/t/3").unwrap(),
+    );
+    let mut json = serde_json::to_value(&d).unwrap();
+    json.as_object_mut().unwrap().remove("parent");
+    let back: TicketDigest = serde_json::from_value(json).unwrap();
+    assert_eq!(back, d);
+    d.parent = Some(here(1));
+    round!(d);
+}
+
+#[test]
+fn a_change_filter_stored_without_carrying_and_an_unknown_overall_read() {
+    let f = read!(
+        ChangeFilter,
+        r#"{"states":"Open","author":null,"head":null,"closing":[],"merged_since":null,"updated_since":null,"numbers":[],"bodies":false}"#
+    );
+    assert_eq!(f, ChangeFilter::default());
+    let carrying = ChangeFilter {
+        carrying: vec![Mark::State(State::Refreshing)],
+        ..ChangeFilter::default()
+    };
+    round!(carrying);
+    assert_eq!(read!(Overall, r#""Unknown""#), Overall::Unknown);
+    round!(Overall::Unknown);
+}
+
+#[test]
 fn an_old_spec_marker_reads_as_unknown() {
     // The Spec marker left with the Spec marks (#2892): a record that still
     // holds one reads under the one rule, as a tag this copy does not know.
