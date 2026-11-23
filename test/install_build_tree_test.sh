@@ -61,10 +61,9 @@ t_lacks "$t_out" "version.txt"
 t_contains "$(cat "$fixture/host/docs/_layout.html")" 'tehas {{ readFile "/version.txt" | trim | html }}'
 # The front page reads its versions from the factory's health instead
 # (host/fun/versions.js); a rukas-version.txt an older build left stays.
-for page in "$fixture/host/fun/index.html"; do
-  t_lacks "$(cat "$page")" 'version.txt'
-  t_contains "$(cat "$page")" '<script src="/fun/versions.js"></script>'
-done
+page=$fixture/host/fun/index.html
+t_lacks "$(cat "$page")" 'version.txt'
+t_contains "$(cat "$page")" '<script src="/fun/versions.js"></script>'
 echo v0.14.29 >"$th/fun/rukas-version.txt"
 t_run "$tagged/install.sh --check"
 t_lacks "$t_out" "rukas-version.txt"
