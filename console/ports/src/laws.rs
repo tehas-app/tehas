@@ -1189,7 +1189,7 @@ pub mod identity {
         tokens: &dyn TokenLog,
         scope: Scope,
         given: &Token,
-        expired: Got<Box<dyn Identity + Send>>,
+        mut expired: impl FnMut() -> Got<Box<dyn Identity + Send>>,
         signed_out: impl Fn() -> usize,
         requests: impl Fn() -> u32,
     ) -> Law {
@@ -1209,13 +1209,24 @@ pub mod identity {
         hold(kept_since(tokens, from).is_empty(), LAW, || {
             "a given token was kept".into()
         })?;
-        let late = match expired {
-            Err(o) => Err(o),
-            Ok(mut h) => h.token(scope).map(|_| ()),
-        };
-        hold(late == Err(Outcome::SignedOut), LAW, || {
-            format!("a given token past its time answered {late:?}")
-        })?;
+        // Asked twice, by two handles, each asked twice: the keyring is told
+        // once, however often the token is asked for.
+        for _ in 0..2 {
+            let late = match expired() {
+                Err(o) => Err(o),
+                Ok(mut h) => {
+                    let first = h.token(scope).map(|_| ());
+                    let again = h.token(scope).map(|_| ());
+                    hold(again == first, LAW, || {
+                        format!("a given token past its time answered {first:?}, then {again:?}")
+                    })?;
+                    first
+                }
+            };
+            hold(late == Err(Outcome::SignedOut), LAW, || {
+                format!("a given token past its time answered {late:?}")
+            })?;
+        }
         let n = signed_out();
         hold(n == 1, LAW, || {
             format!("the keyring was told of the sign-out {n} times, not once")

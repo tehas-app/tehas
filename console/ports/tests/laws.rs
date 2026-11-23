@@ -606,13 +606,12 @@ fn identity_a_given_token_is_never_minted() {
     let mut h = site
         .identity(&Actor::Given(PersonKey::new("fresh")), C)
         .unwrap();
-    let expired = site.identity(&Actor::Given(PersonKey::new("old")), C);
     ok(laws::identity::a_given_token_is_never_minted(
         h.as_mut(),
         tokens.as_ref(),
         Scope::Cycle,
         &given,
-        expired,
+        || site.identity(&Actor::Given(PersonKey::new("old")), C),
         || {
             w.signed_out_keys()
                 .iter()
@@ -622,6 +621,52 @@ fn identity_a_given_token_is_never_minted() {
         || calls(&site),
     ));
     assert_eq!(w.signed_out_keys(), vec![PersonKey::new("old")]);
+}
+
+#[test]
+fn the_given_token_law_breaks_where_a_sign_out_is_told_every_time() {
+    let w = World::new();
+    let now = w.now();
+    let given = Token {
+        secret: Secret::new("handed-in"),
+        until: At::new(now.secs() + 1200),
+    };
+    let w = w.given("fresh", Scope::Cycle, given.clone()).given(
+        "old",
+        Scope::Cycle,
+        Token {
+            secret: Secret::new("stale"),
+            until: At::new(now.secs() - 1),
+        },
+    );
+    let tokens = Arc::new(MemoryTokens::new(w.clock()));
+    let site = FakeSite::new(&w).with_tokens(tokens.clone());
+    let mut h = site
+        .identity(&Actor::Given(PersonKey::new("fresh")), C)
+        .unwrap();
+    // A site that tells the keyring each time the expired token is asked.
+    let tells_every_time = || {
+        let made = site.identity(&Actor::Given(PersonKey::new("old")), C);
+        if made.is_err() {
+            Keyring::signed_out(&w, &PersonKey::new("old"));
+        }
+        made
+    };
+    let broke = laws::identity::a_given_token_is_never_minted(
+        h.as_mut(),
+        tokens.as_ref(),
+        Scope::Cycle,
+        &given,
+        tells_every_time,
+        || {
+            w.signed_out_keys()
+                .iter()
+                .filter(|k| **k == PersonKey::new("old"))
+                .count()
+        },
+        || calls(&site),
+    );
+    assert!(broke.is_err(), "the law passed a keyring told every time");
 }
 
 #[test]

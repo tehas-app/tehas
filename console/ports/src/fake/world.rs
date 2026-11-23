@@ -180,6 +180,14 @@ impl World {
         self.lock().branch_at(&name)
     }
 
+    /// Tell the keyring of a given token's sign-out the first time it is
+    /// seen, never again for the same key.
+    pub(crate) fn given_signed_out(&self, key: &PersonKey) {
+        if !self.lock().signed_out.contains(key) {
+            Keyring::signed_out(self, key);
+        }
+    }
+
     /// The keys the world's keyring was told were signed out, in order.
     pub fn signed_out_keys(&self) -> Vec<PersonKey> {
         self.lock().signed_out.clone()

@@ -145,7 +145,7 @@ impl FakeSite {
                 match token {
                     Some(t) if t.until > world.now() => Ok(Some(FACTORY.to_string())),
                     _ => {
-                        crate::Keyring::signed_out(world, key);
+                        world.given_signed_out(key);
                         Err(Outcome::SignedOut)
                     }
                 }
@@ -702,7 +702,7 @@ impl Identity for Handle {
             Actor::Given(key) => match crate::Keyring::given(&self.world, &key) {
                 Some(t) if t.until > now => Ok(t),
                 _ => {
-                    crate::Keyring::signed_out(&self.world, &key);
+                    self.world.given_signed_out(&key);
                     Err(Outcome::SignedOut)
                 }
             },
