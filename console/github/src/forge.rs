@@ -107,7 +107,7 @@ fn public(e: gh::Event) -> tehas_core::events::Event {
 pub struct GitHub {
     /// `owner/name`, as `TEHAS_REPO` gives it.
     pub repo: String,
-    pub(crate) runner: Box<dyn GhRunner>,
+    runner: Box<dyn GhRunner>,
     /// The clock a spent budget's time is read from.
     pub(crate) now: fn() -> i64,
     /// Mark names the site gave that no mark can have, not yet taken.
@@ -150,6 +150,19 @@ impl GitHub {
             Ok(out) => Ok(out),
             Err(why) => Err(ForgeError::new(call, why)),
         }
+    }
+
+    /// [`GitHub::call`] with `input` on gh's standard input, the way a write
+    /// sends its text: never in an argument.
+    pub(crate) fn call_input(
+        &mut self,
+        call: &str,
+        args: &[&str],
+        input: &str,
+    ) -> Result<String, ForgeError> {
+        self.runner
+            .run_input(args, input)
+            .map_err(|why| ForgeError::new(call, why))
     }
 
     /// The reason of a read that is no answer, named after the read the

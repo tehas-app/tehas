@@ -196,7 +196,10 @@ fn an_open_sends_a_200_kib_body_and_its_title_on_standard_input_alone() {
 #[test]
 fn a_comment_sends_a_200_kib_body_on_standard_input_and_answers_the_comments_link() {
     let body = big_body();
-    let (mut gh, calls) = adapter(vec![Ok(sample("comment-created.json"))]);
+    let (mut gh, calls) = adapter(vec![
+        Ok(sample("issue-7.json")),
+        Ok(sample("comment-created.json")),
+    ]);
     let got = gh.comment(no(7), &body, &[]).unwrap();
     assert_eq!(got.id, CommentId::new("2501234567"));
     // The comment's link, as `gh issue comment` prints it.
@@ -205,9 +208,17 @@ fn a_comment_sends_a_200_kib_body_on_standard_input_and_answers_the_comments_lin
         "https://github.com/acme/widget/issues/7#issuecomment-2501234567"
     );
     let calls = calls.borrow();
-    assert_eq!(calls.len(), 1);
+    assert_eq!(calls.len(), 2);
+    // The issue is read first, so a pull request's number gets no comment.
     assert_eq!(
-        calls[0].args,
+        calls[0],
+        Call {
+            args: args(&["api", "repos/acme/widget/issues/7"]),
+            input: None
+        }
+    );
+    assert_eq!(
+        calls[1].args,
         args(&[
             "api",
             "-X",
@@ -218,7 +229,7 @@ fn a_comment_sends_a_200_kib_body_on_standard_input_and_answers_the_comments_lin
         ])
     );
     kept_out_of_argv(&calls, &body);
-    assert_eq!(input(&calls[0]), sent(None, Some(&body)));
+    assert_eq!(input(&calls[1]), sent(None, Some(&body)));
 }
 
 #[test]
@@ -311,9 +322,23 @@ fn a_label_or_a_comment_does_not_move_the_revision() {
 }
 
 #[test]
-fn an_edit_whose_read_fails_sends_no_write_and_says_it_was_not_sent() {
+fn the_read_before_an_edit_or_a_comment_fails_with_no_write_and_says_it_was_not_sent() {
     let since = revision_of(&sample("issue-7.json"));
+    let no_sent = |why| Outcome::Unavailable {
+        why,
+        sent: Sent::No,
+    };
     let cases = [
+        // The relay's runner's reasons: gh's status and the bound's 124.
+        ("gh exited 1: HTTP 404".to_string(), Outcome::NotFound),
+        ("gh exited 1: HTTP 410".to_string(), Outcome::NotFound),
+        ("gh exited 1: HTTP 403".to_string(), Outcome::Forbidden),
+        ("gh exited 1: HTTP 401".to_string(), Outcome::SignedOut),
+        (
+            "gh exited 1: HTTP 502".to_string(),
+            no_sent(Passing::Server),
+        ),
+        ("gh exited 124".to_string(), no_sent(Passing::Timeout)),
         (failed("not-found.stderr"), Outcome::NotFound),
         (failed("forbidden.stderr"), Outcome::Forbidden),
         (
@@ -347,9 +372,34 @@ fn an_edit_whose_read_fails_sends_no_write_and_says_it_was_not_sent() {
             &MarkerEdit::default(),
             &since,
         );
-        assert_eq!(got, Err(want), "{why}");
-        assert_eq!(calls.borrow().len(), 1, "{why}");
+        assert_eq!(got, Err(want.clone()), "edit: {why}");
+        assert_eq!(calls.borrow().len(), 1, "edit: {why}");
+        let (mut gh, calls) = adapter(vec![Err(why.clone())]);
+        let got = gh.comment(no(7), "b", &[]).map(|_| ());
+        assert_eq!(got, Err(want), "comment: {why}");
+        assert_eq!(calls.borrow().len(), 1, "comment: {why}");
     }
+}
+
+#[test]
+fn an_issue_answer_with_no_title_is_unread_not_a_conflict() {
+    let mut v: Value = serde_json::from_str(&sample("issue-7.json")).unwrap();
+    v.as_object_mut().unwrap().remove("title");
+    let since = revision_of(&sample("issue-7.json"));
+    let (mut gh, calls) = adapter(vec![Ok(v.to_string())]);
+    let got = gh.edit(no(7), Some("x"), None, &MarkerEdit::default(), &since);
+    assert_eq!(got, Err(Outcome::Unread(Unread::Malformed)));
+    assert_eq!(calls.borrow().len(), 1);
+}
+
+#[test]
+fn a_comment_on_a_pull_requests_number_is_not_found_and_sends_nothing() {
+    let (mut gh, calls) = adapter(vec![Ok(sample("pull-8.json"))]);
+    let got = gh.comment(no(8), "b", &[]);
+    assert_eq!(got, Err(Outcome::NotFound));
+    let calls = calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert!(calls[0].input.is_none(), "no POST");
 }
 
 #[test]
@@ -480,7 +530,7 @@ fn each_write(fail: &Result<String, String>) -> Vec<(&'static str, Got<()>, Vec<
     let (mut gh, calls) = adapter(vec![fail.clone()]);
     let open = gh.open(&new_blueprint(TITLE, &big_body())).map(|_| ());
     let open_calls = calls.borrow().clone();
-    let (mut gh, calls) = adapter(vec![fail.clone()]);
+    let (mut gh, calls) = adapter(vec![Ok(read.clone()), fail.clone()]);
     let comment = gh.comment(no(7), &big_body(), &[]).map(|_| ());
     let comment_calls = calls.borrow().clone();
     let (mut gh, calls) = adapter(vec![Ok(read), fail.clone()]);
@@ -516,7 +566,7 @@ fn every_failure_of_a_write_is_its_named_outcome_sent_once_and_echoes_no_input()
         (failed("gone.stderr"), Outcome::NotFound),
         (failed("forbidden.stderr"), Outcome::Forbidden),
         (failed("secondary-limit.stderr"), spent.clone()),
-        (failed("rate-limited.stderr"), spent),
+        (failed("rate-limited.stderr"), spent.clone()),
         (
             failed("validation.stderr"),
             Outcome::Refused(Refusal::Invalid),
@@ -530,16 +580,38 @@ fn every_failure_of_a_write_is_its_named_outcome_sent_once_and_echoes_no_input()
                 sent: Sent::No,
             },
         ),
+        // The relay's runner's reasons, gh's words after its exit status.
+        ("gh exited 1: HTTP 404".to_string(), Outcome::NotFound),
+        ("gh exited 1: HTTP 410".to_string(), Outcome::NotFound),
+        ("gh exited 1: HTTP 403".to_string(), Outcome::Forbidden),
+        ("gh exited 1: HTTP 401".to_string(), Outcome::SignedOut),
+        (
+            "gh exited 1: secondary rate limit".to_string(),
+            spent.clone(),
+        ),
+        ("gh exited 1: HTTP 429".to_string(), spent.clone()),
+        (
+            "gh exited 1: HTTP 422".to_string(),
+            Outcome::Refused(Refusal::Invalid),
+        ),
+        ("gh exited 1: HTTP 502".to_string(), maybe(Passing::Server)),
+        ("gh exited 124".to_string(), maybe(Passing::Timeout)),
+        (
+            "gh exited 1: no such host".to_string(),
+            Outcome::Unavailable {
+                why: Passing::Unreachable,
+                sent: Sent::No,
+            },
+        ),
     ];
     let body = big_body();
     for (why, want) in cases {
         for (op, got, calls) in each_write(&Err(why.clone())) {
             assert_eq!(got, Err(want.clone()), "{op}: {why}");
-            // Sent once: the write is the last call, and the only one with
-            // an input.
+            // Sent once: the only call with an input. An edit that may have
+            // landed reads once more to settle, and sends nothing again.
             let writes = calls.iter().filter(|c| c.input.is_some()).count();
             assert_eq!(writes, 1, "{op}: {why}");
-            assert!(calls.last().unwrap().input.is_some(), "{op}: {why}");
             let said = format!("{got:?} {}", got.as_ref().unwrap_err().line());
             assert!(
                 !said.contains(&body[..64]) && !said.contains(TITLE),
@@ -576,7 +648,7 @@ fn a_link_that_is_not_what_was_written_is_inconsistent() {
     // A comment answered on another issue, or on a pull request.
     for (from, to) in [("issues/7#", "issues/9#"), ("issues/7#", "pull/7#")] {
         let answer = sample("comment-created.json").replace(from, to);
-        let (mut gh, _) = adapter(vec![Ok(answer)]);
+        let (mut gh, _) = adapter(vec![Ok(sample("issue-7.json")), Ok(answer)]);
         assert_eq!(
             gh.comment(no(7), "b", &[]),
             Err(Outcome::Unread(Unread::Inconsistent)),
@@ -604,7 +676,7 @@ impl GhRunner for NoInput {
             args: args.iter().map(|a| a.to_string()).collect(),
             input: None,
         });
-        Err("no answer".into())
+        Ok(sample("issue-7.json"))
     }
 }
 
@@ -618,7 +690,14 @@ fn a_runner_that_takes_no_input_sends_nothing_and_never_puts_the_text_in_an_argu
     let unsupported = Err(Outcome::Refused(Refusal::Unsupported));
     assert_eq!(gh.open(&new_blueprint(TITLE, "b")).map(|_| ()), unsupported);
     assert_eq!(gh.comment(no(7), "b", &[]).map(|_| ()), unsupported);
-    assert!(calls.borrow().is_empty());
+    // The comment's read alone: no write went out.
+    assert_eq!(
+        *calls.borrow(),
+        [Call {
+            args: args(&["api", "repos/acme/widget/issues/7"]),
+            input: None
+        }]
+    );
 }
 
 #[test]
@@ -638,6 +717,8 @@ fn the_unbuilt_writes_are_refused_before_any_request() {
 struct Kept {
     title: String,
     body: String,
+    /// The markers `blueprint` answers the body holds.
+    markers: Vec<Marker>,
 }
 
 struct Site {
@@ -711,14 +792,19 @@ impl Blueprints for WithRead {
         Ok(Blueprint {
             no: n,
             title: k.title.clone(),
-            body: k.body.clone(),
+            body: k
+                .body
+                .lines()
+                .filter(|l| !l.starts_with("<!--"))
+                .collect::<Vec<_>>()
+                .join("\n"),
             open: true,
             author: None,
             editor: None,
             created: At::new(now()),
             edited: None,
             revision,
-            markers: Vec::new(),
+            markers: k.markers.clone(),
             comments: Took {
                 items: Vec::new(),
                 more: false,
@@ -819,6 +905,7 @@ fn the_law_an_edit_moves_the_revision_holds_over_the_adapters_edit() {
     let kept = Rc::new(RefCell::new(Kept {
         title: "Plan: the widget's settings page".into(),
         body: "One page for every setting.".into(),
+        markers: Vec::new(),
     }));
     let site = Site {
         kept: Rc::clone(&kept),
@@ -829,4 +916,317 @@ fn the_law_an_edit_moves_the_revision_holds_over_the_adapters_edit() {
     };
     laws::blueprints::an_edit_moves_the_revision(&mut h, no(7)).unwrap();
     assert_eq!(kept.borrow().body, "One page for every setting.\n\nEdited.");
+}
+
+/// An edit whose `PATCH` failed with `why`, then settled by one read that
+/// answers `again`: what it answered, and its calls.
+fn settled(why: &str, again: Result<String, String>) -> (Got<WebLink>, Vec<Call>) {
+    let read = sample("issue-7.json");
+    let since = revision_of(&read);
+    let (mut gh, calls) = adapter(vec![Ok(read), Err(why.to_string()), again]);
+    let got = gh.edit(
+        no(7),
+        None,
+        Some("New body."),
+        &MarkerEdit::default(),
+        &since,
+    );
+    let calls = calls.borrow().clone();
+    (got, calls)
+}
+
+#[test]
+fn an_edit_that_may_have_landed_is_settled_by_one_read_and_never_sent_again() {
+    let read = sample("issue-7.json");
+    let v: Value = serde_json::from_str(&read).unwrap();
+    let title = v["title"].as_str().unwrap();
+    let maybe = |why| Outcome::Unavailable {
+        why,
+        sent: Sent::Maybe,
+    };
+    let not_sent = |why| Outcome::Unavailable {
+        why,
+        sent: Sent::No,
+    };
+    for (why, passing) in [
+        (failed("server-error.stderr"), Passing::Server),
+        (BOUND.to_string(), Passing::Timeout),
+        ("gh exited 124".to_string(), Passing::Timeout),
+    ] {
+        // At the revision sent: it landed. The title not given is the old one.
+        let (got, calls) = settled(&why, Ok(issue_7(title, "New body.")));
+        assert_eq!(
+            got.unwrap().as_str(),
+            "https://github.com/acme/widget/issues/7",
+            "{why}"
+        );
+        assert_eq!(calls.len(), 3, "{why}");
+        assert_eq!(calls[2].args, args(&["api", "repos/acme/widget/issues/7"]));
+        assert_eq!(calls.iter().filter(|c| c.input.is_some()).count(), 1);
+        // Still at the old revision: it was not sent.
+        let (got, _) = settled(&why, Ok(read.clone()));
+        assert_eq!(got, Err(not_sent(passing)), "{why}");
+        // Changed to something else: it may have been sent.
+        let (got, _) = settled(&why, Ok(issue_7(title, "A third body.")));
+        assert_eq!(got, Err(maybe(passing)), "{why}");
+        // The settling read fails: still maybe.
+        let (got, calls) = settled(&why, Err(failed("server-error.stderr")));
+        assert_eq!(got, Err(maybe(passing)), "{why}");
+        assert_eq!(calls.len(), 3, "{why}");
+    }
+}
+
+#[test]
+fn an_edit_refused_for_sure_is_not_settled() {
+    for why in [failed("forbidden.stderr"), failed("validation.stderr")] {
+        let (got, calls) = settled(&why, Ok(sample("issue-7.json")));
+        assert!(got.is_err(), "{why}");
+        assert_eq!(calls.len(), 2, "no settling read: {why}");
+    }
+}
+
+#[test]
+fn an_open_or_a_comment_that_may_have_landed_stays_maybe() {
+    let maybe = Err(Outcome::Unavailable {
+        why: Passing::Server,
+        sent: Sent::Maybe,
+    });
+    for (op, got, calls) in each_write(&Err(failed("server-error.stderr"))) {
+        if op != "edit" {
+            assert_eq!(got, maybe, "{op}");
+            assert!(calls.last().unwrap().input.is_some(), "{op}: no read after");
+        }
+    }
+}
+
+/// A tickets port read of issue 7 answered `why`: the adapter's one reading
+/// of a failed call, `GitHub::outcome`.
+fn read_outcome(why: &str) -> Outcome {
+    let (mut gh, _) = adapter(vec![Err(why.to_string())]);
+    let key = tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(7).unwrap());
+    tehas_ports::Tickets::several(&mut gh, &[key])
+        .remove(0)
+        .1
+        .unwrap_err()
+}
+
+#[test]
+fn every_reason_bounded_gives_maps_as_before_the_relays_runner() {
+    let maybe = |why| Outcome::Unavailable {
+        why,
+        sent: Sent::Maybe,
+    };
+    let unreachable = Outcome::Unavailable {
+        why: Passing::Unreachable,
+        sent: Sent::No,
+    };
+    let spent = Outcome::Spent {
+        pool: Pool::Calls,
+        until: At::new(now()),
+    };
+    let cases = [
+        ("not found", Outcome::NotFound),
+        (": HTTP 401", Outcome::SignedOut),
+        (": HTTP 403", Outcome::Forbidden),
+        (": HTTP 404", Outcome::NotFound),
+        (": HTTP 410", Outcome::NotFound),
+        (": HTTP 422", maybe(Passing::Server)),
+        (": HTTP 429", spent.clone()),
+        (": HTTP 500", maybe(Passing::Server)),
+        (": HTTP 502", maybe(Passing::Server)),
+        (": rate limit", spent.clone()),
+        (": secondary rate limit", spent),
+        (": timed out", maybe(Passing::Timeout)),
+        (": timeout", maybe(Passing::Timeout)),
+        (BOUND, maybe(Passing::Timeout)),
+        (": connection refused", unreachable.clone()),
+        (": no such host", unreachable.clone()),
+        (": connection reset", maybe(Passing::Unreachable)),
+        // Bounded lower-cases its words, which the reading's "unexpected
+        // EOF" does not match: as before, a server failure.
+        (": unexpected eof", maybe(Passing::Server)),
+        (": gh exited 1", maybe(Passing::Server)),
+        (": gh exited 124", maybe(Passing::Server)),
+        (": gh was stopped by a signal", maybe(Passing::Server)),
+        ("gh's answer could not be read", maybe(Passing::Server)),
+        (
+            "gh could not be run: No such file or directory",
+            unreachable,
+        ),
+    ];
+    for (why, want) in cases {
+        assert_eq!(read_outcome(why), want, "{why}");
+    }
+}
+
+/// A body holding a marker that reads and one that does not (a field with
+/// a leading zero).
+const MARKED: &str = "The plan.\n<!-- tehas:hold-cleared -->\n<!-- tehas:park issue=07 step=work kind=stopped provider=0 sig=0000000000000000000000000000000000000000000000000000000000000000 -->";
+
+#[test]
+fn the_law_an_unreadable_marker_is_kept_answers_unsupported_and_writes_nothing() {
+    // Today's honest answer: with no marker writer, an edit of a body that
+    // holds markers is refused, nothing is written, and the markers stay.
+    // The marker writer will replace the refusal, and the law then holds.
+    let kept = Rc::new(RefCell::new(Kept {
+        title: "Plan".into(),
+        body: MARKED.into(),
+        markers: vec![
+            Marker::HoldCleared,
+            Marker::Unreadable {
+                kind: tehas_ports::MarkerKind::Park,
+            },
+        ],
+    }));
+    let site = Site {
+        kept: Rc::clone(&kept),
+    };
+    let mut h = WithRead {
+        gh: GitHub::new(PROJECT, Box::new(site)).on_clock(now),
+        kept: Rc::clone(&kept),
+    };
+    let law = laws::markers::an_unreadable_marker_is_kept(&mut h, no(7));
+    assert_eq!(
+        law,
+        Err(laws::Broken {
+            law: "markers::an_unreadable_marker_is_kept".into(),
+            what: format!(
+                "the edit: {}",
+                Outcome::Refused(Refusal::Unsupported).line()
+            ),
+        })
+    );
+    assert_eq!(kept.borrow().body, MARKED);
+}
+
+#[test]
+fn the_revision_is_over_the_raw_body_markers_in() {
+    let raw = issue_7("Plan", MARKED);
+    let sums = format!(
+        "{}:{}",
+        tehas_core::approval::title_sum(Some("Plan")).unwrap(),
+        tehas_core::approval::body_sum(MARKED)
+    );
+    assert_eq!(revision_of(&raw), Revision::new(sums));
+    // A revision over the body without its markers is another revision,
+    // and an edit at it is a conflict: `blueprint` must answer the raw one.
+    let stripped = revision_of(&issue_7("Plan", "The plan."));
+    assert_ne!(stripped, revision_of(&raw));
+    let (mut gh, _) = adapter(vec![Ok(raw.clone())]);
+    let got = gh.edit(no(7), Some("x"), None, &MarkerEdit::default(), &stripped);
+    assert_eq!(got, Err(Outcome::Conflict(Lost::Changed)));
+    let (mut gh, _) = adapter(vec![Ok(raw.clone()), Ok(raw.clone())]);
+    let got = gh.edit(
+        no(7),
+        Some("x"),
+        None,
+        &MarkerEdit::default(),
+        &revision_of(&raw),
+    );
+    assert!(got.is_ok(), "{got:?}");
+}
+
+/// What each of the three writes answers when its write call fails with
+/// `why` (after a good read where it reads first), and the edit's read when
+/// that read fails with it, with the calls of each.
+fn every_way(why: &str) -> Vec<(&'static str, Got<()>, Vec<Call>)> {
+    let mut all = each_write(&Err(why.to_string()));
+    let since = revision_of(&sample("issue-7.json"));
+    let (mut gh, calls) = adapter(vec![Err(why.to_string())]);
+    let read = gh
+        .edit(no(7), Some(TITLE), None, &MarkerEdit::default(), &since)
+        .map(|_| ());
+    all.push(("the edit's read", read, calls.borrow().clone()));
+    all
+}
+
+#[test]
+fn a_runner_that_gave_up_before_starting_gh_sent_nothing_and_nothing_is_settled() {
+    let not_sent = Err(Outcome::Unavailable {
+        why: Passing::Timeout,
+        sent: Sent::No,
+    });
+    for (op, got, calls) in every_way("not started: out of time") {
+        assert_eq!(got, not_sent, "{op}");
+        // No read after the write to settle it: nothing was sent.
+        let last = calls.last().unwrap();
+        assert!(op == "the edit's read" || last.input.is_some(), "{op}");
+        assert!(
+            calls.iter().filter(|c| c.input.is_some()).count() <= 1,
+            "{op}"
+        );
+    }
+    // Only that exact form: another sentence with the same start is not it.
+    for (op, got, _) in every_way("not started: something else") {
+        assert_ne!(got, not_sent, "{op}");
+    }
+}
+
+#[test]
+fn the_relay_runners_network_failures_keep_their_meaning() {
+    // gh's own network time limit: the request may have gone out.
+    for (op, got, _) in every_way("gh exited 1: timed out") {
+        let sent = if op == "the edit's read" {
+            Sent::No
+        } else {
+            Sent::Maybe
+        };
+        assert_eq!(
+            got,
+            Err(Outcome::Unavailable {
+                why: Passing::Timeout,
+                sent
+            }),
+            "{op}"
+        );
+    }
+    // Refused at the connection: nothing went out.
+    for (op, got, _) in every_way("gh exited 1: connection refused") {
+        assert_eq!(
+            got,
+            Err(Outcome::Unavailable {
+                why: Passing::Unreachable,
+                sent: Sent::No
+            }),
+            "{op}"
+        );
+    }
+    // The relay's bound stopped gh: it may have sent.
+    for (op, got, _) in every_way("gh exited 124") {
+        let sent = if op == "the edit's read" {
+            Sent::No
+        } else {
+            Sent::Maybe
+        };
+        assert_eq!(
+            got,
+            Err(Outcome::Unavailable {
+                why: Passing::Timeout,
+                sent
+            }),
+            "{op}"
+        );
+    }
+}
+
+#[test]
+fn what_today_answers_for_the_relays_own_sentence() {
+    // The relay's own words are no form the adapter knows: read as a server
+    // failure that may have been sent. The relay returns
+    // "not started: out of time" instead.
+    for (op, got, _) in every_way("the relay's 100 s are up") {
+        let sent = if op == "the edit's read" {
+            Sent::No
+        } else {
+            Sent::Maybe
+        };
+        assert_eq!(
+            got,
+            Err(Outcome::Unavailable {
+                why: Passing::Server,
+                sent
+            }),
+            "{op}"
+        );
+    }
 }
