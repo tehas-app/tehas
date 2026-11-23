@@ -615,16 +615,10 @@ mod mark_actor_tests {
     use tehas_ports::{Account, AccountKind, Act, At, Happened, Login, Mark, Realm, TicketEvent};
 
     fn ev(what: Happened, by: Option<&str>, at: Option<i64>) -> TicketEvent {
-        TicketEvent {
-            what,
-            by: by.map(|l| Account {
-                realm: Realm::CodeHost,
-                login: Login::new(l),
-                id: None,
-                kind: AccountKind::Person,
-            }),
-            at: at.map(At::new),
-        }
+        let mut e = TicketEvent::new(what);
+        e.by = by.map(|l| Account::new(Realm::CodeHost, Login::new(l), AccountKind::Person));
+        e.at = at.map(At::new);
+        e
     }
 
     #[test]
