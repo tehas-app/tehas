@@ -127,7 +127,7 @@ fn parse_reads_the_arguments_in_order() {
         "m",
         "--cycle",
         "y",
-        "--contractor",
+        "--plugin",
         "k",
         "--arch",
         "aarch64",
@@ -138,9 +138,9 @@ fn parse_reads_the_arguments_in_order() {
     assert_eq!(a.arch, "aarch64");
     assert_eq!(a.programs[1], "m");
     assert_eq!(a.programs[5], "y");
-    assert_eq!(a.programs[7], "k");
+    assert_eq!(a.programs[6], "k");
     assert!(a.programs[0].is_empty());
-    assert!(a.programs[6].is_empty());
+    assert!(a.programs[7].is_empty());
     assert_eq!(run_args(&[]).arch, "x86_64");
 }
 
@@ -301,31 +301,6 @@ fn the_programs_go_to_libexec_executable() {
         .listing(&p.tarball)
         .iter()
         .any(|f| f.ends_with("libexec/store")));
-}
-
-#[test]
-fn the_proxy_and_the_contractor_go_to_libexec_by_their_names() {
-    let t = Tree::new();
-    program(&t.path("proxy"), X86, "proxy");
-    program(&t.path("contractor"), X86, "contractor");
-    let proxy = t.path("proxy").display().to_string();
-    let contractor = t.path("contractor").display().to_string();
-    let p = t
-        .pack(&["--proxy", &proxy, "--contractor", &contractor])
-        .unwrap();
-    assert!(t
-        .unpacked(&p.tarball, "libexec/tehas-proxy")
-        .contains("proxy"));
-    assert!(t
-        .unpacked(&p.tarball, "libexec/tehas-contractor")
-        .contains("contractor"));
-    // A release packed without them carries neither.
-    let t = Tree::new();
-    let p = t.pack(&[]).unwrap();
-    assert!(!t
-        .listing(&p.tarball)
-        .iter()
-        .any(|f| f.ends_with("tehas-proxy") || f.ends_with("tehas-contractor")));
 }
 
 #[test]

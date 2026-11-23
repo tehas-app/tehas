@@ -19,6 +19,8 @@
 //! tehas.db-wal nor tehas.db-shm is packed. state/github, state/github-cycle and
 //! state/github-session, the live tokens, are
 //! not packed either: the target mints its own, and unpack keeps the target's.
+//! Nor are state/outsource and state/memory/cycles, which only outsource
+//! wrote before 2.0 dropped it and the update removes.
 //!
 //! Pack refuses (1) while a cycle or a planning turn runs, or a tehas-* unit
 //! is active; --rehearse skips those refusals to size or try a pack on a
@@ -509,6 +511,8 @@ fn pack(home: &Path, rehearse: bool) -> Result<(), Fail> {
             "--exclude=state/github",
             "--exclude=state/github-cycle",
             "--exclude=state/github-session",
+            "--exclude=state/outsource",
+            "--exclude=state/memory/cycles",
         ])
         .args(["--transform", "s|^tehas\\.db\\.copy$|state/tehas.db|"]);
     if rehearse {

@@ -661,11 +661,12 @@ trio are supported, so 2.0 carries no backwards compatibility.
 - **Every existing configuration works or migrates.** The owner,
   2026-11-22: "make sure existing configurations either work as is or
   can be migrated." Each setting, environment variable, key or file of
-  an instance's layout that 2.0 removes or renames is either still read
-  as it is, or rewritten by `tehas update` to its 2.0 form, beside the
-  store's migration, with one line saying what changed. A 1.4.x
-  configuration never fails to load. What the update rewrites, 2.0 no
-  longer reads, so the rewrite is no lever. A test runs instance
+  an instance's layout that 2.0 removes is still loaded: a removed
+  setting goes on `IGNORED` (it loads, warns once and is dropped), and
+  2.0 refuses only what 1.4.0 already refused. 2.0 rewrites no setting.
+  A 1.4.x configuration never fails to load, and
+  `cargo xtask config-check` (#2885) shows, before an update, which
+  settings are kept, dropped or refused. A test runs instance
   directories of every shape 1.4.x accepts, `instances/example/`
   included, through the migration and then through `lib/config.sh` and
   the settings loader. The real instances, which live outside this
@@ -873,3 +874,6 @@ of main, each grade.
 | 2026-11-23 | Port main @ 9a83945c (`.gitignore` ignores lean's roster report, #2884) | 6625b5f2 |
 | 2026-11-23 | The minimum pi-rukas is v0.15.6, so a stale roster report cannot pass a verify tier | #2891 |
 | 2026-11-23 | "Temporary rises" is empty: T15's false positives are allowed by name or have one owner; two findings move to T4, one to T7 and one is a floor | #2890 |
+| 2026-11-23 | T16: the millwright's old name goes, and #686's alias with it | #2889 |
+| 2026-11-23 | T16: `cargo xtask config-check` shows which settings 2.0 keeps, drops or refuses | #2885 |
+| 2026-11-22 | T16: Outsource is dropped, with the model proxy and the contractor; the state store drops its five tables, and analytics goes to schema 6 without `runs.contractor_id`, pinned by the consumer that reads the analytics copies before the merge | #2886 |

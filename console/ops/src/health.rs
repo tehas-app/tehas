@@ -3107,17 +3107,17 @@ mod tests {
         assert!(r.at(&["checks", "testFeatures"]).is_null());
         assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
 
-        let r = with(Some((true, &["outsource", "lean"])));
+        let r = with(Some((true, &["plugins", "lean"])));
         assert_eq!(r.at(&["checks", "testFeatures", "read"]), &J::Bool(true));
         assert_eq!(
             r.at(&["checks", "testFeatures", "features"]),
-            &J::Arr(vec![J::str("outsource"), J::str("lean")])
+            &J::Arr(vec![J::str("plugins"), J::str("lean")])
         );
         assert_eq!(
             said(&r),
             (
                 "warn".into(),
-                "A lab build: TEHAS_TEST_FEATURES names outsource, lean, still being built. No release reads it.".into()
+                "A lab build: TEHAS_TEST_FEATURES names plugins, lean, still being built. No release reads it.".into()
             )
         );
         assert_eq!(
@@ -3125,7 +3125,7 @@ mod tests {
             "A lab build: TEHAS_TEST_FEATURES is set and names no building feature."
         );
 
-        let r = with(Some((false, &["outsource"])));
+        let r = with(Some((false, &["plugins"])));
         assert_eq!(r.at(&["checks", "testFeatures", "read"]), &J::Bool(false));
         assert_eq!(
             said(&r),
@@ -3162,11 +3162,11 @@ mod tests {
                 "A lab build: TEHAS_TEST_FEATURES is unset, so no building feature is on. ./install.sh without --lab-build goes back.".into()
             )
         );
-        let r = lab(true, &["outsource"]);
+        let r = lab(true, &["plugins"]);
         assert_eq!(r.at(&["checks", "testFeatures", "lab"]), &J::Bool(true));
         assert_eq!(
             said(&r).1,
-            "A lab build: TEHAS_TEST_FEATURES names outsource, still being built. No release reads it."
+            "A lab build: TEHAS_TEST_FEATURES names plugins, still being built. No release reads it."
         );
     }
 

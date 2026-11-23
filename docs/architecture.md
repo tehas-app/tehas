@@ -32,12 +32,10 @@ so a test that moves does not lower a count it did not fix.
 | System | How it is reached | From |
 | --- | --- | --- |
 | GitHub | `gh` (REST and GraphQL), and the REST API directly in `console/core/src/access.rs` | most crates; see `github-rest` and `gh-argv` |
-| git | `git` | core, cycle, dispatch, ops, the console, plugin, proxy, contractor, xtask |
-| Docker | `docker` | core (`sandbox.rs`), cycle, dispatch, ops, the console, plugin, mcp, proxy, contractor, xtask |
+| git | `git` | core, cycle, dispatch, ops, the console, plugin, xtask |
+| Docker | `docker` | core (`sandbox.rs`), cycle, dispatch, ops, the console, plugin, mcp, xtask |
 | systemd | `systemctl` and the units of `host/systemd/` | core, cycle, dispatch, ops, the console, plugin, `install.sh` |
-| The models | HTTP through the model proxy | proxy, contractor |
 | pi-rukas | the sandbox image, `console/core/src/rukas.rs` | core, ops |
-| vipune | `host/sandbox/vipune-shim`, `console/cycle/src/memory.rs` | cycle |
 | Caddy | the containers of `host/edge/` | ops (edge) |
 
 ## Ports
@@ -50,11 +48,7 @@ The traits that stand between the code and an outside system today.
 | `GhRunner` | `console/core/src/forge.rs` | running `gh` for the forge | no: argv | stubbed `gh` runner in tests |
 | `GitHub` | `console/core/src/access.rs` | a collaborator's permission | partly | in `access.rs` tests |
 | `Net` | `console/attach/src/take.rs` | fetching an issue's files | yes | in attach's tests |
-| `Run` | `console/cycle/src/relay.rs` | the relay's `gh` calls | no: argv | in relay tests |
-| `Vipune` | `console/cycle/src/memory.rs` | the memory store | yes | in cycle's tests |
 | `Hands` | `console/dispatch/src/finish.rs`, `auto_finish.rs` | the finish's effects | partly | in dispatch's tests |
-| `Factory`, `Backing`, `Records`, `Reader`, `Sink`, `Downloads` | `console/proxy/src/` | the model proxy's channel, jobs and records | yes | in proxy's tests, except `Downloads` (none) |
-| `Work`, `World` | `console/contractor/src/job.rs` | the contractor's jobs | yes | in the crate's tests |
 | `Host`, `Catalog`, `Refresh`, `Day` | `console/plugin/src/` | the plugin runner | yes | in the crate's tests |
 | `Exec` | `console/ops/src/plugin/exec.rs` | running a plugin | partly | in the crate's tests |
 | `Outside`, `Shell` | `console/ops/src/rukas.rs`, `update/` | the update's outside world | partly | in the crate's tests |
@@ -97,8 +91,6 @@ From `cargo metadata`. Tests' own dependencies are in the last column.
 | tehas-items | attach, tehas-core | |
 | tehas-dispatch | attach, tehas-core | |
 | tehas-ops | store, tehas-core, tehas-cycle | tehas-dispatch |
-| tehas-proxy | store, tehas-core, tehas-cycle | |
-| tehas-contractor | tehas-core, tehas-cycle | store, tehas-proxy |
 | tehas-plugin | tehas-core, tehas-ops | |
 | tehas-plugin-gate | tehas-core, tehas-plugin | |
 | console | attach, store, tehas-core, tehas-cycle, tehas-items, tehas-ops | tehas-dispatch |
@@ -112,8 +104,8 @@ T6 settles where the core ends.
 
 ## Grouping (R5)
 
-The plan's reading, to be checked by the grades: the store, mcp, attach,
-proxy, contractor and analytics are deep. core, ops, dispatch, cycle and
+The plan's reading, to be checked by the grades: the store, mcp, attach
+and analytics are deep. core, ops, dispatch, cycle and
 the console are grouped in places by the order the old bash ran, not by
 what they know. The `public-items` report lists the widest files (3553
 public items in all: core 1027, ops 411, cycle 385, store 299, the
@@ -175,7 +167,7 @@ Each check's count at the fork (v1.4.0, a0aa16a5), as `architecture.toml` measur
 | raw-statuses | 259 |
 | tests-stub-gh | 419 |
 
-Above its fork value today: none. Below it: github-rest (819, 27 below), gh-argv (386, 22 below), tests-stub-gh (401, 18 below), label-words, home-layout and untyped-signatures. raw-statuses is at it (259).
+Above its fork value today: none. Below it: github-rest (804, 42 below), gh-argv (378, 30 below), tests-stub-gh (393, 26 below), raw-statuses (255, 4 below), label-words, home-layout and untyped-signatures.
 
 ## Grades
 
