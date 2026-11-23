@@ -191,40 +191,36 @@ fn read_digest(
 }
 
 /// The factory's own account, as a site gives it to the handles it makes:
-/// its login as `accounts::account` keys it, folded, and its user id once
-/// known. A handle made without a site has none and answers no account
+/// the user id of its bot account. A handle made without a site, or by a
+/// site given no id or a login that names nobody, answers no account
 /// `Ours`.
 #[derive(Clone, Debug)]
 pub(crate) struct Bot {
-    login: String,
-    pub(crate) id: Option<u64>,
+    user_id: Option<u64>,
 }
 
 impl Bot {
-    /// The bot of this login, in any of the App's spellings. A login that is
-    /// empty or only the App's marks names nobody and matches no account.
-    pub(crate) fn new(login: &str) -> Bot {
-        let login = tehas_core::accounts::folded(tehas_core::accounts::account(login));
-        let named = !matches!(login.as_str(), "[bot]" | "app/");
+    /// The bot of `login`, as the caller read it, and its account's user
+    /// id. The login is trimmed, so a line read from a file names it; a
+    /// login that is then empty, holds whitespace, or is only the App's
+    /// marks names nobody, and the bot matches no account.
+    pub(crate) fn new(login: &str, user_id: Option<u64>) -> Bot {
+        let login = login.trim();
+        let named = !login.is_empty()
+            && !login.contains(char::is_whitespace)
+            && !matches!(tehas_core::accounts::account(login), "" | "[bot]" | "app/");
         Bot {
-            login: if named { login } else { String::new() },
-            id: None,
+            user_id: user_id.filter(|_| named),
         }
     }
 
-    /// Whether the account of `login` and `facts` is this bot: the login,
-    /// folded in any of the App's spellings, is the bot's, and where the
-    /// bot's id is known the account carries that id. An account GitHub
-    /// types a user is never the App's: a person may hold the slug the
-    /// App's `<slug>[bot]` folds to.
-    pub(crate) fn is(&self, login: &str, facts: &gh::Facts) -> bool {
-        let same_id = match (self.id, facts.id) {
-            (Some(ours), id) => id == Some(ours),
-            (None, _) => true,
-        };
-        same_id
-            && facts.kind.as_deref() != Some("User")
-            && tehas_core::accounts::factorys(&tehas_core::accounts::folded(login), &self.login)
+    /// Whether the account of `facts` is this bot: GitHub types it a bot
+    /// and it carries the bot's user id. Nothing else decides: not the
+    /// login, which a renamed App changes and another account may hold.
+    /// With no id known, no account is the bot.
+    pub(crate) fn is(&self, facts: &gh::Facts) -> bool {
+        self.user_id.is_some_and(|ours| facts.id == Some(ours))
+            && facts.kind.as_deref() == Some("Bot")
     }
 }
 
@@ -248,7 +244,7 @@ pub(crate) fn account(login: &str, facts: &gh::Facts, bot: Option<&Bot>) -> Opti
         return None;
     }
     let kind = match facts.kind.as_deref() {
-        _ if bot.is_some_and(|b| b.is(login, facts)) => AccountKind::Ours,
+        _ if bot.is_some_and(|b| b.is(facts)) => AccountKind::Ours,
         Some("User") => AccountKind::Person,
         Some("Bot") => AccountKind::Bot,
         _ => AccountKind::Unknown,

@@ -29,24 +29,29 @@ pub struct GitHubSite {
 }
 
 impl GitHubSite {
-    /// The site of `repo` (`owner/name`), whose factory account is the bot
-    /// of `bot_login`, in any of the App's spellings, and whose runners
-    /// `make` gives. The caller reads the login; the adapter reads no file
-    /// and no variable.
-    pub fn new(repo: impl Into<String>, bot_login: &str, make: MakeRunner) -> GitHubSite {
+    /// The site of `repo` (`owner/name`), whose runners `make` gives.
+    ///
+    /// The factory's account is its App's bot account: `bot_login` as the
+    /// factory keeps it (`<slug>[bot]`, a trailing newline trimmed) and
+    /// `bot_user_id`, GitHub's numeric user id of that bot account. That is
+    /// not the GitHub App's id: given the App's id, no account is `Ours`.
+    /// The factory records the bot's user id beside its login in
+    /// `state/account-ids`, and `Identity::me` through a handle made for
+    /// `Actor::Ours` answers it too. An account is `Ours` only when GitHub
+    /// types it a bot and it carries that id; with no id given, none is.
+    /// The caller reads both; the adapter reads no file and no variable.
+    pub fn new(
+        repo: impl Into<String>,
+        bot_login: &str,
+        bot_user_id: Option<u64>,
+        make: MakeRunner,
+    ) -> GitHubSite {
         GitHubSite {
             repo: repo.into(),
-            bot: Bot::new(bot_login),
+            bot: Bot::new(bot_login, bot_user_id),
             make,
             meter: Arc::new(Mutex::new(Vec::new())),
         }
-    }
-
-    /// The same site knowing the bot's user id: an account then answers
-    /// `Ours` only where it carries that id as well as the bot's login.
-    pub fn with_bot_id(mut self, id: u64) -> GitHubSite {
-        self.bot.id = Some(id);
-        self
     }
 
     /// A handle of `port` acting as `by`, or the outcome that stops its
@@ -67,7 +72,7 @@ impl GitHubSite {
             meter: Arc::clone(&self.meter),
             caller,
             port,
-            pool: if write { Pool::Writes } else { Pool::Calls },
+            write,
         };
         let mut gh = GitHub::new(self.repo.clone(), Box::new(runner));
         gh.bot = Some(self.bot.clone());
@@ -137,7 +142,7 @@ impl Site for GitHubSite {
     }
 
     fn meter(&self) -> Vec<MeterRow> {
-        self.meter.lock().map(|m| m.clone()).unwrap_or_default()
+        lock(&self.meter).clone()
     }
 
     fn mark_name(&self, mark: &Mark) -> String {
@@ -145,31 +150,44 @@ impl Site for GitHubSite {
     }
 }
 
+/// The meter, whole even after a handle panicked while it held the lock:
+/// a count is never left half made.
+fn lock(meter: &Mutex<Vec<MeterRow>>) -> std::sync::MutexGuard<'_, Vec<MeterRow>> {
+    meter
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// A runner that counts each call it sends in the site's meter: one call
-/// and one point, as GitHub's REST budget counts a request.
+/// and one point a request. A write handle's calls are `Writes`; a read
+/// handle's GraphQL questions are `Priced`, as the adapter reads their
+/// spent budget, and its REST reads `Calls`.
 struct Metered {
     inner: Box<dyn GhRunner>,
     meter: Arc<Mutex<Vec<MeterRow>>>,
     caller: Caller,
     port: PortName,
-    pool: Pool,
+    write: bool,
 }
 
 impl Metered {
-    fn count(&self) {
-        let Ok(mut meter) = self.meter.lock() else {
-            return;
+    fn count(&self, args: &[&str]) {
+        let pool = match (self.write, args) {
+            (true, _) => Pool::Writes,
+            (false, ["api", "graphql", ..]) => Pool::Priced,
+            (false, _) => Pool::Calls,
         };
+        let mut meter = lock(&self.meter);
         let row = meter
             .iter_mut()
-            .find(|r| r.caller == self.caller && r.port == self.port && r.pool == self.pool);
+            .find(|r| r.caller == self.caller && r.port == self.port && r.pool == pool);
         match row {
             Some(row) => {
-                row.calls += 1;
-                row.points += 1;
+                row.calls = row.calls.saturating_add(1);
+                row.points = row.points.saturating_add(1);
             }
             None => {
-                let mut row = MeterRow::new(self.caller, self.port, self.pool);
+                let mut row = MeterRow::new(self.caller, self.port, pool);
                 row.calls = 1;
                 row.points = 1;
                 meter.push(row);
@@ -180,17 +198,17 @@ impl Metered {
 
 impl GhRunner for Metered {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        self.count();
+        self.count(args);
         self.inner.run(args)
     }
 
     fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
-        self.count();
+        self.count(args);
         self.inner.run_input(args, input)
     }
 
     fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
-        self.count();
+        self.count(args);
         self.inner.run_answer(args)
     }
 }

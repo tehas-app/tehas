@@ -51,10 +51,7 @@ impl Identity for GitHub {
             id: Some(id),
             kind: Some(said.to_string()),
         };
-        let ours = self
-            .bot
-            .as_ref()
-            .is_some_and(|b| b.is(login.as_str(), &facts));
+        let ours = self.bot.as_ref().is_some_and(|b| b.is(&facts));
         let kind = if ours { AccountKind::Ours } else { kind };
         let mut account = Account::new(Realm::CodeHost, login, kind);
         account.id = Some(AccountId::new(id.to_string()));
@@ -73,9 +70,9 @@ impl Identity for GitHub {
     /// An App's bot account answers `Standing::None` from the account read
     /// alone: an App is no collaborator, so it holds no collaborator
     /// permission, and its access is its installation's. The factory's own
-    /// App cannot be told apart yet, since `GitHub::new` carries no actor, so
-    /// until the handle factory gives the adapter its actor every bot
-    /// answers `None`; the factory's own App will then answer from `Ours`.
+    /// App answers `None` too, through a handle the site made as much as
+    /// one made with `GitHub::new`: whether it should answer otherwise is
+    /// the tehas lead's to rule.
     fn standing(&mut self, who: &AccountId) -> Got<Standing> {
         let id = id_of(who)?;
         match self.standing_once(id) {
@@ -151,8 +148,8 @@ impl GitHub {
             Ok(Holder::User(login)) => login,
             // An organisation holds no standing of its own on a repository.
             Ok(Holder::Organisation) => return Pass::Answer(Ok(Standing::None)),
-            // Another App holds no collaborator permission. The factory's
-            // own is not told apart until the adapter carries its actor.
+            // An App holds no collaborator permission, the factory's own
+            // included (see `standing`).
             Ok(Holder::Bot) => return Pass::Answer(Ok(Standing::None)),
             Err(o) => return Pass::Answer(Err(o)),
         };
