@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tehas_core::issue_feed::{Refs, Zip};
 use tehas_core::testdir::TestDir;
+use tehas_items::page::{File, Skipped, Ticket};
 use tehas_items::store::{build, Store, LIMIT};
 
 const F: &str = "https://github.com/user-attachments/files";
@@ -222,7 +223,7 @@ fn built(case: &Case, n: u64, found: &Refs) -> (Meta, String) {
         "url": format!("https://example.org/item/{n}"),
         "author": "alice",
     });
-    let page = |_: &Value, files: &[Value], _: &[Value], _: i64| format!("{} files", files.len());
+    let page = |_: &Ticket, files: &[File], _: &[Skipped], _: i64| format!("{} files", files.len());
     let (dir, line) = build(&case.store, n, &item, found, "stamp", &page).expect("built");
     let meta = fs::read_to_string(dir.join(".meta.json")).unwrap();
     let json = serde_json::from_str(&meta).unwrap();
