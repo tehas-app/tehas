@@ -173,7 +173,7 @@ fn the_ports_values_read_back_from_json() {
         set: vec![Marker::HoldCleared],
         drop: vec![(MarkerKind::Blocked, None)],
     });
-    for s in [Scope::Agent, Scope::Unknown] {
+    for s in [Scope::Agent, Scope::CycleMerge, Scope::Unknown] {
         round!(s);
         round!(Actor::Ours(s));
     }
@@ -294,6 +294,10 @@ fn an_unknown_tag_with_content_of_any_shape_reads_as_unknown_in_json() {
     }
     assert_eq!(read!(Act, r#""Future""#), Act::Unknown);
     assert_eq!(read!(Scope, r#""Future""#), Scope::Unknown);
+    assert_eq!(
+        serde_json::to_string(&Scope::CycleMerge).unwrap(),
+        r#""CycleMerge""#
+    );
     assert_eq!(
         serde_json::to_string(&Marker::Unknown).unwrap(),
         r#"{"type":"Unknown"}"#
@@ -558,4 +562,35 @@ fn a_health_or_word_the_reader_cannot_read_is_unknown_in_json() {
     assert!(serde_json::from_str::<HealthState>(r#"{"Future":1}"#).is_err());
     assert!(serde_json::from_str::<Holder>(r#"{"Future":"x"}"#).is_err());
     assert!(serde_json::from_str::<Whose>(r#"{"Future":"x"}"#).is_err());
+}
+
+#[test]
+fn the_fakes_and_the_laws_values_read_back_from_json() {
+    use tehas_ports::fake::{Asked, BoardOp, Fault, Op, TicketsOp, Wrote};
+    let factory = Account {
+        realm: Realm::CodeHost,
+        login: Login::new("factory"),
+        id: Some(AccountId::new("id-factory")),
+        kind: AccountKind::Ours,
+    };
+    round!(Wrote {
+        by: factory,
+        what: Write::Reopen {
+            ticket: TicketKey::Number(nz(7)),
+        },
+    });
+    round!(Op::Board(BoardOp::OpenWork));
+    round!(Op::Tickets(TicketsOp::Note));
+    round!(Fault::TimeoutMaybe { applied: true });
+    round!(Fault::Server { applied: false });
+    round!(Fault::Broken);
+    round!(Fault::Spent {
+        pool: Pool::Priced,
+        until: At::new(9),
+    });
+    round!(Asked::Forget(Covers::Site(SiteId::new("p")), None));
+    round!(tehas_ports::laws::Broken {
+        law: "lists::more_is_exact".into(),
+        what: "more".into(),
+    });
 }

@@ -401,6 +401,16 @@ adds elsewhere. #2890 moved two of its findings here, to fix:
   `console/tests/console_run.rs` (#2879), tehas's own word in a file
   that also stubs gh, so the file is not allowed.
 
+Findings:
+
+- The planner's confirm files an issue with the session token, which is
+  issues read-only, so the site refuses it (`console/src/plan/turn.rs`
+  ~485). It must file with the factory's token or not at all. T4.7 fixes
+  it.
+- No port operation marks a change ready or draft: `edit_change` takes no
+  draft flag, so a `CycleMerge` cycle cannot take its own draft out of
+  draft through the ports. T4.2+ decides.
+
 ### T5. Deep homes for files
 
 - A `Home` type owns the `state/`, `live/` and `run/` paths. `run/` holds
