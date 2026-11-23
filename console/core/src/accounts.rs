@@ -100,8 +100,7 @@ impl Unreadable {
     }
 }
 
-/// The pairs a file holds, and whether its bytes are already as `text`
-/// writes them.
+/// The pairs a file holds, and whether no line of it had its end trimmed.
 #[derive(Debug, PartialEq)]
 pub struct Pairs {
     pub ids: BTreeMap<String, u64>,
@@ -121,9 +120,11 @@ pub fn parse_bytes(bytes: &[u8]) -> Result<Pairs, Unreadable> {
     })?;
     let mut ids = BTreeMap::new();
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    let mut tidy = true;
     for (i, raw) in text.split('\n').enumerate() {
         let n = i + 1;
         let line = raw.trim_end_matches([' ', '\t', '\r']);
+        tidy &= line.len() == raw.len();
         if line.is_empty() {
             continue;
         }
@@ -141,7 +142,6 @@ pub fn parse_bytes(bytes: &[u8]) -> Result<Pairs, Unreadable> {
             }
         }
     }
-    let tidy = text == self::text(&ids);
     Ok(Pairs { ids, tidy })
 }
 
@@ -520,6 +520,8 @@ mod tests {
         assert!(parse(" 5\n").is_err());
         assert_eq!(parse(""), Ok(BTreeMap::new()));
         assert!(parse_bytes(b"alice 1001\nmill 3001\n").unwrap().tidy);
+        // Another order or spelling is no damage.
+        assert!(parse_bytes(b"mill[bot] 3001\nalice 1001").unwrap().tidy);
     }
 
     #[test]
@@ -529,6 +531,7 @@ mod tests {
             "alice 1001\r\nbob 1002\r\n",
             "alice 1001  \nbob 1002\t\n",
             "alice 1001 \r\n\r\nbob 1002",
+            "alice 1001\n  \nbob 1002\n",
         ] {
             let p = parse_bytes(text.as_bytes()).unwrap();
             assert_eq!(p.ids, clean, "{text:?}");
