@@ -992,6 +992,7 @@ fn tickets_read_back() {
         }],
         notes: vec![(tkey(1), comment())],
         next: Cursor::new("next"),
+        more: true,
     });
     round(Filed {
         key: tkey(1),
@@ -1064,6 +1065,7 @@ fn blueprints_read_back() {
         }],
         comments: vec![(bp(7), comment())],
         next: Cursor::new("c"),
+        more: false,
     });
 }
 
@@ -1242,6 +1244,7 @@ fn the_code_host_reads_back() {
         changes: vec![change_digest()],
         comments: vec![(ChangeNo::new(4).unwrap(), comment())],
         next: Cursor::new("c"),
+        more: true,
     });
     let conclusions = [
         Conclusion::Passed,

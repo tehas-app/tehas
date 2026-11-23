@@ -197,11 +197,13 @@ pub struct BlueprintDelta {
     pub blueprints: Vec<BlueprintChange>,
     /// The comments that changed, each with its blueprint.
     pub comments: Vec<(BlueprintNo, Comment)>,
-    /// Where the next delta starts.
+    /// Where the next delta starts: after the last change it holds.
     pub next: Cursor,
+    /// More changes wait past `next`: the bound cut this delta.
+    pub more: bool,
 }
 
-new!(BlueprintDelta { next: Cursor }, blueprints, comments);
+new!(BlueprintDelta { next: Cursor }, blueprints, comments, more);
 
 /// The blueprints port's reads. A handle is bound to one project, one
 /// actor and one caller name.
@@ -234,7 +236,9 @@ pub trait Blueprints: Reports + Cites {
     fn fetch(&mut self, a: &AttachmentId, limit: u64, into: &mut dyn std::io::Write) -> Did;
     /// Has anything changed since this token.
     fn changed(&mut self, since: Option<&ChangeToken>) -> Got<(bool, ChangeToken)>;
-    /// Blueprints and comments changed since the cursor.
+    /// Blueprints and comments changed since the cursor. Oldest change
+    /// first. Past `bound`, the first `bound` changes, with `more` and a
+    /// `next` that resumes after them: never `Unread(Cut)`.
     fn delta(&mut self, from: Option<&Cursor>, bound: Bound) -> Got<BlueprintDelta>;
 }
 

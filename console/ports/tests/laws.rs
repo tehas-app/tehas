@@ -297,6 +297,65 @@ fn lists_last_n_is_never_cut_and_more_is_exact() {
 }
 
 #[test]
+fn deltas_page_oldest_first_past_the_bound() {
+    for w in both() {
+        let no = first_blueprint(&w);
+        let ch = first_change(&w);
+        let w = w
+            .ticket(1, |t| t.title("one").comment("alice", "a note"))
+            .ticket(2, |t| t.title("two"))
+            .ticket(3, |t| t.title("three"))
+            .blueprint(no, |b| b.comment("alice", "a").comment("bob", "b"))
+            .change(ch, "work-1", |c| c.comment("alice", "c"))
+            .change(ch + 1, "work-2", |c| c)
+            .change(ch + 2, "work-3", |c| c.comment("bob", "d"));
+        let site = FakeSite::new(&w);
+        let mut t = site.tickets(&full(), C).unwrap();
+        let mut bl = site.blueprints(&full(), C).unwrap();
+        let mut c = site.code_host(&full(), C).unwrap();
+        for page in [1, 2] {
+            ok(laws::delta::tickets_page_on(t.as_mut(), None, b(page)));
+            ok(laws::delta::blueprints_page_on(bl.as_mut(), None, b(1)));
+            ok(laws::delta::changes_page_on(c.as_mut(), None, b(page)));
+        }
+        let first = t.delta(None, b(1)).unwrap();
+        assert!(first.more);
+        ok(laws::delta::tickets_page_on(
+            t.as_mut(),
+            Some(&first.next),
+            b(1),
+        ));
+    }
+}
+
+#[test]
+fn a_delta_past_the_bound_is_its_oldest_changes() {
+    let w = World::split()
+        .ticket(1, |t| t.title("one"))
+        .ticket(2, |t| t.title("two"))
+        .ticket(3, |t| t.title("three"));
+    let site = FakeSite::new(&w);
+    let mut h = site.ticket_writes(&full(), C).unwrap();
+    h.mark(&w.key(1), &Mark::Epic).unwrap();
+    let page = h.delta(None, b(2)).unwrap();
+    let titles: Vec<&str> = page
+        .tickets
+        .iter()
+        .map(|t| t.digest.title.as_str())
+        .collect();
+    assert_eq!(titles, ["two", "three"]);
+    assert!(page.more);
+    let rest = h.delta(Some(&page.next), b(2)).unwrap();
+    let titles: Vec<&str> = rest
+        .tickets
+        .iter()
+        .map(|t| t.digest.title.as_str())
+        .collect();
+    assert_eq!(titles, ["one"]);
+    assert!(!rest.more);
+}
+
+#[test]
 fn lists_hold_for_a_split_tickets_notes() {
     let w = World::split().ticket(1, |t| {
         t.comment("alice", "one")

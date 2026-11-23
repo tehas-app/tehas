@@ -360,11 +360,13 @@ pub struct ChangeDelta {
     pub changes: Vec<ChangeDigest>,
     /// The comments on changes since the cursor, each with its change.
     pub comments: Vec<(ChangeNo, Comment)>,
-    /// Where the next delta starts.
+    /// Where the next delta starts: after the last change it holds.
     pub next: Cursor,
+    /// More changes wait past `next`: the bound cut this delta.
+    pub more: bool,
 }
 
-new!(ChangeDelta { next: Cursor }, changes, comments);
+new!(ChangeDelta { next: Cursor }, changes, comments, more);
 
 /// The checks on a commit, and what they add up to.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -745,6 +747,8 @@ pub trait CodeHost: Reports + Cites {
     /// Has anything changed since this token.
     fn changed(&mut self, since: Option<&ChangeToken>) -> Got<(bool, ChangeToken)>;
     /// Changes and their comments changed since the cursor, with bodies.
+    /// Oldest change first. Past `bound`, the first `bound` changes, with
+    /// `more` and a `next` that resumes after them: never `Unread(Cut)`.
     fn delta(&mut self, from: Option<&Cursor>, bound: Bound) -> Got<ChangeDelta>;
     /// The remote for git, with a credential for this handle's actor.
     fn remote(&mut self, access: Access) -> Got<Remote>;

@@ -246,6 +246,7 @@ fn the_ports_values_read_back_from_json() {
             },
         )],
         next: Cursor::new("next"),
+        more: false,
     });
     round!(BoardAsk {
         depth: Depth::Cut { notes: 0 },

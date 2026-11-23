@@ -667,6 +667,100 @@ pub mod blueprints {
     }
 }
 
+/// Laws of the deltas: a long history read over several passes.
+pub mod delta {
+    use std::fmt::Debug;
+
+    use super::{got, hold, Law};
+    use crate::{Blueprints, Bound, CodeHost, Cursor, Got, Tickets, ALL_MAX};
+
+    /// A page as the law reads it: the two lists, where the next starts,
+    /// and whether more wait.
+    type Page<A, B> = (Vec<A>, Vec<B>, Cursor, bool);
+
+    /// Read from `from` a page of `page` at a time: every page but the last
+    /// holds `page` changes with `more`, the last holds the rest without,
+    /// and the pages in order are the whole delta, each list in its order.
+    /// Read on from the last `next`, nothing has changed. Past the bound is
+    /// never `Unread(Cut)`. The fixture holds more changes than a page and
+    /// no more than `ALL_MAX`, and nothing writes while the law reads.
+    fn pages_resume<A: PartialEq + Debug, B: PartialEq + Debug>(
+        law: &str,
+        mut read: impl FnMut(Option<&Cursor>, Bound) -> Got<Page<A, B>>,
+        from: Option<&Cursor>,
+        page: Bound,
+    ) -> Law {
+        let (whole_a, whole_b, _, more) = got(law, "the whole delta", read(from, ALL_MAX))?;
+        hold(!more, law, || "the whole delta says more".into())?;
+        let total = whole_a.len() + whole_b.len();
+        let size = page.get() as usize;
+        hold(total > size, law, || {
+            format!("the fixture holds {total} changes, no more than a page")
+        })?;
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        let mut at = from.cloned();
+        let mut done = false;
+        for _ in 0..=total {
+            let (pa, pb, next, more) = got(law, "a page", read(at.as_ref(), page))?;
+            let n = pa.len() + pb.len();
+            hold(if more { n == size } else { n <= size }, law, || {
+                format!("a page of {n} changes with more {more}, the bound {size}")
+            })?;
+            a.extend(pa);
+            b.extend(pb);
+            at = Some(next);
+            if !more {
+                done = true;
+                break;
+            }
+        }
+        hold(done, law, || "the pages never ended".into())?;
+        hold(a == whole_a && b == whole_b, law, || {
+            format!("the pages read {a:?} and {b:?}, not {whole_a:?} and {whole_b:?}")
+        })?;
+        let (ra, rb, _, more) = got(law, "the delta after", read(at.as_ref(), page))?;
+        hold(ra.is_empty() && rb.is_empty() && !more, law, || {
+            format!("after the last page read {ra:?} and {rb:?}")
+        })
+    }
+
+    /// `Tickets::delta` pages from `from`, `page` changes at a time.
+    pub fn tickets_page_on(h: &mut dyn Tickets, from: Option<&Cursor>, page: Bound) -> Law {
+        pages_resume(
+            "delta::tickets_page_on",
+            |f, b| h.delta(f, b).map(|d| (d.tickets, d.notes, d.next, d.more)),
+            from,
+            page,
+        )
+    }
+
+    /// `Blueprints::delta` pages from `from`, `page` changes at a time.
+    pub fn blueprints_page_on(h: &mut dyn Blueprints, from: Option<&Cursor>, page: Bound) -> Law {
+        pages_resume(
+            "delta::blueprints_page_on",
+            |f, b| {
+                h.delta(f, b)
+                    .map(|d| (d.blueprints, d.comments, d.next, d.more))
+            },
+            from,
+            page,
+        )
+    }
+
+    /// `CodeHost::delta` pages from `from`, `page` changes at a time.
+    pub fn changes_page_on(h: &mut dyn CodeHost, from: Option<&Cursor>, page: Bound) -> Law {
+        pages_resume(
+            "delta::changes_page_on",
+            |f, b| {
+                h.delta(f, b)
+                    .map(|d| (d.changes, d.comments, d.next, d.more))
+            },
+            from,
+            page,
+        )
+    }
+}
+
 /// Laws of the searches.
 pub mod search {
     use std::fmt::Debug;

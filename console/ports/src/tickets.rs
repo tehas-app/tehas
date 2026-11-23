@@ -468,11 +468,13 @@ pub struct TicketDelta {
     pub tickets: Vec<TicketChange>,
     /// The notes that changed, each with its ticket.
     pub notes: Vec<(TicketKey, Comment)>,
-    /// Where the next delta starts.
+    /// Where the next delta starts: after the last change it holds.
     pub next: Cursor,
+    /// More changes wait past `next`: the bound cut this delta.
+    pub more: bool,
 }
 
-new!(TicketDelta { next: Cursor }, tickets, notes);
+new!(TicketDelta { next: Cursor }, tickets, notes, more);
 
 /// A ticket an account filed, as a lost press finds it again.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -573,7 +575,10 @@ pub trait Tickets: Reports + Cites {
     /// Has anything changed since this token. Free on a site that answers
     /// conditional requests or pushes events.
     fn changed(&mut self, since: Option<&ChangeToken>) -> Got<(bool, ChangeToken)>;
-    /// Tickets and notes changed since the cursor, with their text and close.
+    /// Tickets and notes changed since the cursor, with their text and
+    /// close. Oldest change first. Past `bound`, the first `bound` changes,
+    /// with `more` and a `next` that resumes after them: never
+    /// `Unread(Cut)`, so a long history spreads over passes.
     fn delta(&mut self, from: Option<&Cursor>, bound: Bound) -> Got<TicketDelta>;
     /// A link a visitor opens to file a ticket with this text filled in.
     fn new_ticket_link(&self, title: &str, text: &str) -> WebLink;
