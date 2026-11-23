@@ -18,6 +18,7 @@
 //! line, where the mask would miss a secret: an offset must be a line's start,
 //! and one inside a long line skips to the next.
 
+use crate::args::{Arg, Args, Shape};
 use crate::tools::{bad, epoch, ToolError};
 use regex::Regex;
 use serde_json::{json, Map, Value};
@@ -525,30 +526,42 @@ fn event(s: &Stream, l: &Line) -> Value {
     Value::Object(e)
 }
 
-pub(crate) fn call(logs: &Path, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let empty = Map::new();
-    let args = match args {
-        Value::Null => &empty,
-        Value::Object(m) => m,
-        _ => return Err(bad("the arguments are an object")),
-    };
-    if let Some(k) = args.keys().find(|k| *k != "after" && *k != "limit") {
-        return Err(bad(&format!(
-            "{k} is not an argument: factory_events takes after and limit"
-        )));
+/// What `factory_events` takes: the most events of an answer and the place
+/// of each log an earlier answer ended at.
+#[derive(Debug)]
+pub struct EventsArgs {
+    limit: usize,
+    after: Option<[Pos; 2]>,
+}
+
+impl EventsArgs {
+    pub(crate) fn read(args: &Args) -> Result<Self, ToolError> {
+        if args.shape() == Shape::Other {
+            return Err(bad("the arguments are an object"));
+        }
+        if let Some(k) = args.keys().find(|k| *k != "after" && *k != "limit") {
+            return Err(bad(&format!(
+                "{k} is not an argument: factory_events takes after and limit"
+            )));
+        }
+        let limit = match args.get("limit") {
+            Arg::Absent => DEFAULT_EVENTS,
+            v => v
+                .whole()
+                .filter(|n| (1..=EVENTS_MAX).contains(n))
+                .ok_or_else(|| bad(&format!("limit is from 1 to {EVENTS_MAX}")))?,
+        } as usize;
+        let after = match args.get("after") {
+            Arg::Absent => None,
+            Arg::Text(s) => Some(parse_cursor(s)?),
+            _ => return Err(bad("after is a cursor from an earlier answer's next")),
+        };
+        Ok(EventsArgs { limit, after })
     }
-    let limit = match args.get("limit") {
-        None | Some(Value::Null) => DEFAULT_EVENTS,
-        Some(v) => v
-            .as_u64()
-            .filter(|n| (1..=EVENTS_MAX).contains(n))
-            .ok_or_else(|| bad(&format!("limit is from 1 to {EVENTS_MAX}")))?,
-    } as usize;
-    let after = match args.get("after") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(s)) => Some(parse_cursor(s)?),
-        Some(_) => return Err(bad("after is a cursor from an earlier answer's next")),
-    };
+}
+
+pub(crate) fn call(logs: &Path, asked: &EventsArgs) -> Result<Map<String, Value>, ToolError> {
+    let (limit, after) = (asked.limit, &asked.after);
 
     let mut streams = Vec::new();
     for (i, (log, name)) in LOGS.iter().enumerate() {
