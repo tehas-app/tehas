@@ -10,7 +10,7 @@ use crate::forge::uri;
 use crate::GitHub;
 use tehas_ports::{
     At, Blocker, Bound, ChangeToken, ClosedTicket, Comment, CommentId, Cursor, Depth, Edit, Filed,
-    Filter, Got, HappenedKind, Item, Kind, Mark, MarkId, MarkerKey, MarkerKind, Part, Target,
+    Filter, Got, HappenedKind, Item, Kind, Mark, MarkHeld, MarkerKey, MarkerKind, Part, Target,
     TargetId, Ticket, TicketDelta, TicketDigest, TicketEvent, TicketKey, Tickets, Took, WebLink,
     Whole, Window, WithCloser, Within,
 };
@@ -101,7 +101,7 @@ impl Tickets for GitHub {
         unsupported()
     }
 
-    fn marks(&mut self, _: Bound) -> Got<Whole<(Mark, MarkId)>> {
+    fn marks(&mut self, _: Bound) -> Got<Whole<MarkHeld>> {
         unsupported()
     }
 

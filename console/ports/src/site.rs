@@ -50,7 +50,9 @@ pub trait Site: Send + Sync {
     /// sign-in, whose handles have a deadline: at or past `until`, every
     /// call answers `Unavailable { why: Timeout, sent: No }` without
     /// sending, and no retry, wait or page runs past it. A handle made
-    /// before keeps its own deadline. A caller that must stop by a time
+    /// before keeps its own deadline. A view of a view keeps the earlier
+    /// of the two deadlines. Every call means every one: a token kept or
+    /// given is not answered either. A caller that must stop by a time
     /// makes its handles from this view.
     fn until(&self, until: At) -> Arc<dyn Site>;
 }

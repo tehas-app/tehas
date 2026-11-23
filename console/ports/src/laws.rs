@@ -69,7 +69,9 @@ fn got<T>(law: &str, what: &str, answer: crate::Got<T>) -> Result<T, Broken> {
 /// Laws of the tickets port.
 pub mod tickets {
     use super::{got, hold, Law};
-    use crate::{Bound, Depth, Filter, Mark, TicketKey, TicketWrites, Tickets};
+    use crate::{
+        Bound, Depth, Filter, Mark, MarkHeld, TicketKey, TicketWrites, Tickets, WithCloser,
+    };
 
     /// `Filter.carrying_any` takes the tickets that carry any one of the
     /// marks: the tickets each mark's own `carrying` list takes, together,
@@ -127,13 +129,15 @@ pub mod tickets {
         const LAW: &str = "tickets::a_mark_event_names_the_marks_id";
         got(LAW, "mark", h.mark(key, mark))?;
         let marks = got(LAW, "marks", h.marks(bound))?.into_items();
-        for (i, (m, id)) in marks.iter().enumerate() {
-            let again = marks[i + 1..].iter().find(|(n, j)| n == m || j == id);
+        for (i, held) in marks.iter().enumerate() {
+            let again = marks[i + 1..]
+                .iter()
+                .find(|n| n.mark == held.mark || n.id == held.id);
             hold(again.is_none(), LAW, || {
-                format!("marks names {m:?} as {id:?} and again {again:?}")
+                format!("marks names {held:?} and again {again:?}")
             })?;
         }
-        let id = marks.iter().find(|(m, _)| m == mark).map(|(_, id)| id);
+        let id = marks.iter().find(|m| m.mark == *mark).map(|m| &m.id);
         hold(id.is_some(), LAW, || format!("marks holds no {mark:?}"))?;
         let only = [crate::HappenedKind::Marked];
         let history = got(
@@ -154,6 +158,65 @@ pub mod tickets {
             event.mark_id.is_none() || event.mark_id.as_ref() == id,
             LAW,
             || format!("the event names {:?}, marks names {id:?}", event.mark_id),
+        )
+    }
+
+    /// A mark renamed on the site keeps its id under its new name, and the
+    /// event that put it on before the rename names the new name with that
+    /// id, or with none where the site gives none. An adapter that makes
+    /// the id from the name breaks it: a mark renamed to one of ours would
+    /// pass a pin (rule 5). The fixture's ticket is open and does not carry
+    /// `from`; the site holds no mark `to`; `rename` renames `from` to `to`
+    /// on the site, as a person with its settings does.
+    pub fn a_renamed_mark_keeps_its_id(
+        h: &mut dyn TicketWrites,
+        key: &TicketKey,
+        from: &Mark,
+        to: &Mark,
+        bound: Bound,
+        rename: &mut dyn FnMut(),
+    ) -> Law {
+        const LAW: &str = "tickets::a_renamed_mark_keeps_its_id";
+        got(LAW, "mark", h.mark(key, from))?;
+        let id_of = |marks: &[MarkHeld], m: &Mark| {
+            marks.iter().find(|h| h.mark == *m).map(|h| h.id.clone())
+        };
+        let before = got(LAW, "marks", h.marks(bound))?.into_items();
+        let id = match id_of(&before, from) {
+            Some(id) => id,
+            None => return super::broken(LAW, format!("marks holds no {from:?}")),
+        };
+        hold(id_of(&before, to).is_none(), LAW, || {
+            format!("the site holds {to:?} before the rename")
+        })?;
+        rename();
+        let after = got(LAW, "marks", h.marks(bound))?.into_items();
+        hold(id_of(&after, from).is_none(), LAW, || {
+            format!("marks still holds {from:?} after the rename")
+        })?;
+        let now = id_of(&after, to);
+        hold(now.as_ref() == Some(&id), LAW, || {
+            format!("{to:?} is {now:?} after the rename, {from:?} was {id:?}")
+        })?;
+        let only = [crate::HappenedKind::Marked];
+        let history = got(
+            LAW,
+            "the history",
+            h.history(key, crate::Window::Whole(bound), Some(&only)),
+        )?;
+        let event = history
+            .items
+            .iter()
+            .rev()
+            .find(|e| e.what == crate::Happened::Marked(to.clone()));
+        let event = match event {
+            Some(e) => e,
+            None => return super::broken(LAW, format!("no event names {to:?}")),
+        };
+        hold(
+            event.mark_id.is_none() || event.mark_id.as_ref() == Some(&id),
+            LAW,
+            || format!("the event names {:?}, the mark is {id:?}", event.mark_id),
         )
     }
 
@@ -209,7 +272,9 @@ pub mod tickets {
                 format!("{k2:?} answered in the place of {k:?}")
             })?;
             let digest = got(LAW, "several", digest)?;
-            let (d, closer) = got(LAW, "several_with_closers", answer)?;
+            let WithCloser {
+                digest: d, closer, ..
+            } = got(LAW, "several_with_closers", answer)?;
             hold(d == digest, LAW, || {
                 format!("{k:?}'s digest is not several's")
             })?;
@@ -315,13 +380,15 @@ pub mod code_host {
         Ok(got(law, "the change", h.change(no, ALL_MAX))?.digest.state)
     }
 
-    /// The checks on a commit hold one run of each name, and `overall` is
-    /// `Overall::of` them; asked by name, the one run of that name. The
-    /// fixture's commit `at` holds runs of `name`, more than one.
+    /// The checks on a commit hold one run of each name, the newest, and
+    /// `overall` is `Overall::of` them; asked by name, the one run of that
+    /// name. The fixture's commit `at` holds runs of `name`, more than one:
+    /// the newest has the status `newest`, and an older one another.
     pub fn checks_hold_the_newest_run_of_each_name(
         h: &mut dyn crate::CodeHost,
         at: &CommitId,
         name: &str,
+        newest: &crate::CheckStatus,
     ) -> Law {
         const LAW: &str = "code_host::checks_hold_the_newest_run_of_each_name";
         let all = got(LAW, "the checks", h.checks(at, None))?;
@@ -344,6 +411,9 @@ pub mod code_host {
             .collect();
         hold(one.runs == want && want.len() == 1, LAW, || {
             format!("{name} answered {:?}, the whole read {want:?}", one.runs)
+        })?;
+        hold(want[0].status == *newest, LAW, || {
+            format!("{name} is {:?}, its newest run {newest:?}", want[0].status)
         })
     }
 
@@ -360,15 +430,18 @@ pub mod code_host {
             ..Default::default()
         };
         let all = got(LAW, "every change", h.changes(&every, ALL_MAX))?.into_items();
+        let carries = |c: &crate::ChangeDigest| marks.iter().all(|m| c.marks.contains(m));
+        hold(
+            all.iter().any(carries) && !all.iter().all(carries),
+            LAW,
+            || "an empty carrying narrowed the list".to_string(),
+        )?;
         let carrying = crate::ChangeFilter {
             carrying: marks.to_vec(),
             ..every
         };
         let have = got(LAW, "the changes carrying", h.changes(&carrying, ALL_MAX))?.into_items();
-        let want: Vec<_> = all
-            .into_iter()
-            .filter(|c| marks.iter().all(|m| c.marks.contains(m)))
-            .collect();
+        let want: Vec<_> = all.into_iter().filter(|c| carries(c)).collect();
         hold(have == want, LAW, || {
             let nos = |l: &[crate::ChangeDigest]| l.iter().map(|c| c.no.get()).collect::<Vec<_>>();
             format!("carrying took {:?}, not {:?}", nos(&have), nos(&want))
@@ -405,6 +478,53 @@ pub mod code_host {
             })?;
         }
         Ok(())
+    }
+
+    /// A change gives the base commit the site records, the same in the
+    /// list and in the one change's read; and what its text says it closes
+    /// only when bodies are asked, empty otherwise. The fixture's open
+    /// change `no` was opened on `base_commit`, and its text says it closes
+    /// `closes`, not empty.
+    pub fn a_change_gives_its_base_and_what_its_text_closes(
+        h: &mut dyn crate::CodeHost,
+        no: ChangeNo,
+        base_commit: &CommitId,
+        closes: &[crate::Ref<crate::BlueprintNo>],
+    ) -> Law {
+        const LAW: &str = "code_host::a_change_gives_its_base_and_what_its_text_closes";
+        let mut read = |bodies: bool| -> Result<crate::ChangeDigest, Broken> {
+            let filter = crate::ChangeFilter {
+                bodies,
+                ..Default::default()
+            };
+            got(LAW, "the open changes", h.changes(&filter, ALL_MAX))?
+                .into_items()
+                .into_iter()
+                .find(|c| c.no == no)
+                .ok_or_else(|| Broken {
+                    law: LAW.to_string(),
+                    what: format!("the list holds no change {}", no.get()),
+                })
+        };
+        let plain = read(false)?;
+        let full = read(true)?;
+        for d in [&plain, &full] {
+            hold(d.base_commit == *base_commit, LAW, || {
+                format!("the base is {:?}, not {base_commit:?}", d.base_commit)
+            })?;
+        }
+        hold(plain.says_closes.is_empty(), LAW, || {
+            format!("with no bodies it says {:?}", plain.says_closes)
+        })?;
+        hold(full.says_closes == closes, LAW, || {
+            format!("it says it closes {:?}, not {closes:?}", full.says_closes)
+        })?;
+        let one = got(LAW, "the change", h.change(no, ALL_MAX))?.digest;
+        hold(
+            one.base_commit == *base_commit && one.head_commit == plain.head_commit,
+            LAW,
+            || format!("the change's read gives {:?}", one.base_commit),
+        )
     }
 
     use super::Broken;

@@ -17,7 +17,7 @@ use crate::{
     ChangeFilter, ChangeItem, ChangeNo, ChangeToken, ChangedFile, Checks, Cite, Cites, CloseReason,
     ClosedTicket, CodeHost, CodeHostWrites, Comment, CommentId, CommitId, Compared, Cursor, Depth,
     Did, Edit, Facts, Failure, FileName, Filed, Filter, Got, HappenedKind, HealthState, Holder,
-    HolderId, HostId, Identity, Item, Kind, Ledger, Login, Mark, MarkId, MarkSpec, Marker,
+    HolderId, HostId, Identity, Item, Kind, Ledger, Login, Mark, MarkHeld, MarkSpec, Marker,
     MarkerEdit, MarkerKey, MarkerKind, MergeHow, MeterRow, NewBlueprint, NewChange, NewRelease,
     NewTicket, OpenWork, Outcome, Part, Passing, Pool, PortName, Posted, Priority, ProjectName,
     Proposal, ProposalPart, Proposed, Realm, Refusal, Release, ReleaseId, Remote, RepoPath, Report,
@@ -689,11 +689,11 @@ impl<S: Site> Site for Faulty<S> {
 
     /// The view of its site's `until`, under the same rules, counting its
     /// calls and requests with this one's. With a watch, the watch's
-    /// `deadline` is `until`.
+    /// `deadline` is `until`, or the earlier one it had.
     fn until(&self, until: At) -> Arc<dyn Site> {
         let s = &*self.shared;
         let watch = s.watch.clone().map(|mut w| {
-            w.deadline = Some(until);
+            w.deadline = Some(w.deadline.map_or(until, |d| d.min(until)));
             w
         });
         Arc::new(Faulty {
@@ -1156,7 +1156,7 @@ impl<H: Tickets + ?Sized> Tickets for Wrap<H> {
     fn kinds(&mut self) -> Got<Whole<Kind>> {
         self.call(Op::Tickets(T::Kinds), Err, |h| h.kinds())
     }
-    fn marks(&mut self, bound: Bound) -> Got<Whole<(Mark, MarkId)>> {
+    fn marks(&mut self, bound: Bound) -> Got<Whole<MarkHeld>> {
         self.call(Op::Tickets(T::Marks), Err, |h| h.marks(bound))
     }
     fn targets(&mut self, bound: Bound) -> Got<Whole<Target>> {

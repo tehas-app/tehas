@@ -272,10 +272,11 @@ impl Site for FakeSite {
         mark_name(mark)
     }
 
-    /// A clone that shares the meter, the tokens and the world.
+    /// A clone that shares the meter, the tokens and the world. A view of
+    /// a view keeps the earlier deadline.
     fn until(&self, until: At) -> Arc<dyn Site> {
         let mut site = self.clone();
-        site.deadline = Some(until);
+        site.deadline = Some(self.deadline.map_or(until, |d| d.min(until)));
         Arc::new(site)
     }
 
@@ -714,13 +715,6 @@ pub(crate) fn mark_name(mark: &crate::Mark) -> String {
     }
 }
 
-/// The fake's id of a mark: its word behind `id:`, None for a mark that
-/// names no word.
-pub(crate) fn mark_id(mark: &crate::Mark) -> Option<crate::MarkId> {
-    let name = mark_name(mark);
-    (!name.is_empty()).then(|| crate::MarkId::new(format!("id:{name}")))
-}
-
 impl Identity for Handle {
     fn me(&mut self) -> Got<Account> {
         self.anonymous_may(IdentityOp::Me)?;
@@ -785,6 +779,10 @@ impl Identity for Handle {
     /// given token is answered as it was handed in, never minted. Only a
     /// mint is a request; every other answer is made with no request.
     fn token(&mut self, scope: Scope) -> Got<Token> {
+        if let Some(o) = self.past_deadline() {
+            self.report(o.clone());
+            return Err(o);
+        }
         let now = self.world.now();
         let answer = match self.actor.clone() {
             Actor::Given(key) => match crate::Keyring::given(&self.world, &key) {
@@ -817,6 +815,10 @@ impl Identity for Handle {
     /// project among them. A project outside the grant, or a set without
     /// this project, is `Forbidden` before any mint.
     fn token_over(&mut self, scope: Scope, projects: &[ProjectName]) -> Got<Token> {
+        if let Some(o) = self.past_deadline() {
+            self.report(o.clone());
+            return Err(o);
+        }
         let now = self.world.now();
         let (grant, covered) = {
             let s = self.world.lock();

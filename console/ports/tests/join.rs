@@ -212,7 +212,14 @@ impl Tickets for StubTickets {
     }
     fn several_with_closers(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<WithCloser>)> {
         keys.iter()
-            .map(|k| (k.clone(), self.find(k).map(|t| (t.digest, t.closer))))
+            .map(|k| {
+                let with = self.find(k).map(|t| {
+                    let mut with = WithCloser::new(t.digest);
+                    with.closer = t.closer;
+                    with
+                });
+                (k.clone(), with)
+            })
             .collect()
     }
     fn history(
@@ -301,7 +308,7 @@ impl Tickets for StubTickets {
     fn kinds(&mut self) -> Got<Whole<Kind>> {
         Err(unsupported())
     }
-    fn marks(&mut self, _: Bound) -> Got<Whole<(Mark, MarkId)>> {
+    fn marks(&mut self, _: Bound) -> Got<Whole<MarkHeld>> {
         Err(unsupported())
     }
     fn targets(&mut self, _: Bound) -> Got<Whole<Target>> {

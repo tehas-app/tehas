@@ -198,7 +198,7 @@ impl TicketSpec {
                 let mut e = TicketEvent::new(Happened::Marked(mark.clone()));
                 e.by = by;
                 e.at = Some(now);
-                e.mark_id = super::site::mark_id(&mark);
+                e.mark_id = s.mark_id(&mark);
                 s.items[at].history.push(e);
             }
             if !s.items[at].marks.contains(&mark) {

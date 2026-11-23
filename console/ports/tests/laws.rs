@@ -178,9 +178,9 @@ fn tickets_a_mark_event_names_the_marks_id() {
             b(100),
         ));
         let marks = h.marks(b(100)).unwrap().into_items();
-        assert!(marks.iter().any(|(m, _)| *m == Mark::Epic));
-        // An event the site gave with no id is None: the caller checks the
-        // ticket's current marks.
+        assert!(marks.iter().any(|m| m.mark == Mark::Epic));
+        // An event the site gave with no id is None: the caller compares
+        // the id `marks` gives with its pin.
         let w = w.ticket(2, |t| {
             t.title("b")
                 .event(Happened::Marked(ready.clone()), Some("alice"), None)
@@ -191,6 +191,49 @@ fn tickets_a_mark_event_names_the_marks_id() {
             .history(&w.key(2), Window::Whole(b(10)), Some(&only))
             .unwrap();
         assert_eq!(events.items[0].mark_id, None);
+    }
+}
+
+#[test]
+fn tickets_a_renamed_mark_keeps_its_id() {
+    for w in both() {
+        let w = w.ticket(1, |t| t.title("a"));
+        let site = FakeSite::new(&w);
+        let mut h = site.ticket_writes(&full(), C).unwrap();
+        let bug = Mark::Project(MarkName::new("bug").unwrap());
+        let ready = Mark::Act(Act::Approve);
+        ok(laws::tickets::a_renamed_mark_keeps_its_id(
+            h.as_mut(),
+            &w.key(1),
+            &bug,
+            &ready,
+            b(100),
+            &mut || w.rename_mark(&bug, &ready),
+        ));
+        // A site that never renames fails the law.
+        let w2 = World::new().ticket(1, |t| t.title("a"));
+        let mut h2 = FakeSite::new(&w2).ticket_writes(&full(), C).unwrap();
+        assert!(laws::tickets::a_renamed_mark_keeps_its_id(
+            h2.as_mut(),
+            &w2.key(1),
+            &bug,
+            &ready,
+            b(100),
+            &mut || {},
+        )
+        .is_err());
+        // The ready mark put on after the rename is a new mark, with an id
+        // of its own: the pin of the old one tells them apart.
+        let w3 = World::new().ticket(1, |t| t.title("a"));
+        let mut h3 = FakeSite::new(&w3).ticket_writes(&full(), C).unwrap();
+        h3.mark(&w3.key(1), &ready).unwrap();
+        let pinned = h3.marks(b(100)).unwrap().into_items();
+        w3.rename_mark(&ready, &bug);
+        h3.mark(&w3.key(1), &ready).unwrap();
+        let now = h3.marks(b(100)).unwrap().into_items();
+        let id = |ms: &[MarkHeld], m: &Mark| ms.iter().find(|h| h.mark == *m).map(|h| h.id.clone());
+        assert_eq!(id(&now, &bug), id(&pinned, &ready));
+        assert_ne!(id(&now, &ready), id(&pinned, &ready));
     }
 }
 
@@ -232,9 +275,9 @@ fn tickets_several_carries_each_closer() {
             &keys,
         ));
         let answers = h.several_with_closers(&keys);
-        assert_eq!(answers[0].1.as_ref().unwrap().1, None);
+        assert_eq!(answers[0].1.as_ref().unwrap().closer, None);
         assert!(matches!(
-            answers[1].1.as_ref().unwrap().1,
+            answers[1].1.as_ref().unwrap().closer,
             Some(Closer::Account(_))
         ));
     }
@@ -273,7 +316,16 @@ fn code_host_checks_hold_the_newest_run_of_each_name() {
             h.as_mut(),
             &at,
             "gate",
+            &CheckStatus::Done(Conclusion::Passed),
         ));
+        // A site that keeps the oldest run fails the law.
+        assert!(laws::code_host::checks_hold_the_newest_run_of_each_name(
+            h.as_mut(),
+            &at,
+            "gate",
+            &CheckStatus::Done(Conclusion::Failed),
+        )
+        .is_err());
         // The old failure beside its passing re-run is not read.
         assert_eq!(h.checks(&at, None).unwrap().overall, Overall::Pass);
     }
@@ -344,6 +396,15 @@ fn a_change_records_its_base_commit_and_what_its_text_closes() {
         let base = w.head("main").unwrap();
         let site = FakeSite::new(&w);
         let mut h = site.code_host(&full(), C).unwrap();
+        let no = ChangeNo::new(n).unwrap();
+        ok(
+            laws::code_host::a_change_gives_its_base_and_what_its_text_closes(
+                h.as_mut(),
+                no,
+                &base,
+                &[Ref::Here(bp(blueprint))],
+            ),
+        );
         let read = |h: &mut Box<dyn CodeHost + Send>, bodies: bool| {
             let filter = ChangeFilter {
                 bodies,
@@ -1613,6 +1674,53 @@ fn a_site_seen_until_a_time_answers_a_timeout_from_then() {
             .map(drop),
         Err(timeout)
     );
+}
+
+#[test]
+fn a_view_past_its_deadline_mints_and_answers_no_token() {
+    let w = World::new().given("p", Scope::Full, good_token(&World::new(), "given"));
+    let site = FakeSite::new(&w);
+    let view = site.until(w.now());
+    let timeout = Outcome::Unavailable {
+        why: Passing::Timeout,
+        sent: Sent::No,
+    };
+    let mut ours = view.identity(&full(), C).unwrap();
+    assert_eq!(ours.token(Scope::Full).err(), Some(timeout.clone()));
+    assert_eq!(
+        ours.token_over(Scope::Full, &[w.project()]).err(),
+        Some(timeout.clone())
+    );
+    let given = Actor::Given(PersonKey::new("p"));
+    let mut theirs = view.identity(&given, C).unwrap();
+    assert_eq!(theirs.token(Scope::Full).err(), Some(timeout));
+    assert_eq!(w.sent(), 0, "a view past its deadline mints nothing");
+    assert_eq!(calls(&site), 0);
+}
+
+#[test]
+fn a_view_of_a_view_keeps_the_earlier_deadline() {
+    let w = World::new().ticket(1, |t| t.title("a"));
+    let early = At::new(w.now().secs() + 10);
+    let late = At::new(w.now().secs() + 100);
+    let timeout = Outcome::Unavailable {
+        why: Passing::Timeout,
+        sent: Sent::No,
+    };
+    let site = FakeSite::new(&w);
+    let faulty = Faulty::new(FakeSite::new(&w));
+    for view in [
+        site.until(early).until(late),
+        faulty.until(early).until(late),
+    ] {
+        let mut h = view.tickets(&full(), C).unwrap();
+        w.set_now(early);
+        assert_eq!(
+            h.ticket(&w.key(1), Depth::Cut { notes: 0 }, None).map(drop),
+            Err(timeout.clone())
+        );
+        w.set_now(At::new(early.secs() - 10));
+    }
 }
 
 /// Every call the site's meter counted: its requests.

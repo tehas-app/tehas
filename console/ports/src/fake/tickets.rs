@@ -11,7 +11,7 @@ use super::state::{Layout, State};
 use crate::{
     AccountId, Applied, At, Blocker, BlockerState, Bound, ChangeState, ChangeToken, CloseReason,
     ClosedTicket, Closer, Comment, CommentId, Cursor, Depth, Did, Edit, Filed, Filter, Got,
-    Happened, HappenedKind, Item, Kind, Mark, MarkId, MarkSpec, Marker, MarkerEdit, MarkerKey,
+    Happened, HappenedKind, Item, Kind, Mark, MarkHeld, MarkSpec, Marker, MarkerEdit, MarkerKey,
     MarkerKind, NewTicket, Outcome, Part, Pool, Posted, Priority, Ref, Refusal, Step, StepPart,
     Target, TargetEdit, TargetId, Ticket, TicketChange, TicketDelta, TicketDigest, TicketEvent,
     TicketKey, TicketWrites, Tickets, Took, Unprepared, WebLink, Whole, Window, WithCloser, Within,
@@ -143,7 +143,7 @@ fn part_of(s: &State, parent: &TicketKey, of: &TicketKey) -> bool {
 fn event(s: &mut State, at: usize, ctx: &Ctx, what: Happened) {
     let by = Some(ctx.me(s));
     let mark_id = match &what {
-        Happened::Marked(m) | Happened::Unmarked(m) => super::site::mark_id(m),
+        Happened::Marked(m) | Happened::Unmarked(m) => s.mark_id(m),
         _ => None,
     };
     s.items[at].history.push(TicketEvent {
@@ -275,8 +275,9 @@ impl Tickets for Handle {
             let at = at_ticket(s, k)?;
             let item = &s.items[at];
             let digest = digest(s, item).ok_or(Outcome::NotFound)?;
-            let closer = if item.open { None } else { item.closer.clone() };
-            Ok((digest, closer))
+            let mut with = WithCloser::new(digest);
+            with.closer = if item.open { None } else { item.closer.clone() };
+            Ok(with)
         })
     }
 
@@ -436,7 +437,7 @@ impl Tickets for Handle {
 
     /// The marks any item carries, the factory's once prepared, and each
     /// project mark ensured, by word.
-    fn marks(&mut self, bound: Bound) -> Got<Whole<(Mark, MarkId)>> {
+    fn marks(&mut self, bound: Bound) -> Got<Whole<MarkHeld>> {
         self.run(Pool::Calls, |s, _| {
             let mut all: Vec<Mark> = s.items.iter().flat_map(|i| i.marks.clone()).collect();
             all.extend(s.changes.iter().flat_map(|c| c.marks.clone()));
@@ -448,15 +449,15 @@ impl Tickets for Handle {
                     .iter()
                     .map(|m| Mark::Project(m.name.clone())),
             );
-            let mut named: Vec<(Mark, MarkId)> = Vec::new();
+            let mut named: Vec<MarkHeld> = Vec::new();
             for m in all {
-                if let Some(id) = super::site::mark_id(&m) {
-                    if !named.iter().any(|(n, _)| *n == m) {
-                        named.push((m, id));
+                if let Some(id) = s.mark_id(&m) {
+                    if !named.iter().any(|n| n.mark == m) {
+                        named.push(MarkHeld::new(m, id));
                     }
                 }
             }
-            named.sort_by(|a, b| a.1.cmp(&b.1));
+            named.sort_by(|a, b| a.id.cmp(&b.id));
             whole(named, bound)
         })
     }

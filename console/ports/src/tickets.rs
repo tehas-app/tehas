@@ -216,8 +216,10 @@ pub struct TicketEvent {
     /// For a mark that went on or came off, the site's id of that mark,
     /// as `Tickets::marks` names it: a mark renamed to one of ours keeps
     /// its old id, so it is not ours. None where the site gave no id: the
-    /// caller then checks the ticket's current marks. Missing, it reads as
-    /// None.
+    /// caller then compares `Tickets::marks`' id for that mark with its
+    /// pin, and refuses the mark when they differ or the mark has no pin.
+    /// The ticket's current marks carry no ids and prove nothing. Missing,
+    /// it reads as None.
     #[serde(default)]
     pub mark_id: Option<MarkId>,
 }
@@ -534,7 +536,38 @@ new!(
 
 /// A ticket's digest with what closed it, as `Tickets::several_with_closers`
 /// answers it.
-pub type WithCloser = (TicketDigest, Option<Closer>);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct WithCloser {
+    /// The digest `several` gives.
+    pub digest: TicketDigest,
+    /// What closed it: None while it is open or where the site names
+    /// nothing.
+    #[serde(default)]
+    pub closer: Option<Closer>,
+}
+
+new!(
+    WithCloser {
+        digest: TicketDigest
+    },
+    closer
+);
+
+/// A mark the site holds, with its id, as `Tickets::marks` answers it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct MarkHeld {
+    /// The mark, by the name it has now.
+    pub mark: Mark,
+    /// The site's id of it, which a rename keeps.
+    pub id: MarkId,
+}
+
+new!(MarkHeld {
+    mark: Mark,
+    id: MarkId
+});
 
 /// The tickets port's reads. A handle is bound to one project, one actor
 /// and one caller name.
@@ -613,9 +646,10 @@ pub trait Tickets: Reports + Cites {
     fn kinds(&mut self) -> Got<Whole<Kind>>;
     /// The marks the site holds for the project, each with its id, as the
     /// site names them now: what a caller pins, so a mark renamed to one
-    /// of ours is told apart by its id. Each mark once; a site word this
-    /// copy does not know is left out.
-    fn marks(&mut self, bound: Bound) -> Got<Whole<(Mark, MarkId)>>;
+    /// of ours is told apart by its id. The id is the site's own and a
+    /// rename keeps it: never one made from the name. Each mark once; a
+    /// site word this copy does not know is left out.
+    fn marks(&mut self, bound: Bound) -> Got<Whole<MarkHeld>>;
     /// The project's targets, open and closed, whole.
     fn targets(&mut self, bound: Bound) -> Got<Whole<Target>>;
     /// The tickets of a target, in list order.

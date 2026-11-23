@@ -568,10 +568,7 @@ impl Tickets for Notes {
     ) -> Vec<(TicketKey, Got<tehas_ports::WithCloser>)> {
         unreachable!()
     }
-    fn marks(
-        &mut self,
-        _: tehas_ports::Bound,
-    ) -> Got<tehas_ports::Whole<(Mark, tehas_ports::MarkId)>> {
+    fn marks(&mut self, _: tehas_ports::Bound) -> Got<tehas_ports::Whole<tehas_ports::MarkHeld>> {
         unreachable!()
     }
     fn history(

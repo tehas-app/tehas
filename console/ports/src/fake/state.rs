@@ -7,9 +7,9 @@ use std::sync::{Mutex, MutexGuard};
 use crate::{
     Account, AccountKind, Actor, At, Attachment, BlueprintNo, Branch, ChangeEvent, ChangeNo,
     ChangeState, ChangedFile, Check, CloseReason, Closer, CommentId, CommitId, DeployCredential,
-    Edit, GrantId, Item, KeyText, Kind, Mark, MarkSpec, Marker, Mergeable, PersonKey, Priority,
-    ProjectName, Proposal, Realm, Release, RepoPath, Review, Scope, SignInCode, Standing, Status,
-    Tag, TagName, Target, TargetId, TicketEvent, TicketKey, Token, WebLink,
+    Edit, GrantId, Item, KeyText, Kind, Mark, MarkId, MarkSpec, Marker, Mergeable, PersonKey,
+    Priority, ProjectName, Proposal, Realm, Release, RepoPath, Review, Scope, SignInCode, Standing,
+    Status, Tag, TagName, Target, TargetId, TicketEvent, TicketKey, Token, WebLink,
 };
 
 use super::world::{Wrote, FACTORY, KEY_PREFIX, OPERATOR};
@@ -154,6 +154,9 @@ pub(crate) struct State {
     pub kinds: Vec<Kind>,
     pub prepared: bool,
     pub project_marks: Vec<MarkSpec>,
+    /// Each mark's id by the name the site gives it now. An id is made at
+    /// first sight and a rename keeps it, as a site's label ids do.
+    pub mark_ids: Vec<(String, MarkId)>,
     pub commits: Vec<CommitRec>,
     pub branches: Vec<(Branch, CommitId)>,
     pub tags: Vec<Tag>,
@@ -199,6 +202,60 @@ fn link(path: String) -> WebLink {
 }
 
 impl State {
+    /// The id of a mark, made at first sight; None for a mark that names
+    /// no word. Not made from the name, so a rename keeps it.
+    pub(crate) fn mark_id(&mut self, mark: &Mark) -> Option<MarkId> {
+        let name = super::site::mark_name(mark);
+        if name.is_empty() {
+            return None;
+        }
+        if let Some((_, id)) = self.mark_ids.iter().find(|(n, _)| *n == name) {
+            return Some(id.clone());
+        }
+        let id = MarkId::new(format!("mark-{}", self.mark_ids.len() + 1));
+        self.mark_ids.push((name, id.clone()));
+        Some(id)
+    }
+
+    /// Renames the mark `from` to `to` where the site holds it: its id
+    /// stays, and every item, change and event that names it names `to`,
+    /// as a site's label events give a label's current name.
+    pub(crate) fn rename_mark(&mut self, from: &Mark, to: &Mark) {
+        let id = self.mark_id(from);
+        let (old, new) = (super::site::mark_name(from), super::site::mark_name(to));
+        self.mark_ids.retain(|(n, _)| *n != new && *n != old);
+        if let Some(id) = id {
+            self.mark_ids.push((new, id));
+        }
+        let rename = |m: &mut Mark| {
+            if m == from {
+                *m = to.clone();
+            }
+        };
+        for item in &mut self.items {
+            item.marks.iter_mut().for_each(rename);
+            for e in &mut item.history {
+                if let crate::Happened::Marked(m) | crate::Happened::Unmarked(m) = &mut e.what {
+                    rename(m);
+                }
+            }
+        }
+        for c in &mut self.changes {
+            c.marks.iter_mut().for_each(rename);
+        }
+        if let Mark::Project(name) = from {
+            let spec = self.project_marks.iter().position(|m| m.name == *name);
+            if let Some(at) = spec {
+                match to {
+                    Mark::Project(to) => self.project_marks[at].name = to.clone(),
+                    _ => {
+                        self.project_marks.remove(at);
+                    }
+                }
+            }
+        }
+    }
+
     pub(crate) fn new(layout: Layout) -> Self {
         let (blueprints, changes) = match layout {
             Layout::SameItem => (1, 1),
@@ -219,6 +276,7 @@ impl State {
             kinds: vec![Kind::Feature, Kind::Bug, Kind::Task, Kind::Epic],
             prepared: false,
             project_marks: Vec::new(),
+            mark_ids: Vec::new(),
             commits: Vec::new(),
             branches: Vec::new(),
             tags: Vec::new(),
