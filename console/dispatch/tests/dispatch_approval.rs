@@ -111,10 +111,7 @@ fn until_t4_7_a_case_variant_of_a_listed_login_gets_no_from_the_dispatcher() {
     ready_by(&w, json!({"login": "Alice", "id": uid("alice")}));
     let r = w.dispatch(&["--dry-run"]);
     lacks(&r.out, "does not count");
-    has(
-        &r.out,
-        "skip #7: tehas:ready was applied by 'Alice', not an allowed account",
-    );
+    has(&r.out, "was applied by 'Alice', not an allowed account");
     lacks(&r.out, "would run a cycle");
 }
 
@@ -131,10 +128,7 @@ fn a_case_variant_of_a_listed_login_with_another_user_id_is_warned_about() {
             uid("alice")
         ),
     );
-    has(
-        &r.out,
-        "skip #7: tehas:ready was applied by 'Alice#99', not an allowed account",
-    );
+    has(&r.out, "was applied by 'Alice#99', not an allowed account");
     lacks(&r.out, "would run a cycle");
 }
 

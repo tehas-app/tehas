@@ -191,7 +191,7 @@ impl Accounts {
 
     fn is_listed(&self, login: &str) -> bool {
         let key = folded(account(login));
-        self.listed.iter().any(|l| *l == key)
+        self.listed.contains(&key)
     }
 
     fn actor<'a>(&self, login: &'a str, id: Option<u64>) -> Actor<&'a str> {

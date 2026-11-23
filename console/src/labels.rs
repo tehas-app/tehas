@@ -226,12 +226,12 @@ mod tests {
             sent: Sent::Maybe,
         };
         let lean = Unprepared {
-            mark: Some(MarkName::new("tehas:lean").unwrap()),
+            mark: Some(MarkName::new("a-label").unwrap()),
             why: server.clone(),
         };
         let line = failed(&lean);
         assert!(
-            line.starts_with("tehas labels: could not make the label tehas:lean"),
+            line.starts_with("tehas labels: could not make the label a-label: "),
             "{line}"
         );
         assert!(line.ends_with(server.line()), "{line}");
