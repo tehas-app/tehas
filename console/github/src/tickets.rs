@@ -2,9 +2,8 @@
 //! reads in the ports' types. The traits are answered in `port.rs`; the rest
 //! of the tickets port comes with the moves that need it.
 
-use crate::{gh, table, GitHub};
+use crate::{gh, table, ForgeError, GitHub};
 use serde_json::Value;
-use tehas_core::forge::ForgeError;
 use tehas_ports::{
     Account, AccountId, AccountKind, At, CloseReason, Got, Happened, HappenedKind, Kind, Login,
     Mark, MarkName, Outcome, Passing, Pool, Priority, Realm, Refusal, Revision, Sent, TargetId,

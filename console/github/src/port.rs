@@ -10,7 +10,6 @@ use std::num::{NonZeroU32, NonZeroU64};
 
 use crate::forge::uri;
 use crate::{table, GitHub};
-use tehas_core::forge::Forge;
 use tehas_ports::{
     Applied, At, Blocker, Bound, ChangeToken, Cite, Cites, CloseReason, ClosedTicket, Comment,
     CommentId, Cursor, Depth, Did, Edit, Filed, Filter, Got, HappenedKind, Item, Kind, Mark,
