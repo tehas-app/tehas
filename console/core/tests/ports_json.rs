@@ -559,3 +559,32 @@ fn a_health_or_word_the_reader_cannot_read_is_unknown_in_json() {
     assert!(serde_json::from_str::<Holder>(r#"{"Future":"x"}"#).is_err());
     assert!(serde_json::from_str::<Whose>(r#"{"Future":"x"}"#).is_err());
 }
+
+#[test]
+fn the_fakes_and_the_laws_values_read_back_from_json() {
+    use tehas_ports::fake::{Asked, BoardOp, Fault, Op, TicketsOp, Wrote};
+    let factory = Account {
+        realm: Realm::CodeHost,
+        login: Login::new("factory"),
+        id: Some(AccountId::new("id-factory")),
+        kind: AccountKind::Ours,
+    };
+    round!(Wrote {
+        by: factory,
+        what: Write::Reopen {
+            ticket: TicketKey::Number(nz(7)),
+        },
+    });
+    round!(Op::Board(BoardOp::OpenWork));
+    round!(Op::Tickets(TicketsOp::Note));
+    round!(Fault::TimeoutMaybe { applied: true });
+    round!(Fault::Spent {
+        pool: Pool::Priced,
+        until: At::new(9),
+    });
+    round!(Asked::Forget(Covers::Site(SiteId::new("p")), None));
+    round!(tehas_ports::laws::Broken {
+        law: "lists::more_is_exact".into(),
+        what: "more".into(),
+    });
+}
