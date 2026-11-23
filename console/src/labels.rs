@@ -436,19 +436,20 @@ mod tests {
     #[test]
     fn pins_with_trailing_damage_pass_and_are_written_plain() {
         use tehas_core::label_pins::{FILE, GRANTING};
-        for text in [
-            "tehas:plan\tLA_plan\r\ntehas:ready\tLA_ready\r\n",
-            "tehas:plan\tLA_plan \ntehas:ready\tLA_ready\t\n",
-            "\ntehas:plan\tLA_plan\n\ntehas:ready\tLA_ready\n\n",
-        ] {
+        let (ready, plan) = (GRANTING[0], GRANTING[1]);
+        let id = |n: &str| format!("LA_{}", n.replace(':', "_"));
+        let fill = |t: &str| {
+            t.replace("{R}", &format!("{ready}\t{}", id(ready)))
+                .replace("{P}", &format!("{plan}\t{}", id(plan)))
+        };
+        for text in ["{P}\r\n{R}\r\n", "{P} \n{R}\t\n", "\n{P}\n\n{R}\n\n"] {
             let d = tehas_core::testdir::TestDir::new("labels-pin-lenient");
             fs::create_dir_all(d.path().join(FILE).parent().unwrap()).unwrap();
-            fs::write(d.path().join(FILE), text).unwrap();
+            fs::write(d.path().join(FILE), fill(text)).unwrap();
             assert_eq!(readable(d.path()), Ok(()), "{text:?}");
-            let id = |n: &str| format!("LA_{}", n.trim_start_matches("tehas:"));
             let before: Vec<Option<String>> = GRANTING
                 .iter()
-                .map(|n| ["tehas:ready", "tehas:plan"].contains(n).then(|| id(n)))
+                .map(|n| [ready, plan].contains(n).then(|| id(n)))
                 .collect();
             let rc = pin(d.path(), before, &mut |n| Some(id(n)), &BTreeMap::new());
             assert_eq!(rc, 0, "{text:?}");
@@ -457,9 +458,8 @@ mod tests {
                 !got.contains(['\r', ' ']) && !got.contains("\n\n"),
                 "{got:?}"
             );
-            assert!(
-                got.contains("tehas:plan\tLA_plan\n") && got.contains("tehas:ready\tLA_ready\n")
-            );
+            assert!(got.contains(&fill("{P}\n")), "{got:?}");
+            assert!(got.contains(&fill("{R}\n")), "{got:?}");
         }
     }
 

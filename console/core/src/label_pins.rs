@@ -295,7 +295,7 @@ mod tests {
     fn once_the_file_exists_only_a_label_this_run_made_is_pinned() {
         let d = TestDir::new("pins-made-kept");
         fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
-        fs::write(d.path().join(FILE), "tehas:ready\tLA_r\n").unwrap();
+        fs::write(d.path().join(FILE), format!("{READY}\tLA_r\n")).unwrap();
         let (said, whole) = pin_made(
             d.path(),
             &[
@@ -335,7 +335,7 @@ mod tests {
     fn a_label_made_with_a_pinned_one_is_pinned() {
         let d = TestDir::new("pins-same-run");
         fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
-        fs::write(d.path().join(FILE), "tehas:ready\tLA_r\n").unwrap();
+        fs::write(d.path().join(FILE), format!("{READY}\tLA_r\n")).unwrap();
         let (said, whole) = pin_made(
             d.path(),
             &[
@@ -387,7 +387,7 @@ mod tests {
         for (why, ready, blocked) in cases {
             let d = TestDir::new("pins-not-same-run");
             fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
-            fs::write(d.path().join(FILE), "tehas:ready\tLA_r\n").unwrap();
+            fs::write(d.path().join(FILE), format!("{READY}\tLA_r\n")).unwrap();
             let (said, whole) = pin_made(d.path(), &[ready, blocked]).unwrap();
             assert!(!whole, "{why}");
             assert!(
@@ -505,50 +505,46 @@ mod tests {
         assert_eq!(pins(d.path())[READY], "LA_r");
     }
 
+    const PLAN: &str = GRANTING[1];
+
+    /// Pinned by 1.x until 2.0 dropped the label.
+    const PROTOTYPE: &str = "tehas:prototype";
+
+    /// `t` with `{R}` and `{P}` as [`READY`] and [`PLAN`].
+    fn fill(t: &str) -> String {
+        t.replace("{R}", READY).replace("{P}", PLAN)
+    }
+
     /// Every file 1.x could write: `save` was the one writer from
     /// v1.0.0-beta.1 to v1.4.0, a `<name>\t<id>\n` line per pin in name
-    /// order, and an empty file when a poll read no granting label.
-    /// `tehas:prototype` was pinned until 2.0; `tehas:blocked` from v1.0.0.
+    /// order, and an empty file when a poll read no granting label. The
+    /// betas pinned no blocked label (GRANTING[4]); every 1.x pinned the
+    /// prototype label.
     #[test]
     fn every_file_1x_wrote_reads_as_its_pins() {
-        let cases: [(&str, &[(&str, &str)]); 4] = [
-            ("no pin", &[]),
-            ("one pin", &[(READY, "LA_kwDOAbc123")]),
-            (
-                "the beta set",
-                &[
-                    ("tehas:classic", "LA_c"),
-                    ("tehas:finish", "LA_f"),
-                    ("tehas:lean", "LA_l"),
-                    ("tehas:plan", "LA_p"),
-                    ("tehas:prototype", "LA_x"),
-                    ("tehas:ready", "LA_r"),
-                    ("tehas:refine", "LA_e"),
-                ],
-            ),
-            (
-                "the 1.x set",
-                &[
-                    ("tehas:blocked", "LA_b"),
-                    ("tehas:classic", "LA_c"),
-                    ("tehas:finish", "LA_f"),
-                    ("tehas:lean", "LA_l"),
-                    ("tehas:plan", "LA_p"),
-                    ("tehas:prototype", "LA_x"),
-                    ("tehas:ready", "LA_r"),
-                    ("tehas:refine", "LA_e"),
-                ],
-            ),
+        let beta: Vec<&str> = GRANTING
+            .iter()
+            .copied()
+            .filter(|n| *n != GRANTING[4])
+            .chain([PROTOTYPE])
+            .collect();
+        let all: Vec<&str> = GRANTING.iter().copied().chain([PROTOTYPE]).collect();
+        let cases = [
+            ("no pin", vec![]),
+            ("one pin", vec![READY]),
+            ("the beta set", beta),
+            ("the 1.x set", all),
         ];
-        for (why, pairs) in cases {
+        for (why, names) in cases {
+            let want: Pins = names
+                .iter()
+                .enumerate()
+                .map(|(i, n)| (n.to_string(), format!("LA_kwDOAbc{i}")))
+                .collect();
+            let text: String = want.iter().map(|(n, id)| format!("{n}\t{id}\n")).collect();
             let d = TestDir::new("pins-1x");
             fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
-            let text: String = pairs.iter().map(|(n, id)| format!("{n}\t{id}\n")).collect();
             fs::write(d.path().join(FILE), &text).unwrap();
-            let want: Pins = pairs
-                .iter()
-                .map(|(n, id)| (n.to_string(), id.to_string()))
-                .collect();
             assert_eq!(load(d.path()), Ok(Record::Kept(want.clone())), "{why}");
             save(d.path(), &want).unwrap();
             assert_eq!(
@@ -560,37 +556,16 @@ mod tests {
     }
 
     const LENIENT: [(&str, &str); 6] = [
-        (
-            "CRLF line ends",
-            "tehas:plan\tLA_p\r\ntehas:ready\tLA_r\r\n",
-        ),
-        (
-            "CRLF, no last line end",
-            "tehas:plan\tLA_p\r\ntehas:ready\tLA_r\r",
-        ),
-        (
-            "trailing spaces",
-            "tehas:plan\tLA_p  \ntehas:ready\tLA_r \n",
-        ),
-        (
-            "trailing tabs",
-            "tehas:plan\tLA_p\t\ntehas:ready\tLA_r\t \t\n",
-        ),
-        (
-            "blank lines",
-            "\ntehas:plan\tLA_p\n\n \t\ntehas:ready\tLA_r\n\n",
-        ),
-        (
-            "all of them",
-            "\r\ntehas:plan\tLA_p \r\n\r\ntehas:ready\tLA_r\t\r\n",
-        ),
+        ("CRLF line ends", "{P}\tLA_p\r\n{R}\tLA_r\r\n"),
+        ("CRLF, no last line end", "{P}\tLA_p\r\n{R}\tLA_r\r"),
+        ("trailing spaces", "{P}\tLA_p  \n{R}\tLA_r \n"),
+        ("trailing tabs", "{P}\tLA_p\t\n{R}\tLA_r\t \t\n"),
+        ("blank lines", "\n{P}\tLA_p\n\n \t\n{R}\tLA_r\n\n"),
+        ("all of them", "\r\n{P}\tLA_p \r\n\r\n{R}\tLA_r\t\r\n"),
     ];
 
     fn lenient_pins() -> Pins {
-        Pins::from([
-            ("tehas:plan".into(), "LA_p".into()),
-            (READY.into(), "LA_r".into()),
-        ])
+        Pins::from([(PLAN.into(), "LA_p".into()), (READY.into(), "LA_r".into())])
     }
 
     #[test]
@@ -598,7 +573,7 @@ mod tests {
         for (why, text) in LENIENT {
             let d = TestDir::new("pins-lenient");
             fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
-            fs::write(d.path().join(FILE), text).unwrap();
+            fs::write(d.path().join(FILE), fill(text)).unwrap();
             assert_eq!(load(d.path()), Ok(Record::Kept(lenient_pins())), "{why}");
         }
     }
@@ -608,19 +583,19 @@ mod tests {
     #[test]
     fn whitespace_inside_a_line_is_still_unreadable() {
         for text in [
-            " tehas:ready\tLA_r\n",
-            "\ttehas:ready\tLA_r\n",
-            "tehas:ready LA_r\n",
-            "tehas:ready\t\tLA_r\n",
-            "tehas:ready \tLA_r\n",
-            "tehas:ready\tLA_r x\n",
-            "tehas:ready\rLA_r\n",
-            "tehas:ready\n",
-            "tehas:ready\t \n",
+            " {R}\tLA_r\n",
+            "\t{R}\tLA_r\n",
+            "{R} LA_r\n",
+            "{R}\t\tLA_r\n",
+            "{R} \tLA_r\n",
+            "{R}\tLA_r x\n",
+            "{R}\rLA_r\n",
+            "{R}\n",
+            "{R}\t \n",
         ] {
             let d = TestDir::new("pins-inside");
             fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
-            fs::write(d.path().join(FILE), text).unwrap();
+            fs::write(d.path().join(FILE), fill(text)).unwrap();
             assert!(load(d.path()).is_err(), "{text:?}");
         }
     }
@@ -631,19 +606,19 @@ mod tests {
         for (why, text) in LENIENT {
             let d = TestDir::new("pins-lenient-made");
             fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
-            fs::write(d.path().join(FILE), text).unwrap();
+            fs::write(d.path().join(FILE), fill(text)).unwrap();
             let (said, whole) = pin_made(
                 d.path(),
                 &[
                     seen(READY, Some("LA_r"), Some("LA_r")),
-                    seen("tehas:plan", Some("LA_p"), Some("LA_p")),
+                    seen(PLAN, Some("LA_p"), Some("LA_p")),
                 ],
             )
             .unwrap();
             assert!(whole && said.is_empty(), "{why}: {said:?}");
             assert_eq!(
                 fs::read_to_string(d.path().join(FILE)).unwrap(),
-                "tehas:plan\tLA_p\ntehas:ready\tLA_r\n",
+                fill("{P}\tLA_p\n{R}\tLA_r\n"),
                 "{why}"
             );
         }
