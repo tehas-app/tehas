@@ -92,6 +92,8 @@ fn change(no: u64, state: ChangeState, closes: Vec<Ref<BlueprintNo>>) -> ChangeD
             Branch::new("work").unwrap(),
             CommitId::new("abc1234").unwrap(),
             Branch::new("main").unwrap(),
+            CommitId::new("abc1230").unwrap(),
+            At::new(0),
             At::new(0),
             link(),
         );
@@ -208,6 +210,18 @@ impl Tickets for StubTickets {
             .map(|k| (k.clone(), self.find(k).map(|t| t.digest)))
             .collect()
     }
+    fn several_with_closers(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<WithCloser>)> {
+        keys.iter()
+            .map(|k| {
+                let with = self.find(k).map(|t| {
+                    let mut with = WithCloser::new(t.digest);
+                    with.closer = t.closer;
+                    with
+                });
+                (k.clone(), with)
+            })
+            .collect()
+    }
     fn history(
         &mut self,
         _: &TicketKey,
@@ -292,6 +306,9 @@ impl Tickets for StubTickets {
         Err(unsupported())
     }
     fn kinds(&mut self) -> Got<Whole<Kind>> {
+        Err(unsupported())
+    }
+    fn marks(&mut self, _: Bound) -> Got<Whole<MarkHeld>> {
         Err(unsupported())
     }
     fn targets(&mut self, _: Bound) -> Got<Whole<Target>> {
@@ -995,6 +1012,20 @@ impl Site for StubSite {
     }
     fn meter(&self) -> Vec<MeterRow> {
         vec![]
+    }
+    /// The stub has no clock: every deadline has passed, so each handle
+    /// asked answers the timeout.
+    fn until(&self, _: At) -> Arc<dyn Site> {
+        Arc::new(StubSite {
+            realms: self.realms.clone(),
+            fail: Outcome::Unavailable {
+                why: Passing::Timeout,
+                sent: Sent::No,
+            },
+            tickets: None,
+            blueprints: None,
+            code_host: None,
+        })
     }
 }
 
