@@ -7,7 +7,11 @@
 # a block, else empty; the fields. In a text, {name} stands for that field's
 # value. A field marked ? is optional, and is left out with the space before
 # it. Every other field is there once, in the row's order, and a value
-# outside its type reads as Unreadable of the row's kind.
+# outside its type reads as Unreadable of the row's kind, but where a type
+# below says the marker is no marker.
+#
+# A field a reader does not know, name=value with a name not of the row, is
+# skipped, in every marker: a later version may add fields.
 #
 # Field types:
 #   blueprint        the blueprint's number, decimal, no leading zero; a
@@ -15,10 +19,14 @@
 #                    not read
 #   number(n)        decimal, no leading zero, at most n digits
 #   numbers(a-b,n)   a to b of number(n), commas between, no space
-#   words(a|b)       one of the words listed
+#   words(a|b)       one of the words listed. For Link's remove, a value
+#                    other than 1 makes the whole marker no marker, never a
+#                    link without removal: a malformed marker is not acted on
 #   word(n)          at most n of a-z, 0-9 and -, maybe empty
 #   hex(n)           exactly n lower-case hex digits
-#   key(n)           at most n of letters, digits, - and .
+#   key(n)           1 to n of A-Z, a-z, 0-9, ., _, :, / and -: a number,
+#                    a KEY-123, a path-like key; no white space and never
+#                    -->. A marker whose key breaks this is no marker
 #   link             one word. A Spec block's first enclosed line is
 #                    `Spec: {link} sha256:{sha256}`
 #   requirements(1-) the block's lines `- <id> met: <note>` or

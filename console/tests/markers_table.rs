@@ -156,3 +156,192 @@ fn a_row_of_three_columns_is_refused_and_a_comment_is_skipped() {
     assert!(std::panic::catch_unwind(|| rows_of("Blocked\t<!-- x -->\t")).is_err());
     assert_eq!(rows_of("# a note\nHoldCleared\t<!-- x -->\t\t").len(), 1);
 }
+
+/// What a reader makes of one marker's text, as the table's header rules.
+#[derive(Debug, PartialEq)]
+enum Read {
+    /// The marker, its known fields in the row's order.
+    Marker(Vec<(String, String)>),
+    /// Not a marker: never acted on, never kept.
+    NoMarker,
+    /// The row's wrapper with what does not read inside it.
+    Unreadable,
+}
+
+/// One inline marker of `row` in `text`, read as the header says: unknown
+/// fields skipped, a known one once and in order, each value of its type.
+fn read(row: &Row, text: &str) -> Read {
+    // The opening two words, as `<!-- tehas:link`, then a space.
+    let head: Vec<&str> = row.open.split_whitespace().take(2).collect();
+    let head = format!("{} ", head.join(" "));
+    let Some(rest) = text.strip_prefix(head.as_str()) else {
+        return Read::NoMarker;
+    };
+    let Some(inside) = rest.split("-->").next().filter(|_| rest.contains("-->")) else {
+        return Read::NoMarker;
+    };
+    let names: Vec<&str> = row
+        .fields
+        .iter()
+        .map(|(n, _)| n.trim_end_matches('?'))
+        .collect();
+    let mut got: Vec<(usize, String, String)> = Vec::new();
+    for token in inside.split_whitespace() {
+        let Some((name, value)) = token.split_once('=') else {
+            return Read::Unreadable;
+        };
+        let Some(at) = names.iter().position(|n| *n == name) else {
+            continue;
+        };
+        if got.last().is_some_and(|(last, _, _)| *last >= at) {
+            return Read::Unreadable;
+        }
+        got.push((at, name.to_string(), value.to_string()));
+    }
+    for (at, (name, ty)) in row.fields.iter().enumerate() {
+        let found = got.iter().find(|(i, _, _)| *i == at);
+        let Some((_, _, value)) = found else {
+            if name.ends_with('?') {
+                continue;
+            }
+            return Read::Unreadable;
+        };
+        if !of_type(ty, value) {
+            let no_marker = ty.starts_with("key(") || (row.kind == "Link" && *name == "remove?");
+            return if no_marker {
+                Read::NoMarker
+            } else {
+                Read::Unreadable
+            };
+        }
+    }
+    Read::Marker(got.into_iter().map(|(_, n, v)| (n, v)).collect())
+}
+
+/// Whether `value` is of the header's type `ty`, the inline types alone.
+fn of_type(ty: &str, value: &str) -> bool {
+    let (base, args) = match ty.split_once('(') {
+        Some((b, a)) => (b, a.trim_end_matches(')')),
+        None => (ty, ""),
+    };
+    let number = |v: &str, n: usize| {
+        !v.is_empty()
+            && v.len() <= n
+            && v.bytes().all(|b| b.is_ascii_digit())
+            && !v.starts_with('0')
+    };
+    match base {
+        "blueprint" => number(value, 9),
+        "number" => number(value, args.parse().unwrap_or(0)),
+        "numbers" => {
+            let (range, n) = args.split_once(',').unwrap_or_default();
+            let (lo, hi) = range.split_once('-').unwrap_or_default();
+            let parts: Vec<&str> = value.split(',').collect();
+            let count = lo.parse().unwrap_or(1)..=hi.parse().unwrap_or(0);
+            count.contains(&parts.len()) && parts.iter().all(|p| number(p, n.parse().unwrap_or(0)))
+        }
+        "words" => args.split('|').any(|w| w == value),
+        "word" => {
+            value.len() <= args.parse().unwrap_or(0)
+                && value
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        }
+        "hex" => {
+            value.len() == args.parse().unwrap_or(0)
+                && value
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        }
+        "key" => {
+            (1..=args.parse().unwrap_or(0)).contains(&value.len())
+                && value
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"._:/-".contains(&b))
+        }
+        _ => false,
+    }
+}
+
+fn row(kind: &str) -> Row<'static> {
+    rows().into_iter().find(|r| r.kind == kind).unwrap()
+}
+
+fn fields(pairs: &[(&str, &str)]) -> Read {
+    Read::Marker(
+        pairs
+            .iter()
+            .map(|(n, v)| (n.to_string(), v.to_string()))
+            .collect(),
+    )
+}
+
+#[test]
+fn a_ticket_key_is_a_number_a_key_or_a_path_and_one_that_breaks_the_pattern_is_no_marker() {
+    let r = row("TicketOf");
+    for key in ["123", "KEY-123", "org/repo:12", "a.b_c", &"k".repeat(128)] {
+        let text = format!("<!-- tehas:ticket-of ticket={key} -->");
+        assert_eq!(read(&r, &text), fields(&[("ticket", key)]), "{key}");
+    }
+    for key in ["", "KEY#1", "a,b", &"k".repeat(129), "ä"] {
+        let text = format!("<!-- tehas:ticket-of ticket={key} -->");
+        assert_eq!(read(&r, &text), Read::NoMarker, "{key:?}");
+    }
+    // White space ends the key: what follows is no field.
+    assert_ne!(
+        read(&r, "<!-- tehas:ticket-of ticket=a b -->"),
+        fields(&[("ticket", "a b")])
+    );
+}
+
+#[test]
+fn a_field_a_reader_does_not_know_is_skipped_in_every_marker() {
+    assert_eq!(
+        read(&row("Link"), "<!-- tehas:link blueprint=12 later=x -->"),
+        fields(&[("blueprint", "12")])
+    );
+    assert_eq!(
+        read(
+            &row("TicketOf"),
+            "<!-- tehas:ticket-of later=x ticket=KEY-1 -->"
+        ),
+        fields(&[("ticket", "KEY-1")])
+    );
+    assert_eq!(
+        read(&row("Blocked"), "<!-- tehas:blocked by=3,4 why=later -->"),
+        fields(&[("by", "3,4")])
+    );
+}
+
+#[test]
+fn remove_other_than_1_makes_the_link_no_marker_never_a_link_without_removal() {
+    let r = row("Link");
+    assert_eq!(
+        read(&r, "<!-- tehas:link blueprint=12 -->"),
+        fields(&[("blueprint", "12")])
+    );
+    assert_eq!(
+        read(&r, "<!-- tehas:link blueprint=12 remove=1 -->"),
+        fields(&[("blueprint", "12"), ("remove", "1")])
+    );
+    for bad in ["2", "0", "", "yes"] {
+        let text = format!("<!-- tehas:link blueprint=12 remove={bad} -->");
+        assert_eq!(read(&r, &text), Read::NoMarker, "{bad:?}");
+    }
+}
+
+#[test]
+fn another_value_outside_its_type_is_unreadable_of_the_kind() {
+    assert_eq!(
+        read(
+            &row("Question"),
+            "<!-- tehas:question kind=plan issue=7 turn=01 -->"
+        ),
+        Read::Unreadable
+    );
+    assert_eq!(
+        read(&row("Link"), "<!-- tehas:link blueprint=012 -->"),
+        Read::Unreadable
+    );
+    assert_eq!(read(&row("Link"), "<!-- tehas:link -->"), Read::Unreadable);
+}
