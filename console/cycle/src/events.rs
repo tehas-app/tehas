@@ -78,7 +78,8 @@ mod tests {
 
     #[test]
     fn the_log_line_is_event_and_the_envelope_as_compact_json_byte_for_byte() {
-        use tehas_ports::events::{samples, Event, Source};
+        use tehas_core::raise::line;
+        use tehas_ports::events::{samples, Event, Name, Source};
         let asked = samples()
             .into_iter()
             .find(|s| s.name == Name::QuestionAsked)
