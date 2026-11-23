@@ -761,7 +761,11 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   asked by a listener of `change.offered`, the plugins' bridge, in place of
   the cycle's own call; its request and the hook's `/run/context.json` carry
   the envelope as `event` (plugins stay off in 2.0). The other raisers come
-  with T11.9 and T11.10.
+  with T11.9 and T11.10: until then the end of a start refused before its
+  runner, of a cycle `tehas stop` ended and of a lost cycle raises no
+  `cycle.ended`, and a consumer reads `tehas history` for them. A line that
+  ends `refused` by its exit status alone (64, 78 and the rest) is not
+  offered, where the 1.x hook asked on it.
   Readers: the consumer that runs many factories, the end-to-end suite,
   plugins.
   Adopter action: none. A program that reads a cycle's log sees the
