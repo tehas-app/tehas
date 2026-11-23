@@ -41,13 +41,12 @@ pub fn words() -> Vec<(&'static str, Mark)> {
     WORDS.to_vec()
 }
 
-/// The mark a label is: one of tehas's words, or the project's own mark of
-/// that name. None for a name no mark can have.
-pub fn mark(label: &str) -> Option<Mark> {
-    match WORDS.iter().find(|(l, _)| *l == label) {
-        Some((_, m)) => Some(m.clone()),
-        None => tehas_ports::MarkName::new(label).ok().map(Mark::Project),
-    }
+/// The word a label is, None for a label that is none of tehas's words.
+pub fn word(label: &str) -> Option<Mark> {
+    WORDS
+        .iter()
+        .find(|(l, _)| *l == label)
+        .map(|(_, m)| m.clone())
 }
 
 /// The label of a mark. None for `Unknown`, which is never written.

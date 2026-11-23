@@ -34,24 +34,23 @@ fn the_table_is_host_labels_tsv() {
     assert_eq!(ours, file);
     for (label, mark) in &file {
         assert!(!matches!(mark, Mark::Unknown), "{label}");
-        assert_eq!(table::mark(label).as_ref(), Some(mark), "{label}");
+        assert_eq!(table::word(label).as_ref(), Some(mark), "{label}");
         assert_eq!(table::label(mark).as_deref(), Some(label.as_str()));
     }
 }
 
 #[test]
-fn a_label_of_no_word_is_the_projects_own_mark() {
-    let bug = table::mark("bug").unwrap();
-    assert!(matches!(&bug, Mark::Project(n) if n.as_str() == "bug"));
+fn a_label_of_no_word_is_none_and_a_projects_mark_is_its_name() {
+    assert_eq!(table::word("bug"), None);
+    let bug = Mark::Project(tehas_ports::MarkName::new("bug").unwrap());
     assert_eq!(table::label(&bug).as_deref(), Some("bug"));
-    assert_eq!(table::mark("not a mark?"), None);
     assert_eq!(table::label(&Mark::Unknown), None);
 }
 
 #[test]
 fn the_approval_is_the_word_approve() {
     assert_eq!(
-        table::mark(table::APPROVAL_LABEL),
+        table::word(table::APPROVAL_LABEL),
         Some(Mark::Act(tehas_ports::Act::Approve))
     );
 }

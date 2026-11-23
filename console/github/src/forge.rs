@@ -30,6 +30,10 @@ pub struct GitHub {
     /// `owner/name`, as `TEHAS_REPO` gives it.
     pub repo: String,
     runner: Box<dyn GhRunner>,
+    /// The clock a spent budget's time is read from.
+    pub(crate) now: fn() -> i64,
+    /// Mark names the site gave that no mark can have, not yet taken.
+    pub(crate) left_out: Vec<String>,
 }
 
 impl GitHub {
@@ -44,7 +48,21 @@ impl GitHub {
         GitHub {
             repo: repo.into(),
             runner,
+            now: tehas_core::time::now,
+            left_out: Vec::new(),
         }
+    }
+
+    /// The same adapter reading the time from `now`, so a replay answers a
+    /// fixed time.
+    pub fn on_clock(self, now: fn() -> i64) -> GitHub {
+        GitHub { now, ..self }
+    }
+
+    /// The names the site gave that no mark can have, each once, since the
+    /// last take: for the caller to report (Decided 61).
+    pub fn take_left_out(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.left_out)
     }
 
     /// Ask gh, keeping the reason a failed call gave. `args` are the words

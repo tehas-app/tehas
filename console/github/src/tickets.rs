@@ -5,19 +5,19 @@
 use crate::{gh, table, GitHub};
 use tehas_core::forge::ForgeError;
 use tehas_ports::{
-    Account, AccountId, AccountKind, At, Got, Happened, HappenedKind, Login, Mark, Outcome,
-    Passing, Pool, Realm, Refusal, Sent, TicketEvent, TicketKey, Took, Unread, Window,
+    Account, AccountId, AccountKind, At, Got, Happened, HappenedKind, Login, Mark, MarkName,
+    Outcome, Passing, Pool, Realm, Refusal, Sent, TicketEvent, TicketKey, Took, Unread, Window,
 };
 
 impl GitHub {
     /// The marks a ticket carries now, in the site's order: the
-    /// `digest.marks` of `Tickets::ticket`. A label no mark can have is left
-    /// out.
+    /// `digest.marks` of `Tickets::ticket`. A name no mark can have is left
+    /// out, and kept for [`GitHub::take_left_out`].
     pub fn marks(&mut self, key: &TicketKey) -> Got<Vec<Mark>> {
         let issue = number(key)?;
-        let out = self.issue_answer(issue).map_err(|e| outcome(&e))?;
+        let out = self.issue_answer(issue).map_err(|e| self.outcome(&e))?;
         let labels = gh::parse_labels(&out).ok_or(Outcome::Unread(Unread::Malformed))?;
-        Ok(labels.iter().filter_map(|l| table::mark(l)).collect())
+        Ok(self.read_marks(&labels).into_iter().flatten().collect())
     }
 
     /// A ticket's marks going on and off, oldest first, as `Tickets::history`
@@ -35,14 +35,16 @@ impl GitHub {
         let only = only
             .filter(|kinds| kinds.iter().all(|k| marks.contains(k)))
             .ok_or(Outcome::Refused(Refusal::Unsupported))?;
-        let out = self.event_pages(issue).map_err(|e| outcome(&e))?;
+        let out = self.event_pages(issue).map_err(|e| self.outcome(&e))?;
         let mut read =
             gh::parse_with_facts(&out).map_err(|_| Outcome::Unread(Unread::Malformed))?;
         read.retain(|(e, _)| e.event == "labeled" || e.event == "unlabeled");
         read.sort_by(|a, b| gh::event_order(&&a.0, &&b.0));
+        let labels: Vec<String> = read.iter().map(|(e, _)| e.label.clone()).collect();
+        let marks = self.read_marks(&labels);
         let mut items = Vec::new();
-        for (e, facts) in read {
-            let Some(mark) = table::mark(&e.label) else {
+        for ((e, facts), mark) in read.into_iter().zip(marks) {
+            let Some(mark) = mark else {
                 continue;
             };
             let what = if e.event == "labeled" {
@@ -66,6 +68,41 @@ impl GitHub {
             });
         }
         take(items, window)
+    }
+}
+
+impl GitHub {
+    /// The mark of each label, in order: a word of the table, or the
+    /// project's own mark, read with `MarkName::read_list`. None for a name
+    /// no mark can have, which is kept once for the caller to report.
+    fn read_marks(&mut self, labels: &[String]) -> Vec<Option<Mark>> {
+        let theirs = labels.iter().filter(|l| table::word(l).is_none()).cloned();
+        let read = MarkName::read_list(theirs);
+        for name in read.left_out {
+            if !self.left_out.contains(&name) {
+                self.left_out.push(name);
+            }
+        }
+        labels
+            .iter()
+            .map(|l| {
+                table::word(l).or_else(|| {
+                    read.kept
+                        .iter()
+                        .find(|k| k.as_str() == l)
+                        .cloned()
+                        .map(Mark::Project)
+                })
+            })
+            .collect()
+    }
+
+    /// The named outcome of a call that failed, read from the runner's
+    /// reason. gh's reason holds no time a spent budget resets at, so
+    /// `Spent` is until now, by the adapter's clock, and the caller waits by
+    /// its own rule.
+    pub(crate) fn outcome(&self, e: &ForgeError) -> Outcome {
+        outcome(e, (self.now)())
     }
 }
 
@@ -113,10 +150,9 @@ fn take<T>(mut items: Vec<T>, window: Window) -> Got<Took<T>> {
     }
 }
 
-/// The named outcome of a call that failed, read from the runner's reason.
-/// gh's reason holds no time a spent budget resets at, so `Spent` is until
-/// now and the caller waits by its own rule.
-pub(crate) fn outcome(e: &ForgeError) -> Outcome {
+/// [`GitHub::outcome`] at the time `now`. A 410 is an issue deleted or
+/// issues turned off: `NotFound`, as the ports spec's table says.
+fn outcome(e: &ForgeError, now: i64) -> Outcome {
     if gh::says_not_found(&e.why) {
         return Outcome::NotFound;
     }
@@ -127,11 +163,16 @@ pub(crate) fn outcome(e: &ForgeError) -> Outcome {
     };
     match why.strip_prefix("HTTP ").and_then(|s| s.get(..3)) {
         Some("401") => Outcome::SignedOut,
+        Some("410") => Outcome::NotFound,
+        Some("429") => Outcome::Spent {
+            pool: Pool::Calls,
+            until: At::new(now),
+        },
         Some("403") => Outcome::Forbidden,
         Some(s) if s.starts_with('5') => maybe(Passing::Server),
         _ if why.contains("rate limit") => Outcome::Spent {
             pool: Pool::Calls,
-            until: At::new(tehas_core::time::now()),
+            until: At::new(now),
         },
         _ if why.contains("timed out") || why.contains("timeout") || why.contains("bound") => {
             maybe(Passing::Timeout)

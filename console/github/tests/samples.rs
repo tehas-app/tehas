@@ -9,7 +9,9 @@ use std::path::PathBuf;
 use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 use tehas_ports::laws;
-use tehas_ports::{Actor, Got, HappenedKind, Mark, TicketEvent, TicketKey, Took, Window};
+use tehas_ports::{
+    Actor, Got, HappenedKind, Mark, Outcome, Refusal, TicketEvent, TicketKey, Took, Window,
+};
 
 /// The fixture project the recordings were made against.
 const PROJECT: &str = "acme/widget";
@@ -45,8 +47,13 @@ impl GhRunner for Replay {
     }
 }
 
+/// The time the replay's clock reads: a spent budget answers it as `until`.
+fn replay_now() -> i64 {
+    1_767_225_600
+}
+
 fn adapter() -> GitHub {
-    GitHub::new(PROJECT, Box::new(Replay))
+    GitHub::new(PROJECT, Box::new(Replay)).on_clock(replay_now)
 }
 
 fn samples<T: for<'de> Deserialize<'de>>(file: &str) -> Vec<T> {
@@ -123,4 +130,41 @@ fn the_history_keeps_the_laws_of_lists() {
     let mut read = |w| gh.history(&key, w, Some(&MARKED));
     assert_eq!(laws::lists::last_n_is_never_cut(&mut read, held), Ok(()));
     assert_eq!(laws::lists::more_is_exact(&mut read, held), Ok(()));
+}
+
+fn ticket(n: u64) -> TicketKey {
+    TicketKey::Number(std::num::NonZeroU64::new(n).unwrap())
+}
+
+#[test]
+fn a_history_of_more_than_the_marks_is_not_answered_yet() {
+    // The read holds the label events alone: every kind, or a kind past the
+    // marks, is this adapter's gap, refused before any request.
+    let unsupported = Err(Outcome::Refused(Refusal::Unsupported));
+    let whole = Window::Whole(tehas_ports::ALL_MAX);
+    for only in [
+        None,
+        Some(&[HappenedKind::Marked, HappenedKind::Closed][..]),
+    ] {
+        let mut gh = GitHub::new(PROJECT, Box::new(Unasked));
+        assert_eq!(gh.history(&ticket(7), whole, only), unsupported, "{only:?}");
+    }
+}
+
+/// A runner no call may reach.
+struct Unasked;
+
+impl GhRunner for Unasked {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        panic!("asked {args:?}")
+    }
+}
+
+#[test]
+fn a_name_no_mark_can_have_is_left_out_and_kept_once_to_report() {
+    let mut gh = adapter();
+    gh.marks(&ticket(7)).unwrap();
+    gh.marks(&ticket(7)).unwrap();
+    assert_eq!(gh.take_left_out(), ["not a label?"]);
+    assert!(gh.take_left_out().is_empty());
 }

@@ -314,47 +314,6 @@
     "actor": {
       "Ours": "Full"
     },
-    "fixture": "Ticket 7 carries the project's mark bug, the approval and the running state, and a name no mark can have. Its marks went on and off five times, read in two parts: bug and the approval by alice, then in one second the running state on and the approval off by the factory's bot, then the approval by an account that is gone. A title change sits among them.",
-    "ticket": {
-      "Number": 7
-    },
-    "window": {
-      "Whole": 1000
-    },
-    "only": null,
-    "answer": {
-      "Err": {
-        "Refused": "Unsupported"
-      }
-    }
-  },
-  {
-    "op": "Tickets::history",
-    "actor": {
-      "Ours": "Full"
-    },
-    "fixture": "Ticket 7 carries the project's mark bug, the approval and the running state, and a name no mark can have. Its marks went on and off five times, read in two parts: bug and the approval by alice, then in one second the running state on and the approval off by the factory's bot, then the approval by an account that is gone. A title change sits among them.",
-    "ticket": {
-      "Number": 7
-    },
-    "window": {
-      "Whole": 1000
-    },
-    "only": [
-      "Marked",
-      "Closed"
-    ],
-    "answer": {
-      "Err": {
-        "Refused": "Unsupported"
-      }
-    }
-  },
-  {
-    "op": "Tickets::history",
-    "actor": {
-      "Ours": "Full"
-    },
     "fixture": "Ticket 8's events come back cut off part way.",
     "ticket": {
       "Number": 8
@@ -413,6 +372,51 @@
         "Unavailable": {
           "why": "Server",
           "sent": "Maybe"
+        }
+      }
+    }
+  },
+  {
+    "op": "Tickets::history",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "Ticket 11 was deleted, so the site says it is gone.",
+    "ticket": {
+      "Number": 11
+    },
+    "window": {
+      "Whole": 1000
+    },
+    "only": [
+      "Marked",
+      "Unmarked"
+    ],
+    "answer": {
+      "Err": "NotFound"
+    }
+  },
+  {
+    "op": "Tickets::history",
+    "actor": {
+      "Ours": "Full"
+    },
+    "fixture": "The site answers that too many requests came when ticket 12's events are read.",
+    "ticket": {
+      "Number": 12
+    },
+    "window": {
+      "Whole": 1000
+    },
+    "only": [
+      "Marked",
+      "Unmarked"
+    ],
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Calls",
+          "until": 1767225600
         }
       }
     }
