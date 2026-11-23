@@ -77,6 +77,33 @@ mod tests {
     use tehas_core::raise::{ended, HistoryRow};
 
     #[test]
+    fn the_log_line_is_event_and_the_envelope_as_compact_json_byte_for_byte() {
+        use tehas_core::raise::line;
+        use tehas_ports::events::{samples, Event, Name, Source};
+        let asked = samples()
+            .into_iter()
+            .find(|s| s.name == Name::QuestionAsked)
+            .unwrap();
+        let name = Name::QuestionAsked.as_str();
+        let relayed = asked.full.clone().from(Source::new("tehas-tehas").unwrap());
+        assert_eq!(
+            line(&relayed),
+            format!(
+                r#"event {{"api":1,"source":"tehas-tehas","event":"{name}","data":{{"question":5,"kind":"Park","blueprint":12,"cycle":"12-3","askedAt":"2026-11-22T13:20:00Z","choices":[{{"choice":"retry","label":"Run the cycle again"}}]}},"when":"after","key":"5","at":"2026-11-22T13:20:00Z"}}"#
+            )
+        );
+        assert_eq!(
+            line(&asked.bare),
+            format!(
+                r#"event {{"api":1,"event":"{name}","data":{{"question":5,"kind":"Park","blueprint":12,"askedAt":"2026-11-22T13:20:00Z"}},"when":"after","key":"5","at":"2026-11-22T13:20:00Z"}}"#
+            )
+        );
+        let mut unknown = asked.full;
+        unknown.event = Event::Unknown;
+        assert_eq!(line(&unknown), "event unknown 5");
+    }
+
+    #[test]
     fn a_cycle_wires_the_log_alone_while_plugins_are_off() {
         let off: Get = Arc::new(|_| String::new());
         let d = wiring(Path::new("/nonexistent"), off);

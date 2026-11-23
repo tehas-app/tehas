@@ -7,6 +7,7 @@
 //! people and agents: each answer is masked as a log is and says it is
 //! third-party text.
 
+use crate::args::{Arg, Args, Shape};
 use crate::tools::{self, Scope};
 use serde_json::{json, Map, Value};
 use std::fs;
@@ -77,25 +78,92 @@ pub fn entries(scope: Scope) -> Vec<Value> {
     ]
 }
 
-/// One call of a tool `serves` admits, over the sessions directory.
-pub fn call(sessions: &Path, name: &str, args: &Value) -> Result<Value, String> {
-    let known: &[&str] = match name {
-        ONE => &["number"],
-        SEARCH => &["grep", "kind", "state", "limit"],
-        _ => return Err(format!("{name} is no ticket tool")),
-    };
-    if let Some(o) = args.as_object() {
-        if let Some(k) = o.keys().find(|k| !known.contains(&k.as_str())) {
+/// One call of a ticket tool, its arguments read and checked.
+#[derive(Debug)]
+pub enum Call {
+    One {
+        number: u32,
+    },
+    Search {
+        /// In lower case, as it is matched.
+        grep: String,
+        kind: Option<String>,
+        state: Option<String>,
+        limit: usize,
+    },
+}
+
+impl Call {
+    /// The call of the tool `name` with these arguments, or the reason a
+    /// tool error says. Nothing is read from disk here.
+    pub fn read(name: &str, args: &Args) -> Result<Call, String> {
+        let known: &[&str] = match name {
+            ONE => &["number"],
+            SEARCH => &["grep", "kind", "state", "limit"],
+            _ => return Err(format!("{name} is no ticket tool")),
+        };
+        if args.shape() == Shape::Other {
+            return Err("the arguments are not an object".into());
+        }
+        if let Some(k) = args.keys().find(|k| !known.contains(k)) {
             return Err(format!("{k} is not an argument of {name}"));
         }
-    } else if !args.is_null() {
-        return Err("the arguments are not an object".into());
+        if name == ONE {
+            let number = tools::issue_arg(&args.get("number")).map_err(|e| match e {
+                tools::ToolError::BadArgs(why) => why.replace("issue", "number"),
+                _ => "number is an integer from 1 to 999999999".to_string(),
+            })?;
+            return Ok(Call::One { number });
+        }
+        let grep = args
+            .get("grep")
+            .text()
+            .filter(|g| (GREP_MIN..=GREP_MAX).contains(&g.chars().count()))
+            .ok_or(format!(
+                "grep is text of {GREP_MIN} to {GREP_MAX} characters"
+            ))?
+            .to_lowercase();
+        let pick = |k: &str, words: &[&str]| -> Result<Option<String>, String> {
+            match args.get(k) {
+                Arg::Absent => Ok(None),
+                Arg::Text(s) if words.contains(&s) => Ok(Some(s.to_string())),
+                _ => Err(format!("{k} is one of {}", words.join(", "))),
+            }
+        };
+        let kind = pick("kind", &["issue", "pull"])?;
+        let state = pick("state", &["open", "closed", "merged"])?;
+        let limit = match args.get("limit") {
+            Arg::Absent => LIMIT_DEFAULT,
+            v => v
+                .whole()
+                .filter(|n| (1..=LIMIT_MAX).contains(n))
+                .ok_or(format!("limit is a whole number from 1 to {LIMIT_MAX}"))?,
+        } as usize;
+        Ok(Call::Search {
+            grep,
+            kind,
+            state,
+            limit,
+        })
     }
+}
+
+/// The arguments read as `Call::read` reads them, then the tool.
+pub fn call(sessions: &Path, name: &str, args: &Args) -> Result<Value, String> {
+    run(sessions, &Call::read(name, args)?)
+}
+
+/// One call of a tool `serves` admits, over the sessions directory.
+pub fn run(sessions: &Path, call: &Call) -> Result<Value, String> {
     let dir = sessions.join(DIR);
-    let mut out = if name == ONE {
-        one(&dir, args)?
-    } else {
-        search(&dir, args)?
+    let mut out = match call {
+        Call::One { number } => one(&dir, *number)?,
+        Call::Search {
+            grep,
+            kind,
+            state,
+            limit,
+        } => search(&dir, grep, kind.as_deref(), state.as_deref(), *limit)?,
     };
     out.insert("api".into(), json!(1));
     if let Some(c) = read_json(&dir.join(CURSOR)) {
@@ -130,11 +198,7 @@ fn word(v: &Value) -> Option<Value> {
         .map(|s| json!(s))
 }
 
-fn one(dir: &Path, args: &Value) -> Result<Map<String, Value>, String> {
-    let n = tools::issue_arg(&args["number"]).map_err(|e| match e {
-        tools::ToolError::BadArgs(why) => why.replace("issue", "number"),
-        _ => "number is an integer from 1 to 999999999".to_string(),
-    })?;
+fn one(dir: &Path, n: u32) -> Result<Map<String, Value>, String> {
     let t = read_json(&dir.join(format!("{n}.json"))).ok_or(format!(
         "#{n} has not been read: the factory reads the repository's tickets a few pages on each poll"
     ))?;
@@ -230,30 +294,13 @@ fn one(dir: &Path, args: &Value) -> Result<Map<String, Value>, String> {
     Ok(o)
 }
 
-fn search(dir: &Path, args: &Value) -> Result<Map<String, Value>, String> {
-    let grep = args["grep"]
-        .as_str()
-        .filter(|g| (GREP_MIN..=GREP_MAX).contains(&g.chars().count()))
-        .ok_or(format!(
-            "grep is text of {GREP_MIN} to {GREP_MAX} characters"
-        ))?
-        .to_lowercase();
-    let pick = |k: &str, words: &[&str]| -> Result<Option<String>, String> {
-        match &args[k] {
-            Value::Null => Ok(None),
-            Value::String(s) if words.contains(&s.as_str()) => Ok(Some(s.clone())),
-            _ => Err(format!("{k} is one of {}", words.join(", "))),
-        }
-    };
-    let kind = pick("kind", &["issue", "pull"])?;
-    let state = pick("state", &["open", "closed", "merged"])?;
-    let limit = match &args["limit"] {
-        Value::Null => LIMIT_DEFAULT,
-        v => v
-            .as_u64()
-            .filter(|n| (1..=LIMIT_MAX).contains(n))
-            .ok_or(format!("limit is a whole number from 1 to {LIMIT_MAX}"))?,
-    } as usize;
+fn search(
+    dir: &Path,
+    grep: &str,
+    kind: Option<&str>,
+    state: Option<&str>,
+    limit: usize,
+) -> Result<Map<String, Value>, String> {
     let entries = fs::read_dir(dir).map_err(|_| {
         "no ticket has been read: the factory reads them on each poll while the MCP server is on".to_string()
     })?;
@@ -272,16 +319,14 @@ fn search(dir: &Path, args: &Value) -> Result<Map<String, Value>, String> {
             continue;
         };
         read += 1;
-        if kind.as_deref().is_some_and(|k| t["kind"] != k)
-            || state.as_deref().is_some_and(|s| t["state"] != s)
-        {
+        if kind.is_some_and(|k| t["kind"] != k) || state.is_some_and(|s| t["state"] != s) {
             continue;
         }
         // The text as an answer would give it: a secret the mask hides is not
         // found by its value either.
         let has = |v: &Value| {
             v.as_str()
-                .is_some_and(|s| mask::mask(s).to_lowercase().contains(&grep))
+                .is_some_and(|s| mask::mask(s).to_lowercase().contains(grep))
         };
         let mut places = Vec::new();
         if has(&t["title"]) {

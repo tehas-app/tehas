@@ -24,7 +24,7 @@ fn call_in(logs: &Path, args: &Value) -> Result<Value, ToolError> {
         sessions: fixtures().join("sessions"),
         logs: logs.to_path_buf(),
     };
-    match mcp::tools::call(&dirs, "factory_decisions", args)? {
+    match mcp::tools::call(&dirs, "factory_decisions", &args.clone().into())? {
         Output::Json(v) => Ok(common::conforms("factory_decisions", v)),
         other => panic!("factory_decisions gave {other:?}"),
     }
