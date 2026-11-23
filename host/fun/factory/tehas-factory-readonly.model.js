@@ -1,7 +1,7 @@
 // A read-only factory (TEHAS_READ_ONLY=1) opens no pull request: what each of
 // its starts left, from live/status.json, the branch in its workspace and the
 // pull request it would have opened. Pure: the clock is nowMs.
-import { ago } from "../host-data.js";
+import { ago } from "../page-data.js";
 import { MAX, NO_HOST, chips } from "./tehas-factory-issues.model.js";
 
 const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});

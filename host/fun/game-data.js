@@ -118,10 +118,10 @@ export function collectWords(raw, tickets) {
     .sort((a, b) => b.count - a.count || a.word.localeCompare(b.word)).slice(0, WORD_MAX);
 }
 
-// How long ago an ISO moment was is the same question the host panel asks, and
-// has one answer in host/fun/host-data.js: re-exported here so the page keeps
-// asking game-data.js for its data. An unparseable stamp reads "".
-export { ago } from "./host-data.js";
+// How long ago an ISO moment was has one answer in host/fun/page-data.js, which
+// the plain dashboard shares: re-exported here so the page keeps asking
+// game-data.js for its data. An unparseable stamp reads "".
+export { ago } from "./page-data.js";
 
 // The tickets a factory still finishes: the ones it has on the line at the
 // building stage.
