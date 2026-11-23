@@ -104,7 +104,8 @@ fn adapter(answers: Vec<Result<String, String>>) -> (GitHub, Calls) {
 }
 
 /// A body of 200 KiB, past what one argument may hold, and unlike any
-/// other text of a test.
+/// other text of a test. It ends with no line end, as a text beside a
+/// marker must.
 fn big_body() -> String {
     let line = "A line of the report that only this note holds, number ";
     let mut body = String::new();
@@ -113,6 +114,7 @@ fn big_body() -> String {
         body.push_str(&format!("{line}{i}.\n"));
         i += 1;
     }
+    body.truncate(body.trim_end().len());
     body
 }
 
@@ -215,7 +217,7 @@ fn a_notes_markers_are_written_after_its_text_and_read_back_as_given() {
     kept_out_of_argv(&calls, &stored);
     let back = markers::read(&stored, BlueprintNo::new(7));
     assert_eq!(back.markers, given);
-    assert_eq!(back.text, text.trim_end());
+    assert_eq!(back.text, text);
     assert!(stored.ends_with(
         "\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ));

@@ -158,8 +158,10 @@ impl TicketWrites for GitHub {
             }
             let mut kept = read.markers;
             edit_markers(&mut kept, markers);
+            // The text as it reads now is the issue's, trimmed as 1.x's
+            // last attempt trimmed it; a text given is the caller's, whole.
             Some(markers::write(
-                text.unwrap_or(&read.text),
+                text.unwrap_or(markers::kept(&read.text)),
                 &kept,
                 key.same_item(),
             )?)

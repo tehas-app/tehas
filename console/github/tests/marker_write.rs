@@ -198,19 +198,29 @@ fn a_text_with_no_marker_is_written_as_it_came() {
 }
 
 #[test]
-fn the_text_beside_a_marker_is_kept_as_the_reader_gives_it_back() {
+fn a_text_beside_a_marker_that_the_reader_would_trim_is_refused_never_trimmed() {
+    // A settle sums the text read back against the text sent, so a text the
+    // reader gives back otherwise would never be found, and be sent twice.
     let m = [Marker::HoldCleared];
-    for (given, kept) in [
-        ("Done.\n", "Done."),
-        ("\n\n  \nDone.  \r\n\r\n", "Done."),
-        ("  Indented.\n", "  Indented."),
-        (" \n", ""),
+    for given in [
+        "Done.\n",
+        "\n\n  \nDone.",
+        "Done.  ",
+        "Done.\r\n\r\n",
+        " \n",
     ] {
-        let body = write(given, &m, item()).unwrap();
-        let back = read(&body, item());
-        assert_eq!(back.text, kept, "{given:?}");
-        assert_eq!(back.markers, m);
+        assert_eq!(
+            write(given, &m, item()),
+            Err(Outcome::Refused(Refusal::Invalid)),
+            "{given:?}"
+        );
+        // With no marker beside it, it is kept whole.
+        assert_eq!(write(given, &[], item()).unwrap(), given);
     }
+    assert_eq!(
+        read(&write("  Indented.", &m, item()).unwrap(), item()).text,
+        "  Indented."
+    );
 }
 
 #[test]
@@ -378,7 +388,7 @@ fn a_planning_question_and_a_last_attempt_are_the_bytes_1x_wrote() {
         "Fix it.\n\n<!-- tehas:last-attempt base={base} -->\n{note}\n<!-- /tehas:last-attempt -->"
     );
     assert_eq!(
-        write("Fix it.\r\n\r\n", &[last_attempt(note)], item()).unwrap(),
+        write("Fix it.", &[last_attempt(note)], item()).unwrap(),
         edited
     );
 }

@@ -82,17 +82,19 @@ pub fn read(body: &str, item: Option<BlueprintNo>) -> Read {
 /// last attempt's note follows the body after a blank line
 /// (`console/cycle/src/last_attempt.rs` line 96). Each marker's words are
 /// its row's, as `table::marker_text` writes them. A text with no marker is
-/// kept as it is; with one, it is kept as [`read`] gives it back: without
-/// the blank lines at its start and the white space at its end.
+/// kept as it is.
 ///
 /// `read(&write(text, markers, item)?, item)` answers that text and
 /// `markers`, or it is refused, so a write that uses it sends nothing:
 /// `Refused(Invalid)` for a marker that is not writable, for a text or a
 /// block's note that holds anything [`read`] reports as a marker (wrapped,
 /// badly wrapped or bare, of this item or another), and for a whole that
-/// would not read back as given: a fence the text leaves open, two blocks
-/// of one kind, a marker of another item, a note that holds its close line.
-/// Nothing is escaped. `Refused(Unsupported)` for a project's own marker,
+/// would not read back as given: a text beside a marker that is not as
+/// [`kept`] gives it (the reader takes the blank lines at its start and the
+/// white space at its end, and a settle compares the sum of the text read
+/// back with the sum of the text sent), a fence the text leaves open, two
+/// blocks of one kind, a marker of another item, a note that holds its
+/// close line. Nothing is escaped or trimmed. `Refused(Unsupported)` for a project's own marker,
 /// whose words the table does not hold.
 pub fn write(text: &str, markers: &[Marker], item: Option<BlueprintNo>) -> Got<String> {
     let invalid = Outcome::Refused(Refusal::Invalid);
@@ -107,7 +109,9 @@ pub fn write(text: &str, markers: &[Marker], item: Option<BlueprintNo>) -> Got<S
         .iter()
         .map(|m| table::marker_text(m).ok_or(Outcome::Refused(Refusal::Unsupported)))
         .collect::<Got<Vec<String>>>()?;
-    let text = kept(text);
+    if kept(text) != text {
+        return Err(invalid);
+    }
     let mut body =
         String::with_capacity(text.len() + 2 + lines.iter().map(String::len).sum::<usize>());
     if !text.is_empty() {
@@ -128,8 +132,9 @@ pub fn holds_marker(text: &str) -> bool {
 }
 
 /// `text` as [`read`] leaves the text around a marker it took out: without
-/// the white space at its end and the blank lines at its start.
-fn kept(text: &str) -> &str {
+/// the white space at its end and the blank lines at its start. The text
+/// [`write`] takes beside a marker.
+pub fn kept(text: &str) -> &str {
     let text = text.trim_end();
     let blank = text
         .split_inclusive('\n')
