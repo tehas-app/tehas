@@ -88,7 +88,7 @@ fn logged(program: &mut Command, log: &Path) -> bool {
 }
 
 /// The options of a preview's container. What it gets of the host is here and
-/// nowhere else: test/preview_build_test.sh pins this list word for word.
+/// nowhere else: console/tests/preview_build.rs pins this list word for word.
 fn run_args(n: &str, sha: &str, repo: &str) -> Vec<String> {
     let (name, image) = (format!("tehas-preview-{n}"), format!("tehas-preview:{n}"));
     let (preview, commit, of_repo) = (
