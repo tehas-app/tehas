@@ -101,7 +101,7 @@ impl FileLedger {
                 "{file} cannot be read: its directory is missing; reinstall tehas"
             )),
             Err(Unread::NotWhole) => Some(format!(
-                "{file} is not a ledger this tehas reads: remove it; it holds only failed calls and budgets, which build up again"
+                "{file} is not a ledger this tehas reads: remove it; it holds only budgets, health states and failed calls, and each comes back with the site's next answers"
             )),
             Err(Unread::Io(e)) => Some(format!("{file} cannot be read: {e}")),
         }
@@ -129,10 +129,15 @@ impl FileLedger {
     }
 
     /// Change the kept file under its lock, and answer what `change` did.
-    fn change<T>(&self, change: impl FnOnce(&mut Kept) -> T) -> Result<T, LedgerDown> {
+    /// `change` says whether it changed anything: a file left as it was is
+    /// not written.
+    fn change<T>(&self, change: impl FnOnce(&mut Kept) -> (T, bool)) -> Result<T, LedgerDown> {
         let _held = self.locked()?;
         let mut kept = self.kept()?;
-        let answer = change(&mut kept);
+        let (answer, changed) = change(&mut kept);
+        if !changed {
+            return Ok(answer);
+        }
         let bytes = serde_json::to_vec(&kept).map_err(|_| LedgerDown)?;
         write_atomic(&self.file, &bytes, 0o600, &Temp::Pid).map_err(|_| LedgerDown)?;
         Ok(answer)
@@ -193,6 +198,7 @@ impl Ledger for FileLedger {
                     budget: b,
                 }),
             }
+            ((), true)
         })
     }
 
@@ -219,7 +225,10 @@ impl Ledger for FileLedger {
                 .position(|r| r.host == *host && r.whose == *whose);
             let now = at.map_or(HealthState::Healthy, |i| k.health[i].state);
             if now != *expect {
-                return false;
+                return (false, false);
+            }
+            if now == *new {
+                return (true, false);
             }
             match (at, new) {
                 (Some(i), HealthState::Healthy) => {
@@ -233,7 +242,7 @@ impl Ledger for FileLedger {
                     state: *new,
                 }),
             }
-            true
+            (true, true)
         })
     }
 
@@ -246,6 +255,7 @@ impl Ledger for FileLedger {
                 host: host.clone(),
                 failure: f,
             });
+            ((), true)
         })
     }
 
@@ -395,7 +405,7 @@ mod tests {
             let file = h.state(State::Ledger).display().to_string();
             assert_eq!(
                 l.why_down(),
-                Some(format!("{file} is not a ledger this tehas reads: remove it; it holds only failed calls and budgets, which build up again")),
+                Some(format!("{file} is not a ledger this tehas reads: remove it; it holds only budgets, health states and failed calls, and each comes back with the site's next answers")),
                 "{text}"
             );
             fs::remove_file(h.state(State::Ledger)).unwrap();
@@ -422,5 +432,109 @@ mod tests {
         assert_eq!(l.budget(&host(), &ours, Pool::Calls), Ok(None));
         held.unlock().unwrap();
         assert_eq!(l.put_budget(&host(), &ours, Pool::Calls, b), Ok(()));
+    }
+
+    /// `n` threads, each with a ledger of its own over one home, as `n`
+    /// processes are, started together; each answers what `call` did.
+    fn race<T: Send + 'static>(
+        h: &Home,
+        n: usize,
+        call: impl Fn(&FileLedger, usize) -> T + Send + Sync + 'static,
+    ) -> Vec<T> {
+        let call = std::sync::Arc::new(call);
+        let start = std::sync::Arc::new(std::sync::Barrier::new(n));
+        let threads: Vec<_> = (0..n)
+            .map(|i| {
+                let (root, call, start) = (h.root().to_path_buf(), call.clone(), start.clone());
+                std::thread::spawn(move || {
+                    let l = FileLedger::new(&Home::new(root));
+                    start.wait();
+                    call(&l, i)
+                })
+            })
+            .collect();
+        threads.into_iter().map(|t| t.join().unwrap()).collect()
+    }
+
+    // The lock covers the read, the change and the write: of many handles
+    // swapping one state at once, one wins, and none of many failures is
+    // lost.
+    #[test]
+    fn handles_racing_on_one_file_lose_no_write() {
+        for round in 0..5 {
+            let (_d, h) = home(&format!("ledger-race-{round}"));
+            let won = race(&h, 16, |l, _| {
+                let failing = HealthState::Failing {
+                    since: At::new(1),
+                    why: tehas_ports::Passing::Server,
+                };
+                l.swap_health(&host(), &Whose::Host, &HealthState::Healthy, &failing)
+            });
+            assert_eq!(
+                won.iter().filter(|w| **w == Ok(true)).count(),
+                1,
+                "round {round}: {won:?}"
+            );
+            assert!(won.iter().all(|w| w.is_ok()), "round {round}: {won:?}");
+            let kept = race(&h, 16, |l, i| {
+                let f = Failure {
+                    at: At::new(1000 + i as i64),
+                    site: tehas_ports::SiteId::new("s"),
+                    outcome: tehas_ports::Outcome::NotFound,
+                };
+                l.failed(&host(), f, 3600)
+            });
+            assert!(kept.iter().all(|k| k.is_ok()), "round {round}: {kept:?}");
+            let all = FileLedger::new(&h).failures(&host(), At::new(0)).unwrap();
+            assert_eq!(all.len(), 16, "round {round}: {all:?}");
+        }
+    }
+
+    // A swap that changes nothing writes nothing.
+    #[test]
+    fn a_swap_that_changes_nothing_writes_nothing() {
+        let (_d, h) = home("ledger-noop");
+        let l = FileLedger::new(&h);
+        let failing = HealthState::Failing {
+            since: At::new(1),
+            why: tehas_ports::Passing::Server,
+        };
+        let healthy = HealthState::Healthy;
+        assert_eq!(
+            l.swap_health(&host(), &Whose::Host, &failing, &healthy),
+            Ok(false)
+        );
+        assert_eq!(
+            l.swap_health(&host(), &Whose::Host, &healthy, &healthy),
+            Ok(true)
+        );
+        assert!(!h.state(State::Ledger).exists(), "no file was made");
+        assert_eq!(
+            l.swap_health(&host(), &Whose::Host, &healthy, &failing),
+            Ok(true)
+        );
+        // A write replaces the file, so a new inode means it was written.
+        use std::os::unix::fs::MetadataExt;
+        let file = h.state(State::Ledger);
+        let ino = || fs::metadata(&file).unwrap().ino();
+        let written = ino();
+        assert_eq!(
+            l.swap_health(&host(), &Whose::Host, &failing, &failing),
+            Ok(true)
+        );
+        assert_eq!(
+            l.swap_health(&host(), &Whose::Host, &healthy, &failing),
+            Ok(false)
+        );
+        assert_eq!(ino(), written, "a swap that changed nothing wrote");
+        assert_eq!(
+            l.swap_health(&host(), &Whose::Host, &failing, &healthy),
+            Ok(true)
+        );
+        assert_ne!(
+            ino(),
+            written,
+            "a swap that changed the state did not write"
+        );
     }
 }
