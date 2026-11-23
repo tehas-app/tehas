@@ -335,18 +335,11 @@ push_fault_ended() { # <home> <issue>
   sqlite3 -cmd '.mode list' "$1/state/tehas.db" \
     "select status from endings where issue=$2;" 2>/dev/null
 }
-# What the store of the run was asked, one call per line.
-t_store_lines() { cat "$T/calls/store" 2>/dev/null; }
-# The security options and the readers of a docker line come from
-# test/docker_args.sh, which holds the list as a literal, so the cycle, the
-# turn, the session and the push check are all pinned against one list, and not
-# against the function under test.
+# test/docker_args.sh holds the security options as a literal, so every
+# container is pinned against one list, not against the function under test.
 # shellcheck source=test/docker_args.sh
 . "$(dirname "$0")/docker_args.sh" || exit 1
-# The options of the slice limits and of the security list, by name, for the
-# allow-list of unknown_options: one pair of strings for every suite of a
-# cycle's container, so an option added to either is allow-listed in all of them
-# at once, and one taken away from the function is refused by every test.
+# The allow-list of unknown_options: the slice's options and the security ones.
 limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares"
 docker_opts="$limits --cap-drop --cap-add --security-opt --tmpfs"
 # Values that follow a flag, e.g. every -v or every -e.
