@@ -2,7 +2,8 @@
 # Tests for console tidy run against a stub gh: which labels come off a closed
 # issue, which never do, what an open issue keeps, tehas:shipped on the issue a
 # merged pull request closed, the one search and the one closer read and their
-# timeouts, the dry run and the settings.
+# timeouts and the dry run. The settings and the words refused before any
+# call are in console/tests/tidy.rs.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -507,49 +508,5 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "WARN: tidy #20: could not remove tehas:question"
 t_contains "$t_out" "tidy #21: removed tehas:ready"
 t_eq "$(edits | wc -l)" 2
-
-t_case "without the repository nothing is called, exit 78"
-reset
-t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1
-t_run "$tidy"
-t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_REPO is not set"
-t_eq "$(t_calls gh)" ""
-
-t_case "without the control issue nothing is called, exit 78"
-reset
-t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_REPO=acme/widget
-t_run "$tidy"
-t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_CONTROL_ISSUE is not set"
-t_eq "$(t_calls gh)" ""
-
-t_case "a TEHAS_TIDY_WAIT that is no number of seconds stops it before the first call, exit 78"
-for bad in 0 007 soon 100000; do
-  reset
-  T_ENV=(TEHAS_TIDY_WAIT="$bad")
-  t_run "$tidy"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "TEHAS_TIDY_WAIT is not a number of seconds: $bad"
-  t_eq "$(t_calls gh)" ""
-done
-
-t_case "an unknown argument is refused before the settings are read, exit 64"
-reset
-t_instance TEHAS_GITHUB_APP_ID=1
-t_run "$tidy --dryrun"
-t_eq "$t_rc" 64
-t_contains "$t_out" "tehas tidy: unknown argument: --dryrun"
-t_eq "$(t_calls gh)" ""
-t_run "$tidy --dry-run --help"
-t_eq "$t_rc" 64
-
-t_case "--help prints the usage and calls nothing"
-reset
-t_instance TEHAS_GITHUB_APP_ID=1
-t_run "$tidy --help"
-t_eq "$t_rc" 0
-t_contains "$t_out" "Usage:"
-t_eq "$(t_calls gh)" ""
 
 t_done
