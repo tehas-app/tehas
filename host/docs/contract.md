@@ -498,16 +498,19 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: a program that reads the copies pins `user_version` 6 and
   `console/analytics/src/schema.pinned` of this release.
 - **A cycle is given the issue's images alone.**
-  #2875.
+  #2875, #2888.
   Describe, the text files an issue links, unpacked zips and the
   attachments of comments leave core. `TEHAS_WORK_DESCRIBE`,
   `TEHAS_WORK_FILES`, `TEHAS_WORK_ZIPS` and `TEHAS_WORK_COMMENTS` are dropped
-  with a warning. The approval record no longer lists `comment_links`.
-  `tehas dev --issue` needs `TEHAS_WORK_IMAGES=on`. The four return in 2.1 as
+  with a warning. The approval record no longer carries `comment_links`:
+  the state store refuses the key on a new approval, and an approval stored
+  before 2.0 that holds it loads with the key ignored; the step to schema 28
+  removes it from stored approvals. `tehas dev --issue` needs `TEHAS_WORK_IMAGES=on`. The four return in 2.1 as
   the `given` plugin.
-  Readers: adopters, plugins, the consumer that runs many factories where it
-  reads an approval record.
-  Adopter action: take the four settings out of the instance. An instance
+  Readers: adopters, plugins, readers of the approval record, among them
+  the consumer that runs many factories.
+  Adopter action: take the four settings out of the instance. A program
+  that writes an approval record leaves out `comment_links`. An instance
   that set `TEHAS_WORK_FILES=on` without `TEHAS_WORK_IMAGES=on` now gives a
   cycle no directory unless a retry has comments.
 - **The settings of a removed feature load, warn once and are dropped.**
@@ -663,10 +666,6 @@ adopter action as the pull request states them.
   `spec-pipe` leaves `flags`, and `TEHAS_SPEC_PIPE` is dropped with a
   warning. Lean's `pi-spec v1` block stays.
   Readers: adopters, the consumer that runs many factories (`flags`).
-- **The approval record refuses `comment_links`.**
-  #2888. A new approval that
-  names the key is refused; a stored one loads with it ignored.
-  Readers: readers of the approval record.
 - **Events.** T11, spec `docs/specs/2026-11-22-events.md`
   (#2878, merged); the build
   is to come. Notify events, each with a schema in `api/` and a witness in
