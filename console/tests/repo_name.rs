@@ -15,7 +15,10 @@ use std::process::Command;
 const KEPT: [(&str, &str); 10] = [
     ("docs/", "records of what was true when they were written"),
     ("CHANGELOG.md", "the notes of past releases"),
-    ("changelog.d/v2-t10-rename.md", "the note of the rename itself"),
+    (
+        "changelog.d/v2-t10-rename.md",
+        "the note of the rename itself",
+    ),
     (
         "host/docs/contract.md",
         "Changed in 2.0 names the old name once",
