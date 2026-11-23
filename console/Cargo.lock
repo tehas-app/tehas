@@ -1859,6 +1859,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tehas-host-feed"
+version = "0.1.0"
+dependencies = [
+ "tehas-core",
+]
+
+[[package]]
 name = "tehas-items"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,13 @@
+[package]
+name = "tehas-host-feed"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+
+[lib]
+name = "tehas_host_feed"
+path = "src/lib.rs"
+
+[dependencies]
+tehas-core = { path = "../core", features = ["mask"] }

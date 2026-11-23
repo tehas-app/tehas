@@ -39,7 +39,6 @@ use tehas_core::home::{Home, State};
 /// restarted, because that would run its job off schedule; the reload reaches it.
 pub(crate) const UNITS: &[&str] = &[
     "tehas-dispatch.timer",
-    "tehas-top.service",
     "tehas-mcp.service",
     "tehas-mcp-fetch.socket",
     "tehas-preview.timer",
@@ -61,6 +60,7 @@ pub(crate) const RETIRED_UNITS: &[&str] = &[
     "tehas-improve.timer",
     "tehas-review.timer",
     "tehas-energy.service",
+    "tehas-top.service",
     "tehas-outsource-proxy.service",
     "tehas-wiki-status.service",
     "tehas-wiki-status.timer",
@@ -127,17 +127,8 @@ fn steps_for_in(sources: &[String], get: &dyn Fn(&str) -> String) -> Vec<String>
         .filter(|(program, _)| any(&|s| s.ends_with(&format!("/{program}"))))
         .map(|(_, unit)| *unit)
         .collect();
-    // The top-publish script an older install left in libexec is a loop of
-    // before the console: a running one moves on only when restarted. So is a
-    // tehasbot top that still runs the old with-settings script each mark. A
-    // running service keeps the environment env.sh gave it at its start.
-    if any(&|s| {
-        s.starts_with("systemd/")
-            || matches!(
-                s,
-                "libexec/top-publish" | "libexec/with-settings" | "env.sh"
-            )
-    }) {
+    // A running service keeps the environment env.sh gave it at its start.
+    if any(&|s| s.starts_with("systemd/") || s == "env.sh") {
         // A feature's unit while the feature is on, as the others. While it
         // is off, only when its own file or its program changed, so the line
         // stays as it was. A service its timer starts is the timer's: the
@@ -469,7 +460,7 @@ mod tests {
         );
         assert_eq!(asked(&["libexec/tehas-mcp"]), one);
         assert_eq!(
-            asked(&["systemd/tehas-top.service", "libexec/tehas-mcp"]),
+            asked(&["systemd/tehas-clean.timer", "libexec/tehas-mcp"]),
             [format!("units {}", UNITS.join(" "))]
         );
         assert!(asked(&["libexec/dispatch"]).is_empty());
@@ -482,7 +473,7 @@ mod tests {
         let all = format!("units {}", UNITS.join(" "));
         assert_eq!(
             asked(&[
-                "systemd/tehas-top.service",
+                "systemd/tehas-clean.timer",
                 "systemd/tehas-plugin-gate.service"
             ]),
             [format!("{all} tehas-plugin-gate.service")]
@@ -508,14 +499,11 @@ mod tests {
     }
 
     #[test]
-    fn the_loops_of_before_and_env_sh_ask_for_the_units() {
-        for source in ["libexec/top-publish", "libexec/with-settings", "env.sh"] {
-            assert_eq!(
-                asked(&[source]),
-                [format!("units {}", UNITS.join(" "))],
-                "{source}"
-            );
-        }
+    fn env_sh_asks_for_the_units_and_the_loops_of_before_do_not() {
+        assert_eq!(asked(&["env.sh"]), [format!("units {}", UNITS.join(" "))]);
+        // The host panel's publisher and its loops left core in 2.0, and its
+        // unit is retired.
+        assert!(asked(&["libexec/top-publish", "libexec/with-settings"]).is_empty());
     }
 
     #[test]
@@ -553,7 +541,7 @@ mod tests {
             }
         };
         let all = format!("units {}", UNITS.join(" "));
-        for source in ["env.sh", "systemd/tehas-top.service"] {
+        for source in ["env.sh", "systemd/tehas-clean.timer"] {
             assert_eq!(steps_for_in(&lines(&[source]), &get), [all.as_str()]);
         }
     }
@@ -644,7 +632,7 @@ mod tests {
             lines(&["units tehas-dispatch.timer tehas-mcp.service", "sandbox"])
         );
         let d = dir("record-units-2");
-        let two = lines(&["units tehas-mcp.service", "units tehas-top.service"]);
+        let two = lines(&["units tehas-mcp.service", "units tehas-clean.timer"]);
         record_lines(&d.0, &two).unwrap();
         assert_eq!(read_record(&d.0).unwrap(), two);
     }
@@ -859,6 +847,7 @@ mod tests {
         assert_eq!(current("units tehas-refresh.timer"), None);
         assert_eq!(current("units tehas-improve.timer"), None);
         assert_eq!(current("units tehas-energy.service"), None);
+        assert_eq!(current("units tehas-top.service"), None);
         assert_eq!(current("units tehas-outsource-proxy.service"), None);
         assert_eq!(
             current("units tehas-review.timer tehas-clean.timer").as_deref(),

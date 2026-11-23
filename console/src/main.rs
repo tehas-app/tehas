@@ -145,7 +145,7 @@
 //! pull request, see src/product.rs.
 //!
 //!   console tehas status|disk|state|limit|pause|analytics|top|api|labels|resume|drain|history|export|stop|dev|dev-login|mcp ...
-//!   console tehasbot health|status|top|mcp
+//!   console tehasbot health|status|mcp
 //!   console usage <command>
 //!
 //! The commands of bin/tehas and bin/tehasbot that are verbs of this program,

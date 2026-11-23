@@ -1934,3 +1934,180 @@ fn a_marker_inside_a_write_is_checked_when_read() {
         }]
     );
 }
+
+fn every_health() -> Vec<Health> {
+    vec![
+        Health::Unavailable(Passing::Timeout),
+        Health::Unavailable(Passing::Broken),
+        Health::Spent {
+            pool: Pool::Search,
+            until: At::new(60),
+        },
+        Health::Spent {
+            pool: Pool::Unknown,
+            until: At::new(60),
+        },
+        Health::SignedOut,
+        Health::Recovered,
+        Health::LedgerDown,
+        Health::TokenNotDropped,
+        Health::Unknown(Word::Mark),
+        Health::Unknown(Word::PortName),
+        Health::Unknown(Word::Unknown),
+        Health::Unknown(Word::Health),
+    ]
+}
+
+fn every_word() -> Vec<Word> {
+    vec![
+        Word::Mark,
+        Word::Act,
+        Word::State,
+        Word::Choice,
+        Word::Kind,
+        Word::MarkerKind,
+        Word::Scope,
+        Word::Happened,
+        Word::HappenedKind,
+        Word::ChangeHappened,
+        Word::Marker,
+        Word::QuestionKind,
+        Word::Write,
+        Word::WriteKind,
+        Word::Receipt,
+        Word::Refusal,
+        Word::Unread,
+        Word::Pool,
+        Word::NotMergeable,
+        Word::Conclusion,
+        Word::Verdict,
+        Word::Takeover,
+        Word::Health,
+        Word::PortName,
+        Word::Unknown,
+    ]
+}
+
+fn every_holder() -> Vec<Holder> {
+    vec![
+        Holder::Ours(HolderId::new("grant-1")),
+        Holder::Person(AccountId::new("42")),
+        Holder::Anonymous(HolderId::new("addr-sum")),
+    ]
+}
+
+fn every_health_state() -> Vec<HealthState> {
+    vec![
+        HealthState::Healthy,
+        HealthState::Failing {
+            since: At::new(5),
+            why: Passing::Unreachable,
+        },
+        HealthState::Spent {
+            pool: Pool::Priced,
+            until: At::new(9),
+        },
+        HealthState::SignedOut { since: At::new(7) },
+    ]
+}
+
+#[test]
+fn the_ledger_and_health_read_back() {
+    round(HostId::new("code-host"));
+    for holder in every_holder() {
+        round(holder.clone());
+        round(Whose::Holder(holder.clone()));
+        for pool in [
+            Pool::Calls,
+            Pool::Priced,
+            Pool::Search,
+            Pool::Writes,
+            Pool::Unknown,
+        ] {
+            round(Whose::Pool(holder.clone(), pool));
+        }
+    }
+    round(Whose::Host);
+    round(Budget {
+        left: 4999,
+        resets: At::new(3600),
+    });
+    for state in every_health_state() {
+        round(state);
+    }
+    round(Failure {
+        at: At::new(1),
+        site: SiteId::new("project"),
+        outcome: Outcome::Unavailable {
+            why: Passing::Server,
+            sent: Sent::No,
+        },
+    });
+    round(LedgerDown);
+    for word in every_word() {
+        round(word);
+    }
+    for what in every_health() {
+        round(what);
+        round(Notice {
+            host: HostId::new("code-host"),
+            whose: Whose::Holder(Holder::Ours(HolderId::new("grant-1"))),
+            realm: Realm::Tickets,
+            what,
+            at: At::new(2),
+        });
+        round(Notice {
+            host: HostId::new("code-host"),
+            whose: Whose::Pool(Holder::Ours(HolderId::new("grant-1")), Pool::Writes),
+            realm: Realm::CodeHost,
+            what,
+            at: At::new(3),
+        });
+    }
+}
+
+#[test]
+fn a_health_the_reader_cannot_read_is_unknown_never_an_error() {
+    // A notice of a newer copy reads as `Unknown(Word::Health)`: the word
+    // names the enum whose newer value was read.
+    reads_what_it_cannot_as_unknown(&every_health(), Health::Unknown(Word::Health));
+    let unknown_of = |content: Node| map(vec![("type", text("Unknown")), ("value", content)]);
+    assert_eq!(
+        from_node::<Health>(unknown_of(text("Marker"))).unwrap(),
+        Health::Unknown(Word::Marker)
+    );
+    assert_eq!(
+        from_node::<Health>(unknown_of(text("Later"))).unwrap(),
+        Health::Unknown(Word::Unknown)
+    );
+    assert_eq!(
+        from_node::<Health>(unknown_of(Node::Uint(3))).unwrap(),
+        Health::Unknown(Word::Health)
+    );
+    assert_eq!(
+        from_node::<Health>(map(vec![("type", text("Unknown"))])).unwrap(),
+        Health::Unknown(Word::Health)
+    );
+    assert_eq!(
+        from_node::<Health>(future(text("Marker"))).unwrap(),
+        Health::Unknown(Word::Health)
+    );
+    assert!(from_node::<Health>(Node::Uint(3)).is_err());
+    assert!(from_node::<Health>(map(vec![("value", text("Mark"))])).is_err());
+    assert_eq!(from_node::<Word>(text("Future")).unwrap(), Word::Unknown);
+    assert_eq!(
+        to_node(&Health::Unknown(Word::Write)).unwrap(),
+        unknown_of(text("Write"))
+    );
+    assert_eq!(to_node(&Word::Unknown).unwrap(), text("Unknown"));
+}
+
+#[test]
+fn a_hosts_holders_and_states_refuse_what_they_do_not_know() {
+    // Holder, Whose and HealthState may not grow: a tag they do not know is
+    // an error, never a guess.
+    let future_tag = map(vec![("Future", text("x"))]);
+    assert!(from_node::<Holder>(future_tag.clone()).is_err());
+    assert!(from_node::<Whose>(future_tag.clone()).is_err());
+    assert!(from_node::<HealthState>(future_tag).is_err());
+}

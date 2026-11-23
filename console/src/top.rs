@@ -1,17 +1,8 @@
-//! `tehas top` and the publisher behind `tehasbot top`, and the host section
-//! both show: one reading of /proc, and the section drawn from two of them.
+//! `tehas top` and its host section: one reading of /proc, and the section
+//! drawn from two of them.
 //!
 //!   console tehas top [--once | --json] [--every <seconds>]
 //!     The view of a person, see src/usage/top.txt. Loads no settings.
-//!   console tehasbot top [--every]
-//!     Writes $TEHAS_HOME/live/top.json, run under `console run`. The
-//!     snapshot of the view, cut to the keys of PUBLISHED and nothing else:
-//!     the dashboard can be on the internet, and so is this file. TEHAS_TOP=1
-//!     turns it on; anything else removes the file. A file that cannot be
-//!     written leaves the old one in place. With --every it runs one child
-//!     per 5-second mark; 78 from a child ends the loop, and any other
-//!     failure tries again at the next mark. Exit: 0 written or removed; 1
-//!     not written; 64 usage.
 //!   console top snapshot <lines> [<previous reading>]
 //!     One snapshot, as the view takes one, see src/snapshot.rs.
 //!
@@ -48,10 +39,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tehas_core::file::Temp;
-use tehas_core::home::{Home, Live};
+use tehas_core::home::Home;
 use tehas_core::out::print as printed;
-use tehas_core::time;
 
 // How many processes the section keeps.
 const ROWS: usize = 15;
@@ -59,14 +48,6 @@ const ROWS: usize = 15;
 // A live file older than this is not believed, as the health file is not
 // (src/status.rs).
 const MAX_AGE: i64 = 600;
-
-// What of the snapshot may be published: these keys and nothing else. A key
-// added to the snapshot later stays out of live/top.json until someone names
-// it here. What is inside a listed key is fixed by the code that builds it.
-const PUBLISHED: [&str; 6] = ["generatedAt", "factory", "queue", "cycle", "host", "units"];
-
-// The seconds between the marks of the publisher.
-const PERIOD: i64 = 5;
 
 // How long a read of the terminal waits for a key, in tenths of a second. A
 // signal is seen this often. stty's limit is 25.5 s, under the longest --every.
@@ -146,9 +127,9 @@ fn proc_dir() -> PathBuf {
     }
 }
 
-// The seconds a helper of the view or of the publisher is given before it is
-// stopped. Each is asked of a local program, so a bound this short is the same
-// answer as one that gave none.
+// The seconds a helper of the view is given before it is stopped. Each is
+// asked of a local program, so a bound this short is the same answer as one
+// that gave none.
 const HELPER_SECS: u64 = 5;
 
 // The wait between two readings, by name so a test's stub takes it. A second of
@@ -184,98 +165,6 @@ fn take(lines: usize, was: &str, wait: impl FnOnce()) -> (String, String) {
     let live = Home::new(home()).live_dir();
     let snapshot = crate::snapshot::snapshot(&live, lines, MAX_AGE, &now, &earlier);
     (snapshot, now)
-}
-
-/// The part of a snapshot that may be published, one line.
-fn published(snapshot: &str) -> Option<String> {
-    match J::parse(snapshot)? {
-        J::Obj(fields) => {
-            let kept = fields
-                .into_iter()
-                .filter(|(key, _)| PUBLISHED.contains(&key.as_str()))
-                .collect();
-            Some(J::Obj(kept).dump())
-        }
-        _ => None,
-    }
-}
-
-fn write_published(file: &Path, line: &str) -> std::io::Result<()> {
-    tehas_core::file::write_atomic(
-        file,
-        format!("{line}\n").as_bytes(),
-        0o644,
-        &Temp::Predictable,
-    )
-}
-
-fn publish_once(home: &str) -> u8 {
-    let at = Home::new(home);
-    let live = at.live_dir();
-    let file = at.live(Live::Top);
-    if var("TEHAS_TOP") != "1" {
-        let _ = fs::remove_file(&file);
-        return 0;
-    }
-    if fs::create_dir_all(&live).is_err() {
-        eprintln!("tehasbot top: could not create {}", live.display());
-        return 1;
-    }
-    let (snapshot, _) = take(0, "", second);
-    let wrote = published(&snapshot).map(|line| write_published(&file, &line));
-    if !matches!(wrote, Some(Ok(()))) {
-        eprintln!("tehasbot top: could not write {}", file.display());
-        return 1;
-    }
-    0
-}
-
-// A child per mark, by the installed path, so an update reaches the loop: the
-// unit is not restarted on a console change, and current_exe reads "(deleted)"
-// once an install has replaced the file. tehasbot stands before the console so
-// that each mark reads the settings, as each run of the command does.
-fn publish_every(home: &str) -> u8 {
-    publish_loop(
-        home,
-        Duration::from_secs(MARK_WAIT_SECS),
-        Duration::from_secs(5),
-    )
-}
-
-/// The publisher's loop with the child's bound and its grace named, so a case
-/// can drive the loop itself rather than the helper under bounds of its own.
-fn publish_loop(home: &str, bound: Duration, grace: Duration) -> u8 {
-    let tehasbot = format!("{home}/bin/tehasbot");
-    loop {
-        // One child per mark, under a bound that stops it (TERM, then KILL)
-        // when it never ends: a hung child is one missed mark, not a loop that
-        // waits for it forever.
-        let args = vec!["top".to_string()];
-        let done = tehas_core::call::run_grace(&tehasbot, &args, None, bound, grace);
-        if done == Some(78) {
-            return 78;
-        }
-        std::thread::sleep(Duration::from_secs(to_mark(time::now())));
-    }
-}
-
-/// The seconds the publisher's child is given to write one mark.
-const MARK_WAIT_SECS: u64 = 30;
-
-fn to_mark(now: i64) -> u64 {
-    (PERIOD - now.rem_euclid(PERIOD)) as u64
-}
-
-pub fn publish(given: &[String]) -> u8 {
-    let home = home();
-    match given.first().map(String::as_str) {
-        None | Some("") => publish_once(&home),
-        Some("--every") => publish_every(&home),
-        _ => {
-            eprintln!("usage: tehasbot top [--every]");
-            64
-        }
-    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -776,52 +665,6 @@ fn host(later: &Value, earlier: &Value, page: f64) -> Value {
 mod tests {
     use super::*;
 
-    /// The publisher's loop at the bound it gives its own child: a child that
-    /// never ends is stopped at that bound and costs one mark, and the 78 of the
-    /// next ends the loop. The child sleeps far past MARK_WAIT_SECS, so a bound
-    /// that went away would take this case with it.
-    #[test]
-    fn the_publisher_bounds_its_child_and_ends_only_on_78() {
-        let d = tehas_core::testdir::TestDir::new("top-publish-bound");
-        let bin = d.join("bin");
-        fs::create_dir_all(&bin).unwrap();
-        let tehasbot = bin.join("tehasbot");
-        // The child of the first mark runs on far past the publisher's bound,
-        // the child of the next answers 78: the loop is not ended by the hung
-        // one and is ended by the second, so it stops of its own accord and
-        // leaves no child - the bound's TERM ends the hung one, and its grace
-        // bounds how long the wait for that takes.
-        tehas_core::testing::write_exe(
-            &tehasbot,
-            "#!/bin/sh\nif [ -f \"$TEHAS_PUBLISH_MARK\" ]; then exit 78; fi\n\
-             : >\"$TEHAS_PUBLISH_MARK\"\nexec sleep 600\n",
-        )
-        .unwrap();
-        std::env::set_var("TEHAS_PUBLISH_MARK", d.join("mark"));
-        let began = Instant::now();
-        let ended = std::panic::catch_unwind(|| {
-            publish_loop(
-                &d.to_string_lossy(),
-                Duration::from_secs(MARK_WAIT_SECS),
-                Duration::from_secs(1),
-            )
-        });
-        std::env::remove_var("TEHAS_PUBLISH_MARK");
-        assert_eq!(
-            ended.ok(),
-            Some(78),
-            "the loop goes on past a hung child and ends on 78"
-        );
-        // The hung child ran 600 s of its own; the bound is MARK_WAIT_SECS, so
-        // the loop was at the next mark within a little over a minute of it.
-        // Without the bound the first child alone would hold this for 600 s.
-        assert!(
-            began.elapsed() < Duration::from_secs(70),
-            "the hung child was stopped at its bound, not when its sleep did: {}s",
-            began.elapsed().as_secs()
-        );
-    }
-
     fn reading(clock: f64, all: u64, idle: u64, procs: Value) -> Value {
         json!({"clock": clock, "cpus": 2, "load": [0.1, 0.2, 0.3],
                "memory": {"totalKb": 65536, "availKb": 32768},
@@ -1114,25 +957,6 @@ mod tests {
     }
 
     #[test]
-    fn only_the_listed_keys_are_published_in_the_order_they_came() {
-        let snapshot = r#"{"token":"ghp_secret","host":{"load":[0.10]},"reading":{"clock":"1"},
-            "console":{"lines":["x"]},"generatedAt":"t","factory":null,"queue":1,"cycle":[],
-            "units":[],"energy":null,"draft":{"note":"no"}}"#;
-        // Energy use left core in 2.0: a key a snapshot of before names is cut.
-        assert_eq!(
-            published(snapshot).unwrap(),
-            r#"{"host":{"load":[0.10]},"generatedAt":"t","factory":null,"queue":1,"cycle":[],"units":[]}"#
-        );
-    }
-
-    #[test]
-    fn a_cut_answers_nothing_for_what_is_no_snapshot() {
-        for text in ["", "{not json}", "[]", "1"] {
-            assert_eq!(published(text), None, "{text:?}");
-        }
-    }
-
-    #[test]
     fn a_reading_from_the_frame_before_saves_the_wait() {
         let waits = std::cell::Cell::new(0);
         let wait = || waits.set(waits.get() + 1);
@@ -1173,13 +997,6 @@ mod tests {
         let first = std::cell::Cell::new(true);
         let once = || first.replace(false).then(|| "{}".to_string());
         assert_eq!(readings(once, || {}, ""), ("{}".to_string(), String::new()));
-    }
-
-    #[test]
-    fn the_next_mark_is_the_next_multiple_of_the_period() {
-        assert_eq!(to_mark(100), 5);
-        assert_eq!(to_mark(101), 4);
-        assert_eq!(to_mark(104), 1);
     }
 
     #[test]
