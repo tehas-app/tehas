@@ -177,8 +177,9 @@ impl GitHub {
 
 /// The search's question: this project's issues, each word quoted, and
 /// the state asked. A `"` is no part of a word GitHub can quote, so it
-/// splits one; the hit is still held to the word whole. Words longer than
-/// GitHub takes are `Refused(Invalid)`, with no request.
+/// splits one; the hit is still held to the word whole. Words GitHub cannot
+/// search, longer than it takes or of quotes alone, are `Refused(Invalid)`,
+/// with no request: a question with no word would read every issue.
 fn query(repo: &str, words: &[String], within: Within, open: Option<bool>) -> Got<String> {
     let quoted: Vec<String> = words
         .iter()
@@ -187,7 +188,7 @@ fn query(repo: &str, words: &[String], within: Within, open: Option<bool>) -> Go
         .map(|w| format!("\"{w}\""))
         .collect();
     let said = quoted.join(" ");
-    if said.len() > WORDS_MAX {
+    if said.is_empty() || said.len() > WORDS_MAX {
         return Err(Outcome::Refused(Refusal::Invalid));
     }
     let within = match within {

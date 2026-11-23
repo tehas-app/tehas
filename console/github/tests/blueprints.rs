@@ -201,7 +201,7 @@ fn a_search_reads_the_next_page_only_when_it_needs_one_more_hit() {
 }
 
 #[test]
-fn a_search_with_no_words_or_too_many_asks_nothing() {
+fn a_search_with_no_words_or_words_github_cannot_search_asks_nothing() {
     let (mut gh, asked) = adapter();
     assert_eq!(
         gh.search(" \n ", Within::Everything, None, n(5)),
@@ -212,6 +212,10 @@ fn a_search_with_no_words_or_too_many_asks_nothing() {
     );
     assert_eq!(
         gh.search(&"long ".repeat(60), Within::Titles, None, n(5)),
+        Err(Outcome::Refused(Refusal::Invalid))
+    );
+    assert_eq!(
+        gh.search("\" \"\"", Within::Titles, None, n(5)),
         Err(Outcome::Refused(Refusal::Invalid))
     );
     assert!(asked.borrow().is_empty());
