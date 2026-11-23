@@ -368,13 +368,6 @@ image_id() {
 untagged() {
   cat "$T/fx/docker/untagged-$1" 2>/dev/null
 }
-# image_rm_unexpected: the image names the docker stub would not remove, because
-# they are neither a preview's tag nor a digest of the shape Docker gives. It
-# sums the whole case, so a case that counts them clears $T/calls/docker first;
-# image_rm_calls counts from that same file, so a case that asks for one run
-# clears the calls and does not ask this. A case that expects a value Docker
-# would not name clears it itself and asserts what the stub was handed.
-image_rm_unexpected() { cat "$T/fx/docker-unexpected" 2>/dev/null; }
 # image_of <commit>: the id the stub gives the image built from that commit. The
 # build reads the commit as an archive, and the archive of one commit always has
 # the same bytes, so a case can name the id of a build before it runs. The hash
