@@ -28,7 +28,7 @@ t_contains "$(sed -n '1,6p' "$workflow")" 'every pull request into main, a relea
 
 t_case "the kept build is pruned past 40 GiB, and only this user's old temp dirs go"
 kept=$(sed -n '/- name: the cargo build kept between runs$/,/- name: the type checker/p' "$workflow")
-t_contains "$kept" 'if [ "${size:-0}" -gt 40 ]; then'
+t_contains "$kept" "if [ \"\${size:-0}\" -gt 40 ]; then"
 t_contains "$kept" "find /tmp -maxdepth 1 -name 'tmp.*' -user \"\$(id -un)\" -mmin +180 -exec rm -rf {} +"
 
 t_done
