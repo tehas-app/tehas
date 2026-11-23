@@ -409,12 +409,44 @@ fn a_write_is_recorded_by_its_word_and_the_number_it_names() {
     assert_eq!(row["args"]["cycle"]["attempt"], 2);
     let kept: tehas_ports::Write = serde_json::from_value(row["args"]["write"].clone()).unwrap();
     assert_eq!(kept, reopen);
+}
 
-    // A write that names no ticket, change or blueprint is on issue 0.
-    record_write(&home, 1001, &write_json(&tehas_ports::Write::Prepare), "{}");
-    let row = &ok(&home, &["journal-open"])["actions"][1];
-    assert_eq!(row["kind"], "marks-prepare");
-    assert_eq!(row["issue"], 0);
+/// The issue column holds what `--issue` takes, a number of one to ten
+/// digits, which is what a settle reads. A write that names none is
+/// refused, and so not sent, rather than kept on issue 0.
+#[test]
+fn a_write_on_no_issue_number_is_refused() {
+    let rec = |w: &tehas_ports::Write| {
+        usage(&[
+            "journal-record",
+            "--poll",
+            "1",
+            "--write",
+            &write_json(w),
+            "--args",
+            "{}",
+            "--before",
+            "1",
+        ])
+    };
+    let none = "--write names no issue the journal keys a row by";
+    assert!(rec(&tehas_ports::Write::Prepare).contains(none));
+    let big = tehas_ports::Write::Reopen {
+        ticket: ticket(10_000_000_000),
+    };
+    assert!(rec(&big).contains(none));
+    let keyed: tehas_ports::Write =
+        serde_json::from_str(r#"{"type":"Reopen","value":{"ticket":{"Key":"OPS-7"}}}"#).unwrap();
+    assert!(rec(&keyed).contains(none));
+    let home = home("journal-write-max");
+    let max = tehas_ports::Write::Reopen {
+        ticket: ticket(9_999_999_999),
+    };
+    record_write(&home, 1000, &write_json(&max), "{}");
+    assert_eq!(
+        ok(&home, &["journal-open"])["actions"][0]["issue"],
+        9_999_999_999_i64
+    );
 }
 
 #[test]

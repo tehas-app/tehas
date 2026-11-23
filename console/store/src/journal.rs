@@ -80,7 +80,8 @@ pub const KINDS: [&str; 37] = [
 
 /// The word a write's row holds, the 1.x word where it had one. None for a
 /// kind the journal does not record yet: a change's mark and edit take
-/// theirs in B3, and an unknown write is never sent.
+/// theirs in B3, and an unknown write is never sent. Every kind is named,
+/// so a new one is decided here.
 pub fn word(kind: WriteKind) -> Option<&'static str> {
     use WriteKind as K;
     Some(match kind {
@@ -116,14 +117,23 @@ pub fn word(kind: WriteKind) -> Option<&'static str> {
         K::NewRelease => "release-new",
         K::Upload => "release-upload",
         K::PublishRelease => "release-publish",
+        K::MarkChange | K::UnmarkChange | K::EditChange | K::Unknown => return None,
+        // The ports may add a kind (`non_exhaustive`): not recorded, so
+        // not sent, until it is named above.
         _ => return None,
     })
 }
 
+/// The most the issue column holds, as `--issue` takes it: ten digits.
+const ISSUE_MAX: i64 = 9_999_999_999;
+
 /// The number of the ticket, blueprint or change a write is on, as the
-/// issue column holds it: 0 for a write on none, or on a ticket keyed by
-/// text.
-fn issue_of(w: &Write) -> i64 {
+/// issue column holds it and a settle reads it: above 0, at most ten
+/// digits. None for a write on no number (a ticket keyed by text, a new
+/// item, a mark, target, commit or release): the store refuses its row, so
+/// it is not sent, until a settle reads a row by its write (T4.7). Every
+/// variant is named, so a new one is decided here.
+fn issue_of(w: &Write) -> Option<i64> {
     let n = match w {
         Write::Mark { ticket, .. }
         | Write::Unmark { ticket, .. }
@@ -140,7 +150,7 @@ fn issue_of(w: &Write) -> i64 {
         | Write::AddPart { parent: ticket, .. }
         | Write::RemovePart { parent: ticket, .. } => match ticket {
             TicketKey::Number(n) => n.get(),
-            TicketKey::Key(_) => 0,
+            TicketKey::Key(_) => return None,
         },
         Write::EditBlueprint { no, .. }
         | Write::Comment { on: no, .. }
@@ -151,9 +161,28 @@ fn issue_of(w: &Write) -> i64 {
         | Write::CommentChange { no, .. }
         | Write::CloseChange { no }
         | Write::Merge { no, .. } => no.get(),
-        _ => 0,
+        Write::FileTicket(_)
+        | Write::NewTarget { .. }
+        | Write::EditTarget { .. }
+        | Write::Prepare
+        | Write::EnsureMark(_)
+        | Write::OpenBlueprint(_)
+        | Write::EditComment { .. }
+        | Write::OpenChange(_)
+        | Write::Propose(_)
+        | Write::Tag { .. }
+        | Write::SetStatus { .. }
+        | Write::NewRelease(_)
+        | Write::Upload { .. }
+        | Write::PublishRelease { .. }
+        | Write::Unknown => return None,
+        // The ports may add a write (`non_exhaustive`): refused until it
+        // is named above.
+        _ => return None,
     };
-    i64::try_from(n).unwrap_or(0)
+    i64::try_from(n)
+        .ok()
+        .filter(|n| (1..=ISSUE_MAX).contains(n))
 }
 
 /// A write the journal records: one it has a word for, with every body
@@ -305,7 +334,8 @@ fn record_write(a: &Args) -> Result<Call, String> {
     Ok(Call::Record(Record {
         poll: a.strict_need("--poll", "a Unix time", verbs::unix)?,
         kind,
-        issue: issue_of(&write),
+        issue: issue_of(&write)
+            .ok_or_else(|| a.usage("--write", "names no issue the journal keys a row by"))?,
         args: Value::Object(args).to_string(),
         before: a.strict_need("--before", "a Unix time", verbs::unix)?,
     }))
