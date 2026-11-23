@@ -36,10 +36,7 @@ impl BlueprintWrites for GitHub {
         let input = serde_json::json!({ "title": new.title, "body": body }).to_string();
         let out = self.send("POST", &path, &input)?;
         let issue = read_issue(&out, &self.repo)?;
-        Ok(Posted {
-            id: issue.no,
-            link: issue.link,
-        })
+        Ok(Posted::new(issue.no, issue.link))
     }
 
     /// The issue read, its revision compared with `since`, then a `PATCH`
@@ -217,9 +214,9 @@ impl GitHub {
 /// relay's read before an edit has it (`GitHub::text_revision`). None for
 /// an answer with no title.
 ///
-/// The contract `Blueprints::blueprint` must keep when it is built: it
-/// answers the body without our markers, but its `revision` is this
-/// function over the RAW answer, markers in. A revision over the stripped
+/// The contract `Blueprints::blueprint` keeps: it answers the body
+/// without our markers, but its `revision` is this function over the RAW
+/// answer, markers in. A revision over the stripped
 /// body would never equal this one, and every edit at it would be
 /// `Conflict(Changed)`.
 pub(super) fn revision(out: &str) -> Option<Revision> {
@@ -254,18 +251,18 @@ fn unmarked(texts: &[&str]) -> Did {
 }
 
 /// An issue of this project as a read or a write answers it.
-struct Issue {
-    no: BlueprintNo,
-    title: String,
-    body: String,
-    link: WebLink,
+pub(super) struct Issue {
+    pub(super) no: BlueprintNo,
+    pub(super) title: String,
+    pub(super) body: String,
+    pub(super) link: WebLink,
 }
 
 /// The issue in gh's answer. An answer that does not parse or lacks a
 /// field every issue has is `Unread(Malformed)`; a pull request is
 /// `NotFound`, no blueprint; a link that is not this project's issue of
 /// that number is `Unread(Inconsistent)`.
-fn read_issue(out: &str, repo: &str) -> Got<Issue> {
+pub(super) fn read_issue(out: &str, repo: &str) -> Got<Issue> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     let no = v
@@ -321,15 +318,15 @@ fn read_comment(out: &str, repo: &str, no: BlueprintNo) -> Got<Posted<CommentId>
     ) {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
-    Ok(Posted {
-        id: CommentId::new(id.to_string()),
-        link: WebLink::new(url).map_err(|_| malformed)?,
-    })
+    Ok(Posted::new(
+        CommentId::new(id.to_string()),
+        WebLink::new(url).map_err(|_| malformed)?,
+    ))
 }
 
 /// `text` ends with `tail`, ASCII case folded: GitHub names a project in
 /// any case.
-fn ends_with_folded(text: &str, tail: &str) -> bool {
+pub(super) fn ends_with_folded(text: &str, tail: &str) -> bool {
     text.len() >= tail.len()
         && text.is_char_boundary(text.len() - tail.len())
         && text[text.len() - tail.len()..].eq_ignore_ascii_case(tail)

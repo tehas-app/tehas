@@ -129,3 +129,26 @@ fn the_texts_are_the_issue_of_the_answer_or_none() {
     assert!(texts("widget", &mut gh, 7).is_none());
     assert!(gh.asked.is_empty());
 }
+
+#[test]
+fn pins_that_cannot_be_read_put_no_issue_at_the_stage() {
+    let home = crate::testdir::TestDir::new("feed-pins-unreadable");
+    let file = home.join(crate::label_pins::FILE);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(home.join("gone"), &file).unwrap();
+    let pinned = format!(r#"{{"name":"{LABEL}","node_id":"LA_proto"}}"#);
+    let refused = pin_refusal(
+        &mut answers(Ok(&pinned)),
+        &home,
+        "acme/widget",
+        LABEL,
+        STAGE,
+    );
+    assert!(
+        refused.clone().unwrap().unwrap().starts_with(&format!(
+            "refused: the label pins in {} cannot be read",
+            crate::label_pins::FILE
+        )),
+        "{refused:?}"
+    );
+}

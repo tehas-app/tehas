@@ -265,6 +265,10 @@ impl Site for FakeSite {
         &self.realms
     }
 
+    fn mark_name(&self, mark: &crate::Mark) -> String {
+        mark_name(mark)
+    }
+
     fn tickets(&self, by: &Actor, caller: Caller) -> Got<Box<dyn Tickets + Send>> {
         Ok(Box::new(self.handle(
             by,
@@ -454,7 +458,7 @@ impl Handle {
                 s.accounts
                     .iter()
                     .find(|a| a.login == login)
-                    .is_none_or(|a| matches!(a.standing, Standing::Read | Standing::None))
+                    .is_none_or(|a| a.standing < Standing::Write)
             });
         Ctx {
             now: self.world.now(),
@@ -637,7 +641,45 @@ impl Cites for Handle {
             Cite::Blueprint(r) => named("blueprint", r, |n| n.get().to_string()),
             Cite::Change(r) => named("change", r, |n| n.get().to_string()),
             Cite::Account(login) => format!("account {}", login.as_str()),
+            Cite::Marker(m) => match marker_text(m) {
+                text if text.is_empty() => text,
+                text => format!("`{text}`"),
+            },
+            Cite::Mark(m) => match mark_name(m) {
+                name if name.is_empty() => name,
+                name => format!("`{name}`"),
+            },
         }
+    }
+}
+
+/// The text a person types to make a marker on the fake: the marker as
+/// Rust writes it for debugging, such as `HoldCleared`; `""` for one that is
+/// not writable. The fake reads no marker from text, so it is never live.
+pub fn marker_text(marker: &crate::Marker) -> String {
+    if marker.writable() {
+        format!("{marker:?}")
+    } else {
+        String::new()
+    }
+}
+
+/// The fake's word for a mark: its group and its name, lower case, such as
+/// `act:approve` or `mark:epic`; a project's own mark by its name; `""` for a word this
+/// copy does not know.
+pub(crate) fn mark_name(mark: &crate::Mark) -> String {
+    use crate::{Act, Choice, Mark, State};
+    let word = |group: &str, w: String| format!("{group}:{}", w.to_ascii_lowercase());
+    match mark {
+        Mark::Act(Act::Unknown)
+        | Mark::State(State::Unknown)
+        | Mark::Choice(Choice::Unknown)
+        | Mark::Unknown => String::new(),
+        Mark::Act(a) => word("act", format!("{a:?}")),
+        Mark::State(s) => word("state", format!("{s:?}")),
+        Mark::Choice(c) => word("choice", format!("{c:?}")),
+        Mark::Epic => word("mark", "Epic".into()),
+        Mark::Project(name) => name.as_str().into(),
     }
 }
 

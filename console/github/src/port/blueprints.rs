@@ -1,19 +1,40 @@
-//! The blueprints port's reads, `Blueprints`. Answered: a search of the
-//! project's issues (`search`), the relay's way to settle an open. Nothing
-//! that answers a text is answered yet: a blueprint's body and comments
-//! carry markers, which no reader of this adapter takes out yet.
+//! The blueprints port's reads, `Blueprints`. Answered: one blueprint to
+//! a depth (`blueprint`, `several`), its comments whole (`comments`), and a
+//! search of the project's issues (`search`), the relay's way to settle an
+//! open.
+//!
+//! A blueprint is the issue's REST read, the same read `edit` makes, and
+//! its comments' REST pages as far as the depth asks: none at
+//! `Depth::Cut { notes: 0 }`. Each text goes through `markers::read`, so
+//! this item's markers come back apart and another item's words stay. The
+//! revision is `blueprint_writes::revision` over the raw answer, markers
+//! in, so an edit at it holds on an unchanged issue. GitHub's REST answer
+//! names no editor of a body or a comment and no time the body was edited:
+//! `editor` is None, and so is the body's `edited`. No read is retried: the
+//! adapter has no shared retry yet.
 
 use std::collections::HashSet;
 use std::num::NonZeroU32;
 
+use super::blueprint_writes::{ends_with_folded, read_issue, revision};
 use super::unsupported;
-use crate::GitHub;
+use crate::ticket::CUT_TEXT;
+use crate::tickets::account;
+use crate::{gh, markers, GitHub};
+use serde::Deserialize;
 use serde_json::Value;
 use tehas_ports::{
-    Attachment, AttachmentId, Blueprint, BlueprintDelta, BlueprintHit, BlueprintNo, Blueprints,
+    At, Attachment, AttachmentId, Blueprint, BlueprintDelta, BlueprintHit, BlueprintNo, Blueprints,
     Bound, ChangeToken, Comment, CommentId, Cursor, Depth, Did, Edit, Got, Outcome, Pool, Refusal,
-    Took, Unread, Whole, Within,
+    Revision, Took, Unread, Whole, Within, ALL_MAX,
 };
+
+/// The comments one page of an issue's comments asks for, the most GitHub
+/// gives.
+const COMMENTS_PER_PAGE: usize = 100;
+
+/// The most pages of comments one read takes: past it, `Unread(Cut)`.
+const COMMENT_PAGES_MAX: usize = 100;
 
 /// The hits one page of a search asks for, the most GitHub gives.
 const PER_PAGE: usize = 100;
@@ -25,16 +46,42 @@ const REACH: usize = 1000;
 const WORDS_MAX: usize = 256;
 
 impl Blueprints for GitHub {
-    fn blueprint(&mut self, _: BlueprintNo, _: Depth) -> Got<Blueprint> {
-        unsupported()
+    /// The issue's REST read, then the pages of its comments the depth
+    /// takes, counted by the issue's own count of them. A pull request's
+    /// number is `NotFound`, with no request after the issue's.
+    fn blueprint(&mut self, no: BlueprintNo, depth: Depth) -> Got<Blueprint> {
+        let (mut blueprint, count) = self.issue(no)?;
+        blueprint.comments = match depth {
+            Depth::Cut { notes } => {
+                let mut took = self.last_comments(no, count, u32::from(notes))?;
+                for c in &mut took.items {
+                    c.body = c.body.chars().take(CUT_TEXT).collect();
+                }
+                took
+            }
+            Depth::Last { notes } => self.last_comments(no, count, notes.get())?,
+            Depth::All => {
+                let all = self.whole_comments(no, count, ALL_MAX)?;
+                let mut took = Took::default();
+                took.items = all.into_items();
+                took
+            }
+        };
+        Ok(blueprint)
     }
 
-    fn several(&mut self, nos: &[BlueprintNo], _: Depth) -> Vec<(BlueprintNo, Got<Blueprint>)> {
-        nos.iter().map(|n| (*n, unsupported())).collect()
+    /// One `blueprint` a number, in the order asked.
+    fn several(&mut self, nos: &[BlueprintNo], depth: Depth) -> Vec<(BlueprintNo, Got<Blueprint>)> {
+        nos.iter()
+            .map(|n| (*n, self.blueprint(*n, depth)))
+            .collect()
     }
 
-    fn comments(&mut self, _: BlueprintNo, _: Bound) -> Got<Whole<Comment>> {
-        unsupported()
+    /// The issue's REST read for its count of comments, then every page of
+    /// them; more than `bound` is `Unread(Cut)`, with no page read.
+    fn comments(&mut self, no: BlueprintNo, bound: Bound) -> Got<Whole<Comment>> {
+        let (_, count) = self.issue(no)?;
+        self.whole_comments(no, count, bound)
     }
 
     fn comments_by_id(&mut self, ids: &[CommentId]) -> Vec<(CommentId, Got<Comment>)> {
@@ -66,10 +113,7 @@ impl Blueprints for GitHub {
             .map(str::to_ascii_lowercase)
             .collect();
         if words.is_empty() {
-            return Ok(Took {
-                items: Vec::new(),
-                more: false,
-            });
+            return Ok(Took::default());
         }
         let q = query(&self.repo, &words, within, open)?;
         let want = first.get() as usize;
@@ -97,11 +141,10 @@ impl Blueprints for GitHub {
                     && open.is_none_or(|o| o == hit.open)
                     && holds(&found, &words)
                 {
-                    kept.push(BlueprintHit {
-                        no: hit.no,
-                        title: hit.title,
-                        open: hit.open,
-                    });
+                    let mut found = BlueprintHit::new(hit.no);
+                    found.title = hit.title;
+                    found.open = hit.open;
+                    kept.push(found);
                 }
             }
             let held = read.total.min(REACH);
@@ -120,7 +163,10 @@ impl Blueprints for GitHub {
         }
         let more = kept.len() > want;
         kept.truncate(want);
-        Ok(Took { items: kept, more })
+        let mut took = Took::default();
+        took.items = kept;
+        took.more = more;
+        Ok(took)
     }
 
     fn attachments(&mut self, _: BlueprintNo) -> Got<Whole<Attachment>> {
@@ -141,6 +187,110 @@ impl Blueprints for GitHub {
 }
 
 impl GitHub {
+    /// The blueprint `no` with no comment, and how many comments the issue
+    /// says it holds. A failed read is its outcome; a pull request is
+    /// `NotFound`; an answer of another issue or project is
+    /// `Unread(Inconsistent)`; one that lacks a field every issue has is
+    /// `Unread(Malformed)`.
+    fn issue(&mut self, no: BlueprintNo) -> Got<(Blueprint, usize)> {
+        let out = self.issue_answer(no.get()).map_err(|e| self.outcome(&e))?;
+        let issue = read_issue(&out, &self.repo)?;
+        if issue.no != no {
+            return Err(Outcome::Unread(Unread::Inconsistent));
+        }
+        let malformed = Outcome::Unread(Unread::Malformed);
+        let at = revision(&out).ok_or(malformed.clone())?;
+        let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
+        tehas_core::accounts::vouch(&mut v);
+        let f: IssueFields = serde_json::from_value(v).map_err(|_| malformed.clone())?;
+        let open = match f.state.as_deref() {
+            Some("open") => true,
+            Some("closed") => false,
+            _ => return Err(malformed),
+        };
+        let created = time(f.created_at.as_deref())?;
+        let count = f.comments.ok_or(malformed)? as usize;
+        let read = markers::read(&issue.body, Some(no));
+        let mut blueprint = Blueprint::new(no, created, at, issue.link);
+        blueprint.title = issue.title;
+        blueprint.body = read.text;
+        blueprint.open = open;
+        blueprint.author = author(f.user.as_ref());
+        blueprint.markers = read.markers;
+        blueprint.comments.more = count > 0;
+        Ok((blueprint, count))
+    }
+
+    /// The newest `n` of the issue's `count` comments, oldest first, with
+    /// `more` when it holds more than `n`.
+    fn last_comments(&mut self, no: BlueprintNo, count: usize, n: u32) -> Got<Took<Comment>> {
+        let from = count.saturating_sub(n as usize);
+        let mut took = Took::default();
+        took.items = self.comments_from(no, count, from)?;
+        took.more = from > 0;
+        Ok(took)
+    }
+
+    /// Every one of the issue's `count` comments, or `Unread(Cut)` past
+    /// `bound` with no page read.
+    fn whole_comments(
+        &mut self,
+        no: BlueprintNo,
+        count: usize,
+        bound: Bound,
+    ) -> Got<Whole<Comment>> {
+        if count > bound.get() as usize {
+            return Err(Outcome::Unread(Unread::Cut));
+        }
+        Ok(Whole::new(self.comments_from(no, count, 0)?))
+    }
+
+    /// The issue's comments from the `from`th (0 the oldest) to the last of
+    /// `count`, read a page at a time from the page that holds the first
+    /// one asked. Every page holds exactly what `count` says it holds, each
+    /// comment once and on issue `no` of this project, or the read is
+    /// `Unread(Inconsistent)`: the issue changed under the read, or the
+    /// answer is not this issue's.
+    fn comments_from(&mut self, no: BlueprintNo, count: usize, from: usize) -> Got<Vec<Comment>> {
+        if from >= count {
+            return Ok(Vec::new());
+        }
+        let first = from / COMMENTS_PER_PAGE + 1;
+        let last = (count - 1) / COMMENTS_PER_PAGE + 1;
+        if last - first + 1 > COMMENT_PAGES_MAX {
+            return Err(Outcome::Unread(Unread::Cut));
+        }
+        let mut seen = HashSet::new();
+        let mut all = Vec::new();
+        for page in first..=last {
+            let out = self.comments_page(no, page)?;
+            let held = (count - (page - 1) * COMMENTS_PER_PAGE).min(COMMENTS_PER_PAGE);
+            let comments = read_comments(&out, &self.repo, no)?;
+            if comments.len() != held {
+                return Err(Outcome::Unread(Unread::Inconsistent));
+            }
+            for c in comments {
+                if !seen.insert(c.id.clone()) {
+                    return Err(Outcome::Unread(Unread::Inconsistent));
+                }
+                all.push(c);
+            }
+        }
+        Ok(all.split_off(from - (first - 1) * COMMENTS_PER_PAGE))
+    }
+
+    /// gh's answer to one page of an issue's comments, oldest first, or
+    /// its outcome.
+    fn comments_page(&mut self, no: BlueprintNo, page: usize) -> Got<String> {
+        let path = format!(
+            "repos/{}/issues/{}/comments?per_page={COMMENTS_PER_PAGE}&page={page}",
+            self.repo,
+            no.get()
+        );
+        self.call("the issue's comments", &["api", &path])
+            .map_err(|e| self.outcome(&e))
+    }
+
     /// gh's answer to one page of the issue search, or its outcome. A
     /// spent budget is the search pool's. A 422 is a project the site will
     /// not search, gone or not visible: the words were checked before.
@@ -173,6 +323,93 @@ impl GitHub {
             }
         })
     }
+}
+
+/// The fields of an issue's REST answer the read takes beside
+/// `read_issue`'s; each missing one is None.
+#[derive(Deserialize)]
+struct IssueFields {
+    state: Option<String>,
+    created_at: Option<String>,
+    comments: Option<u64>,
+    user: Option<User>,
+}
+
+/// One comment of a page of an issue's comments. A body that is no text
+/// fails the page.
+#[derive(Deserialize)]
+struct CommentFields {
+    id: Option<u64>,
+    html_url: Option<String>,
+    body: Option<String>,
+    created_at: Option<String>,
+    updated_at: Option<String>,
+    user: Option<User>,
+}
+
+/// The account GitHub names as an issue's or a comment's `user`.
+#[derive(Deserialize)]
+struct User {
+    login: Option<String>,
+    id: Option<u64>,
+    #[serde(rename = "type")]
+    kind: Option<String>,
+}
+
+/// A time of GitHub's, or `Unread(Malformed)`.
+fn time(iso: Option<&str>) -> Got<At> {
+    iso.and_then(tehas_core::time::from_iso)
+        .map(At::new)
+        .ok_or(Outcome::Unread(Unread::Malformed))
+}
+
+/// The account of an issue's or a comment's `user`, None where it names
+/// nobody: a deleted account's is `null`.
+fn author(user: Option<&User>) -> Option<tehas_ports::Account> {
+    let u = user?;
+    let facts = gh::Facts {
+        id: u.id,
+        kind: u.kind.clone(),
+    };
+    account(u.login.as_deref()?, &facts)
+}
+
+/// One page of an issue's comments, each read: its text through
+/// `markers::read` as a text of blueprint `no`, its revision the sum of
+/// its raw text, markers in. A page that does not parse, or a comment that
+/// lacks a field every comment has, is `Unread(Malformed)`; a comment whose
+/// link is not one on issue `no` of this project is
+/// `Unread(Inconsistent)`.
+fn read_comments(out: &str, repo: &str, no: BlueprintNo) -> Got<Vec<Comment>> {
+    let malformed = Outcome::Unread(Unread::Malformed);
+    let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
+    tehas_core::accounts::vouch(&mut v);
+    let items: Vec<CommentFields> = serde_json::from_value(v).map_err(|_| malformed.clone())?;
+    let mut comments = Vec::with_capacity(items.len());
+    for c in items {
+        let id = c.id.ok_or(malformed.clone())?;
+        let url = c.html_url.as_deref().ok_or(malformed.clone())?;
+        if !ends_with_folded(
+            url,
+            &format!("/{repo}/issues/{}#issuecomment-{id}", no.get()),
+        ) {
+            return Err(Outcome::Unread(Unread::Inconsistent));
+        }
+        let link = tehas_ports::WebLink::new(url).map_err(|_| malformed.clone())?;
+        let raw = c.body.as_deref().unwrap_or_default();
+        let created = time(c.created_at.as_deref())?;
+        let updated = time(c.updated_at.as_deref())?;
+        let read = markers::read(raw, Some(no));
+        let sum = Revision::new(tehas_core::approval::body_sum(raw));
+        let mut comment = Comment::new(CommentId::new(id.to_string()), created, sum, link);
+        comment.author = author(c.user.as_ref());
+        // REST keeps no edit time apart; an edit moves `updated_at`.
+        comment.edited = (updated != created).then_some(updated);
+        comment.body = read.text;
+        comment.markers = read.markers;
+        comments.push(comment);
+    }
+    Ok(comments)
 }
 
 /// The search's question: this project's issues, each word quoted, and

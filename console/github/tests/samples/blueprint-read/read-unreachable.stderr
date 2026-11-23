@@ -1,0 +1,1 @@
+Get "https://api.github.com/repos/acme/widget/issues/7": dial tcp: lookup api.github.com: no such host
