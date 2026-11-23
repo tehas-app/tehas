@@ -419,6 +419,14 @@ Findings:
   issues read-only, so the site refuses it (`console/src/plan/turn.rs`
   ~485). It must file with the factory's token or not at all. T4.7 fixes
   it.
+- `events::mark_actor`, like core's `label_actor` and the search it
+  replaced, answers the newest application of a label even when the
+  label was removed since, so `console label allowed` can say yes to
+  fetching an issue's images and links for a label that is no longer on,
+  when its last applier was allowed. 1.4.x did the same. T4.7 decides
+  whether these checks ask for the label standing or its last
+  application, and gives `mark_actor` and `label_actor` one timeline
+  helper: today they build it twice, on ports and core types (#2962).
 - The spec folds a login's `[bot]` too, and the GitHub adapter folds
   only its case (`console/github/src/tickets.rs`, `account`). The law of
   `AccountKind::Ours` settles it (#2962).
