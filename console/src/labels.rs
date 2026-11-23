@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::path::Path;
 use tehas_core::call;
-use tehas_ports::TicketWrites;
+use tehas_ports::{TicketWrites, Unprepared};
 
 /// 64 with the usage: this command takes no argument.
 pub fn words(given: &[String]) -> Result<(), u8> {
@@ -140,10 +140,23 @@ fn make(tickets: &mut dyn TicketWrites) -> u8 {
             tehas_core::outln!("made the tehas labels");
             0
         }
-        Err(o) => {
-            eprintln!("tehas labels: could not make every label: {}", o.line());
+        Err(u) => {
+            eprintln!("{}", failed(&u));
             1
         }
+    }
+}
+
+/// What a failed `prepare` says: the first label that could not be made,
+/// and why, in tehas's words.
+fn failed(u: &Unprepared) -> String {
+    match &u.mark {
+        Some(name) => format!(
+            "tehas labels: could not make the label {}: {}",
+            name.as_str(),
+            u.why.line()
+        ),
+        None => format!("tehas labels: could not make the labels: {}", u.why.line()),
     }
 }
 
@@ -171,7 +184,7 @@ mod tests {
 
     use std::fs;
     use tehas_ports::fake::{FakeSite, Fault, Faulty, Op, TicketsOp, World};
-    use tehas_ports::{Actor, Caller, Scope, Site, Write};
+    use tehas_ports::{Actor, Caller, MarkName, Outcome, Passing, Scope, Sent, Site, Write};
 
     const THE_TABLE: &str = include_str!("../../host/labels.tsv");
 
@@ -204,6 +217,32 @@ mod tests {
             Fault::Server { applied: false },
         );
         assert_eq!(make(&mut *writes(&site)), 1);
+    }
+
+    #[test]
+    fn a_failure_names_the_label_that_failed_in_tehass_words() {
+        let server = Outcome::Unavailable {
+            why: Passing::Server,
+            sent: Sent::Maybe,
+        };
+        let lean = Unprepared {
+            mark: Some(MarkName::new("tehas:lean").unwrap()),
+            why: server.clone(),
+        };
+        let line = failed(&lean);
+        assert!(
+            line.starts_with("tehas labels: could not make the label tehas:lean"),
+            "{line}"
+        );
+        assert!(line.ends_with(server.line()), "{line}");
+        let site = Unprepared {
+            mark: None,
+            why: server.clone(),
+        };
+        assert_eq!(
+            failed(&site),
+            format!("tehas labels: could not make the labels: {}", server.line())
+        );
     }
 
     /// The labels a program names without the `tehas:` prefix.

@@ -15,8 +15,8 @@ use tehas_ports::{
     CommentId, Cursor, Depth, Did, Edit, Filed, Filter, Got, HappenedKind, Item, Kind, Mark,
     MarkSpec, MarkerEdit, MarkerKey, MarkerKind, NewTicket, Outcome, Part, Posted, Priority, Ref,
     Refusal, Report, Reports, Revision, Step, StepPart, Target, TargetEdit, TargetId, Ticket,
-    TicketDelta, TicketDigest, TicketEvent, TicketKey, TicketWrites, Tickets, Took, WebLink, Whole,
-    Window, Within,
+    TicketDelta, TicketDigest, TicketEvent, TicketKey, TicketWrites, Tickets, Took, Unprepared,
+    WebLink, Whole, Window, Within,
 };
 
 /// The answer of a method no caller asks of this adapter yet.
@@ -205,14 +205,16 @@ impl TicketWrites for GitHub {
     }
 
     /// Each label of the factory's table, made or brought back to its colour
-    /// and text, one call each. A label that cannot be made stops none of
-    /// the others; the first that failed is the answer.
-    fn prepare(&mut self) -> Did {
+    /// and text, one call each.
+    fn prepare(&mut self) -> Result<(), Unprepared> {
         let mut first = Ok(());
         for spec in table::specs() {
             let made = self.ensure_mark(&spec);
-            if first.is_ok() {
-                first = made;
+            if let (Ok(()), Err(why)) = (&first, made) {
+                first = Err(Unprepared {
+                    mark: Some(spec.name.clone()),
+                    why,
+                });
             }
         }
         first

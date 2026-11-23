@@ -11,7 +11,7 @@ use tehas_github::{table, GitHub};
 use tehas_ports::{
     Account, AccountId, AccountKind, Act, At, Cite, Cites, CloseReason, Colour, Depth, Kind, Login,
     Mark, MarkName, MarkSpec, Outcome, Passing, Realm, Ref, Refusal, Sent, TicketKey, TicketState,
-    TicketWrites, Tickets, Unread,
+    TicketWrites, Tickets, Unprepared, Unread,
 };
 
 type Asked = Rc<RefCell<Vec<String>>>;
@@ -142,9 +142,12 @@ fn prepare_makes_every_label_of_the_table_and_one_that_fails_stops_none() {
     let (mut gh, asked) = adapter(answers);
     assert_eq!(
         gh.prepare(),
-        Err(Outcome::Unavailable {
-            why: Passing::Server,
-            sent: Sent::Maybe
+        Err(Unprepared {
+            mark: Some(specs[2].name.clone()),
+            why: Outcome::Unavailable {
+                why: Passing::Server,
+                sent: Sent::Maybe
+            }
         })
     );
     let asked = asked.borrow();

@@ -103,7 +103,7 @@ reset
 T_ENV=(FAIL_ON=tehas:lean)
 t_run "$labels"
 t_eq "$t_rc" 1
-t_contains "$t_out" "tehas labels: could not make every label"
+t_contains "$t_out" "tehas labels: could not make the label tehas:lean: "
 t_eq "$(t_calls gh | grep -c 'label create')" "$rows"
 
 t_case "without the repository nothing is called, exit 78"
