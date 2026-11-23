@@ -2442,7 +2442,74 @@ pub mod anonymous {
 /// Laws of identity and its tokens.
 pub mod identity {
     use super::{got, hold, Law, TokenLog};
-    use crate::{Covers, Got, Identity, Outcome, ProjectName, Scope, Token};
+    use crate::{
+        AccountId, Covers, Got, Identity, Login, Outcome, ProjectName, Scope, Standing, Token,
+    };
+
+    /// Every spelling the site has for one account, an app's among them,
+    /// names the same account: one login and one id. The fixture's
+    /// `spellings` all name one account.
+    pub fn an_accounts_spellings_fold_to_one_login(
+        h: &mut dyn Identity,
+        spellings: &[Login],
+    ) -> Law {
+        const LAW: &str = "identity::an_accounts_spellings_fold_to_one_login";
+        hold(spellings.len() > 1, LAW, || {
+            "one spelling proves nothing".into()
+        })?;
+        let mut seen = Vec::new();
+        for spelling in spellings {
+            let a = got(LAW, "the account", h.account_by_login(spelling))?;
+            seen.push((a.login, a.id));
+        }
+        hold(seen.windows(2).all(|w| w[0] == w[1]), LAW, || {
+            format!("the spellings name {seen:?}")
+        })
+    }
+
+    /// A standing the site could not read is an outcome, never
+    /// `Standing::None`: no caller reads a failure as an account with no
+    /// rights and acts on it. `failing` is a handle whose calls fail, as
+    /// a site down or a credential gone; `who` is an account of the
+    /// fixture.
+    pub fn a_failure_is_never_standing_none(failing: &mut dyn Identity, who: &AccountId) -> Law {
+        const LAW: &str = "identity::a_failure_is_never_standing_none";
+        let answer = failing.standing(who);
+        hold(answer.is_err(), LAW, || {
+            format!("a failing handle answered {answer:?}")
+        })
+    }
+
+    /// Each account answers the standing the fixture gave it, and the
+    /// answers sort as the ranks do, least first: `None < Read < Triage <
+    /// Write < Maintain < Admin`. A site without triage or maintain folds
+    /// them down, so the fixture gives the ranks the site has.
+    pub fn standings_are_ranked(h: &mut dyn Identity, ranked: &[(AccountId, Standing)]) -> Law {
+        const LAW: &str = "identity::standings_are_ranked";
+        let mut answered = Vec::new();
+        for (who, want) in ranked {
+            let have = got(LAW, "the standing", h.standing(who))?;
+            hold(have == *want, LAW, || {
+                format!("{who:?} stands {have:?}, not {want:?}")
+            })?;
+            answered.push(have);
+        }
+        let mut sorted = answered.clone();
+        sorted.sort();
+        let mut by_hand = ranked.to_vec();
+        by_hand.sort_by_key(|(_, s)| match s {
+            Standing::None => 0,
+            Standing::Read => 1,
+            Standing::Triage => 2,
+            Standing::Write => 3,
+            Standing::Maintain => 4,
+            Standing::Admin => 5,
+        });
+        let ranks: Vec<Standing> = by_hand.into_iter().map(|(_, s)| s).collect();
+        hold(sorted == ranks, LAW, || {
+            format!("the standings sort as {sorted:?}, the ranks as {ranks:?}")
+        })
+    }
 
     fn kept_since(tokens: &dyn TokenLog, from: usize) -> Vec<(Covers, Scope)> {
         tokens.kept().into_iter().skip(from).collect()

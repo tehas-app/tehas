@@ -723,6 +723,10 @@ impl<S: Site> Site for Faulty<S> {
         self.site.mark_name(mark)
     }
 
+    fn marker_text(&self, marker: &crate::Marker) -> String {
+        self.site.marker_text(marker)
+    }
+
     fn tickets(&self, by: &Actor, caller: Caller) -> Got<Box<dyn Tickets + Send>> {
         let h = self.site.tickets(by, caller)?;
         Ok(Box::new(self.wrap(h, by, PortName::Tickets)))
@@ -1597,7 +1601,7 @@ impl<H: Identity + ?Sized> Identity for Wrap<H> {
             h.token_over(scope, projects)
         })
     }
-    fn sign_in_link(&self, state: &SignInState) -> WebLink {
+    fn sign_in_link(&self, state: &SignInState) -> Got<WebLink> {
         self.inner.sign_in_link(state)
     }
     fn signed_in(&mut self, code: &SignInCode) -> Got<(crate::Account, Secret)> {

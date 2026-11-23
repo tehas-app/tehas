@@ -272,6 +272,10 @@ impl Site for FakeSite {
         mark_name(mark)
     }
 
+    fn marker_text(&self, marker: &crate::Marker) -> String {
+        marker_text(marker)
+    }
+
     /// A clone that shares the meter, the tokens and the world. A view of
     /// a view keeps the earlier deadline.
     fn until(&self, until: At) -> Arc<dyn Site> {
@@ -862,8 +866,13 @@ impl Identity for Handle {
         answer
     }
 
-    fn sign_in_link(&self, state: &SignInState) -> WebLink {
-        web(&format!("sign-in?state={}", escaped(state.as_str())))
+    /// A world with no sign-in refuses it, as a site without a client
+    /// for people does.
+    fn sign_in_link(&self, state: &SignInState) -> Got<WebLink> {
+        if !self.world.lock().sign_in_on {
+            return Err(Outcome::Refused(Refusal::Unsupported));
+        }
+        Ok(web(&format!("sign-in?state={}", escaped(state.as_str()))))
     }
 
     /// A code good once: used again, or never handed out, is

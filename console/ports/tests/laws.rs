@@ -856,6 +856,98 @@ fn lists_last_n_is_never_cut_and_more_is_exact() {
 }
 
 #[test]
+fn identity_an_accounts_spellings_fold_to_one_login() {
+    let w = World::new().with_account("tehas-bot", AccountKind::Bot, Standing::Write);
+    let site = FakeSite::new(&w);
+    let mut h = site.identity(&full(), C).unwrap();
+    ok(laws::identity::an_accounts_spellings_fold_to_one_login(
+        h.as_mut(),
+        &[
+            Login::new("tehas-bot"),
+            Login::new("Tehas-Bot"),
+            Login::new("TEHAS-BOT"),
+        ],
+    ));
+}
+
+#[test]
+fn identity_a_failure_is_never_standing_none() {
+    let w = World::new()
+        .with_account("nobody", AccountKind::Person, Standing::None)
+        .person("p1", "carol");
+    let who = w.account("nobody", Realm::CodeHost).id.unwrap();
+    let faulty =
+        Faulty::new(FakeSite::new(&w)).on(Op::Identity(IdentityOp::Standing), Fault::Timeout);
+    let mut down = faulty.identity(&full(), C).unwrap();
+    ok(laws::identity::a_failure_is_never_standing_none(
+        down.as_mut(),
+        &who,
+    ));
+    let site = FakeSite::new(&w);
+    let mut gone = site
+        .identity(&Actor::Person(PersonKey::new("p1")), C)
+        .unwrap();
+    w.sign_out(&PersonKey::new("p1"));
+    ok(laws::identity::a_failure_is_never_standing_none(
+        gone.as_mut(),
+        &who,
+    ));
+    // The account with no rights does answer None, from a working handle.
+    let mut h = site.identity(&full(), C).unwrap();
+    assert_eq!(h.standing(&who), Ok(Standing::None));
+}
+
+#[test]
+fn identity_standings_are_ranked() {
+    let ranks = [
+        ("admin", Standing::Admin),
+        ("none", Standing::None),
+        ("maintain", Standing::Maintain),
+        ("read", Standing::Read),
+        ("write", Standing::Write),
+        ("triage", Standing::Triage),
+    ];
+    let mut w = World::new();
+    for (login, s) in ranks {
+        w = w.with_account(login, AccountKind::Person, s);
+    }
+    let ranked: Vec<(AccountId, Standing)> = ranks
+        .iter()
+        .map(|(l, s)| (w.account(l, Realm::CodeHost).id.unwrap(), *s))
+        .collect();
+    let site = FakeSite::new(&w);
+    let mut h = site.identity(&full(), C).unwrap();
+    ok(laws::identity::standings_are_ranked(h.as_mut(), &ranked));
+}
+
+#[test]
+fn a_sign_in_link_may_be_refused_and_a_marker_names_its_text() {
+    let w = World::new();
+    let site = FakeSite::new(&w);
+    let h = site.identity(&full(), C).unwrap();
+    assert!(h.sign_in_link(&SignInState::new("s1")).is_ok());
+    let off = World::new().without_sign_in();
+    let site_off = FakeSite::new(&off);
+    let h = site_off.identity(&full(), C).unwrap();
+    assert_eq!(
+        h.sign_in_link(&SignInState::new("s1")),
+        Err(Outcome::Refused(Refusal::Unsupported))
+    );
+    let cleared = Marker::HoldCleared;
+    let text = site.marker_text(&cleared);
+    assert_eq!(text, fake::marker_text(&cleared));
+    assert!(!text.is_empty());
+    assert_eq!(site.marker_text(&Marker::Unknown), "");
+    // A view and a wrap name it the same.
+    assert_eq!(site.until(At::new(1)).marker_text(&cleared), text);
+    assert_eq!(Faulty::new(site.clone()).marker_text(&cleared), text);
+    assert_eq!(
+        Setup::One(Arc::new(site)).marker_text(Realm::CodeHost, &cleared),
+        text
+    );
+}
+
+#[test]
 fn every_mark_names_a_word_and_reads_back_cited() {
     for w in both() {
         let no = first_blueprint(&w);
@@ -1413,7 +1505,7 @@ impl Identity for AnyScope {
     fn token_over(&mut self, scope: Scope, projects: &[ProjectName]) -> Got<Token> {
         self.inner.token_over(scope, projects)
     }
-    fn sign_in_link(&self, state: &SignInState) -> WebLink {
+    fn sign_in_link(&self, state: &SignInState) -> Got<WebLink> {
         self.inner.sign_in_link(state)
     }
     fn signed_in(&mut self, code: &SignInCode) -> Got<(Account, Secret)> {
@@ -2195,7 +2287,7 @@ impl Identity for SeesAll<'_> {
         let answer = self.inner.token_over(scope, projects);
         self.seen(answer)
     }
-    fn sign_in_link(&self, state: &SignInState) -> WebLink {
+    fn sign_in_link(&self, state: &SignInState) -> Got<WebLink> {
         self.inner.sign_in_link(state)
     }
     fn signed_in(&mut self, code: &SignInCode) -> Got<(Account, Secret)> {

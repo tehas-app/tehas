@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::{
     Actor, At, BlueprintWrites, Blueprints, Board, Caller, CodeHost, CodeHostWrites, Got, Identity,
-    Join, Links, Mark, Outcome, Pool, PortName, Realm, Refusal, TicketWrites, Tickets,
+    Join, Links, Mark, Marker, Outcome, Pool, PortName, Realm, Refusal, TicketWrites, Tickets,
 };
 
 /// One realm's supplier for one project. A port it does not serve answers
@@ -46,6 +46,16 @@ pub trait Site: Send + Sync {
     /// this copy does not know, which name as `""`: they are never written.
     /// In a body, `Cite::Mark` names it as the site shows it there.
     fn mark_name(&self, mark: &Mark) -> String;
+    /// The text a person types to make a marker on this site, for
+    /// terminal, log and MCP text: no handle and no request, so a caller
+    /// never writes the marker's syntax itself. Not quoted, unlike
+    /// `Cite::Marker` in a body. A marker that is not `Marker::writable`
+    /// names as `""`. The default names every marker `""`: an implementer
+    /// that writes no marker leaves it.
+    fn marker_text(&self, marker: &Marker) -> String {
+        let _ = marker;
+        String::new()
+    }
     /// The same site, with the same meter, kept reads, tokens and
     /// sign-in, whose handles have a deadline: at or past `until`, every
     /// call answers `Unavailable { why: Timeout, sent: No }` without
@@ -90,6 +100,9 @@ impl<T: Site + ?Sized> Site for Arc<T> {
     }
     fn mark_name(&self, mark: &Mark) -> String {
         (**self).mark_name(mark)
+    }
+    fn marker_text(&self, marker: &Marker) -> String {
+        (**self).marker_text(marker)
     }
     fn until(&self, until: At) -> Arc<dyn Site> {
         (**self).until(until)
@@ -207,6 +220,11 @@ impl Setup {
     /// ticket realm's words, a change's the code host's.
     pub fn mark_name(&self, realm: Realm, mark: &Mark) -> String {
         self.site_of(realm).mark_name(mark)
+    }
+
+    /// A marker as the site of `realm` writes it, by `Site::marker_text`.
+    pub fn marker_text(&self, realm: Realm, marker: &Marker) -> String {
+        self.site_of(realm).marker_text(marker)
     }
 
     /// The same setup, every site of it seen through `Site::until`: each

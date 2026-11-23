@@ -346,6 +346,13 @@ impl World {
         self
     }
 
+    /// A site with no way for a person to sign in: `sign_in_link` is
+    /// `Refused(Unsupported)`.
+    pub fn without_sign_in(self) -> Self {
+        self.lock().sign_in_on = false;
+        self
+    }
+
     /// The projects the factory's grant covers, this world's among them.
     pub fn grant(self, projects: &[&str]) -> Self {
         {

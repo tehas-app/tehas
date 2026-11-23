@@ -175,6 +175,8 @@ pub(crate) struct State {
     pub given: Vec<(PersonKey, Scope, Token)>,
     pub signed_out: Vec<PersonKey>,
     pub sign_ins: Vec<(SignInCode, String, bool)>,
+    /// A person may sign in: false for a site with no client for people.
+    pub sign_in_on: bool,
     pub grant: GrantId,
     pub grant_projects: Vec<ProjectName>,
     pub wrote: Vec<Wrote>,
@@ -295,6 +297,7 @@ impl State {
             given: Vec::new(),
             signed_out: Vec::new(),
             sign_ins: Vec::new(),
+            sign_in_on: true,
             grant: GrantId::new("grant-1"),
             grant_projects: Vec::new(),
             wrote: Vec::new(),
