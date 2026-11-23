@@ -1,0 +1,2 @@
+gh: Validation Failed (HTTP 422)
+{"message":"Validation Failed","errors":[{"resource":"Issue","code":"custom","field":"body","message":"body is too long (maximum is 65536 characters)"}],"documentation_url":"https://docs.github.com/rest/issues/issues#create-an-issue","status":"422"}
