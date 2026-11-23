@@ -349,9 +349,10 @@ pub fn history_delete(table: HistoryTable) -> String {
     // end path; a hand-repair that moves one of them apart is the case this is
     // here for.
     let cycle_last_before_window = last("cycle_history", true);
-    // `cycle-end --stopped` and `--refused` write no cycle_history row, so this
-    // is the only thing keeping the planning rows of those issues, and the only
-    // record of how their plan went. Dropping it as redundant would erase it.
+    // Before 2.0, `cycle-end --stopped` and `--refused` wrote no cycle_history
+    // row, so on a store with rows from then this is the only thing keeping the
+    // planning rows of those issues, and the only record of how their plan
+    // went. Dropping it as redundant would erase it.
     let has_cycle_history = "issue IN (SELECT issue FROM cycle_history)";
     format!(
         "DELETE FROM {name} WHERE
