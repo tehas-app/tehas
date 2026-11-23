@@ -14,7 +14,7 @@ use crate::{
     Happened, HappenedKind, Item, Kind, Mark, MarkSpec, Marker, MarkerEdit, MarkerKey, MarkerKind,
     NewTicket, Outcome, Part, Pool, Posted, Priority, Ref, Refusal, Step, StepPart, Target,
     TargetEdit, TargetId, Ticket, TicketChange, TicketDelta, TicketDigest, TicketEvent, TicketKey,
-    TicketWrites, Tickets, Took, WebLink, Whole, Window, Within, Write,
+    TicketWrites, Tickets, Took, Unprepared, WebLink, Whole, Window, Within, Write,
 };
 
 fn at_ticket(s: &State, key: &TicketKey) -> Got<usize> {
@@ -648,12 +648,13 @@ impl TicketWrites for Handle {
         )
     }
 
-    fn prepare(&mut self) -> Did {
+    fn prepare(&mut self) -> Result<(), Unprepared> {
         self.write(Op::Tickets(TicketsOp::Prepare), |s, ctx| {
             s.prepared = true;
             ctx.wrote(s, Write::Prepare);
             Ok(())
         })
+        .map_err(Unprepared::from)
     }
 
     fn ensure_mark(&mut self, spec: &MarkSpec) -> Did {

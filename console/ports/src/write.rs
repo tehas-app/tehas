@@ -565,7 +565,7 @@ impl Writes for Writer {
             Write::NewTarget { title, due } => t.new_target(title, *due).map(Receipt::Target),
             Write::EditTarget { id, edit } => done(t.edit_target(id, edit)),
             Write::SetTarget { ticket, target } => done(t.set_target(ticket, target.as_ref())),
-            Write::Prepare => done(t.prepare()),
+            Write::Prepare => done(t.prepare().map_err(|u| u.why)),
             Write::EnsureMark(spec) => done(t.ensure_mark(spec)),
             Write::OpenBlueprint(new) => b.open(new).map(Receipt::Blueprint),
             Write::EditBlueprint {

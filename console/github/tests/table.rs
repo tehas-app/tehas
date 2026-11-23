@@ -247,3 +247,18 @@ fn every_factory_mark_has_a_label() {
     unique.dedup();
     assert_eq!(unique.len(), names.len());
 }
+
+#[test]
+fn every_row_of_the_file_gives_its_name_colour_and_text() {
+    let rows: Vec<&str> = THE_TABLE.lines().collect();
+    let specs = table::specs();
+    assert_eq!(specs.len(), rows.len());
+    for (spec, row) in specs.iter().zip(&rows) {
+        let cols: Vec<&str> = row.split('\t').collect();
+        assert_eq!(cols.len(), 4, "{row}");
+        assert_eq!(spec.name.as_str(), cols[0]);
+        assert!(table::is_label(cols[0]), "{row}");
+        assert_eq!(spec.colour.as_ref().map(|c| c.as_str()), Some(cols[1]));
+        assert_eq!(spec.about.as_deref(), Some(cols[2]));
+    }
+}

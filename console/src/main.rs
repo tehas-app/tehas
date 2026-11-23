@@ -403,6 +403,28 @@ fn complain(message: &str) {
     let _ = writeln!(io::stderr(), "{message}");
 }
 
+/// The console's wiring: the one module of the program that names the
+/// adapter. A command that reads or writes tickets takes its handle from
+/// here, and its own code and tests know the port alone.
+mod wiring {
+    use std::time::Duration;
+    use tehas_core::forge::Bounded;
+    use tehas_ports::{Mark, MarkName, TicketWrites};
+
+    /// A tickets handle on `repo`, asking the site through `program`, each
+    /// call in `bound`.
+    pub(crate) fn tickets(repo: &str, program: &str, bound: Duration) -> Box<dyn TicketWrites> {
+        let runner = Box::new(Bounded::new(program, bound));
+        Box::new(tehas_github::GitHub::new(repo, runner))
+    }
+
+    /// The mark a label name given on a command line is: one of tehas's
+    /// words, or a project's own mark. None for a name no mark can have.
+    pub(crate) fn mark_of(label: &str) -> Option<Mark> {
+        tehas_github::table::word(label).or_else(|| MarkName::new(label).ok().map(Mark::Project))
+    }
+}
+
 fn mask_stdin() -> io::Result<()> {
     let mut given = Vec::new();
     io::stdin().read_to_end(&mut given)?;

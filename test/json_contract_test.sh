@@ -15,6 +15,10 @@
 # Read before test/lib.sh is sourced: the sweep it makes of the environment
 # takes every TEHAS_ name the settings hold no value for, this with them.
 samples_write=${TEHAS_SAMPLES_WRITE:-}
+# The disk samples hold the home and /tmp as one file system, so the run's tree
+# is made under /tmp whatever TMPDIR names: on another disk they are two. sort
+# and comm agree on the order of the field paths only in one collation.
+TMPDIR=/tmp; export LC_ALL=C
 
 # shellcheck disable=SC2016  # the jq programs are matched as text
 # shellcheck source=test/lib.sh
@@ -623,16 +627,12 @@ t_after='freeze_holder_end'
 # answer for, and `df` is stubbed to say nothing of it.
 disk_scratch=/mnt/scratch
 
-# The one `df` answer every disk sample wants: the 40 GiB free of a host with
-# room on it, which is what the reading prints for every path but the scratch
-# disk. The stub answers nothing at all for the path of the scratch disk, which
-# is the reading's "df answered nothing": the entry of that file system is the
-# one of these samples with no figure and a `why`, the shape the disk tests'
-# own stub gives a figure a case does not plant (console/tests/disk.rs). The path is
-# named here and not under the scratch tree of the run: two paths of one file
-# system are one entry (console/ops/src/disk.rs, same_dev), so a scratch under
-# `$T` would be folded into the entry of the home and print no entry of its own
-# at all, and no figure of its own to carry a `why`.
+# The one `df` answer every disk sample wants: 40 GiB free, for every path but
+# the scratch disk, of which it says nothing: that entry is the sample's "df
+# answered nothing", with no figure and a `why`, as console/tests/disk.rs plants
+# it. The path is not under `$T`: two paths of one file system are one entry
+# (console/ops/src/disk.rs, same_dev), so a scratch under `$T` would be folded
+# into the home's entry. The same rule folds the home and /tmp (TMPDIR above).
 t_stub df 'case "$*" in
   *scratch) exit 1 ;;
 esac
