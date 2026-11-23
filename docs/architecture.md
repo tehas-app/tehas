@@ -16,7 +16,7 @@ so a test that moves does not lower a count it did not fix.
 
 | Knowledge | Check | Owner today | Known elsewhere (count) | Owner under v2 |
 | --- | --- | --- | --- | --- |
-| GitHub's REST paths, GraphQL, the API host | `github-rest` | the forge, for labels only (`console/core/src/forge.rs`, `forge/`) | 846, with GitHub's JSON fields and `--json`/`--jq`: the console 240, dispatch 225, ops 98, cycle 93, the front pages 69, mcp 38, store 37, core 21, analytics 8, xtask 6 | the GitHub adapter of the three ports (T4) |
+| GitHub's REST paths, GraphQL, the API host | `github-rest` | the forge's GitHub adapter, for labels only (`console/github/`; its runner in `console/core/src/forge.rs` until T4.11) | 846, with GitHub's JSON fields and `--json`/`--jq`: the console 240, dispatch 225, ops 98, cycle 93, the front pages 69, mcp 38, store 37, core 21, analytics 8, xtask 6 | the GitHub adapter of the three ports (T4) |
 | Running `gh` | `gh-argv` | the forge's `GhRunner` | 408: dispatch 207, cycle 67, the console 62, ops 34, core 13, store 11, mcp, xtask 4 each | the GitHub adapter; the security shims a written floor if they stay |
 | State labels and markers (`tehas:...`) | `label-words` | none; `host/labels.tsv` is the list | 1878, with `needs-human-attention` and `epic`: dispatch 1010, cycle 228, core 189, the console 184, ops 137, store 70, the front pages 34, mcp 21 | one module in core, checked against `host/labels.tsv` (T2) |
 | The `$TEHAS_HOME` layout: `state/`, `live/`, `run/` | `home-layout` | none | 1356: dispatch 341, cycle 278, ops 238, store 145, the console 124, analytics 98, proxy 31, contractor, core 25 each, `install.sh` 21, mcp 16, the units 5 | `Home` (T5); bash asks it (T8) |
@@ -44,7 +44,7 @@ The traits that stand between the code and an outside system today.
 
 | Trait | File | Abstracts | In our terms | Fake |
 | --- | --- | --- | --- | --- |
-| `Forge` | `console/core/src/forge.rs` | labels: what an issue carries, the newest event, who applied it, add, remove | yes | none: its tests stub `GhRunner` |
+| `Forge` | `console/core/src/forge.rs`, its GitHub adapter in `console/github/` | labels: what an issue carries, the newest event, who applied it, add, remove | yes | none: the adapter's tests stub `GhRunner` |
 | `GhRunner` | `console/core/src/forge.rs` | running `gh` for the forge | no: argv | stubbed `gh` runner in tests |
 | `GitHub` | `console/core/src/access.rs` | a collaborator's permission | partly | in `access.rs` tests |
 | `Net` | `console/attach/src/take.rs` | fetching an issue's files | yes | in attach's tests |
@@ -111,6 +111,12 @@ events module: a string literal equal to a name, quotes included, counts
 anywhere else in `console/`, comments too. Code names `Name::CycleEnded`;
 a test that needs a name in JSON takes it from `Name::as_str`. A new name
 joins the pattern in the pull request that adds it.
+
+`adapter-wiring` (R8, T4.2) holds the GitHub adapter, `tehas-github`, to
+the wiring of the programs: a line that names `tehas_github` counts
+anywhere in `console/` but the adapter and a program's `src/main.rs`. Its
+count is the callers of `GitHub::new` that have not moved behind the
+ports yet, each named in the check's why; it is 0 at T4.11.
 
 ## Write guards
 

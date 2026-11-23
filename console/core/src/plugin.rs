@@ -262,12 +262,17 @@ pub fn point(when: When, name: Name) -> String {
 /// The 1.x word of the one hook, refused with no alias.
 const OLD_HOOK: &str = "hook:after:work";
 
-/// Whether a word is a capability of a later tehas.
+/// The merge: a gate whose only policy in 2.x is a person. A later release
+/// may open it behind an explicit owner setting.
+const MERGE: &str = "merge";
+
+/// Whether a word is a capability of a later tehas. `answer:<kind>` comes in
+/// 2.1: one plugin per kind, and a person's answer wins.
 fn reserved(word: &str) -> bool {
-    ["gate:", "net:", "hook:"]
+    ["gate:", "net:", "hook:", "answer:"]
         .iter()
         .any(|front| word.starts_with(front))
-        || matches!(word, "factory-read" | "factory-sessions")
+        || matches!(word, "factory-read" | "factory-sessions" | MERGE)
 }
 
 /// The capability of one word. `granted` is whether it is a grant, which
@@ -358,6 +363,11 @@ fn cap(word: &str, granted: bool) -> Result<(Cap, Option<u64>), String> {
     }
     if word == OLD_HOOK {
         return Err(format!("{word}: the word is now {}", Cap::HOOK.ask()));
+    }
+    if word == MERGE {
+        return Err(format!(
+            "{word} is reserved: the merge is a person's, and no plugin is granted it in this release"
+        ));
     }
     if reserved(word) {
         return Err(format!("{word} {V2}"));
@@ -841,6 +851,26 @@ mod tests {
                 format!("{word} is reserved for plugins v2")
             );
         }
+    }
+
+    #[test]
+    fn the_merge_is_no_grant_and_an_answer_waits_for_2_1() {
+        let merge = "merge is reserved: the merge is a person's, and no plugin is granted it in this release";
+        assert_eq!(grants(&format!("{C} view merge")).unwrap_err(), merge);
+        assert_eq!(ask("merge").unwrap_err(), merge);
+        for word in ["answer:park", "answer:plan"] {
+            assert_eq!(
+                grants(&format!("{C} {word}")).unwrap_err(),
+                format!("{word} is reserved for plugins v2")
+            );
+        }
+        let got = compare(&words(&["merge", "answer:park"]), None, C);
+        assert_eq!(
+            got.reserved,
+            [merge, "answer:park is reserved for plugins v2"]
+        );
+        assert!(got.unknown.is_empty());
+        assert!(!got.granted());
     }
 
     fn words(asks: &[&str]) -> Vec<String> {
