@@ -141,12 +141,13 @@ fn prepare_makes_every_label_of_the_table_and_one_that_fails_stops_none() {
     let (mut gh, asked) = adapter(answers);
     assert_eq!(
         gh.prepare(),
-        Err(Unprepared {
-            mark: Some(specs[2].name.clone()),
-            why: Outcome::Unavailable {
+        Err({
+            let mut u = Unprepared::new(Outcome::Unavailable {
                 why: Passing::Server,
-                sent: Sent::Maybe
-            }
+                sent: Sent::Maybe,
+            });
+            u.mark = Some(specs[2].name.clone());
+            u
         })
     );
     let asked = asked.borrow();

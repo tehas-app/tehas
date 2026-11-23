@@ -601,6 +601,7 @@ pub trait Tickets: Reports + Cites {
 
 /// What `prepare` could not do.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Unprepared {
     /// The first mark it could not make; None when the site failed before
     /// it tried one.
@@ -608,6 +609,8 @@ pub struct Unprepared {
     /// Why.
     pub why: Outcome,
 }
+
+new!(Unprepared { why: Outcome }, mark);
 
 impl From<Outcome> for Unprepared {
     fn from(why: Outcome) -> Unprepared {

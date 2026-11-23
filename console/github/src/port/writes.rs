@@ -39,10 +39,9 @@ impl TicketWrites for GitHub {
         for spec in table::specs() {
             let made = self.ensure_mark(&spec);
             if let (Ok(()), Err(why)) = (&first, made) {
-                first = Err(Unprepared {
-                    mark: Some(spec.name.clone()),
-                    why,
-                });
+                let mut unprepared = Unprepared::new(why);
+                unprepared.mark = Some(spec.name.clone());
+                first = Err(unprepared);
             }
         }
         first
