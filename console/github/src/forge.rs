@@ -112,6 +112,10 @@ pub struct GitHub {
     pub(crate) now: fn() -> i64,
     /// Mark names the site gave that no mark can have, not yet taken.
     pub(crate) left_out: Vec<String>,
+    /// The factory's own account, given by the site that made this handle:
+    /// None for a handle made with [`GitHub::new`], which answers no account
+    /// `Ours`.
+    pub(crate) bot: Option<crate::tickets::Bot>,
 }
 
 impl GitHub {
@@ -128,6 +132,7 @@ impl GitHub {
             runner,
             now: tehas_core::time::now,
             left_out: Vec::new(),
+            bot: None,
         }
     }
 

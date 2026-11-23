@@ -29,7 +29,8 @@ impl GitHub {
         let out = self.issue_answer(issue).map_err(|e| self.outcome(&e))?;
         let labels = gh::parse_labels(&out).ok_or(Outcome::Unread(Unread::Malformed))?;
         let marks = self.read_marks(&labels).into_iter().flatten().collect();
-        read_digest(&out, key.clone(), marks).ok_or(Outcome::Unread(Unread::Malformed))
+        read_digest(&out, key.clone(), marks, self.bot.as_ref())
+            .ok_or(Outcome::Unread(Unread::Malformed))
     }
 
     /// A ticket's marks going on and off, oldest first, as `Tickets::history`
@@ -74,7 +75,7 @@ impl GitHub {
                 )),
             };
             let mut event = TicketEvent::new(what);
-            event.by = account(&e.actor, &facts);
+            event.by = account(&e.actor, &facts, self.bot.as_ref());
             event.at = at;
             items.push(event);
         }
@@ -128,7 +129,12 @@ fn number(key: &TicketKey) -> Got<u64> {
 
 /// The digest of an issue's REST read, its marks read already. None for an
 /// answer that lacks a field every issue has.
-fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDigest> {
+fn read_digest(
+    out: &str,
+    key: TicketKey,
+    marks: Vec<Mark>,
+    bot: Option<&Bot>,
+) -> Option<TicketDigest> {
     let mut v: Value = serde_json::from_str(out.trim()).ok()?;
     tehas_core::accounts::vouch(&mut v);
     let text = |k: &str| v.get(k).and_then(Value::as_str);
@@ -163,7 +169,7 @@ fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDige
             id: u.get("id").and_then(Value::as_u64),
             kind: u.get("type").and_then(Value::as_str).map(str::to_string),
         };
-        account(u.get("login")?.as_str()?, &facts)
+        account(u.get("login")?.as_str()?, &facts, bot)
     });
     let mut digest = TicketDigest::new(
         key,
@@ -181,13 +187,53 @@ fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDige
     Some(digest)
 }
 
+/// The factory's own account, as a site gives it to the handles it makes:
+/// its login as `accounts::account` keys it, folded, and its user id once
+/// known. A handle made without a site has none and answers no account
+/// `Ours`.
+#[derive(Clone, Debug)]
+pub(crate) struct Bot {
+    login: String,
+    pub(crate) id: Option<u64>,
+}
+
+impl Bot {
+    /// The bot of this login, in any of the App's spellings. A login that is
+    /// empty or only the App's marks names nobody and matches no account.
+    pub(crate) fn new(login: &str) -> Bot {
+        let login = tehas_core::accounts::folded(tehas_core::accounts::account(login));
+        let named = !matches!(login.as_str(), "[bot]" | "app/");
+        Bot {
+            login: if named { login } else { String::new() },
+            id: None,
+        }
+    }
+
+    /// Whether the account of `login` and `facts` is this bot: the login,
+    /// folded in any of the App's spellings, is the bot's, and where the
+    /// bot's id is known the account carries that id. An account GitHub
+    /// types a user is never the App's: a person may hold the slug the
+    /// App's `<slug>[bot]` folds to.
+    fn is(&self, login: &str, facts: &gh::Facts) -> bool {
+        let same_id = match (self.id, facts.id) {
+            (Some(ours), id) => id == Some(ours),
+            (None, _) => true,
+        };
+        same_id
+            && facts.kind.as_deref() != Some("User")
+            && tehas_core::accounts::factorys(&tehas_core::accounts::folded(login), &self.login)
+    }
+}
+
 /// The account of an event, None where it names nobody. The login is folded
-/// to lower case, as GitHub compares logins.
-fn account(login: &str, facts: &gh::Facts) -> Option<Account> {
+/// to lower case, as GitHub compares logins. It is `Ours` where it is the
+/// site's `bot`.
+fn account(login: &str, facts: &gh::Facts, bot: Option<&Bot>) -> Option<Account> {
     if login.is_empty() {
         return None;
     }
     let kind = match facts.kind.as_deref() {
+        _ if bot.is_some_and(|b| b.is(login, facts)) => AccountKind::Ours,
         Some("User") => AccountKind::Person,
         Some("Bot") => AccountKind::Bot,
         _ => AccountKind::Unknown,
