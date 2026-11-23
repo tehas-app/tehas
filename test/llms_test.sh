@@ -33,9 +33,8 @@ done
 t_case "mcp-server.md: has a client config block"
 t_contains "$(cat "$T_ROOT/host/docs/mcp-server.md")" '"headers"'
 
-# Since TEHAS_DESIGN the root is the factory floor only with TEHAS_DESIGN=pixel;
-# with the default design it is the business page. /floor and /business are
-# there in both designs, so a manual page names the page it means. The rule is
+# The root is the factory floor, and so is /floor. A manual page names the
+# floor at /floor, the address that has meant it in every version. The rule is
 # about Markdown links; a page's own navigation is HTML and not a link a reader
 # is told to follow.
 root_re='\]\((\{\{ \$base \}\})?/\)'
@@ -50,7 +49,7 @@ grep -qiE -- "$root_re" <<< 'a [Factory floor]({{ $base }}/) link in a template'
 grep -qiE -- "$root_re" <<< '[factory floor](/floor) and [x]({{ $base }}/health) and [x](/dashboard)' \
   && t_bad "the pattern matches a link that is not the root"
 
-t_case "no manual page links the root, which is the floor in one design only"
+t_case "no manual page links the root: it names the floor at /floor"
 roots=$(grep -rinE -- "$root_re" "$T_ROOT/host/docs" || true)
 [ -z "$roots" ] || t_bad "links the root: $roots"
 

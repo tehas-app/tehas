@@ -84,25 +84,15 @@
             header Cache-Control "no-store"
             file_server
         }
-        # The instance's design (TEHAS_DESIGN) picks the front page: the
-        # business page for beesknees26, the default, and the factory floor for
-        # pixel. Both are always at /business and /floor too. Static pages are
-        # outside both; their assets stay under /fun/. The plain dashboard is
-        # at /dashboard.
+        # The front page is the factory floor, also at /floor, drawn in the
+        # instance's design (TEHAS_DESIGN). Static pages are outside it; their
+        # assets stay under /fun/. The plain dashboard is at /dashboard.
         redir /fun /
         redir /fun/ /
         # The pages keep their names and are revalidated every time: install.sh
         # may have replaced them, and a page is small enough to ask about. The
         # scripts and stylesheets it names keep their content under a hashed
         # name, cached for ever, which is why a page is never cached.
-        @business expression `path('/business') || (path('/') && "{$TEHAS_DESIGN:beesknees26}" != "pixel")`
-        handle @business {
-            root * /srv/fun
-            rewrite * /business.html
-            header Cache-Control "no-cache"
-            templates
-            file_server
-        }
         @front path / /floor
         handle @front {
             root * /srv/fun

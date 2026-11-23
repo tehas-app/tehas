@@ -5,7 +5,7 @@
 //   node --test test/analytics_view_test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { analyticsView, dueToRead, duration, percent, READ_EVERY, tokens } from "../host/fun/analytics-data.js";
+import { analyticsView, duration, percent, tokens } from "../host/fun/analytics-data.js";
 
 const days = (rows) => Array.from({ length: 10 }, (_, i) => ({
   day: `2026-10-${15 + i}`, shipped: 0, runs: 0, failed: 0, minutes: 0, ...(rows[i] || {}),
@@ -145,12 +145,4 @@ test("formats", () => {
   assert.deepEqual([duration(45), duration(750), duration(43400), duration(734400), duration(-1)],
     ["45 s", "13 min", "12.1 h", "8.5 d", "-"]);
   assert.deepEqual([tokens(950), tokens(6650), tokens(1234567), tokens(2.5e9), tokens(null)], ["950", "6.7k", "1.2M", "2.5G", "-"]);
-});
-
-test("the file is read at most once a minute, and not while the page is hidden", () => {
-  const now = 1_000_000_000;
-  assert.equal(dueToRead({}, now), true);
-  assert.equal(dueToRead({ hidden: true }, now), false);
-  assert.equal(dueToRead({ readAt: now - 1000 }, now), false);
-  assert.equal(dueToRead({ readAt: now - READ_EVERY * 1000 }, now), true);
 });

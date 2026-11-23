@@ -1,6 +1,6 @@
 // Tests the pure steps of the dock: bridge(), from the host bridge's menu to
 // its items, and plugins(), from live/plugins.json to the items of the
-// plugins menu both front pages draw after them.
+// plugins menu the front page draw after them.
 //
 //   node --test test/dock_menu_test.mjs
 import assert from "node:assert/strict";
