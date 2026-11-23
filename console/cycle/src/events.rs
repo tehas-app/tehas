@@ -437,11 +437,14 @@ mod tests {
     }
 
     // The 1.x hook asked when the cycle was not signalled, not refused, and
-    // named a change; the bridge then asked only for one still open.
+    // named a change; the bridge then asked only for one still open. The
+    // event is narrower in one case: a line that ends `refused` by its exit
+    // status alone (64, 78 and the rest of REFUSED_EXITS) is not offered,
+    // where 1.x asked when the report did not refuse the start.
     #[test]
-    fn every_1x_case_offers_a_change_exactly_when_the_hook_was_asked() {
+    fn every_1x_case_offers_a_change_as_the_hook_was_asked_but_a_refused_exit() {
         type Case = (&'static str, fn(&mut HistoryRow), bool);
-        let cases: [Case; 6] = [
+        let cases: [Case; 7] = [
             ("left a change", |r| r.pr = Some(21), true),
             ("no change", |_| {}, false),
             (
@@ -457,6 +460,14 @@ mod tests {
                 |r| {
                     r.pr = Some(21);
                     r.status = Some("refused".into());
+                    r.rc = Some(78);
+                },
+                false,
+            ),
+            (
+                "refused by its exit status alone",
+                |r| {
+                    r.pr = Some(21);
                     r.rc = Some(78);
                 },
                 false,
