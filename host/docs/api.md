@@ -127,7 +127,7 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
-  "features": ["status", "millwright-grant", "limit", "drain", "history", "export", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "state-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-start", "flags", "status-previews", "wake", "start-reasons", "blockers", "answer", "question"],
+  "features": ["status", "limit", "drain", "history", "export", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "state-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-start", "flags", "status-previews", "wake", "start-reasons", "blockers", "answer", "question"],
   "flags": {"spec-pipe": false, "lean": false, "plugins": false},
   "millwright": null,
   "poll": {
@@ -152,7 +152,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` or `v1.0.0-alpha.1` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status` ([`tehas status --json`](#tehas-status---json)), `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `limit` ([`tehas limit`](#tehas-limit)), `drain` ([`tehas drain`](#tehas-drain)), `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `analytics` ([`tehas analytics copy --json`](#tehas-analytics-copy)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` (the hourly cleaner runs on this host, [`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)), `state-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)), `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message), shown by health, `tehas status`, the MCP server and the dashboard), `refresh-pr` ([`tehas refresh --pr N`](/tools-github#tehas-refresh) asks for the refresh of one pull request, `--json` prints what it asked as one object, and the dispatcher starts it in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `host-start` ([`tehas start`](#tehas-start) approves an issue from the host), `flags` (the object below is there), `status-previews` (`previews` in [`tehas status --json`](#tehas-status---json)), `wake` ([`tehas wake`](#tehas-wake) asks for a poll now), `start-reasons` (`starts` in [`tehas order --json`](#tehas-order)), `blockers` ([`tehas blockers`](#tehas-blockers)), `answer` ([`tehas answer`](#tehas-answer)) and `question` ([`tehas question`](#tehas-question)). A shipped optional feature adds its name of `flags` here; a building one does not |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status` ([`tehas status --json`](#tehas-status---json)), `limit` ([`tehas limit`](#tehas-limit)), `drain` ([`tehas drain`](#tehas-drain)), `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `analytics` ([`tehas analytics copy --json`](#tehas-analytics-copy)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` (the hourly cleaner runs on this host, [`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)), `state-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)), `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message), shown by health, `tehas status`, the MCP server and the dashboard), `refresh-pr` ([`tehas refresh --pr N`](/tools-github#tehas-refresh) asks for the refresh of one pull request, `--json` prints what it asked as one object, and the dispatcher starts it in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `host-start` ([`tehas start`](#tehas-start) approves an issue from the host), `flags` (the object below is there), `status-previews` (`previews` in [`tehas status --json`](#tehas-status---json)), `wake` ([`tehas wake`](#tehas-wake) asks for a poll now), `start-reasons` (`starts` in [`tehas order --json`](#tehas-order)), `blockers` ([`tehas blockers`](#tehas-blockers)), `answer` ([`tehas answer`](#tehas-answer)) and `question` ([`tehas question`](#tehas-question)). A shipped optional feature adds its name of `flags` here; a building one does not |
 | `flags` | Every optional feature of the release and whether this instance has it on, `true` or `false`. A feature still being built is always `false` and its switch set to `on` stops every command with exit 78. Only a shipped feature's key is contract: a building feature's key may change or go until the release that ships it, and `api/api.schema.json` requires only the keys of shipped features. Today `spec-pipe` (`TEHAS_SPEC_PIPE`, still being built: the `Spec:` line of an issue, [the feature list](/features)), `lean` (`TEHAS_LEAN`, still being built: [choosing the driver](/operating#choosing-the-driver)) and `plugins` (`TEHAS_PLUGIN`, still being built: [what it leaves visible](/contract#plugins)) |
 | `millwright` | The app's login, or `null` before it is known |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
@@ -276,8 +276,8 @@ old before `stale` is true. A program that acts on a free slot or an idle
 issue reads `age` first.
 
 `demand.waiting` is not the exact count of what would start: the poll still
-checks, at a start, that the text is unchanged since the label, that no open
-pull request closes the issue, and the millwright's grant.
+checks, at a start, that the text is unchanged since the label and that no
+open pull request closes the issue.
 
 The source holds a JSON Schema of this object, `api/status.schema.json`, and
 samples made by the code that prints it, `api/status.busy.json`,
@@ -436,7 +436,7 @@ logged that no code names, with its line in `text`.
 | `text-changed` | Its title or text changed since its approval |
 | `not-allowed` | Its label was applied by an account that may not authorise work |
 | `label-off` | Its label was taken off since it was applied |
-| `millwright` | Is held by a rule of the millwright's grant |
+| `millwright` | Is held by a rule of the millwright's epics |
 | `driver` | Is held by the choice of driver, a retry of a lean park included |
 | `attachment` | Is held by an attachment its text links, or by text that says a file goes there and links none |
 | `spec` | Is held by its spec block or `Spec:` line |
@@ -554,8 +554,7 @@ The start comment on the issue, [`tehas history`](#tehas-history) (`"how":
 killed before it reported keeps its record open with its lock free; `tehas
 status` says so, `killed before it reported: tehas stop N ends its record`,
 in place of `running`. The
-millwright may retry such a cycle as one a person's label started, and may
-ask for its finish.
+millwright may ask for its finish as for one a person's label started.
 
 Exit 0 recorded, taken back or nothing to take back; 1 GitHub did not answer,
 or the store refused; 3 GitHub has no open issue of that number (none, a pull
@@ -825,7 +824,7 @@ cycle](/operating#finishing-a-stopped-cycle) is the whole of it.
 | --- | --- |
 | Marker | The comment's first line, `<!-- tehas:millwright issue=<n> action=finish -->`, with the issue's own number. The rest of the comment, trimmed, is the reason, which goes into the draft's body. An empty one is refused. The asker's newest such comment, written in the ten minutes before the label and edited by nobody after it, is the one read |
 | Label | `tehas:finish`, which `tehas labels` creates. Who applied it is read from the issue's label events, never from the label alone |
-| Rules | An account of `TEHAS_ALLOWED_LABELERS` may ask. The millwright may ask within [its grant](/operating#the-millwrights-grant): a person approved a cycle of the issue, the body is the one they approved, nobody outside the list changed the title or text since, and its starts on the issue are no more than `TEHAS_MILLWRIGHT_MAX_RETRIES`. No cycle of the issue may be running. An ask of anyone else is ignored and the label stays |
+| Rules | An account of `TEHAS_ALLOWED_LABELERS` may ask. [The millwright](/operating#the-millwright) may ask when a person approved a cycle of the issue, the body is the one they approved, and nobody outside the list changed the title or text since. No cycle of the issue may be running. An ask of anyone else is ignored and the label stays |
 | Reply | One comment of the bot's. `<!-- tehas:finish issue=<n> result=opened -->` and the draft's URL, or `<!-- tehas:finish issue=<n> result=refused -->` and the one line of why. Either way the label is off and no cycle started |
 | Record | One line of `dispatch.log`, which the MCP server's `factory_decisions` answers as the decision `finish`: `finish #<n>: opened <url>, asked by <who> (<label or millwright>): <reason>`, or `finish #<n>: refused, asked by <who>: <why>` |
 

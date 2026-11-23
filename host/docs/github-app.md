@@ -220,7 +220,7 @@ line that sets one stops every command with exit 78; take them out too.
 - The dispatcher and the refresh take the bot's login from
   `~/tehas/state/github/login`, because an installation token cannot ask
   GitHub who it is. The millwright is that same login (see
-  [the millwright's grant](/operating#the-millwrights-grant)).
+  [the millwright](/operating#the-millwright)).
 - When a new token finds the app renamed (see
   [the commands page](/tools-github)), the bot's user id in
   `~/tehas/state/account-ids` is recorded under the new login before
@@ -322,9 +322,6 @@ GraphQL carry the id of their label:
   that carries it waits as it would for an allowed account's, on the marked
   comment or on the label alone. A refused pin never lets an issue start
   sooner.
-
-`tehas labels` pins `tehas:prototype` the same way. The dispatcher does not
-act on it.
 
 A label renamed into a granting name, for example a person's `bug` renamed to
 `tehas:ready`, therefore grants nothing: its old applications carry the id of

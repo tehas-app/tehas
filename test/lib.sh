@@ -1075,9 +1075,6 @@ t_record() { # <home> <issue> <JSON>
   if { [ "$t_how" = millwright ] || [ "$t_how" = refresh ]; } && [ -n "$t_base" ]; then
     _t_used "$(jq -r .by <<<"$t_base")" "$(jq -r .how <<<"$t_base")" "$(date -u -d "$(jq -r .at <<<"$t_base")" +%s)" \
       --body-sha "$(jq -r .body_sha256 <<<"$t_base")"
-    t_count=$(jq -r '.fixer_starts // 0' <<<"$t_j")
-    [ "$t_how" != millwright ] || t_count=$((t_count - 1))
-    for ((t_k = 0; t_k < t_count; t_k++)); do _t_used tehas-millwright millwright $((t_last + 10)); done
     if [ "$t_how" = refresh ]; then
       t_count=$(jq -r '.refreshes // 1' <<<"$t_j")
       for ((t_k = 1; t_k < t_count; t_k++)); do
