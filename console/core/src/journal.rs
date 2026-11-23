@@ -31,11 +31,31 @@ pub enum Wrote {
 /// How a write of the ports ended (`Journal::send`).
 #[derive(Debug, PartialEq)]
 pub enum Journaled {
-    /// The site's answer. `Unavailable { sent: Maybe }` leaves the row
-    /// unknown: never sent again on it, a read settles it first.
+    /// The site's answer, and the row settled by it.
     Answered(Got<Receipt>),
+    /// The site may have taken it: `Unavailable { sent: Maybe }` or an
+    /// answer that could not be read. The row is left unknown, never sent
+    /// again on it: the caller's read settles it with [`Journal::settle`].
+    Unknown { answer: Outcome, row: RowId },
     /// Not sent: the journal could not record it.
     Unrecorded,
+}
+
+/// A row `Journal::send` left unknown. Only `send` makes one, and
+/// [`Journal::settle`] takes it, so a row the site's answer settled is never
+/// settled again, and an unknown row is settled once.
+#[derive(Debug, PartialEq, Eq)]
+pub struct RowId(String);
+
+/// What the caller's read found of a write left unknown, by the settle rule
+/// of its kind (the ports spec, "How a row left unknown is settled").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Found {
+    /// The write is there: the row is done.
+    Landed,
+    /// It is not: the row is closed as not sent, and the caller decides
+    /// afresh from the same read. Nothing is replayed from the row.
+    NotSent,
 }
 
 /// The store's answer to one call, or its failure.
@@ -160,7 +180,28 @@ impl Journal<'_> {
             ) => "read-failed",
         };
         let _ = store(&["journal-settle", "--action", &id, "--result", result]);
-        Journaled::Answered(answer)
+        match answer {
+            Err(answer) if result == "unknown" => Journaled::Unknown {
+                answer,
+                row: RowId(id),
+            },
+            answer => Journaled::Answered(answer),
+        }
+    }
+
+    /// Settles a row `send` left unknown from the caller's read. A read that
+    /// failed settles nothing: the row stays unknown for the next read, and
+    /// the poll's settle leaves a row of the ports open until it reads them.
+    /// False when the store did not take it: the row stays as it was.
+    pub fn settle(store: Store, row: RowId, found: Found) -> bool {
+        let RowId(id) = row;
+        let end: &[&str] = match found {
+            Found::Landed => &["--result", "ok"],
+            Found::NotSent => &["--abandoned"],
+        };
+        let mut asked = vec!["journal-settle", "--action", &id];
+        asked.extend_from_slice(end);
+        store(&asked).is_ok()
     }
 
     /// Records one action as intended, then attempted, and answers its id.
@@ -605,10 +646,71 @@ mod tests {
             let mut j = journal(&mut at, &mut no_row, "true", None);
             let mut w = script(vec![answer.clone()]);
             let got = j.send(&mut |a| taken(&mut asked, a), &note(), &mut w, &NoBlobs);
-            assert_eq!(got, Journaled::Answered(answer));
             let settle = asked.iter().find(|a| a[0] == "journal-settle").unwrap();
             assert_eq!(flag(settle, "--result"), result);
+            match (answer, got) {
+                (Err(answer), Journaled::Unknown { answer: got, row }) => {
+                    assert_eq!(result, "unknown");
+                    assert_eq!((got, row), (answer, RowId("7".into())));
+                }
+                (answer, got) => {
+                    assert_ne!(result, "unknown");
+                    assert_eq!(got, Journaled::Answered(answer));
+                }
+            }
         }
+    }
+
+    /// The caller's read settles the row the site's answer left unknown:
+    /// done when the write is there, abandoned when it is not, and the
+    /// row's own id is named.
+    #[test]
+    fn a_row_left_unknown_is_settled_by_the_callers_read() {
+        let maybe = Outcome::Unavailable {
+            why: Passing::Server,
+            sent: Sent::Maybe,
+        };
+        for (found, end) in [
+            (Found::Landed, vec!["--result", "ok"]),
+            (Found::NotSent, vec!["--abandoned"]),
+        ] {
+            let (mut at, mut no_row, mut asked) = (9, false, vec![]);
+            let mut j = journal(&mut at, &mut no_row, "true", Some((7, 1)));
+            let mut w = script(vec![Err(maybe.clone())]);
+            let got = j.send(&mut |a| taken(&mut asked, a), &note(), &mut w, &NoBlobs);
+            let Journaled::Unknown { row, .. } = got else {
+                panic!("{got:?}");
+            };
+            assert!(Journal::settle(&mut |a| taken(&mut asked, a), row, found));
+            let last = asked.last().unwrap();
+            let mut want = vec!["journal-settle", "--action", "7"];
+            want.extend(end);
+            assert_eq!(last, &want);
+            // The send's own settle left it unknown first.
+            let settles: Vec<_> = asked.iter().filter(|a| a[0] == "journal-settle").collect();
+            assert_eq!(settles.len(), 2);
+            assert_eq!(flag(settles[0], "--result"), "unknown");
+        }
+    }
+
+    /// A row the site's answer settled gives the caller no id, so nothing
+    /// settles it again; a store that refuses a settle is the caller's to
+    /// hear.
+    #[test]
+    fn only_a_row_left_unknown_can_be_settled_again() {
+        for answer in [Ok(Receipt::Done), Err(Outcome::Refused(Refusal::Invalid))] {
+            let (mut at, mut no_row, mut asked) = (9, false, vec![]);
+            let mut j = journal(&mut at, &mut no_row, "true", None);
+            let mut w = script(vec![answer.clone()]);
+            let got = j.send(&mut |a| taken(&mut asked, a), &note(), &mut w, &NoBlobs);
+            assert_eq!(got, Journaled::Answered(answer));
+        }
+        let refused = Journal::settle(
+            &mut |_| Err(json!({"refused": "is settled already (done)"})),
+            RowId("4".into()),
+            Found::Landed,
+        );
+        assert!(!refused);
     }
 
     #[test]
