@@ -36,7 +36,19 @@ pub fn records(home: &Path) -> PathBuf {
     Home::new(home).state(State::ReadOnly)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// A test's $TEHAS_HOME, so that a test changes no variable of the
+    /// process the other tests share.
+    pub(crate) static TEST_HOME: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 fn home() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(h) = TEST_HOME.with(|h| h.borrow().clone()) {
+        return Some(h);
+    }
     std::env::var_os("TEHAS_HOME")
         .filter(|h| !h.is_empty())
         .map(PathBuf::from)
@@ -50,6 +62,14 @@ pub fn refuse(what: &str) -> bool {
     if !on() {
         return false;
     }
+    tell(what);
+    true
+}
+
+/// Say that `what` is not done, and keep the line in `state/read-only.log`
+/// of $TEHAS_HOME: what [`refuse`] does under the setting, for a writer
+/// that is read-only by its own answer.
+pub fn tell(what: &str) {
     let l = line(what);
     let mut err = io::stderr();
     let _ = writeln!(err, "{l}");
@@ -67,7 +87,6 @@ pub fn refuse(what: &str) -> bool {
             );
         }
     }
-    true
 }
 
 fn append(log: &Path, text: &str) -> io::Result<()> {
@@ -212,6 +231,17 @@ mod tests {
             "read-only: would issue edit o/r#7"
         );
         assert_eq!(line("a\tb\nc"), "read-only: would a b c");
+    }
+
+    #[test]
+    fn a_told_write_is_kept_in_the_log() {
+        let h = dir("tell");
+        TEST_HOME.with(|t| *t.borrow_mut() = Some(h.clone()));
+        tell("send Mark");
+        TEST_HOME.with(|t| *t.borrow_mut() = None);
+        let log = fs::read_to_string(log_path(&h)).unwrap();
+        assert!(log.ends_with("\tread-only: would send Mark\n"), "{log}");
+        let _ = fs::remove_dir_all(&h);
     }
 
     #[test]
