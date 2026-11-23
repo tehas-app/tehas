@@ -608,6 +608,7 @@ release that ships it:
 | `island.js` | The island base: attributes, the hydrate trigger, the mount and the disposal, the events. No library |
 | `feed.js` | The feed store ([Feeds](#feeds)) |
 | `stream.js` | The stream source ([Streams](#streams)) |
+| `events.js` | The factory's events on a page: `events`, `names` and `raise` ([Events](/api#events)). No library |
 | `press.js` | Presses ([Presses](#presses)). No library |
 | `request.js` | What the kit's modules that make requests share about a request and its answer. No library |
 | `state.js` | Page stores ([Page state](#page-state)), and `shared(key, make)`, one value per key per page under the page's owner |

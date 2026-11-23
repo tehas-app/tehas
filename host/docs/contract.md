@@ -93,13 +93,14 @@ other issue the poll takes it off, as it does an outsider's.
 | Commands | The `tehas` commands, their subcommands and the flags of each, but the flags marked `internal` | `api/commands.txt`, held to the commands tehas knows and to the synopsis lines of each command's text by the tests of `console/src/front.rs` |
 | Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
 | Labels | The rows of `host/labels.tsv`: the name, what the dispatcher does with it, and the word of the ports it is (the fourth column, such as `State::Running`) | The dispatcher's and the tidy's tests, and the table's own test in `console/src/labels.rs` |
-| Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 30 | The store's migration tests |
+| Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 31 | The store's migration tests |
 | analytics.db | `user_version` 7, tables and columns only added | `console/analytics/src/schema.pinned` |
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints, and the tests of `console/src/front.rs`, which fail when a public `--json` row of `api/commands.txt` has no schema |
 | MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
 | `tehas update` | From 1.4.x to 2.0 ([Upgrading to 2.0](#upgrading-to-20)). The release repository and the signing key are built into tehas: the `TEHAS_RELEASE_REPO` line of `host/versions.env` and `host/release/minisign.pub` when the release was built. An instance may name another repository with `TEHAS_RELEASE_REPO` in `instance.env`; the key stays the built-in one | The update's tests, and the tests of `console/core/src/release.rs` |
 | Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x; a renamed name is taken under both names through 2.x | `console/cycle/tests/work_container.rs` |
+| Events | The envelope's `api` 1, the names in `api/events.txt`, and the fields of the envelope and of each payload in `api/event*.schema.json`: names and fields only added in 2.x | `console/tests/events_contract.rs`, which writes the samples from the code and holds them to the schemas, and `test/kit_events_test.mjs`, which holds the kit's names to `api/events.txt` |
 | Host namespace | `/host/` on the factory's origin belongs to the host that fronts the factory's domain: tehas never serves a path under it, and its docs server answers 404 there, which the dashboard reads as no host. The host bridge, `/host/bridge.json`, is `bridge: 1`, by `api/host-bridge.schema.json` and [its rules](/api#the-host-bridge) | `console/tests/host_bridge.rs` (the 404 under `/host/`, the schema and its samples), `test/json_contract_test.sh`, `test/host_bridge_test.mjs` (what the dashboard keeps of an answer) and `test/dock_test.mjs` (a menu item opens in the dock, and a page item in a new tab with no dock) |
 
 The surface list in `api/` names the frozen surface in one place: each
@@ -132,6 +133,9 @@ a key. `rows` itself is public.
   may be added. An existing field, value or exit status keeps its meaning and
   is never removed. A reader treats an enum value it does not know as
   unknown, not as an error.
+- **Events.** A new event name, a new gate or a new optional field of a
+  payload is added in 2.x. A reader treats an event name it does not know
+  as unknown and skips it, as `tehas-ports` reads it as `Unknown`.
 - **The flow's states.** The states of the status flow and the `why` of a
   held ticket may gain values in 2.x, plugin phases among them. A reader
   treats a state or a `why` it does not know as unknown.
@@ -189,15 +193,20 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
 2. **Run `tehas update`.** It stops and removes the units and files of the
    features 2.0 took out of core, and migrates the state store and analytics.
 3. **The state store** (`state/tehas.db`) goes from schema 23, 1.4.x's, to
-   30 in one run, step by step: 24 adds the answers of `tehas answer`, 25
+   31 in one run, step by step: 24 adds the answers of `tehas answer`, 25
    keeps a stop's question with its choices, 26 lets a cycle's `how` say
    `reply`, 27 rewrites every `retry-tick` to `reply` and marks a question
    open at the upgrade to be asked again, 28 rewrites `fixer` to
    `millwright` and drops `comment_links` from an approval's input, 29 drops
-   the tables of outsource and keeps every other row, and 30 rewrites the
-   how word `label` to `approved`, numbers each question in the store's own
-   order, keeps a withdrawn question with when it was withdrawn, keeps when
-   each history line was written, and gives the store an id.
+   the tables of outsource and keeps every other row, 30 rewrites the how
+   `label` to `approved`, gives each question the store's own number and
+   keeps a withdrawn question with when it was withdrawn instead of deleting
+   it, keeps when each history line was written and whether a signal stopped
+   the cycle, and gives the store its id (`store` of `tehas api`; the step
+   is `STEP_30` in `console/store/src/db.rs`), and 31 adds
+   `cycle_history.reported`, 1 on every row there, as a report wrote each.
+   The analytics' own step at the same update says `offered` where its
+   `runs.outcome` said `pr`.
    `tehas state check --json` prints the schema.
 4. **Analytics** (`state/analytics.db`) goes from schema 4 to 7 the first
    time it is opened after the update: it drops `samples.watts` and
@@ -205,7 +214,7 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
    `millwright` in `runs.how`, and with 7 rewrites `label` to `approved` in
    `runs.how` and `pr` to `offered` in `runs.outcome`.
 5. **pi-rukas.** A checkout follows pi-rukas's 0.15 line
-   (`PI_RUKAS_FOLLOW=release:0.15`). 2.0 needs pi-rukas v0.15.7 or later.
+   (`PI_RUKAS_FOLLOW=release:0.15`). 2.0 needs pi-rukas v0.15.9 or later.
 
 The update to 2.0 is supported from 1.4.x only. A host on an older release
 updates to the newest 1.4.x first.
@@ -267,6 +276,10 @@ line is one of three:
     replaced it or why it went;
   - a value for a setting of a feature still being built, which names the
     feature.
+
+Settings of features removed in 2.0 stay dropped with a warning
+(`IGNORED`) through 2.x, never refused (`RETIRED`), so 2.1 can move them
+into plugin grants and a 2.0 `instance.env` loads under 2.1 unchanged.
 
 ## The commands of other parts
 
@@ -368,10 +381,15 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: a program that answered for a person by ticking a box
   calls `tehas answer`.
 - **`tehas question`, the question an issue waits on.**
-  #2830.
+  #2830, #2929.
   `tehas question <issue> [--json]` prints the question and its choices, each
   in the words `tehas answer` takes. The object is
-  `api/question.schema.json`, the feature word `question`.
+  `api/question.schema.json`, the feature word `question`. `question.comment`
+  is the id of the comment on the issue that asked the question, left out
+  when the store has no comment for it and never null. With no issue it
+  lists the question each issue waits on, and with `--after <id>` every
+  question after that number, answered and withdrawn ones too: the object is
+  `api/questions.schema.json`, the feature word `questions`.
   Readers: the consumer that runs many factories, Obeya, the end-to-end
   suite.
   Adopter action: none.
@@ -695,13 +713,13 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: `tehas update` removes the last `live/panels.json`.
   Leave `~/tehas/state/panels.json` in place: 2.0 no longer reads it, and
   the 2.1 `panels` plugin migrates its pages into its grant.
-- **The state store is at schema 30.**
-  #2794, #2830, #2843, #2867, #2889, #2886, #2911.
-  The steps 24 to 30 are listed under [Upgrading to 2.0](#upgrading-to-20).
-  `tehas state check --json` prints `schema` 30, and `rows` counts the new
-  table `answers` and no longer the tables of outsource. Later 2.x
-  releases migrate the store forward by numbered steps, so a new table in
-  2.1 is an ordinary step.
+- **The state store is at schema 31.**
+  #2794, #2830, #2843, #2867, #2889, #2886, #2911, #2926.
+  The steps 24 to 31 are listed under [Upgrading to 2.0](#upgrading-to-20).
+  `tehas state check --json` prints `schema` 31, and `rows` counts the new
+  table `answers` and no longer the tables of outsource. Later 2.x releases
+  migrate the store forward by numbered steps in the same way, so a new
+  table in 2.1 is an ordinary step.
   Readers: `tehas update`, readers of `tehas state check` and of a state
   copy, the end-to-end suite.
   Adopter action: `tehas update` migrates the store.
@@ -749,7 +767,7 @@ adopter action as the pull request states them.
 
 - **Events.** T11, spec `docs/specs/2026-11-22-events.md`
   (#2878, merged); the build
-  is to come. Notify events, each with a schema in `api/` and a witness in
+  is under way. Notify events, each with a schema in `api/` and a witness in
   the factory API:
 
   | Event | Raised when | Key |
@@ -770,6 +788,15 @@ adopter action as the pull request states them.
   history line, `tehas api --json` prints `store`, and `features` gains
   `cycle-ids`, `questions` and `events`. A further store step and an
   analytics step carry the words.
+  The schemas and the kit (T11.7) add, in `api/`: `events.txt`, the names;
+  `event.schema.json`, the envelope with `when`; `event-page.schema.json`,
+  the envelope a page takes; `event-<name>.schema.json` with a `.full.json`
+  and a `.bare.json` sample per name; the gate's
+  `event-cycle-started-before.schema.json`, the ask of the start gate that
+  2.1 raises; and `gate-answer.schema.json`, `{"api": 1, "answer": "allow" |
+  "refuse", "why": "..."}`, why at most 140 characters. The kit gains
+  `events.js`, which raises an envelope on a page as `tehas:<event>`
+  ([Events](/api#events)). No factory raises an event yet.
   Readers: the consumer that runs many factories, the consumer that reads
   the analytics copies, MCP clients, the end-to-end suite, plugins.
 - **The plugin hook is named by its event.** T11.8. The grant
@@ -779,7 +806,7 @@ adopter action as the pull request states them.
   runs the lean driver; an issue without one runs classic. When lean is
   only the default and refuses the repository's setup, the same cycle runs
   classic, with a host message and one comment on the issue. A lean start
-  on a sandbox image with pi-rukas older than v0.15.7 is refused.
+  on a sandbox image with pi-rukas older than v0.15.9 is refused.
   Readers: adopters, the consumer that runs many factories.
   Adopter action: set `verify.roster`, or `TEHAS_DRIVER=classic`.
 - **The rest of clean house.** T16. Panels and the Business page leave
@@ -902,6 +929,13 @@ The plugin API as 2.0 holds it, for the work of 2.1:
   `pass` and a gate grant with none is refused with 78. After T11.8, 2.0
   takes one, `hook:after:change.offered`, and refuses every other `hook:`
   word as not in this release. The first gate, `hook:before:cycle.started`, comes in 2.1.
+- **What plugins read of an approved body.** `start.approval.bodySha256`
+  of `tehas start --json` and the reader of lean's `pi-spec v1` block,
+  `spec_block` in `console/core/src/plan.rs`, stay through 2.x: the
+  `goldfish` plugin reads the spec from the approved body through them.
+  `bodySha256` is the sha256 of the body with its carriage returns dropped,
+  as `body_sum` in `console/core/src/approval.rs` takes it, so a reader that
+  hashes the body itself drops them too.
 - **Revision 1.6.0** of the plugin specification
   (`docs/specs/2026-11-22-plugins-1.6.md`) and the plugin surfaces for 2.1
   (`docs/specs/2026-11-22-plugin-surfaces-2.1.md`) are built after 2.0.
@@ -1065,7 +1099,7 @@ error, when its reader goes away, as in `tehas status | head -1`.
 
 | Status | When |
 | --- | --- |
-| 0 | A question waits, and it is printed |
+| 0 | A question waits, and it is printed; or, with no issue, the list is printed, an empty one too |
 | 1 | The state store refused or is not installed |
 | 3 | No question waits on the issue |
 | 64 | A bad argument |

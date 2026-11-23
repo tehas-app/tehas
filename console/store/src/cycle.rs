@@ -53,8 +53,12 @@ pub enum Call {
 #[derive(Debug, PartialEq, Eq)]
 pub enum End {
     Report(Box<Report>),
-    Refused,
+    /// A start the cycle refused, with the exit status the unit left, if any.
+    Refused(Option<i64>),
     Stopped,
+    /// A cycle that died without a word: its record is open and no process
+    /// holds its lock.
+    Lost,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -80,6 +84,8 @@ pub struct Report {
     pub provider: bool,
     pub parked: bool,
     pub never_ran: bool,
+    /// A signal stopped the cycle (`cycle_history.signalled`).
+    pub signalled: bool,
     pub cleaned: Cleaned,
 }
 
@@ -88,7 +94,7 @@ const PROGRESS_BOUND: u64 = tehas_core::file::READ_BOUND;
 const SETTINGS_BOUND: u64 = 64 << 10;
 const SETTING_VALUE_MAX: usize = 4096;
 
-const END_REPORT: [(&str, Kind); 23] = [
+const END_REPORT: [(&str, Kind); 24] = [
     ("--attempt", Kind::Value),
     ("--status", Kind::Value),
     ("--step", Kind::Value),
@@ -112,6 +118,7 @@ const END_REPORT: [(&str, Kind); 23] = [
     ("--parked", Kind::Switch),
     ("--never-ran", Kind::Switch),
     ("--refused", Kind::Switch),
+    ("--signalled", Kind::Switch),
 ];
 
 pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
@@ -187,18 +194,29 @@ fn image_args(rest: &[String]) -> Result<Call, String> {
 fn end_args(rest: &[String]) -> Result<Call, String> {
     let mut flags = END_REPORT.to_vec();
     flags.push(("--stopped", Kind::Switch));
+    flags.push(("--lost", Kind::Switch));
     let a = Args::parse("cycle-end", rest, &flags, true)?;
     let issue = a.issue()?;
     let attempt = a.strict_need("--attempt", "a number", verbs::number)?;
-    if a.has("--refused") && a.has("--stopped") {
-        return Err(a.usage("--stopped", "is not taken with --refused"));
+    let shorts = ["--refused", "--stopped", "--lost"];
+    let given: Vec<&str> = shorts.into_iter().filter(|f| a.has(f)).collect();
+    if given.len() > 1 {
+        return Err(a.usage(given[1], &format!("is not taken with {}", given[0])));
     }
     if a.has("--refused") {
-        a.only(&["--attempt", "--refused"], "--refused")?;
+        a.only(&["--attempt", "--refused", "--rc"], "--refused")?;
         return Ok(Call::End {
             issue,
             attempt,
-            end: End::Refused,
+            end: End::Refused(a.strict("--rc", "an exit status", verbs::count)?),
+        });
+    }
+    if a.has("--lost") {
+        a.only(&["--attempt", "--lost"], "--lost")?;
+        return Ok(Call::End {
+            issue,
+            attempt,
+            end: End::Lost,
         });
     }
     if a.has("--stopped") {
@@ -236,6 +254,7 @@ fn end_args(rest: &[String]) -> Result<Call, String> {
         provider: a.has("--provider"),
         parked: a.has("--parked"),
         never_ran: a.has("--never-ran"),
+        signalled: a.has("--signalled"),
         cleaned: c,
     };
     Ok(Call::End {
@@ -305,7 +324,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
             end,
         } => match end {
             End::Report(r) => end_report(home, *issue, *attempt, r, now),
-            End::Refused | End::Stopped => end_short(home, *issue, *attempt, end, now),
+            _ => end_short(home, *issue, *attempt, end, now),
         },
         Call::Show { issue } => show(home, *issue, now),
         Call::SettingsView { issue, want } => settings_view(home, *issue, *want),
@@ -454,21 +473,18 @@ fn start(
         if let Some(r) = prev.as_ref().filter(|r| r.ended_at.is_none()) {
             // The attempt this start replaces never ended: it is kept among
             // the ends as lost, from when it was last heard from.
+            // Its line of history is written now, with the end it is given
+            // and when it was written (T11.3).
+            let ended = lost_at(c, issue, r.started_at, now)?;
             c.execute(
                 "INSERT OR IGNORE INTO endings (issue, started_at, ended_at, status, step)
-                 SELECT ?1, ?2, min(?3, coalesce(max(at) + ?4, ?3)), 'lost',
-                   (SELECT step FROM heartbeats WHERE issue = ?1 AND at >= ?2
-                    ORDER BY at DESC LIMIT 1)
-                 FROM heartbeats WHERE issue = ?1 AND at >= ?2",
-                params![issue, r.started_at, now, crate::live::LOST_AFTER],
+                 VALUES (?1, ?2, ?3, 'lost', (SELECT step FROM heartbeats WHERE issue = ?1
+                   AND at >= ?2 ORDER BY at DESC LIMIT 1))",
+                params![issue, r.started_at, ended],
             )
             .q()?;
-            c.execute(
-                "DELETE FROM endings WHERE rowid NOT IN
-                   (SELECT rowid FROM endings ORDER BY ended_at DESC, rowid DESC LIMIT 10)",
-                [],
-            )
-            .q()?;
+            trim_endings(c)?;
+            history_line(c, issue, r, &Line::short("lost", ended), now)?;
         }
         let approval = if by_hand {
             None
@@ -864,9 +880,9 @@ fn end_report(home: &Path, issue: i64, attempt: i64, r: &Report, now: i64) -> Re
             // The heartbeat just written holds where the step it ended in was.
             "INSERT INTO cycle_history (issue, attempt, at, status, step, by_account, how, pr,
                started_at, rc, cap, park_reason, failure_kind, failure_cause, provider, parked,
-               step_number, step_total, round, recorded_at)
+               step_number, step_total, round, recorded_at, signalled)
              SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
-               h.step_number, h.step_total, h.round, ?3
+               h.step_number, h.step_total, h.round, ?3, ?17
              FROM (SELECT 1) LEFT JOIN heartbeats h ON h.issue = ?1 AND h.at = ?3
                AND h.step IS ?5",
             params![
@@ -885,17 +901,13 @@ fn end_report(home: &Path, issue: i64, attempt: i64, r: &Report, now: i64) -> Re
                 r.failure_kind,
                 r.failure_cause,
                 r.provider,
-                r.parked
+                r.parked,
+                r.signalled
             ],
         )
         .q()?;
         let history_id = c.last_insert_rowid();
-        c.execute(
-            "DELETE FROM cycle_history WHERE issue = ?1 AND id NOT IN
-               (SELECT id FROM cycle_history WHERE issue = ?1 ORDER BY at DESC, id DESC LIMIT 50)",
-            [issue],
-        )
-        .q()?;
+        trim_history(c, issue)?;
         if r.never_ran {
             // A start that ran nothing leaves no base behind, so every used approval
             // goes with it -- except the row of a merge that ran, which the read of
@@ -941,50 +953,67 @@ fn end_short(home: &Path, issue: i64, attempt: i64, end: &End, now: i64) -> Resu
         if !already {
             // The word of the ending and of the closing heartbeat: the one the
             // cycle ended as, which is `stopped` for `--stopped` (as
-            // `cycles.end_reason` already says) and `refused` for `--refused`.
-            let word = if *end == End::Refused {
-                "refused"
-            } else {
-                "stopped"
+            // `cycles.end_reason` already says), `refused` for `--refused` and
+            // `lost` for `--lost`. A lost cycle ends when it was last heard
+            // from, as the next start would have ended it; the others now.
+            let (word, ended, rc) = match end {
+                End::Refused(rc) => {
+                    locked(home, issue, true, 1)?;
+                    c.execute(
+                        "UPDATE cycles SET ended_at = ?2 WHERE issue = ?1",
+                        params![issue, now],
+                    )
+                    .q()?;
+                    ("refused", now, *rc)
+                }
+                End::Lost => {
+                    locked(home, issue, true, 0)?;
+                    // Lost only once publish shows it lost: quiet for
+                    // LOST_AFTER, which also leaves `tehas stop` the end of
+                    // a cycle it just stopped.
+                    let ended = lost_at(c, issue, row.started_at, now)?;
+                    if ended >= now {
+                        return Err(refuse(
+                            "heard",
+                            issue,
+                            "the cycle was heard from within the time a cycle is lost after",
+                        ));
+                    }
+                    c.execute(
+                        "UPDATE cycles SET ended_at = ?2, end_reason = 'lost' WHERE issue = ?1",
+                        params![issue, ended],
+                    )
+                    .q()?;
+                    ("lost", ended, None)
+                }
+                _ => {
+                    locked(home, issue, true, 0)?;
+                    c.execute(
+                        "UPDATE cycles SET ended_at = ?2, end_reason = 'stopped' WHERE issue = ?1",
+                        params![issue, now],
+                    )
+                    .q()?;
+                    ("stopped", now, None)
+                }
             };
-            if *end == End::Refused {
-                locked(home, issue, true, 1)?;
-                c.execute(
-                    "UPDATE cycles SET ended_at = ?2 WHERE issue = ?1",
-                    params![issue, now],
-                )
-                .q()?;
-            } else {
-                locked(home, issue, true, 0)?;
-                c.execute(
-                    "UPDATE cycles SET ended_at = ?2, end_reason = 'stopped' WHERE issue = ?1",
-                    params![issue, now],
-                )
-                .q()?;
-            }
             // The end of `end_short` is an end like any other: publish reads
             // the newest heartbeat of the attempt and the ten ends, and neither
             // row was written here, so a stopped cycle was published as still
             // running until it went quiet, and as lost from then on. The rows
             // are the two `end_report` writes of the same, with the step, the
             // notice and where the step is from the last heartbeat of this
-            // attempt: this end was asked for by the supervisor or by
-            // `tehas stop`, neither of which knows the step. The row comes
-            // from a select of its own rather than from the heartbeats, as the
-            // history row of the report does, so a cycle that never sent a
-            // heartbeat still gets its closing one.
+            // attempt: this end was asked for by the supervisor, by
+            // `tehas stop` or by the poll, none of which knows the step. The
+            // row comes from a select of its own rather than from the
+            // heartbeats, as the history row of the report does, so a cycle
+            // that never sent a heartbeat still gets its closing one.
             c.execute(
                 "INSERT OR REPLACE INTO endings (issue, started_at, ended_at, status, step)
                  VALUES (?1, ?2, ?3, ?4, NULL)",
-                params![issue, row.started_at, now, word],
+                params![issue, row.started_at, ended, word],
             )
             .q()?;
-            c.execute(
-                "DELETE FROM endings WHERE rowid NOT IN
-                   (SELECT rowid FROM endings ORDER BY ended_at DESC, rowid DESC LIMIT 10)",
-                [],
-            )
-            .q()?;
+            trim_endings(c)?;
             c.execute(
                 "INSERT OR REPLACE INTO heartbeats (issue, at, running, step, status, text,
                    step_number, step_total, round, round_limit, step_since)
@@ -996,15 +1025,97 @@ fn end_short(home: &Path, issue: i64, attempt: i64, end: &End, now: i64) -> Resu
                             ORDER BY at DESC LIMIT 1) l ON 1
                  LEFT JOIN (SELECT * FROM heartbeats WHERE issue = ?1 AND at >= ?5
                             ORDER BY at DESC LIMIT 1) s ON s.step = e.step",
-                params![issue, now, word, word, row.started_at],
+                params![issue, ended, word, word, row.started_at],
             )
             .q()?;
+            // One line of history per start (T11.3): the one `endings` has.
+            let mut l = Line::short(word, ended);
+            l.rc = rc;
+            history_line(c, issue, &row, &l, now)?;
         }
         Ok(line(
             "cycle-end",
             &[("cycle", cycle_json(c, issue)?), ("already", j(already))],
         ))
     })
+}
+
+/// When a cycle that died without a word ended: when it was last heard from
+/// (its start, for one never heard from) and quiet for
+/// [`crate::live::LOST_AFTER`] after, as publish shows it, and never after
+/// `now`.
+fn lost_at(c: &Connection, issue: i64, started_at: i64, now: i64) -> Result<i64, Fail> {
+    c.query_row(
+        "SELECT min(?3, coalesce(max(at), ?2) + ?4) FROM heartbeats WHERE issue = ?1 AND at >= ?2",
+        params![issue, started_at, now, crate::live::LOST_AFTER],
+        |r| r.get(0),
+    )
+    .q()
+}
+
+/// The ten newest ends are kept.
+fn trim_endings(c: &Connection) -> Result<(), Fail> {
+    c.execute(
+        "DELETE FROM endings WHERE rowid NOT IN
+           (SELECT rowid FROM endings ORDER BY ended_at DESC, rowid DESC LIMIT 10)",
+        [],
+    )
+    .q()
+    .map(|_| ())
+}
+
+/// What a line of history says of an end beyond its start.
+struct Line<'a> {
+    status: &'a str,
+    at: i64,
+    rc: Option<i64>,
+}
+
+impl<'a> Line<'a> {
+    fn short(status: &'a str, at: i64) -> Self {
+        Line {
+            status,
+            at,
+            rc: None,
+        }
+    }
+}
+
+/// The line of history of an end that has no report: a refused start,
+/// `tehas stop`, a lost cycle. `at` is the end, `now` when the line is
+/// written. The newest 50 lines of the issue by write order are kept.
+fn history_line(c: &Connection, issue: i64, row: &Row, l: &Line, now: i64) -> Result<(), Fail> {
+    c.execute(
+        "INSERT INTO cycle_history (issue, attempt, at, status, by_account, how, started_at, rc,
+           recorded_at, reported)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0)",
+        params![
+            issue,
+            row.attempt,
+            l.at,
+            l.status,
+            row.started_by,
+            row.how,
+            row.started_at,
+            l.rc,
+            now
+        ],
+    )
+    .q()?;
+    trim_history(c, issue)
+}
+
+/// An issue keeps its 50 lines of history with the greatest `seq`: a line
+/// written late with an earlier end is never the one trimmed first, so a
+/// `seq` is never given twice.
+fn trim_history(c: &Connection, issue: i64) -> Result<(), Fail> {
+    c.execute(
+        "DELETE FROM cycle_history WHERE issue = ?1 AND id NOT IN
+           (SELECT id FROM cycle_history WHERE issue = ?1 ORDER BY seq DESC, id DESC LIMIT 50)",
+        [issue],
+    )
+    .q()
+    .map(|_| ())
 }
 
 fn entry(

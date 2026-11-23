@@ -526,8 +526,8 @@ pub fn retain(c: &Connection, issue: i64) -> Result<(), Fail> {
     Ok(())
 }
 
-/// Whether the cycle of an approval has had its end written: `cycle_history`
-/// holds a row for every cycle the issue ended. This is what makes the row of an
+/// Whether the cycle of an approval has had its report's end written: `cycle_history`
+/// holds a reported row for every cycle the issue ended with a report. This is what makes the row of an
 /// easy merge the only one the keeping of a later start holds beyond the base --
 /// the row of a merge whose cycle has ended says all the record needs, and the
 /// keeping drops the row itself.
@@ -545,7 +545,7 @@ pub const EASY_KEPT: &str = "easy = 1 AND started_how = 'refresh'
      AND NOT EXISTS (SELECT 1 FROM cycle_history h
                        JOIN cycles c ON c.issue = h.issue AND c.attempt = h.attempt
                       WHERE h.issue = approvals.issue
-                        AND h.attempt = approvals.started_by)";
+                        AND h.attempt = approvals.started_by AND h.reported = 1)";
 
 /// The refreshes started on the base above `floor`. The words of each start are
 /// the ones it wrote on the approval it ran -- `started_by` and `started_how` -- so a record that ran its refreshes
@@ -591,15 +591,17 @@ fn easy_had(c: &Connection, issue: i64, floor: i64) -> Result<bool, Fail> {
     .q()
 }
 
-/// The last start the record holds: the newest row of `cycle_history`, whose `how` is
-/// the word the start ran under. The keeping of a later start deletes the approvals of
+/// The last start the record holds: the newest row of `cycle_history` a report
+/// wrote, whose `how` is the word the start ran under. A line the store wrote for a
+/// start with no report (a refused start, `tehas stop`, a lost cycle, T11.3) is no
+/// start here, as before 2.0, when no such line was written. The keeping of a later start deletes the approvals of
 /// the starts the base no longer rests on, so the history is the record that says which
 /// start ran last; a store of schema 1 has no word for a row, which is no start the
 /// rules of an old record can use (#1751).
 fn last_start(c: &Connection, issue: i64) -> Result<Option<(i64, String)>, Fail> {
     c.query_row(
         "SELECT attempt, how FROM cycle_history
-         WHERE issue = ?1 AND how IS NOT NULL ORDER BY at DESC LIMIT 1",
+         WHERE issue = ?1 AND how IS NOT NULL AND reported = 1 ORDER BY seq DESC LIMIT 1",
         [issue],
         |r| {
             Ok((

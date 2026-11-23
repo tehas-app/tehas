@@ -1,0 +1,13 @@
+{
+  "api": 1,
+  "event": "question.asked",
+  "data": {
+    "question": 5,
+    "kind": "Park",
+    "blueprint": 12,
+    "askedAt": "2026-11-22T13:20:00Z"
+  },
+  "when": "after",
+  "key": "5",
+  "at": "2026-11-22T13:20:00Z"
+}

@@ -1,0 +1,14 @@
+{
+  "api": 1,
+  "event": "ticket.closed",
+  "data": {
+    "ticket": {
+      "Number": 12
+    },
+    "reason": "Done",
+    "at": "2026-11-22T15:20:00Z"
+  },
+  "when": "after",
+  "key": "12@2026-11-22T15:20:00Z",
+  "at": "2026-11-22T15:20:00Z"
+}

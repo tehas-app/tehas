@@ -845,7 +845,7 @@ mod tests {
         ("order", None, &["order"]),
         ("order", Some("clear"), &["order"]),
         ("order", Some("set"), &["order"]),
-        ("question", None, &["question"]),
+        ("question", None, &["question", "questions"]),
         ("refresh", None, &["refresh"]),
         ("start", None, &["start"]),
         ("state", Some("check"), &["state-check"]),
@@ -895,7 +895,10 @@ mod tests {
         let mut found = Vec::new();
         for e in fs::read_dir(api).unwrap() {
             let name = e.unwrap().file_name().to_string_lossy().into_owned();
-            if let Some(name) = name.strip_suffix(".schema.json") {
+            // The events' schemas are no command's output: tests/events_contract.rs
+            // holds them.
+            let event = |n: &str| n == "event" || n.starts_with("event-") || n == "gate-answer";
+            if let Some(name) = name.strip_suffix(".schema.json").filter(|n| !event(n)) {
                 found.push(name.to_string());
             }
         }

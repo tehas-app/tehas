@@ -1373,6 +1373,9 @@ pub struct Snapshot {
     /// The running cycles' records, by issue, from the entries of `running`;
     /// Err when the store could not list them (`cycles_failed`).
     pub cycles: Result<BTreeMap<u64, Cycle>, StoreErr>,
+    /// The open records no process holds the lock of, `(issue, attempt)`:
+    /// cycles that died without a word, which the poll ends as lost.
+    pub lost: Vec<(u64, u64)>,
     /// gh pr list --author <bot>: asked when a cycle runs. Some(None) when
     /// it gave no list; an entry that is no object is left out.
     pub bot_prs: Option<Option<Vec<BotPr>>>,
@@ -2070,6 +2073,17 @@ impl Snapshot {
                 Some(e) => Err(StoreErr::parse(e)),
                 None => cycles(v.get("running")),
             },
+            lost: v
+                .get("lost")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| {
+                            Some((x.get("issue")?.as_u64()?, x.get("attempt")?.as_u64()?))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             bot_prs: v.get("bot_prs").map(|b| {
                 b.as_array()
                     .map(|a| a.iter().filter(|p| p.is_object()).map(bot_pr).collect())

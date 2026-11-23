@@ -127,7 +127,9 @@ pub struct QuestionAsked {
     /// `askedAt`.
     #[serde(with = "rfc3339")]
     pub asked_at: At,
-    /// The choices, in order.
+    /// The choices, in order, while the store keeps the question's options:
+    /// none on a planning question the issue no longer waits on.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub choices: Vec<QuestionChoice>,
 }
 

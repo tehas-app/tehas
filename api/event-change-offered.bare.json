@@ -1,0 +1,14 @@
+{
+  "api": 1,
+  "event": "change.offered",
+  "data": {
+    "change": 21,
+    "blueprint": 12,
+    "cycle": "12-4",
+    "end": "offered",
+    "at": "2026-11-22T14:20:00Z"
+  },
+  "when": "after",
+  "key": "12-4",
+  "at": "2026-11-22T14:20:00Z"
+}

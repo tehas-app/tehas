@@ -12,17 +12,19 @@ use serde::{Deserialize, Serialize};
 use crate::At;
 
 mod dispatch;
+mod gate;
 mod payload;
 pub mod rfc3339;
 mod samples;
 mod words;
 
 pub use dispatch::{Builder, Dispatcher, Fault, Heard, Raised, LOG};
+pub use gate::{Ask, GateAnswer, GatePayload, StartAsk, Verdict, Why};
 pub use payload::{
     ChangeMerged, ChangeOffered, CycleEnded, CycleParked, CycleStarted, LimitChanged,
     QuestionAsked, TicketActed, TicketClosed,
 };
-pub use samples::{samples, Sample};
+pub use samples::{gate_samples, samples, GateSample, Sample};
 pub use words::{
     CycleId, End, How, Key, LimitState, QuestionChoice, QuestionNo, RunnerWord, Source, Stop,
 };

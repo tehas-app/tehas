@@ -56,7 +56,7 @@ and the 2.0.0 and 1.0.0 of the two repositories that read it. For tehas:
    refuses it today, and finishing it is 2.1 work. The refactor moves
    the plugin code with its behaviour kept, and builds no new plugin
    features.
-6. **pi-rukas v0.15.7 or later.** 2.0.0 needs pi-rukas v0.15.7 at the
+6. **pi-rukas v0.15.9 or later.** 2.0.0 needs pi-rukas v0.15.9 at the
    least (the trio's program manager, 2026-11-22). T13's proof found two
    faults: on 0.15.1 a roster that exits 0 reports no exit, so lean hands
    back on every pass (fixed in 0.15.2), and lean verify's base probes
@@ -67,7 +67,10 @@ and the 2.0.0 and 1.0.0 of the two repositories that read it. For tehas:
    sees lean's trees. 0.15.6 deletes lean's roster report before and after
    each run and excludes it, so a stale report cannot pass a verify tier.
    0.15.7 formats a submitted test before lean freezes it, with the
-   repository's `verify.format` (`.pi/work.json`, #2908).
+   repository's `verify.format` (`.pi/work.json`, #2908). From 0.15.4 to
+   0.15.8 the roster's run at the base commit read its report from the
+   wrong path whenever the head suite had a failure, so lean handed back;
+   0.15.9 fixes it, and a failing head suite is lean's normal path.
    tehas refuses a lean start on a
    sandbox image whose pi-rukas is older, saying why. At the trio's
    readiness review the newest pi-rukas release on the 0.15 line is the one
@@ -537,7 +540,8 @@ driver in 2.0 (the owner).
    and #2511 (a typed setup refusal, for part 4). All are merged and
    ship in 0.15.0, and the roster fix of 0.15.2, the base-probe fix of
    0.15.4, the exclude of 0.15.5, the roster report of 0.15.6 and the test
-   format of 0.15.7 join them, so the pin is 0.15.7 or later
+   format of 0.15.7 and the base report fix of 0.15.9 join them, so the
+   pin is 0.15.9 or later
    on the 0.15 line
    (`PI_RUKAS_FOLLOW=release:0.15`). Each release
    candidate checks this as it checks the pin.

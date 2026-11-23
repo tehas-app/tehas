@@ -193,9 +193,17 @@ fn start_on_record(home: &Path, n: &str) -> Result<Value, i32> {
                 }
                 Ok(shown) => {
                     if let Some(took) = took_late(&shown, began) {
-                        let end = ["cycle-end", n, "--attempt", &took, "--refused"];
+                        let end = [
+                            "cycle-end",
+                            n,
+                            "--attempt",
+                            &took,
+                            "--refused",
+                            "--rc",
+                            "75",
+                        ];
                         if let Err(r) = host::store_try(home, 5, &end) {
-                            log(&format!("ERROR: the start of #{n} the store took late is not ended ({}): cycle-end {n} --attempt {took} --refused", r.word));
+                            log(&format!("ERROR: the start of #{n} the store took late is not ended ({}): cycle-end {n} --attempt {took} --refused --rc 75", r.word));
                         }
                         log(&format!(
                             "refuse #{n}: the state store took the start only after it timed out: {}",
@@ -242,12 +250,22 @@ fn start_on_record(home: &Path, n: &str) -> Result<Value, i32> {
 }
 
 /// A start that refuses its number ends its record, so the next start of the
-/// issue is not one that replaces an open row.
-fn end_refused(home: &Path, n: &str, attempt: &str) {
-    let end = ["cycle-end", n, "--attempt", attempt, "--refused"];
+/// issue is not one that replaces an open row, and its line of history keeps
+/// the exit status the unit leaves.
+fn end_refused(home: &Path, n: &str, attempt: &str, rc: u8) {
+    let rc = rc.to_string();
+    let end = [
+        "cycle-end",
+        n,
+        "--attempt",
+        attempt,
+        "--refused",
+        "--rc",
+        &rc,
+    ];
     if let Err(r) = host::store_try(home, 5, &end) {
         log(&format!(
-            "ERROR: the refused start of #{n} is not on record ({}): cycle-end {n} --attempt {attempt} --refused",
+            "ERROR: the refused start of #{n} is not on record ({}): cycle-end {n} --attempt {attempt} --refused --rc {rc}",
             r.word
         ));
     }
@@ -410,7 +428,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
             log(&format!(
                 "refuse #{n}: GitHub could not be asked what the number is (3 tries, the last: {why})"
             ));
-            end_refused(home, &n, &attempt);
+            end_refused(home, &n, &attempt, 65);
             return 65;
         }
     };
@@ -424,7 +442,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
                 Number::Closed => format!("refuse #{n}: the issue is closed"),
                 _ => format!("refuse #{n}: GitHub's answer for it could not be read"),
             });
-            end_refused(home, &n, &attempt);
+            end_refused(home, &n, &attempt, 65);
             return 65;
         }
     }
@@ -451,7 +469,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     ] {
         if signal_hook::flag::register(sig, Arc::clone(&stop)).is_err() {
             log(&format!("ERROR: #{n}: cannot listen for signal {sig}"));
-            end_refused(home, &n, &attempt);
+            end_refused(home, &n, &attempt, 78);
             return 78;
         }
     }

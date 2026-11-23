@@ -298,3 +298,95 @@ fn answer_record_refuses_what_it_cannot_take() {
     }
     assert!(usage(&["answer-drop", "40"]).starts_with("usage answer-drop: "));
 }
+
+/// The numbers of the questions a question-list with `args` answers with, in
+/// its order.
+fn listed(home: &Path, args: &[&str]) -> Vec<i64> {
+    let v = ok(home, &[&["question-list"], args].concat());
+    let rows = v["questions"].as_array().expect("questions");
+    rows.iter().map(|q| q["id"].as_i64().expect("id")).collect()
+}
+
+/// With no --after, the question each issue waits on, exactly the one
+/// question-show gives for it; with it, every question after the number, the
+/// withdrawn and the answered among them, in number order.
+#[test]
+fn question_list_gives_the_waiting_ones_or_every_one_after_a_number() {
+    let home = home("question-list");
+    assert_eq!(ok(&home, &["question-list"])["questions"], json!([]));
+    parked(&home);
+    planning(&home, &["Adopt all"]);
+    let waiting = ok(&home, &["question-list"]);
+    assert_eq!(listed(&home, &[]), [1, 2]);
+    assert_eq!(
+        waiting["questions"][0],
+        json!({"id": 1, "issue": 40, "kind": "park", "attempt": 1, "posted_at": NOW,
+            "answered_at": null, "withdrawn_at": null, "comment": 41, "offers": null,
+            "options": null})
+    );
+    assert_eq!(waiting["questions"][1]["options"], json!(["Adopt all"]));
+    for (at, issue) in [(0, "40"), (1, "42")] {
+        assert_eq!(
+            ok(&home, &["question-show", issue])["question"],
+            waiting["questions"][at]
+        );
+    }
+    // The stop's question withdrawn, asked again as another and answered.
+    let withdraw = ["question-answered", "40", "--id", "41", "--withdraw"];
+    ok_at(&home, NOW + 10, &withdraw);
+    let again = ["question-asked", "40", "--id", "44", "--kind", "park"];
+    ok_at(
+        &home,
+        NOW + 20,
+        &[&again[..], &["--offers", "park"]].concat(),
+    );
+    assert_eq!(listed(&home, &[]), [2, 3]);
+    let answered = ["question-answered", "40", "--id", "44", "--by", "alice"];
+    ok_at(&home, NOW + 30, &answered);
+    assert_eq!(listed(&home, &[]), [2]);
+    // An issue the list leaves out waits on none.
+    assert_eq!(ok(&home, &["question-show", "40"])["question"], json!(null));
+    let all = ok(&home, &["question-list", "--after", "0"]);
+    assert_eq!(listed(&home, &["--after", "0"]), [1, 2, 3]);
+    let times = |q: &Value| (q["answered_at"].clone(), q["withdrawn_at"].clone());
+    assert_eq!(times(&all["questions"][0]), (json!(null), json!(NOW + 10)));
+    assert_eq!(times(&all["questions"][2]), (json!(NOW + 30), json!(null)));
+    assert_eq!(all["questions"][2]["offers"], json!(["park"]));
+    // A question with no comment on record says null, not a number.
+    let c = conn(&home);
+    c.execute("UPDATE questions SET comment_id = NULL WHERE id = 1", [])
+        .unwrap();
+    let all = ok(&home, &["question-list", "--after", "0"]);
+    let comments: Vec<&Value> = all["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|q| &q["comment"])
+        .collect();
+    assert_eq!(comments, [&json!(null), &json!(43), &json!(44)]);
+    assert_eq!(listed(&home, &["--after", "1"]), [2, 3]);
+    assert_eq!(
+        ok(&home, &["question-list", "--after", "3"])["questions"],
+        json!([])
+    );
+    // A planning question answered: its options went with the turn.
+    let turn = ["plan-answer", "42", "--turn", "2", "--by", "bob"];
+    ok(&home, &turn);
+    let all = ok(&home, &["question-list", "--after", "1"]);
+    assert_eq!(all["questions"][0]["options"], json!(null));
+    assert!(all["questions"][0]["answered_at"].is_i64(), "{all}");
+}
+
+#[test]
+fn question_list_refuses_an_issue_and_a_number_that_is_none() {
+    let home = home("question-list-args");
+    for args in [
+        &["question-list", "40"][..],
+        &["question-list", "--after"],
+        &["question-list", "--after", "-1"],
+        &["question-list", "--after", "01"],
+        &["question-list", "--after", "x"],
+    ] {
+        assert_eq!(call(&home, args).unwrap_err().0, 64, "{args:?}");
+    }
+}
