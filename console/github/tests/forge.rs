@@ -9,10 +9,11 @@ use serde_json::Value;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::rc::Rc;
-use tehas_core::forge::{Approval, Forge, GhRunner, LabelEvent};
+use tehas_core::forge::GhRunner;
 use tehas_github::gh;
 use tehas_github::table::APPROVAL_LABEL;
 use tehas_github::GitHub;
+use tehas_github::{Approval, LabelEvent};
 
 /// The words of a fixture's failure. A runner gives a reason that carries no
 /// separator; the line of the error adds `": "`, so a fixture reads as gh's
@@ -296,18 +297,18 @@ fn a_failed_gh_call_is_an_error_value() {
     // one still reads as one sentence, and one that has nothing to say leaves
     // no dangling colon.
     assert_eq!(
-        tehas_core::forge::ForgeError::new("the issue", reason(": HTTP 403")).line(),
+        tehas_github::ForgeError::new("the issue", reason(": HTTP 403")).line(),
         "ERROR: the issue failed: HTTP 403"
     );
     assert_eq!(
-        tehas_core::forge::ForgeError::new("the issue", "").line(),
+        tehas_github::ForgeError::new("the issue", "").line(),
         "ERROR: the issue failed"
     );
     // The same line through Display, so a caller can format it or `?` it.
     assert_eq!(
         format!(
             "{}",
-            tehas_core::forge::ForgeError::new("the issue", reason(": HTTP 403"))
+            tehas_github::ForgeError::new("the issue", reason(": HTTP 403"))
         ),
         "ERROR: the issue failed: HTTP 403"
     );
@@ -1038,4 +1039,10 @@ fn a_gh_answer_with_a_byte_that_is_not_utf8_is_kept_and_not_emptied() {
     // which reads as gh having printed nothing.
     let mut gh = tehas_core::forge::Bounded::new("printf", std::time::Duration::from_secs(10));
     assert_eq!(gh.run(&["[1]\\377"]), Ok("[1]\u{fffd}".to_string()));
+}
+
+#[test]
+fn a_bounded_call_turns_the_shims_retry_off() {
+    let mut gh = tehas_core::forge::Bounded::new("printenv", std::time::Duration::from_secs(10));
+    assert_eq!(gh.run(&["TEHAS_GH_RETRY"]), Ok("0\n".to_string()));
 }
