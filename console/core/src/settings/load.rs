@@ -2604,6 +2604,30 @@ mod tests {
         assert_eq!(names_in(text), ["TEHAS_REPO", "TEHAS_MCP"]);
     }
 
+    /// The names v1.4.0's rules table accepted (api/settings-1.4.0.txt).
+    const V1_4_0: &str = include_str!("../../../../api/settings-1.4.0.txt");
+
+    #[test]
+    fn every_setting_v1_4_0_accepted_is_kept_or_dropped_with_a_warning_never_refused() {
+        let names: Vec<&str> = V1_4_0
+            .lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect();
+        assert!(names.len() > 90, "{} names", names.len());
+        for name in names {
+            let kept = TABLE.iter().any(|s| s.name == name);
+            assert!(
+                kept || ignored(name),
+                "{name} loaded on v1.4.0 and is neither in TABLE nor IGNORED"
+            );
+            assert!(!retired(name), "{name} loaded on v1.4.0 and is refused now");
+            assert!(
+                !renamed::rows().iter().any(|r| r.old == name),
+                "{name} loaded on v1.4.0 and is a renamed row now"
+            );
+        }
+    }
+
     #[test]
     fn ignored_why_gives_the_tables_reason_and_nothing_for_another_name() {
         for (name, why) in IGNORED {
