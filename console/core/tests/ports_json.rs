@@ -440,3 +440,102 @@ fn an_empty_set_of_projects_does_not_read_in_json() {
         .unwrap()
     );
 }
+
+#[test]
+fn the_ledger_and_health_read_back_from_json() {
+    let ours = Holder::Ours(HolderId::new("grant-1"));
+    round!(HostId::new("code-host"));
+    round!(Whose::Host);
+    round!(Whose::Holder(ours.clone()));
+    round!(Whose::Holder(Holder::Person(AccountId::new("42"))));
+    round!(Holder::Anonymous(HolderId::new("addr-sum")));
+    round!(Budget {
+        left: 0,
+        resets: At::new(3600),
+    });
+    round!(HealthState::Failing {
+        since: At::new(5),
+        why: Passing::Broken,
+    });
+    round!(HealthState::Spent {
+        pool: Pool::Unknown,
+        until: At::new(9),
+    });
+    round!(HealthState::SignedOut { since: At::new(7) });
+    round!(Failure {
+        at: At::new(1),
+        site: SiteId::new("project"),
+        outcome: Outcome::Spent {
+            pool: Pool::Writes,
+            until: At::new(60),
+        },
+    });
+    round!(LedgerDown);
+    for what in [
+        Health::Unavailable(Passing::Timeout),
+        Health::Spent {
+            pool: Pool::Priced,
+            until: At::new(60),
+        },
+        Health::SignedOut,
+        Health::Recovered,
+        Health::LedgerDown,
+        Health::TokenNotDropped,
+        Health::Unknown(Word::Marker),
+        Health::Unknown(Word::Unknown),
+    ] {
+        round!(what);
+        round!(Notice {
+            host: HostId::new("code-host"),
+            whose: Whose::Holder(ours.clone()),
+            realm: Realm::CodeHost,
+            what,
+            at: At::new(2),
+        });
+    }
+    for word in [Word::Takeover, Word::Health, Word::PortName, Word::Unknown] {
+        round!(word);
+    }
+}
+
+#[test]
+fn a_health_or_word_the_reader_cannot_read_is_unknown_in_json() {
+    for json in [
+        r#"{"type":"Future"}"#,
+        r#"{"type":"Future","value":"Mark"}"#,
+        r#"{"type":"Future","value":{"field":[1]}}"#,
+        r#"{"type":"Unavailable","value":"Later"}"#,
+        r#"{"type":"Spent","value":3}"#,
+        r#"{"type":"SignedOut","value":[true]}"#,
+        r#"{"type":"Unknown"}"#,
+        r#"{"type":"Unknown","value":3}"#,
+    ] {
+        assert_eq!(read!(Health, json), Health::Unknown(Word::Health), "{json}");
+    }
+    assert_eq!(
+        read!(Health, r#"{"type":"Unknown","value":"Write"}"#),
+        Health::Unknown(Word::Write)
+    );
+    assert_eq!(
+        read!(Health, r#"{"type":"Unknown","value":"Later"}"#),
+        Health::Unknown(Word::Unknown)
+    );
+    assert_eq!(
+        serde_json::to_string(&Health::Unknown(Word::Write)).unwrap(),
+        r#"{"type":"Unknown","value":"Write"}"#
+    );
+    assert_eq!(
+        serde_json::to_string(&Health::Recovered).unwrap(),
+        r#"{"type":"Recovered"}"#
+    );
+    assert!(serde_json::from_str::<Health>("3").is_err());
+    assert!(serde_json::from_str::<Health>(r#"{"value":"Mark"}"#).is_err());
+    assert_eq!(read!(Word, r#""Future""#), Word::Unknown);
+    assert_eq!(
+        serde_json::to_string(&Word::Unknown).unwrap(),
+        r#""Unknown""#
+    );
+    // Not on the list of enums that may grow: an unknown tag is an error.
+    assert!(serde_json::from_str::<HealthState>(r#"{"Future":1}"#).is_err());
+    assert!(serde_json::from_str::<Holder>(r#"{"Future":"x"}"#).is_err());
+}
