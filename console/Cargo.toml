@@ -37,8 +37,8 @@ signal-hook = "0.3"
 store = { path = "store" }
 tehas-core = { path = "core", features = ["mask"] }
 tehas-cycle = { path = "cycle" }
-# The GitHub adapter, which tehas label asks (src/label.rs) until it moves
-# behind the ports.
+# The GitHub adapter, which console label (src/label.rs) and tehas resume
+# (src/commands.rs) ask until they move behind the ports.
 tehas-github = { path = "github" }
 # The operations modules (ops/src), which main.rs takes by one use line.
 tehas-ops = { path = "ops" }

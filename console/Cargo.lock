@@ -1921,7 +1921,6 @@ dependencies = [
  "tehas-core",
  "tehas-cycle",
  "tehas-dispatch",
- "tehas-github",
  "tehas-ports",
 ]
 

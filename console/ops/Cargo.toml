@@ -26,9 +26,6 @@ sha2 = "0.10"
 store = { path = "../store" }
 tehas-core = { path = "../core", features = ["mask"] }
 tehas-cycle = { path = "../cycle" }
-# The GitHub adapter, which tehas resume asks (src/holds.rs) until it moves
-# behind the ports.
-tehas-github = { path = "../github" }
 # The dispatcher of the events `tehas stop` raises (src/stop.rs).
 tehas-ports = { path = "../ports" }
 
