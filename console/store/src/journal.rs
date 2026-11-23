@@ -13,7 +13,8 @@
 //!   store journal-record --poll <at> --write <json> --args <json> --before <at>
 //!     The same for a `Write` of the ports, with its bodies summed: kept as
 //!     the `write` field of --args, its kind the write's word and its issue
-//!     the ticket, blueprint or change it names, 0 for none.
+//!     the ticket, blueprint or change it names. A write that names no such
+//!     number is refused.
 //!   store journal-attempt --action N
 //!     The step just before the call: intended becomes attempted.
 //!   store journal-settle --action N (--result <result> | --abandoned)
@@ -186,7 +187,8 @@ fn issue_of(w: &Write) -> Option<i64> {
 }
 
 /// A write the journal records: one it has a word for, with every body
-/// summed, so the row holds no text.
+/// summed. A marker's fields are kept as they are: the driver makes them,
+/// and the ticket shows them.
 fn a_write(s: &str) -> Option<(Write, &'static str)> {
     let w: Write = serde_json::from_str(&object(s)?).ok()?;
     let kind = word(w.kind())?;
