@@ -801,14 +801,20 @@ fn scopes_an_agent_makes_no_file_write_and_no_push() {
     }
 }
 
-/// A world with change 50 the factory opened and change 51 alice opened,
-/// tag `v1.0.0` on main without a release, and that release to make.
-fn merge_world() -> (World, NewRelease) {
-    let w = World::new()
-        .change(50, "work", |c| c.title("work"))
+/// A world with change 50 the factory opened, carrying `Refreshing`, and
+/// change 51 alice opened; tag `v1.0.0` on main without a release, and that
+/// release to make; tag `v0.9.0` with a release that holds no file.
+fn scope_world(w: World) -> (World, NewRelease) {
+    let w = w
+        .change(50, "work", |c| {
+            c.title("work").mark(Mark::State(State::Refreshing))
+        })
         .change(51, "theirs", |c| c.title("theirs").author("alice"));
     let main = w.head("main").unwrap();
-    let w = w.tag("v1.0.0", &main);
+    let w = w
+        .tag("v1.0.0", &main)
+        .tag("v0.9.0", &main)
+        .release("v0.9.0", &[]);
     let release = NewRelease {
         tag: TagName::new("v1.0.0").unwrap(),
         title: "1.0.0".into(),
@@ -817,6 +823,52 @@ fn merge_world() -> (World, NewRelease) {
         prerelease: false,
     };
     (w, release)
+}
+
+fn merge_world() -> (World, NewRelease) {
+    scope_world(World::new())
+}
+
+/// What the refused writes on a change and a release ask with, owned.
+struct Asks {
+    on: Mark,
+    off: Mark,
+    status: Status,
+    tag: TagName,
+    name: FileName,
+    sum: Sum,
+}
+
+fn asks() -> Asks {
+    Asks {
+        on: Mark::State(State::Refreshing),
+        off: Mark::State(State::AwaitingMerge),
+        status: Status {
+            name: "tehas/verify".into(),
+            state: StatusState::Passed,
+            about: "the gate passed".into(),
+            link: None,
+        },
+        tag: TagName::new("v0.9.0").unwrap(),
+        name: FileName::new("tehas.tar.gz").unwrap(),
+        sum: Sum {
+            sha256: sha('a'),
+            len: 3,
+        },
+    }
+}
+
+impl Asks {
+    fn of<'a>(&'a self, at: &'a CommitId) -> laws::scopes::Refusals<'a> {
+        laws::scopes::Refusals {
+            no: cn(50),
+            on: &self.on,
+            off: &self.off,
+            at,
+            status: &self.status,
+            upload: (&self.tag, &self.name, &self.sum),
+        }
+    }
 }
 
 #[test]
@@ -851,6 +903,56 @@ fn scopes_a_cycle_merges_tags_and_releases_nothing() {
         )
         .unwrap_err();
         assert_eq!(e.law, "scopes::a_cycle_merges_tags_and_releases_nothing");
+    }
+}
+
+#[test]
+fn scopes_an_agent_merges_tags_and_releases_nothing() {
+    const LAW: &str = "scopes::an_agent_merges_tags_and_releases_nothing";
+    let tag = TagName::new("v2.0.0").unwrap();
+    let run = |w: World, actor: Actor| {
+        let (w, release) = scope_world(w);
+        let head = w.head("work").unwrap();
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host_writes(&actor, C).unwrap();
+        laws::scopes::an_agent_merges_tags_and_releases_nothing(
+            h.as_mut(),
+            cn(50),
+            &head,
+            &tag,
+            &release,
+        )
+    };
+    for w in both() {
+        ok(run(w, Actor::Ours(Scope::Agent)));
+    }
+    // Too much: a cycle's with the merge grant merges its own change, and
+    // the full scope merges and tags.
+    for actor in [Actor::Ours(Scope::CycleMerge), full()] {
+        assert_eq!(run(World::new(), actor).unwrap_err().law, LAW);
+    }
+}
+
+#[test]
+fn scopes_a_cycle_marks_closes_and_uploads_nothing() {
+    const LAW: &str = "scopes::a_cycle_marks_closes_and_uploads_nothing";
+    let run = |w: World, actor: Actor| {
+        let (w, _) = scope_world(w);
+        let head = w.head("work").unwrap();
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host_writes(&actor, C).unwrap();
+        let a = asks();
+        laws::scopes::a_cycle_marks_closes_and_uploads_nothing(h.as_mut(), &a.of(&head), &NoBlobs)
+    };
+    for scope in [Scope::Cycle, Scope::CycleMerge, Scope::Session] {
+        for w in both() {
+            ok(run(w, Actor::Ours(scope)));
+        }
+    }
+    // Too much: an agent's token marks and closes a change, and the full
+    // scope does everything.
+    for actor in [Actor::Ours(Scope::Agent), full()] {
+        assert_eq!(run(World::new(), actor).unwrap_err().law, LAW);
     }
 }
 

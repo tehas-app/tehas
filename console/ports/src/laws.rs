@@ -961,10 +961,29 @@ pub mod markers {
 pub mod scopes {
     use super::{got, hold, Law};
     use crate::{
-        Access, Blobs, ChangeNo, ChangeState, CloseReason, CodeHostWrites, CommitId, Depth, Filter,
-        Mark, MergeHow, NewRelease, NewTicket, Outcome, Proposal, TagName, TicketKey, TicketWrites,
-        ALL_MAX,
+        Access, Blobs, ChangeNo, ChangeState, CloseReason, CodeHostWrites, CommitId, Depth,
+        FileName, Filter, Mark, MergeHow, NewRelease, NewTicket, Outcome, Proposal, Status, Sum,
+        TagName, TicketKey, TicketWrites, ALL_MAX,
     };
+
+    /// What a scope's refused writes on a change and a release are asked
+    /// with: an open change `no` that carries `on` and not `off`, a status
+    /// to set at `at`, and a file to upload to the release of
+    /// `upload.0`, which is there and does not hold it.
+    pub struct Refusals<'a> {
+        /// An open change.
+        pub no: ChangeNo,
+        /// A mark the change carries.
+        pub on: &'a Mark,
+        /// A mark it does not carry.
+        pub off: &'a Mark,
+        /// The commit a status is set at.
+        pub at: &'a CommitId,
+        /// The status to set.
+        pub status: &'a Status,
+        /// The release's tag, the file's name and its sum.
+        pub upload: (&'a TagName, &'a FileName, &'a Sum),
+    }
 
     /// An agent's token makes no file write and no push: a proposal is
     /// `Forbidden` and leaves no branch, and a remote to push is
@@ -995,6 +1014,22 @@ pub mod scopes {
         })
     }
 
+    /// An agent's token merges, tags and releases nothing: each is
+    /// `Forbidden` and leaves the change open, the tag absent and no
+    /// release. `h` acts as `Ours(Agent)`; the rest as for
+    /// `a_cycle_merges_tags_and_releases_nothing`.
+    pub fn an_agent_merges_tags_and_releases_nothing(
+        h: &mut dyn CodeHostWrites,
+        no: ChangeNo,
+        head: &CommitId,
+        tag: &TagName,
+        release: &NewRelease,
+    ) -> Law {
+        const LAW: &str = "scopes::an_agent_merges_tags_and_releases_nothing";
+        refused_merge(h, LAW, no, head)?;
+        tags_and_releases_nothing(h, LAW, head, tag, release)
+    }
+
     /// A cycle's or a session's token merges, tags and releases nothing:
     /// each is `Forbidden` and leaves the change open, the tag absent and
     /// no release. A merge needs the product's grant (`Scope::CycleMerge`).
@@ -1011,6 +1046,20 @@ pub mod scopes {
         const LAW: &str = "scopes::a_cycle_merges_tags_and_releases_nothing";
         refused_merge(h, LAW, no, head)?;
         tags_and_releases_nothing(h, LAW, head, tag, release)
+    }
+
+    /// A cycle's or a session's token marks, unmarks and closes no change,
+    /// sets no status and uploads nothing: each is `Forbidden` and leaves
+    /// the change as it was. Those are the factory's own writes. `h` acts
+    /// as `Ours(Cycle)`, `Ours(CycleMerge)` or `Ours(Session)`; `refused`
+    /// as `Refusals` says.
+    pub fn a_cycle_marks_closes_and_uploads_nothing(
+        h: &mut dyn CodeHostWrites,
+        refused: &Refusals,
+        files: &dyn Blobs,
+    ) -> Law {
+        const LAW: &str = "scopes::a_cycle_marks_closes_and_uploads_nothing";
+        marks_closes_and_uploads_nothing(h, LAW, refused, files)
     }
 
     /// A cycle's token with the product's merge grant merges its own change
@@ -1049,6 +1098,44 @@ pub mod scopes {
         let state = h.change(no, ALL_MAX).map(|c| c.digest.state);
         hold(state == Ok(ChangeState::Open), law, || {
             format!("{no:?} is {state:?} after the refused merge")
+        })
+    }
+
+    /// A mark, an unmark and a close of a change, a status and an upload are
+    /// each `Forbidden`, and leave the change as it was.
+    fn marks_closes_and_uploads_nothing(
+        h: &mut dyn CodeHostWrites,
+        law: &str,
+        r: &Refusals,
+        files: &dyn Blobs,
+    ) -> Law {
+        let forbidden = Err(Outcome::Forbidden);
+        let before = got(law, "the change", h.change(r.no, ALL_MAX))?.digest;
+        let marked = h.mark_change(r.no, r.off);
+        hold(marked == forbidden, law, || {
+            format!("a mark of a change answered {marked:?}")
+        })?;
+        let unmarked = h.unmark_change(r.no, r.on);
+        hold(unmarked == forbidden, law, || {
+            format!("an unmark of a change answered {unmarked:?}")
+        })?;
+        let closed = h.close_change(r.no);
+        hold(closed == forbidden, law, || {
+            format!("a close of a change answered {closed:?}")
+        })?;
+        let after = got(law, "the change again", h.change(r.no, ALL_MAX))?.digest;
+        hold(after == before, law, || {
+            format!("the refused writes left {after:?}, not {before:?}")
+        })?;
+        let status = h.set_status(r.at, r.status);
+        hold(status == forbidden, law, || {
+            format!("a status answered {status:?}")
+        })?;
+        let (tag, name, sum) = r.upload;
+        let release = got(law, "the release", h.release(tag))?;
+        let uploaded = h.upload(&release.id, name, sum, files);
+        hold(uploaded == forbidden, law, || {
+            format!("an upload answered {uploaded:?}")
         })
     }
 
