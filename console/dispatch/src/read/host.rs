@@ -8,6 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tehas_core::file::{read_regular, ReadError, READ_BOUND};
+use tehas_core::home::{Home, Live, State};
 
 /// Whether a lock file is held by someone, or cannot be told apart from one
 /// that is: anything but no lock and a lock the probe took counts as held, as
@@ -27,7 +28,7 @@ pub fn held(path: &Path) -> bool {
 /// The issues whose cycle holds its lock, or None when `state/cycles` is there
 /// but cannot be listed: then a cycle may be running. No directory is no cycle.
 pub fn cycles(home: &Path) -> Option<Vec<u64>> {
-    let dir = match fs::read_dir(home.join("state/cycles")) {
+    let dir = match fs::read_dir(Home::new(home).cycles_dir()) {
         Ok(d) => d,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(Vec::new()),
         Err(_) => return None,
@@ -56,7 +57,7 @@ pub fn cycles(home: &Path) -> Option<Vec<u64>> {
 /// gives no answer leaves the turn in flight: a turn that cannot be seen is not
 /// one that ended, and collecting it would cut off a turn still at work.
 pub fn turn(home: &Path, n: u64, systemctl: &str) -> (bool, bool) {
-    let st = home.join(format!("state/plan-{n}.json"));
+    let st = Home::new(home).plan_file(n, "");
     let rc = st.with_extension("json.rc").is_file();
     if rc {
         return (false, true);
@@ -88,7 +89,7 @@ pub fn turn(home: &Path, n: u64, systemctl: &str) -> (bool, bool) {
 /// reader in tehas_core. Null for none, "unreadable" for something at the name
 /// that is no flag.
 pub fn pause(home: &Path) -> Value {
-    tehas_core::pause::read(&home.join("state/pause.json")).value()
+    tehas_core::pause::read(&Home::new(home).state(State::Pause)).value()
 }
 
 /// How long a push fault stands before the poll asks the sandbox again
@@ -102,7 +103,7 @@ pub const PUSH_FAULT_HOLD: i64 = 600;
 /// fault on record. Its `line` is what git said, masked by the writer; a file
 /// that does not parse still counts as a fault, with the line left empty.
 pub fn push_fault(home: &Path) -> Value {
-    let p = home.join("state/push-fault.json");
+    let p = Home::new(home).state(State::PushFault);
     let v: Value = match read_regular(&p, READ_BOUND) {
         Ok((bytes, _)) => serde_json::from_slice(&bytes).unwrap_or(Value::Null),
         Err(ReadError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => return Value::Null,
@@ -140,7 +141,7 @@ pub(crate) fn epoch(s: &str) -> Option<i64> {
 
 /// The limit, as `flags limit read` reads it: the one reader in tehas_core.
 pub fn limit(home: &Path, now: i64) -> Value {
-    tehas_core::limit::read(&home.join("state/limit.json"), now).value()
+    tehas_core::limit::read(&Home::new(home).state(State::Limit), now).value()
 }
 
 /// The first bytes of a file as text, empty when it cannot be read.
@@ -157,7 +158,7 @@ pub const REQUEST_BOUND: u64 = 4096;
 /// file holds (null when it cannot be read as JSON), and a warning for each
 /// file over the bound, which is not read.
 pub fn requests(home: &Path) -> (Vec<(u64, Value)>, Vec<String>) {
-    let dir = home.join("state/refresh");
+    let dir = Home::new(home).state(State::Refreshes);
     let mut warn = Vec::new();
     let mut out: Vec<(u64, Value)> = fs::read_dir(&dir)
         .into_iter()
@@ -196,7 +197,7 @@ pub fn requests(home: &Path) -> (Vec<(u64, Value)>, Vec<String>) {
 /// Where the record of a plan's start is kept. No container is given the state
 /// directory, and only the dispatcher writes here.
 pub fn plan_start_file(home: &Path, n: u64) -> PathBuf {
-    home.join(format!("state/plan-start/{n}.json"))
+    Home::new(home).plan_start(n)
 }
 
 /// The record of a plan's start of an issue, None when it has none, and Null
@@ -215,7 +216,7 @@ pub fn plan_start(home: &Path, n: u64) -> Option<Value> {
 /// as the store publishes it, a regular file under the shared bound, so a link
 /// or a file that grew past it counts as no report.
 pub fn last_why(home: &Path) -> String {
-    read_regular(&home.join("live/dispatch.json"), READ_BOUND)
+    read_regular(&Home::new(home).live(Live::Dispatch), READ_BOUND)
         .ok()
         .and_then(|(bytes, _)| serde_json::from_slice::<Value>(&bytes).ok())
         .and_then(|v| {
@@ -315,7 +316,7 @@ pub fn slice(home: &Path, running: &[u64]) -> Value {
     v["cids"] = Value::Array(
         running
             .iter()
-            .filter_map(|n| fs::read_to_string(home.join(format!("state/cycles/{n}.cid"))).ok())
+            .filter_map(|n| fs::read_to_string(Home::new(home).cycle_note(*n, "cid")).ok())
             .map(|t| json!(t.trim()))
             .collect(),
     );
@@ -388,7 +389,7 @@ pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64, days: 
             }
         }
     }
-    for name in names(&home.join("live")) {
+    for name in names(&Home::new(home).live_dir()) {
         if let Some(n) = name
             .strip_prefix("console-")
             .and_then(|r| r.strip_suffix(".txt"))
@@ -404,7 +405,7 @@ pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64, days: 
             continue;
         }
         seen.push(n);
-        let lock = home.join(format!("state/cycles/{n}.lock"));
+        let lock = Home::new(home).cycle_note(n, "lock");
         // A lock that is not there (a dangling link
         // too) is free; one that is there is a plain file and no link.
         let lock_ok =
@@ -417,7 +418,7 @@ pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64, days: 
         }
         files.push(runs.join(format!("issue-{n}")));
         files.push(runs.join(format!("plan-{n}")));
-        files.push(home.join(format!("live/console-{n}.txt")));
+        files.push(Home::new(home).live_console(n));
         // A name used within <days> days keeps the issue, and so does one
         // that cannot be dated.
         let young = files.iter().any(|f| match fs::symlink_metadata(f) {
@@ -769,6 +770,40 @@ mod tests {
             turn(&h, 7, gone.to_str().unwrap()),
             (false, true),
             "an exit status"
+        );
+    }
+
+    #[test]
+    fn the_container_of_a_running_cycle_is_read_from_its_cid_file() {
+        let h = home("cids");
+        let cycles = h.join("state/cycles");
+        fs::create_dir(&cycles).unwrap();
+        fs::write(cycles.join("7.cid"), "c0ffee\n").unwrap();
+        assert_eq!(slice(&h, &[7, 8])["cids"], json!(["c0ffee"]));
+    }
+
+    #[test]
+    fn the_sweep_finds_an_issue_by_its_console_and_asks_its_lock() {
+        let h = home("leftovers");
+        let live = h.join("live");
+        fs::create_dir(&live).unwrap();
+        fs::write(live.join("console-5.txt"), "").unwrap();
+        fs::write(live.join("console-6.txt"), "").unwrap();
+        // A directory at the name of #5's lock is no lock file.
+        fs::create_dir_all(h.join("state/cycles/5.lock")).unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let work = h.join("work/widget");
+        let got = leftovers(&h, work.to_str().unwrap(), &h.join("user"), now, 1);
+        assert_eq!(
+            got,
+            json!([
+                {"issue": 5, "young": true, "lock_ok": false},
+                {"issue": 6, "young": true, "lock_ok": true},
+            ]),
+            "#6 is young by its console alone"
         );
     }
 
