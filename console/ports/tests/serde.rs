@@ -94,7 +94,7 @@ fn a_checked_type_refuses_a_bad_text_when_read() {
     assert!(from_node::<Branch>(text("a..b")).is_err());
     assert!(from_node::<TagName>(text("")).is_err());
     assert!(from_node::<RepoPath>(text("../x")).is_err());
-    assert!(from_node::<MarkName>(text("a/b")).is_err());
+    assert!(from_node::<MarkName>(text("a#b")).is_err());
     assert!(from_node::<FileName>(text("a/b")).is_err());
     assert!(from_node::<WebLink>(text("http://example.test")).is_err());
     assert!(from_node::<GitRemote>(text("file:///x")).is_err());
@@ -115,7 +115,7 @@ fn bodies_and_bounds_read_back() {
     round(sum.clone());
     round(Body::Text("hello".into()));
     round(Body::Summed(sum));
-    round(MarkName::read_list(["area: docs", "a/b"]));
+    round(MarkName::read_list(["area: docs", "a#b"]));
     assert!(
         from_node::<Sum>(map(vec![("sha256", text("ABC")), ("len", Node::Uint(1))])).is_err(),
         "a sum's hash is checked when read"

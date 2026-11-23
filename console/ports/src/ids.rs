@@ -268,8 +268,8 @@ fn repo_path_ok(s: &str) -> bool {
 
 checked!(
     /// A name a project gives its own mark, or a site gives a type of
-    /// ticket. Checked when made: letters, digits, `-`, `:`, `.` and spaces,
-    /// 1 to 50. A write of one outside the rule cannot be made. Reading a
+    /// ticket. Checked when made: ASCII letters, digits, `-`, `_`, `:`,
+    /// `.`, `/` and spaces, 1 to 50. A write of one outside the rule cannot be made. Reading a
     /// site's list of marks never fails on a name: [`MarkName::read_list`]
     /// leaves a name that breaks the rule out of the list and returns it, for
     /// the adapter to report through its notices, as it reports a variant it
@@ -309,8 +309,9 @@ impl MarkName {
 fn mark_name_ok(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 50
-        && s.bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b':' | b'.' | b' '))
+        && s.bytes().all(|b| {
+            b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b':' | b'.' | b'/' | b' ')
+        })
 }
 
 checked!(
@@ -481,25 +482,33 @@ mod tests {
         assert!(MarkName::new("a".repeat(50)).is_ok());
         assert!(MarkName::new("a".repeat(51)).is_err());
         assert!(MarkName::new("").is_err());
-        assert!(MarkName::new("a/b").is_err());
-        assert!(MarkName::new("a_b").is_err());
+        for bad in ["a#b", "a,b", "a\\b", "a\tb", "\u{e4}", "a>b"] {
+            assert!(MarkName::new(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_mark_name_may_hold_underscores_and_slashes() {
+        for good in ["dependabot_style", "area/ui", "kind/bug", "a_b/c"] {
+            assert!(MarkName::new(good).is_ok(), "{good}");
+        }
     }
 
     #[test]
     fn reading_a_list_of_mark_names_never_fails_and_leaves_out_a_bad_name() {
         let read = MarkName::read_list([
             "area: docs",
-            "a/b",
+            "a#b",
             "v1.2-later",
             "",
-            "a/b",
+            "a#b",
             &"a".repeat(51),
         ]);
         let kept: Vec<&str> = read.kept.iter().map(MarkName::as_str).collect();
         assert_eq!(kept, ["area: docs", "v1.2-later"]);
         assert_eq!(
             read.left_out,
-            ["a/b".to_string(), String::new(), "a".repeat(51)]
+            ["a#b".to_string(), String::new(), "a".repeat(51)]
         );
         assert_eq!(
             MarkName::read_list(Vec::<String>::new()),
