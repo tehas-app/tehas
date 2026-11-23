@@ -129,6 +129,17 @@ mod tests {
     }
 
     #[test]
+    fn a_login_of_the_list_counts_in_any_case() {
+        let site = FakeSite::new(&labelled(&["mallory", "alice"]));
+        let mut t = site
+            .tickets(&Actor::Ours(Scope::Full), Caller::new("label"))
+            .unwrap();
+        assert_eq!(allowed(&mut *t, "7", Some(&ready()), "Alice bob"), 0);
+        assert_eq!(allowed(&mut *t, "7", Some(&ready()), "ALICE"), 0);
+        assert_eq!(allowed(&mut *t, "7", Some(&ready()), "alic"), 1);
+    }
+
+    #[test]
     fn a_removal_never_answers_who_applied_it() {
         let w = World::new().ticket(7, |t| {
             t.event(Happened::Marked(ready()), Some("mallory"), Some(At::new(1)))

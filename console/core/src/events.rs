@@ -105,10 +105,13 @@ pub fn allowed_in(list: &str, login: &str) -> bool {
     !login.is_empty() && list.split(' ').any(|l| l == login)
 }
 
-/// [`allowed_in`] for a login the ports' adapter folded to lower case: a
-/// login of the list matches in any case, as the site's logins do.
+/// [`allowed_in`] ignoring ASCII case, as `accounts::folded` compares
+/// logins: the vouch already checked every case variant of a listed login
+/// against its recorded id. Until T4.7 makes the two one rule, the
+/// dispatcher reads [`allowed_in`], exact case.
 pub fn allowed_folded(list: &str, login: &str) -> bool {
-    !login.is_empty() && list.split(' ').any(|l| l.eq_ignore_ascii_case(login))
+    let login = crate::accounts::folded(login);
+    !login.is_empty() && list.split(' ').any(|l| crate::accounts::folded(l) == login)
 }
 
 /// Who applied `label` most recently, and when: tehas_label_actor. Events
@@ -590,6 +593,35 @@ mod allowed_tests {
         assert!(!allowed_in("alice bob", "alice bob"));
         assert!(!allowed_in("alice bob", ""));
         assert!(!allowed_in("", ""));
+    }
+
+    /// The console's rule: whole logins of the list, in any ASCII case.
+    #[test]
+    fn the_folded_rule_ignores_ascii_case_and_nothing_else() {
+        use super::allowed_folded;
+        assert!(allowed_folded("alice", "Alice"));
+        assert!(allowed_folded("Alice", "alice"));
+        assert!(allowed_folded("alice", "ALICE"));
+        assert!(allowed_folded("alice bob", "BOB"));
+        for login in [
+            "",
+            "alice bob",
+            " alice",
+            "alice ",
+            "alic",
+            "alıce",
+            "alice#5",
+            "Alice#",
+        ] {
+            assert!(!allowed_folded("alice bob", login), "{login:?}");
+        }
+        // A list entry that is not a login is no wildcard.
+        for list in ["", " ", "alice  bob", "*", "alice *"] {
+            for login in ["mallory", "Mallory", "*x"] {
+                assert!(!allowed_folded(list, login), "{list:?} {login:?}");
+            }
+        }
+        assert!(!allowed_folded("alice  bob", ""));
     }
 
     /// The list is what lib/config.sh checks: whole logins with one space

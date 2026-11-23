@@ -157,10 +157,10 @@ t_eq "$t_rc" 1
 echo '[]' >"$T/events.json"
 t_run "$allowed"
 t_eq "$t_rc" 1
-t_case "it does not when the allowed login comes with another user id, or none"
-for id in 99 null; do
-  labelled bob
-  jq --argjson id "$id" '.[0].actor.id = $id' "$T/events.json" >"$T/events.new" && mv "$T/events.new" "$T/events.json"
+t_case "it does not when the allowed login, in any case, comes with another user id, or none"
+for who in bob:99 bob:null Bob:99 BOB:null; do
+  labelled "${who%:*}"
+  jq --argjson id "${who#*:}" '.[0].actor.id = $id' "$T/events.json" >"$T/events.new" && mv "$T/events.new" "$T/events.json"
   t_run "$allowed"
   t_eq "$t_rc" 1
   t_contains "$t_out" "does not count"

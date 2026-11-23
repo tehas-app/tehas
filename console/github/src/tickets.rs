@@ -190,7 +190,7 @@ fn account(login: &str, facts: &gh::Facts) -> Option<Account> {
     }
     Some(Account {
         realm: Realm::CodeHost,
-        login: Login::new(login.to_ascii_lowercase()),
+        login: Login::new(tehas_core::accounts::folded(login)),
         id: facts.id.map(|id| AccountId::new(id.to_string())),
         kind: match facts.kind.as_deref() {
             Some("User") => AccountKind::Person,
