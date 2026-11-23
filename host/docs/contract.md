@@ -173,23 +173,22 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
    refused by 1.4.0: `RETIRED` holds the same twelve names, and
    `api/renames-1.0.tsv` is unchanged. Every setting that left
    `api/settings-rules.json` since 1.4.0 is dropped with a warning, not
-   refused: twelve of its instance settings and two of its host settings,
+   refused: twenty-two of its instance settings and two of its host settings,
    `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, which `~/.config/tehas/env`
    held.
 2. **Run `tehas update`.** It stops and removes the units and files of the
    features 2.0 took out of core, and migrates the state store and analytics.
 3. **The state store** (`state/tehas.db`) goes from schema 23, 1.4.x's, to
-   28 in one run, step by step: 24 adds the answers of `tehas answer`, 25
+   29 in one run, step by step: 24 adds the answers of `tehas answer`, 25
    keeps a stop's question with its choices, 26 lets a cycle's `how` say
    `reply`, 27 rewrites every `retry-tick` to `reply` and marks a question
    open at the upgrade to be asked again, 28 rewrites `fixer` to
-   `millwright` and drops `comment_links` from an approval's input. Schema
-   29, which drops the tables of outsource, comes with
-   #2886 (Pending).
+   `millwright` and drops `comment_links` from an approval's input, 29 drops
+   the tables of outsource and keeps every other row.
    `tehas state check --json` prints the schema.
-4. **Analytics** (`state/analytics.db`) goes from schema 4 to 5 the first
-   time it is opened after the update: it drops `samples.watts`, keeps every
-   other column and row, and rewrites `retry-tick` to `reply` and `fixer` to
+4. **Analytics** (`state/analytics.db`) goes from schema 4 to 6 the first
+   time it is opened after the update: it drops `samples.watts` and
+   `runs.contractor_id`, keeps every other column and row, and rewrites `retry-tick` to `reply` and `fixer` to
    `millwright` in `runs.how`.
 5. **pi-rukas.** A checkout follows pi-rukas's 0.15 line
    (`PI_RUKAS_FOLLOW=release:0.15`). 2.0 needs pi-rukas v0.15.6 or later.
@@ -232,7 +231,12 @@ line is one of three:
     `TEHAS_PROTOTYPE_FILE` (the Protolab);
   - `TEHAS_WORK_DESCRIBE`, `TEHAS_WORK_FILES`, `TEHAS_WORK_ZIPS`,
     `TEHAS_WORK_COMMENTS` (a cycle's describe, text files, zips and
-    comments).
+    comments);
+  - `TEHAS_OUTSOURCE`, `TEHAS_OUTSOURCE_TIMEOUT`, `TEHAS_OUTSOURCE_GRACE`,
+    `TEHAS_OUTSOURCE_RETRIES`, `TEHAS_OUTSOURCE_REST`,
+    `TEHAS_OUTSOURCE_REPOS`, `TEHAS_OUTSOURCE_CONTRACTORS`,
+    `TEHAS_OUTSOURCE_JOIN_TTL`, `TEHAS_OUTSOURCE_PROXY_ADDR`,
+    `TEHAS_OUTSOURCE_PROXY_IDLE` (outsource).
 - **Refused.** The line stops every command with 78 and says what to do:
   - a name an earlier release retired (`RETIRED` in the same file):
     `TEHAS_FIXER_LOGIN`, `TEHAS_FIXER_MAX_RETRIES`,
@@ -244,13 +248,10 @@ line is one of three:
   - a value for a setting of a feature still being built, which names the
     feature.
 
-Pending: #2894 drops
-`TEHAS_MILLWRIGHT_MAX_RETRIES`, `TEHAS_MILLWRIGHT_FEED` and
-`TEHAS_MILLWRIGHT_MAX_FEEDS` with a warning,
-#2892 `TEHAS_SPEC_PIPE`,
-and #2886 `TEHAS_OUTSOURCE`
-and its nine `TEHAS_OUTSOURCE_*` settings. Until they land, a value for one
-of the last eleven is refused as a building feature's.
+Pending: #2894 drops `TEHAS_MILLWRIGHT_MAX_RETRIES`,
+`TEHAS_MILLWRIGHT_FEED` and `TEHAS_MILLWRIGHT_MAX_FEEDS` with a warning, and
+#2892 `TEHAS_SPEC_PIPE`. Until #2892 lands, a value for `TEHAS_SPEC_PIPE` is
+refused as a building feature's.
 
 ## The commands of other parts
 
@@ -485,13 +486,14 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   A program that stops `tehas-energy.service` when it adopts a factory, or
   starts it when it creates or restores one, drops the unit from both
   lists.
-- **analytics.db is at schema 5.**
-  #2869.
+- **analytics.db is at schema 6.**
+  #2869, #2886.
   The migration drops `samples.watts`, which nothing writes since energy
-  use left core, and keeps every other column and row.
-  `tehas analytics copy --json` reports schema 5.
+  use left core, and `runs.contractor_id`, which no release wrote a value
+  in, and keeps every other column and row. A file of schema 4 or 5 is
+  migrated in place. `tehas analytics copy --json` reports schema 6.
   Readers: the consumer that reads the analytics copies.
-  Adopter action: a program that reads the copies pins `user_version` 5 and
+  Adopter action: a program that reads the copies pins `user_version` 6 and
   `console/analytics/src/schema.pinned` of this release.
 - **A cycle is given the issue's images alone.**
   #2875.
@@ -527,11 +529,29 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   an instance's settings.
   Adopter action: run it before the update, and again after each fix,
   until it passes.
-- **The state store is at schema 28.**
-  #2794, #2830, #2843, #2867, #2889.
-  The steps 24 to 28 are listed under [Upgrading to 2.0](#upgrading-to-20).
-  `tehas state check --json` prints `schema` 28, and `rows` counts the new
-  table `answers`.
+- **Outsource is removed, with the model proxy and the contractor.**
+  #2886.
+  It was still being built: no release could turn it on. Gone: the command
+  `outsource` of tehas and the verb `outsource-proxy` of tehasbot, the
+  programs `tehas-proxy` and `tehas-contractor`,
+  `tehas-outsource-proxy.service`, the key `outsource` of `flags` in
+  `tehas api --json`, `contractors` in `tehas status --json` with the sample
+  `api/status.outsourced.json`, the MCP tool `factory_contractors`,
+  `live/contractors.json`, and the vipune stand-in of the sandbox image. Its
+  ten settings are dropped with a warning. The state store's step to 29
+  drops its tables, and analytics 6 drops `runs.contractor_id`.
+  Readers: adopters, the consumer that runs many factories, the consumer
+  that reads the analytics copies, MCP clients, the end-to-end suite.
+  Adopter action: run `tehas update`, which stops and removes
+  `tehas-outsource-proxy.service` and removes `libexec/tehas-proxy`,
+  `libexec/tehas-contractor`, `live/contractors.json` and
+  `sandbox/vipune-shim`. Then take any `TEHAS_OUTSOURCE` and
+  `TEHAS_OUTSOURCE_*` lines out of `instance.env`.
+- **The state store is at schema 29.**
+  #2794, #2830, #2843, #2867, #2889, #2886.
+  The steps 24 to 29 are listed under [Upgrading to 2.0](#upgrading-to-20).
+  `tehas state check --json` prints `schema` 29, and `rows` counts the new
+  table `answers` and no longer the tables of outsource.
   Readers: `tehas update`, readers of `tehas state check` and of a state
   copy, the end-to-end suite.
   Adopter action: `tehas update` migrates the store.
@@ -578,16 +598,6 @@ adopter action as the pull request states them.
   `spec-pipe` leaves `flags`, and `TEHAS_SPEC_PIPE` is dropped with a
   warning. Lean's `pi-spec v1` block stays.
   Readers: adopters, the consumer that runs many factories (`flags`).
-- **Outsource goes, with the model proxy and the contractor.**
-  #2886. Gone:
-  the command `outsource` of tehas, `tehas-proxy`, `tehas-contractor`,
-  `tehas-outsource-proxy.service`, the key `outsource` of `flags`,
-  `contractors` in `tehas status --json` and `api/status.outsourced.json`,
-  the MCP tool `factory_contractors`. Its ten settings are dropped with a
-  warning. The state store goes to schema 29, which drops outsource's
-  tables; analytics goes to schema 6, which drops `runs.contractor_id`.
-  Readers: adopters, the consumer that runs many factories, the consumer
-  that reads the analytics copies, MCP clients, the end-to-end suite.
 - **The approval record refuses `comment_links`.**
   #2888. A new approval that
   names the key is refused; a stored one loads with it ignored.
@@ -669,24 +679,6 @@ no release does: see [proving a building feature on a lab
 host](/tools-update#proving-a-building-feature-on-a-lab-host).
 
 What each registered feature leaves visible while its flag is off:
-
-### outsource
-
-Building. Coming out in 2.0 with #2886
-(Pending). Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
-78 and says `outsource` is still being built.
-
-- `tehas api --json` has `"outsource": false` in `flags`, and no word
-  `outsource` in `features`.
-- The settings `TEHAS_OUTSOURCE_*` are in `api/settings-rules.json`, but they
-  are not contract: a line that gives one a value stops every command with
-  exit 78 and names `outsource`.
-- `tehas-proxy` ends at once with exit 0 and opens no port.
-- No command, no label, no `contractors` in `tehas status --json`, no MCP
-  tool, nothing in `live/`. The fields of `contractors` may change while
-  outsource is still being built.
-- The state store has its tables for contractors and jobs, which are internal.
-- `analytics.db` has the column `contractor_id` of `runs`, NULL on every run.
 
 ### spec-pipe
 
