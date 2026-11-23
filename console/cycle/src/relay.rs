@@ -663,7 +663,9 @@ fn opened(
         if scope.created.contains(&hit.no.get()) {
             continue;
         }
-        let b = writes.blueprint(hit.no, Depth::Cut { notes: 0 }).ok()?;
+        // Its whole body: a cut one would match nothing.
+        let one = std::num::NonZeroU32::new(1).expect("1 is no zero");
+        let b = writes.blueprint(hit.no, Depth::Last { notes: one }).ok()?;
         let ours = b
             .author
             .as_ref()
