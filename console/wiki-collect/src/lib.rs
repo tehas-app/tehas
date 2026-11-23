@@ -70,9 +70,44 @@ pub fn untrailed(body: &str) -> String {
     }
 }
 
-/// One line of log.jsonl for each commit of the range, and the hashes of the
-/// commits left out for their text.
-pub fn log(dir: &Path, range: &str) -> (Vec<Value>, Vec<String>) {
+/// One commit of the range: a line of log.jsonl.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Commit {
+    pub hash: String,
+    pub date: String,
+    pub subject: String,
+    /// The body without the trailers of its last paragraph.
+    pub body: String,
+}
+
+impl Commit {
+    fn line(&self) -> String {
+        json!({"hash": self.hash, "date": self.date, "subject": self.subject, "body": self.body})
+            .to_string()
+    }
+}
+
+/// One version tag: an element of tags.json.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Tag {
+    pub name: String,
+    pub date: String,
+    pub commit: String,
+    /// The commits since the tag before; None when git could not count them.
+    pub commits: Option<u64>,
+}
+
+/// What a build after another changed: changed.json.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Changed {
+    pub paths: Vec<String>,
+    /// The pages whose `sources` name a changed path or a directory above one.
+    pub pages: Vec<String>,
+}
+
+/// The commits of the range, and the hashes of the commits left out for
+/// their text.
+pub fn log(dir: &Path, range: &str) -> (Vec<Commit>, Vec<String>) {
     let limit = format!("--max-count={MAX_COMMITS}");
     let text = git(
         dir,
@@ -99,13 +134,18 @@ pub fn log(dir: &Path, range: &str) -> (Vec<Value>, Vec<String>) {
             dropped.push(hash.to_string());
             continue;
         }
-        lines.push(json!({"hash": hash, "date": date, "subject": subject, "body": body}));
+        lines.push(Commit {
+            hash: hash.to_string(),
+            date: date.to_string(),
+            subject: subject.to_string(),
+            body,
+        });
     }
     (lines, dropped)
 }
 
 /// Every version tag, oldest first, with the commits since the tag before.
-pub fn tags(dir: &Path) -> Vec<Value> {
+pub fn tags(dir: &Path) -> Vec<Tag> {
     let text = git(
         dir,
         &[
@@ -129,7 +169,12 @@ pub fn tags(dir: &Path) -> Vec<Value> {
             None => git(dir, &["rev-list", "--count", commit]),
         }
         .and_then(|n| n.trim().parse::<u64>().ok());
-        out.push(json!({"name": name, "date": date, "commit": commit, "commits": since}));
+        out.push(Tag {
+            name: name.to_string(),
+            date: date.to_string(),
+            commit: commit.to_string(),
+            commits: since,
+        });
         before = Some(commit.to_string());
     }
     out
@@ -137,7 +182,7 @@ pub fn tags(dir: &Path) -> Vec<Value> {
 
 /// The paths changed between two commits, and the pages whose `sources` name
 /// one of them or a directory above one.
-pub fn changed(dir: &Path, before: &str, head: &str, pages: &Pages) -> Value {
+pub fn changed(dir: &Path, before: &str, head: &str, pages: &Pages) -> Changed {
     let paths: Vec<String> = git(dir, &["diff", "--name-only", before, head])
         .unwrap_or_default()
         .lines()
@@ -158,7 +203,10 @@ pub fn changed(dir: &Path, before: &str, head: &str, pages: &Pages) -> Value {
             touched.push(name.clone());
         }
     }
-    json!({"paths": paths, "pages": touched})
+    Changed {
+        paths,
+        pages: touched,
+    }
 }
 
 /// Writes the raw sources for `head` into `raw`. `before` is the commit of the
@@ -176,7 +224,11 @@ pub fn write(
         raw.join("head.json"),
         json!({"commit": head.commit, "date": head.date, "describe": head.describe, "after": before}).to_string(),
     )?;
-    fs::write(raw.join("tags.json"), Value::Array(tags(dir)).to_string())?;
+    let tags: Vec<Value> = tags(dir)
+        .iter()
+        .map(|t| json!({"name": t.name, "date": t.date, "commit": t.commit, "commits": t.commits}))
+        .collect();
+    fs::write(raw.join("tags.json"), Value::Array(tags).to_string())?;
     let range = match before {
         Some(b) => format!("{b}..{}", head.commit),
         None => head.commit.clone(),
@@ -184,12 +236,15 @@ pub fn write(
     let (lines, dropped) = log(dir, &range);
     let mut text = String::new();
     for l in &lines {
-        text.push_str(&l.to_string());
+        text.push_str(&l.line());
         text.push('\n');
     }
     fs::write(raw.join("log.jsonl"), text)?;
     let changed = match before {
-        Some(b) => changed(dir, b, &head.commit, pages),
+        Some(b) => {
+            let c = changed(dir, b, &head.commit, pages);
+            json!({"paths": c.paths, "pages": c.pages})
+        }
         None => json!({"paths": null, "pages": null}),
     };
     fs::write(raw.join("changed.json"), changed.to_string())?;
@@ -313,10 +368,14 @@ mod tests {
             "---\ntitle: O\nsources: [console/other]\nverified_at: 00000000\n---\n".into(),
         );
         let v = changed(&r, &first, &h.commit, &pages);
-        assert_eq!(v["pages"], json!(["modules/dispatch.md"]));
-        assert_eq!(v["paths"], json!(["README", "console/dispatch/a.rs"]));
+        assert_eq!(v.pages, ["modules/dispatch.md"]);
+        assert_eq!(v.paths, ["README", "console/dispatch/a.rs"]);
         let raw = d.join("raw2");
         write(&r, &raw, &h, Some(&first), &pages).unwrap();
+        assert_eq!(
+            fs::read_to_string(raw.join("changed.json")).unwrap(),
+            r#"{"pages":["modules/dispatch.md"],"paths":["README","console/dispatch/a.rs"]}"#
+        );
         assert_eq!(
             fs::read_to_string(raw.join("log.jsonl"))
                 .unwrap()

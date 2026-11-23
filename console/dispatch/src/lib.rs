@@ -5,6 +5,7 @@ pub mod answer;
 pub mod apply;
 pub mod auto_finish;
 pub mod decide;
+pub mod events;
 pub mod finish;
 pub mod pins;
 pub mod poll;
