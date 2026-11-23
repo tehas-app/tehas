@@ -151,8 +151,9 @@ a key. `rows` itself is public.
 - **pi-rukas names.** When pi-rukas renames a `PI_ENSEMBLE_*` input, tehas
   takes both the old and the new name through 2.x.
 - **Driver labels and settings.** The labels `tehas:lean` and `tehas:classic`
-  and `TEHAS_DRIVER=lean` and `TEHAS_DRIVER=classic` stay accepted through
-  2.x.
+  and the words `lean` and `classic` of `TEHAS_DRIVER` are kept, not
+  renamed, through 2.x. Today `TEHAS_DRIVER=lean` stops with 78 and
+  `tehas:lean` starts nothing, while lean is building.
 - **No levers for older APIs.** 2.x keeps no alias, renamed command,
   deprecated flag or setting that brings back a behaviour of 1.x. Only the
   current majors of the trio are supported.
@@ -162,19 +163,24 @@ a key. `rows` itself is public.
 
 ## Upgrading to 2.0
 
-tehas 2.0, tehas-industry 2.0 and Obeya 1.0 are released together, as a
-trio. A host upgrades its industry, its Obeya and its factories together, to
+tehas 2.0 is released together with the 2.0 of the consumer that runs many
+factories and Obeya 1.0, as a trio. A host upgrades that consumer, its Obeya
+and its factories together, to
 the three tagged versions. Nothing else is supported: no 2.0 factory under a
-1.x industry, and no 1.x factory under a 2.0 industry.
+1.x consumer, and no 1.x factory under a 2.0 consumer.
 
 A factory moves from 1.4.x to 2.0 with `tehas update`:
 
 1. **Check the settings first.** 2.0 rewrites no setting. Each line of
    `instance.env` is kept, dropped with one warning, or refused with 78, as
    [what 2.0 does with a setting](#what-20-does-with-a-setting) lists.
-   Fix every refused line before the update. A check that says which,
-   `cargo xtask config-check --settings <instance dir>`, is coming in 2.0
-   with #2885 (Pending).
+   `cargo xtask config-check --settings <instance dir>`, run in a checkout
+   of the 2.0 release, says which before anyone updates the host. Fix every
+   refused line before the update. Every setting 2.0 refuses was already
+   refused by 1.4.0: `RETIRED` holds the same twelve names, and
+   `api/renames-1.0.tsv` is unchanged. Every setting that left
+   `api/settings-rules.json` since 1.4.0, fourteen, is dropped with a
+   warning, not refused.
 2. **Run `tehas update`.** It stops and removes the units and files of the
    features 2.0 took out of core, and migrates the state store and analytics.
 3. **The state store** (`state/tehas.db`) goes from schema 23, 1.4.x's, to
@@ -331,12 +337,13 @@ Every change 2.0 makes to what a program, an operator or a plugin sees, once.
 Each names its pull request, what changed, its readers, and what an adopter
 does after `tehas update`. No old name is kept beside a new one. The readers
 are named by role: adopters (who run a factory), people on an issue, the
-consumer that runs many factories (tehas-industry), the consumer that reads
+consumer that runs many factories, the consumer that reads
 the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
 
 - **`tehas answer`, a question answered for a person.**
   #2794, #2808, #2813.
-  `tehas answer <issue> <choice> --by <login> [--text FILE] [--json]`
+  `tehas answer <issue> <choice> --by <login> [--json]`, or
+  `tehas answer <issue> --text <file> --by <login> [--json]`, never both,
   answers the question a stopped ticket or a planning session waits on:
   `retry`, `retry-text` or `park` for a stop, `option:<k>`, `update`, `end`
   or `--text` for a planning question. `--by` must be an account of
@@ -403,7 +410,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   says `how: "millwright"`, and a cycle refuses one that says `fixer`.
   Analytics rewrites `fixer` to `millwright` in `runs.how` at each open, and
   `factory_sessions` answers `millwright`. The dispatcher's log and its
-  comments name the millwright. `api.millwright` of `tehas api --json` is
+  comments name the millwright. `millwright` of `tehas api --json` is
   unchanged.
   Readers: the consumer that runs many factories, where it reads a cycle's
   record, the consumer that reads the analytics copies, MCP clients, the
@@ -435,8 +442,8 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   names it sends to the edge router.
 - **The first stage is Idea.**
   #2877.
-  A ticket's line on the factory's pages reads Idea, In line, Blueprint,
-  Production, Review, Shipped. Idea is an open ticket that is not in line:
+  A ticket's line on the factory's pages reads Idea, In line, Planning,
+  Building, Review, Stopped, Shipped. Idea is an open ticket that is not in line:
   it carries none of the state labels of `host/labels.tsv` that put it in
   the queue or further on, and is not closed. Nothing on the pages is called
   Prototype.
@@ -506,6 +513,19 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: adopters, the consumer that runs many factories where it writes
   an instance's settings.
   Adopter action: take the lines out when it suits you.
+- **`cargo xtask config-check`, the settings checked before the update.**
+  #2885.
+  `cargo xtask config-check --settings <instance dir>`, in a checkout of the
+  release, runs on an instance directory the checks `tehas update` runs on
+  the settings before it installs. It prints `dropped <NAME>: <reason>` for
+  each setting 2.0 drops and `fail <NAME>: <why>` for each finding, then
+  `pass` or `fail`, and exits 0 or 78. It reads only the instance directory:
+  not `~/.config/tehas/env`, no GitHub, Docker or git, and it writes
+  nothing.
+  Readers: adopters, the consumer that runs many factories where it keeps
+  an instance's settings.
+  Adopter action: run it before the update, and again after each fix,
+  until it passes.
 - **The state store is at schema 28.**
   #2794, #2830, #2843, #2867, #2889.
   The steps 24 to 28 are listed under [Upgrading to 2.0](#upgrading-to-20).
@@ -515,7 +535,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   copy, the end-to-end suite.
   Adopter action: `tehas update` migrates the store.
 - **2.0 is supported from 1.4.x, as the trio.** This page. The update to
-  2.0 is supported from 1.4.x only, and a host upgrades its industry, Obeya and
+  2.0 is supported from 1.4.x only, and a host upgrades the consumer that runs many factories, Obeya and
   factories together.
   Readers: adopters, the consumer that runs many factories.
   Adopter action: update a host on an older release to the newest 1.4.x
@@ -562,7 +582,7 @@ adopter action as the pull request states them.
   the command `outsource` of tehas, `tehas-proxy`, `tehas-contractor`,
   `tehas-outsource-proxy.service`, the key `outsource` of `flags`,
   `contractors` in `tehas status --json` and `api/status.outsourced.json`,
-  the MCP tool `factory_contractors`. Its eleven settings are dropped with a
+  the MCP tool `factory_contractors`. Its ten settings are dropped with a
   warning. The state store goes to schema 29, which drops outsource's
   tables; analytics goes to schema 6, which drops `runs.contractor_id`.
   Readers: adopters, the consumer that runs many factories, the consumer
@@ -571,12 +591,6 @@ adopter action as the pull request states them.
   #2888. A new approval that
   names the key is refused; a stored one loads with it ignored.
   Readers: readers of the approval record.
-- **`cargo xtask config-check`.**
-  #2885. Checks an instance
-  directory against 2.0's load before an update: one `dropped` line per
-  setting 2.0 drops, one `fail` line per finding, then `pass` (0) or
-  `fail` (78).
-  Readers: adopters.
 - **Events.** T11, spec `docs/specs/2026-11-22-events.md`
   (#2878, merged); the build
   is to come. Notify events, each with a schema in `api/` and a witness in
@@ -826,8 +840,10 @@ The plugin API as 2.0 holds it, for the work of 2.1:
   (`docs/specs/2026-11-22-plugins-1.6.md`) and the plugin surfaces for 2.1
   (`docs/specs/2026-11-22-plugin-surfaces-2.1.md`) are built after 2.0.
 
-What 2.0 keeps for the plugins that take over the features it removed, as
-library code that nothing in core calls for them yet:
+What 2.0 keeps for the plugins that take over the features it removed.
+Some of it is live in core: the edge routes `item-<n>.<domain>` to
+`~/tehas/items`, and `console/attach` fetches the images a cycle is given.
+The rest is library code that nothing in core calls yet:
 
 | Kept | Where | For |
 | --- | --- | --- |
