@@ -9,10 +9,10 @@
 use crate::jq::{obj, J};
 use crate::snapshot;
 use crate::store;
-use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 use tehas_core::grammar;
+use tehas_core::outcome::ParkLine;
 use tehas_core::time;
 
 /// A cursor of a shape this command can print: at most 10 digits of seconds,
@@ -454,50 +454,31 @@ fn publish(line: &J, seconds: i64) -> J {
     ))
 }
 
-/// A park, and not the park of a provider outage, which has its own rule of
-/// retries: never the park that starts a run and never the one that breaks it.
-fn is_park(line: &J) -> bool {
-    line.get("parked").is_true() && !line.get("provider").is_true()
-}
-
-fn same_park(a: &J, b: &J) -> bool {
-    a.get("progress").get("step") == b.get("progress").get("step")
-        && ["cap", "parkReason", "failureKind", "failureCause"]
-            .iter()
-            .all(|key| a.get(key) == b.get(key))
-}
-
 /// The count of the parks in a row that stopped exactly as this one did, on
-/// each line that has one. A run is the parks of one issue with step, cap and
-/// the three words of the failure all equal, each the end written just after
-/// the other, the parks of an outage skipped. The first of them counts 1, the
-/// next 2. A merge, a handoff or any other end breaks a run. It is worked out on
-/// these lines and none besides: a listing that begins partway through a run
-/// gives its first line no count.
+/// each line that has one (`tehas_core::outcome::repeats`). It is worked out
+/// on these lines and none besides.
 fn count_repeats(lines: &mut [J]) {
-    let mut counts = vec![0u64; lines.len()];
-    // By issue: its end written last, outages skipped, and its park seen last.
-    let (mut end, mut park) = (HashMap::new(), HashMap::new());
-    for i in 0..lines.len() {
-        let line = &lines[i];
-        let issue = line.get("issue").text();
-        let work = line.get("kind").as_str() == Some("work");
-        if is_park(line) {
-            let run = end
-                .get(&issue)
-                .map(|&e: &usize| &lines[e])
-                .is_some_and(|before| is_park(before) && same_park(line, before));
-            if run {
-                counts[i] = park.get(&issue).map_or(0, |&p: &usize| counts[p]) + 1;
-            }
-            park.insert(issue.clone(), i);
-        } else if work && !line.get("parked").is_true() {
-            park.remove(&issue);
-        }
-        if work && !line.get("provider").is_true() {
-            end.insert(issue, i);
-        }
-    }
+    let issues: Vec<String> = lines.iter().map(|l| l.get("issue").text()).collect();
+    let counts = {
+        let parks: Vec<ParkLine> = lines
+            .iter()
+            .zip(&issues)
+            .map(|(line, issue)| ParkLine {
+                issue: issue.parse().unwrap_or(0),
+                work: line.get("kind").as_str() == Some("work"),
+                parked: line.get("parked").is_true(),
+                provider: line.get("provider").is_true(),
+                how: [
+                    line.get("progress").get("step").as_str(),
+                    line.get("cap").as_str(),
+                    line.get("parkReason").as_str(),
+                    line.get("failureKind").as_str(),
+                    line.get("failureCause").as_str(),
+                ],
+            })
+            .collect();
+        tehas_core::outcome::repeats(&parks)
+    };
     for (line, count) in lines.iter_mut().zip(counts) {
         if let (J::Obj(fields), true) = (line, count > 0) {
             fields.push(("repeat".to_string(), J::Num(count.to_string())));
