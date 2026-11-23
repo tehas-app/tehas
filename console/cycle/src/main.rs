@@ -315,7 +315,7 @@ fn main() {
             if start.console.is_empty() || start.status_cmd.is_empty() {
                 wrong(&args);
             }
-            std::process::exit(apply::run(&home, &start));
+            std::process::exit(apply::run(&home, &start, handles));
         }
         ["clock", "now"] => {
             if clock::print_now(clock::boot_seconds).is_none() {
@@ -452,6 +452,7 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         status_cmd: String::new(),
         status_args: Vec::new(),
         console: String::new(),
+        handles,
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
@@ -500,6 +501,25 @@ fn read_text(
     tehas_github::GitHub::new(repo, gh)
         .text_revision(issue)
         .map_err(|e| e.why)
+}
+
+/// The handles a cycle's report writes through, from the GitHub adapter, its
+/// gh the host's own under the report's bound.
+fn handles(repo: &str, bound: Duration, grace: Duration) -> tehas_cycle::apply::Handles {
+    let gh = || {
+        let mut b = tehas_core::forge::Bounded::new("gh", bound);
+        b.grace = grace;
+        tehas_github::GitHub::new(repo, Box::new(b))
+    };
+    tehas_cycle::apply::Handles {
+        writes: Box::new(tehas_ports::Writer {
+            tickets: Box::new(gh()),
+            blueprints: Box::new(gh()),
+            code_host: Box::new(gh()),
+        }),
+        tickets: Box::new(gh()),
+        code_host: Box::new(gh()),
+    }
 }
 
 /// The words of tehas work.

@@ -12,14 +12,18 @@ use crate::host::{self, Start};
 use crate::report::{report, Action, Ask, Park, Report};
 use serde_json::{json, Value};
 use std::fs;
-use std::io::Write;
+use std::io::Write as _;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::time::Duration;
 use tehas_core::call::{run_full, store_try, GH_BOUND, GRACE};
 use tehas_core::end_fault;
 use tehas_core::home::Home;
-use tehas_core::journal::{Journal, Wrote};
+use tehas_core::journal::{settle as rules, Found, Journal, Journaled, RowId, Wrote};
+use tehas_ports::{
+    At, Bound, ChangeNo, CodeHost, Mark, NoBlobs, Outcome, Receipt, Sent as Passed, State,
+    TicketKey, Tickets, Window, Write, Writes,
+};
 use tehas_core::question::is_handoff_marker;
 
 mod reread;
@@ -195,8 +199,58 @@ impl Ask for Tried {
     }
 }
 
+/// The ports a report's writes go through, and the reads that settle a
+/// write the site may have taken. The program's wiring makes them.
+pub struct Handles {
+    pub writes: Box<dyn Writes>,
+    pub tickets: Box<dyn Tickets>,
+    pub code_host: Box<dyn CodeHost>,
+}
+
+/// The wiring's handles of repository `repo`, each call bounded by `bound`
+/// with `grace` after TERM.
+pub type HandlesOf = fn(repo: &str, bound: Duration, grace: Duration) -> Handles;
+
+/// How a write of the ports ended.
+enum Sent {
+    Done(Receipt),
+    Failed(String),
+    /// The site may have taken it; its row, unless it went with none.
+    Unknown(String, Option<RowId>),
+}
+
+/// The site may have taken a write that did not answer as made.
+fn maybe(e: &Outcome) -> bool {
+    matches!(
+        e,
+        Outcome::Unavailable {
+            sent: Passed::Maybe,
+            ..
+        } | Outcome::Unread(_)
+    )
+}
+
+/// Marks as the log says them.
+fn said(remove: &[Mark], add: &[Mark]) -> String {
+    let words = |ms: &[Mark]| {
+        ms.iter()
+            .map(|m| format!("{m:?}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    match (remove.is_empty(), add.is_empty()) {
+        (false, false) => format!("off {}, on {}", words(remove), words(add)),
+        (false, true) => format!("off {}", words(remove)),
+        _ => format!("on {}", words(add)),
+    }
+}
+
 /// The writes of one report.
 struct Writer<'a> {
+    /// The ports the writes go through.
+    ports: Handles,
+    /// The gh of the writes that do not go through the ports yet.
+    gh_bin: String,
     home: &'a Path,
     repo: String,
     issue: u64,
@@ -247,7 +301,7 @@ impl Writer<'_> {
             |a: &[&str]| store_try(3, Duration::from_secs(1), || host::store_value(home, a));
         let mut journal = Journal {
             repo: &self.repo,
-            gh: "gh",
+            gh: &self.gh_bin,
             before: self.before,
             bound,
             grace: self.gh.grace,
@@ -274,13 +328,13 @@ impl Writer<'_> {
     /// between tries.
     fn reread(&self, n: u64, kind: &str, args: &[String], input: Option<&str>, since: i64) -> Seen {
         std::thread::sleep(self.gh.retry_wait);
-        let (bound, grace) = (self.gh.bound, self.gh.grace);
+        let (bound, grace, gh) = (self.gh.bound, self.gh.grace, self.gh_bin.as_str());
         let mut read = |path: &str, page: bool| {
             let mut a = vec!["api".to_string(), path.to_string()];
             if page {
                 a.push("--paginate".into());
             }
-            let r = run_full("gh", &a, None, bound, grace, &[]);
+            let r = run_full(gh, &a, None, bound, grace, &[]);
             if !r.ok() {
                 return None;
             }
@@ -335,36 +389,161 @@ impl Writer<'_> {
         Some(false)
     }
 
-    fn relabel(&mut self, remove: &[String], add: &[String]) -> bool {
-        let mut flags: Vec<String> = vec![];
-        for l in remove {
-            flags.extend(["--remove-label".to_string(), l.clone()]);
+    /// One write of the ports through the journal, or with no row once the
+    /// journal failed: a hung store must not spend the time a stop leaves.
+    fn send(&mut self, write: &Write) -> Sent {
+        let home = self.home;
+        let mut store =
+            |a: &[&str]| store_try(3, Duration::from_secs(1), || host::store_value(home, a));
+        if !self.unjournaled {
+            let mut journal = Journal {
+                repo: &self.repo,
+                gh: &self.gh_bin,
+                before: self.before,
+                bound: self.gh.bound,
+                grace: self.gh.grace,
+                token: None,
+                poll_at: &mut self.poll_at,
+                row_not_begun: &mut self.no_row,
+                cycle: Some((self.issue, self.attempt)),
+            };
+            match journal.send(&mut store, write, &mut *self.ports.writes, &NoBlobs) {
+                Journaled::Answered(Ok(r)) => return Sent::Done(r),
+                Journaled::Answered(Err(e)) => return Sent::Failed(e.line().to_string()),
+                Journaled::Unknown { answer, row } => {
+                    return Sent::Unknown(answer.line().to_string(), Some(row))
+                }
+                Journaled::Unrecorded => {}
+            }
+            self.unjournaled = true;
+            log(&format!(
+                "WARN: the journal will not record the report of #{}: its writes go to GitHub with no row",
+                self.issue
+            ));
         }
-        for l in add {
-            flags.extend(["--add-label".to_string(), l.clone()]);
+        match self.ports.writes.send(write, &NoBlobs) {
+            Ok(r) => Sent::Done(r),
+            Err(e) if maybe(&e) => Sent::Unknown(e.line().to_string(), None),
+            Err(e) => Sent::Failed(e.line().to_string()),
         }
+    }
+
+    /// Whether a write the site may have taken is there, read after the
+    /// wait between tries by the rule of its kind in core. None: no read
+    /// could tell.
+    fn found(&mut self, write: &Write, since: i64) -> Option<Found> {
+        std::thread::sleep(self.gh.retry_wait);
+        let since = At::new(since);
+        let bound = Bound::new(100).expect("100 is a bound");
+        match write {
+            Write::Mark { ticket, .. } | Write::Unmark { ticket, .. } => {
+                let (_, digest) = self
+                    .ports
+                    .tickets
+                    .several(std::slice::from_ref(ticket))
+                    .pop()?;
+                rules::by_marks(write, &digest.ok()?.marks)
+            }
+            Write::TicketNote { ticket, .. } => {
+                let last = std::num::NonZeroU32::new(100).expect("100 is no zero");
+                let notes = self.ports.tickets.notes(ticket, Window::Last(last)).ok()?;
+                rules::by_comments(write, &notes.items, since)
+            }
+            Write::MarkChange { no, .. } | Write::UnmarkChange { no, .. } => {
+                let change = self.ports.code_host.change(*no, bound).ok()?;
+                rules::by_marks(write, &change.digest.marks)
+            }
+            Write::CommentChange { no, .. } => {
+                let change = self.ports.code_host.change(*no, bound).ok()?;
+                rules::by_comments(write, &change.comments, since)
+            }
+            _ => None,
+        }
+    }
+
+    /// A write of the ports tried as the bash tried it, `warn` logged when
+    /// all tries fail. One the site may have taken is read before it is sent
+    /// again, and its row settled by what the read found: Some(true) when it
+    /// is there, None when no read could tell (#1754). `n` is the item it
+    /// writes to, for the log.
+    fn tried_send(&mut self, warn: &str, n: u64, write: &Write) -> (Option<bool>, Option<Receipt>) {
+        let home = self.home;
+        for t in 1..=self.gh.tries {
+            let since = tehas_core::time::now();
+            match self.send(write) {
+                Sent::Done(r) => return (Some(true), Some(r)),
+                Sent::Failed(why) => self.last_failed = why,
+                Sent::Unknown(why, row) => {
+                    self.last_failed = why.clone();
+                    let Some(found) = self.found(write, since) else {
+                        maybe_posted(n, &format!(": {why}"));
+                        return (None, None);
+                    };
+                    if let Some(row) = row {
+                        let mut store = |a: &[&str]| {
+                            store_try(3, Duration::from_secs(1), || host::store_value(home, a))
+                        };
+                        let _ = Journal::settle(&mut store, row, found);
+                    }
+                    if found == Found::Landed {
+                        return (Some(true), None);
+                    }
+                    continue;
+                }
+            }
+            if t < self.gh.tries {
+                std::thread::sleep(self.gh.retry_wait);
+            }
+        }
+        log(warn);
+        (Some(false), None)
+    }
+
+    fn ticket(&self) -> TicketKey {
+        TicketKey::Number(std::num::NonZeroU64::new(self.issue).expect("an issue is no zero"))
+    }
+
+    /// The issue's marks, each taken off then each put on, a row each. One
+    /// that fails all its tries stops the rest.
+    fn relabel(&mut self, remove: &[Mark], add: &[Mark]) -> bool {
         let warn = format!(
-            "WARN: label change on #{} failed: {}",
+            "WARN: the marks of #{} did not change: {}",
             self.issue,
-            flags.join(" ")
+            said(remove, add)
         );
-        let mut args: Vec<String> = vec![
-            "issue".into(),
-            "edit".into(),
-            self.issue.to_string(),
-            "--repo".into(),
-            self.repo.clone(),
-        ];
-        args.extend(flags);
-        let kind = if add.is_empty() {
-            "label-remove"
-        } else {
-            "label-add"
-        };
-        self.tried(&warn, kind, args, None) == Some(true)
+        let ticket = self.ticket();
+        let writes = remove
+            .iter()
+            .map(|m| Write::Unmark {
+                ticket: ticket.clone(),
+                mark: m.clone(),
+            })
+            .chain(add.iter().map(|m| Write::Mark {
+                ticket: ticket.clone(),
+                mark: m.clone(),
+            }));
+        for w in writes.collect::<Vec<_>>() {
+            if self.tried_send(&warn, self.issue, &w).0 != Some(true) {
+                return false;
+            }
+        }
+        true
     }
 
     fn comment(&mut self, body: &str) {
+        let warn = format!("WARN: comment on #{} failed", self.issue);
+        let note = Write::TicketNote {
+            ticket: self.ticket(),
+            body: tehas_ports::Body::Text(body.to_string()),
+            markers: vec![],
+        };
+        let (posted, _) = self.tried_send(&warn, self.issue, &note);
+        self.handed(posted, body);
+    }
+
+    /// A comment whose body holds a tehas marker, as the park's says, with
+    /// gh until the park's writes carry their markers beside the body.
+    fn comment_gh(&mut self, body: &str) {
         let warn = format!("WARN: comment on #{} failed", self.issue);
         let args = vec![
             "issue".into(),
@@ -394,8 +573,8 @@ impl Writer<'_> {
 
     fn park(&mut self, p: &mut Park, f: &Facts, ask: &mut dyn Ask) {
         let n = self.issue;
-        let running = ["tehas:running".to_string()];
-        let attention = ["needs-human-attention".to_string()];
+        let running = [Mark::State(State::Running)];
+        let attention = [Mark::State(State::NeedsPerson)];
         if self.relabel(&running, &attention) {
             self.stuck = false;
         }
@@ -452,7 +631,7 @@ impl Writer<'_> {
             }
         }
         let said = p.comment(self.stuck, on_record);
-        self.comment(&said);
+        self.comment_gh(&said);
     }
 
     /// The question's id, or whether it may have been posted.
@@ -521,7 +700,7 @@ impl Writer<'_> {
                 e.word
             ));
         }
-        if !self.relabel(&[], &["tehas:question".to_string()]) {
+        if !self.relabel(&[], &[Mark::State(State::Question)]) {
             let withdraw = ["question-answered", &n, "--id", id, "--withdraw"];
             if let Err(e) = host::store_try(home, 3, &withdraw) {
                 if e.word != "unknown" {
@@ -536,68 +715,42 @@ impl Writer<'_> {
     }
 
     fn pr_comment(&mut self, pr: &str, body: &str) {
-        let n = pr
-            .rsplit('/')
-            .next()
-            .and_then(|t| t.parse().ok())
-            .unwrap_or(self.issue);
-        let args = vec![
-            "pr".into(),
-            "comment".into(),
-            pr.to_string(),
-            "--body-file".into(),
-            "-".into(),
-        ];
-        let since = tehas_core::time::now();
-        let posted = match self.write(n, "comment-post", args.clone(), Some(body), None) {
-            Wrote::Done(_) => Some(true),
-            Wrote::Failed(_) | Wrote::Unrecorded => Some(false),
-            Wrote::Unknown(why) => match self.reread(n, "comment-post", &args, Some(body), since) {
-                Seen::There(_) => Some(true),
-                Seen::Missing => Some(false),
-                Seen::Unread => {
-                    maybe_posted(n, &why);
-                    None
-                }
-            },
+        let Some(no) = change_no(pr) else {
+            log(&format!("WARN: comment on {pr} failed: it names no pull request"));
+            return;
         };
+        let comment = Write::CommentChange {
+            no,
+            body: tehas_ports::Body::Text(body.to_string()),
+            markers: vec![],
+        };
+        let warn = format!("WARN: comment on {pr} failed");
+        let (posted, _) = self.tried_send(&warn, no.get(), &comment);
         self.handed(posted, body);
-        if posted == Some(false) {
-            log(&format!("WARN: comment on {pr} failed"));
-        }
     }
 
-    /// tehas:refreshing off its pull request, through the REST issues
-    /// endpoint: `gh pr edit` asks GitHub a GraphQL question the bot's token
-    /// may not answer (issue #120). A 404 says the label is not there, which
-    /// is what this wants.
+    /// The refreshing mark off the pull request a refresh marked.
     fn refresh_off(&mut self, pr: &str) {
-        let n = pr.parse().unwrap_or(self.issue);
-        let args: Vec<String> = vec![
-            "api".into(),
-            "-X".into(),
-            "DELETE".into(),
-            format!("repos/{}/issues/{pr}/labels/tehas:refreshing", self.repo),
-        ];
-        for t in 1..=self.gh.tries {
-            let since = tehas_core::time::now();
-            match self.write(n, "change-unmark", args.clone(), None, Some("Not Found")) {
-                Wrote::Done(_) => return,
-                Wrote::Unknown(why) => match self.reread(n, "change-unmark", &args, None, since) {
-                    Seen::There(_) => return,
-                    Seen::Missing => continue,
-                    Seen::Unread => return maybe_posted(n, &why),
-                },
-                Wrote::Failed(_) | Wrote::Unrecorded => {}
-            }
-            if t < self.gh.tries {
-                std::thread::sleep(self.gh.retry_wait);
-            }
-        }
-        log(&format!(
-            "WARN: label change on pull request #{pr} failed: --remove-label tehas:refreshing"
-        ));
+        let Some(no) = change_no(pr) else {
+            log(&format!(
+                "WARN: the refreshing mark of pull request #{pr} did not come off: it names no pull request"
+            ));
+            return;
+        };
+        let off = Write::UnmarkChange {
+            no,
+            mark: Mark::State(State::Refreshing),
+        };
+        let warn = format!("WARN: the refreshing mark of pull request #{pr} did not come off");
+        self.tried_send(&warn, no.get(), &off);
     }
+}
+
+/// The pull request a report names: its number, or the last part of its
+/// address.
+fn change_no(pr: &str) -> Option<ChangeNo> {
+    let n = pr.trim_end_matches('/').rsplit('/').next()?;
+    ChangeNo::new(n.parse().ok()?)
 }
 
 /// The driver word of an approval row: the store writes a row with its inputs
@@ -831,8 +984,8 @@ fn keep_end_fault(
 
 /// Report the cycle `s`. The exit status of the cycle: 0, or 70 when its end
 /// or the record of its failed end is not on record.
-pub fn run(home: &Path, s: &Start) -> i32 {
-    reported(home, s).rc
+pub fn run(home: &Path, s: &Start, handles: HandlesOf) -> i32 {
+    reported(home, s, handles).rc
 }
 
 /// What a report leaves for the hooks that follow it.
@@ -855,7 +1008,7 @@ fn pull_number(url: &str) -> Option<u64> {
 }
 
 /// [`run`], and what the hooks need of the report.
-pub fn reported(home: &Path, s: &Start) -> Reported {
+pub fn reported(home: &Path, s: &Start, handles: HandlesOf) -> Reported {
     let issue = s.issue;
     let workdir = host::workdir(s);
     let now = s.now.unwrap_or_else(tehas_core::time::now);
@@ -889,6 +1042,8 @@ pub fn reported(home: &Path, s: &Start) -> Reported {
         log(line);
     }
     let mut w = Writer {
+        ports: handles(&facts.repo, gh.bound, gh.grace),
+        gh_bin: "gh".to_string(),
         home,
         repo: facts.repo.clone(),
         issue,
