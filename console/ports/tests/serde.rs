@@ -1277,7 +1277,12 @@ fn the_code_host_reads_back() {
         round(c);
     }
     round(new_change());
-    for how in [MergeHow::Merge, MergeHow::Squash, MergeHow::Rebase] {
+    for how in [
+        MergeHow::Merge,
+        MergeHow::Squash,
+        MergeHow::Rebase,
+        MergeHow::Site,
+    ] {
         round(how);
     }
     for t in every_takeover() {

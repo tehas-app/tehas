@@ -1,10 +1,11 @@
 //! The fake's code host port, over the world.
 
 use std::io::Read as _;
+use std::num::NonZeroU32;
 
 use super::faulty::{CodeHostOp, Op};
 use super::site::{
-    comments_of, edit_markers, known_mark, text_of, whole, window, writable, Ctx, Handle,
+    comments_of, edit_markers, first, known_mark, text_of, whole, window, writable, Ctx, Handle,
 };
 use super::state::{ChangeRec, ProposalRec, ReleaseRec, State};
 use super::tickets::{close_item, page, since, token};
@@ -277,6 +278,25 @@ impl CodeHost for Handle {
 
     fn resolve_tag(&mut self, name: &TagName) -> Got<CommitId> {
         self.run(Pool::Calls, |s, _| resolve(s, &Rev::Tag(name.clone())))
+    }
+
+    /// Newest made first; ties and tags with no time newest held first.
+    fn recent_tags(&mut self, n: NonZeroU32) -> Got<Took<Tag>> {
+        self.run(Pool::Calls, |s, _| {
+            let mut all: Vec<Tag> = s.tags.iter().rev().cloned().collect();
+            all.sort_by_key(|t| std::cmp::Reverse(t.at));
+            Ok(first(all, n.get()))
+        })
+    }
+
+    /// Newest made first: the world holds them in the order made.
+    fn recent_releases(&mut self, n: NonZeroU32) -> Got<Took<Release>> {
+        self.run(Pool::Calls, |s, _| {
+            Ok(first(
+                s.releases.iter().rev().map(|r| r.release.clone()).collect(),
+                n.get(),
+            ))
+        })
     }
 
     fn releases(&mut self, bound: Bound) -> Got<Whole<Release>> {
@@ -734,7 +754,11 @@ impl CodeHostWrites for Handle {
     /// At a head that moved, `Conflict(HeadMoved)`. A change that cannot
     /// merge, or is not open, is `Refused(NotMergeable)`. Merged, its base
     /// moves to a new commit and the blueprints it closes close.
+    /// `MergeHow::Site` is a merge commit, the fake project's default.
     fn merge(&mut self, no: ChangeNo, head: &CommitId, how: MergeHow) -> Did {
+        if how == MergeHow::Unknown {
+            return Err(Outcome::Refused(Refusal::Invalid));
+        }
         self.write(Op::CodeHost(CodeHostOp::Merge), |s, ctx| {
             let at = at_change(s, no)?;
             let c = s.changes[at].clone();
@@ -765,8 +789,8 @@ impl CodeHostWrites for Handle {
                 .clone()
                 .unwrap_or_else(|| super::world::FACTORY.into());
             let parents = match how {
-                MergeHow::Merge => vec![base_tip, head.clone()],
-                MergeHow::Squash | MergeHow::Rebase => vec![base_tip],
+                MergeHow::Merge | MergeHow::Site => vec![base_tip, head.clone()],
+                MergeHow::Squash | MergeHow::Rebase | MergeHow::Unknown => vec![base_tip],
             };
             let files = s.commit(head).map(|k| k.files.clone()).unwrap_or_default();
             let commit = s.new_commit(parents, &c.title, &me, files);
@@ -879,6 +903,7 @@ impl CodeHostWrites for Handle {
                             draft: new.draft,
                             prerelease: new.prerelease,
                             published: (!new.draft).then_some(ctx.now),
+                            notes: text_of(&new.notes)?.to_string(),
                             files: Vec::new(),
                             link: link.clone(),
                         },

@@ -184,6 +184,10 @@ pub enum CodeHostOp {
     Checks,
     /// `CodeHost::tags`.
     Tags,
+    /// `CodeHost::recent_tags`.
+    RecentTags,
+    /// `CodeHost::recent_releases`.
+    RecentReleases,
     /// `CodeHost::resolve_tag`.
     ResolveTag,
     /// `CodeHost::releases`.
@@ -1431,6 +1435,14 @@ impl<H: CodeHost + ?Sized> CodeHost for Wrap<H> {
     }
     fn resolve_tag(&mut self, name: &TagName) -> Got<CommitId> {
         self.call(Op::CodeHost(C::ResolveTag), Err, |h| h.resolve_tag(name))
+    }
+    fn recent_tags(&mut self, first: NonZeroU32) -> Got<Took<Tag>> {
+        self.call(Op::CodeHost(C::RecentTags), Err, |h| h.recent_tags(first))
+    }
+    fn recent_releases(&mut self, first: NonZeroU32) -> Got<Took<Release>> {
+        self.call(Op::CodeHost(C::RecentReleases), Err, |h| {
+            h.recent_releases(first)
+        })
     }
     fn releases(&mut self, bound: Bound) -> Got<Whole<Release>> {
         self.call(Op::CodeHost(C::Releases), Err, |h| h.releases(bound))

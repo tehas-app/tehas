@@ -524,6 +524,129 @@ pub mod code_host {
         Ok(got(law, "the change", h.change(no, ALL_MAX))?.digest.state)
     }
 
+    /// A newest-first page: as many as fit, `more` exact, each held once
+    /// and in the whole list.
+    fn a_page_of<T: PartialEq + std::fmt::Debug>(
+        law: &str,
+        page: &crate::Took<T>,
+        whole: &[T],
+        first: std::num::NonZeroU32,
+    ) -> Law {
+        let n = first.get() as usize;
+        hold(
+            page.items.len() == whole.len().min(n) && page.more == (whole.len() > n),
+            law,
+            || {
+                format!(
+                    "{} held, more {}, of {}",
+                    page.items.len(),
+                    page.more,
+                    whole.len()
+                )
+            },
+        )?;
+        for (i, x) in page.items.iter().enumerate() {
+            hold(
+                whole.contains(x) && !page.items[..i].contains(x),
+                law,
+                || format!("{x:?} is not once in the whole list"),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// `recent_tags` and `recent_releases` hold the newest `first`, with
+    /// `more` exact, each as `tags` and `releases` give it; tags newest
+    /// made first where each has a time. The fixture holds more tags and
+    /// releases than `first`, made at times apart, within `bound`; `newest`
+    /// names the release made last.
+    pub fn recent_tags_and_releases_are_newest_first(
+        h: &mut dyn crate::CodeHost,
+        first: std::num::NonZeroU32,
+        bound: crate::Bound,
+        newest: &crate::TagName,
+    ) -> Law {
+        const LAW: &str = "code_host::recent_tags_and_releases_are_newest_first";
+        let tags = got(LAW, "tags", h.tags(bound))?.into_items();
+        let recent = got(LAW, "recent_tags", h.recent_tags(first))?;
+        a_page_of(LAW, &recent, &tags, first)?;
+        let times: Vec<_> = recent.items.iter().filter_map(|t| t.at).collect();
+        hold(times.windows(2).all(|w| w[0] >= w[1]), LAW, || {
+            format!("tags not newest first: {times:?}")
+        })?;
+        if let Some(last) = recent.items.last().and_then(|t| t.at) {
+            let newer = tags
+                .iter()
+                .find(|t| !recent.items.contains(t) && t.at.is_some_and(|a| a > last));
+            hold(newer.is_none(), LAW, || format!("{newer:?} is left out"))?;
+        }
+        let releases = got(LAW, "releases", h.releases(bound))?.into_items();
+        let recent = got(LAW, "recent_releases", h.recent_releases(first))?;
+        a_page_of(LAW, &recent, &releases, first)?;
+        hold(
+            recent.items.first().map(|r| &r.tag) == Some(newest),
+            LAW,
+            || {
+                format!(
+                    "the newest release is not first: {:?}",
+                    recent.items.first()
+                )
+            },
+        )
+    }
+
+    /// A release made with notes reads them back, and one made without
+    /// reads `""`. The fixture holds tags `with` and `without`, with no
+    /// release yet.
+    pub fn a_release_gives_its_notes(
+        h: &mut dyn CodeHostWrites,
+        with: &crate::TagName,
+        without: &crate::TagName,
+    ) -> Law {
+        const LAW: &str = "code_host::a_release_gives_its_notes";
+        for (tag, notes) in [(with, "What changed."), (without, "")] {
+            let new = crate::NewRelease {
+                tag: tag.clone(),
+                title: tag.as_str().to_string(),
+                notes: crate::Body::Text(notes.to_string()),
+                draft: false,
+                prerelease: false,
+            };
+            got(LAW, "the new release", h.new_release(&new))?;
+            let read = got(LAW, "the release", h.release(tag))?;
+            hold(read.notes == notes, LAW, || {
+                format!("{tag:?} reads notes {:?}, not {notes:?}", read.notes)
+            })?;
+        }
+        Ok(())
+    }
+
+    /// A merge asked a way this copy does not know is `Refused(Invalid)`
+    /// and leaves the change open; asked `MergeHow::Site`, it merges the
+    /// project's way. The fixture's change `no` is open at `head` and may
+    /// merge.
+    pub fn the_sites_way_merges_and_an_unknown_one_is_refused(
+        h: &mut dyn CodeHostWrites,
+        no: ChangeNo,
+        head: &CommitId,
+    ) -> Law {
+        const LAW: &str = "code_host::the_sites_way_merges_and_an_unknown_one_is_refused";
+        let refused = h.merge(no, head, MergeHow::Unknown);
+        hold(
+            refused == Err(Outcome::Refused(Refusal::Invalid)),
+            LAW,
+            || format!("an unknown way answered {refused:?}"),
+        )?;
+        hold(state(h, LAW, no)? == ChangeState::Open, LAW, || {
+            "an unknown way merged".into()
+        })?;
+        got(LAW, "the site's way", h.merge(no, head, MergeHow::Site))?;
+        let merged = state(h, LAW, no)?;
+        hold(matches!(merged, ChangeState::Merged { .. }), LAW, || {
+            format!("the site's way left it {merged:?}")
+        })
+    }
+
     /// The checks on a commit hold one run of each name, the newest, and
     /// `overall` is `Overall::of` them; asked by name, the one run of that
     /// name. The fixture's commit `at` holds runs of `name`, more than one:
@@ -1473,7 +1596,45 @@ pub mod delta {
     use std::fmt::Debug;
 
     use super::{got, hold, Law};
-    use crate::{Blueprints, Bound, CodeHost, Cursor, Got, Tickets, ALL_MAX};
+    use crate::{
+        Blueprints, Bound, ChangeNo, CodeHost, CodeHostWrites, Cursor, Got, Tickets, ALL_MAX,
+    };
+
+    /// A comment written on a change after a cursor is in the code host's
+    /// delta from that cursor, with its change, and in neither the tickets'
+    /// notes nor the blueprints' comments from theirs. The fixture's change
+    /// `no` is open; `t` and `b` read the same project.
+    pub fn a_change_comment_is_in_the_change_delta(
+        h: &mut dyn CodeHostWrites,
+        t: &mut dyn Tickets,
+        b: &mut dyn Blueprints,
+        no: ChangeNo,
+    ) -> Law {
+        const LAW: &str = "delta::a_change_comment_is_in_the_change_delta";
+        let from_c = got(LAW, "the change delta", h.delta(None, ALL_MAX))?.next;
+        let from_t = got(LAW, "the tickets' delta", t.delta(None, ALL_MAX))?.next;
+        let from_b = got(LAW, "the blueprints' delta", b.delta(None, ALL_MAX))?.next;
+        let id = got(LAW, "the comment", h.comment_change(no, "Seen.", &[]))?.id;
+        let c = got(LAW, "the change delta", h.delta(Some(&from_c), ALL_MAX))?;
+        hold(
+            c.comments.iter().any(|(n, k)| *n == no && k.id == id),
+            LAW,
+            || format!("the change delta holds {:?}", c.comments),
+        )?;
+        let notes = got(LAW, "the tickets' delta", t.delta(Some(&from_t), ALL_MAX))?.notes;
+        hold(notes.iter().all(|(_, k)| k.id != id), LAW, || {
+            "a change's comment is a ticket's note".into()
+        })?;
+        let comments = got(
+            LAW,
+            "the blueprints' delta",
+            b.delta(Some(&from_b), ALL_MAX),
+        )?
+        .comments;
+        hold(comments.iter().all(|(_, k)| k.id != id), LAW, || {
+            "a change's comment is a blueprint's comment".into()
+        })
+    }
 
     /// A page as the law reads it: the two lists, where the next starts,
     /// and whether more wait.

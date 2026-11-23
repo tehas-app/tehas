@@ -413,6 +413,25 @@ fn a_relation_is_its_name_and_an_author_without_one_reads_as_none() {
 }
 
 #[test]
+fn a_release_without_notes_and_a_merge_way_not_known_read() {
+    let mut r = Release::new(
+        ReleaseId::new("r1"),
+        TagName::new("v2.0.0").unwrap(),
+        WebLink::new("https://example.test/r/v2.0.0").unwrap(),
+    );
+    let mut json = serde_json::to_value(&r).unwrap();
+    json.as_object_mut().unwrap().remove("notes");
+    assert_eq!(serde_json::from_value::<Release>(json).unwrap(), r);
+    r.notes = "What changed.".into();
+    round!(r);
+    round!(MergeHow::Site);
+    assert_eq!(serde_json::to_string(&MergeHow::Site).unwrap(), r#""Site""#);
+    assert_eq!(read!(MergeHow, r#""FastForward""#), MergeHow::Unknown);
+    let delta = read!(ChangeDelta, r#"{"changes":[],"next":"c3"}"#);
+    assert!(delta.comments.is_empty());
+}
+
+#[test]
 fn a_board_ask_stored_without_windows_per_kind_reads_as_none() {
     let ask = read!(
         BoardAsk,

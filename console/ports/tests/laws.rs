@@ -577,6 +577,84 @@ fn a_change_records_its_base_commit_and_what_its_text_closes() {
 }
 
 #[test]
+fn code_host_recent_tags_and_releases_are_newest_first() {
+    for w in both() {
+        let at = w.head("main").unwrap();
+        let w = w.tag("v1.0.0", &at).release("v1.0.0", &[]);
+        w.advance(60);
+        let w = w.tag("v1.1.0", &at).release("v1.1.0", &[]);
+        w.advance(60);
+        let w = w.tag("v2.0.0", &at).release("v2.0.0", &[]);
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        ok(laws::code_host::recent_tags_and_releases_are_newest_first(
+            h.as_mut(),
+            n32(2),
+            b(50),
+            &TagName::new("v2.0.0").unwrap(),
+        ));
+        let one = h.recent_tags(n32(1)).unwrap();
+        assert_eq!(one.items[0].name.as_str(), "v2.0.0");
+        assert!(one.more);
+    }
+}
+
+#[test]
+fn code_host_a_release_gives_its_notes() {
+    for w in both() {
+        let at = w.head("main").unwrap();
+        let w = w.tag("v3.0.0", &at).tag("v3.0.1", &at);
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host_writes(&full(), C).unwrap();
+        ok(laws::code_host::a_release_gives_its_notes(
+            h.as_mut(),
+            &TagName::new("v3.0.0").unwrap(),
+            &TagName::new("v3.0.1").unwrap(),
+        ));
+    }
+}
+
+#[test]
+fn code_host_the_sites_way_merges_and_an_unknown_one_is_refused() {
+    for w in both() {
+        let no = first_change(&w);
+        let w = w.change(no, "ready", |c| c.title("ready"));
+        let head = w.head("ready").unwrap();
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host_writes(&full(), C).unwrap();
+        let sent = w.sent();
+        ok(
+            laws::code_host::the_sites_way_merges_and_an_unknown_one_is_refused(
+                h.as_mut(),
+                cn(no),
+                &head,
+            ),
+        );
+        assert!(w.sent() > sent);
+    }
+}
+
+#[test]
+fn delta_a_change_comment_is_in_the_change_delta() {
+    for w in both() {
+        let no = first_change(&w);
+        let w = w
+            .ticket(1, |t| t.title("a ticket").comment("alice", "a note"))
+            .change(no, "talk", |c| c.title("talk"));
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host_writes(&full(), C).unwrap();
+        let mut t = site.tickets(&full(), C).unwrap();
+        let mut b = site.blueprints(&full(), C).unwrap();
+        ok(laws::delta::a_change_comment_is_in_the_change_delta(
+            h.as_mut(),
+            t.as_mut(),
+            b.as_mut(),
+            cn(no),
+        ));
+    }
+}
+
+#[test]
 fn anonymous_reads_public_releases_and_writes_nothing() {
     for w in both() {
         let at = w.head("main").unwrap();

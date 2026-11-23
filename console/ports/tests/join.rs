@@ -517,6 +517,12 @@ impl CodeHost for StubCodeHost {
     fn resolve_tag(&mut self, _: &TagName) -> Got<CommitId> {
         Err(unsupported())
     }
+    fn recent_tags(&mut self, _: NonZeroU32) -> Got<Took<Tag>> {
+        Err(unsupported())
+    }
+    fn recent_releases(&mut self, _: NonZeroU32) -> Got<Took<Release>> {
+        Err(unsupported())
+    }
     fn releases(&mut self, _: Bound) -> Got<Whole<Release>> {
         Err(unsupported())
     }

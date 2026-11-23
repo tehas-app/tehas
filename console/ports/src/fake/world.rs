@@ -600,6 +600,7 @@ impl World {
                 draft: false,
                 prerelease: false,
                 published: Some(now),
+                notes: String::new(),
                 files: Vec::new(),
                 link,
             };
