@@ -13,8 +13,8 @@
 use crate::forge::{gh_program, repo, repo_shaped, CALL_BOUND};
 use std::env;
 use std::num::NonZeroU64;
-use tehas_core::events::allowed_folded;
-use tehas_ports::{Happened, HappenedKind, Mark, TicketKey, Tickets, Window, ALL_MAX};
+use tehas_core::events::{allowed_folded, mark_actor};
+use tehas_ports::{HappenedKind, Mark, TicketKey, Tickets, Window, ALL_MAX};
 
 const USAGE: &str = "usage: console label allowed <issue> <label>";
 
@@ -38,13 +38,8 @@ pub fn allowed(tickets: &mut dyn Tickets, issue: &str, mark: Option<&Mark>, list
     let Ok(read) = read else {
         return 2;
     };
-    let last = read
-        .items
-        .iter()
-        .rev()
-        .find(|e| matches!(&e.what, Happened::Marked(m) if m == mark));
-    match last.and_then(|e| e.by.as_ref()) {
-        Some(by) if allowed_folded(list, by.login.as_str()) => 0,
+    match mark_actor(&read.items, mark) {
+        Some(by) if allowed_folded(list, by) => 0,
         _ => 1,
     }
 }
@@ -86,7 +81,7 @@ pub fn main(given: &[String]) -> u8 {
 mod tests {
     use super::*;
     use tehas_ports::fake::{FakeSite, Fault, Faulty, Op, TicketsOp, World};
-    use tehas_ports::{Act, Actor, At, Caller, Scope, Site};
+    use tehas_ports::{Act, Actor, At, Caller, Happened, Scope, Site};
 
     fn ready() -> Mark {
         Mark::Act(Act::Approve)

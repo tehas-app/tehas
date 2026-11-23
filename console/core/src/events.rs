@@ -320,6 +320,33 @@ pub fn pause_holds_marks(
     Some((*off, by.to_string()))
 }
 
+/// Who put `mark` on most recently, over the tickets port's history: the
+/// rule of [`label_actor`]. A removal never answers; an event with no time
+/// is older than any. None when no event put it on, or that one names
+/// nobody.
+pub fn mark_actor<'a>(events: &'a [TicketEvent], mark: &Mark) -> Option<&'a str> {
+    let mut v: Vec<(&TicketEvent, Change)> = events
+        .iter()
+        .filter_map(|e| match &e.what {
+            Happened::Marked(m) if m == mark => Some((e, Change::Applied)),
+            Happened::Unmarked(m) if m == mark => Some((e, Change::Removed)),
+            _ => None,
+        })
+        .collect();
+    v.sort_by_key(|(e, _)| e.at);
+    let timeline: Vec<LabelEvent<(), &Mark>> = v
+        .iter()
+        .map(|&(_, change)| LabelEvent {
+            actor: Actor::vouched(()),
+            label: mark,
+            pinned: true,
+            change,
+        })
+        .collect();
+    let i = grant::last_application(&timeline, &mark)?;
+    v[i].0.by.as_ref().map(|a| a.login.as_str())
+}
+
 /// Whether a change `who` made at `at` is after an approval `approver` gave
 /// at `since`. GitHub stamps to the second, so a change in the approval's own
 /// second may have come after it: it counts as after, unless the approver's
@@ -580,6 +607,44 @@ pub fn first_unallowed_rename(
         }
         (!allowed(&e.actor)).then(|| e.actor.clone())
     })
+}
+
+#[cfg(test)]
+mod mark_actor_tests {
+    use super::mark_actor;
+    use tehas_ports::{Account, AccountKind, Act, At, Happened, Login, Mark, Realm, TicketEvent};
+
+    fn ev(what: Happened, by: Option<&str>, at: Option<i64>) -> TicketEvent {
+        TicketEvent {
+            what,
+            by: by.map(|l| Account {
+                realm: Realm::CodeHost,
+                login: Login::new(l),
+                id: None,
+                kind: AccountKind::Person,
+            }),
+            at: at.map(At::new),
+        }
+    }
+
+    #[test]
+    fn the_newest_application_answers_and_a_removal_never_does() {
+        let ready = Mark::Act(Act::Approve);
+        let plan = Mark::Act(Act::Plan);
+        let on = |by, at| ev(Happened::Marked(ready.clone()), by, at);
+        let off = |by, at| ev(Happened::Unmarked(ready.clone()), by, at);
+        assert_eq!(mark_actor(&[], &ready), None);
+        let v = [on(Some("bob"), Some(2)), on(Some("alice"), Some(1))];
+        assert_eq!(mark_actor(&v, &ready), Some("bob"));
+        let v = [on(Some("mallory"), Some(1)), off(Some("alice"), Some(2))];
+        assert_eq!(mark_actor(&v, &ready), Some("mallory"));
+        let v = [on(Some("alice"), Some(1)), on(Some("mallory"), None)];
+        assert_eq!(mark_actor(&v, &ready), Some("alice"), "no time is older");
+        let v = [on(Some("alice"), Some(1)), on(None, Some(2))];
+        assert_eq!(mark_actor(&v, &ready), None);
+        let v = [ev(Happened::Marked(plan.clone()), Some("alice"), Some(1))];
+        assert_eq!(mark_actor(&v, &ready), None);
+    }
 }
 
 #[cfg(test)]
