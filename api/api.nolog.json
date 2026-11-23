@@ -39,7 +39,6 @@
     "question"
   ],
   "flags": {
-    "outsource": false,
     "spec-pipe": false,
     "lean": false,
     "plugins": false

@@ -34,7 +34,7 @@ Public:
   store and analytics migrated;
 - [the cycle inputs rule](#cycle-inputs);
 - the host namespace `/host/` and [the host bridge](/api#the-host-bridge);
-- [analytics.db at schema 5](#analyticsdb);
+- [analytics.db at schema 6](#analyticsdb);
 - [the commands of other parts](#the-commands-of-other-parts): the rule by
   which `tehas <part>` runs `tehas-<part>`, the words kept for the parts,
   and the front asset of a release.
@@ -43,8 +43,8 @@ Internal:
 
 - `tehasbot`, the units' command, every verb of it;
 - the `console` program and its subcommands;
-- `store`, `attach`, `analytics`, `tehas-dispatch`, `tehas-cycle`, `tehas-mcp`
-  and `tehas-proxy` as programs, and their verbs and statuses;
+- `store`, `attach`, `analytics`, `tehas-dispatch`, `tehas-cycle` and
+  `tehas-mcp` as programs, and their verbs and statuses;
 - everything under `~/tehas/live/`, `~/tehas/state/` and `~/tehas/logs/`. The
   dashboard reads `live/`; a program asks a command;
 - the environment names the settings load keeps for the units and the tests
@@ -98,8 +98,8 @@ coming out in 2.0 with #2894 (Pending). After it, the millwright's
 | Commands | The `tehas` commands, their subcommands and the flags of each, but the flags marked `internal` | `api/commands.txt`, held to the commands tehas knows and to the synopsis lines of each command's text by the tests of `console/src/front.rs` |
 | Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
 | Labels | The rows of `host/labels.tsv`: the name and what the dispatcher does with it | The dispatcher's and the tidy's tests |
-| Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 28 | The store's migration tests |
-| analytics.db | `user_version` 5, tables and columns only added | `console/analytics/src/schema.pinned` |
+| Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 29 | The store's migration tests |
+| analytics.db | `user_version` 6, tables and columns only added | `console/analytics/src/schema.pinned` |
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints, and the tests of `console/src/front.rs`, which fail when a public `--json` row of `api/commands.txt` has no schema |
 | MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
@@ -115,9 +115,7 @@ the surface gains a name the list does not have yet. What a building feature
 adds is not in it.
 
 In `tehas status --json` the fields of `running[].progress` describe one
-driver's steps and may change. The fields of `contractors` may change while
-outsource is still being built, and so may `api/status.outsourced.json`, the
-sample that shows them.
+driver's steps and may change.
 
 `testFeatures` in `tehas status --json`, with `read`, `features` and `lab`,
 reports a lab build, and that a release reads no `TEHAS_TEST_FEATURES`, so a
@@ -321,10 +319,11 @@ and a change to them is a security change.
 
 ## analytics.db
 
-`~/tehas/state/analytics.db` is at `user_version` 5. Within it tables and
+`~/tehas/state/analytics.db` is at `user_version` 6. Within it tables and
 columns are only added, never renamed, retyped or removed. A file of schema 4,
-from 1.4.x, is migrated to 5 in place as it is opened. A new version comes
-only with a major release. [Analytics](/analytics) has the schema;
+from 1.4.x, is migrated to 6 in place as it is opened: it loses
+`samples.watts` and `runs.contractor_id`, and keeps every row. A new version
+comes only with a major release. [Analytics](/analytics) has the schema;
 [`tehas analytics copy`](/api#tehas-analytics-copy) is how a program takes a
 consistent copy.
 

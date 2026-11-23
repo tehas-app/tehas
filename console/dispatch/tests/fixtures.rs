@@ -836,11 +836,6 @@ fn lean() {
 }
 
 #[test]
-fn outsource() {
-    run_suite("outsource");
-}
-
-#[test]
 fn approval() {
     run_suite("approval");
 }

@@ -270,12 +270,12 @@ after=$(find "$T/home" "$T/instance" "$T/watch" | sort)
 t_eq "$after" "$before"
 T_ENV=()
 
-t_case "loading the outsource settings of an on instance writes nothing"
-# The load of an instance with outsource on reaches only its own environment.
+t_case "loading the settings of outsource, gone, writes nothing"
+# The warning goes to standard error: the load reaches only its own environment.
 mkdir -p "$T/outsource/cwd" "$T/outsource/tmp"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 TEHAS_OUTSOURCE_REPOS=acme/widget >"$TEHAS_INSTANCE_DIR/instance.env"
 before=$(find "$T/home" "$TEHAS_INSTANCE_DIR" "$T/outsource" | sort)
-T_ENV=(${T_ENV[@]+"${T_ENV[@]}"} TEHAS_TEST_FEATURES=outsource "TMPDIR=$T/outsource/tmp")
+T_ENV=(${T_ENV[@]+"${T_ENV[@]}"} "TMPDIR=$T/outsource/tmp")
 t_run "cd '$T/outsource/cwd' && $load"
 after=$(find "$T/home" "$TEHAS_INSTANCE_DIR" "$T/outsource" | sort)
 t_eq "$after" "$before"
@@ -676,66 +676,6 @@ t_instance "${T_MINIMAL[@]}"
 t_case "the example instance documents the budget the health check warns at"
 t_contains "$(grep ^#TEHAS_POLL_BUDGET= "$T_ROOT/instances/example/optional.env")" "=cpu=5,wall=30,writes=0"
 
-# The model proxy of outsource. The load checks its idle bound against the
-# check-in timeout, so no stream is cut off before the job that waits on it.
-t_case "the model proxy listens on the loopback port of the platform"
-t_instance "${T_MINIMAL[@]}"
-t_run "$load && set -u && echo \"[\$TEHAS_OUTSOURCE_PROXY_ADDR] [\$TEHAS_OUTSOURCE_PROXY_IDLE]\""
-t_eq "$t_rc" 0
-t_eq "$t_out" "[127.0.0.1:8090] [900]"
-
-t_case "the proxy's address and its idle bound can be set"
-T_ENV=(TEHAS_TEST_FEATURES=outsource)
-t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 TEHAS_OUTSOURCE_PROXY_ADDR=192.0.2.7:8091 \
-  TEHAS_OUTSOURCE_TIMEOUT=1800 TEHAS_OUTSOURCE_PROXY_IDLE=7200
-t_run "$load && echo \"\$TEHAS_OUTSOURCE_PROXY_ADDR \$TEHAS_OUTSOURCE_PROXY_IDLE\""
-t_eq "$t_rc" 0
-t_eq "$t_out" "192.0.2.7:8091 7200"
-
-for bad in "127.0.0.1" "127.0.0.1:0" "127.0.0.1:65536" "not an address:8090"; do
-  t_case "loading rejects a TEHAS_OUTSOURCE_PROXY_ADDR of '$bad'"
-  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_OUTSOURCE_PROXY_ADDR='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
-  t_run "$load; echo rc=\$?"
-  t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "TEHAS_OUTSOURCE_PROXY_ADDR is not valid: expected an address or host name and a port"
-done
-
-t_case "an idle bound not longer than the check-in timeout is refused"
-for pair in "TEHAS_OUTSOURCE_PROXY_IDLE=600" "TEHAS_OUTSOURCE_PROXY_IDLE=60 TEHAS_OUTSOURCE_TIMEOUT=61"; do
-  # shellcheck disable=SC2086 # two settings in one word, split on purpose
-  t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 $pair
-  t_run "$load; echo rc=\$?"
-  t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "is not longer than TEHAS_OUTSOURCE_TIMEOUT"
-done
-t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 TEHAS_OUTSOURCE_PROXY_IDLE=3600 TEHAS_OUTSOURCE_TIMEOUT=3599
-t_run "$load && echo ok"
-t_eq "$t_out" "ok"
-T_ENV=()
-
-t_case "with outsource off the idle bound is not checked"
-T_ENV=(TEHAS_TEST_FEATURES=outsource)
-t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE_TIMEOUT=1800
-t_run "$load && echo ok"
-t_eq "$t_out" "ok"
-T_ENV=()
-t_instance "${T_MINIMAL[@]}"
-
-t_case "a building feature's own setting stops a command with 78 before it calls GitHub"
-for line in TEHAS_OUTSOURCE_TIMEOUT=1800 TEHAS_OUTSOURCE_REPOS=acme/widget; do
-  t_instance "${T_MINIMAL[@]}" "$line"
-  t_run "$load; echo rc=\$?"
-  t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "tehas: ${line%%=*} is set and"
-  t_contains "$t_out" "is still being built in this release: take the line out"
-done
-t_instance "${T_MINIMAL[@]}"
-
-t_case "the example instance documents the proxy's settings as the table has them"
-for line in '#TEHAS_OUTSOURCE_PROXY_ADDR=127.0.0.1:8090' '#TEHAS_OUTSOURCE_PROXY_IDLE=900'; do
-  t_contains "$(cat "$T_ROOT/instances/example/optional.env")" "$line"
-done
-
 # The two bounds of the measure of an approved body, asked of head -c and head
 # -n, so a sign, a fraction or an exponent is no bound. Lines and bytes each hold
 # a body the other does not, so both are settings.
@@ -942,6 +882,7 @@ TEHAS_RUKAS_WORKAROUNDS=TEHAS_RUKAS_WORKAROUNDS@1.2
 TEHAS_GITHUB_APP_ID=7
 TEHAS_SITE_ANALYTICS_SRC=https://a.example/x.js
 TEHAS_REVIEW=on|TEHAS_REVIEW_REPO=Acme/Widget
+TEHAS_OUTSOURCE=off|TEHAS_OUTSOURCE_REPOS=|TEHAS_OUTSOURCE_TIMEOUT=600
 TEHAS_WORK_DESCRIBE=1
 TEHAS_WORK_COMMENTS=1
 TEHAS_WORK_ZIPS=1
@@ -970,7 +911,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "45a8233fe88a095c0cb891b2117f2c8675b2507bc3d28a49aecb579892af8637"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "5260f627cbdab5f95657b0c48617525d41f2eecb0456973ac3bfb1f14f5c1afa"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

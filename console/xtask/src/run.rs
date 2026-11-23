@@ -121,7 +121,6 @@ pub fn lint_files(root: &Path, given: &Given) -> Vec<PathBuf> {
         "host/shim/gh",
         "host/sandbox/build.sh",
         "host/sandbox/gh-shim",
-        "host/sandbox/vipune-shim",
         "host/login/tehas",
         "host/release/install",
     ] {

@@ -1,11 +1,10 @@
 //! The contract of tehas status --json. api/status.schema.json says what the
 //! object holds. The samples beside it, api/status.busy.json,
-//! api/status.quiet.json, api/status.readonly.json, api/status.pushfault.json,
-//! api/status.outsourced.json and api/status.lab.json (TEHAS_TEST_FEATURES set
-//! on a lab build), are what console status json (console/src/status.rs) makes
-//! of the health files in test/fixtures/status-json/, with the previews' list
-//! beside one of them and the contractors of outsource beside another, at a
-//! fixed time. Only the outsourced sample has `contractors`. A program that
+//! api/status.quiet.json, api/status.readonly.json, api/status.pushfault.json
+//! and api/status.lab.json (TEHAS_TEST_FEATURES set on a lab build), are what
+//! console status json (console/src/status.rs) makes of the health files in
+//! test/fixtures/status-json/, with the previews' list beside one of them, at
+//! a fixed time. A program that
 //! reads the object copies the samples into its own tests, so a change here is
 //! a change for it: docs/specs/2026-10-24-status-json-contract.md.
 //!
@@ -27,14 +26,7 @@ use tehas_core::testdir::TestDir;
 
 /// 2026-10-17T14:00:20Z: forty seconds after the time in the health files.
 const NOW: &str = "1792245620";
-const SAMPLES: &[&str] = &[
-    "busy",
-    "quiet",
-    "readonly",
-    "pushfault",
-    "outsourced",
-    "lab",
-];
+const SAMPLES: &[&str] = &["busy", "quiet", "readonly", "pushfault", "lab"];
 
 fn api(name: &str) -> PathBuf {
     root().join("api").join(name)
@@ -168,13 +160,6 @@ fn held_paths(v: &Value, prefix: &[String], out: &mut BTreeSet<String>) {
     }
 }
 
-fn schema_description(field: &str) -> String {
-    json(&read(&schema_file()))["properties"][field]["description"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string()
-}
-
 #[test]
 fn api_status_name_json_is_what_the_console_makes_of_name_health_json() {
     for name in SAMPLES {
@@ -204,13 +189,11 @@ fn tehas_status_json_prints_what_the_sample_holds_but_for_the_clock() {
             w.live_file("health.json"),
         )
         .unwrap();
-        for beside in ["previews", "contractors"] {
-            let to = w.live_file(&format!("{beside}.json"));
-            let _ = fs::remove_file(&to);
-            let from = fixtures().join(format!("{name}.{beside}.json"));
-            if from.exists() {
-                fs::copy(from, to).unwrap();
-            }
+        let to = w.live_file("previews.json");
+        let _ = fs::remove_file(&to);
+        let from = fixtures().join(format!("{name}.previews.json"));
+        if from.exists() {
+            fs::copy(from, to).unwrap();
         }
         let r = w.summary(&["--json"]);
         // The health file is days old: stale, so the exit status is 3.
@@ -271,11 +254,7 @@ fn the_manual_names_every_field_of_the_schema() {
         // order, running and planning have one row that names their fields.
         let word = match path.split_once('.') {
             _ if path == "paused" => continue,
-            Some((head, _))
-                if ["limit", "order", "running", "planning", "contractors"].contains(&head) =>
-            {
-                head
-            }
+            Some((head, _)) if ["limit", "order", "running", "planning"].contains(&head) => head,
             _ => path.as_str(),
         };
         if !manual.contains(&format!("| `{word}` |")) {
@@ -353,61 +332,6 @@ fn a_schema_keyword_the_check_does_not_know_is_an_error_not_passed_over() {
     has(
         &check_with(&schema, &sample_file("busy")),
         ".age: the schema uses multipleOf, which this check does not know",
-    );
-}
-
-#[test]
-fn contractors_is_only_in_the_sample_made_with_the_contractors_file_beside_the_health_file() {
-    for name in ["busy", "quiet", "readonly"] {
-        assert!(
-            json(&sample_file(name)).get("contractors").is_none(),
-            "{name}"
-        );
-    }
-    assert_eq!(
-        jq(
-            ".contractors | [.working, .outsourced, (.list | map(.name))]",
-            &sample_file("outsourced")
-        ),
-        r#"[1,1,["box1","box2","box3"]]"#
-    );
-}
-
-#[test]
-fn the_check_finds_a_contractor_s_status_out_of_its_list_and_a_count_it_does_not_know() {
-    let out = check(&bad(
-        "outsourced",
-        r#".contractors.list[0].status = "away" | .contractors.away = 1"#,
-    ));
-    has(&out, r#".contractors.list[0].status: "away" is not one of"#);
-    has(&out, ".contractors.away: not in the schema");
-}
-
-#[test]
-fn the_schema_says_running_and_room_count_a_cycle_outsourced_to_a_contractor() {
-    has(
-        &schema_description("running"),
-        "outsourced to a contractor is one of them",
-    );
-    has(
-        &schema_description("room"),
-        "outsourced to a contractor takes a place",
-    );
-}
-
-#[test]
-fn the_schema_and_the_manual_say_contractors_may_change_while_outsource_is_being_built() {
-    let phrase = "may change while outsource is still being built";
-    has(&schema_description("contractors"), phrase);
-    let row: String = read(&root().join("host/docs/api.md"))
-        .lines()
-        .filter(|l| l.contains("| `contractors` |"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    has(&row, phrase);
-    has(
-        &read(&root().join("host/docs/contract.md")).replace('\n', " "),
-        "fields of `contractors` may change while outsource is still being built",
     );
 }
 
