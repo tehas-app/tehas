@@ -2948,6 +2948,46 @@ fn the_fakes_meter_counts_calls_by_caller_port_and_pool() {
 }
 
 #[test]
+fn an_operator_a_deploy_key_and_a_given_token_are_holders_apart_from_the_factory() {
+    let wired = Wired::new(World::new().ticket(1, |t| t.title("one")));
+    let watch = wired.watch(None);
+    let factory = watch.holder(&full());
+    let operator = watch.holder(&Actor::Operator);
+    let deploy = watch.holder(&Actor::Deploy(PersonKey::new("ci")));
+    let given = watch.holder(&Actor::Given(PersonKey::new("reader")));
+    let anyone = watch.holder(&Actor::Anonymous);
+    let all = [&factory, &operator, &deploy, &given, &anyone];
+    for (i, a) in all.iter().enumerate() {
+        for b in &all[i + 1..] {
+            assert_ne!(a, b, "two actors share a holder");
+        }
+    }
+    assert!(matches!(operator, Holder::Person(_)));
+    // An operator's refused sign-in is the operator's: the factory's own
+    // health stays as it was.
+    let faulty = Faulty::new(FakeSite::new(&wired.world))
+        .on(Op::Tickets(TicketsOp::Ticket), Fault::SignedOut)
+        .by(Actor::Operator)
+        .watch(watch);
+    let mut t = faulty.tickets(&Actor::Operator, C).unwrap();
+    assert_eq!(
+        t.ticket(&wired.world.key(1), Depth::All, None).map(drop),
+        Err(Outcome::SignedOut)
+    );
+    assert_eq!(
+        wired.ledger.health(&wired.host, &Whose::Holder(factory)),
+        Ok(HealthState::Healthy)
+    );
+    assert_eq!(
+        wired
+            .ledger
+            .health(&wired.host, &Whose::Holder(operator))
+            .map(|s| matches!(s, HealthState::SignedOut { .. })),
+        Ok(true)
+    );
+}
+
+#[test]
 fn two_sessions_of_one_person_share_one_holder() {
     let wired = Wired::new(
         World::new()

@@ -463,19 +463,34 @@ pub struct Watch {
 }
 
 impl Watch {
-    /// The holder whose budget an actor's calls spend: a person by their
-    /// account's id, so every session of one person shares one budget (a
-    /// key the world does not know stands for its own account); any
-    /// anonymous caller as one; every other actor the factory's.
+    /// The holder whose budget an actor's calls spend. The factory's own
+    /// tokens are the factory's. A person is held by their account's id, so
+    /// every session of one person shares one budget (a key the world does
+    /// not know stands for its own account), and the operator by their own
+    /// account's. A given token and a deploy key are each a holder of their
+    /// own, and every anonymous caller one together. So an operator's, a
+    /// deploy key's or a given token's failure never counts against the
+    /// factory.
     pub fn holder(&self, by: &Actor) -> Holder {
         match by {
+            Actor::Ours(_) => Holder::Ours(self.ours.clone()),
             Actor::Person(key) => Holder::Person(
                 self.world
                     .person_account(key, self.realm)
                     .unwrap_or_else(|| AccountId::new(key.as_str())),
             ),
+            // The operator acts as their own account.
+            Actor::Operator => Holder::Person(crate::fake::state::account_id(
+                crate::fake::OPERATOR,
+                self.realm,
+            )),
+            // A given token is budgeted apart, so its sign-out is its own.
+            Actor::Given(key) => Holder::Ours(HolderId::new(format!("given:{}", key.as_str()))),
+            // A deploy key is no account: a holder of its own.
+            Actor::Deploy(key) => {
+                Holder::Anonymous(HolderId::new(format!("deploy:{}", key.as_str())))
+            }
             Actor::Anonymous => Holder::Anonymous(HolderId::new("anonymous")),
-            _ => Holder::Ours(self.ours.clone()),
         }
     }
 }
