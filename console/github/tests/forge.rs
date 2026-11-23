@@ -1067,3 +1067,9 @@ fn an_issues_text_revision_moves_with_its_title_or_body_and_nothing_else() {
     );
     assert_eq!(asked.borrow()[0], ["api", "repos/acme/widget/issues/7"]);
 }
+
+#[test]
+fn a_bounded_call_turns_the_shims_retry_off() {
+    let mut gh = tehas_core::forge::Bounded::new("printenv", std::time::Duration::from_secs(10));
+    assert_eq!(gh.run(&["TEHAS_GH_RETRY"]), Ok("0\n".to_string()));
+}

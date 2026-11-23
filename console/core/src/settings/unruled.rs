@@ -40,6 +40,10 @@ pub const UNRULED: &[(&str, &str)] = &[
     ),
     ("TEHAS_GH_RETRY_WAIT", "the gh shims' pause, for tests"),
     (
+        "TEHAS_GH_RETRY",
+        "set by tehas's own gh calls: the host shim sends a write once",
+    ),
+    (
         "TEHAS_RELAY_DIR",
         "the sandbox's gh shim: the relay, for tests",
     ),

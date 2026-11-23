@@ -205,9 +205,19 @@ the container, and only that call: gh shows no `Retry-After`, and GitHub asks
 for a minute when it names none. Both attempts are lines of the log. A write
 that reads standard input is sent once. So is a write typed at a terminal:
 gh's output stays the terminal, so `gh pr create` and the other commands that
-ask still ask, and a rate limit shows at once. Nothing is shared between calls, so a
-call that waits holds up no other. A caller with a time limit of its own, such
-as the poll's 30 seconds a call, ends the call at its limit; the poll's action
+ask still ask, and a rate limit shows at once. Nothing is shared between
+calls, so a call that waits holds up no other.
+
+The calls tehas's programs run themselves are sent once: the poll's, those of
+`tehasbot status` and the tidy, the console's commands, and the cycle's report,
+hooks, finish and the files it fetches. A rate-limited write of theirs fails at
+once and is not sent again after the minute. They tell the shim with an
+internal switch that is no setting: an instance.env that sets it is warned of,
+and the line is dropped. The cycle's calls it runs under `timeout` (its start,
+the comments of `tehas work`, the supervisor's) keep the retry, and so do the
+container's gh, the relay's calls for it, and a `gh` you run on the host.
+
+A caller with a time limit of its own, such as the poll's 30 seconds a call, ends the call at its limit; the poll's action
 journal settles that write on a later poll. A write that ended at its limit,
 that GitHub answered with a 5xx, or whose connection broke after it was made
 (a reset, an EOF, a GOAWAY, a closed connection), is kept as `unknown`, not as

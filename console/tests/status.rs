@@ -1056,7 +1056,7 @@ fn a_list_of_issues_that_cannot_be_read_keeps_the_lists_of_work_and_says_why() {
         .lines()
         .map(|l| l.split('\t').nth(1).unwrap_or(l).to_string())
         .collect();
-    assert_eq!(failures.join("\n"), "WARN status: gh issue list failed");
+    assert_eq!(failures.join("\n"), "a call to GitHub failed");
     assert_eq!(hr(&w, ".checks.github.failed"), "1");
 }
 
@@ -1109,7 +1109,7 @@ fn with_github_down_the_lists_are_kept_and_health_names_the_failed_calls() {
     assert_eq!(hr(&w, ".status"), "warn");
     has(
         &hr(&w, ".output"),
-        "GitHub failed 6 calls in the last 10 min, the last: WARN status: gh ",
+        "GitHub failed 6 calls in the last 10 min, the last: a call to GitHub failed",
     );
     has(
         &r.out,
@@ -1577,7 +1577,7 @@ fn health_no_console_beside_the_command_is_78_and_says_to_install() {
     let dir = w.t().join("no-console");
     fs::create_dir_all(dir.join("bin")).unwrap();
     fs::create_dir_all(dir.join("libexec")).unwrap();
-    fs::copy(root().join("bin/tehasbot"), dir.join("bin/tehasbot")).unwrap();
+    tehas_core::testing::copy_exe(root().join("bin/tehasbot"), dir.join("bin/tehasbot")).unwrap();
     let _ = fs::remove_file(w.t().join("bin/console"));
     w.set_env(&["TEHAS_CONSOLE=", "TEHAS_CONSOLE=", "PATH=/usr/bin:/bin"]);
     let r = w.sh(&format!(

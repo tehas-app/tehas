@@ -172,6 +172,9 @@ a key. `rows` itself is public.
   and the words `lean` and `classic` of `TEHAS_DRIVER` are kept, not
   renamed, through 2.x. Today `TEHAS_DRIVER=lean` stops with 78 and
   `tehas:lean` starts nothing, while lean is building.
+- **The default driver.** Which driver is the default is not contract; a
+  2.x release may make lean the default once it is proven, without a new
+  major.
 - **No levers for older APIs.** 2.x keeps no alias, renamed command,
   deprecated flag or setting that brings back a behaviour of 1.x.
 - **Release repository and key.** The update reads releases from the
@@ -188,8 +191,11 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
    `instance.env` is kept, dropped with one warning, or refused with 78, as
    [what 2.0 does with a setting](#what-20-does-with-a-setting) lists.
    `cargo xtask config-check --settings <instance dir>`, run in a checkout
-   of the 2.0 release, says which before anyone updates the host. Fix every
-   refused line before the update. Every setting 2.0 refuses was already
+   of the 2.0 release, says which before anyone updates the host. With
+   `--env <file>` it reads a file in the form of `~/.config/tehas/env` as
+   the host's, where `NAME=<redacted>`, unquoted, counts as set
+   ([config-check](/tools-update#before-updating-to-20-check-the-settings)).
+   Fix every refused line before the update. Every setting 2.0 refuses was already
    refused by 1.4.0: `RETIRED` holds the same twelve names, and
    `api/renames-1.0.tsv` is unchanged. Every setting that left
    `api/settings-rules.json` since 1.4.0 is dropped with a warning, not
@@ -582,14 +588,19 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   an instance's settings.
   Adopter action: take the lines out when it suits you.
 - **`cargo xtask config-check`, the settings checked before the update.**
-  #2885.
+  #2885, #2949.
   `cargo xtask config-check --settings <instance dir>`, in a checkout of the
   release, runs on an instance directory the checks `tehas update` runs on
   the settings before it installs. It prints `dropped <NAME>: <reason>` for
   each setting 2.0 drops and `fail <NAME>: <why>` for each finding, then
   `pass` or `fail`, and exits 0 or 78. It reads only the instance directory:
   not `~/.config/tehas/env`, no GitHub, Docker or git, and it writes
-  nothing.
+  nothing. `--env <file>` gives it a file in the form of
+  `~/.config/tehas/env` to stand for the host's, so a model key that
+  `models.json` names can be set. A line `NAME=<redacted>`, unquoted, counts
+  as set with its value unchecked; any other value is checked, and a
+  malformed file or a name the host's file may not set fails with 78.
+  It prints names, never a value.
   Readers: adopters, the consumer that runs many factories where it keeps
   an instance's settings.
   Adopter action: run it before the update, and again after each fix,
@@ -830,6 +841,19 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: plugins, the consumer that runs many factories.
   Adopter action: none. A program that reads an answer takes `how`
   `plugin` for no person's act.
+- **The health check's `github.last` is in tehas's words.** #2954.
+  `checks.github.last` in the health check, and the `github` line of
+  `tehas status`, name the newest failed GitHub call by a fixed line for its
+  kind: `GitHub's rate limit was reached`, `GitHub failed with a server
+  error`, `GitHub refused the call`, `GitHub did not answer in time`,
+  `GitHub could not be reached`, `GitHub's answer could not be read`, or `a
+  call to GitHub failed`. They no longer show the logged line with gh's
+  words. The other fields keep their meaning.
+  Readers: adopters, the consumer that runs many factories, the end-to-end
+  suite.
+  Adopter action: a program that read gh's words in `last` reads the fixed
+  lines. A line written before the update shows until it leaves the
+  ten-minute window.
 - **2.0 is supported from 1.4.x.** This page. The update to 2.0 is
   supported from 1.4.x only, and a host upgrades its factories and the
   programs that run them together.
@@ -883,13 +907,6 @@ adopter action as the pull request states them.
   lost end and the ticket and change events are still to come.
   Readers: the consumer that runs many factories, the consumer that reads
   the analytics copies, MCP clients, the end-to-end suite, plugins.
-- **Lean is the default driver.** T13. An issue with a `pi-spec v1` block
-  runs the lean driver; an issue without one runs classic. When lean is
-  only the default and refuses the repository's setup, the same cycle runs
-  classic, with a host message and one comment on the issue. A lean start
-  on a sandbox image with pi-rukas older than v0.15.9 is refused.
-  Readers: adopters, the consumer that runs many factories.
-  Adopter action: set `verify.roster`, or `TEHAS_DRIVER=classic`.
 - **The rest of clean house.** T16. Panels and the Business page leave
   core for plugins; the store keeps only the migration from 1.4.x.
   Readers: as each pull request names them.
@@ -932,7 +949,8 @@ What each registered feature leaves visible while its flag is off:
 
 ### lean
 
-Building. Planned to ship in 2.0 as the default driver (T13, Pending). Off by
+Building, and experimental. It stays building in 2.0: classic is 2.0's
+driver, and lean runs only on a lab host (T13). Off by
 default; `TEHAS_LEAN=on` stops every command with exit 78 and says `lean` is
 still being built, and so does `TEHAS_DRIVER=lean`, which names the feature
 it needs.
@@ -1046,6 +1064,7 @@ The rest is library code that nothing in core calls yet:
 | The review's renderer | `console/review-render` | the `review` plugin |
 | The wiki's collector, check and render | `console/wiki-collect`, `console/wiki-render` | the `wiki` plugin |
 | The mesh read | `console/mesh-feed` | the `energy` plugin |
+| The cut of `tehas top`'s snapshot | `console/host-feed` | the `hoststats` plugin (`feed:host`) |
 
 ## Exit statuses
 
