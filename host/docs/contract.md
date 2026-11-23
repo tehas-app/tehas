@@ -656,6 +656,18 @@ adopter action as the pull request states them.
   analytics step carry the words.
   Readers: the consumer that runs many factories, the consumer that reads
   the analytics copies, MCP clients, the end-to-end suite, plugins.
+- **Four work-run ends move.** #2903. One function,
+  `tehas_core::outcome::end`, decides a work run's end, and four ends
+  change: a run `tehas stop` stopped ends `stopped` and a lost run
+  `failed`, both `parked` before; a parked run that claimed `merged` and a
+  parked `closed` or `interrupted` run end by the later rows (`handoff`,
+  `failed` or `parked`), not `merged` or `stopped`. A parked run never ends
+  `merged`, `stopped` or `pr`. Runs recorded before the update keep their
+  outcome.
+  Readers: the consumer that reads the analytics copies, the consumer that
+  runs many factories.
+  Adopter action: a program that compares counts of `runs.outcome` across
+  the update allows for the four moves. The words are the same.
 - **The plugin hook is named by its event.** T11.8. The grant
   `hook:after:work` becomes `hook:after:change.offered`, with no alias.
   Readers: plugins.
