@@ -8,7 +8,7 @@
 //! REST read: not there, or a pull request, is `NotFound`.
 
 use serde::de::DeserializeOwned;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 use crate::tickets::{account, kind_of, number, take};
 use crate::{gh, markers, table, ForgeError, GitHub};
@@ -270,7 +270,10 @@ struct Event {
     previous_title: Option<String>,
     current_title: Option<String>,
     state_reason: Option<String>,
-    closer: Option<Named>,
+    /// None where the answer holds no closer at all, which a close's never
+    /// does: an empty one is a close by hand.
+    #[serde(default, deserialize_with = "given")]
+    closer: Option<Option<Named>>,
     issue_type: Option<Name>,
     blocking_issue: Option<Named>,
     source: Option<Named>,
@@ -304,13 +307,27 @@ struct Node {
     labels: Page<Name>,
 }
 
-/// What the issue's REST read holds beside its digest.
+/// What the issue's REST read holds beside its digest. Each is there in
+/// every issue, empty or not: an answer without one is no issue.
 #[derive(Deserialize)]
 struct Rest {
+    #[serde(deserialize_with = "present")]
     body: Option<String>,
-    #[serde(default)]
     assignees: Vec<RestUser>,
+    #[serde(deserialize_with = "present")]
     closed_at: Option<String>,
+}
+
+/// A field that may be empty and may not be left out.
+fn present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<T>, D::Error> {
+    Option::<T>::deserialize(d)
+}
+
+/// A field that says whether it was there: `Some(None)` for an empty one.
+fn given<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    d: D,
+) -> Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(d).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -749,8 +766,10 @@ impl GitHub {
     /// names, else the account that closed it by hand. A change of another
     /// repository has no number here, and is not named.
     fn closer(&self, e: &Event) -> Got<Option<Closer>> {
-        let Some(by) = &e.closer else {
-            return Ok(e.actor.as_ref().and_then(Who::account).map(Closer::Account));
+        let by = match &e.closer {
+            None => return Err(MALFORMED),
+            Some(None) => return Ok(e.actor.as_ref().and_then(Who::account).map(Closer::Account)),
+            Some(Some(by)) => by,
         };
         match by.is.as_deref() {
             Some("PullRequest") => {

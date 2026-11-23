@@ -418,6 +418,8 @@ fn an_answer_that_is_no_history_is_malformed() {
         // A label event with no label, a title change with no titles.
         events(end, &[r#"{"__typename":"LabeledEvent","createdAt":null,"actor":null}"#.to_string()]),
         events(end, &[r#"{"__typename":"RenamedTitleEvent","createdAt":null,"actor":null}"#.to_string()]),
+        // A close that does not say what closed it, not even nothing.
+        events(end, &[r#"{"__typename":"ClosedEvent","createdAt":null,"actor":null,"stateReason":"COMPLETED"}"#.to_string()]),
         // A close by a change with no number, and by a commit that is none.
         events(end, &[r#"{"__typename":"ClosedEvent","closer":{"__typename":"PullRequest","repository":{"nameWithOwner":"acme/widget"},"merged":true}}"#.to_string()]),
         events(end, &[r#"{"__typename":"ClosedEvent","closer":{"__typename":"Commit","oid":"zz"}}"#.to_string()]),
@@ -709,6 +711,23 @@ fn what_stands_beside_a_ticket_is_whole_or_the_ticket_is_unread() {
         .0,
         Err(MALFORMED)
     );
+    // An issue's read without its text, its assignees or its close.
+    for field in [
+        r#""body":null,"#,
+        r#""assignees":[],"#,
+        r#""closed_at":"2026-01-03T00:00:00Z","#,
+    ] {
+        assert!(REST.contains(field), "{field}");
+        assert_eq!(
+            cut_ticket(vec![
+                Ok(REST.replace(field, "")),
+                beside("", NO_BLOCKERS, NO_MENTIONS)
+            ])
+            .0,
+            Err(MALFORMED),
+            "{field}"
+        );
+    }
     // A close time that is no time.
     let odd = REST.replace(
         r#""closed_at":"2026-01-03T00:00:00Z""#,
