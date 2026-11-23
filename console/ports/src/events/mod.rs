@@ -18,7 +18,7 @@ pub mod rfc3339;
 mod samples;
 mod words;
 
-pub use dispatch::{Builder, Dispatcher, Fault, Heard, Raised, LOG};
+pub use dispatch::{Builder, Dispatcher, Fault, Heard, Raised, Refused, LOG};
 pub use gate::{Ask, GateAnswer, GatePayload, StartAsk, Verdict, Why};
 pub use payload::{
     ChangeMerged, ChangeOffered, CycleEnded, CycleParked, CycleStarted, LimitChanged,
