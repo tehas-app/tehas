@@ -335,3 +335,57 @@ fn a_handle_made_without_a_site_never_answers_ours() {
     assert_eq!(author(&mut gh).kind, AccountKind::Bot);
     assert_eq!(actor(&mut gh).kind, AccountKind::Bot);
 }
+
+/// The issue's timeline, every kind, with one label event and one close by
+/// `actor`, a GraphQL account object.
+fn timeline(actor: &str) -> String {
+    format!(
+        r#"{{"data":{{"repository":{{"issue":{{"number":7,"milestone":null,"events":{{"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[
+{{"__typename":"LabeledEvent","createdAt":"2026-01-01T00:00:01Z","actor":{actor},"label":{{"name":"bug"}}}},
+{{"__typename":"ClosedEvent","createdAt":"2026-01-01T00:00:02Z","actor":{actor},"stateReason":"COMPLETED","closer":null}}]}}}}}}}}}}"#
+    )
+}
+
+#[test]
+fn the_timeline_answers_the_factorys_account_ours_and_a_person_of_its_slug_not() {
+    let read = |actor: &str| {
+        let answer = timeline(actor);
+        let s = with_id(&[&answer]);
+        let mut h = s.tickets(&Actor::Ours(Scope::Full), CALLER).unwrap();
+        let took = h.history(&key(7), Window::Whole(ALL_MAX), None).unwrap();
+        let by: Vec<AccountKind> = took
+            .items
+            .iter()
+            .map(|e| e.by.clone().unwrap().kind)
+            .collect();
+        let closer = match &took.items[1].what {
+            tehas_ports::Happened::Closed {
+                closer: Some(tehas_ports::Closer::Account(a)),
+                ..
+            } => a.kind,
+            other => panic!("{other:?}"),
+        };
+        (by, closer)
+    };
+    let bot = r#"{"__typename":"Bot","login":"tehas-bot","databaseId":42}"#;
+    assert_eq!(
+        read(bot),
+        (
+            vec![AccountKind::Ours, AccountKind::Ours],
+            AccountKind::Ours
+        )
+    );
+    let person = r#"{"__typename":"User","login":"tehas-bot","databaseId":42}"#;
+    assert_eq!(
+        read(person),
+        (
+            vec![AccountKind::Person, AccountKind::Person],
+            AccountKind::Person
+        )
+    );
+    let other = r#"{"__typename":"Bot","login":"tehas-bot","databaseId":7}"#;
+    assert_eq!(
+        read(other),
+        (vec![AccountKind::Bot, AccountKind::Bot], AccountKind::Bot)
+    );
+}
