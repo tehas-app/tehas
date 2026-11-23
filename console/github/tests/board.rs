@@ -5,9 +5,8 @@
 //! and the questions the adapter asks for them.
 
 use serde::Deserialize;
-use std::cell::RefCell;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 use tehas_ports::laws;
@@ -22,7 +21,7 @@ fn here() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-type Asked = Rc<RefCell<Vec<Vec<String>>>>;
+type Asked = Arc<Mutex<Vec<Vec<String>>>>;
 
 /// A runner that answers each GraphQL question from the recordings of one
 /// state of the fixture project: `pulls-<cursor>` for a page of changes,
@@ -43,7 +42,8 @@ fn field<'a>(args: &'a [&str], name: &str) -> Option<&'a str> {
 impl GhRunner for Replay {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
         self.asked
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .push(args.iter().map(|a| a.to_string()).collect());
         assert_eq!(&args[..2], ["api", "graphql"]);
         assert_eq!(field(args, "owner"), Some("acme"));
@@ -91,7 +91,7 @@ fn adapter(state: &str) -> (GitHub, Asked) {
     let asked = Asked::default();
     let replay = Replay {
         state: state.to_string(),
-        asked: Rc::clone(&asked),
+        asked: Arc::clone(&asked),
     };
     let gh = GitHub::new(PROJECT, Box::new(replay)).on_clock(replay_now);
     (gh, asked)
@@ -225,7 +225,7 @@ fn one_question_a_page_and_the_count_cuts_before_the_next() {
     let (mut gh, asked) = adapter("two-pages");
     let whole = gh.open_changes(&open_changes(None, None), bound(101));
     assert_eq!(whole.map(|w| w.items().len()), Ok(101));
-    let asked = asked.borrow();
+    let asked = asked.lock().unwrap();
     assert_eq!(asked.len(), 2);
     assert_eq!(field(&strs(&asked[0]), "cursor"), None);
     assert_eq!(
@@ -244,7 +244,7 @@ fn one_question_a_page_and_the_count_cuts_before_the_next() {
         gh.open_changes(&open_changes(None, None), bound(100)),
         Err(Outcome::Unread(Unread::Cut))
     );
-    assert_eq!(asked.borrow().len(), 1);
+    assert_eq!(asked.lock().unwrap().len(), 1);
 }
 
 fn strs(args: &[String]) -> Vec<&str> {
@@ -258,7 +258,7 @@ fn files_beyond_the_first_page_are_asked_of_their_change_alone() {
         .open_changes(&open_changes(Some(200), None), bound(5))
         .unwrap();
     assert_eq!(got.items()[0].files.as_ref().unwrap().items().len(), 101);
-    let asked = asked.borrow();
+    let asked = asked.lock().unwrap();
     assert_eq!(asked.len(), 2);
     let first = field(&strs(&asked[0]), "query").unwrap().to_string();
     assert!(first.contains("files(first: 100)"), "{first}");
@@ -273,7 +273,7 @@ fn a_branch_and_every_state_are_asked_of_the_site() {
     let mut ask = open_changes(None, None);
     ask.filter.head = Some(tehas_ports::Branch::new("feature/issue-21").unwrap());
     assert!(gh.open_changes(&ask, bound(5)).is_ok());
-    let query = field(&strs(&asked.borrow()[0]), "query")
+    let query = field(&strs(&asked.lock().unwrap()[0]), "query")
         .unwrap()
         .to_string();
     assert!(query.contains("headRefName: $head"), "{query}");
@@ -282,7 +282,7 @@ fn a_branch_and_every_state_are_asked_of_the_site() {
     let mut ask = open_changes(None, None);
     ask.filter.states = tehas_ports::ChangeStates::All;
     assert!(gh.open_changes(&ask, bound(5)).is_ok());
-    let query = field(&strs(&asked.borrow()[0]), "query")
+    let query = field(&strs(&asked.lock().unwrap()[0]), "query")
         .unwrap()
         .to_string();
     assert!(query.contains("states: [OPEN, MERGED, CLOSED]"), "{query}");
@@ -386,26 +386,29 @@ fn what_needs_a_ticket_a_blueprint_or_a_body_is_unsupported_before_any_request()
 }
 
 /// A runner that answers each question by `answer`, counting them.
-struct Scripted<F: FnMut(usize) -> Result<String, String>> {
+struct Scripted<F: FnMut(usize) -> Result<String, String> + Send> {
     answer: F,
-    asked: Rc<RefCell<usize>>,
+    asked: Arc<Mutex<usize>>,
 }
 
-impl<F: FnMut(usize) -> Result<String, String>> GhRunner for Scripted<F> {
+impl<F: FnMut(usize) -> Result<String, String> + Send> GhRunner for Scripted<F> {
     fn run(&mut self, _: &[&str]) -> Result<String, String> {
-        let n = *self.asked.borrow();
-        *self.asked.borrow_mut() += 1;
+        let n = {
+            let mut asked = self.asked.lock().unwrap();
+            *asked += 1;
+            *asked - 1
+        };
         (self.answer)(n)
     }
 }
 
 fn scripted(
-    answer: impl FnMut(usize) -> Result<String, String> + 'static,
-) -> (GitHub, Rc<RefCell<usize>>) {
-    let asked = Rc::new(RefCell::new(0));
+    answer: impl FnMut(usize) -> Result<String, String> + Send + 'static,
+) -> (GitHub, Arc<Mutex<usize>>) {
+    let asked = Arc::new(Mutex::new(0));
     let runner = Scripted {
         answer,
-        asked: Rc::clone(&asked),
+        asked: Arc::clone(&asked),
     };
     let gh = GitHub::new(PROJECT, Box::new(runner)).on_clock(replay_now);
     (gh, asked)
@@ -468,7 +471,7 @@ fn a_count_that_changes_between_pages_does_not_add_up() {
         gh.open_changes(&open_changes(None, None), bound(10)),
         Err(Outcome::Unread(Unread::Inconsistent))
     );
-    assert_eq!(asked.borrow().len(), 2);
+    assert_eq!(asked.lock().unwrap().len(), 2);
 }
 
 #[test]
@@ -478,7 +481,7 @@ fn the_same_change_on_two_pages_does_not_add_up() {
         gh.open_changes(&open_changes(None, None), bound(10)),
         Err(Outcome::Unread(Unread::Inconsistent))
     );
-    assert_eq!(asked.borrow().len(), 2);
+    assert_eq!(asked.lock().unwrap().len(), 2);
 }
 
 #[test]
@@ -516,7 +519,7 @@ fn past_fifty_pages_the_list_is_too_large() {
         gh.open_changes(&open_changes(None, None), bound(1000)),
         Err(Outcome::Unread(Unread::TooLarge))
     );
-    assert_eq!(*asked.borrow(), 50);
+    assert_eq!(*asked.lock().unwrap(), 50);
 }
 
 #[test]
@@ -563,7 +566,7 @@ fn merged_alone_and_closed_alone_are_asked_and_read_as_in_every_state() {
             .filter(|i| i.change.no.get() == no)
             .collect();
         assert_eq!(got.items().iter().collect::<Vec<_>>(), want, "{state}");
-        let query = field(&strs(&asked.borrow()[0]), "query")
+        let query = field(&strs(&asked.lock().unwrap()[0]), "query")
             .unwrap()
             .to_string();
         assert!(query.contains(&format!("states: [{word}]")), "{query}");
