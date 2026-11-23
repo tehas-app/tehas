@@ -797,7 +797,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `hook:after:change.offered` and puts its hook at `after:change.offered`;
   a `TEHAS_PLUGIN_GRANTS_<NAME>` line that grants `hook:after:work` grants
   `hook:after:change.offered` for the plugin's commit.
-- **The merge is no plugin's grant.** #PR.
+- **The merge is no plugin's grant.** #2943.
   The grant and the ask `merge` are refused with 78, saying the merge is a
   person's and no plugin is granted it in this release, where before they
   were refused as no capability. The merge is a gate whose only policy in
@@ -805,7 +805,7 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   setting. Approval is never removed by a plugin.
   Readers: plugins, the consumer that runs many factories.
   Adopter action: none.
-- **A plugin's answer is reserved.** #PR.
+- **A plugin's answer is reserved.** #2943.
   The grant and the ask `answer:<kind>` are refused as reserved for plugins
   v2, for 2.1, where a plugin may answer a question or skip it, one plugin
   per kind, and a person's answer wins. In `api/answer.schema.json`, `how`
