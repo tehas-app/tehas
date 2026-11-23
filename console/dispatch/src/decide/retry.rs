@@ -564,8 +564,6 @@ impl Poll<'_> {
                     given_at: at,
                     given_how: if ans.tick.answered { "answer" } else { "reply" }.into(),
                     remove,
-                    fixer: None,
-                    park_lifted: None,
                     extra,
                 },
             );
@@ -714,8 +712,6 @@ impl Poll<'_> {
                     given_at: iso(started),
                     given_how: "outage-retry".into(),
                     remove,
-                    fixer: None,
-                    park_lifted: None,
                     extra,
                 },
             );
@@ -981,8 +977,6 @@ impl Poll<'_> {
             given_at: at,
             given_how: "refresh".into(),
             remove,
-            fixer: None,
-            park_lifted: None,
             extra,
         }))
     }
