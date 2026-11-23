@@ -389,16 +389,6 @@ fn every_marker() -> Vec<Marker> {
         },
         Marker::HoldCleared,
         Marker::Park(park),
-        Marker::Spec(SpecMarker {
-            version: nz32(1),
-            link: "https://example.test/spec.md".into(),
-            sha256: sha('b'),
-            requirements: vec![Requirement {
-                id: "R1".into(),
-                met: false,
-                note: "not yet".into(),
-            }],
-        }),
         Marker::LastAttempt(LastAttemptMarker {
             base: sha('c'),
             note: "ran out of time at step 3".into(),
@@ -463,7 +453,6 @@ fn markers_read_back() {
         MarkerKind::HoldCleared,
         MarkerKind::Park,
         MarkerKind::Finish,
-        MarkerKind::Spec,
         MarkerKind::LastAttempt,
         MarkerKind::Millwright,
         MarkerKind::TicketOf,
@@ -503,34 +492,17 @@ fn a_marker_read_back_is_checked() {
             kind: MarkerKind::Blocked
         }
     );
-    let v2 = Marker::Spec(SpecMarker {
-        version: nz32(SPEC_VERSION + 1),
-        link: "https://example.test/spec.md".into(),
-        sha256: sha('b'),
-        requirements: vec![Requirement {
-            id: "R1".into(),
-            met: true,
-            note: "done".into(),
-        }],
-    });
-    let node = to_node(&v2).unwrap();
-    assert_eq!(
-        from_node::<Marker>(node).unwrap(),
-        Marker::Unreadable {
-            kind: MarkerKind::Spec
-        }
-    );
     // Inside a bare marker and an edit too.
     let bare = Marker::Bare {
-        kind: MarkerKind::Spec,
-        read: Some(Box::new(v2.clone())),
+        kind: MarkerKind::Blocked,
+        read: Some(Box::new(over.clone())),
     };
     assert_eq!(
         from_node::<Marker>(to_node(&bare).unwrap()).unwrap(),
         Marker::Bare {
-            kind: MarkerKind::Spec,
+            kind: MarkerKind::Blocked,
             read: Some(Box::new(Marker::Unreadable {
-                kind: MarkerKind::Spec
+                kind: MarkerKind::Blocked
             })),
         }
     );
@@ -658,7 +630,6 @@ fn a_known_tag_whose_content_does_not_read_is_unknown_never_an_error() {
         MarkerKind::HoldCleared,
         MarkerKind::Park,
         MarkerKind::Finish,
-        MarkerKind::Spec,
         MarkerKind::LastAttempt,
         MarkerKind::Millwright,
         MarkerKind::TicketOf,

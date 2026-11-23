@@ -17,9 +17,6 @@ pub const BLOCKED_MAX: usize = 20;
 /// `blueprint` are at most 9 digits.
 const NUMBER_MAX: u64 = 999_999_999;
 
-/// The version of the `Spec` block this copy reads.
-pub const SPEC_VERSION: u32 = 1;
-
 /// The kinds of tehas's markers: machine-read notes inside a comment or a
 /// body. One kind per marker tehas writes or reads today, and the two that
 /// 2.0 adds.
@@ -38,8 +35,6 @@ pub enum MarkerKind {
     /// What a finish of a stopped cycle did.
     Finish,
     /// A block: an open line, the text it encloses, a close line.
-    Spec,
-    /// A block, as `Spec` is.
     LastAttempt,
     /// The millwright's marker on its comment. Once named `Fixer`.
     Millwright,
@@ -140,8 +135,6 @@ pub enum Marker {
     Park(ParkMarker),
     /// What a finish of a stopped cycle did.
     Finish(FinishMarker),
-    /// The spec a change was built to.
-    Spec(SpecMarker),
     /// What a cycle stopped for time learned.
     LastAttempt(LastAttemptMarker),
     /// A millwright's decision.
@@ -233,7 +226,6 @@ fn tag_kind(tag: &str) -> Option<MarkerKind> {
         "HoldCleared" => MarkerKind::HoldCleared,
         "Park" => MarkerKind::Park,
         "Finish" => MarkerKind::Finish,
-        "Spec" => MarkerKind::Spec,
         "LastAttempt" => MarkerKind::LastAttempt,
         "Millwright" => MarkerKind::Millwright,
         "TicketOf" => MarkerKind::TicketOf,
@@ -250,7 +242,6 @@ const MARKER_TAGS: &[&str] = &[
     "HoldCleared",
     "Park",
     "Finish",
-    "Spec",
     "LastAttempt",
     "Millwright",
     "TicketOf",
@@ -350,33 +341,6 @@ pub enum FinishResult {
     Stopped,
 }
 
-/// The spec a change was built to, and one line per requirement. A block:
-/// what it encloses is its payload, never the body's.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct SpecMarker {
-    /// The block's version. This copy reads 1; another reads as
-    /// `Unreadable { kind: Spec }`.
-    pub version: NonZeroU32,
-    /// The spec's link as written, one word. Whether it may be fetched is
-    /// tehas's link rule, not the port's.
-    pub link: String,
-    /// The spec's sha-256.
-    pub sha256: Sha256,
-    /// At least one, each id once.
-    pub requirements: Vec<Requirement>,
-}
-
-/// One requirement of a spec, and whether the change meets it.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Requirement {
-    /// The requirement's id: not empty, no backquote.
-    pub id: String,
-    /// The change meets it.
-    pub met: bool,
-    /// Why, never empty.
-    pub note: String,
-}
-
 /// What a cycle stopped for time learned, for the next cycle on the same
 /// text. A block: what it encloses is its payload, never the body's.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -397,7 +361,6 @@ impl Marker {
             Marker::HoldCleared => MarkerKind::HoldCleared,
             Marker::Park(_) => MarkerKind::Park,
             Marker::Finish(_) => MarkerKind::Finish,
-            Marker::Spec(_) => MarkerKind::Spec,
             Marker::LastAttempt(_) => MarkerKind::LastAttempt,
             Marker::Millwright(_) => MarkerKind::Millwright,
             Marker::TicketOf(_) => MarkerKind::TicketOf,
@@ -425,9 +388,7 @@ impl Marker {
 
     /// The marker as a reader may act on it: itself when its payload keeps
     /// the port's limits, else `Unreadable` of its kind. A `Blocked` names 1
-    /// to 20 tickets. A `Spec` is of version 1, its link one word, with at
-    /// least one requirement, each id once, not empty and with no
-    /// backquote, each note not empty.
+    /// to 20 tickets.
     pub fn checked(self) -> Marker {
         if self.keeps_limits() {
             self
@@ -478,24 +439,9 @@ impl Marker {
     fn keeps_limits(&self) -> bool {
         match self {
             Marker::Blocked { by } => (1..=BLOCKED_MAX).contains(&by.len()),
-            Marker::Spec(spec) => spec_reads(spec),
             _ => true,
         }
     }
-}
-
-fn spec_reads(spec: &SpecMarker) -> bool {
-    let ids_ok = spec.requirements.iter().enumerate().all(|(i, r)| {
-        !r.id.is_empty()
-            && !r.id.contains('`')
-            && !r.note.is_empty()
-            && !spec.requirements[..i].iter().any(|o| o.id == r.id)
-    });
-    spec.version.get() == SPEC_VERSION
-        && !spec.link.is_empty()
-        && !spec.link.chars().any(char::is_whitespace)
-        && !spec.requirements.is_empty()
-        && ids_ok
 }
 
 /// How an edit changes the markers of what it edits. A marker in `set`
@@ -537,23 +483,6 @@ mod tests {
 
     fn ticket(n: u64) -> Ref<TicketKey> {
         Ref::Here(TicketKey::Number(std::num::NonZeroU64::new(n).unwrap()))
-    }
-
-    fn spec(requirements: Vec<Requirement>) -> Marker {
-        Marker::Spec(SpecMarker {
-            version: NonZeroU32::new(1).unwrap(),
-            link: "https://example.test/spec.md".into(),
-            sha256: sha('a'),
-            requirements,
-        })
-    }
-
-    fn req(id: &str, note: &str) -> Requirement {
-        Requirement {
-            id: id.into(),
-            met: true,
-            note: note.into(),
-        }
     }
 
     #[test]
@@ -604,33 +533,6 @@ mod tests {
                 kind: MarkerKind::Blocked
             }
         );
-    }
-
-    #[test]
-    fn a_spec_keeps_its_rules() {
-        let unreadable = Marker::Unreadable {
-            kind: MarkerKind::Spec,
-        };
-        let good = spec(vec![req("R1", "done"), req("R2", "also")]);
-        assert_eq!(good.clone().checked(), good);
-        assert_eq!(spec(vec![]).checked(), unreadable);
-        assert_eq!(
-            spec(vec![req("R1", "a"), req("R1", "b")]).checked(),
-            unreadable
-        );
-        assert_eq!(spec(vec![req("", "a")]).checked(), unreadable);
-        assert_eq!(spec(vec![req("R`1", "a")]).checked(), unreadable);
-        assert_eq!(spec(vec![req("R1", "")]).checked(), unreadable);
-        let Marker::Spec(mut v2) = good.clone() else {
-            unreachable!()
-        };
-        v2.version = NonZeroU32::new(2).unwrap();
-        assert_eq!(Marker::Spec(v2).checked(), unreadable);
-        let Marker::Spec(mut spaced) = good else {
-            unreachable!()
-        };
-        spaced.link = "two words".into();
-        assert_eq!(Marker::Spec(spaced).checked(), unreadable);
     }
 
     #[test]
