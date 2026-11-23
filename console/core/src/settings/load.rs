@@ -582,6 +582,19 @@ fn ignored_names(vars: &mut Vars, host: &mut dyn Host, list: &[(&str, &str)]) {
     }
 }
 
+/// The names tehas gives its own children, which an instance may not set:
+/// the sweep has dropped them from the environment, so one set here came
+/// from instance.env. Each is warned of once and dropped.
+fn internal_names(vars: &mut Vars, host: &mut dyn Host) {
+    let name = crate::forge::GH_NO_RETRY.0;
+    if vars.is_set(name) {
+        host.warn(&format!(
+            "{name} is no setting: tehas's own gh calls set it; remove it from the instance"
+        ));
+    }
+    vars.unset(name.as_bytes());
+}
+
 /// Each pair of `TEHAS_ISSUE_TYPES` that maps a kind of `list` warned of once
 /// and dropped. A value left with no pair is unset.
 fn ignored_kinds(vars: &mut Vars, host: &mut dyn Host, list: &[(&str, &str)]) {
@@ -1006,6 +1019,7 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     retired_names(vars, &file)?;
     ignored_names(vars, host, IGNORED);
     ignored_kinds(vars, host, IGNORED_KINDS);
+    internal_names(vars, host);
     renamed(vars, host, &file)?;
     app_login(vars, host);
     let gave = given(vars);
@@ -2588,6 +2602,23 @@ mod tests {
         let mut quiet = start(&[]);
         let mut host = Fake::new(&[]);
         ignored_names(&mut quiet, &mut host, GONE);
+        assert!(host.warned.is_empty(), "{:?}", host.warned);
+    }
+
+    #[test]
+    fn an_instance_that_sets_the_shims_retry_is_warned_and_the_line_is_dropped() {
+        let mut host = Fake::with(&["TEHAS_GH_RETRY=0"]);
+        let (vars, got) = run(&mut host);
+        assert_eq!(got, Ok(()));
+        assert!(!vars.is_set("TEHAS_GH_RETRY"));
+        assert_eq!(
+            host.warned,
+            ["TEHAS_GH_RETRY is no setting: tehas's own gh calls set it; remove it from the instance"]
+        );
+        let mut from_env = start(&[("TEHAS_GH_RETRY", "0")]);
+        let mut host = Fake::with(&[]);
+        assert_eq!(load(&mut from_env, &mut host, "1000"), Ok(()));
+        assert!(!from_env.is_set("TEHAS_GH_RETRY"));
         assert!(host.warned.is_empty(), "{:?}", host.warned);
     }
 
