@@ -6,7 +6,6 @@
 //! into place. Reading makes no network call.
 
 use crate::edge;
-use crate::panel::{id_ok, url_host};
 use serde_json::Value;
 use std::env;
 use std::fs;
@@ -14,6 +13,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tehas_core::home::{Home, State};
+use tehas_core::outside::{id_ok, url_host};
 use tehas_core::time::{from_iso, iso, now};
 
 const USAGE: &str = "usage: tehas host-message [list] [--json] | set <id> --level info|warn|alert --text TEXT [--link URL] | clear <id>";

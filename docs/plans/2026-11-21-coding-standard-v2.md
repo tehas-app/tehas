@@ -823,7 +823,11 @@ v2.0.0.
 ## Log
 
 Append a line per event: the fork, each step's pull requests, each port
-of main, each grade.
+of main, each grade. From #2905 on, each pull request adds its own row
+as a one-line file, `docs/plans/log.d/<pull request>.md`, in the same form
+as the table's rows, so two open pull requests never conflict here. The
+log is this table and the files in `log.d/` together, and they are folded
+into the table now and then.
 
 | Date | What | Commit or PR |
 | --- | --- | --- |

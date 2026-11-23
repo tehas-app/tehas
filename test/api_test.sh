@@ -57,7 +57,6 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "analytics"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "state-move"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "clean"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "mcp-dashboard-keys"
-t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "panels"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "state-check"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "finish"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "status-versions"
@@ -73,7 +72,7 @@ for gone in store-copy host-message-health refresh-pr-starts refresh-pr-lane ref
   t_eq "$gone $(jq --arg w "$gone" '.features | index($w)' <<<"$t_out")" "$gone null"
 done
 t_eq "$(jq -r '.features | last' <<<"$t_out")" "question"
-t_eq "$(jq -r '.features | length' <<<"$t_out")" 31
+t_eq "$(jq -r '.features | length' <<<"$t_out")" 30
 t_eq "$(jq -r '.features | index("host-bridge-tokens")' <<<"$t_out")" null
 # Every word of features is in the manual's example and has its own entry,
 # with what it is, in the manual's row of features.
@@ -98,8 +97,9 @@ t_run "$api --json"
 t_eq "$t_rc" 0
 renames=$T_ROOT/api/renames-1.0.tsv
 # What v0.30.6, the last 0.30 release, printed: the base 1.0 updates from.
+# panels left core in 2.0, with no renames row, so it is not here.
 for word in status limit drain history export \
-  refresh-conflicts analytics state-move mcp-dashboard-keys clean disk panels state-check \
+  refresh-conflicts analytics state-move mcp-dashboard-keys clean disk state-check \
   finish status-versions store-copy state-load freeze host-bridge cycle-writes settings-rules \
   start-order host-message refresh-pr host-message-health refresh-pr-starts refresh-pr-lane \
   refresh-pr-sweep refresh-pr-json host-start; do
@@ -330,7 +330,7 @@ t_eq "$(jq -c '.flags | keys_unsorted' "$T_ROOT/api/api.sample.json")" "$(jq -c 
 t_case "api.schema.json refuses a field it does not name, a flag that is no boolean and a word of another form"
 reset
 t_eq "$(jq '.zz = 1 | .flags.lean = "on" | .features += ["Two words"]' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
-  "$(printf '%s\n' '.zz: not in the schema' '.features[31]: "Two words" does not match "^[a-z][a-z0-9-]*$"' '.flags.lean: string, not boolean')"
+  "$(printf '%s\n' '.zz: not in the schema' '.features[30]: "Two words" does not match "^[a-z][a-z0-9-]*$"' '.flags.lean: string, not boolean')"
 t_eq "$(jq 'del(.poll.last.ageMin) | .poll.hour.polls = -1' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
   "$(printf '%s\n' '.poll.last: ageMin is missing' '.poll.hour.polls: -1 is under 0')"
 
