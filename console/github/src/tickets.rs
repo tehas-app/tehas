@@ -87,7 +87,7 @@ impl GitHub {
     /// The mark of each label, in order: a word of the table, or the
     /// project's own mark, read with `MarkName::read_list`. None for a name
     /// no mark can have, which is kept once for the caller to report.
-    fn read_marks(&mut self, labels: &[String]) -> Vec<Option<Mark>> {
+    pub(crate) fn read_marks(&mut self, labels: &[String]) -> Vec<Option<Mark>> {
         let theirs = labels.iter().filter(|l| table::word(l).is_none()).cloned();
         let read = MarkName::read_list(theirs);
         for name in read.left_out {
@@ -184,7 +184,7 @@ fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDige
 
 /// The account of an event, None where it names nobody. The login is folded
 /// to lower case, as GitHub compares logins.
-fn account(login: &str, facts: &gh::Facts) -> Option<Account> {
+pub(crate) fn account(login: &str, facts: &gh::Facts) -> Option<Account> {
     if login.is_empty() {
         return None;
     }
