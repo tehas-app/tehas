@@ -34,7 +34,7 @@ Public:
   store and analytics migrated;
 - [the cycle inputs rule](#cycle-inputs);
 - the host namespace `/host/` and [the host bridge](/api#the-host-bridge);
-- [analytics.db at schema 6](#analyticsdb);
+- [analytics.db at schema 7](#analyticsdb);
 - [the commands of other parts](#the-commands-of-other-parts): the rule by
   which `tehas <part>` runs `tehas-<part>`, the words kept for the parts,
   and the front asset of a release.
@@ -94,7 +94,7 @@ other issue the poll takes it off, as it does an outsider's.
 | Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
 | Labels | The rows of `host/labels.tsv`: the name, what the dispatcher does with it, and the word of the ports it is (the fourth column, such as `State::Running`) | The dispatcher's and the tidy's tests, and the table's own test in `console/src/labels.rs` |
 | Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 31 | The store's migration tests |
-| analytics.db | `user_version` 6, tables and columns only added | `console/analytics/src/schema.pinned` |
+| analytics.db | `user_version` 7, tables and columns only added | `console/analytics/src/schema.pinned` |
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints, and the tests of `console/src/front.rs`, which fail when a public `--json` row of `api/commands.txt` has no schema |
 | MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
@@ -132,6 +132,16 @@ a key. `rows` itself is public.
   may be added. An existing field, value or exit status keeps its meaning and
   is never removed. A reader treats an enum value it does not know as
   unknown, not as an error.
+- **The flow's states.** The states of the status flow and the `why` of a
+  held ticket may gain values in 2.x, plugin phases among them. A reader
+  treats a state or a `why` it does not know as unknown.
+- **Plugin phase labels.** Labels starting `tehas:p-` belong to plugin
+  phases. In 2.x tehas may write them, for display only; the dispatcher
+  never acts on them and they never authorise anything (hard rule 5). No
+  other core label takes the prefix, and 2.0 neither writes nor reads
+  them: the tidy and `tehas labels` leave them as they are. The prefix
+  matches the `p-` that named a plugin's panel
+  ([Panels leave core](#changed-in-20)).
 - **Building features.** A feature still being built is outside the contract:
   its rows in `api/settings-rules.json` (each marked `"building": true`), its
   key in the `flags` object of `tehas api --json`, its `--json` fields, its
@@ -168,7 +178,7 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
    refused by 1.4.0: `RETIRED` holds the same twelve names, and
    `api/renames-1.0.tsv` is unchanged. Every setting that left
    `api/settings-rules.json` since 1.4.0 is dropped with a warning, not
-   refused: twenty-six of its instance settings and two of its host settings,
+   refused: twenty-seven of its instance settings and two of its host settings,
    `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, which `~/.config/tehas/env`
    held. `api/settings-1.4.0.txt` lists every setting 1.4.0 accepted, 101
    instance and 10 host settings, and the test
@@ -194,12 +204,13 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
    The analytics' own step at the same update says `offered` where its
    `runs.outcome` said `pr`.
    `tehas state check --json` prints the schema.
-4. **Analytics** (`state/analytics.db`) goes from schema 4 to 6 the first
+4. **Analytics** (`state/analytics.db`) goes from schema 4 to 7 the first
    time it is opened after the update: it drops `samples.watts` and
-   `runs.contractor_id`, keeps every other column and row, and rewrites `retry-tick` to `reply` and `fixer` to
-   `millwright` in `runs.how`.
+   `runs.contractor_id`, keeps every other column and row, rewrites `retry-tick` to `reply` and `fixer` to
+   `millwright` in `runs.how`, and with 7 rewrites `label` to `approved` in
+   `runs.how` and `pr` to `offered` in `runs.outcome`.
 5. **pi-rukas.** A checkout follows pi-rukas's 0.15 line
-   (`PI_RUKAS_FOLLOW=release:0.15`). 2.0 needs pi-rukas v0.15.6 or later.
+   (`PI_RUKAS_FOLLOW=release:0.15`). 2.0 needs pi-rukas v0.15.9 or later.
 
 The update to 2.0 is supported from 1.4.x only. A host on an older release
 updates to the newest 1.4.x first.
@@ -248,6 +259,7 @@ line is one of three:
   - `TEHAS_MILLWRIGHT_MAX_RETRIES`, `TEHAS_MILLWRIGHT_FEED`,
     `TEHAS_MILLWRIGHT_MAX_FEEDS` (the millwright's grant);
   - `TEHAS_TOP` (the host panel);
+  - `TEHAS_SPEC_PIPE` (the spec mark);
   - a `prototype=` pair of `TEHAS_ISSUE_TYPES` (the Protolab): the pair is
     dropped and the rest of the value kept.
 - **Refused.** The line stops every command with 78 and says what to do:
@@ -260,9 +272,6 @@ line is one of three:
     replaced it or why it went;
   - a value for a setting of a feature still being built, which names the
     feature.
-
-Pending: #2892 drops `TEHAS_SPEC_PIPE` with a warning. Until it lands, a
-value for `TEHAS_SPEC_PIPE` is refused as a building feature's.
 
 ## The commands of other parts
 
@@ -331,10 +340,11 @@ and a change to them is a security change.
 
 ## analytics.db
 
-`~/tehas/state/analytics.db` is at `user_version` 6. Within it tables and
+`~/tehas/state/analytics.db` is at `user_version` 7. Within it tables and
 columns are only added, never renamed, retyped or removed. A file of schema 4,
-from 1.4.x, is migrated to 6 in place as it is opened: it loses
-`samples.watts` and `runs.contractor_id`, and keeps every row. A new version
+from 1.4.x, is migrated to 7 in place as it is opened: it loses
+`samples.watts` and `runs.contractor_id`, takes the events' words in
+`runs.how` and `runs.outcome`, and keeps every row. A new version
 comes only with a major release. [Analytics](/analytics) has the schema;
 [`tehas analytics copy`](/api#tehas-analytics-copy) is how a program takes a
 consistent copy.
@@ -451,10 +461,10 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   names it sends to the edge router.
 - **The first stage is Idea.**
   #2877.
-  A ticket's line on the factory's pages reads Idea, In line, Planning,
-  Building, Review, Stopped, Shipped. Idea is an open ticket that is not in line:
-  it carries none of the state labels of `host/labels.tsv` that put it in
-  the queue or further on, and is not closed. Nothing on the pages is called
+  A ticket's line on the factory floor reads Idea, In line, Building,
+  Review, Stopped, Shipped. Idea is an open ticket that is not in line: it
+  carries none of `tehas:ready`, `tehas:running`, `tehas:awaiting-merge` and
+  `needs-human-attention`, and is not closed. Nothing on the pages is called
   Prototype.
   Readers: people on the dashboard, the consumer that runs many factories
   where it shows a ticket's stage.
@@ -497,14 +507,31 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   A program that stops `tehas-energy.service` when it adopts a factory, or
   starts it when it creates or restores one, drops the unit from both
   lists.
-- **analytics.db is at schema 6.**
-  #2869, #2886.
+- **The business page leaves core.**
+  T16.
+  Gone: the page at `/business`, `fun/business.html`, `business-view.js`,
+  `business.css` and `mode.js`. The front page `/` is the factory floor in
+  both designs, as `/floor` is; `TEHAS_DESIGN=beesknees26` draws it in the
+  beesknees26 theme. `TEHAS_DESIGN` keeps both values. The rules other pages
+  pick from `business.css` by selector, the base, the top bar, the mark, the
+  panels and the foot, are in `fun/pages.css`, the same 17 rules with the same
+  text. The page's Planning column went with it: the floor has none. It
+  returns in 2.1 as the plugin `business` over `live:`.
+  Readers: adopters, visitors with a link to `/business`, Obeya and
+  industry's workshop (they take `pages.css` in place of `business.css`),
+  plugins.
+  Adopter action: none. `/` shows the factory floor; a link to `/business`
+  answers 404.
+- **analytics.db is at schema 7.**
+  #2869, #2886, #2911.
   The migration drops `samples.watts`, which nothing writes since energy
   use left core, and `runs.contractor_id`, which no release wrote a value
-  in, and keeps every other column and row. A file of schema 4 or 5 is
-  migrated in place. `tehas analytics copy --json` reports schema 6.
+  in, and keeps every other column and row. Step 7 rewrites the how
+  `label` to `approved` and the end `pr` to `offered`, and the view
+  `v_versions` names `pr_share` `change_share`. A file of schema 4, 5 or 6
+  is migrated in place. `tehas analytics copy --json` reports schema 7.
   Readers: the consumer that reads the analytics copies.
-  Adopter action: a program that reads the copies pins `user_version` 6 and
+  Adopter action: a program that reads the copies pins `user_version` 7 and
   `console/analytics/src/schema.pinned` of this release.
 - **A cycle is given the issue's images alone.**
   #2875, #2888.
@@ -665,6 +692,8 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   global `TEHAS_PANELS` is `TEHAS_DOCK`, and the classes `panel-*` are
   `dock-*`. A plugin granted only v1's `view` is listed in the plugins
   menu in place of a panel `p-<name>`. Outside pages return in 2.1 as the plugin `panels`.
+  The label prefix `tehas:p-` is the plugins' too
+  ([the rules for 2.x](#the-rules-for-2x)).
   Readers: the consumer that runs many factories, Obeya (it vendors
   `host/fun` and the dock, so the file and global renames reach it),
   plugins.
@@ -681,6 +710,31 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: `tehas update`, readers of `tehas state check` and of a state
   copy, the end-to-end suite.
   Adopter action: `tehas update` migrates the store.
+- **Labels starting `tehas:p-` belong to plugin phases.**
+  #2930.
+  No core label takes the prefix. 2.0 neither writes nor reads them: the
+  dispatcher, the tidy and `tehas labels` leave a `tehas:p-` label as it
+  is, and it authorises nothing. In 2.x tehas may write them, for display
+  only, as [the rules for 2.x](#the-rules-for-2x) say.
+  Readers: plugins, adopters, the consumer that runs many factories.
+  Adopter action: none.
+- **The flow may gain states, and no plugin removes approval or the merge.**
+  #2930.
+  The states of the status flow and a held ticket's `why` may gain values
+  in 2.x, plugin phases among them, and a reader treats an unknown one as
+  unknown. A plugin may add phases and skip or hide an optional one under a
+  grant shown in review, but no plugin can remove approval or the human
+  merge ([plugins](#plugins)).
+  Readers: plugins, adopters, the consumer that runs many factories.
+  Adopter action: none. A program that reads the flow's states or a `why`
+  treats a value it does not know as unknown.
+- **The spec mark goes.** #2892. The building feature `spec-pipe` is
+  removed. A `Spec:` line in an issue body is plain text, no pull request
+  is checked for a spec block, the key `spec-pipe` leaves `flags`, and
+  `TEHAS_SPEC_PIPE` is dropped with a warning. Lean's `pi-spec v1` block
+  stays.
+  Readers: adopters, the consumer that runs many factories (`flags`).
+  Adopter action: take `TEHAS_SPEC_PIPE` out of `instance.env`.
 - **2.0 is supported from 1.4.x.** This page. The update to 2.0 is
   supported from 1.4.x only, and a host upgrades its factories and the
   programs that run them together.
@@ -698,12 +752,6 @@ Planned or in review, not merged. Each moves to
 [Changed in 2.0](#changed-in-20) when it lands, with its readers and
 adopter action as the pull request states them.
 
-- **The spec mark goes.**
-  #2892. A `Spec:` line is
-  plain text, no pull request is checked for a spec block, the key
-  `spec-pipe` leaves `flags`, and `TEHAS_SPEC_PIPE` is dropped with a
-  warning. Lean's `pi-spec v1` block stays.
-  Readers: adopters, the consumer that runs many factories (`flags`).
 - **Events.** T11, spec `docs/specs/2026-11-22-events.md`
   (#2878, merged); the build
   is to come. Notify events, each with a schema in `api/` and a witness in
@@ -736,7 +784,7 @@ adopter action as the pull request states them.
   runs the lean driver; an issue without one runs classic. When lean is
   only the default and refuses the repository's setup, the same cycle runs
   classic, with a host message and one comment on the issue. A lean start
-  on a sandbox image with pi-rukas older than v0.15.6 is refused.
+  on a sandbox image with pi-rukas older than v0.15.9 is refused.
   Readers: adopters, the consumer that runs many factories.
   Adopter action: set `verify.roster`, or `TEHAS_DRIVER=classic`.
 - **The rest of clean house.** T16. Panels and the Business page leave
@@ -778,87 +826,6 @@ no release does: see [proving a building feature on a lab
 host](/tools-update#proving-a-building-feature-on-a-lab-host).
 
 What each registered feature leaves visible while its flag is off:
-
-### spec-pipe
-
-Building. Coming out in 2.0 with #2892
-(Pending). Off by default; `TEHAS_SPEC_PIPE=on` stops every command with exit
-78 and says `spec-pipe` is still being built.
-
-- `tehas api --json` has `"spec-pipe": false` in `flags`, and no word
-  `spec-pipe` in `features`.
-- The poll asks an issue's body nothing more: a `Spec:` line is text, and a
-  body with one starts as any other.
-- A start fetches no spec and its approval keeps no pin.
-- A cycle is given no `spec` and no `approved.json`, and its manifest names
-  neither.
-- No pull request is checked for [the pull request spec
-  block](#the-pull-request-spec-block): a handoff waits for a merge as
-  before.
-- No command, no label, no `--json` field, no MCP tool.
-
-
-#### The pull request spec block
-
-Part of `spec-pipe`, so it is not part of the frozen surface. A pull request
-built from an approved spec answers it with this block in its body, version
-1:
-
-```
-<!-- tehas:spec v1 -->
-Spec: <link> sha256:<64 lower-case hex>
-- <id> met: <where>
-- <id> not met: <why>
-<!-- /tehas:spec -->
-```
-
-For example:
-
-```
-<!-- tehas:spec v1 -->
-Spec: https://github.com/user-attachments/files/123/spec.md sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
-- R1 met: src/search.rs, search() with tests in tests/search.rs
-- R2 not met: the export needs an API the backend does not have yet
-<!-- /tehas:spec -->
-```
-
-The rules (`spec_block` in `console/core/src/grammar.rs`):
-
-- The open line is exactly `<!-- tehas:spec v1 -->` and the close line exactly
-  `<!-- /tehas:spec -->`, each on a line of its own. Spaces around a line do
-  not count, and LF and CRLF line ends are both read.
-- Only lines outside fenced code blocks count, as for the issue's `Spec:` line.
-  A block quoted inside a fence is text.
-- The first line inside that is not blank is the `Spec:` line, in the form of
-  the issue's: the link of the spec, not its file name, and the sha256 of the
-  manifest's `spec` entry.
-- One or more requirement lines follow, blank lines allowed between them:
-  `- <id> met: <text>` or `- <id> not met: <text>`. A line splits at its first
-  `:`. What comes before must end in ` not met` or ` met`, and what precedes
-  that is the id. The id is not empty and holds no `:` and no backtick. The
-  text is not empty.
-- The id is the spec's own requirement id, such as `R1` or `FR-3`. A spec
-  with no ids uses the text of each top heading instead, without the `#`s and
-  any `:`.
-
-A body with no block has none. A body tehas cannot read: no close line, a
-second block, an open line of another version (named) or one that starts
-`<!-- tehas:spec v` and is not exactly the open line, a missing or malformed
-`Spec:` line, a line inside of neither form, no requirement line, or an id
-named twice. The manifest's `spec` entry says in `block` which version the
-cycle writes.
-
-What tehas checks (`spec_answered`, and the cycle's report): with the feature
-on, a start not run by hand whose approval pins a spec, a pull request waits
-only for a merge when its body holds one block tehas can read and the block's
-`Spec:` line names the sha256 of that pin. The link is not compared. A body
-with no block, a block of another sha256 or one tehas cannot read parks the
-issue with `needs-human-attention` and the park reason `spec-block`; so does an
-approval that cannot be read. The pull request stays open and gets no
-comment.
-
-The lines are for the person who reviews. This block is not lean's `pi-spec v1`
-block, which goes in an issue body.
 
 ### lean
 
@@ -923,6 +890,12 @@ Off by default; `TEHAS_PLUGIN=on` stops every command with exit 78 and says
 
 The plugin API as 2.0 holds it, for the work of 2.1:
 
+- **What no plugin removes.** A plugin may add phases anywhere in the
+  status flow, and may skip or hide an optional phase under a grant
+  `tehas plugin review` lists. No plugin can remove approval, `tehas:ready`
+  applied by an account of `TEHAS_ALLOWED_LABELERS` (hard rule 5), or the
+  human merge. Its phase labels are `tehas:p-`
+  ([the rules for 2.x](#the-rules-for-2x)).
 - **The grants.** A plugin asks in its manifest and a person grants for the
   plugin's commit; `tehas plugin review` lists each grant, and every
   install, enable and pin move checks them again. The one hook grant the

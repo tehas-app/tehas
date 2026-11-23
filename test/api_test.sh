@@ -125,30 +125,29 @@ reset
 installed v0.8.0+cb6912a
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.flags' <<<"$t_out")" '{"spec-pipe":false,"lean":false,"plugins":false}'
-t_eq "$(jq -r '.features | index("spec-pipe")' <<<"$t_out")" null
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"lean":false,"plugins":false}'
 t_eq "$(jq -r '.features | index("lean")' <<<"$t_out")" null
 t_eq "$(jq -r 'keys_unsorted | join(" ")' <<<"$t_out")" "api tehas commit repo features flags millwright poll store"
 t_run "$api"
-t_contains "$t_out" "flags       spec-pipe=off lean=off plugins=off"
+t_contains "$t_out" "flags       lean=off plugins=off"
 
 t_case "api --json: a test that turns a building feature on sees it on in flags only"
 reset
 installed v0.8.0+cb6912a
-t_instance "${T_MINIMAL[@]}" TEHAS_SPEC_PIPE=on
-T_ENV=(TEHAS_TEST_FEATURES=spec-pipe)
+t_instance "${T_MINIMAL[@]}" TEHAS_LEAN=on
+T_ENV=(TEHAS_TEST_FEATURES=lean)
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.flags' <<<"$t_out")" '{"spec-pipe":true,"lean":false,"plugins":false}'
-t_eq "$(jq -r '.features | index("spec-pipe")' <<<"$t_out")" null
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"lean":true,"plugins":false}'
+t_eq "$(jq -r '.features | index("lean")' <<<"$t_out")" null
 
 t_case "api: a building feature switched on is refused with 78 and its name"
 reset
 installed v0.8.0+cb6912a
-t_instance "${T_MINIMAL[@]}" TEHAS_SPEC_PIPE=on
+t_instance "${T_MINIMAL[@]}" TEHAS_LEAN=on
 t_run "$api --json"
 t_eq "$t_rc" 78
-t_contains "$t_out" "spec-pipe is still being built"
+t_contains "$t_out" "lean is still being built"
 
 t_case "api --json: the millwright is the app's login when the factory has one"
 reset

@@ -249,11 +249,11 @@ fn an_answer_that_still_carries_tokens_fits_the_schema_the_field_is_unknown_now_
 }
 
 #[test]
-fn the_business_front_page_draws_no_token_table() {
+fn the_front_page_draws_no_token_table() {
     let pages = at(&[
-        "host/fun/business.html",
-        "host/fun/business.css",
-        "host/fun/business-view.js",
+        "host/fun/index.html",
+        "host/fun/game-view.css",
+        "host/fun/game-view.js",
     ]);
     assert_eq!(
         lines_holding(&pages, &["host-tokens", "token-use", "token-table"]),
@@ -420,13 +420,9 @@ fn the_docs_server_answers_404_for_any_path_under_host_even_where_a_file_stands(
 }
 
 #[test]
-fn both_front_pages_and_dashboard_load_the_reading_module_before_the_views_and_tehas_registers_no_service_worker(
+fn the_front_page_and_dashboard_load_the_reading_module_before_the_views_and_tehas_registers_no_service_worker(
 ) {
-    for page in [
-        "host/fun/index.html",
-        "host/fun/business.html",
-        "host/docs/dashboard.frag",
-    ] {
+    for page in ["host/fun/index.html", "host/docs/dashboard.frag"] {
         let body = text(page);
         has(&body, r#"<script src="/fun/host-bridge.js"></script>"#);
         let (mut b, mut m) = (0, 0);
@@ -464,7 +460,6 @@ fn an_answer_that_still_carries_notices_fits_the_schema_and_no_page_or_module_dr
         .is_none());
     let pages = at(&[
         "host/fun/index.html",
-        "host/fun/business.html",
         "host/fun/host-bridge.js",
         "host/fun/dock.css",
     ]);

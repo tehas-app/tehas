@@ -37,7 +37,6 @@
     "cycle-ids"
   ],
   "flags": {
-    "spec-pipe": false,
     "lean": false,
     "plugins": false
   },

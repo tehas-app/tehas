@@ -360,6 +360,13 @@
      "expect": {"exit": 0, "picked": []}},
     {"case": "no fault on record starts the queue",
      "settings": {"TEHAS_MAX_CYCLES": 3}, "queue": [7],
-     "expect": {"exit": 0, "picked": [7]}}
+     "expect": {"exit": 0, "picked": [7]}},
+    {"case": "a plugin phase label beside an approval is not acted on: the issue starts as any other, and the label is not touched",
+     "queue": ["7 tehas:p-x"], "label_events": {"7": ["tehas:p-x=mallory"]},
+     "expect": {"exit": 0, "picked": [7], "log_lacks": ["tehas:p-x"],
+                "no_actions": [{"remove": ["tehas:p-x"]}, {"add": ["tehas:p-x"]}]}},
+    {"case": "a plugin phase label applied by an allowed account authorises nothing",
+     "queue": ["7 tehas:p-x"], "label_events": {"7": ["tehas:ready=mallory", "tehas:p-x=alice"]},
+     "expect": {"exit": 0, "picked": [], "log_lacks": ["tehas:p-x"]}}
   ]
 }
