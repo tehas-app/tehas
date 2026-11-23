@@ -100,6 +100,7 @@ other issue the poll takes it off, as it does an outsider's.
 | MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
 | `tehas update` | From 1.4.x to 2.0 ([Upgrading to 2.0](#upgrading-to-20)). The release repository and the signing key are built into tehas: the `TEHAS_RELEASE_REPO` line of `host/versions.env` and `host/release/minisign.pub` when the release was built. An instance may name another repository with `TEHAS_RELEASE_REPO` in `instance.env`; the key stays the built-in one | The update's tests, and the tests of `console/core/src/release.rs` |
 | Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x; a renamed name is taken under both names through 2.x | `console/cycle/tests/work_container.rs` |
+| Events | The envelope's `api` 1, the names in `api/events.txt`, and the fields of the envelope and of each payload in `api/event*.schema.json`: names, tables and fields only added in 2.x | `console/tests/events_contract.rs`, which writes the samples from the code and holds them to the schemas, and `test/kit_events_test.mjs`, which holds the kit's names to `api/events.txt` |
 | Host namespace | `/host/` on the factory's origin belongs to the host that fronts the factory's domain: tehas never serves a path under it, and its docs server answers 404 there, which the dashboard reads as no host. The host bridge, `/host/bridge.json`, is `bridge: 1`, by `api/host-bridge.schema.json` and [its rules](/api#the-host-bridge) | `console/tests/host_bridge.rs` (the 404 under `/host/`, the schema and its samples), `test/json_contract_test.sh`, `test/host_bridge_test.mjs` (what the dashboard keeps of an answer) and `test/dock_test.mjs` (a menu item opens in the dock, and a page item in a new tab with no dock) |
 
 The surface list in `api/` names the frozen surface in one place: each
@@ -132,6 +133,9 @@ a key. `rows` itself is public.
   may be added. An existing field, value or exit status keeps its meaning and
   is never removed. A reader treats an enum value it does not know as
   unknown, not as an error.
+- **Events.** A new event name, a new gate or a new optional field of a
+  payload is added in 2.x. A reader treats an event name it does not know
+  as unknown and skips it, as `tehas-ports` reads it as `Unknown`.
 - **The flow's states.** The states of the status flow and the `why` of a
   held ticket may gain values in 2.x, plugin phases among them. A reader
   treats a state or a `why` it does not know as unknown.
@@ -754,7 +758,7 @@ adopter action as the pull request states them.
 
 - **Events.** T11, spec `docs/specs/2026-11-22-events.md`
   (#2878, merged); the build
-  is to come. Notify events, each with a schema in `api/` and a witness in
+  is under way. Notify events, each with a schema in `api/` and a witness in
   the factory API:
 
   | Event | Raised when | Key |
@@ -775,6 +779,15 @@ adopter action as the pull request states them.
   history line, `tehas api --json` prints `store`, and `features` gains
   `cycle-ids`, `questions` and `events`. A further store step and an
   analytics step carry the words.
+  The schemas and the kit (T11.7) add, in `api/`: `events.txt`, the names;
+  `event.schema.json`, the envelope with `when`; `event-page.schema.json`,
+  the envelope a page takes; `event-<name>.schema.json` with a `.full.json`
+  and a `.bare.json` sample per name; the gate's
+  `event-cycle-started-before.schema.json`, the ask of the start gate that
+  2.1 raises; and `gate-answer.schema.json`, `{"api": 1, "answer": "allow" |
+  "refuse", "why": "..."}`, why at most 140 characters. The kit gains
+  `events.js`, which raises an envelope on a page as `tehas:<event>`
+  ([Events](/api#events)). No factory raises an event yet.
   Readers: the consumer that runs many factories, the consumer that reads
   the analytics copies, MCP clients, the end-to-end suite, plugins.
 - **The plugin hook is named by its event.** T11.8. The grant
