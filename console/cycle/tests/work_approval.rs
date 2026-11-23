@@ -534,7 +534,7 @@ fn with_nothing_given_an_approval_that_started_nothing_is_no_approval_the_run_is
     let w = world("approval-unused");
     w.images_off();
     w.issue_is("Words only.", "NONE", "");
-    w.approve(7, "alice", "label", 1_760_000_000, &[]);
+    w.approve(7, "alice", "approved", 1_760_000_000, &[]);
     let r = w.work7();
     assert_eq!(r.rc, 2, "{}", r.out);
     has(
@@ -649,7 +649,7 @@ fn each_image_is_listed_with_its_sha256_and_the_manifest_names_the_approval() {
     );
     assert_eq!(
         w.manifest(".approval"),
-        r#"{"at":"2026-10-14T00:00:00Z","by":"alice","how":"label"}"#
+        r#"{"at":"2026-10-14T00:00:00Z","by":"alice","how":"approved"}"#
     );
 }
 
@@ -1106,7 +1106,7 @@ fn a_refresh_s_task_reaches_comments_json_as_tehas_wrote_it_and_only_a_refresh_s
     w.record_is("alice", "Words.", &[]);
     w.record_edit(|v| {
         v["how"] = json!("refresh");
-        v["rests_on"] = json!({"at": v["at"], "by": v["by"], "how": "label",
+        v["rests_on"] = json!({"at": v["at"], "by": v["by"], "how": "approved",
             "body_sha256": v["body_sha256"]});
         v["refreshes"] = json!(1);
         v["retry_context"] = json!([{"source": "refresh", "by": "tehas",
@@ -1120,7 +1120,7 @@ fn a_refresh_s_task_reaches_comments_json_as_tehas_wrote_it_and_only_a_refresh_s
         r#"[["refresh","This pull request conflicts with `main`. Do no other work."]]"#
     );
     w.record_edit(|v| {
-        v["how"] = json!("label");
+        v["how"] = json!("approved");
         v.as_object_mut().unwrap().remove("rests_on");
     });
     w.work7();

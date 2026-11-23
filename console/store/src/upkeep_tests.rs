@@ -111,7 +111,7 @@ fn backup_show_reads_the_newest_and_its_age() {
 fn a_heartbeat_runs_no_quick_check_and_poll_begin_upkeep_and_prune_do() {
     let home = home("quick-check");
     let checks = || crate::db::QUICK_CHECKS.with(|n| n.get());
-    let (_lock, _) = start_by(&home, 8, "alice", "label", NOW - 10);
+    let (_lock, _) = start_by(&home, 8, "alice", "approved", NOW - 10);
     let before = checks();
     ok(
         &home,
@@ -131,7 +131,7 @@ fn prune_removes_old_ends_settled_actions_and_old_heartbeats_of_ended_cycles() {
     let home = home("prune");
     let old = NOW - 100 * DAY;
     let recent = NOW - DAY;
-    let (lock, attempt) = start_by(&home, 8, "alice", "label", old);
+    let (lock, attempt) = start_by(&home, 8, "alice", "approved", old);
     ok_at(
         &home,
         old + 10,
@@ -151,7 +151,7 @@ fn prune_removes_old_ends_settled_actions_and_old_heartbeats_of_ended_cycles() {
         ],
     );
     // A running cycle keeps every heartbeat, however old.
-    let (_lock, _) = start_by(&home, 9, "alice", "label", old);
+    let (_lock, _) = start_by(&home, 9, "alice", "approved", old);
     ok_at(
         &home,
         old + 10,
@@ -248,7 +248,7 @@ fn history(home: &Path, issue: i64, cycle: Option<Cycle>, plan: Plan) {
                         "--by",
                         "alice",
                         "--how",
-                        "label",
+                        "approved",
                         "--label",
                         "tehas:ready",
                         "--body-sha",
@@ -698,7 +698,7 @@ fn prune_and_sweep_locks_refuse_bad_numbers() {
 
 /// A cycle of `issue` that ended `ago` seconds ago, its lock file left.
 fn ended(home: &Path, issue: i64, ago: i64) {
-    let (lock, attempt) = start_by(home, issue, "alice", "label", NOW - ago - 60);
+    let (lock, attempt) = start_by(home, issue, "alice", "approved", NOW - ago - 60);
     drop(lock);
     ok_at(
         home,
@@ -725,7 +725,7 @@ fn sweep_locks_removes_the_free_locks_of_issues_unused_for_its_days() {
     ended(&home, 2, 10 * DAY);
     ended(&home, 3, 40 * DAY);
     let _held = hold(&home, 3);
-    let (_open, _) = start_by(&home, 4, "alice", "label", NOW - 40 * DAY);
+    let (_open, _) = start_by(&home, 4, "alice", "approved", NOW - 40 * DAY);
     // A lock with no cycle on record, old and young.
     File::create(locks.join("5.lock")).unwrap();
     aged(&locks.join("5.lock"), NOW - 40 * DAY);
@@ -1332,7 +1332,7 @@ fn copy_holds_a_row_that_is_still_in_the_wal() {
 /// `park-show` reads that reason from the issue's newest cycle history row and
 /// derives `refine` from it.
 fn intent_parked(home: &Path, issue: i64, start: i64) {
-    let (_lock, attempt) = start_by(home, issue, "alice", "label", start);
+    let (_lock, attempt) = start_by(home, issue, "alice", "approved", start);
     let n = issue.to_string();
     let a = attempt.to_string();
     ok_at(

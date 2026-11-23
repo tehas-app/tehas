@@ -123,7 +123,7 @@ turns are only counted.
 | `from`, `to` | The window |
 | `shipped` | `n`: issues whose merge is in the window, by their `merged` event or a run that merged |
 | `planned` | Work to do, from the latest sample: `n` is `inLine` plus `planning`; `trend` is one `{day, n}` per day, the day's last sample, `n` left out on a day with none. Left out with no sample |
-| `runs` | `n` work runs, and how many ended as `pr`, `merged`, `handoff`, `parked`, `failed`, `refused` and `stopped` |
+| `runs` | `n` work runs, and how many ended as `offered`, `merged`, `handoff`, `parked`, `failed`, `refused` and `stopped` |
 | `planningTurns` | `n` planning turns that ended |
 | `handoffRate` | `share` of the `n` runs that ended needing a person: handed off or parked |
 | `firstPassYield` | `share` of the `n` shipped issues with a run here that took exactly one work run |
@@ -135,7 +135,7 @@ turns are only counted.
 | `daily` | Ten `{day, shipped, runs, failed, minutes}`, oldest first: issues shipped, runs ended and of them failed, and their minutes |
 | `stopReasons` | `top`: the five most common `{reason, n}` among the `n` runs that ended without a pull request, not counting those a person stopped. The reason is the failure kind, the cap for a failure that is a cap, else the park reason, else how the run ended |
 | `stations` | `steps`: per step, in the order runs reach it, the `n` runs that reached it, how many `passed` and the `share`. A run that reached a pull request passed every step it ran; one handed off, parked or failed stopped in its failed step, else its last. `n` is the runs counted: refused and stopped runs are not |
-| `versions` | One `{tehas, rukas, n}` per version pair, the pair that ran last first, at most ten. With three runs or more also `prShare` (reached a pull request) and `medianSeconds`; with three that reported usage also `medianTokens` (input, output and cache read, of those runs) and their count `tokensN`. A version that is not known is left out |
+| `versions` | One `{tehas, rukas, n}` per version pair, the pair that ran last first, at most ten. With three runs or more also `changeShare` (reached a pull request) and `medianSeconds`; with three that reported usage also `medianTokens` (input, output and cache read, of those runs) and their count `tokensN`. A version that is not known is left out |
 
 `tehasbot status` also writes `~/tehas/live/platform.json`: what platform the
 host runs. On a host with the platform checkout `~/tehas/platform` that is the

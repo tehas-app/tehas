@@ -21,8 +21,9 @@ use crate::{unknown, At, HealthState, Holder, HostId, Outcome, Passing, Pool, Re
 /// `Spent` names. `seen` is the outcome of every
 /// attempt the adapter made to reach the site, one that could not connect
 /// included; never an answer it made without trying (a held pool's
-/// `Spent`, a passed deadline's `Unavailable(Timeout)`, an expired kept
-/// token's `SignedOut`, an out-of-set `Forbidden`).
+/// `Spent`, a passed deadline's `Unavailable(Timeout)`, a kept or given
+/// token, an expired kept or given token's `SignedOut`, an out-of-set
+/// `Forbidden`).
 ///
 /// The host reads `Unavailable` as an outage and any answer of the site as
 /// the host up, `Unavailable(Broken)` among them: the site answered that a

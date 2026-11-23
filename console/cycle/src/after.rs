@@ -374,15 +374,15 @@ mod tests {
 
     #[test]
     fn the_approval_of_a_run_is_three_fields_of_the_view() {
-        let a = json!({"view": {"at": "T", "by": "alice", "how": "label", "links": [], "driver": "lean"}});
+        let a = json!({"view": {"at": "T", "by": "alice", "how": "approved", "links": [], "driver": "lean"}});
         assert_eq!(
             approval_of(&a).dump(),
-            r#"{"at":"T","how":"label","driver":"lean"}"#
+            r#"{"at":"T","how":"approved","driver":"lean"}"#
         );
-        let b = json!({"view": {"at": "T", "how": "label"}});
+        let b = json!({"view": {"at": "T", "how": "approved"}});
         assert_eq!(
             approval_of(&b).dump(),
-            r#"{"at":"T","how":"label","driver":null}"#
+            r#"{"at":"T","how":"approved","driver":null}"#
         );
         assert_eq!(approval_of(&json!({"view": null})), J::Null);
     }

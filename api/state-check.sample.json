@@ -2,7 +2,7 @@
   "api": 1,
   "verb": "check",
   "ok": true,
-  "schema": 29,
+  "schema": 30,
   "integrity": "ok",
   "rows": {
     "actions": 0,
@@ -18,7 +18,7 @@
     "heartbeats": 0,
     "issues": 0,
     "journal": 0,
-    "meta": 6,
+    "meta": 7,
     "parks": 0,
     "plan_history": 0,
     "planning": 0,

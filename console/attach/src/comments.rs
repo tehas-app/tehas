@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn comments_go_only_with_a_comments_retry() {
         let ctx = json!([said("issue-comment", 1, "2026-11-03T09:00:00Z", "x")]);
-        for how in ["label", "refresh", "millwright", "outage-retry"] {
+        for how in ["approved", "refresh", "millwright", "outage-retry"] {
             assert_eq!(of(how, ctx.clone()), None, "{how}");
         }
     }
@@ -253,7 +253,7 @@ mod tests {
         let b = of("refresh", json!([task])).unwrap();
         assert_eq!(items(&b)[0]["source"], "refresh");
         assert_eq!(items(&b)[0]["text"], "Merge it.");
-        assert_eq!(of("label", json!([task])), None);
+        assert_eq!(of("approved", json!([task])), None);
     }
 
     #[test]

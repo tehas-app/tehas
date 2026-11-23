@@ -21,14 +21,14 @@ fn attempt_args(issue: i64, attempt: i64) -> (String, String) {
 #[test]
 fn cycle_start_records_the_approval_s_account_and_uses_it() {
     let home = home("start");
-    let at = approve(&home, 10, "alice", "label");
+    let at = approve(&home, 10, "alice", "approved");
     let _lock = hold(&home, 10);
     let v = ok(&home, &["cycle-start", "10", "--rukas", "abcdef0"]);
     assert_eq!(v["issue"], 10);
     assert_eq!(v["attempt"], 1);
     assert_eq!(v["started_at"], NOW);
     assert_eq!(v["started_by"], "alice");
-    assert_eq!(v["how"], "label");
+    assert_eq!(v["how"], "approved");
     assert_eq!(v["requeued"], false);
     assert_eq!(v["approval_at"], at);
     assert_eq!(v["replaced_unended"], false);
@@ -46,7 +46,7 @@ fn cycle_start_records_the_approval_s_account_and_uses_it() {
             1,
             NOW,
             "alice".into(),
-            "label".into(),
+            "approved".into(),
             0,
             Some("abcdef0".into()),
             None
@@ -107,7 +107,7 @@ fn cycle_start_refuses_bad_arguments() {
 #[test]
 fn cycle_start_with_the_lock_free_leaves_the_approval_unused() {
     let home = home("start-free");
-    approve(&home, 12, "alice", "label");
+    approve(&home, 12, "alice", "approved");
     assert_eq!(
         refused(&home, &["cycle-start", "12"]),
         (1, "unlocked".into())
@@ -126,7 +126,7 @@ fn cycle_start_with_the_lock_free_leaves_the_approval_unused() {
 #[test]
 fn cycle_start_says_probe_when_the_lock_cannot_be_told() {
     let home = home("start-probe");
-    approve(&home, 13, "alice", "label");
+    approve(&home, 13, "alice", "approved");
     fs::create_dir_all(lock::path(&home, 13)).unwrap();
     assert_eq!(refused(&home, &["cycle-start", "13"]), (1, "probe".into()));
     assert_eq!(count(&home, "approvals WHERE used_at IS NULL"), 1);
@@ -159,7 +159,7 @@ fn cycle_start_that_is_busy_uses_nothing() {
     // this thread asks for the short pair.
     short_bounds();
     let home = home("start-busy");
-    approve(&home, 15, "alice", "label");
+    approve(&home, 15, "alice", "approved");
     let _lock = hold(&home, 15);
     let holder = writer_lock(&home);
     assert_eq!(refused(&home, &["cycle-start", "15"]), (1, "busy".into()));
@@ -199,7 +199,7 @@ fn cycle_start_uses_the_unused_row_whatever_its_at() {
             "--by",
             "bob",
             "--how",
-            "label",
+            "approved",
             "--label",
             "tehas:ready",
             "--body-sha",
@@ -226,7 +226,7 @@ fn the_attempt_counts_past_history() {
 #[test]
 fn a_run_by_hand_keeps_its_records_and_touches_no_approval() {
     let home = home("by-hand");
-    let at = approve(&home, 19, "alice", "label");
+    let at = approve(&home, 19, "alice", "approved");
     let _lock = hold(&home, 19);
     let v = ok(&home, &["cycle-start", "19", "--by-hand"]);
     assert_eq!(v["how"], "hand");
@@ -258,7 +258,7 @@ fn an_outage_retry_start_is_requeued() {
 fn a_start_over_an_unended_row_says_so_and_replaces_it() {
     let home = home("unended");
     let (_lock, a) = start(&home, 22);
-    approve(&home, 22, "alice", "label");
+    approve(&home, 22, "alice", "approved");
     let v = ok(&home, &["cycle-start", "22"]);
     assert_eq!(v["replaced_unended"], true);
     assert_eq!(v["attempt"], a + 1);
@@ -278,7 +278,7 @@ fn cycle_start_clears_the_previous_attempt_s_settings_notes_results_and_progress
     )
     .unwrap();
     end(&home, 23, a, "closed");
-    approve(&home, 23, "alice", "label");
+    approve(&home, 23, "alice", "approved");
     ok(&home, &["cycle-start", "23"]);
     for t in [
         "cycle_settings",
@@ -295,7 +295,7 @@ fn cycle_start_keeps_earlier_heartbeats_and_history() {
     let home = home("start-keeps");
     let (_lock, a) = start(&home, 24);
     end(&home, 24, a, "closed");
-    approve(&home, 24, "alice", "label");
+    approve(&home, 24, "alice", "approved");
     ok_at(&home, NOW + 10, &["cycle-start", "24"]);
     assert_eq!(count(&home, "heartbeats WHERE issue = 24"), 1);
     assert_eq!(count(&home, "cycle_history WHERE issue = 24"), 1);
@@ -305,7 +305,7 @@ fn cycle_start_keeps_earlier_heartbeats_and_history() {
 #[test]
 fn cycle_start_records_the_commit_it_was_given() {
     let home = home("start-commit");
-    approve(&home, 25, "alice", "label");
+    approve(&home, 25, "alice", "approved");
     let _lock = hold(&home, 25);
     ok(
         &home,
@@ -620,7 +620,7 @@ fn cycle_end_records_the_end_its_history_ending_and_heartbeat() {
     assert_eq!(
         hist,
         format!(
-            "1 handoff ci alice label 99 {NOW} 10 awaiting-human-merge x provider rate:limit 1 1"
+            "1 handoff ci alice approved 99 {NOW} 10 awaiting-human-merge x provider rate:limit 1 1"
         )
     );
     assert_eq!(
@@ -1280,7 +1280,7 @@ fn cycle_end_does_not_store_progress_older_than_the_start() {
 #[test]
 fn cycle_end_does_not_change_image_or_commit() {
     let home = home("end-image");
-    approve(&home, 61, "alice", "label");
+    approve(&home, 61, "alice", "approved");
     let _l = hold(&home, 61);
     ok(&home, &["cycle-start", "61", "--rukas", "abcdef0"]);
     image(&home, 61, 1, &[]).unwrap();
@@ -1296,7 +1296,7 @@ fn never_ran_removes_the_used_approvals_and_keeps_an_unused_one() {
     end(&home, 62, a, "closed");
     drop(l);
     let (_l, b) = start(&home, 62);
-    let unused_at = approve(&home, 62, "bob", "label");
+    let unused_at = approve(&home, 62, "bob", "approved");
     let (n, at) = attempt_args(62, b);
     ok(
         &home,
@@ -1329,7 +1329,7 @@ fn never_ran_removes_the_used_approvals_and_keeps_an_unused_one() {
 fn a_refused_never_ran_end_keeps_the_word_in_the_ending_and_unknown_as_reason() {
     let home = home("never-ran-refused");
     let (_l, a) = start(&home, 63);
-    let unused_at = approve(&home, 63, "bob", "label");
+    let unused_at = approve(&home, 63, "bob", "approved");
     let (n, at) = attempt_args(63, a);
     let v = ok(
         &home,

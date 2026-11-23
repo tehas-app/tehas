@@ -118,7 +118,7 @@ impl Host {
         let store = self.dir.join("libexec/store");
         let body = fs::read_to_string(&store).unwrap().replace(
             r#"  approval-current) echo '{"api":1,"verb":"approval-current","ok":true,"current":null}' ;;"#,
-            r#"  approval-current) echo '{"api":1,"verb":"approval-current","ok":true,"current":{"at":"900","how":"label","input":{"driver":"lean"}}}' ;;"#,
+            r#"  approval-current) echo '{"api":1,"verb":"approval-current","ok":true,"current":{"at":"900","how":"approved","input":{"driver":"lean"}}}' ;;"#,
         );
         exe(&store, &body);
     }
@@ -126,7 +126,7 @@ impl Host {
     fn report_cmd(&self, rc: i64, signalled: bool, status: &[&str]) -> Command {
         let mut c = Command::new(env!("CARGO_BIN_EXE_tehas-cycle"));
         c.args(["report", "7", "--attempt", "1", "--rc", &rc.to_string()])
-            .args(["--started", "1000", "--by", "alice", "--how", "label"])
+            .args(["--started", "1000", "--by", "alice", "--how", "approved"])
             .args(["--signalled", if signalled { "1" } else { "0" }])
             .args(["--approval-at", "900", "--requeued", "0", "--now", "1060"])
             .args(["--console", "true"])

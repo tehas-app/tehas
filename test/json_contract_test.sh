@@ -432,7 +432,7 @@ history_world() { # <name>
   # instance names, so the sample is one of acme/widget.
   started=$((history_end - 60))
   a=$(TEHAS_HOME=$home "$T_STORE" cycle-show 12 | jq '.cycle.attempt // 0')
-  t_approve "$home" 12 alice label $((started - 1 - a))
+  t_approve "$home" 12 alice approved $((started - 1 - a))
   TEHAS_STORE_TEST_NOW=$started t_started "$home" 12
   TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$((started + 30)) "$T_STORE" \
     cycle-heartbeat 12 --running --status running --step develop \

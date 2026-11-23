@@ -202,12 +202,12 @@ why = "New at T4.1. The ports speak tehas's words alone; what each supplier does
 [[check]]
 id = "ports-effects"
 rule = "R3"
-what = "the ports read no file, network, process, environment, clock or standard stream, and print nothing"
-pattern = 'std::(fs|net|process|env|thread)\b|\b(fs|net|process|env|thread)::|\bstd::\{.*\b(fs|net|process|env|thread)\b|^\s*(fs|net|process|env|thread)\b\s*(,|\}|as\b|$)|\bstd\s+as\b|\b(stdin|stdout|stderr)\b|\b(e?print(ln)?|dbg)!|Command::new|SystemTime|Instant::now'
+what = "the ports read no file, network, process, environment, clock or standard stream, print nothing, and keep no state per thread"
+pattern = 'std::(fs|net|process|env|thread)\b|\b(fs|net|process|env|thread)::|\bstd::\{.*\b(fs|net|process|env|thread)\b|^\s*(fs|net|process|env|thread)\b\s*(,|\}|as\b|$)|\bstd\s+as\b|\b(stdin|stdout|stderr)\b|\b(e?print(ln)?|dbg)!|Command::new|SystemTime|Instant::now|\bthread_local!'
 files = ["console/ports/src/**"]
 comment = "//"
 max = 0
-why = "New at T4.1. The ports are data and pure functions; the fake that comes with them keeps a clock of its own. Tightened at T4.1a's review: besides a path through std or a module, the pattern counts a grouped or aliased import of an effect module (use std::{fs, ...}, use std::{env as e}, a module alone on a line of a group spread over lines, std itself aliased), the standard streams (stdin, stdout, stderr, through io:: or not) and the print macros (print!, println!, eprint!, eprintln!, dbg!)."
+why = "New at T4.1. The ports are data and pure functions; the fake that comes with them keeps a clock of its own. Tightened at T4.1a's review: besides a path through std or a module, the pattern counts a grouped or aliased import of an effect module (use std::{fs, ...}, use std::{env as e}, a module alone on a line of a group spread over lines, std itself aliased), the standard streams (stdin, stdout, stderr, through io:: or not) and the print macros (print!, println!, eprint!, eprintln!, dbg!). Tightened at T4.1d: thread_local! counts too, since state kept per thread is hidden global state that a nested or cross-thread call reads wrong; the fake keeps what it counts in its World."
 
 # The events (T11.1): each name is written once, in the events module.
 

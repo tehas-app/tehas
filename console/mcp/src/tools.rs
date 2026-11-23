@@ -602,7 +602,10 @@ fn stats_schema() -> Value {
                 vec![
                     ("n", given("Runs in the window.")),
                     ("merged", given("Runs whose pull request merged.")),
-                    ("pr", given("Runs that left a pull request.")),
+                    (
+                        "offered",
+                        given("Runs that left a change for review and did not park."),
+                    ),
                     ("handoff", given("Runs handed to a person.")),
                     ("parked", given("Runs parked for a person.")),
                     ("failed", given("Runs that failed.")),
@@ -776,7 +779,7 @@ fn stats_schema() -> Value {
                         ("medianSeconds", given("Median run seconds.")),
                         ("medianTokens", given("Median tokens.")),
                         (
-                            "prShare",
+                            "changeShare",
                             given("The share that left a pull request, 0 to 1."),
                         ),
                     ],
@@ -1267,9 +1270,10 @@ pub fn spec_of(name: &str) -> Option<Value> {
             let counts = [
                 (
                     "runs",
-                    vec![
-                        "n", "merged", "pr", "handoff", "parked", "failed", "refused", "stopped",
-                    ],
+                    ["n"]
+                        .into_iter()
+                        .chain(tehas_core::outcome::OUTCOMES)
+                        .collect(),
                 ),
                 ("shipped", vec!["n"]),
                 ("cycleTime", vec!["n", "median", "p90"]),
@@ -1318,7 +1322,7 @@ pub fn spec_of(name: &str) -> Option<Value> {
             s.insert(
                 "versions".into(),
                 json!([{"tehas": true, "rukas": true, "n": true,
-                        "medianSeconds": true, "medianTokens": true, "prShare": true}]),
+                        "medianSeconds": true, "medianTokens": true, "changeShare": true}]),
             );
             s.insert(
                 "daily".into(),

@@ -1879,7 +1879,7 @@ esac"#,
         let sum = tehas_core::approval::body_sha256(&json!({"body": "Words."}));
         let at = tehas_core::time::from_iso("2026-10-02T22:13:03Z").unwrap();
         let said = format!(
-            "{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"approval\":null,\"current\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":null}}"
+            "{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"approval\":null,\"current\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"approved\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":null}}"
         );
         w["approvals"] = json!({"50": said, "51": said});
         let full: Vec<Value> = whole.iter().map(rest).collect();

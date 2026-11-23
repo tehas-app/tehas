@@ -622,7 +622,7 @@ account as the one who answered it.
 | --- | --- |
 | `api` | The API version, 1 |
 | `issue` | The issue |
-| `question.id` | The id of the question's comment |
+| `question.id` | The state store's own number of the question, as [`tehas question`](#tehas-question) prints it. Before 2.0 it was the id of the question's comment |
 | `question.kind` | `park` for a stopped ticket, `plan` for a planning question |
 | `answer` | What was recorded |
 | `answer.choice` | `retry`, `retry-text`, `park`, `option`, `update`, `end` or `text` |
@@ -647,7 +647,7 @@ tehas question <issue> [--json]
 ```
 
 ```json
-{"api": 1, "issue": 12, "question": {"id": 4001, "kind": "park", "asked_at": "2026-10-17T14:00:20Z", "choices": [{"label": "Retry with the issue and all its comments", "choice": "retry"}, {"label": "Retry with the issue text only", "choice": "retry-text"}, {"label": "Leave it parked", "choice": "park"}]}}
+{"api": 1, "issue": 12, "question": {"id": 1, "kind": "park", "asked_at": "2026-10-17T14:00:20Z", "choices": [{"label": "Retry with the issue and all its comments", "choice": "retry"}, {"label": "Retry with the issue text only", "choice": "retry-text"}, {"label": "Leave it parked", "choice": "park"}]}}
 ```
 
 The question an issue waits on and the choices it offers, for a program that
@@ -667,7 +667,7 @@ takes one. A factory that has the command lists `question` in `features`.
 | `api` | The API version, 1 |
 | `issue` | The issue |
 | `question` | The question that waits |
-| `question.id` | The id of its comment |
+| `question.id` | The state store's own number of the question, given in order and never reused. Before 2.0 it was the id of the comment that asked it |
 | `question.kind` | `park` for a stopped ticket, `plan` for a planning question |
 | `question.asked_at` | When it was asked |
 | `question.choices` | Exactly the choices it offers, in the order it lists them |
@@ -845,7 +845,7 @@ tehas history [--json] [--after CURSOR] [--issue N]
     "progress": {"step": "review", "stepNumber": 9, "stepTotal": 9},
     "cap": "awaiting-human-merge", "parkReason": "merge",
     "failureKind": "review", "failureCause": "findings open",
-    "provider": false, "parked": true, "repeat": 1, "by": "alice", "how": "label"},
+    "provider": false, "parked": true, "repeat": 1, "by": "alice", "how": "approved"},
    {"cursor": "1760700300-7-42", "kind": "plan", "issue": 7,
     "started": "2026-10-17T13:20:00Z", "ended": "2026-10-17T13:25:00Z",
     "status": 0, "outcome": "finished", "turn": 3, "by": "alice",
@@ -933,7 +933,7 @@ schema names it, under `runs` for a field of a line.
 | `runs.repeat` | The parks in a row that stopped exactly as this one did, this one not counted, so 1 on the first repeat. On the park of a run of parks only. A field of a work line |
 | `runs.pr` | The pull request, as an address of the repository the instance names. A field of a work line that had one |
 | `runs.by` | Who asked for it. Left out for a cycle run by hand, which names no account |
-| `runs.how` | How it was asked for: `label`, `refresh`, `outage-retry`, `millwright`, `host` ([`tehas start`](#tehas-start)), `reply` (a retry a person's reply answered), `answer` (a retry answered through [`tehas answer`](#tehas-answer)) or `hand`. A retry ticked before 2.0 was recorded `retry-tick`: the step of the state store to schema 27 rewrites it to `reply` in `state/tehas.db` (cycles, approvals and the cycle history), and analytics rewrites it in `runs.how` of `state/analytics.db` each time it opens the file |
+| `runs.how` | How it was asked for: `approved` (a label an allowed account applied), `refresh`, `outage-retry`, `millwright`, `host` ([`tehas start`](#tehas-start)), `reply` (a retry a person's reply answered), `answer` (a retry answered through [`tehas answer`](#tehas-answer)) or `hand`. A retry ticked before 2.0 was recorded `retry-tick`: the step of the state store to schema 27 rewrites it to `reply` in `state/tehas.db` (cycles, approvals and the cycle history), and analytics rewrites it in `runs.how` of `state/analytics.db` each time it opens the file. A start approved by a label was recorded `label` before 2.0: the state store's step to schema 30 rewrites it to `approved` there, and the analytics' step to schema 7 in `runs.how` |
 | `runs.label` | The label that started the turn's session, `tehas:plan` or `tehas:refine`. A field of a plan line |
 | `runs.auto` | `true` for a refine the factory started on its own when a cycle parked as underspecified or too-large. Left out otherwise. A field of a plan line |
 | `runs.filed` | The issues the turn filed, when it filed any. A field of a plan line |

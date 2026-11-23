@@ -680,7 +680,7 @@ impl World {
             "--how",
             how,
         ];
-        if matches!(how, "label" | "millwright") {
+        if matches!(how, "approved" | "millwright") {
             a.extend(["--label", "tehas:ready"]);
         }
         let sum = wsum();

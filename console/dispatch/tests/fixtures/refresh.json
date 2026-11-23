@@ -725,7 +725,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -808,7 +808,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -871,7 +871,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -978,7 +978,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -1089,7 +1089,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -1227,7 +1227,7 @@
        "rests_on": {
         "at": "2026-10-01T00:00:00Z",
         "by": "alice",
-        "how": "label",
+        "how": "approved",
         "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
        },
        "refreshes": 2
@@ -1349,7 +1349,7 @@
        "rests_on": {
         "at": "2026-10-01T00:00:00Z",
         "by": "alice",
-        "how": "label",
+        "how": "approved",
         "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
        },
        "refreshes": 1
@@ -1472,7 +1472,7 @@
        "rests_on": {
         "at": "2026-10-01T00:00:00Z",
         "by": "alice",
-        "how": "label",
+        "how": "approved",
         "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
        }
       },
@@ -1582,7 +1582,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -1717,7 +1717,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -1835,7 +1835,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -1946,7 +1946,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -2061,7 +2061,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -2175,7 +2175,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -2299,7 +2299,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -2413,7 +2413,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -2527,7 +2527,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -2641,7 +2641,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -2749,7 +2749,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -2863,7 +2863,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -2977,7 +2977,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -3097,7 +3097,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -3211,7 +3211,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -3234,7 +3234,7 @@
     "running": [
      {
       "issue": 7,
-      "how": "label"
+      "how": "approved"
      }
     ],
     "refreshing": []
@@ -3331,7 +3331,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -3448,7 +3448,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -3565,7 +3565,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -3682,7 +3682,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -3788,7 +3788,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -3897,7 +3897,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -4014,7 +4014,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -4133,7 +4133,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -4248,7 +4248,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -4358,7 +4358,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -4474,7 +4474,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -4683,7 +4683,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "bob",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -4901,7 +4901,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": {
@@ -5014,7 +5014,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -5127,7 +5127,7 @@
        "rests_on": {
         "at": "2026-10-01T00:00:00Z",
         "by": "alice",
-        "how": "label",
+        "how": "approved",
         "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
        },
        "refreshes": 2
@@ -5255,7 +5255,7 @@
        "rests_on": {
         "at": "2026-10-01T00:00:00Z",
         "by": "alice",
-        "how": "label",
+        "how": "approved",
         "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
        },
        "refreshes": 2
@@ -5385,7 +5385,7 @@
        "rests_on": {
         "at": "2026-10-01T00:00:00Z",
         "by": "alice",
-        "how": "label",
+        "how": "approved",
         "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
        },
        "refreshes": 2
@@ -5505,7 +5505,7 @@
        "rests_on": {
         "at": "2026-10-01T00:00:00Z",
         "by": "alice",
-        "how": "label",
+        "how": "approved",
         "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
        },
        "refreshes": 1
@@ -5622,7 +5622,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [
@@ -5737,7 +5737,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [
@@ -5852,7 +5852,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [
@@ -5963,7 +5963,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [
@@ -6071,12 +6071,12 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [
        {
-        "how": "label",
+        "how": "approved",
         "parked": true,
         "started": 1790812800
        }
@@ -6179,7 +6179,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -6290,7 +6290,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -6398,7 +6398,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -6510,7 +6510,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -6616,7 +6616,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -6736,7 +6736,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -6841,7 +6841,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -6956,7 +6956,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -7065,7 +7065,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -7178,7 +7178,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -7290,7 +7290,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -7402,7 +7402,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -7516,7 +7516,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -7633,7 +7633,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -7745,7 +7745,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -7859,7 +7859,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
@@ -7960,7 +7960,7 @@
       "approval": {
        "at": "2026-10-01T00:00:00Z",
        "by": "alice",
-       "how": "label",
+       "how": "approved",
        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
       },
       "history": [],
