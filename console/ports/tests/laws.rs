@@ -387,6 +387,21 @@ fn anonymous_reads_public_releases_and_writes_nothing() {
 }
 
 #[test]
+fn blueprints_a_changes_number_is_no_blueprint() {
+    let w = World::same_item();
+    let n = first_change(&w);
+    let w = w
+        .blueprint(1, |b| b.title("plan"))
+        .change(n, "work", |c| c.title("a change"));
+    let site = FakeSite::new(&w);
+    let mut h = site.blueprints(&full(), C).unwrap();
+    ok(laws::blueprints::a_changes_number_is_no_blueprint(
+        h.as_mut(),
+        bp(n),
+    ));
+}
+
+#[test]
 fn code_host_merge_at_a_moved_head_is_a_conflict() {
     for w in both() {
         let no = first_change(&w);

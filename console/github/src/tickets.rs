@@ -143,14 +143,10 @@ fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDige
         ("closed", _) => TicketState::Closed(CloseReason::Done),
         _ => return None,
     };
-    let kind = match v.pointer("/type/name").and_then(Value::as_str) {
-        None => None,
-        Some("Feature") => Some(Kind::Feature),
-        Some("Bug") => Some(Kind::Bug),
-        Some("Task") => Some(Kind::Task),
-        Some("Epic") => Some(Kind::Epic),
-        Some(other) => Some(MarkName::new(other).map_or(Kind::Unknown, Kind::Other)),
-    };
+    let kind = v
+        .pointer("/type/name")
+        .and_then(Value::as_str)
+        .map(Kind::named);
     let target = match v.get("milestone").filter(|m| !m.is_null()) {
         None => None,
         Some(m) => Some(TargetName::new(

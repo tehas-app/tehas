@@ -852,6 +852,27 @@ pub mod blueprints {
     use super::{got, hold, Law};
     use crate::{BlueprintNo, BlueprintWrites, Blueprints, Depth, Lost, MarkerEdit, Outcome};
 
+    /// A number that names a change is no blueprint: `blueprint` and
+    /// `several` answer it `NotFound`. The fixture's `change` is the
+    /// number of a change, where blueprints and changes share one number
+    /// space.
+    pub fn a_changes_number_is_no_blueprint(h: &mut dyn Blueprints, change: BlueprintNo) -> Law {
+        const LAW: &str = "blueprints::a_changes_number_is_no_blueprint";
+        let depth = Depth::Cut { notes: 0 };
+        let one = h.blueprint(change, depth).map(|b| b.no);
+        hold(one == Err(Outcome::NotFound), LAW, || {
+            format!("blueprint of a change's number answered {one:?}")
+        })?;
+        let several: Vec<_> = h
+            .several(&[change], depth)
+            .into_iter()
+            .map(|(n, a)| (n, a.map(|b| b.no)))
+            .collect();
+        hold(several == [(change, Err(Outcome::NotFound))], LAW, || {
+            format!("several of a change's number answered {several:?}")
+        })
+    }
+
     /// Each attachment of the blueprint `no` has its own link, and a name
     /// unless it was pasted. `named` are the fixture's named files, in the
     /// order its text links them; it also holds `pasted` pasted images.

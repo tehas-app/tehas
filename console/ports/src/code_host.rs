@@ -18,7 +18,10 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct Facts {
-    /// The project, as the site names it.
+    /// The project's current name, after any rename or move. Where the
+    /// site holds it to be the project the handle was made for, it is the
+    /// configured spelling, so a name that differs means the project
+    /// moved. The adapter folds the site's case.
     pub name: ProjectName,
     /// Anyone may read it.
     pub public: bool,
