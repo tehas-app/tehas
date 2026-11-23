@@ -922,6 +922,9 @@ The plugin API as 2.0 holds it, for the work of 2.1:
   of `tehas start --json` and the reader of lean's `pi-spec v1` block,
   `spec_block` in `console/core/src/plan.rs`, stay through 2.x: the
   `goldfish` plugin reads the spec from the approved body through them.
+  `bodySha256` is the sha256 of the body with its carriage returns dropped,
+  as `body_sum` in `console/core/src/approval.rs` takes it, so a reader that
+  hashes the body itself drops them too.
 - **Revision 1.6.0** of the plugin specification
   (`docs/specs/2026-11-22-plugins-1.6.md`) and the plugin surfaces for 2.1
   (`docs/specs/2026-11-22-plugin-surfaces-2.1.md`) are built after 2.0.
