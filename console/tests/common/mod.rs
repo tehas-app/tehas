@@ -697,6 +697,84 @@ impl World {
         fs::write(self.live.join("dispatch.json"), v.to_string()).unwrap();
     }
 
+    /// A planning turn in flight (t_plan): its session running on the state
+    /// store after `before` turns, the turn started `ago` seconds back, and its
+    /// lock held until the File is dropped, as the turn's unit holds it.
+    pub fn plan_turn(&self, n: u64, before: u32, ago: i64) -> fs::File {
+        let w = self;
+        let brief = w.t().join("plan-brief.md");
+        fs::write(&brief, "# Faster search\n\nMake it fast.\n").unwrap();
+        let brief = brief.to_string_lossy().into_owned();
+        let n_s = n.to_string();
+        w.store_must(
+            &[
+                "plan-begin",
+                &n_s,
+                "--by",
+                "alice",
+                "--label",
+                "tehas:plan",
+                "--brief-file",
+                &brief,
+            ],
+            None,
+            None,
+        );
+        let answer = |t: u32, at: Option<i64>| {
+            let t = t.to_string();
+            let args = [
+                "plan-answer",
+                &n_s,
+                "--turn",
+                &t,
+                "--by",
+                "alice",
+                "--text-file",
+                &brief,
+            ];
+            let r = match at {
+                Some(e) => w.store_at(e, &args),
+                None => w.store(&args),
+            };
+            assert_eq!(r.rc, 0, "the store refused {args:?}: {}", r.out);
+        };
+        for t in 1..=before {
+            if t > 1 {
+                answer(t, None);
+            }
+            let ts = t.to_string();
+            let end = [
+                "plan-end",
+                &n_s,
+                "--turn",
+                &ts,
+                "--outcome",
+                "finished",
+                "--rc",
+                "0",
+                "--session",
+                "abc",
+            ];
+            w.store_must(&end, None, None);
+            if t < before {
+                w.store_must(&["plan-end", &n_s, "--posted"], None, None);
+            }
+        }
+        if before > 0 {
+            w.store_must(&["plan-end", &n_s, "--posted"], None, None);
+            answer(before + 1, Some(tehas_core::time::now() - ago));
+        }
+        let p = w.at().plan_file(n, ".lock");
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        let f = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(p)
+            .unwrap();
+        f.try_lock().unwrap();
+        f
+    }
+
     /// What a stub was called with, one call per line.
     pub fn calls(&self, name: &str) -> String {
         fs::read_to_string(self.t.join("calls").join(name)).unwrap_or_default()
