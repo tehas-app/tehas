@@ -255,8 +255,21 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         .map(|n| json!({"issue": n, "how": ""}))
         .collect();
     let mut refresh_rows: Vec<u64> = Vec::new();
+    // The open records no process holds the lock of: cycles that died without
+    // a word, which the poll ends as lost (T11.3). Asked on every poll, as a
+    // lost cycle holds no lock to list. A failure with no lock held stops
+    // nothing: the next poll asks again.
+    let records = store::cycles(calls);
+    if let Ok(r) = &records {
+        let lost: Vec<Value> = r
+            .iter()
+            .filter(|x| x["lost"] == json!(true) && x["attempt"].as_u64().is_some_and(|a| a > 0))
+            .map(|x| json!({"issue": x["issue"], "attempt": x["attempt"]}))
+            .collect();
+        s["lost"] = Value::Array(lost);
+    }
     if !locks.is_empty() {
-        match store::cycles(calls) {
+        match records {
             Ok(records) => {
                 // took_how holds every row the store lists, held or not.
                 refresh_rows = records

@@ -31,7 +31,8 @@
 -- adds recorded_at and signalled; questions is rebuilt with the store's own
 -- number as id, the comment's id in comment_id and withdrawn_at, and is laid
 -- here whole, so init runs neither the step to 25 nor that to 27 for it; and
--- meta holds the store's id under 'store'.
+-- meta holds the store's id under 'store'. Schema 31 (db::STEP_31):
+-- cycle_history.reported.
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
@@ -312,7 +313,9 @@ CREATE UNIQUE INDEX questions_comment ON questions (comment_id) WHERE withdrawn_
 -- step_total and round (v10) are where the step the cycle ended in was, from
 -- its last heartbeat of that step. recorded_at (v30) is when the line was
 -- written, which a line written late (a lost cycle's) has after its at;
--- signalled (v30) is 1 when a signal stopped the cycle.
+-- signalled (v30) is 1 when a signal stopped the cycle. reported (v31) is 1 on
+-- a line a cycle's report wrote, 0 on one the store wrote for a start with no
+-- report: a refused start, tehas stop, a lost cycle.
 CREATE TABLE cycle_history (
   id INTEGER PRIMARY KEY,
   issue INTEGER NOT NULL, attempt INTEGER NOT NULL, at INTEGER NOT NULL,
@@ -323,7 +326,8 @@ CREATE TABLE cycle_history (
   seq INTEGER,
   step_number INTEGER, step_total INTEGER, round INTEGER,
   recorded_at INTEGER,
-  signalled INTEGER NOT NULL DEFAULT 0 CHECK (signalled IN (0, 1))
+  signalled INTEGER NOT NULL DEFAULT 0 CHECK (signalled IN (0, 1)),
+  reported INTEGER NOT NULL DEFAULT 1 CHECK (reported IN (0, 1))
 );
 CREATE INDEX cycle_history_issue ON cycle_history (issue, at);
 CREATE TABLE plan_history (

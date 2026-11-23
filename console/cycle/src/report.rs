@@ -1886,6 +1886,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if never_ran {
         end.push("--never-ran".into());
     }
+    // A signal stopped the cycle: its line of history says so (T11.3).
+    if f.signalled {
+        end.push("--signalled".into());
+    }
     r.end = end;
     let mut h = Map::new();
     h.insert("started".into(), json!(f.started));

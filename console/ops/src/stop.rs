@@ -483,7 +483,8 @@ impl Names {
         let open_at = self.open_attempt()?;
         if !open_at.is_empty() {
             let end = ["cycle-end", n, "--attempt", &open_at, "--stopped"];
-            if let Err(no) = store::try_call(home, 3, &end) {
+            let ended = store::try_call(home, 3, &end);
+            if let Err(no) = &ended {
                 if no.word == "running" {
                     eprintln!(
                         "tehas stop: a cycle for #{n} holds its lock, so nothing was removed."
@@ -496,9 +497,10 @@ impl Names {
                 }
                 return Ok(1);
             }
-            say(&format!(
-                "ended the record of the cycle of #{n} as stopped\n"
-            ));
+            let answer = ended.unwrap_or_default();
+            let already = answer["already"].as_bool().unwrap_or(false);
+            let reason = answer.pointer("/cycle/end_reason").and_then(|r| r.as_str());
+            say(&ended_line(n, already, reason));
         }
         if !held.as_ref().is_ok_and(|f| f.try_lock().is_ok()) {
             eprintln!("tehas stop: a cycle for #{n} holds its lock, so nothing was removed.");
@@ -617,8 +619,37 @@ pub fn main(given: &[String]) -> u8 {
     names.run(asked.keep).unwrap_or_else(|rc| rc)
 }
 
+/// What `tehas stop` says of the record it asked the store to end. One the
+/// store had ended already, as the poll ends a quiet cycle as lost in the
+/// window between its lock going free and this call, says how it ended.
+fn ended_line(n: &str, already: bool, reason: Option<&str>) -> String {
+    if already {
+        let how = reason.map_or(String::new(), |r| format!(" as {r}"));
+        format!("the record of the cycle of #{n} was already ended{how}\n")
+    } else {
+        format!("ended the record of the cycle of #{n} as stopped\n")
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_record_ended_already_is_said_as_it_ended() {
+        use super::ended_line;
+        assert_eq!(
+            ended_line("5", false, Some("stopped")),
+            "ended the record of the cycle of #5 as stopped\n"
+        );
+        assert_eq!(
+            ended_line("5", true, Some("lost")),
+            "the record of the cycle of #5 was already ended as lost\n"
+        );
+        assert_eq!(
+            ended_line("5", true, None),
+            "the record of the cycle of #5 was already ended\n"
+        );
+    }
+
     use super::*;
     use std::os::unix::fs::symlink;
     use tehas_core::testdir::TestDir;

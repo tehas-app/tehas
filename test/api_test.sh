@@ -127,7 +127,7 @@ t_run "$api --json"
 t_eq "$t_rc" 0
 t_eq "$(jq -c '.flags' <<<"$t_out")" '{"lean":false,"plugins":false}'
 t_eq "$(jq -r '.features | index("lean")' <<<"$t_out")" null
-t_eq "$(jq -r 'keys_unsorted | join(" ")' <<<"$t_out")" "api tehas commit repo features flags millwright poll"
+t_eq "$(jq -r 'keys_unsorted | join(" ")' <<<"$t_out")" "api tehas commit repo features flags millwright poll store"
 t_run "$api"
 t_contains "$t_out" "flags       lean=off plugins=off"
 
@@ -352,8 +352,8 @@ t_case "api --json prints the samples: no poll on record, a poll with no writes 
 # The clock and the wall time of the last poll are the run's, so the samples
 # keep their own; every other value is what the command printed.
 # TEHAS_SAMPLES_WRITE=1 writes the samples from the command instead.
-steady() { # <json text>: the object with the clock of its poll as the samples hold it
-  jq 'if .poll then .poll.last |= (.at = 1761400000 | .wallMs = 24000 | .ageMin = 0) else . end' <<<"$1"
+steady() { # <json text>: the object with the clock of its poll and its store's random id as the samples hold them
+  jq 'if .poll then .poll.last |= (.at = 1761400000 | .wallMs = 24000 | .ageMin = 0) else . end | .store |= if . then "8f14e45fceea167a5a36dedd4bea2543" else . end' <<<"$1"
 }
 sample_is() { # <name> <json text>: the object is api/api.<name>.json, but for the clock
   t_eq "$(fits_text "$2")" ""

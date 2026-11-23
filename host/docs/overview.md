@@ -80,15 +80,15 @@ the factory works the same without it.
 | Previews             | `TEHAS_PREVIEWS=on` with `TEHAS_DOMAIN`, and a `preview/Dockerfile` in the product. See [Previews](/edge) | A pull request is read on GitHub only          |
 | Search indexing      | `TEHAS_SITE_INDEXING=on`, for an instance published on the internet                                    | Every page says noindex                                |
 | Visitor analytics    | `TEHAS_SITE_ANALYTICS_SRC` and `TEHAS_SITE_ANALYTICS_NAME`, for an instance that wants to count visits     | No script is loaded                                    |
-| Pixel design         | `TEHAS_DESIGN=pixel`: the whole site in 16-bit pixel art, with the factory floor at `/`         | Every page is beesknees26, with the business page at `/` |
+| Pixel design         | `TEHAS_DESIGN=pixel`: the whole site in 16-bit pixel art                                        | Every page is beesknees26                              |
 
 ## Start here
 
 - [Start](/start): what to tell your coding agent to set tehas up for
   your repository, and what you will be asked.
 - [Factory floor](/floor): the factory as a game view: the live queue, the
-  selected work order, the running cycle's console. The front page with
-  `TEHAS_DESIGN=pixel`; the business page is the front page otherwise.
+  selected work order, the running cycle's console. The front page, in every
+  design.
 - [Plain dashboard](/dashboard): what is in line, being worked on (with its live console),
   waiting for you and done.
 - [The Lean Software Factory](/lean-software-factory): what makes tehas lean.

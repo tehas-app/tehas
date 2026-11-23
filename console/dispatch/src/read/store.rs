@@ -396,7 +396,11 @@ pub fn cycles(calls: &mut Calls) -> Result<Vec<Value>, Value> {
                     let c = get(r, "cycle");
                     let num = |x: &Value, k: &str| x.get(k).and_then(Value::as_u64).unwrap_or(0);
                     Some(if c.is_object() && c.get("ended_at").is_none_or(Value::is_null) {
+                        // An open record whose lock no process holds is a
+                        // cycle that died without a word (T11.3).
+                        let lost = r.pointer("/lock/probe_rc").and_then(Value::as_i64) == Some(0);
                         json!({"issue": n, "how": c.get("how").and_then(Value::as_str).unwrap_or(""),
+                            "attempt": num(&c, "attempt"), "lost": lost,
                             "took": num(&c, "started_at"), "heard": num(&c, "heard_at"),
                             "said_for": c.pointer("/quiet/said_for").map(|s| match s { Value::String(s) => s.clone(), v => v.to_string() }).unwrap_or("-".into()),
                             "quiet_at": c.pointer("/quiet/at").and_then(Value::as_u64).unwrap_or(0),

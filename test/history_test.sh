@@ -47,7 +47,7 @@ work 12 "$T0" '{"kind":"work","started":1760696400,"rc":10,"status":"handoff","s
 run_json
 t_eq "$t_rc" 0
 t_eq "$(jq -c 'del(.runs)' <<<"$t_out")" '{"api":1,"next":"1760700000-12-1"}'
-t_eq "$(jq -c '.runs[0]' <<<"$t_out")" "{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso 1760696400)\",\"status\":10,\"outcome\":\"handoff\",\"progress\":{\"step\":\"review\"},\"cap\":\"awaiting-human-merge\",\"parkReason\":\"merge\",\"failureKind\":\"review\",\"failureCause\":\"findings-open\",\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"by\":\"alice\",\"how\":\"approved\"}"
+t_eq "$(jq -c '.runs[0]' <<<"$t_out")" "{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"cycle\":\"12-1\",\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso 1760696400)\",\"status\":10,\"outcome\":\"handoff\",\"end\":\"handoff\",\"progress\":{\"step\":\"review\"},\"cap\":\"awaiting-human-merge\",\"parkReason\":\"merge\",\"failureKind\":\"review\",\"failureCause\":\"findings-open\",\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"change\":9,\"by\":\"alice\",\"how\":\"approved\"}"
 t_eq "$(jq -r '.runs[0] | (.status|type), (.parked|type), (.provider|type), (.issue|type), (.turn|type)' <<<"$t_out")" "number
 boolean
 boolean
@@ -62,13 +62,13 @@ work 12 "$T0" '{"kind":"work","started":1760696400,"rc":10,"status":"handoff","s
 plan 7 "$((T0 + 300))" '{"kind":"plan","started":1760700000,"rc":0,"status":"finished","turn":1,"by":"alice","label":"tehas:refine","filed":["https://github.com/acme/widget/issues/41"],"auto":true}'
 run_json
 t_eq "$t_rc" 0
-t_eq "$t_out" "{\"api\":1,\"runs\":[{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso 1760696400)\",\"status\":10,\"outcome\":\"handoff\",\"progress\":{\"step\":\"review\"},\"cap\":\"awaiting-human-merge\",\"parkReason\":\"merge\",\"failureKind\":\"review\",\"failureCause\":\"findings-open\",\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"by\":\"alice\",\"how\":\"approved\"},{\"cursor\":\"1760700300-7-2\",\"kind\":\"plan\",\"issue\":7,\"ended\":\"$(iso "$((T0 + 300))")\",\"started\":\"$(iso 1760700000)\",\"status\":0,\"outcome\":\"finished\",\"turn\":1,\"by\":\"alice\",\"label\":\"tehas:refine\",\"auto\":true,\"filed\":[\"https://github.com/acme/widget/issues/41\"]}],\"next\":\"1760700300-7-2\"}"
+t_eq "$t_out" "{\"api\":1,\"runs\":[{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"cycle\":\"12-1\",\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso 1760696400)\",\"status\":10,\"outcome\":\"handoff\",\"end\":\"handoff\",\"progress\":{\"step\":\"review\"},\"cap\":\"awaiting-human-merge\",\"parkReason\":\"merge\",\"failureKind\":\"review\",\"failureCause\":\"findings-open\",\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"change\":9,\"by\":\"alice\",\"how\":\"approved\"},{\"cursor\":\"1760700300-7-2\",\"kind\":\"plan\",\"issue\":7,\"ended\":\"$(iso "$((T0 + 300))")\",\"started\":\"$(iso 1760700000)\",\"status\":0,\"outcome\":\"finished\",\"turn\":1,\"by\":\"alice\",\"label\":\"tehas:refine\",\"auto\":true,\"filed\":[\"https://github.com/acme/widget/issues/41\"]}],\"next\":\"1760700300-7-2\"}"
 
 t_case "a field the line does not have is left out, never null"
 reset
 work 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 run_json
-t_eq "$(jq -c '.runs[0]' <<<"$t_out")" "{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso $((T0 - 60)))\",\"status\":0,\"outcome\":\"merged\",\"provider\":false,\"parked\":false,\"how\":\"hand\"}"
+t_eq "$(jq -c '.runs[0]' <<<"$t_out")" "{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"cycle\":\"12-1\",\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso $((T0 - 60)))\",\"status\":0,\"outcome\":\"merged\",\"end\":\"merged\",\"provider\":false,\"parked\":false,\"how\":\"hand\"}"
 t_eq "$(jq -r '.runs[0] | has("progress"), has("cap"), has("parkReason"), has("pr"), has("by")' <<<"$t_out")" "false
 false
 false

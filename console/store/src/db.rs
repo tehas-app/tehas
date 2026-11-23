@@ -19,7 +19,7 @@ use tehas_core::home::{Home, State};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 30;
+pub const SCHEMA_VERSION: i64 = 31;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The five tables schemas 15 to 28 held for outsource, which 2.0 dropped:
@@ -427,6 +427,15 @@ DROP TABLE jobs;
 DROP TABLE join_codes;
 DROP TABLE contractors;
 DELETE FROM meta WHERE key = 'outsource';
+";
+
+/// The step from 30 to 31 (T11.3): `cycle_history.reported`, 1 on a line a
+/// cycle's report wrote and 0 on one the store wrote for a start with no
+/// report (a refused start, `tehas stop`, a lost cycle). Every row there is
+/// 1: until 2.0 only a report wrote a line. The record of a start reads only
+/// the reported lines, as it did before the others were written.
+pub const STEP_31: &str = "
+ALTER TABLE cycle_history ADD COLUMN reported INTEGER NOT NULL DEFAULT 1 CHECK (reported IN (0, 1));
 ";
 
 /// The step from 29 to 30 (docs/specs/2026-11-22-events.md, T11.2), in the
@@ -1575,6 +1584,9 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     // A store at 29 is one this binary wrote before the words of the events
     // and the store's own numbers (T11.2).
     (30, step_30),
+    // A store at 30 is one this binary wrote before a line said whether a
+    // report wrote it (T11.3).
+    (31, |c| step(c, 31, STEP_31)),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and

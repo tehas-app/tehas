@@ -390,9 +390,8 @@ drain_reading() { # <name>
 }
 
 # The seconds of the ends the history samples are read from, as the cursors of
-# api/history.sample.json name them: four ends of three issues, the first at
-# 2025-10-17T11:20:00Z and the last five minutes on. Named here so the writing
-# of the ends and the words of the samples say the same moments.
+# api/history.sample.json name them: the first at 2025-10-17T11:20:00Z and the
+# last five minutes on. Named so the ends and the samples say the same moments.
 history_end=1760700000
 
 # <name>: the world that sample is a reading of. `empty` is a store with no end
@@ -461,7 +460,8 @@ history_world() { # <name>
   # the line says nothing of a repeat, and it names no pull request either, so
   # `pr` is the field of the first line alone.
   t_history_end "$home" 9 "$((history_end + 120))" \
-    '{"kind":"work","rc":10,"status":"failed","step":"develop","cap":"step-failed:develop","park_reason":"findings-open","failure_kind":"review","failure_cause":"findings-open","provider":false,"parked":true}'
+    '{"kind":"work","rc":10,"status":"failed","step":"develop","cap":"step-failed:develop","park_reason":"findings-open","failure_kind":"review","failure_cause":"findings-open","provider":false,"parked":true,"signalled":true}'
+  t_history_end "$home" 5 "$((history_end + 180))" '{"by":"alice","started":1760699900,"lost":true}' # lost, ended 120 s after its start, so it has `recorded`
   # The plan end: a refine the factory started on its own, whose turn filed an
   # issue, so `label`, `auto` and `filed` are the fields of a line of that kind.
   # Its turn began with the minute the park of #12 ended, so the two lines of
