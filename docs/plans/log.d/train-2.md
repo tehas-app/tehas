@@ -1,0 +1,1 @@
+| 2026-11-23 | Merge train 2, tested as #2971 (verify run 45238160442), tree a1dbbbe58e2e2cf17d4e4798b05bdb32e3a55030, the tip after its last member: #2946 (code, B1), #2954 (code, B2), #2960 (tests), #2964 (tests), #2969 (docs) | #2971 |
