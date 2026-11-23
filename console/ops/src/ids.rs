@@ -402,7 +402,7 @@ mod tests {
     fn home(name: &str) -> std::path::PathBuf {
         let h = std::env::temp_dir().join(format!("tehas-ids-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&h);
-        fs::create_dir_all(h.join("state")).unwrap();
+        fs::create_dir_all(h.join(accounts::FILE).parent().unwrap()).unwrap();
         h
     }
 

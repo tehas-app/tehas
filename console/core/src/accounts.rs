@@ -568,7 +568,7 @@ mod tests {
     fn home(name: &str) -> std::path::PathBuf {
         let h = std::env::temp_dir().join(format!("tehas-accounts-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&h);
-        std::fs::create_dir_all(h.join("state")).unwrap();
+        std::fs::create_dir_all(h.join(FILE).parent().unwrap()).unwrap();
         h
     }
 
