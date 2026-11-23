@@ -1233,8 +1233,9 @@ is the text it wrote: a title the plan kept, or a body that says
 minute (a 5xx, a bare 403, or its bound) is tried once more after a short
 wait, at most six times a poll; `tehasbot status` and `console tidy run` follow the
 same rule for their reads. A read that still failed is a line that names gh's
-error by words of a fixed list only (`HTTP 502`, `rate limit`, `timed out`),
-and goes on `~/tehas/state/github-failures`, the record of the last ten
+error by words of a fixed list only (`HTTP 502`, `rate limit`, `timed out`).
+It goes on `~/tehas/state/github-failures` as a fixed line in tehas's words
+for its kind (`GitHub failed with a server error`), the record of the last ten
 minutes that health counts: three or more warn, and `tehas status` prints a
 `github` line. A read that still failed ends the poll where a decision rests on it, as before the retry.
 

@@ -92,6 +92,9 @@ fn run_capped(
     use std::os::unix::process::CommandExt;
     let mut cmd = Command::new(program);
     cmd.args(args);
+    if crate::forge::is_gh(program) {
+        cmd.env(crate::forge::GH_NO_RETRY.0, crate::forge::GH_NO_RETRY.1);
+    }
     for (k, v) in extra {
         cmd.env(k, v);
     }
@@ -276,6 +279,9 @@ pub fn run_grace_env(
     use std::os::unix::process::CommandExt;
     let mut cmd = Command::new(program);
     cmd.args(args);
+    if crate::forge::is_gh(program) {
+        cmd.env(crate::forge::GH_NO_RETRY.0, crate::forge::GH_NO_RETRY.1);
+    }
     for (k, v) in extra {
         cmd.env(k, v);
     }

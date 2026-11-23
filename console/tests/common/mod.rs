@@ -382,8 +382,13 @@ impl World {
 
     /// tehas status with these words.
     pub fn summary(&self, words: &[&str]) -> Run {
+        self.tehas("status", words)
+    }
+
+    /// bin/tehas of the checkout: `verb` with these words.
+    pub fn tehas(&self, verb: &str, words: &[&str]) -> Run {
         let mut c = self.command(&root().join("bin/tehas").to_string_lossy());
-        c.arg("status").args(words);
+        c.arg(verb).args(words);
         run(c)
     }
 

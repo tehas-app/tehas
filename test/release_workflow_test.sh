@@ -152,13 +152,13 @@ t_case "every crate of the lockfile is fetched, since the pack builds its task o
 t_contains "$(cat "$T/cargo.args")" 'fetch --locked --manifest-path console/Cargo.toml'
 
 t_case "a rustup-init that does not match its hash is not run"
-t_stub sha256sum 'exit 1'
+t_stub sha256sum 'cat >/dev/null; exit 1'
 rust ''
 t_eq "$t_rc" 1
 t_eq "$(cat "$T/rustup-init.args" 2>/dev/null)" ""
 
 t_case "a cargo of another version stops the job"
-t_stub sha256sum 'exit 0'
+t_stub sha256sum 'cat >/dev/null; exit 0'
 rust 'CARGO_VERSION=1.99.0'
 t_eq "$t_rc" 1
 t_contains "$t_out" 'not cargo 1.100.0'
