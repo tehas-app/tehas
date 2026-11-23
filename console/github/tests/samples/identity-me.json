@@ -1,0 +1,184 @@
+[
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": {
+        "id": "900",
+        "kind": "Bot",
+        "login": "tehas-bot",
+        "realm": "CodeHost"
+      }
+    },
+    "case": "app",
+    "fixture": "The handle acts as the factory's GitHub App, whose installation token GitHub names tehas-bot[bot], id 900.",
+    "op": "Identity::me"
+  },
+  {
+    "actor": "Operator",
+    "answer": {
+      "Ok": {
+        "id": "101",
+        "kind": "Person",
+        "login": "alice",
+        "realm": "CodeHost"
+      }
+    },
+    "case": "operator",
+    "fixture": "The handle acts as the operator's own token, of the person Alice, id 101.",
+    "op": "Identity::me"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "SignedOut"
+    },
+    "case": "signed-out",
+    "fixture": "The token is no longer good.",
+    "op": "Identity::me"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "Forbidden"
+    },
+    "case": "forbidden",
+    "fixture": "The token may not ask who it is.",
+    "op": "Identity::me"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "NotFound"
+    },
+    "case": "not-found",
+    "fixture": "The site has no such question to answer.",
+    "op": "Identity::me"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Priced",
+          "until": 1767225600
+        }
+      }
+    },
+    "case": "rate-limit",
+    "fixture": "The factory's budget is spent: the call is refused as rate limited.",
+    "op": "Identity::me"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Priced",
+          "until": 1767225600
+        }
+      }
+    },
+    "case": "too-many",
+    "fixture": "The factory's budget is spent: the call is refused with a wait to retry after.",
+    "op": "Identity::me"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Priced",
+          "until": 1767225600
+        }
+      }
+    },
+    "case": "limited",
+    "fixture": "The query answers that its rate is limited, with no data.",
+    "op": "Identity::me"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    },
+    "case": "error",
+    "fixture": "The query answers an error of the site's beside no data.",
+    "op": "Identity::me"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "sent": "Maybe",
+          "why": "Server"
+        }
+      }
+    },
+    "case": "server",
+    "fixture": "The site answers a server error.",
+    "op": "Identity::me"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "sent": "Maybe",
+          "why": "Timeout"
+        }
+      }
+    },
+    "case": "timeout",
+    "fixture": "The call outlives its time limit.",
+    "op": "Identity::me"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    },
+    "case": "cut",
+    "fixture": "The answer is cut off part way.",
+    "op": "Identity::me"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    },
+    "case": "no-id",
+    "fixture": "The answer names the account with no id.",
+    "op": "Identity::me"
+  }
+]

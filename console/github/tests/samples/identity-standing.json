@@ -1,0 +1,262 @@
+[
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Admin"
+    },
+    "fixture": "alice is an admin of acme/widget.",
+    "op": "Identity::standing",
+    "who": "101"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Write"
+    },
+    "fixture": "Bob may write to acme/widget.",
+    "op": "Identity::standing",
+    "who": "102"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Write"
+    },
+    "fixture": "carol maintains acme/widget: until the ports name the role, it reads as write, as GitHub's own word folds it.",
+    "op": "Identity::standing",
+    "who": "103"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Read"
+    },
+    "fixture": "dave triages acme/widget: until the ports name the role, it reads as read, as GitHub's own word folds it.",
+    "op": "Identity::standing",
+    "who": "104"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Read"
+    },
+    "fixture": "erin may read acme/widget.",
+    "op": "Identity::standing",
+    "who": "105"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "None"
+    },
+    "fixture": "frank has an account and no access to the private acme/widget.",
+    "op": "Identity::standing",
+    "who": "106"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "NotFound"
+    },
+    "fixture": "No account has the id 107.",
+    "op": "Identity::standing",
+    "who": "107"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "None"
+    },
+    "fixture": "The id 108 is the organisation acme, which holds no standing of its own.",
+    "op": "Identity::standing",
+    "who": "108"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Refused": "Unsupported"
+      }
+    },
+    "fixture": "The id 900 is the factory's App, whose standing is its installation's permissions.",
+    "op": "Identity::standing",
+    "who": "900"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    },
+    "fixture": "The id 110 is grace, renamed between the two reads and her login taken by the account 111, both times asked.",
+    "op": "Identity::standing",
+    "who": "110"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    },
+    "fixture": "The account read of the id 121 names another id.",
+    "op": "Identity::standing",
+    "who": "121"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "Forbidden"
+    },
+    "fixture": "heidi's permission may not be read by this token.",
+    "op": "Identity::standing",
+    "who": "112"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Calls",
+          "until": 1767225600
+        }
+      }
+    },
+    "fixture": "The factory's budget is spent: a secondary rate limit.",
+    "op": "Identity::standing",
+    "who": "113"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "sent": "Maybe",
+          "why": "Server"
+        }
+      }
+    },
+    "fixture": "ivan's permission read answers a server error.",
+    "op": "Identity::standing",
+    "who": "114"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "sent": "Maybe",
+          "why": "Timeout"
+        }
+      }
+    },
+    "fixture": "The account read outlives its time limit.",
+    "op": "Identity::standing",
+    "who": "115"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    },
+    "fixture": "judy's permission answer is cut off part way.",
+    "op": "Identity::standing",
+    "who": "116"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "NotFound"
+    },
+    "fixture": "mallory has an account, and the permission read answers that the repository is not visible.",
+    "op": "Identity::standing",
+    "who": "117"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    },
+    "fixture": "niaj's permission answer gives a word GitHub does not document.",
+    "op": "Identity::standing",
+    "who": "118"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "SignedOut"
+    },
+    "fixture": "The token is no longer good.",
+    "op": "Identity::standing",
+    "who": "119"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    },
+    "fixture": "The account read answers a page that is no JSON.",
+    "op": "Identity::standing",
+    "who": "120"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Refused": "Invalid"
+      }
+    },
+    "fixture": "abc is no id GitHub gives: refused with no request.",
+    "op": "Identity::standing",
+    "who": "abc"
+  }
+]
