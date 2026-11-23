@@ -117,13 +117,25 @@ new!(Edit { at: At }, by, after, markers);
 pub struct Attachment {
     /// The attachment.
     pub id: AttachmentId,
-    /// Its name, as the site gives it.
-    pub name: String,
+    /// The link in the text, as it stands there: what a manifest records
+    /// and how a changed attachment is told apart.
+    pub link: WebLink,
+    /// Its name, as the site gives it. None for a file pasted into the
+    /// text that the site only ever stores as an image: the caller types it
+    /// as an image, not by an extension.
+    pub name: Option<String>,
     /// Its size in bytes, if the site says.
     pub size: Option<u64>,
 }
 
-new!(Attachment { id: AttachmentId }, name, size);
+new!(
+    Attachment {
+        id: AttachmentId,
+        link: WebLink
+    },
+    name,
+    size
+);
 
 /// A blueprint to open.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

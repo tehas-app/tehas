@@ -1033,8 +1033,15 @@ fn blueprints_read_back() {
     });
     round(Attachment {
         id: AttachmentId::new("a"),
-        name: "shot.png".into(),
+        link: link(),
+        name: Some("shot.png".into()),
         size: Some(10),
+    });
+    round(Attachment {
+        id: AttachmentId::new("b"),
+        link: link(),
+        name: None,
+        size: None,
     });
     round(NewBlueprint {
         title: "b".into(),

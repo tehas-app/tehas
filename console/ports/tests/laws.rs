@@ -366,6 +366,28 @@ fn blueprints_an_edit_moves_the_revision() {
 }
 
 #[test]
+fn blueprints_an_attachment_has_a_link_and_a_pasted_one_no_name() {
+    for w in both() {
+        let no = first_blueprint(&w);
+        let w = w.blueprint(no, |b| {
+            b.attachment("plan.pdf", b"%PDF")
+                .pasted(b"png")
+                .attachment("notes.txt", b"n")
+        });
+        let site = FakeSite::new(&w);
+        let mut h = site.blueprints(&full(), C).unwrap();
+        ok(
+            laws::blueprints::an_attachment_has_a_link_and_a_pasted_one_no_name(
+                h.as_mut(),
+                bp(no),
+                &["plan.pdf", "notes.txt"],
+                1,
+            ),
+        );
+    }
+}
+
+#[test]
 fn search_laws_over_both_ports() {
     for w in both() {
         let w = w

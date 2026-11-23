@@ -104,6 +104,8 @@ fn every_answer_has_new_or_default() {
     let comment = Comment::new(CommentId::new("c1"), at(), Revision::new("r1"), link());
     assert!(comment.markers.is_empty());
     assert!(Edit::new(at()).after.is_empty());
+    let file = Attachment::new(AttachmentId::new("a1"), link());
+    assert!(file.name.is_none() && file.size.is_none());
     assert!(BlueprintHit::new(no()).title.is_empty());
     assert!(BlueprintChange::new(no(), Revision::new("r1"))
         .closed

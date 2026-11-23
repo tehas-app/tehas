@@ -603,7 +603,34 @@ pub mod history {
 /// Laws of the blueprints port.
 pub mod blueprints {
     use super::{got, hold, Law};
-    use crate::{BlueprintNo, BlueprintWrites, Depth, Lost, MarkerEdit, Outcome};
+    use crate::{BlueprintNo, BlueprintWrites, Blueprints, Depth, Lost, MarkerEdit, Outcome};
+
+    /// Each attachment of the blueprint `no` has its own link, and a name
+    /// unless it was pasted. `named` are the fixture's named files, in the
+    /// order its text links them; it also holds `pasted` pasted images.
+    pub fn an_attachment_has_a_link_and_a_pasted_one_no_name(
+        h: &mut dyn Blueprints,
+        no: BlueprintNo,
+        named: &[&str],
+        pasted: usize,
+    ) -> Law {
+        const LAW: &str = "blueprints::an_attachment_has_a_link_and_a_pasted_one_no_name";
+        let all = got(LAW, "the attachments", h.attachments(no))?.into_items();
+        let names: Vec<&str> = all.iter().filter_map(|a| a.name.as_deref()).collect();
+        hold(names == named, LAW, || {
+            format!("named {names:?}, not {named:?}")
+        })?;
+        let unnamed = all.iter().filter(|a| a.name.is_none()).count();
+        hold(unnamed == pasted, LAW, || {
+            format!("{unnamed} with no name, not {pasted}")
+        })?;
+        let mut links: Vec<&str> = all.iter().map(|a| a.link.as_str()).collect();
+        links.sort_unstable();
+        links.dedup();
+        hold(links.len() == all.len(), LAW, || {
+            format!("{} links for {} attachments", links.len(), all.len())
+        })
+    }
 
     /// An edit moves the revision, and an edit at the old revision is then
     /// `Conflict(Changed)`.
