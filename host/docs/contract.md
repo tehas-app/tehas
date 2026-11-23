@@ -381,12 +381,15 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Adopter action: a program that answered for a person by ticking a box
   calls `tehas answer`.
 - **`tehas question`, the question an issue waits on.**
-  #2830.
+  #2830, #2929.
   `tehas question <issue> [--json]` prints the question and its choices, each
   in the words `tehas answer` takes. The object is
   `api/question.schema.json`, the feature word `question`. `question.comment`
   is the id of the comment on the issue that asked the question, left out
-  when the store has no comment for it and never null.
+  when the store has no comment for it and never null. With no issue it
+  lists the question each issue waits on, and with `--after <id>` every
+  question after that number, answered and withdrawn ones too: the object is
+  `api/questions.schema.json`, the feature word `questions`.
   Readers: the consumer that runs many factories, Obeya, the end-to-end
   suite.
   Adopter action: none.
