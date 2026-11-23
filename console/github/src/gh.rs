@@ -11,29 +11,30 @@
 //! broken answer for it would clear a label nobody took off.
 //!
 //! The two readers of label events in this workspace - this one and
-//! `console/core/src/events.rs` - order events by the
-//! same rule, and the words [`why`] holds are the words the bash dispatcher's
-//! `gh_json` grepped. The dispatcher's `read::run::gh_why` keeps a regex copy of
-//! that list where its own caller is; `tehas-dispatch` already depends on this
-//! crate, so the copy goes when the last issue of #800 moves the callers here.
+//! `console/core/src/events.rs` - order events by the same rule. The reading
+//! of a failed call's reason, [`why`] and [`says_not_found`], stays in core
+//! beside [`tehas_core::forge::Bounded`], the runner that makes the reason,
+//! until the runner moves here.
 
 use serde_json::Value;
 use std::cmp::Ordering;
+pub use tehas_core::forge::{says_not_found, why};
+use tehas_core::forge::{Approval, LabelEvent};
 
 /// One label event, as the REST list gives it. `at` is None for an event with
 /// no stamp: it sorts before every stamped one and answers as the empty time.
-pub(crate) struct Event {
-    pub(crate) event: String,
-    pub(crate) label: String,
-    pub(crate) actor: String,
-    pub(crate) at: Option<String>,
+pub struct Event {
+    pub event: String,
+    pub label: String,
+    pub actor: String,
+    pub at: Option<String>,
 }
 
 /// The event the state term answers with: the latest of `label`'s events, or
 /// None when no event carries it. Only the two kinds of label event count: a
 /// `renamed` or `subscribed` event that names the label in passing is not a
 /// label on the issue. Orders as [`event_order`] states, and reads both kinds.
-pub(crate) fn latest_event(events: &[Event], label: &str) -> Option<super::LabelEvent> {
+pub(crate) fn latest_event(events: &[Event], label: &str) -> Option<LabelEvent> {
     let mut of: Vec<&Event> = events
         .iter()
         .filter(|e| (e.event == "labeled" || e.event == "unlabeled") && e.label == label)
@@ -52,7 +53,7 @@ pub(crate) fn latest_event(events: &[Event], label: &str) -> Option<super::Label
 /// read as an approval by that maintainer, and authorisation is the account
 /// that applied the label (AGENTS.md rule 5): a poll would judge the remover
 /// against TEHAS_ALLOWED_LABELERS.
-pub(crate) fn latest_applied(events: &[Event], label: &str) -> Option<super::LabelEvent> {
+pub(crate) fn latest_applied(events: &[Event], label: &str) -> Option<LabelEvent> {
     let mut of: Vec<&Event> = events
         .iter()
         .filter(|e| e.event == "labeled" && e.label == label)
@@ -63,8 +64,8 @@ pub(crate) fn latest_applied(events: &[Event], label: &str) -> Option<super::Lab
 
 /// The last of a run the caller has ordered, as a term reads it: the fields the
 /// event names, and the empty time for one that names none.
-fn last_of(of: &[&Event]) -> Option<super::LabelEvent> {
-    of.last().map(|e| super::LabelEvent {
+fn last_of(of: &[&Event]) -> Option<LabelEvent> {
+    of.last().map(|e| LabelEvent {
         kind: e.event.clone(),
         actor: e.actor.clone(),
         at: e.at.clone().unwrap_or_default(),
@@ -81,15 +82,22 @@ fn last_of(of: &[&Event]) -> Option<super::LabelEvent> {
 ///
 /// The pause is the one reader of these rules that orders the tie the other
 /// way, so that a pause lifted in the second it was applied still holds the
-/// host. That term is [`crate::events::pause_holds`], which the last issue
+/// host. That term is [`tehas_core::events::pause_holds`], which the last issue
 /// of #800 moves here; it is no term of this module today.
-pub(crate) fn event_order(a: &&Event, b: &&Event) -> Ordering {
+pub fn event_order(a: &&Event, b: &&Event) -> Ordering {
     a.at.cmp(&b.at).then_with(|| rank(a).cmp(&rank(b)))
 }
 
 /// The tie-break within one second: 0 for an application, 1 for a removal.
 fn rank(e: &Event) -> u8 {
     u8::from(e.event == "unlabeled")
+}
+
+/// What a label event says of its account beyond the login: the site's id
+/// and its kind of account, each None where the event does not say.
+pub(crate) struct Facts {
+    pub(crate) id: Option<u64>,
+    pub(crate) kind: Option<String>,
 }
 
 /// What the reader of the events says of an answer that holds none of them.
@@ -104,7 +112,7 @@ const NO_EVENTS: &str = "no events to read";
 /// event, which the site answers with its own fields: it is read as the empty
 /// fields it has and sorted out by the caller, not made into a failure. A
 /// reason carries no `": "` of its own: the error's line adds that.
-fn page_events(page: &Value) -> Result<Vec<Event>, String> {
+fn page_events(page: &Value) -> Result<Vec<(Event, Facts)>, String> {
     let Some(items) = page.as_array() else {
         return Err("a page of events is no list".to_string());
     };
@@ -135,7 +143,15 @@ fn page_events(page: &Value) -> Result<Vec<Event>, String> {
             Some(Value::String(s)) => Some(s.clone()),
             Some(_) => return Err("an event's stamp is no text".to_string()),
         };
-        out.push(Event {
+        let who = o.get("actor");
+        let facts = Facts {
+            id: who.and_then(|a| a.get("id")).and_then(|i| i.as_u64()),
+            kind: who
+                .and_then(|a| a.get("type"))
+                .and_then(|t| t.as_str())
+                .map(str::to_string),
+        };
+        let event = Event {
             event: field("event"),
             label: o
                 .get("label")
@@ -150,7 +166,8 @@ fn page_events(page: &Value) -> Result<Vec<Event>, String> {
                 .unwrap_or_default()
                 .to_string(),
             at: stamp,
-        });
+        };
+        out.push((event, facts));
     }
     Ok(out)
 }
@@ -162,6 +179,11 @@ fn page_events(page: &Value) -> Result<Vec<Event>, String> {
 /// between them are two. Anything else says nothing of the issue's events,
 /// which is the answer a caller must never be handed as an empty list.
 pub(crate) fn parse_events(out: &str) -> Result<Vec<Event>, String> {
+    Ok(parse_with_facts(out)?.into_iter().map(|(e, _)| e).collect())
+}
+
+/// [`parse_events`], each event with what it says of its account.
+pub(crate) fn parse_with_facts(out: &str) -> Result<Vec<(Event, Facts)>, String> {
     let mut pages = serde_json::Deserializer::from_str(out)
         .into_iter::<Value>()
         .peekable();
@@ -180,7 +202,7 @@ pub(crate) fn parse_events(out: &str) -> Result<Vec<Event>, String> {
     let mut events = Vec::new();
     for page in pages {
         let mut page = page.map_err(|_| NO_EVENTS.to_string())?;
-        crate::accounts::vouch(&mut page);
+        tehas_core::accounts::vouch(&mut page);
         events.append(&mut page_events(&page)?);
     }
     Ok(events)
@@ -200,83 +222,6 @@ pub(crate) fn parse_labels(out: &str) -> Option<Vec<String>> {
             .filter_map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
             .collect(),
     )
-}
-
-/// Whether a failed removal answers that the label was not there, which is the
-/// state wanted. The status is read whole out of the digits `find_http`
-/// located, never as "404" anywhere in the text: a gateway error whose body
-/// happens to carry those three digits is no removal. gh's own words
-/// `Not Found` count only as the whole reason, never inside one that says
-/// something else: a gh that could not start, or a proxy whose host was not
-/// found, left the label where it was.
-pub(crate) fn says_not_found(why: &str) -> bool {
-    let w = why.to_ascii_lowercase();
-    if w.strip_prefix(": ").unwrap_or(&w).trim() == "not found" {
-        return true;
-    }
-    find_http(&w).is_some_and(|i| &w.as_bytes()[i + 5..i + 8] == b"404")
-}
-
-/// What a failed gh call's answer says of its error: ": " and the first of a
-/// fixed list of words in what gh printed, else the exit status. The list is
-/// the one the bash dispatcher's `gh_json` grepped and the dispatcher's
-/// `gh_why` holds, so a caller logs the reason the poll logs. Only these words, or a
-/// status: the rest of gh's answer is written by a host and may name one, or
-/// carry a token.
-pub(crate) fn why(err: &str, code: Option<i32>) -> String {
-    // Longest first where two could match the same word, so a secondary limit
-    // is not reported as a plain one where they start alike.
-    const WORDS: [&str; 8] = [
-        "secondary rate limit",
-        "unexpected EOF",
-        "connection reset",
-        "connection refused",
-        "rate limit",
-        "timed out",
-        "timeout",
-        "no such host",
-    ];
-    for line in err.lines() {
-        let low = line.to_ascii_lowercase();
-        // The first line that says anything is the one quoted, and within it
-        // the LEFTMOST word of the list, as grep -oE and the dispatcher's
-        // regex answer: the first entry of the list would report "rate limit"
-        // for a line whose only match is a secondary limit later on. Only
-        // these words, so the rest of gh's answer - a host's address, a token
-        // - stays out. The text is cut from `low`, the string that was
-        // searched, so the byte offsets of `find` are its own.
-        if let Some((i, w)) = WORDS
-            .iter()
-            .filter_map(|w| low.find(w).map(|i| (i, *w)))
-            .min_by_key(|(i, w)| (*i, std::cmp::Reverse(w.len())))
-        {
-            return format!(": {}", &low[i..i + w.len()]);
-        }
-        // An HTTP status is gh's own word for the state and is kept whole.
-        if let Some(i) = find_http(&low) {
-            return format!(": HTTP {}", &low[i + 5..i + 8]);
-        }
-    }
-    match code {
-        Some(c) => format!(": gh exited {c}"),
-        None => ": gh was stopped by a signal".to_string(),
-    }
-}
-
-/// Where a lower-case line names an HTTP status: "http " and the digits after
-/// it. The digits are checked so that a line that only holds the word is not
-/// read as a status.
-fn find_http(line: &str) -> Option<usize> {
-    let b = line.as_bytes();
-    let head = b"http ";
-    let mut i = 0;
-    while i + head.len() + 3 <= b.len() {
-        if b[i..i + head.len()] == head[..] && b[i + 5..i + 8].iter().all(u8::is_ascii_digit) {
-            return Some(i);
-        }
-        i += 1;
-    }
-    None
 }
 
 /// The question of the issue types the repository's owner has.
@@ -313,16 +258,16 @@ pub(crate) fn parse_issue_types(out: &str) -> Result<Vec<String>, String> {
     }
 }
 
-/// Who gave the issue the type `name`, as [`super::Forge::typed_by`] answers.
+/// Who gave the issue the type `name`, as [`tehas_core::forge::Forge::typed_by`] answers.
 /// GitHub gives the timeline oldest first, so the newest change is the last.
 /// It names the setter only when it is the change that set `name`: a removal,
 /// a change to another type, or none at all, and the type came some way the
 /// page does not show, which counts for nobody. A listed login whose actor
 /// does not carry its recorded user id counts for nobody too, as in a label
 /// event.
-pub(crate) fn parse_typed_by(out: &str, name: &str) -> Result<Option<super::Approval>, String> {
+pub fn parse_typed_by(out: &str, name: &str) -> Result<Option<Approval>, String> {
     let mut v = graphql(out)?;
-    crate::accounts::vouch(&mut v);
+    tehas_core::accounts::vouch(&mut v);
     let Some(issue) = v
         .pointer("/data/repository/issue")
         .filter(|i| i.is_object())
@@ -345,7 +290,7 @@ pub(crate) fn parse_typed_by(out: &str, name: &str) -> Result<Option<super::Appr
         ) && e.pointer("/issueType/name").and_then(Value::as_str) == Some(name)
     });
     let Some(e) = set else {
-        return Ok(Some(super::Approval::default()));
+        return Ok(Some(Approval::default()));
     };
     // Absent or null is a fact: the account is gone, or no stamp. Any other
     // type is a malformed answer, refused as in `page_events`, so it is not
@@ -365,5 +310,5 @@ pub(crate) fn parse_typed_by(out: &str, name: &str) -> Result<Option<super::Appr
         Some(Value::String(s)) => s.clone(),
         Some(_) => return Err("a type event's stamp is no text".to_string()),
     };
-    Ok(Some(super::Approval { actor, at }))
+    Ok(Some(Approval { actor, at }))
 }

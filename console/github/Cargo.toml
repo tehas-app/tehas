@@ -1,0 +1,23 @@
+# The GitHub adapter: the forge's GitHub side and the ports' answers over
+# it. A library member of the workspace in ../Cargo.toml. Only a program's
+# wiring takes it, and the callers architecture.toml's adapter-wiring check
+# names.
+[package]
+name = "tehas-github"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+
+[lib]
+name = "tehas_github"
+path = "src/lib.rs"
+
+[dependencies]
+serde_json = "1"
+tehas-core = { path = "../core" }
+tehas-ports = { path = "../ports" }
+
+[dev-dependencies]
+# The samples and the recordings the adapter's tests read.
+serde = { version = "1", features = ["derive"] }

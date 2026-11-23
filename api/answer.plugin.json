@@ -1,0 +1,20 @@
+{
+  "answer": {
+    "at": "2026-10-17T14:00:20Z",
+    "by": "tehas-bot",
+    "choice": "retry",
+    "how": "plugin",
+    "option": null,
+    "plugin": {
+      "commit": "0123456789abcdef0123456789abcdef01234567",
+      "name": "floorplan"
+    }
+  },
+  "api": 1,
+  "issue": 12,
+  "question": {
+    "id": 1,
+    "kind": "park"
+  },
+  "replaced": false
+}

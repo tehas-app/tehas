@@ -9,8 +9,10 @@ The forge is the site an instance's issues live on. tehas asks it a few
 things in its own terms: the labels an issue carries, the newest event of one
 label, who applied the label that approves work, and putting a label on or
 taking it off. The trait that holds those terms is `Forge` in
-`console/core/src/forge.rs`. This page describes it for a person who reads or
-changes that code.
+`console/core/src/forge.rs`. Its GitHub adapter, the `GitHub` type, is in its
+own crate, `tehas-github` in `console/github/`, with the table of labels in
+`console/github/src/table.rs`. This page describes them for a person who
+reads or changes that code.
 
 The trait is internal. tehas 1.0 promises no forge interface: GitHub is the
 only forge, nothing on a host chooses another, and the trait may change in any
@@ -41,7 +43,7 @@ caller that wants two answers about one issue holds what it read.
 | `label_state(issue, label)` | `Option<LabelEvent>` | The newest `labeled` or `unlabeled` event of `label`: its kind, the account and the time. `None` when no event carries the label. | `GET repos/<owner>/<name>/issues/<n>/events?per_page=100 --paginate`, every page, then the newest event of the label by the order below. |
 | `label_events(issue)` | `Vec<Event>` | Every label event of the issue, for a rule of the caller's to read, such as the pause's. | The same paginated events call, every event as it came. |
 | `applied_by(issue, label)` | `Option<Approval>` | The account and time of the newest application of `label`. `None` when no event applied it. A removal never answers, whoever made it. | The same events call, `labeled` events of the label only. |
-| `approval(issue)` | `Option<Approval>` | Who applied the label that approves work most recently, and when. | `applied_by(issue, "tehas:ready")`. A default method: an adapter does not write it. |
+| `approval(issue)` | `Option<Approval>` | Who applied the label that approves work most recently, and when. | `applied_by(issue, "tehas:ready")`, the label the adapter's table names. |
 | `add_label(issue, label)` | `()` | Put the label on. An issue that carries it already is the state wanted, not an error. | `POST repos/<owner>/<name>/issues/<n>/labels -f labels[]=<label>`. Not `gh issue edit`, whose GraphQL a bot's token may not answer. |
 | `remove_label(issue, label)` | `()` | Take the label off. An issue without it is the state wanted, not an error. | `DELETE repos/<owner>/<name>/issues/<n>/labels/<label>`, the name URI-encoded. A 404 is success. |
 
@@ -139,7 +141,8 @@ dispatcher:
 ## The runner
 
 The GitHub adapter does not start gh itself. It asks a `GhRunner`, which runs
-one call and returns its output or the reason it failed. A host uses
+one call and returns its output or the reason it failed. Both stay in
+`console/core/src/forge.rs` while other crates call them. A host uses
 `Bounded`: the instance's `host/shim/gh` under a 30-second bound, then TERM
 and, after 5 seconds of grace, KILL to the whole process group, as
 `timeout -k` does. The bound matters: a poll holds its lock for the whole of
@@ -147,7 +150,16 @@ its read.
 
 ## Testing the adapter
 
-The GitHub adapter's tests, in `console/core/src/forge/tests.rs`, run it
+The GitHub adapter's tests, in `console/github/tests/forge.rs`, run it
 against a stub runner that answers from fixtures, so no test needs a network,
 a token or a repository: the stub returns the site's answers, and each case
 checks the term's answer and the call the adapter made.
+
+The adapter also answers the tickets port's marks and the history of marks
+going on and off, in the ports' types. `console/github/tests/samples.rs`
+replays the adapter's recordings of a fixture project, in
+`console/github/tests/recorded/`, and holds each answer to the recorded
+samples in `console/ports/samples/github/`, which name the port call and the
+answer it must give. The ports' laws of lists check the same answers.
+`console/github/tests/table.rs` holds the table of labels to
+`host/labels.tsv`.

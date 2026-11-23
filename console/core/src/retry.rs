@@ -48,7 +48,7 @@ const WAITS: [u64; 2] = [1, 2];
 /// three-digit run of gh's own says what a call got, so a body that merely
 /// carries `"502"` is no server failure and a malformed run is not read as
 /// one. Whether the number is a status at all is `class_of`'s question, not
-/// this one. The scan is the one `console/core/src/forge/gh.rs`'s `find_http`
+/// this one. The scan is the one `console/core/src/forge.rs`'s `find_http`
 /// makes and `read/run.rs`'s `gh_why` reports, and
 /// `status_agrees_with_what_the_poll_logs` pins the two reads against each
 /// other so the rule cannot drift from what the poll logs. Promoting the one
