@@ -48,14 +48,11 @@ pub struct WorkItem {
 
 impl WorkItem {
     /// The comments a ticket marker is read from: the notes, or, where
-    /// ticket and blueprint are one item, that blueprint's comments. This
-    /// leans on the spec's "one ticket, one key" rule: a ticket named by a
-    /// `TicketKey::Number` is an item of a code host's own tracker, so the
-    /// blueprint of that number is the ticket itself. A split setup would
-    /// revisit it.
+    /// ticket and blueprint are one item (`TicketKey::same_item`), that
+    /// blueprint's comments.
     pub fn ticket_comments(&self) -> &Took<Comment> {
-        if let TicketKey::Number(n) = self.ticket.digest.key {
-            if let Some(same) = self.blueprints.iter().find(|b| b.no.get() == n.get()) {
+        if let Some(no) = self.ticket.digest.key.same_item() {
+            if let Some(same) = self.blueprints.iter().find(|b| b.no == no) {
                 return &same.comments;
             }
         }

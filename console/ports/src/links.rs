@@ -16,17 +16,14 @@ pub trait Links: Send + Sync {
 }
 
 /// Where ticket and blueprint are one item: the same number, both ways. A
-/// ticket named by a key is no item of a code host's own tracker, so it has
-/// no blueprint here.
+/// ticket's blueprint is `TicketKey::same_item`, so a ticket named by a key
+/// has none here.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SameItem;
 
 impl Links for SameItem {
     fn blueprints_of(&self, ticket: &TicketKey) -> Got<Vec<BlueprintNo>> {
-        Ok(match ticket {
-            TicketKey::Number(n) => vec![BlueprintNo::from(*n)],
-            TicketKey::Key(_) => Vec::new(),
-        })
+        Ok(ticket.same_item().into_iter().collect())
     }
 
     fn ticket_of(&self, blueprint: BlueprintNo) -> Got<Option<TicketKey>> {
