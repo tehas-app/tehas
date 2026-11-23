@@ -85,19 +85,19 @@ tehas export [--json] --after CURSOR <dir>
 ```
 
 Copies what a person reading a cycle needs into `<dir>`: the cycle's result,
-its logs, its agents' transcripts and its Protolab page, each cycle in a
+its logs and its agents' transcripts, each cycle in a
 directory of its own named by its cursor. `--after` is required, so a program
 that keeps the cursor it is given copies each cycle once.
 
-Every text file goes through the console's mask, so a token or a private address
-that reached a log does not reach the copy; only a file the mask itself will not
-read is copied as it is, and one over 32 MiB is left out. The mask catches
+Every file goes through the console's mask, so a token or a private address
+that reached a log does not reach the copy, whatever bytes a file holds, and a
+file over 32 MiB is left out. The mask catches
 accidents and cannot stop what no pattern knows, so an export is still a copy of
 what a cycle wrote. An export is never written under the factory's home, not
 even through a link. The dispatcher's sweep removes
 `~/.pi/agent/ensemble-runs/issue-<issue>` with the issue's workspace, so an
-export of an issue the sweep has taken has no transcripts: its records, logs and
-Protolab page are still copied. See
+export of an issue the sweep has taken has no transcripts: its records and logs
+are still copied. See
 [the factory API](/api#tehas-export).
 
 ## tehas state
@@ -269,21 +269,6 @@ could not be read or ended, 64 with no issue number, an issue that is not a
 positive number, or an argument it does not know, 78 when the instance
 settings are missing or malformed or the state store is not installed or
 cannot be used, which changes nothing.
-
-## tehas outsource
-
-```
-tehas outsource invite [--name NAME] [--json]
-tehas outsource list [--json]
-tehas outsource status [--json]
-tehas outsource revoke <contractor> [--json]
-tehas outsource drain <contractor> [--json]
-```
-
-The contractors that run this factory's cycles: invite a host, list them,
-count them, end one at once, or ask one to take no new job. Outsource is still
-being built in this release, so every subcommand exits 78. See
-[outsource](/outsource#the-commands).
 
 ## tehas plugin
 

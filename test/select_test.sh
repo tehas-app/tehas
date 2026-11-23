@@ -88,7 +88,7 @@ t_eq "$(real_pick console/mcp/src/tools.rs)" "crate analytics
 crate tehas-mcp"
 
 t_case "the real workspace: a store change selects the crates that run the store"
-t_eq "$(real_pick console/store/src/db.rs)" "$(printf 'crate %s\n' console store tehas-contractor tehas-cycle tehas-dispatch tehas-ops tehas-plugin tehas-plugin-gate tehas-proxy)"
+t_eq "$(real_pick console/store/src/db.rs)" "$(printf 'crate %s\n' console store tehas-cycle tehas-dispatch tehas-ops tehas-plugin tehas-plugin-gate tehas-xtask)"
 
 t_case "the real workspace: a core change selects the whole workspace"
 t_eq "$(real_pick console/core/src/lib.rs)" "cargo"
@@ -99,7 +99,6 @@ t_eq "$(real_pick console/core/src/lib.rs)" "cargo"
 t_case "the real workspace: a cycle change selects the shell tests that run a built program"
 picked=$(bash "$T_ROOT/scripts/select-tests.sh" console/cycle/src/main.rs 2>&1 | grep '^test ')
 t_contains "$picked" "test test/cycle_front_test.sh"
-t_contains "$picked" "test test/console_run_test.sh"
 t_contains "$picked" "test test/sandbox_argv_test.sh"
 
 # Every shell test loads the settings through the console beside it, so a path
@@ -108,7 +107,7 @@ t_contains "$picked" "test test/sandbox_argv_test.sh"
 # core through the settings, and stay left to the full gate.
 t_case "the real workspace: a core change selects every shell test"
 picked=$(bash "$T_ROOT/scripts/select-tests.sh" console/core/src/settings/load.rs 2>&1)
-for f in describe_test.sh refresh_test.sh labels_test.sh login_test.sh \
+for f in refresh_test.sh labels_test.sh login_test.sh \
   config_test.sh cycle_front_test.sh tidy_test.sh sandbox_argv_test.sh \
   shim_writes_test.sh; do
   t_contains "$picked" "est test/$f"
@@ -151,7 +150,7 @@ t_case "the real workspace: a change to the selector asks for the full gate"
 t_eq "$(bash "$T_ROOT/scripts/select-tests.sh" console/xtask/src/select.rs)" "full console/xtask/src/select.rs is part of the gate itself"
 
 t_case "the real checkout: a model of the plain dashboard selects the node tests that run it"
-picked=$(bash "$T_ROOT/scripts/select-tests.sh" host/fun/factory/tehas-factory-host.model.js 2>&1 | grep '^node ')
+picked=$(bash "$T_ROOT/scripts/select-tests.sh" host/fun/factory/tehas-factory-state.model.js 2>&1 | grep '^node ')
 t_contains "$picked" "node test/dashboard_view_test.mjs"
 t_contains "$picked" "node test/dashboard_host_test.mjs"
 

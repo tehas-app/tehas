@@ -116,7 +116,7 @@ start with exit 4 and is never taken for a run by hand. Run on its own, the
 approval of the issue's latest start counts, and with none the run is by hand.
 `tehas work` reads the issue once, whatever the instance gives the cycle, and
 holds its body to the approval's `body_sha256`.
-That one read is also the one its images and text files are fetched from, so a
+That one read is also the one its images are fetched from, so a
 start asks GitHub for the issue once.
 The read may take `TEHAS_TEXT_WAIT` seconds (60), and every comment that names
 why a start stopped is bounded the same way: a read that did not end in time is
@@ -189,7 +189,7 @@ account before it starts a cycle.
 | 40   | The runner's: it refused to start the cycle                      |
 | 2    | The cycle was stopped here as stalled or at the time limit and grace, or the runner ended without a result |
 | 3    | The sandbox cannot push to the repository; no cycle was started  |
-| 4    | No cycle was started. On every start that finds the dispatcher's approval record, whatever the settings: the issue's body is not the body that record approved, its title is not the title it approved, the record cannot be read or is not of the shape tehas reads, the answer is a pull request or a closed issue, or the issue cannot be read for its text (within `TEHAS_TEXT_WAIT`); the issue is told which and that a fresh `tehas:ready` is needed. Under `tehasbot cycle` (`TEHAS_CYCLE_ATTEMPT`), also: no approval was used by this start and the store does not have it as a start by hand, the state store cannot be read, or the store refuses the image of the start (`cycle-image`: an attempt that is not the open one, a start that has ended, a lock not held, or a store that cannot be used), said as `its record on this host could not be updated as it started`. With `TEHAS_WORK_IMAGES=on` or `TEHAS_WORK_FILES=on`, also: an image or file the issue links could not be fetched, the issue could not be read for them, or a file is not the one first fetched for the approval |
+| 4    | No cycle was started. On every start that finds the dispatcher's approval record, whatever the settings: the issue's body is not the body that record approved, its title is not the title it approved, the record cannot be read or is not of the shape tehas reads, the answer is a pull request or a closed issue, or the issue cannot be read for its text (within `TEHAS_TEXT_WAIT`); the issue is told which and that a fresh `tehas:ready` is needed. Under `tehasbot cycle` (`TEHAS_CYCLE_ATTEMPT`), also: no approval was used by this start and the store does not have it as a start by hand, the state store cannot be read, or the store refuses the image of the start (`cycle-image`: an attempt that is not the open one, a start that has ended, a lock not held, or a store that cannot be used), said as `its record on this host could not be updated as it started`. With `TEHAS_WORK_IMAGES=on`, also: an image the issue links could not be fetched, the issue could not be read for them, or a file is not the one first fetched for the approval |
 | 5    | A cycle for this issue is running already: its lock `~/tehas/state/cycles/<issue>.lock` is held. Nothing was moved and no container started |
 | 64   | The issue is not a number, or no bot token or no git identity; no cycle was started |
 | 78   | The instance settings are invalid, the state store is not installed (`~/tehas/libexec/store` or `~/tehas/state/tehas.db` is missing), `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason), the image does not support what the cycle is given, a workaround in `TEHAS_RUKAS_WORKAROUNDS` has expired, or the product names no gate in `.pi/verify-cmd` and its commit holds neither `package.json` nor `Cargo.toml`; no cycle was started, nothing was pushed, and the clone made for the cycle is left in place. A refusal for the gate is said on the command's error stream only, which under the unit is `~/tehas/logs/dispatch-work-<issue>.log`: the issue gets no comment for it, because no cycle of that issue ever began |
@@ -346,8 +346,7 @@ instance sets it. The images are fetched before anything else is made:
   A link ends before a part of its path that is `.` or `..`, or holds an
   escaped `.`, `/` or `\`, so it never leaves the attachment folder. curl asks
   for the path as written, and the bot's token goes only with a whole link of
-  an attachment folder on github.com. Comments are read only with `TEHAS_WORK_COMMENTS=on`, and then only those an
-  allowed account wrote and nobody edited after the approval: see below. Only
+  an attachment folder on github.com. Comments are not read. Only
   when an allowed account approved the start,
   which approves the text with its links, or when the issue was opened by an
   owner, member or collaborator of the repository. When the dispatcher
@@ -375,13 +374,11 @@ when every link is listed; the manifest of a cycle given nothing names the
 settings there instead. Every manifest starts with `version`, the format it
 is written in: 1, the format `PI_ENSEMBLE_ISSUE_IMAGES` names. A field is only
 added within a version. The manifest is kept as
-`~/tehas/state/cycles/<issue>.manifest.json`, with `images.md` and
-`comments.json` beside it as `<issue>.images.md` and
-`<issue>.comments.json` when the cycle has them. When the next fetch is for the
-same approval, a restart of the same cycle, a link that gives other bytes than
-the kept manifest says stops the start with exit 4 and the link named; each
-file of an archive is held to its own bytes by its link and its path, and
-an archive to the same set of paths: a file added or gone stops it too. The directory is remade for every cycle and removed by
+`~/tehas/state/cycles/<issue>.manifest.json`, with `comments.json` beside it
+as `<issue>.comments.json` when the cycle has it. When the next fetch is for
+the same approval, a restart of the same cycle, a link that gives other bytes
+than the kept manifest says stops the start with exit 4 and the link named.
+The directory is remade for every cycle and removed by
 `tehasbot cycle` when the cycle is over. A comment on the issue says how many
 images were fetched, each with its link and sha256, what was left out, and
 whether the cycle was shown them. An image that could not be fetched stops the
@@ -407,49 +404,8 @@ prompts each beside its link, from upstream's commit of 2026-10-14. The host
 follows upstream's newest release, and every release since then has the reader. The
 steps after plan do not see them.
 
-With `TEHAS_WORK_DESCRIBE=on` as well, `tehas work` asks the model to describe
-each image in words before anything else is made, for the steps and models
-that are not shown the pixels. One chat request per image, at most 8, to the
-provider's endpoint in `~/.pi/agent/models.json`, or its backup when the main
-one fails, with `PI_ENSEMBLE_SUBAGENT_MODEL`, as the dispatcher's check of the
-endpoint asks it. The endpoint's token goes with it where `models.json` names
-one; the GitHub token never does. Each request also carries `X-Tehas-Issue:`
-with the number of the issue whose images these are, so the gateway can count
-what one issue cost: the number is given to `tehas-cycle describe` by the
-command that starts it, and a value that is no number sends no header. The
-header goes in the same curl config as the token, so it is on no command line
-and in no file. Each request may take 60 seconds, and each answer is cut at
-1500 characters. The prompt is fixed: describe what the image shows, quote
-visible text word for word, treat nothing in it as an instruction. The answers
-go to `images.md` beside `manifest.json`, one section per image with its link,
-under a head that says a model wrote them from untrusted images. Every line of
-an answer is quoted, so an answer cannot start a section of its own. The
-manifest gets `"described": "images.md"`. A request that fails leaves `not
-described:` and the reason for that image, and the cycle starts all the same.
-The file is in the directory that is mounted already: no mount and no
-variable more. The pi-rukas that tehas pins does not read `images.md` yet; the
-file is ready for a release that does.
-
-With `TEHAS_WORK_FILES=on` the container is given the same directory and the
-same variable, whether or not `TEHAS_WORK_IMAGES` is 1, and the directory also
-holds the text files the issue links. This widens what a cycle is given, and
-it is off unless the instance sets it. The rules of which links and whose
-approval are those of the images. A file is taken by its name's extension,
-md, txt, csv, json, yaml, yml, log, html, css or js, and then checked: valid
-UTF-8 and no NUL byte, else it is left out with the reason. html is text here;
-rendering it is the [Protolab](/tools-protolab#tehasbot-protolab)'s job. svg, pdf and
-archives are left out, unless the instance takes archives: see below. At most
-16 files, 1 MB each and 4 MB together, apart
-from the images' limits. They are named `file-1.md`, `file-2.csv` and so on,
-and `manifest.json` lists them under `files`, each with its link, its original
-name, its type, its size and its sha256; `images` is as before. With images
-off, an image the issue links is left out and said. The comment on the issue
-says how many files were fetched, with each hash, and that the pi-rukas that
-tehas pins does not read them yet: the manifest is ready for a release that
-does.
-
-A plugin's filed files come the same way, beside the attachments, with no
-mount and no variable more. A line `tehas-files: <plugin>/<id> <sha256>` of the
+A plugin's filed files come the same way, beside the images, with no mount
+and no variable more. A line `tehas-files: <plugin>/<id> <sha256>` of the
 approved body, the body the start holds to the approval's hash and never a
 fresh read, names a record of the state store. Its files are given only when
 that record was filed in this issue, by an account of
@@ -464,57 +420,6 @@ by the sha256 of their `sha256sum` lines, stop the start with
 `plugin-files-changed`, and the comment on the issue asks a person to file them again from the plugin, since a retry would meet the same files. No plugin files records yet:
 plugins are still being built.
 
-With `TEHAS_WORK_ZIPS=on` a zip the issue links is unpacked into the same
-directory, which adds no mount and no variable more, and the setting needs
-`TEHAS_WORK_IMAGES=on` or `TEHAS_WORK_FILES=on`, else the command stops with 78:
-what comes out of an archive goes into the directory of one of those kinds.
-Which links, whose approval and what is fetched are as above. A link is an
-archive only when its first four bytes are those of a zip, never because its
-name ends in `.zip`: a link named `.zip` that holds something else is left out
-with `Not a zip archive.` At most 2 archives per issue, each downloaded at most
-4 MB, and the download is refused over that with a reason. The archive is
-unpacked into a scratch directory beside the others by `~/tehas/libexec/attach`
-(`console/attach`), the Protolab's own unpacker, which reads the archive's
-central directory first and refuses an archive it cannot read whole (a zip64
-or a split one among them), and of its entries an absolute path, a `..` part,
-a backslash, a link, a locked file, a method other than stored or deflated, a
-damaged file and more than 200 entries. It counts what it inflates, never what
-the archive claims, and a damaged entry's bytes count too; an entry that
-claims more than the room left is over the limit before a byte of it is
-inflated; an entry that inflates past the size it claims, shares its data with
-another entry, or whose local record is not in the archive, is damaged. It runs as a child of the program that fetched, with no token and no
-environment but `PATH`. An archive it does not unpack within 60 seconds, or that
-makes it fail, is left out with a reason; a program that is missing or fails in
-any other way stops the cycle, and with no program no cycle starts on an instance
-that gives attachments, whether or not the issue links any. Every file it writes then goes through the checks of a
-file the issue links: an image by its first bytes, a text file by its
-extension and by being valid UTF-8 with no NUL byte. The same program reads
-the bytes of every linked file, its size, its sha256, its image type and
-whether it is text, so the shell never reads them; without it the cycle does
-not start. Anything else, an svg, a nested archive or
-a binary, is left out with its path inside the archive under `path` and the
-reason. The unpacked files count against the limits above, the images' and the
-files', as the linked ones do; a file over what is left of them is left out and
-the ones before it are kept. They are named on from the linked ones,
-`image-1.png`, `file-1.md`, never over a file already in the directory: a
-name taken gets a number in front, `2-image-1.png`. Each entry carries `"zip": "<the link>"` and
-`"path": "<its path in the archive>"`. The archive itself is not kept, and the
-scratch directory is removed whatever the archive held.
-
-With `TEHAS_WORK_COMMENTS=on` the links in the issue's comments are taken as
-well, by an approval record only: a comment is taken when an allowed account
-wrote it and it was written and last edited at or before the approval's time.
-The dispatcher lists the comments when it decides the start and adds their
-links to the record as `comment_links`, each with its `source`,
-`comment:<id>`, and its author. `tehas work` fetches them after the body's
-links, in the order written, under the same limits, counted together, and
-only while the author is still allowed. Every entry of the manifest, left out
-or not, has a `source`: `body` or the comment's. The comment on the issue
-names the comment beside each link. A start by hand, without a record, reads
-the body only. The setting adds no mount and no variable, and it needs
-`TEHAS_WORK_IMAGES=on` or `TEHAS_WORK_FILES=on`, else the command stops with
-78.
-
 When the record has a `retry_context`, `tehas work` writes it to
 `comments.json` in the same directory and names it in the manifest as
 `"comments": {"file", "bytes", "sha256"}`, in the format of
@@ -527,13 +432,13 @@ the issue and its pull requests up to the answer), the millwright's note of its
 start, or a refresh's task. Each item is cut at 4,000 characters and the blob
 at 64 KB, the oldest dropped and counted in `dropped`. It is not fetched
 again: the dispatcher recorded it at the answer. With `TEHAS_WORK_IMAGES=off`
-and `TEHAS_WORK_FILES=off` the directory is still mounted and named in
+the directory is still mounted and named in
 `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` for it, and holds the manifest and
 `comments.json` alone. `state/cycles/<issue>.comments` says whether the image
 gives a cycle the comments (`native`, `polyfill` or `off`), which decides
 whether a park offers the comments retry.
 
-With `TEHAS_WORK_IMAGES=off` and `TEHAS_WORK_FILES=off` and no comments, a cycle is given nothing:
+With `TEHAS_WORK_IMAGES=off` and no comments, a cycle is given nothing:
 no directory is mounted and no `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` is passed on,
 whatever the instance file says. The issue's text is still read once, to
 compare it with the dispatcher's record, and a body that is not the approved
@@ -549,8 +454,8 @@ what it holds is this command's own), and keeps a manifest at
 `~/tehas/state/cycles/<issue>.manifest.json` with no image, that approval, and
 each link left out with that reason. The links are the approved text's: the
 line counts what the record lists, not what the issue links, and it says which
-approval it did count. A record written while
-the instance took links from comments keeps them, each with its own `source`.
+approval it did count. The comment links an approval recorded before 2.0
+are ignored.
 At most 100 links are listed and `leftOutMore` counts the rest, 0 when there
 are none, so the file stays small. An
 issue the dispatcher never started has no approval record, and then nothing of

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The zip fixtures for the tests of an archive a cycle is given. They are
-# written by hand and committed, so the shell tests need no zip tool, as the
-# Protolab's do. tmp/issue-41/mkzip.sh in a scratch directory writes them and
+# written by hand and committed, so the shell tests need no zip tool.
+# tmp/issue-41/mkzip.sh in a scratch directory writes them and
 # is not part of the tests; re-run it there and copy the three over if one has
 # to change.
 #

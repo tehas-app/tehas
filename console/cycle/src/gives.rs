@@ -143,23 +143,18 @@ fn word(v: &Value, key: &str) -> String {
 /// to the cycle's log. Err is why nothing may start, and a program that gives
 /// no answer is a reason too.
 fn take(bin: &Path, verb: &str, args: &[&str], input: &str) -> Result<(), String> {
-    let wants = [
-        env_or("TEHAS_WORK_IMAGES", "1"),
-        env_or("TEHAS_WORK_FILES", "0"),
-        env_or("TEHAS_WORK_ZIPS", "0"),
-    ];
-    take_within(bin, verb, args, input, &wants, ASK_SECS)
+    let images = env_or("TEHAS_WORK_IMAGES", "1");
+    take_within(bin, verb, args, input, &images, ASK_SECS)
 }
 
-/// take with the seconds of its bound and the three wants (`--images`,
-/// `--files`, `--zips`) given to the child, so a case can name a bound shorter
-/// than the one of a start.
+/// take with the seconds of its bound and `--images` given to the child, so a
+/// case can name a bound shorter than the one of a start.
 fn take_within(
     bin: &Path,
     verb: &str,
     args: &[&str],
     input: &str,
-    wants: &[String; 3],
+    images: &str,
     secs: u64,
 ) -> Result<(), String> {
     let repo = env("TEHAS_REPO");
@@ -170,11 +165,7 @@ fn take_within(
         "--attach".into(),
         bin.to_string_lossy().into_owned(),
         "--images".into(),
-        wants[0].clone(),
-        "--files".into(),
-        wants[1].clone(),
-        "--zips".into(),
-        wants[2].clone(),
+        images.to_string(),
     ];
     child_args.splice(1..1, args.iter().map(|a| a.to_string()));
     let token = env("GH_TOKEN");
@@ -220,19 +211,12 @@ fn array_or_none<'a>(v: &'a Value, key: &str) -> Option<&'a [Value]> {
 
 /// With no program: <dir> with a manifest that gives nothing, when there is
 /// nothing to give. A record's links and the words of a retry are what a start
-/// with one is given, else the links of the issue's text. `files` is whether the
-/// instance gives a cycle files (TEHAS_WORK_FILES=1).
-fn gives_nothing(
-    issue: u64,
-    dir: &Path,
-    record: &str,
-    data: &str,
-    files: bool,
-) -> Result<(), String> {
+/// with one is given, else the links of the issue's text.
+fn gives_nothing(issue: u64, dir: &Path, record: &str, data: &str) -> Result<(), String> {
     let approval = if !record.is_empty() {
         let r = record_value(Path::new(record)).ok_or(NO_ATTACH)?;
         let mut given = 0;
-        for key in ["links", "comment_links", "retry_context"] {
+        for key in ["links", "retry_context"] {
             given += array_or_none(&r, key).ok_or(NO_ATTACH)?.len();
         }
         if given != 0 {
@@ -270,7 +254,7 @@ fn gives_nothing(
     fs::create_dir_all(dir).map_err(|_| unmade)?;
     fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).map_err(|_| unmade)?;
     let manifest = dir.join("manifest.json");
-    let text = attach::manifest::nothing(&issue.to_string(), &approval, files);
+    let text = attach::manifest::nothing(&issue.to_string(), &approval, false);
     fs::write(&manifest, text).map_err(|_| unmade)?;
     fs::set_permissions(&manifest, fs::Permissions::from_mode(0o644)).map_err(|_| unmade)?;
     Ok(())
@@ -290,14 +274,9 @@ pub fn issue_images(
     data: &str,
 ) -> Result<(), String> {
     let Some(bin) = attach(home) else {
-        return gives_nothing(issue, dir, record, data, env("TEHAS_WORK_FILES") == "1");
+        return gives_nothing(issue, dir, record, data);
     };
     let (issue_str, repo, dir_str) = (issue.to_string(), env("TEHAS_REPO"), dir.to_string_lossy());
-    let (comments, allowed, millwright) = (
-        env_or("TEHAS_WORK_COMMENTS", "0"),
-        env("TEHAS_ALLOWED_LABELERS"),
-        env("TEHAS_MILLWRIGHT_LOGIN"),
-    );
     let args: Vec<&str> = [
         issue_str.as_str(),
         dir_str.as_ref(),
@@ -307,12 +286,6 @@ pub fn issue_images(
         record,
         "--repo",
         &repo,
-        "--comments",
-        &comments,
-        "--allowed",
-        &allowed,
-        "--millwright",
-        &millwright,
     ]
     .to_vec();
     take(&bin, "issue", &args, &format!("{data}\n"))
@@ -483,7 +456,7 @@ pub fn comments_retry(record: &str) -> bool {
 }
 
 /// <dir> remade with the record's comments.json and a manifest that lists no
-/// file, for an instance that gives a cycle no images and no files. Err is
+/// file, for an instance that gives a cycle no images. Err is
 /// why nothing may start.
 pub fn comments_only(home: &Path, issue: u64, dir: &Path, record: &str) -> Result<(), String> {
     let unwritten =
@@ -498,8 +471,6 @@ pub fn comments_only(home: &Path, issue: u64, dir: &Path, record: &str) -> Resul
         record.to_string(),
         "--repo".into(),
         env("TEHAS_REPO"),
-        "--millwright".into(),
-        env("TEHAS_MILLWRIGHT_LOGIN"),
     ];
     let answer = ask(home, "comments", &args).map_err(|no| {
         format!(
@@ -587,7 +558,7 @@ pub fn changed(home: &Path, kept: &Path, dir: &Path) -> Result<(), String> {
     }
 }
 
-/// What a cycle given no images and no files was not given.
+/// What a cycle given no images was not given.
 pub enum Gap {
     /// The line that says the gap. The manifest at <file> says the same.
     Said(String),
@@ -608,8 +579,6 @@ pub fn left_out(home: &Path, issue: u64, file: &Path, record: &str) -> Gap {
         record.to_string(),
         "--images".into(),
         env_or("TEHAS_WORK_IMAGES", "0"),
-        "--files".into(),
-        env_or("TEHAS_WORK_FILES", "0"),
     ];
     match ask(home, "left-out", &args) {
         Err(no) => Gap::Unread(no),
@@ -657,37 +626,6 @@ pub fn record_approves(record: &str) -> bool {
     allowed(&by) || (millwright_is(&by) && millwright_base(record).is_some())
 }
 
-/// The issue's images and files for a contractor's job, made in <dir> on the
-/// factory as an in-house start makes them: the dispatcher's latest record of
-/// the issue, its approval, the issue read once, and [`issue_images`] with the
-/// instance's own settings. Err is why the job may not start; an issue with no
-/// recorded approval is one.
-pub fn for_job(home: &Path, issue: u64, dir: &Path) -> Result<(), String> {
-    let recorded = crate::start::record(home, issue, "", None)
-        .map_err(|_| "the approval of this issue could not be read".to_string())?;
-    let Some(file) = recorded.file else {
-        return Err("no approval is recorded for this issue".to_string());
-    };
-    let record = file.to_string_lossy().into_owned();
-    let word = if record_approves(&record) {
-        "approved"
-    } else {
-        ""
-    };
-    let args = [
-        "api".to_string(),
-        format!("repos/{}/issues/{issue}", env("TEHAS_REPO")),
-    ];
-    let read = call::run("gh", &args, call::GH_BOUND);
-    let made = if read.ok() {
-        issue_images(home, issue, dir, word, &record, &read.out)
-    } else {
-        Err("the issue could not be read for its images".to_string())
-    };
-    let _ = fs::remove_file(&file);
-    made
-}
-
 /// Whether <login> is one of TEHAS_ALLOWED_LABELERS.
 pub fn allowed(login: &str) -> bool {
     events::allowed_in(&env("TEHAS_ALLOWED_LABELERS"), login)
@@ -727,7 +665,7 @@ pub fn millwright_base(record: &str) -> Option<Value> {
 
 fn base(r: &Value, allowed: &str) -> Option<Value> {
     let how = r.get("how").and_then(Value::as_str);
-    let base = if matches!(how, Some("fixer" | "refresh")) {
+    let base = if matches!(how, Some("millwright" | "refresh")) {
         r.get("rests_on")?
     } else {
         r
@@ -975,24 +913,6 @@ mod tests {
         assert!(take(&f).unwrap_err().starts_with(FILES_CHANGED));
     }
 
-    #[test]
-    fn a_job_s_files_are_refused_for_an_issue_with_no_approval_and_nothing_is_made() {
-        let d = TestDir::new("gives-for-job");
-        let store = d.path().join("libexec/store");
-        fs::create_dir_all(store.parent().unwrap()).unwrap();
-        tehas_core::testing::write_exe(&store, "#!/bin/sh\necho '{\"view\":null}'\n").unwrap();
-        let dir = d.path().join("files");
-        assert_eq!(
-            for_job(d.path(), 7, &dir),
-            Err("no approval is recorded for this issue".to_string())
-        );
-        assert!(!dir.exists());
-        // A store that does not answer is no approval either.
-        tehas_core::testing::write_exe(&store, "#!/bin/sh\nexit 3\n").unwrap();
-        assert!(for_job(d.path(), 7, &dir).is_err());
-        assert!(!dir.exists());
-    }
-
     fn person(by: &str) -> Value {
         json!({"at": "2026-10-01T00:00:00Z", "by": by, "how": "label",
             "body_sha256": "a".repeat(64), "links": []})
@@ -1000,11 +920,11 @@ mod tests {
 
     #[test]
     fn a_record_rests_on_the_persons_approval_in_each_shape_a_start_has() {
-        let fixer = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-fixer", "how": "fixer",
-            "body_sha256": "a".repeat(64), "fixer_starts": 1, "rests_on": person("alice")});
+        let millwright = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-millwright", "how": "millwright",
+            "body_sha256": "a".repeat(64), "rests_on": person("alice")});
         let refresh = json!({"at": "2026-10-01T00:00:00Z", "by": "alice", "how": "refresh",
             "body_sha256": "a".repeat(64), "refreshes": 1, "rests_on": person("alice")});
-        for mut shape in [person("alice"), fixer, refresh] {
+        for mut shape in [person("alice"), millwright, refresh] {
             shape["driver"] = json!("lean");
             let got = base(&shape, "alice bob").expect("an approval");
             assert_eq!(got["by"], "alice");
@@ -1017,9 +937,9 @@ mod tests {
     fn the_hosts_approval_is_a_base_without_an_allowed_account() {
         let mut host = person("host");
         host["how"] = json!("host");
-        let fixer = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-fixer", "how": "fixer",
-            "body_sha256": "a".repeat(64), "fixer_starts": 1, "rests_on": host.clone()});
-        for shape in [host, fixer] {
+        let millwright = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-millwright", "how": "millwright",
+            "body_sha256": "a".repeat(64), "rests_on": host.clone()});
+        for shape in [host, millwright] {
             let got = base(&shape, "alice").expect("an approval");
             assert_eq!(got["how"], "host");
         }
@@ -1031,9 +951,14 @@ mod tests {
         assert!(base(&person("alice"), "bob").is_none());
         assert!(base(&person("alice\n"), "alice").is_none());
         assert!(base(&person("al ice"), "al ice").is_none());
-        assert!(base(&json!({"how": "fixer", "rests_on": null}), "alice").is_none());
+        assert!(base(&json!({"how": "millwright", "rests_on": null}), "alice").is_none());
+        assert!(base(
+            &json!({"how": "fixer", "rests_on": person("alice")}),
+            "alice"
+        )
+        .is_none());
         let mut odd = person("alice");
-        odd["how"] = json!("fixer-tick");
+        odd["how"] = json!("millwright-tick");
         assert!(base(&odd, "alice").is_none());
         let mut short = person("alice");
         short["body_sha256"] = json!("abc");
@@ -1067,16 +992,6 @@ mod tests {
             manifest(&dir),
             json!({"version": 1, "images": [], "leftOut": [], "linksUnavailable": "The text links no file of GitHub's storage.", "issue": 7, "approval": null, "leftOutMore": 0})
         );
-        // An instance that gives files is given an empty list of them.
-        gives_nothing(7, &dir, "", body, true).unwrap();
-        let keys: Vec<_> = manifest(&dir)
-            .as_object()
-            .unwrap()
-            .keys()
-            .cloned()
-            .collect();
-        assert!(keys.contains(&"files".to_string()));
-        assert_eq!(manifest(&dir)["files"], json!([]));
         // Nothing was given, so the comment of what was given says nothing.
         assert_eq!(said(&d, &dir, "cycle", "1"), "");
     }
@@ -1109,7 +1024,7 @@ mod tests {
         let dir = d.join("images");
         for data in ["[1]", "nonsense", r#"{"body":7}"#] {
             assert_eq!(
-                gives_nothing(7, &dir, "", data, false),
+                gives_nothing(7, &dir, "", data),
                 Err("the issue could not be read for its images".to_string()),
                 "{data}"
             );
@@ -1137,9 +1052,13 @@ mod tests {
             manifest(&dir)["approval"],
             json!({"at": "2026-10-14T00:00:00Z", "by": "alice", "how": "label"})
         );
-        // Comment links, the words of a retry, or a record of another shape.
+        // A record written before 2.0 may carry comment_links: ignored.
+        let mut e = r.clone();
+        e["comment_links"] = json!([{"link": "L"}]);
+        fs::write(&record, e.to_string()).unwrap();
+        assert_eq!(issue_images(&d, 7, &dir, "approved", &path, linked), Ok(()));
+        // The words of a retry, or a record of another shape.
         for edit in [
-            json!({"comment_links": [{"link": "L"}]}),
             json!({"retry_context": [{"source": "refresh", "text": "t"}]}),
             json!({"links": 7}),
         ] {
@@ -1161,7 +1080,7 @@ mod tests {
         let d = scratch("changed");
         let dir = d.join("images");
         let kept = d.join("kept.json");
-        gives_nothing(7, &dir, "", "{}", false).unwrap();
+        gives_nothing(7, &dir, "", "{}").unwrap();
         fs::write(&kept, r#"{"images":[{"link":"L","sha256":"aa"}]}"#).unwrap();
         // Nothing given has no bytes to hold to the kept manifest.
         assert_eq!(changed(&d, &kept, &dir), Ok(()));
@@ -1199,11 +1118,6 @@ mod tests {
             left_out(&d, 7, &file, &none.to_string_lossy()),
             Gap::Nothing
         ));
-    }
-
-    /// The wants of a fetch of a case: images only, as a start defaults to.
-    fn wants() -> [String; 3] {
-        ["1", "0", "0"].map(str::to_string)
     }
 
     /// A home whose libexec/attach is the shell script <body>.
@@ -1253,7 +1167,7 @@ mod tests {
             "issue",
             &["7", "dir"],
             r#"{"body":"https://github.com/user-attachments/assets/1"}"#,
-            &wants(),
+            "1",
             1,
         )
         .unwrap_err();
@@ -1278,7 +1192,7 @@ mod tests {
             "issue",
             &["7", "dir"],
             "{}",
-            &wants(),
+            "1",
             30,
         )
         .unwrap_err();
@@ -1294,7 +1208,7 @@ mod tests {
                 "issue",
                 &["7", "dir"],
                 "{}",
-                &wants(),
+                "1",
                 30,
             ),
             Ok(())

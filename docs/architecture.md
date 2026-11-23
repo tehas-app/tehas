@@ -32,12 +32,10 @@ so a test that moves does not lower a count it did not fix.
 | System | How it is reached | From |
 | --- | --- | --- |
 | GitHub | `gh` (REST and GraphQL), and the REST API directly in `console/core/src/access.rs` | most crates; see `github-rest` and `gh-argv` |
-| git | `git` | core, cycle, dispatch, ops, the console, plugin, proxy, contractor, xtask |
-| Docker | `docker` | core (`sandbox.rs`), cycle, dispatch, ops, the console, plugin, mcp, proxy, contractor, xtask |
+| git | `git` | core, cycle, dispatch, ops, the console, plugin, xtask |
+| Docker | `docker` | core (`sandbox.rs`), cycle, dispatch, ops, the console, plugin, mcp, xtask |
 | systemd | `systemctl` and the units of `host/systemd/` | core, cycle, dispatch, ops, the console, plugin, `install.sh` |
-| The models | HTTP through the model proxy | proxy, contractor |
 | pi-rukas | the sandbox image, `console/core/src/rukas.rs` | core, ops |
-| vipune | `host/sandbox/vipune-shim`, `console/cycle/src/memory.rs` | cycle |
 | Caddy | the containers of `host/edge/` | ops (edge) |
 
 ## Ports
@@ -50,11 +48,7 @@ The traits that stand between the code and an outside system today.
 | `GhRunner` | `console/core/src/forge.rs` | running `gh` for the forge | no: argv | stubbed `gh` runner in tests |
 | `GitHub` | `console/core/src/access.rs` | a collaborator's permission | partly | in `access.rs` tests |
 | `Net` | `console/attach/src/take.rs` | fetching an issue's files | yes | in attach's tests |
-| `Run` | `console/cycle/src/relay.rs` | the relay's `gh` calls | no: argv | in relay tests |
-| `Vipune` | `console/cycle/src/memory.rs` | the memory store | yes | in cycle's tests |
 | `Hands` | `console/dispatch/src/finish.rs`, `auto_finish.rs` | the finish's effects | partly | in dispatch's tests |
-| `Factory`, `Backing`, `Records`, `Reader`, `Sink`, `Downloads` | `console/proxy/src/` | the model proxy's channel, jobs and records | yes | in proxy's tests, except `Downloads` (none) |
-| `Work`, `World` | `console/contractor/src/job.rs` | the contractor's jobs | yes | in the crate's tests |
 | `Host`, `Catalog`, `Refresh`, `Day` | `console/plugin/src/` | the plugin runner | yes | in the crate's tests |
 | `Exec` | `console/ops/src/plugin/exec.rs` | running a plugin | partly | in the crate's tests |
 | `Outside`, `Shell` | `console/ops/src/rukas.rs`, `update/` | the update's outside world | partly | in the crate's tests |
@@ -62,6 +56,21 @@ The traits that stand between the code and an outside system today.
 v2 adds three ports, with GitHub as their one adapter (T4): **tickets**
 (the work level), **blueprints** (the issues a cycle works from) and the
 **code host** (changes, checks, merges, tags, releases). Each gets a fake.
+
+Their types are in a crate of their own, `console/ports/` (`tehas-ports`),
+which a consumer vendors at the tag: std and serde alone, no supplier word,
+no effects. T4.1 lands it in four parts. T4.1a: the data types (ids,
+bodies, bounds, accounts, outcomes, marks and markers). T4.1b: the traits,
+the board, the site, the links and the write, with the per-pass reports
+the traits take (`Reports`, `Report`, `Caller`, `PortName`).
+T4.1c: the ledger and health: `Ledger`, the budget and health state
+shared across processes, keyed by `HostId` and `Whose` (the host, one
+`Holder` on it, or one pool of a holder), and `health::next`, the pure step from one outcome to the
+next state and the `Notice`, if the state changed. T4.1d: the fakes, the
+laws and the `Writer`. A handle takes `&mut self` and is `Send`; a `Site` and the
+caller's stores (`Links`, `Keyring`, `TokenStore`) are `Send + Sync` and
+take `&self`. `Join` is the board of a split setup: pure code over three
+owned read handles and the links, each ticket answered alone.
 
 ## Checks of the core (R3, R8)
 
@@ -74,15 +83,40 @@ uses of the shell in `decide.rs` (the push fault's hold from
 tehas-core is not the core: it holds the forge, the sandbox and the
 process runner. T6 settles where the core ends.
 
+## Checks of the ports (R1, R3, R8)
+
+Three checks hold `console/ports/` at 0, as the ports spec's "The crate"
+asks. `ports-deps`: its manifest holds its package keys and serde alone,
+so no other dependency, feature or build script, and serde only on the
+spec's exact line (version 1, default features off, `std` and `derive`);
+any other serde line counts. `ports-words`: no supplier name, `repos/`,
+`api.`, `graphql` or label word in its source or manifest, doc lines
+included. `ports-effects`: no file, network, process, environment, thread
+or clock in its source, whether reached by a path, a grouped import
+(`use std::{fs, ...}`, also spread over lines) or an alias
+(`use std::{env as e}`, `std as`); no standard stream (`stdin`,
+`stdout`, `stderr`); and no `print!`, `println!`, `eprint!`, `eprintln!`
+or `dbg!`. The crate's tests round-trip
+its types through a small serde format of their own, since the crate takes
+no serde_json; `untyped-signatures` allows that one file by name, as its
+matches are serde's own `Visitor::Value`.
+
 ## Write guards
 
-Each of these decides whether a GitHub call writes. They encode one rule
-and may stay separate on purpose; the owner decides (T4).
+Each of these decides whether a GitHub call writes. They are kept
+separate on purpose; whether any merge is the owner's (T4). Where each
+sits against the ports is in `docs/specs/2026-11-22-ports.md`, "The write
+guards".
 
-- the dispatcher's read guard (`console/core/src/read_only.rs`);
-- the console's gh shim (`console/src/gh_shim.rs`, `gh_writes.rs`);
-- the sandbox's gh shim (`host/sandbox/gh-shim`);
-- cycle's relay (`console/cycle/src/relay.rs`).
+- the dispatcher's read guard, `gh_reads` in
+  `console/dispatch/src/read/run.rs`, inside the poll;
+- the read-only host, `TEHAS_READ_ONLY` (`console/core/src/read_only.rs`),
+  asked by the console's shim and by git pushes;
+- the console's gh shim (`host/shim/gh`, with `console/src/gh_shim.rs` and
+  `gh_writes.rs`), under every host `gh` call;
+- the sandbox's gh shim (`host/sandbox/gh-shim`), in a cycle's container;
+- cycle's relay (`console/cycle/src/relay.rs`), between the container and
+  the host.
 
 ## Crate graph
 
@@ -90,27 +124,29 @@ From `cargo metadata`. Tests' own dependencies are in the last column.
 
 | Crate | Depends on | Its tests also use |
 | --- | --- | --- |
-| tehas-core | nothing of the workspace | |
+| tehas-ports | nothing of the workspace, serde alone | |
+| tehas-core | nothing of the workspace | attach |
 | store, attach, tehas-front, tehas-mcp, tehas-xtask | tehas-core | |
 | analytics | tehas-core | tehas-mcp |
 | tehas-cycle | attach, tehas-core | |
+| tehas-items | attach, tehas-core | |
 | tehas-dispatch | attach, tehas-core | |
 | tehas-ops | store, tehas-core, tehas-cycle | tehas-dispatch |
-| tehas-proxy | store, tehas-core, tehas-cycle | |
-| tehas-contractor | tehas-core, tehas-cycle | store, tehas-proxy |
 | tehas-plugin | tehas-core, tehas-ops | |
 | tehas-plugin-gate | tehas-core, tehas-plugin | |
-| console | attach, store, tehas-core, tehas-cycle, tehas-ops | tehas-dispatch |
+| console | attach, store, tehas-core, tehas-cycle, tehas-items, tehas-ops | tehas-dispatch |
 
 core depends on nothing, so the graph points inward at the root (R8).
+Its tests read links by attach's rule, which the issue feed takes as a
+parameter.
 The direction is not checked in CI yet. core itself mixes the pure
 rules with effects (`sandbox.rs`, `access.rs`, `call.rs`, `retry.rs`):
 T6 settles where the core ends.
 
 ## Grouping (R5)
 
-The plan's reading, to be checked by the grades: the store, mcp, attach,
-proxy, contractor and analytics are deep. core, ops, dispatch, cycle and
+The plan's reading, to be checked by the grades: the store, mcp, attach
+and analytics are deep. core, ops, dispatch, cycle and
 the console are grouped in places by the order the old bash ran, not by
 what they know. The `public-items` report lists the widest files (3553
 public items in all: core 1027, ops 411, cycle 385, store 299, the
@@ -142,25 +178,18 @@ the old term and removed at T9, and agreed with the owner first.
 
 ## Departures and floors
 
-None yet. A count that stays above 0 at the end of the work is written
-here with its reason, as a floor; a departure from a should rule (R5)
-likewise.
+A count that stays above 0 at the end of the work is written here with
+its reason, as a floor; a departure from a should rule (R5) likewise.
+
+| Check | Floor | Where | Reason |
+| --- | --- | --- | --- |
+| gh-argv, tests-stub-gh | 1 each | `console/tests/top_snapshot.rs` | the short name "gh" of a process in a fixture of /proc (`"name":"gh"`, #2859), which tehas top shows. Nothing runs gh. A pattern that skipped it would be fragile and allowing the file would hide a later gh call there, so it stays counted as a floor |
 
 ### Temporary rises
 
-Counts T15's ports raised. "Max before" is the max just before that pull request, not the fork value. The fork values are in the next table; the trio's gate fails any count left above its fork value at the end, and the plan's aim for each is 0 or a written floor.
+Empty since #2890. A T15 pull request that raises a count narrows the check in the same pull request: a test file whose every match is the check's data or tehas's own words goes in the check's `allowed`, by name and with what it covers, or a list copied in many tests gets one owner. A real finding goes to the step that fixes it in the plan.
 
-| Check | Max before | Max after | Pull request | Why (false positives) | Removed by |
-| --- | --- | --- | --- | --- | --- |
-| github-rest | 840 | 860 | #2859 | tehas's own --json flag, and tehas's JSON keys copied from GitHub's names | T4/T7: the check narrows to the adapter's paths, or the keys are renamed |
-| gh-argv | 408 | 409 | #2859 | a fixture's process named gh | T4 |
-| raw-statuses | 259 | 260 | #2859 | a fixture's 404 from the docs server | T4/T7 |
-| github-rest | 860 | 870 | #2860 | pi-rukas's runner flag --json, written as the tests pass it | T4/T7: the check narrows to the adapter's paths |
-| gh-argv | 404 | 406 | #2866 | the name gh in the list of tools the analytics tests stub to fail | T1 |
-| tests-stub-gh | 414 | 416 | #2866 | the same list of tools, counted again in a test file | T1 |
-| untyped-signatures | 1388 | 1389 | #2866 | a test helper that edits a row of GitHub's list, the untyped value preview::choose takes | T7 |
-
-Lowered since by removals, not by these rows' causes: github-rest 870 to 863 (#2862, the product wiki). The rises above stay to be removed by T4 and T7.
+#2890 cleared the rows of #2859, #2860, #2866 and #2879 that way. Allowed by name: console/tests/store_paths.rs for label-words and home-layout (the store lint's patterns and sample lines), console/tests/host_bridge.rs for raw-statuses (the docs server's 404), and console/cycle/tests/headless_caps.rs, top_snapshot.rs, top_view.rs and top_frame.rs for github-rest (the runner's and tehas top's --json, tehas's running.json). The list of tools every test stubs to fail has one owner, console/core/src/testing.rs, allowed in gh-argv, in place of eight copies of the deny list and three lists of tools stubbed to fail; that took out 10 in gh-argv and tests-stub-gh, 5 of them older than T15. Its findings moved: two github-rest lines to T4's Done, one untyped-signatures line to T7's, and the /proc fixture to the floor above. Counts at #2890: github-rest 819, gh-argv 386, tests-stub-gh 401, home-layout 491, label-words 1855, raw-statuses 259.
 
 ### Fork values
 
@@ -179,7 +208,7 @@ Each check's count at the fork (v1.4.0, a0aa16a5), as `architecture.toml` measur
 | raw-statuses | 259 |
 | tests-stub-gh | 419 |
 
-Above its fork value today: github-rest and raw-statuses, both from the rises above, for T4 and T7 to bring down.
+Above its fork value today: none. Below it: github-rest (804, 42 below), gh-argv (378, 30 below), tests-stub-gh (393, 26 below), raw-statuses (255, 4 below), label-words, home-layout and untyped-signatures.
 
 ## Grades
 

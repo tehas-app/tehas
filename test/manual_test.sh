@@ -82,7 +82,7 @@ t_eq "$(t_slug "$(sed -n 's/^## \(Sandbox image\)$/\1/p' "$docs/host.md")")" \
 TOOLS_PAGES=("$docs"/tools.md "$docs"/tools-dispatch.md "$docs"/tools-work.md \
   "$docs"/tools-plan.md "$docs"/tools-dev.md "$docs"/tools-setup.md \
   "$docs"/tools-control.md "$docs"/tools-status.md "$docs"/tools-tehasbot.md \
-  "$docs"/tools-health.md "$docs"/tools-protolab.md "$docs"/tools-github.md \
+  "$docs"/tools-health.md "$docs"/tools-github.md \
   "$docs"/tools-clean.md "$docs"/tools-update.md "$docs"/tools-releases.md)
 for page in "${TOOLS_PAGES[@]}"; do
   [ -f "$page" ] || t_bad "not a page: $page"
@@ -104,7 +104,7 @@ t_anchors() {
 # and pass.
 t_case "the anchor rule finds the headings of a tools page"
 t_anchors "$docs/tools-health.md" "$T/anchors"
-t_eq "$(grep -c . "$T/anchors")" 4
+t_eq "$(grep -c . "$T/anchors")" 3
 t_anchors "$docs/tools-tehasbot.md" "$T/anchors"
 grep -qxF -- the-pull-request-of-a-stopped-cycle "$T/anchors" \
   || t_bad "the bold lead-in of the finish section is no anchor"
@@ -167,12 +167,13 @@ done
 # gives of them. A section left in two pages, or dropped with the page it was
 # moved out of, shows here. `## tehas github check` came after the split, when
 # the check of the token got a tehas name of its own, and `## Host settings`
-# when the host's settings got rules beside the instance's, `## tehas outsource`
-# when outsource got its commands, `## tehas plugin` with plugins and `## The
-# commands of other parts` with the parts. `## tehasbot review` went with the
-# review loop in 2.0.
-t_case "the tools pages hold the 47 sections of the commands, each once"
-t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 47
+# when the host's settings got rules beside the instance's, `## tehas plugin`
+# with plugins and `## The commands of other parts` with the parts.
+# `## tehasbot review` went with the review loop in 2.0, `## tehasbot protolab`
+# with the Protolab, `## tehas outsource` with outsource and `## tehasbot top`
+# with the host panel.
+t_case "the tools pages hold the 44 sections of the commands, each once"
+t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 44
 t_eq "$(cat "${TOOLS_PAGES[@]}" | grep '^## ' | grep -v '^## The pages$' \
    | sort | uniq -d | wc -l | tr -d ' ')" 0
 
@@ -236,14 +237,14 @@ t_lists_of() { # <tehas|tehasbot> <file>
 t_case "the front's verbs and the lists of the pages are both read"
 t_front_verbs tehas "$T/verbs-tehas"
 t_front_verbs tehasbot "$T/verbs-tehasbot"
-t_eq "$(sort -u "$T/verbs-tehas" | grep -c . | tr -d ' ')" 39
-t_eq "$(sort -u "$T/verbs-tehasbot" | grep -c . | tr -d ' ')" 15
+t_eq "$(sort -u "$T/verbs-tehas" | grep -c . | tr -d ' ')" 37
+t_eq "$(sort -u "$T/verbs-tehasbot" | grep -c . | tr -d ' ')" 12
 t_lists_of tehas "$T/list-tehas"
 t_lists_of tehasbot "$T/list-tehasbot"
 [ "$(grep -c . "$T/list-tehas" | tr -d ' ')" -ge 25 ] ||
   t_bad "the command blocks name 25 tehas commands or fewer"
-[ "$(grep -c . "$T/list-tehasbot" | tr -d ' ')" -ge 13 ] ||
-  t_bad "the command blocks name 13 tehasbot commands or fewer"
+[ "$(grep -c . "$T/list-tehasbot" | tr -d ' ')" -ge 12 ] ||
+  t_bad "the command blocks name 12 tehasbot commands or fewer"
 
 # Every command the front routes is named in a command block of the pages, which
 # is where a person looks for it. A word the blocks name is matched as a whole
@@ -358,7 +359,7 @@ done
 t_case "each row of a feature still being built says so in its status"
 rows=$(awk -F' \\| ' '/^\| / && tolower($2) ~ /still being built/ {
   status = $3; sub(/ *\|$/, "", status); print status }' "$features")
-[ "$(grep -c . <<<"$rows")" -ge 7 ] || t_bad "fewer than 7 rows of building features: $rows"
+[ "$(grep -c . <<<"$rows")" -ge 3 ] || t_bad "fewer than 3 rows of building features: $rows"
 while IFS= read -r status; do
   case $status in
   'Still being built'*) ;;
@@ -586,13 +587,13 @@ fixture_mixed=$T/manual-compose-mixed.md
 
 # The manual as it stands, judged by the rule the fixtures below are shown the
 # same way. Two asks, one for each half of what "the manual is clean" means: that
-# the rule found the ten commands the finder finds, and that it found none of them
+# the rule found the nine commands the finder finds, and that it found none of them
 # without the host's environment.
 t_case "the manual runs compose over a file of host/edge, so the judge has work"
-t_verdict OK 10 10 "${pages[@]}"
+t_verdict OK 9 9 "${pages[@]}"
 
 t_case "every compose line of the manual reads env.sh first, on its own line or the one above"
-t_verdict BAD 0 10 "${pages[@]}"
+t_verdict BAD 0 9 "${pages[@]}"
 
 # The negative fixtures: pages made for the rule, judged by the same function that
 # judges the manual. A rule that matched nothing, or that matched and kept its
@@ -667,11 +668,11 @@ t_row 'docker compose -f ~/tehas/edge/router.compose.yaml up -d' "$docs/host.md"
 # line pass for the other. The judge is given the totals of its own choosing, so
 # were it shrunk off the lines it should read or widened onto lines it should not,
 # its own totals would go quietly wrong and this case would still say how many
-# commands the manual really writes. Ten, at the time of writing: four in the two
-# tables of host.md, two each in api.md and tools.md, one in edge.md, and one more
-# in troubleshooting.md besides the line that takes the containers down.
-t_case "the finder and the judge read the same ten commands of the manual"
-t_eq "$(compose_line "${pages[@]}" | wc -l)" 10
-t_eq "$(compose_found "${pages[@]}")" 10
+# commands the manual really writes. Nine, at the time of writing: four in the two
+# tables of host.md, one each in api.md, edge.md and tools-control.md, and two in
+# troubleshooting.md besides the line that takes the containers down.
+t_case "the finder and the judge read the same nine commands of the manual"
+t_eq "$(compose_line "${pages[@]}" | wc -l)" 9
+t_eq "$(compose_found "${pages[@]}")" 9
 
 t_done

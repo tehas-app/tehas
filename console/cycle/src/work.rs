@@ -75,7 +75,7 @@
 //!                hand, the state store could not be read, or the image the
 //!                container starts from could not be put on the cycle's
 //!                record. Where the instance gives a cycle the issue's
-//!                images or files: one could not be fetched, the issue could not
+//!                images: one could not be fetched, the issue could not
 //!                be read for them, or a file is not the one first fetched for
 //!                that approval. In both cases the issue is told which, with no
 //!                host path in what it is told.
@@ -136,11 +136,6 @@
 //!   TEHAS_RUKAS_WORKAROUNDS  settings that work around a pi-rukas defect, as
 //!                       NAME@VERSION: VERSION is the release that fixes it []
 //!   TEHAS_WORK_IMAGES   1 gives the cycle the images its issue links [0]
-//!   TEHAS_WORK_DESCRIBE 1 has the model describe those images first [0]
-//!   TEHAS_WORK_FILES    1 gives the cycle the text files its issue links [0]
-//!   TEHAS_WORK_COMMENTS 1 takes those of the issue's comments too [0]
-//!   TEHAS_WORK_ZIPS     1 unpacks a zip its issue links into the same directory
-//!                       [0]; needs TEHAS_WORK_IMAGES or TEHAS_WORK_FILES
 //! From the environment, for tests: TEHAS_PREFLIGHT_WAIT (seconds the push check
 //! may take [300]), TEHAS_WORK_GRACE (seconds past the time limit [300]),
 //! TEHAS_STOP_WAIT (seconds a docker stop may take before the container is
@@ -166,20 +161,11 @@
 //! container runs. A request still there when the container ends is answered
 //! with 1.
 //!
-//! On a contractor (outsource on, TEHAS_CONTRACTOR naming the contractor
-//! program) the renewer asks that program for the cycle's token and the relay
-//! hands each planned write to it: both go to the factory over the job
-//! channel. Before the container starts, the program is asked to hand the
-//! sources of its read-write mounts to the factory's account (`own`,
-//! src/prepare.rs). The container's mounts and variables are the same, pinned
-//! by the same test.
-//!
 //! With TEHAS_WORK_IMAGES=1 it is given two things more: the issue's images,
 //! read-only, and PI_ENSEMBLE_EXTRA_IMAGE_DIRS, their path inside the container.
 //! The images are fetched here, before anything starts:
-//!   which     Links to GitHub's own attachment storage in the issue's text.
-//!             Comments only with TEHAS_WORK_COMMENTS=1, and only from the
-//!             record: see below. Only when an allowed
+//!   which     Links to GitHub's own attachment storage in the issue's text,
+//!             not its comments. Only when an allowed
 //!             account approved the start, or the issue was opened by an owner,
 //!             member or collaborator. Where the dispatcher recorded its
 //!             approval on the state store, the links are the approval's and
@@ -190,41 +176,13 @@
 //!             it is text and can carry instructions.
 //!   how much  At most 8 images and 10 megabytes together.
 //!
-//! With TEHAS_WORK_FILES=1 it is given the same directory and the same variable,
-//! whether or not TEHAS_WORK_IMAGES is 1, and the directory holds the issue's
-//! text files too, by the same rule of which links and whose approval:
-//!   types     md, txt, csv, json, yaml, yml, log, html, css and js, by the
-//!             name's extension, then checked: valid UTF-8 and no NUL byte.
-//!             html is text here; rendering it is the Protolab's job.
-//!   how much  At most 16 files, 1 megabyte each and 4 megabytes together.
-//! They are named file-1.md and so on and listed under "files" in the manifest
-//! with their original name. The pi-rukas that tehas pins does not read them
-//! yet.
-//!
-//! With TEHAS_WORK_ZIPS=1 the same directory also holds what a zip the issue
-//! links contains, and this adds no mount and no variable more:
-//!   which     A link whose first four bytes are those of a zip archive, not one
-//!             named .zip that is something else: that is left out and said.
-//!             At most 2 archives per issue, each downloaded at most 4 MB.
-//!   what      Every file of the archive through the checks above: an image by
-//!             its first bytes, a text file by its extension and its encoding.
-//!             Anything else, an svg or a nested archive among them, is left
-//!             out with its path in the archive and the reason.
-//!   how much  The unpacked files count against the limits above, the images'
-//!             and the files', as the ones the issue links do. The archive is
-//!             unpacked on the room left of the files' 4 MB.
-//! They are named on from the linked ones, image-1.png and file-1.md, and each
-//! manifest entry says the zip it came from under "zip" and its path inside the
-//! archive under "path". The archive itself is not kept, and the directory it
-//! was unpacked into is removed whatever it held.
 //! They go to $TEHAS_HOME/work/<name>-<issue>.images, beside the workspace and
 //! not in it, so a patch cannot commit them, under names made here, with a
 //! manifest.json that lists each file, the link it came from, its type, size
 //! and sha256, the approval, and what was left out and why. The directory is
 //! remade for every cycle. The manifest is kept as
-//! state/cycles/<issue>.manifest.json, with images.md and comments.json
-//! beside it as <issue>.images.md and <issue>.comments.json when the cycle
-//! has them, and a later fetch of the same
+//! state/cycles/<issue>.manifest.json, with comments.json beside it as
+//! <issue>.comments.json when the cycle has it, and a later fetch of the same
 //! approval whose link gives other bytes stops the start. An image that is left
 //! out is said in a comment on the issue, and each one given with its sha256.
 //! That comment says whether the cycle was shown them, which is what the sandbox
@@ -233,22 +191,17 @@
 //! stops the start: a cycle that works without a picture the issue relies on
 //! builds the wrong thing.
 //!
-//! With TEHAS_WORK_COMMENTS=1 the record's comment_links are fetched too, after
-//! the body's links, under the same limits counted together: links of comments
-//! an allowed account wrote and nobody edited after the approval, as the
-//! dispatcher found them. Each is taken only while its author is still allowed.
-//! Every manifest entry has a source, "body", "comment:<id>" or, for a retry,
-//! "pr-comment:<id>". By hand there is no record, and only the body is read.
+//! Every manifest entry has the source "body": an issue's images come from its
+//! text alone. By hand there is no record, and the body is read the same way.
 //!
 //! A record whose retry_context holds anything gives the cycle comments: the
 //! comments a comments retry recorded at its tick (the issue's and its pull
-//! requests', by allowed accounts that may write), the fixer's note of a
-//! millwright's start, or a refresh's task. console/attach writes them to
-//! comments.json in the same directory, in the format of
-//! trail-openers/pi-rukas#2020, and names it under "comments" in the manifest:
+//! requests', by allowed accounts that may write) or a refresh's task.
+//! console/attach writes them to comments.json in the same directory, in the
+//! format of trail-openers/pi-rukas#2020, and names it under "comments" in the
+//! manifest:
 //! each item cut at 4000 characters, the blob at 64 KB with the oldest dropped
-//! and counted. With TEHAS_WORK_IMAGES and TEHAS_WORK_FILES both 0 the
-//! directory is still mounted and named in PI_ENSEMBLE_EXTRA_IMAGE_DIRS, and
+//! and counted. With TEHAS_WORK_IMAGES=0 the directory is still mounted and named in PI_ENSEMBLE_EXTRA_IMAGE_DIRS, and
 //! holds the manifest and comments.json alone. A blob that cannot be written
 //! starts no cycle.
 //!
@@ -260,11 +213,11 @@
 //! PI_ENSEMBLE_REPEAT_PARK=0 where the image takes it: the polyfill's comments
 //! do not reach the repeat-park guard.
 //!
-//! With neither setting and no comments a cycle is given nothing: no
+//! With no images and no comments a cycle is given nothing: no
 //! directory is mounted and no PI_ENSEMBLE_EXTRA_IMAGE_DIRS is passed on,
 //! whatever the instance file says. The issue is still read once, for its text, and held to the
-//! dispatcher's record (exit 4). That one read is the one the images and the
-//! files are fetched from too, so a start asks GitHub for the issue once
+//! dispatcher's record (exit 4). That one read is the one the images are
+//! fetched from too, so a start asks GitHub for the issue once
 //! whatever it is given. By hand, where this host holds no record, the run is
 //! its own approval and GitHub is asked for nothing.
 //! When the dispatcher's approval record lists attachment links, the gap is said
@@ -280,12 +233,6 @@
 //! the driver's own warning, kill, failure or cancellation, and the name of the
 //! file that holds them all. Never a claim that the record says nothing more
 //! without looking at the stream first.
-//!
-//! With TEHAS_WORK_DESCRIBE=1 the model endpoint describes each image in words
-//! first (tehas-cycle describe), into images.md in the same directory, for the steps
-//! that are not shown the pixels. It is in the directory already mounted: no
-//! mount and no variable more. A description that fails says so in the file and
-//! stops nothing.
 //!
 //! tehas work also bounds one child of a cycle, from TEHAS_CHILD_TIMEOUT, so a
 //! fixer still making progress is not stopped at pi-rukas's own default with
@@ -525,36 +472,11 @@ fn app_token(console: &str, words: &[&str]) -> Option<String> {
     (!token.is_empty()).then_some(token)
 }
 
-/// The cycle token the contractor program prints, which it asked the factory
-/// for and wrote where the container reads it.
-fn contractor_token(program: &Path) -> Option<String> {
-    let out = Command::new(program)
-        .arg("token")
-        .stdin(Stdio::null())
-        .stderr(Stdio::inherit())
-        .output()
-        .ok()
-        .filter(|o| o.status.success())?;
-    let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (!token.is_empty()).then_some(token)
-}
-
 /// The host's token and the cycle's: GH_TOKEN is the app's and the cycle token
 /// is the app's narrowed one (#1814).
 fn github_token(console: &str) -> i32 {
     // Before any thread: the process is still single-threaded.
     std::env::remove_var(sandbox::CYCLE_TOKEN);
-    if let Some(program) = contractor() {
-        // A contractor holds no app token: the host side and the container
-        // both act with the cycle's narrowed token, which the factory makes.
-        let Some(token) = contractor_token(&program) else {
-            eprintln!("tehas work: no cycle token from the factory, not starting a cycle");
-            return 1;
-        };
-        std::env::set_var("GH_TOKEN", &token);
-        std::env::set_var(sandbox::CYCLE_TOKEN, token);
-        return 0;
-    }
     let Some(token) = app_token(console, &[]) else {
         eprintln!("tehas work: no GitHub token for the app");
         return 1;
@@ -568,67 +490,17 @@ fn github_token(console: &str) -> i32 {
     0
 }
 
-/// The contractor program of a cycle run on a contractor: with outsource on,
-/// `TEHAS_CONTRACTOR` names it, and the cycle's token renewal and issue writes
-/// go to the factory through it instead of to a token command and gh of this
-/// host, which a contractor does not have. What the container is given is the
-/// same either way.
-pub(crate) fn contractor() -> Option<PathBuf> {
-    contractor_in(&env)
-}
-
-fn contractor_in(get: &dyn Fn(&str) -> String) -> Option<PathBuf> {
-    let program = get("TEHAS_CONTRACTOR");
-    (!program.is_empty() && tehas_core::features::on_in("outsource", get))
-        .then(|| PathBuf::from(program))
-}
-
-/// Where the relay runs the cycle's issue writes: gh of this host, or the
-/// factory through the contractor program. With outsource on, an in-house
-/// cycle's vipune calls are answered here too, from the factory's memory
-/// (src/memory.rs).
-fn relay_via(home: &Path, issue: u64) -> Box<dyn relay::Run + Send + Sync> {
-    match (contractor(), in_house_memory(home)) {
-        (Some(program), _) => Box::new(relay::Channel { program }),
-        (None, Some(memory)) => Box::new(relay::InHouse {
-            via: relay::Via::from_env(home),
-            memory: Box::new(memory),
-            cycle: crate::memory::of_issue(issue),
-        }),
-        (None, None) => Box::new(relay::Via::from_env(home)),
-    }
-}
-
-/// Whether the factory's memory answers this cycle's vipune calls: with
-/// outsource on, in-house and on a contractor alike.
-fn memory_on() -> bool {
-    tehas_core::features::on("outsource")
-}
-
-/// The factory's memory of an in-house cycle, when it is on.
-fn in_house_memory(home: &Path) -> Option<crate::memory::InImage> {
-    (memory_on() && contractor().is_none())
-        .then(|| crate::memory::InImage::of_home(home, &env("PI_ENSEMBLE_IMAGE")))
-}
-
 /// The renewer of the cycle's token while the container reads it. The watch
 /// ends it with a TERM, and it ends on its own when this process is gone. A renewer that cannot start is the line the cycle is
 /// refused with: without it the app's token ages out during a long run.
 fn renewer(home: &Path) -> Result<Child, String> {
     let every = renew::every(&env("TEHAS_GITHUB_RENEW_EVERY")).to_string();
     let retry = renew::RETRY.to_string();
-    let (cmd, args) = match contractor() {
-        Some(program) => (program, vec!["--arg", "token"]),
-        None => (
-            home.join("bin/tehasbot"),
-            vec!["--arg", "github-token", "--arg", "--cycle"],
-        ),
-    };
     let child = Command::new(home.join("libexec/tehas-cycle"))
         .arg("renew")
         .arg("--cmd")
-        .arg(cmd)
-        .args(args)
+        .arg(home.join("bin/tehasbot"))
+        .args(["--arg", "github-token", "--arg", "--cycle"])
         .args(["--every", &every, "--retry", &retry])
         .args(["--parent", &std::process::id().to_string()])
         .stdin(Stdio::null())
@@ -654,18 +526,10 @@ struct Relay {
 /// How long the end of a cycle waits for its relay.
 const RELAY_END_WAIT: Duration = Duration::from_secs(10);
 
-fn start_relay(
-    dir: &Path,
-    repo: &str,
-    issue: u64,
-    via: Box<dyn relay::Run + Send + Sync>,
-    wait: Duration,
-) -> Relay {
-    relay::mark_memory(dir, memory_on());
+fn start_relay(dir: &Path, repo: &str, issue: u64, via: relay::Via, wait: Duration) -> Relay {
     let stop = Arc::new(AtomicBool::new(false));
     let (d, repo, flag) = (dir.to_path_buf(), repo.to_string(), stop.clone());
-    let thread =
-        std::thread::spawn(move || relay::serve_via(&d, &repo, issue, &flag, via.as_ref()));
+    let thread = std::thread::spawn(move || relay::serve_via(&d, &repo, issue, &flag, &via));
     Relay {
         dir: dir.to_path_buf(),
         stop,
@@ -704,72 +568,10 @@ fn reap(mut child: Child) {
     let _ = child.wait();
 }
 
-/// A child to its end, or until a stop came: then it is left to finish on its
-/// own, as a step's command is, and None. Err when its end could not be read:
-/// it is killed then, so it writes nothing once the cycle has begun.
-fn until_stop(mut child: Child, stop: &Stop) -> Option<Result<bool, std::io::Error>> {
-    loop {
-        match child.try_wait() {
-            Ok(Some(s)) => return Some(Ok(s.success())),
-            Ok(None) if stop.flag().load(std::sync::atomic::Ordering::SeqCst) => return None,
-            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
-            Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Some(Err(e));
-            }
-        }
-    }
-}
-
-/// How the descriptions of a start's images ended, when no stop came.
-#[derive(Debug, PartialEq)]
-enum Described {
-    Written,
-    /// describe ran and failed.
-    Failed,
-    /// describe could not be started: nothing was attempted.
-    Unstarted(String),
-    /// describe's end could not be read: whether it wrote them is not known.
-    Unread(String),
-}
-
-/// describe run on the images, as `me describe <dir> <issue>`. None when a
-/// stop came.
-fn describe(me: &Path, dir: &Path, issue: u64, stop: &Stop) -> Option<Described> {
-    let child = Command::new(me)
-        .arg("describe")
-        .arg(dir)
-        .arg(issue.to_string())
-        .stdin(Stdio::null())
-        .spawn();
-    let child = match child {
-        Ok(c) => c,
-        Err(e) => return Some(Described::Unstarted(format!("{}: {e}", me.display()))),
-    };
-    Some(match until_stop(child, stop)? {
-        Ok(true) => Described::Written,
-        Ok(false) => Described::Failed,
-        Err(e) => Described::Unread(e.to_string()),
-    })
-}
-
-/// The line that says how the descriptions ended, or None when they were
-/// written. Each says what happened, as a failure stops no start.
-fn described_line(d: &Described) -> Option<String> {
-    let line = match d {
-        Described::Written => return None,
-        Described::Failed => "describe failed: the descriptions of the images could not be written, the cycle goes on without them".to_string(),
-        Described::Unstarted(why) => format!("describe could not be started ({why}): no description of the images was attempted, the cycle goes on without them"),
-        Described::Unread(why) => format!("the end of describe could not be read ({why}), it was killed: whether the descriptions of the images were written is not known, the cycle goes on"),
-    };
-    Some(format!("tehas work: {line}"))
-}
-
-/// The comment of a start that could not get the issue's images or files.
+/// The comment of a start that could not get the issue's images.
 /// `why` can quote what an issue links, so a marker in it is broken.
-fn images_refused(why: &str, kinds: &str) -> String {
-    format!("Tehas started no cycle: {}. This instance gives a cycle the {kinds} an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply `tehas:ready`.", disarm(why))
+fn images_refused(why: &str) -> String {
+    format!("Tehas started no cycle: {}. This instance gives a cycle the images an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply `tehas:ready`.", disarm(why))
 }
 
 /// The comment of a start whose plugin's files are not the ones a person
@@ -779,11 +581,11 @@ fn files_refused(why: &str) -> String {
 }
 
 /// The words of the comment on a start the issue's files refused.
-fn refused_comment(why: &str, kinds: &str) -> String {
+fn refused_comment(why: &str) -> String {
     if why.starts_with(gives::FILES_CHANGED) {
         files_refused(why)
     } else {
-        images_refused(why, kinds)
+        images_refused(why)
     }
 }
 
@@ -823,7 +625,8 @@ enum Approved {
 fn approved(issue: u64, record: &str, console: &str) -> Approved {
     if start::is_record(record) {
         // The dispatcher's record of the start: who approved and which links. A
-        // start of the millwright's counts on the person's approval it rests on.
+        // millwright's start 1.4.x recorded counts on the person's approval it
+        // rests on.
         return if gives::record_approves(record) {
             Approved::Yes
         } else {
@@ -854,14 +657,13 @@ struct Files<'a> {
     dir: &'a Path,
     inside: &'a str,
     kept: &'a Path,
-    kinds: &'a str,
     text_wait: u64,
 }
 
-/// The issue's images and files, fetched before the workspace: a start that
+/// The issue's images and filed files, fetched before the workspace: a start that
 /// fails here must not move aside what the last cycle left. The options that
 /// give them to the container, or the exit status.
-fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<String>, i32> {
+fn fetch(f: &Files, answer: &str, console: &str) -> Result<Vec<String>, i32> {
     let n = f.issue;
     let ok = match approved(n, f.record, console) {
         Approved::Unread => {
@@ -881,24 +683,8 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
     if let Err(why) = ok {
         let _ = fs::remove_dir_all(f.dir);
         eprintln!("tehas work: {why}, not starting a cycle");
-        comment(n, f.text_wait, &refused_comment(&why, f.kinds));
+        comment(n, f.text_wait, &refused_comment(&why));
         return Err(i32::from(NOT_STARTED));
-    }
-    if env("TEHAS_WORK_DESCRIBE") == "1" {
-        // A program of its own, so a stop does not wait on the model.
-        // The tehas-cycle beside the script, as a pinned cycle has it.
-        let me = Path::new(console).with_file_name("tehas-cycle");
-        match describe(&me, f.dir, n, stop) {
-            None => {
-                stop.came();
-                return Err(STOPPED);
-            }
-            Some(d) => {
-                if let Some(line) = described_line(&d) {
-                    eprintln!("{line}");
-                }
-            }
-        }
     }
     let kept_new = f.kept.with_extension("json.new");
     let copied = fs::copy(f.dir.join("manifest.json"), &kept_new).is_ok()
@@ -921,7 +707,8 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
 /// removed when the cycle ends. Only this cycle's: an earlier one's would
 /// mislead.
 fn keep_beside(f: &Files) {
-    // retry-context.md is written no more: one an earlier release kept goes.
+    // images.md and retry-context.md are written no more: one an earlier
+    // release kept goes.
     for name in ["images.md", "comments.json", "retry-context.md"] {
         let beside = Home::new(f.home).cycle_note(f.issue, name);
         let _ = fs::remove_file(&beside);
@@ -945,8 +732,8 @@ fn mounted(f: &Files) -> Vec<String> {
     ]
 }
 
-/// A retry's comments for an instance that gives a cycle no images and no
-/// files: the directory holds the manifest and comments.json alone. The
+/// A retry's comments for an instance that gives a cycle no images: the
+/// directory holds the manifest and comments.json alone. The
 /// options that give it to the container, or the exit status.
 fn comments_alone(f: &Files) -> Result<Vec<String>, i32> {
     let n = f.issue;
@@ -1107,18 +894,9 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         return STOPPED;
     }
 
-    // The images and the text files share one directory, given to the container
-    // when the instance gives either kind.
-    let (files_on, images_on) = (
-        env("TEHAS_WORK_FILES") == "1",
-        env("TEHAS_WORK_IMAGES") == "1",
-    );
-    let give = files_on || images_on;
-    let kinds = match (images_on, files_on) {
-        (true, true) => "images and files",
-        (false, true) => "files",
-        _ => "images",
-    };
+    // The images' directory, given to the container when the instance gives
+    // images.
+    let give = env("TEHAS_WORK_IMAGES") == "1";
     // The bot's identity, what the container is given and what the image
     // supports, before anything is moved or fetched. What the next steps need
     // is in the prepared file.
@@ -1178,7 +956,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         return 78;
     }
     let mut image_opts = Vec::new();
-    // A retry's comments are given whatever the instance gives of files.
+    // A retry's comments are given whatever the instance gives of images.
     let comments = !give && gives::comments_given(&record);
     if comments {
         let f = Files {
@@ -1188,7 +966,6 @@ pub fn run(home: &Path, g: &Given) -> i32 {
             dir: &images,
             inside: &images_inside,
             kept: &kept,
-            kinds,
             text_wait,
         };
         image_opts = match comments_alone(&f) {
@@ -1204,10 +981,9 @@ pub fn run(home: &Path, g: &Given) -> i32 {
             dir: &images,
             inside: &images_inside,
             kept: &kept,
-            kinds,
             text_wait,
         };
-        image_opts = match fetch(&f, &answer, &g.console, &stop) {
+        image_opts = match fetch(&f, &answer, &g.console) {
             Ok(o) => o,
             Err(rc) => return rc,
         };
@@ -1296,17 +1072,11 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     let email = git_email();
     // The relay masks what it posts with the names the console masks.
     let _ = tehas_core::mask::set_private(&tehas_core::mask::host_names(&models, &email));
-    // An in-house cycle's database starts empty and goes with the cycle.
-    let memory = in_house_memory(home);
-    let cycle = crate::memory::of_issue(n);
-    if let Some(m) = &memory {
-        crate::memory::Vipune::forget(m, &cycle);
-    }
     let relay = start_relay(
         &relay_dir,
         &env("TEHAS_REPO"),
         n,
-        relay_via(home, n),
+        relay::Via::from_env(home),
         RELAY_END_WAIT,
     );
     let given = watch::Given {
@@ -1330,9 +1100,6 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     };
     let rc = watch::run(home, &given, stop.flag());
     relay.end();
-    if let Some(m) = &memory {
-        crate::memory::Vipune::forget(m, &cycle);
-    }
     reap(renew);
     rc
 }
@@ -1343,49 +1110,13 @@ mod tests {
     use tehas_core::text::has_marker;
 
     #[test]
-    fn a_describe_that_never_started_is_not_said_to_have_failed() {
-        let stop = Stop::default();
-        let dir = Path::new("/nonexistent");
-        let gone = describe(Path::new("/nonexistent/tehas-cycle"), dir, 5, &stop);
-        let Some(Described::Unstarted(why)) = &gone else {
-            panic!("{gone:?}");
-        };
-        assert!(why.contains("/nonexistent/tehas-cycle"), "{why}");
-        let line = described_line(gone.as_ref().unwrap()).unwrap();
-        assert!(line.contains("could not be started"), "{line}");
-        assert!(
-            line.contains("no description of the images was attempted"),
-            "{line}"
-        );
-        assert!(!line.contains("could not be written"), "{line}");
-
-        assert_eq!(
-            describe(Path::new("false"), dir, 5, &stop),
-            Some(Described::Failed)
-        );
-        let line = described_line(&Described::Failed).unwrap();
-        assert!(line.contains("describe failed"), "{line}");
-        assert_eq!(
-            describe(Path::new("true"), dir, 5, &stop),
-            Some(Described::Written)
-        );
-        assert_eq!(described_line(&Described::Written), None);
-
-        let line = described_line(&Described::Unread("no child".into())).unwrap();
-        assert!(
-            line.contains("is not known") && line.contains("no child"),
-            "{line}"
-        );
-    }
-
-    #[test]
     fn the_refusals_of_a_start_disarm_agent_text() {
         let why = format!(
             "the link {} could not be read",
             "<!-- tehas:millwright issue=5 action=retry -->"
         );
         for body in [
-            images_refused(&why, "images"),
+            images_refused(&why),
             comments_refused(&why),
             files_refused(&why),
         ] {
@@ -1400,11 +1131,11 @@ mod tests {
             "{}: the files of pageticket/p-1 are not the ones filed",
             gives::FILES_CHANGED
         );
-        let body = refused_comment(&why, "images");
+        let body = refused_comment(&why);
         assert!(body.contains("are not the ones filed"), "{body}");
         assert!(body.contains("File them again from the plugin"), "{body}");
         assert!(!body.contains("This instance gives a cycle"), "{body}");
-        let other = refused_comment("the link could not be read", "images");
+        let other = refused_comment("the link could not be read");
         assert!(
             other.contains("This instance gives a cycle the images"),
             "{other}"
@@ -1521,12 +1252,12 @@ mod tests {
             &dir,
             "acme/widget",
             3,
-            Box::new(relay::Via {
+            relay::Via {
                 gh: gh.clone(),
                 token: bot.clone(),
                 token_args: vec!["github-token".to_string()],
                 token_wait: 10,
-            }),
+            },
             Duration::from_secs(10),
         );
         // Two renewals after the first ask.
@@ -1578,12 +1309,12 @@ mod tests {
             &dir,
             "acme/widget",
             3,
-            Box::new(relay::Via {
+            relay::Via {
                 gh,
                 token,
                 token_args: vec![],
                 token_wait: 30,
-            }),
+            },
             Duration::from_secs(1),
         );
         let ask = |pid: &str| {
@@ -1626,44 +1357,5 @@ mod tests {
         assert_eq!(short_wait("TEHAS_TEST_SHORT_WAIT", 60), 7);
         std::env::remove_var("TEHAS_TEST_SHORT_WAIT");
         assert_eq!(short_wait("TEHAS_TEST_SHORT_WAIT", 60), 60);
-    }
-
-    #[test]
-    fn a_contractor_named_with_outsource_off_is_not_used() {
-        // The variable alone moves nothing: a cycle's writes and renewal go to
-        // the factory only with the feature on.
-        let of = |pairs: &'static [(&'static str, &'static str)]| {
-            move |name: &str| {
-                pairs
-                    .iter()
-                    .find(|(k, _)| *k == name)
-                    .map_or_else(String::new, |(_, v)| v.to_string())
-            }
-        };
-        let test = tehas_core::features::TEST_VAR;
-        let off = of(&[("TEHAS_CONTRACTOR", "/opt/c"), ("TEHAS_OUTSOURCE", "off")]);
-        assert_eq!(contractor_in(&off), None);
-        let building = of(&[("TEHAS_CONTRACTOR", "/opt/c"), ("TEHAS_OUTSOURCE", "on")]);
-        assert_eq!(contractor_in(&building), None);
-        let unnamed: Vec<(&str, &str)> = vec![("TEHAS_OUTSOURCE", "on"), (test, "outsource")];
-        let get = |n: &str| {
-            unnamed
-                .iter()
-                .find(|(k, _)| *k == n)
-                .map_or_else(String::new, |(_, v)| v.to_string())
-        };
-        assert_eq!(contractor_in(&get), None);
-        let named: Vec<(&str, &str)> = vec![
-            ("TEHAS_CONTRACTOR", "/opt/c"),
-            ("TEHAS_OUTSOURCE", "on"),
-            (test, "outsource"),
-        ];
-        let get = |n: &str| {
-            named
-                .iter()
-                .find(|(k, _)| *k == n)
-                .map_or_else(String::new, |(_, v)| v.to_string())
-        };
-        assert_eq!(contractor_in(&get), Some(PathBuf::from("/opt/c")));
     }
 }

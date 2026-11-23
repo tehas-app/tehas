@@ -68,8 +68,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -204,8 +202,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -341,8 +337,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -480,8 +474,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -616,8 +608,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -753,8 +743,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -889,8 +877,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1025,8 +1011,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1176,8 +1160,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1327,8 +1309,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1478,8 +1458,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1629,8 +1607,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1765,8 +1741,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -1901,8 +1875,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2037,8 +2009,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2180,8 +2150,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2315,8 +2283,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2495,8 +2461,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2638,8 +2602,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2774,8 +2736,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -2909,8 +2869,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3050,8 +3008,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },
@@ -3185,8 +3141,6 @@
     "approval": null,
     "current": null,
     "rests_on": null,
-    "millwright_starts": 0,
-    "fixer_starts": 0,
     "refreshes": 0,
     "easy": false
    },

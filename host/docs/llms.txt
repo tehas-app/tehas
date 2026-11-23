@@ -61,7 +61,7 @@ factory.
    put what it shows in words.
 3. The label `tehas:ready` authorizes the work, and only counts when a person
    on the factory's allow list applies it. If you are not that person, stop
-   here and ask them. Use `tehas:prototype` for an idea that is not ready.
+   here and ask them. Leave an idea that is not ready without a tehas label.
 4. Follow the labels on the issue: `tehas:running`, then
    `tehas:awaiting-merge` with a pull request, or `needs-human-attention` with
    a comment saying where it stopped.
@@ -89,8 +89,8 @@ The source is at https://github.com/tehas-app/tehas, and a running example with
 this same manual is at https://tehas.app/. Be honest with your human about its
 state: issue to pull request is the supported contract and needs settings only.
 A running preview of every pull request has been seen working on one host,
-the example instance; parts of it are covered by tests only. Previews and the
-Protolab are optional and can be ignored for a first install.
+the example instance; parts of it are covered by tests only. Previews are
+optional and can be ignored for a first install.
 
 Start with [Start]({{ $base }}/start.md): what to find in the repository
 first, the install in order, and where to stop and ask your human.
@@ -112,15 +112,14 @@ first, the install in order, and where to stop and ask your human.
 - [The host]({{ $base }}/host.md): layout on the machine and the sandbox contract test
 - [The front end]({{ $base }}/frontend.md): how the dashboard and the front pages are built, the island contract, the kit and the byte budgets
 - [Resize or restart the host]({{ $base }}/resize.md): changing a host VM's CPUs and memory, and restarting its hypervisor, without a drain: what a person does on the hypervisor, in libvirt
-- [Previews and the Protolab on the internet]({{ $base }}/edge.md): a preview of every pull request, and how the names were published
+- [Previews on the internet]({{ $base }}/edge.md): a preview of every pull request, and how the names were published
 - [Commands]({{ $base }}/tools.md): `tehas`, `tehasbot` and what each of their commands does, with the instance settings and the gates
-- [The contract]({{ $base }}/contract.md): what is public and frozen in 1.x, what is internal, and the exit statuses of every public command
+- [The contract]({{ $base }}/contract.md): what is public and frozen in 2.x, what is internal, what changed in 2.0, and the exit statuses of every public command
 - [Updating from 0.30.x to 1.0]({{ $base }}/operating.md#updating-from-030x-to-10): edit the settings, drain, update, and every setting, label, command, field and exit status 1.0 renamed or removed
 - [The forge trait]({{ $base }}/forge.md): how tehas asks GitHub about labels, an internal trait; 1.0 promises no forge interface
 - [The factory API]({{ $base }}/api.md): the commands a program drives a factory with, and their JSON
 - [Analytics]({{ $base }}/analytics.md): the factory's 365 days of runs in SQLite, its schema, and how to fetch a copy
 - [The MCP server]({{ $base }}/mcp-server.md): a read-only view of the factory for agents outside the host, behind API keys
-- [Outsource, the model proxy]({{ $base }}/outsource.md): the one way a contractor's cycle reaches the factory's model, and what it refuses
 - [Plugins]({{ $base }}/plugins.md): plugins, still being built: how one is set up and run, what each capability gives, and what no grant gives
 
 ## Ask this factory over MCP

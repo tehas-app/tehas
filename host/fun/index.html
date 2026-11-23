@@ -60,7 +60,6 @@
   <link rel="icon" type="image/svg+xml" href="/fun/favicon.svg">
   <link rel="stylesheet" href="/fun/theme-{{ $design }}.css">
   <link rel="stylesheet" href="/fun/game-view.css">
-  <link rel="stylesheet" href="/fun/host-view.css">
   <link rel="stylesheet" href="/fun/panels.css">
   {{- /* Visitor analytics, only on an instance that names a script and a site. */}}
   {{- if and (env "TEHAS_SITE_ANALYTICS_SRC") (env "TEHAS_SITE_ANALYTICS_NAME") }}
@@ -87,9 +86,7 @@
     <nav class="menu" aria-label="Sections">
       <a href="#top">FACTORY FLOOR</a>
       <a href="#board" data-filter="open">ISSUE BOARD</a>
-      <a href="#lab">PROTOLAB</a>
       <a href="#console">PRODUCTION CONSOLE</a>
-      <a href="#host" id="menu-host" hidden>HOST</a>
       <a href="#break-room">BREAKROOM</a>
       <a href="/overview">MANUAL</a>
       <a href="/agents">AGENTS</a>
@@ -105,9 +102,6 @@
         <h1 id="floor-title">TEHAS: THE LEAN SOFTWARE FACTORY</h1>
         <p class="floor-intro">The floor of an open source lean software factory powered by the <a href="https://pi.dev" target="_blank" rel="noopener noreferrer">Pi coding agent</a> and <a href="https://github.com/trail-openers/pi-rukas" target="_blank" rel="noopener noreferrer">pi-rukas</a>. GitHub issues go in and reviewed pull requests come out, built in a sandbox on self-hosted models. A person merges. <a href="/lean-software-factory">HOW IT WORKS</a> <a href="/operating#1-write-an-issue-tehas-can-build">HOW TO WRITE AN ISSUE</a></p>
         <p id="floor-summary">Waiting for ticket data.</p>
-        <a class="floor-host" id="floor-host" href="#host" aria-label="Host. Opens Host." hidden>
-          <b>HOST</b><span><i id="floor-host-cpu">--</i></span>
-        </a>
       </div>
 
       <div class="line">
@@ -160,7 +154,6 @@
       <a class="door" id="door-stopped-link" href="#board" data-filter="stopped"><span><b>STOPPED</b><small id="door-stopped-note">NEEDS A HUMAN</small></span><i id="door-stopped">--</i></a>
       <a class="door" href="#board" data-filter="backlog"><span><b>NOT ON THE LINE</b><small id="door-backlog-note">OPEN, NOT QUEUED</small></span><i id="door-backlog">--</i></a>
       <a class="door" href="#break-room"><span><b>BREAKROOM</b><small>BUZZWORD BUSTER</small></span></a>
-      <a class="door" href="#lab"><span><b>PROTOLAB</b><small>PROTOTYPE STAGE</small></span><i id="door-lab">--</i></a>
       <a class="door" id="door-console-link" href="#console"><span><b>PRODUCTION CONSOLE</b><small id="door-console">CHECKING</small></span></a>
     </nav>
 
@@ -216,20 +209,6 @@
       </div>
     </section>
 
-    <section class="lab" id="lab" aria-labelledby="lab-title">
-      <div class="lab-head">
-        <h2 id="lab-title">PROTOLAB</h2>
-        <p id="lab-count" role="status"></p>
-      </div>
-      <div class="lab-body">
-        <ul class="rows" id="lab-rows"></ul>
-        <figure class="lab-scene">
-          <img src="/fun/scene-lab.svg" width="400" height="280" loading="lazy" alt="Through an office window: one colleague has an idea, a second sketches it in a notebook, and a third reads it and passes it on.">
-          <figcaption>The Protolab holds tickets at the prototype stage: those labelled tehas:prototype by an allowed account. Each has a page there with the images, videos and static HTML files attached to it. A ticket joins the line when an allowed account labels it tehas:ready.</figcaption>
-        </figure>
-      </div>
-    </section>
-
     <section class="console" id="console" aria-labelledby="console-title">
       <div class="console-head">
         <h2 id="console-title">PRODUCTION CONSOLE</h2>
@@ -255,27 +234,6 @@
       </div>
       <p class="epics-intro">An epic is an open issue with sub-issues. Open one to see them. It leaves the stack when it is closed.</p>
       <div class="epics-list" id="epics-list"></div>
-    </section>
-
-    <section class="host" id="host" aria-labelledby="host-title" hidden>
-      <div class="host-head">
-        <h2 id="host-title">HOST</h2>
-        <p class="host-scope"><span id="host-cpus"></span> <span>LOAD</span> <span id="host-load"></span> <span class="host-state" id="host-state" role="status">CHECKING</span></p>
-      </div>
-      <div class="host-body">
-        <p class="host-readings">
-          <span>CPU <span class="host-gauge" id="host-cpu-gauge" aria-hidden="true"></span> <b id="host-cpu">--</b></span>
-          <span>MEMORY <span class="host-gauge" id="host-mem-gauge" aria-hidden="true"></span> <b id="host-mem">-</b> <b id="host-mem-percent">--</b></span>
-        </p>
-        <table class="host-table" aria-label="Processes on the host">
-          <thead><tr><th scope="col">PID</th><th scope="col">PROCESS</th><th scope="col" class="num">CPU</th><th scope="col" class="num col-mem">MEM</th><th scope="col" class="num">UP</th></tr></thead>
-          <tbody id="host-rows"></tbody>
-        </table>
-        <table class="host-table host-units" id="host-units" aria-label="Units of the factory">
-          <thead><tr><th scope="col">UNIT</th><th scope="col">INSTALLED</th><th scope="col">STATE</th><th scope="col" class="num col-next">NEXT</th></tr></thead>
-          <tbody id="host-unit-rows"></tbody>
-        </table>
-      </div>
     </section>
 
     <section class="break-room" id="break-room" aria-labelledby="break-title">
@@ -333,7 +291,6 @@ __ __/\ _/       \_   \____/__   _     \__   _/     \\______   \_ /\___ ___ _
   <script src="/fun/console-tabs.js"></script>
   <script src="/fun/fold-fit.js"></script>
   <script type="module" src="/fun/game-view.js"></script>
-  <script type="module" src="/fun/host-view.js"></script>
   <script src="/fun/dom.js"></script>
   <script src="/fun/epics-view.js"></script>
   <script src="/fun/versions.js"></script>

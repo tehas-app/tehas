@@ -13,10 +13,8 @@ use std::path::{Path, PathBuf};
 /// brings it, and taken out only with the feature itself. The shipped features
 /// of the registry (core/src/features.rs) follow these; a building one is not
 /// a word of `features`.
-const FEATURES: [&str; 33] = [
+const FEATURES: [&str; 31] = [
     "status",
-    "millwright-grant",
-    "all-hands",
     "limit",
     "drain",
     "history",
@@ -233,13 +231,13 @@ mod tests {
     #[test]
     fn the_keys_stay_in_the_order_of_the_api() {
         let poll = J::parse(r#"{"z":1,"a":2}"#).unwrap();
-        let flags = [("outsource", false), ("other", true)];
+        let flags = [("plugins", false), ("other", true)];
         let printed = object("v1.2.3", "acme/widget", "mill", &flags, poll).dump();
         assert!(printed.starts_with(
             r#"{"api":1,"tehas":"v1.2.3","commit":null,"repo":"acme/widget","features":["status","#
         ));
         assert!(printed.ends_with(
-            r#""disk","panels","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags","status-previews","wake","start-reasons","blockers","answer","question"],"flags":{"outsource":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2}}"#
+            r#""disk","panels","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags","status-previews","wake","start-reasons","blockers","answer","question"],"flags":{"plugins":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2}}"#
         ));
     }
 
@@ -258,6 +256,10 @@ mod tests {
             assert!(!pinned.contains(&f.name), "{} is still being built", f.name);
         }
     }
+
+    /// The words 2.0 takes out with their features. Within a major a word is
+    /// only added.
+    const DROPPED_IN_2: [&str; 2] = ["all-hands", "millwright-grant"];
 
     /// The words of api/features.txt at the newest tag that holds it, when git
     /// has the history: a shallow clone or a tree with no tag skips the check.
@@ -292,7 +294,10 @@ mod tests {
             return;
         };
         let then = git(&["show", &format!("{tag}:{file}")]).unwrap();
-        let then: Vec<&str> = then.lines().filter(|l| !l.starts_with('#')).collect();
+        let then: Vec<&str> = then
+            .lines()
+            .filter(|l| !l.starts_with('#') && !DROPPED_IN_2.contains(l))
+            .collect();
         assert!(
             features().starts_with(&then),
             "features drops or moves a word of {tag}: only add, at the end"
@@ -348,10 +353,10 @@ mod tests {
 
     #[test]
     fn the_poll_line_takes_the_column_of_the_others() {
-        let flags = [("outsource", false), ("other", true)];
+        let flags = [("plugins", false), ("other", true)];
         let got = lines("cb6912a", "a/b", "", &flags, "poll  last 2 s wall");
         assert_eq!(got[1], "tehas       unknown (cb6912a)");
-        assert_eq!(got[4], "flags       outsource=off other=on");
+        assert_eq!(got[4], "flags       plugins=off other=on");
         assert_eq!(got[5], "millwright  none");
         assert_eq!(got[6], "poll        last 2 s wall");
         assert_eq!(lines("", "a/b", "", &flags, "").len(), 6);

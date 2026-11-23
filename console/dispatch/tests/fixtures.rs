@@ -359,22 +359,14 @@ fn expand(c: &Value, snap: &mut Value) {
         }
     }
     // approved: the approval of the issue's latest start, as `past` writes
-    // it: {by, at, body, fixer_starts}. With fixer starts, the latest is the
-    // fixer's and rests on the person's.
+    // it: {by, at, body, how}.
     if let Some(m) = c.get("approved").and_then(Value::as_object) {
         let mut is = issues(snap);
         for (n, x) in m {
             let sum = body_sha256(&json!({"body": x["body"]}));
             let base = json!({"at": x["at"], "by": x["by"], "how": x.get("how").unwrap_or(&json!("label")), "body_sha256": sum});
-            let record = match x.get("fixer_starts").and_then(Value::as_u64) {
-                Some(k) if k > 0 => {
-                    json!({"at": "2026-10-01T05:00:00Z", "by": "tehas-fixer", "how": "fixer",
-                    "body_sha256": sum, "fixer_starts": k, "rests_on": base})
-                }
-                _ => base,
-            };
             let i = is.entry(n.clone()).or_insert_with(|| json!({}));
-            i["approval"] = record;
+            i["approval"] = base;
         }
         snap["issues"] = Value::Object(is);
     }
@@ -836,11 +828,6 @@ fn lean() {
 }
 
 #[test]
-fn outsource() {
-    run_suite("outsource");
-}
-
-#[test]
 fn approval() {
     run_suite("approval");
 }
@@ -891,7 +878,7 @@ fn read_only() {
 }
 
 #[test]
-fn fixer() {
+fn millwright() {
     run_suite("fixer");
 }
 
@@ -944,8 +931,8 @@ fn every_logged_hold_of_the_fixtures_has_a_code() {
         // Rule 5a, a refine of a park: it starts no cycle.
         "not refined",
         // Rule 5, the answers of a planning session: a turn, not a start.
-        "the fixer's answer runs no turn",
-        "the fixer saved the question after another account did",
+        "the millwright's answer runs no turn",
+        "the millwright saved the question after another account did",
         "the question answered is not the one this session is waiting on",
         "the ticked box matches no option on record",
         // Rule 2's clean-up of the running mark, not a hold of a start.

@@ -8,22 +8,12 @@
 -- oldest store db::migrate takes is the one v0.30.0 wrote, schema 12 (db::OLDEST):
 -- sections 3.10 to 3.12 were gone by then. Schema 13 adds the
 -- started_* columns of approvals (db::STEP_13). Schema 14 lets cycles.how say
--- 'host', a start `tehas start` approved (db::STEP_14). Schema 15 adds the
--- five outsource tables of section 3.15, in outsource.sql (db::step_15). Every
--- store holds them; only a factory with TEHAS_OUTSOURCE=1 writes a row of
--- them. No secret is in them: an invite code is kept only as the sha256 of
--- what was printed, and a contractor gives only its public key, so there is
--- no private key of any kind in the file. Schema 16 lets actions.state say
--- 'unknown', a write GitHub may have taken, and writes 'millwright' in every
--- row that still said 'fixer' (db::STEP_16). Schema 17 adds to the outsource
--- tables (db::STEP_17, which init runs after outsource.sql): jobs.token_sha256,
--- the sha256 of a job's token and never the token, and the report_* columns of
--- contractors, what a contractor last said it has. Schema 18 gives a job's
--- token two scopes (db::STEP_18, run after STEP_17): jobs.token_sha256 becomes
--- job_token_sha256, the contractor program's token for the job channel, and
--- model_token_sha256 is the token of the container's models.json. Schema 19
--- adds plugin_runs, one row per run of a plugin (db::STEP_19, run after
--- STEP_18). Schema 24 adds answers, an answer `tehas answer` gave to the
+-- 'host', a start `tehas start` approved (db::STEP_14). Schemas 15, 17 and 18
+-- held the five tables of outsource (db::STEP_15, STEP_17, STEP_18), which
+-- schema 29 drops (db::DROP_OUTSOURCE): init lays none of them. Schema 16 lets
+-- actions.state say 'unknown', a write GitHub may have taken, and writes
+-- 'millwright' in every row that still said 'fixer' (db::STEP_16). Schema 19
+-- adds plugin_runs, one row per run of a plugin (db::STEP_19). Schema 24 adds answers, an answer `tehas answer` gave to the
 -- question on record of an issue (db::STEP_24_INIT, run after STEP_23), and
 -- cycles.how takes 'answer', which db::STEP_24 rebuilds cycles for.
 -- Schema 25 adds questions.offers, the choices a park's question offers
@@ -32,7 +22,10 @@
 -- longer takes 'retry-tick' (every one stored became 'reply', in cycles,
 -- approvals and cycle_history), and questions.reask marks a question open at
 -- the upgrade, which the first poll asks again in 2.0's words
--- (db::STEP_27, db::STEP_27_INIT at init).
+-- (db::STEP_27, db::STEP_27_INIT at init). Schema 28: cycles.how no longer
+-- takes 'fixer' and planning_notes.kind no longer takes 'fixer-refused'
+-- (db::STEP_28).
+-- Schema 29 drops the outsource tables (db::DROP_OUTSOURCE).
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
@@ -79,15 +72,12 @@ CREATE INDEX issues_checked ON issues (checked_at);
 -- end_reason is the union of what the two writers can say; cycle-end stores
 -- a word outside it as 'unknown'. An ended row with end_reason NULL is a start
 -- the cycle refused. A run by hand has how 'hand' and no started_by.
--- 'millwright' (v4) is the new name of 'fixer'; both are accepted until the
--- verbs write only the new one. #686: part 5 drops 'fixer' from this list, with
--- the aliases in console/store.
 CREATE TABLE cycles (
   issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
   attempt        INTEGER NOT NULL DEFAULT 1,
   started_at     INTEGER NOT NULL,
   started_by     TEXT,
-  how            TEXT NOT NULL CHECK (how IN ('label','refresh','outage-retry','fixer','millwright','hand','host','answer','reply')),
+  how            TEXT NOT NULL CHECK (how IN ('label','refresh','outage-retry','millwright','hand','host','answer','reply')),
   requeued       INTEGER NOT NULL DEFAULT 0,
   rukas_commit   TEXT,
   image          TEXT,
@@ -143,7 +133,7 @@ CREATE INDEX endings_recent ON endings (ended_at DESC);
 -- 3.4 approvals: one approval is one start. A used_at that is null is one
 -- start still owed. by_account is the actor of the labelled event, and
 -- body_sha256 is the text the approval binds to. input_json (v2) is what the
--- cycle is given with it: links, comment_links, retry_context, refresh_of, and
+-- cycle is given with it: links, retry_context, refresh_of, and
 -- driver when the start is not classic.
 -- easy (v9) says a refresh start ran as an easy merge (#1031): a row of the
 -- same approval that says 1 has had the one easy merge that approval is owed,
@@ -224,12 +214,10 @@ CREATE TABLE planning_filed (
 );
 -- (v2) The comments the poll spoke about once in this session: a millwright's
 -- reply it refused, and a question whose tick it held. They go with the
--- session. 'millwright-refused' (v4) is the new name of 'fixer-refused'; both
--- are accepted until the verbs write only the new one. #686: part 5 drops
--- 'fixer-refused' from this list, with the aliases in console/store.
+-- session.
 CREATE TABLE planning_notes (
   issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
-  kind  TEXT NOT NULL CHECK (kind IN ('fixer-refused','millwright-refused','held')),
+  kind  TEXT NOT NULL CHECK (kind IN ('millwright-refused','held')),
   comment_id INTEGER NOT NULL,
   at INTEGER NOT NULL,
   PRIMARY KEY (issue, kind, comment_id)

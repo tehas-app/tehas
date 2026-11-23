@@ -31,9 +31,8 @@ pub const MOST_LEFT: usize = 100;
 static AT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9T:.Z-]+\z").unwrap());
 static BY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9-]+\z").unwrap());
 static HOW: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(label|outage-retry|fixer|refresh|host|answer|reply)\z").unwrap()
+    Regex::new(r"^(label|outage-retry|millwright|refresh|host|answer|reply)\z").unwrap()
 });
-static COMMENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(pr-)?comment:[0-9]+\z").unwrap());
 
 static NULL: Value = Value::Null;
 static NONE: Value = Value::Array(Vec::new());
@@ -510,13 +509,17 @@ fn record_ok(r: &Value) -> bool {
         && matches(&AT, &r["at"])
         && matches(&BY, &r["by"])
         && matches(&HOW, &r["how"])
-        && (r["comment_links"].is_null() || r["comment_links"].is_array())
 }
 
 /// The reason of a link and the settings' own words, or nothing for a cycle
-/// that is given attachments by tehas_issue_images.
+/// that is given attachments by tehas_issue_images. No `files` is a caller
+/// that gives no files, as a cycle of 2.0.
 fn not_given(images: &str, files: &str) -> Option<(&'static str, &'static str)> {
     match (images, files) {
+        ("0", "") => Some((
+            "This instance gives a cycle no images (TEHAS_WORK_IMAGES=0).",
+            "TEHAS_WORK_IMAGES=0",
+        )),
         ("0", "0") => Some((
             "This instance gives a cycle no images and no files (TEHAS_WORK_IMAGES=0, TEHAS_WORK_FILES=0).",
             "TEHAS_WORK_IMAGES=0, TEHAS_WORK_FILES=0",
@@ -533,45 +536,24 @@ fn not_given(images: &str, files: &str) -> Option<(&'static str, &'static str)> 
     }
 }
 
-/// A link, where it came from, and for a comment who wrote it.
+/// A link and where it came from.
 pub struct Linked {
     pub source: String,
     pub link: String,
-    pub by: String,
 }
 
 /// The record's links of the shape tehas takes, whatever the record holds, once
-/// each: the body's, then with `comments` the comments' in the order written.
-pub fn record_links(record: &Value, comments: bool) -> Vec<Linked> {
+/// each.
+pub fn record_links(record: &Value) -> Vec<Linked> {
     let mut out: Vec<Linked> = Vec::new();
-    let mut add = |link: &str, source: &str, by: &str| {
-        if !out.iter().any(|have| have.link == link) {
-            out.push(Linked {
-                source: source.to_string(),
-                link: link.to_string(),
-                by: by.to_string(),
-            });
-        }
-    };
     for link in record["links"].as_array().into_iter().flatten() {
         if let Some(link) = link.as_str().filter(|l| is_link(l)) {
-            add(link, "body", "");
-        }
-    }
-    if !comments {
-        return out;
-    }
-    for e in record["comment_links"].as_array().into_iter().flatten() {
-        if let (Some(link), true, true) = (
-            e["link"].as_str().filter(|l| is_link(l)),
-            matches(&COMMENT, &e["source"]),
-            matches(&BY, &e["by"]),
-        ) {
-            add(
-                link,
-                e["source"].as_str().unwrap_or_default(),
-                e["by"].as_str().unwrap_or_default(),
-            );
+            if !out.iter().any(|have| have.link == link) {
+                out.push(Linked {
+                    source: "body".to_string(),
+                    link: link.to_string(),
+                });
+            }
         }
     }
     out
@@ -592,7 +574,7 @@ pub fn left_out_manifest(
     if !record_ok(record) {
         return Err("the approval record is not of the shape tehas reads");
     }
-    let links = record_links(record, true);
+    let links = record_links(record);
     if links.is_empty() {
         return Ok(None);
     }

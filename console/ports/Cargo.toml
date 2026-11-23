@@ -1,0 +1,7 @@
+[package]
+name = "tehas-ports"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde = { version = "1", default-features = false, features = ["std", "derive"] }

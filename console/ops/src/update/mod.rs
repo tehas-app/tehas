@@ -70,7 +70,7 @@
 mod assets;
 mod checkout;
 mod files;
-mod findings;
+pub(crate) mod findings;
 mod finish;
 mod host;
 #[cfg(test)]
@@ -331,6 +331,8 @@ pub(crate) fn temp_dir(parent: &Path, prefix: &str) -> io::Result<PathBuf> {
 pub(crate) struct Host {
     pub home: PathBuf,
     pub image: String,
+    /// TEHAS_UPDATE_FROM: `git` or `release`, else told from the home.
+    pub from: String,
 }
 
 impl Host {
@@ -339,6 +341,7 @@ impl Host {
         Some(Host {
             home: PathBuf::from(home),
             image: env::var("PI_ENSEMBLE_IMAGE").unwrap_or_default(),
+            from: env::var("TEHAS_UPDATE_FROM").unwrap_or_default(),
         })
     }
 
@@ -732,6 +735,7 @@ mod tests {
         Host {
             home: d.0.to_path_buf(),
             image: String::new(),
+            from: String::new(),
         }
     }
 

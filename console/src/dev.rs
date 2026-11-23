@@ -404,9 +404,9 @@ fn ready(given: &Words) -> Result<Taken, u8> {
     let taken = sandbox::take(&Host::here(), &Load::from_env(), "tehas dev", "a session");
     let taken = taken.map_err(refuse)?;
     let on = |k: &str| env::var(k).is_ok_and(|v| v == "1");
-    if !given.issue.is_empty() && !on("TEHAS_WORK_IMAGES") && !on("TEHAS_WORK_FILES") {
+    if !given.issue.is_empty() && !on("TEHAS_WORK_IMAGES") {
         return Err(refuse(
-            "tehas dev: this instance gives no images or files (TEHAS_WORK_IMAGES, TEHAS_WORK_FILES), so --issue has nothing to give"
+            "tehas dev: this instance gives no images (TEHAS_WORK_IMAGES), so --issue has nothing to give"
                 .to_string(),
         ));
     }
@@ -436,7 +436,7 @@ fn token() -> Result<(), u8> {
     Ok(())
 }
 
-// The issue's images and files, by the rules a cycle is given them. Who applied
+// The issue's images, by the rules a cycle is given them. Who applied
 // the label decides (rule 5). Err is the exit status.
 fn images(given: &Words) -> Result<(), u8> {
     if given.issue.is_empty() {

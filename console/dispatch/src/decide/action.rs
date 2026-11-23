@@ -1,8 +1,7 @@
 //! What a poll decides to do, one action at a time. `apply` still reads
 //! each as JSON: `From<&Action> for Value` gives the keys it routes on.
 
-use super::note::ContextNote;
-use crate::snapshot::{Base, CommentId, Given};
+use crate::snapshot::{CommentId, Given};
 use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
 
@@ -257,10 +256,6 @@ pub struct CycleStart {
     pub body_sha256: String,
     pub title_sha256: Option<String>,
     pub links: Vec<String>,
-    /// A start of the fixer's: the person's approval it rests on, and its
-    /// starts with this one.
-    pub(crate) rests_on: Option<(Base, u64)>,
-    pub(crate) park_lifted: Option<ContextNote>,
     pub extra: StartExtra,
 }
 
@@ -269,7 +264,6 @@ pub struct CycleStart {
 pub struct StartExtra {
     /// Only a lean start names its driver.
     pub driver: Option<Driver>,
-    pub contractor: Option<String>,
     pub approved_label: Option<String>,
     pub retry: Option<RetryTick>,
     pub refresh: Option<RefreshOf>,
@@ -294,7 +288,7 @@ pub struct RefreshOf {
 }
 
 /// The keys the start's own fields write; `StartExtra` adds the rest.
-const START_BASE: [&str; 15] = [
+const START_BASE: [&str; 12] = [
     "start",
     "by",
     "how",
@@ -307,9 +301,6 @@ const START_BASE: [&str; 15] = [
     "body_sha256",
     "title_sha256",
     "links",
-    "rests_on",
-    "fixer_starts",
-    "park_lifted",
 ];
 
 impl From<&Action> for Value {
@@ -514,16 +505,6 @@ impl From<&CycleStart> for Value {
             "body_sha256": st.body_sha256, "title_sha256": st.title_sha256,
             "links": st.links,
         });
-        let pairs = |p: &[(&'static str, &str)]| -> Map<String, Value> {
-            p.iter().map(|(k, v)| (k.to_string(), json!(v))).collect()
-        };
-        if let Some((base, count)) = &st.rests_on {
-            a["rests_on"] = Value::Object(pairs(&base.pairs()));
-            a["fixer_starts"] = json!(count);
-        }
-        if let Some(note) = &st.park_lifted {
-            a["park_lifted"] = Value::Object(pairs(&note.pairs()));
-        }
         let x = &st.extra;
         let mut put = |k: &str, v: Value| {
             debug_assert!(!START_BASE.contains(&k), "{k} is a start's own key");
@@ -531,9 +512,6 @@ impl From<&CycleStart> for Value {
         };
         if let Some(d) = x.driver {
             put("driver", json!(d.word()));
-        }
-        if let Some(c) = &x.contractor {
-            put("contractor", json!(c));
         }
         if let Some(l) = &x.approved_label {
             put("approved_label", json!(l));
@@ -576,24 +554,8 @@ mod tests {
             body_sha256: "b".into(),
             title_sha256: Some("t".into()),
             links: vec![],
-            rests_on: Some((
-                Base {
-                    at: "a".into(),
-                    by: "alice".into(),
-                    how: "label".into(),
-                    body_sha256: "b".into(),
-                },
-                2,
-            )),
-            park_lifted: Some(ContextNote {
-                source: "s".into(),
-                by: "b".into(),
-                at: "a".into(),
-                text: "t".into(),
-            }),
             extra: StartExtra {
                 driver: Some(Driver::Lean),
-                contractor: Some("c".into()),
                 approved_label: Some("tehas:plan".into()),
                 retry: Some(RetryTick {
                     comment: Some(Given::Number(5.into())),
@@ -615,8 +577,8 @@ mod tests {
     fn a_start_s_extra_keys_override_none_of_its_own() {
         let v = Value::from(&Action::Start(Box::new(full())));
         let keys = v.as_object().unwrap().len();
-        // Its own keys, and the nine of the extra.
-        assert_eq!(keys, START_BASE.len() + 9, "{v}");
+        // Its own keys, and the eight of the extra.
+        assert_eq!(keys, START_BASE.len() + 8, "{v}");
     }
 
     #[test]

@@ -76,18 +76,12 @@ label alone, with no comment that names their blockers (up to 50 numbers):
 blocked   by the label alone, no blockers named: #7, #9. Each waits until an allowed account comments a `<!-- tehas:blocked by=N -->` marker on it or a person takes tehas:blocked off
 ```
 
-And while [`tehas:all-hands`](/operating#all-hands) holds:
-
-```
-all-hands tehas:all-hands is on the control issue, applied by an allowed account
-```
-
 On a lab build, and wherever `TEHAS_TEST_FEATURES` is set (see [proving a
 building feature on a lab host](/tools-update#proving-a-building-feature-on-a-lab-host)).
 A lab build with the variable unset names no building feature:
 
 ```
-features  a lab build: TEHAS_TEST_FEATURES names outsource, still being built
+features  a lab build: TEHAS_TEST_FEATURES names plugins, still being built
 features  a lab build: TEHAS_TEST_FEATURES names no building feature
 features  TEHAS_TEST_FEATURES is set and this build does not read it: take it out
 ```
@@ -105,21 +99,8 @@ platform  v0.10.0-alpha.1, newest v0.9.0, the prerelease is newer, fetched 20 mi
 A host on a prerelease (an alpha, a beta or a release candidate) keeps the
 newest release it last read, even though it is older than the prerelease.
 
-With [outsource](/outsource) on, each running cycle says where it is built,
-and an `outsource:` line counts the contractors:
-
-```
-cycle     #15 running, step develop, started 2 min ago, outsourced to box1
-cycle     #12 running, step review, started 40 min ago, in-house
-outsource: 1 idle, 1 working, 1 resting; 1 cycle(s) outsourced
-```
-
-Both come from `live/contractors.json`, which the factory writes only while
-outsource is on. Outsource is still being built in this release, so no
-factory prints them yet.
-
 It reads
-that one file, and `contractors.json` beside it when it is there, and nothing
+that one file and nothing
 else: no GitHub call, no instance settings, and it writes nothing. So it is as fresh as the dispatcher's last poll, and the first
 line says how old that is.
 
@@ -145,8 +126,8 @@ tehas api [--json]
 api         1
 tehas       v0.8.0 (cb6912a)
 repo        tehas-app/tehas
-features    status millwright-grant all-hands limit drain history export analytics state-move mcp-dashboard-keys clean disk state-check finish
-flags       outsource=off
+features    status limit drain history export analytics state-move mcp-dashboard-keys clean disk state-check finish
+flags       plugins=off
 millwright  none
 poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
 ```
@@ -258,7 +239,7 @@ draws the rest. The factory line and the queue counts are the ones `tehas status
 prints: both commands take them from the console (`console/src/status.rs`), so
 they cannot drift apart.
 A section added to the snapshot appears in `--json` without anything else
-changing. The snapshot is not public: it is the dashboard's own, has no schema
+changing. The snapshot is not public: it has no schema
 in `api/` and may change in any release. A program reads
 [`tehas status --json`](/api#tehas-status---json) instead.
 
@@ -268,10 +249,9 @@ them, and up to fifteen processes with their pid, their short name from
 `/proc/<pid>/stat`, their share of a cpu, their share of memory and how long they
 have been running. A view that redraws hands the reading of one frame to the
 next, so a redraw measures the seconds since that frame instead of waiting; only
-a first frame, and `--json`, `--once` and `tehasbot top`, take a second reading a
-second after the first. The reading a snapshot was computed from is in it under
-`reading`, which is how it is handed on; no frame draws it and the published file
-does not hold it. A process is named by that short name only: the command line,
+a first frame, `--json` and `--once` take a second reading a second after the
+first. The reading a snapshot was computed from is in it under `reading`, which
+is how it is handed on; no frame draws it. A process is named by that short name only: the command line,
 and everything else under `/proc/<pid>/`, is never opened. A pid that was reused
 between the two readings is not shown. The figures are what changed between the
 readings, not the average since a process began. They sit between the cycle rows

@@ -458,22 +458,16 @@ case "$1 $2" in
   "issue comment") [ ! -e "$T/fx/comment-fails" ] || exit 1 ;;
 esac'
 t_stub curl '
-out="" url="" max=0 header=0 conf=""
+out="" url="" max=0 header=0
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out=$2; shift ;;
     --max-filesize) max=$2; shift ;;
     -H) header=1; shift ;;
-    -K) conf=$2; shift ;;
     https://*) url=$1 ;;
   esac
   shift
 done
-# A model request gives curl its headers in a config file opened by a file
-# descriptor of this process (console/cycle/src/describe.rs reads the bytes and
-# hands over the descriptor). The stub reads it before it reads the body, so a
-# case can name both of them.
-case "$conf" in /proc/*/fd/*) cat "$conf" >>"$T/calls/curl-config" ;; esac
 key=$(printf %s "$url" | tr -c "A-Za-z0-9" _)
 [ "$header" = 1 ] && { printf "%s " "$url"; cat; } >>"$T/calls/curl-headers"
 [ -f "$T/fx/net/$key.rc" ] && exit "$(cat "$T/fx/net/$key.rc")"
@@ -530,7 +524,7 @@ images_off() {
   slice_good
   reads_image 1
   T_ENV=("${env_ok[@]}")
-  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=0 TEHAS_WORK_FILES=0
+  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=0
 }
 manifest() { jq -c "$1" "$imgs/manifest.json" 2>&1; }
 # issue_reads: how many times a start asked GitHub for the issue itself. One
@@ -553,7 +547,7 @@ kept=$T/home/tehas/state/cycles/7.manifest.json
 # kept here in the shape approval-view gives it back (the shape the
 # record file had). record_put puts it on a fresh store with a start that used
 # it, so a run of tehas work on its own finds it as the latest start's. A
-# fixer's or a refresh's rests on an earlier start of the person's approval in
+# millwright's or a refresh's rests on an earlier start of the person's approval in
 # rests_on.
 record_json=""
 record_put() { t_record "$T/home/tehas" 7 "$record_json"; }

@@ -165,7 +165,7 @@ t_eq "$(ran)" ""
 
 t_case "what only the units run is not a tehas command"
 reset
-for name in health energy protolab preview improve summary console cycle ../bin/tehasbot; do
+for name in health energy preview improve summary console cycle ../bin/tehasbot; do
   t_run "$tehas $name"
   t_eq "$t_rc" 64
 done
@@ -176,9 +176,9 @@ reset
 for arg in "" help -h --help; do
   t_run "$bot $arg"
   t_eq "$t_rc" 0
-  t_contains "$t_out" "tehasbot top [--every]"
+  t_contains "$t_out" "tehasbot health"
 done
-for name in work plan dev index update labels summary bogus "''"; do
+for name in work plan dev index update labels summary top bogus "''"; do
   t_run "$bot $name 2>/dev/null"
   t_eq "$t_rc" 64
   t_eq "$t_out" ""
@@ -233,7 +233,7 @@ for words in "status" "help" "update --help" "work 7" "top --once"; do
   t_eq "$t_rc" 78
   t_eq "$t_out" "tehas: no console at $T/no-console: run install.sh"
 done
-for words in "dispatch" "help" "protolab"; do
+for words in "dispatch" "help"; do
   t_run "$bot $words"
   t_eq "$t_rc" 78
   t_eq "$t_out" "tehasbot: no console at $T/no-console: run install.sh"
@@ -315,7 +315,7 @@ done <"$T_ROOT/api/renames-1.0.tsv"
 t_case "each tehasbot verb of 0.30 is still one, or a command row of the renames file"
 bot_help=$(TEHAS_CONSOLE=$T_CONSOLE "$T_ROOT/bin/tehasbot" help)
 for verb in clean cycle dispatch github-token github-writes health help improve mcp \
-  preview protolab refresh status top; do
+  preview refresh status; do
   row=$(awk -F '\t' -v v="tehasbot $verb" '$1 == "command" && $2 == v && $3 == ""' "$T_ROOT/api/renames-1.0.tsv")
   if [ -n "$row" ]; then
     t_lacks "$bot_help" "  tehasbot $verb"

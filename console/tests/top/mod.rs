@@ -3,8 +3,7 @@
 //! in place of /proc (TEHAS_PROC_DIR), and a systemctl stub that answers with
 //! two units and a timer. The console is this build's. Nothing here calls
 //! GitHub, a model or Docker, and no case reads the machine that runs it.
-//! Moved from test/top_lib.sh, which top_frame_test.sh and
-//! top_publish_test.sh still source.
+//! Moved from test/top_lib.sh.
 
 use crate::common::*;
 use serde_json::json;
@@ -19,9 +18,9 @@ const UNITS: &str = r#"case " $* " in
     printf "%s\n" "tehas-dispatch.timer loaded active waiting Dispatch the queue" \
                   "tehas-cycle@12.service loaded active running Cycle for 12" ;;
   *" list-unit-files "*)
-    printf "%s\n" "tehas-dispatch.timer enabled" "tehas-energy.service enabled" ;;
+    printf "%s\n" "tehas-dispatch.timer enabled" "tehas-mcp.service enabled" ;;
   *" show "*)
-    printf "Id=tehas-cycle@12.service\nLoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=\nNextElapseUSecRealtime=n/a\n\nId=tehas-dispatch.timer\nLoadState=loaded\nActiveState=active\nSubState=waiting\nUnitFileState=enabled\nNextElapseUSecRealtime=Mon 2026-01-01 10:00:00 UTC n/a\n\nId=tehas-energy.service\nLoadState=loaded\nActiveState=inactive\nSubState=dead\nUnitFileState=enabled\nNextElapseUSecRealtime=n/a\n" ;;
+    printf "Id=tehas-cycle@12.service\nLoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=\nNextElapseUSecRealtime=n/a\n\nId=tehas-dispatch.timer\nLoadState=loaded\nActiveState=active\nSubState=waiting\nUnitFileState=enabled\nNextElapseUSecRealtime=Mon 2026-01-01 10:00:00 UTC n/a\n\nId=tehas-mcp.service\nLoadState=loaded\nActiveState=inactive\nSubState=dead\nUnitFileState=enabled\nNextElapseUSecRealtime=n/a\n" ;;
   *) exit 0 ;;
 esac"#;
 

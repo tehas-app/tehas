@@ -122,7 +122,7 @@ const LOGINS: &[&str] = &[
     "bob-2",
     "carol",
     "boss",
-    "tehas-fixer",
+    "tehas-millwright",
     "tehas-mill",
     "millbot",
     "mill-bot",
@@ -612,7 +612,7 @@ impl World {
             instance_on: Cell::new(false),
             record: RefCell::new(Value::Null),
         };
-        for name in ["docker", "gh", "systemctl", "curl", "ssh"] {
+        for name in tehas_core::testing::DENIED {
             write_exe(
                 w.t.join("deny").join(name),
                 format!(
@@ -1294,7 +1294,7 @@ impl World {
     /// The same instance with nothing given to the cycle.
     pub fn images_off(&self) {
         self.images_reset(true);
-        self.minimal(&["TEHAS_WORK_IMAGES=0", "TEHAS_WORK_FILES=0"]);
+        self.minimal(&["TEHAS_WORK_IMAGES=0"]);
     }
 
     // --- GitHub ------------------------------------------------------------
@@ -1476,11 +1476,11 @@ impl World {
 
     /// An approval of issue `n` on record, as the dispatcher records it: the
     /// body hash of "Words." unless `extra` gives one, tehas:ready for a
-    /// label and a fixer (t_approve).
+    /// label and a millwright (t_approve).
     pub fn approve(&self, n: u64, by: &str, how: &str, at: i64, extra: &[&str]) {
         let (n, at) = (n.to_string(), at.to_string());
         let mut a = vec!["approval-record", &n, "--at", &at, "--by", by, "--how", how];
-        if matches!(how, "label" | "fixer") {
+        if matches!(how, "label" | "millwright") {
             a.extend(["--label", "tehas:ready"]);
         }
         let sum = wsum();
@@ -1581,8 +1581,8 @@ impl World {
 
     /// On a fresh store, the approval `j` describes in the shape approval-view
     /// gives it, used by a start of `n`: with the person's approval it rests
-    /// on (`rests_on`), and the fixer's (`fixer_starts`) and the refreshes'
-    /// (`refreshes`) starts it counts, as ended starts before it (t_record).
+    /// on (`rests_on`), and the refreshes' (`refreshes`) starts it counts, as
+    /// ended starts before it (t_record).
     pub fn record_on(&self, n: u64, j: &Value) {
         self.store_db();
         let how = j["how"].as_str().unwrap_or_default().to_string();
@@ -1601,20 +1601,13 @@ impl World {
             at
         };
         let base = &j["rests_on"];
-        if matches!(how.as_str(), "fixer" | "refresh") && base.is_object() {
+        if matches!(how.as_str(), "millwright" | "refresh") && base.is_object() {
             last = used(
                 &text_of(&base["by"]),
                 &text_of(&base["how"]),
                 epoch(&text_of(&base["at"])),
                 &["--body-sha", &text_of(&base["body_sha256"])],
             );
-            let mut count = j["fixer_starts"].as_i64().unwrap_or(0);
-            if how == "fixer" {
-                count -= 1;
-            }
-            for _ in 0..count.max(0) {
-                last = used("tehas-fixer", "fixer", last + 10, &[]);
-            }
             if how == "refresh" {
                 let head = "a".repeat(40);
                 for _ in 1..j["refreshes"].as_i64().unwrap_or(1) {
@@ -1632,7 +1625,7 @@ impl World {
         }
         let mut input =
             json!({"links": j.get("links").cloned().filter(|v| !v.is_null()).unwrap_or(json!([]))});
-        for k in ["comment_links", "retry_context", "driver"] {
+        for k in ["retry_context", "driver"] {
             if let Some(v) = j.get(k) {
                 input[k] = v.clone();
             }
@@ -1659,7 +1652,7 @@ impl World {
             "--input-file",
             &file,
         ];
-        if matches!(how.as_str(), "label" | "fixer") {
+        if matches!(how.as_str(), "label" | "millwright") {
             a.extend(["--label", "tehas:ready"]);
         }
         let title = text_of(&j["title_sha256"]);

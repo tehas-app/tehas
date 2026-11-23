@@ -161,8 +161,8 @@ has TEHAS_MILLWRIGHT_LOGIN "$manual" &&
 has TEHAS_GITHUB_APP_INSTALLATION "$manual" &&
   t_bad "TEHAS_GITHUB_APP_INSTALLATION is a row again: the installation is looked up"
 
-t_case "the five settings #1698 found have rows"
-for name in TEHAS_CYCLE_LOGIN TEHAS_SCRATCH_DIR TEHAS_TOP TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO; do
+t_case "the settings #1698 found that 2.0 keeps have rows"
+for name in TEHAS_CYCLE_LOGIN TEHAS_SCRATCH_DIR TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO; do
   has "$name" "$manual" || t_bad "no row for $name"
 done
 

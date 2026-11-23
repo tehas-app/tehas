@@ -8,14 +8,11 @@
 //!   tehas-cycle report <issue> --attempt <n> --rc <n> --started <s>
 //!       --signalled 0|1 --by <login> --how <how> --approval-at <s>
 //!       --requeued 0|1 [--now <s>] --console <path> --status-cmd <path>
-//!       [--status-arg <word>]... [--runner work|job]
+//!       [--status-arg <word>]...
 //!                                     report an ended cycle, every GitHub
 //!                                     write through the action journal, then
 //!                                     what follows its end (src/apply.rs), as
-//!                                     `cycle` does once tehas work is over.
-//!                                     --runner job reports a cycle run on a
-//!                                     contractor and needs the outsource
-//!                                     feature on (78)
+//!                                     `cycle` does once tehas work is over
 //!   tehas-cycle approved <issue> <attempt>
 //!                                     print {at, how, driver} of the approval
 //!                                     that attempt used, or null: read
@@ -50,20 +47,14 @@
 //!                                     "say": <a repeat's words for the park>}
 //!                                     (src/last_attempt.rs)
 //!   tehas-cycle cycle <issue> --work <path> [--work-arg <word>]...
-//!       [--runner work|job] --status-cmd <path> [--status-arg <word>]...
-//!       --console <path>
+//!       --status-cmd <path> [--status-arg <word>]... --console <path>
 //!                                     tehasbot cycle, which the console execs
 //!                                     with the settings loaded: the issue's
 //!                                     lock, waited for 5 s (3 when another
 //!                                     holds it), the start on record, what
 //!                                     the number is, tehas work to its end and
 //!                                     the report (src/supervise.rs). Exits as
-//!                                     tehasbot cycle does. With --runner job
-//!                                     the --work program waits on a cycle run
-//!                                     on a contractor, and the start and the
-//!                                     report read no image and no workspace
-//!                                     here; it needs the outsource feature
-//!                                     on (78)
+//!                                     tehasbot cycle does
 //!   tehas-cycle run <issue>           what tehas-cycle@.service starts:
 //!                                     copy the install's code for this
 //!                                     cycle and run tehasbot cycle from the
@@ -92,14 +83,6 @@
 //!                                     is stopped on a guess. It reads no wall
 //!                                     clock, so a VM that was saved is not
 //!                                     counted against a cycle
-//!   tehas-cycle describe <dir> <issue>
-//!                                     write <dir>/images.md, a model's
-//!                                     description of each image in
-//!                                     <dir>/manifest.json, and name it in the
-//!                                     manifest (src/describe.rs). <issue> is
-//!                                     the issue number, sent as X-Tehas-Issue
-//!                                     on each request when it is digits. Exits
-//!                                     1 only when a file could not be written
 //!   tehas-cycle private <models.json> <email>
 //!                                     the names a mask hides, two lines each:
 //!                                     `--private` and the name, for a command
@@ -247,8 +230,7 @@
 //! read, said on standard error, or run could not exec, or `clock check` said
 //! `stalled`, or `finish` refused, or a caps or runner verb said no as above;
 //! 2 `clock check` said `over`; 3 `clock check` said `unknown`; 64 an argument
-//! it does not know; 78 run without an absolute TEHAS_HOME, or cycle or report
-//! --runner job with the outsource feature off.
+//! it does not know; 78 run without an absolute TEHAS_HOME.
 //!
 //! finish is asked the whole of its words and reads no setting of its own, so it
 //! takes no TEHAS_HOME: part 2's poll step, the only caller today, passes the
@@ -261,7 +243,7 @@ use std::time::Duration;
 use tehas_core::driver::Driver;
 use tehas_core::home::{Home, State};
 use tehas_cycle::after::{self, After};
-use tehas_cycle::host::{Runner, Start};
+use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{last_attempts, to_json, Given};
 use tehas_cycle::{apply, finish, lock, pin, progress, renew, report};
@@ -332,10 +314,6 @@ fn main() {
             let start = start(issue(n, &args), &args, rest);
             if start.console.is_empty() || start.status_cmd.is_empty() {
                 wrong(&args);
-            }
-            if start.runner == Runner::Job && !tehas_core::features::on("outsource") {
-                after::log("ERROR: --runner job needs the outsource feature on: it is off");
-                std::process::exit(78);
             }
             std::process::exit(apply::run(&home, &start));
         }
@@ -437,11 +415,6 @@ fn main() {
             Some(r) => tehas_core::outln!("{}\n{}\n{}", r.step, r.branch, r.read),
             None => std::process::exit(1),
         },
-        ["describe", dir, issue] => {
-            if tehas_cycle::describe::describe(Path::new(dir), issue).is_err() {
-                std::process::exit(1);
-            }
-        }
         ["private", models, email] => {
             for name in tehas_core::mask::host_names(models, email) {
                 tehas_core::outln!("--private\n{name}");
@@ -476,7 +449,6 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         issue: n,
         work: String::new(),
         work_args: Vec::new(),
-        runner: Runner::Work,
         status_cmd: String::new(),
         status_args: Vec::new(),
         console: String::new(),
@@ -487,7 +459,6 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         match *flag {
             "--work" => g.work = v,
             "--work-arg" => g.work_args.push(v),
-            "--runner" => g.runner = Runner::named(&v).unwrap_or_else(|| wrong(args)),
             "--status-cmd" => g.status_cmd = v,
             "--status-arg" => g.status_args.push(v),
             "--console" => g.console = v,
@@ -496,11 +467,6 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     }
     if g.work.is_empty() || g.status_cmd.is_empty() || g.console.is_empty() {
         wrong(args);
-    }
-    // A cycle run elsewhere is the outsource feature's, and only it may ask.
-    if g.runner == Runner::Job && !tehas_core::features::on("outsource") {
-        after::log("ERROR: --runner job needs the outsource feature on: it is off");
-        std::process::exit(78);
     }
     if !work::store_ready(home) {
         after::log("ERROR: the state store is not installed (run install.sh)");
@@ -588,7 +554,6 @@ fn start(n: u64, args: &[String], rest: &[&str]) -> Start {
         console: String::new(),
         status_cmd: String::new(),
         status_args: Vec::new(),
-        runner: Runner::Work,
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
@@ -607,7 +572,6 @@ fn start(n: u64, args: &[String], rest: &[&str]) -> Start {
             "--console" => start.console = v,
             "--status-cmd" => start.status_cmd = v,
             "--status-arg" => start.status_args.push(v),
-            "--runner" => start.runner = Runner::named(&v).unwrap_or_else(|| wrong(args)),
             _ => wrong(args),
         }
     }

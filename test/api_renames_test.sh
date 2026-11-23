@@ -29,7 +29,7 @@ t_case "every label of 0.30 is a label of host/labels.tsv or a label row"
 for label in tehas:ready tehas:running tehas:awaiting-merge tehas:shipped tehas:pause \
   needs-human-attention tehas:question tehas:plan tehas:refine tehas:planning tehas:replaced \
   tehas:refined tehas:millwright-escalated tehas:lean tehas:blocked tehas:refreshing \
-  tehas:all-hands epic tehas:finish tehas:prototype tehas:improvement cross-project; do
+  epic tehas:finish tehas:improvement cross-project; do
   row=$(awk -F '\t' -v l="$label" '$1 == "label" && $2 == l' "$file")
   kept=$(cut -f 1 "$T_ROOT/host/labels.tsv" | grep -c -x -F -- "$label")
   t_eq "$label: $kept $([ -n "$row" ] && echo row)" "$label: $([ -n "$row" ] && echo "0 row" || echo "1 ")"

@@ -56,11 +56,7 @@ fn record_ok(r: &Value) -> bool {
         && text("by").is_some_and(|s| all_of(s, |b| b.is_ascii_alphanumeric() || b == b'-'))
         && matches!(
             text("how"),
-            Some("label" | "outage-retry" | "fixer" | "refresh" | "host" | "answer" | "reply")
-        )
-        && matches!(
-            r.get("comment_links"),
-            None | Some(Value::Null) | Some(Value::Array(_))
+            Some("label" | "outage-retry" | "millwright" | "refresh" | "host" | "answer" | "reply")
         )
         && hex64(r.get("body_sha256"))
         && (matches!(r.get("title_sha256"), None | Some(Value::Null))
@@ -196,13 +192,12 @@ mod tests {
         let good = approved("Words.", None);
         let issue = json!({"body": "Words."});
         assert_eq!(hold(None, &issue), Err(Refusal::Record));
-        let bad: [(&str, Value); 9] = [
+        let bad: [(&str, Value); 8] = [
             ("at", json!("2026\n")),
             ("by", json!("two words")),
             ("by", json!("alice\n")),
             ("how", json!("nobody")),
             ("links", json!("x")),
-            ("comment_links", json!("x")),
             ("body_sha256", json!("abc")),
             ("body_sha256", json!(format!("{}\n", "a".repeat(64)))),
             ("title_sha256", json!(7)),
@@ -216,11 +211,34 @@ mod tests {
     }
 
     #[test]
+    fn a_record_s_comment_links_are_ignored() {
+        for held in [json!([{"link": "L"}]), json!("x")] {
+            let mut r = approved("Words.", None);
+            r["comment_links"] = held;
+            assert_eq!(hold(Some(&r), &json!({"body": "Words."})), Ok(()));
+        }
+    }
+
+    #[test]
     fn every_way_of_approving_is_a_shape_it_reads() {
-        for how in ["label", "reply", "outage-retry", "fixer", "refresh", "host"] {
+        for how in [
+            "label",
+            "reply",
+            "outage-retry",
+            "millwright",
+            "refresh",
+            "host",
+        ] {
             let mut r = approved("Words.", None);
             r["how"] = json!(how);
             assert_eq!(hold(Some(&r), &json!({"body": "Words."})), Ok(()));
         }
+        // The millwright's old name is no way of approving.
+        let mut r = approved("Words.", None);
+        r["how"] = json!("fixer");
+        assert_eq!(
+            hold(Some(&r), &json!({"body": "Words."})),
+            Err(Refusal::Record)
+        );
     }
 }

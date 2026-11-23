@@ -1,4 +1,4 @@
-{"generatedAt":"2026-10-20T08:46:04Z","repo":"example/demo","paused":false,"pause":{"flag":null,"label":false,"lifted":false},"allHands":false,"noResources":false,"secretKey":"SECRET",
+{"generatedAt":"2026-10-20T08:46:04Z","repo":"example/demo","paused":false,"pause":{"flag":null,"label":false,"lifted":false},"noResources":false,"secretKey":"SECRET",
 "running":[{"number":7,"title":"Running issue","url":"https://github.com/example/demo/issues/7","updatedAt":"2026-10-20T08:10:09Z","closedAt":null,"labels":["tehas:running"]}],
 "queued":[{"number":8,"title":"Queued issue","url":"https://github.com/example/demo/issues/8","updatedAt":"2026-10-20T06:23:35Z","closedAt":null,"body":"SECRET-BODY"},{"number":9,"title":"Another queued","url":"https://github.com/example/demo/issues/9","updatedAt":"2026-10-20T06:23:38Z","closedAt":null}],
 "planning":1,

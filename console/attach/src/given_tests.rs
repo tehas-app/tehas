@@ -107,17 +107,19 @@ fn a_link_is_cut_at_512_and_counted_once() {
 }
 
 #[test]
-fn a_comments_link_says_where_it_came_from() {
-    let mut rec = record();
-    rec["links"] = json!([]);
-    rec["comment_links"] = json!([
-        {"link": LINK, "source": "comment:5", "by": "bob"},
-        {"link": LINK, "source": "pr-comment:6", "by": "bob"},
-        {"link": "https://github.com/user-attachments/assets/2", "source": "answer:1", "by": "bob"},
-    ]);
-    let (manifest, _) = compose(&rec);
-    assert_eq!(manifest["leftOut"].as_array().unwrap().len(), 1);
-    assert_eq!(manifest["leftOut"][0]["source"], "comment:5");
+fn a_record_s_comment_links_are_ignored_whatever_they_hold() {
+    for held in [
+        json!([{"link": LINK, "source": "comment:5", "by": "bob"}]),
+        json!("x"),
+    ] {
+        let mut rec = record();
+        rec["links"] = json!([]);
+        rec["comment_links"] = held;
+        assert_eq!(
+            left_out_manifest(&json!(7), &rec, "r", "g", None).unwrap(),
+            None
+        );
+    }
 }
 
 #[test]
@@ -154,6 +156,24 @@ fn an_earlier_manifest_of_the_approval_keeps_its_entries_in_its_order() {
     assert!(written
         .contains(",\"leftOutMore\":0,\"files\":[],\"linksUnavailable\":\"This instance gives"));
     assert!(!dir.join("7.manifest.json.new").exists());
+}
+
+#[test]
+fn with_no_files_word_the_gap_names_the_images_alone() {
+    let dir = TestDir::new("attach-given");
+    let file = dir.join("7.manifest.json");
+    let rec = dir.join("record.json");
+    fs::write(&rec, record().to_string()).unwrap();
+    let path = file.to_str().unwrap();
+    let gap = left_out("7", path, rec.to_str().unwrap(), "0", "").unwrap();
+    assert!(gap.unwrap().contains("(TEHAS_WORK_IMAGES=0)"));
+    let written = fs::read_to_string(&file).unwrap();
+    assert!(!written.contains("TEHAS_WORK_FILES"), "{written}");
+    assert!(written.contains("gives a cycle none (TEHAS_WORK_IMAGES=0)"));
+    assert_eq!(
+        left_out("7", path, rec.to_str().unwrap(), "1", "").unwrap(),
+        None
+    );
 }
 
 #[test]

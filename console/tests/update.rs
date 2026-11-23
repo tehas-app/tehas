@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use tehas_core::home::{Home, State};
 use tehas_core::testing::write_exe;
 
-const UNITS: &str = "tehas-dispatch.timer tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer";
+const UNITS: &str = "tehas-dispatch.timer tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-clean.timer";
 
 /// The pi-rukas head of the image cases: forty b.
 const IMAGE_HEAD: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -751,7 +751,7 @@ ps --quiet --filter label=com.docker.compose.project=tehas-edge"
         .collect();
     assert_eq!(
         h.calls("systemctl"),
-        format!("--user daemon-reload\n{active}--user restart tehas-dispatch.timer tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer")
+        format!("--user daemon-reload\n{active}--user restart tehas-dispatch.timer tehas-preview.timer tehas-preview-sweep.timer tehas-clean.timer")
     );
     assert_eq!(h.owed_steps(), "");
 }
@@ -766,7 +766,7 @@ fn every_state_of_systemds_active_family_restarts_the_unit() {
         r#"if [ "$2" = is-active ]; then
   case "$3" in
     tehas-dispatch.timer) echo activating ;;
-    tehas-top.service) echo reloading ;;
+    tehas-mcp.service) echo reloading ;;
     *) echo active ;;
   esac
 fi"#,
@@ -792,7 +792,7 @@ fi"#,
     assert_eq!(r.rc, 0, "{}", r.out);
     has(
         &r.out,
-        "systemd: restarted tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer",
+        "systemd: restarted tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-clean.timer",
     );
     lacks(&r.out, "no unit was restarted");
 }
@@ -1165,19 +1165,40 @@ fn an_owed_units_line_from_before_a_unit_was_retired_restarts_the_current_units_
 ) {
     let h = host("retired", 1, "echo \"tehas is up to date\"");
     // What the version before wrote, the retired timers among them.
-    h.record(&["units tehas-dispatch.timer tehas-refresh.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-review.timer tehas-wiki-status.timer tehas-wiki.path tehas-clean.timer"]);
+    h.record(&["units tehas-dispatch.timer tehas-refresh.timer tehas-energy.service tehas-outsource-proxy.service tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-review.timer tehas-wiki-status.timer tehas-wiki.path tehas-clean.timer"]);
     let r = h.update(&[]);
     assert_eq!(r.rc, 0, "{}", r.out);
     has(
         &r.out,
-        "systemd: restarted tehas-dispatch.timer tehas-top.service tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer",
+        "systemd: restarted tehas-dispatch.timer tehas-mcp.service tehas-mcp-fetch.socket tehas-preview.timer tehas-preview-sweep.timer tehas-clean.timer",
     );
     lacks(&r.out, "tehas-refresh.timer");
     lacks(&r.out, "tehas-improve.timer");
     lacks(&r.out, "tehas-review.timer");
     lacks(&r.out, "tehas-energy.service");
+    lacks(&r.out, "tehas-top.service");
+    lacks(&r.out, "tehas-outsource-proxy.service");
     lacks(&r.out, "tehas-wiki");
+    lacks(&r.out, "tehas-protolab.timer");
     assert_eq!(h.owed_steps(), "");
+}
+
+#[test]
+fn an_update_removes_the_directory_of_the_parked_protolab_and_a_check_leaves_it() {
+    let h = host("parked", 1, "echo \"tehas is up to date\"");
+    let pages = h.home.join("protolab/7");
+    fs::create_dir_all(&pages).unwrap();
+    fs::write(pages.join("index.html"), "<p>7</p>\n").unwrap();
+    let r = h.update(&["--check"]);
+    lacks(&r.out, "removed:");
+    assert!(pages.join("index.html").exists());
+    let r = h.update(&[]);
+    assert_eq!(r.rc, 0, "{}", r.out);
+    has(
+        &r.out,
+        &format!("removed: {}", h.home.join("protolab").display()),
+    );
+    assert!(!h.home.join("protolab").exists());
 }
 
 #[test]

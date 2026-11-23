@@ -118,21 +118,24 @@ t_stub systemctl
 t_run "$install"
 t_contains "$t_out" "removed: $units/tehas-refresh.timer"
 
-t_case "the units of the improvement loop are named, then stopped and removed"
-echo "[Timer]" >"$units/tehas-improve.timer"
-echo "[Service]" >"$units/tehas-improve.service"
-t_run "$install --check"
-t_eq "$t_rc" 1
-t_contains "$t_out" "stale: $units/tehas-improve.timer"
-t_contains "$t_out" "stale: $units/tehas-improve.service"
-rm -f "$T/calls/systemctl"
-t_run "$install"
-t_eq "$t_rc" 0
-t_contains "$t_out" "removed: $units/tehas-improve.timer"
-t_contains "$t_out" "removed: $units/tehas-improve.service"
-t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-improve.timer
+# The improvement loop, and the Protolab, parked (docs/specs/parked-protolab.md).
+for old in improve protolab; do
+  t_case "the units of tehas-$old are named, then stopped and removed"
+  echo "[Timer]" >"$units/tehas-$old.timer"
+  echo "[Service]" >"$units/tehas-$old.service"
+  t_run "$install --check"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "stale: $units/tehas-$old.timer"
+  t_contains "$t_out" "stale: $units/tehas-$old.service"
+  rm -f "$T/calls/systemctl"
+  t_run "$install"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "removed: $units/tehas-$old.timer"
+  t_contains "$t_out" "removed: $units/tehas-$old.service"
+  t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-$old.timer
 --user daemon-reload"
-t_eq "$([ -e "$units/tehas-improve.timer" ] || [ -e "$units/tehas-improve.service" ] || echo gone)" "gone"
+  t_eq "$([ -e "$units/tehas-$old.timer" ] || [ -e "$units/tehas-$old.service" ] || echo gone)" "gone"
+done
 
 t_case "the units of the review loop are named, then stopped and removed"
 echo "[Timer]" >"$units/tehas-review.timer"
@@ -150,15 +153,65 @@ t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-review.timer
 --user daemon-reload"
 t_eq "$([ -e "$units/tehas-review.timer" ] || [ -e "$units/tehas-review.service" ] || echo gone)" "gone"
 
-t_case "the energy sampler, a service with no timer, is stopped and removed"
-echo "[Service]" >"$units/tehas-energy.service"
+for unit in tehas-energy.service tehas-top.service; do
+  t_case "the retired $unit, a service with no timer, is stopped and removed"
+  echo "[Service]" >"$units/$unit"
+  t_run "$install --check"
+  t_contains "$t_out" "stale: $units/$unit"
+  rm -f "$T/calls/systemctl"
+  t_run "$install"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "removed: $units/$unit"
+  t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now $unit
+--user daemon-reload"
+done
+
+t_case "what outsource left in the home goes: its programs, its files and its two directories of state"
+left=(libexec/tehas-proxy libexec/tehas-proxy.stamp libexec/tehas-contractor libexec/tehas-contractor.stamp
+  live/contractors.json sandbox/vipune-shim)
+left_dirs=(state/outsource state/memory/cycles)
+for f in "${left[@]}"; do mkdir -p "$th/${f%/*}" && echo "# old" >"$th/$f"; done
+mkdir -p "$th/state/outsource/downloads/jobs" "$th/state/outsource/stamp" "$th/state/images" "$th/state/memory/cycles"
+echo "x" >"$th/state/outsource/downloads/jobs/a" && echo "x" >"$th/state/memory/cycles/issue-7.db"
+echo "kept" >"$th/state/beside" && echo "kept" >"$th/state/images/beside" && echo "kept" >"$th/state/memory/beside"
 t_run "$install --check"
-t_contains "$t_out" "stale: $units/tehas-energy.service"
+for f in "${left[@]}"; do t_contains "$t_out" "stale: $th/$f"; done
+for d in "${left_dirs[@]}"; do t_contains "$t_out" "stale: $th/$d/"; done
+t_eq "$([ -e "$th/libexec/tehas-proxy" ] && [ -d "$th/state/outsource" ] && echo there)" "there"
 rm -f "$T/calls/systemctl"
 t_run "$install"
 t_eq "$t_rc" 0
-t_contains "$t_out" "removed: $units/tehas-energy.service"
-t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-energy.service
+for f in "${left[@]}"; do
+  t_contains "$t_out" "removed: $th/$f"
+  t_eq "$f: $([ -e "$th/$f" ] && echo there)" "$f: "
+done
+for d in "${left_dirs[@]}"; do
+  t_contains "$t_out" "removed: $th/$d/"
+  t_eq "$d: $([ -e "$th/$d" ] && echo there)" "$d: "
+done
+# What is beside them in state/ stays, and a second run finds nothing left.
+t_eq "$(cat "$th/state/beside" "$th/state/images/beside" "$th/state/memory/beside" | tr '\n' ' ')" "kept kept kept "
+t_run "$install --check"
+t_lacks "$t_out" "stale: $th/state/"
+
+t_case "a link where a directory of outsource was is unlinked, and what it names stays"
+mkdir -p "$T/elsewhere" && echo "keep" >"$T/elsewhere/file"
+ln -s "$T/elsewhere" "$th/state/outsource"
+rm -f "$T/calls/systemctl"
+t_run "$install"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$th/state/outsource" ] || [ -L "$th/state/outsource" ] || echo gone)" "gone"
+t_eq "$(cat "$T/elsewhere/file")" "keep"
+
+t_case "the model proxy of outsource, a service with no timer, is stopped and removed"
+echo "[Service]" >"$units/tehas-outsource-proxy.service"
+t_run "$install --check"
+t_contains "$t_out" "stale: $units/tehas-outsource-proxy.service"
+rm -f "$T/calls/systemctl"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $units/tehas-outsource-proxy.service"
+t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-outsource-proxy.service
 --user daemon-reload"
 
 t_case "the wiki's units go, its service only once systemd lets go of its path unit"

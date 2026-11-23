@@ -164,8 +164,6 @@ struct Run {
     /// The sums of the secret values the host masks, given to the container by
     /// name as the keys are: the server masks them and never holds them.
     sums: String,
-    /// Outsource is on: the server serves `factory_contractors`.
-    outsource: bool,
     /// A plugin is granted `mcp:`: the server is given the broker's socket.
     plugin_calls: bool,
     /// TEHAS_MCP_CHECKOUT: the shared clone the git tools read, read only.
@@ -291,9 +289,6 @@ fn run_args(run: &Run) -> Vec<String> {
         args.push("--checkout-fetch".to_string());
         args.push(format!("{FETCH_MOUNT}/fetch.sock"));
     }
-    if run.outsource {
-        args.push("--outsource".to_string());
-    }
     for name in &run.private {
         args.push("--private".to_string());
         args.push(name.clone());
@@ -368,7 +363,6 @@ fn prepare(home: &str) -> Result<Run, (u8, String)> {
         version,
         private: mask::host_names(&models::host_path(), &email),
         sums: mask::sums_line(&salt),
-        outsource: tehas_core::features::on("outsource"),
         plugin_calls: calls,
         checkout,
     })
@@ -629,7 +623,6 @@ mod tests {
             version: "v1".to_string(),
             private: vec!["gpu1".to_string()],
             sums: "salt 9:abcd:sum".to_string(),
-            outsource: false,
             plugin_calls: false,
             checkout: None,
         });
@@ -719,7 +712,6 @@ mod tests {
                 version: "v1".to_string(),
                 private: vec![],
                 sums: String::new(),
-                outsource: false,
                 plugin_calls,
                 checkout: None,
             })
@@ -763,7 +755,6 @@ mod tests {
                 version: "v1".to_string(),
                 private: vec![],
                 sums: String::new(),
-                outsource: false,
                 plugin_calls: false,
                 checkout: checkout.map(str::to_string),
             })
@@ -829,28 +820,6 @@ mod tests {
 
     fn look(home: &Path, port: u16) -> Liveness {
         liveness(home, "1", "127.0.0.1", port, Duration::from_millis(500))
-    }
-
-    #[test]
-    fn the_server_serves_the_tool_of_outsource_only_while_it_is_on() {
-        let run = |outsource| {
-            run_args(&Run {
-                home: "/h".to_string(),
-                addr: "127.0.0.1".to_string(),
-                user: "1:2".to_string(),
-                digest: "sha256:x".to_string(),
-                version: "v1".to_string(),
-                private: vec![],
-                sums: String::new(),
-                outsource,
-                plugin_calls: false,
-                checkout: None,
-            })
-        };
-        assert!(!run(false).iter().any(|a| a == "--outsource"));
-        let on = run(true);
-        assert_eq!(on.last().map(String::as_str), Some("--outsource"));
-        assert_eq!(on.len(), run(false).len() + 1);
     }
 
     #[test]

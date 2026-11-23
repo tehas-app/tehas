@@ -68,14 +68,9 @@ fn take(bin: &Path, issue: &str, dir: &str, approved: &str) -> Result<(), String
     let done = Command::new(bin)
         .args(["issue", issue, dir, "--approved", approved, "--record", ""])
         .args(["--repo", &var("TEHAS_REPO")])
-        .args(["--comments", &or("TEHAS_WORK_COMMENTS", "0")])
-        .args(["--allowed", &var("TEHAS_ALLOWED_LABELERS")])
-        .args(["--millwright", &var("TEHAS_MILLWRIGHT_LOGIN")])
         .arg("--attach")
         .arg(bin)
         .args(["--images", &or("TEHAS_WORK_IMAGES", "1")])
-        .args(["--files", &or("TEHAS_WORK_FILES", "0")])
-        .args(["--zips", &or("TEHAS_WORK_ZIPS", "0")])
         .stdin(Stdio::null())
         .stderr(Stdio::inherit())
         .output();
@@ -89,8 +84,8 @@ fn take(bin: &Path, issue: &str, dir: &str, approved: &str) -> Result<(), String
 
 use attach::link::may_link;
 
-fn empty_manifest(issue: &str, files: bool) -> String {
-    attach::manifest::nothing(issue, "null", files)
+fn empty_manifest(issue: &str) -> String {
+    attach::manifest::nothing(issue, "null", false)
 }
 
 // With no program nothing can be checked, so a text that links a file stops and
@@ -119,12 +114,7 @@ fn gives_nothing(issue: &str, dir: &str) -> Result<(), String> {
     let _ = fs::remove_dir_all(dir);
     fs::create_dir_all(dir)
         .and_then(|()| mode(Path::new(dir), 0o755))
-        .and_then(|()| {
-            fs::write(
-                &manifest,
-                empty_manifest(issue, var("TEHAS_WORK_FILES") == "1"),
-            )
-        })
+        .and_then(|()| fs::write(&manifest, empty_manifest(issue)))
         .and_then(|()| mode(&manifest, 0o644))
         .map_err(|_| "the directory for the issue's images could not be made".to_string())
 }
@@ -168,8 +158,6 @@ pub fn answer_images(dir: &str, text: &str, id: &str) -> Result<(String, String)
         .args(["answer", dir, text, id, "--attach"])
         .arg(&bin)
         .args(["--images", &or("TEHAS_WORK_IMAGES", "1")])
-        .args(["--files", &or("TEHAS_WORK_FILES", "0")])
-        .args(["--zips", &or("TEHAS_WORK_ZIPS", "0")])
         .stdin(Stdio::null())
         .stderr(Stdio::inherit())
         .output();
@@ -304,12 +292,11 @@ mod tests {
     }
 
     #[test]
-    fn a_manifest_that_gives_nothing_names_files_only_when_files_are_on() {
-        let doc = |files| serde_json::from_str::<Value>(&empty_manifest("7", files)).unwrap();
-        assert_eq!(doc(false)["issue"], 7);
-        assert_eq!(doc(false).get("files"), None);
-        assert_eq!(doc(true)["files"], Value::Array(Vec::new()));
-        assert_eq!(doc(true)["approval"], Value::Null);
+    fn a_manifest_that_gives_nothing_names_no_files() {
+        let doc: Value = serde_json::from_str(&empty_manifest("7")).unwrap();
+        assert_eq!(doc["issue"], 7);
+        assert_eq!(doc.get("files"), None);
+        assert_eq!(doc["approval"], Value::Null);
     }
 
     #[test]

@@ -156,7 +156,6 @@ for want in tehas-v9.9.9/bin/tehas tehas-v9.9.9/bin/tehasbot \
   tehas-v9.9.9/host/docs/tools-status.md \
   tehas-v9.9.9/host/docs/tools-tehasbot.md \
   tehas-v9.9.9/host/docs/tools-health.md \
-  tehas-v9.9.9/host/docs/tools-protolab.md \
   tehas-v9.9.9/host/docs/tools-github.md \
   tehas-v9.9.9/host/docs/tools-clean.md \
   tehas-v9.9.9/host/docs/tools-update.md \

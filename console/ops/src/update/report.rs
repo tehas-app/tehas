@@ -5,7 +5,8 @@
 //!   console update notes <root> <options>
 //!
 //! `retired` prints the files an older tehas installed and this one removes,
-//! one path under $TEHAS_HOME a line, from src/update/retired.list.
+//! one path under $TEHAS_HOME a line, from src/update/retired.list. A path
+//! that ends with a slash is a directory.
 //!
 //! `report` prints the --check report, one finding a line, and exits 1 when it
 //! found something to do, 0 otherwise. `notes` prints the "note:" lines a real
@@ -578,8 +579,10 @@ mod tests {
         let mut seen = HashSet::new();
         for path in retired() {
             assert!(seen.insert(path), "{path} is listed twice");
+            // One slash at the end marks a directory.
+            let plain = path.strip_suffix('/').unwrap_or(path);
             assert!(
-                !path.starts_with('/') && !path.split('/').any(|p| p == ".." || p.is_empty()),
+                !plain.starts_with('/') && !plain.split('/').any(|p| p == ".." || p.is_empty()),
                 "{path} is not a plain path under the home"
             );
             // An installed file comes from the top of the tree or from host/.
@@ -594,6 +597,32 @@ mod tests {
         assert!(seen.len() > 60);
         assert_eq!(retired().next(), Some("bin/tehas-console.ts"));
         assert!(seen.contains("libexec/github-token"));
+        // What outsource left: its programs, its files and its directories.
+        for gone in [
+            "libexec/tehas-proxy",
+            "libexec/tehas-proxy.stamp",
+            "libexec/tehas-contractor",
+            "libexec/tehas-contractor.stamp",
+            "live/contractors.json",
+            "sandbox/vipune-shim",
+            "state/outsource/",
+            "state/memory/cycles/",
+        ] {
+            assert!(seen.contains(gone), "{gone} is not retired");
+        }
+        // Not outsource's alone to remove: left where they are.
+        for kept in ["state/memory/", "state/images/"] {
+            assert!(!seen.contains(kept), "{kept} is retired");
+        }
+        // The Protolab's list and log, which nothing writes or rotates now.
+        let list = Home::new(Path::new("")).live_dir().join("protolab.json");
+        for parked in [
+            list.to_str().unwrap(),
+            "logs/protolab.log",
+            "logs/protolab.log.1",
+        ] {
+            assert!(seen.contains(parked), "{parked} is not retired");
+        }
     }
 
     #[test]

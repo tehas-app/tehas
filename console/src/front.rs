@@ -66,7 +66,7 @@ fn script(which: &str, command: &str) -> Option<&'static str> {
 
 /// The verbs of `tehas`. work and index are tehas-cycle's, which takes their
 /// lock (src/run.rs).
-const VERBS: [&str; 37] = [
+const VERBS: [&str; 35] = [
     "work",
     "index",
     "dispatch",
@@ -97,8 +97,6 @@ const VERBS: [&str; 37] = [
     "init-product",
     "refresh",
     "github",
-    "outsource",
-    "prototype",
     "plugin",
     "wake",
     "blockers",
@@ -139,8 +137,8 @@ fn tehasbot(words: &[String]) -> Go {
     match words.first().map(String::as_str) {
         None | Some("help" | "-h" | "--help") => Go::Usage,
         Some(
-            "health" | "status" | "top" | "refresh" | "clean" | "preview" | "protolab" | "dispatch"
-            | "github-token" | "cycle" | "outsource-proxy" | "plugin" | "plugin-gate",
+            "health" | "status" | "refresh" | "clean" | "preview" | "dispatch" | "github-token"
+            | "cycle" | "plugin" | "plugin-gate",
         ) => Go::Run,
         Some("mcp") if words.get(1).map(String::as_str) == Some("serve") => Go::Run,
         Some("mcp" | "github-writes") => Go::Verb,
@@ -422,11 +420,9 @@ mod tests {
         for c in [
             "health",
             "status",
-            "top",
             "refresh",
             "clean",
             "preview",
-            "protolab",
             "dispatch",
             "github-token",
             "cycle",
@@ -435,17 +431,22 @@ mod tests {
         }
         // The improvement loop is gone, and so is its command.
         assert_eq!(b(&["improve"]), Go::Unknown("improve".into()));
-        // The review loop and the product wiki left core in 2.0.
+        // The review loop, the product wiki and the host panel's publisher
+        // left core in 2.0.
         assert_eq!(b(&["review"]), Go::Unknown("review".into()));
+        assert_eq!(b(&["top"]), Go::Unknown("top".into()));
         assert_eq!(t(&["wiki"]), Go::Unknown("wiki".into()));
         assert_eq!(b(&["wiki"]), Go::Unknown("wiki".into()));
+        // The Protolab is parked (docs/specs/parked-protolab.md), and so is its command.
+        assert_eq!(b(&["protolab"]), Go::Unknown("protolab".into()));
         assert_eq!(b(&["mcp", "serve"]), Go::Run);
-        assert_eq!(b(&["outsource-proxy"]), Go::Run);
         assert_eq!(b(&["plugin", "tick"]), Go::Run);
         assert_eq!(b(&["plugin-gate"]), Go::Run);
         assert_eq!(t(&["plugin-gate"]), Go::Unknown("plugin-gate".into()));
+        // Outsource was dropped in 2.0.
+        assert_eq!(t(&["outsource"]), Go::Unknown("outsource".into()));
         assert_eq!(
-            t(&["outsource-proxy"]),
+            b(&["outsource-proxy"]),
             Go::Unknown("outsource-proxy".into())
         );
         assert_eq!(b(&["mcp", "key"]), Go::Verb);
@@ -818,14 +819,7 @@ mod tests {
             marked.push((r.command.as_str(), name));
         }
         marked.dedup();
-        assert_eq!(
-            marked,
-            [
-                ("outsource", "outsource"),
-                ("plugin", "plugins"),
-                ("prototype", "prototype-file")
-            ]
-        );
+        assert_eq!(marked, [("plugin", "plugins")]);
         for (command, name) in marked {
             for r in pinned.iter().filter(|r| r.command == command) {
                 assert_eq!(r.building.as_deref(), Some(name), "{r:?}");

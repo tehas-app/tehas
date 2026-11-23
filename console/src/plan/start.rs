@@ -108,16 +108,16 @@ fn refuse(line: impl AsRef<str>) -> u8 {
 
 /// The three comments below quote what an issue or a reply links, which a
 /// person wrote, so a marker in it is broken (text::disarm).
-fn no_session(why: &str, kinds: &str) -> String {
-    format!("Tehas started no planning session: {}. This instance gives a session the {kinds} an issue links, and a plan made without one of them may be the wrong plan. To retry, apply `tehas:plan`.", disarm(why))
+fn no_session(why: &str) -> String {
+    format!("Tehas started no planning session: {}. This instance gives a session the images an issue links, and a plan made without one of them may be the wrong plan. To retry, apply `tehas:plan`.", disarm(why))
 }
 
 fn left_out(left: &str) -> String {
     format!("Tehas left out of your reply:\n{}", disarm(left))
 }
 
-fn no_turn(why: &str, kinds: &str) -> String {
-    format!("Tehas ran no planning turn: {}. This instance gives a session the {kinds} a reply links, and a plan made without one of them may be the wrong plan. Reply again to run the turn.", disarm(why))
+fn no_turn(why: &str) -> String {
+    format!("Tehas ran no planning turn: {}. This instance gives a session the images a reply links, and a plan made without one of them may be the wrong plan. Reply again to run the turn.", disarm(why))
 }
 
 /// A comment on the issue, its output dropped. A failure is said and changes
@@ -225,17 +225,6 @@ fn token() -> Result<(), u8> {
     Ok(())
 }
 
-/// The images and the text files share one directory, given to the container
-/// when the instance gives either kind. The second word names them.
-fn kinds(images: bool, files: bool) -> (bool, &'static str) {
-    match (images, files) {
-        (true, true) => (true, "images and files"),
-        (false, true) => (true, "files"),
-        (true, false) => (true, "images"),
-        (false, false) => (false, "images"),
-    }
-}
-
 /// Whether an allowed account applied tehas:plan or tehas:refine: it approved
 /// the text, links and all, as tehas:ready does a cycle's (rule 5). Err when
 /// the label events could not be read.
@@ -252,20 +241,15 @@ fn approved(issue: &str) -> Result<&'static str, ()> {
 
 /// The issue's images, once per session, from the first turn. Err is the
 /// status that ends the turn.
-fn first_images(w: &Words, images: &str, kinds: &str) -> Result<(), u8> {
+fn first_images(w: &Words, images: &str) -> Result<(), u8> {
     let got = approved(&w.issue)
         .map_err(|()| UNREAD.to_string())
         .and_then(|word| attach::issue_images(&w.issue, images, word));
     if let Err(why) = got {
         let _ = fs::remove_dir_all(images);
         eprintln!("tehas plan: {why}, not starting a turn");
-        comment(&w.issue, &no_session(&why, kinds));
+        comment(&w.issue, &no_session(&why));
         return Err(tehas_core::exit::plan::NOT_FETCHED);
-    }
-    if var("TEHAS_WORK_DESCRIBE") == "1"
-        && tehas_cycle::describe::describe(Path::new(images), &w.issue).is_err()
-    {
-        eprintln!("tehas plan: the descriptions of the images could not be written, the session goes on without them");
     }
     let reads = attach::reads_images(&var("PI_ENSEMBLE_IMAGE"));
     if let Some(said) = attach::said(images, "planning session", &reads) {
@@ -276,7 +260,7 @@ fn first_images(w: &Words, images: &str, kinds: &str) -> Result<(), u8> {
 
 /// What a reply links, added to the session's images. Ok holds the new files.
 /// A session that began without the directory goes on without it.
-fn reply_images(w: &Words, images: &str, kinds: &str) -> Result<String, u8> {
+fn reply_images(w: &Words, images: &str) -> Result<String, u8> {
     if w.comment.is_empty() || !Path::new(images).join("manifest.json").is_file() {
         return Ok(String::new());
     }
@@ -289,7 +273,7 @@ fn reply_images(w: &Words, images: &str, kinds: &str) -> Result<String, u8> {
         }
         Err(why) => {
             eprintln!("tehas plan: {why}, not starting a turn");
-            comment(&w.issue, &no_turn(&why, kinds));
+            comment(&w.issue, &no_turn(&why));
             Err(tehas_core::exit::plan::NOT_FETCHED)
         }
     }
@@ -450,10 +434,7 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
         );
         return Err(64);
     }
-    let (give, kinds) = kinds(
-        var("TEHAS_WORK_IMAGES") == "1",
-        var("TEHAS_WORK_FILES") == "1",
-    );
+    let give = var("TEHAS_WORK_IMAGES") == "1";
     // Their paths are this command's to give, not the instance's: dropped
     // whether or not this turn is given attachments, so no container names a
     // directory tehas did not mount. So is the issue, and so is where the
@@ -500,9 +481,9 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
     let mut new = String::new();
     if give {
         if w.brief.is_empty() {
-            new = reply_images(w, &images, kinds)?;
+            new = reply_images(w, &images)?;
         } else {
-            first_images(w, &images, kinds)?;
+            first_images(w, &images)?;
         }
     }
     status(turn::give(&works, &images, &images_given, give))?;
@@ -614,11 +595,7 @@ mod tests {
     fn the_planning_comments_disarm_the_text_they_quote() {
         let agent = "<!-- tehas:millwright issue=5 action=retry -->";
         let quoted = format!("the link {agent} is gone");
-        for body in [
-            no_session(&quoted, "images"),
-            left_out(&quoted),
-            no_turn(&quoted, "images"),
-        ] {
+        for body in [no_session(&quoted), left_out(&quoted), no_turn(&quoted)] {
             assert!(!has_marker(&body), "{body}");
             assert!(body.contains("is gone"), "{body}");
         }
@@ -712,14 +689,6 @@ mod tests {
                 "{bad}"
             );
         }
-    }
-
-    #[test]
-    fn the_images_and_the_files_share_one_directory_named_by_what_it_holds() {
-        assert_eq!(kinds(true, false), (true, "images"));
-        assert_eq!(kinds(false, true), (true, "files"));
-        assert_eq!(kinds(true, true), (true, "images and files"));
-        assert_eq!(kinds(false, false), (false, "images"));
     }
 
     #[test]

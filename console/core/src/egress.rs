@@ -94,8 +94,7 @@ pub fn host_pair(word: &str) -> Option<String> {
 }
 
 /// The pairs of the factory's list, sorted and each once: the base and the
-/// words of <extra>, which is `TEHAS_EGRESS_HOSTS`. No model endpoint: the
-/// outsource tunnel takes this list, and model traffic stays on its route.
+/// words of <extra>, which is `TEHAS_EGRESS_HOSTS`. No model endpoint.
 pub fn listed(extra: &str) -> Vec<String> {
     let mut pairs: Vec<String> = BASE.iter().map(|h| format!("{h}:443")).collect();
     pairs.extend(extra.split_whitespace().filter_map(host_pair));

@@ -112,10 +112,6 @@
 //! A stopped factory's state as one tar, and the store's check, see
 //! src/state.rs.
 //!
-//!   console protolab run
-//!
-//! One pass of the Protolab, for tehasbot protolab, see src/protolab.rs.
-//!
 //!   console settings load <euid> [<bash>] | valid [<name> <value>] | words <name> | rules --json | required
 //!
 //! What tehas_load does and what a setting may hold, see ops/src/settings.rs.
@@ -149,7 +145,7 @@
 //! pull request, see src/product.rs.
 //!
 //!   console tehas status|disk|state|limit|pause|analytics|top|api|labels|resume|drain|history|export|stop|dev|dev-login|mcp ...
-//!   console tehasbot health|status|top|mcp
+//!   console tehasbot health|status|mcp
 //!   console usage <command>
 //!
 //! The commands of bin/tehas and bin/tehasbot that are verbs of this program,
@@ -199,13 +195,10 @@ mod labels;
 mod notice;
 mod now;
 mod order;
-mod outsource;
 mod plan;
 mod platform;
 mod preview;
 mod product;
-mod protolab;
-mod prototype;
 mod publish;
 mod question;
 mod queue;
@@ -465,7 +458,6 @@ fn main() -> ExitCode {
             Some("tidy") => return ExitCode::from(tidy::main(&given[1..])),
             Some("pins") => return ExitCode::from(pins::main(&given[1..])),
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
-            Some("protolab") => return ExitCode::from(protolab::main(&given[1..])),
             Some("tehas") => return ExitCode::from(commands::tehas(&given[1..])),
             Some("tehasbot") => return ExitCode::from(commands::tehasbot(&given[1..])),
             Some("top") => return ExitCode::from(top::main(&given[1..])),

@@ -20,10 +20,6 @@
 //!   refresh   exit 64 before step 2 unless the arguments are --pr N
 //!   preview   exit 78 after step 3 unless TEHAS_PREVIEWS is 1
 //!
-//! tehasbot outsource-proxy is `tehas-proxy` beside this program, by exec
-//! under the settings: the model proxy of outsource, which says itself
-//! whether the feature is on.
-//!
 //! tehasbot plugin is `tehas-plugin` beside this program, by exec under the
 //! settings: a plugin's run and the plugins' tick, which say themselves
 //! whether the feature is on.
@@ -40,7 +36,7 @@
 //! settings are missing or malformed.
 
 use crate::commands::{self, ANSWERED};
-use crate::{clean, disk, github, plan, preview, product, protolab, settings};
+use crate::{clean, disk, plan, preview, product, settings};
 use std::env;
 use std::ffi::OsString;
 use std::fs::File;
@@ -133,18 +129,6 @@ fn hand_to_dispatcher(libexec: &str, rest: &[String], log: Option<String>) -> u8
     let failed = refresh.exec();
     eprintln!("tehas refresh: {program} cannot run (run install.sh): {failed}");
     78
-}
-
-/// The GitHub App's token goes in this environment for the pass and its children.
-fn protolab_run() -> u8 {
-    match github::token_env() {
-        Ok(token) => env::set_var("GH_TOKEN", token),
-        Err(rc) => {
-            eprintln!("tehasbot protolab: no GitHub token for the app");
-            return rc;
-        }
-    }
-    protolab::main(&["run".to_string()])
 }
 
 /// A free figure that cannot be read changes nothing.
@@ -311,9 +295,6 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
         }
         ["tehasbot", "cycle"] => cycle_run(libexec, rest.first().ok_or(64u8)?),
         ["tehasbot", "plugin"] => beside(libexec, "tehas-plugin", "tehasbot plugin", rest),
-        ["tehasbot", "outsource-proxy"] if rest.is_empty() => {
-            beside(libexec, "tehas-proxy", "tehasbot outsource-proxy", &[])
-        }
         ["tehasbot", "plugin-gate"] if rest.is_empty() => {
             beside(libexec, "tehas-plugin-gate", "tehasbot plugin-gate", &[])
         }
@@ -321,7 +302,6 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
         ["tehasbot", "clean"] => clean_run(rest)?,
         ["tehasbot", "dispatch"] => dispatch(bash, libexec, rest)?,
         ["tehasbot", "preview"] => preview_run(rest, settle),
-        ["tehasbot", "protolab"] => protolab_run(),
         ["tehasbot", "refresh"] => {
             let home = var("TEHAS_HOME");
             let path = factory_path(Path::new(&home), env::var_os("PATH"));

@@ -3,9 +3,10 @@
 **Status**: decided by the owner, 2026-11-22. Every row is approved, and
 T16 of `docs/plans/2026-11-21-coding-standard-v2.md` carries them out.
 
-tehas 2.0.0 removes the Protolab (T14 of
-`docs/plans/2026-11-21-coding-standard-v2.md`), and its job moves to the lab
-plugin (`docs/specs/2026-11-22-plugin-lab.md`). The rows below are the other
+tehas 2.0.0 removes the Protolab from core and parks it (T14 of
+`docs/plans/2026-11-21-coding-standard-v2.md`, recorded in
+`docs/specs/parked-protolab.md`), and its job moves to the lab plugin
+(`docs/specs/2026-11-22-plugin-lab.md`). The rows below are the other
 features that meet the same test: built, off on every factory, never or
 barely seen on a host (`host/docs/features.md`).
 
@@ -15,7 +16,7 @@ of its own. "Drop" means it goes in 2.0.
 
 | Feature | Evidence | Proposal | Decided |
 | --- | --- | --- | --- |
-| Protolab | Envisioned, never pulled through | Drop; its job goes to the lab plugin | Owner, 2026-11-22 |
+| Protolab | Envisioned, never pulled through | Drop from core, parked with a record (`docs/specs/parked-protolab.md`); its job goes to the lab plugin | Owner, 2026-11-22 |
 | All hands label | Never on a host. It only shows in status | Drop || Drop in 2.0: Owner, 2026-11-22 |
 | Spec mark (`Spec:` lines) | Tests only. Its one filer was `tehas prototype file`; the page ticket hands files through records instead | Drop || Drop in 2.0: Owner, 2026-11-22 |
 | Panels (outside pages in the dock) | A development machine only | Plugin: a view in a frame || Plugin in 2.1: Owner, 2026-11-22 |
