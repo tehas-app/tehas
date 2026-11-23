@@ -34,7 +34,7 @@ Public:
   store and analytics migrated;
 - [the cycle inputs rule](#cycle-inputs);
 - the host namespace `/host/` and [the host bridge](/api#the-host-bridge);
-- [analytics.db at schema 6](#analyticsdb);
+- [analytics.db at schema 7](#analyticsdb);
 - [the commands of other parts](#the-commands-of-other-parts): the rule by
   which `tehas <part>` runs `tehas-<part>`, the words kept for the parts,
   and the front asset of a release.
@@ -94,7 +94,7 @@ other issue the poll takes it off, as it does an outsider's.
 | Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
 | Labels | The rows of `host/labels.tsv`: the name, what the dispatcher does with it, and the word of the ports it is (the fourth column, such as `State::Running`) | The dispatcher's and the tidy's tests, and the table's own test in `console/src/labels.rs` |
 | Store | `tehas update` brings a store of 1.4.x (schema 23) to 2.0's schema, 29 | The store's migration tests |
-| analytics.db | `user_version` 6, tables and columns only added | `console/analytics/src/schema.pinned` |
+| analytics.db | `user_version` 7, tables and columns only added | `console/analytics/src/schema.pinned` |
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints, and the tests of `console/src/front.rs`, which fail when a public `--json` row of `api/commands.txt` has no schema |
 | MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
@@ -186,10 +186,11 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
    `millwright` and drops `comment_links` from an approval's input, 29 drops
    the tables of outsource and keeps every other row.
    `tehas state check --json` prints the schema.
-4. **Analytics** (`state/analytics.db`) goes from schema 4 to 6 the first
+4. **Analytics** (`state/analytics.db`) goes from schema 4 to 7 the first
    time it is opened after the update: it drops `samples.watts` and
-   `runs.contractor_id`, keeps every other column and row, and rewrites `retry-tick` to `reply` and `fixer` to
-   `millwright` in `runs.how`.
+   `runs.contractor_id`, keeps every other column and row, rewrites `retry-tick` to `reply` and `fixer` to
+   `millwright` in `runs.how`, and with 7 rewrites `label` to `approved` in
+   `runs.how` and `pr` to `offered` in `runs.outcome`.
 5. **pi-rukas.** A checkout follows pi-rukas's 0.15 line
    (`PI_RUKAS_FOLLOW=release:0.15`). 2.0 needs pi-rukas v0.15.7 or later.
 
@@ -321,10 +322,11 @@ and a change to them is a security change.
 
 ## analytics.db
 
-`~/tehas/state/analytics.db` is at `user_version` 6. Within it tables and
+`~/tehas/state/analytics.db` is at `user_version` 7. Within it tables and
 columns are only added, never renamed, retyped or removed. A file of schema 4,
-from 1.4.x, is migrated to 6 in place as it is opened: it loses
-`samples.watts` and `runs.contractor_id`, and keeps every row. A new version
+from 1.4.x, is migrated to 7 in place as it is opened: it loses
+`samples.watts` and `runs.contractor_id`, takes the events' words in
+`runs.how` and `runs.outcome`, and keeps every row. A new version
 comes only with a major release. [Analytics](/analytics) has the schema;
 [`tehas analytics copy`](/api#tehas-analytics-copy) is how a program takes a
 consistent copy.
@@ -487,14 +489,16 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   A program that stops `tehas-energy.service` when it adopts a factory, or
   starts it when it creates or restores one, drops the unit from both
   lists.
-- **analytics.db is at schema 6.**
-  #2869, #2886.
+- **analytics.db is at schema 7.**
+  #2869, #2886, #2911.
   The migration drops `samples.watts`, which nothing writes since energy
   use left core, and `runs.contractor_id`, which no release wrote a value
-  in, and keeps every other column and row. A file of schema 4 or 5 is
-  migrated in place. `tehas analytics copy --json` reports schema 6.
+  in, and keeps every other column and row. Step 7 rewrites the how
+  `label` to `approved` and the end `pr` to `offered`, and the view
+  `v_versions` names `pr_share` `change_share`. A file of schema 4, 5 or 6
+  is migrated in place. `tehas analytics copy --json` reports schema 7.
   Readers: the consumer that reads the analytics copies.
-  Adopter action: a program that reads the copies pins `user_version` 6 and
+  Adopter action: a program that reads the copies pins `user_version` 7 and
   `console/analytics/src/schema.pinned` of this release.
 - **A cycle is given the issue's images alone.**
   #2875, #2888.
