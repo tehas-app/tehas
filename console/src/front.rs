@@ -66,7 +66,7 @@ fn script(which: &str, command: &str) -> Option<&'static str> {
 
 /// The verbs of `tehas`. work and index are tehas-cycle's, which takes their
 /// lock (src/run.rs).
-const VERBS: [&str; 35] = [
+const VERBS: [&str; 34] = [
     "work",
     "index",
     "dispatch",
@@ -79,7 +79,6 @@ const VERBS: [&str; 35] = [
     "limit",
     "order",
     "start",
-    "panel",
     "host-message",
     "pause",
     "analytics",
@@ -353,7 +352,6 @@ mod tests {
             "start",
             "answer",
             "question",
-            "panel",
             "host-message",
             "pause",
             "analytics",
@@ -453,6 +451,8 @@ mod tests {
         assert_eq!(b(&["github-writes"]), Go::Verb);
         // Energy use left core in 2.0, and so did its sampler.
         assert_eq!(b(&["energy", "--every"]), Go::Unknown("energy".into()));
+        // Panels left core in 2.0, and so did their command.
+        assert_eq!(t(&["panel"]), Go::Unknown("panel".into()));
         for w in [&[][..], &["help"], &["-h"], &["--help"]] {
             assert_eq!(b(w), Go::Usage, "{w:?}");
         }
@@ -829,7 +829,7 @@ mod tests {
 
     /// Each public `--json` row of api/commands.txt and the schemas in api/ of
     /// the objects it prints.
-    const JSON_SCHEMAS: [(&str, Option<&str>, &[&str]); 25] = [
+    const JSON_SCHEMAS: [(&str, Option<&str>, &[&str]); 24] = [
         ("analytics", Some("copy"), &["analytics-copy"]),
         ("answer", None, &["answer"]),
         ("api", None, &["api"]),
@@ -845,7 +845,6 @@ mod tests {
         ("order", None, &["order"]),
         ("order", Some("clear"), &["order"]),
         ("order", Some("set"), &["order"]),
-        ("panel", None, &["panel"]),
         ("question", None, &["question"]),
         ("refresh", None, &["refresh"]),
         ("start", None, &["start"]),

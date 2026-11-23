@@ -12,7 +12,6 @@ state-move
 mcp-dashboard-keys
 clean
 disk
-panels
 state-check
 finish
 status-versions

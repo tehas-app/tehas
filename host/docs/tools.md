@@ -20,7 +20,6 @@ tehas index                      # build the code index the agents search
 tehas setup [options]            # write this host's instance and start the factory
 tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
-tehas panel [set ...|clear ...]  # the pages of the project the dashboard links
 tehas host-message [set ...|clear ...]  # short messages for this factory
 tehas check-product [--sandbox]  # check the product against the contract
 tehas init-product [--dry-run]   # propose the missing contract files
@@ -82,10 +81,9 @@ Every command that needs the instance settings loads them first and stops with
 exit 78 and one line if a setting it needs is missing or malformed. See
 [The host](/host).
 
-The two lists name every command the two programs route. Four of them have no
-section of these pages and are on the page that describes them: `tehas panel`
-and `tehas host-message` on [the factory API](/api#tehas-panel) and
-[the factory API](/api#tehas-host-message), `tehas mcp key` and
+The two lists name every command the two programs route. Three of them have no
+section of these pages and are on the page that describes them:
+`tehas host-message` on [the factory API](/api#tehas-host-message), `tehas mcp key` and
 `tehasbot mcp serve` on [The MCP server](/mcp-server#how-it-runs), which
 `tehas-mcp.service` runs. `tehas state copy --to <file>` and
 `tehas state load --from <file>` are the two verbs `tehas state` holds beside
