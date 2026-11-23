@@ -348,7 +348,7 @@ impl GitHub {
     /// `touched` their indexes and node ids: one GraphQL question for the
     /// page, none when none moved. Every one asked must be answered as an
     /// issue comment, or the read is `Unread(Inconsistent)`.
-    fn comment_edits_of(&mut self, comments: &mut [Comment], touched: &[(usize, String)]) -> Did {
+    fn comment_edits_of(&mut self, comments: &mut [Comment], touched: &[Touched]) -> Did {
         if touched.is_empty() {
             return Ok(());
         }
@@ -582,11 +582,7 @@ fn author(user: Option<&User>) -> Option<tehas_ports::Account> {
 /// lacks a field every comment has, is `Unread(Malformed)`; a comment whose
 /// link is not one on issue `no` of this project is
 /// `Unread(Inconsistent)`.
-fn read_comments(
-    out: &str,
-    repo: &str,
-    no: BlueprintNo,
-) -> Got<(Vec<Comment>, Vec<(usize, String)>)> {
+fn read_comments(out: &str, repo: &str, no: BlueprintNo) -> Got<(Vec<Comment>, Vec<Touched>)> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     tehas_core::accounts::vouch(&mut v);
@@ -623,6 +619,10 @@ fn read_comments(
     }
     Ok((comments, touched))
 }
+
+/// A comment of a page whose `updated_at` moved: where it stands in the
+/// page, and its node id.
+type Touched = (usize, String);
 
 /// A node id GitHub gives: letters, digits, `_` and `-`, so it goes in a
 /// question as it is.

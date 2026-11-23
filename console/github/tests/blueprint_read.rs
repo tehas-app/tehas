@@ -57,6 +57,9 @@ const CUT_TEXT: usize = 200;
 
 const CUT0: Depth = Depth::Cut { notes: 0 };
 
+/// A change the site makes to itself between two reads.
+type Change = Box<dyn FnOnce(&mut Site) + Send>;
+
 type Calls = Arc<Mutex<Vec<String>>>;
 type Kept = Arc<Mutex<Site>>;
 
@@ -75,7 +78,7 @@ struct Site {
     /// Every GraphQL question fails with this reason, or answers this text.
     graphql: Option<Result<String, String>>,
     /// Run once, after page 1 of an issue's comments is answered.
-    after_page_1: Vec<Box<dyn FnOnce(&mut Site) + Send>>,
+    after_page_1: Vec<Change>,
 }
 
 impl Site {
@@ -92,8 +95,13 @@ impl Site {
         self
     }
 
-    /// The last edit of a text as GraphQL answers it, by `editor` at `at`.
-    fn edited(mut self, key: &str, editor: Value, at: &str) -> Self {
+    /// The last edit of a text as GraphQL answers it, at `at` by `editor`:
+    /// its type, login and id, or None for an account GitHub no longer
+    /// names.
+    fn edited(mut self, key: &str, editor: Option<(&str, &str, u64)>, at: &str) -> Self {
+        let editor = editor.map(|(kind, login, id)| {
+            serde_json::json!({"__typename": kind, "login": login, "databaseId": id})
+        });
         self.edits.insert(
             key.to_string(),
             serde_json::json!({"lastEditedAt": at, "editor": editor}),
@@ -163,6 +171,7 @@ impl Site {
                 c["html_url"] =
                     format!("https://github.com/acme/widget/issues/{n}#issuecomment-{id}").into();
                 c["body"] = format!("Comment {i}.").into();
+                c["node_id"] = format!("IC_kwDOAbCdEf6Vt{i:04}").into();
                 c
             })
             .collect::<Vec<_>>();
@@ -404,8 +413,7 @@ fn an_issue_with_no_comment_says_no_more_at_cut_0() {
 
 #[test]
 fn comments_at_each_depth_carry_their_markers_apart_and_their_accounts() {
-    let alice =
-        serde_json::json!({"__typename": "User", "login": "Alice-Dev", "databaseId": 200002});
+    let alice = Some(("User", "Alice-Dev", 200002));
     let site = Site::default()
         .seven()
         .edited(EDITED_COMMENT, alice, "2026-11-21T09:15:00Z");
@@ -871,6 +879,300 @@ fn a_persons_issue_answers_a_person_with_its_id() {
     assert_eq!(author.login.as_str(), "alice-dev");
     assert_eq!(author.id.unwrap().as_str(), "200002");
     assert_eq!(author.kind, AccountKind::Person);
+}
+
+// A read of many pages, and the read retry.
+
+/// The comment a template makes, `id` its number, posted at `at`.
+fn made_comment<T: serde::de::DeserializeOwned>(n: u64, id: u64, body: &str, at: &str) -> T {
+    let mut c = json::<Value>("comment-template.json");
+    c["id"] = id.into();
+    c["html_url"] = format!("https://github.com/acme/widget/issues/{n}#issuecomment-{id}").into();
+    c["node_id"] = format!("IC_kwDOAbCdEf6Vn{id}").into();
+    c["body"] = body.into();
+    c["created_at"] = at.into();
+    c["updated_at"] = at.into();
+    serde_json::from_value(c).unwrap()
+}
+
+/// Between two pages of issue 9's comments: the 51st is deleted and a new
+/// one posted, so the count stays and the issue's `updated_at` moves. With
+/// `again`, the same happens on the next read too.
+fn churn(site: &mut Site, again: bool, round: u64) {
+    let list = site.comments.get_mut(&9).unwrap();
+    list.remove(50);
+    list.push(made_comment(
+        9,
+        2_501_250_000 + round,
+        "Posted between two pages.",
+        "2026-11-22T00:00:00Z",
+    ));
+    site.issues.get_mut(&9).unwrap()["updated_at"] = format!("2026-11-22T00:00:0{round}Z").into();
+    if again {
+        site.after_page_1
+            .push(Box::new(move |s: &mut Site| churn(s, false, round + 1)));
+    }
+}
+
+fn issue_9(n: usize) -> Site {
+    Site::default().issue(9, "Plan", "T.").with_comments(9, n)
+}
+
+const ISSUE_9: &str = "api repos/acme/widget/issues/9";
+
+#[test]
+fn a_comment_deleted_and_another_posted_between_pages_is_inconsistent_then_read_again() {
+    let mut site = issue_9(150);
+    let deleted = site.comments[&9][50]["id"].clone();
+    site.after_page_1
+        .push(Box::new(|s: &mut Site| churn(s, false, 1)));
+    let (mut gh, _, calls) = adapter(site);
+    let whole = gh.comments(no(9), Bound::new(200).unwrap()).unwrap();
+    // The first read saw the issue move and was made once more, whole.
+    let one = [
+        ISSUE_9.to_string(),
+        page(9, 1),
+        page(9, 2),
+        ISSUE_9.to_string(),
+    ];
+    assert_eq!(*calls.lock().unwrap(), [one.clone(), one].concat());
+    let ids: Vec<&str> = whole.items().iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(ids.len(), 150);
+    assert!(!ids.contains(&deleted.to_string().as_str()));
+    assert_eq!(*ids.last().unwrap(), "2501250001");
+    assert!(
+        ids.contains(&"2501240101"),
+        "the comment the first read skipped"
+    );
+}
+
+#[test]
+fn an_inconsistent_read_is_retried_once_and_no_more() {
+    let mut site = issue_9(150);
+    site.after_page_1
+        .push(Box::new(|s: &mut Site| churn(s, true, 1)));
+    let (mut gh, _, calls) = adapter(site);
+    assert_eq!(
+        gh.comments(no(9), Bound::new(200).unwrap()).map(|_| ()),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    assert_eq!(calls.lock().unwrap().len(), 8, "two reads of four calls");
+}
+
+#[test]
+fn ids_out_of_order_across_pages_are_inconsistent() {
+    let mut site = issue_9(150);
+    // The first comment of page 2 has an id below the last of page 1.
+    let list = site.comments.get_mut(&9).unwrap();
+    list[100] = made_comment(9, 2_501_230_000, "Out of order.", "2026-11-21T00:00:00Z");
+    let (mut gh, _, calls) = adapter(site);
+    assert_eq!(
+        gh.blueprint(no(9), Depth::All).map(|_| ()),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    // Each read stops at page 2; the read is made twice.
+    assert_eq!(
+        *calls.lock().unwrap(),
+        [
+            ISSUE_9.to_string(),
+            page(9, 1),
+            page(9, 2),
+            ISSUE_9.to_string(),
+            page(9, 1),
+            page(9, 2)
+        ]
+    );
+}
+
+#[test]
+fn a_comment_older_than_the_one_before_is_inconsistent() {
+    let mut site = issue_9(3);
+    site.comments.get_mut(&9).unwrap()[2]["created_at"] = "2026-11-01T00:00:00Z".into();
+    site.comments.get_mut(&9).unwrap()[2]["updated_at"] = "2026-11-01T00:00:00Z".into();
+    let (mut gh, _, _) = adapter(site);
+    assert_eq!(
+        gh.blueprint(no(9), Depth::All).map(|_| ()),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+}
+
+#[test]
+fn a_two_page_read_makes_exactly_one_more_issue_read() {
+    let (mut gh, _, calls) = adapter(issue_9(150));
+    let whole = gh.comments(no(9), Bound::new(200).unwrap()).unwrap();
+    assert_eq!(whole.items().len(), 150);
+    assert_eq!(
+        *calls.lock().unwrap(),
+        [
+            ISSUE_9.to_string(),
+            page(9, 1),
+            page(9, 2),
+            ISSUE_9.to_string()
+        ]
+    );
+    // One page is one request, with no read after it.
+    calls.lock().unwrap().clear();
+    gh.blueprint(no(9), Depth::Last { notes: n32(10) }).unwrap();
+    assert_eq!(*calls.lock().unwrap(), [ISSUE_9.to_string(), page(9, 2)]);
+}
+
+// Who last edited a text.
+
+#[test]
+fn a_never_touched_issue_at_cut_0_is_exactly_one_request() {
+    let (mut gh, _, calls) = adapter(issue_9(4));
+    let b = gh.blueprint(no(9), CUT0).unwrap();
+    assert_eq!(*calls.lock().unwrap(), [ISSUE_9]);
+    assert_eq!((b.editor, b.edited), (None, None));
+}
+
+#[test]
+fn a_touched_issue_at_cut_0_is_exactly_two_requests() {
+    let mut site = issue_9(0);
+    site.issues.get_mut(&9).unwrap()["updated_at"] = "2026-11-21T00:00:00Z".into();
+    let (mut gh, _, calls) = adapter(site);
+    let b = gh.blueprint(no(9), CUT0).unwrap();
+    assert_eq!(*calls.lock().unwrap(), [ISSUE_9.to_string(), body_edit(9)]);
+    // Touched by a label or a comment, never edited.
+    assert_eq!((b.editor, b.edited), (None, None));
+}
+
+#[test]
+fn an_edited_body_at_cut_0_carries_its_editor() {
+    let maintainer = Some(("User", "Maint-Ainer", 300003));
+    let site = Site::default()
+        .seven()
+        .edited("issue-7", maintainer, "2026-11-22T14:00:00Z");
+    let (mut gh, _, _) = adapter(site);
+    let b = gh.blueprint(no(7), CUT0).unwrap();
+    let editor = b.editor.unwrap();
+    assert_eq!(editor.login.as_str(), "maint-ainer");
+    assert_eq!(editor.id.unwrap().as_str(), "300003");
+    assert_eq!(editor.kind, AccountKind::Person);
+    assert_eq!(
+        b.edited,
+        Some(At::new(
+            tehas_core::time::from_iso("2026-11-22T14:00:00Z").unwrap()
+        ))
+    );
+    // The author stays the bot that opened it.
+    assert_eq!(b.author.unwrap().login.as_str(), "tehas-bot");
+}
+
+#[test]
+fn an_edited_comment_by_another_account_carries_that_editor() {
+    // The bot's question; a maintainer edited it and changed its marker.
+    let maintainer = Some(("User", "Maint-Ainer", 300003));
+    let mut site = Site::default().seven();
+    site.comments.get_mut(&7).unwrap()[1]["updated_at"] = "2026-11-21T10:00:00Z".into();
+    let site = site.edited("IC_kwDOAbCdEf6VFm0002", maintainer, "2026-11-21T10:00:00Z");
+    let (mut gh, _, _) = adapter(site);
+    let all = gh.blueprint(no(7), Depth::All).unwrap();
+    let question = &all.comments.items[1];
+    assert_eq!(
+        question.author.as_ref().unwrap().login.as_str(),
+        "tehas-bot"
+    );
+    let editor = question.editor.as_ref().unwrap();
+    assert_eq!(editor.login.as_str(), "maint-ainer");
+    assert_eq!(editor.kind, AccountKind::Person);
+    assert!(question.edited.is_some());
+}
+
+#[test]
+fn a_comment_whose_updated_at_moved_but_was_not_edited_is_unedited() {
+    // The sample's third comment moved; GraphQL says it was never edited.
+    let (mut gh, _, _) = adapter(Site::default().seven());
+    let all = gh.blueprint(no(7), Depth::All).unwrap();
+    let recorded = json::<Value>("comments-7-page-1.json");
+    assert_ne!(recorded[2]["updated_at"], recorded[2]["created_at"]);
+    let c = &all.comments.items[2];
+    assert_eq!((c.editor.clone(), c.edited), (None, None));
+}
+
+#[test]
+fn an_edit_by_a_deleted_account_is_not_unedited() {
+    let site = Site::default()
+        .seven()
+        .edited("issue-7", None, "2026-11-22T14:00:00Z");
+    let (mut gh, _, _) = adapter(site);
+    let b = gh.blueprint(no(7), CUT0).unwrap();
+    assert!(b.edited.is_some());
+    let editor = b.editor.unwrap();
+    assert_eq!(editor.login.as_str(), "ghost");
+    assert_eq!(editor.kind, AccountKind::Unknown);
+    assert_eq!(editor.id, None);
+}
+
+#[test]
+fn a_failed_editor_read_fails_the_answer() {
+    let cases = [
+        (
+            Err(failed("read-server-error.stderr")),
+            Outcome::Unavailable {
+                why: Passing::Server,
+                sent: Sent::Maybe,
+            },
+        ),
+        (
+            Ok(r#"{"data":null,"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded"}]}"#.to_string()),
+            Outcome::Spent {
+                pool: Pool::Priced,
+                until: At::new(now()),
+            },
+        ),
+        (
+            Err(failed("read-rate-limited.stderr")),
+            Outcome::Spent {
+                pool: Pool::Priced,
+                until: At::new(now()),
+            },
+        ),
+        // A comment deleted since its page: GraphQL's NOT_FOUND.
+        (
+            Ok(r#"{"data":{"nodes":[null]},"errors":[{"type":"NOT_FOUND","path":["nodes",0],"message":"Could not resolve to a node with the global id."}]}"#.to_string()),
+            Outcome::Unread(Unread::Inconsistent),
+        ),
+        (Ok("{\"data\":".to_string()), Outcome::Unread(Unread::Malformed)),
+    ];
+    for (graphql, want) in cases {
+        let mut site = Site::default().seven();
+        site.graphql = Some(graphql.clone());
+        let (mut gh, _, _) = adapter(site);
+        assert_eq!(
+            gh.blueprint(no(7), CUT0).map(|_| ()),
+            Err(want.clone()),
+            "{graphql:?}"
+        );
+        let mut site = Site::default().seven();
+        site.graphql = Some(graphql.clone());
+        let (mut gh, _, _) = adapter(site);
+        let got = gh.comments(no(7), Bound::new(10).unwrap()).map(|_| ());
+        assert_eq!(got, Err(want), "comments: {graphql:?}");
+    }
+}
+
+#[test]
+fn the_batched_editor_question_is_one_per_page() {
+    let mut site = issue_9(205);
+    for i in [5, 6, 201] {
+        site.comments.get_mut(&9).unwrap()[i]["updated_at"] = "2026-11-22T00:00:00Z".into();
+    }
+    let (mut gh, _, calls) = adapter(site);
+    let all = gh.blueprint(no(9), Depth::All).unwrap();
+    assert_eq!(all.comments.items.len(), 205);
+    assert_eq!(
+        *calls.lock().unwrap(),
+        [
+            ISSUE_9.to_string(),
+            page(9, 1),
+            comment_edits(&["IC_kwDOAbCdEf6Vt0005", "IC_kwDOAbCdEf6Vt0006"]),
+            page(9, 2),
+            page(9, 3),
+            comment_edits(&["IC_kwDOAbCdEf6Vt0201"]),
+            ISSUE_9.to_string()
+        ]
+    );
 }
 
 // The contract with the edit.
