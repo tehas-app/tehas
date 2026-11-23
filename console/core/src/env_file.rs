@@ -10,6 +10,24 @@
 //! value a shell that sourced the file leaves in the environment. Where the
 //! shell would expand a value, [`literal`] refuses it, so the two never part
 //! in silence.
+//!
+//! [`entries`] reads a whole file strictly, for a check of a host env file
+//! that is not this machine's: there a line that is no assignment is refused,
+//! and a value of exactly [`REDACTED`], unquoted, stands for one that is set
+//! and not shown. No working file holds that line: a shell that sources it
+//! stops at the `<`. Quoted, `'<redacted>'` is an ordinary value.
+
+use std::collections::BTreeMap;
+
+/// The value that stands for a set value not shown, written unquoted.
+pub const REDACTED: &str = "<redacted>";
+
+/// What a file gives a name: a value, quotes taken off, or [`REDACTED`].
+#[derive(Debug, PartialEq, Eq)]
+pub enum Entry {
+    Value(String),
+    Redacted,
+}
 
 /// The value `text` of a `KEY=value` file has for `name`, quotes taken off, or
 /// nothing when the text holds no assignment of it. An empty value counts as
@@ -32,26 +50,65 @@ pub fn literal(text: &str, name: &str) -> Result<Option<String>, String> {
     }
 }
 
+/// Every name `text` assigns, each with what its last assignment gives, for
+/// a file that must hold nothing else. Err names the first line that is not
+/// `NAME=value`, by its number, or the name whose value a shell would
+/// expand; never a value.
+pub fn entries(text: &str) -> Result<BTreeMap<String, Entry>, String> {
+    let mut found = BTreeMap::new();
+    for (at, line) in text.lines().enumerate() {
+        let Some(line) = statement(line) else {
+            continue;
+        };
+        let Some((name, rest)) = line
+            .split_once('=')
+            .filter(|(name, _)| crate::settings::load::is_name(name.as_bytes()))
+        else {
+            return Err(format!("line {} is not NAME=value", at + 1));
+        };
+        let rest = rest.trim();
+        let entry = if rest == REDACTED {
+            Entry::Redacted
+        } else {
+            let (value, single) = parse(rest);
+            if !single && value.contains(['$', '`']) {
+                return Err(format!(
+                    "{name} holds a $ or a backtick: the file is read, not run as shell, so write the value itself"
+                ));
+            }
+            Entry::Value(value)
+        };
+        found.insert(name.to_string(), entry);
+    }
+    Ok(found)
+}
+
+/// A line without its blanks and its `export `, or None for a blank line or
+/// a comment.
+fn statement(line: &str) -> Option<&str> {
+    let line = line.trim();
+    if line.is_empty() || line.starts_with('#') {
+        return None;
+    }
+    Some(line.strip_prefix("export ").unwrap_or(line).trim())
+}
+
+/// A value as written, quotes taken off, and whether it was in single quotes.
+fn parse(rest: &str) -> (String, bool) {
+    let single = unquote(rest, '\'') != rest;
+    let value = unquote(unquote(rest, '"'), '\'');
+    (value.to_string(), single)
+}
+
 /// The last assignment of `name`, quotes taken off, and whether it was in
 /// single quotes.
 fn last(text: &str, name: &str) -> Option<(String, bool)> {
     let prefix = format!("{name}=");
-    let mut found = None;
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let line = line.strip_prefix("export ").unwrap_or(line).trim();
-        let Some(rest) = line.strip_prefix(&prefix) else {
-            continue;
-        };
-        let rest = rest.trim();
-        let single = unquote(rest, '\'') != rest;
-        let value = unquote(unquote(rest, '"'), '\'');
-        found = Some((value.to_string(), single));
-    }
-    found
+    text.lines()
+        .filter_map(statement)
+        .filter_map(|line| line.strip_prefix(&prefix))
+        .map(|rest| parse(rest.trim()))
+        .next_back()
 }
 
 // One layer of matching quotes; an unmatched one is part of the value.
@@ -128,6 +185,40 @@ mod tests {
         assert_eq!(literal("", "X"), Ok(None));
         // The last assignment decides, as in a shell.
         assert_eq!(literal("X=$Y\nX=/z\n", "X"), Ok(Some("/z".into())));
+    }
+
+    #[test]
+    fn entries_read_every_assignment_and_the_unquoted_marker() {
+        let text =
+            "# host\n\nexport TEHAS_MODEL_KEY_A=<redacted>\nTEHAS_MODEL_KEY_B='<redacted>'\n\
+                    TEHAS_MCP=on\nTEHAS_MCP=off\nTEHAS_MODEL_KEY_C=\"<redacted>\"\n";
+        let got = entries(text).unwrap();
+        assert_eq!(got["TEHAS_MODEL_KEY_A"], Entry::Redacted);
+        // Quoted, it is a value a shell would set, so it is checked as one.
+        assert_eq!(got["TEHAS_MODEL_KEY_B"], Entry::Value(REDACTED.into()));
+        assert_eq!(got["TEHAS_MODEL_KEY_C"], Entry::Value(REDACTED.into()));
+        assert_eq!(got["TEHAS_MCP"], Entry::Value("off".into()));
+        assert_eq!(got.len(), 4);
+    }
+
+    #[test]
+    fn entries_refuse_a_line_that_is_no_assignment_by_its_number() {
+        for (text, why) in [
+            ("A=1\nno equals here\n", "line 2 is not NAME=value"),
+            ("1A=x\n", "line 1 is not NAME=value"),
+            ("=secret\n", "line 1 is not NAME=value"),
+            ("A B=secret\n", "line 1 is not NAME=value"),
+            (
+                "K=$(cat secret)\n",
+                "K holds a $ or a backtick: the file is read, not run as shell, so write the value itself",
+            ),
+        ] {
+            assert_eq!(entries(text).unwrap_err(), why, "{text:?}");
+        }
+        assert_eq!(
+            entries("K='a$b'\n").unwrap()["K"],
+            Entry::Value("a$b".into())
+        );
     }
 
     #[test]

@@ -177,8 +177,11 @@ A factory moves from 1.4.x to 2.0 with `tehas update`:
    `instance.env` is kept, dropped with one warning, or refused with 78, as
    [what 2.0 does with a setting](#what-20-does-with-a-setting) lists.
    `cargo xtask config-check --settings <instance dir>`, run in a checkout
-   of the 2.0 release, says which before anyone updates the host. Fix every
-   refused line before the update. Every setting 2.0 refuses was already
+   of the 2.0 release, says which before anyone updates the host. With
+   `--env <file>` it reads a file in the form of `~/.config/tehas/env` as
+   the host's, where `NAME=<redacted>`, unquoted, counts as set
+   ([config-check](/tools-update#before-updating-to-20-check-the-settings)).
+   Fix every refused line before the update. Every setting 2.0 refuses was already
    refused by 1.4.0: `RETIRED` holds the same twelve names, and
    `api/renames-1.0.tsv` is unchanged. Every setting that left
    `api/settings-rules.json` since 1.4.0 is dropped with a warning, not
@@ -578,7 +581,12 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   each setting 2.0 drops and `fail <NAME>: <why>` for each finding, then
   `pass` or `fail`, and exits 0 or 78. It reads only the instance directory:
   not `~/.config/tehas/env`, no GitHub, Docker or git, and it writes
-  nothing.
+  nothing. `--env <file>` gives it a file in the form of
+  `~/.config/tehas/env` to stand for the host's, so a model key that
+  `models.json` names can be set. A line `NAME=<redacted>`, unquoted, counts
+  as set with its value unchecked; any other value is checked, and a
+  malformed file or a name the host's file may not set fails with 78.
+  It prints names, never a value. #PRNUM.
   Readers: adopters, the consumer that runs many factories where it keeps
   an instance's settings.
   Adopter action: run it before the update, and again after each fix,
