@@ -1,8 +1,7 @@
-//! The pins of the granting `tehas:` labels and of `tehas:prototype`:
-//! `$TEHAS_HOME/state/labels`, one `<name>\t<GitHub node id>` line each. The
-//! dispatcher judges each label application against them
-//! (tehas_dispatch::pins), the Protolab its label, and `tehas labels` pins the
-//! labels it made (`pin_made`).
+//! The pins of the granting `tehas:` labels: `$TEHAS_HOME/state/labels`, one
+//! `<name>\t<GitHub node id>` line each. The dispatcher judges each label
+//! application against them (tehas_dispatch::pins), and `tehas labels` pins
+//! the labels it made (`pin_made`).
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -11,7 +10,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 /// The labels whose application the dispatcher takes as a person's word to
-/// start or plan work. A lone `tehas:blocked` starts an issue once its
+/// start or plan work, the ones `tehas labels` pins. A lone `tehas:blocked` starts an issue once its
 /// blockers close, so it is one of them.
 pub const GRANTING: [&str; 7] = [
     "tehas:ready",
@@ -21,19 +20,6 @@ pub const GRANTING: [&str; 7] = [
     "tehas:blocked",
     "tehas:lean",
     "tehas:classic",
-];
-
-/// The labels `tehas labels` pins: the granting ones, and the label that
-/// puts a ticket in the Protolab.
-pub const PINNED: [&str; 8] = [
-    "tehas:ready",
-    "tehas:plan",
-    "tehas:refine",
-    "tehas:finish",
-    "tehas:blocked",
-    "tehas:lean",
-    "tehas:classic",
-    "tehas:prototype",
 ];
 
 /// Where the pins are kept, under TEHAS_HOME.
@@ -76,7 +62,7 @@ pub fn granting(name: &str) -> bool {
     GRANTING.contains(&name)
 }
 
-/// A label of [`PINNED`] as `tehas labels` saw it: its id before it made the
+/// A label of [`GRANTING`] as `tehas labels` saw it: its id before it made the
 /// labels and after, None where GitHub had no such label, and when GitHub
 /// says the label of `after` was created, in Unix seconds.
 pub struct Seen<'a> {
@@ -91,7 +77,7 @@ pub struct Seen<'a> {
 pub const SAME_RUN_SECS: i64 = 60;
 
 /// `tehas labels`' step, after it made the labels. With no file yet (a fresh
-/// install, or a host from before the pins) every label of [`PINNED`] found
+/// install, or a host from before the pins) every label of [`GRANTING`] found
 /// is pinned, as the poll would pin it. Once the file exists, only a label this
 /// run made, one there was none of before, is pinned: a label that was there
 /// with no pin may be another label renamed to the name, and its name cannot
@@ -99,10 +85,10 @@ pub const SAME_RUN_SECS: i64 = 60;
 /// GitHub says it was created within [`SAME_RUN_SECS`] of a label that is
 /// pinned and still that label: the run that made the pinned one made it too.
 /// A label renamed keeps its creation time, so another label renamed to the
-/// name is still refused. That is how a label added to [`PINNED`] after a host
+/// name is still refused. That is how a label added to [`GRANTING`] after a host
 /// pinned the others gets its pin. A pin is never changed here. The file is written even with no pin in it, so the poll
 /// pins nothing after. The lines to print, and whether every label of
-/// [`PINNED`] now has its pin.
+/// [`GRANTING`] now has its pin.
 pub fn pin_made(home: &Path, seen: &[Seen]) -> (Vec<String>, bool) {
     let kept = home.join(FILE).exists();
     let mut pins = load(home);
@@ -120,7 +106,7 @@ pub fn pin_made(home: &Path, seen: &[Seen]) -> (Vec<String>, bool) {
     let mut whole = true;
     for s in seen {
         let name = s.name;
-        if !PINNED.contains(&name) {
+        if !GRANTING.contains(&name) {
             continue;
         }
         match (pins.get(name), &s.after) {
@@ -196,7 +182,7 @@ mod tests {
                 seen("tehas:ready", Some("LA_r"), Some("LA_r")),
                 seen("tehas:plan", None, None),
                 seen("tehas:running", None, Some("LA_x")),
-                seen("tehas:prototype", None, Some("LA_p")),
+                seen("tehas:lean", None, Some("LA_l")),
             ],
         );
         assert!(!whole);
@@ -207,18 +193,16 @@ mod tests {
         assert_eq!(said[1], "not pinned: the label tehas:plan was not found");
         assert_eq!(
             said[2],
-            "pinned the label tehas:prototype as LA_p in state/labels"
+            "pinned the label tehas:lean as LA_l in state/labels"
         );
         assert_eq!(said.len(), 3);
         assert_eq!(
             load(d.path()),
             Pins::from([
                 ("tehas:ready".into(), "LA_r".into()),
-                ("tehas:prototype".into(), "LA_p".into())
+                ("tehas:lean".into(), "LA_l".into())
             ])
         );
-        // The Protolab's label is pinned and grants the dispatcher nothing.
-        assert!(!granting("tehas:prototype"));
     }
 
     // tehas:plan has no pin and a label of that name is there: it may be a
@@ -259,7 +243,7 @@ mod tests {
         assert!(whole && said.is_empty());
     }
 
-    // A host pinned the labels before tehas:blocked joined PINNED. The run
+    // A host pinned the labels before tehas:blocked joined GRANTING. The run
     // that made tehas:ready made tehas:blocked 8 s later, so it is adopted.
     #[test]
     fn a_label_made_with_a_pinned_one_is_pinned() {

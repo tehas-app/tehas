@@ -676,7 +676,7 @@ t_console_source() {
   local member from=${2:-$T_ROOT}
   mkdir -p "$1/console"
   cp -R "$from/console/Cargo.toml" "$from/console/Cargo.lock" "$from/console/src" "$1/console/"
-  for member in analytics attach core cycle describe dispatch front items mcp mesh-feed ops plugin plugin-gate review-render store wiki-collect wiki-render xtask; do
+  for member in analytics attach core cycle describe dispatch front items mcp mesh-feed ops plugin plugin-gate ports review-render store wiki-collect wiki-render xtask; do
     mkdir -p "$1/console/$member"
     cp -R "$from/console/$member/Cargo.toml" "$from/console/$member/src" "$1/console/$member/"
     [ ! -d "$from/console/$member/assets" ] || cp -R "$from/console/$member/assets" "$1/console/$member/"
@@ -1075,9 +1075,6 @@ t_record() { # <home> <issue> <JSON>
   if { [ "$t_how" = millwright ] || [ "$t_how" = refresh ]; } && [ -n "$t_base" ]; then
     _t_used "$(jq -r .by <<<"$t_base")" "$(jq -r .how <<<"$t_base")" "$(date -u -d "$(jq -r .at <<<"$t_base")" +%s)" \
       --body-sha "$(jq -r .body_sha256 <<<"$t_base")"
-    t_count=$(jq -r '.fixer_starts // 0' <<<"$t_j")
-    [ "$t_how" != millwright ] || t_count=$((t_count - 1))
-    for ((t_k = 0; t_k < t_count; t_k++)); do _t_used tehas-millwright millwright $((t_last + 10)); done
     if [ "$t_how" = refresh ]; then
       t_count=$(jq -r '.refreshes // 1' <<<"$t_j")
       for ((t_k = 1; t_k < t_count; t_k++)); do

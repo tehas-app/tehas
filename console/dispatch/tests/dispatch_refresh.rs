@@ -115,13 +115,13 @@ fn the_approval_record_of_a_refresh_by_the_person_rests_on_refreshes_refresh_of_
 ) {
     let w = started_refresh("start-record");
     let filter = format!(
-        "[.by, .how, .at, .body_sha256 == \"{}\", .rests_on.by, .rests_on.how, .refreshes, .fixer_starts, \
+        "[.by, .how, .at, .body_sha256 == \"{}\", .rests_on.by, .rests_on.how, .refreshes, \
          .refresh_of.pr, .refresh_of.head_sha == \"{RHEAD}\", .refresh_of.base_sha == \"{RBASE}\", .refresh_of.branch]",
         wsum()
     );
     assert_eq!(
         w.approval(&filter, 7),
-        r#"["alice","refresh","2026-10-01T00:00:00Z",true,"alice","approved",1,0,50,true,true,"main"]"#
+        r#"["alice","refresh","2026-10-01T00:00:00Z",true,"alice","approved",1,50,true,true,"main"]"#
     );
     assert_eq!(
         w.approval("[.retry_context[] | {source, by}]", 7),
@@ -239,15 +239,14 @@ fn a_refresh_after_a_refresh_counts_on_from_it() {
 }
 
 #[test]
-fn a_refresh_of_a_millwright_s_start_rests_on_the_person_s_approval_and_keeps_the_millwright_s_count(
-) {
+fn a_refresh_of_a_millwright_s_start_rests_on_the_person_s_approval() {
     let w = refresh_world("millwright-start", &[]);
     w.past(7, "tehas-bot", "millwright", "2026-10-02T00:00:00Z", &[]);
     w.poll();
     assert_eq!(w.started(), "7 ");
     assert_eq!(
-        w.approval("[.by, .how, .rests_on.by, .fixer_starts, .refreshes]", 7),
-        r#"["alice","refresh","alice",1,1]"#
+        w.approval("[.by, .how, .rests_on.by, .refreshes]", 7),
+        r#"["alice","refresh","alice",1]"#
     );
 }
 

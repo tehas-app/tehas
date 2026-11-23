@@ -1,21 +1,20 @@
-tehas:ready	0e8a16	Tehas: eligible for dispatch (apply by hand to authorize a cycle)
-tehas:running	1d76db	Tehas: a /work cycle owns this issue
-tehas:awaiting-merge	fbca04	Tehas: PR open, only the merge left to a human
-tehas:shipped	8250df	Tehas: closed by a merged pull request (given by the bot)
-tehas:pause	000000	Tehas: on the control issue, stops all dispatch
-needs-human-attention	b60205	Cycle parked; the handoff comment says what to do
-tehas:question	5319e7	Tehas: a question on this issue waits for an answer
-tehas:plan	0e8a16	Tehas: start a planning session on this issue (apply by hand)
-tehas:refine	0e8a16	Tehas: plan this request into one issue sized for one cycle (apply by hand)
-tehas:planning	1d76db	Tehas: a planning turn is running for this issue
-tehas:replaced	c5def5	Tehas: replaced by the issue a refine filed
-tehas:refined	c5def5	Tehas: refined; later parts are planned by hand
-tehas:millwright-escalated	c5def5	Tehas: the millwright left this issue to a person
-tehas:lean	d4c5f9	Tehas: run this issue on the lean driver (apply by hand; tehas:ready still starts it)
-tehas:classic	d4c5f9	Tehas: run this issue on the classic driver where TEHAS_DRIVER=lean (apply by hand)
-tehas:blocked	e4e669	Tehas: started once every issue it names is closed
-tehas:refreshing	1d76db	Tehas: a cycle is refreshing this pull request; do not merge or push now
-epic	3e4b9e	Tehas: an epic; its parts are its sub-issues (added to a title that starts with Epic)
-tehas:finish	c5def5	Tehas: open the draft PR of a stopped cycle; a marked comment gives the reason
-tehas:prototype	d4c5f9	Tehas: at the prototype stage, published in the Protolab (apply by hand)
-tehas:improvement	5319e7	Tehas: filed by the factory, a proposal
+tehas:ready	0e8a16	Tehas: eligible for dispatch (apply by hand to authorize a cycle)	Act::Approve
+tehas:running	1d76db	Tehas: a /work cycle owns this issue	State::Running
+tehas:awaiting-merge	fbca04	Tehas: PR open, only the merge left to a human	State::AwaitingMerge
+tehas:shipped	8250df	Tehas: closed by a merged pull request (given by the bot)	State::Shipped
+tehas:pause	000000	Tehas: on the control issue, stops all dispatch	Act::Pause
+needs-human-attention	b60205	Cycle parked; the handoff comment says what to do	State::NeedsPerson
+tehas:question	5319e7	Tehas: a question on this issue waits for an answer	State::Question
+tehas:plan	0e8a16	Tehas: start a planning session on this issue (apply by hand)	Act::Plan
+tehas:refine	0e8a16	Tehas: plan this request into one issue sized for one cycle (apply by hand)	Act::Refine
+tehas:planning	1d76db	Tehas: a planning turn is running for this issue	State::Planning
+tehas:replaced	c5def5	Tehas: replaced by the issue a refine filed	State::Replaced
+tehas:refined	c5def5	Tehas: refined; later parts are planned by hand	State::Refined
+tehas:millwright-escalated	c5def5	Tehas: the millwright left this issue to a person	State::Escalated
+tehas:lean	d4c5f9	Tehas: run this issue on the lean driver (apply by hand; tehas:ready still starts it)	Choice::Lean
+tehas:classic	d4c5f9	Tehas: run this issue on the classic driver where TEHAS_DRIVER=lean (apply by hand)	Choice::Classic
+tehas:blocked	e4e669	Tehas: started once every issue it names is closed	Act::Block
+tehas:refreshing	1d76db	Tehas: a cycle is refreshing this pull request; do not merge or push now	State::Refreshing
+epic	3e4b9e	Tehas: an epic; its parts are its sub-issues (added to a title that starts with Epic)	Mark::Epic
+tehas:finish	c5def5	Tehas: open the draft PR of a stopped cycle; a marked comment gives the reason	Act::Finish
+tehas:improvement	5319e7	Tehas: filed by the factory, a proposal	State::Proposal

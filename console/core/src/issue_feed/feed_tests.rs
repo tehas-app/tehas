@@ -6,11 +6,10 @@
 use super::*;
 use crate::events::Event;
 use crate::forge::{Approval, ForgeError, LabelEvent};
-use crate::kinds::Kind;
 use std::collections::BTreeMap;
 
-const LABEL: &str = Kind::Prototype.label();
-const STAGE: &str = "the prototype stage";
+const LABEL: &str = crate::kinds::Kind::Improvement.label();
+const STAGE: &str = "the marked stage";
 const LIST: &str = "alice";
 
 /// A forge that answers from what a case gave it: the label events and the
@@ -249,15 +248,15 @@ fn with_the_type_mapped_the_type_setter_is_checked_and_the_label_counts_for_noth
     fake.typed.insert(41, typed("mallory"));
     fake.typed.insert(42, None);
     let typed_standing =
-        |fake: &mut Fake, n: u64| said(standing(fake, n, LABEL, Some("Prototype"), LIST));
+        |fake: &mut Fake, n: u64| said(standing(fake, n, LABEL, Some("Improvement"), LIST));
     assert_eq!(typed_standing(&mut fake, 40), "allowed by alice");
     assert_eq!(
         typed_standing(&mut fake, 41),
-        "#41: the issue type Prototype was set by 'mallory', not an allowed account"
+        "#41: the issue type Improvement was set by 'mallory', not an allowed account"
     );
     assert_eq!(
         typed_standing(&mut fake, 42),
-        "#42: the issue type Prototype was set by 'unknown', not an allowed account"
+        "#42: the issue type Improvement was set by 'unknown', not an allowed account"
     );
     // alice's label is no type.
     fake.events
@@ -274,13 +273,13 @@ fn with_the_type_mapped_a_title_changed_by_an_account_outside_the_list_holds_the
     let mut fake = labelled(45, vec![renamed("mallory", "2026-10-09T09:00:00Z")]);
     fake.typed.insert(45, typed("alice"));
     assert_eq!(
-        hold(&mut fake, 45, Some("Prototype")).as_deref(),
+        hold(&mut fake, 45, Some("Improvement")).as_deref(),
         Some("#45: its title was changed by 'mallory' since alice approved it, left as it was")
     );
     // Events that cannot be read hold it too.
     fake.typed.insert(46, typed("alice"));
     assert_eq!(
-        hold(&mut fake, 46, Some("Prototype")).as_deref(),
+        hold(&mut fake, 46, Some("Improvement")).as_deref(),
         Some("#46: its label events could not be read, nothing built or removed")
     );
 }
@@ -288,24 +287,24 @@ fn with_the_type_mapped_a_title_changed_by_an_account_outside_the_list_holds_the
 #[test]
 fn a_type_the_owner_does_not_have_is_78_and_types_that_cannot_be_read_are_0() {
     let mut fake = Fake {
-        types: Some(vec!["Task".to_string(), "Prototype".to_string()]),
+        types: Some(vec!["Task".to_string(), "Improvement".to_string()]),
         ..Fake::default()
     };
     assert_eq!(
-        type_fault(&mut fake, "Prototype", "prototype", "acme/widget"),
+        type_fault(&mut fake, "Improvement", "improvement", "acme/widget"),
         None
     );
     fake.types = Some(vec!["Task".to_string(), "Bug".to_string()]);
     assert_eq!(
-        type_fault(&mut fake, "Prototype", "prototype", "acme/widget"),
+        type_fault(&mut fake, "Improvement", "improvement", "acme/widget"),
         Some((
             78,
-            "ERROR: TEHAS_ISSUE_TYPES maps prototype to Prototype, which is no issue type of acme/widget's owner".to_string()
+            "ERROR: TEHAS_ISSUE_TYPES maps improvement to Improvement, which is no issue type of acme/widget's owner".to_string()
         ))
     );
     fake.types = None;
     assert_eq!(
-        type_fault(&mut fake, "Prototype", "prototype", "acme/widget"),
+        type_fault(&mut fake, "Improvement", "improvement", "acme/widget"),
         Some((
             0,
             "ERROR: the issue types failed, nothing built or removed".to_string()
@@ -372,7 +371,7 @@ fn only_the_pinned_label_read_from_github_puts_an_issue_at_the_stage() {
     let other = format!(r#"{{"name":"{LABEL}","node_id":"LA_bug"}}"#);
     assert_eq!(
         pin_refusal(&mut answers(Ok(&other)), &home, "acme/widget", LABEL, STAGE),
-        Ok(Some(format!("refused: the label {LABEL} is not the one pinned in state/labels (pinned LA_proto, now LA_bug): no ticket is at the prototype stage")))
+        Ok(Some(format!("refused: the label {LABEL} is not the one pinned in state/labels (pinned LA_proto, now LA_bug): no ticket is at {STAGE}")))
     );
     assert_eq!(
         pin_refusal(

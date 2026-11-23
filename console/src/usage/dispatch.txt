@@ -192,13 +192,11 @@ Rules, in order:
      tehas:ready or tehas:plan to the number TEHAS_CONTROL_ISSUE names, or
      replies retry on it, starts nothing, and the label stays where it
      is. The poll says so once, as it says a label of an account that is not
-     allowed. The one exception is the millwright, the app's login or the app
-     TEHAS_MILLWRIGHT_APP names:
-     its tehas:ready starts a cycle on an issue an allowed account approved
-     before, whose body is still the body that account approved, at most
-     TEHAS_MILLWRIGHT_MAX_RETRIES times since. Otherwise the poll
-     takes its label off and says why. A start takes tehas:millwright-escalated
-     off, whoever made it.
+     allowed. The millwright, the app's login or the app
+     TEHAS_MILLWRIGHT_APP names, is no allowed account: its tehas:ready is
+     taken off the same way, except on a sub-issue of an epic a person made
+     ready, with TEHAS_MILLWRIGHT_EPICS on. A start takes
+     tehas:millwright-escalated off, whoever made it.
      An issue that carries tehas:blocked waits while any issue it names is
      open, named by the newest comment with the marker
      <!-- tehas:blocked by=12,34 --> by an allowed account or the
@@ -231,8 +229,9 @@ Rules, in order:
   8. After the rules, a poll that is not paused, dry or failed runs the finish
      step (no slot, no agent, no cycle) for at most three open issues that
      carry tehas:finish. The asker is who applied it last: an allowed account,
-     or the millwright within its tehas:ready grant (its starts may be at the
-     cap, not past it). Anyone else is ignored and the label stays. The ask is
+     or the millwright when a person approved a cycle of the issue and the
+     text is the text they approved. Anyone else is ignored and the label
+     stays. The ask is
      the asker's newest comment that starts with
      <!-- tehas:millwright issue=<n> action=finish -->, written in the ten
      minutes before the label and edited by nobody after; the rest of it is the
@@ -257,8 +256,6 @@ Instance settings (lib/config.sh; defaults in brackets):
   TEHAS_PLAN_TIMEOUT        seconds before a turn is given up [7200]
   TEHAS_MILLWRIGHT_APP           a second app that is the millwright [the
                             factory's own app]
-  TEHAS_MILLWRIGHT_MAX_RETRIES   the millwright's starts on one issue since a person's
-                            approval [2]
   TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
                             the millwright's answers in one planning session [3]
   TEHAS_BRANCH_CHECK        the check whose failure on the branch's head
@@ -305,16 +302,11 @@ and the parked cycle's pull request between the park and the answer as
 retry_context, [{source, by, at, text}] - only for the comments retry
 (`retry`): the retry of the issue text only (`retry-text`) names none. tehas
 work fetches the body's links only while the body still has that hash. A
-start of the millwright's has how "millwright", the
-person's approval it rests on as rests_on {at, by, how, body_sha256}, the
-millwright's starts since that approval as fixer_starts, and the millwright's
-marked comment on the issue written in the ten minutes before its label as
-retry_context, source "millwright:<id>". A
 refresh has how "refresh", by and at of the person's approval it rests on,
-that approval as rests_on, the refreshes since it as refreshes, what it
-refreshes as refresh_of {pr, head_sha, base_sha, branch}, the millwright's
-starts carried on as fixer_starts, and one fixed retry_context entry, source
-"refresh", the task tehas sets it: no comment text. An approval that cannot
+that approval as rests_on {at, by, how, body_sha256}, the refreshes since it
+as refreshes, what it refreshes as refresh_of {pr, head_sha, base_sha,
+branch}, and one fixed retry_context entry, source "refresh", the task tehas
+sets it: no comment text. An approval that cannot
 be recorded, or comments that cannot be read, start nothing, exit 1. A start
 that gives up after the record takes the approval off it again.
 

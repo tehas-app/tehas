@@ -13,9 +13,8 @@ use std::path::{Path, PathBuf};
 /// brings it, and taken out only with the feature itself. The shipped features
 /// of the registry (core/src/features.rs) follow these; a building one is not
 /// a word of `features`.
-const FEATURES: [&str; 32] = [
+const FEATURES: [&str; 31] = [
     "status",
-    "millwright-grant",
     "limit",
     "drain",
     "history",
@@ -260,7 +259,7 @@ mod tests {
 
     /// The words 2.0 takes out with their features. Within a major a word is
     /// only added.
-    const DROPPED_IN_2: [&str; 1] = ["all-hands"];
+    const DROPPED_IN_2: [&str; 2] = ["all-hands", "millwright-grant"];
 
     /// The words of api/features.txt at the newest tag that holds it, when git
     /// has the history: a shallow clone or a tree with no tag skips the check.
