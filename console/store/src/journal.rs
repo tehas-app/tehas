@@ -31,8 +31,11 @@ use serde_json::Value;
 use std::path::Path;
 
 /// The kinds of section 5's table, and the three a planning session's end
-/// writes: an issue's body, a sub-issue link and a close.
-pub const KINDS: [&str; 12] = [
+/// writes: an issue's body, a sub-issue link and a close. The refreshing mark
+/// on and off a pull request is `change-mark` and `change-unmark`;
+/// `refresh-begin` and `refresh-end` are its 1.x words, still read in the
+/// rows written before the update.
+pub const KINDS: [&str; 14] = [
     "label-add",
     "label-remove",
     "label-remove-only",
@@ -42,6 +45,8 @@ pub const KINDS: [&str; 12] = [
     "unit-stop",
     "refresh-begin",
     "refresh-end",
+    "change-mark",
+    "change-unmark",
     "issue-edit",
     "sub-issue-add",
     "issue-close",

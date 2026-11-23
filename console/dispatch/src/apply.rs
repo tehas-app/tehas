@@ -697,7 +697,7 @@ impl Writer {
             "DELETE".into(),
             format!("repos/{}/issues/{pr}/labels/tehas:refreshing", self.repo),
         ];
-        let worked = match self.write(pr, "refresh-end", args, None, Some("Not Found")) {
+        let worked = match self.write(pr, "change-unmark", args, None, Some("Not Found")) {
             Wrote::Done(_) => true,
             Wrote::Failed(_) => false,
             Wrote::Unknown(why) => {

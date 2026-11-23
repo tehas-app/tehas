@@ -1222,7 +1222,11 @@ or as not done, and never made again. A write that timed out, that GitHub
 answered with a 5xx, or whose connection broke after it was made, may have
 reached GitHub: its row is left open as
 `unknown`, the log says `may have been posted`, and the next poll reads it the
-same way before anything is sent again. What the read finds decides the write
+same way before anything is sent again. Each row names its write by a kind,
+which the poll's `journal:` lines quote: the refreshing mark on and off a pull
+request is `change-mark` and `change-unmark`, which 1.x wrote as
+`refresh-begin` and `refresh-end`; a row of the old words left open by the
+update is settled as before. What the read finds decides the write
 when the poll decides it again: found done, it is done and not sent (a park
 tell or a hold's note is then on record as said); not found, it is abandoned
 and the poll sends it once; a read that failed leaves the row open and the
