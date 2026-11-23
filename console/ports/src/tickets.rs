@@ -423,7 +423,8 @@ pub trait Tickets: Reports + Cites {
     fn what_is(&mut self, number: NonZeroU64) -> Got<Item>;
     /// `what_is` for several numbers, in one question where the site allows.
     fn what_are(&mut self, numbers: &[NonZeroU64]) -> Vec<(NonZeroU64, Got<Item>)>;
-    /// The tickets the filter takes, whole.
+    /// The tickets the filter takes, whole. In list order: oldest filed
+    /// first, ties broken by key.
     fn list(&mut self, filter: &Filter, bound: Bound) -> Got<Whole<TicketDigest>>;
     /// Several tickets' digests. A key whose number names a change, where
     /// they share one number space, is `NotFound`: it is no ticket. A
@@ -450,7 +451,7 @@ pub trait Tickets: Reports + Cites {
     fn blockers(&mut self, key: &TicketKey) -> Got<Whole<Blocker>>;
     /// A ticket's parts.
     fn parts(&mut self, key: &TicketKey) -> Got<Whole<Part>>;
-    /// The tickets closed since a time.
+    /// The tickets closed since a time, in list order.
     fn closed_since(&mut self, since: At, bound: Bound) -> Got<Whole<ClosedTicket>>;
     /// The first `first` hits in the site's order of relevance, with
     /// `more`: a search is never a whole list, and a common word is not
@@ -483,7 +484,7 @@ pub trait Tickets: Reports + Cites {
     fn kinds(&mut self) -> Got<Whole<Kind>>;
     /// The project's targets, open and closed, whole.
     fn targets(&mut self, bound: Bound) -> Got<Whole<Target>>;
-    /// The tickets of a target.
+    /// The tickets of a target, in list order.
     fn members(&mut self, target: &TargetId, bound: Bound) -> Got<Whole<TicketDigest>>;
     /// Has anything changed since this token. Free on a site that answers
     /// conditional requests or pushes events.

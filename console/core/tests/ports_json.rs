@@ -258,6 +258,24 @@ fn the_ports_values_read_back_from_json() {
         )],
         next: Cursor::new("next"),
     });
+    round!(BoardAsk {
+        depth: Depth::Cut { notes: 0 },
+        history: Some(Window::Whole(Bound::new(500).unwrap())),
+        changes: Some((ChangeStates::Open, Window::Last(nz32(5)))),
+        filter: Filter::default(),
+        control: Some(TicketKey::Number(nz(1))),
+    });
+    round!(OpenWork {
+        items: Whole::new(vec![]),
+        control: Some(Err(Outcome::Unread(Unread::Cut))),
+    });
+    round!(ChangeAsk {
+        filter: ChangeFilter::default(),
+        files: Some(Bound::new(300).unwrap()),
+        closing: true,
+        siblings: Some(Bound::new(20).unwrap()),
+        activity: None,
+    });
 }
 
 #[test]

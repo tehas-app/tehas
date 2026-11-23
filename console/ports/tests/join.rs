@@ -439,7 +439,7 @@ impl CodeHost for StubCodeHost {
     fn file(&mut self, _: &RepoPath, _: &Rev, _: u64) -> Got<Vec<u8>> {
         Err(unsupported())
     }
-    fn changes(&mut self, filter: &ChangeFilter, _: Bound) -> Got<Whole<ChangeDigest>> {
+    fn changes(&mut self, filter: &ChangeFilter, bound: Bound) -> Got<Whole<ChangeDigest>> {
         let state_ok = |c: &ChangeDigest| {
             matches!(
                 (filter.states, &c.state),
@@ -456,18 +456,33 @@ impl CodeHost for StubCodeHost {
                     .iter()
                     .any(|no| c.closes.contains(&Ref::Here(*no)))
         };
-        let taken = self.changes.iter().filter(|c| state_ok(c) && closing_ok(c));
-        Ok(Whole::new(taken.cloned().collect()))
+        let taken: Vec<ChangeDigest> = self
+            .changes
+            .iter()
+            .filter(|c| state_ok(c) && closing_ok(c))
+            .cloned()
+            .collect();
+        if taken.len() > bound.get() as usize {
+            return Err(Outcome::Unread(Unread::Cut));
+        }
+        Ok(Whole::new(taken))
     }
     fn change(&mut self, _: ChangeNo, _: Bound) -> Got<Change> {
         Err(unsupported())
     }
-    fn changed_files(&mut self, _: ChangeNo, _: Bound) -> Got<Whole<ChangedFile>> {
-        Ok(Whole::new(vec![ChangedFile {
-            path: RepoPath::new("src/lib.rs").unwrap(),
-            added: 1,
-            deleted: 0,
-        }]))
+    fn changed_files(&mut self, _: ChangeNo, bound: Bound) -> Got<Whole<ChangedFile>> {
+        let files: Vec<ChangedFile> = ["src/lib.rs", "src/main.rs"]
+            .into_iter()
+            .map(|p| ChangedFile {
+                path: RepoPath::new(p).unwrap(),
+                added: 1,
+                deleted: 0,
+            })
+            .collect();
+        if files.len() > bound.get() as usize {
+            return Err(Outcome::Unread(Unread::Cut));
+        }
+        Ok(Whole::new(files))
     }
     fn activity(&mut self, _: ChangeNo, _: Window) -> Got<Took<ChangeEvent>> {
         Ok(Took {
@@ -598,7 +613,7 @@ fn ask() -> BoardAsk {
             notes: NonZeroU32::new(2).unwrap(),
         },
         history: Some(Window::Last(NonZeroU32::new(100).unwrap())),
-        changes: true,
+        changes: Some((ChangeStates::All, Window::Whole(bound()))),
         filter: Filter::default(),
         control: Some(key("CTRL-1")),
     }
@@ -615,7 +630,7 @@ fn n32(n: u32) -> NonZeroU32 {
 #[test]
 fn open_work_answers_each_item_alone() {
     let work = join().open_work(&ask(), bound()).unwrap();
-    assert_eq!(work.control.unwrap().digest.key, key("CTRL-1"));
+    assert_eq!(work.control.unwrap().unwrap().digest.key, key("CTRL-1"));
     let items = work.items.items();
     let keys: Vec<&TicketKey> = items.iter().map(|(k, _)| k).collect();
     assert_eq!(
@@ -632,7 +647,8 @@ fn open_work_answers_each_item_alone() {
     let one = items[0].1.as_ref().unwrap();
     let linked: Vec<u64> = one.blueprints.iter().map(|b| b.no.get()).collect();
     assert_eq!(linked, [7, 8], "the links, in their order");
-    assert_eq!(nos(&one.changes), [20, 22, 21], "open first");
+    assert_eq!(nos(&one.changes.items), [20, 22, 21], "open first");
+    assert!(!one.changes.more);
     let notes: Vec<&str> = one.notes.items.iter().map(|c| c.id.as_str()).collect();
     assert_eq!(notes, ["n2", "n3"], "the newest, as deep as asked");
     assert!(one.notes.more);
@@ -647,7 +663,8 @@ fn open_work_answers_each_item_alone() {
     );
 
     let two = items[1].1.as_ref().unwrap();
-    assert!(two.blueprints.is_empty() && two.changes.is_empty());
+    assert!(two.blueprints.is_empty() && two.changes.items.is_empty());
+    assert!(!two.changes.more, "no blueprints, so no changes");
 
     assert_eq!(
         items[2].1,
@@ -658,7 +675,7 @@ fn open_work_answers_each_item_alone() {
 }
 
 #[test]
-fn a_whole_list_or_a_control_ticket_that_fails_fails_the_read() {
+fn a_whole_list_that_fails_fails_the_read_and_the_control_ticket_fails_alone() {
     let (mut t, b, c, l) = handles();
     t.list_fails = true;
     let mut failing = Join {
@@ -673,10 +690,9 @@ fn a_whole_list_or_a_control_ticket_that_fails_fails_the_read() {
     ));
     let mut unread_control = ask();
     unread_control.control = Some(key("PROJ-3"));
-    assert_eq!(
-        join().open_work(&unread_control, bound()),
-        Err(Outcome::Unread(Unread::Cut))
-    );
+    let work = join().open_work(&unread_control, bound()).unwrap();
+    assert_eq!(work.control, Some(Err(Outcome::Unread(Unread::Cut))));
+    assert_eq!(work.items.items().len(), 5, "the list is still answered");
 }
 
 #[test]
@@ -684,12 +700,12 @@ fn a_cheap_ask_reads_no_changes_notes_or_history() {
     let cheap = BoardAsk {
         depth: Depth::Cut { notes: 0 },
         history: None,
-        changes: false,
+        changes: None,
         filter: Filter::default(),
         control: None,
     };
     let item = join().work_item(&key("PROJ-1"), &cheap).unwrap();
-    assert!(item.changes.is_empty());
+    assert!(item.changes.items.is_empty() && item.changes.more);
     assert!(item.notes.items.is_empty() && item.notes.more);
     assert!(item.ticket.history.items.is_empty() && item.ticket.history.more);
 }
@@ -738,6 +754,117 @@ fn notes_are_read_as_deep_as_asked_and_not_at_all_for_none() {
     assert!(item.notes.more);
 }
 
+fn ended_at(no: u64, at: i64, was_merged: bool) -> ChangeDigest {
+    let state = if was_merged {
+        ChangeState::Merged {
+            at: At::new(at),
+            by: None,
+            commit: CommitId::new("def5678").unwrap(),
+        }
+    } else {
+        ChangeState::Closed { at: At::new(at) }
+    };
+    change(no, state, vec![Ref::Here(bp(7))])
+}
+
+/// Two open changes and five ended ones on one blueprint.
+fn busy() -> Vec<ChangeDigest> {
+    let open = |no| change(no, ChangeState::Open, vec![Ref::Here(bp(7))]);
+    vec![
+        open(30),
+        ended_at(31, 5, false),
+        ended_at(32, 9, true),
+        ended_at(33, 7, false),
+        open(36),
+        ended_at(34, 3, true),
+        ended_at(35, 1, false),
+    ]
+}
+
+fn item_changes(states: ChangeStates, window: Window) -> Got<Took<ChangeDigest>> {
+    let (t, b, _, l) = handles();
+    let mut board = join_of(t, b, StubCodeHost { changes: busy() }, l);
+    let asked = BoardAsk {
+        changes: Some((states, window)),
+        ..ask()
+    };
+    board.work_item(&key("PROJ-1"), &asked).map(|i| i.changes)
+}
+
+#[test]
+fn an_items_open_changes_alone() {
+    let took = item_changes(ChangeStates::Open, Window::Last(n32(5))).unwrap();
+    assert_eq!(nos(&took.items), [30, 36]);
+    assert!(!took.more);
+}
+
+#[test]
+fn an_items_changes_in_any_state_come_open_first_then_newest_ended_first() {
+    let took = item_changes(ChangeStates::All, Window::Last(n32(9))).unwrap();
+    assert_eq!(nos(&took.items), [30, 36, 32, 33, 31, 34, 35]);
+    assert!(!took.more);
+    let took = item_changes(ChangeStates::All, Window::Whole(bound())).unwrap();
+    assert_eq!(nos(&took.items), [30, 36, 32, 33, 31, 34, 35]);
+}
+
+#[test]
+fn ended_changes_past_the_window_are_cut_with_more() {
+    let took = item_changes(ChangeStates::All, Window::Last(n32(5))).unwrap();
+    assert_eq!(nos(&took.items), [30, 36, 32, 33, 31]);
+    assert!(took.more);
+}
+
+#[test]
+fn open_changes_past_the_window_make_the_item_unread() {
+    let cut = Err(Outcome::Unread(Unread::Cut));
+    assert_eq!(item_changes(ChangeStates::All, Window::Last(n32(1))), cut);
+    assert_eq!(item_changes(ChangeStates::Open, Window::Last(n32(1))), cut);
+    let three = Bound::new(3).unwrap();
+    assert_eq!(item_changes(ChangeStates::All, Window::Whole(three)), cut);
+}
+
+#[test]
+fn each_changes_files_have_their_own_bound() {
+    let ask = |files| ChangeAsk {
+        filter: ChangeFilter::default(),
+        files: Some(Bound::new(files).unwrap()),
+        closing: false,
+        siblings: None,
+        activity: None,
+    };
+    let cut = join().open_changes(&ask(1), bound());
+    assert_eq!(cut, Err(Outcome::Unread(Unread::Cut)));
+    assert!(join().open_changes(&ask(2), bound()).is_ok());
+}
+
+#[test]
+fn a_closing_blueprint_not_found_is_left_out() {
+    let (t, b, _, l) = handles();
+    let missing = change(
+        40,
+        ChangeState::Open,
+        vec![Ref::Here(bp(98)), Ref::Here(bp(7))],
+    );
+    let mut board = join_of(
+        t,
+        b,
+        StubCodeHost {
+            changes: vec![missing],
+        },
+        l,
+    );
+    let ask = ChangeAsk {
+        filter: ChangeFilter::default(),
+        files: None,
+        closing: true,
+        siblings: None,
+        activity: None,
+    };
+    let items = board.open_changes(&ask, bound()).unwrap().into_items();
+    let closing: Vec<u64> = items[0].closing.iter().map(|(b, _)| b.no.get()).collect();
+    assert_eq!(closing, [7]);
+}
+
 #[test]
 fn closed_and_target_work_answer_per_item() {
     let closed = join().closed_work(&ask(), At::new(0), bound()).unwrap();
@@ -755,9 +882,9 @@ fn closed_and_target_work_answer_per_item() {
 fn open_changes_bring_what_they_close_and_their_siblings() {
     let ask = ChangeAsk {
         filter: ChangeFilter::default(),
-        files: true,
+        files: Some(bound()),
         closing: true,
-        siblings: true,
+        siblings: Some(bound()),
         activity: Some(Window::Last(NonZeroU32::new(50).unwrap())),
     };
     let items = join().open_changes(&ask, bound()).unwrap().into_items();
@@ -765,7 +892,7 @@ fn open_changes_bring_what_they_close_and_their_siblings() {
     assert_eq!(changes, [20, 22, 23], "open changes alone, by default");
 
     let twenty = &items[0];
-    assert_eq!(twenty.files.as_ref().unwrap().items().len(), 1);
+    assert_eq!(twenty.files.as_ref().unwrap().items().len(), 2);
     assert_eq!(twenty.closing.len(), 1);
     assert_eq!(twenty.closing[0].0.no, bp(7));
     assert_eq!(
@@ -781,9 +908,9 @@ fn open_changes_bring_what_they_close_and_their_siblings() {
 
     let bare = ChangeAsk {
         filter: ChangeFilter::default(),
-        files: false,
+        files: None,
         closing: false,
-        siblings: false,
+        siblings: None,
         activity: None,
     };
     let items = join().open_changes(&bare, bound()).unwrap().into_items();
@@ -822,7 +949,10 @@ fn one_item_reads_its_markers_from_the_blueprints_comments() {
             more: false,
         },
         blueprints: vec![blueprint(7, vec![comment("on the item")])],
-        changes: vec![],
+        changes: Took {
+            items: vec![],
+            more: false,
+        },
     };
     assert_eq!(item.ticket_comments().items[0].id.as_str(), "on the item");
 }
@@ -947,7 +1077,7 @@ fn a_split_setups_board_is_a_join_over_both_sites() {
     let mut board = setup.board(&Actor::Ours(Scope::Read), CALLER).unwrap();
     let item = board.work_item(&key("PROJ-1"), &ask()).unwrap();
     assert_eq!(item.blueprints.len(), 2);
-    assert_eq!(nos(&item.changes), [20, 22, 21]);
+    assert_eq!(nos(&item.changes.items), [20, 22, 21]);
 }
 
 /// Every trait the spec uses as `dyn`, used as `dyn`: this builds only if

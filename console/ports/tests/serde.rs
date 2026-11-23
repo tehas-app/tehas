@@ -1748,7 +1748,10 @@ fn work_item() -> WorkItem {
             more: true,
         },
         blueprints: vec![blueprint()],
-        changes: vec![change_digest()],
+        changes: Took {
+            items: vec![change_digest()],
+            more: true,
+        },
     }
 }
 
@@ -1757,24 +1760,34 @@ fn the_boards_asks_and_answers_read_back() {
     let ask = BoardAsk {
         depth: Depth::Last { notes: nz32(100) },
         history: Some(Window::Last(nz32(100))),
-        changes: true,
+        changes: Some((ChangeStates::All, Window::Last(nz32(5)))),
         filter: Filter::default(),
         control: Some(tkey(9)),
     };
-    round(ask);
+    round(ask.clone());
+    round(BoardAsk {
+        history: None,
+        changes: None,
+        control: None,
+        ..ask
+    });
     round(work_item());
     round(OpenWork {
         items: Whole::new(vec![
             (tkey(1), Ok(work_item())),
             (tkey(2), Err(Outcome::Unread(Unread::Cut))),
         ]),
-        control: Some(ticket()),
+        control: Some(Ok(ticket())),
+    });
+    round(OpenWork {
+        items: Whole::new(vec![]),
+        control: Some(Err(Outcome::Unread(Unread::Cut))),
     });
     round(ChangeAsk {
         filter: ChangeFilter::default(),
-        files: true,
+        files: Some(Bound::new(100).unwrap()),
         closing: true,
-        siblings: false,
+        siblings: None,
         activity: Some(Window::Last(nz32(50))),
     });
     round(ChangeItem {

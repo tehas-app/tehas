@@ -26,15 +26,17 @@ pub struct BoardAsk {
     /// `Window::Whole`; a queue read may ask `Window::Last` with
     /// `Depth::Last`, and reads a `more` as possibly cut.
     pub history: Option<Window>,
-    /// The changes that close each item's blueprints.
-    pub changes: bool,
+    /// The changes that close each item's blueprints: the states taken and
+    /// how many, in the order `Board` gives. None reads none.
+    pub changes: Option<(ChangeStates, Window)>,
     /// Which tickets.
     pub filter: Filter,
     /// The control ticket, read whole with its history beside the rest.
     pub control: Option<TicketKey>,
 }
 
-/// One ticket with its notes, its blueprints and their changes.
+/// One ticket with its notes, its blueprints and their changes. A list the
+/// ask did not read is empty, with `more`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WorkItem {
     /// The ticket.
@@ -44,8 +46,9 @@ pub struct WorkItem {
     pub notes: Took<Comment>,
     /// The blueprints linked to it.
     pub blueprints: Vec<Blueprint>,
-    /// The changes that close those blueprints, open first.
-    pub changes: Vec<ChangeDigest>,
+    /// The changes that close those blueprints, in the order `Board` gives,
+    /// with `more`.
+    pub changes: Took<ChangeDigest>,
 }
 
 impl WorkItem {
@@ -67,10 +70,11 @@ impl WorkItem {
 /// fails closed alone. The others are still answered.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct OpenWork {
-    /// Each open ticket, with its own answer.
+    /// Each open ticket, with its own answer, in list order.
     pub items: Whole<(TicketKey, Got<WorkItem>)>,
-    /// The control ticket, if it was asked for.
-    pub control: Option<Ticket>,
+    /// The control ticket with its own answer, if it was asked for. Its
+    /// failure fails it alone, not the list.
+    pub control: Option<Got<Ticket>>,
 }
 
 /// What a read centred on changes asks for.
@@ -78,13 +82,15 @@ pub struct OpenWork {
 pub struct ChangeAsk {
     /// Which changes.
     pub filter: ChangeFilter,
-    /// Each change's files, whole.
-    pub files: bool,
+    /// Each change's files, whole up to this bound per change. One change
+    /// past it fails the read.
+    pub files: Option<Bound>,
     /// The blueprints each closes, with their text and marks, and their
     /// tickets.
     pub closing: bool,
-    /// The other open changes that close the same blueprints.
-    pub siblings: bool,
+    /// The open changes that close the same blueprints, whole up to this
+    /// bound per change, the change itself counted where it is open.
+    pub siblings: Option<Bound>,
     /// Each change's events: a stale read asks `Window::Last(50)`.
     pub activity: Option<Window>,
 }
@@ -97,7 +103,8 @@ pub struct ChangeItem {
     /// Its files, if asked.
     pub files: Option<Whole<ChangedFile>>,
     /// The blueprints of this project it closes, each with its linked
-    /// ticket, if asked.
+    /// ticket, if asked. A blueprint of another project, or one not found,
+    /// is left out.
     pub closing: Vec<(Blueprint, Option<TicketDigest>)>,
     /// The other open changes that close the same blueprints, if asked.
     pub siblings: Vec<ChangeDigest>,
@@ -107,9 +114,17 @@ pub struct ChangeItem {
 
 /// The joined reads. A site that serves all three ports answers them with
 /// one question and owns its cost.
+///
+/// The items of a per-item read come in the tickets port's list order:
+/// oldest filed first, ties broken by key. An item's changes come open
+/// first, in the code host's order, then the rest newest first by the time
+/// each was merged or closed, ties broken by the higher number. Asked with
+/// `Window::Last(n)`, the open changes past n make the item `Unread(Cut)`;
+/// the merged and closed ones are the newest that fit in n, with `more`.
 pub trait Board: Reports {
     /// The open tickets the filter takes, each with its own answer, and the
-    /// control ticket. Open tickets alone, whatever the filter's `open` says.
+    /// control ticket with its own. Open tickets alone, whatever the
+    /// filter's `open` says.
     fn open_work(&mut self, ask: &BoardAsk, bound: Bound) -> Got<OpenWork>;
     /// One ticket whole, as the ask names.
     fn work_item(&mut self, key: &TicketKey, ask: &BoardAsk) -> Got<WorkItem>;
@@ -149,12 +164,47 @@ pub struct Join {
     pub links: Arc<dyn Links>,
 }
 
-/// The most changes of an item's blueprints the join reads. Past it, that
-/// item is `Unread(Cut)`.
+/// The most changes of an item's blueprints the join reads to order them
+/// for a `Window::Last`. Past it, that item is `Unread(Cut)`.
 const ITEM_MAX: NonZeroU32 = NonZeroU32::new(1000).unwrap();
 
 /// An answer the join cannot match to what it asked.
 const MISMATCH: Outcome = Outcome::Unread(Unread::Inconsistent);
+
+/// A list the ask did not read: empty, possibly cut.
+fn not_read<T>() -> Took<T> {
+    Took {
+        items: Vec::new(),
+        more: true,
+    }
+}
+
+/// When a change was merged or closed; None while it is open.
+fn ended(change: &ChangeDigest) -> Option<At> {
+    match change.state {
+        ChangeState::Open => None,
+        ChangeState::Merged { at, .. } | ChangeState::Closed { at } => Some(at),
+    }
+}
+
+/// The changes in the board's order, as much as `window` takes.
+fn ordered(changes: Vec<ChangeDigest>, window: Window) -> Got<Took<ChangeDigest>> {
+    let (mut open, mut rest): (Vec<_>, Vec<_>) =
+        changes.into_iter().partition(|c| ended(c).is_none());
+    rest.sort_by_key(|c| std::cmp::Reverse((ended(c), c.no)));
+    let n = match window {
+        Window::Whole(_) => usize::MAX,
+        Window::Last(n) => usize::try_from(n.get()).unwrap_or(usize::MAX),
+    };
+    if open.len() > n {
+        return Err(Outcome::Unread(Unread::Cut));
+    }
+    let room = n - open.len();
+    let more = rest.len() > room;
+    rest.truncate(room);
+    open.append(&mut rest);
+    Ok(Took { items: open, more })
+}
 
 impl Join {
     fn items(&mut self, keys: Vec<TicketKey>, ask: &BoardAsk) -> Whole<(TicketKey, Got<WorkItem>)> {
@@ -181,6 +231,31 @@ impl Join {
                 answers.swap_remove(at).1
             })
             .collect()
+    }
+
+    /// The changes that close these blueprints, in the board's order.
+    fn changes_closing(
+        &mut self,
+        nos: Vec<BlueprintNo>,
+        states: ChangeStates,
+        window: Window,
+    ) -> Got<Took<ChangeDigest>> {
+        if nos.is_empty() {
+            return Ok(Took {
+                items: Vec::new(),
+                more: false,
+            });
+        }
+        let bound = match window {
+            Window::Whole(bound) => bound,
+            Window::Last(_) => ITEM_MAX.into(),
+        };
+        let filter = ChangeFilter {
+            states,
+            closing: nos,
+            ..ChangeFilter::default()
+        };
+        ordered(self.code_host.changes(&filter, bound)?.into_items(), window)
     }
 
     fn digest(&mut self, key: &TicketKey) -> Got<TicketDigest> {
@@ -215,17 +290,18 @@ impl Reports for Join {
 }
 
 impl Board for Join {
-    /// The filter's open tickets alone, whatever its `open` says.
+    /// The filter's open tickets alone, whatever its `open` says, in list
+    /// order. The control ticket is read with `Depth::All`.
     fn open_work(&mut self, ask: &BoardAsk, bound: Bound) -> Got<OpenWork> {
         let filter = Filter {
             open: Some(true),
             ..ask.filter.clone()
         };
         let listed = self.tickets.list(&filter, bound)?;
-        let control = match &ask.control {
-            Some(key) => Some(self.tickets.ticket(key, Depth::All, None)?),
-            None => None,
-        };
+        let control = ask
+            .control
+            .as_ref()
+            .map(|key| self.tickets.ticket(key, Depth::All, None));
         let keys = listed.into_items().into_iter().map(|d| d.key).collect();
         Ok(OpenWork {
             items: self.items(keys, ask),
@@ -242,26 +318,14 @@ impl Board for Join {
         let ticket = self.tickets.ticket(key, ask.depth, ask.history)?;
         let notes = match ask.depth.notes() {
             Some(window) => self.tickets.notes(key, window)?,
-            None => Took {
-                items: Vec::new(),
-                more: true,
-            },
+            None => not_read(),
         };
         let nos = self.links.blueprints_of(key)?;
         let blueprints = self.blueprints_of(&nos, ask.depth)?;
-        let mut changes = Vec::new();
-        if ask.changes && !nos.is_empty() {
-            let filter = ChangeFilter {
-                states: ChangeStates::All,
-                closing: nos,
-                ..ChangeFilter::default()
-            };
-            changes = self
-                .code_host
-                .changes(&filter, ITEM_MAX.into())?
-                .into_items();
-            changes.sort_by_key(|c| !matches!(c.state, ChangeState::Open));
-        }
+        let changes = match ask.changes {
+            Some((states, window)) => self.changes_closing(nos, states, window)?,
+            None => not_read(),
+        };
         Ok(WorkItem {
             ticket,
             notes,
@@ -299,7 +363,8 @@ impl Board for Join {
     }
 
     /// A blueprint a change closes is read without its comments; one of
-    /// another project is left out of `closing` and `siblings`.
+    /// another project, or one not found, is left out of `closing`, and one
+    /// of another project out of `siblings`.
     fn open_changes(&mut self, ask: &ChangeAsk, bound: Bound) -> Got<Whole<ChangeItem>> {
         let changes = self.code_host.changes(&ask.filter, bound)?.into_items();
         let mut items = Vec::with_capacity(changes.len());
@@ -312,15 +377,18 @@ impl Board for Join {
                     Ref::Elsewhere { .. } => None,
                 })
                 .collect();
-            let files = if ask.files {
-                Some(self.code_host.changed_files(change.no, bound)?)
-            } else {
-                None
+            let files = match ask.files {
+                Some(each) => Some(self.code_host.changed_files(change.no, each)?),
+                None => None,
             };
             let mut closing = Vec::new();
             if ask.closing {
                 for no in &here {
-                    let blueprint = self.blueprints.blueprint(*no, Depth::Cut { notes: 0 })?;
+                    let blueprint = match self.blueprints.blueprint(*no, Depth::Cut { notes: 0 }) {
+                        Ok(blueprint) => blueprint,
+                        Err(Outcome::NotFound) => continue,
+                        Err(other) => return Err(other),
+                    };
                     let ticket = match self.links.ticket_of(*no)? {
                         Some(key) => Some(self.digest(&key)?),
                         None => None,
@@ -329,12 +397,12 @@ impl Board for Join {
                 }
             }
             let mut siblings = Vec::new();
-            if ask.siblings && !here.is_empty() {
+            if let (Some(each), false) = (ask.siblings, here.is_empty()) {
                 let filter = ChangeFilter {
                     closing: here,
                     ..ChangeFilter::default()
                 };
-                siblings = self.code_host.changes(&filter, bound)?.into_items();
+                siblings = self.code_host.changes(&filter, each)?.into_items();
                 siblings.retain(|c| c.no != change.no);
             }
             let activity = match ask.activity {
@@ -350,5 +418,58 @@ impl Board for Join {
             });
         }
         Ok(Whole::new(items))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn change(no: u64, state: ChangeState) -> ChangeDigest {
+        ChangeDigest {
+            no: crate::ChangeNo::new(no).unwrap(),
+            title: String::new(),
+            state,
+            head: crate::Branch::new("work").unwrap(),
+            head_commit: crate::CommitId::new("abc1234").unwrap(),
+            base: crate::Branch::new("main").unwrap(),
+            author: None,
+            from_fork: false,
+            draft: false,
+            merge_state: crate::Mergeable::Unknown,
+            marks: vec![],
+            closes: vec![],
+            size: None,
+            body: None,
+            created: At::new(0),
+            edited: None,
+            editor: None,
+            link: crate::WebLink::new("https://example.test/c").unwrap(),
+        }
+    }
+
+    fn closed(no: u64, at: i64) -> ChangeDigest {
+        change(no, ChangeState::Closed { at: At::new(at) })
+    }
+
+    fn nos(took: &Took<ChangeDigest>) -> Vec<u64> {
+        took.items.iter().map(|c| c.no.get()).collect()
+    }
+
+    #[test]
+    fn changes_come_open_first_then_newest_ended_first() {
+        let all = vec![
+            closed(1, 10),
+            change(2, ChangeState::Open),
+            closed(3, 30),
+            closed(4, 30),
+            closed(5, 20),
+        ];
+        let whole = ordered(all.clone(), Window::Whole(crate::ALL_MAX)).unwrap();
+        assert_eq!(nos(&whole), [2, 4, 3, 5, 1]);
+        assert!(!whole.more);
+        let three = ordered(all, Window::Last(NonZeroU32::new(3).unwrap())).unwrap();
+        assert_eq!(nos(&three), [2, 4, 3]);
+        assert!(three.more);
     }
 }
