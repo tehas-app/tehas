@@ -6,15 +6,13 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use tehas_core::testdir::TestDir;
 
 const CONSOLE: &str = env!("CARGO_BIN_EXE_console");
 
-// A directory of this test, under cargo's own place for test files.
-fn scratch(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    dir
+// A directory of this test process's own: two runs at once never share one.
+fn scratch(name: &str) -> TestDir {
+    TestDir::new(&format!("console-{name}"))
 }
 
 // A day as the transcript directories are named, from the clock: the console

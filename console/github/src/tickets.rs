@@ -153,7 +153,10 @@ fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDige
         ("closed", _) => TicketState::Closed(CloseReason::Done),
         _ => return None,
     };
-    let kind = v.pointer("/type/name").and_then(Value::as_str).map(kind_of);
+    let kind = v
+        .pointer("/type/name")
+        .and_then(Value::as_str)
+        .map(Kind::named);
     let target = match v.get("milestone").filter(|m| !m.is_null()) {
         None => None,
         Some(m) => Some(TargetName::new(
@@ -182,17 +185,6 @@ fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDige
     digest.target = target;
     digest.author = author;
     Some(digest)
-}
-
-/// The kind an issue type of GitHub's is, by its name.
-pub(crate) fn kind_of(name: &str) -> Kind {
-    match name {
-        "Feature" => Kind::Feature,
-        "Bug" => Kind::Bug,
-        "Task" => Kind::Task,
-        "Epic" => Kind::Epic,
-        other => MarkName::new(other).map_or(Kind::Unknown, Kind::Other),
-    }
 }
 
 /// The account of an event, None where it names nobody. The login is folded

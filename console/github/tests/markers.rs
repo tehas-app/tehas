@@ -562,6 +562,15 @@ impl Tickets for Notes {
     fn several(&mut self, _: &[TicketKey]) -> Vec<(TicketKey, Got<TicketDigest>)> {
         unreachable!()
     }
+    fn several_with_closers(
+        &mut self,
+        _: &[TicketKey],
+    ) -> Vec<(TicketKey, Got<tehas_ports::WithCloser>)> {
+        unreachable!()
+    }
+    fn marks(&mut self, _: tehas_ports::Bound) -> Got<tehas_ports::Whole<tehas_ports::MarkHeld>> {
+        unreachable!()
+    }
     fn history(
         &mut self,
         _: &TicketKey,

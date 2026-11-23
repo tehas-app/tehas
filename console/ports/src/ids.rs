@@ -212,6 +212,12 @@ opaque!(
     ReleaseId
 );
 opaque!(
+    /// A mark's own id on the site, made by the adapter: it stays when the
+    /// mark is renamed, so a caller pins a mark by it. Stored and compared
+    /// only.
+    MarkId
+);
+opaque!(
     /// An attachment's id, made by the adapter. Stored and compared only.
     AttachmentId
 );
