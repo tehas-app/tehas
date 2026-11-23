@@ -270,8 +270,8 @@ mod tests {
 
     fn home(name: &str) -> (TestDir, Home) {
         let d = TestDir::new(name);
-        fs::create_dir_all(d.join("state")).unwrap();
         let h = Home::new(d.path());
+        fs::create_dir_all(h.state_dir()).unwrap();
         (d, h)
     }
 
@@ -362,13 +362,12 @@ mod tests {
             Err(LedgerDown)
         );
         let why = l.why_down().unwrap();
-        assert!(
-            why.ends_with(
-                "state/ledger.json cannot be read: its directory is missing; reinstall tehas"
-            ),
-            "{why}"
+        let file = h.state(State::Ledger).display().to_string();
+        assert_eq!(
+            why,
+            format!("{file} cannot be read: its directory is missing; reinstall tehas")
         );
-        assert!(!d.join("state").exists(), "nothing is made");
+        assert!(!h.state_dir().exists(), "nothing is made");
     }
 
     // A file this tehas cannot read stays as it is, every call is down, and
