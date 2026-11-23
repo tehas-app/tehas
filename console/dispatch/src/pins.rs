@@ -28,6 +28,10 @@
 //!   the log names `unknown`): no rule takes it as anyone's approval, even
 //!   where the list names a GitHub account called `unknown`.
 //!
+//! A file that is there and cannot be read (a link, a file tehas may not
+//! read, a line of another shape) refuses every granting label each poll
+//! until a person repairs it, and the poll never writes over it.
+//!
 //! A person who deletes and recreates a `tehas:` label removes its line from
 //! the file and runs `tehas labels`, which pins the label as it now is.
 
@@ -38,7 +42,7 @@ use std::path::Path;
 use tehas_core::events::NOBODY;
 use tehas_core::grant::{account_of, Actor, Change, LabelEvent};
 use tehas_core::label_pins::{granting, save};
-pub use tehas_core::label_pins::{load, pin_made, Pins, FILE, GRANTING};
+pub use tehas_core::label_pins::{load, pin_made, Pins, Record, FILE, GRANTING};
 
 /// What judging a poll's read found.
 #[derive(Debug, Default, PartialEq)]
@@ -207,11 +211,21 @@ fn judge_event(
 }
 
 /// The poll's step: judges the snapshot and keeps the new pins, unless `dry`.
-/// The lines to log, and the labels refused this poll.
+/// The lines to log, and the labels refused this poll. Pins that cannot be
+/// read refuse every granting label, and nothing is written over them.
 pub fn settle(home: &Path, snap: &mut Value, dry: bool) -> (Vec<String>, Vec<String>) {
-    let mut pins = load(home);
-    let kept = home.join(FILE).exists();
+    // Pins that cannot be read are judged as a kept file with no pin, which
+    // refuses every application of a granting label and pins nothing.
+    let (kept, mut pins, unreadable) = match load(home) {
+        Ok(Record::Absent) => (false, Pins::new(), None),
+        Ok(Record::Kept(p)) => (true, p, None),
+        Err(u) => (true, Pins::new(), Some(u)),
+    };
     let j = judge(&mut pins, kept, snap);
+    if let Some(u) = unreadable {
+        let all: BTreeSet<String> = GRANTING.iter().map(|l| l.to_string()).collect();
+        return (vec![format!("WARN: {u}")], all.into_iter().collect());
+    }
     let mut said = Vec::new();
     for (name, id) in &j.pinned {
         let word = if dry { "would pin" } else { "pinned" };
@@ -482,7 +496,7 @@ mod tests {
         let (said, refused) = settle(d.path(), &mut s, false);
         assert!(said[0].starts_with("pinned the label tehas:ready as LA_real"));
         assert!(refused.is_empty());
-        assert_eq!(load(d.path())["tehas:ready"], "LA_real");
+        assert_eq!(load(d.path()).unwrap().pins()["tehas:ready"], "LA_real");
         use std::os::unix::fs::PermissionsExt;
         let mode = fs::metadata(d.path().join(FILE))
             .unwrap()
@@ -493,7 +507,7 @@ mod tests {
         let (said, refused) = settle(d.path(), &mut s, false);
         assert_eq!(refused, vec!["tehas:ready".to_string()]);
         assert!(said[0].contains("pinned LA_real, now LA_new"));
-        assert_eq!(load(d.path())["tehas:ready"], "LA_real");
+        assert_eq!(load(d.path()).unwrap().pins()["tehas:ready"], "LA_real");
     }
 
     #[test]
@@ -510,6 +524,94 @@ mod tests {
         let (said, refused) = settle(d.path(), &mut s, false);
         assert_eq!(refused, vec!["tehas:ready".to_string()]);
         assert!(said[0].contains("has no pin"));
-        assert!(load(d.path()).is_empty());
+        assert!(load(d.path()).unwrap().pins().is_empty());
+    }
+
+    const READY: &str = GRANTING[0];
+
+    /// Each way the file can be there and not be read, made in the state
+    /// dir of a home. Permission denied only where a file of mode 000
+    /// cannot be read (not root).
+    type Case = (&'static str, fn(&Path));
+
+    fn unreadable_cases() -> Vec<Case> {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let mut cases: Vec<Case> = vec![
+            ("a dangling link", |h| {
+                symlink(h.join("gone"), h.join(FILE)).unwrap()
+            }),
+            ("a live link", |h| {
+                fs::write(h.join("elsewhere"), format!("{READY}\tLA_real\n")).unwrap();
+                symlink(h.join("elsewhere"), h.join(FILE)).unwrap();
+            }),
+            ("a line of another shape", |h| {
+                fs::write(h.join(FILE), format!("{READY}\tLA_real\nnot a pin\n")).unwrap()
+            }),
+        ];
+        let probe = TestDir::new("pins-probe");
+        let f = probe.path().join("f");
+        fs::write(&f, "x").unwrap();
+        fs::set_permissions(&f, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read(&f).is_err() {
+            cases.push(("permission denied", |h| {
+                fs::write(h.join(FILE), format!("{READY}\tLA_real\n")).unwrap();
+                fs::set_permissions(h.join(FILE), fs::Permissions::from_mode(0o000)).unwrap();
+            }));
+        }
+        cases
+    }
+
+    // The label read is the pinned one, and alice's application of it would
+    // count: with pins that cannot be read it counts for nothing, every
+    // granting label is refused, and the file is as it was.
+    #[test]
+    fn pins_that_cannot_be_read_refuse_every_granting_label_and_are_not_written() {
+        for (why, make) in unreadable_cases() {
+            for dry in [false, true] {
+                let d = TestDir::new("pins-unreadable");
+                fs::create_dir_all(d.path().join(FILE).parent().unwrap()).unwrap();
+                make(d.path());
+                let link = fs::read_link(d.path().join(FILE)).ok();
+                let size = |p: &Path| fs::symlink_metadata(p).unwrap().len();
+                let was = (link.clone(), size(&d.path().join(FILE)));
+                let mut s = snap(
+                    json!([{"name": READY, "id": "LA_real"}]),
+                    json!([ready("LA_real", "alice")]),
+                );
+                let (said, refused) = settle(d.path(), &mut s, dry);
+                let mut all: Vec<String> = GRANTING.iter().map(|l| l.to_string()).collect();
+                all.sort();
+                assert_eq!(refused, all, "{why}");
+                assert_eq!(said.len(), 1, "{why}: {said:?}");
+                assert!(
+                    said[0]
+                        .starts_with(&format!("WARN: the label pins in {FILE} cannot be read (")),
+                    "{why}: {said:?}"
+                );
+                assert!(said[0].contains("run tehas labels"), "{why}");
+                assert_eq!(actor(&s), NOBODY, "{why}");
+                let now = (
+                    fs::read_link(d.path().join(FILE)).ok(),
+                    size(&d.path().join(FILE)),
+                );
+                assert_eq!(now, was, "{why}");
+                assert!(!d.path().join(FILE).with_extension("new").exists(), "{why}");
+                if link.is_none() {
+                    use std::os::unix::fs::PermissionsExt;
+                    let f = d.path().join(FILE);
+                    let m = fs::metadata(&f).unwrap().permissions().mode();
+                    fs::set_permissions(&f, fs::Permissions::from_mode(0o600)).unwrap();
+                    let text = fs::read_to_string(&f).unwrap();
+                    fs::set_permissions(&f, fs::Permissions::from_mode(m)).unwrap();
+                    assert!(text.starts_with(&format!("{READY}\tLA_real\n")), "{why}");
+                }
+                if why == "a live link" {
+                    assert_eq!(
+                        fs::read_to_string(d.path().join("elsewhere")).unwrap(),
+                        format!("{READY}\tLA_real\n")
+                    );
+                }
+            }
+        }
     }
 }

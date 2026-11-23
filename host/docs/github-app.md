@@ -318,6 +318,15 @@ GraphQL carry the id of their label:
   pinned label when the labels could not be read, grants nothing that poll:
   label events read from REST carry no label id, so they could not be told
   from another label renamed to the name.
+- A file that is there and cannot be read refuses every granting label:
+  a symbolic link, something other than a regular file, a file tehas may not
+  read, one over 64 KiB, or one with a line that is not `<name><tab><id>` or
+  a name on two lines. Each poll then logs one line, `WARN: the label pins in
+  state/labels cannot be read (<why>)`, no application of a granting label
+  counts, and the poll writes nothing to the file. `tehas labels` stops with
+  exit 78 and the same line, before it asks GitHub anything, and leaves the
+  file as it is. Only a file that is not there at all is pinned at first
+  sight.
 - A refused `tehas:blocked` starts nothing, but it still holds: an issue
   that carries it waits as it would for an allowed account's, on the marked
   comment or on the label alone. A refused pin never lets an issue start
@@ -334,6 +343,12 @@ checking on GitHub that it is the label it should be, add its line
 (`<name><tab><id>`, the id `tehas labels` printed) to the file by hand.
 `tehas labels` never changes a pin that is there. Until a label is pinned its
 applications count for nothing.
+
+To repair a file that cannot be read, make `~/tehas/state/labels` a regular
+file owned by and readable by the tehas user, of `<name><tab><id>` lines, one
+per label. If it cannot be repaired, check on GitHub that each granting
+`tehas:` label is the one it should be, remove the file and run
+`tehas labels`: with no file it pins every granting label it finds.
 
 ## The relay is a security channel
 
