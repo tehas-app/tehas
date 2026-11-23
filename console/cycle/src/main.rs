@@ -247,7 +247,7 @@ use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{last_attempts, to_json, Given};
 use tehas_cycle::{apply, finish, lock, pin, progress, renew, report};
-use tehas_cycle::{caps, clock, index, runner, sandbox, supervise, work, Facts};
+use tehas_cycle::{caps, clock, events, index, runner, sandbox, supervise, work, Facts};
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -486,7 +486,9 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         Err(e) => fail(e),
     };
     lock::hand_down(&held).unwrap_or_else(|e| fail(e));
-    std::process::exit(supervise::run(home, &g));
+    let get: events::Get = Arc::new(|k: &str| std::env::var(k).unwrap_or_default());
+    let raised = events::wiring(home, get);
+    std::process::exit(supervise::run(home, &g, &raised));
 }
 
 /// The words of tehas work.

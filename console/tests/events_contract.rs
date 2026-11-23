@@ -594,3 +594,233 @@ fn a_gate_answer_refuses_with_a_short_why() {
     );
     assert!(serde_json::from_value::<GateAnswer>(long).is_ok());
 }
+
+// The envelopes tehas-cycle raises at a cycle's start and end, built from
+// what the store answers as the cycle reads it (tehas_cycle::events), fit
+// the envelope's schema and their name's, and carry what the witnesses then
+// print: `tehas history --json` for the start and the end, `tehas question
+// --after 0 --json` for the question (push equals pull).
+mod raised {
+    use super::*;
+    use common::World;
+    use tehas_cycle::events::{ended, started, Ended, HistoryRow, QuestionRow, StartRow};
+
+    const SHA: &str = "4f7d2a2ef2bd1b5d6c4d0bd0f5f3d6c1b0a5e6f7c8d9e0f1a2b3c4d5e6f7a8b9";
+
+    fn start(w: &World, n: u64) -> StartRow {
+        let issue = n.to_string();
+        let at = (1_760_000_000 + n).to_string();
+        w.store_ok(&[
+            "approval-record",
+            &issue,
+            "--at",
+            &at,
+            "--by",
+            "host",
+            "--how",
+            "host",
+            "--body-sha",
+            SHA,
+        ]);
+        let r = w.store_locked(n, &["cycle-start", &issue]);
+        assert_eq!(r.rc, 0, "{}", r.out);
+        serde_json::from_str(&r.out).unwrap()
+    }
+
+    fn end(w: &World, n: u64, args: &[&str]) {
+        let issue = n.to_string();
+        let mut all = vec!["cycle-end", &issue, "--attempt", "1"];
+        all.extend_from_slice(args);
+        let r = w.store_locked(n, &all);
+        assert_eq!(r.rc, 0, "{}", r.out);
+    }
+
+    // What the cycle reads after its end, and the events it makes of it.
+    fn read(w: &World, n: u64) -> Ended {
+        let issue = n.to_string();
+        let rows: Vec<HistoryRow> = w.store_ok(&["history-show", &issue])["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["kind"] == "cycle")
+            .map(|r| serde_json::from_value(r.clone()).unwrap())
+            .collect();
+        let q = w.store_ok(&["question-show", &issue])["question"].clone();
+        let q: Option<QuestionRow> = serde_json::from_value(q).unwrap();
+        ended(n, 1, &rows, q.as_ref())
+    }
+
+    // What `tehas <words>` prints, as JSON.
+    macro_rules! console {
+        ($w:expr, $words:expr) => {{
+            let r = $w.sh(&format!(
+                "TEHAS_REPO=acme/widget '{}' tehas {}",
+                $w.console().display(),
+                $words
+            ));
+            assert_eq!(r.rc, 0, "{}", r.out);
+            parse!(&r.out)
+        }};
+    }
+
+    // The fields of a witness, renamed as the consumer's table names them,
+    // with what it leaves out left out.
+    macro_rules! pick {
+        ($from:expr, $fields:expr $(,)?) => {{
+            let mut out = serde_json::Map::new();
+            for (to, at) in $fields {
+                if let Some(v) = $from.pointer(at).filter(|v| !v.is_null()) {
+                    out.insert(to.to_string(), v.clone());
+                }
+            }
+            Value::Object(out)
+        }};
+    }
+
+    #[test]
+    fn the_envelopes_a_cycle_raises_fit_the_schema_and_their_witness() {
+        let w = World::new("events-raised");
+        // #12 parks with its question; #14 leaves a change for review.
+        let s12 = start(&w, 12);
+        w.store_ok(&["park", "12", "--attempt", "1", "--reason", "failed"]);
+        let offers = ["--offers", "retry-text,park"];
+        let mut asked = vec!["question-asked", "12", "--id", "4001", "--kind", "park"];
+        asked.extend(offers);
+        w.store_ok(&asked);
+        end(
+            &w,
+            12,
+            &[
+                "--status",
+                "failed",
+                "--rc",
+                "10",
+                "--parked",
+                "--step",
+                "develop",
+                "--failure-kind",
+                "verify-failed",
+            ],
+        );
+        let s14 = start(&w, 14);
+        end(&w, 14, &["--status", "handoff", "--rc", "10", "--pr", "21"]);
+
+        let mut all = Vec::new();
+        for (s, n) in [(&s12, 12), (&s14, 14)] {
+            all.push(Envelope::new(started(s).unwrap()));
+            all.extend(read(&w, n).envelopes());
+        }
+        let names: Vec<Name> = all.iter().map(Envelope::name).collect();
+        assert_eq!(
+            names,
+            [
+                Name::CycleStarted,
+                Name::CycleParked,
+                Name::QuestionAsked,
+                Name::CycleEnded,
+                Name::CycleStarted,
+                Name::CycleEnded,
+                Name::ChangeOffered,
+            ]
+        );
+
+        let runs = console!(&w, "history --json")["runs"].clone();
+        let line = |cycle: &str| {
+            runs.as_array()
+                .unwrap()
+                .iter()
+                .find(|l| l["cycle"] == cycle)
+                .cloned()
+                .unwrap_or_else(|| panic!("no line of {cycle} in {runs}"))
+        };
+        let questions = console!(&w, "question --after 0 --json")["questions"].clone();
+        for e in &all {
+            let v = serde_json::to_value(e).unwrap();
+            assert_eq!(fits!("event.schema.json", &v), Vec::<String>::new(), "{v}");
+            let own = format!("event-{}.schema.json", slug(e.name()));
+            assert_eq!(fits!(&own, &v["data"]), Vec::<String>::new(), "{v}");
+            let data = &v["data"];
+            let cycle = data["cycle"].as_str().unwrap_or_default();
+            let want = match e.name() {
+                Name::CycleStarted => pick!(
+                    &line(cycle),
+                    &[
+                        ("cycle", "/cycle"),
+                        ("blueprint", "/issue"),
+                        ("started", "/started"),
+                        ("how", "/how"),
+                        ("by", "/by"),
+                    ],
+                ),
+                Name::CycleEnded => pick!(
+                    &line(cycle),
+                    &[
+                        ("cycle", "/cycle"),
+                        ("blueprint", "/issue"),
+                        ("started", "/started"),
+                        ("ended", "/ended"),
+                        ("recorded", "/recorded"),
+                        ("end", "/end"),
+                        ("outcome", "/outcome"),
+                        ("status", "/status"),
+                        ("parked", "/parked"),
+                        ("signalled", "/signalled"),
+                        ("change", "/change"),
+                    ],
+                ),
+                Name::CycleParked => pick!(
+                    &line(cycle),
+                    &[
+                        ("cycle", "/cycle"),
+                        ("blueprint", "/issue"),
+                        ("at", "/ended"),
+                        ("end", "/end"),
+                        ("step", "/progress/step"),
+                        ("cap", "/cap"),
+                        ("parkReason", "/parkReason"),
+                        ("failureKind", "/failureKind"),
+                        ("failureCause", "/failureCause"),
+                        ("provider", "/provider"),
+                        ("repeat", "/repeat"),
+                        ("change", "/change"),
+                    ],
+                ),
+                Name::ChangeOffered => pick!(
+                    &line(cycle),
+                    &[
+                        ("change", "/change"),
+                        ("blueprint", "/issue"),
+                        ("cycle", "/cycle"),
+                        ("end", "/end"),
+                        ("at", "/ended"),
+                    ],
+                ),
+                Name::QuestionAsked => {
+                    let q = questions
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|q| q["id"] == data["question"])
+                        .cloned()
+                        .unwrap_or_else(|| panic!("no question {data} in {questions}"));
+                    let mut want = pick!(
+                        &q,
+                        &[
+                            ("question", "/id"),
+                            ("blueprint", "/issue"),
+                            ("cycle", "/cycle"),
+                            ("askedAt", "/askedAt"),
+                            ("choices", "/choices"),
+                        ],
+                    );
+                    // The ports' word for the store's `park`.
+                    assert_eq!(q["kind"], "park");
+                    want["kind"] = json!("Park");
+                    want
+                }
+                other => panic!("{other:?} is not raised by a cycle"),
+            };
+            assert_eq!(data, &want, "{}", e.name().as_str());
+        }
+    }
+}
