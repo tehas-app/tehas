@@ -563,8 +563,8 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `~/tehas/state/all-hands.ignored` where an earlier version wrote it. A
   program that read `allHands` or checked `features` for `all-hands` finds
   them gone.
-- **`host/markers.tsv`, and a fourth field in `host/labels.tsv`.**
-  #2901.
+- **`host/markers.tsv`, and the word of each label in `host/labels.tsv`.**
+  #2901, #2907.
   `host/markers.tsv` is new: one row per kind of marker, the machine-read
   notes tehas writes inside a comment or a body, with its open text, its
   close text for a block, and its fields and their types. It adds the text
@@ -572,12 +572,15 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   nothing writes yet. A marker with a field missing, repeated, out of order
   or not of its row, or a value outside its type, reads as unreadable and
   is never acted on. No program reads the file at run time: the adapters
-  compile it in. `tehas labels` takes a line of `host/labels.tsv` with three
-  fields or four; the fourth, a word of the ports such as `State::Running`,
-  is checked and not used, and no row has one yet.
+  compile it in. Each row of `host/labels.tsv` now has a fourth field, the
+  word of the ports the label is, such as `Act::Approve` or
+  `State::Running`; `tehas labels` checks it and makes the labels as
+  before.
   Readers: the consumer that runs many factories, which reads tehas's
-  markers and takes the table with the ports at the tag.
-  Adopter action: none.
+  markers and takes the table with the ports at the tag, and any program
+  that splits `host/labels.tsv` by its fields.
+  Adopter action: none. A program that reads `host/labels.tsv` takes its
+  first three fields as before and the fourth as the label's word.
 - **The `tehas:prototype` label and the `prototype` kind are removed.**
   #2899.
   `tehas labels` no longer makes or pins `tehas:prototype`, and nothing
@@ -688,16 +691,14 @@ adopter action as the pull request states them.
   Readers: the consumer that runs many factories, which starts
   `tehas-top.service`.
 - **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
-  Each row of `host/labels.tsv` gains its fourth field, `word`, once the
-  label drops have taken their rows out. The ports themselves. Two
-  settings choose the adapters: `TEHAS_CODE_HOST` and `TEHAS_TICKETS`. In 2.0 each accepts only `github`; a missing setting
-  means `github`, so a 1.4.x instance still loads, and any other value is
-  refused with 78. Two names stay for now as GitHub's word for a pull
+  The ports themselves. Two settings choose the adapters:
+  `TEHAS_CODE_HOST` and `TEHAS_TICKETS`. In 2.0 each accepts only
+  `github`; a missing setting means `github`, so a 1.4.x instance still
+  loads, and any other value is refused with 78. Two names stay for now as GitHub's word for a pull
   request, on the list of supplier words still to go: `pullRequests` in the
   analytics report and the dashboard's internal `pr` key.
   Readers: adopters, the consumer that runs many factories where it keeps
-  an instance's settings, and, for the `word` field, any program that
-  splits `host/labels.tsv` by its fields.
+  an instance's settings.
 - **The rename.** T10. tehas becomes tehas-factory. The `$id` of every
   schema in `api/`, the release repository and the manual move with it.
 - **The surface list for 2.x.** T9's last update: `api/surface-1.0.txt`
