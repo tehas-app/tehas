@@ -103,7 +103,7 @@ coming out in 2.0 with #2894 (Pending). After it, the millwright's
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints, and the tests of `console/src/front.rs`, which fail when a public `--json` row of `api/commands.txt` has no schema |
 | MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
-| `tehas update` | From 1.4.x to 2.0, the trio together ([Upgrading to 2.0](#upgrading-to-20)). The release repository and the signing key are built into tehas: the `TEHAS_RELEASE_REPO` line of `host/versions.env` and `host/release/minisign.pub` when the release was built. An instance may name another repository with `TEHAS_RELEASE_REPO` in `instance.env`; the key stays the built-in one | The update's tests, and the tests of `console/core/src/release.rs` |
+| `tehas update` | From 1.4.x to 2.0 ([Upgrading to 2.0](#upgrading-to-20)). The release repository and the signing key are built into tehas: the `TEHAS_RELEASE_REPO` line of `host/versions.env` and `host/release/minisign.pub` when the release was built. An instance may name another repository with `TEHAS_RELEASE_REPO` in `instance.env`; the key stays the built-in one | The update's tests, and the tests of `console/core/src/release.rs` |
 | Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x; a renamed name is taken under both names through 2.x | `console/cycle/tests/work_container.rs` |
 | Host namespace | `/host/` on the factory's origin belongs to the host that fronts the factory's domain: tehas never serves a path under it, and its docs server answers 404 there, which the dashboard reads as no host. The host bridge, `/host/bridge.json`, is `bridge: 1`, by `api/host-bridge.schema.json` and [its rules](/api#the-host-bridge) | `console/tests/host_bridge.rs` (the 404 under `/host/`, the schema and its samples), `test/json_contract_test.sh`, `test/host_bridge_test.mjs` (what the dashboard keeps of an answer) and `test/panels_dock_test.mjs` (a menu item opens in the dock, and a page item in a new tab with no dock) |
 
@@ -155,19 +155,14 @@ a key. `rows` itself is public.
   renamed, through 2.x. Today `TEHAS_DRIVER=lean` stops with 78 and
   `tehas:lean` starts nothing, while lean is building.
 - **No levers for older APIs.** 2.x keeps no alias, renamed command,
-  deprecated flag or setting that brings back a behaviour of 1.x. Only the
-  current majors of the trio are supported.
+  deprecated flag or setting that brings back a behaviour of 1.x.
 - **Release repository and key.** The update reads releases from the
   repository built into tehas and checks them with the key built into tehas,
   as [tehas update](/tools-update#from-a-release) says.
 
 ## Upgrading to 2.0
 
-tehas 2.0 is released together with the 2.0 of the consumer that runs many
-factories and Obeya 1.0, as a trio. A host upgrades that consumer, its Obeya
-and its factories together, to
-the three tagged versions. Nothing else is supported: no 2.0 factory under a
-1.x consumer, and no 1.x factory under a 2.0 consumer.
+A host upgrades its factories and the programs that run them together.
 
 A factory moves from 1.4.x to 2.0 with `tehas update`:
 
@@ -428,7 +423,8 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   warning. What stays for the lab plugin is listed under
   [plugins](#plugins).
   Readers: adopters, the consumer that runs many factories, the end-to-end
-  suite, plugins.
+  suite, plugins, and parts whose skills tell people to attach
+  `prototype.zip` and apply `tehas:prototype`.
   Adopter action: `tehas update` removes the units, the directory,
   `live/protolab.json` and `logs/protolab.log`. Take
   `TEHAS_PROTOLAB_URL`, `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOLAB_ZIP_HOSTS`
@@ -483,9 +479,13 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   object of the MCP tool `factory_stats`. `TEHAS_ENERGY`,
   `TEHAS_ENERGY_URL` and `TEHAS_ENERGY_SOURCE_URL` are dropped with a
   warning. It returns in 2.1 as a plugin fed by the host's mesh feed.
-  Readers: adopters, MCP clients, plugins.
+  Readers: adopters, the consumer that runs many factories, MCP clients,
+  plugins.
   Adopter action: `tehas update` removes the unit and `live/energy.json`.
   Take the three settings out of `instance.env` and `~/.config/tehas/env`.
+  A program that stops `tehas-energy.service` when it adopts a factory, or
+  starts it when it creates or restores one, drops the unit from both
+  lists.
 - **analytics.db is at schema 5.**
   #2869.
   The migration drops `samples.watts`, which nothing writes since energy
@@ -536,9 +536,9 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   Readers: `tehas update`, readers of `tehas state check` and of a state
   copy, the end-to-end suite.
   Adopter action: `tehas update` migrates the store.
-- **2.0 is supported from 1.4.x, as the trio.** This page. The update to
-  2.0 is supported from 1.4.x only, and a host upgrades the consumer that runs many factories, Obeya and
-  factories together.
+- **2.0 is supported from 1.4.x.** This page. The update to 2.0 is
+  supported from 1.4.x only, and a host upgrades its factories and the
+  programs that run them together.
   Readers: adopters, the consumer that runs many factories.
   Adopter action: update a host on an older release to the newest 1.4.x
   first.
@@ -632,9 +632,17 @@ adopter action as the pull request states them.
   panel (`TEHAS_TOP`) leave core for plugins (`tehas top` stays); the
   `tehas:prototype` label and the `prototype` kind of `TEHAS_ISSUE_TYPES`
   go; the store keeps only the migration from 1.4.x.
+  Readers: the consumer that runs many factories, which holds
+  `tehas:prototype` in its queue and starts `tehas-top.service`, and parts
+  that read the label.
 - **The ports.** T4, spec `docs/specs/2026-11-22-ports.md`.
   `host/labels.tsv` gains a fourth column, `word`, and `host/markers.tsv`
-  is new. Whether a setting chooses the adapter is the owner's decision.
+  is new. Two settings choose the adapters: `TEHAS_CODE_HOST` and
+  `TEHAS_TICKETS`. In 2.0 each accepts only `github`; a missing setting
+  means `github`, so a 1.4.x instance still loads, and any other value is
+  refused with 78.
+  Readers: adopters, the consumer that runs many factories where it keeps
+  an instance's settings.
 - **The rename.** T10. tehas becomes tehas-factory. The `$id` of every
   schema in `api/`, the release repository and the manual move with it.
 - **The surface list for 2.x.** T9's last update: `api/surface-1.0.txt`
