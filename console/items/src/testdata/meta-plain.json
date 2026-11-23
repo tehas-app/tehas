@@ -1,0 +1,19 @@
+{
+  "number": 7,
+  "title": "Map <script>alert(1)</script> & pins",
+  "url": "https://github.com/acme/widget/issues/7",
+  "author": "al'ice",
+  "updatedAt": "2026-10-09T08:00:00Z",
+  "files": [
+    {"name": "image-1.png", "kind": "image", "bytes": 7},
+    {"name": "good/pro to.html", "kind": "app", "bytes": 4294967},
+    {"name": "good/style.css", "kind": "part", "bytes": 2047},
+    {"name": "video-2.mp4", "kind": "video", "bytes": 11}
+  ],
+  "skipped": [
+    {"name": "all.tar", "reason": "Not a type the host serves."},
+    {"name": "<b>.png", "reason": "More than 10 MB \"in all\"."}
+  ],
+  "outside": 2,
+  "bytes": 4297032
+}

@@ -19,6 +19,7 @@
 //! A name is cut to the characters a file name may hold, so nothing a link
 //! says can leave the item's directory.
 
+use crate::page::{File, Meta, Skipped, Ticket};
 use attach::fetch::{self, Fetched, Full, Pin, Unpinned};
 use attach::link::{is_external, is_link};
 use serde_json::Value;
@@ -88,7 +89,7 @@ impl Held {
 
 /// The page of an item as the caller draws it: from its meta, its files, the
 /// files left out and the count of links from outside.
-pub type Page<'a> = &'a dyn Fn(&Value, &[Value], &[Value], i64) -> String;
+pub type Page<'a> = &'a dyn Fn(&Ticket, &[File], &[Skipped], i64) -> String;
 
 /// Make item `n`'s directory in the work area: its files, its meta, its page
 /// and, unless a file is to be tried again, its stamp. The directory and the
@@ -138,13 +139,8 @@ pub fn build(
     ])
     .pretty();
     fs::write(dir.join(".meta.json"), format!("{meta}\n")).ok()?;
-    let row: Value = serde_json::from_str(&meta).ok()?;
-    let html = page(
-        &row,
-        row["files"].as_array()?,
-        row["skipped"].as_array()?,
-        found.outside,
-    );
+    let read = Meta::read(&meta)?;
+    let html = page(&read.ticket, &read.files, &read.skipped, found.outside);
     fs::write(dir.join("index.html"), html).ok()?;
     let _ = fs::remove_file(dir.join(".part"));
     // Without a stamp the next run builds the item again.
@@ -187,14 +183,6 @@ fn stamp_of(hash: u64, len: usize, domain: &str, design: &str, zips: Option<&str
         stamp.push_str(&format!("-zips-{:016x}", hash.finish()));
     }
     stamp
-}
-
-/// A value as `jq -r` prints it.
-pub fn raw(value: &Value) -> String {
-    match value {
-        Value::String(text) => text.clone(),
-        other => other.to_string(),
-    }
 }
 
 /// One link of the item, fetched into the directory or said to be left out.
@@ -454,9 +442,19 @@ fn status_of(status: std::process::ExitStatus) -> i32 {
         .unwrap_or(1)
 }
 
+/// One entry of a zip, as libexec/attach answers it. A name and a reason
+/// are what `jq -r` prints of the answer's value, whatever its kind.
+#[derive(Debug, PartialEq)]
+enum Entry {
+    /// A file left out, and why.
+    Skip { name: String, reason: String },
+    /// A file unpacked, with its kind as the answer gave it.
+    File { name: String, kind: J, bytes: i64 },
+}
+
 /// What libexec/attach made of a zip.
 enum Unpacked {
-    Entries(Vec<Value>),
+    Entries(Vec<Entry>),
     /// The input's fault, or the answer has no entries.
     NoZip,
     /// The host's.
@@ -493,19 +491,19 @@ fn unpack(store: &Store, dir: &Path, name: &str, left: i64, held: &mut Held) {
         }
     };
     let _ = fs::remove_dir(&folder);
-    for entry in &entries {
-        if !entry["skip"].is_null() {
-            let reason = raw(&entry["reason"]);
-            let reason = if reason.starts_with("More than ") && reason.ends_with(" files.") {
-                more_than()
-            } else {
-                reason
-            };
-            held.skip(&format!("{base}/{}", raw(&entry["skip"])), &reason);
-        } else if !entry["name"].is_null() {
-            let kind = J::parse(&entry["kind"].to_string()).unwrap_or(J::Null);
-            let bytes = entry["bytes"].as_i64().unwrap_or(0);
-            held.file(&format!("{base}/{}", raw(&entry["name"])), kind, bytes);
+    for entry in entries {
+        match entry {
+            Entry::Skip { name, reason } => {
+                let reason = if reason.starts_with("More than ") && reason.ends_with(" files.") {
+                    more_than()
+                } else {
+                    reason
+                };
+                held.skip(&format!("{base}/{name}"), &reason);
+            }
+            Entry::File { name, kind, bytes } => {
+                held.file(&format!("{base}/{name}"), kind, bytes);
+            }
         }
     }
 }
@@ -549,8 +547,31 @@ fn read_attach(code: i32, out: &str) -> Unpacked {
     if code == 0 && !out.contains('\n') {
         if let Ok(said) = serde_json::from_str::<Value>(out) {
             if said["api"] == 1 && said["ok"] == true && said["verb"] == "unpack" {
+                // A value as `jq -r` prints it.
+                let raw = |value: &Value| match value {
+                    Value::String(text) => text.clone(),
+                    other => other.to_string(),
+                };
+                // An entry that names neither a file left out nor one
+                // unpacked is none.
+                let entry = |entry: &Value| {
+                    if !entry["skip"].is_null() {
+                        Some(Entry::Skip {
+                            name: raw(&entry["skip"]),
+                            reason: raw(&entry["reason"]),
+                        })
+                    } else if !entry["name"].is_null() {
+                        Some(Entry::File {
+                            name: raw(&entry["name"]),
+                            kind: J::parse(&entry["kind"].to_string()).unwrap_or(J::Null),
+                            bytes: entry["bytes"].as_i64().unwrap_or(0),
+                        })
+                    } else {
+                        None
+                    }
+                };
                 return match said["entries"].as_array() {
-                    Some(entries) => Unpacked::Entries(entries.clone()),
+                    Some(entries) => Unpacked::Entries(entries.iter().filter_map(entry).collect()),
                     None => Unpacked::NoZip,
                 };
             }
@@ -755,6 +776,30 @@ mod tests {
     fn the_answer_of_attach_is_held_to_its_shape() {
         let good = r#"{"api":1,"ok":true,"verb":"unpack","entries":[{"name":"a.txt"}]}"#;
         assert!(matches!(read_attach(0, good), Unpacked::Entries(e) if e.len() == 1));
+        // Each entry is one left out or one unpacked, its words as `jq -r`
+        // prints them, and an entry that is neither is none.
+        let mixed = r#"{"api":1,"ok":true,"verb":"unpack","entries":[{"skip":"b.exe","reason":"Not a type."},{"name":"a.txt","kind":"part","bytes":4},{"skip":7,"reason":null},{"name":true,"bytes":1.5},{"other":1},3]}"#;
+        let Unpacked::Entries(entries) = read_attach(0, mixed) else {
+            panic!("not entries");
+        };
+        let said: Vec<String> = entries
+            .iter()
+            .map(|e| match e {
+                Entry::Skip { name, reason } => format!("skip {name}: {reason}"),
+                Entry::File { name, kind, bytes } => {
+                    format!("file {name} {} {bytes}", kind.pretty())
+                }
+            })
+            .collect();
+        assert_eq!(
+            said,
+            [
+                "skip b.exe: Not a type.",
+                "file a.txt \"part\" 4",
+                "skip 7: null",
+                "file true null 0",
+            ]
+        );
         assert!(matches!(
             read_attach(0, &format!("{good}\nmore")),
             Unpacked::NoHost

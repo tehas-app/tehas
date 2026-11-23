@@ -1,49 +1,28 @@
 //! The forge: what tehas asks of the site its issues live on, in tehas terms.
 //!
 //! tehas keeps an issue's state in labels and decides from the account that
-//! put a label on (AGENTS.md rule 5). Today about twenty scripts ask GitHub
-//! for those things themselves, each in its own shape, so the forge is welded
-//! in. This module is the first half of the seam: one trait that says what
-//! tehas wants to know, and one adapter that answers it from GitHub's labels
-//! the way tehas-dispatch does today. Nothing calls it
-//! yet; the next issues of #800 give bash a command for it.
+//! put a label on (AGENTS.md rule 5). The trait here says what tehas wants to
+//! know, in its own terms: an issue's labels, the newest event of one label,
+//! who applied a label, and putting a label on or taking it off. Whether a
+//! term is backed by a label or by a native field is the adapter's choice and
+//! never a caller's. Whether a label is on the issue now is no term of its
+//! own, because a caller that asks for one and not the other is how a stale
+//! read decides something.
 //!
-//! The terms are tehas's, not GitHub's: an issue's labels, the newest event of
-//! one label, who applied the label that lets a cycle start, and putting a
-//! label on or taking it off. Whether a term is backed by a label or, later,
-//! by a native field, is the adapter's choice and never a caller's: a caller
-//! that named a GitHub field would still be writing GitHub. Whether a label is
-//! on the issue now is no term of its own, because a caller that asks for one
-//! and not the other is how a stale read decides something.
+//! The GitHub adapter that answers the trait is `GitHub` in the `tehas-github`
+//! crate (`console/github/`). What stays here, until the ports replace the
+//! trait and the last caller of the runner moves, is the trait with its
+//! values, [`GhRunner`] and [`Bounded`], the runner a host uses, the
+//! reading of a failed call's reason that the runner makes, and the rule a
+//! label name keeps, [`is_label`], while `console/src/labels.rs` reads it.
 //!
 //! Errors are values. A call that fails names the call and gh's reason for
 //! it, made from a fixed list of error words, so a caller can log why it
 //! stopped without holding gh's whole answer, which may name a host or carry a
 //! token. Nothing here panics.
-//!
-//! The adapter sits with the rules because the rules are only true of GitHub
-//! when read through the calls that adapter makes: the 404 that means a label
-//! was not there, the `--paginate` read that is the whole of an issue's
-//! events, the REST endpoints whose argv the poll's write log and the action
-//! journal of #800 record. Split the two and the copy of the rule and the copy
-//! of the call drift apart, which is what the module exists to stop. It is a
-//! library with no caller yet, and it holds no token: [`Bounded`] is the only
-//! thing here that starts a process, and it is what the next issues of #800
-//! build once, with the instance's shim as its program.
-//!
-//! The reading of gh's answers, and the rules that decide
-//! which of an issue's events answer a term, are in [`gh`].
-
-mod gh;
-
-/// The label whose latest application approves work. Named once in this
-/// module: the same string is still spelled out in `console/dispatch`,
-/// `console/cycle` and `host/labels.tsv`, and the issue that consolidates
-/// tehas's label names (#810) is where the other copies are gathered.
-const APPROVAL_LABEL: &str = "tehas:ready";
 
 /// The characters a GitHub label name is built from in tehas. The `:` of
-/// `tehas:ready` is one of them; a space, a `/` and a `?` are not.
+/// tehas's labels is one of them; a space, a `/` and a `?` are not.
 const LABEL_BYTES: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:-_";
 
 /// The longest label name GitHub accepts.
@@ -61,21 +40,6 @@ pub fn is_label(label: &str) -> bool {
     !label.is_empty()
         && label.len() <= LABEL_MAX
         && label.as_bytes().iter().all(|b| LABEL_BYTES.contains(b))
-}
-
-/// `s` as jq's `@uri` writes it, so a value cannot carry a path or a query of
-/// its own past the segment it sits in. Applied to the one part of a path the
-/// site's own answer fills: the label of a removal. The dispatcher's
-/// `read::build::uri` holds the same function, for the branch of a query.
-fn uri(s: &str) -> String {
-    s.bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                (b as char).to_string()
-            }
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
 }
 
 /// A term the forge could not answer, as a value rather than a panic.
@@ -193,10 +157,9 @@ pub trait Forge {
 
     /// Who applied the label that approves work most recently, and when, for
     /// the caller to compare with the allowed list. None when nothing applied
-    /// it: the same answer as [`Forge::applied_by`] of [`APPROVAL_LABEL`].
-    fn approval(&mut self, issue: u64) -> Result<Option<Approval>, ForgeError> {
-        self.applied_by(issue, APPROVAL_LABEL)
-    }
+    /// it: the same answer as [`Forge::applied_by`] of that label, which the
+    /// adapter names.
+    fn approval(&mut self, issue: u64) -> Result<Option<Approval>, ForgeError>;
 
     /// The names of the issue types an issue of the repository can be given.
     /// The empty list is an owner with none, as a personal account is.
@@ -220,23 +183,8 @@ pub trait Forge {
     fn remove_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError>;
 }
 
-/// gh's answer to the events call as [`crate::events`] reads events. Why not
-/// when it says nothing of them: an empty answer included.
-pub fn read_events(out: &str) -> Result<Vec<crate::events::Event>, String> {
-    Ok(gh::parse_events(out)?.into_iter().map(public).collect())
-}
-
-fn public(e: gh::Event) -> crate::events::Event {
-    crate::events::Event {
-        event: e.event,
-        label: e.label,
-        actor: e.actor,
-        at: e.at,
-    }
-}
-
 /// gh, behind a trait of its own, so the adapter's rules are read without gh,
-/// a token or a network: a test hands [`GitHub`] a stub that answers from
+/// a token or a network: a test hands the adapter a stub that answers from
 /// fixtures, and what it decides is the rules alone.
 ///
 /// A runner runs one gh call and owns how: it holds the program, gives the
@@ -247,186 +195,6 @@ pub trait GhRunner {
     /// Run gh with these arguments: its standard output, or the reason it
     /// gave for failing.
     fn run(&mut self, args: &[&str]) -> Result<String, String>;
-}
-
-/// The GitHub adapter: every term backed by labels, as the bash backs them
-/// today. It holds the repository it asks and the runner that asks GitHub, and
-/// reads nothing else.
-///
-/// The ordering of the events that answers [`Forge::label_state`] and
-/// [`Forge::approval`] is the rules of [`gh`].
-pub struct GitHub {
-    /// `owner/name`, as `TEHAS_REPO` gives it.
-    pub repo: String,
-    runner: Box<dyn GhRunner>,
-}
-
-impl GitHub {
-    /// The adapter of one repository, asking GitHub through `runner`. The
-    /// runner is the one that runs gh: on a host, [`Bounded`], built with the
-    /// path of the instance's `host/shim/gh`, which takes the bot's token from
-    /// `TEHAS_GH_TOKEN`. Where the program, its token and the bound come from
-    /// is the caller's setting to read; the next issues of #800 say which
-    /// command owns it.
-    pub fn new(repo: impl Into<String>, runner: Box<dyn GhRunner>) -> GitHub {
-        GitHub {
-            repo: repo.into(),
-            runner,
-        }
-    }
-
-    /// Ask gh, keeping the reason a failed call gave. `args` are the words
-    /// after gh; `call` is what a [`ForgeError`] names.
-    fn call(&mut self, call: &str, args: &[&str]) -> Result<String, ForgeError> {
-        match self.runner.run(args) {
-            Ok(out) => Ok(out),
-            Err(why) => Err(ForgeError::new(call, why)),
-        }
-    }
-
-    /// The reason of a read that is no answer, named after the read the
-    /// adapter was making: the reader's words, kept whole.
-    fn reason_of(why: String) -> ForgeError {
-        ForgeError::new("the issue's label events", why)
-    }
-
-    /// The `-F` fields of a GraphQL question of the repository.
-    fn owner_name(&self) -> (String, String) {
-        let (o, n) = self.repo.split_once('/').unwrap_or((&self.repo, ""));
-        (format!("owner={o}"), format!("name={n}"))
-    }
-
-    /// The issue's label events, whole: the REST list with `--paginate`, so an
-    /// issue with more events than one page holds is read to the end rather
-    /// than to its first hundred.
-    fn events(&mut self, issue: u64) -> Result<Vec<gh::Event>, ForgeError> {
-        let path = format!("repos/{}/issues/{issue}/events?per_page=100", self.repo);
-        let out = self.call("the issue's label events", &["api", &path, "--paginate"])?;
-        gh::parse_events(&out).map_err(Self::reason_of)
-    }
-}
-
-impl Forge for GitHub {
-    fn labels(&mut self, issue: u64) -> Result<Vec<String>, ForgeError> {
-        let path = format!("repos/{}/issues/{issue}", self.repo);
-        let out = self.call("the issue", &["api", &path])?;
-        // The answer is read as an issue with labels or not at all: an answer
-        // that is no issue is not an issue with no labels.
-        gh::parse_labels(&out).ok_or_else(|| ForgeError::new("the issue", "no labels to read"))
-    }
-
-    fn label_state(&mut self, issue: u64, label: &str) -> Result<Option<LabelEvent>, ForgeError> {
-        Ok(gh::latest_event(&self.events(issue)?, label))
-    }
-
-    fn label_events(&mut self, issue: u64) -> Result<Vec<crate::events::Event>, ForgeError> {
-        Ok(self.events(issue)?.into_iter().map(public).collect())
-    }
-
-    fn applied_by(&mut self, issue: u64, label: &str) -> Result<Option<Approval>, ForgeError> {
-        // The applications alone, as `tehas_label_actor` reads them: the
-        // newest event of the label is not the newest application of it, and
-        // a removal would hand the caller the remover's account to compare
-        // with the allowed list.
-        Ok(
-            gh::latest_applied(&self.events(issue)?, label).map(|e| Approval {
-                actor: e.actor,
-                at: e.at,
-            }),
-        )
-    }
-
-    fn issue_types(&mut self) -> Result<Vec<String>, ForgeError> {
-        let (owner, name) = self.owner_name();
-        let out = self.call(
-            "the issue types",
-            &[
-                "api",
-                "graphql",
-                "-F",
-                &owner,
-                "-F",
-                &name,
-                "-f",
-                &format!("query={}", gh::ISSUE_TYPES),
-            ],
-        )?;
-        gh::parse_issue_types(&out).map_err(|why| ForgeError::new("the issue types", why))
-    }
-
-    fn typed_by(&mut self, issue: u64, type_name: &str) -> Result<Option<Approval>, ForgeError> {
-        let (owner, name) = self.owner_name();
-        let out = self.call(
-            "the issue's type events",
-            &[
-                "api",
-                "graphql",
-                "-F",
-                &owner,
-                "-F",
-                &name,
-                "-F",
-                &format!("number={issue}"),
-                "-f",
-                &format!("query={}", gh::TYPE_EVENTS),
-            ],
-        )?;
-        gh::parse_typed_by(&out, type_name)
-            .map_err(|why| ForgeError::new("the issue's type events", why))
-    }
-
-    fn add_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError> {
-        if !is_label(label) {
-            return Err(ForgeError::new(
-                "the label change",
-                format!("{label} is no label name to write: an empty one, a long one, or one outside the characters tehas's labels use"),
-            ));
-        }
-        let path = format!("repos/{}/issues/{issue}/labels", self.repo);
-        // The label goes as a field of the request, as the bash and the
-        // dispatcher's writer send it, and not into a path: it keeps the
-        // characters of the site's answer. The REST list endpoint, not
-        // `gh issue edit`, which asks GitHub a
-        // GraphQL question a bot's token may not answer (issue #120): a mark
-        // made that way fails on every issue. Adding a label GitHub already
-        // has is not an error, so this is safe to ask twice. The whole call is
-        // one argv, so the words here are the words the poll's write log
-        // records, and the action journal of #800 records the same call.
-        self.call(
-            "the label change",
-            &[
-                "api",
-                "-X",
-                "POST",
-                &path,
-                "-f",
-                &format!("labels[]={label}"),
-            ],
-        )?;
-        Ok(())
-    }
-
-    fn remove_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError> {
-        if !is_label(label) {
-            return Err(ForgeError::new(
-                "the label change",
-                format!("{label} is no label name to write: an empty one, a long one, or one outside the characters tehas's labels use"),
-            ));
-        }
-        // The name is encoded, so a character outside the tehas vocabulary -
-        // a `:`, a space - stays inside the last segment of the path and moves
-        // the DELETE nowhere else. The repository is the settings' own
-        // `owner/name`, as every reader of it passes it to this path.
-        let path = format!("repos/{}/issues/{issue}/labels/{}", self.repo, uri(label));
-        // A label that is not on the issue answers 404, which is the state
-        // wanted: as the poll's refresh_unmark reads that answer, it is
-        // success. Any other failure is the caller's to log.
-        match self.call("the label change", &["api", "-X", "DELETE", &path]) {
-            Ok(_) => Ok(()),
-            Err(e) if gh::says_not_found(&e.why) => Ok(()),
-            Err(e) => Err(e),
-        }
-    }
 }
 
 /// Given to every gh call of tehas's own, by `Bounded` and by `call`'s
@@ -517,7 +285,7 @@ impl GhRunner for Bounded {
                 self.program,
                 self.bound.as_secs()
             )),
-            Some(c) => Err(gh::why(&err, Some(c))),
+            Some(c) => Err(why(&err, Some(c))),
         }
     }
 }
@@ -570,5 +338,100 @@ fn signal(which: &str, group: &str) {
         .status();
 }
 
+/// Whether a failed removal answers that the label was not there, which is the
+/// state wanted. The status is read whole out of the digits `find_http`
+/// located, never as "404" anywhere in the text: a gateway error whose body
+/// happens to carry those three digits is no removal. gh's own words
+/// `Not Found` count only as the whole reason, never inside one that says
+/// something else: a gh that could not start, or a proxy whose host was not
+/// found, left the label where it was.
+pub fn says_not_found(why: &str) -> bool {
+    let w = why.to_ascii_lowercase();
+    if w.strip_prefix(": ").unwrap_or(&w).trim() == "not found" {
+        return true;
+    }
+    find_http(&w).is_some_and(|i| &w.as_bytes()[i + 5..i + 8] == b"404")
+}
+
+/// What a failed gh call's answer says of its error: ": " and the first of a
+/// fixed list of words in what gh printed, else the exit status. The list is
+/// the one the bash dispatcher's `gh_json` grepped and the dispatcher's
+/// `gh_why` holds, so a caller logs the reason the poll logs. Only these words, or a
+/// status: the rest of gh's answer is written by a host and may name one, or
+/// carry a token.
+pub fn why(err: &str, code: Option<i32>) -> String {
+    // Longest first where two could match the same word, so a secondary limit
+    // is not reported as a plain one where they start alike.
+    const WORDS: [&str; 8] = [
+        "secondary rate limit",
+        "unexpected EOF",
+        "connection reset",
+        "connection refused",
+        "rate limit",
+        "timed out",
+        "timeout",
+        "no such host",
+    ];
+    for line in err.lines() {
+        let low = line.to_ascii_lowercase();
+        // The first line that says anything is the one quoted, and within it
+        // the LEFTMOST word of the list, as grep -oE and the dispatcher's
+        // regex answer: the first entry of the list would report "rate limit"
+        // for a line whose only match is a secondary limit later on. Only
+        // these words, so the rest of gh's answer - a host's address, a token
+        // - stays out. The text is cut from `low`, the string that was
+        // searched, so the byte offsets of `find` are its own.
+        if let Some((i, w)) = WORDS
+            .iter()
+            .filter_map(|w| low.find(w).map(|i| (i, *w)))
+            .min_by_key(|(i, w)| (*i, std::cmp::Reverse(w.len())))
+        {
+            return format!(": {}", &low[i..i + w.len()]);
+        }
+        // An HTTP status is gh's own word for the state and is kept whole.
+        if let Some(i) = find_http(&low) {
+            return format!(": HTTP {}", &low[i + 5..i + 8]);
+        }
+    }
+    match code {
+        Some(c) => format!(": gh exited {c}"),
+        None => ": gh was stopped by a signal".to_string(),
+    }
+}
+
+/// Where a lower-case line names an HTTP status: "http " and the digits after
+/// it. The digits are checked so that a line that only holds the word is not
+/// read as a status.
+fn find_http(line: &str) -> Option<usize> {
+    let b = line.as_bytes();
+    let head = b"http ";
+    let mut i = 0;
+    while i + head.len() + 3 <= b.len() {
+        if b[i..i + head.len()] == head[..] && b[i + 5..i + 8].iter().all(u8::is_ascii_digit) {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
 #[cfg(test)]
-mod tests;
+mod tests {
+    #[test]
+    fn a_gh_call_of_call_turns_the_shims_retry_off_and_another_program_is_left_alone() {
+        use crate::call::{run, run_grace_env, GRACE};
+        let d = crate::testdir::TestDir::new("gh-no-retry");
+        let says = "#!/bin/sh\necho \"${TEHAS_GH_RETRY-unset}\"\n";
+        let (gh, other) = (d.join("gh"), d.join("not-gh"));
+        crate::testing::write_exe(&gh, says).unwrap();
+        crate::testing::write_exe(&other, says).unwrap();
+        let bound = std::time::Duration::from_secs(10);
+        assert_eq!(run(gh.to_str().unwrap(), &[], bound).out, "0\n");
+        assert_eq!(run(other.to_str().unwrap(), &[], bound).out, "unset\n");
+        let kept = d.join("out");
+        let f = std::fs::File::create(&kept).unwrap();
+        let rc = run_grace_env(gh.to_str().unwrap(), &[], Some(f), bound, GRACE, &[]);
+        assert_eq!(rc, Some(0));
+        assert_eq!(std::fs::read_to_string(&kept).unwrap(), "0\n");
+    }
+}
