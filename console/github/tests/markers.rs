@@ -5,10 +5,14 @@
 use std::num::{NonZeroU32, NonZeroU64};
 use tehas_github::markers::read;
 use tehas_github::table;
+use tehas_ports::laws::{self, markers::Text};
 use tehas_ports::{
-    BlueprintNo, FinishMarker, FinishResult, KeyText, LastAttemptMarker, Marker, MarkerKind,
-    MarkerWord, MillwrightAction, MillwrightMarker, ParkMarker, QuestionKind, Ref, Sha256,
-    TicketKey,
+    AccountId, At, Blocker, BlueprintNo, Bound, ChangeToken, Cite, Cites, ClosedTicket, Comment,
+    CommentId, Cursor, Depth, Edit, Filed, Filter, FinishMarker, FinishResult, Got, HappenedKind,
+    Item, KeyText, Kind, LastAttemptMarker, Mark, Marker, MarkerKey, MarkerKind, MarkerWord,
+    MillwrightAction, MillwrightMarker, ParkMarker, Part, QuestionKind, Ref, Report, Reports,
+    Revision, Sha256, Target, TargetId, Ticket, TicketDelta, TicketDigest, TicketEvent, TicketKey,
+    Tickets, Took, WebLink, Whole, Window, Within,
 };
 
 fn item() -> Option<BlueprintNo> {
@@ -339,11 +343,6 @@ fn a_bare_marker_is_bare_and_its_words_stay() {
                 })),
             ),
         ),
-        // Another item's reads as no payload.
-        (
-            "tehas:millwright issue=5 action=retry",
-            bare(MarkerKind::Millwright, None),
-        ),
         // A bare block's open line encloses nothing.
         (
             "tehas:last-attempt base=abc",
@@ -395,14 +394,251 @@ fn markers_keep_the_order_they_stand_in() {
     assert_eq!(read(text, item()).text, "A tehas:park issue=7");
 }
 
+fn park(no: u64, sig: &str) -> String {
+    format!("<!-- tehas:park issue={no} step=develop kind= provider=0 sig={sig} -->")
+}
+
 #[test]
-fn another_items_marker_does_not_read() {
+fn another_items_marker_is_ignored_and_its_words_stay() {
     let sig = sha('a');
-    for (text, kind) in [
-        (
-            format!("<!-- tehas:park issue=5 step=develop kind= provider=0 sig={sig} -->"),
-            MarkerKind::Park,
-        ),
+    for text in [
+        park(5, &sig),
+        "<!-- tehas:millwright issue=5 action=retry -->".to_string(),
+        "<!-- tehas:fixer issue=5 action=retry -->".to_string(),
+        "<!-- tehas:finish issue=5 result=opened -->".to_string(),
+        "<!-- tehas:question kind=park issue=5 turn=1 -->".to_string(),
+        // Its other fields need not read, and it needs no close.
+        park(5, "zz"),
+        "<!--tehas:millwright issue=5 action=nonsense-->".to_string(),
+        "<!-- tehas:park issue=5 step=develop".to_string(),
+        // Bare.
+        "tehas:millwright issue=5 action=retry".to_string(),
+        "tehas:park issue=5".to_string(),
+    ] {
+        let body = format!("Before.\n{text}\nAfter.\n");
+        let got = read(&body, item());
+        assert_eq!(got.markers, [], "{text}");
+        assert_eq!(got.text, body, "{text}");
+    }
+    // Beside this item's own, which reads.
+    let got = read(&format!("{}\n{}\n", park(5, &sig), park(7, &sig)), item());
+    assert!(
+        matches!(&got.markers[..], [Marker::Park(p)] if p.blueprint == item().unwrap()),
+        "{:?}",
+        got.markers
+    );
+    assert_eq!(got.text, park(5, &sig));
+    // Read from no numbered item, nothing is another's.
+    assert!(matches!(
+        read(&park(5, &sig), None).markers[..],
+        [Marker::Park(_)]
+    ));
+    // A link names the blueprint it links, which is another by its meaning.
+    assert!(matches!(
+        markers("<!-- tehas:link blueprint=5 -->")[..],
+        [Marker::Link { .. }]
+    ));
+}
+
+/// The first marker of `kind` that reads, newest text first, as the ports
+/// spec's "Order within a text" has a reader take it: an unreadable or bare
+/// one of the kind holds the text, and only a text with none of the kind
+/// falls back to the one before it.
+fn newest_of(texts: &[&str], kind: &MarkerKind) -> Option<Marker> {
+    for text in texts {
+        let of_kind: Vec<Marker> = markers(text)
+            .into_iter()
+            .filter(|m| m.kind() == *kind)
+            .collect();
+        match of_kind.first() {
+            None => continue,
+            Some(Marker::Unreadable { .. } | Marker::Bare { .. }) => return None,
+            Some(m) => return Some(m.clone()),
+        }
+    }
+    None
+}
+
+#[test]
+fn another_items_marker_leaves_the_fallback_to_an_older_text() {
+    let sig = sha('a');
+    let own = park(7, &sig);
+    let copied = format!("Copied from #5:\n{}\n", park(5, &sig));
+    let found = newest_of(&[&copied, &own], &MarkerKind::Park);
+    assert!(
+        matches!(&found, Some(Marker::Park(p)) if p.blueprint == item().unwrap()),
+        "{found:?}"
+    );
+    // This item's own unreadable marker holds the text instead.
+    let held = format!("{}\n", park(7, "zz"));
+    assert_eq!(newest_of(&[&held, &own], &MarkerKind::Park), None);
+}
+
+#[test]
+fn this_items_unreadable_marker_stays_unreadable_and_is_taken_out() {
+    let got = read(&format!("Task.\n{}\nEnd.\n", park(7, "zz")), item());
+    assert_eq!(got.markers, [unreadable(MarkerKind::Park)]);
+    assert_eq!(got.text, "Task.\nEnd.");
+    let close = "<!-- /tehas:last-attempt -->";
+    let got = read(
+        &format!("Task.\n<!-- tehas:last-attempt base=zz -->\nnote\n{close}\nEnd.\n"),
+        item(),
+    );
+    assert_eq!(got.markers, [unreadable(MarkerKind::LastAttempt)]);
+    assert_eq!(got.text, "Task.\nEnd.");
+}
+
+#[test]
+fn another_items_marker_beside_this_items_unreadable_ones() {
+    let sig = sha('a');
+    let close = "<!-- /tehas:last-attempt -->";
+    let body = format!(
+        "Task.\n{}\n{}\n<!-- tehas:last-attempt base=zz -->\nsecret note\n{close}\ntehas:finish issue=5 result=opened\nEnd.\n",
+        park(5, &sig),
+        park(7, "zz"),
+    );
+    let got = read(&body, item());
+    assert_eq!(
+        got.markers,
+        [
+            unreadable(MarkerKind::Park),
+            unreadable(MarkerKind::LastAttempt)
+        ]
+    );
+    assert_eq!(
+        got.text,
+        format!(
+            "Task.\n{}\ntehas:finish issue=5 result=opened\nEnd.",
+            park(5, &sig)
+        )
+    );
+}
+
+/// A ticket's notes, each read by the adapter's marker reader as its
+/// ticket read reads a body: the handle the ports' marker laws read a text
+/// through, while the adapter answers no notes of its own.
+struct Notes(Vec<(CommentId, String)>);
+
+impl Reports for Notes {
+    fn take_reports(&mut self) -> Vec<Report> {
+        Vec::new()
+    }
+}
+
+impl Cites for Notes {
+    fn cite(&self, _: &Cite) -> String {
+        unreachable!("the laws read notes alone")
+    }
+}
+
+fn link() -> WebLink {
+    WebLink::new("https://github.com/acme/widget/issues/7").unwrap()
+}
+
+impl Tickets for Notes {
+    fn notes(&mut self, key: &TicketKey, _: Window) -> Got<Took<Comment>> {
+        let items = self
+            .0
+            .iter()
+            .map(|(id, body)| {
+                let got = read(body, key.same_item());
+                Comment {
+                    id: id.clone(),
+                    author: None,
+                    editor: None,
+                    created: At::new(0),
+                    edited: None,
+                    body: got.text,
+                    markers: got.markers,
+                    revision: Revision::new("r"),
+                    link: link(),
+                }
+            })
+            .collect();
+        Ok(Took { items, more: false })
+    }
+
+    fn ticket(&mut self, _: &TicketKey, _: Depth, _: Option<Window>) -> Got<Ticket> {
+        unreachable!()
+    }
+    fn what_is(&mut self, _: NonZeroU64) -> Got<Item> {
+        unreachable!()
+    }
+    fn what_are(&mut self, _: &[NonZeroU64]) -> Vec<(NonZeroU64, Got<Item>)> {
+        unreachable!()
+    }
+    fn list(&mut self, _: &Filter, _: Bound) -> Got<Whole<TicketDigest>> {
+        unreachable!()
+    }
+    fn several(&mut self, _: &[TicketKey]) -> Vec<(TicketKey, Got<TicketDigest>)> {
+        unreachable!()
+    }
+    fn history(
+        &mut self,
+        _: &TicketKey,
+        _: Window,
+        _: Option<&[HappenedKind]>,
+    ) -> Got<Took<TicketEvent>> {
+        unreachable!()
+    }
+    fn note_edits(&mut self, _: &CommentId, _: Bound) -> Got<Whole<Edit>> {
+        unreachable!()
+    }
+    fn blockers(&mut self, _: &TicketKey) -> Got<Whole<Blocker>> {
+        unreachable!()
+    }
+    fn parts(&mut self, _: &TicketKey) -> Got<Whole<Part>> {
+        unreachable!()
+    }
+    fn closed_since(&mut self, _: At, _: Bound) -> Got<Whole<ClosedTicket>> {
+        unreachable!()
+    }
+    fn search(
+        &mut self,
+        _: &str,
+        _: Within,
+        _: Option<bool>,
+        _: NonZeroU32,
+    ) -> Got<Took<TicketDigest>> {
+        unreachable!()
+    }
+    fn filed_by(&mut self, _: &AccountId, _: At, _: Bound) -> Got<Whole<Filed>> {
+        unreachable!()
+    }
+    fn find_marked(
+        &mut self,
+        _: &Mark,
+        _: &MarkerKind,
+        _: &MarkerKey,
+        _: Option<bool>,
+    ) -> Got<Whole<TicketKey>> {
+        unreachable!()
+    }
+    fn kinds(&mut self) -> Got<Whole<Kind>> {
+        unreachable!()
+    }
+    fn targets(&mut self, _: Bound) -> Got<Whole<Target>> {
+        unreachable!()
+    }
+    fn members(&mut self, _: &TargetId, _: Bound) -> Got<Whole<TicketDigest>> {
+        unreachable!()
+    }
+    fn changed(&mut self, _: Option<&ChangeToken>) -> Got<(bool, ChangeToken)> {
+        unreachable!()
+    }
+    fn delta(&mut self, _: Option<&Cursor>, _: Bound) -> Got<TicketDelta> {
+        unreachable!()
+    }
+    fn new_ticket_link(&self, _: &str, _: &str) -> WebLink {
+        unreachable!()
+    }
+}
+
+#[test]
+fn another_items_marker_keeps_the_ports_law() {
+    let sig = sha('a');
+    let cases = [
+        (park(5, &sig), MarkerKind::Park),
         (
             "<!-- tehas:millwright issue=5 action=retry -->".to_string(),
             MarkerKind::Millwright,
@@ -415,14 +651,20 @@ fn another_items_marker_does_not_read() {
             "<!-- tehas:question kind=park issue=5 turn=1 -->".to_string(),
             MarkerKind::Question,
         ),
-    ] {
-        assert_eq!(markers(&text), [unreadable(kind)], "{text}");
+        (park(5, "zz"), MarkerKind::Park),
+        ("tehas:park issue=5".to_string(), MarkerKind::Park),
+    ];
+    let key = TicketKey::Number(NonZeroU64::new(7).unwrap());
+    for (text, kind) in cases {
+        let id = CommentId::new("1");
+        let mut notes = Notes(vec![(id.clone(), format!("Copied.\n{text}\n"))]);
+        let at = Text::Note(&mut notes, key.clone(), id);
+        assert_eq!(
+            laws::markers::another_items_marker_does_not_read(at, &kind),
+            Ok(()),
+            "{text}"
+        );
     }
-    // A link names the blueprint it links, which is another by its meaning.
-    assert!(matches!(
-        markers("<!-- tehas:link blueprint=5 -->")[..],
-        [Marker::Link { .. }]
-    ));
 }
 
 #[test]

@@ -10,6 +10,11 @@
 //! never dropped. Bare: the kind's word and its first field with no
 //! wrapper, which stays in the text and is reported as `Bare`.
 //!
+//! Another item's marker is ignored: one whose blueprint field names a
+//! blueprint other than the item read. It is no marker of this text, read
+//! or `Unreadable`, and its words stay in the text, as 1.x left them. A
+//! marker of this item that does not read stays `Unreadable`.
+//!
 //! What is no marker: one on a quoted line (its first character that is no
 //! white space is `>`), inside a fenced code block, or inside a code span
 //! of one line. An indented line is text: tehas's writers indent nothing,
@@ -28,7 +33,7 @@ use tehas_ports::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Read {
     /// The text without the wrapped markers. A text that held none is the
-    /// text as it came. Where one was taken out, a line left with nothing
+    /// text as it came. Another item's marker is no marker of it and stays. Where one was taken out, a line left with nothing
     /// but white space goes with it, and so do the blank lines at the
     /// text's start and the white space at its end.
     pub text: String,
@@ -37,7 +42,17 @@ pub struct Read {
 }
 
 /// The markers of `body` and the text without them. `item` is the item the
-/// text is read from: a marker that names another blueprint does not read.
+/// text is read from. A marker, wrapped or bare, whose blueprint field
+/// names another blueprint is ignored: it is not in `markers`, neither as
+/// read nor as `Unreadable`, and its words stay in `text`. 1.x matched
+/// each marker with this issue's number in its pattern and handed the
+/// rest of the body on whole: a reply's text is its whole body, and the
+/// millwright's reply loses its own first line alone
+/// (`console/dispatch/src/questions.rs` lines 174, 178 and 193 at v1.4.0);
+/// the millwright's change note is the whole comment
+/// (`console/dispatch/src/apply/start.rs` lines 391, 443 and 268 to 278).
+/// So another item's marker is never this ticket's, a copy of one holds
+/// nothing, and a reader still falls back to an older text.
 pub fn read(body: &str, item: Option<BlueprintNo>) -> Read {
     let rows = table::marker_rows();
     let lines = lines(body);
@@ -47,7 +62,7 @@ pub fn read(body: &str, item: Option<BlueprintNo>) -> Read {
     found.extend(bare);
     found.sort_by_key(|f| f.at);
     let spans: Vec<(usize, usize)> = found.iter().filter_map(|f| f.span).collect();
-    let mut markers: Vec<Marker> = found.into_iter().map(|f| f.marker).collect();
+    let mut markers: Vec<Marker> = found.into_iter().filter_map(|f| f.marker).collect();
     twice(&mut markers, &rows);
     Read {
         text: without(body, &lines, &spans),
@@ -150,12 +165,13 @@ fn within(ranges: &[(usize, usize)], at: usize) -> bool {
 }
 
 /// One marker found: where it stands, what to take out of the text, the
-/// part of the text no bare marker is looked for in, and the marker.
+/// part of the text no bare marker is looked for in, and the marker, None
+/// for another item's.
 struct Found {
     at: usize,
     span: Option<(usize, usize)>,
     shadow: (usize, usize),
-    marker: Marker,
+    marker: Option<Marker>,
 }
 
 /// What a wrapper with this word and nothing readable in it is.
@@ -173,6 +189,29 @@ fn unread(word: &str, rows: &[MarkerRow]) -> Marker {
 
 fn row_of<'a>(word: &str, rows: &'a [MarkerRow]) -> Option<&'a MarkerRow> {
     rows.iter().find(|r| r.word.eq_ignore_ascii_case(word))
+}
+
+/// Whether the fields after a kind's word name another blueprint than
+/// `item`: a `name=value` of the row's blueprint field among the leading
+/// `name=value` words, the value a blueprint number. The 1.x word of the
+/// millwright goes by the millwright's row.
+fn foreign(word: &str, fields: &str, rows: &[MarkerRow], item: Option<BlueprintNo>) -> bool {
+    let Some(item) = item else {
+        return false;
+    };
+    let row = row_of(word, rows).or_else(|| {
+        word.eq_ignore_ascii_case(table::OLD_MILLWRIGHT)
+            .then(|| rows.iter().find(|r| r.kind == MarkerKind::Millwright))
+            .flatten()
+    });
+    let Some(field) = row.and_then(|r| r.fields.iter().find(|f| f.rule == Rule::Blueprint)) else {
+        return false;
+    };
+    fields
+        .split_whitespace()
+        .take_while(|t| t.contains('='))
+        .filter_map(|t| t.strip_prefix(field.name.as_str())?.strip_prefix('='))
+        .any(|v| fits(&Rule::Blueprint, v) && v.parse::<u64>().is_ok_and(|n| n != item.get()))
 }
 
 /// Every wrapper of ours outside a quote and code, each read by its row.
@@ -209,14 +248,31 @@ fn wrapped(
                 end: body.len(),
                 next: body.len(),
             });
-        let Some(end) = after.find("-->").map(|i| at + open.len() + i + 3) else {
+        let fields = &rest[table::OURS.len() + word.len()..];
+        let fields = fields.split("-->").next().unwrap_or_default();
+        let close = after.find("-->").map(|i| at + open.len() + i + 3);
+        let fields = match close {
+            Some(_) => fields,
+            None => fields.lines().next().unwrap_or_default(),
+        };
+        if foreign(word, fields, rows, item) {
+            covered = close.unwrap_or(line.end.max(at + open.len()));
+            out.push(Found {
+                at,
+                span: None,
+                shadow: (at, covered),
+                marker: None,
+            });
+            continue;
+        }
+        let Some(end) = close else {
             // No close: the wrapper is reported, and its words stay.
             covered = line.end.max(at + open.len());
             out.push(Found {
                 at,
                 span: None,
                 shadow: (at, covered),
-                marker: unread(word, rows),
+                marker: Some(unread(word, rows)),
             });
             continue;
         };
@@ -240,7 +296,7 @@ fn wrapped(
                 });
                 let read = match (&row.close, block) {
                     (Some(_), None) => None,
-                    _ => values.and_then(|v| build(row, &v, note, item)),
+                    _ => values.and_then(|v| build(row, &v, note)),
                 };
                 // A block runs to its close line whether or not it reads.
                 if let Some(shut) = block {
@@ -256,7 +312,7 @@ fn wrapped(
             at,
             span: Some(span),
             shadow: span,
-            marker,
+            marker: Some(marker),
         });
     }
     out
@@ -335,17 +391,11 @@ fn fits(rule: &Rule, v: &str) -> bool {
 }
 
 /// The marker of a row's values, each already held to its rule. None for a
-/// marker that does not read: one of another blueprint than `item`, or a
-/// number the ports' types do not take.
-fn build(
-    row: &MarkerRow,
-    values: &[(&str, &str)],
-    note: Option<&str>,
-    item: Option<BlueprintNo>,
-) -> Option<Marker> {
+/// number the ports' types do not take. Another item's marker never comes
+/// here: [`foreign`] takes it first.
+fn build(row: &MarkerRow, values: &[(&str, &str)], note: Option<&str>) -> Option<Marker> {
     let get = |name: &str| values.iter().find(|(n, _)| *n == name).map(|(_, v)| *v);
     let no = |name: &str| BlueprintNo::new(get(name)?.parse().ok()?);
-    let this = |name: &str| no(name).filter(|n| item.is_none_or(|i| i == *n));
     let marker = match row.kind {
         MarkerKind::Question => Marker::Question {
             kind: match get("kind")? {
@@ -353,7 +403,7 @@ fn build(
                 "park" => QuestionKind::Park,
                 _ => return None,
             },
-            blueprint: this("issue")?,
+            blueprint: no("issue")?,
             turn: NonZeroU32::new(get("turn")?.parse().ok()?)?,
         },
         MarkerKind::Blocked => Marker::Blocked {
@@ -367,14 +417,14 @@ fn build(
         },
         MarkerKind::HoldCleared => Marker::HoldCleared,
         MarkerKind::Park => Marker::Park(ParkMarker {
-            blueprint: this("issue")?,
+            blueprint: no("issue")?,
             step: MarkerWord::new(get("step")?).ok()?,
             kind: MarkerWord::new(get("kind")?).ok()?,
             provider: get("provider")? == "1",
             sig: Sha256::new(get("sig")?).ok()?,
         }),
         MarkerKind::Finish => Marker::Finish(FinishMarker {
-            blueprint: this("issue")?,
+            blueprint: no("issue")?,
             result: match get("result")? {
                 "opened" => FinishResult::Opened,
                 "refused" => FinishResult::Refused,
@@ -388,7 +438,7 @@ fn build(
             note: note?.to_string(),
         }),
         MarkerKind::Millwright => Marker::Millwright(MillwrightMarker {
-            blueprint: this("issue")?,
+            blueprint: no("issue")?,
             action: match get("action")? {
                 "retry" => MillwrightAction::Retry,
                 "change" => MillwrightAction::Change,
@@ -453,18 +503,21 @@ fn bare(
             let Some((row, rest)) = named else {
                 continue;
             };
+            if foreign(&row.word, rest, rows, item) {
+                continue;
+            }
             let read = match row.close {
                 Some(_) => None,
-                None => values(row, rest).and_then(|v| build(row, &v, None, item)),
+                None => values(row, rest).and_then(|v| build(row, &v, None)),
             };
             out.push(Found {
                 at,
                 span: None,
                 shadow: (at, l.end),
-                marker: Marker::Bare {
+                marker: Some(Marker::Bare {
                     kind: row.kind.clone(),
                     read: read.map(Box::new),
-                },
+                }),
             });
         }
     }
