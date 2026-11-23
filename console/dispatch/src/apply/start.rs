@@ -606,7 +606,7 @@ impl Writer {
                 "-f".into(),
                 "labels[]=tehas:refreshing".into(),
             ];
-            let why = match self.write(pr, "refresh-begin", args, None, None) {
+            let why = match self.write(pr, "change-mark", args, None, None) {
                 Wrote::Done(_) => None,
                 Wrote::Failed(why) | Wrote::Unknown(why) => Some(why),
                 Wrote::Unrecorded => {

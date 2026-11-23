@@ -1,5 +1,5 @@
 //! The tickets port's digest, marks and history, answered over the forge's
-//! reads in the ports' types. The traits are answered in `port.rs`; the rest
+//! reads in the ports' types. The traits are answered in `port/`; the rest
 //! of the tickets port comes with the moves that need it.
 
 use crate::{gh, table, ForgeError, GitHub};

@@ -1577,7 +1577,7 @@ fn health_no_console_beside_the_command_is_78_and_says_to_install() {
     let dir = w.t().join("no-console");
     fs::create_dir_all(dir.join("bin")).unwrap();
     fs::create_dir_all(dir.join("libexec")).unwrap();
-    fs::copy(root().join("bin/tehasbot"), dir.join("bin/tehasbot")).unwrap();
+    tehas_core::testing::copy_exe(root().join("bin/tehasbot"), dir.join("bin/tehasbot")).unwrap();
     let _ = fs::remove_file(w.t().join("bin/console"));
     w.set_env(&["TEHAS_CONSOLE=", "TEHAS_CONSOLE=", "PATH=/usr/bin:/bin"]);
     let r = w.sh(&format!(
