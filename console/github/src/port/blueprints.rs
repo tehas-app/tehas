@@ -21,11 +21,12 @@ use super::unsupported;
 use crate::ticket::CUT_TEXT;
 use crate::tickets::account;
 use crate::{gh, markers, GitHub};
+use serde::Deserialize;
 use serde_json::Value;
 use tehas_ports::{
-    At, Attachment, AttachmentId, Blueprint, BlueprintDelta, BlueprintHit, BlueprintNo,
-    Blueprints, Bound, ChangeToken, Comment, CommentId, Cursor, Depth, Did, Edit, Got, Outcome,
-    Pool, Refusal, Revision, Took, Unread, Whole, Within, ALL_MAX,
+    At, Attachment, AttachmentId, Blueprint, BlueprintDelta, BlueprintHit, BlueprintNo, Blueprints,
+    Bound, ChangeToken, Comment, CommentId, Cursor, Depth, Did, Edit, Got, Outcome, Pool, Refusal,
+    Revision, Took, Unread, Whole, Within, ALL_MAX,
 };
 
 /// The comments one page of an issue's comments asks for, the most GitHub
@@ -61,7 +62,10 @@ impl Blueprints for GitHub {
             Depth::Last { notes } => self.last_comments(no, count, notes.get())?,
             Depth::All => {
                 let all = self.whole_comments(no, count, ALL_MAX)?;
-                let mut took = Took::default();
+                let mut took = Took {
+                    items: Vec::new(),
+                    more: false,
+                };
                 took.items = all.into_items();
                 took
             }
@@ -71,7 +75,9 @@ impl Blueprints for GitHub {
 
     /// One `blueprint` a number, in the order asked.
     fn several(&mut self, nos: &[BlueprintNo], depth: Depth) -> Vec<(BlueprintNo, Got<Blueprint>)> {
-        nos.iter().map(|n| (*n, self.blueprint(*n, depth))).collect()
+        nos.iter()
+            .map(|n| (*n, self.blueprint(*n, depth)))
+            .collect()
     }
 
     /// The issue's REST read for its count of comments, then every page of
@@ -191,9 +197,7 @@ impl GitHub {
     /// `Unread(Inconsistent)`; one that lacks a field every issue has is
     /// `Unread(Malformed)`.
     fn issue(&mut self, no: BlueprintNo) -> Got<(Blueprint, usize)> {
-        let out = self
-            .issue_answer(no.get())
-            .map_err(|e| self.outcome(&e))?;
+        let out = self.issue_answer(no.get()).map_err(|e| self.outcome(&e))?;
         let issue = read_issue(&out, &self.repo)?;
         if issue.no != no {
             return Err(Outcome::Unread(Unread::Inconsistent));
@@ -202,22 +206,36 @@ impl GitHub {
         let at = revision(&out).ok_or(malformed.clone())?;
         let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
         tehas_core::accounts::vouch(&mut v);
-        let open = match v.get("state").and_then(Value::as_str) {
+        let f: IssueFields = serde_json::from_value(v).map_err(|_| malformed.clone())?;
+        let open = match f.state.as_deref() {
             Some("open") => true,
             Some("closed") => false,
             _ => return Err(malformed),
         };
-        let created = time(&v, "created_at")?;
-        let count = v
-            .get("comments")
-            .and_then(Value::as_u64)
-            .ok_or(malformed)? as usize;
+        let created = time(f.created_at.as_deref())?;
+        let count = f.comments.ok_or(malformed)? as usize;
         let read = markers::read(&issue.body, Some(no));
-        let mut blueprint = Blueprint::new(no, created, at, issue.link);
+        let mut blueprint = Blueprint {
+            no,
+            title: String::new(),
+            body: String::new(),
+            open: false,
+            author: None,
+            editor: None,
+            created,
+            edited: None,
+            revision: at,
+            markers: Vec::new(),
+            comments: Took {
+                items: Vec::new(),
+                more: false,
+            },
+            link: issue.link,
+        };
         blueprint.title = issue.title;
         blueprint.body = read.text;
         blueprint.open = open;
-        blueprint.author = author(&v);
+        blueprint.author = author(f.user.as_ref());
         blueprint.markers = read.markers;
         blueprint.comments.more = count > 0;
         Ok((blueprint, count))
@@ -227,7 +245,10 @@ impl GitHub {
     /// `more` when it holds more than `n`.
     fn last_comments(&mut self, no: BlueprintNo, count: usize, n: u32) -> Got<Took<Comment>> {
         let from = count.saturating_sub(n as usize);
-        let mut took = Took::default();
+        let mut took = Took {
+            items: Vec::new(),
+            more: false,
+        };
         took.items = self.comments_from(no, count, from)?;
         took.more = from > 0;
         Ok(took)
@@ -235,7 +256,12 @@ impl GitHub {
 
     /// Every one of the issue's `count` comments, or `Unread(Cut)` past
     /// `bound` with no page read.
-    fn whole_comments(&mut self, no: BlueprintNo, count: usize, bound: Bound) -> Got<Whole<Comment>> {
+    fn whole_comments(
+        &mut self,
+        no: BlueprintNo,
+        count: usize,
+        bound: Bound,
+    ) -> Got<Whole<Comment>> {
         if count > bound.get() as usize {
             return Err(Outcome::Unread(Unread::Cut));
         }
@@ -322,24 +348,53 @@ impl GitHub {
     }
 }
 
-/// The time of the field `k` of `v`, or `Unread(Malformed)`.
-fn time(v: &Value, k: &str) -> Got<At> {
-    v.get(k)
-        .and_then(Value::as_str)
-        .and_then(tehas_core::time::from_iso)
+/// The fields of an issue's REST answer the read takes beside
+/// `read_issue`'s; each missing one is None.
+#[derive(Deserialize)]
+struct IssueFields {
+    state: Option<String>,
+    created_at: Option<String>,
+    comments: Option<u64>,
+    user: Option<User>,
+}
+
+/// One comment of a page of an issue's comments. A body that is no text
+/// fails the page.
+#[derive(Deserialize)]
+struct CommentFields {
+    id: Option<u64>,
+    html_url: Option<String>,
+    body: Option<String>,
+    created_at: Option<String>,
+    updated_at: Option<String>,
+    user: Option<User>,
+}
+
+/// The account GitHub names as an issue's or a comment's `user`.
+#[derive(Deserialize)]
+struct User {
+    login: Option<String>,
+    id: Option<u64>,
+    #[serde(rename = "type")]
+    kind: Option<String>,
+}
+
+/// A time of GitHub's, or `Unread(Malformed)`.
+fn time(iso: Option<&str>) -> Got<At> {
+    iso.and_then(tehas_core::time::from_iso)
         .map(At::new)
         .ok_or(Outcome::Unread(Unread::Malformed))
 }
 
-/// The account of the `user` of an issue or a comment, None where it names
+/// The account of an issue's or a comment's `user`, None where it names
 /// nobody: a deleted account's is `null`.
-fn author(v: &Value) -> Option<tehas_ports::Account> {
-    let u = v.get("user")?;
+fn author(user: Option<&User>) -> Option<tehas_ports::Account> {
+    let u = user?;
     let facts = gh::Facts {
-        id: u.get("id").and_then(Value::as_u64),
-        kind: u.get("type").and_then(Value::as_str).map(str::to_string),
+        id: u.id,
+        kind: u.kind.clone(),
     };
-    account(u.get("login")?.as_str()?, &facts)
+    account(u.login.as_deref()?, &facts)
 }
 
 /// One page of an issue's comments, each read: its text through
@@ -352,29 +407,35 @@ fn read_comments(out: &str, repo: &str, no: BlueprintNo) -> Got<Vec<Comment>> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     tehas_core::accounts::vouch(&mut v);
-    let items = v.as_array().ok_or(malformed.clone())?;
+    let items: Vec<CommentFields> = serde_json::from_value(v).map_err(|_| malformed.clone())?;
     let mut comments = Vec::with_capacity(items.len());
     for c in items {
-        let id = c.get("id").and_then(Value::as_u64).ok_or(malformed.clone())?;
-        let url = c
-            .get("html_url")
-            .and_then(Value::as_str)
-            .ok_or(malformed.clone())?;
-        if !ends_with_folded(url, &format!("/{repo}/issues/{}#issuecomment-{id}", no.get())) {
+        let id = c.id.ok_or(malformed.clone())?;
+        let url = c.html_url.as_deref().ok_or(malformed.clone())?;
+        if !ends_with_folded(
+            url,
+            &format!("/{repo}/issues/{}#issuecomment-{id}", no.get()),
+        ) {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
         let link = tehas_ports::WebLink::new(url).map_err(|_| malformed.clone())?;
-        let raw = match c.get("body") {
-            None | Some(Value::Null) => "",
-            Some(Value::String(s)) => s.as_str(),
-            Some(_) => return Err(malformed),
-        };
-        let created = time(c, "created_at")?;
-        let updated = time(c, "updated_at")?;
+        let raw = c.body.as_deref().unwrap_or_default();
+        let created = time(c.created_at.as_deref())?;
+        let updated = time(c.updated_at.as_deref())?;
         let read = markers::read(raw, Some(no));
         let sum = Revision::new(tehas_core::approval::body_sum(raw));
-        let mut comment = Comment::new(CommentId::new(id.to_string()), created, sum, link);
-        comment.author = author(c);
+        let mut comment = Comment {
+            id: CommentId::new(id.to_string()),
+            author: None,
+            editor: None,
+            created,
+            edited: None,
+            body: String::new(),
+            markers: Vec::new(),
+            revision: sum,
+            link,
+        };
+        comment.author = author(c.user.as_ref());
         // REST keeps no edit time apart: a comment changes only by an edit.
         comment.edited = (updated != created).then_some(updated);
         comment.body = read.text;

@@ -15,10 +15,8 @@ use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 use tehas_ports::laws;
 use tehas_ports::{
-    At, Attachment, AttachmentId, Blueprint, BlueprintDelta, BlueprintHit, BlueprintNo,
-    BlueprintWrites, Blueprints, Body, Bound, ChangeToken, Cite, Cites, Comment, CommentId, Cursor,
-    Depth, Did, Edit, Got, Lost, Marker, MarkerEdit, NewBlueprint, Outcome, Passing, Pool, Posted,
-    Refusal, Report, Reports, Revision, Sent, Sha256, Sum, Took, Unread, WebLink, Whole, Within,
+    At, BlueprintNo, BlueprintWrites, Body, CommentId, Got, Lost, Marker, MarkerEdit, NewBlueprint,
+    Outcome, Passing, Pool, Refusal, Revision, Sent, Sha256, Sum, Unread, WebLink,
 };
 
 const PROJECT: &str = "acme/widget";

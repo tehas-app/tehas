@@ -31,7 +31,7 @@ fn sample(name: &str) -> String {
     std::fs::read_to_string(at.join(name)).unwrap()
 }
 
-fn json(name: &str) -> Value {
+fn json<T: serde::de::DeserializeOwned>(name: &str) -> T {
     serde_json::from_str(&sample(name)).unwrap()
 }
 
@@ -73,7 +73,7 @@ struct Site {
 
 impl Site {
     fn issue(mut self, n: u64, title: &str, body: &str) -> Self {
-        let mut v = json("issue-7.json");
+        let mut v = json::<Value>("issue-7.json");
         v["number"] = n.into();
         v["html_url"] = format!("https://github.com/acme/widget/issues/{n}").into();
         v["title"] = title.into();
@@ -85,8 +85,8 @@ impl Site {
 
     /// Issue 7 as its sample has it, with the comments of its sample.
     fn seven(mut self) -> Self {
-        self.issues.insert(7, json("issue-7.json"));
-        let page = json("comments-7-page-1.json");
+        self.issues.insert(7, json::<Value>("issue-7.json"));
+        let page = json::<Value>("comments-7-page-1.json");
         self.comments.insert(7, page.as_array().unwrap().clone());
         self
     }
@@ -95,7 +95,7 @@ impl Site {
     fn with_comments(mut self, n: u64, count: usize) -> Self {
         let made = (0..count)
             .map(|i| {
-                let mut c = json("comment-template.json");
+                let mut c = json::<Value>("comment-template.json");
                 let id = 2_501_240_000 + i as u64;
                 c["id"] = id.into();
                 c["html_url"] =
@@ -215,7 +215,10 @@ fn a_blueprint_at_cut_0_is_one_read_of_the_issue_its_markers_apart() {
     let (mut gh, _, calls) = adapter(Site::default().seven());
     let b = gh.blueprint(no(7), CUT0).unwrap();
     assert_eq!(*calls.borrow(), [ISSUE_7], "no comment request");
-    let raw = json("issue-7.json")["body"].as_str().unwrap().to_string();
+    let raw = json::<Value>("issue-7.json")["body"]
+        .as_str()
+        .unwrap()
+        .to_string();
     assert_eq!(b.no, no(7));
     assert_eq!(b.title, "Plan: the widget's settings page");
     assert!(b.open);
@@ -231,7 +234,10 @@ fn a_blueprint_at_cut_0_is_one_read_of_the_issue_its_markers_apart() {
     // The revision is over the raw answer, markers in.
     let mut gh2 = GitHub::new(PROJECT, Box::new(Echo(sample("issue-7.json"))));
     assert_eq!(b.revision, Revision::new(gh2.text_revision(7).unwrap()));
-    assert_eq!(b.created, At::new(tehas_core::time::from_iso("2026-11-20T09:00:00Z").unwrap()));
+    assert_eq!(
+        b.created,
+        At::new(tehas_core::time::from_iso("2026-11-20T09:00:00Z").unwrap())
+    );
     assert_eq!(b.link.as_str(), "https://github.com/acme/widget/issues/7");
     // The author through the base's account: folded, with its id.
     let author = b.author.unwrap();
@@ -258,7 +264,13 @@ impl GhRunner for Echo {
 fn an_issue_with_no_comment_says_no_more_at_cut_0() {
     let (mut gh, _, _) = adapter(Site::default().issue(9, "Plan", "Text."));
     let b = gh.blueprint(no(9), CUT0).unwrap();
-    assert_eq!(b.comments, Took::default());
+    assert_eq!(
+        b.comments,
+        Took {
+            items: Vec::new(),
+            more: false
+        }
+    );
     assert!(b.markers.is_empty());
     assert_eq!(b.body, "Text.");
 }
@@ -319,10 +331,15 @@ fn the_newest_n_read_only_the_pages_that_hold_them() {
     assert_eq!(b.comments.items.len(), 5);
     assert_eq!(b.comments.items[0].body, "Comment 200.");
     assert_eq!(b.comments.items[4].body, "Comment 204.");
-    assert_eq!(*calls.borrow(), ["api repos/acme/widget/issues/9".to_string(), page(9, 3)]);
+    assert_eq!(
+        *calls.borrow(),
+        ["api repos/acme/widget/issues/9".to_string(), page(9, 3)]
+    );
     calls.borrow_mut().clear();
     // Across a page boundary: the newest 106 start on page 1's last item.
-    let b = gh.blueprint(no(9), Depth::Last { notes: n32(106) }).unwrap();
+    let b = gh
+        .blueprint(no(9), Depth::Last { notes: n32(106) })
+        .unwrap();
     assert_eq!(b.comments.items.len(), 106);
     assert_eq!(b.comments.items[0].body, "Comment 99.");
     assert!(b.comments.more);
@@ -337,13 +354,22 @@ fn the_newest_n_read_only_the_pages_that_hold_them() {
     );
     let all = gh.blueprint(no(9), Depth::All).unwrap();
     let bodies: Vec<String> = all.comments.items.iter().map(|c| c.body.clone()).collect();
-    assert_eq!(bodies, (0..205).map(|i| format!("Comment {i}.")).collect::<Vec<_>>());
+    assert_eq!(
+        bodies,
+        (0..205)
+            .map(|i| format!("Comment {i}."))
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]
 fn the_list_laws_hold_over_a_page_boundary() {
     let held = 103;
-    let (mut gh, _, _) = adapter(Site::default().issue(9, "Plan", "T.").with_comments(9, held));
+    let (mut gh, _, _) = adapter(
+        Site::default()
+            .issue(9, "Plan", "T.")
+            .with_comments(9, held),
+    );
     let mut read = |w: Window| -> Got<Took<tehas_ports::Comment>> {
         let depth = match w {
             Window::Last(notes) => Depth::Last { notes },
@@ -351,7 +377,10 @@ fn the_list_laws_hold_over_a_page_boundary() {
         };
         gh.blueprint(no(9), depth).map(|b| b.comments)
     };
-    assert_eq!(laws::lists::last_n_is_never_cut(&mut read, held as u32), Ok(()));
+    assert_eq!(
+        laws::lists::last_n_is_never_cut(&mut read, held as u32),
+        Ok(())
+    );
     assert_eq!(laws::lists::more_is_exact(&mut read, held as u32), Ok(()));
     assert_eq!(
         laws::lists::past_the_bound_is_unread(|b| gh.comments(no(9), b), held as u32),
@@ -364,7 +393,10 @@ fn more_comments_than_all_takes_is_cut_with_no_page_read() {
     let mut site = Site::default().issue(9, "Plan", "T.");
     site.issues.get_mut(&9).unwrap()["comments"] = 1001.into();
     let (mut gh, _, calls) = adapter(site);
-    assert_eq!(gh.blueprint(no(9), Depth::All), Err(Outcome::Unread(Unread::Cut)));
+    assert_eq!(
+        gh.blueprint(no(9), Depth::All),
+        Err(Outcome::Unread(Unread::Cut))
+    );
     assert_eq!(calls.borrow().len(), 1);
 }
 
@@ -420,7 +452,10 @@ fn a_pull_requests_number_is_not_found_with_no_further_request() {
         assert_eq!(calls.borrow().len(), 1);
     }
     let (mut gh, calls) = answering(Ok(sample("pull-request-8.json")));
-    assert_eq!(gh.comments(no(8), Bound::new(10).unwrap()).map(|_| ()), Err(Outcome::NotFound));
+    assert_eq!(
+        gh.comments(no(8), Bound::new(10).unwrap()).map(|_| ()),
+        Err(Outcome::NotFound)
+    );
     assert_eq!(calls.borrow().len(), 1);
 }
 
@@ -441,8 +476,14 @@ fn every_failure_of_the_read_is_its_named_outcome_never_an_empty_blueprint() {
         (Err(failed("read-signed-out.stderr")), Outcome::SignedOut),
         (Err(failed("read-rate-limited.stderr")), spent.clone()),
         (Err(failed("read-secondary-limit.stderr")), spent),
-        (Err(failed("read-server-error.stderr")), maybe(Passing::Server)),
-        (Err(failed("read-timed-out.stderr")), maybe(Passing::Timeout)),
+        (
+            Err(failed("read-server-error.stderr")),
+            maybe(Passing::Server),
+        ),
+        (
+            Err(failed("read-timed-out.stderr")),
+            maybe(Passing::Timeout),
+        ),
         (Err(BOUND.to_string()), maybe(Passing::Timeout)),
         (
             Err("not started: out of time".to_string()),
@@ -496,7 +537,7 @@ fn a_failed_page_of_comments_fails_the_read() {
 
 #[test]
 fn an_answer_of_another_issue_or_project_or_one_missing_a_field_is_unread() {
-    let base = json("issue-7.json");
+    let base = json::<Value>("issue-7.json");
     let mut other_no = base.clone();
     other_no["number"] = 9.into();
     other_no["html_url"] = "https://github.com/acme/widget/issues/9".into();
@@ -505,7 +546,14 @@ fn an_answer_of_another_issue_or_project_or_one_missing_a_field_is_unread() {
     let inconsistent = Outcome::Unread(Unread::Inconsistent);
     let malformed = Outcome::Unread(Unread::Malformed);
     let mut cases = vec![(other_no, inconsistent.clone()), (other_repo, inconsistent)];
-    for field in ["title", "state", "created_at", "comments", "number", "html_url"] {
+    for field in [
+        "title",
+        "state",
+        "created_at",
+        "comments",
+        "number",
+        "html_url",
+    ] {
         let mut v = base.clone();
         v.as_object_mut().unwrap().remove(field);
         cases.push((v, malformed.clone()));
@@ -545,33 +593,83 @@ fn several_answers_each_number_on_its_own_in_the_order_asked() {
 fn an_edit_at_the_reads_revision_goes_through_on_an_unchanged_issue() {
     let (mut gh, kept, _) = adapter(Site::default().issue(7, "Plan", "One page."));
     let b = gh.blueprint(no(7), CUT0).unwrap();
-    let got = gh.edit(no(7), None, Some("Two pages."), &MarkerEdit::default(), &b.revision);
+    let got = gh.edit(
+        no(7),
+        None,
+        Some("Two pages."),
+        &MarkerEdit::default(),
+        &b.revision,
+    );
     assert!(got.is_ok(), "{got:?}");
     assert_eq!(kept.borrow().issues[&7]["body"], "Two pages.");
 }
 
 #[test]
 fn an_edit_at_the_reads_revision_of_a_marked_body_meets_the_edits_marker_refusal() {
-    let raw = json("issue-7.json")["body"].as_str().unwrap().to_string();
-    let (mut gh, kept, calls) = adapter(Site::default().issue(7, "Plan", &raw));
+    let raw = "One page.\n\n<!-- tehas:hold-cleared -->";
+    let (mut gh, kept, calls) = adapter(Site::default().issue(7, "Plan", raw));
     let b = gh.blueprint(no(7), CUT0).unwrap();
     assert_eq!(b.markers, [Marker::HoldCleared]);
+    assert_eq!(b.body, "One page.");
     // A new body would lose the marker: the edit refuses it, sends nothing.
-    let got = gh.edit(no(7), None, Some(&b.body), &MarkerEdit::default(), &b.revision);
+    let got = gh.edit(
+        no(7),
+        None,
+        Some("Two pages."),
+        &MarkerEdit::default(),
+        &b.revision,
+    );
     assert_eq!(got, Err(Outcome::Refused(Refusal::Unsupported)));
-    assert_eq!(kept.borrow().issues[&7]["body"], raw.as_str());
+    assert_eq!(kept.borrow().issues[&7]["body"], raw);
     // A title alone goes through at the read's revision: not a conflict.
-    let got = gh.edit(no(7), Some("Retitled"), None, &MarkerEdit::default(), &b.revision);
+    let got = gh.edit(
+        no(7),
+        Some("Retitled"),
+        None,
+        &MarkerEdit::default(),
+        &b.revision,
+    );
     assert!(got.is_ok(), "{got:?}");
     assert_eq!(kept.borrow().issues[&7]["title"], "Retitled");
-    assert_eq!(calls.borrow().iter().filter(|c| c.contains("PATCH")).count(), 1);
+    assert_eq!(
+        calls
+            .borrow()
+            .iter()
+            .filter(|c| c.contains("PATCH"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_body_read_back_with_another_items_marker_words_is_refused_by_the_edits_text_check() {
+    // Another item's marker stays in the body as words, and the edit takes
+    // no text that holds a marker's words: sent back, it is refused.
+    let raw = json::<Value>("issue-7.json")["body"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (mut gh, kept, calls) = adapter(Site::default().issue(7, "Plan", &raw));
+    let b = gh.blueprint(no(7), CUT0).unwrap();
+    assert!(b.body.contains("tehas:park issue=5"));
+    let got = gh.edit(
+        no(7),
+        None,
+        Some(&b.body),
+        &MarkerEdit::default(),
+        &b.revision,
+    );
+    assert_eq!(got, Err(Outcome::Refused(Refusal::Invalid)));
+    assert_eq!(kept.borrow().issues[&7]["body"], raw.as_str());
+    assert!(!calls.borrow().iter().any(|c| c.contains("PATCH")));
 }
 
 #[test]
 fn an_edit_at_the_reads_revision_after_the_issue_changed_is_a_conflict() {
     let marked = |m: &str| format!("One page.\n\n<!-- tehas:{m} -->");
     for change in ["body", "title", "marker"] {
-        let (mut gh, kept, calls) = adapter(Site::default().issue(7, "Plan", &marked("hold-cleared")));
+        let (mut gh, kept, calls) =
+            adapter(Site::default().issue(7, "Plan", &marked("hold-cleared")));
         let b = gh.blueprint(no(7), CUT0).unwrap();
         {
             let mut site = kept.borrow_mut();
@@ -588,9 +686,18 @@ fn an_edit_at_the_reads_revision_after_the_issue_changed_is_a_conflict() {
             assert_eq!(again.body, b.body);
         }
         assert_ne!(again.revision, b.revision, "{change}");
-        let got = gh.edit(no(7), Some("Mine"), None, &MarkerEdit::default(), &b.revision);
+        let got = gh.edit(
+            no(7),
+            Some("Mine"),
+            None,
+            &MarkerEdit::default(),
+            &b.revision,
+        );
         assert_eq!(got, Err(Outcome::Conflict(Lost::Changed)), "{change}");
-        assert!(!calls.borrow().iter().any(|c| c.contains("PATCH")), "{change}");
+        assert!(
+            !calls.borrow().iter().any(|c| c.contains("PATCH")),
+            "{change}"
+        );
     }
 }
 
@@ -598,10 +705,16 @@ fn an_edit_at_the_reads_revision_after_the_issue_changed_is_a_conflict() {
 
 #[test]
 fn the_law_an_edit_moves_the_revision_holds_over_the_adapters_read_and_edit() {
-    let (mut gh, kept, _) =
-        adapter(Site::default().issue(7, "Plan: the widget's settings page", "One page for every setting."));
+    let (mut gh, kept, _) = adapter(Site::default().issue(
+        7,
+        "Plan: the widget's settings page",
+        "One page for every setting.",
+    ));
     laws::blueprints::an_edit_moves_the_revision(&mut gh, no(7)).unwrap();
-    assert_eq!(kept.borrow().issues[&7]["body"], "One page for every setting.\n\nEdited.");
+    assert_eq!(
+        kept.borrow().issues[&7]["body"],
+        "One page for every setting.\n\nEdited."
+    );
 }
 
 #[test]
@@ -615,7 +728,10 @@ fn the_law_an_unreadable_marker_is_kept_meets_the_edits_refusal_and_writes_nothi
         law,
         Err(laws::Broken {
             law: "markers::an_unreadable_marker_is_kept".into(),
-            what: format!("the edit: {}", Outcome::Refused(Refusal::Unsupported).line()),
+            what: format!(
+                "the edit: {}",
+                Outcome::Refused(Refusal::Unsupported).line()
+            ),
         })
     );
     assert_eq!(kept.borrow().issues[&7]["body"], body);
@@ -674,18 +790,40 @@ fn the_marker_laws_hold_over_a_blueprints_body() {
         ]
     );
     use laws::markers as m;
-    let body = |gh: &mut GitHub, n: u64| Text::Body(gh, no(n));
+    fn body(gh: &mut GitHub, n: u64) -> Text<'_> {
+        Text::Body(gh, no(n))
+    }
     let ok = |law: laws::Law| assert_eq!(law, Ok(()));
     ok(m::a_quoted_marker_is_no_marker(body(&mut gh, 101)));
-    ok(m::a_bad_field_is_unreadable(body(&mut gh, 102), &MarkerKind::Park));
-    ok(m::leading_zeros_are_unreadable(body(&mut gh, 103), &MarkerKind::Question));
+    ok(m::a_bad_field_is_unreadable(
+        body(&mut gh, 102),
+        &MarkerKind::Park,
+    ));
+    ok(m::leading_zeros_are_unreadable(
+        body(&mut gh, 103),
+        &MarkerKind::Question,
+    ));
     ok(m::a_list_over_its_limit_is_unreadable(body(&mut gh, 104)));
-    ok(m::a_bare_marker_is_bare(body(&mut gh, 105), &MarkerKind::Park, Some(&park_105)));
-    ok(m::a_bare_marker_is_bare(body(&mut gh, 106), &MarkerKind::Park, None));
+    ok(m::a_bare_marker_is_bare(
+        body(&mut gh, 105),
+        &MarkerKind::Park,
+        Some(&park_105),
+    ));
+    ok(m::a_bare_marker_is_bare(
+        body(&mut gh, 106),
+        &MarkerKind::Park,
+        None,
+    ));
     ok(m::words_without_a_field_are_prose(body(&mut gh, 107)));
     ok(m::markers_keep_their_order(body(&mut gh, 108), &order));
-    ok(m::another_items_marker_does_not_read(body(&mut gh, 109), &MarkerKind::Park));
-    ok(m::a_block_without_its_close_is_unreadable(body(&mut gh, 110), &MarkerKind::LastAttempt));
+    ok(m::another_items_marker_does_not_read(
+        body(&mut gh, 109),
+        &MarkerKind::Park,
+    ));
+    ok(m::a_block_without_its_close_is_unreadable(
+        body(&mut gh, 110),
+        &MarkerKind::LastAttempt,
+    ));
     // Another item's marker keeps its words in the body.
     let b = gh.blueprint(no(109), CUT0).unwrap();
     assert_eq!(b.body, format!("A copy: {}", park(101)));
