@@ -455,8 +455,7 @@ fn publish(line: &J, seconds: i64) -> J {
 }
 
 /// The count of the parks in a row that stopped exactly as this one did, on
-/// each line that has one (`tehas_core::outcome::repeats`). It is worked out
-/// on these lines and none besides.
+/// each line that has one (`tehas_core::outcome::repeats`).
 fn count_repeats(lines: &mut [J]) {
     let issues: Vec<String> = lines.iter().map(|l| l.get("issue").text()).collect();
     let counts = {
@@ -489,16 +488,30 @@ fn count_repeats(lines: &mut [J]) {
 /// The lines after the cursor, in the order the store wrote the ends: the order
 /// `--after` reads, so a program that keeps `next` and asks again is given each
 /// line once.
+///
+/// `repeat` is counted over every line the store keeps, before the cursor
+/// takes its page, so a line has the same count in every listing, and the
+/// count `cycle.parked` carries.
 fn listed(lines: Vec<J>, after: Option<&Cursor>) -> Listing {
-    let mut read: Vec<(J, J)> = lines
+    let mut read: Vec<(J, bool, J)> = lines
         .iter()
         .filter_map(|line| Some((line, seconds_of(line)?)))
-        .filter(|(line, seconds)| after.is_none_or(|c| c.before(line, *seconds)))
-        .map(|(line, seconds)| (line.get("seq").clone(), publish(line, seconds)))
+        .map(|(line, seconds)| {
+            let listed = after.is_none_or(|c| c.before(line, seconds));
+            (line.get("seq").clone(), listed, publish(line, seconds))
+        })
         .collect();
     read.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut runs: Vec<J> = read.into_iter().map(|(_, line)| line).collect();
-    count_repeats(&mut runs);
+    let (kept, mut all): (Vec<bool>, Vec<J>) = read
+        .into_iter()
+        .map(|(_, listed, line)| (listed, line))
+        .unzip();
+    count_repeats(&mut all);
+    let runs: Vec<J> = all
+        .into_iter()
+        .zip(kept)
+        .filter_map(|(line, listed)| listed.then_some(line))
+        .collect();
     let last = runs.last().map(|line| line.get("cursor").text());
     Listing {
         next: last.or_else(|| after.map(|c| c.text.clone())),
@@ -749,21 +762,19 @@ mod tests {
     }
 
     #[test]
-    fn a_repeat_counts_the_run_past_an_outage_and_only_what_is_listed() {
+    fn a_repeat_counts_the_run_past_an_outage_whatever_page_is_listed() {
         let all = repeats(&listed_after(None));
         assert_eq!(
             all,
             ["null", "null", "null", "1", "null", "2", "null", "null", "null"]
         );
+        // A page has the counts of the whole history.
         assert_eq!(
             repeats(&listed_after(Some("1760700000-12-4"))),
-            ["null", "null", "null", "null", "null"]
+            all[all.len() - 5..]
         );
         let from_two = listed_after(Some("1-1-1"));
-        assert_eq!(
-            repeats(&from_two),
-            ["null", "null", "1", "null", "2", "null", "null", "null"]
-        );
+        assert_eq!(repeats(&from_two), all[1..]);
     }
 
     #[test]

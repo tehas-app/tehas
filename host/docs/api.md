@@ -902,8 +902,8 @@ step said, each left out when it is not known, as `running` of
 `tehas status --json` leaves them out. Like that one, `progress` is
 driver-specific and may change in a minor release. `repeat` is on the park of a run of parks only: the parks
 in a row that stopped exactly as this one did, this one not counted, so 1 on the
-first repeat. A line of a listing that begins partway through a run counts only
-the parks the listing holds. It reads the history of both from the state store,
+first repeat. It is counted over every line the store keeps, so a line has the
+same count whatever page lists it, and `cycle.parked` carries the same count. It reads the history of both from the state store,
 and nothing else: no network, no lock a running cycle holds, and it writes
 nothing. A line it cannot read is left out, not an error. A store that does
 not answer prints nothing: never a listing without the cycles.
@@ -1602,7 +1602,12 @@ it carries what the witness prints. The cycle's log has one line per event,
 `event` and its envelope as JSON. tehas pushes no event to another program
 and no page listens to one: a program that runs many factories builds the
 same envelopes from its polls, and a page of its own can raise them on the
-kit. The other names are raised by later steps of 2.0.
+kit. The other names are raised by later steps of 2.0. Not raised yet
+either: `cycle.ended` of a start refused before its runner ran, of a cycle
+`tehas stop` ended, and of a lost cycle. Their lines are in `tehas history`,
+so a program reads it for them. `change.offered` is not raised for a line
+that ends `refused`, by its word or by its exit status (64 and 78 among
+them), even when the line names a change.
 
 The names are `api/events.txt`, one per line, in this order:
 
