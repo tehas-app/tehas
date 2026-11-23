@@ -14,7 +14,15 @@ pub type Did = Result<(), Outcome>;
 /// A list the adapter vouches is all there is.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
+#[non_exhaustive]
 pub struct Whole<T>(Vec<T>);
+
+impl<T> Default for Whole<T> {
+    /// Nothing.
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
 
 impl<T> Whole<T> {
     /// The whole list. Only an adapter or a fake that read it all says so.
@@ -38,11 +46,22 @@ impl<T> Whole<T> {
 /// that cannot tell answers `Unread(Inconsistent)`, never a guess. Read with
 /// `Window::Whole` or `Depth::All`, `more` is false.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Took<T> {
     /// The items taken.
     pub items: Vec<T>,
     /// The site holds more than were taken.
     pub more: bool,
+}
+
+impl<T> Default for Took<T> {
+    /// Nothing taken, and no more.
+    fn default() -> Self {
+        Self {
+            items: Vec::new(),
+            more: false,
+        }
+    }
 }
 
 /// What stopped a call. Exhaustive on purpose: a new outcome is a major
@@ -223,11 +242,22 @@ impl Outcome {
 
 /// A write of several parts, applied in order, that says how far it got.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Applied<P> {
     /// The parts applied, in order.
     pub done: Vec<P>,
     /// The part that stopped it, and why. None when every part was applied.
     pub stopped: Option<(P, Outcome)>,
+}
+
+impl<P> Default for Applied<P> {
+    /// Nothing applied, and nothing stopped it.
+    fn default() -> Self {
+        Self {
+            done: Vec::new(),
+            stopped: None,
+        }
+    }
 }
 
 #[cfg(test)]

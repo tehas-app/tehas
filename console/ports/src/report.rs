@@ -45,6 +45,7 @@ pub enum PortName {
 
 /// One kind of outcome a handle met, and how many calls met it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Report {
     /// The port of the calls.
     pub port: PortName,
@@ -53,6 +54,14 @@ pub struct Report {
     /// How many calls met it.
     pub calls: u32,
 }
+
+new!(
+    Report {
+        port: PortName,
+        outcome: Outcome
+    },
+    calls
+);
 
 /// What a handle met since the last take, for the pass to log once.
 pub trait Reports {
