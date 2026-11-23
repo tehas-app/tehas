@@ -267,7 +267,18 @@ comment count only when the account that made them carries the recorded id
 login and another id, or with no id at all, does not count: the dispatcher
 reads it as `<login>#<id>`, which no list matches, and says why on standard
 error. With no id recorded for a login, nothing of it counts until
-`tehas update` records one.
+`tehas update` records one. GitHub logins are one account in any case, so
+the check ignores ASCII case: `Alice` is checked against the id recorded for
+`alice`, and does not count with another id. Two pairs of one login in two
+cases with different ids record no id for it. `tehas update` records ignoring
+case too: a pair of the login in another case is its pair, so a change of
+case in the settings meets the check below, and the recorded pair is kept
+under the login as the settings write it, in place of every other case.
+
+Which logins are allowed is matched ignoring ASCII case by `tehas resume`,
+`tehas plan`, `tehas dev` and a cycle started by hand. The dispatcher still
+matches `TEHAS_ALLOWED_LABELERS` in exact case, so write each login there as
+GitHub spells it.
 
 - A login that does not resolve stops `install.sh` and `tehas update` with 78
   and names it. Take it out of the settings or correct it.

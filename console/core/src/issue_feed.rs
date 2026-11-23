@@ -1,26 +1,20 @@
-//! The issue feed: which open issues carry a mark (a label, or an issue type
-//! when TEHAS_ISSUE_TYPES maps the kind) given by an allowed account, and
-//! which links of their texts such an account wrote. Authorisation is the
+//! The issue feed: the rules a reader of marked issues keeps, and which
+//! links of their texts an allowed account wrote. Authorisation is the
 //! account, not the mark (AGENTS.md rule 5).
 //!
-//!   which issues   Open issues whose most recent labelling is by an account
-//!                  of the allowed list. One applied by anyone else, the bot
-//!                  included, counts as no mark at all. A list that names the
-//!                  bot is refused: an account in a cycle labels as the bot.
+//!   which list     A list that names the bot is refused: an account in a
+//!                  cycle labels as the bot.
 //!   which label    The label that carries the name must be the one
 //!                  `tehas labels` pinned: a label renamed to it would bring
 //!                  its old applications along.
-//!   which title    A title changed since the approval by an account off the
-//!                  list holds the issue.
 //!   which links    Only links of the link rule, in the issue text and its
 //!                  comments, written by an allowed account and last edited by
 //!                  none outside the list, on a line that is no quote. With
 //!                  zips on, a `Zip: <link> sha256:<hex>` line names a zip.
 //!
-//! Every call to GitHub goes through [`crate::forge`]. Nothing here writes.
+//! Every call to GitHub goes through a [`GhRunner`]. Nothing here writes.
 
-use crate::events::{first_unallowed_rename, label_state, standing_actor, Event, LabelState};
-use crate::forge::{Forge, GhRunner};
+use crate::forge::GhRunner;
 use serde_json::Value;
 use std::path::Path;
 
@@ -37,22 +31,6 @@ pub fn bot_refusal(bot: &str, list: &str) -> Option<String> {
             "ERROR: the bot account {bot} is in TEHAS_ALLOWED_LABELERS; the bot never authorises work"
         )
     })
-}
-
-/// Why the type `t` that TEHAS_ISSUE_TYPES maps `kind` to stops a pass, with
-/// the exit status: 78 the owner has no such type, 0 the types could not be
-/// read. None when the owner has it.
-pub fn type_fault(forge: &mut dyn Forge, t: &str, kind: &str, repo: &str) -> Option<(u8, String)> {
-    match forge.issue_types() {
-        Ok(types) if types.iter().any(|have| have == t) => None,
-        Ok(_) => Some((
-            78,
-            format!(
-                "ERROR: TEHAS_ISSUE_TYPES maps {kind} to {t}, which is no issue type of {repo}'s owner"
-            ),
-        )),
-        Err(e) => Some((0, format!("{}, nothing built or removed", e.line()))),
-    }
 }
 
 /// The line of a pass whose list of open tickets could not be read. `why` is
@@ -148,74 +126,6 @@ pub fn tickets(answer: &str) -> Option<Vec<Value>> {
         .collect();
     found.sort_by_key(|row| std::cmp::Reverse(row["number"].as_i64().unwrap_or(0)));
     Some(found)
-}
-
-/// Who gave an issue its mark, as the events read it.
-pub enum Standing {
-    /// The label was taken off since it was applied: the line says by whom.
-    TakenOff(String),
-    /// The events could not be read: nothing is built and nothing removed.
-    Unread(String),
-    /// Given by an account off the list.
-    Denied(String),
-    Allowed(Approved),
-}
-
-/// The allowed account that gave the mark, and when.
-pub struct Approved {
-    pub who: String,
-    pub since: String,
-    events: Option<Vec<Event>>,
-}
-
-/// Who gave issue `n` its mark: `label`, or the type `kind` when it is Some.
-/// Read before anything of the issue is published: an agent in a cycle holds
-/// the bot's token, and the bot can label.
-pub fn standing(
-    forge: &mut dyn Forge,
-    n: u64,
-    label: &str,
-    kind: Option<&str>,
-    list: &str,
-) -> Standing {
-    let read = match kind {
-        Some(t) => forge
-            .typed_by(n, t)
-            .map(|a| (a.map(|a| (a.actor, a.at)).unwrap_or_default(), None)),
-        None => forge
-            .label_events(n)
-            .map(|ev| (standing_actor(&ev, label), Some(ev))),
-    };
-    if let Ok((_, Some(ev))) = &read {
-        if let LabelState::Unlabeled { actor, .. } = label_state(ev, label) {
-            let by = if actor.is_empty() { "unknown" } else { &actor };
-            return Standing::TakenOff(format!(
-                "#{n}: {label} was taken off by '{by}' since it was applied"
-            ));
-        }
-    }
-    let ((who, since), events) = match read {
-        Ok(read) => read,
-        Err(_) => return Standing::Unread(unread(n, kind.is_some())),
-    };
-    if !allowed(&who, list) {
-        return Standing::Denied(denied(label, n, &who, kind));
-    }
-    Standing::Allowed(Approved { who, since, events })
-}
-
-/// The line that holds issue `n` when its title was changed since the
-/// approval by an account off the list, or its events could not be read. None
-/// when it may be published.
-pub fn title_hold(forge: &mut dyn Forge, n: u64, approved: Approved, list: &str) -> Option<String> {
-    let events = match approved.events.map_or_else(|| forge.label_events(n), Ok) {
-        Ok(events) => events,
-        Err(_) => return Some(unread(n, false)),
-    };
-    let who = &approved.who;
-    first_unallowed_rename(&events, &approved.since, who, &|w| allowed(w, list)).map(|by| {
-        format!("#{n}: its title was changed by '{by}' since {who} approved it, left as it was")
-    })
 }
 
 /// An account as the texts read asks for it: its login and its user id, so the

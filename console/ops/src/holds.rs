@@ -95,18 +95,19 @@ use crate::account;
 use serde_json::Value;
 use std::env;
 use std::fs::{self, OpenOptions, TryLockError};
+use std::num::NonZeroU64;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-use tehas_core::events::{pause_holds, UNKNOWN_ACTOR};
+use tehas_core::events::{pause_holds_marks, UNKNOWN_ACTOR};
 use tehas_core::file::Temp;
-use tehas_core::forge::Forge;
 use tehas_core::home::{Home, Live, State};
 use tehas_core::limit::{self as limit_file, leading_number};
 pub use tehas_core::limit::{epoch, oneline, REASON};
 use tehas_core::lock::{self, Probe};
 use tehas_core::time;
+use tehas_ports::{Act, HappenedKind, Mark, TicketKey, Tickets, Window, ALL_MAX};
 
 /// The clock a run reads: the host's, or the whole number of seconds in
 /// `TEHAS_FLAGS_TEST_NOW` when that names one, which is how a shell test reads
@@ -567,32 +568,39 @@ pub fn resume_words(given: &[String]) -> Result<(), u8> {
     Err(64)
 }
 
-/// What the other switch, tehas:pause on the control issue, says once the
+/// What the other switch, the pause mark on the control issue, says once the
 /// host's own is off: a line for standard output, one for standard error, or
-/// nothing when it holds nothing. Only an allowed account can lift the label
+/// nothing when it holds nothing. Only an allowed account can lift it
 /// (AGENTS.md rule 5).
 pub fn other_switch(
-    forge: &mut dyn Forge,
+    tickets: &mut dyn Tickets,
     control: u64,
     allowed: &dyn Fn(&str) -> bool,
 ) -> Option<Result<String, String>> {
-    let Ok(labels) = forge.labels(control) else {
+    let pause = Mark::Act(Act::Pause);
+    let key = NonZeroU64::new(control).map(TicketKey::Number);
+    let marks = key
+        .as_ref()
+        .and_then(|k| tickets.several(std::slice::from_ref(k)).pop())
+        .and_then(|(_, d)| d.ok());
+    let (Some(key), Some(digest)) = (key, marks) else {
         return Some(Err(format!(
             "tehas resume: the labels of issue #{control} could not be read: check tehas:pause there yourself"
         )));
     };
-    if labels.iter().any(|l| l == "tehas:pause") {
+    if digest.marks.contains(&pause) {
         return Some(Ok(format!(
             "the factory stays paused: tehas:pause is still on issue #{control}"
         )));
     }
-    let Ok(events) = forge.label_events(control) else {
+    let kinds = [HappenedKind::Marked, HappenedKind::Unmarked];
+    let Ok(read) = tickets.history(&key, Window::Whole(ALL_MAX), Some(&kinds)) else {
         return Some(Err(format!(
             "tehas resume: the label events of issue #{control} could not be read"
         )));
     };
-    let (kind, by) = pause_holds(&events, allowed)?;
-    Some(Ok(if kind == "unlabeled" {
+    let (lifted, by) = pause_holds_marks(&read.items, allowed)?;
+    Some(Ok(if lifted {
         let by = if by.is_empty() { UNKNOWN_ACTOR } else { &by };
         format!(
             "the factory stays paused: tehas:pause was taken off #{control} by '{by}', who may not authorise work here"
@@ -605,9 +613,9 @@ pub fn other_switch(
 }
 
 /// `tehas resume`: the host's own switch comes off first, whatever GitHub then
-/// says, and the exit status is that of the flag alone. `forge` reads the
+/// says, and the exit status is that of the flag alone. `tickets` reads the
 /// control issue; the console's wiring makes it.
-pub fn resume(given: &[String], forge: &mut dyn Forge) -> u8 {
+pub fn resume(given: &[String], tickets: &mut dyn Tickets) -> u8 {
     if let Err(rc) = resume_words(given) {
         return rc;
     }
@@ -620,8 +628,8 @@ pub fn resume(given: &[String], forge: &mut dyn Forge) -> u8 {
         return 1;
     }
     let list = setting("TEHAS_ALLOWED_LABELERS");
-    let allowed = |who: &str| tehas_core::events::allowed_in(&list, who);
-    match other_switch(forge, control, &allowed) {
+    let allowed = |who: &str| tehas_core::events::allowed_folded(&list, who);
+    match other_switch(tickets, control, &allowed) {
         Some(Ok(line)) => tehas_core::outln!("{line}"),
         Some(Err(line)) => eprintln!("{line}"),
         None => {}
