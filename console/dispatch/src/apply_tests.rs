@@ -6050,6 +6050,52 @@ fn an_intended_action_is_asked_for_no_time() {
     );
 }
 
+/// T4.4: a row `Journal::send` recorded keeps its write, not argv. Under a
+/// 1.x word it would read as done with nothing checked, so an attempted one
+/// stays open, neither settled nor read; one never attempted made no call
+/// and is abandoned as any other.
+#[test]
+fn a_write_row_of_the_ports_is_never_settled_by_a_1x_read() {
+    let words = [
+        "label-add",
+        "label-remove",
+        "comment-post",
+        "comment-edit",
+        "issue-edit",
+        "sub-issue-add",
+        "issue-close",
+    ];
+    for (i, kind) in words.iter().enumerate() {
+        let mut t = world();
+        fs::write(
+            t.dir.join("issue-7"),
+            r#"{"number": 7, "state": "closed", "labels": [], "body": "Replaces #1"}"#,
+        )
+        .unwrap();
+        let id = i as u64 + 3;
+        left_open(
+            &t,
+            json!([
+                {"id": id, "kind": kind, "issue": 7, "state": "unknown", "intended_at": 990,
+                 "attempted_at": 991, "args": {"repo": "r", "write": {"type": "Mark", "value": {}}}},
+                {"id": 99, "kind": kind, "issue": 7, "state": "intended", "intended_at": 990,
+                 "args": {"repo": "r", "write": {"type": "Mark", "value": {}}}}
+            ]),
+        );
+        let mut log = Vec::new();
+        t.w.settle(1000, &mut log);
+        assert_eq!(
+            log[0],
+            format!("WARN: the journal's action {id} ({kind} on #7, 10s old) could not be settled: it is a write of the ports, which no read settles yet; the next poll tries again"),
+        );
+        assert_eq!(
+            settled(&t),
+            ["store journal-settle --action 99 --abandoned"],
+            "{kind}"
+        );
+    }
+}
+
 #[test]
 fn an_action_a_read_cannot_settle_stays_open() {
     let mut t = world();
