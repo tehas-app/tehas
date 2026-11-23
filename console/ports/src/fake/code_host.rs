@@ -35,6 +35,7 @@ pub(crate) fn change_digest(s: &State, c: &ChangeRec, bodies: bool) -> ChangeDig
     );
     d.title = c.title.clone();
     d.author = c.author.clone();
+    d.author_relation = s.relation_of(c.author.as_ref());
     d.draft = c.draft;
     d.merge_state = c.merge_state;
     d.marks = c.marks.clone();

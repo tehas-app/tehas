@@ -683,6 +683,25 @@ impl Cites for Handle {
             },
         }
     }
+
+    fn link(&self, what: &Cite) -> Option<WebLink> {
+        self.link_of(what)
+    }
+}
+
+impl Handle {
+    /// Where a person opens what a cite names: an item of this project
+    /// whether or not the world holds it, as its own read gives it.
+    pub(crate) fn link_of(&self, what: &Cite) -> Option<WebLink> {
+        let s = self.world.lock();
+        match what {
+            Cite::Ticket(Ref::Here(k)) => Some(s.ticket_link(k)),
+            Cite::Blueprint(Ref::Here(no)) => Some(s.blueprint_link(*no)),
+            Cite::Change(Ref::Here(no)) => Some(s.change_link(*no)),
+            Cite::Account(login) => Some(web(&format!("u/{}", escaped(login.as_str())))),
+            _ => None,
+        }
+    }
 }
 
 /// The text a person types to make a marker on the fake: the marker as
@@ -1007,6 +1026,7 @@ pub(crate) fn blueprint(s: &State, item: &ItemRec, depth: Depth) -> Got<Blueprin
         body: item.text.clone(),
         open: item.open,
         author: item.author.clone(),
+        author_relation: s.relation_of(item.author.as_ref()),
         editor: item.editor.clone(),
         created: item.created,
         edited: item.edited,

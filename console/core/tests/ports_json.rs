@@ -389,6 +389,30 @@ fn a_closer_of_another_project_reads_back_and_one_not_known_is_unknown() {
 }
 
 #[test]
+fn a_relation_is_its_name_and_an_author_without_one_reads_as_none() {
+    for r in [
+        Relation::Owner,
+        Relation::Member,
+        Relation::Collaborator,
+        Relation::Outside,
+    ] {
+        round!(r);
+    }
+    assert_eq!(
+        serde_json::to_string(&Relation::Collaborator).unwrap(),
+        r#""Collaborator""#
+    );
+    assert_eq!(read!(Relation, r#""Contributor""#), Relation::Unknown);
+    let link = WebLink::new("https://example.test/b/7").unwrap();
+    let mut b = Blueprint::new(bp(7), At::new(1), Revision::new("r"), link);
+    let mut json = serde_json::to_value(&b).unwrap();
+    json.as_object_mut().unwrap().remove("author_relation");
+    assert_eq!(serde_json::from_value::<Blueprint>(json).unwrap(), b);
+    b.author_relation = Some(Relation::Member);
+    round!(b);
+}
+
+#[test]
 fn a_board_ask_stored_without_windows_per_kind_reads_as_none() {
     let ask = read!(
         BoardAsk,

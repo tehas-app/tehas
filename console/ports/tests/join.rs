@@ -162,6 +162,9 @@ impl Cites for StubTickets {
     fn cite(&self, _: &Cite) -> String {
         String::new()
     }
+    fn link(&self, _: &Cite) -> Option<WebLink> {
+        None
+    }
 }
 
 impl Tickets for StubTickets {
@@ -360,6 +363,9 @@ impl Cites for StubBlueprints {
     fn cite(&self, _: &Cite) -> String {
         String::new()
     }
+    fn link(&self, _: &Cite) -> Option<WebLink> {
+        None
+    }
 }
 
 impl Blueprints for StubBlueprints {
@@ -395,6 +401,9 @@ impl Blueprints for StubBlueprints {
     fn attachments(&mut self, _: BlueprintNo) -> Got<Whole<Attachment>> {
         Err(unsupported())
     }
+    fn attachments_in(&self, _: &str) -> Vec<Attachment> {
+        Vec::new()
+    }
     fn fetch(&mut self, _: &AttachmentId, _: u64, _: &mut dyn std::io::Write) -> Did {
         Err(unsupported())
     }
@@ -427,6 +436,9 @@ impl Reports for StubCodeHost {
 impl Cites for StubCodeHost {
     fn cite(&self, _: &Cite) -> String {
         String::new()
+    }
+    fn link(&self, _: &Cite) -> Option<WebLink> {
+        None
     }
 }
 

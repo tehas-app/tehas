@@ -120,6 +120,10 @@ impl Blueprints for Handle {
         })
     }
 
+    fn attachments_in(&self, text: &str) -> Vec<Attachment> {
+        self.world.lock().attachments_in(text)
+    }
+
     /// Past `limit` is `Unread(TooLarge)`, and nothing is written. A sink
     /// that will not take the bytes is `Unread(Malformed)`: what it holds
     /// is not whole.

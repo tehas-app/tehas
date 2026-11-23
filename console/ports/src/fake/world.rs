@@ -204,6 +204,12 @@ impl World {
         self.edit_account(login, |a| a.assignable = yes)
     }
 
+    /// How an account stands to the project, as the items it writes record
+    /// it.
+    pub fn relation(self, login: &str, relation: crate::Relation) -> Self {
+        self.edit_account(login, |a| a.relation = relation)
+    }
+
     /// Make a name an organisation.
     pub fn organisation(self, login: &str) -> Self {
         self.lock()

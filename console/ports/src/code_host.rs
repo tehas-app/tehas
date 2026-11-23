@@ -8,8 +8,8 @@ use crate::mark::unknown_tag;
 use crate::{
     unknown, Account, AccountId, Applied, At, Blobs, BlueprintNo, Body, Bound, Branch, ChangeNo,
     ChangeToken, Cites, Comment, CommentId, CommitId, Cursor, Did, FileName, GitRemote, Got, Mark,
-    Marker, MarkerEdit, Posted, ProjectName, Ref, ReleaseId, RepoPath, Reports, Rev, Secret, Sum,
-    TagName, Token, Took, WebLink, Whole, Window,
+    Marker, MarkerEdit, Posted, ProjectName, Ref, Relation, ReleaseId, RepoPath, Reports, Rev,
+    Secret, Sum, TagName, Token, Took, WebLink, Whole, Window,
 };
 
 /// What the code host says of the project. `tracker_on`: the code host's
@@ -136,6 +136,11 @@ pub struct ChangeDigest {
     pub base_commit: CommitId,
     /// Who opened it; None where the site names nobody.
     pub author: Option<Account>,
+    /// How its author stands to the project, as the site records it with
+    /// the change; None where the site does not say. Missing, it reads as
+    /// None.
+    #[serde(default)]
+    pub author_relation: Option<Relation>,
     /// Its head is in another project.
     pub from_fork: bool,
     /// It is a draft.
@@ -186,6 +191,7 @@ new!(
     },
     title,
     author,
+    author_relation,
     from_fork,
     draft,
     merge_state,

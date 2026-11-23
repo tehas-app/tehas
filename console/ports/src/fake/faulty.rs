@@ -269,7 +269,7 @@ pub enum BoardOp {
 }
 
 /// Every method of every port that answers an outcome. A method that
-/// makes no request (`cite`, `take_reports`, `new_ticket_link`,
+/// makes no request (`cite`, `link`, `attachments_in`, `take_reports`, `new_ticket_link`,
 /// `sign_in_link`) has no outcome to inject and no `Op`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Op {
@@ -1073,6 +1073,9 @@ impl<H: Cites + ?Sized> Cites for Wrap<H> {
     fn cite(&self, what: &Cite) -> String {
         self.inner.cite(what)
     }
+    fn link(&self, what: &Cite) -> Option<WebLink> {
+        self.inner.link(what)
+    }
 }
 
 use BlueprintsOp as B;
@@ -1336,6 +1339,9 @@ impl<H: Blueprints + ?Sized> Blueprints for Wrap<H> {
     }
     fn attachments(&mut self, no: BlueprintNo) -> Got<Whole<Attachment>> {
         self.call(Op::Blueprints(B::Attachments), Err, |h| h.attachments(no))
+    }
+    fn attachments_in(&self, text: &str) -> Vec<Attachment> {
+        self.inner.attachments_in(text)
     }
     fn fetch(&mut self, a: &AttachmentId, limit: u64, into: &mut dyn std::io::Write) -> Did {
         self.call(Op::Blueprints(B::Fetch), Err, |h| h.fetch(a, limit, into))

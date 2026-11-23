@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{BlueprintNo, ChangeNo, Login, Mark, Marker, Ref, Sha256, TicketKey};
+use crate::{BlueprintNo, ChangeNo, Login, Mark, Marker, Ref, Sha256, TicketKey, WebLink};
 
 /// A body or a file named by its sum: sha-256 in hex, and its length.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -68,6 +68,11 @@ pub enum Cite {
 pub trait Cites {
     /// The text that names `what` in a body written through this handle.
     fn cite(&self, what: &Cite) -> String;
+    /// Where a person opens what `what` names, the same link the item's
+    /// own read gives, with no request: an item of this project or an
+    /// account. None for a marker, a mark, and what the site cannot link
+    /// without asking, such as an item of another project.
+    fn link(&self, what: &Cite) -> Option<WebLink>;
 }
 
 /// A body as a write takes it, and as its journal row keeps it: the text

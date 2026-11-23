@@ -523,6 +523,9 @@ impl Cites for Notes {
     fn cite(&self, _: &Cite) -> String {
         unreachable!("the laws read notes alone")
     }
+    fn link(&self, _: &Cite) -> Option<WebLink> {
+        unreachable!("the laws read notes alone")
+    }
 }
 
 fn link() -> WebLink {

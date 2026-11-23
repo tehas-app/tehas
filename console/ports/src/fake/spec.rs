@@ -4,9 +4,8 @@
 use super::state::{nz, Layout, State};
 use super::world::OPERATOR;
 use crate::{
-    Act, At, Attachment, AttachmentId, BlueprintNo, ChangeState, ChangedFile, CloseReason, Closer,
-    Happened, Item, Kind, Mark, Marker, Mergeable, Priority, Realm, RepoPath, TargetId,
-    TicketEvent, TicketKey,
+    Act, At, BlueprintNo, ChangeState, ChangedFile, CloseReason, Closer, Happened, Item, Kind,
+    Mark, Marker, Mergeable, Priority, Realm, RepoPath, TargetId, TicketEvent, TicketKey,
 };
 
 /// A ticket as a test builds it.
@@ -227,12 +226,7 @@ impl TicketSpec {
             s.items[at].comments.push(id);
         }
         for (name, bytes) in self.attachments {
-            let id = AttachmentId::new(s.fresh_id("file"));
-            let link = super::site::web(&format!("files/{}", id.as_str()));
-            let mut a = Attachment::new(id, link);
-            a.name = name;
-            a.size = Some(bytes.len() as u64);
-            s.items[at].attachments.push((a, bytes));
+            s.attach(at, name, bytes);
         }
         if let Some(reason) = self.closed {
             let closer = Some(Closer::Account(s.account(OPERATOR, realm)));
@@ -337,12 +331,7 @@ impl BlueprintSpec {
             s.items[at].comments.push(id);
         }
         for (name, bytes) in self.attachments {
-            let id = AttachmentId::new(s.fresh_id("file"));
-            let link = super::site::web(&format!("files/{}", id.as_str()));
-            let mut a = Attachment::new(id, link);
-            a.name = name;
-            a.size = Some(bytes.len() as u64);
-            s.items[at].attachments.push((a, bytes));
+            s.attach(at, name, bytes);
         }
         if self.closed {
             let item = &mut s.items[at];

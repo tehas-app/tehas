@@ -112,6 +112,9 @@ pub(crate) struct CommitRec {
     pub files: Vec<(RepoPath, Vec<u8>)>,
 }
 
+/// Where the fake's store keeps a file, under its site.
+const FILES: &str = "files/";
+
 /// An account of the world, by login, in every realm it serves.
 #[derive(Debug, Clone)]
 pub(crate) struct AccountRec {
@@ -120,6 +123,8 @@ pub(crate) struct AccountRec {
     pub standing: Standing,
     pub assignable: bool,
     pub organisation: bool,
+    /// How it stands to the project, as an item it wrote records it.
+    pub relation: crate::Relation,
 }
 
 /// A release and the bytes of its files.
@@ -322,6 +327,7 @@ impl State {
                 standing,
                 assignable: standing != Standing::None,
                 organisation: false,
+                relation: crate::Relation::Outside,
             }),
         }
     }
@@ -347,6 +353,63 @@ impl State {
             id: Some(account_id(login, realm)),
             kind,
         }
+    }
+
+    /// How the author of an item stands to the project: `Outside` for an
+    /// account the world gave no relation; None for no author.
+    pub fn relation_of(&self, author: Option<&Account>) -> Option<crate::Relation> {
+        let login = author?.login.as_str();
+        Some(
+            self.accounts
+                .iter()
+                .find(|a| a.login == login)
+                .map_or(crate::Relation::Outside, |a| a.relation),
+        )
+    }
+
+    /// A file on the site's store, linked from the end of the item's text
+    /// on a line of its own, as a person pastes it.
+    pub fn attach(&mut self, at: usize, name: Option<String>, bytes: Vec<u8>) {
+        let id = crate::AttachmentId::new(self.fresh_id("file"));
+        let link = super::site::web(&format!("{FILES}{}", id.as_str()));
+        let item = &mut self.items[at];
+        if !item.text.is_empty() {
+            item.text.push('\n');
+        }
+        item.text.push_str(link.as_str());
+        let mut a = Attachment::new(id, link);
+        a.name = name;
+        a.size = Some(bytes.len() as u64);
+        item.attachments.push((a, bytes));
+    }
+
+    /// The files a text links to on the fake's store, in the order it
+    /// links them, each once: a name and size from the world where it
+    /// holds the file.
+    pub fn attachments_in(&self, text: &str) -> Vec<Attachment> {
+        let prefix = super::site::web(FILES);
+        let mut found: Vec<Attachment> = Vec::new();
+        for word in text.split(|c: char| c.is_whitespace() || "()<>[]\"'".contains(c)) {
+            let Some(id) = word.strip_prefix(prefix.as_str()) else {
+                continue;
+            };
+            if id.is_empty() || found.iter().any(|a| a.id.as_str() == id) {
+                continue;
+            }
+            let held = self
+                .items
+                .iter()
+                .flat_map(|i| i.attachments.iter())
+                .find(|(a, _)| a.id.as_str() == id)
+                .map(|(a, _)| a.clone());
+            found.push(held.unwrap_or_else(|| {
+                Attachment::new(
+                    crate::AttachmentId::new(id),
+                    super::site::web(&format!("{FILES}{id}")),
+                )
+            }));
+        }
+        found
     }
 
     /// The login an account id names in a realm, if the world has it.

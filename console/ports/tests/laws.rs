@@ -954,6 +954,85 @@ fn blueprints_an_attachment_has_a_link_and_a_pasted_one_no_name() {
 }
 
 #[test]
+fn blueprints_attachments_in_a_text_are_the_blueprints() {
+    for w in both() {
+        let no = first_blueprint(&w);
+        let w = w.blueprint(no, |b| {
+            b.body("The plan, with files.")
+                .attachment("plan.pdf", b"%PDF")
+                .pasted(b"png")
+        });
+        let site = FakeSite::new(&w);
+        let mut h = site.blueprints(&full(), C).unwrap();
+        ok(laws::blueprints::attachments_in_a_text_are_the_blueprints(
+            h.as_mut(),
+            bp(no),
+        ));
+        // A link in an older text names the same file, with no request.
+        let held = h.attachments(bp(no)).unwrap().into_items();
+        let sent = w.sent();
+        let quoted = format!("> approved with ({})", held[0].link.as_str());
+        let found = h.attachments_in(&quoted);
+        assert_eq!(found, held[..1]);
+        assert_eq!(w.sent(), sent);
+    }
+}
+
+#[test]
+fn blueprints_an_authors_relation_is_given() {
+    for w in both() {
+        let no = first_blueprint(&w);
+        let change = first_change(&w);
+        let w = w
+            .relation("carol", Relation::Collaborator)
+            .blueprint(no, |b| b.title("a plan").author("carol"))
+            .change(change, "carols-work", |c| c.title("work").author("carol"));
+        let site = FakeSite::new(&w);
+        let mut b = site.blueprints(&full(), C).unwrap();
+        let mut c = site.code_host(&full(), C).unwrap();
+        ok(laws::blueprints::an_authors_relation_is_given(
+            b.as_mut(),
+            bp(no),
+            c.as_mut(),
+            cn(change),
+            Relation::Collaborator,
+        ));
+    }
+}
+
+#[test]
+fn cites_a_link_is_the_items_own() {
+    for w in both() {
+        let no = first_blueprint(&w);
+        let change = first_change(&w);
+        let w = w
+            .ticket(1, |t| t.title("a ticket"))
+            .blueprint(no, |b| b.title("a plan"))
+            .change(change, "work", |c| c.title("work"));
+        let site = FakeSite::new(&w);
+        let mut t = site.tickets(&full(), C).unwrap();
+        let mut b = site.blueprints(&full(), C).unwrap();
+        let mut c = site.code_host(&full(), C).unwrap();
+        let sent = w.sent();
+        let link = t.link(&Cite::Account(Login::new("carol")));
+        assert!(link.is_some());
+        assert_eq!(w.sent(), sent, "a link is made with no request");
+        ok(laws::cites::a_link_is_the_items_own(
+            t.as_mut(),
+            &w.key(1),
+            b.as_mut(),
+            bp(no),
+            c.as_mut(),
+            cn(change),
+            Ref::Elsewhere {
+                project: ProjectName::new("other/project"),
+                item: ItemName::new("other/project 3"),
+            },
+        ));
+    }
+}
+
+#[test]
 fn search_laws_over_both_ports() {
     for w in both() {
         let w = w

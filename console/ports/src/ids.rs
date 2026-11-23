@@ -364,19 +364,23 @@ checked!(
     /// A link a person opens. Returned for display, and taken in one place
     /// only: a commit status's link, which the site shows and never
     /// follows. Checked when made: `https`, no user or password part, no
-    /// space or control character, at most 2,048 characters. The adapter
+    /// space or control character, at most `WEB_LINK_MAX` (8,192) characters,
+    /// room for a new-ticket link with its text filled in. The adapter
     /// passes it through as text and never calls it.
     WebLink,
     "web link",
     web_link_ok
 );
 
+/// The most characters a `WebLink` holds.
+pub const WEB_LINK_MAX: usize = 8192;
+
 fn web_link_ok(s: &str) -> bool {
     let Some(rest) = s.strip_prefix("https://") else {
         return false;
     };
     let host = rest.split(['/', '?', '#']).next().unwrap_or("");
-    s.chars().count() <= 2048
+    s.chars().count() <= WEB_LINK_MAX
         && !host.is_empty()
         && !host.contains('@')
         && !s.chars().any(|c| c.is_whitespace() || c.is_control())
@@ -553,10 +557,11 @@ mod tests {
     }
 
     #[test]
-    fn a_web_link_is_https_with_no_user_and_at_most_2048() {
+    fn a_web_link_is_https_with_no_user_and_at_most_8192() {
         assert!(WebLink::new("https://example.test/a?b=c#d").is_ok());
-        let long = format!("https://example.test/{}", "a".repeat(2048 - 21));
-        assert_eq!(long.len(), 2048);
+        assert!(WebLink::new(format!("https://example.test/{}", "a".repeat(6000))).is_ok());
+        let long = format!("https://example.test/{}", "a".repeat(8192 - 21));
+        assert_eq!(long.len(), WEB_LINK_MAX);
         assert!(WebLink::new(long.clone()).is_ok());
         assert!(WebLink::new(format!("{long}a")).is_err());
         for bad in [

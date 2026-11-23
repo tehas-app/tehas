@@ -1164,7 +1164,76 @@ pub mod history {
 /// Laws of the blueprints port.
 pub mod blueprints {
     use super::{got, hold, Law};
-    use crate::{BlueprintNo, BlueprintWrites, Blueprints, Depth, Lost, MarkerEdit, Outcome};
+    use crate::{
+        BlueprintNo, BlueprintWrites, Blueprints, ChangeNo, CodeHost, Depth, Lost, MarkerEdit,
+        Outcome, Relation,
+    };
+
+    /// `attachments_in` over a blueprint's text gives the ids
+    /// `attachments` gives for it, in the same order, each with the link
+    /// in the text, and nothing for a text with no link. The fixture's
+    /// blueprint `no` links files in its body.
+    pub fn attachments_in_a_text_are_the_blueprints(
+        h: &mut dyn Blueprints,
+        no: BlueprintNo,
+    ) -> Law {
+        const LAW: &str = "blueprints::attachments_in_a_text_are_the_blueprints";
+        let body = got(LAW, "the blueprint", h.blueprint(no, Depth::All))?.body;
+        let held = got(LAW, "the attachments", h.attachments(no))?.into_items();
+        hold(!held.is_empty(), LAW, || "the fixture links no file".into())?;
+        let found = h.attachments_in(&body);
+        let ids = |all: &[crate::Attachment]| -> Vec<(String, String)> {
+            all.iter()
+                .map(|a| (a.id.as_str().to_string(), a.link.as_str().to_string()))
+                .collect()
+        };
+        hold(ids(&found) == ids(&held), LAW, || {
+            format!(
+                "the text gives {:?}, attachments {:?}",
+                ids(&found),
+                ids(&held)
+            )
+        })?;
+        let twice = h.attachments_in(&format!("{body}\n{body}"));
+        hold(ids(&twice) == ids(&held), LAW, || {
+            "a link given twice is given twice".into()
+        })?;
+        let none = h.attachments_in("no link here");
+        hold(none.is_empty(), LAW, || {
+            format!("plain text gives {none:?}")
+        })
+    }
+
+    /// A blueprint and a change carry their author's relation to the
+    /// project as the fixture records it. The fixture's blueprint `no` and
+    /// change `change` were written by an account of relation `want`.
+    pub fn an_authors_relation_is_given(
+        b: &mut dyn Blueprints,
+        no: BlueprintNo,
+        c: &mut dyn CodeHost,
+        change: ChangeNo,
+        want: Relation,
+    ) -> Law {
+        const LAW: &str = "blueprints::an_authors_relation_is_given";
+        let bp = got(
+            LAW,
+            "the blueprint",
+            b.blueprint(no, Depth::Cut { notes: 0 }),
+        )?;
+        hold(bp.author_relation == Some(want), LAW, || {
+            format!(
+                "the blueprint's author is {:?}, not {want:?}",
+                bp.author_relation
+            )
+        })?;
+        let ch = got(LAW, "the change", c.change(change, crate::ALL_MAX))?;
+        hold(ch.digest.author_relation == Some(want), LAW, || {
+            format!(
+                "the change's author is {:?}, not {want:?}",
+                ch.digest.author_relation
+            )
+        })
+    }
 
     /// A number that names a change is no blueprint: `blueprint` and
     /// `several` answer it `NotFound`. The fixture's `change` is the
@@ -1246,6 +1315,59 @@ pub mod blueprints {
         hold(again == Err(Outcome::Conflict(Lost::Changed)), LAW, || {
             format!("an edit at the old revision answered {again:?}")
         })
+    }
+}
+
+/// Laws of `Cites::link`.
+pub mod cites {
+    use super::{got, hold, Law};
+    use crate::{
+        BlueprintNo, Blueprints, ChangeNo, Cite, CodeHost, Depth, Mark, Ref, TicketKey, Tickets,
+    };
+
+    /// `link` of an item of this project is the link its own read gives,
+    /// on each port's handle; of a mark, a marker or an item of another
+    /// project it is None. The fixture holds ticket `key`, blueprint `no`
+    /// and change `change`; `elsewhere` names an item of another project.
+    pub fn a_link_is_the_items_own(
+        t: &mut dyn Tickets,
+        key: &TicketKey,
+        b: &mut dyn Blueprints,
+        no: BlueprintNo,
+        c: &mut dyn CodeHost,
+        change: ChangeNo,
+        elsewhere: Ref<TicketKey>,
+    ) -> Law {
+        const LAW: &str = "cites::a_link_is_the_items_own";
+        let ticket = got(
+            LAW,
+            "the ticket",
+            t.ticket(key, Depth::Cut { notes: 0 }, None),
+        )?;
+        let blueprint = got(
+            LAW,
+            "the blueprint",
+            b.blueprint(no, Depth::Cut { notes: 0 }),
+        )?;
+        let digest = got(LAW, "the change", c.change(change, crate::ALL_MAX))?.digest;
+        let cases = [
+            (
+                t.link(&Cite::Ticket(Ref::Here(key.clone()))),
+                ticket.digest.link,
+            ),
+            (b.link(&Cite::Blueprint(Ref::Here(no))), blueprint.link),
+            (c.link(&Cite::Change(Ref::Here(change))), digest.link),
+        ];
+        for (have, want) in cases {
+            hold(have.as_ref() == Some(&want), LAW, || {
+                format!("linked {have:?}, the read gives {want:?}")
+            })?;
+        }
+        for what in [Cite::Mark(Mark::Epic), Cite::Ticket(elsewhere)] {
+            let have = t.link(&what);
+            hold(have.is_none(), LAW, || format!("{what:?} linked {have:?}"))?;
+        }
+        Ok(())
     }
 }
 

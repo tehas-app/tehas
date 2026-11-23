@@ -489,6 +489,7 @@ mod tests {
             base: crate::Branch::new("main").unwrap(),
             base_commit: crate::CommitId::new("abc1230").unwrap(),
             author: None,
+            author_relation: None,
             from_fork: false,
             draft: false,
             merge_state: crate::Mergeable::Unknown,
