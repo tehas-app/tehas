@@ -13,6 +13,7 @@
 //!   xtask kani-shard <kani-list.json> <index> <count>
 //!   xtask lean-test --root <dir> <file>
 //!   xtask lean-roster --root <dir> --report <file>
+//!   xtask lean-format <file>
 //!
 //! select-tests is scripts/select-tests.sh: src/select.rs says what it prints.
 //! pack-release is scripts/pack-release.sh, whose header (the --script) is its
@@ -65,6 +66,7 @@ fn main() -> ExitCode {
         Some("kani-shard") => kani_shard(&args[1..]),
         Some("lean-test") => lean_test(&args[1..]),
         Some("lean-roster") => lean_roster(&args[1..]),
+        Some("lean-format") => lean_format(&args[1..]),
         _ => {
             eprintln!("xtask: usage: xtask select-tests --root <dir> <path>...");
             eprintln!("       xtask pack-release --script <path> <argument>...");
@@ -77,6 +79,7 @@ fn main() -> ExitCode {
             eprintln!("       xtask kani-shard <kani-list.json> <index> <count>");
             eprintln!("       xtask lean-test --root <dir> <file>");
             eprintln!("       xtask lean-roster --root <dir> --report <file>");
+            eprintln!("       xtask lean-format <file>");
             ExitCode::from(64)
         }
     }
@@ -115,6 +118,14 @@ fn lean_test(args: &[String]) -> ExitCode {
     let prefix = format!("{}/", root.display());
     let file = file.strip_prefix(&prefix).unwrap_or(file);
     ExitCode::from(lean::run_test(&root, &all, file))
+}
+
+fn lean_format(args: &[String]) -> ExitCode {
+    let [file] = args else {
+        eprintln!("xtask: usage: xtask lean-format <file>");
+        return ExitCode::from(64);
+    };
+    ExitCode::from(lean::run_format(std::path::Path::new(file)))
 }
 
 fn lean_roster(args: &[String]) -> ExitCode {

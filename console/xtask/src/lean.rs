@@ -1,7 +1,8 @@
 //! The commands `.pi/work.json` gives pi-rukas's lean driver: `lean-test` runs
-//! one test target's file, and `lean-roster` runs every test target of the
+//! one test target's file, `lean-roster` runs every test target of the
 //! workspace and writes a JUnit report of each test, which lean compares
-//! between the head and the base of a run.
+//! between the head and the base of a run, and `lean-format` formats one
+//! submitted test before lean freezes it.
 //!
 //! Lean freezes tests as files, so only a file that is a test target of its
 //! own counts. Each target runs on its own: cargo prints which target runs on
@@ -238,6 +239,68 @@ pub fn run_roster(root: &Path, all: &[Target], report_to: &Path) -> u8 {
     status
 }
 
+/// rustfmt calls standard input `<stdin>`; lean needs the file named.
+pub fn name_stdin(stderr: &str, file: &str) -> String {
+    stderr.replace("<stdin>", file)
+}
+
+/// `lean-format`: format `file` in place. rustfmt reads it on standard input,
+/// so it does not follow the file's `mod x;` lines: a test naming a module it
+/// has not written yet still formats, and no other file is written. 0
+/// formatted, 1 rustfmt refused it (its errors on stderr, naming the file).
+pub fn run_format(file: &Path) -> u8 {
+    use std::io::Write as _;
+    use std::process::Stdio;
+    let src = match std::fs::read(file) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("lean-format: {}: {e}", file.display());
+            return 64;
+        }
+    };
+    let child = Command::new("rustfmt")
+        .args(["--edition", "2021", "--emit", "stdout"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    let mut child = match child {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("lean-format: rustfmt: {e}");
+            return 1;
+        }
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        if let Err(e) = stdin.write_all(&src) {
+            eprintln!("lean-format: rustfmt: {e}");
+            return 1;
+        }
+    }
+    let out = match child.wait_with_output() {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("lean-format: rustfmt: {e}");
+            return 1;
+        }
+    };
+    let name = file.display().to_string();
+    eprint!(
+        "{}",
+        name_stdin(&String::from_utf8_lossy(&out.stderr), &name)
+    );
+    if !out.status.success() {
+        return 1;
+    }
+    if out.stdout != src {
+        if let Err(e) = std::fs::write(file, &out.stdout) {
+            eprintln!("lean-format: {name}: {e}");
+            return 1;
+        }
+    }
+    0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,6 +408,20 @@ test result: FAILED. 1 passed; 1 failed; 1 ignored
         }];
         assert!(report(&[(t("p", "a", "f"), broken)])
             .contains("<testcase classname=\"p::a\" name=\"(build)\"><failure"));
+    }
+
+    #[test]
+    fn a_format_error_names_the_file_not_stdin() {
+        let e = "error: unclosed delimiter\n --> <stdin>:1:9\n";
+        assert_eq!(
+            name_stdin(e, "console/tests/AC1.rs"),
+            "error: unclosed delimiter\n --> console/tests/AC1.rs:1:9\n"
+        );
+    }
+
+    #[test]
+    fn a_missing_file_is_a_usage_error() {
+        assert_eq!(run_format(Path::new("/nonexistent/lean-format.rs")), 64);
     }
 
     #[test]

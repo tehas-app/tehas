@@ -4,7 +4,7 @@
     "fast": "scripts/verify.sh --changed",
     "full": "scripts/verify.sh",
     "test": "scripts/lean-test.sh {file}",
-    "format": "rustfmt --edition 2021 {file}",
+    "format": "scripts/lean-format.sh {file}",
     "roster": "scripts/lean-roster.sh {dir} {report}",
     "testDirs": [
       "console/tests",
