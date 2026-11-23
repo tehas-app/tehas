@@ -72,7 +72,7 @@ for gone in store-copy host-message-health refresh-pr-starts refresh-pr-lane ref
   t_eq "$gone $(jq --arg w "$gone" '.features | index($w)' <<<"$t_out")" "$gone null"
 done
 t_eq "$(jq -r '.features | last' <<<"$t_out")" "events"
-t_eq "$(jq -r '.features | length' <<<"$t_out")" 32
+t_eq "$(jq -r '.features | length' <<<"$t_out")" 33
 t_eq "$(jq -r '.features | index("host-bridge-tokens")' <<<"$t_out")" null
 # Every word of features is in the manual's example and has its own entry,
 # with what it is, in the manual's row of features.
@@ -329,7 +329,7 @@ t_eq "$(jq -c '.flags | keys_unsorted' "$T_ROOT/api/api.sample.json")" "$(jq -c 
 t_case "api.schema.json refuses a field it does not name, a flag that is no boolean and a word of another form"
 reset
 t_eq "$(jq '.zz = 1 | .flags.lean = "on" | .features += ["Two words"]' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
-  "$(printf '%s\n' '.zz: not in the schema' '.features[32]: "Two words" does not match "^[a-z][a-z0-9-]*$"' '.flags.lean: string, not boolean')"
+  "$(printf '%s\n' '.zz: not in the schema' '.features[33]: "Two words" does not match "^[a-z][a-z0-9-]*$"' '.flags.lean: string, not boolean')"
 t_eq "$(jq 'del(.poll.last.ageMin) | .poll.hour.polls = -1' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
   "$(printf '%s\n' '.poll.last: ageMin is missing' '.poll.hour.polls: -1 is under 0')"
 
