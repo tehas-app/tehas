@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex};
 use tehas_core::forge::GhRunner;
 use tehas_github::{table, GitHub};
 use tehas_ports::{
-    Act, Bound, ChangeNo, CodeHost, CodeHostWrites, CommitId, Mark, MarkName, Marker, MarkerKind,
-    Outcome, Passing, Pool, Refusal, Sent, State, TagName, Unread,
+    Act, ChangeNo, CodeHostWrites, CommitId, Mark, MarkName, Marker, MarkerKind, Outcome, Passing,
+    Pool, Refusal, Sent, State, TagName, Unread,
 };
 
 const PROJECT: &str = "acme/widget";
@@ -387,6 +387,37 @@ fn a_comment_with_markers_is_refused_before_any_request() {
     assert!(taken(&calls).is_empty());
 }
 
+/// The handoff line pi-rukas starts a cycle's comment with: not a marker of
+/// tehas's.
+const HANDOFF: &str = "<!-- pi-rukas:handoff issue=7 cap=budget -->";
+
+/// The comment `body` is posted once, and the JSON sent holds it byte for
+/// byte.
+fn posted_once(body: &str) {
+    let (mut gh, calls) = adapter(vec![
+        Ok(sample("pull-8-open.json")),
+        Ok(sample("comment-8-created.json")),
+    ]);
+    assert!(gh.comment_change(no(8), body, &[]).is_ok(), "{body}");
+    let calls = taken(&calls);
+    let posts: Vec<_> = calls.iter().filter(|c| c.args == args(&POST)).collect();
+    assert_eq!(posts.len(), 1);
+    let sent: Input = serde_json::from_str(posts[0].input.as_deref().unwrap()).unwrap();
+    assert_eq!(sent.body, body);
+}
+
+#[test]
+fn a_comment_that_starts_with_pi_rukass_handoff_line_is_posted_as_given() {
+    posted_once(&format!(
+        "{HANDOFF}\nThe cycle handed off: the budget ran out."
+    ));
+}
+
+#[test]
+fn a_foreign_comment_that_names_tehas_later_inside_it_is_posted_as_given() {
+    posted_once("<!-- pi-rukas:handoff issue=7 cap=budget, see tehas: the factory -->\nDone.");
+}
+
 #[test]
 fn each_failure_of_a_comments_post_is_its_outcome_and_it_is_never_sent_again() {
     let mut cases = write_failures();
@@ -754,10 +785,10 @@ fn no_outcome_line_holds_the_input_or_githubs_words() {
     }
 }
 
-// What is not answered yet.
+// What is not answered yet: the reads are code_host.rs's.
 
 #[test]
-fn every_other_write_and_every_read_is_unsupported_before_any_request() {
+fn every_other_write_is_unsupported_before_any_request() {
     let (mut gh, calls) = adapter(vec![]);
     let unsupported = Err(Outcome::Refused(Refusal::Unsupported));
     let head = CommitId::new("e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1").unwrap();
@@ -768,11 +799,5 @@ fn every_other_write_and_every_read_is_unsupported_before_any_request() {
     );
     let tag = TagName::new("v1.0.0").unwrap();
     assert_eq!(gh.tag(&tag, &head), unsupported);
-    assert_eq!(
-        gh.change(no(8), Bound::new(10).unwrap()).map(|_| ()),
-        unsupported
-    );
-    assert_eq!(gh.facts().map(|_| ()), unsupported);
-    assert_eq!(gh.resolve_tag(&tag).map(|_| ()), unsupported);
     assert!(taken(&calls).is_empty());
 }

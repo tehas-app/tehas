@@ -25,12 +25,9 @@ use crate::{ForgeError, GitHub};
 use serde_json::Value;
 use tehas_core::text::has_marker;
 use tehas_ports::{
-    Access, Applied, Blobs, Bound, Branch, Change, ChangeDelta, ChangeDigest, ChangeEvent,
-    ChangeFilter, ChangeNo, ChangeToken, ChangedFile, Checks, CodeHost, CodeHostWrites, CommentId,
-    CommitId, Compared, Cursor, Did, Facts, FileName, Got, Mark, Marker, MarkerEdit, MergeHow,
-    NewChange, NewRelease, Outcome, Pool, Posted, Proposal, ProposalPart, Proposed, Refusal,
-    Release, ReleaseId, Remote, RepoPath, Rev, Sent, Status, Sum, Tag, TagName, Took, Unread,
-    WebLink, Whole, Window,
+    Applied, Blobs, ChangeNo, CodeHostWrites, CommentId, CommitId, Did, FileName, Got, Mark,
+    Marker, MarkerEdit, MergeHow, NewChange, NewRelease, Outcome, Pool, Posted, Proposal,
+    ProposalPart, Proposed, Refusal, ReleaseId, Sent, Status, Sum, TagName, Unread, WebLink,
 };
 
 /// What `GhRunner::run_input`'s default answers: the runner sends nothing.
@@ -144,69 +141,6 @@ impl CodeHostWrites for GitHub {
     }
 
     fn publish_release(&mut self, _: &ReleaseId) -> Did {
-        unsupported()
-    }
-}
-
-/// `CodeHostWrites` needs a `CodeHost`. Until the code host's reads are
-/// answered in `code_host.rs`, every read answers `Refused(Unsupported)`
-/// before any request; that module's answers replace this block.
-impl CodeHost for GitHub {
-    fn facts(&mut self) -> Got<Facts> {
-        unsupported()
-    }
-    fn branch(&mut self, _: &Branch) -> Got<Option<CommitId>> {
-        unsupported()
-    }
-    fn compare(&mut self, _: &CommitId, _: &CommitId) -> Got<Compared> {
-        unsupported()
-    }
-    fn file(&mut self, _: &RepoPath, _: &Rev, _: u64) -> Got<Vec<u8>> {
-        unsupported()
-    }
-    fn changes(&mut self, _: &ChangeFilter, _: Bound) -> Got<Whole<ChangeDigest>> {
-        unsupported()
-    }
-    fn change(&mut self, _: ChangeNo, _: Bound) -> Got<Change> {
-        unsupported()
-    }
-    fn changed_files(&mut self, _: ChangeNo, _: Bound) -> Got<Whole<ChangedFile>> {
-        unsupported()
-    }
-    fn activity(&mut self, _: ChangeNo, _: Window) -> Got<Took<ChangeEvent>> {
-        unsupported()
-    }
-    fn checks(&mut self, _: &CommitId, _: Option<&str>) -> Got<Checks> {
-        unsupported()
-    }
-    fn tags(&mut self, _: Bound) -> Got<Whole<Tag>> {
-        unsupported()
-    }
-    fn resolve_tag(&mut self, _: &TagName) -> Got<CommitId> {
-        unsupported()
-    }
-    fn releases(&mut self, _: Bound) -> Got<Whole<Release>> {
-        unsupported()
-    }
-    fn latest_release(&mut self) -> Got<Option<Release>> {
-        unsupported()
-    }
-    fn release(&mut self, _: &TagName) -> Got<Release> {
-        unsupported()
-    }
-    fn download(&mut self, _: &TagName, _: &FileName, _: u64, _: &mut dyn std::io::Write) -> Did {
-        unsupported()
-    }
-    fn archive(&mut self, _: &CommitId, _: u64, _: &mut dyn std::io::Write) -> Did {
-        unsupported()
-    }
-    fn changed(&mut self, _: Option<&ChangeToken>) -> Got<(bool, ChangeToken)> {
-        unsupported()
-    }
-    fn delta(&mut self, _: Option<&Cursor>, _: Bound) -> Got<ChangeDelta> {
-        unsupported()
-    }
-    fn remote(&mut self, _: Access) -> Got<Remote> {
         unsupported()
     }
 }
