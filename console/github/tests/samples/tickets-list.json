@@ -1,0 +1,556 @@
+[
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": [
+        {
+          "author": {
+            "id": "101",
+            "kind": "Person",
+            "login": "alice",
+            "realm": "CodeHost"
+          },
+          "created": 1769936400,
+          "key": {
+            "Number": 20
+          },
+          "kind": {
+            "type": "Feature"
+          },
+          "link": "https://github.com/acme/widget/issues/20",
+          "marks": [
+            {
+              "type": "Project",
+              "value": "bug"
+            },
+            {
+              "type": "State",
+              "value": "Shipped"
+            }
+          ],
+          "priority": "Normal",
+          "revision": "2026-02-03T12:00:00Z",
+          "state": {
+            "Closed": "Done"
+          },
+          "target": {
+            "id": "3",
+            "title": "v2"
+          },
+          "title": "Ship the importer",
+          "updated": 1770120000
+        },
+        {
+          "author": {
+            "id": "102",
+            "kind": "Person",
+            "login": "bob",
+            "realm": "CodeHost"
+          },
+          "created": 1769940000,
+          "key": {
+            "Number": 21
+          },
+          "kind": null,
+          "link": "https://github.com/acme/widget/issues/21",
+          "marks": [
+            {
+              "type": "Act",
+              "value": "Approve"
+            }
+          ],
+          "priority": "Normal",
+          "revision": "2026-02-01T10:00:30Z",
+          "state": "Open",
+          "target": null,
+          "title": "Read the old export",
+          "updated": 1769940030
+        },
+        {
+          "author": {
+            "id": "101",
+            "kind": "Person",
+            "login": "alice",
+            "realm": "CodeHost"
+          },
+          "created": 1769940000,
+          "key": {
+            "Number": 22
+          },
+          "kind": null,
+          "link": "https://github.com/acme/widget/issues/22",
+          "marks": [],
+          "priority": "Normal",
+          "revision": "2026-02-02T10:00:00Z",
+          "state": {
+            "Closed": "NotPlanned"
+          },
+          "target": null,
+          "title": "Drop the old export",
+          "updated": 1770026400
+        },
+        {
+          "author": {
+            "id": "900",
+            "kind": "Bot",
+            "login": "tehas-bot",
+            "realm": "CodeHost"
+          },
+          "created": 1769943600,
+          "key": {
+            "Number": 23
+          },
+          "kind": {
+            "type": "Bug"
+          },
+          "link": "https://github.com/acme/widget/issues/23",
+          "marks": [
+            {
+              "type": "Project",
+              "value": "bug"
+            },
+            {
+              "type": "Act",
+              "value": "Block"
+            }
+          ],
+          "priority": "Normal",
+          "revision": "2026-02-01T11:30:00Z",
+          "state": "Open",
+          "target": null,
+          "title": "Fix the reader",
+          "updated": 1769945400
+        },
+        {
+          "author": {
+            "id": "101",
+            "kind": "Person",
+            "login": "alice",
+            "realm": "CodeHost"
+          },
+          "created": 1769990400,
+          "key": {
+            "Number": 25
+          },
+          "kind": null,
+          "link": "https://github.com/acme/widget/issues/25",
+          "marks": [
+            {
+              "type": "Act",
+              "value": "Pause"
+            }
+          ],
+          "priority": "Normal",
+          "revision": "2026-02-02T01:43:00Z",
+          "state": "Open",
+          "target": null,
+          "title": "Hold the line",
+          "updated": 1769996580
+        }
+      ]
+    },
+    "bound": 5,
+    "filter": {
+      "carrying": [],
+      "kind": null,
+      "open": null,
+      "target": null
+    },
+    "fixture": "The project holds five tickets. In the order filed: 20, closed as done, a feature of the target v2 with the mark bug and the shipped state; 21, open, with the approval; 22, closed as not planned, filed in the same second as 21; 23, open, a bug filed by the factory's bot, with the mark bug and the block; 25, open, with the pause.",
+    "op": "Tickets::list"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Cut"
+      }
+    },
+    "bound": 4,
+    "filter": {
+      "carrying": [],
+      "kind": null,
+      "open": null,
+      "target": null
+    },
+    "fixture": "The project holds five tickets. In the order filed: 20, closed as done, a feature of the target v2 with the mark bug and the shipped state; 21, open, with the approval; 22, closed as not planned, filed in the same second as 21; 23, open, a bug filed by the factory's bot, with the mark bug and the block; 25, open, with the pause.",
+    "op": "Tickets::list"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": [
+        {
+          "author": {
+            "id": "102",
+            "kind": "Person",
+            "login": "bob",
+            "realm": "CodeHost"
+          },
+          "created": 1769940000,
+          "key": {
+            "Number": 21
+          },
+          "kind": null,
+          "link": "https://github.com/acme/widget/issues/21",
+          "marks": [
+            {
+              "type": "Act",
+              "value": "Approve"
+            }
+          ],
+          "priority": "Normal",
+          "revision": "2026-02-01T10:00:30Z",
+          "state": "Open",
+          "target": null,
+          "title": "Read the old export",
+          "updated": 1769940030
+        },
+        {
+          "author": {
+            "id": "900",
+            "kind": "Bot",
+            "login": "tehas-bot",
+            "realm": "CodeHost"
+          },
+          "created": 1769943600,
+          "key": {
+            "Number": 23
+          },
+          "kind": {
+            "type": "Bug"
+          },
+          "link": "https://github.com/acme/widget/issues/23",
+          "marks": [
+            {
+              "type": "Project",
+              "value": "bug"
+            },
+            {
+              "type": "Act",
+              "value": "Block"
+            }
+          ],
+          "priority": "Normal",
+          "revision": "2026-02-01T11:30:00Z",
+          "state": "Open",
+          "target": null,
+          "title": "Fix the reader",
+          "updated": 1769945400
+        },
+        {
+          "author": {
+            "id": "101",
+            "kind": "Person",
+            "login": "alice",
+            "realm": "CodeHost"
+          },
+          "created": 1769990400,
+          "key": {
+            "Number": 25
+          },
+          "kind": null,
+          "link": "https://github.com/acme/widget/issues/25",
+          "marks": [
+            {
+              "type": "Act",
+              "value": "Pause"
+            }
+          ],
+          "priority": "Normal",
+          "revision": "2026-02-02T01:43:00Z",
+          "state": "Open",
+          "target": null,
+          "title": "Hold the line",
+          "updated": 1769996580
+        }
+      ]
+    },
+    "bound": 50,
+    "filter": {
+      "carrying": [],
+      "kind": null,
+      "open": true,
+      "target": null
+    },
+    "fixture": "The project holds five tickets. In the order filed: 20, closed as done, a feature of the target v2 with the mark bug and the shipped state; 21, open, with the approval; 22, closed as not planned, filed in the same second as 21; 23, open, a bug filed by the factory's bot, with the mark bug and the block; 25, open, with the pause.",
+    "op": "Tickets::list"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": [
+        {
+          "author": {
+            "id": "101",
+            "kind": "Person",
+            "login": "alice",
+            "realm": "CodeHost"
+          },
+          "created": 1769936400,
+          "key": {
+            "Number": 20
+          },
+          "kind": {
+            "type": "Feature"
+          },
+          "link": "https://github.com/acme/widget/issues/20",
+          "marks": [
+            {
+              "type": "Project",
+              "value": "bug"
+            },
+            {
+              "type": "State",
+              "value": "Shipped"
+            }
+          ],
+          "priority": "Normal",
+          "revision": "2026-02-03T12:00:00Z",
+          "state": {
+            "Closed": "Done"
+          },
+          "target": {
+            "id": "3",
+            "title": "v2"
+          },
+          "title": "Ship the importer",
+          "updated": 1770120000
+        },
+        {
+          "author": {
+            "id": "101",
+            "kind": "Person",
+            "login": "alice",
+            "realm": "CodeHost"
+          },
+          "created": 1769940000,
+          "key": {
+            "Number": 22
+          },
+          "kind": null,
+          "link": "https://github.com/acme/widget/issues/22",
+          "marks": [],
+          "priority": "Normal",
+          "revision": "2026-02-02T10:00:00Z",
+          "state": {
+            "Closed": "NotPlanned"
+          },
+          "target": null,
+          "title": "Drop the old export",
+          "updated": 1770026400
+        }
+      ]
+    },
+    "bound": 50,
+    "filter": {
+      "carrying": [],
+      "kind": null,
+      "open": false,
+      "target": null
+    },
+    "fixture": "The project holds five tickets. In the order filed: 20, closed as done, a feature of the target v2 with the mark bug and the shipped state; 21, open, with the approval; 22, closed as not planned, filed in the same second as 21; 23, open, a bug filed by the factory's bot, with the mark bug and the block; 25, open, with the pause.",
+    "op": "Tickets::list"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": [
+        {
+          "author": {
+            "id": "900",
+            "kind": "Bot",
+            "login": "tehas-bot",
+            "realm": "CodeHost"
+          },
+          "created": 1769943600,
+          "key": {
+            "Number": 23
+          },
+          "kind": {
+            "type": "Bug"
+          },
+          "link": "https://github.com/acme/widget/issues/23",
+          "marks": [
+            {
+              "type": "Project",
+              "value": "bug"
+            },
+            {
+              "type": "Act",
+              "value": "Block"
+            }
+          ],
+          "priority": "Normal",
+          "revision": "2026-02-01T11:30:00Z",
+          "state": "Open",
+          "target": null,
+          "title": "Fix the reader",
+          "updated": 1769945400
+        }
+      ]
+    },
+    "bound": 50,
+    "filter": {
+      "carrying": [
+        {
+          "type": "Project",
+          "value": "bug"
+        },
+        {
+          "type": "Act",
+          "value": "Block"
+        }
+      ],
+      "kind": null,
+      "open": true,
+      "target": null
+    },
+    "fixture": "The project holds five tickets. In the order filed: 20, closed as done, a feature of the target v2 with the mark bug and the shipped state; 21, open, with the approval; 22, closed as not planned, filed in the same second as 21; 23, open, a bug filed by the factory's bot, with the mark bug and the block; 25, open, with the pause.",
+    "op": "Tickets::list"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": []
+    },
+    "bound": 50,
+    "filter": {
+      "carrying": [
+        {
+          "type": "Act",
+          "value": "Refine"
+        }
+      ],
+      "kind": null,
+      "open": true,
+      "target": null
+    },
+    "fixture": "The project holds five tickets. In the order filed: 20, closed as done, a feature of the target v2 with the mark bug and the shipped state; 21, open, with the approval; 22, closed as not planned, filed in the same second as 21; 23, open, a bug filed by the factory's bot, with the mark bug and the block; 25, open, with the pause.",
+    "op": "Tickets::list"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": [
+        {
+          "author": {
+            "id": "101",
+            "kind": "Person",
+            "login": "alice",
+            "realm": "CodeHost"
+          },
+          "created": 1769936400,
+          "key": {
+            "Number": 20
+          },
+          "kind": {
+            "type": "Feature"
+          },
+          "link": "https://github.com/acme/widget/issues/20",
+          "marks": [
+            {
+              "type": "Project",
+              "value": "bug"
+            },
+            {
+              "type": "State",
+              "value": "Shipped"
+            }
+          ],
+          "priority": "Normal",
+          "revision": "2026-02-03T12:00:00Z",
+          "state": {
+            "Closed": "Done"
+          },
+          "target": {
+            "id": "3",
+            "title": "v2"
+          },
+          "title": "Ship the importer",
+          "updated": 1770120000
+        }
+      ]
+    },
+    "bound": 50,
+    "filter": {
+      "carrying": [],
+      "kind": {
+        "type": "Feature"
+      },
+      "open": null,
+      "target": null
+    },
+    "fixture": "The project holds five tickets. In the order filed: 20, closed as done, a feature of the target v2 with the mark bug and the shipped state; 21, open, with the approval; 22, closed as not planned, filed in the same second as 21; 23, open, a bug filed by the factory's bot, with the mark bug and the block; 25, open, with the pause.",
+    "op": "Tickets::list"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": [
+        {
+          "author": {
+            "id": "101",
+            "kind": "Person",
+            "login": "alice",
+            "realm": "CodeHost"
+          },
+          "created": 1769936400,
+          "key": {
+            "Number": 20
+          },
+          "kind": {
+            "type": "Feature"
+          },
+          "link": "https://github.com/acme/widget/issues/20",
+          "marks": [
+            {
+              "type": "Project",
+              "value": "bug"
+            },
+            {
+              "type": "State",
+              "value": "Shipped"
+            }
+          ],
+          "priority": "Normal",
+          "revision": "2026-02-03T12:00:00Z",
+          "state": {
+            "Closed": "Done"
+          },
+          "target": {
+            "id": "3",
+            "title": "v2"
+          },
+          "title": "Ship the importer",
+          "updated": 1770120000
+        }
+      ]
+    },
+    "bound": 50,
+    "filter": {
+      "carrying": [],
+      "kind": null,
+      "open": null,
+      "target": "3"
+    },
+    "fixture": "The project holds five tickets. In the order filed: 20, closed as done, a feature of the target v2 with the mark bug and the shipped state; 21, open, with the approval; 22, closed as not planned, filed in the same second as 21; 23, open, a bug filed by the factory's bot, with the mark bug and the block; 25, open, with the pause.",
+    "op": "Tickets::list"
+  }
+]
