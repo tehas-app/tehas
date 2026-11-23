@@ -259,6 +259,81 @@ fn code_host_updated_is_at_or_after_every_time() {
 }
 
 #[test]
+fn code_host_checks_hold_the_newest_run_of_each_name() {
+    let run = |name: &str, status: CheckStatus| Check::new(name.into(), status);
+    for w in both() {
+        let at = w.head("main").unwrap();
+        let w = w
+            .check(&at, run("gate", CheckStatus::Done(Conclusion::Failed)))
+            .check(&at, run("lint", CheckStatus::Done(Conclusion::Passed)))
+            .check(&at, run("gate", CheckStatus::Done(Conclusion::Passed)));
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        ok(laws::code_host::checks_hold_the_newest_run_of_each_name(
+            h.as_mut(),
+            &at,
+            "gate",
+        ));
+        // The old failure beside its passing re-run is not read.
+        assert_eq!(h.checks(&at, None).unwrap().overall, Overall::Pass);
+    }
+}
+
+/// `Overall::of` adds the runs up as the dispatcher's check_state reads
+/// them.
+#[test]
+fn overall_follows_the_dispatchers_reading() {
+    let run = |status: CheckStatus| Check::new("c".into(), status);
+    let done = |c: Conclusion| run(CheckStatus::Done(c));
+    let cases = [
+        (vec![], Overall::None),
+        (vec![done(Conclusion::Passed)], Overall::Pass),
+        (vec![done(Conclusion::Skipped)], Overall::Pass),
+        (vec![done(Conclusion::Failed)], Overall::Fail),
+        (vec![done(Conclusion::Cancelled)], Overall::Unknown),
+        (vec![done(Conclusion::Unknown)], Overall::Unknown),
+        (vec![run(CheckStatus::Queued)], Overall::Pending),
+        (vec![run(CheckStatus::Running)], Overall::Pending),
+        (
+            vec![done(Conclusion::Cancelled), run(CheckStatus::Running)],
+            Overall::Pending,
+        ),
+        (
+            vec![done(Conclusion::Passed), done(Conclusion::Failed)],
+            Overall::Fail,
+        ),
+        (
+            vec![done(Conclusion::Failed), run(CheckStatus::Running)],
+            Overall::Fail,
+        ),
+        (
+            vec![done(Conclusion::Passed), done(Conclusion::Cancelled)],
+            Overall::Unknown,
+        ),
+    ];
+    for (runs, want) in cases {
+        assert_eq!(Overall::of(&runs), want, "{runs:?}");
+    }
+}
+
+#[test]
+fn code_host_carrying_takes_changes_with_every_mark() {
+    for w in both() {
+        let n = first_change(&w);
+        let refreshing = Mark::State(State::Refreshing);
+        let w = w
+            .change(n, "work", |c| c.title("a").mark(refreshing.clone()))
+            .change(n + 1, "other", |c| c.title("b"));
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        ok(laws::code_host::carrying_takes_changes_with_every_mark(
+            h.as_mut(),
+            &[refreshing],
+        ));
+    }
+}
+
+#[test]
 fn a_change_records_its_base_commit_and_what_its_text_closes() {
     for w in both() {
         let n = first_change(&w);

@@ -11,12 +11,11 @@ use super::tickets::{close_item, page, since, token};
 use crate::{
     Access, Actor, Applied, Blobs, Branch, Change, ChangeDelta, ChangeDigest, ChangeEvent,
     ChangeFilter, ChangeHappened, ChangeNo, ChangeState, ChangeStates, ChangeToken, ChangedFile,
-    CheckStatus, Checks, CloseReason, Closer, CodeHost, CodeHostWrites, CommentId, CommitId,
-    Compared, Conclusion, Cursor, Did, Facts, FileName, GitCredential, GitRemote, Got, Lost, Mark,
-    Marker, MarkerEdit, MergeHow, Mergeable, NewChange, NewRelease, Outcome, Overall, Pool, Posted,
-    Proposal, ProposalPart, Proposed, Ref, Refusal, Release, ReleaseFile, ReleaseId, Remote,
-    RepoPath, Rev, Secret, Status, Sum, Tag, TagName, Takeover, Token, Took, Unread, WebLink,
-    Whole, Window, Write,
+    Checks, CloseReason, Closer, CodeHost, CodeHostWrites, CommentId, CommitId, Compared, Cursor,
+    Did, Facts, FileName, GitCredential, GitRemote, Got, Lost, Mark, Marker, MarkerEdit, MergeHow,
+    Mergeable, NewChange, NewRelease, Outcome, Overall, Pool, Posted, Proposal, ProposalPart,
+    Proposed, Ref, Refusal, Release, ReleaseFile, ReleaseId, Remote, RepoPath, Rev, Secret, Status,
+    Sum, Tag, TagName, Takeover, Token, Took, Unread, WebLink, Whole, Window, Write,
 };
 use crate::{Author, Bound};
 
@@ -119,6 +118,7 @@ fn taken(s: &State, ctx: &Ctx, c: &ChangeRec, f: &ChangeFilter) -> bool {
         && author_ok
         && merged_ok
         && f.head.as_ref().is_none_or(|h| c.head == *h)
+        && f.carrying.iter().all(|m| c.marks.contains(m))
         && (f.closing.is_empty() || c.closes.iter().any(|n| f.closing.contains(n)))
         && f.updated_since.is_none_or(|u| updated >= u)
         && (f.numbers.is_empty() || f.numbers.contains(&c.no))
@@ -250,37 +250,23 @@ impl CodeHost for Handle {
         })
     }
 
-    /// The overall is `Fail` when a check failed or was cancelled,
-    /// `Pending` while one runs, `Pass` when all passed or were skipped,
-    /// `None` with no check.
+    /// The newest run of each name, the last the world was given.
     fn checks(&mut self, at: &CommitId, name: Option<&str>) -> Got<Checks> {
         self.run(Pool::Calls, |s, _| {
             s.commit(at).ok_or(Outcome::NotFound)?;
-            let runs: Vec<crate::Check> = s
+            let mut runs: Vec<crate::Check> = Vec::new();
+            for (_, k) in s
                 .checks
                 .iter()
                 .filter(|(c, k)| c == at && name.is_none_or(|n| k.name == n))
-                .map(|(_, k)| k.clone())
-                .collect();
-            let failed = runs.iter().any(|r| {
-                matches!(
-                    r.status,
-                    CheckStatus::Done(Conclusion::Failed | Conclusion::Cancelled)
-                )
-            });
-            let pending = runs
-                .iter()
-                .any(|r| !matches!(r.status, CheckStatus::Done(_)));
-            let overall = if runs.is_empty() {
-                Overall::None
-            } else if failed {
-                Overall::Fail
-            } else if pending {
-                Overall::Pending
-            } else {
-                Overall::Pass
-            };
-            Ok(Checks { runs, overall })
+            {
+                runs.retain(|r| r.name != k.name);
+                runs.push(k.clone());
+            }
+            Ok(Checks {
+                overall: Overall::of(&runs),
+                runs,
+            })
         })
     }
 

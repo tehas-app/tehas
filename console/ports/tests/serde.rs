@@ -1213,6 +1213,7 @@ fn the_code_host_reads_back() {
         states: ChangeStates::All,
         author: Some(Author::Account(AccountId::new("1"))),
         head: Some(branch("work")),
+        carrying: vec![Mark::State(State::Refreshing)],
         closing: vec![bp(7)],
         merged_since: Some(At::new(1)),
         updated_since: None,
@@ -1245,6 +1246,7 @@ fn the_code_host_reads_back() {
         Overall::Fail,
         Overall::Pending,
         Overall::None,
+        Overall::Unknown,
     ] {
         round({
             let mut checks = Checks::default();

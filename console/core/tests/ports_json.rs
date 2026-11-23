@@ -343,6 +343,22 @@ fn a_ticket_digest_stored_without_a_parent_reads_as_none() {
 }
 
 #[test]
+fn a_change_filter_stored_without_carrying_and_an_unknown_overall_read() {
+    let f = read!(
+        ChangeFilter,
+        r#"{"states":"Open","author":null,"head":null,"closing":[],"merged_since":null,"updated_since":null,"numbers":[],"bodies":false}"#
+    );
+    assert_eq!(f, ChangeFilter::default());
+    let carrying = ChangeFilter {
+        carrying: vec![Mark::State(State::Refreshing)],
+        ..ChangeFilter::default()
+    };
+    round!(carrying);
+    assert_eq!(read!(Overall, r#""Unknown""#), Overall::Unknown);
+    round!(Overall::Unknown);
+}
+
+#[test]
 fn an_old_spec_marker_reads_as_unknown() {
     // The Spec marker left with the Spec marks (#2892): a record that still
     // holds one reads under the one rule, as a tag this copy does not know.

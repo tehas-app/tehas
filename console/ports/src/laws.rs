@@ -315,6 +315,66 @@ pub mod code_host {
         Ok(got(law, "the change", h.change(no, ALL_MAX))?.digest.state)
     }
 
+    /// The checks on a commit hold one run of each name, and `overall` is
+    /// `Overall::of` them; asked by name, the one run of that name. The
+    /// fixture's commit `at` holds runs of `name`, more than one.
+    pub fn checks_hold_the_newest_run_of_each_name(
+        h: &mut dyn crate::CodeHost,
+        at: &CommitId,
+        name: &str,
+    ) -> Law {
+        const LAW: &str = "code_host::checks_hold_the_newest_run_of_each_name";
+        let all = got(LAW, "the checks", h.checks(at, None))?;
+        for (i, r) in all.runs.iter().enumerate() {
+            hold(
+                !all.runs[i + 1..].iter().any(|o| o.name == r.name),
+                LAW,
+                || format!("{} is given more than once", r.name),
+            )?;
+        }
+        hold(all.overall == crate::Overall::of(&all.runs), LAW, || {
+            format!("overall is {:?} for {:?}", all.overall, all.runs)
+        })?;
+        let one = got(LAW, "the checks of a name", h.checks(at, Some(name)))?;
+        let want: Vec<_> = all
+            .runs
+            .iter()
+            .filter(|r| r.name == name)
+            .cloned()
+            .collect();
+        hold(one.runs == want && want.len() == 1, LAW, || {
+            format!("{name} answered {:?}, the whole read {want:?}", one.runs)
+        })
+    }
+
+    /// `ChangeFilter.carrying` takes the changes that carry every one of
+    /// the marks, and empty narrows nothing. The fixture holds a change
+    /// carrying `marks` and one that does not, within `ALL_MAX`.
+    pub fn carrying_takes_changes_with_every_mark(
+        h: &mut dyn crate::CodeHost,
+        marks: &[crate::Mark],
+    ) -> Law {
+        const LAW: &str = "code_host::carrying_takes_changes_with_every_mark";
+        let every = crate::ChangeFilter {
+            states: crate::ChangeStates::All,
+            ..Default::default()
+        };
+        let all = got(LAW, "every change", h.changes(&every, ALL_MAX))?.into_items();
+        let carrying = crate::ChangeFilter {
+            carrying: marks.to_vec(),
+            ..every
+        };
+        let have = got(LAW, "the changes carrying", h.changes(&carrying, ALL_MAX))?.into_items();
+        let want: Vec<_> = all
+            .into_iter()
+            .filter(|c| marks.iter().all(|m| c.marks.contains(m)))
+            .collect();
+        hold(have == want, LAW, || {
+            let nos = |l: &[crate::ChangeDigest]| l.iter().map(|c| c.no.get()).collect::<Vec<_>>();
+            format!("carrying took {:?}, not {:?}", nos(&have), nos(&want))
+        })
+    }
+
     /// A change's `updated` is at or after its `created`, its `edited` and
     /// its merge or close, in every state; and with bodies asked, what it
     /// says it closes is given beside them. The fixture holds changes
