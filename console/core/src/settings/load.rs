@@ -180,6 +180,36 @@ pub(super) fn ignored(name: &str) -> bool {
     IGNORED.iter().any(|(n, _)| *n == name)
 }
 
+/// Why the load drops `name`, when it is one of `IGNORED`.
+pub fn ignored_why(name: &str) -> Option<&'static str> {
+    IGNORED
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, why)| *why)
+}
+
+/// The names of `IGNORED`, for a check that every one is covered.
+pub fn ignored_list() -> impl Iterator<Item = &'static str> {
+    IGNORED.iter().map(|(n, _)| *n)
+}
+
+/// The names the lines of `text` set, each once, in the order of their first
+/// line. The lines are read as text, not run.
+pub fn names_in(text: &[u8]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for line in text.split(|b| *b == b'\n') {
+        let line = bare_line(line);
+        let Some(at) = line.iter().position(|b| *b == b'=') else {
+            continue;
+        };
+        let name = String::from_utf8_lossy(&line[..at]).into_owned();
+        if is_name(name.as_bytes()) && !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names
+}
+
 /// What the shell of the source sets for itself. BASH_ENV is not given to it:
 /// that file would run in the shell that reads the settings.
 const SHELL_OWN: [&str; 5] = ["_", "PWD", "OLDPWD", "SHLVL", "BASH_ENV"];
@@ -2480,6 +2510,21 @@ mod tests {
         ignored_names(&mut vars, &mut host, GONE);
         assert!(!vars.is_set("TEHAS_GONE"));
         assert!(!String::from_utf8_lossy(&script(&start(&[]), &vars)).contains("TEHAS_GONE"));
+    }
+
+    #[test]
+    fn names_in_reads_each_name_a_line_sets_once_in_order() {
+        let text = b"# TEHAS_COMMENT=1\nTEHAS_REPO=a/b\n  export TEHAS_MCP=1\nnot a line\nTEHAS_REPO=c/d\n1BAD=x\n";
+        assert_eq!(names_in(text), ["TEHAS_REPO", "TEHAS_MCP"]);
+    }
+
+    #[test]
+    fn ignored_why_gives_the_tables_reason_and_nothing_for_another_name() {
+        for (name, why) in IGNORED {
+            assert_eq!(ignored_why(name), Some(*why));
+        }
+        assert_eq!(ignored_list().count(), IGNORED.len());
+        assert_eq!(ignored_why("TEHAS_REPO"), None);
     }
 
     #[test]
