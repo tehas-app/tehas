@@ -62,6 +62,7 @@ fn ids_read_back() {
     round(CommentId::new("c1"));
     round(TargetId::new("t1"));
     round(ReleaseId::new("r1"));
+    round(MarkId::new("m1"));
     round(AttachmentId::new("a1"));
     round(Revision::new("rev"));
     round(ChangeToken::new("tok"));
@@ -790,6 +791,7 @@ fn digest() -> TicketDigest {
         ticket_digest.marks = vec![Mark::Act(Act::Approve)];
         ticket_digest.target = Some(TargetName::new(TargetId::new("t1"), "2.0".into()));
         ticket_digest.author = Some(account());
+        ticket_digest.parent = Some(Ref::Here(tkey(9)));
         ticket_digest
     }
 }
@@ -891,6 +893,11 @@ fn tickets_read_back() {
     assert_eq!(kinds.len(), 13, "one kind for each event");
     round(TicketEvent::new(Happened::Reopened));
     round({
+        let mut e = TicketEvent::new(Happened::Marked(Mark::Act(Act::Approve)));
+        e.mark_id = Some(MarkId::new("LA_1"));
+        e
+    });
+    round({
         let mut target = Target::new(TargetId::new("t"), "2.0".into(), At::new(1));
         target.due = Some(At::new(9));
         target.open = true;
@@ -911,6 +918,7 @@ fn tickets_read_back() {
     round(Filter {
         open: Some(true),
         carrying: vec![Mark::Act(Act::Plan)],
+        carrying_any: vec![Mark::State(State::Running), Mark::Epic],
         kind: Some(Kind::Feature),
         target: Some(TargetId::new("t")),
     });
@@ -1054,7 +1062,9 @@ fn change_digest() -> ChangeDigest {
             branch("work"),
             commit(),
             branch("main"),
+            commit(),
             At::new(1),
+            At::new(2),
             link(),
         );
         change_digest.title = "c".into();
@@ -1062,6 +1072,7 @@ fn change_digest() -> ChangeDigest {
         change_digest.merge_state = Mergeable::No(NotMergeable::Behind);
         change_digest.marks = vec![Mark::State(State::Refreshing)];
         change_digest.closes = vec![Ref::Here(bp(7)), elsewhere()];
+        change_digest.says_closes = vec![Ref::Here(bp(7)), Ref::Here(bp(8))];
         change_digest.size = Some({
             let mut size = Size::default();
             size.files = 1;
@@ -1202,6 +1213,7 @@ fn the_code_host_reads_back() {
         states: ChangeStates::All,
         author: Some(Author::Account(AccountId::new("1"))),
         head: Some(branch("work")),
+        carrying: vec![Mark::State(State::Refreshing)],
         closing: vec![bp(7)],
         merged_since: Some(At::new(1)),
         updated_since: None,
@@ -1234,6 +1246,7 @@ fn the_code_host_reads_back() {
         Overall::Fail,
         Overall::Pending,
         Overall::None,
+        Overall::Unknown,
     ] {
         round({
             let mut checks = Checks::default();

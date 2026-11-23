@@ -37,6 +37,8 @@ macro_rules! new {
                 "A `", stringify!($ty), "` of the fields given, every other ",
                 "field empty, false or None, for an implementer to set by name."
             )]
+            // The arguments are the fields every answer has: no fewer.
+            #[allow(clippy::too_many_arguments)]
             pub fn new($($req: $rt),*) -> Self {
                 Self { $($req,)* $($rest: Default::default(),)* }
             }

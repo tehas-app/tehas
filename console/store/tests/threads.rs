@@ -9,6 +9,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 use tehas_core::home::Home;
+use tehas_core::testdir::TestDir;
 
 /// Two threads to a store: with more, one mostly keeps a connection open, and
 /// the close that deadlocked was of the last one.
@@ -21,10 +22,9 @@ fn call(home: &Path, args: &[&str]) -> Result<String, (u8, String)> {
     store::call(home, args, &mut std::io::empty())
 }
 
-fn home(n: usize) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("store-threads-{n}"));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(Home::new(&dir).state_dir()).unwrap();
+fn home(n: usize) -> TestDir {
+    let dir = TestDir::new(&format!("store-threads-{n}"));
+    std::fs::create_dir_all(Home::new(dir.path()).state_dir()).unwrap();
     call(
         &dir,
         &[
@@ -47,7 +47,8 @@ fn home(n: usize) -> PathBuf {
 fn threads_that_open_and_close_one_store_at_once_never_deadlock() {
     // Every home first: a deadlock takes the VFS mutex, and a call of this
     // thread would wait on it with the rest.
-    let homes: Vec<PathBuf> = (0..HOMES).map(home).collect();
+    let dirs: Vec<TestDir> = (0..HOMES).map(home).collect();
+    let homes: Vec<PathBuf> = dirs.iter().map(|d| d.path().to_path_buf()).collect();
     let (tx, rx) = mpsc::channel();
     for home in homes {
         for writes in [false, true] {
