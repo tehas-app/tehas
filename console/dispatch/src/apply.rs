@@ -258,7 +258,11 @@ impl Writer {
                 log.push(format!("WARN: could not write {}", path.display()));
             }
         } else if let Some(n) = a.get("lost_cycle").and_then(Value::as_u64) {
-            self.lost(n, a, log);
+            self.lost(
+                n,
+                a.get("attempt").and_then(Value::as_u64).unwrap_or(0),
+                log,
+            );
         } else if let Some(name) = a.get("reap").and_then(Value::as_str) {
             self.reap(name, text(a, "why"), log);
         } else if let Some(n) = a.get("quiet").and_then(Value::as_u64) {
@@ -541,11 +545,8 @@ impl Writer {
     /// lock free and the cycle quiet: a cycle that took the lock since is
     /// running, and one heard from just now is not lost yet; nothing is said
     /// of either.
-    fn lost(&mut self, n: u64, a: &Value, log: &mut Vec<String>) {
-        let (issue, attempt) = (
-            n.to_string(),
-            a.get("attempt").map_or(String::new(), |v| v.to_string()),
-        );
+    fn lost(&mut self, n: u64, attempt: u64, log: &mut Vec<String>) {
+        let (issue, attempt) = (n.to_string(), attempt.to_string());
         match self.store_try(3, &["cycle-end", &issue, "--attempt", &attempt, "--lost"]) {
             Ok(_) => log.push(format!(
                 "lost #{n}: attempt {attempt} died without a word and no cycle holds its lock; ended as lost"
