@@ -1,4 +1,6 @@
-//! The per-pass reports: `Caller`, `PortName`, `Report` and `Reports`.
+//! The per-pass reports: `Caller`, `PortName`, `Report` and `Reports`. The
+//! meter's line, `MeterRow`, is in `site.rs`, beside `Site::meter`; what is
+//! shared across processes is the `Ledger`'s.
 
 use serde::{Deserialize, Serialize};
 
