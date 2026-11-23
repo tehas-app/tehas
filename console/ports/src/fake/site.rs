@@ -170,11 +170,15 @@ fn may_make(by: &Actor, scope: Option<Scope>, port: PortName, write: bool) -> Go
                 (scope, port, write),
                 (Scope::Full | Scope::Agent, _, _)
                     | (
-                        Scope::Cycle | Scope::Session,
+                        Scope::Cycle | Scope::CycleMerge | Scope::Session,
                         PortName::CodeHost | PortName::Tickets | PortName::Blueprints,
                         _
                     )
-                    | (Scope::Cycle | Scope::Session | Scope::Read, _, false)
+                    | (
+                        Scope::Cycle | Scope::CycleMerge | Scope::Session | Scope::Read,
+                        _,
+                        false
+                    )
                     | (Scope::Files, PortName::CodeHost | PortName::Identity, false)
             )
         }),
@@ -191,7 +195,8 @@ fn may_make(by: &Actor, scope: Option<Scope>, port: PortName, write: bool) -> Go
 /// agent's token writes tickets, blueprints and a change's talk, never a
 /// file, a merge, a tag or a release. A cycle's or a session's proposes,
 /// opens, edits and comments on a change, and merges, tags and releases
-/// nothing. A cycle's also files, notes and edits a ticket and opens,
+/// nothing; a cycle's with the product's merge grant also merges its own
+/// change (checked in the merge). A cycle's also files, notes and edits a ticket and opens,
 /// comments on and edits a blueprint, as its relay does; a session's files
 /// a ticket or opens a blueprint, as a planner's confirm does. Those carry
 /// text alone (`Ctx::text_alone`). Anonymous asks identity only about
@@ -219,11 +224,15 @@ pub(crate) fn allowed(by: &Actor, scope: Option<Scope>, op: Op) -> Got<()> {
                 c,
                 C::Propose | C::OpenChange | C::EditChange | C::CommentChange
             ),
+            Some(Scope::CycleMerge) => matches!(
+                c,
+                C::Propose | C::OpenChange | C::EditChange | C::CommentChange | C::Merge
+            ),
             _ => false,
         },
         _ if scoped && op.is_write() => match scope {
             Some(Scope::Full | Scope::Agent) => true,
-            Some(Scope::Cycle) => matches!(
+            Some(Scope::Cycle | Scope::CycleMerge) => matches!(
                 op,
                 Op::Tickets(T::File | T::Note | T::Edit)
                     | Op::Blueprints(B::Open | B::Comment | B::Edit)
@@ -383,7 +392,12 @@ impl Ctx {
     /// kind, a priority, a target or a parent. Its relay passes a title, a
     /// body and an item alone.
     pub fn text_alone(&self, bare: bool) -> Got<()> {
-        if !bare && matches!(self.scope, Some(Scope::Cycle | Scope::Session)) {
+        if !bare
+            && matches!(
+                self.scope,
+                Some(Scope::Cycle | Scope::CycleMerge | Scope::Session)
+            )
+        {
             return Err(Outcome::Forbidden);
         }
         Ok(())

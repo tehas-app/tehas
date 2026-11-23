@@ -390,7 +390,12 @@ impl CodeHost for Handle {
             let may_push = match &actor {
                 Actor::Ours(_) | Actor::Given(_) => matches!(
                     scope,
-                    Some(crate::Scope::Full | crate::Scope::Cycle | crate::Scope::Session)
+                    Some(
+                        crate::Scope::Full
+                            | crate::Scope::Cycle
+                            | crate::Scope::CycleMerge
+                            | crate::Scope::Session
+                    )
                 ),
                 Actor::Person(_) => !ctx.below_write,
                 Actor::Operator | Actor::Deploy(_) => true,
@@ -724,6 +729,13 @@ impl CodeHostWrites for Handle {
         self.write(Op::CodeHost(CodeHostOp::Merge), |s, ctx| {
             let at = at_change(s, no)?;
             let c = s.changes[at].clone();
+            // A cycle's merge grant covers a change its account opened, the
+            // factory's; which cycle opened it the site cannot tell.
+            if ctx.scope == Some(crate::Scope::CycleMerge)
+                && c.author.as_ref().map(|a| &a.login) != Some(&ctx.me(s).login)
+            {
+                return Err(Outcome::Forbidden);
+            }
             if c.state != ChangeState::Open {
                 return Err(Outcome::Refused(Refusal::NotMergeable));
             }

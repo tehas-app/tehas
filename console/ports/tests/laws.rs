@@ -671,23 +671,32 @@ fn scopes_an_agent_makes_no_file_write_and_no_push() {
     }
 }
 
+/// A world with change 50 the factory opened and change 51 alice opened,
+/// tag `v1.0.0` on main without a release, and that release to make.
+fn merge_world() -> (World, NewRelease) {
+    let w = World::new()
+        .change(50, "work", |c| c.title("work"))
+        .change(51, "theirs", |c| c.title("theirs").author("alice"));
+    let main = w.head("main").unwrap();
+    let w = w.tag("v1.0.0", &main);
+    let release = NewRelease {
+        tag: TagName::new("v1.0.0").unwrap(),
+        title: "1.0.0".into(),
+        notes: Body::Text("notes".into()),
+        draft: true,
+        prerelease: false,
+    };
+    (w, release)
+}
+
 #[test]
 fn scopes_a_cycle_merges_tags_and_releases_nothing() {
+    let tag = TagName::new("v2.0.0").unwrap();
     for scope in [Scope::Cycle, Scope::Session] {
-        let w = World::new().change(50, "work", |c| c.title("work"));
-        let main = w.head("main").unwrap();
-        let w = w.tag("v1.0.0", &main);
+        let (w, release) = merge_world();
         let head = w.head("work").unwrap();
-        let release = NewRelease {
-            tag: TagName::new("v1.0.0").unwrap(),
-            title: "1.0.0".into(),
-            notes: Body::Text("notes".into()),
-            draft: true,
-            prerelease: false,
-        };
         let site = FakeSite::new(&w);
         let mut h = site.code_host_writes(&Actor::Ours(scope), C).unwrap();
-        let tag = TagName::new("v2.0.0").unwrap();
         ok(laws::scopes::a_cycle_merges_tags_and_releases_nothing(
             h.as_mut(),
             cn(50),
@@ -695,8 +704,14 @@ fn scopes_a_cycle_merges_tags_and_releases_nothing() {
             &tag,
             &release,
         ));
-        // A fake that allows too much breaks it.
-        let mut wide = site.code_host_writes(&full(), C).unwrap();
+    }
+    // A fake that allows too much breaks it: the full scope, and a cycle's
+    // with the merge grant.
+    for actor in [full(), Actor::Ours(Scope::CycleMerge)] {
+        let (w, release) = merge_world();
+        let head = w.head("work").unwrap();
+        let site = FakeSite::new(&w);
+        let mut wide = site.code_host_writes(&actor, C).unwrap();
         let e = laws::scopes::a_cycle_merges_tags_and_releases_nothing(
             wide.as_mut(),
             cn(50),
@@ -710,8 +725,34 @@ fn scopes_a_cycle_merges_tags_and_releases_nothing() {
 }
 
 #[test]
+fn scopes_a_cycle_with_the_merge_grant_merges_its_own_change() {
+    const LAW: &str = "scopes::a_cycle_with_the_merge_grant_merges_its_own_change";
+    let tag = TagName::new("v2.0.0").unwrap();
+    let run = |actor: Actor| {
+        let (w, release) = merge_world();
+        let own = w.head("work").unwrap();
+        let other = w.head("theirs").unwrap();
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host_writes(&actor, C).unwrap();
+        laws::scopes::a_cycle_with_the_merge_grant_merges_its_own_change(
+            h.as_mut(),
+            (cn(50), &own),
+            (cn(51), &other),
+            &tag,
+            &release,
+        )
+    };
+    ok(run(Actor::Ours(Scope::CycleMerge)));
+    // Too much: the full scope merges another's change, and tags. Too
+    // little: a cycle's without the grant merges nothing.
+    for actor in [full(), Actor::Ours(Scope::Cycle)] {
+        assert_eq!(run(actor).unwrap_err().law, LAW);
+    }
+}
+
+#[test]
 fn scopes_a_cycle_marks_and_closes_no_ticket() {
-    for scope in [Scope::Cycle, Scope::Session] {
+    for scope in [Scope::Cycle, Scope::CycleMerge, Scope::Session] {
         for w in both() {
             let on = Mark::State(State::Running);
             let off = Mark::State(State::Question);
@@ -755,7 +796,7 @@ fn each_scope_writes_on_the_code_host_what_it_may() {
     agent.mark_change(cn(50), &mark).unwrap();
     agent.comment_change(cn(50), "a note", &[]).unwrap();
     assert!(agent.remote(Access::Fetch).is_ok());
-    for scope in [Scope::Cycle, Scope::Session] {
+    for scope in [Scope::Cycle, Scope::CycleMerge, Scope::Session] {
         let mut h = site.code_host_writes(&Actor::Ours(scope), C).unwrap();
         h.comment_change(cn(50), "a note", &[]).unwrap();
         h.edit_change(cn(50), Some("work, retitled"), None, &MarkerEdit::default())

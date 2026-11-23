@@ -103,7 +103,13 @@ pub enum Scope {
     /// propose, open, edit and comment on changes; file, note and edit
     /// tickets and open, comment on and edit blueprints, with text alone.
     /// No mark, close, merge, tag or release: those are the factory's.
+    /// Without the product's merge grant, a cycle's token is this one.
     Cycle,
+    /// A cycle's token with the product's merge grant: what `Cycle` may,
+    /// and merge its own change. Still no tag or release. tehas mints it in
+    /// place of `Cycle` only when the product opts in to a cycle merging
+    /// its own change; the grant is off by default.
+    CycleMerge,
     /// A planning turn or a dev session: a cycle's reads and change writes,
     /// the ticket and blueprint reads planning asks for, and a new ticket
     /// or blueprint of text alone, as a planner's confirm files it. No note

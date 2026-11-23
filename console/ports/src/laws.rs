@@ -997,10 +997,10 @@ pub mod scopes {
 
     /// A cycle's or a session's token merges, tags and releases nothing:
     /// each is `Forbidden` and leaves the change open, the tag absent and
-    /// no release. What a cycle does today with its token or its relay
-    /// asks none of them; a merge a product opts into is not allowed here. `h` acts as `Ours(Cycle)` or `Ours(Session)`; `no` is
-    /// an open change that can merge at `head`; `tag` is absent; `release`
-    /// is of a tag that is there and has no release.
+    /// no release. A merge needs the product's grant (`Scope::CycleMerge`).
+    /// `h` acts as `Ours(Cycle)` or `Ours(Session)`; `no` is an open change
+    /// that can merge at `head`; `tag` is absent; `release` is of a tag
+    /// that is there and has no release.
     pub fn a_cycle_merges_tags_and_releases_nothing(
         h: &mut dyn CodeHostWrites,
         no: ChangeNo,
@@ -1009,29 +1009,73 @@ pub mod scopes {
         release: &NewRelease,
     ) -> Law {
         const LAW: &str = "scopes::a_cycle_merges_tags_and_releases_nothing";
-        let forbidden = Err(Outcome::Forbidden);
+        refused_merge(h, LAW, no, head)?;
+        tags_and_releases_nothing(h, LAW, head, tag, release)
+    }
+
+    /// A cycle's token with the product's merge grant merges its own change
+    /// and no other, and still tags and releases nothing. `h` acts as
+    /// `Ours(CycleMerge)`; `own` is an open change its account opened and
+    /// `other` one another account opened, each able to merge at its head;
+    /// `tag` and `release` as for `a_cycle_merges_tags_and_releases_nothing`.
+    pub fn a_cycle_with_the_merge_grant_merges_its_own_change(
+        h: &mut dyn CodeHostWrites,
+        own: (ChangeNo, &CommitId),
+        other: (ChangeNo, &CommitId),
+        tag: &TagName,
+        release: &NewRelease,
+    ) -> Law {
+        const LAW: &str = "scopes::a_cycle_with_the_merge_grant_merges_its_own_change";
+        refused_merge(h, LAW, other.0, other.1)?;
+        let merged = h.merge(own.0, own.1, MergeHow::Squash);
+        hold(merged.is_ok(), LAW, || {
+            format!("a merge of its own change answered {merged:?}")
+        })?;
+        let state = got(LAW, "its own change", h.change(own.0, ALL_MAX))?
+            .digest
+            .state;
+        hold(matches!(state, ChangeState::Merged { .. }), LAW, || {
+            format!("its own change is {state:?} after the merge")
+        })?;
+        tags_and_releases_nothing(h, LAW, own.1, tag, release)
+    }
+
+    /// A merge of `no` is `Forbidden` and leaves it open.
+    fn refused_merge(h: &mut dyn CodeHostWrites, law: &str, no: ChangeNo, head: &CommitId) -> Law {
         let merged = h.merge(no, head, MergeHow::Squash);
-        hold(merged == forbidden, LAW, || {
-            format!("a merge answered {merged:?}")
+        hold(merged == Err(Outcome::Forbidden), law, || {
+            format!("a merge of {no:?} answered {merged:?}")
         })?;
         let state = h.change(no, ALL_MAX).map(|c| c.digest.state);
-        hold(state == Ok(ChangeState::Open), LAW, || {
-            format!("the change is {state:?} after the refused merge")
-        })?;
+        hold(state == Ok(ChangeState::Open), law, || {
+            format!("{no:?} is {state:?} after the refused merge")
+        })
+    }
+
+    /// A tag and a release are each `Forbidden`, and leave the tag absent
+    /// and no release.
+    fn tags_and_releases_nothing(
+        h: &mut dyn CodeHostWrites,
+        law: &str,
+        head: &CommitId,
+        tag: &TagName,
+        release: &NewRelease,
+    ) -> Law {
+        let forbidden = Err(Outcome::Forbidden);
         let tagged = h.tag(tag, head);
-        hold(tagged == forbidden, LAW, || {
+        hold(tagged == forbidden, law, || {
             format!("a tag answered {tagged:?}")
         })?;
         let there = h.resolve_tag(tag);
-        hold(there == Err(Outcome::NotFound), LAW, || {
+        hold(there == Err(Outcome::NotFound), law, || {
             format!("the refused tag reads {there:?}")
         })?;
         let made = h.new_release(release).map(|_| ());
-        hold(made == forbidden, LAW, || {
+        hold(made == forbidden, law, || {
             format!("a release answered {made:?}")
         })?;
         let read = h.release(&release.tag).map(|_| ());
-        hold(read == Err(Outcome::NotFound), LAW, || {
+        hold(read == Err(Outcome::NotFound), law, || {
             format!("the refused release reads {read:?}")
         })
     }

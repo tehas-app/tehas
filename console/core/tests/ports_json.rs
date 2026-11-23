@@ -173,7 +173,7 @@ fn the_ports_values_read_back_from_json() {
         set: vec![Marker::HoldCleared],
         drop: vec![(MarkerKind::Blocked, None)],
     });
-    for s in [Scope::Agent, Scope::Unknown] {
+    for s in [Scope::Agent, Scope::CycleMerge, Scope::Unknown] {
         round!(s);
         round!(Actor::Ours(s));
     }
@@ -294,6 +294,10 @@ fn an_unknown_tag_with_content_of_any_shape_reads_as_unknown_in_json() {
     }
     assert_eq!(read!(Act, r#""Future""#), Act::Unknown);
     assert_eq!(read!(Scope, r#""Future""#), Scope::Unknown);
+    assert_eq!(
+        serde_json::to_string(&Scope::CycleMerge).unwrap(),
+        r#""CycleMerge""#
+    );
     assert_eq!(
         serde_json::to_string(&Marker::Unknown).unwrap(),
         r#"{"type":"Unknown"}"#
