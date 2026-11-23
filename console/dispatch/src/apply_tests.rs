@@ -1720,7 +1720,8 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
     assert!(t
         .calls()
         .iter()
-        .any(|c| c.starts_with("store journal-record") && c.contains("--kind change-mark --issue 12")));
+        .any(|c| c.starts_with("store journal-record")
+            && c.contains("--kind change-mark --issue 12")));
     // A refresh is on record at the time the poll decided it.
     assert!(!w[1].contains("--at 1793008800"));
     assert!(!w[1].contains("--label"));
@@ -6156,12 +6157,15 @@ fn a_changes_mark_is_settled_by_its_labels_under_either_word() {
     let mut log = Vec::new();
     t.w.settle(1000, &mut log);
     let not = "did not happen (the pull request's mark is not as it wanted it); this poll decides it again";
-    assert_eq!(log, vec![
-        "journal: action 3 (change-mark on #12, 10s old) was done".to_string(),
-        "journal: action 4 (refresh-begin on #12, 10s old) was done".to_string(),
-        format!("journal: action 5 (change-unmark on #12, 10s old) {not}"),
-        format!("journal: action 6 (refresh-end on #12, 10s old) {not}"),
-    ]);
+    assert_eq!(
+        log,
+        vec![
+            "journal: action 3 (change-mark on #12, 10s old) was done".to_string(),
+            "journal: action 4 (refresh-begin on #12, 10s old) was done".to_string(),
+            format!("journal: action 5 (change-unmark on #12, 10s old) {not}"),
+            format!("journal: action 6 (refresh-end on #12, 10s old) {not}"),
+        ]
+    );
 }
 
 /// A row from before the journal kept the sum of what it wrote.
