@@ -63,11 +63,25 @@ pub fn own_pull(p: &Value, repo: &str, bot: &str, allowed: impl Fn(&str) -> bool
 }
 
 /// Why the file cannot be read with certainty: the line it is on, if one,
-/// and what is wrong.
+/// what is wrong and how it is repaired.
 #[derive(Debug, PartialEq)]
 pub struct Unreadable {
     pub line: Option<usize>,
     pub what: String,
+    repair: Repair,
+}
+
+/// How an unreadable file is repaired.
+#[derive(Debug, PartialEq)]
+enum Repair {
+    /// Fix or remove the line.
+    Line,
+    /// Make it a regular file of pairs, or remove it.
+    File,
+    /// Its pairs may be sound: give the factory's user access to it.
+    Access,
+    /// Read it again.
+    Again,
 }
 
 impl Unreadable {
@@ -75,26 +89,33 @@ impl Unreadable {
         Unreadable {
             line: Some(line),
             what: what.into(),
+            repair: Repair::Line,
         }
     }
 
-    fn whole(what: impl Into<String>) -> Unreadable {
+    fn whole(what: impl Into<String>, repair: Repair) -> Unreadable {
         Unreadable {
             line: None,
             what: what.into(),
+            repair,
         }
     }
 
     /// The line that names `file`, what is wrong and how to repair it.
     pub fn says(&self, file: &str) -> String {
-        match self.line {
-            Some(n) => format!(
-                "tehas: {file} cannot be read: line {n} {}. Fix or remove that line, then run tehas update",
-                self.what
+        let what = &self.what;
+        match (self.line, &self.repair) {
+            (Some(n), _) => format!(
+                "tehas: {file} cannot be read: line {n} {what}. Fix or remove that line, then run tehas update"
             ),
-            None => format!(
-                "tehas: {file} cannot be read: {}. Make it a regular file of `<login> <id>` lines, or remove it, then run tehas update",
-                self.what
+            (None, Repair::Access) => format!(
+                "tehas: {file} cannot be read: {what}. Give it back read and write for the factory's user, then run tehas update"
+            ),
+            (None, Repair::Again) => format!(
+                "tehas: {file} cannot be read: {what}. Run tehas update again"
+            ),
+            (None, _) => format!(
+                "tehas: {file} cannot be read: {what}. Make it a regular file of `<login> <id>` lines, or remove it, then run tehas update"
             ),
         }
     }
@@ -130,6 +151,12 @@ pub fn parse_bytes(bytes: &[u8]) -> Result<Pairs, Unreadable> {
         }
         let (login, id) = pair(line).map_err(|what| Unreadable::at(n, what))?;
         let key = account(login).to_string();
+        if !crate::settings::rules::is_login(&key) {
+            return Err(Unreadable::at(
+                n,
+                "is not `<login> <id>`: the login is not a GitHub login",
+            ));
+        }
         match ids.insert(key.clone(), id) {
             Some(was) if was != id => {
                 return Err(Unreadable::at(
@@ -194,23 +221,43 @@ pub fn carried(ids: &BTreeMap<String, u64>, old: &str, new: &str) -> Option<BTre
 }
 
 /// The pairs recorded in `home`. An absent file is no pairs, as before the
-/// first record.
+/// first record. A file that is there with no pairs is unreadable: it is
+/// written whole or not at all, so it is never empty while it holds pairs.
 pub fn load(home: &Path) -> Result<Pairs, Unreadable> {
-    use crate::file::ReadError;
     match crate::file::read_regular(&home.join(FILE), BOUND) {
-        Ok((bytes, _)) => parse_bytes(&bytes),
-        Err(ReadError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(Pairs {
-            ids: BTreeMap::new(),
-            tidy: true,
-        }),
-        Err(ReadError::Io(e)) => Err(Unreadable::whole(format!("it could not be opened: {e}"))),
-        Err(ReadError::NotRegular) => Err(Unreadable::whole("it is not a regular file")),
-        Err(ReadError::Replaced) => Err(Unreadable::whole("it was replaced while it was read")),
-        Err(ReadError::TooLarge) => Err(Unreadable::whole(format!(
-            "it is larger than {} KiB",
-            BOUND / 1024
-        ))),
+        Ok((bytes, _)) => match parse_bytes(&bytes)? {
+            p if p.ids.is_empty() => Err(Unreadable::whole("it holds no pairs", Repair::File)),
+            p => Ok(p),
+        },
+        Err(e) => match unreadable(e) {
+            Some(u) => Err(u),
+            None => Ok(Pairs {
+                ids: BTreeMap::new(),
+                tidy: true,
+            }),
+        },
     }
+}
+
+/// What a failed read of the file says, or None when it is absent.
+fn unreadable(e: crate::file::ReadError) -> Option<Unreadable> {
+    use crate::file::ReadError;
+    use std::io::ErrorKind;
+    Some(match e {
+        ReadError::Io(e) if e.kind() == ErrorKind::NotFound => return None,
+        ReadError::Io(e) if e.kind() == ErrorKind::PermissionDenied => {
+            Unreadable::whole("it cannot be read by this user", Repair::Access)
+        }
+        ReadError::Io(_) => Unreadable::whole("it could not be read", Repair::Access),
+        ReadError::NotRegular => Unreadable::whole("it is not a regular file", Repair::File),
+        ReadError::Replaced => {
+            Unreadable::whole("it was replaced while it was read", Repair::Again)
+        }
+        ReadError::TooLarge => Unreadable::whole(
+            format!("it is larger than {} KiB", BOUND / 1024),
+            Repair::File,
+        ),
+    })
 }
 
 /// The line a reader says of a file it cannot read.
@@ -566,6 +613,73 @@ mod tests {
         let said = Unreadable::at(2, "is not `<login> <id>`").says(FILE);
         assert!(said.contains(FILE) && said.contains("line 2"));
         assert!(said.contains("Fix or remove that line, then run tehas update"));
+    }
+
+    #[test]
+    fn a_login_github_would_not_give_is_named() {
+        for text in [
+            "\u{feff}alice 1001\nbob 1002\n",
+            "al\u{200b}ice 1001\nbob 1002\n",
+            "[bot] 1001\n",
+            "-alice 1001\n",
+        ] {
+            let u = parse_bytes(text.as_bytes()).unwrap_err();
+            assert_eq!(u.line, Some(1), "{text:?}");
+            assert!(
+                u.what.contains("not a GitHub login"),
+                "{text:?}: {}",
+                u.what
+            );
+        }
+        assert!(parse("app/acme 1\nacme-2[bot] 2\n").is_ok());
+    }
+
+    #[test]
+    fn what_cannot_be_read_says_its_own_repair() {
+        use crate::file::ReadError;
+        use std::io::{Error, ErrorKind};
+        assert!(unreadable(ReadError::Io(Error::from(ErrorKind::NotFound))).is_none());
+        let denied = unreadable(ReadError::Io(Error::from(ErrorKind::PermissionDenied)))
+            .unwrap()
+            .says(FILE);
+        assert!(denied.contains("cannot be read by this user"), "{denied}");
+        assert!(
+            denied.contains("read and write for the factory's user"),
+            "{denied}"
+        );
+        assert!(
+            !denied.contains("remove") && !denied.contains("os error"),
+            "{denied}"
+        );
+        let other = unreadable(ReadError::Io(Error::other("disk")))
+            .unwrap()
+            .says(FILE);
+        assert!(
+            !other.contains("remove") && !other.contains("disk"),
+            "{other}"
+        );
+        for e in [ReadError::NotRegular, ReadError::TooLarge] {
+            let said = unreadable(e).unwrap().says(FILE);
+            assert!(
+                said.contains("or remove it, then run tehas update"),
+                "{said}"
+            );
+        }
+        let again = unreadable(ReadError::Replaced).unwrap().says(FILE);
+        assert!(again.contains("Run tehas update again"), "{again}");
+    }
+
+    #[test]
+    fn a_file_that_is_there_with_no_pairs_is_unreadable() {
+        let h = home("empty");
+        for text in ["", "  \n", "\n\r\n"] {
+            std::fs::write(h.join(FILE), text).unwrap();
+            let u = load(&h).unwrap_err();
+            assert_eq!(u.line, None, "{text:?}");
+            assert!(u.what.contains("holds no pairs"), "{text:?}");
+            assert!(u.says(FILE).contains("remove it, then run tehas update"));
+        }
+        std::fs::remove_dir_all(&h).unwrap();
     }
 
     fn home(name: &str) -> std::path::PathBuf {

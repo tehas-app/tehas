@@ -471,6 +471,31 @@ mod tests {
     }
 
     #[test]
+    fn a_login_github_would_not_give_stops_and_is_kept() {
+        for text in ["\u{feff}alice 999\nbob 1002\n", "al\u{200b}ice 999\n"] {
+            let h = home("not-login");
+            fs::write(h.join(accounts::FILE), text).unwrap();
+            let u = accounts::load(&h).unwrap_err();
+            assert_eq!(u.line, Some(1), "{text:?}");
+            assert!(u.says(accounts::FILE).contains("line 1"));
+            assert_eq!(record_alice(&h), (78, false), "{text:?}");
+            assert_eq!(fs::read_to_string(h.join(accounts::FILE)).unwrap(), text);
+            fs::remove_dir_all(&h).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_file_that_is_there_with_no_pairs_stops_and_is_kept() {
+        for text in ["", "  \n"] {
+            let h = home("no-pairs");
+            fs::write(h.join(accounts::FILE), text).unwrap();
+            assert_eq!(record_alice(&h), (78, false), "{text:?}");
+            assert_eq!(fs::read_to_string(h.join(accounts::FILE)).unwrap(), text);
+            fs::remove_dir_all(&h).unwrap();
+        }
+    }
+
+    #[test]
     fn a_link_an_oversized_or_closed_file_stops_and_is_kept() {
         use std::os::unix::fs::PermissionsExt;
         let h = home("whole");
