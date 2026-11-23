@@ -5,25 +5,21 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use tehas_core::settings::load::{ignored_list, ignored_why};
+use tehas_core::testdir::TestDir;
 
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// A scratch directory of this test's own, empty.
-fn scratch(name: &str) -> PathBuf {
-    let dir =
-        std::env::temp_dir().join(format!("tehas-config-check-{}-{name}", std::process::id()));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    dir
+/// A scratch directory of this test's own, empty, removed when it drops.
+fn scratch(name: &str) -> TestDir {
+    TestDir::new(&format!("config-check-{name}"))
 }
 
 /// instances/example copied into a scratch directory, with `lines` added to
 /// its instance.env.
-fn instance(name: &str, lines: &[String]) -> PathBuf {
+fn instance(name: &str, lines: &[String]) -> TestDir {
     let dir = scratch(name);
     for entry in fs::read_dir(repo().join("instances/example")).unwrap() {
         let entry = entry.unwrap();
@@ -48,8 +44,7 @@ struct Run {
 /// renamed setting, either of which stops a load that reads it: a check that
 /// read this machine's home would fail.
 fn check(args: &[&str]) -> Run {
-    static CALLS: AtomicUsize = AtomicUsize::new(0);
-    let home = scratch(&format!("home-{}", CALLS.fetch_add(1, Ordering::Relaxed)));
+    let home = scratch("home");
     fs::create_dir_all(home.join(".config/tehas")).unwrap();
     fs::write(
         home.join(".config/tehas/env"),
@@ -59,7 +54,7 @@ fn check(args: &[&str]) -> Run {
     let out = Command::new(env!("CARGO_BIN_EXE_xtask"))
         .arg("config-check")
         .args(args)
-        .env("HOME", &home)
+        .env("HOME", home.path())
         .env_remove("TEHAS_INSTANCE_DIR")
         .output()
         .unwrap();
@@ -224,10 +219,11 @@ fn what_the_shell_sets_is_what_is_dropped_not_what_a_line_looks_like() {
 #[test]
 fn a_relative_settings_path_is_read_as_the_directory_it_names() {
     let dir = instance("relative", &[]);
+    let home = scratch("home-relative");
     let out = Command::new(env!("CARGO_BIN_EXE_xtask"))
         .args(["config-check", "--settings", "."])
-        .current_dir(&dir)
-        .env("HOME", scratch("home-relative"))
+        .current_dir(dir.path())
+        .env("HOME", home.path())
         .env_remove("TEHAS_INSTANCE_DIR")
         .output()
         .unwrap();
