@@ -416,30 +416,32 @@ fn build(row: &MarkerRow, values: &[(&str, &str)], note: Option<&str>) -> Option
                 .collect::<Option<Vec<_>>>()?,
         },
         MarkerKind::HoldCleared => Marker::HoldCleared,
-        MarkerKind::Park => Marker::Park(ParkMarker {
-            blueprint: no("issue")?,
-            step: MarkerWord::new(get("step")?).ok()?,
-            kind: MarkerWord::new(get("kind")?).ok()?,
-            provider: get("provider")? == "1",
-            sig: Sha256::new(get("sig")?).ok()?,
-        }),
-        MarkerKind::Finish => Marker::Finish(FinishMarker {
-            blueprint: no("issue")?,
-            result: match get("result")? {
+        MarkerKind::Park => {
+            let mut park = ParkMarker::new(no("issue")?, Sha256::new(get("sig")?).ok()?);
+            park.step = MarkerWord::new(get("step")?).ok()?;
+            park.kind = MarkerWord::new(get("kind")?).ok()?;
+            park.provider = get("provider")? == "1";
+            Marker::Park(park)
+        }
+        MarkerKind::Finish => {
+            let result = match get("result")? {
                 "opened" => FinishResult::Opened,
                 "refused" => FinishResult::Refused,
                 "stopped" => FinishResult::Stopped,
                 _ => return None,
-            },
-            by_poll: get("by").is_some(),
-        }),
-        MarkerKind::LastAttempt => Marker::LastAttempt(LastAttemptMarker {
-            base: Sha256::new(get("base")?).ok()?,
-            note: note?.to_string(),
-        }),
-        MarkerKind::Millwright => Marker::Millwright(MillwrightMarker {
-            blueprint: no("issue")?,
-            action: match get("action")? {
+            };
+            let mut finish = FinishMarker::new(no("issue")?, result);
+            finish.by_poll = get("by").is_some();
+            Marker::Finish(finish)
+        }
+        MarkerKind::LastAttempt => {
+            let mut last = LastAttemptMarker::new(Sha256::new(get("base")?).ok()?);
+            last.note = note?.to_string();
+            Marker::LastAttempt(last)
+        }
+        MarkerKind::Millwright => Marker::Millwright(MillwrightMarker::new(
+            no("issue")?,
+            match get("action")? {
                 "retry" => MillwrightAction::Retry,
                 "change" => MillwrightAction::Change,
                 "answer" => MillwrightAction::Answer,
@@ -448,7 +450,7 @@ fn build(row: &MarkerRow, values: &[(&str, &str)], note: Option<&str>) -> Option
                 "ask" => MillwrightAction::Ask,
                 _ => return None,
             },
-        }),
+        )),
         MarkerKind::TicketOf => {
             let key = get("ticket")?;
             let key = match number(key, 19).then(|| key.parse().ok()).flatten() {

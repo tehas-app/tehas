@@ -80,6 +80,13 @@ checked!(
     marker_word_ok
 );
 
+/// The empty word, which a marker writes when none was recorded.
+impl Default for MarkerWord {
+    fn default() -> Self {
+        Self(String::new())
+    }
+}
+
 fn marker_word_ok(s: &str) -> bool {
     s.len() <= 40
         && s.bytes()
@@ -270,6 +277,7 @@ pub enum QuestionKind {
 
 /// A stopped cycle's park, for the millwright to decide on.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ParkMarker {
     /// The blueprint that parked. A park of another blueprint than the item
     /// it is read from does not read.
@@ -285,8 +293,19 @@ pub struct ParkMarker {
     pub sig: Sha256,
 }
 
+new!(
+    ParkMarker {
+        blueprint: BlueprintNo,
+        sig: Sha256
+    },
+    step,
+    kind,
+    provider
+);
+
 /// A millwright's decision on a blueprint.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct MillwrightMarker {
     /// The blueprint it decides on. One of another blueprint than the item
     /// it is read from does not read.
@@ -294,6 +313,11 @@ pub struct MillwrightMarker {
     /// What the millwright decides.
     pub action: MillwrightAction,
 }
+
+new!(MillwrightMarker {
+    blueprint: BlueprintNo,
+    action: MillwrightAction
+});
 
 /// What the millwright decides. A word outside this set does not read: it
 /// is `Unreadable { kind: Millwright }`, a millwright's marker and no
@@ -319,6 +343,7 @@ pub enum MillwrightAction {
 
 /// What a finish of a stopped cycle did.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct FinishMarker {
     /// The blueprint it finished. One of another blueprint than the item it
     /// is read from does not read.
@@ -328,6 +353,14 @@ pub struct FinishMarker {
     /// The poll finished it on its own, with no one's ask.
     pub by_poll: bool,
 }
+
+new!(
+    FinishMarker {
+        blueprint: BlueprintNo,
+        result: FinishResult
+    },
+    by_poll
+);
 
 /// What came of a finish. A word outside this set does not read, as for
 /// `MillwrightAction`.
@@ -344,6 +377,7 @@ pub enum FinishResult {
 /// What a cycle stopped for time learned, for the next cycle on the same
 /// text. A block: what it encloses is its payload, never the body's.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LastAttemptMarker {
     /// The sha-256 of the text it sits in, without this block. The same
     /// text with the same `base` is a repeat.
@@ -351,6 +385,8 @@ pub struct LastAttemptMarker {
     /// The enclosed text, kept out of the body a person or a caller reads.
     pub note: String,
 }
+
+new!(LastAttemptMarker { base: Sha256 }, note);
 
 impl Marker {
     /// The marker's kind. `Unreadable` and `Bare` answer the kind they name.

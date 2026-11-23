@@ -297,6 +297,90 @@ fn lists_last_n_is_never_cut_and_more_is_exact() {
 }
 
 #[test]
+fn every_mark_names_a_word_and_reads_back_cited() {
+    for w in both() {
+        let no = first_blueprint(&w);
+        let w = w.blueprint(no, |b| b.title("a plan"));
+        let site = FakeSite::new(&w);
+        let ours = [Mark::Project(MarkName::new("bug").unwrap())];
+        ok(laws::marks::every_mark_names_a_word(&site, &ours));
+        let mut h = site.blueprint_writes(&full(), C).unwrap();
+        for m in laws::marks::factory_marks().iter().chain(&ours) {
+            ok(laws::marks::a_cited_mark_reads_back_as_its_name(
+                &site,
+                h.as_mut(),
+                bp(no),
+                m,
+            ));
+        }
+        let setup = Setup::One(Arc::new(site.clone()));
+        assert_eq!(
+            setup.mark_name(Realm::Tickets, &Mark::Epic),
+            site.mark_name(&Mark::Epic)
+        );
+    }
+}
+
+#[test]
+fn deltas_page_oldest_first_past_the_bound() {
+    for w in both() {
+        let no = first_blueprint(&w);
+        let ch = first_change(&w);
+        let w = w
+            .ticket(1, |t| t.title("one").comment("alice", "a note"))
+            .ticket(2, |t| t.title("two"))
+            .ticket(3, |t| t.title("three"))
+            .blueprint(no, |b| b.comment("alice", "a").comment("bob", "b"))
+            .change(ch, "work-1", |c| c.comment("alice", "c"))
+            .change(ch + 1, "work-2", |c| c)
+            .change(ch + 2, "work-3", |c| c.comment("bob", "d"));
+        let site = FakeSite::new(&w);
+        let mut t = site.tickets(&full(), C).unwrap();
+        let mut bl = site.blueprints(&full(), C).unwrap();
+        let mut c = site.code_host(&full(), C).unwrap();
+        for page in [1, 2] {
+            ok(laws::delta::tickets_page_on(t.as_mut(), None, b(page)));
+            ok(laws::delta::blueprints_page_on(bl.as_mut(), None, b(page)));
+            ok(laws::delta::changes_page_on(c.as_mut(), None, b(page)));
+        }
+        let first = t.delta(None, b(1)).unwrap();
+        assert!(first.more);
+        ok(laws::delta::tickets_page_on(
+            t.as_mut(),
+            Some(&first.next),
+            b(1),
+        ));
+    }
+}
+
+#[test]
+fn a_delta_past_the_bound_is_its_oldest_changes() {
+    let w = World::split()
+        .ticket(1, |t| t.title("one"))
+        .ticket(2, |t| t.title("two"))
+        .ticket(3, |t| t.title("three"));
+    let site = FakeSite::new(&w);
+    let mut h = site.ticket_writes(&full(), C).unwrap();
+    h.mark(&w.key(1), &Mark::Epic).unwrap();
+    let page = h.delta(None, b(2)).unwrap();
+    let titles: Vec<&str> = page
+        .tickets
+        .iter()
+        .map(|t| t.digest.title.as_str())
+        .collect();
+    assert_eq!(titles, ["two", "three"]);
+    assert!(page.more);
+    let rest = h.delta(Some(&page.next), b(2)).unwrap();
+    let titles: Vec<&str> = rest
+        .tickets
+        .iter()
+        .map(|t| t.digest.title.as_str())
+        .collect();
+    assert_eq!(titles, ["one"]);
+    assert!(!rest.more);
+}
+
+#[test]
 fn lists_hold_for_a_split_tickets_notes() {
     let w = World::split().ticket(1, |t| {
         t.comment("alice", "one")
@@ -366,6 +450,28 @@ fn blueprints_an_edit_moves_the_revision() {
 }
 
 #[test]
+fn blueprints_an_attachment_has_a_link_and_a_pasted_one_no_name() {
+    for w in both() {
+        let no = first_blueprint(&w);
+        let w = w.blueprint(no, |b| {
+            b.attachment("plan.pdf", b"%PDF")
+                .pasted(b"png")
+                .attachment("notes.txt", b"n")
+        });
+        let site = FakeSite::new(&w);
+        let mut h = site.blueprints(&full(), C).unwrap();
+        ok(
+            laws::blueprints::an_attachment_has_a_link_and_a_pasted_one_no_name(
+                h.as_mut(),
+                bp(no),
+                &["plan.pdf", "notes.txt"],
+                1,
+            ),
+        );
+    }
+}
+
+#[test]
 fn search_laws_over_both_ports() {
     for w in both() {
         let w = w
@@ -423,12 +529,11 @@ fn search_laws_over_both_ports() {
 }
 
 fn park(no: u64) -> Marker {
-    Marker::Park(ParkMarker {
-        blueprint: bp(no),
-        step: MarkerWord::new("build").unwrap(),
-        kind: MarkerWord::new("tests").unwrap(),
-        provider: false,
-        sig: sha('b'),
+    Marker::Park({
+        let mut park_marker = ParkMarker::new(bp(no), sha('b'));
+        park_marker.step = MarkerWord::new("build").unwrap();
+        park_marker.kind = MarkerWord::new("tests").unwrap();
+        park_marker
     })
 }
 
@@ -527,6 +632,21 @@ fn marker_laws() {
     });
     let mut h = site.blueprint_writes(&full(), C).unwrap();
     ok(m::an_unreadable_marker_is_kept(h.as_mut(), bp(111)));
+    for marker in [
+        park(101),
+        Marker::HoldCleared,
+        Marker::Millwright(MillwrightMarker::new(bp(101), MillwrightAction::Finish)),
+    ] {
+        let typed = tehas_ports::fake::marker_text(&marker);
+        ok(m::a_cited_marker_is_no_marker(
+            h.as_mut(),
+            bp(101),
+            &marker,
+            &typed,
+        ));
+        let wrong = m::a_cited_marker_is_no_marker(h.as_mut(), bp(101), &marker, "<!-- x -->");
+        assert!(wrong.is_err(), "a cite without the typed text passed");
+    }
 }
 
 #[test]
@@ -589,17 +709,11 @@ fn identity_a_token_covers_its_set_alone() {
 fn identity_a_given_token_is_never_minted() {
     let w = World::new();
     let now = w.now();
-    let given = Token {
-        secret: Secret::new("handed-in"),
-        until: At::new(now.secs() + 1200),
-    };
+    let given = Token::new(Secret::new("handed-in"), At::new(now.secs() + 1200));
     let w = w.given("fresh", Scope::Cycle, given.clone()).given(
         "old",
         Scope::Cycle,
-        Token {
-            secret: Secret::new("stale"),
-            until: At::new(now.secs() - 1),
-        },
+        Token::new(Secret::new("stale"), At::new(now.secs() - 1)),
     );
     let tokens = Arc::new(MemoryTokens::new(w.clock()));
     let site = FakeSite::new(&w).with_tokens(tokens.clone());
@@ -672,17 +786,11 @@ impl Identity for AnyScope {
 fn the_given_token_law_breaks_where_a_wider_scope_is_answered() {
     let w = World::new();
     let now = w.now();
-    let given = Token {
-        secret: Secret::new("handed-in"),
-        until: At::new(now.secs() + 1200),
-    };
+    let given = Token::new(Secret::new("handed-in"), At::new(now.secs() + 1200));
     let w = w.given("fresh", Scope::Cycle, given.clone()).given(
         "old",
         Scope::Cycle,
-        Token {
-            secret: Secret::new("stale"),
-            until: At::new(now.secs() - 1),
-        },
+        Token::new(Secret::new("stale"), At::new(now.secs() - 1)),
     );
     let tokens = Arc::new(MemoryTokens::new(w.clock()));
     let site = FakeSite::new(&w).with_tokens(tokens.clone());
@@ -712,17 +820,11 @@ fn the_given_token_law_breaks_where_a_wider_scope_is_answered() {
 fn the_given_token_law_breaks_where_a_sign_out_is_told_every_time() {
     let w = World::new();
     let now = w.now();
-    let given = Token {
-        secret: Secret::new("handed-in"),
-        until: At::new(now.secs() + 1200),
-    };
+    let given = Token::new(Secret::new("handed-in"), At::new(now.secs() + 1200));
     let w = w.given("fresh", Scope::Cycle, given.clone()).given(
         "old",
         Scope::Cycle,
-        Token {
-            secret: Secret::new("stale"),
-            until: At::new(now.secs() - 1),
-        },
+        Token::new(Secret::new("stale"), At::new(now.secs() - 1)),
     );
     let tokens = Arc::new(MemoryTokens::new(w.clock()));
     let site = FakeSite::new(&w).with_tokens(tokens.clone());
@@ -768,10 +870,7 @@ fn identity_a_keyless_site_never_mints() {
     ));
     // A token kept elsewhere is answered from the store.
     let covers = Covers::Site(SiteId::new("fake/project"));
-    let kept = Token {
-        secret: Secret::new("kept"),
-        until: At::new(w.now().secs() + 3600),
-    };
+    let kept = Token::new(Secret::new("kept"), At::new(w.now().secs() + 3600));
     tokens.seed(covers, Scope::Cycle, kept);
     assert_eq!(h.token(Scope::Cycle).unwrap().secret.expose(), "kept");
 }
@@ -1217,10 +1316,7 @@ fn calls(site: &FakeSite) -> u32 {
 
 /// A token good for an hour, as the store keeps it.
 fn good_token(w: &World, secret: &str) -> Token {
-    Token {
-        secret: Secret::new(secret),
-        until: At::new(w.now().secs() + 3600),
-    }
+    Token::new(Secret::new(secret), At::new(w.now().secs() + 3600))
 }
 
 /// A `Faulty` `FakeSite` whose tokens are `tokens`, watched by `wired`.
@@ -1272,10 +1368,7 @@ fn health_an_expired_token_raises_no_recovered() {
     let wired = Wired::new(World::new());
     let tokens = Arc::new(MemoryTokens::new(wired.world.clock()));
     let covers = Covers::Site(SiteId::new("fake/project"));
-    let old = Token {
-        secret: Secret::new("old"),
-        until: At::new(wired.world.now().secs() - 1),
-    };
+    let old = Token::new(Secret::new("old"), At::new(wired.world.now().secs() - 1));
     tokens.seed(covers, Scope::Cycle, old);
     let site = FakeSite::new(&wired.world)
         .with_tokens(tokens.clone())
@@ -2615,10 +2708,10 @@ fn a_fault_answers_its_calls_then_lets_them_through() {
     let reports = t.take_reports();
     assert_eq!(
         reports,
-        vec![Report {
-            port: PortName::Tickets,
-            outcome: Outcome::Unread(Unread::Malformed),
-            calls: 1
+        vec![{
+            let mut report = Report::new(PortName::Tickets, Outcome::Unread(Unread::Malformed));
+            report.calls = 1;
+            report
         }]
     );
 }
@@ -2872,18 +2965,11 @@ fn the_memory_ledger_swaps_only_from_the_state_expected() {
     );
     assert!(ledger.states().is_empty(), "a healthy state is not kept");
     let holder = Holder::Ours(HolderId::new("g"));
-    let b1 = Budget {
-        left: 5,
-        resets: At::new(9),
-    };
+    let b1 = Budget::new(5, At::new(9));
     ledger.put_budget(&host, &holder, Pool::Search, b1).unwrap();
     assert_eq!(ledger.budget(&host, &holder, Pool::Search), Ok(Some(b1)));
     assert_eq!(ledger.budget(&host, &holder, Pool::Calls), Ok(None));
-    let f = |at: i64| Failure {
-        at: At::new(at),
-        site: SiteId::new("p"),
-        outcome: Outcome::SignedOut,
-    };
+    let f = |at: i64| Failure::new(At::new(at), SiteId::new("p"), Outcome::SignedOut);
     ledger.failed(&host, f(10), 600).unwrap();
     ledger.failed(&host, f(700), 600).unwrap();
     assert_eq!(
@@ -2898,10 +2984,7 @@ fn memory_tokens_keep_and_forget_by_what_they_cover() {
     let clock = fake::Clock::new(At::new(100));
     let tokens = MemoryTokens::new(clock.clone());
     let site = Covers::Site(SiteId::new("p"));
-    let t = Token {
-        secret: Secret::new("s"),
-        until: At::new(800),
-    };
+    let t = Token::new(Secret::new("s"), At::new(800));
     assert!(tokens.keep(&site, Scope::Cycle, &t));
     assert!(tokens.kept(&site, Scope::Cycle, 600).is_some());
     assert!(tokens.kept(&site, Scope::Session, 600).is_none());
@@ -3197,6 +3280,28 @@ fn a_batch_is_answered_when_the_site_answered() {
 }
 
 #[test]
+fn triage_is_below_write_and_maintain_is_not() {
+    let w = World::split()
+        .person("tia-key", "tia")
+        .person("max-key", "max")
+        .with_account("tia", AccountKind::Person, Standing::Triage)
+        .with_account("max", AccountKind::Person, Standing::Maintain)
+        .blueprint(101, |b| b.title("theirs").author("alice"))
+        .blueprint(102, |b| b.title("also theirs").author("alice"));
+    let site = FakeSite::new(&w);
+    let tia = Actor::Person(PersonKey::new("tia-key"));
+    let max = Actor::Person(PersonKey::new("max-key"));
+    let mut bl = site.blueprint_writes(&tia, C).unwrap();
+    assert_eq!(bl.close(bp(101), true), Err(Outcome::Forbidden));
+    let mut bl = site.blueprint_writes(&max, C).unwrap();
+    assert_eq!(bl.close(bp(102), true), Ok(()));
+    let mut id = site.identity(&full(), C).unwrap();
+    let tia = id.account_by_login(&Login::new("tia")).unwrap();
+    let standing = id.standing(tia.id.as_ref().unwrap()).unwrap();
+    assert_eq!(standing, Standing::Triage);
+}
+
+#[test]
 fn a_person_below_write_comments_files_and_edits_their_own() {
     let w = World::split()
         .person("bob-key", "bob")
@@ -3329,9 +3434,11 @@ fn a_law_breaks_where_its_rule_does() {
     assert_eq!(e.law, "health::held_calls_raise_no_recovered");
     // A list that says more where it holds no more.
     let wrong = |w: Window| -> Got<Took<u32>> {
-        Ok(Took {
-            items: vec![1, 2],
-            more: matches!(w, Window::Last(_)),
+        Ok({
+            let mut took = Took::default();
+            took.items = vec![1, 2];
+            took.more = matches!(w, Window::Last(_));
+            took
         })
     };
     assert!(laws::lists::more_is_exact(wrong, 2).is_err());

@@ -92,28 +92,24 @@ fn every_row_of_the_table_reads_as_its_kind() {
                 "<!-- tehas:park issue=7 step=develop kind= provider=1 sig={} -->",
                 sha('a')
             ),
-            Marker::Park(ParkMarker {
-                blueprint: no,
-                step: word("develop"),
-                kind: word(""),
-                provider: true,
-                sig: Sha256::new(sha('a')).unwrap(),
+            Marker::Park({
+                let mut p = ParkMarker::new(no, Sha256::new(sha('a')).unwrap());
+                p.step = word("develop");
+                p.kind = word("");
+                p.provider = true;
+                p
             }),
         ),
         (
             "<!-- tehas:finish issue=7 result=opened -->".to_string(),
-            Marker::Finish(FinishMarker {
-                blueprint: no,
-                result: FinishResult::Opened,
-                by_poll: false,
-            }),
+            Marker::Finish(FinishMarker::new(no, FinishResult::Opened)),
         ),
         (
             "<!-- tehas:finish issue=7 result=stopped by=poll -->".to_string(),
-            Marker::Finish(FinishMarker {
-                blueprint: no,
-                result: FinishResult::Stopped,
-                by_poll: true,
+            Marker::Finish({
+                let mut f = FinishMarker::new(no, FinishResult::Stopped);
+                f.by_poll = true;
+                f
             }),
         ),
         (
@@ -121,17 +117,15 @@ fn every_row_of_the_table_reads_as_its_kind() {
                 "<!-- tehas:last-attempt base={} -->\nIt ran out\nof time.\n<!-- /tehas:last-attempt -->",
                 sha('b')
             ),
-            Marker::LastAttempt(LastAttemptMarker {
-                base: Sha256::new(sha('b')).unwrap(),
-                note: "It ran out\nof time.".to_string(),
+            Marker::LastAttempt({
+                let mut l = LastAttemptMarker::new(Sha256::new(sha('b')).unwrap());
+                l.note = "It ran out\nof time.".to_string();
+                l
             }),
         ),
         (
             "<!-- tehas:millwright issue=7 action=retry -->".to_string(),
-            Marker::Millwright(MillwrightMarker {
-                blueprint: no,
-                action: MillwrightAction::Retry,
-            }),
+            Marker::Millwright(MillwrightMarker::new(no, MillwrightAction::Retry)),
         ),
         (
             "<!-- tehas:ticket-of ticket=41 -->".to_string(),
@@ -337,10 +331,10 @@ fn a_bare_marker_is_bare_and_its_words_stay() {
             "tehas:millwright issue=7 action=retry",
             bare(
                 MarkerKind::Millwright,
-                Some(Marker::Millwright(MillwrightMarker {
-                    blueprint: BlueprintNo::new(7).unwrap(),
-                    action: MillwrightAction::Retry,
-                })),
+                Some(Marker::Millwright(MillwrightMarker::new(
+                    BlueprintNo::new(7).unwrap(),
+                    MillwrightAction::Retry,
+                ))),
             ),
         ),
         // A bare block's open line encloses nothing.
@@ -542,20 +536,15 @@ impl Tickets for Notes {
             .iter()
             .map(|(id, body)| {
                 let got = read(body, key.same_item());
-                Comment {
-                    id: id.clone(),
-                    author: None,
-                    editor: None,
-                    created: At::new(0),
-                    edited: None,
-                    body: got.text,
-                    markers: got.markers,
-                    revision: Revision::new("r"),
-                    link: link(),
-                }
+                let mut c = Comment::new(id.clone(), At::new(0), Revision::new("r"), link());
+                c.body = got.text;
+                c.markers = got.markers;
+                c
             })
             .collect();
-        Ok(Took { items, more: false })
+        let mut took = Took::default();
+        took.items = items;
+        Ok(took)
     }
 
     fn ticket(&mut self, _: &TicketKey, _: Depth, _: Option<Window>) -> Got<Ticket> {
@@ -677,9 +666,10 @@ fn a_block_runs_to_its_close_line_and_one_without_it_is_unreadable() {
     );
     assert_eq!(
         got.markers,
-        [Marker::LastAttempt(LastAttemptMarker {
-            base: Sha256::new(sha('c')).unwrap(),
-            note: "Note one.\r\n\r\n> quoted".to_string(),
+        [Marker::LastAttempt({
+            let mut l = LastAttemptMarker::new(Sha256::new(sha('c')).unwrap());
+            l.note = "Note one.\r\n\r\n> quoted".to_string();
+            l
         })]
     );
     assert_eq!(got.text, "The task.\r\n\r\nThe end.");

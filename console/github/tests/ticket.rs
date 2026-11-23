@@ -666,22 +666,10 @@ fn a_kind_github_keeps_no_event_of_asks_no_question_and_settles_the_issue() {
     let whole = Window::Whole(ALL_MAX);
     // There: nothing happened of that kind, from the issue's read alone.
     let (mut gh, asked) = stub(vec![Ok(REST.to_string())]);
-    assert_eq!(
-        gh.history(&key(7), whole, priority),
-        Ok(Took {
-            items: Vec::new(),
-            more: false
-        })
-    );
+    assert_eq!(gh.history(&key(7), whole, priority), Ok(Took::default()));
     assert_eq!(*asked.borrow(), ["api repos/acme/widget/issues/7"]);
     let (mut gh, _) = stub(vec![Ok(REST.to_string())]);
-    assert_eq!(
-        gh.history(&key(7), last(3), priority),
-        Ok(Took {
-            items: Vec::new(),
-            more: false
-        })
-    );
+    assert_eq!(gh.history(&key(7), last(3), priority), Ok(Took::default()));
     // Not there, a change's number, a failure, an answer that is no issue.
     let pull = r#"{"number":7,"pull_request":{"url":"x"}}"#.to_string();
     for (answer, want) in [
