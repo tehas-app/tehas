@@ -71,7 +71,7 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr"
 for gone in store-copy host-message-health refresh-pr-starts refresh-pr-lane refresh-pr-json; do
   t_eq "$gone $(jq --arg w "$gone" '.features | index($w)' <<<"$t_out")" "$gone null"
 done
-t_eq "$(jq -r '.features | last' <<<"$t_out")" "questions"
+t_eq "$(jq -r '.features | last' <<<"$t_out")" "events"
 t_eq "$(jq -r '.features | length' <<<"$t_out")" 32
 t_eq "$(jq -r '.features | index("host-bridge-tokens")' <<<"$t_out")" null
 # Every word of features is in the manual's example and has its own entry,
