@@ -66,10 +66,7 @@ impl Blueprints for GitHub {
             .map(str::to_ascii_lowercase)
             .collect();
         if words.is_empty() {
-            return Ok(Took {
-                items: Vec::new(),
-                more: false,
-            });
+            return Ok(Took::default());
         }
         let q = query(&self.repo, &words, within, open)?;
         let want = first.get() as usize;
@@ -97,11 +94,10 @@ impl Blueprints for GitHub {
                     && open.is_none_or(|o| o == hit.open)
                     && holds(&found, &words)
                 {
-                    kept.push(BlueprintHit {
-                        no: hit.no,
-                        title: hit.title,
-                        open: hit.open,
-                    });
+                    let mut found = BlueprintHit::new(hit.no);
+                    found.title = hit.title;
+                    found.open = hit.open;
+                    kept.push(found);
                 }
             }
             let held = read.total.min(REACH);
@@ -120,7 +116,10 @@ impl Blueprints for GitHub {
         }
         let more = kept.len() > want;
         kept.truncate(want);
-        Ok(Took { items: kept, more })
+        let mut took = Took::default();
+        took.items = kept;
+        took.more = more;
+        Ok(took)
     }
 
     fn attachments(&mut self, _: BlueprintNo) -> Got<Whole<Attachment>> {

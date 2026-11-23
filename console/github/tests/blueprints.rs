@@ -205,10 +205,7 @@ fn a_search_with_no_words_or_words_github_cannot_search_asks_nothing() {
     let (mut gh, asked) = adapter();
     assert_eq!(
         gh.search(" \n ", Within::Everything, None, n(5)),
-        Ok(Took {
-            items: Vec::new(),
-            more: false
-        })
+        Ok(Took::default())
     );
     assert_eq!(
         gh.search(&"long ".repeat(60), Within::Titles, None, n(5)),
