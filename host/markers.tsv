@@ -32,6 +32,8 @@
 # A TicketOf or Blocked marker names only a ticket of this realm and
 # project. A ticket of another project or realm (Ref::Elsewhere) is not
 # written as a marker; a write of one is refused.
+# Blocked's by takes ticket numbers alone: a hold that names another
+# tracker's key comes with a split setup, which extends this row then.
 #
 # A 1.x Millwright marker named fixer reads as Unreadable of Millwright.
 Question	<!-- tehas:question kind={kind} issue={issue} turn={turn} -->		kind words(plan|park); issue blueprint; turn number(9)
