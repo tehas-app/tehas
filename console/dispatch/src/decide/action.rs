@@ -274,7 +274,6 @@ pub struct SpecPin {
 pub struct StartExtra {
     /// Only a lean start names its driver.
     pub driver: Option<Driver>,
-    pub contractor: Option<String>,
     pub approved_label: Option<String>,
     pub retry: Option<RetryTick>,
     pub refresh: Option<RefreshOf>,
@@ -528,9 +527,6 @@ impl From<&CycleStart> for Value {
         if let Some(d) = x.driver {
             put("driver", json!(d.word()));
         }
-        if let Some(c) = &x.contractor {
-            put("contractor", json!(c));
-        }
         if let Some(l) = &x.approved_label {
             put("approved_label", json!(l));
         }
@@ -589,7 +585,6 @@ mod tests {
             }),
             extra: StartExtra {
                 driver: Some(Driver::Lean),
-                contractor: Some("c".into()),
                 approved_label: Some("tehas:plan".into()),
                 retry: Some(RetryTick {
                     comment: Some(Given::Number(5.into())),
@@ -611,8 +606,8 @@ mod tests {
     fn a_start_s_extra_keys_override_none_of_its_own() {
         let v = Value::from(&Action::Start(Box::new(full())));
         let keys = v.as_object().unwrap().len();
-        // Its own keys, and the nine of the extra.
-        assert_eq!(keys, START_BASE.len() + 9, "{v}");
+        // Its own keys, and the eight of the extra.
+        assert_eq!(keys, START_BASE.len() + 8, "{v}");
     }
 
     #[test]

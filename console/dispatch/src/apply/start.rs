@@ -40,8 +40,6 @@ pub struct Host {
     pub bot: String,
     /// TEHAS_ASSIGNEE: the person a claimed issue is assigned to, or empty.
     pub owner: String,
-    /// The outsource feature is on: the start comment says who builds it.
-    pub outsource: bool,
     pub systemctl: String,
     /// TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD, which a test sets.
     pub start_cmd: Option<String>,
@@ -788,7 +786,6 @@ impl Writer {
             let _ = std::fs::remove_file(self.home.join(format!("state/refresh/{n}.json")));
             let url = text(a, "refresh_url");
             let said = format!("Tehas refresh started on `{host}` at {when} UTC: {url} conflicts with `{branch}`. This cycle merges that branch into it, resolves the conflicts and pushes to the same pull request. It rests on {whose} {how}. This issue is owned by the cycle until `tehas:running` is removed.");
-            let said = self.stamped(n, recorded, said, log);
             self.say(n, &said, log);
         } else {
             let left = if left_out.is_empty() {
@@ -798,7 +795,6 @@ impl Writer {
                 format!(" The comments of {} are left out: their permission on the repository could not be read.", names.join(", "))
             };
             let said = format!("Tehas cycle started on `{host}` at {when} UTC (authorized by {whose} {how}). This issue is owned by the cycle until `tehas:running` is removed.{left}");
-            let said = self.stamped(n, recorded, said, log);
             self.say(n, &said, log);
         }
         if let Some(say) = self.say_now {
@@ -843,35 +839,6 @@ impl Writer {
         };
         self.say(n, &format!("Tehas could not start the cycle for this issue on `{host}`: `tehas-cycle@{n}.service` did not come up: {why}. See `journalctl --user -u tehas-cycle@{n}` and `~/tehas/logs/dispatch.log` there. To retry, {retry}."), log);
         Then::Failed
-    }
-
-    /// The start comment with the line of who builds the cycle, where
-    /// outsource is on: the contractor of the issue's job open since the
-    /// approval at `since`, or in-house. Placement gives the job out before
-    /// this comment, so the comment names the hand that holds it; a job of an
-    /// earlier attempt, lost or ended, is not this start's. A store that
-    /// cannot say leaves the comment as it was rather than guess.
-    fn stamped(&mut self, n: u64, since: i64, said: String, log: &mut Vec<String>) -> String {
-        if !self.host.outsource {
-            return said;
-        }
-        let (issue, since) = (n.to_string(), since.to_string());
-        match self.store_try(
-            3,
-            &["job-stamp", "--issue", &issue, "--since", &since, "--open"],
-        ) {
-            Ok(v) => format!(
-                "{said}\n\n{}",
-                tehas_core::stamp::Built::of_answer(&v).line()
-            ),
-            Err(f) => {
-                log.push(format!(
-                    "WARN: #{n}: the store did not say who builds it ({}): its start comment carries no stamp",
-                    word(&f)
-                ));
-                said
-            }
-        }
     }
 
     /// spec_holds: with the spec-pipe feature on, a start whose body marks a
@@ -990,10 +957,8 @@ impl Writer {
         let given_at = text(a, "at").to_string();
         let mut input = Map::new();
         input.insert("links".into(), a.get("links").cloned().unwrap_or(json!([])));
-        for k in ["driver", "contractor"] {
-            if let Some(v) = a.get(k) {
-                input.insert(k.into(), v.clone());
-            }
+        if let Some(v) = a.get("driver") {
+            input.insert("driver".into(), v.clone());
         }
         // The pin spec_holds fetched the spec's bytes to.
         if let Some(s) = a.get("spec").filter(|s| s.get("sha256").is_some()) {

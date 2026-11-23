@@ -116,7 +116,7 @@ tehas of its own. Each release carries a small `tehas` for it, the asset
 install puts it in place as `/usr/local/bin/tehas`. It knows only its help
 and the parts' commands. The rule is in
 `docs/specs/2026-11-21-part-commands.md` of the platform repository, and
-[the contract](/contract#the-commands-of-other-parts) keeps it through 1.x.
+[the contract](/contract#the-commands-of-other-parts) keeps it through 2.x.
 
 ## Instance settings
 
@@ -127,10 +127,9 @@ default, or an example where there is none.
 
 A switch takes `on` or `off`. `1` and `0` mean the same and keep working;
 any other value stops every command with 78. A switch of an optional feature
-that is still being built, `TEHAS_OUTSOURCE`, `TEHAS_SPEC_PIPE` and
+that is still being built, `TEHAS_SPEC_PIPE` and
 `TEHAS_LEAN` in this release, stops every command with 78 when it is `on`. So
-does a line that gives a value to one of such a feature's own settings, the
-`TEHAS_OUTSOURCE_*` settings in this release.
+does a line that gives a value to one of such a feature's own settings.
 
 | Setting                         | Default                                  | Meaning                                                         |
 | ------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
@@ -174,16 +173,6 @@ does a line that gives a value to one of such a feature's own settings, the
 | `TEHAS_DRIVER`                 | `classic`                                | The driver an approved start runs when no label chooses one: `classic` (`work`) or `lean` (`work-lean`). With `lean`, a start with no driver label runs lean when the issue's text holds a `pi-spec v1` block and classic when it does not, and the poll logs which and why; `tehas:classic` and `tehas:lean` from an allowed account choose for one issue. Under `classic`, `tehas:lean` runs an issue on lean. An issue with both labels starts nothing. A retry keeps the driver its approval record binds. Anything else stops every command with 78, and so does `lean` while `TEHAS_LEAN` is not on: lean is still being built in this release. See [Choosing the driver](/operating#choosing-the-driver) |
 | `TEHAS_LEAN`                   | `off`                                    | `on` turns on the lean driver: `tehas:lean`, `TEHAS_DRIVER=lean` and `tehas work --driver lean`. Off, a start that would run lean starts nothing and says why, and classic does not run in its place. Anything but `on`, `off`, `1` or `0` stops every command with 78. Still being built in this release, so `on` stops every command with 78 too, naming `lean` |
 | `TEHAS_READ_ONLY`              | `off`                                    | `on` writes nothing to GitHub: every write of the host and of a cycle's container is refused and said, and the dispatcher keeps its starts on the host (see [read-only](/operating#read-only)). Anything but `on`, `off`, `1` or `0` stops every command with 78 |
-| `TEHAS_OUTSOURCE`              | `off`                                    | `on` lets the factory give whole cycles to contractors: other hosts that joined with a one-time invite code, each with its own public key, and no source, GitHub token or model key of this factory at rest. The factory never calls a contractor; it only answers. A job moves through `offered`, `running`, `stopping`, `finished`, `released` and `lost`, and the store keeps what each issue's outsourced attempts have cost. Off unless the instance says so. The state store holds the five tables of the feature either way; with it off they stay empty and every verb of the feature is refused. Anything but `on`, `off`, `1` or `0` stops every command with 78. Outsource is still being built in this release, so `on` stops every command with 78 too, naming `outsource`; once it ships, this turns the factory's own state on and lets [the model proxy](/outsource), `tehas-proxy`, run |
-| `TEHAS_OUTSOURCE_TIMEOUT`      | `600`                                    | Seconds a job may go without a check-in from its contractor before the poll's sweep loses it. A positive whole number of seconds, else every command stops with 78 |
-| `TEHAS_OUTSOURCE_GRACE`        | `120`                                    | Seconds past that timeout the factory waits for the contractor's salvage push before it calls the job lost. A positive whole number of seconds |
-| `TEHAS_OUTSOURCE_RETRIES`      | `2`                                      | How many jobs one issue may lose this way before it runs in-house. A positive whole number |
-| `TEHAS_OUTSOURCE_REST`         | `1800`                                   | Seconds a contractor that lost a job is given no new one. A positive whole number |
-| `TEHAS_OUTSOURCE_REPOS`        | empty                                    | Optional. The repositories whose cycles may go out, as `owner/name` entries separated by single spaces, matched without regard to case. Empty: no repository outsources, whatever `TEHAS_OUTSOURCE` says. A name that is not `owner/name`, or two spaces between entries, stops every command with 78 |
-| `TEHAS_OUTSOURCE_CONTRACTORS`  | empty                                    | Optional. The contractors the job channel answers, by the names they joined with, separated by single spaces. Empty: every contractor is refused, its join included. A name the list leaves out is answered 403 `not allowed` |
-| `TEHAS_OUTSOURCE_JOIN_TTL`     | `3600`                                   | How long in seconds a one-time invite code stays valid, for the host that has not joined with it yet. A positive whole number |
-| `TEHAS_OUTSOURCE_PROXY_ADDR`   | `127.0.0.1:8090`                         | The address and port the model proxy listens on. Never the dashboard's `TEHAS_HOST_ADDR` port. An address or host name and a port, as `192.0.2.7:8090`, else every command stops with 78 |
-| `TEHAS_OUTSOURCE_PROXY_IDLE`   | `900`                                    | Seconds a model stream may go silent before the proxy drops it. Must be longer than `TEHAS_OUTSOURCE_TIMEOUT`, else every command stops with 78 |
 | `TEHAS_SPEC_PIPE`              | `off`                                    | `on` reads the `Spec: <link> sha256:<64 hex digits>` line of an issue's body at a start: a line of another form, a link that is no file attached on GitHub, or two such lines start nothing, and the poll says why once. A start fetches the file and holds its bytes to that sha256, and its approval keeps the pin: other bytes start nothing either (see [the feature list](/features)). The cycle is given the spec, fetched again and held to the pin, and the approved title and body as files beside the images, and a cycle with a spec starts only on a sandbox image whose pi-rukas lists `issueSpec` (see [tehas work](/tools-work)). Anything but `on`, `off`, `1` or `0` stops every command with 78. The spec pipe is still being built in this release, so `on` stops every command with 78 too, naming `spec-pipe` |
 | `TEHAS_REFRESH_MAX_PER_PR`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
 | `TEHAS_REFRESH_SLOTS`          | `1`                                      | Refreshes side by side in a lane of their own, from 0 to 8. They do not count against `TEHAS_MAX_CYCLES`, and new cycles leave room in the slice for them (see [refreshes](/operating#refreshes)). 0 has refreshes share the cycles' slots |

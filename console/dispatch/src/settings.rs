@@ -63,9 +63,6 @@ pub struct Settings {
     /// The `lean` feature is on. Off, a start that would run lean starts
     /// nothing and says why; classic never runs in its place.
     pub lean: bool,
-    /// The outsource feature's settings, None while it is off: every start
-    /// then runs on this host, as before the feature.
-    pub outsource: Option<crate::place::Rules>,
 }
 
 impl Settings {
@@ -130,11 +127,6 @@ impl Settings {
             driver_default: Driver::default_of(&s("TEHAS_DRIVER", "classic")),
             spec_pipe: tehas_core::features::on_in("spec-pipe", &|k| s(k, "")),
             lean: tehas_core::features::on_in("lean", &|k| s(k, "")),
-            outsource: crate::place::Rules::of(&|k| {
-                v.get(k).map_or(String::new(), |x| {
-                    x.as_str().map_or(x.to_string(), str::to_string)
-                })
-            }),
         }
     }
 
@@ -317,17 +309,6 @@ mod tests {
         );
         let none = Settings::parse(&json!({}));
         assert_eq!(none.millwright_max_plan_answers, 3);
-    }
-
-    #[test]
-    fn outsource_is_off_unless_the_registry_says_on() {
-        assert_eq!(Settings::parse(&json!({})).outsource, None);
-        let asked = json!({"TEHAS_OUTSOURCE": "on", "TEHAS_OUTSOURCE_REPOS": "acme/widget"});
-        assert_eq!(Settings::parse(&asked).outsource, None);
-        let mut tested = asked.clone();
-        tested["TEHAS_TEST_FEATURES"] = json!("outsource");
-        let rules = Settings::parse(&tested).outsource.unwrap();
-        assert_eq!(rules.repos, ["acme/widget"]);
     }
 
     #[test]

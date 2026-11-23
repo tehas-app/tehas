@@ -38,17 +38,15 @@ fn sources(dir: &str) -> Vec<(String, PathBuf)> {
 
 /// The crates the guard reads. The clock itself, `core/src/time.rs`, is
 /// left out: it is the one place that may read the host's clock.
-const DIRS: [&str; 12] = [
+const DIRS: [&str; 10] = [
     "src",
     "analytics/src",
     "attach/src",
-    "contractor/src",
     "core/src",
     "cycle/src",
     "dispatch/src",
     "mcp/src",
     "ops/src",
-    "proxy/src",
     "store/src",
     "xtask/src",
 ];

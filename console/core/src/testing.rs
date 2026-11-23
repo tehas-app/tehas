@@ -15,6 +15,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
+/// The programs no test may reach without a stub of its own. A harness puts
+/// a stub of each first on PATH that records the call and fails.
+pub const DENIED: [&str; 5] = ["docker", "gh", "systemctl", "curl", "ssh"];
+
+/// The outside programs a test stubs to fail and record, to show that a
+/// command that must reach nothing called none of them.
+pub const UNREACHED: [&str; 3] = ["gh", "docker", "git"];
+
 /// Make `path` an executable (mode 0755) that holds `body`.
 pub fn write_exe(path: impl AsRef<Path>, body: impl AsRef<[u8]>) -> io::Result<()> {
     let path = path.as_ref();
