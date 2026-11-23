@@ -1,13 +1,31 @@
 //! The one module of the adapter that writes a label: the label of each of
-//! tehas's words, and the rule a label name keeps. The rest of the adapter
-//! names a word, never its label. The table is `host/labels.tsv`, and a test
-//! of the adapter holds this copy of it to that file.
-//!
-//! The rule, [`is_label`], stays in core while `console/src/labels.rs` reads
-//! it there, and comes here when that caller moves behind the ports.
+//! tehas's words, its colour and text, and the rule a label name keeps. The
+//! rest of the adapter names a word, never its label. The table is
+//! `host/labels.tsv`, read when the adapter is built, and a test of the
+//! adapter holds the words here to that file.
 
-pub use tehas_core::forge::is_label;
-use tehas_ports::{Act, Choice, Mark, State};
+use tehas_ports::{Act, Choice, Colour, Mark, MarkName, MarkSpec, State};
+
+/// The characters a GitHub label name is built from in tehas. The `:` of
+/// tehas's labels is one of them; a space, a `/` and a `?` are not.
+const LABEL_BYTES: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:-_";
+
+/// The longest label name GitHub accepts.
+const LABEL_MAX: usize = 50;
+
+/// Whether `label` is a name the writes will accept: non-empty, no longer than
+/// GitHub allows, and built from the characters in [`LABEL_BYTES`]. A write
+/// refuses a name outside it, because such a name is no label of tehas and the
+/// request that carries it is aimed at something else - a newline, or a `-f`,
+/// would otherwise reach gh as part of the one argument it is given. A read of
+/// a term takes any string, so a repository's own label can still be asked
+/// about. The path segment of a removal is encoded as well, so a name that did
+/// reach a write could not leave the labels of its issue.
+pub fn is_label(label: &str) -> bool {
+    !label.is_empty()
+        && label.len() <= LABEL_MAX
+        && label.as_bytes().iter().all(|b| LABEL_BYTES.contains(b))
+}
 
 /// The label whose latest application approves work.
 pub const APPROVAL_LABEL: &str = "tehas:ready";
@@ -58,4 +76,25 @@ pub fn label(mark: &Mark) -> Option<String> {
             .find(|(_, m)| m == mark)
             .map(|(l, _)| l.to_string()),
     }
+}
+
+/// `host/labels.tsv` as the adapter was built with it. Nothing reads the
+/// installed copy at run time.
+const FILE: &str = include_str!("../../../host/labels.tsv");
+
+/// The name, colour and text of each label of the table, in its order, as
+/// `prepare` makes them. A line the file does not give whole is left out;
+/// the table's test holds the file to none.
+pub fn specs() -> Vec<MarkSpec> {
+    FILE.lines()
+        .filter_map(|line| {
+            let mut fields = line.split('\t');
+            let (name, colour, about) = (fields.next()?, fields.next()?, fields.next()?);
+            Some(MarkSpec {
+                name: MarkName::new(name).ok()?,
+                colour: Some(Colour::new(colour).ok()?),
+                about: Some(about.to_string()).filter(|a| !a.is_empty()),
+            })
+        })
+        .collect()
 }
