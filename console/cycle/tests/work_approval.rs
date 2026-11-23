@@ -392,7 +392,7 @@ fn a_measure_that_answers_junk_records_no_line_and_says_the_measure_gave_up() {
     )
     .unwrap();
     for f in ["tehas-cycle", "tehas-cycle.real"] {
-        fs::copy(w.tree.join("libexec").join(f), libexec.join(f)).unwrap();
+        tehas_core::testing::copy_exe(w.tree.join("libexec").join(f), libexec.join(f)).unwrap();
     }
     // The console of this tree is the one asked, so no other is named.
     let r = w.sh(

@@ -131,12 +131,12 @@ fn install_shim(w: &World) {
         fs::create_dir_all(h.join(d)).unwrap();
     }
     let shim = h.join("shim/gh");
-    fs::copy(root().join("host/shim/gh"), &shim).unwrap();
+    tehas_core::testing::copy_exe(root().join("host/shim/gh"), &shim).unwrap();
     fs::set_permissions(&shim, fs::Permissions::from_mode(0o755)).unwrap();
     let console = h.join("libexec/console");
     let _ = fs::remove_file(&console);
     std::os::unix::fs::symlink(w.console(), &console).unwrap();
-    fs::copy(w.t().join("bin/gh"), h.join("bin/gh")).unwrap();
+    tehas_core::testing::copy_exe(w.t().join("bin/gh"), h.join("bin/gh")).unwrap();
 }
 
 #[test]

@@ -59,7 +59,7 @@ fn df(w: &World) {
 fn disk(w: &World, env: &str, args: &str) -> Run {
     let tehas = w.t().join("tree/bin/tehas");
     if !tehas.exists() {
-        fs::copy(root().join("bin/tehas"), &tehas).unwrap();
+        tehas_core::testing::copy_exe(root().join("bin/tehas"), &tehas).unwrap();
     }
     w.sh(&format!(
         "unset TEHAS_CONSOLE; {env} {} disk {args}",
