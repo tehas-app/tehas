@@ -28,7 +28,7 @@
     "build": {
       "turns": 800,
       "tokens": 150000000,
-      "minutes": 60
+      "minutes": 90
     },
     "challenge": {
       "turns": 800,
