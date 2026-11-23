@@ -73,3 +73,33 @@ fn limit_expired_unreadable_or_of_another_version_nothing_starts_and_the_hold_sa
         has(d["hold"].as_str().unwrap_or_default(), hold);
     }
 }
+
+#[test]
+fn limit_with_or_without_its_set_holds_the_same() {
+    for (kind, file) in [
+        (
+            "1.4",
+            "{\"v\":1,\"cycles\":0,\"plan\":true,\"until\":null,\"reason\":\"r\"}\n",
+        ),
+        (
+            "set",
+            "{\"v\":1,\"cycles\":0,\"plan\":true,\"until\":null,\"reason\":\"r\",\"set\":\"2026-10-17T14:00:20Z\"}\n",
+        ),
+    ] {
+        let w = World::new("limit");
+        w.slots(2, &[]);
+        w.ready(&[7]);
+        std::fs::create_dir_all(w.limit_file().parent().unwrap()).unwrap();
+        std::fs::write(w.limit_file(), file).unwrap();
+        let r = w.poll();
+        assert_eq!(r.rc, 0, "{kind}: {}", r.out);
+        assert_eq!(w.started(), "", "{kind}: a cycle started");
+        let d = w.dispatch_state();
+        assert_eq!(d["why"], json!("limit"), "{kind}");
+        assert_eq!(
+            d["hold"],
+            json!("holding: the limit allows 0 cycles at once and 0 are running: r"),
+            "{kind}"
+        );
+    }
+}
