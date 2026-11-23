@@ -668,11 +668,11 @@ struct RelayGh {
     until: Instant,
 }
 
-impl GhRunner for RelayGh {
+impl RelayGh {
     /// gh's output, or one line in our words: gh's error stream is the
     /// site's text, which goes back into the container, so only the words
     /// of `gh_why`'s fixed list are kept.
-    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+    fn call(&self, args: &[&str], input: Option<&str>) -> Result<String, String> {
         let left = self
             .until
             .saturating_duration_since(Instant::now())
@@ -681,26 +681,20 @@ impl GhRunner for RelayGh {
             return Err(format!("the relay's {GH_WAIT} s are up"));
         }
         let argv: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-        match run_gh(&self.gh, &self.token, left, &argv, None) {
+        match run_gh(&self.gh, &self.token, left, &argv, input) {
             (out, _, 0) => Ok(out),
             (_, err, rc) => Err(format!("gh exited {rc}{}", gh_why(&err))),
         }
     }
+}
 
-    /// As `run`, with `input` on gh's standard input, in the time a write
-    /// has.
+impl GhRunner for RelayGh {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        self.call(args, None)
+    }
+
     fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
-        let argv: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-        match run_gh(
-            &self.gh,
-            &self.token,
-            GH_WAIT - 2 * READ_WAIT,
-            &argv,
-            Some(input),
-        ) {
-            (out, _, 0) => Ok(out),
-            (_, err, rc) => Err(format!("gh exited {rc}{}", gh_why(&err))),
-        }
+        self.call(args, Some(input))
     }
 }
 
@@ -1799,6 +1793,7 @@ mod tests {
         let mut gh = RelayGh {
             gh: stub_gh(&d),
             token: "ghs_full".to_string(),
+            until: Instant::now() + Duration::from_secs(10),
         };
         let body = "b".repeat(200 * 1024);
         let got = gh.run_input(&["issue", "comment", "3", "--body-file=-"], &body);
@@ -1807,6 +1802,21 @@ mod tests {
             read(d.join("gh.log")),
             format!("issue|comment|3|--body-file=-|token=ghs_full,ghs_full\n{body}")
         );
+    }
+
+    #[test]
+    fn the_relays_gh_runs_nothing_once_its_time_is_up() {
+        let d = TestDir::new("relay-gh-late");
+        let mut gh = RelayGh {
+            gh: stub_gh(&d),
+            token: "ghs_full".to_string(),
+            until: Instant::now(),
+        };
+        assert_eq!(
+            gh.run_input(&["api", "x"], "b"),
+            Err(format!("the relay's {GH_WAIT} s are up"))
+        );
+        assert!(!d.join("gh.log").exists());
     }
 
     #[test]
