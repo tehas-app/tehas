@@ -1,0 +1,374 @@
+[
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Admin"
+    },
+    "fixture": "alice is an admin of acme/widget.",
+    "op": "Identity::standing",
+    "who": "101"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Write"
+    },
+    "fixture": "Bob may write to acme/widget.",
+    "op": "Identity::standing",
+    "who": "102"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Maintain"
+    },
+    "fixture": "carol maintains acme/widget: her role_name says maintain, which GitHub's legacy word folds into write.",
+    "op": "Identity::standing",
+    "who": "103"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Triage"
+    },
+    "fixture": "dave triages acme/widget: his role_name says triage, which GitHub's legacy word folds into read.",
+    "op": "Identity::standing",
+    "who": "104"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Read"
+    },
+    "fixture": "erin may read acme/widget.",
+    "op": "Identity::standing",
+    "who": "105"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "None"
+    },
+    "fixture": "frank has an account and no access to the private acme/widget.",
+    "op": "Identity::standing",
+    "who": "106"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "NotFound"
+    },
+    "fixture": "No account has the id 107.",
+    "op": "Identity::standing",
+    "who": "107"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "None"
+    },
+    "fixture": "The id 108 is the organisation acme, which holds no standing of its own.",
+    "op": "Identity::standing",
+    "who": "108"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "None"
+    },
+    "fixture": "The id 900 is the factory's App. Until the adapter carries its actor it cannot tell its own App apart, so it answers as for any App: no collaborator permission.",
+    "op": "Identity::standing",
+    "who": "900"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    },
+    "fixture": "The id 110 is grace, renamed between the two reads and her login taken by the account 111, both times asked.",
+    "op": "Identity::standing",
+    "who": "110"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    },
+    "fixture": "The account read of the id 121 names another id.",
+    "op": "Identity::standing",
+    "who": "121"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Admin"
+    },
+    "fixture": "The id 122 is olivia, renamed to the free login olivia2 between the two reads: the permission read of olivia finds nothing, and the second pair reads olivia2's.",
+    "op": "Identity::standing",
+    "who": "122"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Inconsistent"
+      }
+    },
+    "fixture": "The id 123 is oscar, renamed between the reads of each pair, so the permission read finds nothing under either login.",
+    "op": "Identity::standing",
+    "who": "123"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "Forbidden"
+    },
+    "fixture": "heidi's permission may not be read by this token.",
+    "op": "Identity::standing",
+    "who": "112"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Spent": {
+          "pool": "Calls",
+          "until": 1767225600
+        }
+      }
+    },
+    "fixture": "The factory's budget is spent: a secondary rate limit.",
+    "op": "Identity::standing",
+    "who": "113"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "sent": "Maybe",
+          "why": "Server"
+        }
+      }
+    },
+    "fixture": "ivan's permission read answers a server error.",
+    "op": "Identity::standing",
+    "who": "114"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unavailable": {
+          "sent": "Maybe",
+          "why": "Timeout"
+        }
+      }
+    },
+    "fixture": "The account read outlives its time limit.",
+    "op": "Identity::standing",
+    "who": "115"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    },
+    "fixture": "judy's permission answer is cut off part way.",
+    "op": "Identity::standing",
+    "who": "116"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "NotFound"
+    },
+    "fixture": "mallory has an account, and the permission read answers that the repository is not visible, both times asked under the same login.",
+    "op": "Identity::standing",
+    "who": "117"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    },
+    "fixture": "niaj's permission answer gives a word GitHub does not document.",
+    "op": "Identity::standing",
+    "who": "118"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": "SignedOut"
+    },
+    "fixture": "The token is no longer good.",
+    "op": "Identity::standing",
+    "who": "119"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    },
+    "fixture": "The account read answers a page that is no JSON.",
+    "op": "Identity::standing",
+    "who": "120"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Refused": "Invalid"
+      }
+    },
+    "fixture": "abc is no id GitHub gives: refused with no request.",
+    "op": "Identity::standing",
+    "who": "abc"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "None"
+    },
+    "fixture": "The id 901 is another App's bot account: an App is no collaborator, so it holds no permission on acme/widget.",
+    "op": "Identity::standing",
+    "who": "901"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Read"
+    },
+    "fixture": "peggy holds the custom role deployer, based on write: GitHub's permission word says write, and the dispatcher lets no custom role write, so she reads.",
+    "op": "Identity::standing",
+    "who": "124"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Read"
+    },
+    "fixture": "quinn holds the custom role auditor, based on read.",
+    "op": "Identity::standing",
+    "who": "125"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "None"
+    },
+    "fixture": "rupert holds a custom role whose permission word says none.",
+    "op": "Identity::standing",
+    "who": "126"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Read"
+    },
+    "fixture": "sybil's role_name is empty and her permission word says write: an empty role is no base role, so she reads.",
+    "op": "Identity::standing",
+    "who": "127"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Write"
+    },
+    "fixture": "trent's answer has no role_name, as before GitHub added it: his permission word, write, is read.",
+    "op": "Identity::standing",
+    "who": "128"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Ok": "Admin"
+    },
+    "fixture": "ursula's role_name is null: her permission word, admin, is read.",
+    "op": "Identity::standing",
+    "who": "129"
+  },
+  {
+    "actor": {
+      "Ours": "Full"
+    },
+    "answer": {
+      "Err": {
+        "Unread": "Malformed"
+      }
+    },
+    "fixture": "victor holds the custom role deployer and the answer carries no permission word: nothing says what the role is based on.",
+    "op": "Identity::standing",
+    "who": "130"
+  }
+]
