@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 use std::env;
 use std::path::PathBuf;
 use tehas_core::grammar::digits;
-use tehas_core::question::{park_choices, plan_choices, Choice, Offered, CHOICES};
+use tehas_core::question::{stored_choices, Offered};
 use tehas_core::{exit, time};
 
 const USAGE: &str =
@@ -90,24 +90,12 @@ pub fn words(given: &[String]) -> Result<Asked, u8> {
 
 /// The word `tehas answer` takes for a choice: `option:<k>` for an option.
 pub fn answer_word(o: &Offered) -> String {
-    match (o.choice, o.option) {
-        (Choice::Option, Some(k)) => format!("option:{k}"),
-        (c, _) => c.word().to_string(),
-    }
+    o.answer_word()
 }
 
-/// The choices of the store's question: a planning question's from its
-/// options, a park's from the choices it was asked with, every park choice
-/// when those were not kept.
+/// The choices of the store's question (`tehas_core::question::stored_choices`).
 fn choices(kind: &str, offers: Option<Vec<String>>, options: Vec<String>) -> Vec<Offered> {
-    if kind == "plan" {
-        return plan_choices(&options);
-    }
-    let offered: Vec<Choice> = match offers {
-        Some(words) => words.iter().filter_map(|w| Choice::of(w)).collect(),
-        None => CHOICES.to_vec(),
-    };
-    park_choices(&offered)
+    stored_choices(kind, offers.as_deref(), &options)
 }
 
 /// A question as the store gives it (store/src/answer.rs).

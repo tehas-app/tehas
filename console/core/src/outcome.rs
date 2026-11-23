@@ -170,6 +170,57 @@ pub fn end(line: &Line) -> &'static str {
     }
 }
 
+/// A history line as far as a run of the same parks goes. `how` is the step,
+/// the cap, the park's reason and the failure's kind and cause, each `None`
+/// when the line has none.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ParkLine<'a> {
+    pub issue: u64,
+    pub work: bool,
+    pub parked: bool,
+    pub provider: bool,
+    pub how: [Option<&'a str>; 5],
+}
+
+impl ParkLine<'_> {
+    // A park, and not the park of a provider outage, which has its own rule
+    // of retries.
+    fn park(&self) -> bool {
+        self.parked && !self.provider
+    }
+}
+
+/// The count of the parks in a row that stopped exactly as each line did, 0
+/// on a line that has none. `lines` are in the order the store wrote them. A
+/// run is the parks of one issue with all of `how` equal, each the end
+/// written just after the other, the parks of an outage skipped. A merge, a
+/// handoff or any other end breaks a run. Only these lines count: a list
+/// that begins partway through a run gives its first line no count.
+pub fn repeats(lines: &[ParkLine]) -> Vec<u64> {
+    use std::collections::HashMap;
+    let mut counts = vec![0u64; lines.len()];
+    // By issue: its end written last, outages skipped, and its park seen last.
+    let (mut end, mut park): (HashMap<u64, usize>, HashMap<u64, usize>) = Default::default();
+    for (i, line) in lines.iter().enumerate() {
+        if line.park() {
+            let run = end
+                .get(&line.issue)
+                .map(|&e| &lines[e])
+                .is_some_and(|before| before.park() && before.how == line.how);
+            if run {
+                counts[i] = park.get(&line.issue).map_or(0, |&p| counts[p]) + 1;
+            }
+            park.insert(line.issue, i);
+        } else if line.work && !line.parked {
+            park.remove(&line.issue);
+        }
+        if line.work && !line.provider {
+            end.insert(line.issue, i);
+        }
+    }
+    counts
+}
+
 #[cfg(test)]
 mod end_tests;
 
@@ -228,6 +279,36 @@ mod tests {
     fn the_outcomes_that_are_no_stop_are_an_offer_a_merge_and_stopped() {
         let rest: BTreeSet<_> = set(&OUTCOMES).difference(&set(&STOPS)).copied().collect();
         assert_eq!(rest, set(&["offered", "merged", "stopped"]));
+    }
+
+    #[test]
+    fn a_run_of_the_same_parks_counts_from_its_second() {
+        let park = |issue, cap| ParkLine {
+            issue,
+            work: true,
+            parked: true,
+            provider: false,
+            how: [Some("develop"), Some(cap), None, None, None],
+        };
+        let outage = ParkLine {
+            provider: true,
+            ..park(7, "x")
+        };
+        let offered = ParkLine {
+            parked: false,
+            ..park(7, "x")
+        };
+        let lines = [
+            park(7, "a"),
+            park(8, "a"),
+            outage,
+            park(7, "a"),
+            park(7, "a"),
+            park(7, "b"),
+            offered,
+            park(7, "b"),
+        ];
+        assert_eq!(repeats(&lines), [0, 0, 0, 1, 2, 0, 0, 0]);
     }
 
     #[test]

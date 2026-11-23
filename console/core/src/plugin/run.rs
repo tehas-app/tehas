@@ -12,6 +12,7 @@ use crate::grammar::{commit_id, is_image};
 use serde_json::{json, Value};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use tehas_ports::events::Envelope;
 
 /// The container's own uid and gid, which own the image's /work, /out and
 /// /state.
@@ -99,6 +100,9 @@ pub struct Run<'a> {
     pub pr: Option<Pr>,
     /// A call's tool, by id.
     pub tool: Option<&'a str>,
+    /// The envelope of the event that asked for a hook: none for a person's
+    /// run.
+    pub event: Option<&'a Envelope>,
 }
 
 /// What a run is given beyond what every run has.
@@ -252,6 +256,16 @@ pub fn context(run: &Run) -> Result<Value, String> {
     if let Some(tool) = run.tool {
         c["tool"] = json!(tool);
     }
+    match (run.event, run.kind) {
+        (None, _) => {}
+        (Some(e), Kind::Hook) if super::hook::asks(e) => {
+            c["event"] = serde_json::to_value(e).map_err(|e| e.to_string())?;
+        }
+        (Some(e), Kind::Hook) => {
+            return Err(format!("a hook is not asked on {}", e.name().as_str()))
+        }
+        (Some(_), _) => return Err(format!("a {} with an event", run.kind.word())),
+    }
     Ok(c)
 }
 
@@ -260,6 +274,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::plugin::grants;
     use crate::plugin::manifest::Tool;
+    use tehas_ports::events::{samples, Name};
 
     pub const C: &str = "0123456789abcdef0123456789abcdef01234567";
     pub const H: &str = "89abcdef0123456789abcdef0123456789abcdef";
@@ -330,6 +345,7 @@ pub(crate) mod tests {
                 head: H.into(),
             }),
             tool: (kind == Kind::Call).then_some("find-doc"),
+            event: None,
         }
     }
 
@@ -446,6 +462,24 @@ pub(crate) mod tests {
             context(&run(&m, &g, Kind::Refresh)).unwrap()["model"],
             json!({"id": "plugin", "tokens": 2000000})
         );
+        let sample = |name: Name| samples().into_iter().find(|s| s.name == name).unwrap().full;
+        let offered = sample(Name::ChangeOffered);
+        let asked = Run {
+            event: Some(&offered),
+            ..run(&m, &g, Kind::Hook)
+        };
+        assert_eq!(
+            context(&asked).unwrap()["event"],
+            serde_json::to_value(&offered).unwrap()
+        );
+        let ended = sample(Name::CycleEnded);
+        for (kind, event) in [(Kind::Hook, &ended), (Kind::Refresh, &offered)] {
+            let r = Run {
+                event: Some(event),
+                ..run(&m, &g, kind)
+            };
+            assert!(context(&r).is_err(), "{kind:?} {}", event.name().as_str());
+        }
     }
 
     #[test]

@@ -115,7 +115,8 @@ Every run, whatever is granted:
   `disk` the run fails; a `/state` past it is emptied and the plugin waits
   for `tehas plugin run`.
 - `/run/context.json`: the kind of run, the plugin's commit, and what its
-  grants make of it. Nothing about a person.
+  grants make of it. A hook a cycle asked for has the envelope of its
+  event, `change.offered`, as `event`. Nothing about a person.
 - `docker kill` at the manifest's timeout.
 
 No grant gives, in any version: a GitHub token or the App's key, the Docker
@@ -229,9 +230,9 @@ A refresh makes the view. A hook reports on a pull request.
   same head.
 - **On demand.** `tehas plugin run <name>`, or a press of the view's button.
   One refresh of a plugin runs at a time.
-- **After a cycle.** A cycle that leaves an open pull request of the bot's
-  asks each ready plugin granted `hook:after:work` for a hook on it, and
-  waits for none. A hook holds no slot, lock or label. By hand: `tehas plugin
+- **After a cycle.** A cycle that offers a change, its event
+  `change.offered`, asks each ready plugin granted `hook:after:work` for a
+  hook on the pull request while it is open, and waits for none. A hook holds no slot, lock or label. By hand: `tehas plugin
   hook <name> <pr>`.
 - **What it said.** `tehas plugin log <name>` prints the last refresh's log,
   and `--hook <pr>` the last hook's on that pull request. Each control

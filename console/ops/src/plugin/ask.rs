@@ -135,6 +135,7 @@ pub fn hook(
         base,
         issue: None,
         trigger: Trigger::Host,
+        event: None,
     };
     match runs::ask_hook(x, home, name, &ask) {
         Ok(()) => {

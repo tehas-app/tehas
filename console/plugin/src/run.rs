@@ -33,6 +33,7 @@ use tehas_core::{exit, features, sandbox};
 use tehas_ops::plugin::exec::{Cmd, Exec, Git};
 use tehas_ops::plugin::prepare;
 use tehas_ops::plugin::runs::{self, Asked, HookAsk, DISK_REFUSAL, LOG_MAX};
+use tehas_ports::events::Envelope;
 
 /// `TEHAS_PLUGIN_LIMITS` when it is not set.
 pub const LIMITS: Limits = Limits {
@@ -433,6 +434,9 @@ struct Started<'a> {
     trigger: Trigger,
     head: String,
     pr: Option<Pr>,
+    /// The envelope of the event that asked for a hook. A person's run has
+    /// none.
+    event: Option<Envelope>,
 }
 
 fn by_of(trigger: Trigger, by: Option<&str>) -> String {
@@ -525,6 +529,7 @@ fn run_in(
         model: &model_id,
         pr: st.pr.clone(),
         tool: None,
+        event: st.event.as_ref(),
     };
     let given = match run.given() {
         Ok(g) => g,
@@ -822,6 +827,7 @@ fn refresh(h: &mut dyn Host, s: &Setup, ask: &Ask) -> u8 {
         trigger,
         head,
         pr: None,
+        event: None,
     };
     let came = one_run(h, s, &st, &by_of(trigger, by.as_deref()));
     drop(lock);
@@ -1007,6 +1013,7 @@ fn hook_at(h: &mut dyn Host, s: &Setup, p: &Plugin, ask: &Ask, req: &HookAsk) ->
             base,
             head: head.clone(),
         }),
+        event: req.event.clone().filter(|_| trigger == Trigger::Cycle),
     };
     (one_run(h, s, &st, &by_of(trigger, None)), head)
 }

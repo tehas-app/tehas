@@ -17,7 +17,8 @@
 //! conflicts before one starts, and `watch` starts a cycle's container and sees it
 //! to its end. `progress` summarises what the runner wrote.
 //! `supervise` starts a cycle, runs tehas work and sees to its report, and
-//! `hook` then asks for the plugins' hooks on the pull request it left.
+//! `events` raises what it recorded: `hook`, the plugins' bridge, asks for
+//! the plugins' hooks on the change it offered.
 //! `lock` takes the locks of a cycle, tehas work and the index, and hands them
 //! down to what they start.
 
@@ -27,6 +28,7 @@ pub mod caps;
 pub mod clock;
 pub mod conflict;
 pub mod end_failed;
+pub mod events;
 pub mod facts;
 pub mod finish;
 pub mod freeze;

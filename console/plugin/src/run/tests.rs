@@ -373,6 +373,7 @@ fn a_refresh_with_every_grant_runs_its_container_and_swaps_its_view_in() {
         model: "example-model",
         pr: None,
         tool: None,
+        event: None,
     })
     .unwrap();
     assert_eq!(h.argv, [want]);
@@ -604,6 +605,7 @@ fn ask_hook_on(w: &World, h: &mut Fake, head: &str) {
         base: B.into(),
         issue: Some(7),
         trigger: Trigger::Cycle,
+        event: None,
     };
     runs::ask_hook(&mut h.x, &w.home, "demo", &ask).unwrap();
 }
@@ -701,6 +703,7 @@ fn a_newer_request_that_came_during_a_hook_runs_after_it() {
                 base: B.into(),
                 issue: None,
                 trigger: Trigger::Cycle,
+                event: None,
             };
             let path = runs::hook_request(&home, "demo", 42);
             fs::write(path, ask.json().to_string()).unwrap();
@@ -767,6 +770,7 @@ fn a_request_that_came_during_a_hook_is_not_run_once_the_pin_moved() {
             base: B.into(),
             issue: None,
             trigger: Trigger::Host,
+            event: None,
         };
         tehas_core::plugin::hook::write_request(&home, "demo", &ask).unwrap();
         let mut st = prepare::read_state(&home, "demo").unwrap();
@@ -797,6 +801,7 @@ fn a_request_written_while_its_hook_runs_at_the_same_head_runs_after_it() {
                 base: B.into(),
                 issue: None,
                 trigger: Trigger::Host,
+                event: None,
             };
             tehas_core::plugin::hook::write_request(&home, "demo", &ask).unwrap();
         }
@@ -978,6 +983,45 @@ fn a_hook_granted_the_model_gets_no_socket() {
     assert_eq!(go(&mut h, &w, &hook_ask()), 0);
     assert_eq!(ctx.borrow().get("model"), None);
     assert!(!h.argv[0].iter().any(|a| a.contains("dst=/run/tehas")));
+}
+
+#[test]
+fn a_hook_an_event_asked_for_is_told_the_envelope() {
+    let mut h = Fake::new();
+    let w = world("plugin-run-hook-event", &mut h, "", "hook:after:work");
+    let envelope = tehas_ports::events::samples()
+        .into_iter()
+        .find(|s| s.name == tehas_ports::events::Name::ChangeOffered)
+        .unwrap()
+        .full;
+    let ask = HookAsk {
+        pr: 42,
+        head: H.into(),
+        base: B.into(),
+        issue: Some(7),
+        trigger: Trigger::Cycle,
+        event: Some(envelope.clone()),
+    };
+    runs::ask_hook(&mut h.x, &w.home, "demo", &ask).unwrap();
+    h.tars.insert(
+        "tehas-plugin-demo-7:/out/_tehas".into(),
+        tar(
+            "_tehas",
+            &[("verdict.json", r#"{"verdict": "pass", "summary": "ok"}"#)],
+        ),
+    );
+    let d = prepare::dir(&w.home, "demo").join("run-7");
+    let ctx = std::rc::Rc::new(std::cell::RefCell::new(Value::Null));
+    let seen = ctx.clone();
+    h.on_run = Some(Box::new(move |_| {
+        *seen.borrow_mut() =
+            serde_json::from_slice(&fs::read(d.join("context.json")).unwrap()).unwrap();
+    }));
+    assert_eq!(go(&mut h, &w, &hook_ask()), 0);
+    assert_eq!(
+        ctx.borrow()["event"],
+        serde_json::to_value(&envelope).unwrap()
+    );
 }
 
 /// A world whose GitHub knows the repository, the bot and the pull request

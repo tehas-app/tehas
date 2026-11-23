@@ -226,6 +226,7 @@ pub fn after(h: &mut dyn Host, s: &Setup, name: &str, view: bool, req: &HookAsk,
         base,
         issue: req.issue,
         trigger: req.trigger,
+        event: req.event.clone(),
     };
     if let Err(why) = runs::ask_hook(h.exec(), s.home, name, &again) {
         say(&format!("plugin {name}: #{pr} was not asked again: {why}"));

@@ -4,12 +4,14 @@
 use serde_json::{json, Value};
 
 /// Whether `v` fits `s`. A keyword this does not know fails the test, so
-/// none is passed over.
+/// none is passed over. `$ref` names another file of api/, which
+/// console/tests/events_contract.rs resolves: here it adds nothing.
 pub fn fits(v: &Value, s: &Value) -> bool {
     let s = s.as_object().unwrap();
     let known = [
         "$schema",
         "$id",
+        "$ref",
         "title",
         "description",
         "type",
@@ -147,7 +149,8 @@ pub fn api(name: &str) -> Value {
 
 /// Every object of a schema is closed.
 pub fn closed(s: &Value) {
-    if s["type"] == "object" {
+    // An object of another file is closed there.
+    if s["type"] == "object" && s.get("$ref").is_none() {
         assert_eq!(s["additionalProperties"], json!(false), "{s}");
     }
     for key in ["properties", "dependentSchemas"] {
