@@ -242,7 +242,7 @@ The owner, 2026-11-23: T8 does not rewrite the bash that is left. It is
 frozen at its count of that day, as a written floor. A count here may
 only fall. A pull request that adds a match in bash takes out as many,
 and the one that takes a match out lowers the number here and the
-check's `max`. The numbers are ceilings measured on afcbae31b with #2981,
+check's `max`. The numbers are ceilings measured on faf400c73 with #2981,
 by `scripts/architecture.py`'s count over the files named. #2981 was the
 one small change that could lower a count: `install.sh` now writes each
 path under `state/` once.
@@ -262,7 +262,7 @@ What is still bash, and why it stays bash in 2.0:
 
 The lines of `bin/`, `lib/` and `libexec/` have their own ceiling,
 `scripts/bash-lines.max`: 186, and 186 measured. The shell of `test/` has
-`scripts/test-lines.max`: 34410, and 34410 measured. The gate checks
+`scripts/test-lines.max`: 34408, and 34408 measured. The gate checks
 both.
 
 The checks that read bash, and what each still counts there:
@@ -294,7 +294,7 @@ argument lists (rule 4), the App's shell side, the harness's own gh
 failure, install, bootstrap, init-product and setup, the settings library
 and the release script.
 
-Not in this floor. The other 27 matches of tests-stub-gh in 20 files of
+Not in this floor. The other 27 matches of tests-stub-gh in 21 files of
 `test/`, `update_test.sh` among them, stub `gh` for a behaviour of Rust
 code: ports spec T4.12 moves them into Rust over the fake, with the
 crate they test, and the plan's T15 ports the shell tests to Rust. Its 36
