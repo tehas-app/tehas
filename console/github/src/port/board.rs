@@ -244,7 +244,7 @@ impl GitHub {
             for node in page.nodes {
                 let mut pull = node.ok_or(Outcome::Unread(Unread::Inconsistent))?;
                 let first = pull.files.take();
-                read.push((self.digest_of(pull, filter.states)?, first));
+                read.push((self.pull_digest(pull, filter.states)?, first));
             }
             if read.len() > bound.get() as usize {
                 return Err(Outcome::Unread(Unread::Cut));
@@ -312,7 +312,7 @@ impl GitHub {
 
     /// A pull request as a change's digest, in the states asked. A node of
     /// another state, or with no number, does not add up.
-    fn digest_of(&mut self, p: Pull, asked: ChangeStates) -> Got<ChangeDigest> {
+    fn pull_digest(&mut self, p: Pull, asked: ChangeStates) -> Got<ChangeDigest> {
         let no = p
             .number
             .and_then(ChangeNo::new)
