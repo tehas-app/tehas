@@ -77,6 +77,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
+use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -90,6 +91,7 @@ use tehas_core::home::{Home, State};
 use tehas_core::queue_lists::{AWAITING, COMPLETED, PLANNED, QUEUED, RUNNING, STOPPED};
 use tehas_core::retry::{retry_with, Budget};
 use tehas_core::time;
+use tehas_ports::{Mark, TicketKey, TicketWrites};
 
 /// A read that has a bound: it hangs this long, then it failed.
 const SEARCH_WAIT: Duration = Duration::from_secs(60);
@@ -166,9 +168,14 @@ impl Reads {
     }
 }
 
-/// A write of gh: tried once, as the next run decides it again.
-fn gh_write(args: &[&str]) -> bool {
-    call::run_full("gh", &words(args), None, READ_WAIT, SEARCH_GRACE, &[]).ok()
+/// Puts the shipped mark on each issue of `lacking`, in order, each asked
+/// once: a mark that could not be put on is left for the next run, which
+/// decides it again.
+fn mark_shipped(tickets: &mut dyn TicketWrites, lacking: &[u64]) {
+    let mark = Mark::State(tehas_ports::State::Shipped);
+    for n in lacking.iter().copied().filter_map(NonZeroU64::new) {
+        let _ = tickets.mark(&TicketKey::Number(n), &mark);
+    }
 }
 
 /// The keys of the snapshot that rest on the list of issues, and on the read
@@ -1001,23 +1008,16 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
         return;
     }
 
-    // An issue this read finds shipped carries the label whatever the reason,
+    // An issue this read finds shipped carries the mark whatever the reason,
     // and the read names its labels, so an issue that already holds it is not
-    // asked for it: `gh issue edit` reads the issue and sends a mutation every
-    // time. The labels the read did not answer count as missing.
+    // asked for it: each mark is a request. The labels the read did not
+    // answer count as missing.
     if let Some(closers) = &closers {
-        for n in shipped::lacking(closers, &controls, shipped::SHIPPED) {
-            let n = n.to_string();
-            gh_write(&[
-                "issue",
-                "edit",
-                &n,
-                "--repo",
-                repo,
-                "--add-label",
-                shipped::SHIPPED,
-            ]);
-        }
+        let lacking = shipped::lacking(closers, &controls, shipped::SHIPPED);
+        mark_shipped(
+            &mut *crate::wiring::tickets(repo, "gh", READ_WAIT),
+            &lacking,
+        );
     }
 
     if stopped() {
@@ -1069,6 +1069,8 @@ pub fn main() -> u8 {
 mod tests {
     use super::*;
     use std::cell::Cell;
+    use tehas_ports::fake::{FakeSite, Fault, Faulty, Op, TicketsOp, World};
+    use tehas_ports::{Actor, Caller, Scope, Site, Write};
 
     #[test]
     fn a_read_only_snapshot_says_so_with_its_starts_and_another_has_no_key() {
@@ -1658,5 +1660,53 @@ mod tests {
         assert!(events_of("[[]]").is_none());
         assert!(events_of("[7]").is_none());
         assert!(events_of("{}").is_none());
+    }
+
+    fn writes(site: &impl Site) -> Box<dyn TicketWrites + Send> {
+        site.ticket_writes(&Actor::Ours(Scope::Full), Caller::new("status"))
+            .unwrap()
+    }
+
+    fn shipped_on(n: u64) -> Write {
+        Write::Mark {
+            ticket: TicketKey::Number(NonZeroU64::new(n).unwrap()),
+            mark: Mark::State(tehas_ports::State::Shipped),
+        }
+    }
+
+    fn issues(numbers: &[u64]) -> World {
+        numbers
+            .iter()
+            .fold(World::new(), |w, n| w.ticket(*n, |t| t))
+    }
+
+    #[test]
+    fn each_issue_that_lacks_the_shipped_mark_is_given_it_once_in_order() {
+        let world = issues(&[20, 21, 22]);
+        mark_shipped(&mut *writes(&FakeSite::new(&world)), &[22, 20]);
+        let wrote: Vec<Write> = world.wrote().into_iter().map(|w| w.what).collect();
+        assert_eq!(wrote, [shipped_on(22), shipped_on(20)]);
+    }
+
+    #[test]
+    fn no_issue_lacking_it_is_no_request() {
+        let world = issues(&[20]);
+        mark_shipped(&mut *writes(&FakeSite::new(&world)), &[]);
+        assert!(world.wrote().is_empty());
+        assert_eq!(world.sent(), 0);
+    }
+
+    #[test]
+    fn a_mark_that_fails_leaves_the_others_asked() {
+        let world = issues(&[20, 21]);
+        let site = Faulty::new(FakeSite::new(&world))
+            .on(
+                Op::Tickets(TicketsOp::Mark),
+                Fault::Server { applied: false },
+            )
+            .times(1);
+        mark_shipped(&mut *writes(&site), &[20, 21]);
+        let wrote: Vec<Write> = world.wrote().into_iter().map(|w| w.what).collect();
+        assert_eq!(wrote, [shipped_on(21)]);
     }
 }

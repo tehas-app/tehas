@@ -39,7 +39,8 @@ method no command asks yet answers `Refused(Unsupported)` before any call.
 | `history(key, window, kinds)` | `tehas resume` and `console label allowed` | The paginated events call below, marks going on and off alone. A login is folded to lower case by `accounts::folded`, the fold the user id check uses too, so it matches the allowed list in any case. |
 | `prepare()` | `tehas labels` | `gh label create <name> --repo <owner>/<name> --color <c> --description <d> --force` for each row of `host/labels.tsv`, compiled into the adapter. A label that cannot be made stops none of the others; the first that failed is the answer, with its name (`Unprepared`). |
 | `ensure_mark(spec)` | nothing yet | The same call for one label, with the colour and text the spec gives. |
-| `mark(key, mark)`, `unmark(key, mark)` | nothing yet | `add_label` and `remove_label` below, of the mark's label. |
+| `mark(key, mark)` | `tehasbot status`, for `tehas:shipped` on each closed issue a merged pull request closed that does not carry it yet | `add_label` below, of the mark's label. |
+| `unmark(key, mark)` | nothing yet | `remove_label` below, of the mark's label. |
 
 ## The adapter's terms
 

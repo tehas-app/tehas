@@ -21,7 +21,7 @@ use tehas_core::testing::{copy_exe, write_exe};
 
 /// The answers of the stub gh. One answer per search: the count is the only
 /// call that asks for a total and no nodes, so that shape tells the two apart.
-/// A file `<x>-down` makes its read fail; GH_EDIT_FAILS fails an edit and
+/// A file `<x>-down` makes its read fail; GH_MARK_FAILS fails a mark put on an issue and
 /// GH_AUTH is what `gh auth status` exits with.
 const GH: &str = r####"gh_graphql() {
   case "$1" in
@@ -39,7 +39,7 @@ case "$*" in
   # The names of the labels of the control issue, as --jq joins them.
   "issue view"*) [ ! -e "$T/control-down" ] || exit 1
     { [ "$(cat "$T/paused")" != true ] || echo tehas:pause; } | paste -sd " " ;;
-  "issue edit"*) [ -z "${GH_EDIT_FAILS:-}" ] || exit 1 ;;
+  "api -X POST repos/acme/widget/issues/"*"/labels "*) [ -z "${GH_MARK_FAILS:-}" ] || exit 1 ;;
   "auth status") exit "${GH_AUTH:-0}" ;;
   "api repos/acme/widget/issues/"*"/events"*) cat "$T/events.json" 2>/dev/null || exit 1 ;;
   "api graphql"*) [ ! -e "$T/shipped-down" ] || exit 1; gh_graphql "$*" ;;

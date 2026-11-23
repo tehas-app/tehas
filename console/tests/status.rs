@@ -58,6 +58,9 @@ fn hc(w: &World, filter: &str) -> String {
     jq(filter, &live_text(w, "health.json"))
 }
 
+/// What every request of the shipped mark holds, whatever the issue.
+const MARKS: &str = "/labels -f labels[]=";
+
 /// The gh calls that hold `pat`.
 fn gh_count(w: &World, pat: &str) -> usize {
     w.gh().lines().filter(|l| l.contains(pat)).count()
@@ -820,10 +823,10 @@ fn a_shipped_issue_without_the_label_is_given_it_once() {
     let w = World::new("label-once");
     w.one_shipped();
     w.status();
-    assert_eq!(gh_count(&w, "issue edit"), 1);
+    assert_eq!(gh_count(&w, MARKS), 1);
     has(
         &w.gh(),
-        "issue edit 20 --repo acme/widget --add-label tehas:shipped",
+        "api -X POST repos/acme/widget/issues/20/labels -f labels[]=tehas:shipped",
     );
 }
 
@@ -847,16 +850,15 @@ fn a_shipped_issue_is_given_the_label_whatever_else_it_carries_and_once() {
     );
     w.status();
     assert_eq!(sc(&w, "[.completed[].number] | sort"), "[6,7,8]");
-    assert_eq!(gh_count(&w, "issue edit"), 3);
+    assert_eq!(gh_count(&w, MARKS), 3);
 }
 
 #[test]
 fn an_issue_already_labelled_tehas_shipped_is_not_asked_for_it_whatever_the_poll() {
-    // The read names the labels of every issue it lists, so the edit is asked
-    // for only an issue that does not carry the label. gh issue edit is no
-    // no-op: it reads the issue and sends a mutation every time, and one poll
-    // used to pay 45 of them for issues that all held the label already
-    // (#731).
+    // The read names the labels of every issue it lists, so the mark is asked
+    // for only an issue that does not carry the label. Each mark is a
+    // request, and one poll used to pay 45 of them for issues that all held
+    // the label already (#731).
     let w = World::new("label-held");
     w.shipped(&[closed(
         20,
@@ -866,7 +868,7 @@ fn an_issue_already_labelled_tehas_shipped_is_not_asked_for_it_whatever_the_poll
     )]);
     ok(&w.status());
     assert_eq!(sc(&w, "[.completed[].number]"), "[20]");
-    assert_eq!(gh_count(&w, "issue edit"), 0);
+    assert_eq!(gh_count(&w, MARKS), 0);
 }
 
 // One of three that shipped without it is the issue the poll edits, and the
@@ -891,14 +893,14 @@ fn of_three_shipped_issues_only_the_one_that_lacks_the_label_is_edited() {
     ]);
     ok(&w.status());
     assert_eq!(sc(&w, "[.completed[].number] | sort"), "[20,21,22]");
-    assert_eq!(gh_count(&w, "issue edit"), 1);
+    assert_eq!(gh_count(&w, MARKS), 1);
     let gh = w.gh();
     has(
         &gh,
-        "issue edit 21 --repo acme/widget --add-label tehas:shipped",
+        "api -X POST repos/acme/widget/issues/21/labels -f labels[]=tehas:shipped",
     );
-    lacks(&gh, "issue edit 20 --repo");
-    lacks(&gh, "issue edit 22 --repo");
+    lacks(&gh, "issues/20/labels");
+    lacks(&gh, "issues/22/labels");
 }
 
 // Of three shipped issues the poll edits the two that lack the label and the
@@ -918,17 +920,17 @@ fn the_issues_to_label_are_the_ones_the_read_says_lack_the_label() {
     ]);
     ok(&w.status());
     assert_eq!(sc(&w, "[.completed[].number] | sort"), "[20,21,22]");
-    assert_eq!(gh_count(&w, "issue edit"), 2);
+    assert_eq!(gh_count(&w, MARKS), 2);
     let gh = w.gh();
     has(
         &gh,
-        "issue edit 21 --repo acme/widget --add-label tehas:shipped",
+        "api -X POST repos/acme/widget/issues/21/labels -f labels[]=tehas:shipped",
     );
     has(
         &gh,
-        "issue edit 22 --repo acme/widget --add-label tehas:shipped",
+        "api -X POST repos/acme/widget/issues/22/labels -f labels[]=tehas:shipped",
     );
-    lacks(&gh, "issue edit 20 --repo");
+    lacks(&gh, "issues/20/labels");
 }
 
 // A label the read could not read is a missing label: the edit is sent, as
@@ -939,10 +941,10 @@ fn a_shipped_issue_whose_labels_the_read_did_not_answer_is_edited() {
     w.shipped(&[no_labels(20, "2026-01-02T00:00:00Z", r#"{"merged":true}"#)]);
     ok(&w.status());
     assert_eq!(sc(&w, "[.completed[].number]"), "[20]");
-    assert_eq!(gh_count(&w, "issue edit"), 1);
+    assert_eq!(gh_count(&w, MARKS), 1);
     has(
         &w.gh(),
-        "issue edit 20 --repo acme/widget --add-label tehas:shipped",
+        "api -X POST repos/acme/widget/issues/20/labels -f labels[]=tehas:shipped",
     );
 }
 
@@ -959,8 +961,8 @@ fn the_control_issue_is_not_listed_as_shipped_and_not_given_the_label_whatever_t
     );
     w.status();
     assert_eq!(sc(&w, "[.completed[].number]"), "[20]");
-    assert_eq!(gh_count(&w, "issue edit"), 1);
-    lacks(&w.gh(), "issue edit 1 --repo");
+    assert_eq!(gh_count(&w, MARKS), 1);
+    lacks(&w.gh(), "issues/1/labels");
 }
 
 #[test]
@@ -979,7 +981,7 @@ fn an_answer_that_carries_errors_is_no_snapshot_even_where_it_holds_a_merged_clo
     );
     w.status();
     assert_eq!(sc(&w, ".completed"), before);
-    assert_eq!(gh_count(&w, "issue edit"), 0);
+    assert_eq!(gh_count(&w, MARKS), 0);
 }
 
 #[test]
@@ -995,7 +997,7 @@ fn an_issue_closed_with_its_label_still_on_is_not_counted_as_shipped_for_the_lab
 fn a_label_that_cannot_be_given_leaves_the_snapshot_written() {
     let w = World::new("edit-fails");
     w.shipped(&[closed(20, "2026-01-02T00:00:00Z", r#"{"merged":true}"#, "")]);
-    w.set_env(&["GH_EDIT_FAILS=1"]);
+    w.set_env(&["GH_MARK_FAILS=1"]);
     ok(&w.status());
     assert_eq!(sc(&w, "[.completed[].number]"), "[20]");
 }

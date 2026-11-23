@@ -13,7 +13,7 @@ const GH: &str = r####"case "$*" in
   "issue list"*--search*) cat "$T/issues.json" ;;
   "issue list"*) echo "[]" ;;
   "issue view"*) echo "" ;;
-  "issue edit"*) ;;
+  "api -X POST repos/"*"/labels "*) ;;
   "api repos/"*) echo "[]" ;;
   "api graphql"*subIssues*) echo "{\"data\":{\"repository\":{\"issues\":{\"nodes\":[]}}}}" ;;
   "api graphql"*) cat "$T/shipped.json" ;;
