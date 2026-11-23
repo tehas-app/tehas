@@ -35,7 +35,7 @@ allowed = [
   "console/tests/top_view.rs",
 ]
 comment = "//"
-max = 789
+max = 788
 why = "Re-measured at T0's follow-up, with tests in files counted and GitHub's JSON fields, --json and --jq added: the console 240, dispatch 225, ops 98, cycle 93, the front pages 69, mcp 38, store 37, core 21 outside the forge, analytics 8, xtask 6, the sandbox 4, the rest 1 or 2. 219 are in test files. Some field names (createdAt, updatedAt) are also tehas's own JSON keys where it copied GitHub's: T4 and T7 rename or own them. T4 moves the rest behind the three ports. T15's ports added 33 matches. Test files whose every match is tehas's own word are allowed: console/cycle/tests/headless_caps.rs (the pi-rukas runner's --json flag given to tehascycle's caps check), console/tests/top_snapshot.rs and console/tests/top_view.rs (tehas top's --json), console/tests/top_frame.rs (tehas top's --json and the updatedAt key of tehas's own running.json). Still counted from those ports: the updatedAt and closedAt of the items of live/status.json in console/tests/top/mod.rs, GitHub's names that the queue copies through unchanged, which T4/T7 rename or own; and the --json of tehas order in console/tests/console_run.rs, in a file with gh stubs; both are findings in T4's Done in the plan. Below its fork value (846) by 27. Each allowed test file is listed in `allowed` with a comment saying what it covers. T16's drop of the millwright's grant takes out 6, the drop of All hands 3. T16's drop of the Spec mark takes out 2."
 
 [[check]]
@@ -65,7 +65,7 @@ allowed = [
   "console/tests/store_paths.rs",
 ]
 comment = "//"
-max = 1757
+max = 1750
 why = "Re-measured at T0's follow-up, with tests in files counted and needs-human-attention and epic added: dispatch 1010, cycle 228, core 189, the console 184, ops 137, store 70, the front pages 34, mcp 21, analytics 4, plugin 1. 930 are in test files. T2 gives the state words one owner in core, checked against host/labels.tsv. console/tests/store_paths.rs is allowed: its one match is a park marker it gives the store lint's patterns as a line they must not take, data the lint reads, not a label anything writes. Each allowed test file is listed in `allowed` with a comment saying what it covers. T16's drop of the millwright's grant takes out 30, the drop of All hands 15. The drop of tehas:prototype takes 17 out. T16's drop of the Spec mark takes out 33."
 
 [[check]]

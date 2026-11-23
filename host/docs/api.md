@@ -1503,7 +1503,7 @@ true}` for a file that does not parse.
   state/host-messages.json".
 - `tehas status` prints one line for each message, `message   <level>:
   <text>`, after the pause and limit lines. The MCP `factory_status` answer
-  carries the object as `hostMessages`, and the banner of the front pages
+  carries the object as `hostMessages`, and the banner of the front page
   lists each message: Alert, Warning or Notice, its text, when it was set and
   its link.
 - The text and the link are the writer's: the dashboard sets both as text,
@@ -1533,21 +1533,21 @@ the site](/host#the-live-console-on-the-site)).
 
 | Name | Written by | Read by |
 | --- | --- | --- |
-| `status.json` | `console/src/queue.rs`, run as `tehasbot status` ([tehasbot status and the console](/tools-health#tehasbot-status-and-the-console)) | the plain dashboard's islands (`host/fun/factory/`), `host/fun/business-view.js`, `host/fun/game-view.js`; the store's `publish`; `console/ops/src/health.rs`, `console/analytics/src/sample.rs`, the MCP server (`factory_status`, `factory_issues`, `factory_issue`, `factory_sessions`) |
-| `running.json` | the store's `publish` (`console/store/src/live.rs`) | the plain dashboard's islands (`host/fun/factory/`), `host/fun/business-view.js`, `host/fun/game-view.js`, `host/fun/console-tabs.js`; `console/ops/src/health.rs`, `console/src/dev.rs`; the MCP server (`factory_status`, `factory_issue`, `factory_sessions`) |
+| `status.json` | `console/src/queue.rs`, run as `tehasbot status` ([tehasbot status and the console](/tools-health#tehasbot-status-and-the-console)) | the plain dashboard's islands (`host/fun/factory/`), `host/fun/game-view.js`; the store's `publish`; `console/ops/src/health.rs`, `console/analytics/src/sample.rs`, the MCP server (`factory_status`, `factory_issues`, `factory_issue`, `factory_sessions`) |
+| `running.json` | the store's `publish` (`console/store/src/live.rs`) | the plain dashboard's islands (`host/fun/factory/`), `host/fun/game-view.js`, `host/fun/console-tabs.js`; `console/ops/src/health.rs`, `console/src/dev.rs`; the MCP server (`factory_status`, `factory_issue`, `factory_sessions`) |
 | `endings.json` | the store's `publish` (`console/store/src/live.rs`) | `console/ops/src/health.rs`; the MCP server (`factory_endings`) |
 | `epics.json` | `console/src/epics.rs`, run by `tehasbot status` | `host/fun/epics-view.js`; `console/ops/src/health.rs` |
 | `health.json` | `console/ops/src/health.rs` run as `tehasbot health`, published by the store's `publish` ([tehasbot health](/tools-health#tehasbot-health)) | `/health` and `/healthz`, and `host/fun/versions.js`; `console/src/status.rs`, `console/ops/src/update/report.rs`; the MCP server (`factory_status`, `factory_issue`) |
 | `health.down` | the store's `publish`, which makes it before a `fail` health report (and takes it back when that report cannot be written) and removes it after any other | the docs server's `/health` and `/healthz`, which answer 503 while it is there |
 | `dispatch.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, published by the store's `publish` ([tehas dispatch](/tools-dispatch#tehas-dispatch)) | `console/ops/src/health.rs`, `console/src/queue.rs`, `console/analytics/src/sample.rs`; the MCP server (`factory_status`) |
 | `demand.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, at every real poll | `console/ops/src/health.rs` |
-| `analytics.json` | `console/src/publish.rs`, run by `tehasbot status` from the analytics program's `report --json` | `host/fun/factory/tehas-factory-days.*`, `host/fun/business-view.js`, `host/fun/analytics-data.js`; the MCP server (`factory_stats`) |
+| `analytics.json` | `console/src/publish.rs`, run by `tehasbot status` from the analytics program's `report --json` | `host/fun/factory/tehas-factory-days.*`, `host/fun/analytics-data.js`; the MCP server (`factory_stats`) |
 | `disk.json` | `console/ops/src/disk.rs` with `--publish`, run hourly by `tehasbot clean` ([`tehas disk`](#tehas-disk)) | the MCP server (`factory_disk`) |
 | `platform.json` | `console/src/platform.rs`, run by `tehasbot status` | `console/ops/src/health.rs`, which answers it as `checks.platform` |
 | `rukas.json` | `console/ops/src/rukas.rs`, run by `tehasbot status` | `console/ops/src/health.rs`, which answers it as `checks.rukas` |
 | `previews.json` | `console/src/preview/list.rs` of `tehasbot preview` ([tehasbot preview](/tools-clean#tehasbot-preview)) | `host/fun/factory/tehas-factory-previews.*`; `console/ops/src/health.rs`, `console/src/status.rs`, which answers it as `previews` |
-| `cycles/<n>.json` | the store's `publish`, one file per running cycle and the last that finished | the pages that read `running.json` (the plain dashboard's console island, `host/fun/business-view.js`, `host/fun/console-tabs.js`) draw the same view; no page asks for the file by its own path |
-| `console-<n>.txt` | `console` (`console/src/tail.rs`), started by the cycle's watch (`console/cycle/src/watch.rs`) | `host/fun/factory/tehas-factory-tail.js`, `host/fun/business-view.js` and `host/fun/game-view.js`, each by the name in `running.json`, and the console of the MCP server (`factory_console`) |
+| `cycles/<n>.json` | the store's `publish`, one file per running cycle and the last that finished | the pages that read `running.json` (the plain dashboard's console island, `host/fun/console-tabs.js`) draw the same view; no page asks for the file by its own path |
+| `console-<n>.txt` | `console` (`console/src/tail.rs`), started by the cycle's watch (`console/cycle/src/watch.rs`) | `host/fun/factory/tehas-factory-tail.js` and `host/fun/game-view.js`, each by the name in `running.json`, and the console of the MCP server (`factory_console`) |
 | `console-<n>.txt.now` | the cycle's watch (`console/cycle/src/watch.rs`), the two lines of the console's status line | `console/cycle/src/watch.rs` and the record of the cycle that ended |
 
 Two of these the edge serves outside `/live/`: `/health` and `/healthz`
@@ -1570,7 +1570,7 @@ under `/host/`: the docs server answers every path there with 404, which the
 dashboard reads as no host. A factory without a host looks and works as it
 would without this section.
 
-The front pages and `/dashboard` ask once when a page loads, then every 60
+The front page and `/dashboard` ask once when a page loads, then every 60
 seconds while the page is visible, with `cache: "no-store"`. A failed ask, or
 no answer in 5 seconds, keeps the last good answer for up to 5 minutes, then
 drops it. A 404 drops it at once. Every view draws from `live/` first; the
@@ -1589,7 +1589,7 @@ Schema, `api/host-bridge.schema.json`, a sample with every field,
 | `ticketNotes.issue` | 1 to 999999999. At most 3 notes per ticket; the rest are dropped |
 | `ticketNotes.text` | One line, 1 to 60 characters. Control characters become spaces |
 | `ticketNotes.link` | Optional. A path under `/host/`, or an `https://` address, at most 512 characters |
-| `menu` | Optional, at most 4. Items in the front pages' menu, each opening its page in the dock or in a new tab |
+| `menu` | Optional, at most 4. Items in the front page's menu, each opening its page in the dock or in a new tab |
 | `menu.id` | `a-z`, `0-9` and `-`, 1 to 32 characters, unique in the list |
 | `menu.label` | One line, 1 to 24 characters. Control characters become spaces |
 | `menu.url` | An `http://` or `https://` address with no user or password, at most 512 characters, not on the dashboard's own origin |
@@ -1613,7 +1613,7 @@ How the dashboard draws it:
   instead, in the same tab. Pull requests keep linking to GitHub.
 - `ticketNotes`: a small chip beside the ticket's number or title in every
   view that draws the ticket from the live queue, linked when it has a link.
-- `menu`: an item each in the menu of both front pages, before the plugins
+- `menu`: an item each in the menu of the front page, before the plugins
   menu. Pressing one opens its page in the dock at the side. An item with
   `open: "page"` is a link that opens its page in a new tab instead, for a
   page that needs a whole tab or cannot be framed; a dashboard from before
@@ -1634,7 +1634,7 @@ an empty frame; the dock's "Open in a new tab" link still works.
 The answer is data and never runs code on the dashboard's pages. Pages under
 `/host/` share the dashboard's origin: tehas keeps no secret on it, and a host
 that fronts the domain is trusted as the factory's operator is. tehas
-registers no service worker, and the front pages and `/dashboard` unregister
+registers no service worker, and the front page and `/dashboard` unregister
 any they find on their origin. `live/` stays public; the bridge does not
 change it. `tehas api` lists the feature `host-bridge`.
 

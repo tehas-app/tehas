@@ -677,7 +677,7 @@ t_instance "${T_MINIMAL[@]}"
 t_case "a retired theme or layout line stops every command, with its reason"
 for pair in "TEHAS_THEME=pixel|TEHAS_DESIGN draws the whole site, beesknees26 by default or pixel, so take the line out" \
   "TEHAS_THEME=neon|TEHAS_DESIGN draws the whole site, beesknees26 by default or pixel, so take the line out" \
-  "TEHAS_LAYOUT=floor|the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out"; do
+  "TEHAS_LAYOUT=floor|the front page is the factory floor, drawn in the design TEHAS_DESIGN names, so take the line out"; do
   line=${pair%%|*}
   why=${pair#*|}
   t_instance "${T_MINIMAL[@]}" "$line"
@@ -695,10 +695,9 @@ for line in "TEHAS_THEME=" "TEHAS_THEME=beesknees26" "TEHAS_LAYOUT=" "TEHAS_LAYO
 done
 t_instance "${T_MINIMAL[@]}"
 
-t_case "each frontend has its page in the tree"
-for page in index.html business.html; do
-  [ -f "$T_ROOT/host/fun/$page" ] || t_bad "host/fun/$page is missing"
-done
+t_case "the front page is in the tree, and the business page is not"
+[ -f "$T_ROOT/host/fun/index.html" ] || t_bad "host/fun/index.html is missing"
+[ -e "$T_ROOT/host/fun/business.html" ] && t_bad "host/fun/business.html is still there"
 
 t_case "an analytics script without a site is refused"
 printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_SITE_ANALYTICS_SRC=https://stats.example/ea.js" >"$TEHAS_INSTANCE_DIR/instance.env"

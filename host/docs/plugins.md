@@ -138,7 +138,7 @@ the line of this table. Read it before you write the grant.
 | --- | --- |
 | `view` | Its /out is served behind the sign-in, and a view in the plugins menu that opens in the dock: everyone the sign-in lets in sees it |
 | `view:<id>` | One of its views, the part of its /out at that view's path, is served behind the sign-in and opens from the plugins menu: everyone the sign-in lets in sees it |
-| `menu` | Its granted views are listed in the plugins menu of both front pages, by its name and their labels, each in the dock or a new tab: names and labels are public, as live/ is |
+| `menu` | Its granted views are listed in the plugins menu of the front page, by its name and their labels, each in the dock or a new tab: names and labels are public, as live/ is |
 | `product` | Reads all of the product's code, read only, in every run |
 | `model:<tokens>` | Chat completions through a socket, up to the tokens of the grant a run |
 | `model:images` | Images in its model requests, each carried in the request and never fetched: what it sends of the product's pages goes to the model |
@@ -276,7 +276,7 @@ again, when a setting or the App's client files are missing.
 granted, with the view's label, its address and whether it opens in the dock
 or a new tab. v1's `view` is the view `view`, labelled from the manifest,
 and opens in the dock. A plugin that goes or is refused leaves the file.
-Both front pages read the file and show each plugin's label in the menu,
+The front page reads the file and shows each plugin's label in the menu,
 after the host bridge's items, with its views as links under it. `live/` is
 public, so a plugin's name and labels are; what a view shows is behind the
 sign-in.

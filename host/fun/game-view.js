@@ -100,7 +100,7 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
       : (failure ? `Last cycle failed: #${failure.issue} ended as ${failure.status}. ` : "") +
         pauseNote +
         `${open.length} open: ${n("ready")} in line, ${n("running")} building, ${n("review")} in review, ` +
-        `${n("stopped")} stopped` + (state.live ? "." : `, ${n("backlog")} not on the line.`) +
+        `${n("stopped")} stopped` + (state.live ? "." : `, ${n("idea")} at idea.`) +
         (state.live && queue.readAt ? ` Queue read ${ago(queue.readAt, Date.now())}.` : "");
     // The summary is a line of the head panel, and the panel is part of the
     // first screen: when its text changes, so does the fold. It asks for one
@@ -125,8 +125,8 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
 
     setCount("door-open", open.length);
     setCount("door-stopped", n("stopped"));
-    setCount("door-backlog", state.live ? null : n("backlog"));
-    $("door-backlog-note").textContent = state.live ? "NOT IN THE LIVE QUEUE" : "OPEN, NOT QUEUED";
+    setCount("door-idea", state.live ? null : n("idea"));
+    $("door-idea-note").textContent = state.live ? "NOT IN THE LIVE QUEUE" : "OPEN, NO STATE LABEL";
     $("door-stopped-link").classList.toggle("is-alert", n("stopped") > 0);
     $("door-stopped-note").textContent = n("stopped") ? "NEEDS A HUMAN" : "NOTHING STOPPED";
     if (moved) refitFold();
@@ -236,7 +236,8 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
         ? "No ticket data loaded. Use the sample or load an export at the foot of the page."
         : state.query
           ? `Nothing matches "${state.query}". Clear the search to see every ticket.`
-          : state.live && state.filter === "backlog" ? "The live queue lists only tickets on the line. Load an export to see the rest."
+          : state.live && state.filter === "idea" ? "The live queue lists only tickets on the line. Load an export to see the rest."
+          : state.filter === "idea" ? "No tickets are at idea."
           : `No tickets are ${state.filter === "open" ? "open" : STAGES[state.filter].toLowerCase()}.`;
       rows.replaceChildren(el("li", "rows-note", text));
       return;
@@ -463,7 +464,7 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
     source.textContent = stale ? "QUEUE STALE" : "LIVE QUEUE";
     source.dataset.kind = stale ? "stale" : "live";
     const text = `Showing the factory's live queue, read ${ago(queue.readAt, Date.now()) || "at an unknown time"}: ${state.tickets.length} tickets on the line. ` +
-      "Tickets not on the line are not in the queue snapshot.";
+      "Tickets at idea are not in the queue snapshot.";
     source.title = text;
     $("data-status").textContent = text;
   }

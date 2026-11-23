@@ -1,5 +1,5 @@
-// The dock: a page in a frame at the side of the front pages. Both front
-// pages load it. The host bridge's menu (host/fun/host-bridge.js), as it
+// The dock: a page in a frame at the side of the front page, which
+// loads it. The host bridge's menu (host/fun/host-bridge.js), as it
 // comes and goes, and the plugins menu of /live/plugins.json are items in
 // the page's menu. Pressing one opens its page in the dock, or an item that
 // asks for a page of its own in a new tab.
@@ -90,7 +90,7 @@
   const nav = document.querySelector(".topbar nav");
   if (!nav) return;
 
-  // The one el(), from host/fun/dom.js, the classic script both pages load before
+  // The one el(), from host/fun/dom.js, the classic script the floor loads before
   // this file.
   const { el } = globalThis.TEHAS_DOM;
 

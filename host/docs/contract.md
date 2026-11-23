@@ -443,10 +443,10 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   names it sends to the edge router.
 - **The first stage is Idea.**
   #2877.
-  A ticket's line on the factory's pages reads Idea, In line, Planning,
-  Building, Review, Stopped, Shipped. Idea is an open ticket that is not in line:
-  it carries none of the state labels of `host/labels.tsv` that put it in
-  the queue or further on, and is not closed. Nothing on the pages is called
+  A ticket's line on the factory floor reads Idea, In line, Building,
+  Review, Stopped, Shipped. Idea is an open ticket that is not in line: it
+  carries none of `tehas:ready`, `tehas:running`, `tehas:awaiting-merge` and
+  `needs-human-attention`, and is not closed. Nothing on the pages is called
   Prototype.
   Readers: people on the dashboard, the consumer that runs many factories
   where it shows a ticket's stage.
@@ -489,6 +489,21 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   A program that stops `tehas-energy.service` when it adopts a factory, or
   starts it when it creates or restores one, drops the unit from both
   lists.
+- **The business page leaves core.**
+  T16.
+  Gone: the page at `/business`, `fun/business.html`, `business-view.js`,
+  `business.css` and `mode.js`. The front page `/` is the factory floor in
+  both designs, as `/floor` is; `TEHAS_DESIGN=beesknees26` draws it in the
+  beesknees26 theme. `TEHAS_DESIGN` keeps both values. The rules other pages
+  pick from `business.css` by selector, the base, the top bar, the mark, the
+  panels and the foot, are in `fun/pages.css`, the same 17 rules with the same
+  text. The page's Planning column went with it: the floor has none. It
+  returns in 2.1 as the plugin `business` over `live:`.
+  Readers: adopters, visitors with a link to `/business`, Obeya and
+  industry's workshop (they take `pages.css` in place of `business.css`),
+  plugins.
+  Adopter action: none. `/` shows the factory floor; a link to `/business`
+  answers 404.
 - **analytics.db is at schema 7.**
   #2869, #2886, #2911.
   The migration drops `samples.watts`, which nothing writes since energy
