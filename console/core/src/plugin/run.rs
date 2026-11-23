@@ -167,8 +167,8 @@ impl Run<'_> {
             }
             _ => {}
         }
-        if self.kind == Kind::Hook && !has(Cap::HookAfterWork) {
-            return Err("a hook without hook:after:work".to_string());
+        if self.kind == Kind::Hook && !has(Cap::HOOK) {
+            return Err("a hook without hook:after:change.offered".to_string());
         }
         match (self.tool, self.kind) {
             (None, Kind::Call) => return Err("a call without its tool".to_string()),
@@ -296,7 +296,7 @@ pub(crate) mod tests {
             view: None,
             views: vec![],
             actions: vec![],
-            hook: asks.contains(&"hook:after:work").then_some(300),
+            hook: asks.contains(&"hook:after:change.offered").then_some(300),
             skills: vec![],
             tools: asks
                 .iter()
@@ -402,10 +402,10 @@ pub(crate) mod tests {
         let g = granted("");
         assert_eq!(
             run(&m, &g, Kind::Hook).given().unwrap_err(),
-            "a hook without hook:after:work"
+            "a hook without hook:after:change.offered"
         );
-        let m = manifest(&["hook:after:work"]);
-        let g = granted("hook:after:work");
+        let m = manifest(&["hook:after:change.offered"]);
+        let g = granted("hook:after:change.offered");
         let mut r = run(&m, &g, Kind::Hook);
         assert!(r.given().is_ok());
         r.pr = None;
@@ -445,9 +445,9 @@ pub(crate) mod tests {
             "product",
             "model",
             "action:refresh",
-            "hook:after:work",
+            "hook:after:change.offered",
         ]);
-        let g = granted("view product model:2000000 action:refresh hook:after:work");
+        let g = granted("view product model:2000000 action:refresh hook:after:change.offered");
         assert_eq!(
             context(&run(&m, &g, Kind::Hook)).unwrap(),
             json!({
@@ -484,8 +484,8 @@ pub(crate) mod tests {
 
     #[test]
     fn a_hook_has_no_model_whatever_is_granted() {
-        let m = manifest(&["model", "hook:after:work"]);
-        let g = granted("model:2000 hook:after:work");
+        let m = manifest(&["model", "hook:after:change.offered"]);
+        let g = granted("model:2000 hook:after:change.offered");
         assert_eq!(run(&m, &g, Kind::Hook).given().unwrap().tokens, None);
         assert_eq!(
             run(&m, &g, Kind::Refresh).given().unwrap().tokens,
@@ -549,8 +549,8 @@ pub(crate) mod tests {
         }
         for kind in [Kind::Refresh, Kind::Hook] {
             for t in [Trigger::Chat, Trigger::Mcp] {
-                let m = manifest(&["hook:after:work"]);
-                let g = granted("hook:after:work");
+                let m = manifest(&["hook:after:change.offered"]);
+                let g = granted("hook:after:change.offered");
                 let mut r = run(&m, &g, kind);
                 r.trigger = t;
                 assert!(r.given().is_err(), "{kind:?} {t:?}");
@@ -595,8 +595,8 @@ pub(crate) mod tests {
             (&["product"], "product"),
             (&["model"], "model:5"),
             (
-                &["product", "model", "hook:after:work"],
-                "product model:5 hook:after:work",
+                &["product", "model", "hook:after:change.offered"],
+                "product model:5 hook:after:change.offered",
             ),
             (
                 &["product", "model", "tool:find-doc"],

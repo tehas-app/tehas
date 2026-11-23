@@ -7,6 +7,7 @@
 use super::needs::Need;
 use super::{ask, is_action_id, is_name, params, Cap};
 use serde_json::{Map, Value};
+use tehas_ports::events::{Name, When};
 
 /// The largest manifest read.
 pub const BYTES_MAX: usize = 65536;
@@ -86,7 +87,7 @@ pub struct Manifest {
     /// The views of `views`, which excludes `view`.
     pub views: Vec<View>,
     pub actions: Vec<Action>,
-    /// The timeout of the hook at `after:work`, when it has one.
+    /// The timeout of the hook at `after:change.offered`, when it has one.
     pub hook: Option<u64>,
     pub skills: Vec<Skill>,
     pub tools: Vec<Tool>,
@@ -376,15 +377,16 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
     }
 
     let mut hook = None;
+    let one = super::point(When::After, Name::ChangeOffered);
     match field("hooks").map(|v| v.as_array()) {
         None => {}
         Some(None) => out.say("hooks: expected a list"),
         Some(Some(list)) => {
             if list.len() > 1 {
-                out.say("hooks: at most one, at after:work");
+                out.say(format!("hooks: at most one, at {one}"));
             }
-            if !caps.contains(&Cap::HookAfterWork) {
-                out.say("hooks need the ask hook:after:work");
+            if !caps.contains(&Cap::HOOK) {
+                out.say(format!("hooks need the ask {}", Cap::HOOK.ask()));
             }
             for (i, v) in list.iter().enumerate() {
                 let at = format!("hooks[{i}]");
@@ -394,11 +396,14 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Manifest, Vec<String>> {
                 };
                 closed(h, &["at", "timeout"], &format!("{at}."), &mut out);
                 match h.get("at").map(|v| v.as_str()) {
-                    Some(Some("after:work")) => {}
+                    Some(Some(point)) if point == one => {}
+                    Some(Some("after:work")) => {
+                        out.say(format!("{at}.at: the hook point after:work is now {one}"))
+                    }
                     Some(Some(point)) => out.say(format!(
                         "{at}.at: the hook point {point} is reserved for plugins v2"
                     )),
-                    Some(None) => out.say(format!("{at}.at: expected after:work")),
+                    Some(None) => out.say(format!("{at}.at: expected {one}")),
                     None => out.say(format!("{at}.at is missing")),
                 }
                 match h.get("timeout") {
@@ -865,7 +870,7 @@ mod tests {
                     "product",
                     "model",
                     "action:refresh",
-                    "hook:after:work"
+                    "hook:after:change.offered"
                 ]
                 .map(String::from)
                 .to_vec(),
@@ -1542,7 +1547,7 @@ mod tests {
             [
                 "view needs the ask view",
                 "actions[0]: the action refresh needs the ask action:refresh",
-                "hooks need the ask hook:after:work",
+                "hooks need the ask hook:after:change.offered",
             ]
         );
     }
@@ -1625,12 +1630,18 @@ mod tests {
             ),
             (
                 with(|m| {
+                    m["hooks"][0]["at"] = json!("after:work");
+                }),
+                "hooks[0].at: the hook point after:work is now after:change.offered",
+            ),
+            (
+                with(|m| {
                     m["hooks"]
                         .as_array_mut()
                         .unwrap()
-                        .push(json!({"at": "after:work", "timeout": 60}));
+                        .push(json!({"at": "after:change.offered", "timeout": 60}));
                 }),
-                "hooks: at most one, at after:work",
+                "hooks: at most one, at after:change.offered",
             ),
         ];
         for (v, why) in cases {
@@ -1969,7 +1980,7 @@ mod tests {
                 "view",
                 "product",
                 "model",
-                "hook:after:work",
+                "hook:after:change.offered",
                 "action:a",
                 "action:b",
                 "action:refresh"
@@ -1990,7 +2001,12 @@ mod tests {
             m.insert("view".into(), json!([{"label": "A"}]));
         });
         case("view without its ask", &|m| {
-            m["asks"] = json!(["product", "model", "action:refresh", "hook:after:work"]);
+            m["asks"] = json!([
+                "product",
+                "model",
+                "action:refresh",
+                "hook:after:change.offered"
+            ]);
         });
         case("no view label", &|m| {
             m.insert("view".into(), json!({}));
@@ -2008,7 +2024,7 @@ mod tests {
             m["hooks"]
                 .as_array_mut()
                 .unwrap()
-                .push(json!({"at": "after:work", "timeout": 60}));
+                .push(json!({"at": "after:change.offered", "timeout": 60}));
         });
         case("hook without its ask", &|m| {
             m["asks"] = json!(["view", "product", "model", "action:refresh"]);

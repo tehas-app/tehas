@@ -810,7 +810,8 @@ mod tests {
 
     #[test]
     fn a_plugin_granted_at_its_pin_is_unbuilt_with_its_grants() {
-        let line = format!("{PIN} view product model:2000000 action:refresh hook:after:work");
+        let line =
+            format!("{PIN} view product model:2000000 action:refresh hook:after:change.offered");
         let get = vars(&[
             ("TEHAS_PLUGINS", &floorplan()),
             ("TEHAS_PLUGIN_GRANTS_FLOORPLAN", &line),
@@ -819,13 +820,14 @@ mod tests {
         assert_eq!(json(&rows), sample("sample"));
         assert_eq!(
             text(&rows),
-            [format!("floorplan\t{URL}@{PIN}\tunbuilt\tgrants: view product model:2000000 action:refresh hook:after:work\tlast run: none\ttokens today: 0")]
+            [format!("floorplan\t{URL}@{PIN}\tunbuilt\tgrants: view product model:2000000 action:refresh hook:after:change.offered\tlast run: none\ttokens today: 0")]
         );
     }
 
     #[test]
     fn the_state_update_left_for_the_pin_is_shown() {
-        let line = format!("{PIN} view product model:2000000 action:refresh hook:after:work");
+        let line =
+            format!("{PIN} view product model:2000000 action:refresh hook:after:change.offered");
         let get = vars(&[
             ("TEHAS_PLUGINS", &floorplan()),
             ("TEHAS_PLUGIN_GRANTS_FLOORPLAN", &line),
@@ -847,7 +849,7 @@ mod tests {
         let refused = |_: &str| Some(State::refused(PIN, "view is asked and not granted"));
         assert_eq!(
             text(&rows(&get, &refused, &never))[0],
-            format!("floorplan\t{URL}@{PIN}\trefused: view is asked and not granted\tgrants: view product model:2000000 action:refresh hook:after:work\tlast run: none\ttokens today: 0")
+            format!("floorplan\t{URL}@{PIN}\trefused: view is asked and not granted\tgrants: view product model:2000000 action:refresh hook:after:change.offered\tlast run: none\ttokens today: 0")
         );
         let old = |_: &str| Some(State::new(Word::Ready, &"f".repeat(40)));
         assert_eq!(rows(&get, &old, &never)[0].state.state, Word::Unbuilt);

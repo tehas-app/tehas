@@ -101,8 +101,8 @@ pub fn hook(
         Ok(p) => p,
         Err(rc) => return rc,
     };
-    if !grants.caps.contains(&Cap::HookAfterWork) {
-        eprintln!("{what}: {name} is not granted hook:after:work");
+    if !grants.caps.contains(&Cap::HOOK) {
+        eprintln!("{what}: {name} is not granted hook:after:change.offered");
         return exit::NO;
     }
     if let Err(rc) = ready(home, &pin, what, false) {
@@ -204,7 +204,7 @@ mod tests {
         map.insert("TEHAS_PLUGINS".into(), format!("floorplan={URL}@{C}"));
         map.insert(
             "TEHAS_PLUGIN_GRANTS_FLOORPLAN".into(),
-            format!("{C} product hook:after:work"),
+            format!("{C} product hook:after:change.offered"),
         );
         map.insert("TEHAS_REPO".into(), "acme/widget".into());
         map.insert("TEHAS_BOT_LOGIN".into(), "acme-bot[bot]".into());

@@ -23,6 +23,8 @@ pub mod skill;
 pub mod state;
 pub mod verdict;
 
+use tehas_ports::events::{Name, When};
+
 /// The front of the grants settings, one per plugin:
 /// `TEHAS_PLUGIN_GRANTS_<NAME>`, the name in upper case.
 pub const GRANTS: &str = "TEHAS_PLUGIN_GRANTS_";
@@ -192,7 +194,12 @@ pub enum Cap {
     Product,
     Model,
     Action(String),
-    HookAfterWork,
+    /// A hook on an event, `hook:<when>:<event>`. 2.0 takes one,
+    /// [`Cap::HOOK`].
+    Hook {
+        when: When,
+        name: Name,
+    },
     /// A skill's text in the chats, read from the pinned commit.
     Skill(String),
     /// Another plugin this one needs, and its skills (the v3 part).
@@ -208,6 +215,13 @@ pub enum Cap {
 }
 
 impl Cap {
+    /// The one hook 2.0 takes, `hook:after:change.offered`: after a cycle
+    /// offered a change.
+    pub const HOOK: Cap = Cap::Hook {
+        when: When::After,
+        name: Name::ChangeOffered,
+    };
+
     /// The word of an ask: `model` without its tokens.
     pub fn ask(&self) -> String {
         match self {
@@ -215,7 +229,7 @@ impl Cap {
             Cap::Product => "product".to_string(),
             Cap::Model => "model".to_string(),
             Cap::Action(id) => format!("action:{id}"),
-            Cap::HookAfterWork => "hook:after:work".to_string(),
+            Cap::Hook { when, name } => format!("hook:{}", point(*when, *name)),
             Cap::Skill(id) => format!("skill:{id}"),
             Cap::Needs(name) => format!("needs:{name}"),
             Cap::ViewOf(id) => format!("view:{id}"),
@@ -231,6 +245,22 @@ impl Cap {
         !matches!(self, Cap::Skill(_) | Cap::Needs(_))
     }
 }
+
+/// The word of a side of an event, as a hook's grant and `at` write it.
+pub fn side(when: When) -> &'static str {
+    match when {
+        When::After => "after",
+        When::Before => "before",
+    }
+}
+
+/// A hook's point, as a manifest's `at` names it: `after:change.offered`.
+pub fn point(when: When, name: Name) -> String {
+    format!("{}:{}", side(when), name.as_str())
+}
+
+/// The 1.x word of the one hook, refused with no alias.
+const OLD_HOOK: &str = "hook:after:work";
 
 /// Whether a word is a capability of a later tehas.
 fn reserved(word: &str) -> bool {
@@ -248,7 +278,7 @@ fn cap(word: &str, granted: bool) -> Result<(Cap, Option<u64>), String> {
         "view" => Some(Cap::View),
         "menu" => Some(Cap::Menu),
         "product" => Some(Cap::Product),
-        "hook:after:work" => Some(Cap::HookAfterWork),
+        w if w == Cap::HOOK.ask() => Some(Cap::HOOK),
         _ => None,
     };
     if let Some(cap) = plain {
@@ -325,6 +355,9 @@ fn cap(word: &str, granted: bool) -> Result<(Cap, Option<u64>), String> {
                 "{word}: a plugin's name is 1 to 12 characters of a-z and 0-9, a letter first"
             ))
         };
+    }
+    if word == OLD_HOOK {
+        return Err(format!("{word}: the word is now {}", Cap::HOOK.ask()));
     }
     if reserved(word) {
         return Err(format!("{word} {V2}"));
@@ -656,7 +689,7 @@ mod tests {
     #[test]
     fn a_grants_line_is_a_commit_then_the_grants_of_v1() {
         let g = grants(&format!(
-            "{C} view product model:2000000 action:refresh hook:after:work"
+            "{C} view product model:2000000 action:refresh hook:after:change.offered"
         ))
         .unwrap();
         assert_eq!(g.commit, C);
@@ -667,7 +700,7 @@ mod tests {
                 Cap::Product,
                 Cap::Model,
                 Cap::Action("refresh".into()),
-                Cap::HookAfterWork
+                Cap::HOOK
             ]
         );
         assert_eq!(g.tokens, Some(2_000_000));
@@ -762,7 +795,7 @@ mod tests {
             Cap::Product,
             Cap::Model,
             Cap::Action("refresh".into()),
-            Cap::HookAfterWork,
+            Cap::HOOK,
         ] {
             assert!(cap.needs_run(), "{cap:?}");
         }
@@ -817,7 +850,7 @@ mod tests {
     #[test]
     fn every_ask_granted_at_the_pin_runs() {
         let g = grants(&format!(
-            "{C} view product model:2000000 action:refresh hook:after:work"
+            "{C} view product model:2000000 action:refresh hook:after:change.offered"
         ))
         .unwrap();
         let asks = words(&[
@@ -825,7 +858,7 @@ mod tests {
             "product",
             "model",
             "action:refresh",
-            "hook:after:work",
+            "hook:after:change.offered",
         ]);
         let got = compare(&asks, Some(&g), C);
         assert!(got.granted(), "{got:?}");
@@ -873,6 +906,22 @@ mod tests {
             ]
         );
         assert_eq!(got.unknown, ["nope is no capability of plugins v1"]);
+        assert!(!got.granted());
+    }
+
+    #[test]
+    fn the_one_hook_is_named_by_its_event_and_the_1x_word_is_refused() {
+        assert_eq!(ask("hook:after:change.offered"), Ok(Cap::HOOK));
+        assert_eq!(Cap::HOOK.ask(), "hook:after:change.offered");
+        let old = "hook:after:work";
+        let why = "hook:after:work: the word is now hook:after:change.offered";
+        assert_eq!(ask(old).unwrap_err(), why);
+        assert_eq!(grants(&format!("{C} {old}")).unwrap_err(), why);
+        let got = compare(&words(&[old, "hook:after:cycle.ended"]), None, C);
+        assert_eq!(
+            got.reserved,
+            [why, "hook:after:cycle.ended is reserved for plugins v2"]
+        );
         assert!(!got.granted());
     }
 

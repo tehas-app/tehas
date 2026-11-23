@@ -852,12 +852,12 @@ fn hook_place(s: &Setup) -> Result<File, String> {
 }
 
 /// The plugin as a hook takes it now: ready at its pin and granted
-/// `hook:after:work` there.
+/// `hook:after:change.offered` there.
 fn hooked(h: &mut dyn Host, s: &Setup, name: &str) -> Result<Plugin, u8> {
     let p = plugin_of(h, s, name, false)?;
-    if !p.has(Cap::HookAfterWork) {
+    if !p.has(Cap::HOOK) {
         say(&format!(
-            "plugin {name}: not run: it is not granted hook:after:work"
+            "plugin {name}: not run: it is not granted hook:after:change.offered"
         ));
         return Err(exit::NO);
     }

@@ -1,6 +1,6 @@
 //! The plugins' bridge (docs/specs/2026-11-22-events.md, "Plugins"): an
 //! `on_any` listener of the cycle's events. On `change.offered` it writes a
-//! request for each plugin granted `hook:after:work` and ready, for the
+//! request for each plugin granted `hook:after:change.offered` and ready, for the
 //! change while it is open at its head, and starts its unit
 //! (docs/specs/2026-11-21-plugins-hooks.md, "When it runs"). It waits for
 //! nothing and holds no slot, lock or label: the unit runs the hook after

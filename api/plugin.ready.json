@@ -10,7 +10,7 @@
         "product",
         "model:2000000",
         "action:refresh",
-        "hook:after:work"
+        "hook:after:change.offered"
       ],
       "state": "ready",
       "refusal": null,
