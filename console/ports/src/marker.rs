@@ -122,7 +122,12 @@ fn sha256_ok(s: &str) -> bool {
 /// One marker, as the adapter reads it from a comment or a body, with a
 /// typed payload per kind. The comment's author and last editor are the
 /// comment's own fields. A text's markers are in the order they stand in
-/// it, the first first. Read through serde, it is [`Marker::checked`].
+/// it, the first first. Read through serde, it is [`Marker::checked`], and
+/// a known tag whose content does not read, such as a word of a newer
+/// `MillwrightAction`, is `Unreadable` of that tag's kind, as the text's
+/// reading has it. The tags `Project`, `Unreadable` and `Bare` name no one
+/// kind: theirs is `Unreadable` of `MarkerKind::Unknown`. A tag this copy
+/// does not know is `Unknown`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 // `remote = "Self"` makes the derives inherent functions, so the trait impls
 // below can check what is read.
@@ -216,8 +221,41 @@ impl Serialize for Marker {
 
 impl<'de> Deserialize<'de> for Marker {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        Marker::deserialize(d).map(Marker::checked)
+        Ok(match MarkerRead::deserialize(d)? {
+            MarkerRead::Read(m) => m.checked(),
+            MarkerRead::Tag { r#type } => match tag_kind(&r#type) {
+                Some(kind) => Marker::Unreadable { kind },
+                None => Marker::Unknown,
+            },
+        })
     }
+}
+
+/// A marker as read: whole, or else its tag alone.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum MarkerRead {
+    Read(#[serde(deserialize_with = "Marker::deserialize")] Marker),
+    Tag { r#type: String },
+}
+
+/// The kind a known tag names, `MarkerKind::Unknown` for a tag that names no
+/// one kind; None for a tag this copy does not know.
+fn tag_kind(tag: &str) -> Option<MarkerKind> {
+    Some(match tag {
+        "Question" => MarkerKind::Question,
+        "Blocked" => MarkerKind::Blocked,
+        "HoldCleared" => MarkerKind::HoldCleared,
+        "Park" => MarkerKind::Park,
+        "Finish" => MarkerKind::Finish,
+        "Spec" => MarkerKind::Spec,
+        "LastAttempt" => MarkerKind::LastAttempt,
+        "Millwright" => MarkerKind::Millwright,
+        "TicketOf" => MarkerKind::TicketOf,
+        "Link" => MarkerKind::Link,
+        _ if MARKER_TAGS.contains(&tag) => MarkerKind::Unknown,
+        _ => return None,
+    })
 }
 
 /// The tags of `Marker` but `Unknown`.

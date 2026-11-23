@@ -652,11 +652,84 @@ fn a_known_tag_whose_content_does_not_read_is_an_error() {
             "MarkerKind {tag}"
         );
     }
+    // A marker reads it as `Unreadable` of the tag's kind instead, as the
+    // text's reading does; a tag that names no one kind is of `Unknown`.
     for m in every_marker().iter().filter(|m| **m != Marker::Unknown) {
         let tag = tag_of(&to_node(m).unwrap());
-        assert!(from_node::<Marker>(tagged(&tag)).is_err(), "Marker {tag}");
+        let kind = match m {
+            Marker::Project { .. } | Marker::Unreadable { .. } | Marker::Bare { .. } => {
+                MarkerKind::Unknown
+            }
+            known => known.kind(),
+        };
+        assert_eq!(
+            from_node::<Marker>(tagged(&tag)).unwrap(),
+            Marker::Unreadable { kind },
+            "Marker {tag}"
+        );
     }
     assert!(from_node::<Mark>(Node::Uint(3)).is_err());
+    assert!(from_node::<Marker>(Node::Uint(3)).is_err());
+}
+
+#[test]
+fn a_newer_word_inside_a_known_marker_reads_as_unreadable() {
+    let marker = |tag: &str, value: Node| map(vec![("type", text(tag)), ("value", value)]);
+    let millwright = marker(
+        "Millwright",
+        map(vec![
+            ("blueprint", Node::Uint(7)),
+            ("action", text("later")),
+        ]),
+    );
+    assert_eq!(
+        from_node::<Marker>(millwright).unwrap(),
+        Marker::Unreadable {
+            kind: MarkerKind::Millwright
+        }
+    );
+    let finish = marker(
+        "Finish",
+        map(vec![
+            ("blueprint", Node::Uint(7)),
+            ("result", text("later")),
+            ("by_poll", Node::Bool(false)),
+        ]),
+    );
+    assert_eq!(
+        from_node::<Marker>(finish).unwrap(),
+        Marker::Unreadable {
+            kind: MarkerKind::Finish
+        }
+    );
+    // A number where an object is.
+    assert_eq!(
+        from_node::<Marker>(marker("Park", Node::Uint(3))).unwrap(),
+        Marker::Unreadable {
+            kind: MarkerKind::Park
+        }
+    );
+    // Inside a bare marker too, and an unknown tag is still `Unknown`.
+    let bare = marker(
+        "Bare",
+        map(vec![
+            ("kind", map(vec![("type", text("Millwright"))])),
+            ("read", marker("Millwright", Node::Uint(3))),
+        ]),
+    );
+    assert_eq!(
+        from_node::<Marker>(bare).unwrap(),
+        Marker::Bare {
+            kind: MarkerKind::Millwright,
+            read: Some(Box::new(Marker::Unreadable {
+                kind: MarkerKind::Millwright
+            })),
+        }
+    );
+    assert_eq!(
+        from_node::<Marker>(future(Node::Uint(3))).unwrap(),
+        Marker::Unknown
+    );
 }
 
 #[test]

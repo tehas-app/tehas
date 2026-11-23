@@ -30,7 +30,8 @@ pub const VERSION: &str = "v2.0.0";
 ///
 /// Such an enum is written with a tag and its content. Its `Unknown` is the
 /// last variant, read when no other matches: a tag of the enum's own whose
-/// content does not read is an error, any other tag is `Unknown`.
+/// content does not read is an error, any other tag is `Unknown`. `Marker`
+/// reads such a tag as `Unreadable` instead, as its text does.
 mod unknown {
     use serde::de::Error as _;
     use serde::ser::SerializeMap;
