@@ -124,6 +124,8 @@ pub(super) fn retired(name: &str) -> bool {
     RETIRED.contains(&name)
 }
 
+const PROTOLAB: &str = "the Protolab was removed in 2.0";
+
 /// The names of features 2.0 took out, each with why. Unlike `RETIRED`, a
 /// line of one loads: a 1.4.x instance must never fail to load (the owner,
 /// 2026-11-22). The load warns once and drops the name, so nothing reads it.
@@ -152,6 +154,10 @@ pub(super) const IGNORED: &[(&str, &str)] = &[
         "TEHAS_WIKI",
         "the product wiki left core in 2.0 and returns as a plugin",
     ),
+    ("TEHAS_PROTOLAB_URL", PROTOLAB),
+    ("TEHAS_PROTOLAB_ZIP_URL", PROTOLAB),
+    ("TEHAS_PROTOLAB_ZIP_HOSTS", PROTOLAB),
+    ("TEHAS_PROTOTYPE_FILE", PROTOLAB),
     ("TEHAS_WORK_DESCRIBE", GIVEN),
     ("TEHAS_WORK_FILES", GIVEN),
     ("TEHAS_WORK_ZIPS", GIVEN),
@@ -890,14 +896,6 @@ fn last(vars: &mut Vars) {
         let mb = rules::mem_mb(&vars.text(name)).unwrap_or_default();
         vars.set(&format!("{name}_MB"), mb);
     }
-    if has(vars, "TEHAS_DOMAIN") && !has(vars, "TEHAS_PROTOLAB_URL") {
-        let one_level = vars.text("TEHAS_EDGE_ONE_LEVEL") == "1";
-        let lab = format!(
-            "https://{}",
-            crate::settings::edge_name("lab", &vars.text("TEHAS_DOMAIN"), one_level)
-        );
-        vars.set("TEHAS_PROTOLAB_URL", lab);
-    }
 }
 
 /// tehas_load. Err is the line for standard error, without its `tehas: `.
@@ -1254,7 +1252,6 @@ mod tests {
             assert_eq!(vars.text(name), value, "{name}");
         }
         assert!(vars.is_set("TEHAS_SIZE_MAX_FILES"));
-        assert!(!vars.is_set("TEHAS_PROTOLAB_URL"));
     }
 
     #[test]
@@ -1294,10 +1291,6 @@ mod tests {
         for (line, feature) in [
             ("TEHAS_OUTSOURCE_TIMEOUT=1800", "outsource"),
             ("TEHAS_OUTSOURCE_REPOS=acme/widget", "outsource"),
-            (
-                "TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org",
-                "protolab-zip-url",
-            ),
         ] {
             let name = line.split('=').next().unwrap();
             assert_eq!(
@@ -1306,7 +1299,7 @@ mod tests {
             );
         }
         // An empty line sets nothing, and a malformed value is named as such.
-        loads(&["TEHAS_OUTSOURCE_REPOS=", "TEHAS_PROTOLAB_ZIP_HOSTS="]);
+        loads(&["TEHAS_OUTSOURCE_REPOS="]);
         assert!(refused(&["TEHAS_OUTSOURCE_TIMEOUT=soon"])
             .starts_with("TEHAS_OUTSOURCE_TIMEOUT is not valid"));
     }
@@ -1369,40 +1362,6 @@ mod tests {
         let mut host = Fake::with(&["TEHAS_SPEC_PIPE=on"]);
         assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
         assert_eq!(vars.text("TEHAS_SPEC_PIPE"), "1");
-    }
-
-    #[test]
-    fn the_protolab_zip_url_set_on_stops_the_load_and_off_is_the_default() {
-        let got = refused(&["TEHAS_PROTOLAB_ZIP_URL=on"]);
-        assert_eq!(
-            got,
-            format!("TEHAS_PROTOLAB_ZIP_URL is on and protolab-zip-url is still being built in this release: set it to off or take the line out (see {FILE})")
-        );
-        let vars = loads(&[]);
-        assert_eq!(vars.text("TEHAS_PROTOLAB_ZIP_URL"), "0");
-        assert_eq!(vars.text("TEHAS_PROTOLAB_ZIP_HOSTS"), "");
-        let mut vars = start(&[(crate::features::TEST_VAR, "protolab-zip-url")]);
-        let mut host = Fake::with(&[
-            "TEHAS_PROTOLAB_ZIP_URL=on",
-            "TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org",
-        ]);
-        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
-        assert_eq!(vars.text("TEHAS_PROTOLAB_ZIP_URL"), "1");
-        assert_eq!(vars.text("TEHAS_PROTOLAB_ZIP_HOSTS"), "files.example.org");
-    }
-
-    #[test]
-    fn the_prototype_file_switch_set_on_stops_the_load_and_off_is_the_default() {
-        let got = refused(&["TEHAS_PROTOTYPE_FILE=on"]);
-        assert_eq!(
-            got,
-            format!("TEHAS_PROTOTYPE_FILE is on and prototype-file is still being built in this release: set it to off or take the line out (see {FILE})")
-        );
-        assert_eq!(loads(&[]).text("TEHAS_PROTOTYPE_FILE"), "0");
-        let mut vars = start(&[(crate::features::TEST_VAR, "prototype-file")]);
-        let mut host = Fake::with(&["TEHAS_PROTOTYPE_FILE=on"]);
-        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
-        assert_eq!(vars.text("TEHAS_PROTOTYPE_FILE"), "1");
     }
 
     #[test]
@@ -2368,23 +2327,6 @@ mod tests {
     }
 
     #[test]
-    fn a_domain_gives_the_lab_its_address_and_a_written_one_is_kept() {
-        let vars = loads(&["TEHAS_DOMAIN=example.org"]);
-        assert_eq!(vars.text("TEHAS_PROTOLAB_URL"), "https://lab.example.org");
-        let vars = loads(&[
-            "TEHAS_DOMAIN=example.org",
-            "TEHAS_PROTOLAB_URL=https://p.example",
-        ]);
-        assert_eq!(vars.text("TEHAS_PROTOLAB_URL"), "https://p.example");
-        // One level deep: the list's name is lab-<domain>.
-        let vars = loads(&["TEHAS_DOMAIN=demo.example.org", "TEHAS_EDGE_ONE_LEVEL=on"]);
-        assert_eq!(
-            vars.text("TEHAS_PROTOLAB_URL"),
-            "https://lab-demo.example.org"
-        );
-    }
-
-    #[test]
     fn a_refused_load_keeps_its_defaults_and_not_what_comes_last() {
         let (vars, got) = run(&mut Fake::with(&[
             "TEHAS_PREVIEWS=1",
@@ -2572,6 +2514,34 @@ mod tests {
             ["TEHAS_WIKI is no longer read: the product wiki left core in 2.0 and returns as a plugin; remove it from the instance"]
         );
         assert!(!vars.is_set("TEHAS_WIKI"));
+    }
+
+    #[test]
+    fn the_protolabs_lines_load_warn_each_once_and_are_not_read() {
+        let lines = [
+            "TEHAS_DOMAIN=example.org",
+            "TEHAS_PROTOLAB_URL=https://lab.example",
+            "TEHAS_PROTOLAB_ZIP_URL=on",
+            "TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org",
+            "TEHAS_PROTOTYPE_FILE=on",
+        ];
+        let mut vars = start(&[]);
+        let mut host = Fake::with(&lines);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        let names: Vec<&str> = lines[1..]
+            .iter()
+            .map(|l| l.split('=').next().unwrap())
+            .collect();
+        let warned: Vec<String> = names
+            .iter()
+            .map(|n| {
+                format!("{n} is no longer read: the Protolab was removed in 2.0; remove it from the instance")
+            })
+            .collect();
+        assert_eq!(host.warned, warned);
+        for name in names {
+            assert!(!vars.is_set(name), "{name}");
+        }
     }
 
     #[test]

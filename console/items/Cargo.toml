@@ -1,0 +1,19 @@
+# tehas-items: the files of an item kept under the home, a directory per
+# item, and the page that shows them. The files come from the links of an
+# issue (tehas_core::issue_feed), fetched and unpacked by ../attach. A member
+# of the workspace in ../Cargo.toml.
+[package]
+name = "tehas-items"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+
+[lib]
+name = "tehas_items"
+path = "src/lib.rs"
+
+[dependencies]
+attach = { path = "../attach" }
+serde_json = "1"
+tehas-core = { path = "../core", features = ["mask"] }

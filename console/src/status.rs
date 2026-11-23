@@ -18,8 +18,8 @@
 //!     nothing.
 //!
 //! The files of live/ beside the health file are read when they are there:
-//! protolab.json as `prototypes`, previews.json, which the factory writes only
-//! with previews on, as `previews`, and contractors.json, which the factory
+//! previews.json, which the factory writes only with previews on, as
+//! `previews`, and contractors.json, which the factory
 //! writes only with outsource on, as `contractors`, the `outsource:` line and
 //! where each running cycle is built.
 //!
@@ -236,12 +236,6 @@ fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>, ends: &[Str
         }
         None => {
             let mut said = status_json(&health, now, stale);
-            let list = fs::read_to_string(beside(file, "protolab.json"))
-                .ok()
-                .and_then(|t| J::parse(&t));
-            if let (J::Obj(o), Some(p)) = (&mut said, list.as_ref().and_then(prototypes)) {
-                o.push(("prototypes".to_string(), p));
-            }
             let shown = fs::read_to_string(beside(file, "previews.json"))
                 .ok()
                 .and_then(|t| J::parse(&t));
@@ -261,7 +255,7 @@ fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>, ends: &[Str
     }
 }
 
-/// A file of live/ beside the health file: live/protolab.json for
+/// A file of live/ beside the health file: live/previews.json for
 /// live/health.json, and so for a sample's <name>.health.json.
 fn beside(file: &str, name: &str) -> String {
     match file.strip_suffix("health.json") {
@@ -1057,32 +1051,6 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
     obj(fields)
 }
 
-/// The tickets with a Protolab page, from the list the Protolab writes beside
-/// the health file: each issue, and when its page was built where that is
-/// known. None when there is no list to read, as on a host without the lab.
-pub fn prototypes(list: &J) -> Option<J> {
-    let J::Arr(tickets) = list.get("tickets") else {
-        return None;
-    };
-    Some(J::Arr(
-        tickets
-            .iter()
-            .filter(|t| {
-                t.get("number")
-                    .as_f64()
-                    .is_some_and(|n| n >= 1.0 && n.fract() == 0.0)
-            })
-            .map(|t| {
-                let mut f = vec![("issue", t.get("number").clone())];
-                if t.get("builtAt").as_str().and_then(epoch).is_some() {
-                    f.push(("builtAt", t.get("builtAt").clone()));
-                }
-                obj(f)
-            })
-            .collect(),
-    ))
-}
-
 /// The previews of the open pull requests, from the list the previews write
 /// beside the health file: each pull request's number, the preview's own word
 /// for its state, and its address while it serves. The default branch's
@@ -1573,18 +1541,6 @@ mod tests {
             status_json(&health, NOW, false).get("running").dump(),
             r#"[{"issue":12,"since":"2026-10-17T13:50:20Z","progress":{"step":"lens-review","stepNumber":7,"stepTotal":9,"round":2,"roundLimit":3,"stepSince":"2026-10-17T13:58:00Z"}},{"issue":13,"since":"2026-10-17T13:50:20Z","progress":{"step":"develop"}},{"issue":14,"since":"2026-10-17T13:50:20Z"}]"#
         );
-    }
-
-    #[test]
-    fn the_prototypes_are_the_tickets_of_the_lab_s_list() {
-        let list = h(
-            r#"{"generatedAt":"2026-10-17T14:00:00Z","tickets":[{"number":7,"builtAt":"2026-10-17T12:00:00Z","files":2},{"number":9},{"number":"x"}]}"#,
-        );
-        assert_eq!(
-            prototypes(&list).unwrap().dump(),
-            r#"[{"issue":7,"builtAt":"2026-10-17T12:00:00Z"},{"issue":9}]"#
-        );
-        assert!(prototypes(&h("{}")).is_none());
     }
 
     #[test]

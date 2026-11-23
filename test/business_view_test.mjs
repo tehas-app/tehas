@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import "../host/fun/console-tabs.js";
-import { STAGES, STALE_QUEUE, lineView, boardRows, labBase, consoleView } from "../host/fun/business-view.js";
+import { STAGES, STALE_QUEUE, lineView, boardRows, consoleView } from "../host/fun/business-view.js";
 
 const NOW = Date.parse("2026-10-20T12:00:00Z");
 const at = (secondsAgo) => new Date(NOW - secondsAgo * 1000).toISOString();
@@ -15,8 +15,8 @@ const status = (extra = {}) => ({
   ...extra,
 });
 
-test("the line runs prototypes, in line, planning, building, review, stopped, shipped", () => {
-  assert.deepEqual(STAGES.map((s) => s.key), ["proto", "line", "plan", "build", "review", "stop", "ship"]);
+test("the line runs idea, in line, planning, building, review, stopped, shipped", () => {
+  assert.deepEqual(STAGES.map((s) => s.key), ["idea", "line", "plan", "build", "review", "stop", "ship"]);
   const v = lineView({ status: status(), nowMs: NOW });
   assert.deepEqual(v.stages.map((s) => [s.key, s.count]), [["line", 2], ["build", 1], ["review", 1], ["stop", 1], ["ship", 1]]);
   assert.equal(v.source, "live");
@@ -32,12 +32,12 @@ test("each stage links to its tickets on GitHub, the stopped one by what it says
   assert.equal(v.stages.find((s) => s.key === "stop").more.text, "See what stopped");
 });
 
-test("prototypes show only while there are some, as planning does", () => {
-  assert.equal(lineView({ status: status(), nowMs: NOW }).stages.find((s) => s.key === "proto"), undefined);
+test("idea shows only while there are some, as planning does", () => {
+  assert.equal(lineView({ status: status(), nowMs: NOW }).stages.find((s) => s.key === "idea"), undefined);
 });
 
 // Every stage is drawn only while it has something to show: a ticket, or a
-// figure the file publishes. The rule is the one prototypes and planning had.
+// figure the file publishes. The rule is the one idea and planning had.
 test("a stage with nothing to show is not on the line, whichever stage it is", () => {
   const keys = (extra) => lineView({ status: status(extra), nowMs: NOW }).stages.map((s) => s.key);
   // The issue's screenshot: nothing to review.
@@ -80,25 +80,6 @@ test("a repository name that is not owner/name gives no links", () => {
   assert.ok(v.stages.every((s) => s.more === null));
 });
 
-test("prototypes come from the Protolab's list, at its own address or under the lab", () => {
-  const lab = { url: "https://lab.example.org", tickets: [
-    { number: 21, title: "Visual diff", address: "https://lab-21.example.org/" },
-    { number: 22, title: "Replay" },
-    { number: 0, title: "Not a ticket" },
-  ] };
-  const v = lineView({ status: status(), lab, nowMs: NOW });
-  const proto = v.stages.find((s) => s.key === "proto");
-  assert.deepEqual(proto.items.map((t) => [t.number, t.url]), [[21, "https://lab-21.example.org/"], [22, "https://lab.example.org/22/"]]);
-  assert.deepEqual(proto.more, { text: "All 2 in Protolab", href: "https://lab.example.org" });
-  assert.equal(v.lab, "https://lab.example.org");
-});
-
-test("a Protolab with no address of its own is at port 8081 of a plain HTTP page", () => {
-  assert.equal(labBase({ tickets: [] }, "http://factory.example:8080/"), "http://factory.example:8081");
-  assert.equal(labBase({ tickets: [] }, "https://factory.example.org/"), null);
-  assert.equal(labBase({ url: "javascript:x", tickets: [] }, "https://factory.example.org/"), null);
-});
-
 test("the sample is staged by its labels, and only where there is no queue", () => {
   const sample = { issues: [
     { number: 1, title: "Ready", labels: [{ name: "tehas:ready" }] },
@@ -109,7 +90,7 @@ test("the sample is staged by its labels, and only where there is no queue", () 
   ] };
   const v = lineView({ sample, nowMs: NOW });
   assert.equal(v.source, "sample");
-  assert.deepEqual(v.stages.map((s) => s.items.map((t) => t.number)), [[2], [1], [2], [3], [4]]);
+  assert.deepEqual(v.stages.map((s) => s.items.map((t) => t.number)), [[5], [1], [2], [3], [4]]);
   assert.equal(lineView({ status: status(), sample, nowMs: NOW }).stages[0].count, 2); // the queue wins
   assert.equal(lineView({ nowMs: NOW }).source, "none");
 });

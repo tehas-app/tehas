@@ -636,7 +636,7 @@ impl Take<'_> {
             if let Some(skip) = e.get("skip") {
                 // An entry attach refused, named as the archive named it: nothing
                 // was ever written for it. One of more than the room it was read
-                // at is said of that room, not of the 10 MB of the lab's ticket.
+                // at is said of that room, not of the 10 MB of a ticket.
                 let f = as_listed(skip.as_str().unwrap_or_default());
                 let reason = e["reason"].as_str().unwrap_or_default();
                 let reason = if reason == TOOBIG { FBIG } else { reason };

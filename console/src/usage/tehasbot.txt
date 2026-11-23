@@ -7,7 +7,6 @@ Usage:
   tehasbot health               write the health file, live/health.json
   tehasbot top [--every]        publish the host section for the dashboard
                                 (the service)
-  tehasbot protolab             build the Protolab pages (the timer)
   tehasbot preview [--sweep]    keep the previews of pull requests (the timers)
   tehasbot refresh --pr N       tehas refresh --pr N, by its old name
   tehasbot clean                remove what the host can make again (the timer)
