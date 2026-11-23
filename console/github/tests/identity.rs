@@ -4,9 +4,8 @@
 //! replayed through a runner that writes down every call.
 
 use serde::Deserialize;
-use std::cell::RefCell;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 use tehas_ports::{
@@ -24,7 +23,7 @@ fn replay_now() -> i64 {
     1_767_225_600
 }
 
-type Asked = Rc<RefCell<Vec<String>>>;
+type Asked = Arc<Mutex<Vec<String>>>;
 
 /// Answers from `tests/recorded/identity/`: the viewer question from
 /// `me-<case>`, an account read from `user-<id>`, a permission read from
@@ -38,7 +37,7 @@ struct Replay {
 
 impl GhRunner for Replay {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        self.asked.borrow_mut().push(args.join(" "));
+        self.asked.lock().unwrap().push(args.join(" "));
         let name = match args {
             ["api", "graphql", "-f", q] if q.starts_with("query=") => format!("me-{}", self.case),
             ["api", path] => {
@@ -57,7 +56,8 @@ impl GhRunner for Replay {
         let at = here().join("tests/recorded/identity");
         let before = self
             .asked
-            .borrow()
+            .lock()
+            .unwrap()
             .iter()
             .filter(|a| a.as_str() == args.join(" "))
             .count();
@@ -84,7 +84,7 @@ fn adapter(case: &str) -> (GitHub, Asked) {
     let asked = Asked::default();
     let replay = Replay {
         case: case.to_string(),
-        asked: Rc::clone(&asked),
+        asked: Arc::clone(&asked),
     };
     (
         GitHub::new(PROJECT, Box::new(replay)).on_clock(replay_now),
@@ -138,7 +138,7 @@ fn me_answers_as_each_sample_says() {
         let mut want =
             vec!["api graphql -f query=query { viewer { login databaseId } }".to_string()];
         want.extend(s.kind_from.map(|id| format!("api user/{id}")));
-        assert_eq!(*asked.borrow(), want, "{}", s.case);
+        assert_eq!(*asked.lock().unwrap(), want, "{}", s.case);
     }
 }
 
@@ -177,7 +177,7 @@ fn standing_answers_as_each_sample_says() {
 fn standing_of(id: &str) -> (Got<Standing>, Vec<String>) {
     let (mut gh, asked) = adapter("none");
     let got = gh.standing(&AccountId::new(id));
-    let asked = asked.borrow().clone();
+    let asked = asked.lock().unwrap().clone();
     (got, asked)
 }
 
@@ -272,7 +272,7 @@ fn a_bot_account_read_that_fails_stays_its_failure() {
         let asked = Asked::default();
         let stub = Stub {
             answers: vec![answer.clone(), answer.clone()],
-            asked: Rc::clone(&asked),
+            asked: Arc::clone(&asked),
         };
         let mut gh = GitHub::new(PROJECT, Box::new(stub)).on_clock(replay_now);
         assert_eq!(
@@ -281,7 +281,7 @@ fn a_bot_account_read_that_fails_stays_its_failure() {
             "{answer:?}"
         );
         assert!(
-            asked.borrow().iter().all(|a| a == "api user/901"),
+            asked.lock().unwrap().iter().all(|a| a == "api user/901"),
             "{answer:?}"
         );
     }
@@ -418,7 +418,7 @@ struct Stub {
 
 impl GhRunner for Stub {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        let mut asked = self.asked.borrow_mut();
+        let mut asked = self.asked.lock().unwrap();
         asked.push(args.join(" "));
         self.answers
             .get(asked.len() - 1)
@@ -441,12 +441,12 @@ fn a_rename_between_the_reads_is_settled_by_the_second_pair() {
             Ok(recorded("user-110.json").replace("\"grace\"", "\"grace2\"")),
             Ok(recorded("permission-alice.json").replace("101", "110")),
         ],
-        asked: Rc::clone(&asked),
+        asked: Arc::clone(&asked),
     };
     let mut gh = GitHub::new(PROJECT, Box::new(stub));
     assert_eq!(gh.standing(&AccountId::new("110")), Ok(Standing::Admin));
     assert_eq!(
-        asked.borrow()[3],
+        asked.lock().unwrap()[3],
         "api repos/acme/widget/collaborators/grace2/permission"
     );
 }
@@ -490,12 +490,12 @@ fn a_login_that_is_no_path_segment_stays_one() {
             Ok(recorded("user-105.json").replace("\"erin\"", "\"../../x?y\"")),
             Err(": HTTP 404".to_string()),
         ],
-        asked: Rc::clone(&asked),
+        asked: Arc::clone(&asked),
     };
     let mut gh = GitHub::new(PROJECT, Box::new(stub));
     assert_eq!(gh.standing(&AccountId::new("105")), Err(Outcome::NotFound));
     assert_eq!(
-        asked.borrow()[1],
+        asked.lock().unwrap()[1],
         "api repos/acme/widget/collaborators/..%2F..%2Fx%3Fy/permission"
     );
 }
