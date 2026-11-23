@@ -1,0 +1,1 @@
+| 2026-11-23 | Merge train 5, tested as #2984 (verify run 45246566848), tree 533f5f851deb4c3ba939fc5bb31e2be9d4aac739, the tip after its last member: #2959 (code, T4.4), #2958 (code, B4), #2963 (tests), #2982 (docs). Its first build failed to compile (#2958 named a type #2962 had moved) and nothing landed; #2958 was fixed and the train rebuilt | #2984 |

@@ -328,25 +328,18 @@ push_fault_store() {
 # what the readers of part 3 will name. No read verb gives the word: `cycle-show`
 # shows only the row's own column, and the row that holds it is what publish
 # renders; a write verb cannot be asked of a cycle that has ended. The case reads
-# the host's own file, as state_test.sh does of its database (the store keeps no
+# the host's own file, as console/tests/state.rs does of its database (the store keeps no
 # verb for it, so there is nothing else to ask).
 push_fault_ended() { # <home> <issue>
   command -v sqlite3 >/dev/null 2>&1 || { echo skipped; return; }
   sqlite3 -cmd '.mode list' "$1/state/tehas.db" \
     "select status from endings where issue=$2;" 2>/dev/null
 }
-# What the store of the run was asked, one call per line.
-t_store_lines() { cat "$T/calls/store" 2>/dev/null; }
-# The security options and the readers of a docker line come from
-# test/docker_args.sh, which holds the list as a literal, so the cycle, the
-# turn, the session and the push check are all pinned against one list, and not
-# against the function under test.
+# test/docker_args.sh holds the security options as a literal, so every
+# container is pinned against one list, not against the function under test.
 # shellcheck source=test/docker_args.sh
 . "$(dirname "$0")/docker_args.sh" || exit 1
-# The options of the slice limits and of the security list, by name, for the
-# allow-list of unknown_options: one pair of strings for every suite of a
-# cycle's container, so an option added to either is allow-listed in all of them
-# at once, and one taken away from the function is refused by every test.
+# The allow-list of unknown_options: the slice's options and the security ones.
 limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares"
 docker_opts="$limits --cap-drop --cap-add --security-opt --tmpfs"
 # Values that follow a flag, e.g. every -v or every -e.

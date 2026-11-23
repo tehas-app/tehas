@@ -145,7 +145,8 @@ From `cargo metadata`. Tests' own dependencies are in the last column.
 | --- | --- | --- |
 | tehas-ports | nothing of the workspace, serde alone | |
 | tehas-core | nothing of the workspace | attach |
-| store, attach, tehas-front, tehas-mcp, tehas-xtask | tehas-core | |
+| attach, tehas-front, tehas-mcp, tehas-xtask | tehas-core | |
+| store | tehas-core, tehas-ports | |
 | analytics | tehas-core | tehas-mcp |
 | tehas-cycle | attach, tehas-core | |
 | tehas-items | attach, tehas-core | |
@@ -229,6 +230,7 @@ its reason, as a floor; a departure from a should rule (R5) likewise.
 | Check | Floor | Where | Reason |
 | --- | --- | --- | --- |
 | gh-argv, tests-stub-gh | 1 each | `console/tests/top_snapshot.rs` | the short name "gh" of a process in a fixture of /proc (`"name":"gh"`, #2859), which tehas top shows. Nothing runs gh. A pattern that skipped it would be fragile and allowing the file would hide a later gh call there, so it stays counted as a floor |
+| gh-argv, tests-stub-gh | 3 and 2 | gh-argv: `console/ops/src/pins/tools.rs` 1 and `console/ops/src/pins/tests.rs` 2; tests-stub-gh: `console/ops/src/pins/tests.rs` 2 | the pinned tool named "gh" in the release's list of pinned tools (`host/versions.env`) and its tests (ports spec, Decided 71). Nothing runs gh there; the name is the tool's |
 
 ### Temporary rises
 
