@@ -760,14 +760,18 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `tehas api --json` gains `events`. The plugins' hook after a cycle is
   asked by a listener of `change.offered`, the plugins' bridge, in place of
   the cycle's own call; its request and the hook's `/run/context.json` carry
-  the envelope as `event` (plugins stay off in 2.0). Every start gets one
-  `cycle.ended`, raised by the process that wrote its line (T11.9, #2940): the
-  cycle for a start it refused before its runner and for an open record its
-  start ended as lost, `tehas stop` for a record it ended, and the poll for
-  a cycle it ended as lost. One that finds the line written raises
-  nothing, so a late report, stop or poll raises no second end. The poll
-  raises `question.asked` for each question it records, a planning turn's
-  among them. `tehas stop` writes its event lines to `logs/dispatch.log`.
+  the envelope as `event` (plugins stay off in 2.0). The end of a start is
+  raised by the process that wrote its line (T11.9, #2940): the cycle for a
+  start it refused before its runner and for an open record its start
+  ended as lost, `tehas stop` for a record it ended, and the poll for a
+  cycle it ended as lost. One that finds the line written raises nothing,
+  so a late report, stop or poll raises no second end. The poll raises
+  `question.asked` for each question it records, a planning turn's, one
+  asked again and a park's question a start puts back. Each end and each
+  question is raised at most once: a writer whose store answer was lost
+  raises nothing, and a consumer reads `tehas history` and `tehas question
+  --after`, the record, for what it missed. `tehas stop` writes its event
+  lines to `logs/dispatch.log`.
   A line that ends `refused` by its exit status alone (64, 78 and the
   rest) is not offered, where the 1.x hook asked on it. `repeat` on a line of
   `tehas history --json` is counted over every line the store keeps,
