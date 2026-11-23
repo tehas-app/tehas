@@ -125,15 +125,18 @@ pub enum TicketKey {
 }
 
 checked!(
-    /// A ticket's key. Checked when made: letters, digits, `-`, at most 64.
-    /// Never parsed.
+    /// A ticket's key. Checked when made: 1 to 128 of ASCII letters, digits,
+    /// `.`, `_`, `:`, `/` and `-`, the rule of `key(n)` in the vendored
+    /// table. Never parsed.
     KeyText,
     "ticket key",
     key_text_ok
 );
 
 fn key_text_ok(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 64 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    (1..=128).contains(&s.len())
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'/' | b'-'))
 }
 
 number!(
@@ -412,16 +415,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn key_text_is_letters_digits_and_dashes_up_to_64() {
+    fn key_text_is_1_to_128_of_the_tables_key_set() {
         assert!(KeyText::new("ABC-12").is_ok());
-        assert!(KeyText::new("a".repeat(64)).is_ok());
+        assert!(KeyText::new("123").is_ok());
+        assert!(KeyText::new("org/repo:12").is_ok());
+        for p in [".", "_", ":", "/", "-"] {
+            assert!(KeyText::new(format!("a{p}b")).is_ok(), "{p}");
+            assert!(KeyText::new(p).is_ok(), "{p}");
+        }
+        assert!(KeyText::new("a".repeat(128)).is_ok());
         assert_eq!(
-            KeyText::new("a".repeat(65)),
+            KeyText::new("a".repeat(129)),
             Err(NotValid { what: "ticket key" })
         );
-        assert!(KeyText::new("").is_err());
-        assert!(KeyText::new("AB 12").is_err());
-        assert!(KeyText::new("AB_12").is_err());
+        for bad in ["", "AB 12", "AB#12", "a>b", "-->", "a,b", "\u{e4}", "a\tb"] {
+            assert!(KeyText::new(bad).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

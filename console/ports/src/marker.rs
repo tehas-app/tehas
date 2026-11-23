@@ -13,6 +13,10 @@ use crate::{unknown, BlueprintNo, Did, MarkName, Outcome, Ref, Refusal, TicketKe
 /// The most tickets one `Blocked` marker names.
 pub const BLOCKED_MAX: usize = 20;
 
+/// The largest number the vendored table writes: `number(9)` and
+/// `blueprint` are at most 9 digits.
+const NUMBER_MAX: u64 = 999_999_999;
+
 /// The version of the `Spec` block this copy reads.
 pub const SPEC_VERSION: u32 = 1;
 
@@ -132,7 +136,8 @@ pub enum Marker {
         /// Which turn of questions it is.
         turn: NonZeroU32,
     },
-    /// The tickets this one waits on. At most 20; more does not read.
+    /// The tickets this one waits on. At most 20; more does not read. A
+    /// write names ticket numbers of this realm and project alone.
     Blocked {
         /// The tickets, 1 to 20.
         by: Vec<Ref<TicketKey>>,
@@ -149,7 +154,8 @@ pub enum Marker {
     LastAttempt(LastAttemptMarker),
     /// A millwright's decision.
     Millwright(MillwrightMarker),
-    /// The ticket a blueprint is for, for people.
+    /// The ticket a blueprint is for, for people. A write names a ticket of
+    /// this realm and project alone.
     TicketOf(Ref<TicketKey>),
     /// An allowed account's ask to link a blueprint to the ticket it sits
     /// on, or to take the link off.
@@ -393,13 +399,36 @@ impl Marker {
         }
     }
 
-    /// True for a marker a write may set: one that keeps the port's limits
-    /// and is not `Unreadable`, `Bare` or `Unknown`.
+    /// True for a marker a write may set: one that keeps the port's limits,
+    /// that the vendored table can write, and that is not `Unreadable`,
+    /// `Bare` or `Unknown`. The table writes a number of at most 9 digits,
+    /// and a `TicketOf` or `Blocked` names only a ticket of this realm and
+    /// project: a ticket `Elsewhere` is not written as a marker. A
+    /// `Blocked` names ticket numbers alone.
     pub fn writable(&self) -> bool {
         !matches!(
             self,
             Marker::Unreadable { .. } | Marker::Bare { .. } | Marker::Unknown
         ) && self.keeps_limits()
+            && self.table_writes()
+    }
+
+    fn table_writes(&self) -> bool {
+        let fits = |n: u64| n <= NUMBER_MAX;
+        match self {
+            Marker::Question {
+                blueprint, turn, ..
+            } => fits(blueprint.get()) && fits(u64::from(turn.get())),
+            Marker::Blocked { by } => by
+                .iter()
+                .all(|t| matches!(t, Ref::Here(TicketKey::Number(n)) if fits(n.get()))),
+            Marker::Park(park) => fits(park.blueprint.get()),
+            Marker::Finish(finish) => fits(finish.blueprint.get()),
+            Marker::Millwright(m) => fits(m.blueprint.get()),
+            Marker::TicketOf(ticket) => matches!(ticket, Ref::Here(_)),
+            Marker::Link { blueprint, .. } => fits(blueprint.get()),
+            _ => true,
+        }
     }
 
     fn keeps_limits(&self) -> bool {
@@ -429,8 +458,8 @@ fn spec_reads(spec: &SpecMarker) -> bool {
 /// replaces the one of the same kind and key, or is added; one named in
 /// `drop` is taken off; every other marker is kept where it stands, an
 /// `Unreadable` one included, and a block whole, from its open line to its
-/// close line. The default changes none. A `set` that holds `Unreadable`,
-/// `Bare` or `Unknown` is `Refused(Invalid)` before any request.
+/// close line. The default changes none. A `set` that holds a marker that
+/// is not [`Marker::writable`] is `Refused(Invalid)` before any request.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct MarkerEdit {
     /// The markers to set.
@@ -600,6 +629,107 @@ mod tests {
         assert_eq!(project.kind(), MarkerKind::Project(name));
         assert_eq!(project.key().unwrap().as_str(), "k1");
         assert_eq!(Marker::Unknown.kind(), MarkerKind::Unknown);
+    }
+
+    fn elsewhere() -> Ref<TicketKey> {
+        Ref::Elsewhere {
+            project: crate::ProjectName::new("other"),
+            item: crate::ItemName::new("other 1"),
+        }
+    }
+
+    fn check_one(m: Marker) -> Did {
+        MarkerEdit {
+            set: vec![m],
+            drop: vec![],
+        }
+        .check()
+    }
+
+    const REFUSED: Did = Err(Outcome::Refused(Refusal::Invalid));
+
+    #[test]
+    fn a_ticket_elsewhere_is_never_written_as_a_marker() {
+        let key = Ref::Here(TicketKey::Key(crate::KeyText::new("ABC-1").unwrap()));
+        for ok in [
+            Marker::TicketOf(ticket(1)),
+            Marker::TicketOf(key.clone()),
+            Marker::Blocked {
+                by: vec![ticket(1), ticket(2)],
+            },
+        ] {
+            assert!(ok.writable(), "{ok:?}");
+            assert_eq!(check_one(ok), Ok(()));
+        }
+        for bad in [
+            Marker::TicketOf(elsewhere()),
+            Marker::Blocked {
+                by: vec![ticket(1), elsewhere()],
+            },
+            Marker::Blocked { by: vec![key] },
+        ] {
+            assert!(!bad.writable(), "{bad:?}");
+            assert_eq!(check_one(bad), REFUSED);
+        }
+        // Read, it is still what it says: the table limits a write.
+        let read = Marker::Blocked {
+            by: vec![elsewhere()],
+        };
+        assert_eq!(read.clone().checked(), read);
+    }
+
+    #[test]
+    fn a_write_holds_numbers_of_at_most_nine_digits() {
+        const MAX: u64 = 999_999_999;
+        let all = |n: u64| {
+            let turn = NonZeroU32::new(u32::try_from(n).unwrap()).unwrap();
+            vec![
+                Marker::Question {
+                    kind: QuestionKind::Plan,
+                    blueprint: no(n),
+                    turn: NonZeroU32::new(1).unwrap(),
+                },
+                Marker::Question {
+                    kind: QuestionKind::Plan,
+                    blueprint: no(1),
+                    turn,
+                },
+                Marker::Blocked {
+                    by: vec![ticket(1), ticket(n)],
+                },
+                Marker::Park(ParkMarker {
+                    blueprint: no(n),
+                    step: MarkerWord::new("").unwrap(),
+                    kind: MarkerWord::new("").unwrap(),
+                    provider: false,
+                    sig: sha('a'),
+                }),
+                Marker::Finish(FinishMarker {
+                    blueprint: no(n),
+                    result: FinishResult::Opened,
+                    by_poll: false,
+                }),
+                Marker::Millwright(MillwrightMarker {
+                    blueprint: no(n),
+                    action: MillwrightAction::Retry,
+                }),
+                Marker::Link {
+                    blueprint: no(n),
+                    remove: false,
+                },
+            ]
+        };
+        for m in all(MAX) {
+            assert!(m.writable(), "{m:?}");
+            assert_eq!(check_one(m), Ok(()));
+        }
+        for m in all(MAX + 1) {
+            assert!(!m.writable(), "{m:?}");
+            assert_eq!(check_one(m.clone()), REFUSED);
+            assert_eq!(m.clone().checked(), m);
+        }
+        let big = Marker::TicketOf(ticket(MAX + 1));
+        assert!(big.writable());
     }
 
     #[test]

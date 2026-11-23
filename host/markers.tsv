@@ -11,9 +11,9 @@
 # makes the marker Unreadable of the row's kind: reported, never acted on.
 #
 # Field types:
-#   blueprint        the blueprint's number, decimal, no leading zero; a
-#                    marker of another blueprint than the item read does
-#                    not read
+#   blueprint        the blueprint's number, decimal, no leading zero, at
+#                    most 9 digits; a marker of another blueprint than the
+#                    item read does not read
 #   number(n)        decimal, no leading zero, at most n digits
 #   numbers(a-b,n)   a to b of number(n), commas between, no space
 #   words(a|b)       one of the words listed
@@ -28,6 +28,10 @@
 #                    `- <id> not met: <note>`, at least one, each id once,
 #                    no backquote in an id, a note never empty
 #   text             the block's enclosed text, its payload, never the body
+#
+# A TicketOf or Blocked marker names only a ticket of this realm and
+# project. A ticket of another project or realm (Ref::Elsewhere) is not
+# written as a marker; a write of one is refused.
 #
 # A 1.x Millwright marker named fixer reads as Unreadable of Millwright.
 Question	<!-- tehas:question kind={kind} issue={issue} turn={turn} -->		kind words(plan|park); issue blueprint; turn number(9)
