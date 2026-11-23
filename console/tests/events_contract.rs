@@ -87,97 +87,108 @@ fn maybe_write() {
     });
 }
 
-fn load(name: &str) -> Value {
-    let text = fs::read_to_string(api(name)).unwrap_or_else(|e| panic!("api/{name}: {e}"));
-    serde_json::from_str(&text).unwrap_or_else(|e| panic!("api/{name}: {e}"))
+// The helpers take JSON as text, as the files of api/ hold it, and parse it
+// where they look into it.
+
+fn load(name: &str) -> String {
+    fs::read_to_string(api(name)).unwrap_or_else(|e| panic!("api/{name}: {e}"))
 }
 
-const COMBINE: [&str; 4] = ["$ref", "allOf", "if", "oneOf"];
+macro_rules! parse {
+    ($text:expr) => {
+        serde_json::from_str::<serde_json::Value>($text).unwrap()
+    };
+}
 
 // Whether a schema, or one inside it, uses a keyword test/schema.jq does not
-// know.
-fn combines(s: &Value) -> bool {
-    match s {
-        Value::Object(m) => m
-            .iter()
-            .any(|(k, v)| COMBINE.contains(&k.as_str()) || combines(v)),
-        Value::Array(a) => a.iter().any(combines),
-        _ => false,
-    }
+// know. A field of that name only makes the check take it apart.
+fn combines(schema: &str) -> bool {
+    let compact = parse!(schema).to_string();
+    ["\"$ref\":", "\"allOf\":", "\"if\":", "\"oneOf\":"]
+        .iter()
+        .any(|k| compact.contains(k))
 }
 
 /// The ways `value` breaks `schema`: none when it fits. `$ref` names a file
 /// of api/.
-fn errors(schema: &Value, value: &Value) -> Vec<String> {
-    let Value::Object(s) = schema else {
+fn errors(schema: &str, value: &str) -> Vec<String> {
+    let (schema, value) = (parse!(schema), parse!(value));
+    let Value::Object(s) = &schema else {
         return match schema {
             Value::Bool(false) => vec![format!("{value}: refused")],
             _ => Vec::new(),
         };
     };
-    if !combines(schema) {
-        let out = schema_value_errors(schema, &value.to_string());
+    if !combines(&schema.to_string()) {
+        let out = schema_value_errors(&schema.to_string(), &value.to_string());
         return out.lines().map(String::from).collect();
     }
+    let v = value.to_string();
     let mut rest = s.clone();
     let mut out = Vec::new();
     if let Some(r) = rest.remove("$ref") {
         out.extend(errors(
             &load(r.as_str().expect("a $ref is a file name")),
-            value,
+            &v,
         ));
     }
     if let Some(Value::Array(all)) = rest.remove("allOf") {
         for sub in &all {
-            out.extend(errors(sub, value));
+            out.extend(errors(&sub.to_string(), &v));
         }
     }
     if let Some(cond) = rest.remove("if") {
         let (then, other) = (rest.remove("then"), rest.remove("else"));
-        let branch = if errors(&cond, value).is_empty() {
+        let branch = if errors(&cond.to_string(), &v).is_empty() {
             then
         } else {
             other
         };
         if let Some(b) = branch {
-            out.extend(errors(&b, value));
+            out.extend(errors(&b.to_string(), &v));
         }
     }
     if let Some(Value::Array(one)) = rest.remove("oneOf") {
-        let fit = one.iter().filter(|o| errors(o, value).is_empty()).count();
+        let fit = one
+            .iter()
+            .filter(|o| errors(&o.to_string(), &v).is_empty())
+            .count();
         if fit != 1 {
-            out.push(format!("{value}: {fit} of oneOf fit, not 1"));
+            out.push(format!("{v}: {fit} of oneOf fit, not 1"));
         }
     }
     if let Some(Value::Object(props)) = rest.get_mut("properties") {
         for (k, p) in props.iter_mut() {
-            if combines(p) {
-                if let Some(v) = value.get(k) {
-                    out.extend(errors(p, v).into_iter().map(|e| format!(".{k}: {e}")));
+            if combines(&p.to_string()) {
+                if let Some(x) = value.get(k) {
+                    let e = errors(&p.to_string(), &x.to_string());
+                    out.extend(e.into_iter().map(|e| format!(".{k}: {e}")));
                 }
                 *p = json!({});
             }
         }
     }
     if let Some(items) = rest.get_mut("items") {
-        if combines(items) {
-            for v in value.as_array().into_iter().flatten() {
-                out.extend(errors(items, v));
+        if combines(&items.to_string()) {
+            for x in value.as_array().into_iter().flatten() {
+                out.extend(errors(&items.to_string(), &x.to_string()));
             }
             *items = json!({});
         }
     }
-    let rest = Value::Object(rest);
+    let rest = Value::Object(rest).to_string();
     assert!(
         !combines(&rest),
         "a keyword this does not take apart: {rest}"
     );
-    out.extend(errors(&rest, value));
+    out.extend(errors(&rest, &v));
     out
 }
 
-fn fits(schema: &str, value: &Value) -> Vec<String> {
-    errors(&load(schema), value)
+macro_rules! fits {
+    ($schema:expr, $value:expr) => {
+        errors(&load($schema), &$value.to_string())
+    };
 }
 
 #[test]
@@ -195,20 +206,20 @@ fn every_sample_fits_its_schema_and_reads_back_unchanged() {
     for s in samples() {
         for side in ["full", "bare"] {
             let name = format!("event-{}.{side}.json", slug(s.name));
-            let v = load(&name);
+            let v = parse!(&load(&name));
             assert_eq!(
-                fits("event.schema.json", &v),
+                fits!("event.schema.json", &v),
                 Vec::<String>::new(),
                 "{name}"
             );
             assert_eq!(
-                fits("event-page.schema.json", &v),
+                fits!("event-page.schema.json", &v),
                 Vec::<String>::new(),
                 "{name}"
             );
             let data = v["data"].clone();
             let own = format!("event-{}.schema.json", slug(s.name));
-            assert_eq!(fits(&own, &data), Vec::<String>::new(), "{name}");
+            assert_eq!(fits!(&own, &data), Vec::<String>::new(), "{name}");
             let e: Envelope = serde_json::from_value(v.clone()).unwrap();
             assert_eq!(e.name(), s.name);
             assert_eq!(serde_json::to_value(&e).unwrap(), v, "{name}");
@@ -217,14 +228,14 @@ fn every_sample_fits_its_schema_and_reads_back_unchanged() {
     for g in gate_samples() {
         for side in ["full", "bare"] {
             let name = format!("event-{}-before.{side}.json", slug(g.name));
-            let v = load(&name);
+            let v = parse!(&load(&name));
             assert_eq!(
-                fits("event.schema.json", &v),
+                fits!("event.schema.json", &v),
                 Vec::<String>::new(),
                 "{name}"
             );
             assert_ne!(
-                fits("event-page.schema.json", &v),
+                fits!("event-page.schema.json", &v),
                 Vec::<String>::new(),
                 "{name}"
             );
@@ -234,9 +245,9 @@ fn every_sample_fits_its_schema_and_reads_back_unchanged() {
     }
     for side in ["full", "bare"] {
         let name = format!("gate-answer.{side}.json");
-        let v = load(&name);
+        let v = parse!(&load(&name));
         assert_eq!(
-            fits("gate-answer.schema.json", &v),
+            fits!("gate-answer.schema.json", &v),
             Vec::<String>::new(),
             "{name}"
         );
@@ -245,37 +256,42 @@ fn every_sample_fits_its_schema_and_reads_back_unchanged() {
     }
 }
 
-fn keys(v: &Value) -> BTreeSet<String> {
-    v.as_object()
-        .map(|m| m.keys().cloned().collect())
-        .unwrap_or_default()
+macro_rules! keys {
+    ($v:expr) => {
+        $v.as_object()
+            .map(|m| m.keys().cloned().collect::<BTreeSet<String>>())
+            .unwrap_or_default()
+    };
 }
 
-fn strings(v: &Value) -> BTreeSet<String> {
-    v.as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|s| s.as_str().map(String::from))
-        .collect()
+macro_rules! strings {
+    ($v:expr) => {
+        $v.as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|s| s.as_str().map(String::from))
+            .collect::<BTreeSet<String>>()
+    };
 }
 
 // The properties are the fields of the full and bare samples, and the bare
 // sample has exactly the required ones: `required`, and the `required` of
 // the one branch of `oneOf` it takes, as a limit change takes `set` or
 // `observed`.
-fn holds_its_fields(schema: &str, full: &Value, bare: &Value) {
-    let s = load(schema);
-    let all: BTreeSet<String> = keys(full).union(&keys(bare)).cloned().collect();
-    assert_eq!(keys(&s["properties"]), all, "{schema}: properties");
-    let mut required = strings(&s["required"]);
+fn holds_its_fields(schema: &str, full: &str, bare: &str) {
+    let (full, bare) = (parse!(full), parse!(bare));
+    let s = parse!(&load(schema));
+    let all: BTreeSet<String> = keys!(full).union(&keys!(bare)).cloned().collect();
+    assert_eq!(keys!(s["properties"]), all, "{schema}: properties");
+    let mut required = strings!(&s["required"]);
     for branch in s["oneOf"].as_array().into_iter().flatten() {
-        let r = strings(&branch["required"]);
+        let r = strings!(&branch["required"]);
         if r.iter().all(|k| bare.get(k).is_some()) {
             required.extend(r);
         }
     }
     assert_eq!(
-        keys(bare),
+        keys!(bare),
         required,
         "{schema}: the bare sample is the required"
     );
@@ -287,25 +303,25 @@ fn each_schema_holds_exactly_its_payloads_fields() {
     for s in samples() {
         let n = slug(s.name);
         let (full, bare) = (
-            load(&format!("event-{n}.full.json")),
-            load(&format!("event-{n}.bare.json")),
+            parse!(&load(&format!("event-{n}.full.json"))),
+            parse!(&load(&format!("event-{n}.bare.json"))),
         );
         holds_its_fields(
             &format!("event-{n}.schema.json"),
-            &full["data"],
-            &bare["data"],
+            &full["data"].to_string(),
+            &bare["data"].to_string(),
         );
     }
     for g in gate_samples() {
         let n = slug(g.name);
         let (full, bare) = (
-            load(&format!("event-{n}-before.full.json")),
-            load(&format!("event-{n}-before.bare.json")),
+            parse!(&load(&format!("event-{n}-before.full.json"))),
+            parse!(&load(&format!("event-{n}-before.bare.json"))),
         );
         holds_its_fields(
             &format!("event-{n}-before.schema.json"),
-            &full["data"],
-            &bare["data"],
+            &full["data"].to_string(),
+            &bare["data"].to_string(),
         );
     }
     holds_its_fields(
@@ -337,7 +353,7 @@ fn schema_files() -> Vec<String> {
 #[test]
 fn every_schema_is_2020_12_and_names_this_test() {
     for name in schema_files() {
-        let s = load(&name);
+        let s = parse!(&load(&name));
         assert_eq!(s["$schema"], "https://json-schema.org/draft/2020-12/schema");
         assert_eq!(
             s["$id"],
@@ -353,7 +369,7 @@ fn every_schema_is_2020_12_and_names_this_test() {
 
 // The rules of the envelope's allOf: (event, when) of each `if`.
 fn rules() -> Vec<(Option<String>, String)> {
-    let env = load("event.schema.json");
+    let env = parse!(&load("event.schema.json"));
     env["allOf"]
         .as_array()
         .unwrap()
@@ -378,7 +394,7 @@ fn the_names_are_one_list_that_every_side_reads() {
         .collect();
     let all: Vec<String> = Name::ALL.iter().map(|n| n.as_str().to_string()).collect();
     assert_eq!(list, all);
-    let env = load("event.schema.json");
+    let env = parse!(&load("event.schema.json"));
     assert_eq!(env["properties"]["event"]["enum"], json!(all));
     let gates: Vec<String> = gate_samples()
         .iter()
@@ -431,7 +447,7 @@ fn the_manual_lists_every_name_and_field() {
     let all: Vec<&str> = Name::ALL.iter().map(|n| n.as_str()).collect();
     assert_eq!(listed, all, "the list of the Events section");
     for name in schema_files() {
-        for field in keys(&load(&name)["properties"]) {
+        for field in keys!(parse!(&load(&name))["properties"]) {
             assert!(
                 section.contains(&format!("`{field}`")),
                 "the Events section names `{field}` of {name}"
@@ -440,23 +456,27 @@ fn the_manual_lists_every_name_and_field() {
     }
 }
 
-fn sample_value(name: Name, side: &str) -> Value {
-    load(&format!("event-{}.{side}.json", slug(name)))
+macro_rules! sample_value {
+    ($name:expr, $side:expr) => {
+        parse!(&load(&format!("event-{}.{}.json", slug($name), $side)))
+    };
 }
 
-fn refused(schema: &str, v: &Value, why: &str) {
-    assert_ne!(fits(schema, v), Vec::<String>::new(), "{why}: {v}");
+macro_rules! refused {
+    ($schema:expr, $v:expr, $why:expr $(,)?) => {
+        assert_ne!(fits!($schema, $v), Vec::<String>::new(), "{}: {}", $why, $v)
+    };
 }
 
 #[test]
 fn the_envelope_refuses_what_is_no_event() {
     maybe_write();
-    let ended = sample_value(Name::CycleEnded, "full");
-    let started = sample_value(Name::CycleStarted, "full");
+    let ended = sample_value!(Name::CycleEnded, "full");
+    let started = sample_value!(Name::CycleStarted, "full");
 
     let mut other = ended.clone();
     other["data"] = started["data"].clone();
-    refused("event.schema.json", &other, "a data of another name");
+    refused!("event.schema.json", &other, "a data of another name");
 
     for at in [
         "2026-11-22T13:20:00.5Z",
@@ -465,52 +485,52 @@ fn the_envelope_refuses_what_is_no_event() {
     ] {
         let mut v = ended.clone();
         v["at"] = json!(at);
-        refused("event.schema.json", &v, "a time of another shape");
+        refused!("event.schema.json", &v, "a time of another shape");
         let mut v = ended.clone();
         v["data"]["ended"] = json!(at);
-        refused("event.schema.json", &v, "a payload's time of another shape");
+        refused!("event.schema.json", &v, "a payload's time of another shape");
     }
 
     let mut before = ended.clone();
     before["when"] = json!("before");
-    refused("event-page.schema.json", &before, "a page envelope before");
-    refused("event.schema.json", &before, "before a point with no gate");
+    refused!("event-page.schema.json", &before, "a page envelope before");
+    refused!("event.schema.json", &before, "before a point with no gate");
     let mut before = started.clone();
     before["when"] = json!("before");
-    refused("event-page.schema.json", &before, "a gate on a page");
-    refused("event.schema.json", &before, "a gate with a notify payload");
+    refused!("event-page.schema.json", &before, "a gate on a page");
+    refused!("event.schema.json", &before, "a gate with a notify payload");
 
     let mut v = ended.clone();
     v["key"] = json!("5");
-    refused("event.schema.json", &v, "a key of another shape");
+    refused!("event.schema.json", &v, "a key of another shape");
     let mut v = ended.clone();
     v["event"] = json!("ticket.reopened");
-    refused("event.schema.json", &v, "a name not in the list");
+    refused!("event.schema.json", &v, "a name not in the list");
     let mut v = ended.clone();
     v["api"] = json!(2);
-    refused("event.schema.json", &v, "another api");
+    refused!("event.schema.json", &v, "another api");
     let mut v = ended.clone();
     v["data"]["signalled"] = json!(false);
-    refused("event.schema.json", &v, "a false that is left out");
+    refused!("event.schema.json", &v, "a false that is left out");
     let mut v = ended.clone();
     v["data"]["status"] = Value::Null;
-    refused("event.schema.json", &v, "a null");
+    refused!("event.schema.json", &v, "a null");
     let mut v = ended.clone();
     v["source"] = json!("Tehas Tehas");
-    refused("event.schema.json", &v, "a source of another shape");
+    refused!("event.schema.json", &v, "a source of another shape");
 
-    let limit = sample_value(Name::FactoryLimitChanged, "full");
+    let limit = sample_value!(Name::FactoryLimitChanged, "full");
     let mut both = limit.clone();
     both["data"]["observed"] = limit["data"]["set"].clone();
-    refused("event.schema.json", &both, "a limit with set and observed");
+    refused!("event.schema.json", &both, "a limit with set and observed");
     let mut neither = limit.clone();
     neither["data"].as_object_mut().unwrap().remove("set");
-    refused("event.schema.json", &neither, "a limit with neither");
+    refused!("event.schema.json", &neither, "a limit with neither");
     assert!(serde_json::from_value::<Envelope>(both).is_ok_and(|e| e.event == Event::Unknown));
 
-    let mut ticket = sample_value(Name::TicketClosed, "full");
+    let mut ticket = sample_value!(Name::TicketClosed, "full");
     ticket["data"]["ticket"] = json!({"Number": 12, "Key": "OPS-12"});
-    refused(
+    refused!(
         "event.schema.json",
         &ticket,
         "a ticket with a number and a key",
@@ -519,24 +539,27 @@ fn the_envelope_refuses_what_is_no_event() {
 
 #[test]
 fn a_gate_answer_refuses_with_a_short_why() {
-    refused(
+    refused!(
         "gate-answer.schema.json",
         &json!({"api": 1, "answer": "refuse"}),
         "a refusal with no why",
     );
     for why in ["x".repeat(141), "a\nb".to_string(), String::new()] {
-        refused(
+        refused!(
             "gate-answer.schema.json",
             &json!({"api": 1, "answer": "refuse", "why": why}),
             "a why of another shape",
         );
     }
-    refused(
+    refused!(
         "gate-answer.schema.json",
         &json!({"api": 1, "answer": "maybe"}),
         "another word",
     );
     let long = json!({"api": 1, "answer": "refuse", "why": "x".repeat(140)});
-    assert_eq!(fits("gate-answer.schema.json", &long), Vec::<String>::new());
+    assert_eq!(
+        fits!("gate-answer.schema.json", &long),
+        Vec::<String>::new()
+    );
     assert!(serde_json::from_value::<GateAnswer>(long).is_ok());
 }

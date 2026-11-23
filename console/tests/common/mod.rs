@@ -927,9 +927,9 @@ pub fn schema_errors(schema: &str, value: &str) -> String {
 }
 
 #[allow(dead_code)] // each test file uses a part of this module
-/// The ways `value` breaks the schema `schema`, as test/schema.jq prints
-/// them: "" when it fits.
-pub fn schema_value_errors(schema: &Value, value: &str) -> String {
+/// The ways `value` breaks the schema whose JSON text is `schema`, as
+/// test/schema.jq prints them: "" when it fits.
+pub fn schema_value_errors(schema: &str, value: &str) -> String {
     let filter = root().join("test/schema.jq");
     jq_with(
         &[
