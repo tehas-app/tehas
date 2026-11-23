@@ -7,9 +7,8 @@
 //! adapter's own cases: what it does not answer yet, and how gh's failures
 //! of a GraphQL question read.
 
-use std::cell::RefCell;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
 use tehas_core::forge::GhRunner;
@@ -29,7 +28,7 @@ fn replay_now() -> i64 {
     1_767_225_600
 }
 
-type Asked = Rc<RefCell<Vec<String>>>;
+type Asked = Arc<Mutex<Vec<String>>>;
 
 /// A runner that answers each call from the recording of the read it
 /// makes: `<project>/<read>.json` is gh's answer, `<project>/<read>.fail`
@@ -95,7 +94,7 @@ fn recording(args: &[&str]) -> Option<(String, String)> {
 
 impl GhRunner for Replay {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        self.asked.borrow_mut().push(args.join(" "));
+        self.asked.lock().unwrap().push(args.join(" "));
         let (project, read) =
             recording(args).ok_or_else(|| format!("no recording of {}", args.join(" ")))?;
         let at = here().join("tests/recorded/code-host").join(project);
@@ -112,7 +111,7 @@ impl GhRunner for Replay {
 fn adapter(project: &str) -> (GitHub, Asked) {
     let asked = Asked::default();
     let replay = Replay {
-        asked: Rc::clone(&asked),
+        asked: Arc::clone(&asked),
     };
     let gh = GitHub::new(project, Box::new(replay)).on_clock(replay_now);
     (gh, asked)
@@ -192,7 +191,7 @@ fn the_facts_answer_as_each_sample_says() {
         assert!(matches!(s.actor, Actor::Ours(_)), "{}", s.fixture);
         let (mut gh, asked) = adapter(&s.project);
         assert_eq!(gh.facts(), s.answer, "{}: {}", s.project, s.fixture);
-        assert_eq!(asked.borrow().len(), 1, "{}", s.fixture);
+        assert_eq!(asked.lock().unwrap().len(), 1, "{}", s.fixture);
     }
 }
 
@@ -264,7 +263,7 @@ fn a_page_boundary_asks_the_next_page_by_its_cursor_and_stops_at_the_last() {
     let got = gh.changes(&mine(), Bound::new(2).unwrap()).unwrap();
     let numbers: Vec<u64> = got.items().iter().map(|d| d.no.get()).collect();
     assert_eq!(numbers, [100, 101]);
-    let asked = asked.borrow();
+    let asked = asked.lock().unwrap();
     assert_eq!(asked.len(), 2);
     assert!(!asked[0].contains("after="));
     assert!(asked[1].contains("-f after=Y3Vyc29yOnYyOpHOAAAAZA=="));
@@ -278,7 +277,7 @@ fn past_the_bound_stops_reading_at_once() {
         gh.changes(&mine(), Bound::new(1).unwrap()),
         Err(Outcome::Unread(Unread::Cut))
     );
-    assert_eq!(asked.borrow().len(), 1);
+    assert_eq!(asked.lock().unwrap().len(), 1);
 }
 
 #[test]
@@ -291,7 +290,7 @@ fn the_question_narrows_by_state_and_branch_and_names_the_asker_only_for_me() {
     gh.changes(&settle, Bound::new(5).unwrap()).unwrap();
     let open = ChangeFilter::default();
     gh.changes(&open, Bound::new(10).unwrap()).unwrap();
-    let asked = asked.borrow();
+    let asked = asked.lock().unwrap();
     assert!(asked[0].contains("-f head=tehas/issue-7"));
     assert!(asked[0].contains("states: [OPEN, CLOSED, MERGED]"));
     assert!(asked[0].contains("viewer { databaseId }"));
@@ -313,7 +312,7 @@ fn a_query_that_fails_with_errors_is_settled_by_the_rest_list() {
         let (mut gh, asked) = adapter(project);
         let got = gh.changes(&ChangeFilter::default(), Bound::new(10).unwrap());
         assert_eq!(got, Err(want), "{project}");
-        let asked = asked.borrow();
+        let asked = asked.lock().unwrap();
         assert_eq!(asked.len(), 2, "{project}");
         assert!(
             asked[1].ends_with("/pulls?per_page=1&state=all"),
@@ -349,8 +348,8 @@ struct Endless {
 
 impl GhRunner for Endless {
     fn run(&mut self, _: &[&str]) -> Result<String, String> {
-        let page = self.asked.borrow().len() as u64;
-        self.asked.borrow_mut().push(String::new());
+        let page = self.asked.lock().unwrap().len() as u64;
+        self.asked.lock().unwrap().push(String::new());
         let nodes: Vec<String> = (1..=100)
             .map(|i| {
                 let no = page * 100 + i;
@@ -371,14 +370,14 @@ impl GhRunner for Endless {
 fn a_list_longer_than_ten_pages_is_cut_with_no_eleventh_request() {
     let asked = Asked::default();
     let runner = Endless {
-        asked: Rc::clone(&asked),
+        asked: Arc::clone(&asked),
     };
     let mut gh = GitHub::new("acme/vast", Box::new(runner));
     assert_eq!(
         gh.changes(&mine(), Bound::new(10).unwrap()),
         Err(Outcome::Unread(Unread::Cut))
     );
-    assert_eq!(asked.borrow().len(), 10);
+    assert_eq!(asked.lock().unwrap().len(), 10);
 }
 
 #[test]
