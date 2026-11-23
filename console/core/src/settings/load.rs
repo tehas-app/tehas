@@ -1489,6 +1489,16 @@ mod tests {
     }
 
     #[test]
+    fn a_grant_of_the_merge_stops_the_load() {
+        let line = plugins_line();
+        let grants = format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN={PIN} product merge");
+        assert_eq!(
+            plugged_refused(&[&line, &grants]),
+            format!("TEHAS_PLUGIN_GRANTS_FLOORPLAN is not valid: merge is reserved: the merge is a person's, and no plugin is granted it in this release (see {FILE})")
+        );
+    }
+
+    #[test]
     fn a_view_or_an_action_needs_the_domain_and_the_access() {
         let line = plugins_line();
         for cap in ["view", "action:refresh"] {
