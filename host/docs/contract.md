@@ -552,6 +552,20 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   `libexec/tehas-contractor`, `live/contractors.json` and
   `sandbox/vipune-shim`. Then take any `TEHAS_OUTSOURCE` and
   `TEHAS_OUTSOURCE_*` lines out of `instance.env`.
+- **The All hands label is removed.**
+  #2881.
+  `tehas:all-hands` on the control issue is no longer read, and
+  `tehas labels` no longer creates it. `tehas status` prints no `all-hands`
+  line; `tehas status --json`, `live/status.json` and `checks` of the health
+  file have no `allHands`; the dashboard shows no "all hands" mark.
+  `features` in `tehas api --json` no longer lists `all-hands`.
+  Readers: the consumer that runs many factories, Obeya, the end-to-end
+  suite, plugins.
+  Adopter action: none. A `tehas:all-hands` label left on a control issue
+  does nothing; delete it on GitHub if you like, and remove
+  `~/tehas/state/all-hands.ignored` where an earlier version wrote it. A
+  program that read `allHands` or checked `features` for `all-hands` finds
+  them gone.
 - **The state store is at schema 29.**
   #2794, #2830, #2843, #2867, #2889, #2886.
   The steps 24 to 29 are listed under [Upgrading to 2.0](#upgrading-to-20).
@@ -592,11 +606,6 @@ adopter action as the pull request states them.
   Adopter action: a program that applied `tehas:ready` as the millwright to
   start or retry work for a person runs `tehas start` for a signed-in
   person instead.
-- **The All hands label goes.**
-  #2881. `tehas:all-hands`
-  leaves `host/labels.tsv`; `allHands` leaves `tehas status --json`;
-  `features` drops `all-hands`.
-  Readers: the consumer that runs many factories, the end-to-end suite.
 - **The spec mark goes.**
   #2892. A `Spec:` line is
   plain text, no pull request is checked for a spec block, the key
