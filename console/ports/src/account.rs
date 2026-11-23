@@ -98,11 +98,21 @@ opaque!(
 pub enum Scope {
     /// Everything the factory writes.
     Full,
-    /// A cycle: read the project and its blueprints, push branches, open
-    /// changes; no ticket or blueprint write.
+    /// A cycle: what the agents in a cycle's container make, with its own
+    /// token or through its relay. Read the project; push branches;
+    /// propose, open, edit and comment on changes; file, note and edit
+    /// tickets and open, comment on and edit blueprints, with text alone.
+    /// No mark, close, merge, tag or release: those are the factory's.
+    /// Without the product's merge grant, a cycle's token is this one.
     Cycle,
-    /// A planning turn or a dev session: what a cycle has, and the ticket
-    /// and blueprint reads planning asks for.
+    /// A cycle's token with the product's merge grant: what `Cycle` may,
+    /// and merge its own change. Still no tag or release. tehas mints it in
+    /// place of `Cycle` only when the product opts in to a cycle merging
+    /// its own change; the grant is off by default.
+    CycleMerge,
+    /// A planning turn or a dev session: a cycle's reads and change writes,
+    /// and the ticket and blueprint reads planning asks for. No ticket or
+    /// blueprint write.
     Session,
     /// Read tickets, blueprints and files.
     Read,
