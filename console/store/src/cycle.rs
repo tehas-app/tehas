@@ -864,9 +864,9 @@ fn end_report(home: &Path, issue: i64, attempt: i64, r: &Report, now: i64) -> Re
             // The heartbeat just written holds where the step it ended in was.
             "INSERT INTO cycle_history (issue, attempt, at, status, step, by_account, how, pr,
                started_at, rc, cap, park_reason, failure_kind, failure_cause, provider, parked,
-               step_number, step_total, round)
+               step_number, step_total, round, recorded_at)
              SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
-               h.step_number, h.step_total, h.round
+               h.step_number, h.step_total, h.round, ?3
              FROM (SELECT 1) LEFT JOIN heartbeats h ON h.issue = ?1 AND h.at = ?3
                AND h.step IS ?5",
             params![

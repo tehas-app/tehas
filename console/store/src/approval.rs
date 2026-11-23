@@ -79,16 +79,19 @@ pub const HOST: &str = "host";
 pub const ANSWER: &str = "answer";
 /// The how of a retry a person's reply on the issue asked for (#2782).
 pub const REPLY: &str = "reply";
+/// The how of a start an allowed account's label approved (`label` before
+/// schema 30).
+pub const APPROVED: &str = "approved";
 
 /// The kinds of approval a person gave, which a millwright or refresh start rests on.
 /// The host's approval is one of them.
-const BASES: &str = "('label', 'outage-retry', 'host', 'answer', 'reply')";
+const BASES: &str = "('approved', 'outage-retry', 'host', 'answer', 'reply')";
 
 /// The hows of this release: what `approval-record` takes, in the order a
 /// refusal prints them (the case in `verbs_tests.rs` pins that string).
 const CURRENT_HOWS: [(&str, &str); 7] = [
     (MILLWRIGHT, MILLWRIGHT),
-    ("label", "label"),
+    (APPROVED, APPROVED),
     ("refresh", "refresh"),
     ("outage-retry", "outage-retry"),
     (HOST, HOST),
@@ -190,7 +193,7 @@ fn record_args(rest: &[String]) -> Result<Call, String> {
             "and --refresh-head are given exactly with --how refresh",
         ));
     }
-    let labelled = how == "label" || is_millwright(how);
+    let labelled = how == APPROVED || is_millwright(how);
     let label = match a.value("--label") {
         Some(v) => Some(approval_label(v).ok_or_else(|| {
             a.usage(

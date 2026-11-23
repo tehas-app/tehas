@@ -162,7 +162,7 @@ fn history_sig(w: &World) -> String {
 fn parked_end(w: &World, step: &str, cap: &str, kind: &str, cause: &str) {
     w.t_ended(
         "alice",
-        "label",
+        "approved",
         &[
             "--status",
             "failed",
@@ -219,7 +219,7 @@ fn sly_usage(w: &World) {
 fn never_ran(w: &mut World, approved: bool) {
     w.fx("rc", "4\n");
     if approved {
-        from_unit(w, "label", NEW_YEAR, &[]);
+        from_unit(w, "approved", NEW_YEAR, &[]);
     }
 }
 
@@ -230,7 +230,7 @@ fn lean_refused(w: &mut World) {
     let input = w.t().join("lean-input.json");
     fs::write(&input, r#"{"links":[],"driver":"lean"}"#).unwrap();
     let input = input.to_string_lossy().to_string();
-    from_unit(w, "label", NEW_YEAR, &["--input-file", &input]);
+    from_unit(w, "approved", NEW_YEAR, &["--input-file", &input]);
 }
 
 /// The question of #7's current park, "none" without one. The id is a
@@ -254,7 +254,7 @@ fn a_step_that_failed_on_a_provider_error_is_parked_by_a_provider_outage_and_wai
     let mut w = World::new("park-outage");
     capped(&w, "step-failed:adversarial", OUTAGE);
     w.work(LOG);
-    from_unit(&mut w, "label", 1_760_000_000, &[]);
+    from_unit(&mut w, "approved", 1_760_000_000, &[]);
     let r = w.run7();
     assert_eq!(r.rc, 0);
     let gh = w.gh();
@@ -472,7 +472,7 @@ fn a_failure_of_another_kind_is_no_outage_even_when_its_words_look_like_one() {
 #[test]
 fn a_cap_the_result_names_provider_outage_is_no_outage_park_that_word_is_tehass_own() {
     let mut w = World::new("park-word");
-    from_unit(&mut w, "label", 1_760_000_000, &[]);
+    from_unit(&mut w, "approved", 1_760_000_000, &[]);
     failed(&w, "provider-outage", "process", "it said so");
     w.run7();
     assert_eq!(
@@ -481,7 +481,7 @@ fn a_cap_the_result_names_provider_outage_is_no_outage_park_that_word_is_tehass_
     );
     lacks(&w.gh(), "starts it again once");
     let mut w = World::new("park-word2");
-    from_unit(&mut w, "label", 1_760_000_000, &[]);
+    from_unit(&mut w, "approved", 1_760_000_000, &[]);
     w.ended("provider-outage", "develop", "feature/issue-7-x", "-");
     w.run7();
     assert_ne!(w.park()["reason"], "provider-outage");
@@ -692,7 +692,7 @@ fn a_newline_or_a_comment_end_in_the_parks_text_does_not_break_the_marker() {
 fn a_cycle_that_left_a_pull_request_leaves_no_park_on_record_and_an_earlier_one_is_not_current() {
     let w = World::new("park-pr");
     // An earlier attempt parked by an outage, with its question on record.
-    w.t_ended("alice", "label", &["--provider", "--parked"]);
+    w.t_ended("alice", "approved", &["--provider", "--parked"]);
     w.t_park("provider-outage", "4001", &[]);
     assert_eq!(park_of(&w, &["automatic", "question"]), json!([true, 4001]));
     w.ended("handoff", "commit-pr", "feature/x", "");
@@ -876,7 +876,7 @@ fn and_so_does_a_store_that_cannot_be_used() {
 fn an_outage_park_the_store_would_not_take_does_not_say_tehas_starts_it_again() {
     let mut w = World::new("park-outage-busy");
     capped(&w, "step-failed:adversarial", OUTAGE);
-    from_unit(&mut w, "label", 1_760_000_000, &[]);
+    from_unit(&mut w, "approved", 1_760_000_000, &[]);
     w.store_answers("park", 1, "store: busy #7: the database is locked", 0);
     w.run7();
     let gh = w.gh();
@@ -1122,7 +1122,7 @@ fn a_lean_start_tehas_work_refused_is_parked_with_what_to_do_and_its_approval_go
     let h = w.history0();
     assert_eq!(
         json!([h["rc"], h["how"], h["by"]]),
-        json!([78, "label", "alice"])
+        json!([78, "approved", "alice"])
     );
     assert_eq!(w.park()["automatic"], false);
 }
@@ -1131,7 +1131,7 @@ fn a_lean_start_tehas_work_refused_is_parked_with_what_to_do_and_its_approval_go
 fn a_78_on_a_classic_start_stays_a_stopped_cycle_with_its_approval_on_record() {
     let mut w = World::new("park-78-classic");
     w.fx("rc", "78\n");
-    from_unit(&mut w, "label", NEW_YEAR, &[]);
+    from_unit(&mut w, "approved", NEW_YEAR, &[]);
     w.run7();
     has(&w.gh(), "stopped without a pull request");
     lacks(&w.gh(), "tehas:lean");
@@ -1184,7 +1184,7 @@ fn a_refresh_that_never_ran_names_the_persons_approval_it_rests_on_not_the_time_
 ) {
     let mut w = World::new("park-never-refresh");
     never_ran(&mut w, false);
-    w.t_ended("alice", "label", &["--status", "handoff"]);
+    w.t_ended("alice", "approved", &["--status", "handoff"]);
     let head = "a".repeat(40);
     from_unit(
         &mut w,
@@ -1218,14 +1218,14 @@ fn a_start_that_never_ran_leaves_no_approval_record_and_its_line_of_history_stil
     let h = w.history0();
     assert_eq!(
         json!([h["rc"], h["status"], h["step"], h["how"], h["parked"]]),
-        json!([4, "refused", "-", "label", true])
+        json!([4, "refused", "-", "approved", true])
     );
 }
 
 #[test]
 fn a_cycle_that_ran_keeps_its_approval_record() {
     let mut w = World::new("park-ran-keeps");
-    from_unit(&mut w, "label", NEW_YEAR, &[]);
+    from_unit(&mut w, "approved", NEW_YEAR, &[]);
     w.ended("handoff", "commit-pr", "feature/x", "");
     w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
     w.run7();
@@ -1257,7 +1257,7 @@ fn the_park_carries_the_body_of_the_approval_it_started_on_and_a_park_of_a_cycle
     // that of an earlier start", which runs on the state of the first.
     let sum = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     let mut w = World::new("park-body");
-    from_unit(&mut w, "label", NEW_YEAR, &["--body-sha", sum]);
+    from_unit(&mut w, "approved", NEW_YEAR, &["--body-sha", sum]);
     w.fx("rc", "30\n");
     w.run7();
     assert_eq!(w.park()["body_sha256"], sum);

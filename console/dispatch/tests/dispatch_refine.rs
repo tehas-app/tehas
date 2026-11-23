@@ -26,7 +26,7 @@ fn refine_park(w: &World, reason: &str, extra: &str, body: &str, who: &str) {
         &json!({"title": "Faster search", "body": body, "state": "OPEN", "labels": labels}),
     );
     let sum = format!("{:x}", Sha256::digest(body.as_bytes()));
-    w.t_approve(7, who, "label", 1_700_000_001, &["--body-sha", &sum]);
+    w.t_approve(7, who, "approved", 1_700_000_001, &["--body-sha", &sum]);
     w.t_started(7, None, &[]);
     let r = w.sh(&format!(
         "flock -w 5 \"$TEHAS_HOME/state/cycles/7.lock\" \"$T/store-bin\" cycle-end 7 --attempt 1 --status parked \
