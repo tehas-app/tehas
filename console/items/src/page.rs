@@ -8,16 +8,87 @@
 
 use serde_json::Value;
 
+/// The ticket of an item, as its `.meta.json` has it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ticket {
+    pub number: i64,
+    pub title: String,
+    pub url: String,
+    /// Empty when no one is named.
+    pub author: String,
+    pub updated_at: String,
+}
+
+/// One file of an item: what the page shows, or what its HTML uses when the
+/// kind is `part`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct File {
+    pub name: String,
+    pub kind: String,
+    pub bytes: i64,
+}
+
+/// One file the store did not take, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Skipped {
+    pub name: String,
+    pub reason: String,
+}
+
+/// An item's `.meta.json`, as far as its page reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Meta {
+    pub ticket: Ticket,
+    pub files: Vec<File>,
+    pub skipped: Vec<Skipped>,
+}
+
+impl Meta {
+    /// The meta of this text: None unless it is JSON whose `files` and
+    /// `skipped` are lists. A text that is not text and a number that is no
+    /// whole number of an i64 read as the page has always shown them, empty
+    /// and 0: the file is the store's own, and a page of it is still a page.
+    pub fn read(text: &str) -> Option<Meta> {
+        let row: Value = serde_json::from_str(text).ok()?;
+        let text = |row: &Value, key: &str| match row.get(key) {
+            Some(Value::String(text)) => text.clone(),
+            _ => String::new(),
+        };
+        let whole = |row: &Value, key: &str| row.get(key).and_then(Value::as_i64).unwrap_or(0);
+        let files = row["files"]
+            .as_array()?
+            .iter()
+            .map(|file| File {
+                name: text(file, "name"),
+                kind: text(file, "kind"),
+                bytes: whole(file, "bytes"),
+            })
+            .collect();
+        let skipped = row["skipped"]
+            .as_array()?
+            .iter()
+            .map(|miss| Skipped {
+                name: text(miss, "name"),
+                reason: text(miss, "reason"),
+            })
+            .collect();
+        Some(Meta {
+            ticket: Ticket {
+                number: whole(&row, "number"),
+                title: text(&row, "title"),
+                url: text(&row, "url"),
+                author: text(&row, "author"),
+                updated_at: text(&row, "updatedAt"),
+            },
+            files,
+            skipped,
+        })
+    }
+}
+
 /// Text as the page holds it: every value that came from GitHub, escaped as
 /// jq's @html escapes it.
-pub fn h(value: &Value) -> String {
-    let text = match value {
-        Value::String(text) => text.clone(),
-        Value::Null => String::new(),
-        Value::Bool(on) => on.to_string(),
-        Value::Number(n) => n.to_string(),
-        other => other.to_string(),
-    };
+pub fn h(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         match c {
@@ -116,21 +187,6 @@ pub fn meter(bytes: i64, limit: i64) -> String {
     format!("<span class=\"item-meter\" aria-hidden=\"true\">{blocks}</span>")
 }
 
-pub fn text_of(row: &Value, key: &str) -> String {
-    match row.get(key) {
-        Some(Value::String(text)) => text.clone(),
-        _ => String::new(),
-    }
-}
-
-pub fn bytes_of(row: &Value) -> i64 {
-    row.get("bytes").and_then(Value::as_i64).unwrap_or(0)
-}
-
-pub fn number_of(row: &Value) -> i64 {
-    row.get("number").and_then(Value::as_i64).unwrap_or(0)
-}
-
 /// The caption under a file, and the file itself: an image, a video, or HTML
 /// in a frame of its own.
 fn asset(name: &str, kind: &str, bytes: i64) -> String {
@@ -138,15 +194,15 @@ fn asset(name: &str, kind: &str, bytes: i64) -> String {
     let shown = match kind {
         "image" => format!(
             "<a class=\"asset-view\" href=\"{href}\"><img src=\"{href}\" alt=\"Image {}, attached to the ticket\" loading=\"lazy\"></a>",
-            h(&Value::from(name))
+            h(name)
         ),
         "video" => format!(
             "<div class=\"asset-view\"><video src=\"{href}\" controls preload=\"metadata\" aria-label=\"Video {}, attached to the ticket\"></video></div>",
-            h(&Value::from(name))
+            h(name)
         ),
         _ => format!(
             "<div class=\"asset-view\"><iframe src=\"{href}\" title=\"HTML file {}\" sandbox=\"allow-scripts allow-forms allow-modals allow-pointer-lock\" loading=\"lazy\"></iframe></div>",
-            h(&Value::from(name))
+            h(name)
         ),
     };
     let (word, open) = match kind {
@@ -160,31 +216,31 @@ fn asset(name: &str, kind: &str, bytes: i64) -> String {
         if kind == "image" { "a" } else { "div" },
         shown,
         if kind == "image" { "a" } else { "div" },
-        h(&Value::from(name)),
+        h(name),
         word,
         size(bytes).to_ascii_uppercase(),
-        h(&Value::from(name)),
+        h(name),
         open,
     )
 }
 
 /// One file the HTML of an item uses, in the list beside the assets.
-fn part_line(row: &Value) -> String {
-    let name = text_of(row, "name");
+fn part_line(file: &File) -> String {
+    let name = &file.name;
     format!(
         "          <li><span>{}</span><span class=\"asset-fact\">{}</span><a href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\">OPEN</a></li>\n",
-        h(&Value::from(name.as_str())),
-        size(bytes_of(row)).to_ascii_uppercase(),
-        "files/".to_string() + &src(&name),
+        h(name),
+        size(file.bytes).to_ascii_uppercase(),
+        "files/".to_string() + &src(name),
     )
 }
 
 /// One file the store did not take, with the reason it did not.
-fn skipped_line(row: &Value) -> String {
+fn skipped_line(miss: &Skipped) -> String {
     format!(
         "          <li><span>{}</span><span class=\"asset-fact\">{}</span></li>\n",
-        h(&Value::from(text_of(row, "name").as_str())),
-        h(&Value::from(text_of(row, "reason").as_str())),
+        h(&miss.name),
+        h(&miss.reason),
     )
 }
 
@@ -196,7 +252,7 @@ pub fn issue_link(url: &str) -> Option<String> {
 
 /// What the files of an item come to: what shows, what the HTML uses, and the
 /// bytes of both.
-fn tally(files: &[Value]) -> (Vec<Value>, Vec<Value>, i64) {
+fn tally(files: &[File]) -> (Vec<&File>, Vec<&File>, i64) {
     let mut shown = Vec::new();
     let mut parts = Vec::new();
     let mut bytes: i64 = 0;
@@ -204,11 +260,11 @@ fn tally(files: &[Value]) -> (Vec<Value>, Vec<Value>, i64) {
         // The bytes come from a `.meta.json` on disk. jq added them as numbers
         // of its own and could not overflow; a run of them that does is a bad
         // figure, not a reason to stop the page, so it tops out.
-        bytes = bytes.saturating_add(bytes_of(file));
-        if text_of(file, "kind") == "part" {
-            parts.push(file.clone());
+        bytes = bytes.saturating_add(file.bytes);
+        if file.kind == "part" {
+            parts.push(file);
         } else {
-            shown.push(file.clone());
+            shown.push(file);
         }
     }
     (shown, parts, bytes)
@@ -217,26 +273,26 @@ fn tally(files: &[Value]) -> (Vec<Value>, Vec<Value>, i64) {
 /// The body of an item's page: the files it shows, the ones its HTML uses,
 /// and the ones the store did not take. `head` is the word over its number.
 pub fn item(
-    row: &Value,
-    files: &[Value],
-    skipped: &[Value],
+    ticket: &Ticket,
+    files: &[File],
+    skipped: &[Skipped],
     outside: i64,
     limit: i64,
     head: &str,
 ) -> String {
-    let number = number_of(row);
-    let title = text_of(row, "title");
-    let issue = issue_link(&text_of(row, "url"));
-    let button = issue.as_deref().map_or(String::new(), |url| format!("        <p><a class=\"button button-primary\" href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\">OPEN THE TICKET ON GITHUB</a></p>\n", h(&Value::from(url))));
-    let opened = match row.get("author") {
-        Some(Value::String(name)) if !name.is_empty() => h(&Value::from(name.as_str())),
-        _ => "-".to_string(),
+    let number = ticket.number;
+    let issue = issue_link(&ticket.url);
+    let button = issue.as_deref().map_or(String::new(), |url| format!("        <p><a class=\"button button-primary\" href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\">OPEN THE TICKET ON GITHUB</a></p>\n", h(url)));
+    let opened = if ticket.author.is_empty() {
+        "-".to_string()
+    } else {
+        h(&ticket.author)
     };
     let (shown, parts, bytes) = tally(files);
     let mut out = format!(
         "    <section class=\"item-ticket\" aria-labelledby=\"ticket-title\">\n      <p class=\"item-box-head\"><span>{head}</span><b>#{number}</b></p>\n      <div class=\"item-ticket-body\">\n        <h1 id=\"ticket-title\">{}</h1>\n        <dl class=\"item-facts\">\n          <div><dt>OPENED BY</dt><dd>{opened}</dd></div>\n          <div><dt>CHANGED</dt><dd>{}</dd></div>\n        </dl>\n",
-        h(&Value::from(title.as_str())),
-        day(&text_of(row, "updatedAt")),
+        h(&ticket.title),
+        day(&ticket.updated_at),
     );
     out.push_str(&button);
     out.push_str(&format!(
@@ -250,11 +306,7 @@ pub fn item(
         out.push_str("        <p class=\"item-note\">No image, video or HTML file is attached to this ticket. Attach one to the issue on GitHub and it is here within a few minutes.</p>\n");
     }
     for file in &shown {
-        out.push_str(&asset(
-            &text_of(file, "name"),
-            &text_of(file, "kind"),
-            bytes_of(file),
-        ));
+        out.push_str(&asset(&file.name, &file.kind, file.bytes));
     }
     if !parts.is_empty() {
         out.push_str(
@@ -293,12 +345,10 @@ mod tests {
     #[test]
     fn a_value_of_github_cannot_start_a_tag() {
         assert_eq!(
-            h(&Value::from("<a href=\"x\">&'</a>")),
+            h("<a href=\"x\">&'</a>"),
             "&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;"
         );
-        assert_eq!(h(&Value::Null), "");
-        assert_eq!(h(&Value::from(7)), "7");
-        assert_eq!(h(&Value::from(true)), "true");
+        assert_eq!(h(""), "");
     }
 
     #[test]
@@ -362,8 +412,8 @@ mod tests {
 
     #[test]
     fn a_file_shown_is_not_a_file_the_html_uses() {
-        let files = serde_json::from_str::<Value>(FILES).unwrap();
-        let (shown, parts, bytes) = tally(files.as_array().unwrap());
+        let files = meta(ITEM, FILES, "[]").files;
+        let (shown, parts, bytes) = tally(&files);
         assert_eq!(shown.len(), 3);
         assert_eq!(parts.len(), 1);
         assert_eq!(bytes, 32);
@@ -376,18 +426,18 @@ mod tests {
         // that is not is a bad file, and jq - which added these before - could
         // not overflow: a page is printed with the largest count it can hold
         // and the pass goes on to the next item.
-        let huge = serde_json::from_str::<Value>(
+        let big = meta(
+            r#"{"number":7,"title":"Big","url":"u"}"#,
             r#"[{"name":"a","kind":"image","bytes":9223372036854775807},{"name":"b","kind":"image","bytes":9223372036854775807}]"#,
-        )
-        .unwrap();
-        let huge = huge.as_array().unwrap();
+            "[]",
+        );
+        let huge = &big.files;
         let (shown, parts, bytes) = tally(huge);
         assert_eq!((shown.len(), parts.len()), (2, 0));
         assert_eq!(bytes, i64::MAX);
         assert_eq!(size(bytes), "8796093022208 MB");
         // A page of them is a page: it says its bytes and holds both files.
-        let row = serde_json::from_str::<Value>(r#"{"number":7,"title":"Big","url":"u"}"#).unwrap();
-        let page = item(&row, huge, &[], 0, LIMIT, "ITEM");
+        let page = item(&big.ticket, huge, &[], 0, LIMIT, "ITEM");
         assert!(page.contains("2 FILES, 8796093022208 MB OF 10 MB"));
         assert!(page.contains("<figcaption><span class=\"asset-name\">a</span>"));
         assert!(page.contains("<figcaption><span class=\"asset-name\">b</span>"));
@@ -395,19 +445,12 @@ mod tests {
 
     #[test]
     fn an_items_page_holds_its_title_its_link_and_its_files() {
-        let files = serde_json::from_str::<Value>(FILES).unwrap();
-        let skipped = serde_json::from_str::<Value>(
+        let m = meta(
+            ITEM,
+            FILES,
             r#"[{"name":"all.tar","reason":"Not a type the host serves."}]"#,
-        )
-        .unwrap();
-        let page = item(
-            &serde_json::from_str::<Value>(ITEM).unwrap(),
-            files.as_array().unwrap(),
-            skipped.as_array().unwrap(),
-            1,
-            LIMIT,
-            "ITEM",
         );
+        let page = item(&m.ticket, &m.files, &m.skipped, 1, LIMIT, "ITEM");
         assert!(page.contains("<span>ITEM</span><b>#7</b>"));
         assert!(page.contains("Map &lt;script&gt;alert(1)&lt;/script&gt; &amp; pins"));
         assert!(!page.contains("<script"));
@@ -428,17 +471,67 @@ mod tests {
         assert!(page.contains("aria-label=\"Open proto.html by itself\">OPEN FULL SIZE</a>"));
     }
 
+    /// The meta of a ticket's object with these lists.
+    fn meta(ticket: &str, files: &str, skipped: &str) -> Meta {
+        let open = ticket.trim_end().strip_suffix('}').unwrap();
+        Meta::read(&format!("{open},\"files\":{files},\"skipped\":{skipped}}}")).unwrap()
+    }
+
+    // A meta is read whole or not at all, and a value of a kind the store
+    // does not write reads as nothing.
+    #[test]
+    fn a_meta_is_read_into_the_ticket_the_files_and_what_was_left_out() {
+        let m = meta(ITEM, FILES, r#"[{"name":"all.tar","reason":"Too big."}]"#);
+        assert_eq!(
+            m.ticket,
+            Ticket {
+                number: 7,
+                title: "Map <script>alert(1)</script> & pins".into(),
+                url: "https://github.com/acme/widget/issues/7".into(),
+                author: "alice".into(),
+                updated_at: String::new(),
+            }
+        );
+        assert_eq!(m.files.len(), 4);
+        assert_eq!(
+            m.files[2],
+            File {
+                name: "style.css".into(),
+                kind: "part".into(),
+                bytes: 4
+            }
+        );
+        assert_eq!(
+            m.skipped,
+            [Skipped {
+                name: "all.tar".into(),
+                reason: "Too big.".into()
+            }]
+        );
+        let odd =
+            Meta::read(r#"{"number":"7","title":5,"files":[3,{"bytes":1.5}],"skipped":[null]}"#)
+                .unwrap();
+        assert_eq!((odd.ticket.number, odd.ticket.title.as_str()), (0, ""));
+        assert_eq!(odd.files[0], odd.files[1]);
+        assert_eq!(odd.files[0].bytes, 0);
+        assert_eq!(odd.skipped[0].reason, "");
+        for none in [
+            "",
+            "not json",
+            "[]",
+            r#"{"files":[]}"#,
+            r#"{"skipped":[]}"#,
+            r#"{"files":{},"skipped":[]}"#,
+            r#"{"files":[],"skipped":"none"}"#,
+        ] {
+            assert_eq!(Meta::read(none), None, "{none}");
+        }
+    }
+
     /// The page of a `.meta.json`, drawn as the store draws it.
     fn page_of(meta: &str, outside: i64) -> String {
-        let row = serde_json::from_str::<Value>(meta).unwrap();
-        item(
-            &row,
-            row["files"].as_array().unwrap(),
-            row["skipped"].as_array().unwrap(),
-            outside,
-            LIMIT,
-            "ITEM",
-        )
+        let m = Meta::read(meta).unwrap();
+        item(&m.ticket, &m.files, &m.skipped, outside, LIMIT, "ITEM")
     }
 
     // The whole page, byte for byte: of a meta as the store writes one, and
@@ -458,14 +551,7 @@ mod tests {
 
     #[test]
     fn an_item_with_nothing_attached_says_so() {
-        let page = item(
-            &serde_json::from_str::<Value>(ITEM).unwrap(),
-            &[],
-            &[],
-            0,
-            LIMIT,
-            "ITEM",
-        );
+        let page = item(&meta(ITEM, "[]", "[]").ticket, &[], &[], 0, LIMIT, "ITEM");
         assert!(page.contains("No image, video or HTML file is attached"));
         assert!(page.contains("0 FILES, 0 B OF 10 MB"));
         assert!(!page.contains("LEFT OUT"));
@@ -474,10 +560,10 @@ mod tests {
 
     #[test]
     fn an_item_no_one_opened_has_a_dash_for_its_author() {
-        let mut row = serde_json::from_str::<Value>(ITEM).unwrap();
-        row["author"] = Value::Null;
-        assert!(item(&row, &[], &[], 0, LIMIT, "ITEM").contains("<dd>-</dd>"));
-        row["author"] = Value::from("");
-        assert!(item(&row, &[], &[], 0, LIMIT, "ITEM").contains("<dd>-</dd>"));
+        for author in ["null", "\"\"", "3"] {
+            let row = ITEM.replace("\"alice\"", author);
+            let ticket = meta(&row, "[]", "[]").ticket;
+            assert!(item(&ticket, &[], &[], 0, LIMIT, "ITEM").contains("<dd>-</dd>"));
+        }
     }
 }
