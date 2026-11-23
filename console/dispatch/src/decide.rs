@@ -3112,7 +3112,7 @@ impl<'a> Poll<'a> {
                 verb: "labelled".into(),
                 how: format!("`{ask}` label"),
                 given_at: at,
-                given_how: "label".into(),
+                given_how: "approved".into(),
                 remove,
                 fixer: None,
                 park_lifted: None,
@@ -3376,7 +3376,7 @@ mod millwright_tests {
     const SUM: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     fn person(by: &str) -> Value {
-        json!({"at": "2026-10-01T00:00:00Z", "by": by, "how": "label", "body_sha256": SUM, "links": []})
+        json!({"at": "2026-10-01T00:00:00Z", "by": by, "how": "approved", "body_sha256": SUM, "links": []})
     }
 
     fn by_millwright(starts: Value, rests_on: Value) -> Value {
@@ -3391,7 +3391,7 @@ mod millwright_tests {
 
     #[test]
     fn a_base_is_the_persons_approval_a_record_rests_on() {
-        let want = json!({"at": "2026-10-01T00:00:00Z", "by": "alice", "how": "label", "body_sha256": SUM});
+        let want = json!({"at": "2026-10-01T00:00:00Z", "by": "alice", "how": "approved", "body_sha256": SUM});
         assert_eq!(record_base(&person("alice")), Some(want.clone()));
         assert_eq!(
             record_base(&by_millwright(json!(1), person("alice"))),

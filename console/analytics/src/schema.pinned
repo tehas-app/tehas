@@ -1,4 +1,4 @@
-user_version 6
+user_version 7
 
 -- index issue_events_at
 CREATE INDEX issue_events_at ON issue_events (at);
@@ -77,7 +77,7 @@ CREATE TABLE runs (
   ended INTEGER,
   seconds INTEGER,
   queue_wait INTEGER,
-  outcome TEXT CHECK (outcome IN ('pr', 'merged', 'handoff', 'parked', 'failed', 'refused', 'stopped')),
+  outcome TEXT CHECK (outcome IN ('offered', 'merged', 'handoff', 'parked', 'failed', 'refused', 'stopped')),
   status TEXT,
   exit_code INTEGER,
   last_step TEXT,
@@ -189,7 +189,7 @@ mt AS (
 ),
 pairs AS (
   SELECT tv, rv, count(*) AS runs,
-    sum(outcome IN ('pr', 'merged')) AS pr,
+    sum(outcome IN ('offered', 'merged')) AS offered,
     sum(outcome = 'handoff') AS handoff,
     sum(outcome = 'parked') AS parked,
     sum(outcome = 'failed') AS failed
@@ -199,7 +199,7 @@ SELECT
   p.tv AS tehas_version,
   p.rv AS rukas_version,
   p.runs AS runs,
-  round(1.0 * p.pr / p.runs, 3) AS pr_share,
+  round(1.0 * p.offered / p.runs, 3) AS offered_share,
   round(1.0 * p.handoff / p.runs, 3) AS handoff_share,
   round(1.0 * p.parked / p.runs, 3) AS parked_share,
   round(1.0 * p.failed / p.runs, 3) AS failed_share,

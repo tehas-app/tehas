@@ -25,7 +25,7 @@ fn millwright_ready(w: &World, starts: Option<u32>) {
     w.fx("icomments-7.json", "[]");
     fs::create_dir_all(w.cycles_dir()).unwrap();
     let Some(k) = starts else { return };
-    w.past(7, "alice", "label", "2026-10-01T00:00:00Z", &[]);
+    w.past(7, "alice", "approved", "2026-10-01T00:00:00Z", &[]);
     for i in 1..=k {
         w.past(
             7,
@@ -89,7 +89,7 @@ fn the_millwright_s_tehas_ready_on_an_issue_alice_approved_starts_a_cycle_that_r
             "[.by, .how, .fixer_starts, .rests_on.by, .rests_on.at, .rests_on.how, (.rests_on.body_sha256 == .body_sha256)]",
             7
         ),
-        r#"["tehas-bot","millwright",1,"alice","2026-10-01T00:00:00Z","label",true]"#
+        r#"["tehas-bot","millwright",1,"alice","2026-10-01T00:00:00Z","approved",true]"#
     );
     has(&r.out, "start #7 (labelled by the fixer by tehas-bot)");
     has(
@@ -128,7 +128,7 @@ fn a_person_s_approval_whose_start_never_ran_is_no_base_for_the_millwright() {
     w.past(
         7,
         "alice",
-        "label",
+        "approved",
         "2026-10-01T00:00:00Z",
         &["--rc", "4", "--never-ran"],
     );

@@ -3445,7 +3445,7 @@
       "fixer_starts": 1,
       "rests_on": {
        "by": "alice",
-       "how": "label"
+       "how": "approved"
       },
       "park_lifted": {
        "source": "millwright:81",
@@ -5397,7 +5397,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "label"
+      "given": "approved"
      }
     ]
    },

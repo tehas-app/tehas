@@ -13,7 +13,12 @@ fn known(home: &Path, issue: i64, id: i64) -> String {
 
 /// #40 parked, its question 41 on record.
 fn parked(home: &Path) {
-    let (_l, a) = start_by(home, 40, "alice", "label", NOW);
+    parked_as(home, "41");
+}
+
+/// #40 parked, the question of comment `comment` on record.
+fn parked_as(home: &Path, comment: &str) {
+    let (_l, a) = start_by(home, 40, "alice", "approved", NOW);
     end(home, 40, a, "failed");
     let a = a.to_string();
     ok(
@@ -26,7 +31,7 @@ fn parked(home: &Path) {
             "--reason",
             "failed",
             "--comment-id",
-            "41",
+            comment,
             "--body-sha",
             &"a".repeat(64),
         ],
@@ -61,8 +66,8 @@ fn a_park_question_takes_a_retry_and_question_known_gives_it() {
     .unwrap();
     assert_eq!(
         v["answer"],
-        json!({"question": 41, "issue": 40, "kind": "park", "choice": "retry", "option": null,
-            "by": "bob", "at": NOW + 60, "text": null, "how": "answer"})
+        json!({"question": 1, "comment": 41, "issue": 40, "kind": "park", "choice": "retry",
+            "option": null, "by": "bob", "at": NOW + 60, "text": null, "how": "answer"})
     );
     assert_eq!(v["replaced"], false);
     assert_eq!(known(&home, 40, 41), v["answer"].to_string());
@@ -177,6 +182,9 @@ fn an_option_the_question_does_not_offer_is_refused() {
     assert_eq!(count(&home, "answers"), 0);
 }
 
+/// A withdrawn question keeps its row and its answer (schema 30), and neither
+/// is on record: the answer is given no more, and a new question takes the
+/// next number.
 #[test]
 fn the_answer_goes_with_its_question() {
     let home = home("answer-gone");
@@ -186,15 +194,28 @@ fn the_answer_goes_with_its_question() {
         &home,
         &["question-answered", "40", "--id", "41", "--withdraw"],
     );
-    assert_eq!(count(&home, "answers"), 0);
+    assert_eq!(count(&home, "answers"), 1);
+    assert_eq!(count(&home, "questions WHERE withdrawn_at IS NOT NULL"), 1);
+    assert_eq!(known(&home, 40, 41), "null");
+    assert_eq!(
+        ok(&home, &["park-show", "40"])["park"]["answer"],
+        Value::Null
+    );
     // An answer to a question no longer on record is not given.
-    parked(&home);
-    call(&home, &answer("40", &["--choice", "retry"])).unwrap();
+    parked_as(&home, "44");
+    let v = call(&home, &answer("40", &["--choice", "retry"])).unwrap();
+    assert_eq!(
+        (
+            v["answer"]["question"].clone(),
+            v["answer"]["comment"].clone()
+        ),
+        (json!(2), json!(44))
+    );
     ok(
         &home,
-        &["question-answered", "40", "--id", "41", "--by", "alice"],
+        &["question-answered", "40", "--id", "44", "--by", "alice"],
     );
-    assert_eq!(known(&home, 40, 41), "null");
+    assert_eq!(known(&home, 40, 44), "null");
 }
 
 #[test]

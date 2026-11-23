@@ -22,10 +22,16 @@
 -- longer takes 'retry-tick' (every one stored became 'reply', in cycles,
 -- approvals and cycle_history), and questions.reask marks a question open at
 -- the upgrade, which the first poll asks again in 2.0's words
--- (db::STEP_27, db::STEP_27_INIT at init). Schema 28: cycles.how no longer
+-- (db::STEP_27). Schema 28: cycles.how no longer
 -- takes 'fixer' and planning_notes.kind no longer takes 'fixer-refused'
 -- (db::STEP_28).
--- Schema 29 drops the outsource tables (db::DROP_OUTSOURCE).
+-- Schema 29 drops the outsource tables (db::DROP_OUTSOURCE). Schema 30
+-- (db::STEP_30): cycles.how says 'approved' where it said 'label', in its
+-- CHECK and in every row of cycles, cycle_history and approvals; cycle_history
+-- adds recorded_at and signalled; questions is rebuilt with the store's own
+-- number as id, the comment's id in comment_id and withdrawn_at, and is laid
+-- here whole, so init runs neither the step to 25 nor that to 27 for it; and
+-- meta holds the store's id under 'store'.
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
@@ -77,7 +83,7 @@ CREATE TABLE cycles (
   attempt        INTEGER NOT NULL DEFAULT 1,
   started_at     INTEGER NOT NULL,
   started_by     TEXT,
-  how            TEXT NOT NULL CHECK (how IN ('label','refresh','outage-retry','millwright','hand','host','answer','reply')),
+  how            TEXT NOT NULL CHECK (how IN ('approved','refresh','outage-retry','millwright','hand','host','answer','reply')),
   requeued       INTEGER NOT NULL DEFAULT 0,
   rukas_commit   TEXT,
   image          TEXT,
@@ -262,8 +268,7 @@ CREATE TABLE cycle_progress (
 
 -- 3.7 parks and questions. questions is the only place a comment id is
 -- believed: a comment that is not in this table is not the factory's question.
--- A question the host withdrew is deleted. told_at (v2) is when the poll said,
--- once, that the park holds the issue.
+-- told_at (v2) is when the poll said, once, that the park holds the issue.
 CREATE TABLE parks (
   issue    INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
   attempt  INTEGER NOT NULL,
@@ -275,24 +280,39 @@ CREATE TABLE parks (
   told_at  INTEGER,
   PRIMARY KEY (issue, attempt)
 );
+-- id (v30) is the store's own number, given in order and never reused, which
+-- `tehas question` and `tehas answer` print; comment_id is the id of the
+-- comment that asked it, which only the store and the code host's side read.
+-- offers (v25) are the choices a park's question offers, reask (v27) marks a
+-- question open at the upgrade to 2.0, and withdrawn_at (v30) is when the host
+-- withdrew it: a withdrawn question is kept, never deleted. A comment names one
+-- question that is not withdrawn; asked again after a withdrawal, it is a new
+-- question with the next number.
 CREATE TABLE questions (
-  id         INTEGER PRIMARY KEY,
-  issue      INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
-  attempt    INTEGER NOT NULL,
-  kind       TEXT NOT NULL CHECK (kind IN ('park','plan')),
-  posted_at  INTEGER NOT NULL,
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  comment_id  INTEGER,
+  issue       INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
+  attempt     INTEGER NOT NULL,
+  kind        TEXT NOT NULL CHECK (kind IN ('park','plan')),
+  posted_at   INTEGER NOT NULL,
   body_sha256 TEXT,
   answered_at INTEGER,
-  answered_by TEXT
+  answered_by TEXT,
+  offers      TEXT,
+  reask       INTEGER NOT NULL DEFAULT 0,
+  withdrawn_at INTEGER
 );
 CREATE INDEX questions_issue ON questions (issue, posted_at);
+CREATE UNIQUE INDEX questions_comment ON questions (comment_id) WHERE withdrawn_at IS NULL;
 
 -- 3.8 the histories, one row per end, the 50 newest per issue kept. Were the
 -- two JSONL ledgers the shell commands parsed: the cycle's and the planning
 -- turn's. The runner's words (cap, park_reason, failure_kind, failure_cause)
 -- are claims, stored only cleaned to a fixed set and bound. step_number,
 -- step_total and round (v10) are where the step the cycle ended in was, from
--- its last heartbeat of that step.
+-- its last heartbeat of that step. recorded_at (v30) is when the line was
+-- written, which a line written late (a lost cycle's) has after its at;
+-- signalled (v30) is 1 when a signal stopped the cycle.
 CREATE TABLE cycle_history (
   id INTEGER PRIMARY KEY,
   issue INTEGER NOT NULL, attempt INTEGER NOT NULL, at INTEGER NOT NULL,
@@ -301,7 +321,9 @@ CREATE TABLE cycle_history (
   failure_kind TEXT, failure_cause TEXT,
   provider INTEGER NOT NULL DEFAULT 0, parked INTEGER NOT NULL DEFAULT 0,
   seq INTEGER,
-  step_number INTEGER, step_total INTEGER, round INTEGER
+  step_number INTEGER, step_total INTEGER, round INTEGER,
+  recorded_at INTEGER,
+  signalled INTEGER NOT NULL DEFAULT 0 CHECK (signalled IN (0, 1))
 );
 CREATE INDEX cycle_history_issue ON cycle_history (issue, at);
 CREATE TABLE plan_history (

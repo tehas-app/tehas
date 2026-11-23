@@ -2727,7 +2727,7 @@ mod tests {
         if let Some(h) = pin {
             input["spec"] = json!({"link": "https://github.com/user-attachments/files/123/spec.md", "sha256": h});
         }
-        json!({"current": {"used_by": 1, "how": "label", "input": input}})
+        json!({"current": {"used_by": 1, "how": "approved", "input": input}})
     }
 
     /// A start that handed off at `awaiting-human-merge` with a review that

@@ -279,7 +279,12 @@ fn plan_begin_replaces_an_open_session_that_is_not_running() {
     let v = begin(&home, 15);
     assert_eq!(v["replaced"], "open");
     assert_eq!(v["planning"]["session"], Value::Null);
-    assert_eq!(count(&home, "questions"), 0);
+    // Withdrawn, both of them, and kept (schema 30).
+    assert_eq!(count(&home, "questions WHERE withdrawn_at IS NULL"), 0);
+    assert_eq!(
+        count(&home, &format!("questions WHERE withdrawn_at = {NOW}")),
+        2
+    );
 }
 
 #[test]
@@ -443,7 +448,7 @@ fn plan_answer_closes_the_question_it_answers() {
     assert_eq!(
         one::<String>(
             &home,
-            "SELECT answered_at || answered_by FROM questions WHERE id = 180"
+            "SELECT answered_at || answered_by FROM questions WHERE comment_id = 180"
         ),
         format!("{}bob", NOW + 5)
     );
@@ -507,7 +512,10 @@ fn plan_answer_undo_never_reopens_an_older_question() {
     let v = ok(&home, &["plan-answer", "20", "--turn", "3", "--undo"]);
     assert_eq!(v["planning"]["comment_id"], Value::Null);
     assert_eq!(
-        one::<String>(&home, "SELECT answered_by FROM questions WHERE id = 200"),
+        one::<String>(
+            &home,
+            "SELECT answered_by FROM questions WHERE comment_id = 200"
+        ),
         "bob"
     );
 }
@@ -797,8 +805,22 @@ fn close_withdraws_the_open_question() {
         &home,
         &["question-asked", "30", "--id", "300", "--kind", "plan"],
     );
-    ok(&home, &["plan-end", "30", "--close"]);
-    assert_eq!(count(&home, "questions"), 0);
+    ok_at(&home, NOW + 9, &["plan-end", "30", "--close"]);
+    // Withdrawn and kept, with when (schema 30): nothing is deleted.
+    assert_eq!(
+        count(
+            &home,
+            &format!(
+                "questions WHERE comment_id = 300 AND withdrawn_at = {}",
+                NOW + 9
+            )
+        ),
+        1
+    );
+    assert_eq!(
+        ok(&home, &["question-known", "30", "--id", "300"])["recorded"],
+        false
+    );
     assert_eq!(show(&home, 30)["comment_id"], Value::Null);
 }
 

@@ -123,7 +123,7 @@ turns are only counted.
 | `from`, `to` | The window |
 | `shipped` | `n`: issues whose merge is in the window, by their `merged` event or a run that merged |
 | `planned` | Work to do, from the latest sample: `n` is `inLine` plus `planning`; `trend` is one `{day, n}` per day, the day's last sample, `n` left out on a day with none. Left out with no sample |
-| `runs` | `n` work runs, and how many ended as `pr`, `merged`, `handoff`, `parked`, `failed`, `refused` and `stopped` |
+| `runs` | `n` work runs, and how many ended as `offered`, `merged`, `handoff`, `parked`, `failed`, `refused` and `stopped` |
 | `planningTurns` | `n` planning turns that ended |
 | `handoffRate` | `share` of the `n` runs that ended needing a person: handed off or parked |
 | `firstPassYield` | `share` of the `n` shipped issues with a run here that took exactly one work run |

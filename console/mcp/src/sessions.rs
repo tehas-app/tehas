@@ -23,7 +23,7 @@ pub const KINDS: [&str; 2] = ["work", "plan"];
 // crate names it; the test of the filter reads it here, so it pins the tool to
 // what it says rather than to a list written twice.
 pub const HOWS: [&str; 9] = [
-    "label",
+    "approved",
     "refresh",
     "outage-retry",
     "millwright",

@@ -1580,7 +1580,7 @@ esac"#,
     fn approval_answer(at: &str, sum: &str) -> String {
         let at = tehas_core::time::from_iso(at).unwrap_or_default() - 3600;
         format!(
-"{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"current\":{{\"at\":{at},\"by\":\"tehas-millwright\",\"how\":\"millwright\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"{sum}\"}},\"millwright_starts\":1,\"fixer_starts\":1}}"
+"{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"current\":{{\"at\":{at},\"by\":\"tehas-millwright\",\"how\":\"millwright\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"approved\",\"body_sha256\":\"{sum}\"}},\"millwright_starts\":1,\"fixer_starts\":1}}"
         )
     }
 
@@ -1998,7 +1998,7 @@ esac"#,
         let sum = tehas_core::approval::body_sha256(&json!({"body": "Words."}));
         let at = tehas_core::time::from_iso("2026-10-02T22:13:03Z").unwrap();
         let said = format!(
-            "{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"approval\":null,\"current\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":null,\"millwright_starts\":0,\"fixer_starts\":0}}"
+            "{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"approval\":null,\"current\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"approved\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":null,\"millwright_starts\":0,\"fixer_starts\":0}}"
         );
         w["approvals"] = json!({"50": said, "51": said});
         let full: Vec<Value> = whole.iter().map(rest).collect();

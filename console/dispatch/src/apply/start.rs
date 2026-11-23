@@ -1095,7 +1095,7 @@ impl Writer {
             "--input-file".into(),
             f,
         ];
-        if matches!(given.as_str(), "label" | "millwright") {
+        if matches!(given.as_str(), "approved" | "millwright") {
             let label = a
                 .get("approved_label")
                 .and_then(Value::as_str)

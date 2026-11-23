@@ -57,7 +57,7 @@ fn the_runner_flag_is_refused_as_an_unknown_argument_and_nothing_runs() {
             "--by",
             "alice",
             "--how",
-            "label",
+            "approved",
             "--approval-at",
             "1",
             "--requeued",
@@ -330,7 +330,7 @@ fn a_second_cycle_for_the_same_issue_runs_nothing_exit_3() {
 #[test]
 fn a_cycle_run_by_hand_is_on_record_as_one_uses_no_approval_and_runs_work_with_its_attempt() {
     let w = World::new("start-hand");
-    w.approve("alice", "label", 1_760_000_000, &[]);
+    w.approve("alice", "approved", 1_760_000_000, &[]);
     let r = w.run7();
     assert_eq!(r.rc, 0);
     let c = cycle(&w, "7");
@@ -362,14 +362,14 @@ fn work_is_given_the_attempt_of_the_start_and_nothing_new_reaches_it() {
 fn from_the_unit_a_start_uses_the_approval_the_dispatcher_recorded_and_the_account_is_on_record() {
     let mut w = World::new("start-unit");
     w.env("TEHAS_CYCLE_FROM", "unit");
-    w.approve("alice", "label", 1_760_000_000, &[]);
+    w.approve("alice", "approved", 1_760_000_000, &[]);
     let r = w.run7();
     assert_eq!(r.rc, 0);
     assert_eq!(work_calls(&w), "7");
     let c = cycle(&w, "7");
     assert_eq!(
         json!([c["how"], c["started_by"]]),
-        json!(["label", "alice"])
+        json!(["approved", "alice"])
     );
     let a = w.row(&["approval-current", "7"]);
     assert_eq!(
@@ -377,7 +377,7 @@ fn from_the_unit_a_start_uses_the_approval_the_dispatcher_recorded_and_the_accou
         json!([null, 1])
     );
     let h = w.history0();
-    assert_eq!(json!([h["by"], h["how"]]), json!(["alice", "label"]));
+    assert_eq!(json!([h["by"], h["how"]]), json!(["alice", "approved"]));
 }
 
 #[test]
@@ -402,7 +402,7 @@ fn from_the_unit_no_approval_waiting_starts_nothing_exit_77_before_any_label_com
     nothing_ran(&w);
     assert_eq!(cycle(&w, "7"), Value::Null);
     // A used approval is no approval for a second start (A3).
-    w.approve("alice", "label", 1_760_000_000, &[]);
+    w.approve("alice", "approved", 1_760_000_000, &[]);
     assert_eq!(w.run7().rc, 0);
     w.clear_calls();
     assert_eq!(w.run7().rc, 77);
@@ -414,7 +414,7 @@ fn from_the_unit_no_approval_waiting_starts_nothing_exit_77_before_any_label_com
 fn a_busy_store_is_asked_three_times_then_the_cycle_exits_75_and_changes_nothing() {
     let mut w = World::new("start-busy");
     w.env("TEHAS_CYCLE_FROM", "unit");
-    w.approve("alice", "label", 1_760_000_000, &[]);
+    w.approve("alice", "approved", 1_760_000_000, &[]);
     w.store_answers(
         "cycle-start",
         1,
@@ -459,7 +459,7 @@ fn starts(w: &World) -> usize {
 fn a_start_the_store_took_before_it_timed_out_is_not_asked_again_it_is_ended_as_refused_exit_75() {
     let mut w = World::new("start-took");
     w.env("TEHAS_CYCLE_FROM", "unit");
-    w.approve("alice", "label", 1_760_000_000, &[]);
+    w.approve("alice", "approved", 1_760_000_000, &[]);
     start_times_out(&w, true);
     let r = w.run7();
     assert_eq!(r.rc, 75);
@@ -480,7 +480,7 @@ fn a_start_the_store_took_before_it_timed_out_is_not_asked_again_it_is_ended_as_
 fn a_start_that_timed_out_before_the_store_took_it_is_asked_again() {
     let mut w = World::new("start-again");
     w.env("TEHAS_CYCLE_FROM", "unit");
-    w.approve("alice", "label", 1_760_000_000, &[]);
+    w.approve("alice", "approved", 1_760_000_000, &[]);
     start_times_out(&w, false);
     let r = w.run7();
     assert_eq!(r.rc, 0);
@@ -542,9 +542,9 @@ fn a_store_that_cannot_be_used_or_is_not_installed_stops_the_cycle_at_78_before_
 fn the_account_on_record_is_the_approvals_whatever_is_approved_after_the_start() {
     let mut w = World::new("start-account");
     w.env("TEHAS_CYCLE_FROM", "unit");
-    w.approve("alice", "label", 1_760_000_000, &[]);
+    w.approve("alice", "approved", 1_760_000_000, &[]);
     // While the cycle runs, a poll records bob's approval of a later label.
-    w.work(r#"TEHAS_HOME=$T/home/tehas "$T/store-bin" approval-record 7 --at 1760000100 --by bob --how label --label tehas:ready --body-sha "$(printf a%.0s {1..64})" >/dev/null"#);
+    w.work(r#"TEHAS_HOME=$T/home/tehas "$T/store-bin" approval-record 7 --at 1760000100 --by bob --how approved --label tehas:ready --body-sha "$(printf a%.0s {1..64})" >/dev/null"#);
     let r = w.run7();
     assert_eq!(r.rc, 0);
     assert_eq!(cycle(&w, "7")["started_by"], "alice");

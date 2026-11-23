@@ -1030,7 +1030,7 @@ mod tests {
             };
             json!({"approval": {
                 "api": 1, "verb": "approval-current", "ok": true,
-                "current": {"at": "900", "how": "label", "input": input}
+                "current": {"at": "900", "how": "approved", "input": input}
             }})
         };
         assert!(approved_lean(&current(Some("lean"))));
@@ -1041,17 +1041,17 @@ mod tests {
         let unused = |driver: &str| {
             json!({"approval": {
                 "api": 1, "verb": "approval-current", "ok": true,
-                "approval": {"at": "900", "how": "label", "input": {"driver": driver}}
+                "approval": {"at": "900", "how": "approved", "input": {"driver": driver}}
             }})
         };
         assert!(approved_lean(&unused("lean")));
         assert!(!approved_lean(&unused("classic")));
         // The approval-view's shape, which holds the word on its own.
         assert!(approved_lean(
-            &json!({"approval": {"view": {"at": "9", "how": "label", "driver": "lean"}}})
+            &json!({"approval": {"view": {"at": "9", "how": "approved", "driver": "lean"}}})
         ));
         assert!(!approved_lean(
-            &json!({"approval": {"view": {"at": "9", "how": "label"}}})
+            &json!({"approval": {"view": {"at": "9", "how": "approved"}}})
         ));
         // No answer at all, or one of the store's errors, is classic: no record
         // is kept on a guess.

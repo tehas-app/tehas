@@ -10,7 +10,7 @@
     "api": {"const": 1},
     "issue": {"type": "integer", "minimum": 1},
     "question": {
-      "description": "The question answered: the id of its comment, and park for a stopped ticket or plan for a planning question.",
+      "description": "The question answered: id is the state store's own number of the question, given in order and never reused (not the id of the comment that asked it, as before 2.0), and kind is park for a stopped ticket or plan for a planning question.",
       "type": "object",
       "required": ["id", "kind"],
       "additionalProperties": false,

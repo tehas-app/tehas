@@ -167,7 +167,7 @@ fn with_nothing_given_the_links_of_the_approval_record_are_said_and_kept_and_onl
     assert_eq!(gapline(&w), format!("{NONE_GIVEN} (TEHAS_WORK_IMAGES=0): no directory is mounted and PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not set"));
     assert_eq!(
         kept(&w, "{images, approval}"),
-        r#"{"images":[],"approval":{"at":"2026-10-14T00:00:00Z","by":"alice","how":"label"}}"#
+        r#"{"images":[],"approval":{"at":"2026-10-14T00:00:00Z","by":"alice","how":"approved"}}"#
     );
     assert_eq!(
         kept(&w, "[.leftOut[] | [.link, .source]]"),

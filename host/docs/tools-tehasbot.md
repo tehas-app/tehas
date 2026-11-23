@@ -214,7 +214,7 @@ poll that started the unit takes such a cycle as one that came up: the issue
 keeps `tehas:running`, and the next poll clears it in silence.
 
 **The start on record.** The record holds the attempt, when it started, the
-approval it used and who gave it, how (`label`, `reply`, `answer`, `millwright`,
+approval it used and who gave it, how (`approved`, `reply`, `answer`, `millwright`,
 `refresh`, `outage-retry`, `host`, or `hand`), whether it is the one retry after an
 outage, and the pi-rukas commit of the sandbox image. Docker is asked for that
 commit before the record starts, and a daemon that has not answered in 30

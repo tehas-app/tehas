@@ -59,7 +59,7 @@ pub const RUN_FIELDS: [Field; 40] = [
     (
         "how",
         Shape::Text,
-        "What started it: label, refresh, outage-retry, millwright, host, answer, reply, refine or hand.",
+        "What started it: approved, refresh, outage-retry, millwright, host, answer, reply, refine or hand.",
     ),
     ("started", Shape::Time, "When it started, UTC."),
     (
@@ -76,7 +76,7 @@ pub const RUN_FIELDS: [Field; 40] = [
     (
         "outcome",
         Shape::Text,
-        "pr, merged, handoff, parked, failed, refused or stopped.",
+        "offered, merged, handoff, parked, failed, refused or stopped.",
     ),
     ("exitCode", Shape::Int, "The exit status of the cycle."),
     ("status", Shape::Text, "The status word the cycle ended with."),

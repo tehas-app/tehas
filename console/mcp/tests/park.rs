@@ -75,7 +75,7 @@ impl Env {
 fn parked(started: i64) -> Value {
     json!({
         "id": format!("work-7-{started}"), "kind": "work", "issue": 7, "attempt": 2,
-        "how": "label", "started": iso(started), "ended": iso(started + 600),
+        "how": "approved", "started": iso(started), "ended": iso(started + 600),
         "seconds": 600, "outcome": "handoff", "status": "handoff", "exitCode": 10,
         "lastStep": "develop", "cap": "verify-failed:develop", "failureKind": "verify",
         "providerOutage": false,

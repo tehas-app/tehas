@@ -203,7 +203,7 @@ fn filters_combine() {
 fn the_millwright_has_one_word_and_its_filter_takes_only_its_own() {
     let all = [
         sess("work", 1, 100, json!({"how": "millwright"})),
-        sess("work", 3, 300, json!({"how": "label"})),
+        sess("work", 3, 300, json!({"how": "approved"})),
         // A run of another word is not swept in by the millwright's filter:
         // `hand` is a cycle run by hand, `refresh` a restart on a person's
         // request.
@@ -220,7 +220,7 @@ fn the_millwright_has_one_word_and_its_filter_takes_only_its_own() {
         .call("factory_sessions", json!({"how": "fixer"}))
         .is_err());
     let label = env
-        .call("factory_sessions", json!({"how": "label"}))
+        .call("factory_sessions", json!({"how": "approved"}))
         .unwrap();
     assert_eq!(ids(&label), [all[1]["id"].as_str().unwrap()]);
     for w in ["hand", "refresh"] {
@@ -892,7 +892,7 @@ fn an_issue_with_several_attempts() {
             "work",
             7,
             t - 300,
-            json!({"attempt": 1, "how": "label", "outcome": "failed",
+            json!({"attempt": 1, "how": "approved", "outcome": "failed",
                    "failedStep": "develop", "failureKind": "model",
                    "failureCause": "the cause of a failure", "seconds": 300}),
         ),
@@ -933,7 +933,7 @@ fn an_issue_with_several_attempts() {
     // The seconds the run took are its own, not the gap to the next one.
     assert_eq!(attempts[0]["seconds"], 300);
     assert_eq!(attempts[0]["kind"], "work");
-    assert_eq!(attempts[0]["how"], "label");
+    assert_eq!(attempts[0]["how"], "approved");
     assert_eq!(attempts[0]["outcome"], "failed");
     assert_eq!(attempts[0]["seconds"], 300);
     assert_eq!(attempts[0]["failedStep"], "develop");
@@ -1229,7 +1229,7 @@ fn a_composite_value_in_a_run_is_left_out_of_the_answer() {
             "id": {"nested": "SECRET-ID"},
             "kind": ["work"],
             "attempt": {"n": 1},
-            "how": ["label"],
+            "how": ["approved"],
             "outcome": {"word": "failed"},
             "failedStep": ["develop"],
             "failureKind": {"k": "model"},
@@ -1714,7 +1714,7 @@ fn a_session_that_does_not_match_its_schema_is_not_served() {
 fn a_run_of_a_retry_of_before_2_0_is_listed_as_reply() {
     let all = [
         sess("work", 1, 100, json!({"how": "reply"})),
-        sess("work", 2, 200, json!({"how": "label"})),
+        sess("work", 2, 200, json!({"how": "approved"})),
     ];
     let env = Env::new("reply", Some("a/b"), &all);
     let out = env

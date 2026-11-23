@@ -42,7 +42,7 @@ t_case "approval-record takes the millwright's word, and the shape and the cap r
 # cap reads, must see that count and not 0: a silent 0 here leaves
 # TEHAS_MILLWRIGHT_MAX_RETRIES with nothing to count.
 t_store_home "$home"
-record 7 --at 1792497600 --by alice --how label --label tehas:ready --body-sha "$SUM"
+record 7 --at 1792497600 --by alice --how approved --label tehas:ready --body-sha "$SUM"
 record 7 --at 1792584000 --by tehas-millwright --how millwright --label tehas:ready --body-sha "$SUM"
 start 7
 # The attempt is the one cycle-start gave it: an attempt is a cycle's row, not an
@@ -80,7 +80,7 @@ t_case "the shapes read what the store itself answers, key for key"
 # from a hand-built record: a dual key the store stopped answering breaks this
 # case.
 t_store_home "$home"
-record 7 --at 1792497600 --by alice --how label --label tehas:ready --body-sha "$SUM"
+record 7 --at 1792497600 --by alice --how approved --label tehas:ready --body-sha "$SUM"
 record 7 --at 1792584000 --by tehas-millwright --how millwright --label tehas:ready --body-sha "$SUM"
 start 7
 # approval-current answers both start keys, and the shape reads them both: the

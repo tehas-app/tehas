@@ -240,7 +240,7 @@ fn the_millwrights_action_change_comment_of_the_ten_minutes_before_its_label_lif
     has(&r.out, "start #7 (labelled by the fixer by tehas-bot)");
     assert_eq!(
         w.approval("[.by, .how, .fixer_starts, .rests_on.by, .rests_on.how]", 7),
-        r#"["tehas-bot","millwright",1,"alice","label"]"#
+        r#"["tehas-bot","millwright",1,"alice","approved"]"#
     );
     // The lift is its own field: rests_on keeps naming alice's approval, and
     // the note is the comment the cycle is given.
@@ -645,7 +645,7 @@ fn the_retry_rests_on_who_started_the_parked_cycle_not_on_a_later_approval_of_an
     let w = World::new("hold-outage-bob");
     outage_parked(&w, "alice");
     // bob's approval, later and never used: the retry is alice's.
-    w.t_approve(7, "bob", "label", 1_767_300_000, &[]);
+    w.t_approve(7, "bob", "approved", 1_767_300_000, &[]);
     let r = w.poll();
     assert_eq!(started(&w), "7");
     has(&r.out, "start #7 (requeued by alice)");

@@ -76,14 +76,20 @@ beside it. It is not under `live/` and is not served. Times are UTC Unix
 seconds and durations are seconds, as integers, except `runner_ms` and
 `run_roles.ms`, which are milliseconds.
 
-`PRAGMA user_version` is the schema version, today 6. Within one version
+`PRAGMA user_version` is the schema version, today 7. Within one version
 columns are only added. A change of a column's meaning, or a column removed,
 raises the version. Schema 5 removed `samples.watts`, which nothing writes
 since energy use left core in 2.0. Schema 6 removes `runs.contractor_id`:
 outsource was dropped in 2.0, and no release ever wrote a value there.
+Schema 7 takes the words of 2.0 for one fact everywhere: `runs.outcome`
+says `offered` where it said `pr`, in its CHECK and in every row, `runs.how`
+says `approved` where it said `label`, and `v_versions` counts `offered` and
+names its share `offered_share` (it was `pr_share`). A program that reads a
+copy reads the new words; there is no alias.
 
-A file at 4 or 5 is migrated in place the first time it is opened:
-`samples.watts` and `runs.contractor_id` are dropped where the file has them;
+A file at 4, 5 or 6 is migrated in place the first time it is opened:
+`samples.watts` and `runs.contractor_id` are dropped where the file has them,
+and `runs` is laid again with the words of schema 7, its views with it;
 every other column and row stays. Two programs
 that open it at once do not both migrate it. v0.30.0 wrote 4 already, so this
 release migrates no older file: a file at 1, 2 or 3 is kept aside under its
@@ -145,7 +151,7 @@ call; one that a caller killed during the call leaves is removed by
 | `kind` | `work` or `plan` | 1 |
 | `issue` | The issue number | 1 |
 | `attempt` | The run's number for this issue: the attempt the state store gave its start, counting from 1, a start refused or by hand included. Work runs only | 1 |
-| `how` | What started it: `label`, `reply` (a retry a person's reply answered), `answer` (a retry `tehas answer` gave), `outage-retry`, `millwright`, `host` (an approval of `tehas start`) or `refresh`, from the approval the start used, else the history line, which says `hand` for a cycle run by hand. A planning turn: `label` for the first turn, `refine` for the first turn of a session `tehas:refine` started, `answer` or `millwright` for a later one. A run a retry ticked before 2.0 started said `retry-tick`: analytics rewrites it to `reply` in `runs.how` of `state/analytics.db` each time it opens the file, and the state store's step to schema 27 does the same in `state/tehas.db`. A run recorded under the millwright's old name said `fixer`: analytics rewrites it to `millwright` the same way, and the state store's step to schema 28 takes `fixer` from what its rows may say | 1 |
+| `how` | What started it: `approved` (a label an allowed account applied), `reply` (a retry a person's reply answered), `answer` (a retry `tehas answer` gave), `outage-retry`, `millwright`, `host` (an approval of `tehas start`) or `refresh`, from the approval the start used, else the history line, which says `hand` for a cycle run by hand. A planning turn: `approved` for the first turn, `refine` for the first turn of a session `tehas:refine` started, `answer` or `millwright` for a later one. A run a retry ticked before 2.0 started said `retry-tick`: analytics rewrites it to `reply` in `runs.how` of `state/analytics.db` each time it opens the file, and the state store's step to schema 27 does the same in `state/tehas.db`. A run recorded under the millwright's old name said `fixer`: analytics rewrites it to `millwright` the same way, and the state store's step to schema 28 takes `fixer` from what its rows may say. A start a label approved said `label` before 2.0: the step to schema 7 rewrites it to `approved` in `runs.how`, and the state store's step to schema 30 in `state/tehas.db` | 1 |
 | `started`, `ended`, `seconds` | The run's start, its end and the wall time between: the history line's `started` and `at`. A planning turn ends when the poll collects it | 1 |
 | `queue_wait` | `started` less when `tehas:ready` was accepted (the approval the start used) | 1 |
 | `outcome` | `offered`, `merged`, `handoff`, `parked`, `failed`, `refused` or `stopped`, below | 1 |
@@ -181,7 +187,7 @@ The outcome of a work run, the first row that matches, top to bottom.
 | `merged` | The issue's pull request was merged within the run, and the run did not park. A runner that claimed a merge the report did not find parks, and ends by a later row |
 | `stopped` | The issue was closed while it ran, it was interrupted, or `tehas stop` stopped it, and the run did not park |
 | `refused` | No cycle ran: the runner refused, or `tehas work` started none |
-| `offered` | It left an open pull request and was not parked |
+| `offered` | It left an open change (a pull request) and was not parked. Before 2.0 the word was `pr`: the step to schema 7 rewrites it |
 | `handoff` | The runner handed off to a person |
 | `failed` | tehas stopped it, the runner aborted, it was lost (it died without a word), or a failure other than a cap stopped it |
 | `parked` | Any other end that needs a person, such as a cap |
@@ -296,7 +302,7 @@ So that a reader does not have to work out the common figures again:
 | --- | --- | --- |
 | `v_lead` | Per shipped issue: `issue`, `merged`, `ready`, `lead_seconds` and `runs`, the work runs it took. Shipped is a `merged` event, or a work run whose outcome was `merged` | 1 |
 | `v_daily` | Per UTC day: `day`, `shipped`, `runs` ended, of them `failed`, their `minutes` and `tokens` (input, output and cache read) | 1 |
-| `v_versions` | Per tehas and pi-rukas version pair of work runs that ended: `tehas_version`, `rukas_version` (its commit where it has no version), `runs`, `pr_share`, `handoff_share`, `parked_share`, `failed_share`, `median_minutes` and `median_tokens`, the last of the runs that reported usage, NULL where none did | 1 |
+| `v_versions` | Per tehas and pi-rukas version pair of work runs that ended: `tehas_version`, `rukas_version` (its commit where it has no version), `runs`, `offered_share` (offered or merged), `handoff_share`, `parked_share`, `failed_share`, `median_minutes` and `median_tokens`, the last of the runs that reported usage, NULL where none did | 1 |
 
 ## The report
 
