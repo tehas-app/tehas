@@ -373,9 +373,16 @@ fn search_laws_over_both_ports() {
             .ticket(2, |t| t.title("beta").text("alpha in the text alone"))
             .ticket(3, |t| t.title("alpha two"))
             .ticket(4, |t| t.title("ALPHA three"))
-            .ticket(5, |t| t.title("about kind:bug and alpha"));
+            .ticket(5, |t| {
+                t.title("about kind:bug and alpha project:other mark:epic is:open")
+            })
+            .ticket(6, |t| {
+                t.title("gamma")
+                    .text("kind:bug project:other mark:epic is:open in the text")
+            });
         let site = FakeSite::new(&w);
         let mut t = site.tickets(&full(), C).unwrap();
+        let reader = std::cell::RefCell::new(site.tickets(&full(), C).unwrap());
         ok(laws::search::first_n_by_relevance(
             |n| t.search("alpha", Within::Titles, None, n),
             4,
@@ -386,8 +393,15 @@ fn search_laws_over_both_ports() {
             "alpha",
         ));
         ok(laws::search::words_never_widen(
-            |words| t.search(words, Within::Titles, None, n32(50)),
+            |words, within| t.search(words, within, None, n32(50)),
             |d: &TicketDigest| d.title.as_str(),
+            |d: &TicketDigest| {
+                let whole = reader
+                    .borrow_mut()
+                    .ticket(&d.key, Depth::All, None)
+                    .unwrap();
+                format!("{} {}", whole.digest.title, whole.text)
+            },
             &["kind:bug", "project:other", "mark:epic", "is:open"],
         ));
     }
@@ -426,78 +440,92 @@ fn blocked(n: u64) -> Marker {
     }
 }
 
+/// The same text three times in a split world: blueprint `n`'s body, a
+/// comment on blueprint `n + 50`, and a note on ticket `n`.
+fn texts(w: World, n: u64, body: &str, markers: &[Marker]) -> World {
+    let m = markers.to_vec();
+    w.blueprint(n, |b| {
+        markers
+            .iter()
+            .fold(b.body(body), |b, mk| b.marker(mk.clone()))
+    })
+    .blueprint(n + 50, |b| b.comment_marked("alice", body, m.clone()))
+    .ticket(n, |t| t.comment_marked("alice", body, m))
+}
+
+/// Each marker law, over a body, a comment and a note.
 #[test]
 fn marker_laws() {
     let unreadable = |kind: MarkerKind| Marker::Unreadable { kind };
     let order = vec![
         unreadable(MarkerKind::Blocked),
         blocked(1),
+        unreadable(MarkerKind::Blocked),
         Marker::HoldCleared,
     ];
-    let w = World::split()
-        .blueprint(101, |b| b.body("> a quoted marker"))
-        .blueprint(102, |b| b.marker(unreadable(MarkerKind::Park)))
-        .blueprint(103, |b| b.marker(unreadable(MarkerKind::Question)))
-        .blueprint(104, |b| b.marker(unreadable(MarkerKind::Blocked)))
-        .blueprint(105, |b| {
-            b.marker(Marker::Bare {
-                kind: MarkerKind::Park,
-                read: Some(Box::new(park(105))),
-            })
-        })
-        .blueprint(106, |b| {
-            b.marker(Marker::Bare {
-                kind: MarkerKind::Park,
-                read: None,
-            })
-        })
-        .blueprint(107, |b| b.body("the blocked words, no field"))
-        .blueprint(108, |b| order.iter().fold(b, |b, m| b.marker(m.clone())))
-        .blueprint(109, |b| b.body("a park of blueprint 101"))
-        .blueprint(110, |b| b.marker(unreadable(MarkerKind::LastAttempt)))
-        .blueprint(111, |b| {
-            b.marker(Marker::HoldCleared)
-                .marker(unreadable(MarkerKind::Spec))
-        });
+    let bare = |read: Option<Marker>| Marker::Bare {
+        kind: MarkerKind::Park,
+        read: read.map(Box::new),
+    };
+    let w = World::split().with_account("alice", AccountKind::Person, Standing::Write);
+    let w = texts(w, 101, "> a quoted marker", &[]);
+    let w = texts(w, 102, "", &[unreadable(MarkerKind::Park)]);
+    let w = texts(w, 103, "", &[unreadable(MarkerKind::Question)]);
+    let w = texts(w, 104, "", &[unreadable(MarkerKind::Blocked)]);
+    let w = texts(w, 105, "", &[bare(Some(park(105)))]);
+    let w = texts(w, 106, "", &[bare(None)]);
+    let w = texts(w, 107, "the blocked words, no field", &[]);
+    let w = texts(w, 108, "", &order);
+    let w = texts(w, 109, "a park of blueprint 101", &[]);
+    let w = texts(w, 110, "", &[unreadable(MarkerKind::LastAttempt)]);
+    let w = w.blueprint(111, |b| {
+        b.marker(Marker::HoldCleared)
+            .marker(unreadable(MarkerKind::Spec))
+    });
     let site = FakeSite::new(&w);
+    let mut bl = site.blueprints(&full(), C).unwrap();
+    let mut t = site.tickets(&full(), C).unwrap();
+    let comment = |bl: &mut Box<dyn Blueprints + Send>, n: u64| {
+        bl.comments(bp(n + 50), b(10)).unwrap().items()[0]
+            .id
+            .clone()
+    };
+    let note = |t: &mut Box<dyn Tickets + Send>, n: u64| {
+        t.notes(&w.key(n), Window::Last(n32(1))).unwrap().items[0]
+            .id
+            .clone()
+    };
+    use laws::markers::{self as m, Text};
+    let mut each = |n: u64, law: &dyn Fn(Text<'_>) -> laws::Law| {
+        let c = comment(&mut bl, n);
+        let k = note(&mut t, n);
+        ok(law(Text::Body(bl.as_mut(), bp(n))));
+        ok(law(Text::Comment(bl.as_mut(), c)));
+        ok(law(Text::Note(t.as_mut(), w.key(n), k)));
+    };
+    each(101, &m::a_quoted_marker_is_no_marker);
+    each(102, &|at| {
+        m::a_bad_field_is_unreadable(at, &MarkerKind::Park)
+    });
+    each(103, &|at| {
+        m::leading_zeros_are_unreadable(at, &MarkerKind::Question)
+    });
+    each(104, &m::a_list_over_its_limit_is_unreadable);
+    each(105, &|at| {
+        m::a_bare_marker_is_bare(at, &MarkerKind::Park, Some(&park(105)))
+    });
+    each(106, &|at| {
+        m::a_bare_marker_is_bare(at, &MarkerKind::Park, None)
+    });
+    each(107, &m::words_without_a_field_are_prose);
+    each(108, &|at| m::markers_keep_their_order(at, &order));
+    each(109, &|at| {
+        m::another_items_marker_does_not_read(at, &MarkerKind::Park)
+    });
+    each(110, &|at| {
+        m::a_block_without_its_close_is_unreadable(at, &MarkerKind::LastAttempt)
+    });
     let mut h = site.blueprint_writes(&full(), C).unwrap();
-    use laws::markers as m;
-    ok(m::a_quoted_marker_is_no_marker(h.as_mut(), bp(101)));
-    ok(m::a_bad_field_is_unreadable(
-        h.as_mut(),
-        bp(102),
-        &MarkerKind::Park,
-    ));
-    ok(m::leading_zeros_are_unreadable(
-        h.as_mut(),
-        bp(103),
-        &MarkerKind::Question,
-    ));
-    ok(m::a_list_over_its_limit_is_unreadable(h.as_mut(), bp(104)));
-    ok(m::a_bare_marker_is_bare(
-        h.as_mut(),
-        bp(105),
-        &MarkerKind::Park,
-        Some(&park(105)),
-    ));
-    ok(m::a_bare_marker_is_bare(
-        h.as_mut(),
-        bp(106),
-        &MarkerKind::Park,
-        None,
-    ));
-    ok(m::words_without_a_field_are_prose(h.as_mut(), bp(107)));
-    ok(m::markers_keep_their_order(h.as_mut(), bp(108), &order));
-    ok(m::another_items_marker_does_not_read(
-        h.as_mut(),
-        bp(109),
-        &MarkerKind::Park,
-    ));
-    ok(m::a_block_without_its_close_is_unreadable(
-        h.as_mut(),
-        bp(110),
-        &MarkerKind::LastAttempt,
-    ));
     ok(m::an_unreadable_marker_is_kept(h.as_mut(), bp(111)));
 }
 
@@ -506,9 +534,32 @@ fn a_marker_law_finds_a_marker_that_reads() {
     let w = World::split().blueprint(101, |b| b.marker(park(101)));
     let site = FakeSite::new(&w);
     let mut h = site.blueprints(&full(), C).unwrap();
-    let e = laws::markers::a_bad_field_is_unreadable(h.as_mut(), bp(101), &MarkerKind::Park)
-        .unwrap_err();
+    let e = laws::markers::a_bad_field_is_unreadable(
+        laws::markers::Text::Body(h.as_mut(), bp(101)),
+        &MarkerKind::Park,
+    )
+    .unwrap_err();
     assert_eq!(e.law, "markers::a_bad_field_is_unreadable");
+}
+
+#[test]
+fn the_weak_fixtures_of_the_marker_laws_are_refused() {
+    use laws::markers::{self as m, Text};
+    let unreadable = Marker::Unreadable {
+        kind: MarkerKind::Blocked,
+    };
+    // An order with no unreadable marker after the good one.
+    let order = vec![unreadable.clone(), blocked(1)];
+    let w = World::split()
+        .blueprint(101, |b| order.iter().fold(b, |b, mk| b.marker(mk.clone())))
+        .blueprint(102, |b| b.marker(unreadable.clone()));
+    let site = FakeSite::new(&w);
+    let mut h = site.blueprint_writes(&full(), C).unwrap();
+    let e = m::markers_keep_their_order(Text::Body(h.as_mut(), bp(101)), &order).unwrap_err();
+    assert!(e.what.contains("no good marker"), "{}", e.what);
+    // A body with no marker that reads.
+    let e = m::an_unreadable_marker_is_kept(h.as_mut(), bp(102)).unwrap_err();
+    assert!(e.what.contains("no marker that reads"), "{}", e.what);
 }
 
 #[test]
@@ -561,6 +612,12 @@ fn identity_a_given_token_is_never_minted() {
         Scope::Cycle,
         &given,
         expired,
+        || {
+            w.signed_out_keys()
+                .iter()
+                .filter(|k| **k == PersonKey::new("old"))
+                .count()
+        },
     ));
     assert_eq!(w.signed_out_keys(), vec![PersonKey::new("old")]);
 }
@@ -673,6 +730,208 @@ fn health_past_the_deadline_raises_no_unavailable() {
         0,
         "a call past its deadline sends nothing"
     );
+}
+
+/// A token good for an hour, as the store keeps it.
+fn good_token(w: &World, secret: &str) -> Token {
+    Token {
+        secret: Secret::new(secret),
+        until: At::new(w.now().secs() + 3600),
+    }
+}
+
+/// A `Faulty` `FakeSite` whose tokens are `tokens`, watched by `wired`.
+fn token_site(wired: &Wired, tokens: &Arc<MemoryTokens>) -> Faulty<FakeSite> {
+    Faulty::new(FakeSite::new(&wired.world).with_tokens(tokens.clone())).watch(wired.watch(None))
+}
+
+#[test]
+fn health_a_kept_token_raises_no_recovered() {
+    let wired = Wired::new(World::new());
+    let tokens = Arc::new(MemoryTokens::new(wired.world.clock()));
+    let covers = Covers::Site(SiteId::new("fake/project"));
+    tokens.seed(covers, Scope::Cycle, good_token(&wired.world, "kept"));
+    let faulty = token_site(&wired, &tokens);
+    let mut h = faulty.identity(&full(), C).unwrap();
+    ok(laws::health::a_kept_token_raises_no_recovered(
+        h.as_mut(),
+        wired.wiring(),
+        Scope::Cycle,
+        wired.world.now(),
+    ));
+    assert_eq!(faulty.requests(), 0, "a kept token sends nothing");
+}
+
+#[test]
+fn health_an_expired_token_raises_no_recovered() {
+    // A kept token past its time, on a site that cannot mint.
+    let wired = Wired::new(World::new());
+    let tokens = Arc::new(MemoryTokens::new(wired.world.clock()));
+    let covers = Covers::Site(SiteId::new("fake/project"));
+    let old = Token {
+        secret: Secret::new("old"),
+        until: At::new(wired.world.now().secs() - 1),
+    };
+    tokens.seed(covers, Scope::Cycle, old);
+    let site = FakeSite::new(&wired.world)
+        .with_tokens(tokens.clone())
+        .keyless();
+    let faulty = Faulty::new(site).watch(wired.watch(None));
+    let mut h = faulty.identity(&full(), C).unwrap();
+    ok(laws::health::an_expired_token_raises_no_recovered(
+        h.as_mut(),
+        wired.wiring(),
+        Scope::Cycle,
+        wired.world.now(),
+    ));
+    assert_eq!(faulty.requests(), 0, "an expired kept token sends nothing");
+    // A given token that ran out after its handle was made.
+    let w = World::new();
+    let soon = good_token(&w, "handed-in");
+    let w = w.given("soon", soon);
+    let wired = Wired::new(w);
+    let faulty = Faulty::new(FakeSite::new(&wired.world)).watch(wired.watch(None));
+    let mut h = faulty
+        .identity(&Actor::Given(PersonKey::new("soon")), C)
+        .unwrap();
+    wired.world.advance(3601);
+    ok(laws::health::an_expired_token_raises_no_recovered(
+        h.as_mut(),
+        wired.wiring(),
+        Scope::Cycle,
+        wired.world.now(),
+    ));
+    assert_eq!(faulty.requests(), 0, "an expired given token sends nothing");
+}
+
+#[test]
+fn health_an_out_of_set_token_raises_no_recovered() {
+    let wired = Wired::new(World::new().grant(&["fake/project", "fake/other"]));
+    let tokens = Arc::new(MemoryTokens::new(wired.world.clock()));
+    let faulty = token_site(&wired, &tokens);
+    let mut h = faulty.identity(&full(), C).unwrap();
+    let wider = [
+        ProjectName::new("fake/project"),
+        ProjectName::new("fake/elsewhere"),
+    ];
+    ok(laws::health::an_out_of_set_token_raises_no_recovered(
+        h.as_mut(),
+        wired.wiring(),
+        Scope::Agent,
+        &wider,
+        wired.world.now(),
+    ));
+    assert_eq!(faulty.requests(), 0, "a refused set sends nothing");
+}
+
+/// A wiring that gives every token answer to `health::next`, those made
+/// with no request among them: what the token health laws catch.
+struct SeesAll<'a> {
+    inner: Box<dyn Identity + Send>,
+    wired: &'a Wired,
+}
+
+impl SeesAll<'_> {
+    fn seen<T>(&mut self, answer: Got<T>) -> Got<T> {
+        let seen = answer.as_ref().map(|_| ()).map_err(Clone::clone);
+        let w = self.wired;
+        let was = w.ledger.health(&w.host, &Whose::Host).unwrap();
+        let now = w.world.now();
+        let (new, notice) = next(&w.host, &Whose::Host, Realm::CodeHost, now, &was, &seen);
+        if w.ledger.swap_health(&w.host, &Whose::Host, &was, &new) == Ok(true) {
+            notice.into_iter().for_each(|n| w.sink.notice(n));
+        }
+        answer
+    }
+}
+
+impl Reports for SeesAll<'_> {
+    fn take_reports(&mut self) -> Vec<Report> {
+        self.inner.take_reports()
+    }
+}
+
+impl Identity for SeesAll<'_> {
+    fn me(&mut self) -> Got<Account> {
+        self.inner.me()
+    }
+    fn standing(&mut self, who: &AccountId) -> Got<Standing> {
+        self.inner.standing(who)
+    }
+    fn account(&mut self, who: &AccountId) -> Got<Account> {
+        self.inner.account(who)
+    }
+    fn account_by_login(&mut self, login: &Login) -> Got<Account> {
+        self.inner.account_by_login(login)
+    }
+    fn is_organisation(&mut self, name: &Login) -> Got<bool> {
+        self.inner.is_organisation(name)
+    }
+    fn assignable(&mut self, who: &AccountId) -> Got<bool> {
+        self.inner.assignable(who)
+    }
+    fn token(&mut self, scope: Scope) -> Got<Token> {
+        let answer = self.inner.token(scope);
+        self.seen(answer)
+    }
+    fn token_over(&mut self, scope: Scope, projects: &[ProjectName]) -> Got<Token> {
+        let answer = self.inner.token_over(scope, projects);
+        self.seen(answer)
+    }
+    fn sign_in_link(&self, state: &SignInState) -> WebLink {
+        self.inner.sign_in_link(state)
+    }
+    fn signed_in(&mut self, code: &SignInCode) -> Got<(Account, Secret)> {
+        self.inner.signed_in(code)
+    }
+}
+
+#[test]
+fn the_token_health_laws_break_where_local_answers_are_seen() {
+    let w = World::new().grant(&["fake/project", "fake/other"]);
+    let soon = good_token(&w, "handed-in");
+    let w = w.given("soon", soon);
+    let wired = Wired::new(w);
+    let tokens = Arc::new(MemoryTokens::new(wired.world.clock()));
+    let covers = Covers::Site(SiteId::new("fake/project"));
+    tokens.seed(covers, Scope::Cycle, good_token(&wired.world, "kept"));
+    let site = FakeSite::new(&wired.world).with_tokens(tokens.clone());
+    let sees = |actor: &Actor| SeesAll {
+        inner: site.identity(actor, C).unwrap(),
+        wired: &wired,
+    };
+    let now = wired.world.now();
+    let e = laws::health::a_kept_token_raises_no_recovered(
+        &mut sees(&full()),
+        wired.wiring(),
+        Scope::Cycle,
+        now,
+    )
+    .unwrap_err();
+    assert_eq!(e.law, "health::a_kept_token_raises_no_recovered");
+    let wider = [
+        ProjectName::new("fake/project"),
+        ProjectName::new("fake/elsewhere"),
+    ];
+    let e = laws::health::an_out_of_set_token_raises_no_recovered(
+        &mut sees(&full()),
+        wired.wiring(),
+        Scope::Agent,
+        &wider,
+        now,
+    )
+    .unwrap_err();
+    assert_eq!(e.law, "health::an_out_of_set_token_raises_no_recovered");
+    let mut given = sees(&Actor::Given(PersonKey::new("soon")));
+    wired.world.advance(3601);
+    let e = laws::health::an_expired_token_raises_no_recovered(
+        &mut given,
+        wired.wiring(),
+        Scope::Cycle,
+        wired.world.now(),
+    )
+    .unwrap_err();
+    assert_eq!(e.law, "health::an_expired_token_raises_no_recovered");
 }
 
 #[test]
@@ -1092,6 +1351,118 @@ fn the_writer_sends_each_write_to_its_port_and_answers_its_receipt() {
     assert_eq!(kinds.len(), sent.len());
     assert_eq!(sent.len(), 37);
     assert!(!sent.contains(&WriteKind::Unknown));
+}
+
+#[test]
+fn writes_a_write_is_idempotent_by_its_inputs() {
+    let w = World::new();
+    let head = w.head("main").unwrap();
+    let w = w.tag("v1.0.0", &head);
+    let site = FakeSite::new(&w);
+    let mut writer = Writer {
+        tickets: site.ticket_writes(&full(), C).unwrap(),
+        blueprints: site.blueprint_writes(&full(), C).unwrap(),
+        code_host: site.code_host_writes(&full(), C).unwrap(),
+    };
+    let (blobs, files) = version_file();
+    let draft = Write::NewRelease(NewRelease {
+        tag: TagName::new("v1.0.0").unwrap(),
+        title: "1.0.0".into(),
+        notes: Body::Text("notes".into()),
+        draft: true,
+        prerelease: false,
+    });
+    let Ok(Receipt::Release(release)) = writer.send(&draft, &blobs) else {
+        panic!("no draft release");
+    };
+    let release = release.id;
+    let writes = [
+        Write::Prepare,
+        Write::EnsureMark(MarkSpec {
+            name: MarkName::new("area: docs").unwrap(),
+            colour: Colour::new("0e8a16").ok(),
+            about: None,
+        }),
+        Write::Propose(proposal(&w, "bump-again", &files)),
+        Write::Tag {
+            name: TagName::new("v1.1.0").unwrap(),
+            at: head.clone(),
+        },
+        Write::SetStatus {
+            at: head.clone(),
+            status: Status {
+                name: "plugin".into(),
+                state: StatusState::Passed,
+                about: "ok".into(),
+                link: None,
+            },
+        },
+        Write::Upload {
+            release: release.clone(),
+            name: FileName::new("VERSION").unwrap(),
+            file: files[0].1.clone(),
+        },
+        Write::PublishRelease { release },
+    ];
+    let mut kinds: Vec<WriteKind> = writes.iter().map(Write::kind).collect();
+    kinds.sort_by_key(|k| format!("{k:?}"));
+    let mut idempotent = laws::writes::IDEMPOTENT.to_vec();
+    idempotent.sort_by_key(|k| format!("{k:?}"));
+    assert_eq!(kinds, idempotent, "every write sent again is tried");
+    for write in &writes {
+        ok(laws::writes::a_write_is_idempotent_by_its_inputs(
+            &mut writer,
+            write,
+            &blobs,
+            || w.held(),
+        ));
+    }
+    // A write sent once only is no write the law takes.
+    let note = Write::TicketNote {
+        ticket: w.key(1),
+        body: Body::Text("hello".into()),
+        markers: vec![],
+    };
+    let e =
+        laws::writes::a_write_is_idempotent_by_its_inputs(&mut writer, &note, &blobs, || w.held())
+            .unwrap_err();
+    assert_eq!(e.law, "writes::a_write_is_idempotent_by_its_inputs");
+}
+
+/// A writer that files a new ticket on every `Prepare`: what the
+/// idempotence law catches.
+struct Twice(Writer);
+
+impl Writes for Twice {
+    fn send(&mut self, w: &Write, files: &dyn Blobs) -> Got<Receipt> {
+        if *w == Write::Prepare {
+            self.0.send(&Write::FileTicket(new_ticket()), files)?;
+        }
+        self.0.send(w, files)
+    }
+    fn read_only(&self) -> bool {
+        false
+    }
+}
+
+#[test]
+fn the_idempotence_law_breaks_where_a_repeat_writes_again() {
+    let w = World::new();
+    let site = FakeSite::new(&w);
+    let mut writer = Twice(Writer {
+        tickets: site.ticket_writes(&full(), C).unwrap(),
+        blueprints: site.blueprint_writes(&full(), C).unwrap(),
+        code_host: site.code_host_writes(&full(), C).unwrap(),
+    });
+    let e = laws::writes::a_write_is_idempotent_by_its_inputs(
+        &mut writer,
+        &Write::Prepare,
+        &NoBlobs,
+        || w.held(),
+    )
+    .unwrap_err();
+    assert_eq!(e.law, "writes::a_write_is_idempotent_by_its_inputs");
+    assert!(e.what.contains("changed the site"), "{}", e.what);
 }
 
 #[test]

@@ -130,6 +130,16 @@ impl World {
         self.lock().wrote.clone()
     }
 
+    /// What the world holds, as text, without its record of writes: two
+    /// worlds that hold the same read the same.
+    pub fn held(&self) -> String {
+        let mut s = self.lock();
+        let wrote = std::mem::take(&mut s.wrote);
+        let text = format!("{:?}", *s);
+        s.wrote = wrote;
+        text
+    }
+
     /// The project's name, as the world's sites name it.
     pub fn project(&self) -> ProjectName {
         self.lock().project.clone()
