@@ -6,10 +6,12 @@
 //! a cycle asks a busy store again, and then makes the write with no row.
 
 use crate::call::{gh_why, run_full, Ran};
+use crate::read_only;
 use regex::Regex;
 use serde_json::{json, Value};
 use std::sync::OnceLock;
 use std::time::Duration;
+use tehas_ports::{Blobs, Got, Outcome, Passing, Receipt, Refusal, Sent, Sha256, Write, Writes};
 
 /// How a journaled call ended.
 #[derive(Debug, PartialEq)]
@@ -24,6 +26,36 @@ pub enum Wrote {
     Unknown(String),
     /// Not made: the journal could not record it.
     Unrecorded,
+}
+
+/// How a write of the ports ended (`Journal::send`).
+#[derive(Debug, PartialEq)]
+pub enum Journaled {
+    /// The site's answer, and the row settled by it.
+    Answered(Got<Receipt>),
+    /// The site may have taken it: `Unavailable { sent: Maybe }` or an
+    /// answer that could not be read. The row is left unknown, never sent
+    /// again on it: the caller's read settles it with [`Journal::settle`].
+    Unknown { answer: Outcome, row: RowId },
+    /// Not sent: the journal could not record it.
+    Unrecorded,
+}
+
+/// A row `Journal::send` left unknown. Only `send` makes one, and
+/// [`Journal::settle`] takes it, so a row the site's answer settled is never
+/// settled again, and an unknown row is settled once.
+#[derive(Debug, PartialEq, Eq)]
+pub struct RowId(String);
+
+/// What the caller's read found of a write left unknown, by the settle rule
+/// of its kind (the ports spec, "How a row left unknown is settled").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Found {
+    /// The write is there: the row is done.
+    Landed,
+    /// It is not: the row is closed as not sent, and the caller decides
+    /// afresh from the same read. Nothing is replayed from the row.
+    NotSent,
 }
 
 /// The store's answer to one call, or its failure.
@@ -69,45 +101,11 @@ impl Journal<'_> {
         if let Some((n, attempt)) = self.cycle {
             call["cycle"] = json!({"issue": n, "attempt": attempt});
         }
-        // The first write asks for the row. A store that cannot begin it
-        // records, and so makes, no write: an answer with no time of its own
-        // is refused the same way, since 0 is no row. Every write asks again
-        // while no row stands.
-        if *self.poll_at == 0 {
-            match store(&["poll-begin"]) {
-                Ok(v) => match v.get("at").and_then(Value::as_i64) {
-                    Some(at) if at > 0 => *self.poll_at = at,
-                    _ => {
-                        *self.row_not_begun = true;
-                        return Wrote::Unrecorded;
-                    }
-                },
-                Err(_) => return Wrote::Unrecorded,
-            }
-        }
-        let recorded = store(&[
-            "journal-record",
-            "--poll",
-            &self.poll_at.to_string(),
-            "--kind",
-            kind,
-            "--issue",
-            &issue.to_string(),
-            "--args",
-            &call.to_string(),
-            "--before",
-            &self.before.to_string(),
-        ]);
-        let Some(id) = recorded
-            .ok()
-            .and_then(|v| v.get("action").and_then(Value::as_i64))
-        else {
+        let issue = issue.to_string();
+        let what = ["--kind", kind, "--issue", &issue];
+        let Some(id) = self.intend(store, &call.to_string(), &what) else {
             return Wrote::Unrecorded;
         };
-        let id = id.to_string();
-        if store(&["journal-attempt", "--action", &id]).is_err() {
-            return Wrote::Unrecorded;
-        }
         let r = self.gh(&args, body);
         let there = there(&r, done_if);
         let result = match r.status {
@@ -121,6 +119,120 @@ impl Journal<'_> {
         // open: the next poll settles it from a fresh read.
         let _ = store(&["journal-settle", "--action", &id, "--result", result]);
         self.wrote(r, there)
+    }
+
+    /// A write of the ports, journaled as `write` journals a call of gh: its
+    /// row keeps the write with its bodies summed, and `writes` is sent the
+    /// write as given. A read-only writer is sent nothing and no row is
+    /// recorded.
+    ///
+    /// The row settles by the answer: `ok`; `unknown` for one the site may
+    /// have taken, `Unavailable { sent: Maybe }` (a time-out too) or an
+    /// answer that could not be read (`Unread`), which a read settles next;
+    /// `timed-out` for a time-out that sent nothing; `read-failed`, the 1.x
+    /// word for a failed call, for every other error (`Refused`,
+    /// `Conflict`, `NotFound`, `Spent`, ...).
+    pub fn send(
+        &mut self,
+        store: Store,
+        write: &Write,
+        writes: &mut dyn Writes,
+        files: &dyn Blobs,
+    ) -> Journaled {
+        if writes.read_only() {
+            read_only::tell(&format!("send {:?}", write.kind()));
+            return Journaled::Answered(Err(Outcome::Refused(Refusal::ReadOnly)));
+        }
+        let row = match write.summed(|text| Sha256::new(sha256(text)).ok()) {
+            Ok(row) => row,
+            Err(o) => return Journaled::Answered(Err(o)),
+        };
+        let Ok(row) = serde_json::to_string(&row) else {
+            return Journaled::Unrecorded;
+        };
+        let mut call = json!({"repo": self.repo});
+        if let Some((n, attempt)) = self.cycle {
+            call["cycle"] = json!({"issue": n, "attempt": attempt});
+        }
+        let Some(id) = self.intend(store, &call.to_string(), &["--write", &row]) else {
+            return Journaled::Unrecorded;
+        };
+        let answer = writes.send(write, files);
+        let result = match &answer {
+            Ok(_) => "ok",
+            // Before the time-out: one that may have been sent is unknown.
+            Err(Outcome::Unavailable {
+                sent: Sent::Maybe, ..
+            }) => "unknown",
+            Err(Outcome::Unavailable {
+                why: Passing::Timeout,
+                ..
+            }) => "timed-out",
+            Err(Outcome::Unread(_)) => "unknown",
+            Err(
+                Outcome::Unavailable { .. }
+                | Outcome::NotFound
+                | Outcome::Conflict(_)
+                | Outcome::Refused(_)
+                | Outcome::Forbidden
+                | Outcome::SignedOut
+                | Outcome::Spent { .. },
+            ) => "read-failed",
+        };
+        let _ = store(&["journal-settle", "--action", &id, "--result", result]);
+        match answer {
+            Err(answer) if result == "unknown" => Journaled::Unknown {
+                answer,
+                row: RowId(id),
+            },
+            answer => Journaled::Answered(answer),
+        }
+    }
+
+    /// Settles a row `send` left unknown from the caller's read. A read that
+    /// failed settles nothing: the row stays unknown for the next read, and
+    /// the poll's settle leaves a row of the ports open until it reads them.
+    /// False when the store did not take it: the row stays as it was.
+    pub fn settle(store: Store, row: RowId, found: Found) -> bool {
+        let RowId(id) = row;
+        let end: &[&str] = match found {
+            Found::Landed => &["--result", "ok"],
+            Found::NotSent => &["--abandoned"],
+        };
+        let mut asked = vec!["journal-settle", "--action", &id];
+        asked.extend_from_slice(end);
+        store(&asked).is_ok()
+    }
+
+    /// Records one action as intended, then attempted, and answers its id.
+    /// `what` names the write to the store, `call` is its --args. None: not
+    /// recorded, so not made.
+    fn intend(&mut self, store: Store, call: &str, what: &[&str]) -> Option<String> {
+        // The first write asks for the row. A store that cannot begin it
+        // records, and so makes, no write: an answer with no time of its own
+        // is refused the same way, since 0 is no row. Every write asks again
+        // while no row stands.
+        if *self.poll_at == 0 {
+            let v = store(&["poll-begin"]).ok()?;
+            match v.get("at").and_then(Value::as_i64) {
+                Some(at) if at > 0 => *self.poll_at = at,
+                _ => {
+                    *self.row_not_begun = true;
+                    return None;
+                }
+            }
+        }
+        let (poll, before) = (self.poll_at.to_string(), self.before.to_string());
+        let mut asked = vec!["journal-record", "--poll", &poll];
+        asked.extend_from_slice(what);
+        asked.extend(["--args", call, "--before", &before]);
+        let id = store(&asked)
+            .ok()?
+            .get("action")
+            .and_then(Value::as_i64)?
+            .to_string();
+        store(&["journal-attempt", "--action", &id]).ok()?;
+        Some(id)
     }
 
     /// Whether GitHub may have taken a call that did not answer as done: it
@@ -191,20 +303,26 @@ pub fn summed(args: &[String], input: Option<&str>) -> Option<Value> {
         .filter(|_| json)
         .and_then(|b| serde_json::from_str::<Value>(b).ok())
         .and_then(|v| v.get("body").and_then(Value::as_str).map(str::to_string));
-    field.as_deref().or(input).map(|b| {
-        use sha2::{Digest, Sha256};
-        let sum: String = Sha256::digest(b.as_bytes())
-            .iter()
-            .map(|x| format!("{x:02x}"))
-            .collect();
-        json!({"sha256": sum, "bytes": b.len()})
-    })
+    field
+        .as_deref()
+        .or(input)
+        .map(|b| json!({"sha256": sha256(b), "bytes": b.len()}))
+}
+
+/// The sha-256 of a text, in lower-case hex.
+fn sha256(text: &str) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|x| format!("{x:02x}"))
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::call::GRACE;
+    use tehas_ports::{Body, NoBlobs, Passing, Sent, Sha256, Sum, TicketKey, Unread};
 
     fn journal<'a>(
         poll_at: &'a mut i64,
@@ -412,5 +530,228 @@ mod tests {
         );
         let args: Value = serde_json::from_str(&asked[0][8]).unwrap();
         assert_eq!(args["input"]["bytes"], json!(4));
+    }
+
+    /// A `Writes` that answers from a script and keeps what it was sent.
+    struct Script {
+        answers: Vec<Got<Receipt>>,
+        sent: Vec<Write>,
+        read_only: bool,
+    }
+
+    impl Writes for Script {
+        fn send(&mut self, w: &Write, _: &dyn Blobs) -> Got<Receipt> {
+            self.sent.push(w.clone());
+            self.answers.remove(0)
+        }
+        fn read_only(&self) -> bool {
+            self.read_only
+        }
+    }
+
+    fn script(answers: Vec<Got<Receipt>>) -> Script {
+        Script {
+            answers,
+            sent: vec![],
+            read_only: false,
+        }
+    }
+
+    fn note() -> Write {
+        Write::TicketNote {
+            ticket: TicketKey::Number(std::num::NonZeroU64::new(7).unwrap()),
+            body: Body::Text("text".into()),
+            markers: vec![],
+        }
+    }
+
+    /// The flag's value in a store call.
+    fn flag<'a>(call: &'a [String], name: &str) -> &'a str {
+        let i = call.iter().position(|a| a == name).unwrap();
+        &call[i + 1]
+    }
+
+    /// T4.4: a write of the ports goes the journal's way: begin, record,
+    /// attempt, send, settle. The site is sent the text, the row keeps its
+    /// sum.
+    #[test]
+    fn a_sent_write_goes_begin_record_attempt_send_settle() {
+        let (mut at, mut no_row, mut asked) = (0, false, vec![]);
+        let mut j = journal(&mut at, &mut no_row, "true", Some((7, 2)));
+        let mut w = script(vec![Ok(Receipt::Done)]);
+        let got = j.send(&mut |a| taken(&mut asked, a), &note(), &mut w, &NoBlobs);
+        assert_eq!(got, Journaled::Answered(Ok(Receipt::Done)));
+        let verbs: Vec<&str> = asked.iter().map(|a| a[0].as_str()).collect();
+        assert_eq!(
+            verbs,
+            [
+                "poll-begin",
+                "journal-record",
+                "journal-attempt",
+                "journal-settle"
+            ]
+        );
+        assert_eq!(w.sent, [note()]);
+        let record = &asked[1];
+        let args: Value = serde_json::from_str(flag(record, "--args")).unwrap();
+        assert_eq!(
+            args,
+            json!({"repo": "a/b", "cycle": {"issue": 7, "attempt": 2}})
+        );
+        let row: Write = serde_json::from_str(flag(record, "--write")).unwrap();
+        let sum = Sum {
+            sha256: Sha256::new("982d9e3eb996f559e633f4d194def3761d909f5a3b647d1a851fead67c32c9d1")
+                .unwrap(),
+            len: 4,
+        };
+        assert!(matches!(row, Write::TicketNote { body: Body::Summed(s), .. } if s == sum));
+        assert!(!record.iter().any(|a| a == "--kind" || a == "--issue"));
+        assert_eq!(flag(record, "--poll"), "100");
+        assert_eq!(flag(record, "--before"), "5");
+        assert_eq!(flag(&asked[3], "--result"), "ok");
+    }
+
+    /// The settle each answer of the site is given, and the caller hears
+    /// the answer itself. An answer that may have landed stays unknown,
+    /// whether it timed out or could not be read.
+    #[test]
+    fn each_answer_settles_by_its_outcome() {
+        let maybe = Outcome::Unavailable {
+            why: Passing::Server,
+            sent: Sent::Maybe,
+        };
+        let late = Outcome::Unavailable {
+            why: Passing::Timeout,
+            sent: Sent::No,
+        };
+        let late_maybe = Outcome::Unavailable {
+            why: Passing::Timeout,
+            sent: Sent::Maybe,
+        };
+        let down = Outcome::Unavailable {
+            why: Passing::Unreachable,
+            sent: Sent::No,
+        };
+        for (answer, result) in [
+            (Ok(Receipt::Done), "ok"),
+            (Err(maybe), "unknown"),
+            (Err(late_maybe), "unknown"),
+            (Err(Outcome::Unread(Unread::Malformed)), "unknown"),
+            (Err(Outcome::Unread(Unread::Inconsistent)), "unknown"),
+            (Err(late), "timed-out"),
+            (Err(down), "read-failed"),
+            (Err(Outcome::NotFound), "read-failed"),
+        ] {
+            let (mut at, mut no_row, mut asked) = (9, false, vec![]);
+            let mut j = journal(&mut at, &mut no_row, "true", None);
+            let mut w = script(vec![answer.clone()]);
+            let got = j.send(&mut |a| taken(&mut asked, a), &note(), &mut w, &NoBlobs);
+            let settle = asked.iter().find(|a| a[0] == "journal-settle").unwrap();
+            assert_eq!(flag(settle, "--result"), result);
+            match (answer, got) {
+                (Err(answer), Journaled::Unknown { answer: got, row }) => {
+                    assert_eq!(result, "unknown");
+                    assert_eq!((got, row), (answer, RowId("7".into())));
+                }
+                (answer, got) => {
+                    assert_ne!(result, "unknown");
+                    assert_eq!(got, Journaled::Answered(answer));
+                }
+            }
+        }
+    }
+
+    /// The caller's read settles the row the site's answer left unknown:
+    /// done when the write is there, abandoned when it is not, and the
+    /// row's own id is named.
+    #[test]
+    fn a_row_left_unknown_is_settled_by_the_callers_read() {
+        let maybe = Outcome::Unavailable {
+            why: Passing::Server,
+            sent: Sent::Maybe,
+        };
+        for (found, end) in [
+            (Found::Landed, vec!["--result", "ok"]),
+            (Found::NotSent, vec!["--abandoned"]),
+        ] {
+            let (mut at, mut no_row, mut asked) = (9, false, vec![]);
+            let mut j = journal(&mut at, &mut no_row, "true", Some((7, 1)));
+            let mut w = script(vec![Err(maybe.clone())]);
+            let got = j.send(&mut |a| taken(&mut asked, a), &note(), &mut w, &NoBlobs);
+            let Journaled::Unknown { row, .. } = got else {
+                panic!("{got:?}");
+            };
+            assert!(Journal::settle(&mut |a| taken(&mut asked, a), row, found));
+            let last = asked.last().unwrap();
+            let mut want = vec!["journal-settle", "--action", "7"];
+            want.extend(end);
+            assert_eq!(last, &want);
+            // The send's own settle left it unknown first.
+            let settles: Vec<_> = asked.iter().filter(|a| a[0] == "journal-settle").collect();
+            assert_eq!(settles.len(), 2);
+            assert_eq!(flag(settles[0], "--result"), "unknown");
+        }
+    }
+
+    /// A row the site's answer settled gives the caller no id, so nothing
+    /// settles it again; a store that refuses a settle is the caller's to
+    /// hear.
+    #[test]
+    fn only_a_row_left_unknown_can_be_settled_again() {
+        for answer in [Ok(Receipt::Done), Err(Outcome::Refused(Refusal::Invalid))] {
+            let (mut at, mut no_row, mut asked) = (9, false, vec![]);
+            let mut j = journal(&mut at, &mut no_row, "true", None);
+            let mut w = script(vec![answer.clone()]);
+            let got = j.send(&mut |a| taken(&mut asked, a), &note(), &mut w, &NoBlobs);
+            assert_eq!(got, Journaled::Answered(answer));
+        }
+        let refused = Journal::settle(
+            &mut |_| Err(json!({"refused": "is settled already (done)"})),
+            RowId("4".into()),
+            Found::Landed,
+        );
+        assert!(!refused);
+    }
+
+    #[test]
+    fn a_write_the_journal_cannot_record_is_not_sent() {
+        let (mut at, mut no_row) = (9, false);
+        let mut j = journal(&mut at, &mut no_row, "true", None);
+        let mut w = script(vec![]);
+        let got = j.send(
+            &mut |_| Err(json!({"failed": true})),
+            &note(),
+            &mut w,
+            &NoBlobs,
+        );
+        assert_eq!(got, Journaled::Unrecorded);
+        assert!(w.sent.is_empty());
+    }
+
+    /// A read-only host records no row and sends nothing, and keeps the
+    /// write it did not make in its log, as `read_only::refuse` does.
+    #[test]
+    fn a_read_only_writer_is_refused_with_no_row() {
+        let home = std::env::temp_dir().join(format!("tehas-send-ro-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        read_only::TEST_HOME.with(|t| *t.borrow_mut() = Some(home.clone()));
+        let (mut at, mut no_row, mut asked) = (0, false, vec![]);
+        let mut j = journal(&mut at, &mut no_row, "true", None);
+        let mut w = script(vec![]);
+        w.read_only = true;
+        let got = j.send(&mut |a| taken(&mut asked, a), &note(), &mut w, &NoBlobs);
+        assert_eq!(
+            got,
+            Journaled::Answered(Err(Outcome::Refused(Refusal::ReadOnly)))
+        );
+        assert!(asked.is_empty());
+        assert!(w.sent.is_empty());
+        read_only::TEST_HOME.with(|t| *t.borrow_mut() = None);
+        let log = std::fs::read_to_string(read_only::log_path(&home)).unwrap();
+        assert!(
+            log.ends_with("\tread-only: would send TicketNote\n"),
+            "{log}"
+        );
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

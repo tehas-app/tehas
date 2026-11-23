@@ -279,11 +279,19 @@ pub enum Write {
 
 /// A write's answer: what it made, and where a person opens it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Posted<T> {
     /// What it made.
     pub id: T,
     /// Where a person opens it.
     pub link: WebLink,
+}
+
+impl<T> Posted<T> {
+    /// What a write made, and where a person opens it.
+    pub fn new(id: T, link: WebLink) -> Self {
+        Self { id, link }
+    }
 }
 
 /// What a write made, with where a person opens it.
@@ -558,7 +566,7 @@ impl Writes for Writer {
             Write::NewTarget { title, due } => t.new_target(title, *due).map(Receipt::Target),
             Write::EditTarget { id, edit } => done(t.edit_target(id, edit)),
             Write::SetTarget { ticket, target } => done(t.set_target(ticket, target.as_ref())),
-            Write::Prepare => done(t.prepare()),
+            Write::Prepare => done(t.prepare().map_err(|u| u.why)),
             Write::EnsureMark(spec) => done(t.ensure_mark(spec)),
             Write::OpenBlueprint(new) => b.open(new).map(Receipt::Blueprint),
             Write::EditBlueprint {

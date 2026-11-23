@@ -755,7 +755,7 @@ impl World {
             std::os::unix::fs::symlink(&lib, t.join(tree).join("lib")).unwrap();
         }
         for verb in ["tehas", "tehasbot"] {
-            fs::copy(
+            tehas_core::testing::copy_exe(
                 root().join("bin").join(verb),
                 t.join("front/bin").join(verb),
             )
@@ -1107,7 +1107,8 @@ impl World {
         fs::create_dir_all(tree.join("libexec")).unwrap();
         fs::create_dir_all(tree.join("bin")).unwrap();
         let _ = std::os::unix::fs::symlink(root().join("lib"), tree.join("lib"));
-        fs::copy(root().join("bin/tehasbot"), tree.join("bin/tehasbot")).unwrap();
+        tehas_core::testing::copy_exe(root().join("bin/tehasbot"), tree.join("bin/tehasbot"))
+            .unwrap();
         place(&self.console, &tree.join("libexec/console"));
         let health = tree.join("libexec/health");
         write_exe(

@@ -142,44 +142,8 @@ fn run(url: &str) -> Run {
     }
 }
 
-/// The run's directory: a test directory, or one under /tmp when that path
-/// is too long for a socket (108 bytes of `sun_path`).
-enum SockDir {
-    Test(TestDir),
-    Short(PathBuf),
-}
-
-impl SockDir {
-    fn new() -> SockDir {
-        let t = TestDir::new("sock");
-        if t.join(SOCKET).as_os_str().len() < 100 {
-            return SockDir::Test(t);
-        }
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let n = NEXT.fetch_add(1, Ordering::SeqCst);
-        let p = PathBuf::from(format!("/tmp/tehas-sock-{}-{n}", std::process::id()));
-        std::fs::create_dir(&p).unwrap();
-        SockDir::Short(p)
-    }
-
-    fn path(&self) -> &Path {
-        match self {
-            SockDir::Test(t) => t.path(),
-            SockDir::Short(p) => p,
-        }
-    }
-}
-
-impl Drop for SockDir {
-    fn drop(&mut self) {
-        if let SockDir::Short(p) = self {
-            let _ = std::fs::remove_dir_all(p);
-        }
-    }
-}
-
-fn start(run: Run) -> (SockDir, Server) {
-    let dir = SockDir::new();
+fn start(run: Run) -> (TestDir, Server) {
+    let dir = TestDir::short();
     let server = Server::start(dir.path(), run).unwrap();
     (dir, server)
 }

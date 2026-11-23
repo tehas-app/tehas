@@ -1,12 +1,13 @@
-//! The tickets port's marks and history, answered over the forge's reads in
-//! the ports' types. The rest of the tickets port comes with the moves that
-//! need it.
+//! The tickets port's digest, marks and history, answered over the forge's
+//! reads in the ports' types. The traits are answered in `port/`; the rest
+//! of the tickets port comes with the moves that need it.
 
-use crate::{gh, table, GitHub};
-use tehas_core::forge::ForgeError;
+use crate::{gh, table, ForgeError, GitHub};
+use serde_json::Value;
 use tehas_ports::{
-    Account, AccountId, AccountKind, At, Got, Happened, HappenedKind, Login, Mark, MarkName,
-    Outcome, Passing, Pool, Realm, Refusal, Sent, TicketEvent, TicketKey, Took, Unread, Window,
+    Account, AccountId, AccountKind, At, CloseReason, Got, Happened, HappenedKind, Kind, Login,
+    Mark, MarkName, Outcome, Passing, Pool, Realm, Refusal, Revision, Sent, TargetId, TargetName,
+    TicketDigest, TicketEvent, TicketKey, TicketState, Took, Unread, WebLink, Window,
 };
 
 impl GitHub {
@@ -18,6 +19,17 @@ impl GitHub {
         let out = self.issue_answer(issue).map_err(|e| self.outcome(&e))?;
         let labels = gh::parse_labels(&out).ok_or(Outcome::Unread(Unread::Malformed))?;
         Ok(self.read_marks(&labels).into_iter().flatten().collect())
+    }
+
+    /// A ticket's digest, from the issue's REST read: the answer of
+    /// `Tickets::several` for one key. GitHub has no priority: every ticket
+    /// is `Normal`. The revision is the time GitHub last saw it change.
+    pub(crate) fn digest(&mut self, key: &TicketKey) -> Got<TicketDigest> {
+        let issue = number(key)?;
+        let out = self.issue_answer(issue).map_err(|e| self.outcome(&e))?;
+        let labels = gh::parse_labels(&out).ok_or(Outcome::Unread(Unread::Malformed))?;
+        let marks = self.read_marks(&labels).into_iter().flatten().collect();
+        read_digest(&out, key.clone(), marks).ok_or(Outcome::Unread(Unread::Malformed))
     }
 
     /// A ticket's marks going on and off, oldest first, as `Tickets::history`
@@ -61,11 +73,10 @@ impl GitHub {
                     tehas_core::time::from_iso(t).ok_or(Outcome::Unread(Unread::Malformed))?,
                 )),
             };
-            items.push(TicketEvent {
-                what,
-                by: account(&e.actor, &facts),
-                at,
-            });
+            let mut event = TicketEvent::new(what);
+            event.by = account(&e.actor, &facts);
+            event.at = at;
+            items.push(event);
         }
         take(items, window)
     }
@@ -115,22 +126,76 @@ fn number(key: &TicketKey) -> Got<u64> {
     }
 }
 
+/// The digest of an issue's REST read, its marks read already. None for an
+/// answer that lacks a field every issue has.
+fn read_digest(out: &str, key: TicketKey, marks: Vec<Mark>) -> Option<TicketDigest> {
+    let mut v: Value = serde_json::from_str(out.trim()).ok()?;
+    tehas_core::accounts::vouch(&mut v);
+    let text = |k: &str| v.get(k).and_then(Value::as_str);
+    let time = |k: &str| text(k).and_then(tehas_core::time::from_iso).map(At::new);
+    let state = match (text("state")?, text("state_reason")) {
+        ("open", _) => TicketState::Open,
+        // The REST read names no original of a duplicate: a reader that
+        // needs it reads the timeline.
+        ("closed", Some("not_planned" | "duplicate")) => {
+            TicketState::Closed(CloseReason::NotPlanned)
+        }
+        ("closed", _) => TicketState::Closed(CloseReason::Done),
+        _ => return None,
+    };
+    let kind = match v.pointer("/type/name").and_then(Value::as_str) {
+        None => None,
+        Some("Feature") => Some(Kind::Feature),
+        Some("Bug") => Some(Kind::Bug),
+        Some("Task") => Some(Kind::Task),
+        Some("Epic") => Some(Kind::Epic),
+        Some(other) => Some(MarkName::new(other).map_or(Kind::Unknown, Kind::Other)),
+    };
+    let target = match v.get("milestone").filter(|m| !m.is_null()) {
+        None => None,
+        Some(m) => Some(TargetName::new(
+            TargetId::new(m.get("number")?.as_u64()?.to_string()),
+            m.get("title")?.as_str()?.to_string(),
+        )),
+    };
+    let author = v.get("user").and_then(|u| {
+        let facts = gh::Facts {
+            id: u.get("id").and_then(Value::as_u64),
+            kind: u.get("type").and_then(Value::as_str).map(str::to_string),
+        };
+        account(u.get("login")?.as_str()?, &facts)
+    });
+    let mut digest = TicketDigest::new(
+        key,
+        state,
+        time("created_at")?,
+        time("updated_at")?,
+        Revision::new(text("updated_at")?),
+        WebLink::new(text("html_url")?).ok()?,
+    );
+    digest.title = text("title")?.to_string();
+    digest.kind = kind;
+    digest.marks = marks;
+    digest.target = target;
+    digest.author = author;
+    Some(digest)
+}
+
 /// The account of an event, None where it names nobody. The login is folded
 /// to lower case, as GitHub compares logins.
 fn account(login: &str, facts: &gh::Facts) -> Option<Account> {
     if login.is_empty() {
         return None;
     }
-    Some(Account {
-        realm: Realm::CodeHost,
-        login: Login::new(login.to_ascii_lowercase()),
-        id: facts.id.map(|id| AccountId::new(id.to_string())),
-        kind: match facts.kind.as_deref() {
-            Some("User") => AccountKind::Person,
-            Some("Bot") => AccountKind::Bot,
-            _ => AccountKind::Unknown,
-        },
-    })
+    let kind = match facts.kind.as_deref() {
+        Some("User") => AccountKind::Person,
+        Some("Bot") => AccountKind::Bot,
+        _ => AccountKind::Unknown,
+    };
+    let login = Login::new(tehas_core::accounts::folded(login));
+    let mut account = Account::new(Realm::CodeHost, login, kind);
+    account.id = facts.id.map(|id| AccountId::new(id.to_string()));
+    Some(account)
 }
 
 /// What a window takes of a list, oldest first.
@@ -139,13 +204,17 @@ fn take<T>(mut items: Vec<T>, window: Window) -> Got<Took<T>> {
         Window::Whole(bound) if items.len() > bound.get() as usize => {
             Err(Outcome::Unread(Unread::Cut))
         }
-        Window::Whole(_) => Ok(Took { items, more: false }),
+        Window::Whole(_) => {
+            let mut took = Took::default();
+            took.items = items;
+            Ok(took)
+        }
         Window::Last(n) => {
             let skip = items.len().saturating_sub(n.get() as usize);
-            Ok(Took {
-                more: skip > 0,
-                items: items.split_off(skip),
-            })
+            let mut took = Took::default();
+            took.items = items.split_off(skip);
+            took.more = skip > 0;
+            Ok(took)
         }
     }
 }

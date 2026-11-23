@@ -89,6 +89,31 @@ pass and 78 on a fail, and 78 before it reads anything when `--settings` is
 missing or names no directory. It reads only the instance directory: no
 GitHub, Docker or git, and no writes.
 
+`--env <file>` stands a file for the host's `~/.config/tehas/env`, for a
+program that renders instance directories for many factories, or a test
+suite, where the host's file is not at hand:
+
+```
+cargo xtask config-check --settings ~/tehas-instance --env host.env
+```
+
+The file is read as tehas reads `~/.config/tehas/env`: `NAME=value` lines,
+an `export ` in front, blank lines and `#` comments. Its settings are given
+to the load as the host's file gives them, so a `TEHAS_MODEL_KEY_<NAME>`
+that `models.json` names counts as set. A line `NAME=<redacted>`, the
+marker unquoted, means the setting is set and its value is not shown: it
+counts as set and its value is not checked. No working file holds that
+line, since a shell that sources it stops at the `<`. Quoted,
+`NAME='<redacted>'` is an ordinary value and is checked like any other.
+Every other value is checked against its rule. `TEHAS_HOME` and
+`TEHAS_INSTANCE_DIR` are checked and not used: `--settings` names the
+directory and no home is read. The check fails with 78, before the load,
+when the file has a line that is no assignment, a value a shell would
+expand, a name that is not a [host setting](/tools#host-settings) or
+`TEHAS_MANAGER_VERSION`, or a value its rule refuses. A missing file is 78
+before anything is read. The output names settings and lines by number,
+never a value.
+
 A required `PI_ENSEMBLE_*` setting that is not set fails, and its line adds
 that a manager which renders `instance.env` for the factories it runs
 supplies it: for such a factory, check the `instance.env` the manager pushes,
@@ -96,8 +121,9 @@ not its raw instance directory.
 
 A pass does not promise the update goes through:
 
-- the credential file is not read. A `GH_TOKEN` line, or a setting
-  `api/renames-1.0.tsv` lists, in `~/.config/tehas/env` still stops 2.0;
+- without `--env`, the credential file is not read. A `GH_TOKEN` line, or a
+  setting `api/renames-1.0.tsv` lists, in `~/.config/tehas/env` still stops
+  2.0, and a key `models.json` names fails as not set;
 - who owns the files is not judged. The update refuses settings another
   account can write;
 - a finding can hide what comes after it. The load stops at its first
@@ -241,14 +267,47 @@ comment count only when the account that made them carries the recorded id
 login and another id, or with no id at all, does not count: the dispatcher
 reads it as `<login>#<id>`, which no list matches, and says why on standard
 error. With no id recorded for a login, nothing of it counts until
-`tehas update` records one.
+`tehas update` records one. GitHub logins are one account in any case, so
+the check ignores ASCII case: `Alice` is checked against the id recorded for
+`alice`, and does not count with another id. A file that gives one login
+two different ids in two cases cannot be read, as below. `tehas update`
+records ignoring case too: a pair of the login in another case is its pair, so a change of
+case in the settings meets the check below, and the recorded pair is kept
+under the login as the settings write it, in place of every other case.
+
+Which logins are allowed is matched ignoring ASCII case by `tehas resume`,
+`tehas plan`, `tehas dev` and a cycle started by hand. The dispatcher still
+matches `TEHAS_ALLOWED_LABELERS` in exact case, so write each login there as
+GitHub spells it.
 
 - A login that does not resolve stops `install.sh` and `tehas update` with 78
   and names it. Take it out of the settings or correct it.
 - A login whose id is not the recorded one stops them with 78 and names both
-  ids. If the account was renamed and is still the person the settings mean,
+  ids: the login may have changed hands. If it is the same person,
   `tehas update --accept-id <login>` records the new id. If not, take the login
   out of the settings.
+- A file whose lines only end in spaces, tabs or carriage returns is read as
+  the pairs it holds. The ids are checked against those pairs as above, and
+  only when the check passes is the file written back in its plain form.
+- A file that cannot be read with certainty stops them with 78 before GitHub
+  is asked, and nothing is written. The message names the file, the line if
+  there is one, what is wrong and how to repair it:
+  - A line that is not `<login> <id>` with one space between, a login that
+    is not a GitHub login, an id that is not a number, a login given two ids
+    in one case or two, or text that is not UTF-8: fix or remove that line,
+    then run `tehas update`.
+  - A link or other file that is not a regular one, a file over 64 KiB, or
+    a file that is there but holds no pairs: make it a regular file of
+    `<login> <id>` lines, or remove it, then run `tehas update`. A removed
+    file is recorded afresh, as on a first install, with no recorded id to
+    check against.
+  - A file the factory's user cannot read: give it back read and write for
+    that user, then run `tehas update`. Do not remove it; its pairs are what
+    the ids are checked against.
+- Until the file is repaired no listed login counts: the dispatcher and the
+  cycles say on standard error that the file cannot be read. The dispatcher
+  still knows its own questions by the bot's login, as it does before the
+  first record.
 - GitHub that cannot be asked stops them with 78 as well, before anything is
   installed.
 - The ids are asked with the app's token, made from its key as

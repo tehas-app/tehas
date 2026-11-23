@@ -18,6 +18,7 @@ use tehas_core::sandbox::{self, Identity, Kind, Misshaped, Paths};
 use tehas_core::text::disarm;
 use tehas_core::{call, models};
 use tehas_core::{settings, slice, time};
+use tehas_ports::{Act, Mark};
 
 const RUNNER: &str = "/opt/pi-rukas/bin/pi-rukas-headless";
 const USAGE: &str = "usage: tehas plan <issue-number> --out <file> --keep <dir> (--brief <file> | --session <id> --answer <file> [--comment <id>]) [--kind refine]";
@@ -225,12 +226,12 @@ fn token() -> Result<(), u8> {
     Ok(())
 }
 
-/// Whether an allowed account applied tehas:plan or tehas:refine: it approved
-/// the text, links and all, as tehas:ready does a cycle's (rule 5). Err when
-/// the label events could not be read.
+/// Whether an allowed account asked for a plan or a refine: it approved the
+/// text, links and all, as an approval does a cycle's (rule 5). Err when the
+/// label events could not be read.
 fn approved(issue: &str) -> Result<&'static str, ()> {
-    for name in ["tehas:plan", "tehas:refine"] {
-        match label::allowed_issue(issue, name) {
+    for act in [Act::Plan, Act::Refine] {
+        match label::allowed_issue(issue, Some(&Mark::Act(act))) {
             0 => return Ok("approved"),
             2 => return Err(()),
             _ => {}

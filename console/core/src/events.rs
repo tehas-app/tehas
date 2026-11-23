@@ -11,6 +11,7 @@
 use crate::accounts::account;
 use crate::grant::{self, Actor, Change, LabelEvent};
 use serde_json::Value;
+use tehas_ports::{Act, Happened, Mark, TicketEvent};
 
 /// The account of an event that names nobody, as a person reads it: the
 /// same word decide's `or_unknown` answers for an empty login. A list may
@@ -102,6 +103,15 @@ impl Events {
 /// as lib/config.sh checks it. An empty name is nobody and is never allowed.
 pub fn allowed_in(list: &str, login: &str) -> bool {
     !login.is_empty() && list.split(' ').any(|l| l == login)
+}
+
+/// [`allowed_in`] ignoring ASCII case, as `accounts::folded` compares
+/// logins: the vouch already checked every case variant of a listed login
+/// against its recorded id. Until T4.7 makes the two one rule, the
+/// dispatcher reads [`allowed_in`], exact case.
+pub fn allowed_folded(list: &str, login: &str) -> bool {
+    let login = crate::accounts::folded(login);
+    !login.is_empty() && list.split(' ').any(|l| crate::accounts::folded(l) == login)
 }
 
 /// Who applied `label` most recently, and when: tehas_label_actor. Events
@@ -282,6 +292,59 @@ pub fn pause_holds(events: &[Event], allowed: &dyn Fn(&str) -> bool) -> Option<(
         "unlabeled" | "labeled" => Some((e.event.clone(), e.actor.clone())),
         _ => None,
     }
+}
+
+/// [`pause_holds`] over the tickets port's history: whether the event that
+/// holds the host paused took the pause off, and by whom, or None. The same
+/// rule, for a caller that reads through the port; the two are one when the
+/// last caller of [`pause_holds`] moves.
+pub fn pause_holds_marks(
+    events: &[TicketEvent],
+    allowed: &dyn Fn(&str) -> bool,
+) -> Option<(bool, String)> {
+    let pause = Mark::Act(Act::Pause);
+    let mut v: Vec<(bool, &TicketEvent)> = events
+        .iter()
+        .filter_map(|e| match &e.what {
+            Happened::Unmarked(m) if *m == pause => Some((true, e)),
+            Happened::Marked(m) if *m == pause => Some((false, e)),
+            _ => None,
+        })
+        .collect();
+    v.sort_by_key(|(off, e)| (e.at, !off));
+    let (off, e) = v.last()?;
+    let by = e.by.as_ref().map(|a| a.login.as_str()).unwrap_or_default();
+    if *off && allowed(by) {
+        return None;
+    }
+    Some((*off, by.to_string()))
+}
+
+/// Who put `mark` on most recently, over the tickets port's history: the
+/// rule of [`label_actor`]. A removal never answers; an event with no time
+/// is older than any. None when no event put it on, or that one names
+/// nobody.
+pub fn mark_actor<'a>(events: &'a [TicketEvent], mark: &Mark) -> Option<&'a str> {
+    let mut v: Vec<(&TicketEvent, Change)> = events
+        .iter()
+        .filter_map(|e| match &e.what {
+            Happened::Marked(m) if m == mark => Some((e, Change::Applied)),
+            Happened::Unmarked(m) if m == mark => Some((e, Change::Removed)),
+            _ => None,
+        })
+        .collect();
+    v.sort_by_key(|(e, _)| e.at);
+    let timeline: Vec<LabelEvent<(), &Mark>> = v
+        .iter()
+        .map(|&(_, change)| LabelEvent {
+            actor: Actor::vouched(()),
+            label: mark,
+            pinned: true,
+            change,
+        })
+        .collect();
+    let i = grant::last_application(&timeline, &mark)?;
+    v[i].0.by.as_ref().map(|a| a.login.as_str())
 }
 
 /// Whether a change `who` made at `at` is after an approval `approver` gave
@@ -547,6 +610,38 @@ pub fn first_unallowed_rename(
 }
 
 #[cfg(test)]
+mod mark_actor_tests {
+    use super::mark_actor;
+    use tehas_ports::{Account, AccountKind, Act, At, Happened, Login, Mark, Realm, TicketEvent};
+
+    fn ev(what: Happened, by: Option<&str>, at: Option<i64>) -> TicketEvent {
+        let mut e = TicketEvent::new(what);
+        e.by = by.map(|l| Account::new(Realm::CodeHost, Login::new(l), AccountKind::Person));
+        e.at = at.map(At::new);
+        e
+    }
+
+    #[test]
+    fn the_newest_application_answers_and_a_removal_never_does() {
+        let ready = Mark::Act(Act::Approve);
+        let plan = Mark::Act(Act::Plan);
+        let on = |by, at| ev(Happened::Marked(ready.clone()), by, at);
+        let off = |by, at| ev(Happened::Unmarked(ready.clone()), by, at);
+        assert_eq!(mark_actor(&[], &ready), None);
+        let v = [on(Some("bob"), Some(2)), on(Some("alice"), Some(1))];
+        assert_eq!(mark_actor(&v, &ready), Some("bob"));
+        let v = [on(Some("mallory"), Some(1)), off(Some("alice"), Some(2))];
+        assert_eq!(mark_actor(&v, &ready), Some("mallory"));
+        let v = [on(Some("alice"), Some(1)), on(Some("mallory"), None)];
+        assert_eq!(mark_actor(&v, &ready), Some("alice"), "no time is older");
+        let v = [on(Some("alice"), Some(1)), on(None, Some(2))];
+        assert_eq!(mark_actor(&v, &ready), None);
+        let v = [ev(Happened::Marked(plan.clone()), Some("alice"), Some(1))];
+        assert_eq!(mark_actor(&v, &ready), None);
+    }
+}
+
+#[cfg(test)]
 mod allowed_tests {
     use super::allowed_in;
 
@@ -557,6 +652,35 @@ mod allowed_tests {
         assert!(!allowed_in("alice bob", "alice bob"));
         assert!(!allowed_in("alice bob", ""));
         assert!(!allowed_in("", ""));
+    }
+
+    /// The console's rule: whole logins of the list, in any ASCII case.
+    #[test]
+    fn the_folded_rule_ignores_ascii_case_and_nothing_else() {
+        use super::allowed_folded;
+        assert!(allowed_folded("alice", "Alice"));
+        assert!(allowed_folded("Alice", "alice"));
+        assert!(allowed_folded("alice", "ALICE"));
+        assert!(allowed_folded("alice bob", "BOB"));
+        for login in [
+            "",
+            "alice bob",
+            " alice",
+            "alice ",
+            "alic",
+            "alıce",
+            "alice#5",
+            "Alice#",
+        ] {
+            assert!(!allowed_folded("alice bob", login), "{login:?}");
+        }
+        // A list entry that is not a login is no wildcard.
+        for list in ["", " ", "alice  bob", "*", "alice *"] {
+            for login in ["mallory", "Mallory", "*x"] {
+                assert!(!allowed_folded(list, login), "{list:?} {login:?}");
+            }
+        }
+        assert!(!allowed_folded("alice  bob", ""));
     }
 
     /// The list is what lib/config.sh checks: whole logins with one space

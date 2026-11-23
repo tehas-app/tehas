@@ -354,6 +354,12 @@ runs it. It refuses, with the reason written back to the cycle:
   `<!-- tehas:`, in any letter case and with any white space after `<!--`;
 - the 51st write of a cycle.
 
+Before an edit the host reads the issue twice, and it edits only if the
+title and body are the same in both reads. If another account changed them
+in between, the cycle's `gh` fails with one line that says so, and the agent
+reads the issue again. GitHub cannot make the write itself conditional, so
+this covers the moment of the edit only, not an edit made before it.
+
 A title and a body that pass are posted masked as the console masks a log:
 tokens, keys, passwords, private addresses and the host's names are taken
 out. Every `@` mention gets a zero-width space after the `@`, so a cycle's

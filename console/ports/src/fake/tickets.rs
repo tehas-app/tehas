@@ -4,8 +4,8 @@ use std::num::{NonZeroU32, NonZeroU64};
 
 use super::faulty::{Op, TicketsOp};
 use super::site::{
-    comments_of, digest, edit_markers, first, key_order, known_mark, list_order, matches, revision,
-    text_of, whole, window, writable, Ctx, Handle,
+    comments_of, digest, edit_markers, first, known_mark, list_order, matches, revision, text_of,
+    whole, window, writable, Ctx, Handle,
 };
 use super::state::{Layout, State};
 use crate::{
@@ -14,7 +14,7 @@ use crate::{
     Happened, HappenedKind, Item, Kind, Mark, MarkSpec, Marker, MarkerEdit, MarkerKey, MarkerKind,
     NewTicket, Outcome, Part, Pool, Posted, Priority, Ref, Refusal, Step, StepPart, Target,
     TargetEdit, TargetId, Ticket, TicketChange, TicketDelta, TicketDigest, TicketEvent, TicketKey,
-    TicketWrites, Tickets, Took, WebLink, Whole, Window, Within, Write,
+    TicketWrites, Tickets, Took, Unprepared, WebLink, Whole, Window, Within, Write,
 };
 
 fn at_ticket(s: &State, key: &TicketKey) -> Got<usize> {
@@ -177,12 +177,41 @@ pub(crate) fn token(s: &State) -> ChangeToken {
     ChangeToken::new(format!("v{}", s.seq))
 }
 
-pub(crate) fn cursor(s: &State) -> Cursor {
-    Cursor::new(format!("s{}", s.seq))
-}
-
 pub(crate) fn since(c: Option<&Cursor>) -> u64 {
     seq_of(c)
+}
+
+/// A delta's page: the items and the notes, each with the sequence of its
+/// change, oldest change first, the first `bound` of them, the cursor after
+/// the last one taken, and whether more wait past it.
+pub(crate) fn page<A, B>(
+    s: &State,
+    mut items: Vec<(u64, A)>,
+    mut notes: Vec<(u64, B)>,
+    bound: Bound,
+) -> (Vec<A>, Vec<B>, Cursor, bool) {
+    items.sort_by_key(|(seq, _)| *seq);
+    notes.sort_by_key(|(seq, _)| *seq);
+    let mut seqs: Vec<u64> = items.iter().map(|(q, _)| *q).collect();
+    seqs.extend(notes.iter().map(|(q, _)| *q));
+    seqs.sort_unstable();
+    let n = bound.get() as usize;
+    let (last, more) = if seqs.len() > n {
+        (seqs[n - 1], true)
+    } else {
+        (s.seq, false)
+    };
+    let items = items
+        .into_iter()
+        .filter(|(q, _)| *q <= last)
+        .map(|(_, x)| x)
+        .collect();
+    let notes = notes
+        .into_iter()
+        .filter(|(q, _)| *q <= last)
+        .map(|(_, x)| x)
+        .collect();
+    (items, notes, Cursor::new(format!("s{last}")), more)
 }
 
 fn has_marker(markers: &[Marker], kind: &MarkerKind, key: &MarkerKey) -> bool {
@@ -419,38 +448,29 @@ impl Tickets for Handle {
     fn delta(&mut self, from: Option<&Cursor>, bound: Bound) -> Got<TicketDelta> {
         self.run(Pool::Calls, |s, _| {
             let after = since(from);
-            let mut tickets: Vec<TicketChange> = Vec::new();
-            let mut notes: Vec<(TicketKey, Comment)> = Vec::new();
+            let mut tickets = Vec::new();
+            let mut notes = Vec::new();
             for (at, item) in s.items.iter().enumerate() {
                 let Some(d) = digest(s, item) else { continue };
                 if item.seq > after {
-                    tickets.push(TicketChange {
-                        digest: d.clone(),
-                        text: item.text.clone(),
-                        closed: item.closed,
-                    });
+                    let mut change = TicketChange::new(d.clone());
+                    change.text = item.text.clone();
+                    change.closed = item.closed;
+                    tickets.push((item.seq, change));
                 }
                 for c in notes_of(s, at) {
-                    let changed = s
-                        .comment_at(&c.id)
-                        .is_some_and(|i| s.comments[i].seq > after);
-                    if changed {
-                        notes.push((d.key.clone(), c));
+                    let seq = s.comment_at(&c.id).map_or(0, |i| s.comments[i].seq);
+                    if seq > after {
+                        notes.push((seq, (d.key.clone(), c)));
                     }
                 }
             }
-            tickets.sort_by(|a, b| {
-                (a.digest.created, key_order(&a.digest.key))
-                    .cmp(&(b.digest.created, key_order(&b.digest.key)))
-            });
-            if tickets.len() + notes.len() > bound.get() as usize {
-                return Err(Outcome::Unread(crate::Unread::Cut));
-            }
-            Ok(TicketDelta {
-                tickets,
-                notes,
-                next: cursor(s),
-            })
+            let (tickets, notes, next, more) = page(s, tickets, notes, bound);
+            let mut delta = TicketDelta::new(next);
+            delta.tickets = tickets;
+            delta.notes = notes;
+            delta.more = more;
+            Ok(delta)
         })
     }
 
@@ -628,12 +648,13 @@ impl TicketWrites for Handle {
         )
     }
 
-    fn prepare(&mut self) -> Did {
+    fn prepare(&mut self) -> Result<(), Unprepared> {
         self.write(Op::Tickets(TicketsOp::Prepare), |s, ctx| {
             s.prepared = true;
             ctx.wrote(s, Write::Prepare);
             Ok(())
         })
+        .map_err(Unprepared::from)
     }
 
     fn ensure_mark(&mut self, spec: &MarkSpec) -> Did {

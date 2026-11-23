@@ -34,12 +34,18 @@ opaque!(
 
 /// What is left of one holder's pool, and when it is full again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Budget {
     /// How many calls or points are left.
     pub left: u32,
     /// When the pool is full again.
     pub resets: At,
 }
+
+new!(Budget {
+    left: u32,
+    resets: At
+});
 
 /// The health of a host, or of one holder on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -71,6 +77,7 @@ pub enum HealthState {
 /// its outcome, whose fixed line is `outcome.line()`. Read back whole by
 /// another process.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Failure {
     /// When the call failed.
     pub at: At,
@@ -80,8 +87,13 @@ pub struct Failure {
     pub outcome: Outcome,
 }
 
-/// The ledger could not be read or written: its file is missing, locked
-/// past its wait, or not whole.
+new!(Failure {
+    at: At,
+    site: SiteId,
+    outcome: Outcome
+});
+
+/// The ledger could not be read or written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct LedgerDown;
 
@@ -139,7 +151,12 @@ pub trait Ledger: Send + Sync {
         new: &HealthState,
     ) -> Result<bool, LedgerDown>;
     /// Keep one failed call, with the project it was for. Failures older
-    /// than `f.at - keep` are dropped, `keep` in seconds.
+    /// than `f.at - keep` are dropped, `keep` in seconds. It keeps what it is
+    /// given: the adapter chooses which failures count. It hands over only a
+    /// failure of the supplier: `Unavailable` but `Broken`, `Spent`, and the
+    /// factory's own `SignedOut`; an odd answer (`Unread`, `Cut` and
+    /// `TooLarge` among them) and another holder's sign-out are not handed
+    /// over.
     fn failed(&self, host: &HostId, f: Failure, keep: u32) -> Result<(), LedgerDown>;
     /// The failed calls on a host at or after `since`, oldest first.
     fn failures(&self, host: &HostId, since: At) -> Result<Vec<Failure>, LedgerDown>;
