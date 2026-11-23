@@ -87,7 +87,7 @@ Internal:
 | MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
 | `tehas update` | From any 0.30.x, 0.31.x or 0.32.x release. A 0.30.x host can name an rc or the release, not an alpha or a beta. From 1.0 on, the release repository and the signing key are built into tehas: the `TEHAS_RELEASE_REPO` line of `host/versions.env` and `host/release/minisign.pub` when the release was built. An instance may name another repository with `TEHAS_RELEASE_REPO` in `instance.env`; the key stays the built-in one | The update's shell tests, and the tests of `console/core/src/release.rs` |
 | Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x; a renamed name is taken under both names through 1.x | `console/cycle/tests/work_container.rs` |
-| Host namespace | `/host/` on the factory's origin belongs to the host that fronts the factory's domain: tehas never serves a path under it, and its docs server answers 404 there, which the dashboard reads as no host. The host bridge, `/host/bridge.json`, is `bridge: 1`, by `api/host-bridge.schema.json` and [its rules](/api#the-host-bridge) | `console/tests/host_bridge.rs` (the 404 under `/host/`, the schema and its samples), `test/json_contract_test.sh`, `test/host_bridge_test.mjs` (what the dashboard keeps of an answer) and `test/panels_dock_test.mjs` (a menu item opens in the dock, and a page item in a new tab with no dock) |
+| Host namespace | `/host/` on the factory's origin belongs to the host that fronts the factory's domain: tehas never serves a path under it, and its docs server answers 404 there, which the dashboard reads as no host. The host bridge, `/host/bridge.json`, is `bridge: 1`, by `api/host-bridge.schema.json` and [its rules](/api#the-host-bridge) | `console/tests/host_bridge.rs` (the 404 under `/host/`, the schema and its samples), `test/json_contract_test.sh`, `test/host_bridge_test.mjs` (what the dashboard keeps of an answer) and `test/dock_test.mjs` (a menu item opens in the dock, and a page item in a new tab with no dock) |
 
 `api/surface-1.0.txt` lists the names of the frozen surface in one place:
 each public command, subcommand and flag, setting, role, label and `--json`
@@ -451,9 +451,7 @@ with exit 78 and says `plugins` is still being built.
   `tehas-plugin-gate.service` are installed only while the feature is on, so
   a release installs neither. The edge router sends the names `plugin-*` and
   `plugins*` to the gate in every release; with no gate they answer 503.
-- A panel id starting `p-` is a plugin's view, which `tehas panel set`
-  refuses with 64 whether the feature is on or not. The flags
-  `--app-client-id` and `--app-secret-file` of `tehas setup` belong to the
+- The flags `--app-client-id` and `--app-secret-file` of `tehas setup` belong to the
   feature and are not contract until it ships.
 - No label, no `--json` field of another command, no MCP tool, no file under
   `live/`.
@@ -663,13 +661,13 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | 64 | No issue number, one that is not a positive number, or an argument it does not know |
 | 78 | The settings are missing or malformed, or the state store is not installed or cannot be used |
 
-### tehas panel and tehas host-message
+### tehas host-message
 
 | Status | When |
 | --- | --- |
 | 0 | Done |
 | 1 | The list could not be read or written, or another run held the lock |
-| 64 | A bad argument, one item over the limit, or for a panel a url on `TEHAS_DOMAIN`; nothing is written |
+| 64 | A bad argument, or one item over the limit; nothing is written |
 | 78 | The settings are missing or malformed; nothing is written |
 
 ### tehas dispatch

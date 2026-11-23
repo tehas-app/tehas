@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 /// brings it, and taken out only with the feature itself. The shipped features
 /// of the registry (core/src/features.rs) follow these; a building one is not
 /// a word of `features`.
-const FEATURES: [&str; 33] = [
+const FEATURES: [&str; 32] = [
     "status",
     "millwright-grant",
     "all-hands",
@@ -26,7 +26,6 @@ const FEATURES: [&str; 33] = [
     "mcp-dashboard-keys",
     "clean",
     "disk",
-    "panels",
     "state-check",
     "finish",
     "status-versions",
@@ -239,7 +238,7 @@ mod tests {
             r#"{"api":1,"tehas":"v1.2.3","commit":null,"repo":"acme/widget","features":["status","#
         ));
         assert!(printed.ends_with(
-            r#""disk","panels","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags","status-previews","wake","start-reasons","blockers","answer","question"],"flags":{"outsource":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2}}"#
+            r#""disk","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags","status-previews","wake","start-reasons","blockers","answer","question"],"flags":{"outsource":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2}}"#
         ));
     }
 
@@ -259,8 +258,9 @@ mod tests {
         }
     }
 
-    /// The words of api/features.txt at the newest tag that holds it, when git
-    /// has the history: a shallow clone or a tree with no tag skips the check.
+    /// The words of api/features.txt at the newest tag of this major that
+    /// holds it, when git has the history: a shallow clone or a tree with no
+    /// such tag skips the check. 2.0 took words out, so 1.x tags do not bind.
     #[test]
     fn features_starts_with_the_words_of_the_last_tag_that_pinned_them() {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
@@ -288,7 +288,10 @@ mod tests {
             first,
             "--sort=-creatordate",
         ]);
-        let Some(tag) = tags.as_deref().and_then(|t| t.lines().next()) else {
+        let Some(tag) = tags
+            .as_deref()
+            .and_then(|t| t.lines().find(|l| l.starts_with("v2.")))
+        else {
             return;
         };
         let then = git(&["show", &format!("{tag}:{file}")]).unwrap();

@@ -98,3 +98,6 @@ live/energy.json
 live/protolab.json
 logs/protolab.log
 logs/protolab.log.1
+# The panels' copy for the dashboard, which left core in 2.0: nothing writes
+# or reads it, and the docs server would serve the last one for ever.
+live/panels.json

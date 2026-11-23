@@ -14,7 +14,6 @@ pub mod holds;
 pub mod host_message;
 pub mod ids;
 pub mod mcp;
-pub mod panel;
 pub mod pins;
 pub mod plugin;
 pub mod poll_timer;

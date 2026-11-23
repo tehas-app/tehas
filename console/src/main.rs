@@ -174,8 +174,8 @@
 //! output cannot be written, 2 usage.
 
 use tehas_ops::{
-    account, clean, disk, edge, forge, freeze, github, health, holds, host_message, ids, mcp,
-    panel, pins, rukas, sandbox, settings, setup, shipped, size, slice, stop, store, tidy, update,
+    account, clean, disk, edge, forge, freeze, github, health, holds, host_message, ids, mcp, pins,
+    rukas, sandbox, settings, setup, shipped, size, slice, stop, store, tidy, update,
 };
 mod answer;
 mod api;

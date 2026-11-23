@@ -744,7 +744,7 @@ body[data-factory="live"] .console-state::before {
   .footer { padding: 24px 16px 32px; }
 }
 
-/* A host's notes (host-bridge.js; the chips are in panels.css, and in
+/* A host's notes (host-bridge.js; the chips are in dock.css, and in
    manual.css for /dashboard). Under a sign's ticket, under a row's title with
    the row's rule below both, and on the monitor in the screen's colours. */
 .slot > .host-notes { display: flex; margin-top: 4px; }
