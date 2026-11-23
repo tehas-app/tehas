@@ -216,10 +216,9 @@ pub fn put(wiki: &Path, stage: &Path, id: &str) -> io::Result<()> {
         }
         let rec = fs::read_to_string(e.path().join("build.json"))
             .ok()
-            .and_then(|t| build_of(&t))
-            .unwrap_or(Value::Null);
-        let s = |k: &str| rec[k].as_str().unwrap_or("").to_string();
-        builds.push((name, s("builtAt"), s("describe")));
+            .and_then(|t| build_of(&t));
+        let (built_at, describe) = rec.map_or_else(Default::default, |b| (b.built_at, b.describe));
+        builds.push((name, built_at, describe));
     }
     let kept = keep(&builds);
     for (name, _, _) in builds.iter().filter(|b| !kept.contains(&b.0) && b.0 != id) {
