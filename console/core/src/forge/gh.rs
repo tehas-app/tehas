@@ -202,6 +202,15 @@ pub(crate) fn parse_labels(out: &str) -> Option<Vec<String>> {
     )
 }
 
+/// An issue's title and body as one revision, or None when the answer is no
+/// issue with a title.
+#[cfg(feature = "mask")]
+pub(crate) fn text_revision(out: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(out.trim()).ok()?;
+    let title = crate::approval::title_sha256(&v)?;
+    Some(format!("{title}:{}", crate::approval::body_sha256(&v)))
+}
+
 /// Whether a failed removal answers that the label was not there, which is the
 /// state wanted. The status is read whole out of the digits `find_http`
 /// located, never as "404" anywhere in the text: a gateway error whose body

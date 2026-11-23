@@ -304,6 +304,16 @@ impl GitHub {
         let out = self.call("the issue's label events", &["api", &path, "--paginate"])?;
         gh::parse_events(&out).map_err(Self::reason_of)
     }
+
+    /// The revision of an issue's title and body: equal answers mean neither
+    /// changed. Labels and comments do not move it. The sums are the ones a
+    /// start holds its text to ([`crate::approval`]).
+    #[cfg(feature = "mask")]
+    pub fn text_revision(&mut self, issue: u64) -> Result<String, ForgeError> {
+        let path = format!("repos/{}/issues/{issue}", self.repo);
+        let out = self.call("the issue", &["api", &path])?;
+        gh::text_revision(&out).ok_or_else(|| ForgeError::new("the issue", "no title to read"))
+    }
 }
 
 impl Forge for GitHub {
