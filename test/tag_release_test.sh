@@ -9,13 +9,6 @@ origin=$T/origin.git
 work=$T/work
 g() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@"; }
 commit() { g -C "$T/up" commit --quiet --allow-empty -m "$1" && g -C "$T/up" push --quiet origin main; }
-# The tag of the remote moved to another commit, as a person re-making a
-# release does: the tag is rewritten and pushed over the one that is there.
-# shellcheck disable=SC2329  # the case at the end of this group calls it
-moved_tag() {
-  g -C "$T/up" tag --force "$1" "$2" &&
-    g -C "$T/up" push --quiet --force --atomic origin main "$1"
-}
 head_of() { git -C "$origin" rev-parse "${1:-main}^{commit}"; }
 
 # The script execs the xtask of this checkout, built once and named in

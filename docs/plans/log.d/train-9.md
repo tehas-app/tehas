@@ -1,0 +1,1 @@
+| 2026-11-23 | Merge train 9, tested as #3002 (verify run 45256154696), tree 819e78a8868d89b82a9cd3412ca2d7b1cdef176f, the tip after its last member: #2975 (code, an account-ids file that cannot be read stops the id record), #3001 (docs). The first train to land with the branch ruleset requiring merge-train on | #3002 |
