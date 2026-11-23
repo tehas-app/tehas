@@ -9,6 +9,8 @@ use std::io::{self, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
+use crate::file::ReadError;
+
 /// The labels whose application the dispatcher takes as a person's word to
 /// start or plan work, the ones `tehas labels` pins. A lone `tehas:blocked` starts an issue once its
 /// blockers close, so it is one of them.
@@ -32,17 +34,88 @@ pub const FILE: &str = crate::home::State::LabelPins.relative();
 /// Label name to node id.
 pub type Pins = BTreeMap<String, String>;
 
-/// The pins on record. A missing or unreadable file is none; a line of no
-/// `<name>\t<id>` shape is skipped.
-pub fn load(home: &Path) -> Pins {
-    let text = fs::read_to_string(home.join(FILE)).unwrap_or_default();
-    text.lines()
-        .filter_map(|l| {
-            let (name, id) = l.split_once('\t')?;
-            (!name.is_empty() && !id.is_empty() && !id.contains('\t'))
-                .then(|| (name.to_string(), id.to_string()))
+/// What [`load`] found where the pins are kept.
+#[derive(Debug, PartialEq)]
+pub enum Record {
+    /// No file: a fresh install, or a host from before the pins.
+    Absent,
+    /// The pins on record.
+    Kept(Pins),
+}
+
+impl Record {
+    /// The pins, none when there is no file.
+    pub fn pins(self) -> Pins {
+        match self {
+            Record::Absent => Pins::new(),
+            Record::Kept(p) => p,
+        }
+    }
+}
+
+/// The pins file is there and cannot be trusted: why, in a few words. No
+/// granting label counts while it is, and nothing writes over it.
+#[derive(Debug, PartialEq)]
+pub struct Unreadable(pub String);
+
+impl std::fmt::Display for Unreadable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the label pins in {FILE} cannot be read ({}): no granting label counts until they can. Make {FILE} a regular file, readable by tehas, of <name><tab><id> lines; or, after checking the tehas labels on GitHub, remove it and run tehas labels to pin them again",
+            self.0
+        )
+    }
+}
+
+/// The bound of the file: seven pins take well under 1 KiB.
+const BOUND: u64 = 64 * 1024;
+
+/// The pins on record. Only a file that is not there is [`Record::Absent`].
+/// Anything else that is not a regular file of `<name>\t<id>` lines, each
+/// name once and no whitespace in either, is [`Unreadable`]: a link, a
+/// directory, a file tehas may not read, one over the bound, not UTF-8, or a
+/// line of another shape. Blank lines, CRLF line ends and spaces or tabs
+/// after the id are read past.
+pub fn load(home: &Path) -> Result<Record, Unreadable> {
+    let path = home.join(FILE);
+    match fs::symlink_metadata(&path) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Record::Absent),
+        Err(e) => return Err(Unreadable(e.to_string())),
+        Ok(_) => {}
+    }
+    let (bytes, _) = crate::file::read_regular(&path, BOUND).map_err(|e| {
+        Unreadable(match e {
+            ReadError::Io(e) => e.to_string(),
+            ReadError::NotRegular => "it is not a regular file".into(),
+            ReadError::Replaced => "it was replaced while it was read".into(),
+            ReadError::TooLarge => "it is over 64 KiB".into(),
         })
-        .collect()
+    })?;
+    let text = String::from_utf8(bytes).map_err(|_| Unreadable("it is not UTF-8".into()))?;
+    parse(&text).map(Record::Kept)
+}
+
+fn parse(text: &str) -> Result<Pins, Unreadable> {
+    let mut pins = Pins::new();
+    for (at, raw) in text.split('\n').enumerate() {
+        // Trailing spaces, tabs and CR are damage that cannot change a pair.
+        let l = raw.trim_end_matches([' ', '\t', '\r']);
+        if l.is_empty() {
+            continue;
+        }
+        let bare = |w: &str| !w.is_empty() && !w.contains(char::is_whitespace);
+        let Some((name, id)) = l.split_once('\t').filter(|(n, id)| bare(n) && bare(id)) else {
+            return Err(Unreadable(format!(
+                "line {} is not <name><tab><id>",
+                at + 1
+            )));
+        };
+        if pins.insert(name.to_string(), id.to_string()).is_some() {
+            return Err(Unreadable(format!("line {} pins {name} again", at + 1)));
+        }
+    }
+    Ok(pins)
 }
 
 pub fn save(home: &Path, pins: &Pins) -> io::Result<()> {
@@ -92,10 +165,12 @@ pub const SAME_RUN_SECS: i64 = 60;
 /// name is still refused. That is how a label added to [`GRANTING`] after a host
 /// pinned the others gets its pin. A pin is never changed here. The file is written even with no pin in it, so the poll
 /// pins nothing after. The lines to print, and whether every label of
-/// [`GRANTING`] now has its pin.
-pub fn pin_made(home: &Path, seen: &[Seen]) -> (Vec<String>, bool) {
-    let kept = home.join(FILE).exists();
-    let mut pins = load(home);
+/// [`GRANTING`] now has its pin. A file that is there and cannot be read is
+/// [`Unreadable`], and nothing is written over it.
+pub fn pin_made(home: &Path, seen: &[Seen]) -> Result<(Vec<String>, bool), Unreadable> {
+    let record = load(home)?;
+    let kept = record != Record::Absent;
+    let mut pins = record.pins();
     let anchors: Vec<i64> = seen
         .iter()
         .filter(|s| s.after.is_some() && pins.get(s.name) == s.after.as_ref())
@@ -150,7 +225,7 @@ pub fn pin_made(home: &Path, seen: &[Seen]) -> (Vec<String>, bool) {
         said.push(format!("the label pins could not be kept in {FILE}: {e}"));
         whole = false;
     }
-    (said, whole)
+    Ok((said, whole))
 }
 
 #[cfg(test)]
@@ -158,6 +233,10 @@ mod tests {
     use super::*;
     use crate::home::Home;
     use crate::testdir::TestDir;
+
+    fn pins(home: &Path) -> Pins {
+        load(home).unwrap().pins()
+    }
 
     fn seen<'a>(name: &'a str, before: Option<&str>, after: Option<&str>) -> Seen<'a> {
         made(name, before, after, None)
@@ -188,7 +267,8 @@ mod tests {
                 seen("tehas:running", None, Some("LA_x")),
                 seen("tehas:lean", None, Some("LA_l")),
             ],
-        );
+        )
+        .unwrap();
         assert!(!whole);
         assert_eq!(
             said[0],
@@ -201,7 +281,7 @@ mod tests {
         );
         assert_eq!(said.len(), 3);
         assert_eq!(
-            load(d.path()),
+            pins(d.path()),
             Pins::from([
                 ("tehas:ready".into(), "LA_r".into()),
                 ("tehas:lean".into(), "LA_l".into())
@@ -215,7 +295,7 @@ mod tests {
     fn once_the_file_exists_only_a_label_this_run_made_is_pinned() {
         let d = TestDir::new("pins-made-kept");
         fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
-        fs::write(d.path().join(FILE), "tehas:ready\tLA_r\n").unwrap();
+        fs::write(d.path().join(FILE), format!("{READY}\tLA_r\n")).unwrap();
         let (said, whole) = pin_made(
             d.path(),
             &[
@@ -223,7 +303,8 @@ mod tests {
                 seen("tehas:plan", Some("LA_bug"), Some("LA_bug")),
                 seen("tehas:lean", None, Some("LA_lean")),
             ],
-        );
+        )
+        .unwrap();
         assert!(!whole);
         assert!(said[0].starts_with(
             "not pinned: the label tehas:ready is LA_other, and state/labels pins LA_r"
@@ -234,7 +315,7 @@ mod tests {
             said[2],
             "pinned the label tehas:lean as LA_lean in state/labels"
         );
-        let pins = load(d.path());
+        let pins = pins(d.path());
         assert_eq!(pins["tehas:ready"], "LA_r");
         assert!(!pins.contains_key("tehas:plan"));
         let (said, whole) = pin_made(
@@ -243,7 +324,8 @@ mod tests {
                 seen("tehas:ready", Some("LA_r"), Some("LA_r")),
                 seen("tehas:lean", Some("LA_lean"), Some("LA_lean")),
             ],
-        );
+        )
+        .unwrap();
         assert!(whole && said.is_empty());
     }
 
@@ -253,20 +335,21 @@ mod tests {
     fn a_label_made_with_a_pinned_one_is_pinned() {
         let d = TestDir::new("pins-same-run");
         fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
-        fs::write(d.path().join(FILE), "tehas:ready\tLA_r\n").unwrap();
+        fs::write(d.path().join(FILE), format!("{READY}\tLA_r\n")).unwrap();
         let (said, whole) = pin_made(
             d.path(),
             &[
                 made("tehas:ready", Some("LA_r"), Some("LA_r"), Some(1_000)),
                 made("tehas:blocked", Some("LA_b"), Some("LA_b"), Some(1_008)),
             ],
-        );
+        )
+        .unwrap();
         assert!(whole);
         assert_eq!(
             said,
             ["pinned the label tehas:blocked as LA_b in state/labels: it was made with the pinned labels"]
         );
-        assert_eq!(load(d.path())["tehas:blocked"], "LA_b");
+        assert_eq!(pins(d.path())["tehas:blocked"], "LA_b");
     }
 
     // Each is refused: made long before or after the pinned label, of no
@@ -304,15 +387,272 @@ mod tests {
         for (why, ready, blocked) in cases {
             let d = TestDir::new("pins-not-same-run");
             fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
-            fs::write(d.path().join(FILE), "tehas:ready\tLA_r\n").unwrap();
-            let (said, whole) = pin_made(d.path(), &[ready, blocked]);
+            fs::write(d.path().join(FILE), format!("{READY}\tLA_r\n")).unwrap();
+            let (said, whole) = pin_made(d.path(), &[ready, blocked]).unwrap();
             assert!(!whole, "{why}");
             assert!(
                 said.iter()
                     .all(|l| !l.starts_with("pinned the label tehas:blocked")),
                 "{why}: {said:?}"
             );
-            assert!(!load(d.path()).contains_key("tehas:blocked"), "{why}");
+            assert!(!pins(d.path()).contains_key("tehas:blocked"), "{why}");
+        }
+    }
+
+    const READY: &str = GRANTING[0];
+
+    type Case = (&'static str, Box<dyn Fn(&Path)>);
+
+    /// Each way the file can be there and not be read: its name, and the
+    /// state dir of `d` made so. Permission denied is left out when the
+    /// tests can read a file of mode 000 (root).
+    fn unreadable_cases() -> Vec<Case> {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let mut cases: Vec<Case> = vec![
+            (
+                "a dangling link",
+                Box::new(|h: &Path| symlink(h.join("gone"), h.join(FILE)).unwrap()),
+            ),
+            (
+                "a live link",
+                Box::new(|h: &Path| {
+                    fs::write(h.join("elsewhere"), format!("{READY}\tLA_r\n")).unwrap();
+                    symlink(h.join("elsewhere"), h.join(FILE)).unwrap();
+                }),
+            ),
+            (
+                "a directory",
+                Box::new(|h: &Path| fs::create_dir(h.join(FILE)).unwrap()),
+            ),
+            (
+                "a line of another shape",
+                Box::new(|h: &Path| {
+                    fs::write(h.join(FILE), format!("{READY}\tLA_r\n{READY}x LA_p\n")).unwrap()
+                }),
+            ),
+            (
+                "a name pinned twice",
+                Box::new(|h: &Path| {
+                    fs::write(h.join(FILE), format!("{READY}\tLA_r\n{READY}\tLA_x\n")).unwrap()
+                }),
+            ),
+            (
+                "not UTF-8",
+                Box::new(|h: &Path| {
+                    fs::write(h.join(FILE), [READY.as_bytes(), b"\tLA_\xff\n"].concat()).unwrap()
+                }),
+            ),
+            (
+                "over the bound",
+                Box::new(|h: &Path| {
+                    fs::write(h.join(FILE), format!("{READY}\tLA_r\n").repeat(5000)).unwrap()
+                }),
+            ),
+        ];
+        let probe = TestDir::new("pins-probe");
+        let f = probe.path().join("f");
+        fs::write(&f, "x").unwrap();
+        fs::set_permissions(&f, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read(&f).is_err() {
+            cases.push((
+                "permission denied",
+                Box::new(|h: &Path| {
+                    fs::write(h.join(FILE), format!("{READY}\tLA_r\n")).unwrap();
+                    fs::set_permissions(h.join(FILE), fs::Permissions::from_mode(0o000)).unwrap();
+                }),
+            ));
+        }
+        cases
+    }
+
+    /// What is at FILE, as bytes, without following a link: the link's
+    /// target path, a directory's mark, or the file's bytes.
+    fn as_is(home: &Path) -> Vec<u8> {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::PermissionsExt;
+        let path = home.join(FILE);
+        let m = fs::symlink_metadata(&path).unwrap();
+        if m.file_type().is_symlink() {
+            return fs::read_link(&path)
+                .unwrap()
+                .as_os_str()
+                .as_bytes()
+                .to_vec();
+        }
+        if m.is_dir() {
+            return b"<dir>".to_vec();
+        }
+        let mode = m.permissions().mode();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let bytes = fs::read(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+        bytes
+    }
+
+    #[test]
+    fn only_a_missing_file_is_absent() {
+        let d = TestDir::new("pins-absent");
+        assert_eq!(load(d.path()), Ok(Record::Absent));
+        fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
+        assert_eq!(load(d.path()), Ok(Record::Absent));
+        fs::write(d.path().join(FILE), "").unwrap();
+        assert_eq!(load(d.path()), Ok(Record::Kept(Pins::new())));
+        fs::write(
+            d.path().join(FILE),
+            format!("{READY}\tLA_r\n{PLUGIN_PHASE}x\tLA_x\n"),
+        )
+        .unwrap();
+        assert_eq!(pins(d.path())[READY], "LA_r");
+    }
+
+    const PLAN: &str = GRANTING[1];
+
+    /// Pinned by 1.x until 2.0 dropped the label.
+    const PROTOTYPE: &str = "tehas:prototype";
+
+    /// `t` with `{R}` and `{P}` as [`READY`] and [`PLAN`].
+    fn fill(t: &str) -> String {
+        t.replace("{R}", READY).replace("{P}", PLAN)
+    }
+
+    /// Every file 1.x could write: `save` was the one writer from
+    /// v1.0.0-beta.1 to v1.4.0, a `<name>\t<id>\n` line per pin in name
+    /// order, and an empty file when a poll read no granting label. The
+    /// betas pinned no blocked label (GRANTING[4]); every 1.x pinned the
+    /// prototype label.
+    #[test]
+    fn every_file_1x_wrote_reads_as_its_pins() {
+        let beta: Vec<&str> = GRANTING
+            .iter()
+            .copied()
+            .filter(|n| *n != GRANTING[4])
+            .chain([PROTOTYPE])
+            .collect();
+        let all: Vec<&str> = GRANTING.iter().copied().chain([PROTOTYPE]).collect();
+        let cases = [
+            ("no pin", vec![]),
+            ("one pin", vec![READY]),
+            ("the beta set", beta),
+            ("the 1.x set", all),
+        ];
+        for (why, names) in cases {
+            let want: Pins = names
+                .iter()
+                .enumerate()
+                .map(|(i, n)| (n.to_string(), format!("LA_kwDOAbc{i}")))
+                .collect();
+            let text: String = want.iter().map(|(n, id)| format!("{n}\t{id}\n")).collect();
+            let d = TestDir::new("pins-1x");
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
+            fs::write(d.path().join(FILE), &text).unwrap();
+            assert_eq!(load(d.path()), Ok(Record::Kept(want.clone())), "{why}");
+            save(d.path(), &want).unwrap();
+            assert_eq!(
+                fs::read_to_string(d.path().join(FILE)).unwrap(),
+                text,
+                "{why}"
+            );
+        }
+    }
+
+    const LENIENT: [(&str, &str); 6] = [
+        ("CRLF line ends", "{P}\tLA_p\r\n{R}\tLA_r\r\n"),
+        ("CRLF, no last line end", "{P}\tLA_p\r\n{R}\tLA_r\r"),
+        ("trailing spaces", "{P}\tLA_p  \n{R}\tLA_r \n"),
+        ("trailing tabs", "{P}\tLA_p\t\n{R}\tLA_r\t \t\n"),
+        ("blank lines", "\n{P}\tLA_p\n\n \t\n{R}\tLA_r\n\n"),
+        ("all of them", "\r\n{P}\tLA_p \r\n\r\n{R}\tLA_r\t\r\n"),
+    ];
+
+    fn lenient_pins() -> Pins {
+        Pins::from([(PLAN.into(), "LA_p".into()), (READY.into(), "LA_r".into())])
+    }
+
+    #[test]
+    fn trailing_whitespace_crlf_and_blank_lines_read_as_the_same_pairs() {
+        for (why, text) in LENIENT {
+            let d = TestDir::new("pins-lenient");
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
+            fs::write(d.path().join(FILE), fill(text)).unwrap();
+            assert_eq!(load(d.path()), Ok(Record::Kept(lenient_pins())), "{why}");
+        }
+    }
+
+    // Whitespace anywhere but at the end of a line is not plain damage: the
+    // file stays unreadable.
+    #[test]
+    fn whitespace_inside_a_line_is_still_unreadable() {
+        for text in [
+            " {R}\tLA_r\n",
+            "\t{R}\tLA_r\n",
+            "{R} LA_r\n",
+            "{R}\t\tLA_r\n",
+            "{R} \tLA_r\n",
+            "{R}\tLA_r x\n",
+            "{R}\rLA_r\n",
+            "{R}\n",
+            "{R}\t \n",
+        ] {
+            let d = TestDir::new("pins-inside");
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
+            fs::write(d.path().join(FILE), fill(text)).unwrap();
+            assert!(load(d.path()).is_err(), "{text:?}");
+        }
+    }
+
+    // `tehas labels` writes the file on every run, so it writes it plain.
+    #[test]
+    fn tehas_labels_writes_a_damaged_file_plain() {
+        for (why, text) in LENIENT {
+            let d = TestDir::new("pins-lenient-made");
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
+            fs::write(d.path().join(FILE), fill(text)).unwrap();
+            let (said, whole) = pin_made(
+                d.path(),
+                &[
+                    seen(READY, Some("LA_r"), Some("LA_r")),
+                    seen(PLAN, Some("LA_p"), Some("LA_p")),
+                ],
+            )
+            .unwrap();
+            assert!(whole && said.is_empty(), "{why}: {said:?}");
+            assert_eq!(
+                fs::read_to_string(d.path().join(FILE)).unwrap(),
+                fill("{P}\tLA_p\n{R}\tLA_r\n"),
+                "{why}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_file_that_is_there_and_cannot_be_read_is_unreadable() {
+        for (why, make) in unreadable_cases() {
+            let d = TestDir::new("pins-unreadable");
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
+            make(d.path());
+            let Err(u) = load(d.path()) else {
+                panic!("{why}: read");
+            };
+            let line = u.to_string();
+            assert!(
+                line.starts_with(&format!("the label pins in {FILE} cannot be read (")),
+                "{why}: {line}"
+            );
+            assert!(line.contains("run tehas labels"), "{why}: {line}");
+        }
+    }
+
+    #[test]
+    fn tehas_labels_writes_nothing_over_a_file_it_cannot_read() {
+        for (why, make) in unreadable_cases() {
+            let d = TestDir::new("pins-made-unreadable");
+            fs::create_dir_all(Home::new(d.path()).state_dir()).unwrap();
+            make(d.path());
+            let was = as_is(d.path());
+            let got = pin_made(d.path(), &[seen(READY, None, Some("LA_new"))]);
+            assert!(got.is_err(), "{why}: {got:?}");
+            assert_eq!(as_is(d.path()), was, "{why}");
+            assert!(!d.path().join(FILE).with_extension("new").exists(), "{why}");
         }
     }
 }
