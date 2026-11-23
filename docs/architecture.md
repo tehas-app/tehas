@@ -145,7 +145,8 @@ From `cargo metadata`. Tests' own dependencies are in the last column.
 | --- | --- | --- |
 | tehas-ports | nothing of the workspace, serde alone | |
 | tehas-core | nothing of the workspace | attach |
-| store, attach, tehas-front, tehas-mcp, tehas-xtask | tehas-core | |
+| attach, tehas-front, tehas-mcp, tehas-xtask | tehas-core | |
+| store | tehas-core, tehas-ports | |
 | analytics | tehas-core | tehas-mcp |
 | tehas-cycle | attach, tehas-core | |
 | tehas-items | attach, tehas-core | |
@@ -229,6 +230,7 @@ its reason, as a floor; a departure from a should rule (R5) likewise.
 | Check | Floor | Where | Reason |
 | --- | --- | --- | --- |
 | gh-argv, tests-stub-gh | 1 each | `console/tests/top_snapshot.rs` | the short name "gh" of a process in a fixture of /proc (`"name":"gh"`, #2859), which tehas top shows. Nothing runs gh. A pattern that skipped it would be fragile and allowing the file would hide a later gh call there, so it stays counted as a floor |
+| gh-argv, tests-stub-gh | 3 and 2 | gh-argv: `console/ops/src/pins/tools.rs` 1 and `console/ops/src/pins/tests.rs` 2; tests-stub-gh: `console/ops/src/pins/tests.rs` 2 | the pinned tool named "gh" in the release's list of pinned tools (`host/versions.env`) and its tests (ports spec, Decided 71). Nothing runs gh there; the name is the tool's |
 | home-layout | 16, in the bash and the units | `install.sh` 12, `host/systemd/` 4 | T8's freeze, below |
 | gh-argv | 3, in the bash | `lib/github-app.sh` 1, `host/sandbox/gh-shim` 1, `scripts/tag-release.sh` 1 | T8's freeze, below |
 | github-rest | 4, in the bash | `host/sandbox/gh-shim` 4 | T8's freeze, below |
@@ -240,7 +242,7 @@ The owner, 2026-11-23: T8 does not rewrite the bash that is left. It is
 frozen at its count of that day, as a written floor. A count here may
 only fall. A pull request that adds a match in bash takes out as many,
 and the one that takes a match out lowers the number here and the
-check's `max`. The numbers are ceilings measured on c49972a19 with #2981,
+check's `max`. The numbers are ceilings measured on a6ee164c6 with #2981,
 by `scripts/architecture.py`'s count over the files named. #2981 was the
 one small change that could lower a count: `install.sh` now writes each
 path under `state/` once.
@@ -260,7 +262,7 @@ What is still bash, and why it stays bash in 2.0:
 
 The lines of `bin/`, `lib/` and `libexec/` have their own ceiling,
 `scripts/bash-lines.max`: 186, and 186 measured. The shell of `test/` has
-`scripts/test-lines.max`: 35219, and 35219 measured. The gate checks
+`scripts/test-lines.max`: 34514, and 34514 measured. The gate checks
 both.
 
 The checks that read bash, and what each still counts there:
@@ -290,7 +292,7 @@ decide whether a call writes. The 76 shell tests test bash itself: the
 shims, the App's shell side, the harness's own gh failure, install,
 bootstrap, setup and update, the settings library and the release script.
 
-Not in this floor. The other 38 matches of tests-stub-gh in 22 files of
+Not in this floor. The other 37 matches of tests-stub-gh in 21 files of
 `test/` are tests of Rust commands run through the shell: T15 moves them.
 Its 36 matches in data files of Rust tests (dispatch's fixtures 21, the
 store's dumps 10, core's drafts 4, mcp's log 1) are not bash. The shell

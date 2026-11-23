@@ -178,6 +178,14 @@ impl GitHub {
         self.call("the issue", &["api", &path])
     }
 
+    /// The revision of an issue's title and body: equal answers mean neither
+    /// changed. Labels and comments do not move it. The sums are the ones a
+    /// start holds its text to (`tehas_core::approval`).
+    pub fn text_revision(&mut self, issue: u64) -> Result<String, ForgeError> {
+        let out = self.issue_answer(issue)?;
+        gh::text_revision(&out).ok_or_else(|| ForgeError::new("the issue", "no title to read"))
+    }
+
     /// gh's answer to the events call, every page of it.
     pub(crate) fn event_pages(&mut self, issue: u64) -> Result<String, ForgeError> {
         let path = format!("repos/{}/issues/{issue}/events?per_page=100", self.repo);

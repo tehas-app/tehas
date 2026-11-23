@@ -414,6 +414,14 @@ adds elsewhere. #2890 moved two of its findings here, to fix:
   `console/tests/console_run.rs` (#2879), tehas's own word in a file
   that also stubs gh, so the file is not allowed.
 
+The branch owner's rulings on T4 of 2026-11-23 are in the ports spec,
+Decided 69 to 80. Two bear on this Done. `github-rest` keeps tehas's own
+`--json` flag, 165 lines in 46 files, until the end of T4: once the nine
+real `gh --json` reads have moved, the pattern drops `"--json"` and keeps
+`--jq`, if the owner asks (Decided 72). And the adapter's operations are
+built in pull requests that change `console/github/` alone, before the
+consumer that needs them (Decided 80).
+
 Findings:
 
 - The planner's confirm files an issue with the session token, which is
@@ -434,6 +442,10 @@ Findings:
 - No port operation marks a change ready or draft: `edit_change` takes no
   draft flag, so a `CycleMerge` cycle cannot take its own draft out of
   draft through the ports. T4.2+ decides.
+- The Ledger's file (`core/src/ledger.rs`, #2974) keeps one budget row
+  per host, holder and pool and never drops one, so each anonymous
+  holder adds a row for good. The step whose caller first writes budgets
+  bounds them, for one by dropping rows whose `resets` is long past.
 
 ### T5. Deep homes for files
 
