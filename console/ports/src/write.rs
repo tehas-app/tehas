@@ -279,11 +279,19 @@ pub enum Write {
 
 /// A write's answer: what it made, and where a person opens it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Posted<T> {
     /// What it made.
     pub id: T,
     /// Where a person opens it.
     pub link: WebLink,
+}
+
+impl<T> Posted<T> {
+    /// What a write made, and where a person opens it.
+    pub fn new(id: T, link: WebLink) -> Self {
+        Self { id, link }
+    }
 }
 
 /// What a write made, with where a person opens it.

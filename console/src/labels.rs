@@ -225,20 +225,15 @@ mod tests {
             why: Passing::Server,
             sent: Sent::Maybe,
         };
-        let lean = Unprepared {
-            mark: Some(MarkName::new("a-label").unwrap()),
-            why: server.clone(),
-        };
+        let mut lean = Unprepared::new(server.clone());
+        lean.mark = Some(MarkName::new("a-label").unwrap());
         let line = failed(&lean);
         assert!(
             line.starts_with("tehas labels: could not make the label a-label: "),
             "{line}"
         );
         assert!(line.ends_with(server.line()), "{line}");
-        let site = Unprepared {
-            mark: None,
-            why: server.clone(),
-        };
+        let site = Unprepared::new(server.clone());
         assert_eq!(
             failed(&site),
             format!("tehas labels: could not make the labels: {}", server.line())

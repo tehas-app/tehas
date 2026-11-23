@@ -26,7 +26,7 @@ pub struct TicketSpec {
     pub(crate) parts: Vec<TicketKey>,
     pub(crate) blockers: Vec<Item>,
     pub(crate) events: Vec<(Happened, Option<String>, Option<At>)>,
-    pub(crate) attachments: Vec<(String, Vec<u8>)>,
+    pub(crate) attachments: Vec<(Option<String>, Vec<u8>)>,
 }
 
 impl TicketSpec {
@@ -157,7 +157,14 @@ impl TicketSpec {
 
     /// A file its text links to on the site's store.
     pub fn attachment(mut self, name: &str, bytes: &[u8]) -> Self {
-        self.attachments.push((name.to_string(), bytes.to_vec()));
+        self.attachments
+            .push((Some(name.to_string()), bytes.to_vec()));
+        self
+    }
+
+    /// A file pasted into its text, stored as an image with no name.
+    pub fn pasted(mut self, bytes: &[u8]) -> Self {
+        self.attachments.push((None, bytes.to_vec()));
         self
     }
 
@@ -218,10 +225,11 @@ impl TicketSpec {
         }
         for (name, bytes) in self.attachments {
             let id = AttachmentId::new(s.fresh_id("file"));
-            let size = Some(bytes.len() as u64);
-            s.items[at]
-                .attachments
-                .push((Attachment { id, name, size }, bytes));
+            let link = super::site::web(&format!("files/{}", id.as_str()));
+            let mut a = Attachment::new(id, link);
+            a.name = name;
+            a.size = Some(bytes.len() as u64);
+            s.items[at].attachments.push((a, bytes));
         }
         if let Some(reason) = self.closed {
             let closer = Some(Closer::Account(s.account(OPERATOR, realm)));
@@ -249,7 +257,7 @@ pub struct BlueprintSpec {
     pub(crate) comments: Vec<(String, String, Vec<Marker>)>,
     pub(crate) closed: bool,
     pub(crate) author: Option<String>,
-    pub(crate) attachments: Vec<(String, Vec<u8>)>,
+    pub(crate) attachments: Vec<(Option<String>, Vec<u8>)>,
 }
 
 impl BlueprintSpec {
@@ -299,7 +307,14 @@ impl BlueprintSpec {
 
     /// A file its body links to on the site's store.
     pub fn attachment(mut self, name: &str, bytes: &[u8]) -> Self {
-        self.attachments.push((name.to_string(), bytes.to_vec()));
+        self.attachments
+            .push((Some(name.to_string()), bytes.to_vec()));
+        self
+    }
+
+    /// A file pasted into its body, stored as an image with no name.
+    pub fn pasted(mut self, bytes: &[u8]) -> Self {
+        self.attachments.push((None, bytes.to_vec()));
         self
     }
 
@@ -322,10 +337,11 @@ impl BlueprintSpec {
         }
         for (name, bytes) in self.attachments {
             let id = AttachmentId::new(s.fresh_id("file"));
-            let size = Some(bytes.len() as u64);
-            s.items[at]
-                .attachments
-                .push((Attachment { id, name, size }, bytes));
+            let link = super::site::web(&format!("files/{}", id.as_str()));
+            let mut a = Attachment::new(id, link);
+            a.name = name;
+            a.size = Some(bytes.len() as u64);
+            s.items[at].attachments.push((a, bytes));
         }
         if self.closed {
             let item = &mut s.items[at];

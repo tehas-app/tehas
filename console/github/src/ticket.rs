@@ -14,9 +14,9 @@ use crate::tickets::{account, kind_of, number, take};
 use crate::{gh, markers, table, ForgeError, GitHub};
 use tehas_ports::{
     Account, At, Blocker, BlockerState, Bound, ChangeNo, CloseReason, Closer, CommitId, Depth,
-    Filter, Got, Happened, HappenedKind, Item, ItemName, Outcome, Part, Priority, ProjectName, Ref,
-    Refusal, Revision, TargetId, TargetName, Ticket, TicketDigest, TicketEvent, TicketKey,
-    TicketState, Took, Unread, WebLink, Whole, Window, ALL_MAX,
+    Filter, Got, Happened, HappenedKind, Item, ItemName, Outcome, Part, ProjectName, Ref, Refusal,
+    Revision, TargetId, TargetName, Ticket, TicketDigest, TicketEvent, TicketKey, TicketState,
+    Took, Unread, WebLink, Whole, Window, ALL_MAX,
 };
 
 const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
@@ -464,10 +464,11 @@ impl GitHub {
         let named = first.mentions.take().ok_or(MALFORMED)?;
         let mentioned_by = self.mentions_from(issue, named)?;
         let history = match window {
-            None => Took {
-                items: Vec::new(),
-                more: true,
-            },
+            None => {
+                let mut cut = Took::default();
+                cut.more = true;
+                cut
+            }
             Some(w) => self.pages(issue, None, w, Some(first), false)?,
         };
 
@@ -476,28 +477,28 @@ impl GitHub {
             Depth::Cut { .. } => read.text.chars().take(CUT_TEXT).collect(),
             _ => read.text,
         };
-        Ok(Ticket {
-            digest,
-            text,
-            closed: rest.closed_at.as_deref().map(time).transpose()?,
-            closer,
-            parts,
-            blockers,
-            assignees: rest
-                .assignees
-                .iter()
-                .filter_map(|u| {
-                    let facts = gh::Facts {
-                        id: u.id,
-                        kind: u.kind.clone(),
-                    };
-                    account(u.login.as_deref()?, &facts)
-                })
-                .collect(),
-            markers: read.markers,
-            mentioned_by,
-            history,
-        })
+        let closed = rest.closed_at.as_deref().map(time).transpose()?;
+        let mut ticket = Ticket::new(digest);
+        ticket.text = text;
+        ticket.closed = closed;
+        ticket.closer = closer;
+        ticket.parts = parts;
+        ticket.blockers = blockers;
+        ticket.assignees = rest
+            .assignees
+            .iter()
+            .filter_map(|u| {
+                let facts = gh::Facts {
+                    id: u.id,
+                    kind: u.kind.clone(),
+                };
+                account(u.login.as_deref()?, &facts)
+            })
+            .collect();
+        ticket.markers = read.markers;
+        ticket.mentioned_by = mentioned_by;
+        ticket.history = history;
+        Ok(ticket)
     }
 
     /// A ticket's history of the kinds asked, or of every kind: the
@@ -693,11 +694,10 @@ impl GitHub {
                 if kinds.is_some_and(|ks| !ks.contains(&what.kind())) {
                     continue;
                 }
-                read.push(TicketEvent {
-                    what,
-                    by: e.actor.as_ref().and_then(Who::account),
-                    at: e.created_at.as_deref().map(time).transpose()?,
-                });
+                let mut event = TicketEvent::new(what);
+                event.by = e.actor.as_ref().and_then(Who::account);
+                event.at = e.created_at.as_deref().map(time).transpose()?;
+                read.push(event);
             }
             let next = pages.next(page.page_info)?;
             match window {
@@ -716,7 +716,10 @@ impl GitHub {
                     // could sort among them.
                     let n = n.get() as usize;
                     if all.len() > n && all[all.len() - n - 1].at < all[all.len() - n].at {
-                        return take(all, window).map(|t| Took { more: true, ..t });
+                        return take(all, window).map(|mut t| {
+                            t.more = true;
+                            t
+                        });
                     }
                 }
             }
@@ -836,13 +839,12 @@ impl GitHub {
     }
 
     fn blocker(&self, n: &Named) -> Got<Blocker> {
-        Ok(Blocker {
-            on: ticket_item(self.named(n)?),
-            state: match open(n)? {
-                true => BlockerState::Open,
-                false => BlockerState::Closed,
-            },
-        })
+        let on = ticket_item(self.named(n)?);
+        let state = match open(n)? {
+            true => BlockerState::Open,
+            false => BlockerState::Closed,
+        };
+        Ok(Blocker::new(on, state))
     }
 
     /// A ticket's parts from their first page on, whole: every page, and a
@@ -856,10 +858,8 @@ impl GitHub {
         loop {
             for n in page.nodes {
                 let n = n.ok_or(INCONSISTENT)?;
-                out.push(Part {
-                    key: self.named(&n)?,
-                    open: open(&n)?,
-                });
+                let key = self.named(&n)?;
+                out.push(Part::new(key, open(&n)?));
             }
             if out.len() > ALL_MAX.get() as usize {
                 return Err(CUT);
@@ -934,23 +934,26 @@ impl GitHub {
             "CLOSED" => TicketState::Closed(reason(n.state_reason.as_deref())),
             _ => return Err(MALFORMED),
         };
-        Ok(TicketDigest {
-            key: TicketKey::Number(no),
-            title: n.title,
+        let author = n.author.as_ref().and_then(Who::account);
+        let created = time(&n.created_at)?;
+        let updated = time(&n.updated_at)?;
+        let link = WebLink::new(n.url).map_err(|_| MALFORMED)?;
+        let mut digest = TicketDigest::new(
+            TicketKey::Number(no),
             state,
-            kind: n.issue_type.map(|t| kind_of(&t.name)),
-            priority: Priority::Normal,
-            marks,
-            target: n.milestone.map(|m| TargetName {
-                id: TargetId::new(m.number.to_string()),
-                title: m.title,
-            }),
-            author: n.author.as_ref().and_then(Who::account),
-            created: time(&n.created_at)?,
-            updated: time(&n.updated_at)?,
-            revision: Revision::new(n.updated_at),
-            link: WebLink::new(n.url).map_err(|_| MALFORMED)?,
-        })
+            created,
+            updated,
+            Revision::new(n.updated_at),
+            link,
+        );
+        digest.title = n.title;
+        digest.kind = n.issue_type.map(|t| kind_of(&t.name));
+        digest.marks = marks;
+        digest.target = n
+            .milestone
+            .map(|m| TargetName::new(TargetId::new(m.number.to_string()), m.title));
+        digest.author = author;
+        Ok(digest)
     }
 }
 

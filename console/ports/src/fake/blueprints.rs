@@ -8,7 +8,7 @@ use super::site::{
     whole, writable, Ctx, Handle,
 };
 use super::state::State;
-use super::tickets::{close_item, cursor, since, token};
+use super::tickets::{close_item, page, since, token};
 use crate::{
     Attachment, AttachmentId, Blueprint, BlueprintChange, BlueprintDelta, BlueprintHit,
     BlueprintNo, BlueprintWrites, Blueprints, Bound, ChangeToken, CloseReason, Comment, CommentId,
@@ -154,32 +154,28 @@ impl Blueprints for Handle {
             for item in &s.items {
                 let Some(no) = item.blueprint else { continue };
                 if item.seq > after {
-                    blueprints.push(BlueprintChange {
-                        no,
-                        title: item.title.clone(),
-                        body: item.text.clone(),
-                        open: item.open,
-                        closed: item.closed,
-                        revision: revision(item.revision),
-                    });
+                    let mut change = BlueprintChange::new(no, revision(item.revision));
+                    change.title = item.title.clone();
+                    change.body = item.text.clone();
+                    change.open = item.open;
+                    change.closed = item.closed;
+                    blueprints.push((item.seq, change));
                 }
                 for id in &item.comments {
                     if let Some(at) = s.comment_at(id) {
                         let c = &s.comments[at];
                         if c.seq > after && !c.gone {
-                            comments.push((no, comment(c, false)));
+                            comments.push((c.seq, (no, comment(c, false))));
                         }
                     }
                 }
             }
-            if blueprints.len() + comments.len() > bound.get() as usize {
-                return Err(Outcome::Unread(Unread::Cut));
-            }
-            Ok(BlueprintDelta {
-                blueprints,
-                comments,
-                next: cursor(s),
-            })
+            let (blueprints, comments, next, more) = page(s, blueprints, comments, bound);
+            let mut delta = BlueprintDelta::new(next);
+            delta.blueprints = blueprints;
+            delta.comments = comments;
+            delta.more = more;
+            Ok(delta)
         })
     }
 }

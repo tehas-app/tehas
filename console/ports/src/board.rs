@@ -38,6 +38,7 @@ pub struct BoardAsk {
 /// One ticket with its notes, its blueprints and their changes. A list the
 /// ask did not read is empty, with `more`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct WorkItem {
     /// The ticket.
     pub ticket: Ticket,
@@ -50,6 +51,8 @@ pub struct WorkItem {
     /// with `more`.
     pub changes: Took<ChangeDigest>,
 }
+
+new!(WorkItem { ticket: Ticket }, notes, blueprints, changes);
 
 impl WorkItem {
     /// The comments a ticket marker is read from: the notes, or, where
@@ -68,7 +71,8 @@ impl WorkItem {
 /// The list of open tickets is whole; each item has its own answer, so one
 /// ticket past a bound, or unread, is `Unread` for that item alone and
 /// fails closed alone. The others are still answered.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct OpenWork {
     /// Each open ticket, with its own answer, in list order.
     pub items: Whole<(TicketKey, Got<WorkItem>)>,
@@ -97,6 +101,7 @@ pub struct ChangeAsk {
 
 /// One change with what the ask named.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ChangeItem {
     /// The change.
     pub change: ChangeDigest,
@@ -111,6 +116,16 @@ pub struct ChangeItem {
     /// Its events, if asked.
     pub activity: Option<Took<ChangeEvent>>,
 }
+
+new!(
+    ChangeItem {
+        change: ChangeDigest
+    },
+    files,
+    closing,
+    siblings,
+    activity
+);
 
 /// The joined reads. A site that serves all three ports answers them with
 /// one question and owns its cost.
