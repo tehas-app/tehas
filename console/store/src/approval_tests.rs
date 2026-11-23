@@ -551,7 +551,7 @@ fn approvals_keep_only_the_base_and_its_starts() {
 
 // --- inputs ----------------------------------------------------------------------
 
-const INPUT: &str = r#"{"links":["https://github.com/user-attachments/assets/1"],"comment_links":[{"link":"https://example.test/a","source":"comment:5","by":"alice"}],"retry_context":[{"source":"pr-comment:9","text":"fix the test"}],"refresh_of":{"pr":40,"head_sha":"0123456789abcdef0123456789abcdef01234567","base_sha":"89abcdef0123456789abcdef0123456789abcdef","branch":"feature/issue-30"}}"#;
+const INPUT: &str = r#"{"links":["https://github.com/user-attachments/assets/1"],"retry_context":[{"source":"pr-comment:9","text":"fix the test"}],"refresh_of":{"pr":40,"head_sha":"0123456789abcdef0123456789abcdef01234567","base_sha":"89abcdef0123456789abcdef0123456789abcdef","branch":"feature/issue-30"}}"#;
 
 fn record_with(home: &Path, issue: i64, at: i64, input: &Path) -> Result<Value, (u8, String)> {
     call(
@@ -632,6 +632,14 @@ fn approval_record_refuses_an_input_file_it_cannot_take() {
         (
             write_file(&home, "key.json", br#"{"links":[],"branch":"main"}"#),
             "holds a key it may not: \"branch\"",
+        ),
+        (
+            write_file(
+                &home,
+                "comments.json",
+                br#"{"links":[],"comment_links":[]}"#,
+            ),
+            "holds a key it may not: \"comment_links\"",
         ),
         (
             write_file(&home, "type.json", br#"{"links":"a"}"#),
@@ -934,7 +942,7 @@ fn a_view_is_the_record_file_key_for_key_and_in_its_order() {
         crate::approval::view_of(&answer, None).unwrap(),
         concat!(
             r#"{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":"s","#,
-            r#""links":["l"],"title_sha256":"t","comment_links":null,"driver":"lean","#,
+            r#""links":["l"],"title_sha256":"t","driver":"lean","#,
             r#""retry_context":["r"]}"#
         )
     );
@@ -1164,8 +1172,7 @@ fn a_view_of_a_person_s_label_is_field_for_field_what_the_dispatcher_wrote() {
     let home = home("approval-view-label");
     let file = input(
         &home,
-        r#"{"links":["https://github.com/user-attachments/assets/1"],
-  "comment_links":[{"link":"https://github.com/user-attachments/assets/2","source":"comment:5","by":"alice"}]}"#,
+        r#"{"links":["https://github.com/user-attachments/assets/1"]}"#,
     );
     record_extra(
         &home,
@@ -1180,8 +1187,7 @@ fn a_view_of_a_person_s_label_is_field_for_field_what_the_dispatcher_wrote() {
     assert_eq!(
         v,
         json!({"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":SHA,
-            "links":["https://github.com/user-attachments/assets/1"],"title_sha256":SHA_B,
-            "comment_links":[{"link":"https://github.com/user-attachments/assets/2","source":"comment:5","by":"alice"}]})
+            "links":["https://github.com/user-attachments/assets/1"],"title_sha256":SHA_B})
     );
     assert_eq!(v.get("driver"), None);
 
