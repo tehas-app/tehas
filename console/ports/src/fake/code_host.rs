@@ -2,6 +2,7 @@
 
 use std::io::Read as _;
 
+use super::faulty::{CodeHostOp, Op};
 use super::site::{
     comments_of, edit_markers, known_mark, text_of, whole, window, writable, Ctx, Handle,
 };
@@ -138,8 +139,8 @@ impl CodeHost for Handle {
             Ok(Facts {
                 name: s.project.clone(),
                 public: s.public,
-                tracker_on: true,
-                archived: false,
+                tracker_on: s.tracker_on,
+                archived: s.archived,
                 default_branch: s.default_branch.clone(),
             })
         })
@@ -376,14 +377,28 @@ impl CodeHost for Handle {
         })
     }
 
-    /// A push needs an actor that may write; an anonymous fetch has no
-    /// credential.
+    /// A push needs an actor that may push: the factory's full, cycle or
+    /// session scope, or a person of `Write` standing. An anonymous fetch
+    /// has no credential.
     fn remote(&mut self, access: Access) -> Got<Remote> {
         let actor = self.actor.clone();
+        let scope = self.scope;
         let project = self.project();
         let now = self.world.now();
         let world = self.world.clone();
-        self.run(Pool::Calls, move |_, _| {
+        self.run(Pool::Calls, move |_, ctx| {
+            let may_push = match &actor {
+                Actor::Ours(_) | Actor::Given(_) => matches!(
+                    scope,
+                    Some(crate::Scope::Full | crate::Scope::Cycle | crate::Scope::Session)
+                ),
+                Actor::Person(_) => !ctx.below_write,
+                Actor::Operator | Actor::Deploy(_) => true,
+                Actor::Anonymous => false,
+            };
+            if access == Access::Push && !may_push {
+                return Err(Outcome::Forbidden);
+            }
             let url = GitRemote::new(format!("https://fake.test/{}.git", project.as_str()))
                 .map_err(|_| Outcome::Unread(Unread::Malformed))?;
             let token = |secret: String| {
@@ -394,10 +409,6 @@ impl CodeHost for Handle {
             };
             let with = match (&actor, access) {
                 (Actor::Anonymous, Access::Fetch) => None,
-                (Actor::Anonymous, Access::Push) => return Err(Outcome::Forbidden),
-                (Actor::Ours(crate::Scope::Read | crate::Scope::Files), Access::Push) => {
-                    return Err(Outcome::Forbidden)
-                }
                 (Actor::Deploy(key), _) => match crate::Keyring::deploy(&world, key) {
                     Some(crate::DeployCredential::Key(k)) => Some(GitCredential::Key(k)),
                     Some(crate::DeployCredential::Token(t)) => Some(GitCredential::Token(Token {
@@ -578,7 +589,7 @@ fn propose(
 
 impl CodeHostWrites for Handle {
     fn open_change(&mut self, new: &NewChange) -> Got<Posted<ChangeNo>> {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::CodeHost(CodeHostOp::OpenChange), |s, ctx| {
             let posted = open_change(s, ctx, new)?;
             ctx.wrote(s, Write::OpenChange(new.clone()));
             Ok(posted)
@@ -592,7 +603,7 @@ impl CodeHostWrites for Handle {
         body: Option<&str>,
         markers: &MarkerEdit,
     ) -> Got<WebLink> {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::CodeHost(CodeHostOp::EditChange), |s, ctx| {
             markers.check()?;
             let at = at_change(s, no)?;
             let me = ctx.me(s);
@@ -623,7 +634,7 @@ impl CodeHostWrites for Handle {
 
     /// A mark on a change that is not open is `Refused(Invalid)`.
     fn mark_change(&mut self, no: ChangeNo, mark: &Mark) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::CodeHost(CodeHostOp::MarkChange), |s, ctx| {
             known_mark(mark)?;
             let at = at_change(s, no)?;
             if s.changes[at].state != ChangeState::Open {
@@ -645,7 +656,7 @@ impl CodeHostWrites for Handle {
     }
 
     fn unmark_change(&mut self, no: ChangeNo, mark: &Mark) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::CodeHost(CodeHostOp::UnmarkChange), |s, ctx| {
             known_mark(mark)?;
             let at = at_change(s, no)?;
             if let Some(i) = s.changes[at].marks.iter().position(|m| m == mark) {
@@ -669,7 +680,7 @@ impl CodeHostWrites for Handle {
         body: &str,
         markers: &[Marker],
     ) -> Got<Posted<CommentId>> {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::CodeHost(CodeHostOp::CommentChange), |s, ctx| {
             writable(markers)?;
             let at = at_change(s, no)?;
             let author = Some(ctx.me(s));
@@ -691,7 +702,7 @@ impl CodeHostWrites for Handle {
 
     /// Closed already is done; merged is `Refused(Invalid)`.
     fn close_change(&mut self, no: ChangeNo) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::CodeHost(CodeHostOp::CloseChange), |s, ctx| {
             let at = at_change(s, no)?;
             match s.changes[at].state {
                 ChangeState::Open => {
@@ -710,7 +721,7 @@ impl CodeHostWrites for Handle {
     /// merge, or is not open, is `Refused(NotMergeable)`. Merged, its base
     /// moves to a new commit and the blueprints it closes close.
     fn merge(&mut self, no: ChangeNo, head: &CommitId, how: MergeHow) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::CodeHost(CodeHostOp::Merge), |s, ctx| {
             let at = at_change(s, no)?;
             let c = s.changes[at].clone();
             if c.state != ChangeState::Open {
@@ -771,7 +782,9 @@ impl CodeHostWrites for Handle {
         p: &Proposal,
         files: &dyn Blobs,
     ) -> Result<Proposed, Applied<ProposalPart>> {
-        let answer = self.run(Pool::Writes, |s, ctx| Ok(propose(s, ctx, p, files)));
+        let answer = self.write(Op::CodeHost(CodeHostOp::Propose), |s, ctx| {
+            Ok(propose(s, ctx, p, files))
+        });
         match answer {
             Ok(r) => r,
             Err(o) => Err(Applied {
@@ -782,7 +795,7 @@ impl CodeHostWrites for Handle {
     }
 
     fn tag(&mut self, name: &TagName, at: &CommitId) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::CodeHost(CodeHostOp::Tag), |s, ctx| {
             s.commit(at).ok_or(Outcome::NotFound)?;
             match s.tags.iter().find(|t| t.name == *name) {
                 Some(t) if t.commit == *at => {}
@@ -806,7 +819,7 @@ impl CodeHostWrites for Handle {
     }
 
     fn set_status(&mut self, at: &CommitId, status: &Status) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::CodeHost(CodeHostOp::SetStatus), |s, ctx| {
             s.commit(at).ok_or(Outcome::NotFound)?;
             s.statuses
                 .retain(|(c, x)| !(c == at && x.name == status.name));
@@ -824,7 +837,7 @@ impl CodeHostWrites for Handle {
 
     /// The tag must be there. The same tag twice is the same release.
     fn new_release(&mut self, new: &NewRelease) -> Got<Posted<ReleaseId>> {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::CodeHost(CodeHostOp::NewRelease), |s, ctx| {
             text_of(&new.notes)?;
             if !s.tags.iter().any(|t| t.name == new.tag) {
                 return Err(Outcome::NotFound);
@@ -865,7 +878,7 @@ impl CodeHostWrites for Handle {
         file: &Sum,
         files: &dyn Blobs,
     ) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::CodeHost(CodeHostOp::Upload), |s, ctx| {
             let at = s
                 .releases
                 .iter()
@@ -897,7 +910,7 @@ impl CodeHostWrites for Handle {
     }
 
     fn publish_release(&mut self, release: &ReleaseId) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::CodeHost(CodeHostOp::PublishRelease), |s, ctx| {
             let r = s
                 .releases
                 .iter_mut()

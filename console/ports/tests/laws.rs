@@ -1,7 +1,7 @@
 //! Every law against the fake, as the contract test any adapter runs; the
 //! `Writer` sending each kind of write to the fake; `Faulty` through the
 //! resilience cases; and the health laws over `FakeSite`, a `MemoryLedger`
-//! and the `Notices` sink, on the fake's clock.
+//! and the `NoticeLog` sink, on the fake's clock.
 
 use std::io::Read;
 use std::num::NonZeroU32;
@@ -574,7 +574,7 @@ fn identity_a_token_covers_its_set_alone() {
     ];
     ok(laws::identity::a_token_covers_its_set_alone(
         h.as_mut(),
-        &tokens,
+        tokens.as_ref(),
         Scope::Agent,
         &set,
         &ProjectName::new("fake/elsewhere"),
@@ -593,8 +593,9 @@ fn identity_a_given_token_is_never_minted() {
         secret: Secret::new("handed-in"),
         until: At::new(now.secs() + 1200),
     };
-    let w = w.given("fresh", given.clone()).given(
+    let w = w.given("fresh", Scope::Cycle, given.clone()).given(
         "old",
+        Scope::Cycle,
         Token {
             secret: Secret::new("stale"),
             until: At::new(now.secs() - 1),
@@ -608,7 +609,7 @@ fn identity_a_given_token_is_never_minted() {
     let expired = site.identity(&Actor::Given(PersonKey::new("old")), C);
     ok(laws::identity::a_given_token_is_never_minted(
         h.as_mut(),
-        &tokens,
+        tokens.as_ref(),
         Scope::Cycle,
         &given,
         expired,
@@ -618,6 +619,7 @@ fn identity_a_given_token_is_never_minted() {
                 .filter(|k| **k == PersonKey::new("old"))
                 .count()
         },
+        || calls(&site),
     ));
     assert_eq!(w.signed_out_keys(), vec![PersonKey::new("old")]);
 }
@@ -630,8 +632,9 @@ fn identity_a_keyless_site_never_mints() {
     let mut h = site.identity(&full(), C).unwrap();
     ok(laws::identity::a_keyless_site_never_mints(
         h.as_mut(),
-        &tokens,
+        tokens.as_ref(),
         Scope::Cycle,
+        || calls(&site),
     ));
     // A token kept elsewhere is answered from the store.
     let covers = Covers::Site(SiteId::new("fake/project"));
@@ -643,12 +646,98 @@ fn identity_a_keyless_site_never_mints() {
     assert_eq!(h.token(Scope::Cycle).unwrap().secret.expose(), "kept");
 }
 
+#[test]
+fn scopes_an_agent_makes_no_file_write_and_no_push() {
+    for w in both() {
+        let (blobs, files) = version_file();
+        let site = FakeSite::new(&w);
+        let mut h = site
+            .code_host_writes(&Actor::Ours(Scope::Agent), C)
+            .unwrap();
+        ok(laws::scopes::an_agent_makes_no_file_write_and_no_push(
+            h.as_mut(),
+            &proposal(&w, "agent-bump", &files),
+            &blobs,
+        ));
+        // A fake that allows too much breaks it.
+        let mut wide = site.code_host_writes(&full(), C).unwrap();
+        let e = laws::scopes::an_agent_makes_no_file_write_and_no_push(
+            wide.as_mut(),
+            &proposal(&w, "wide-bump", &files),
+            &blobs,
+        )
+        .unwrap_err();
+        assert_eq!(e.law, "scopes::an_agent_makes_no_file_write_and_no_push");
+    }
+}
+
+#[test]
+fn scopes_a_cycle_merges_tags_and_releases_nothing() {
+    for scope in [Scope::Cycle, Scope::Session] {
+        let w = World::new().change(50, "work", |c| c.title("work"));
+        let main = w.head("main").unwrap();
+        let w = w.tag("v1.0.0", &main);
+        let head = w.head("work").unwrap();
+        let release = NewRelease {
+            tag: TagName::new("v1.0.0").unwrap(),
+            title: "1.0.0".into(),
+            notes: Body::Text("notes".into()),
+            draft: true,
+            prerelease: false,
+        };
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host_writes(&Actor::Ours(scope), C).unwrap();
+        let tag = TagName::new("v2.0.0").unwrap();
+        ok(laws::scopes::a_cycle_merges_tags_and_releases_nothing(
+            h.as_mut(),
+            cn(50),
+            &head,
+            &tag,
+            &release,
+        ));
+        // A fake that allows too much breaks it.
+        let mut wide = site.code_host_writes(&full(), C).unwrap();
+        let e = laws::scopes::a_cycle_merges_tags_and_releases_nothing(
+            wide.as_mut(),
+            cn(50),
+            &head,
+            &tag,
+            &release,
+        )
+        .unwrap_err();
+        assert_eq!(e.law, "scopes::a_cycle_merges_tags_and_releases_nothing");
+    }
+}
+
+#[test]
+fn each_scope_writes_on_the_code_host_what_it_may() {
+    let w = World::new().change(50, "work", |c| c.title("work"));
+    let site = FakeSite::new(&w);
+    let mark = Mark::State(State::Running);
+    let mut agent = site
+        .code_host_writes(&Actor::Ours(Scope::Agent), C)
+        .unwrap();
+    agent.mark_change(cn(50), &mark).unwrap();
+    agent.comment_change(cn(50), "a note", &[]).unwrap();
+    assert!(agent.remote(Access::Fetch).is_ok());
+    let mut cycle = site
+        .code_host_writes(&Actor::Ours(Scope::Cycle), C)
+        .unwrap();
+    cycle.comment_change(cn(50), "a note", &[]).unwrap();
+    assert!(cycle.remote(Access::Push).is_ok());
+    assert_eq!(
+        cycle.mark_change(cn(50), &mark),
+        Err(Outcome::Forbidden),
+        "a cycle does not mark a change"
+    );
+}
+
 // Health, over a `Faulty` `FakeSite`, a `MemoryLedger` and the sink.
 
 struct Wired {
     world: World,
     ledger: Arc<MemoryLedger>,
-    sink: Arc<fake::Notices>,
+    sink: Arc<fake::NoticeLog>,
     host: HostId,
 }
 
@@ -657,7 +746,7 @@ impl Wired {
         Self {
             world,
             ledger: Arc::new(MemoryLedger::new()),
-            sink: Arc::new(fake::Notices::new()),
+            sink: Arc::new(fake::NoticeLog::new()),
             host: HostId::new("code-host"),
         }
     }
@@ -676,6 +765,7 @@ impl Wired {
             notices: self.sink.clone(),
             clock: self.world.clock(),
             deadline,
+            world: self.world.clone(),
         }
     }
 
@@ -683,11 +773,12 @@ impl Wired {
         Faulty::new(FakeSite::new(&self.world)).watch(self.watch(None))
     }
 
-    fn wiring(&self) -> Wiring<'_> {
+    fn wiring<'a>(&'a self, requests: &'a dyn Fn() -> u32) -> Wiring<'a> {
         Wiring {
             ledger: self.ledger.as_ref(),
-            sink: &self.sink,
+            sink: self.sink.as_ref(),
             host: &self.host,
+            requests,
         }
     }
 
@@ -706,7 +797,7 @@ fn health_held_calls_raise_no_recovered() {
     ok(laws::health::held_calls_raise_no_recovered(
         h.as_mut(),
         &wired.world.key(1),
-        wired.wiring(),
+        wired.wiring(&|| faulty.requests()),
         &holder,
         Op::Tickets(TicketsOp::Ticket).pool(),
         wired.world.now(),
@@ -723,13 +814,18 @@ fn health_past_the_deadline_raises_no_unavailable() {
     ok(laws::health::past_the_deadline_raises_no_unavailable(
         h.as_mut(),
         &wired.world.key(1),
-        wired.wiring(),
+        wired.wiring(&|| faulty.requests()),
     ));
     assert_eq!(
         faulty.requests(),
         0,
         "a call past its deadline sends nothing"
     );
+}
+
+/// Every call the site's meter counted: its requests.
+fn calls(site: &FakeSite) -> u32 {
+    site.meter().iter().map(|r| r.calls).sum()
 }
 
 /// A token good for an hour, as the store keeps it.
@@ -755,7 +851,7 @@ fn health_a_kept_token_raises_no_recovered() {
     let mut h = faulty.identity(&full(), C).unwrap();
     ok(laws::health::a_kept_token_raises_no_recovered(
         h.as_mut(),
-        wired.wiring(),
+        wired.wiring(&|| faulty.requests()),
         Scope::Cycle,
         wired.world.now(),
     ));
@@ -780,7 +876,7 @@ fn health_an_expired_token_raises_no_recovered() {
     let mut h = faulty.identity(&full(), C).unwrap();
     ok(laws::health::an_expired_token_raises_no_recovered(
         h.as_mut(),
-        wired.wiring(),
+        wired.wiring(&|| faulty.requests()),
         Scope::Cycle,
         wired.world.now(),
     ));
@@ -788,7 +884,7 @@ fn health_an_expired_token_raises_no_recovered() {
     // A given token that ran out after its handle was made.
     let w = World::new();
     let soon = good_token(&w, "handed-in");
-    let w = w.given("soon", soon);
+    let w = w.given("soon", Scope::Cycle, soon);
     let wired = Wired::new(w);
     let faulty = Faulty::new(FakeSite::new(&wired.world)).watch(wired.watch(None));
     let mut h = faulty
@@ -797,7 +893,7 @@ fn health_an_expired_token_raises_no_recovered() {
     wired.world.advance(3601);
     ok(laws::health::an_expired_token_raises_no_recovered(
         h.as_mut(),
-        wired.wiring(),
+        wired.wiring(&|| faulty.requests()),
         Scope::Cycle,
         wired.world.now(),
     ));
@@ -816,7 +912,7 @@ fn health_an_out_of_set_token_raises_no_recovered() {
     ];
     ok(laws::health::an_out_of_set_token_raises_no_recovered(
         h.as_mut(),
-        wired.wiring(),
+        wired.wiring(&|| faulty.requests()),
         Scope::Agent,
         &wider,
         wired.world.now(),
@@ -890,7 +986,7 @@ impl Identity for SeesAll<'_> {
 fn the_token_health_laws_break_where_local_answers_are_seen() {
     let w = World::new().grant(&["fake/project", "fake/other"]);
     let soon = good_token(&w, "handed-in");
-    let w = w.given("soon", soon);
+    let w = w.given("soon", Scope::Cycle, soon);
     let wired = Wired::new(w);
     let tokens = Arc::new(MemoryTokens::new(wired.world.clock()));
     let covers = Covers::Site(SiteId::new("fake/project"));
@@ -903,7 +999,7 @@ fn the_token_health_laws_break_where_local_answers_are_seen() {
     let now = wired.world.now();
     let e = laws::health::a_kept_token_raises_no_recovered(
         &mut sees(&full()),
-        wired.wiring(),
+        wired.wiring(&|| calls(&site)),
         Scope::Cycle,
         now,
     )
@@ -915,7 +1011,7 @@ fn the_token_health_laws_break_where_local_answers_are_seen() {
     ];
     let e = laws::health::an_out_of_set_token_raises_no_recovered(
         &mut sees(&full()),
-        wired.wiring(),
+        wired.wiring(&|| calls(&site)),
         Scope::Agent,
         &wider,
         now,
@@ -926,7 +1022,7 @@ fn the_token_health_laws_break_where_local_answers_are_seen() {
     wired.world.advance(3601);
     let e = laws::health::an_expired_token_raises_no_recovered(
         &mut given,
-        wired.wiring(),
+        wired.wiring(&|| calls(&site)),
         Scope::Cycle,
         wired.world.now(),
     )
@@ -1535,7 +1631,8 @@ fn the_fake_refuses_as_a_site_would() {
         .ticket(3, |t| t.title("closed").closed(CloseReason::Done))
         .with_account("ghost", AccountKind::Person, Standing::Read)
         .assignable("ghost", false)
-        .sign_in("code-1", "alice");
+        .sign_in("code-1", "alice")
+        .sign_in("code-2", "alice");
     let site = FakeSite::new(&w);
     let mut t = site.ticket_writes(&full(), C).unwrap();
     t.wait_on(&w.key(1), &Item::Ticket(w.key(2))).unwrap();
@@ -1563,9 +1660,20 @@ fn the_fake_refuses_as_a_site_would() {
         t.note(&w.key(1), "x", &unwritable),
         Err(Outcome::Refused(Refusal::Invalid))
     );
-    let mut id = site.identity(&Actor::Anonymous, C).map(|_| ());
-    assert_eq!(id, Err(Outcome::Forbidden), "identity is no anonymous read");
-    id = site.ticket_writes(&Actor::Anonymous, C).map(|_| ());
+    // Anonymous asks identity about others alone.
+    let mut anon = site.identity(&Actor::Anonymous, C).unwrap();
+    let ghost_login = Login::new("ghost");
+    assert!(anon.is_organisation(&ghost_login).is_ok());
+    assert!(anon.account_by_login(&ghost_login).is_ok());
+    assert!(anon.account(&ghost).is_ok());
+    assert!(anon.signed_in(&SignInCode::new("code-2")).is_ok());
+    let forbidden = Err(Outcome::Forbidden);
+    assert_eq!(anon.me().map(|_| ()), forbidden, "anonymous has no self");
+    assert_eq!(anon.standing(&ghost).map(|_| ()), forbidden);
+    assert_eq!(anon.token(Scope::Read).map(|_| ()), forbidden);
+    let own = [ProjectName::new("fake/project")];
+    assert_eq!(anon.token_over(Scope::Read, &own).map(|_| ()), forbidden);
+    let mut id = site.ticket_writes(&Actor::Anonymous, C).map(|_| ());
     assert_eq!(id, Err(Outcome::Forbidden));
     id = site
         .tickets(&Actor::Person(PersonKey::new("nobody")), C)
@@ -2432,6 +2540,328 @@ fn the_fakes_meter_counts_calls_by_caller_port_and_pool() {
 }
 
 #[test]
+fn two_sessions_of_one_person_share_one_holder() {
+    let wired = Wired::new(
+        World::new()
+            .person("phone", "alice")
+            .person("laptop", "alice"),
+    );
+    let phone = Actor::Person(PersonKey::new("phone"));
+    let laptop = Actor::Person(PersonKey::new("laptop"));
+    let watch = wired.watch(None);
+    assert_eq!(watch.holder(&phone), watch.holder(&laptop));
+    let until = At::new(wired.world.now().secs() + 600);
+    let spent = Fault::Spent {
+        pool: Pool::Priced,
+        until,
+    };
+    let faulty = Faulty::new(FakeSite::new(&wired.world))
+        .on(Op::Board(BoardOp::OpenWork), spent)
+        .by(phone.clone())
+        .watch(watch);
+    let out = Err(Outcome::Spent {
+        pool: Pool::Priced,
+        until,
+    });
+    let mut on_phone = faulty.board(&phone, C).unwrap();
+    assert_eq!(on_phone.open_work(&board_ask(), b(5)).map(drop), out);
+    // The other session is the same account: held, with no request.
+    let mut on_laptop = faulty.board(&laptop, C).unwrap();
+    assert_eq!(on_laptop.open_work(&board_ask(), b(5)).map(drop), out);
+    assert_eq!(faulty.requests_by(&phone), 1);
+    assert_eq!(faulty.requests_by(&laptop), 0);
+    // The factory is another holder, and the rule is not its.
+    let mut ours = faulty.board(&full(), C).unwrap();
+    assert!(ours.open_work(&board_ask(), b(5)).is_ok());
+    assert_eq!(faulty.requests_by(&full()), 1);
+    assert_eq!(faulty.requests(), 2);
+}
+
+#[test]
+fn a_signed_out_credential_answers_signed_out_and_tells_the_keyring_once() {
+    let w = World::new()
+        .ticket(1, |t| t.title("one"))
+        .person("alice-key", "alice");
+    let site = FakeSite::new(&w);
+    let key = PersonKey::new("alice-key");
+    let mut t = site.tickets(&Actor::Person(key.clone()), C).unwrap();
+    assert!(t.ticket(&w.key(1), Depth::All, None).is_ok());
+    w.sign_out(&key);
+    for _ in 0..2 {
+        assert_eq!(
+            t.ticket(&w.key(1), Depth::All, None).map(drop),
+            Err(Outcome::SignedOut)
+        );
+    }
+    assert_eq!(w.signed_out_keys(), vec![key.clone()]);
+    assert_eq!(
+        site.tickets(&Actor::Person(key), C).map(drop),
+        Err(Outcome::SignedOut)
+    );
+}
+
+#[test]
+fn an_op_draws_on_the_pools_the_test_sets() {
+    let wired = Wired::new(World::new().ticket(1, |t| t.title("one")));
+    let until = At::new(wired.world.now().secs() + 600);
+    let ticket = Op::Tickets(TicketsOp::Ticket);
+    let faulty = Faulty::new(FakeSite::new(&wired.world))
+        .draws(ticket, &[Pool::Calls, Pool::Priced])
+        .watch(wired.watch(None));
+    let holder = wired.watch(None).holder(&full());
+    let whose = Whose::Pool(holder, Pool::Priced);
+    let spent = HealthState::Spent {
+        pool: Pool::Priced,
+        until,
+    };
+    assert_eq!(
+        wired
+            .ledger
+            .swap_health(&wired.host, &whose, &HealthState::Healthy, &spent),
+        Ok(true)
+    );
+    let mut t = faulty.tickets(&full(), C).unwrap();
+    assert_eq!(
+        t.ticket(&wired.world.key(1), Depth::All, None).map(drop),
+        Err(Outcome::Spent {
+            pool: Pool::Priced,
+            until
+        }),
+        "a call drawing on a held pool is held"
+    );
+    assert_eq!(faulty.requests(), 0);
+}
+
+#[test]
+fn a_server_error_may_have_written_and_a_broken_check_is_the_host_up() {
+    let wired = Wired::new(World::new().ticket(1, |t| t.title("one")));
+    let mark = Op::Tickets(TicketsOp::Mark);
+    let faulty = Faulty::new(FakeSite::new(&wired.world))
+        .on(mark, Fault::Server { applied: true })
+        .times(1)
+        .on(mark, Fault::Server { applied: false })
+        .after(1)
+        .times(1)
+        .watch(wired.watch(None));
+    let mut t = faulty.ticket_writes(&full(), C).unwrap();
+    let server = Err(Outcome::Unavailable {
+        why: Passing::Server,
+        sent: Sent::Maybe,
+    });
+    assert_eq!(t.mark(&wired.world.key(1), &Mark::Epic), server);
+    assert_eq!(wired.world.wrote().len(), 1, "applied, then the error");
+    assert_eq!(t.unmark(&wired.world.key(1), &Mark::Epic), Ok(()));
+    assert_eq!(t.mark(&wired.world.key(1), &Mark::Epic), server);
+    assert_eq!(wired.world.wrote().len(), 2, "the second not applied");
+    // `Broken` ends an outage: the site answered.
+    let failing = HealthState::Failing {
+        since: wired.world.now(),
+        why: Passing::Timeout,
+    };
+    let host = Whose::Host;
+    let was = wired.ledger.health(&wired.host, &host).unwrap();
+    assert_eq!(
+        wired.ledger.swap_health(&wired.host, &host, &was, &failing),
+        Ok(true)
+    );
+    let checks = Op::CodeHost(CodeHostOp::Checks);
+    let broken = Faulty::new(FakeSite::new(&wired.world))
+        .on(checks, Fault::Broken)
+        .watch(wired.watch(None));
+    let head = wired.world.head("main").unwrap();
+    let mut c = broken.code_host(&full(), C).unwrap();
+    assert!(c.checks(&head, None).is_err());
+    assert_eq!(
+        wired.ledger.health(&wired.host, &host),
+        Ok(HealthState::Healthy)
+    );
+    assert!(wired.told().contains(&Health::Recovered));
+    let since = At::new(0);
+    let failures = wired.ledger.failures(&wired.host, since).unwrap();
+    let whys: Vec<Passing> = failures
+        .iter()
+        .filter_map(|f| match f.outcome {
+            Outcome::Unavailable { why, .. } => Some(why),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        whys,
+        vec![Passing::Server, Passing::Server],
+        "a failed check run is no failure of the site"
+    );
+}
+
+#[test]
+fn a_batch_is_answered_when_the_site_answered() {
+    let wired = Wired::new(
+        World::new()
+            .ticket(1, |t| t.title("one"))
+            .person("alice-key", "alice"),
+    );
+    // Ticket 9 is not there: that item's, not the call's.
+    let faulty = Faulty::new(FakeSite::new(&wired.world))
+        .on(Op::Tickets(TicketsOp::List), Fault::Cut)
+        .on(Op::Tickets(TicketsOp::Ticket), Fault::TooLarge)
+        .watch(wired.watch(None));
+    let failing = HealthState::Failing {
+        since: wired.world.now(),
+        why: Passing::Timeout,
+    };
+    let was = wired.ledger.health(&wired.host, &Whose::Host).unwrap();
+    wired
+        .ledger
+        .swap_health(&wired.host, &Whose::Host, &was, &failing)
+        .unwrap();
+    let mut t = faulty.tickets(&full(), C).unwrap();
+    let answers = t.several(&[wired.world.key(1), wired.world.key(9)]);
+    assert!(answers[0].1.is_ok() && answers[1].1.is_err());
+    assert_eq!(
+        wired.ledger.health(&wired.host, &Whose::Host),
+        Ok(HealthState::Healthy),
+        "the site answered the batch"
+    );
+    // Odd answers and a person's sign-out are no failures of the site.
+    assert!(t.list(&Filter::default(), b(5)).is_err());
+    assert!(t.ticket(&wired.world.key(1), Depth::All, None).is_err());
+    let person = Actor::Person(PersonKey::new("alice-key"));
+    let theirs = Faulty::new(FakeSite::new(&wired.world))
+        .on(Op::Tickets(TicketsOp::Ticket), Fault::SignedOut)
+        .watch(wired.watch(None));
+    let mut p = theirs.tickets(&person, C).unwrap();
+    assert!(p.ticket(&wired.world.key(1), Depth::All, None).is_err());
+    let failures = wired.ledger.failures(&wired.host, At::new(0)).unwrap();
+    assert!(failures.is_empty(), "kept {failures:?}");
+    // The factory's own sign-out is.
+    let ours = Faulty::new(FakeSite::new(&wired.world))
+        .on(Op::Tickets(TicketsOp::Ticket), Fault::SignedOut)
+        .watch(wired.watch(None));
+    let mut o = ours.tickets(&full(), C).unwrap();
+    assert!(o.ticket(&wired.world.key(1), Depth::All, None).is_err());
+    assert_eq!(
+        wired
+            .ledger
+            .failures(&wired.host, At::new(0))
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn a_person_below_write_comments_files_and_edits_their_own() {
+    let w = World::split()
+        .person("bob-key", "bob")
+        .blueprint(101, |b| b.title("theirs").author("alice"))
+        .blueprint(102, |b| b.title("bob's").author("bob"))
+        .change(501, "work", |c| c.title("work"));
+    let head = w.head("work").unwrap();
+    let site = FakeSite::new(&w);
+    let bob = Actor::Person(PersonKey::new("bob-key"));
+    let mut bl = site.blueprint_writes(&bob, C).unwrap();
+    let posted = bl.comment(bp(101), "a comment", &[]).unwrap();
+    let mine = bl.blueprint(bp(102), Depth::All).unwrap();
+    assert!(bl
+        .edit(
+            bp(102),
+            Some("bob's, edited"),
+            None,
+            &MarkerEdit::default(),
+            &mine.revision
+        )
+        .is_ok());
+    let theirs = bl.blueprint(bp(101), Depth::All).unwrap();
+    assert_eq!(
+        bl.edit(
+            bp(101),
+            Some("taken"),
+            None,
+            &MarkerEdit::default(),
+            &theirs.revision
+        )
+        .map(drop),
+        Err(Outcome::Forbidden),
+        "another's blueprint"
+    );
+    let comment = bl.comments_by_id(std::slice::from_ref(&posted.id));
+    let rev = comment[0].1.as_ref().unwrap().revision.clone();
+    assert!(bl
+        .edit_comment(&posted.id, "edited", &MarkerEdit::default(), &rev)
+        .is_ok());
+    assert_eq!(bl.close(bp(102), true), Err(Outcome::Forbidden));
+    let mut t = site.ticket_writes(&bob, C).unwrap();
+    assert!(t.file(&new_ticket()).is_ok());
+    let mut c = site.code_host_writes(&bob, C).unwrap();
+    assert!(c.comment_change(cn(501), "a note", &[]).is_ok());
+    assert_eq!(
+        c.merge(cn(501), &head, MergeHow::Squash),
+        Err(Outcome::Forbidden),
+        "no merge below Write"
+    );
+    assert_eq!(c.remote(Access::Push).map(drop), Err(Outcome::Forbidden));
+}
+
+#[test]
+fn a_given_token_does_what_its_scope_may() {
+    let w = World::new().change(50, "work", |c| c.title("work"));
+    let head = w.head("work").unwrap();
+    let token = good_token(&w, "handed-in");
+    let w = w.given("cycle", Scope::Cycle, token);
+    let site = FakeSite::new(&w);
+    let given = Actor::Given(PersonKey::new("cycle"));
+    assert_eq!(
+        site.ticket_writes(&given, C).map(drop),
+        Err(Outcome::Forbidden)
+    );
+    let mut c = site.code_host_writes(&given, C).unwrap();
+    assert!(c.comment_change(cn(50), "a note", &[]).is_ok());
+    assert_eq!(
+        c.merge(cn(50), &head, MergeHow::Squash),
+        Err(Outcome::Forbidden)
+    );
+}
+
+#[test]
+fn the_world_builds_a_named_private_archived_project() {
+    let clock = fake::Clock::new(At::new(5));
+    let w = World::new()
+        .named("fake/elsewhere")
+        .on_clock(clock.clone())
+        .private()
+        .tracker_off()
+        .archived()
+        .default_branch("trunk")
+        .ticket(1, |t| t.title("one"));
+    assert_eq!(w.now(), At::new(5));
+    clock.advance(10);
+    assert_eq!(
+        w.now(),
+        At::new(15),
+        "the world reads the clock it was given"
+    );
+    let site = FakeSite::new(&w);
+    let facts = site.code_host(&full(), C).unwrap().facts().unwrap();
+    assert_eq!(facts.name, ProjectName::new("fake/elsewhere"));
+    assert!(!facts.public && !facts.tracker_on && facts.archived);
+    assert_eq!(facts.default_branch, branch("trunk"));
+    assert_eq!(w.head("trunk"), w.head("main"));
+    let mut anon = site.code_host(&Actor::Anonymous, C).unwrap();
+    assert_eq!(anon.facts().map(drop), Err(Outcome::NotFound));
+    let mut t = site.ticket_writes(&full(), C).unwrap();
+    assert_eq!(
+        t.ticket(&w.key(1), Depth::All, None).map(drop),
+        Err(Outcome::NotFound),
+        "the tracker is off"
+    );
+    let mut c = site.code_host_writes(&full(), C).unwrap();
+    let head = w.head("trunk").unwrap();
+    assert_eq!(
+        c.tag(&TagName::new("v1").unwrap(), &head),
+        Err(Outcome::Refused(Refusal::ReadOnly))
+    );
+}
+
+#[test]
 fn a_law_breaks_where_its_rule_does() {
     // Without a watch nothing is held: the call goes out and answers.
     let wired = Wired::new(World::new().ticket(1, |t| t.title("a")));
@@ -2441,7 +2871,7 @@ fn a_law_breaks_where_its_rule_does() {
     let e = laws::health::held_calls_raise_no_recovered(
         h.as_mut(),
         &wired.world.key(1),
-        wired.wiring(),
+        wired.wiring(&|| bare.requests()),
         &wired.watch(None).holder(&actor),
         Pool::Calls,
         wired.world.now(),

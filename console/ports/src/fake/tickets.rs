@@ -2,6 +2,7 @@
 
 use std::num::{NonZeroU32, NonZeroU64};
 
+use super::faulty::{Op, TicketsOp};
 use super::site::{
     comments_of, digest, edit_markers, first, key_order, known_mark, list_order, matches, revision,
     text_of, whole, window, writable, Ctx, Handle,
@@ -628,7 +629,7 @@ impl TicketWrites for Handle {
     }
 
     fn prepare(&mut self) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Tickets(TicketsOp::Prepare), |s, ctx| {
             s.prepared = true;
             ctx.wrote(s, Write::Prepare);
             Ok(())
@@ -636,7 +637,7 @@ impl TicketWrites for Handle {
     }
 
     fn ensure_mark(&mut self, spec: &MarkSpec) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Tickets(TicketsOp::EnsureMark), |s, ctx| {
             match s.project_marks.iter_mut().find(|m| m.name == spec.name) {
                 Some(m) => *m = spec.clone(),
                 None => s.project_marks.push(spec.clone()),
@@ -647,15 +648,17 @@ impl TicketWrites for Handle {
     }
 
     fn mark(&mut self, key: &TicketKey, m: &Mark) -> Did {
-        self.run(Pool::Writes, |s, ctx| mark(s, ctx, key, m))
+        self.write(Op::Tickets(TicketsOp::Mark), |s, ctx| mark(s, ctx, key, m))
     }
 
     fn unmark(&mut self, key: &TicketKey, m: &Mark) -> Did {
-        self.run(Pool::Writes, |s, ctx| unmark(s, ctx, key, m))
+        self.write(Op::Tickets(TicketsOp::Unmark), |s, ctx| {
+            unmark(s, ctx, key, m)
+        })
     }
 
     fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Tickets(TicketsOp::Close), |s, ctx| {
             let at = at_ticket(s, key)?;
             close_item(s, ctx, at, reason);
             ctx.wrote(
@@ -670,11 +673,13 @@ impl TicketWrites for Handle {
     }
 
     fn note(&mut self, key: &TicketKey, body: &str, markers: &[Marker]) -> Got<Posted<CommentId>> {
-        self.run(Pool::Writes, |s, ctx| note(s, ctx, key, body, markers))
+        self.write(Op::Tickets(TicketsOp::Note), |s, ctx| {
+            note(s, ctx, key, body, markers)
+        })
     }
 
     fn file(&mut self, new: &NewTicket) -> Got<Posted<TicketKey>> {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Tickets(TicketsOp::File), |s, ctx| {
             let text = text_of(&new.text)?.to_string();
             writable(&new.markers)?;
             for m in &new.marks {
@@ -725,9 +730,10 @@ impl TicketWrites for Handle {
         markers: &MarkerEdit,
         since_rev: &crate::Revision,
     ) -> Got<WebLink> {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Tickets(TicketsOp::Edit), |s, ctx| {
             markers.check()?;
             let at = at_ticket(s, key)?;
+            ctx.own(s, s.items[at].author.as_ref())?;
             if revision(s.items[at].revision) != *since_rev {
                 return Err(Outcome::Conflict(crate::Lost::Changed));
             }
@@ -774,7 +780,7 @@ impl TicketWrites for Handle {
     }
 
     fn reopen(&mut self, key: &TicketKey) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Tickets(TicketsOp::Reopen), |s, ctx| {
             let at = at_ticket(s, key)?;
             if !s.items[at].open {
                 let item = &mut s.items[at];
@@ -795,7 +801,7 @@ impl TicketWrites for Handle {
     }
 
     fn set_kind(&mut self, key: &TicketKey, kind: Option<&Kind>) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Tickets(TicketsOp::SetKind), |s, ctx| {
             if kind == Some(&Kind::Unknown) {
                 return Err(Outcome::Refused(Refusal::Invalid));
             }
@@ -816,7 +822,7 @@ impl TicketWrites for Handle {
     }
 
     fn set_priority(&mut self, key: &TicketKey, p: Priority) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Tickets(TicketsOp::SetPriority), |s, ctx| {
             let at = at_ticket(s, key)?;
             if s.items[at].priority != p {
                 s.items[at].priority = p;
@@ -836,7 +842,7 @@ impl TicketWrites for Handle {
     /// A ticket that would wait on itself, at any remove, is
     /// `Refused(Cycle)`. A split world's tickets cannot wait on a change.
     fn wait_on(&mut self, key: &TicketKey, on: &Item) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Tickets(TicketsOp::WaitOn), |s, ctx| {
             let at = at_ticket(s, key)?;
             match on {
                 Item::Ticket(k) => {
@@ -868,7 +874,7 @@ impl TicketWrites for Handle {
     }
 
     fn stop_waiting(&mut self, key: &TicketKey, on: &Item) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Tickets(TicketsOp::StopWaiting), |s, ctx| {
             let at = at_ticket(s, key)?;
             if let Some(i) = s.items[at].blockers.iter().position(|b| b == on) {
                 s.items[at].blockers.remove(i);
@@ -887,7 +893,7 @@ impl TicketWrites for Handle {
 
     /// An account the world will not assign is `Refused(Invalid)`.
     fn assign(&mut self, key: &TicketKey, who: &AccountId) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Tickets(TicketsOp::Assign), |s, ctx| {
             let at = at_ticket(s, key)?;
             let login = match s.login_of(who, ctx.realm) {
                 Some(a) if a.assignable => a.login.clone(),
@@ -910,7 +916,7 @@ impl TicketWrites for Handle {
     }
 
     fn add_part(&mut self, parent: &TicketKey, child: &TicketKey) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Tickets(TicketsOp::AddPart), |s, ctx| {
             let at = at_ticket(s, parent)?;
             at_ticket(s, child)?;
             if part_of(s, child, parent) {
@@ -932,7 +938,7 @@ impl TicketWrites for Handle {
     }
 
     fn remove_part(&mut self, parent: &TicketKey, child: &TicketKey) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Tickets(TicketsOp::RemovePart), |s, ctx| {
             let at = at_ticket(s, parent)?;
             if let Some(i) = s.items[at].parts.iter().position(|k| k == child) {
                 s.items[at].parts.remove(i);
@@ -950,7 +956,7 @@ impl TicketWrites for Handle {
     }
 
     fn new_target(&mut self, title: &str, due: Option<At>) -> Got<TargetId> {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Tickets(TicketsOp::NewTarget), |s, ctx| {
             let id = TargetId::new(s.fresh_id("target"));
             s.targets.push(Target {
                 id: id.clone(),
@@ -974,7 +980,7 @@ impl TicketWrites for Handle {
     }
 
     fn edit_target(&mut self, id: &TargetId, edit: &TargetEdit) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Tickets(TicketsOp::EditTarget), |s, ctx| {
             let t = s
                 .targets
                 .iter_mut()
@@ -999,7 +1005,7 @@ impl TicketWrites for Handle {
     }
 
     fn set_target(&mut self, key: &TicketKey, target: Option<&TargetId>) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Tickets(TicketsOp::SetTarget), |s, ctx| {
             let at = at_ticket(s, key)?;
             if let Some(t) = target {
                 if !s.targets.iter().any(|x| x.id == *t) {

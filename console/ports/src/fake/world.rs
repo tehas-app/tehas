@@ -9,10 +9,10 @@ use super::state::{lock, nz, split_key, AccountRec, ChangeRec, Layout, ReleaseRe
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Account, AccountKind, At, BlueprintNo, Branch, ChangeEvent, ChangeNo, ChangeState, Check,
-    CommentId, CommitId, DeployCredential, Got, Keyring, Kind, Links, Mergeable, PersonKey,
-    ProjectName, Realm, Release, RepoPath, Secret, SignInCode, Standing, Tag, TagName, Target,
-    TargetId, TicketKey, Token, Write,
+    Account, AccountId, AccountKind, At, BlueprintNo, Branch, ChangeEvent, ChangeNo, ChangeState,
+    Check, CommentId, CommitId, DeployCredential, Got, Keyring, Kind, Links, Mergeable, PersonKey,
+    ProjectName, Realm, Release, RepoPath, Scope, Secret, SignInCode, Standing, Tag, TagName,
+    Target, TargetId, TicketKey, Token, Write,
 };
 
 /// The login of the factory's own account in a `World`.
@@ -219,9 +219,88 @@ impl World {
         self
     }
 
-    /// A token handed in under `key`, for `Actor::Given`.
-    pub fn given(self, key: &str, token: Token) -> Self {
-        self.lock().given.push((PersonKey::new(key), token));
+    /// A token of `scope` handed in under `key`, for `Actor::Given`: its
+    /// handles may do what `Actor::Ours(scope)` may.
+    pub fn given(self, key: &str, scope: Scope, token: Token) -> Self {
+        self.lock().given.push((PersonKey::new(key), scope, token));
+        self
+    }
+
+    /// The site forgets the credential under `key`, a person's, a deploy
+    /// one or a given token: every call of its handles answers `SignedOut`.
+    pub fn sign_out(&self, key: &PersonKey) {
+        let mut s = self.lock();
+        s.persons.retain(|(k, _)| k != key);
+        s.deploys.retain(|(k, _)| k != key);
+        s.given.retain(|(k, _, _)| k != key);
+    }
+
+    /// The scope of the token handed in under `key`.
+    pub(crate) fn given_scope(&self, key: &PersonKey) -> Option<Scope> {
+        let s = self.lock();
+        s.given
+            .iter()
+            .find(|(k, _, _)| k == key)
+            .map(|(_, s, _)| *s)
+    }
+
+    /// The account id of the person signed in under `key`, in `realm`.
+    pub fn person_account(&self, key: &PersonKey, realm: Realm) -> Option<AccountId> {
+        let s = self.lock();
+        let login = s.persons.iter().find(|(k, _)| k == key)?.1.clone();
+        s.account(&login, realm).id
+    }
+
+    /// The same world, its project named `project`.
+    pub fn named(self, project: &str) -> Self {
+        {
+            let mut s = self.lock();
+            let name = ProjectName::new(project);
+            let old = std::mem::replace(&mut s.project, name.clone());
+            s.grant_projects.retain(|p| *p != old);
+            s.grant_projects.push(name);
+        }
+        self
+    }
+
+    /// The same world, on `clock`, so several worlds read one time.
+    pub fn on_clock(mut self, clock: Clock) -> Self {
+        self.clock = clock;
+        self
+    }
+
+    /// The same world, private: an anonymous read answers `NotFound`.
+    pub fn private(self) -> Self {
+        self.lock().public = false;
+        self
+    }
+
+    /// The same world with the code host's own tracker off: its tickets
+    /// answer `NotFound`.
+    pub fn tracker_off(self) -> Self {
+        self.lock().tracker_on = false;
+        self
+    }
+
+    /// The same world, archived: every write answers `Refused(ReadOnly)`.
+    pub fn archived(self) -> Self {
+        self.lock().archived = true;
+        self
+    }
+
+    /// The same world with `name` as its default branch, at the old
+    /// default's head.
+    pub fn default_branch(self, name: &str) -> Self {
+        {
+            let mut s = self.lock();
+            if let Ok(branch) = Branch::new(name) {
+                let old = s.default_branch.clone();
+                if let Some(head) = s.branch_at(&old) {
+                    s.set_branch(&branch, head);
+                }
+                s.default_branch = branch;
+            }
+        }
         self
     }
 
@@ -580,8 +659,8 @@ impl Keyring for World {
         let s = self.lock();
         s.given
             .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, t)| t.clone())
+            .find(|(k, _, _)| k == key)
+            .map(|(_, _, t)| t.clone())
     }
 
     fn signed_out(&self, key: &PersonKey) {

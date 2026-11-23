@@ -9,6 +9,11 @@
 //! fixture item whose text the adapter's recorded sample holds; the fake
 //! holds markers beside its text, so over the fake those laws check that
 //! what was put in is read back.
+//!
+//! An adapter runs the laws over recorded replays of the fixture project,
+//! so every answer is fixed. Run live, a hook that changes the site (a
+//! push, a write elsewhere) waits until the site shows the change before
+//! it returns: a search and a change's head lag behind a push.
 
 use serde::{Deserialize, Serialize};
 
@@ -37,6 +42,20 @@ fn hold(cond: bool, law: &str, what: impl FnOnce() -> String) -> Law {
     } else {
         broken(law, what())
     }
+}
+
+/// The notices a sink was told, oldest first, as a law reads them: the
+/// fake's `NoticeLog`, or a consumer's own sink.
+pub trait Told {
+    /// Every notice told so far, oldest first.
+    fn told(&self) -> Vec<crate::Notice>;
+}
+
+/// What a token store was asked to keep, oldest first, as a law reads it:
+/// the fake's `MemoryTokens`, or a consumer's own store.
+pub trait TokenLog {
+    /// Each `Covers` and scope a token was kept under, oldest first.
+    fn kept(&self) -> Vec<(crate::Covers, crate::Scope)>;
 }
 
 /// The value of an answer, or the law broken by its outcome.
@@ -540,9 +559,10 @@ pub mod history {
     use super::{got, hold, Law};
     use crate::{Depth, TicketKey, Tickets, Window, ALL_MAX};
 
-    /// A ticket's history is oldest first, as the history read and the
-    /// ticket's own read give it alike, and its newest n are its last n.
-    /// The fixture's ticket has a history of events with times.
+    /// A ticket's history is oldest first, and its newest n are its last
+    /// n. `ticket(Depth::All).history` and `history(Whole)` agree item for
+    /// item: the same events, in the same order, each with the same
+    /// fields. The fixture's ticket has a history of events with times.
     pub fn oldest_first(h: &mut dyn Tickets, key: &TicketKey) -> Law {
         const LAW: &str = "history::oldest_first";
         let whole = got(
@@ -936,19 +956,92 @@ pub mod markers {
     }
 }
 
+/// Laws of what a scope may write on the code host. A write its scope
+/// does not allow is `Forbidden` and changes nothing.
+pub mod scopes {
+    use super::{hold, Law};
+    use crate::{
+        Access, Blobs, ChangeNo, ChangeState, CodeHostWrites, CommitId, MergeHow, NewRelease,
+        Outcome, Proposal, TagName, ALL_MAX,
+    };
+
+    /// An agent's token makes no file write and no push: a proposal is
+    /// `Forbidden` and leaves no branch, and a remote to push is
+    /// `Forbidden`. `h` acts as `Ours(Agent)`; `p` proposes a fresh
+    /// branch.
+    pub fn an_agent_makes_no_file_write_and_no_push(
+        h: &mut dyn CodeHostWrites,
+        p: &Proposal,
+        files: &dyn Blobs,
+    ) -> Law {
+        const LAW: &str = "scopes::an_agent_makes_no_file_write_and_no_push";
+        let proposed = h.propose(p, files);
+        let refused = matches!(
+            &proposed,
+            Err(a) if a.done.is_empty()
+                && matches!(&a.stopped, Some((_, Outcome::Forbidden)))
+        );
+        hold(refused, LAW, || {
+            format!("an agent's proposal answered {proposed:?}")
+        })?;
+        let branch = h.branch(&p.branch);
+        hold(branch == Ok(None), LAW, || {
+            format!("the refused proposal left the branch: {branch:?}")
+        })?;
+        let push = h.remote(Access::Push).map(|_| ());
+        hold(push == Err(Outcome::Forbidden), LAW, || {
+            format!("an agent's push remote answered {push:?}")
+        })
+    }
+
+    /// A cycle's or a session's token merges, tags and releases nothing:
+    /// each is `Forbidden` and leaves the change open, the tag absent and
+    /// no release. `h` acts as `Ours(Cycle)` or `Ours(Session)`; `no` is
+    /// an open change that can merge at `head`; `tag` is absent; `release`
+    /// is of a tag that is there and has no release.
+    pub fn a_cycle_merges_tags_and_releases_nothing(
+        h: &mut dyn CodeHostWrites,
+        no: ChangeNo,
+        head: &CommitId,
+        tag: &TagName,
+        release: &NewRelease,
+    ) -> Law {
+        const LAW: &str = "scopes::a_cycle_merges_tags_and_releases_nothing";
+        let forbidden = Err(Outcome::Forbidden);
+        let merged = h.merge(no, head, MergeHow::Squash);
+        hold(merged == forbidden, LAW, || {
+            format!("a merge answered {merged:?}")
+        })?;
+        let state = h.change(no, ALL_MAX).map(|c| c.digest.state);
+        hold(state == Ok(ChangeState::Open), LAW, || {
+            format!("the change is {state:?} after the refused merge")
+        })?;
+        let tagged = h.tag(tag, head);
+        hold(tagged == forbidden, LAW, || {
+            format!("a tag answered {tagged:?}")
+        })?;
+        let there = h.resolve_tag(tag);
+        hold(there == Err(Outcome::NotFound), LAW, || {
+            format!("the refused tag reads {there:?}")
+        })?;
+        let made = h.new_release(release).map(|_| ());
+        hold(made == forbidden, LAW, || {
+            format!("a release answered {made:?}")
+        })?;
+        let read = h.release(&release.tag).map(|_| ());
+        hold(read == Err(Outcome::NotFound), LAW, || {
+            format!("the refused release reads {read:?}")
+        })
+    }
+}
+
 /// Laws of identity and its tokens.
 pub mod identity {
-    use super::{got, hold, Law};
-    use crate::fake::{Asked, MemoryTokens};
+    use super::{got, hold, Law, TokenLog};
     use crate::{Covers, Got, Identity, Outcome, ProjectName, Scope, Token};
 
-    fn kept_since(tokens: &MemoryTokens, from: usize) -> Vec<Asked> {
-        tokens
-            .asked()
-            .into_iter()
-            .skip(from)
-            .filter(|a| matches!(a, Asked::Keep(..)))
-            .collect()
+    fn kept_since(tokens: &dyn TokenLog, from: usize) -> Vec<(Covers, Scope)> {
+        tokens.kept().into_iter().skip(from).collect()
     }
 
     /// One token over a set of projects covers that set alone: asked with a
@@ -957,13 +1050,13 @@ pub mod identity {
     /// `set` is the fixture's grant's, the handle's project among them.
     pub fn a_token_covers_its_set_alone(
         h: &mut dyn Identity,
-        tokens: &MemoryTokens,
+        tokens: &dyn TokenLog,
         scope: Scope,
         set: &[ProjectName],
         outside: &ProjectName,
     ) -> Law {
         const LAW: &str = "identity::a_token_covers_its_set_alone";
-        let from = tokens.asked().len();
+        let from = tokens.kept().len();
         let mut wider = set.to_vec();
         wider.push(outside.clone());
         let refused = h.token_over(scope, &wider).map(|_| ());
@@ -984,7 +1077,7 @@ pub mod identity {
         for asked in kept {
             let ok = matches!(
                 &asked,
-                Asked::Keep(Covers::Projects { projects, .. }, s)
+                (Covers::Projects { projects, .. }, s)
                     if projects.as_slice() == sorted.as_slice() && *s == scope
             );
             hold(ok, LAW, || format!("kept as {asked:?}"))?;
@@ -997,18 +1090,25 @@ pub mod identity {
     /// and `Keyring::signed_out` is called once for its key. `h` acts as
     /// `Given` with `given`; `expired` is the making of a handle whose
     /// given token is past its time; `signed_out` counts the keyring's
-    /// `signed_out` calls for that handle's key.
+    /// `signed_out` calls for that handle's key; `requests` counts the
+    /// requests the site was sent, so a mint shows.
     pub fn a_given_token_is_never_minted(
         h: &mut dyn Identity,
-        tokens: &MemoryTokens,
+        tokens: &dyn TokenLog,
         scope: Scope,
         given: &Token,
         expired: Got<Box<dyn Identity + Send>>,
         signed_out: impl Fn() -> usize,
+        requests: impl Fn() -> u32,
     ) -> Law {
         const LAW: &str = "identity::a_given_token_is_never_minted";
-        let from = tokens.asked().len();
+        let from = tokens.kept().len();
+        let sent = requests();
         let t = got(LAW, "the token", h.token(scope))?;
+        let now = requests();
+        hold(now == sent, LAW, || {
+            format!("a given token sent {} requests", now - sent)
+        })?;
         hold(
             t.secret.expose() == given.secret.expose() && t.until == given.until,
             LAW,
@@ -1032,17 +1132,24 @@ pub mod identity {
 
     /// A site built without the factory's key answers its tokens from the
     /// store alone: none kept is `SignedOut`, and nothing is minted or
-    /// kept. The store holds no token of `scope` for the handle's project.
+    /// kept. The store holds no token of `scope` for the handle's project;
+    /// `requests` counts the requests the site was sent.
     pub fn a_keyless_site_never_mints(
         h: &mut dyn Identity,
-        tokens: &MemoryTokens,
+        tokens: &dyn TokenLog,
         scope: Scope,
+        requests: impl Fn() -> u32,
     ) -> Law {
         const LAW: &str = "identity::a_keyless_site_never_mints";
-        let from = tokens.asked().len();
+        let from = tokens.kept().len();
+        let sent = requests();
         let t = h.token(scope).map(|_| ());
         hold(t == Err(Outcome::SignedOut), LAW, || {
             format!("with none kept it answered {t:?}")
+        })?;
+        let now = requests();
+        hold(now == sent, LAW, || {
+            format!("a keyless site sent {} requests", now - sent)
         })?;
         hold(kept_since(tokens, from).is_empty(), LAW, || {
             "a keyless site kept a token".into()
@@ -1054,23 +1161,24 @@ pub mod identity {
 /// reach the site, one that could not connect included, and never an answer
 /// it made without trying, so such an answer raises nothing.
 pub mod health {
-    use super::{hold, Law};
-    use crate::fake::Notices;
+    use super::{hold, Law, Told};
     use crate::{
         At, Depth, Health, HealthState, Holder, HostId, Identity, Ledger, Outcome, Passing, Pool,
         ProjectName, Scope, Sent, TicketKey, Tickets, Whose,
     };
 
     /// What the handle's site was wired with: the ledger, the sink and the
-    /// host its notices name.
+    /// host its notices name, and a count of the requests it sent.
     #[derive(Clone, Copy)]
     pub struct Wiring<'a> {
         /// The ledger.
         pub ledger: &'a dyn Ledger,
-        /// The sink.
-        pub sink: &'a Notices,
+        /// The sink, as the law reads it.
+        pub sink: &'a dyn Told,
         /// The host.
         pub host: &'a HostId,
+        /// How many requests the handle's site has sent so far.
+        pub requests: &'a dyn Fn() -> u32,
     }
 
     /// During an outage, a call of a holder whose pool is held spent
@@ -1091,7 +1199,7 @@ pub mod health {
         let spent = HealthState::Spent { pool, until };
         let failing = outage(wired, LAW, now)?;
         set(wired, LAW, &Whose::Pool(holder.clone(), pool), &spent)?;
-        let told = wired.sink.all().len();
+        let told = (wired.sink.told().len(), (wired.requests)());
         let answer = h.ticket(key, Depth::Cut { notes: 0 }, None).map(|_| ());
         hold(answer == Err(Outcome::Spent { pool, until }), LAW, || {
             format!("a held call answered {answer:?}")
@@ -1122,17 +1230,30 @@ pub mod health {
         Ok(failing)
     }
 
-    /// No notice since the `told`th is `Recovered`, and the host is still
-    /// `failing`.
+    /// No request went out since `sent` were counted.
+    fn no_request(law: &str, sent: u32, now: u32, what: &str) -> Law {
+        hold(now == sent, law, || {
+            format!("{what} sent {} requests", now.saturating_sub(sent))
+        })
+    }
+
+    /// No request went out since `sent`, no notice since the `told`th is
+    /// `Recovered`, and the host is still `failing`.
     fn still_failing(
         wired: Wiring<'_>,
         law: &str,
-        told: usize,
+        (told, sent): (usize, u32),
         failing: &HealthState,
         what: &str,
     ) -> Law {
-        let Wiring { ledger, sink, host } = wired;
-        let new: Vec<_> = sink.all().into_iter().skip(told).collect();
+        let Wiring {
+            ledger,
+            sink,
+            host,
+            requests,
+        } = wired;
+        no_request(law, sent, requests(), what)?;
+        let new: Vec<_> = sink.told().into_iter().skip(told).collect();
         hold(
             !new.iter().any(|n| n.what == Health::Recovered),
             law,
@@ -1155,7 +1276,7 @@ pub mod health {
     ) -> Law {
         const LAW: &str = "health::a_kept_token_raises_no_recovered";
         let failing = outage(wired, LAW, now)?;
-        let told = wired.sink.all().len();
+        let told = (wired.sink.told().len(), (wired.requests)());
         let answer = h.token(scope).map(|_| ());
         hold(answer.is_ok(), LAW, || {
             format!("a kept token answered {answer:?}")
@@ -1175,7 +1296,7 @@ pub mod health {
     ) -> Law {
         const LAW: &str = "health::an_expired_token_raises_no_recovered";
         let failing = outage(wired, LAW, now)?;
-        let told = wired.sink.all().len();
+        let told = (wired.sink.told().len(), (wired.requests)());
         let answer = h.token(scope).map(|_| ());
         hold(answer == Err(Outcome::SignedOut), LAW, || {
             format!("an expired token answered {answer:?}")
@@ -1195,7 +1316,7 @@ pub mod health {
     ) -> Law {
         const LAW: &str = "health::an_out_of_set_token_raises_no_recovered";
         let failing = outage(wired, LAW, now)?;
-        let told = wired.sink.all().len();
+        let told = (wired.sink.told().len(), (wired.requests)());
         let answer = h.token_over(scope, wider).map(|_| ());
         hold(answer == Err(Outcome::Forbidden), LAW, || {
             format!("a set outside the grant answered {answer:?}")
@@ -1213,13 +1334,20 @@ pub mod health {
         wired: Wiring<'_>,
     ) -> Law {
         const LAW: &str = "health::past_the_deadline_raises_no_unavailable";
-        let Wiring { ledger, sink, host } = wired;
+        let Wiring {
+            ledger,
+            sink,
+            host,
+            requests,
+        } = wired;
         let before = ledger.health(host, &Whose::Host);
         hold(before == Ok(HealthState::Healthy), LAW, || {
             format!("the fixture's host is {before:?}")
         })?;
-        let told = sink.all().len();
+        let told = sink.told().len();
+        let sent = requests();
         let answer = h.ticket(key, Depth::Cut { notes: 0 }, None).map(|_| ());
+        no_request(LAW, sent, requests(), "a call past the deadline")?;
         let timeout = Outcome::Unavailable {
             why: Passing::Timeout,
             sent: Sent::No,
@@ -1227,7 +1355,7 @@ pub mod health {
         hold(answer == Err(timeout), LAW, || {
             format!("a call past the deadline answered {answer:?}")
         })?;
-        let new: Vec<_> = sink.all().into_iter().skip(told).collect();
+        let new: Vec<_> = sink.told().into_iter().skip(told).collect();
         hold(
             !new.iter().any(|n| matches!(n.what, Health::Unavailable(_))),
             LAW,

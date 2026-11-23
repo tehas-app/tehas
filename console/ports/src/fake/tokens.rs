@@ -60,6 +60,19 @@ impl MemoryTokens {
     }
 }
 
+impl crate::laws::TokenLog for MemoryTokens {
+    fn kept(&self) -> Vec<(Covers, Scope)> {
+        lock(&self.inner)
+            .asked
+            .iter()
+            .filter_map(|a| match a {
+                Asked::Keep(covers, scope) => Some((covers.clone(), *scope)),
+                Asked::Forget(..) => None,
+            })
+            .collect()
+    }
+}
+
 impl TokenStore for MemoryTokens {
     fn kept(&self, covers: &Covers, scope: Scope, left: u32) -> Option<Token> {
         let least = self.clock.now().secs() + i64::from(left);

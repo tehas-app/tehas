@@ -2,6 +2,7 @@
 
 use std::num::NonZeroU32;
 
+use super::faulty::{BlueprintsOp, Op};
 use super::site::{
     blueprint, comment, comments_of, edit_markers, first, matches, no_blueprint, revision, text_of,
     whole, writable, Ctx, Handle,
@@ -221,7 +222,7 @@ pub(crate) fn edit_item(
 
 impl BlueprintWrites for Handle {
     fn open(&mut self, new: &NewBlueprint) -> Got<Posted<BlueprintNo>> {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Blueprints(BlueprintsOp::Open), |s, ctx| {
             let body = text_of(&new.body)?.to_string();
             writable(&new.markers)?;
             let (no, ticket) = s.next_blueprint_no();
@@ -247,8 +248,9 @@ impl BlueprintWrites for Handle {
         markers: &MarkerEdit,
         since_rev: &Revision,
     ) -> Got<WebLink> {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Blueprints(BlueprintsOp::Edit), |s, ctx| {
             let at = no_blueprint(s, no)?;
+            ctx.own(s, s.items[at].author.as_ref())?;
             edit_item(s, ctx, at, title, body, markers, since_rev)?;
             ctx.wrote(
                 s,
@@ -270,7 +272,7 @@ impl BlueprintWrites for Handle {
         body: &str,
         markers: &[Marker],
     ) -> Got<Posted<CommentId>> {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Blueprints(BlueprintsOp::Comment), |s, ctx| {
             writable(markers)?;
             let at = no_blueprint(s, no)?;
             let author = Some(ctx.me(s));
@@ -299,12 +301,13 @@ impl BlueprintWrites for Handle {
         markers: &MarkerEdit,
         since_rev: &Revision,
     ) -> Got<WebLink> {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Blueprints(BlueprintsOp::EditComment), |s, ctx| {
             markers.check()?;
             let at = s.comment_at(id).ok_or(Outcome::NotFound)?;
             if s.comments[at].gone {
                 return Err(Outcome::Conflict(Lost::Gone));
             }
+            ctx.own(s, s.comments[at].author.as_ref())?;
             if revision(s.comments[at].revision) != *since_rev {
                 return Err(Outcome::Conflict(Lost::Changed));
             }
@@ -338,7 +341,7 @@ impl BlueprintWrites for Handle {
     }
 
     fn close(&mut self, no: BlueprintNo, done: bool) -> Did {
-        self.run(Pool::Writes, |s, ctx| {
+        self.write(Op::Blueprints(BlueprintsOp::Close), |s, ctx| {
             let at = no_blueprint(s, no)?;
             let reason = if done {
                 CloseReason::Done

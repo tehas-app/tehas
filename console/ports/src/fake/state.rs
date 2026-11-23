@@ -8,8 +8,8 @@ use crate::{
     Account, AccountKind, At, Attachment, BlueprintNo, Branch, ChangeEvent, ChangeNo, ChangeState,
     ChangedFile, Check, CloseReason, Closer, CommentId, CommitId, DeployCredential, Edit, GrantId,
     Item, KeyText, Kind, Mark, MarkSpec, Marker, Mergeable, PersonKey, Priority, ProjectName,
-    Proposal, Realm, Release, RepoPath, Review, SignInCode, Standing, Status, Tag, TagName, Target,
-    TargetId, TicketEvent, TicketKey, Token, WebLink,
+    Proposal, Realm, Release, RepoPath, Review, Scope, SignInCode, Standing, Status, Tag, TagName,
+    Target, TargetId, TicketEvent, TicketKey, Token, WebLink,
 };
 
 use super::world::{Wrote, FACTORY, KEY_PREFIX, OPERATOR};
@@ -142,6 +142,8 @@ pub(crate) struct State {
     pub layout: Layout,
     pub project: ProjectName,
     pub public: bool,
+    pub tracker_on: bool,
+    pub archived: bool,
     pub default_branch: Branch,
     pub items: Vec<ItemRec>,
     pub comments: Vec<CommentRec>,
@@ -161,7 +163,7 @@ pub(crate) struct State {
     pub proposals: Vec<ProposalRec>,
     pub persons: Vec<(PersonKey, String)>,
     pub deploys: Vec<(PersonKey, DeployCredential)>,
-    pub given: Vec<(PersonKey, Token)>,
+    pub given: Vec<(PersonKey, Scope, Token)>,
     pub signed_out: Vec<PersonKey>,
     pub sign_ins: Vec<(SignInCode, String, bool)>,
     pub grant: GrantId,
@@ -203,6 +205,8 @@ impl State {
             layout,
             project: ProjectName::new("fake/project"),
             public: true,
+            tracker_on: true,
+            archived: false,
             default_branch: Branch::new("main").expect("a branch"),
             items: Vec::new(),
             comments: Vec::new(),

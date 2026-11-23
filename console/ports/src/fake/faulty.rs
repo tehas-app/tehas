@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::site::answered_locally;
 use super::state::lock;
-use super::world::Clock;
+use super::world::{Clock, World};
 use crate::{
     health, Access, AccountId, Actor, Applied, At, Attachment, AttachmentId, Blobs, Blocker,
     Blueprint, BlueprintDelta, BlueprintHit, BlueprintNo, BlueprintWrites, Blueprints, Board,
@@ -287,51 +287,60 @@ impl Op {
         }
     }
 
-    /// The budget the fakes draw a call on: a search the search pool, a
-    /// write the writes pool, a joined read the priced pool, any other read
-    /// the calls pool.
+    /// True for a method that writes.
+    pub fn is_write(&self) -> bool {
+        matches!(
+            *self,
+            Op::Tickets(
+                T::Apply
+                    | T::Prepare
+                    | T::EnsureMark
+                    | T::Mark
+                    | T::Unmark
+                    | T::Close
+                    | T::Note
+                    | T::File
+                    | T::Edit
+                    | T::Reopen
+                    | T::SetKind
+                    | T::SetPriority
+                    | T::WaitOn
+                    | T::StopWaiting
+                    | T::Assign
+                    | T::AddPart
+                    | T::RemovePart
+                    | T::NewTarget
+                    | T::EditTarget
+                    | T::SetTarget,
+            ) | Op::Blueprints(B::Open | B::Edit | B::Comment | B::EditComment | B::Close)
+                | Op::CodeHost(
+                    C::OpenChange
+                        | C::EditChange
+                        | C::MarkChange
+                        | C::UnmarkChange
+                        | C::CommentChange
+                        | C::CloseChange
+                        | C::Merge
+                        | C::Propose
+                        | C::Tag
+                        | C::SetStatus
+                        | C::NewRelease
+                        | C::Upload
+                        | C::PublishRelease,
+                )
+        )
+    }
+
+    /// The budget the fakes draw a call on by default: a search the search
+    /// pool, a write the writes pool, a joined read the priced pool, any
+    /// other read the calls pool. This map is tehas's guess at a site's
+    /// budget, not a site's rule: a consumer must not rely on it, and
+    /// `Faulty::draws` sets another.
     pub fn pool(&self) -> Pool {
         match *self {
             Op::Tickets(T::Search) | Op::Blueprints(B::Search) => Pool::Search,
             Op::Board(_) => Pool::Priced,
-            Op::Tickets(
-                T::Apply
-                | T::Prepare
-                | T::EnsureMark
-                | T::Mark
-                | T::Unmark
-                | T::Close
-                | T::Note
-                | T::File
-                | T::Edit
-                | T::Reopen
-                | T::SetKind
-                | T::SetPriority
-                | T::WaitOn
-                | T::StopWaiting
-                | T::Assign
-                | T::AddPart
-                | T::RemovePart
-                | T::NewTarget
-                | T::EditTarget
-                | T::SetTarget,
-            )
-            | Op::Blueprints(B::Open | B::Edit | B::Comment | B::EditComment | B::Close)
-            | Op::CodeHost(
-                C::OpenChange
-                | C::EditChange
-                | C::MarkChange
-                | C::UnmarkChange
-                | C::CommentChange
-                | C::CloseChange
-                | C::Merge
-                | C::Propose
-                | C::Tag
-                | C::SetStatus
-                | C::NewRelease
-                | C::Upload
-                | C::PublishRelease,
-            ) => Pool::Writes,
+            op if op.is_write() => Pool::Writes,
             _ => Pool::Calls,
         }
     }
@@ -350,6 +359,15 @@ pub enum Fault {
     },
     /// The site could not be reached.
     Unreachable,
+    /// The site failed with an error of its own after the request went
+    /// out; the write made first or not, as the test says.
+    Server {
+        /// The site made the write before it failed.
+        applied: bool,
+    },
+    /// The site answered that a check run or job errored: the one
+    /// `Unavailable` that health reads as the host up.
+    Broken,
     /// The holder's pool is spent until a time.
     Spent {
         /// The pool.
@@ -394,6 +412,14 @@ impl Fault {
                 why: Passing::Unreachable,
                 sent: Sent::No,
             },
+            Fault::Server { .. } => Outcome::Unavailable {
+                why: Passing::Server,
+                sent: Sent::Maybe,
+            },
+            Fault::Broken => Outcome::Unavailable {
+                why: Passing::Broken,
+                sent: Sent::Maybe,
+            },
             Fault::Spent { pool, until } => Outcome::Spent { pool, until },
             Fault::SignedOut => Outcome::SignedOut,
             Fault::Forbidden => Outcome::Forbidden,
@@ -431,15 +457,23 @@ pub struct Watch {
     /// Past this time, a call answers `Unavailable { why: Timeout, sent:
     /// No }` with no request, and is not given to `health::next`.
     pub deadline: Option<At>,
+    /// The world a person's key is read in, for the account their budget
+    /// is kept under.
+    pub world: World,
 }
 
 impl Watch {
-    /// The holder whose budget an actor's calls spend: a person by the key
-    /// the caller holds, taken as the account's id; any anonymous caller
-    /// as one; every other actor the factory's.
+    /// The holder whose budget an actor's calls spend: a person by their
+    /// account's id, so every session of one person shares one budget (a
+    /// key the world does not know stands for its own account); any
+    /// anonymous caller as one; every other actor the factory's.
     pub fn holder(&self, by: &Actor) -> Holder {
         match by {
-            Actor::Person(key) => Holder::Person(AccountId::new(key.as_str())),
+            Actor::Person(key) => Holder::Person(
+                self.world
+                    .person_account(key, self.realm)
+                    .unwrap_or_else(|| AccountId::new(key.as_str())),
+            ),
             Actor::Anonymous => Holder::Anonymous(HolderId::new("anonymous")),
             _ => Holder::Ours(self.ours.clone()),
         }
@@ -450,14 +484,19 @@ impl Watch {
 struct Rule {
     op: Op,
     fault: Fault,
+    by: Option<Actor>,
     skip: u32,
     times: Option<u32>,
 }
 
+/// The calls of one method, by every actor (`None`) or by one.
+type Calls = Vec<(Op, Option<Actor>, u32)>;
+
 struct Shared {
     rules: Vec<Rule>,
-    calls: Mutex<Vec<(Op, u32)>>,
-    requests: Mutex<u32>,
+    draws: Vec<(Op, Vec<Pool>)>,
+    calls: Mutex<Calls>,
+    requests: Mutex<Vec<(Actor, u32)>>,
     watch: Option<Watch>,
 }
 
@@ -483,8 +522,9 @@ impl<S: Site> Faulty<S> {
             site,
             shared: Arc::new(Shared {
                 rules: Vec::new(),
+                draws: Vec::new(),
                 calls: Mutex::new(Vec::new()),
-                requests: Mutex::new(0),
+                requests: Mutex::new(Vec::new()),
                 watch: None,
             }),
         }
@@ -497,8 +537,9 @@ impl<S: Site> Faulty<S> {
             let s = &*self.shared;
             let copy = Shared {
                 rules: s.rules.clone(),
+                draws: s.draws.clone(),
                 calls: Mutex::new(lock(&s.calls).clone()),
-                requests: Mutex::new(*lock(&s.requests)),
+                requests: Mutex::new(lock(&s.requests).clone()),
                 watch: s.watch.clone(),
             };
             self.shared = Arc::new(copy);
@@ -511,9 +552,26 @@ impl<S: Site> Faulty<S> {
         self.shared().rules.push(Rule {
             op,
             fault,
+            by: None,
             skip: 0,
             times: None,
         });
+        self
+    }
+
+    /// The last rule answers only the calls of `actor`, counted apart.
+    pub fn by(mut self, actor: Actor) -> Self {
+        if let Some(r) = self.shared().rules.last_mut() {
+            r.by = Some(actor);
+        }
+        self
+    }
+
+    /// Calls of `op` draw on `pools`, in place of `Op::pool`'s guess.
+    pub fn draws(mut self, op: Op, pools: &[Pool]) -> Self {
+        let shared = self.shared();
+        shared.draws.retain(|(o, _)| *o != op);
+        shared.draws.push((op, pools.to_vec()));
         self
     }
 
@@ -543,7 +601,15 @@ impl<S: Site> Faulty<S> {
     /// answered in its place. A held call, one past the deadline, and one
     /// the site answered with no request are not counted.
     pub fn requests(&self) -> u32 {
-        *lock(&self.shared.requests)
+        lock(&self.shared.requests).iter().map(|(_, n)| n).sum()
+    }
+
+    /// How many calls of `actor`'s handles went out, counted as `requests`.
+    pub fn requests_by(&self, actor: &Actor) -> u32 {
+        lock(&self.shared.requests)
+            .iter()
+            .find(|(a, _)| a == actor)
+            .map_or(0, |(_, n)| *n)
     }
 
     /// The site it wraps.
@@ -559,6 +625,7 @@ impl<S: Site> Faulty<S> {
         Wrap {
             inner,
             shared: Arc::clone(&self.shared),
+            actor: by.clone(),
             holder,
             port,
             reports: Vec::new(),
@@ -622,6 +689,10 @@ impl<S: Site> Site for Faulty<S> {
 /// An answer of any shape, read as `health::next` reads it.
 trait Answer {
     fn seen(&self) -> Result<(), Outcome>;
+    /// Every outcome the answer holds, for the reports.
+    fn met(&self) -> Vec<Outcome> {
+        self.seen().err().into_iter().collect()
+    }
 }
 
 impl<T> Answer for Result<T, Outcome> {
@@ -633,12 +704,36 @@ impl<T> Answer for Result<T, Outcome> {
     }
 }
 
+/// A batch is answered when the site answered: one item cut, too large or
+/// not found is that item's, not the call's. Only an outcome every item
+/// shares that no answer of the site gives (an outage, a spent pool, a
+/// sign-out) is the call's.
 impl<K, T> Answer for Vec<(K, Got<T>)> {
     fn seen(&self) -> Result<(), Outcome> {
-        match self.iter().find_map(|(_, a)| a.as_ref().err()) {
-            Some(o) => Err(o.clone()),
-            None => Ok(()),
+        let first = match self.first() {
+            Some((_, Err(o))) => o,
+            _ => return Ok(()),
+        };
+        let call_level = matches!(
+            first,
+            Outcome::Unavailable { .. } | Outcome::Spent { .. } | Outcome::SignedOut
+        );
+        if call_level && self.iter().all(|(_, a)| a.as_ref().err() == Some(first)) {
+            Err(first.clone())
+        } else {
+            Ok(())
         }
+    }
+
+    /// Each outcome once, as one call met it.
+    fn met(&self) -> Vec<Outcome> {
+        let mut met: Vec<Outcome> = Vec::new();
+        for o in self.iter().filter_map(|(_, a)| a.as_ref().err()) {
+            if !met.contains(o) {
+                met.push(o.clone());
+            }
+        }
+        met
     }
 }
 
@@ -667,21 +762,23 @@ impl Answer for Result<Proposed, Applied<ProposalPart>> {
 struct Wrap<H: ?Sized> {
     inner: Box<H>,
     shared: Arc<Shared>,
+    actor: Actor,
     holder: Holder,
     port: PortName,
     reports: Vec<Report>,
     told_down: bool,
 }
 
-/// Is this outcome a failure of the supplier, kept for the health check?
-fn kept_failure(o: &Outcome) -> bool {
-    matches!(
-        o,
-        Outcome::Unavailable { .. }
-            | Outcome::Spent { .. }
-            | Outcome::SignedOut
-            | Outcome::Unread(_)
-    )
+/// Is this outcome a failure of the supplier, kept for the health check:
+/// an outage, a spent pool, or the factory's own sign-out. An odd answer,
+/// a failed check run (`Broken`) and another holder's sign-out are not.
+fn kept_failure(o: &Outcome, holder: &Holder) -> bool {
+    match o {
+        Outcome::Unavailable { why, .. } => *why != Passing::Broken,
+        Outcome::Spent { .. } => true,
+        Outcome::SignedOut => matches!(holder, Holder::Ours(_)),
+        _ => false,
+    }
 }
 
 impl<H: ?Sized> Wrap<H> {
@@ -691,8 +788,8 @@ impl<H: ?Sized> Wrap<H> {
         fail: impl FnOnce(Outcome) -> R,
         f: impl FnOnce(&mut H) -> R,
     ) -> R {
-        let pool = op.pool();
-        if let Some(o) = self.made_without_request(pool) {
+        let pools = self.pools(op);
+        if let Some(o) = self.made_without_request(&pools) {
             self.report(&o);
             return fail(o);
         }
@@ -701,7 +798,10 @@ impl<H: ?Sized> Wrap<H> {
         let answer = match fault {
             None => f(&mut self.inner),
             Some(fault) => {
-                if fault == (Fault::TimeoutMaybe { applied: true }) {
+                if matches!(
+                    fault,
+                    Fault::TimeoutMaybe { applied: true } | Fault::Server { applied: true }
+                ) {
                     let _applied = f(&mut self.inner);
                 }
                 fail(fault.outcome())
@@ -711,18 +811,34 @@ impl<H: ?Sized> Wrap<H> {
         // A fault stands for an answer of the site; an answer the site made
         // with no request is neither counted nor seen.
         if fault.is_some() || answered_locally() == local {
-            *lock(&self.shared.requests) += 1;
-            self.observe(pool, &seen);
+            self.count_request();
+            self.observe(&pools, &seen);
         }
-        if let Err(o) = &seen {
-            self.report(o);
+        for o in answer.met() {
+            self.report(&o);
         }
         answer
     }
 
+    /// The pools a call of `op` draws on: as `draws` set, else `Op::pool`.
+    fn pools(&self, op: Op) -> Vec<Pool> {
+        match self.shared.draws.iter().find(|(o, _)| *o == op) {
+            Some((_, pools)) => pools.clone(),
+            None => vec![op.pool()],
+        }
+    }
+
+    fn count_request(&self) {
+        let mut requests = lock(&self.shared.requests);
+        match requests.iter_mut().find(|(a, _)| *a == self.actor) {
+            Some((_, n)) => *n += 1,
+            None => requests.push((self.actor.clone(), 1)),
+        }
+    }
+
     /// The answer an adapter makes with no request: past the deadline, or
-    /// a pool the ledger holds spent.
-    fn made_without_request(&mut self, pool: Pool) -> Option<Outcome> {
+    /// a pool the call draws on that the ledger holds spent.
+    fn made_without_request(&mut self, pools: &[Pool]) -> Option<Outcome> {
         let w = self.shared.watch.clone()?;
         let now = w.clock.now();
         if w.deadline.is_some_and(|d| now >= d) {
@@ -731,35 +847,48 @@ impl<H: ?Sized> Wrap<H> {
                 sent: Sent::No,
             });
         }
-        let whose = Whose::Pool(self.holder.clone(), pool);
-        match w.ledger.health(&w.host, &whose) {
-            Ok(HealthState::Spent { pool: p, until }) if p == pool && now < until => {
-                Some(Outcome::Spent { pool, until })
-            }
-            Ok(_) => None,
-            Err(_) => {
-                self.ledger_down(&w, now);
-                None
+        for &pool in pools {
+            let whose = Whose::Pool(self.holder.clone(), pool);
+            match w.ledger.health(&w.host, &whose) {
+                Ok(HealthState::Spent { pool: p, until }) if p == pool && now < until => {
+                    return Some(Outcome::Spent { pool, until });
+                }
+                Ok(_) => {}
+                Err(_) => self.ledger_down(&w, now),
             }
         }
+        None
     }
 
+    /// The fault for this call: the first rule of `op` whose count of
+    /// calls (all actors', or its own actor's) it is within.
     fn fault(&self, op: Op) -> Option<Fault> {
         let mut calls = lock(&self.shared.calls);
-        let n = match calls.iter_mut().find(|(o, _)| *o == op) {
-            Some((_, n)) => {
-                *n += 1;
-                *n
-            }
-            None => {
-                calls.push((op, 1));
-                1
+        let mut bump = |by: Option<Actor>| -> u32 {
+            match calls.iter_mut().find(|(o, a, _)| *o == op && *a == by) {
+                Some((_, _, n)) => {
+                    *n += 1;
+                    *n
+                }
+                None => {
+                    calls.push((op, by, 1));
+                    1
+                }
             }
         };
+        let all = bump(None);
+        let mine = bump(Some(self.actor.clone()));
         self.shared
             .rules
             .iter()
-            .find(|r| r.op == op && n > r.skip && r.times.is_none_or(|t| n <= r.skip + t))
+            .find(|r| {
+                let n = match &r.by {
+                    None => all,
+                    Some(a) if *a == self.actor => mine,
+                    Some(_) => return false,
+                };
+                r.op == op && n > r.skip && r.times.is_none_or(|t| n <= r.skip + t)
+            })
             .map(|r| r.fault)
     }
 
@@ -767,12 +896,12 @@ impl<H: ?Sized> Wrap<H> {
     /// `health::keys` names (the host, the holder, the pool drawn on, and a
     /// Spent's own pool), and raise each notice whose swap wins. A ledger
     /// that fails fails toward reporting.
-    fn observe(&mut self, pool: Pool, seen: &Result<(), Outcome>) {
+    fn observe(&mut self, pools: &[Pool], seen: &Result<(), Outcome>) {
         let Some(w) = self.shared.watch.clone() else {
             return;
         };
         let now = w.clock.now();
-        for whose in health::keys(&self.holder, seen, &[pool]) {
+        for whose in health::keys(&self.holder, seen, pools) {
             match w.ledger.health(&w.host, &whose) {
                 Ok(was) => {
                     let (new, notice) = health::next(&w.host, &whose, w.realm, now, &was, seen);
@@ -797,7 +926,7 @@ impl<H: ?Sized> Wrap<H> {
             }
         }
         if let Err(o) = seen {
-            if kept_failure(o) {
+            if kept_failure(o, &self.holder) {
                 let f = Failure {
                     at: now,
                     site: w.site.clone(),

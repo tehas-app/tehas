@@ -1,7 +1,7 @@
 //! The fakes every caller's tests run on, in tehas's words: `World`, an
 //! in-memory site with a clock the test moves; `FakeSite`, a `Site` over a
 //! `World`; `Faulty`, which wraps any site and answers chosen calls with an
-//! outcome; `Notices`, a sink that keeps what it was told; `MemoryLedger`
+//! outcome; `NoticeLog`, a sink that keeps what it was told; `MemoryLedger`
 //! and `MemoryTokens`, a `Ledger` and a `TokenStore` in memory.
 //!
 //! Compiled always, std only, no effects: the clock is the test's, and no

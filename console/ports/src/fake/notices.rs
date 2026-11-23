@@ -1,5 +1,5 @@
-//! `Notices`: a sink that keeps what it was told, so a test asserts one
-//! report.
+//! `NoticeLog`: a `Notices` sink that keeps what it was told, so a test
+//! asserts one report.
 
 use std::sync::Mutex;
 
@@ -8,11 +8,11 @@ use crate::{Health, Notice};
 
 /// A `Notices` sink that keeps every notice, in the order told.
 #[derive(Debug, Default)]
-pub struct Notices {
+pub struct NoticeLog {
     told: Mutex<Vec<Notice>>,
 }
 
-impl Notices {
+impl NoticeLog {
     /// A sink that has been told nothing.
     pub fn new() -> Self {
         Self::default()
@@ -38,8 +38,14 @@ impl Notices {
     }
 }
 
-impl crate::Notices for Notices {
+impl crate::Notices for NoticeLog {
     fn notice(&self, n: Notice) {
         lock(&self.told).push(n);
+    }
+}
+
+impl crate::laws::Told for NoticeLog {
+    fn told(&self) -> Vec<Notice> {
+        self.all()
     }
 }

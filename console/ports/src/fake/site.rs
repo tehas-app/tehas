@@ -5,6 +5,7 @@
 use std::cell::Cell;
 use std::sync::{Arc, Mutex};
 
+use super::faulty::{IdentityOp, Op};
 use super::state::{lock, CommentRec, ItemRec, State};
 use super::world::{World, FACTORY, OPERATOR};
 use super::MemoryTokens;
@@ -113,7 +114,12 @@ impl FakeSite {
             }
         }
         let me = self.me(by)?;
-        allowed(by, port, write)?;
+        let scope = match by {
+            Actor::Ours(scope) => Some(*scope),
+            Actor::Given(key) => self.world.given_scope(key),
+            _ => None,
+        };
+        may_make(by, scope, port, write)?;
         let realm = match port {
             PortName::Tickets => self.world.lock().ticket_realm(),
             PortName::Identity => self.own_realm(),
@@ -130,6 +136,8 @@ impl FakeSite {
             reports: Vec::new(),
             tokens: Arc::clone(&self.tokens),
             keyless: self.keyless,
+            scope,
+            told_signed_out: false,
         })
     }
 
@@ -166,24 +174,80 @@ impl FakeSite {
     }
 }
 
-/// What an actor may ask for, before any request.
-fn allowed(by: &Actor, port: PortName, write: bool) -> Got<()> {
+/// What an actor may make a handle for, before any request. A given
+/// token may do what the factory's of its scope may.
+fn may_make(by: &Actor, scope: Option<Scope>, port: PortName, write: bool) -> Got<()> {
     let ok = match by {
-        Actor::Anonymous | Actor::Deploy(_) => !write && port != PortName::Identity,
-        Actor::Ours(scope) => matches!(
-            (scope, port, write),
-            (Scope::Full | Scope::Agent, _, _)
-                | (Scope::Cycle | Scope::Session, PortName::CodeHost, _)
-                | (Scope::Cycle | Scope::Session | Scope::Read, _, false)
-                | (Scope::Files, PortName::CodeHost | PortName::Identity, false)
-        ),
-        Actor::Operator | Actor::Person(_) | Actor::Given(_) => true,
+        Actor::Anonymous => !write,
+        Actor::Deploy(_) => !write && port != PortName::Identity,
+        Actor::Ours(_) | Actor::Given(_) => scope.is_some_and(|scope| {
+            matches!(
+                (scope, port, write),
+                (Scope::Full | Scope::Agent, _, _)
+                    | (Scope::Cycle | Scope::Session, PortName::CodeHost, _)
+                    | (Scope::Cycle | Scope::Session | Scope::Read, _, false)
+                    | (Scope::Files, PortName::CodeHost | PortName::Identity, false)
+            )
+        }),
+        Actor::Operator | Actor::Person(_) => true,
     };
     if ok {
         Ok(())
     } else {
         Err(Outcome::Forbidden)
     }
+}
+
+/// May `by`, acting with `scope`, call `op`: `Forbidden` where not. An
+/// agent's token writes tickets, blueprints and a change's talk, never a
+/// file, a merge, a tag or a release. A cycle's or a session's proposes,
+/// opens, edits and comments on a change, and merges, tags and releases
+/// nothing. Anonymous asks identity only about others. A person's
+/// standing is checked over the world, in `Handle::write`.
+pub(crate) fn allowed(by: &Actor, scope: Option<Scope>, op: Op) -> Got<()> {
+    use super::faulty::{CodeHostOp as C, IdentityOp as I};
+    let scoped = matches!(by, Actor::Ours(_) | Actor::Given(_));
+    let ok = match op {
+        Op::Identity(I::Me | I::Standing | I::Assignable | I::Token | I::TokenOver) => {
+            !matches!(by, Actor::Anonymous)
+        }
+        Op::CodeHost(c) if scoped && op.is_write() => match scope {
+            Some(Scope::Full) => true,
+            Some(Scope::Agent) => matches!(
+                c,
+                C::OpenChange
+                    | C::EditChange
+                    | C::MarkChange
+                    | C::UnmarkChange
+                    | C::CommentChange
+                    | C::CloseChange
+            ),
+            Some(Scope::Cycle | Scope::Session) => matches!(
+                c,
+                C::Propose | C::OpenChange | C::EditChange | C::CommentChange
+            ),
+            _ => false,
+        },
+        _ if scoped && op.is_write() => matches!(scope, Some(Scope::Full | Scope::Agent)),
+        _ => true,
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(Outcome::Forbidden)
+    }
+}
+
+/// May a person below `Write` standing make this write: a note, a
+/// comment, a new ticket or blueprint, or an edit of their own.
+fn below_write_may(op: Op) -> bool {
+    use super::faulty::{BlueprintsOp as B, CodeHostOp as C, TicketsOp as T};
+    matches!(
+        op,
+        Op::Tickets(T::Note | T::File | T::Edit)
+            | Op::Blueprints(B::Open | B::Edit | B::Comment | B::EditComment)
+            | Op::CodeHost(C::CommentChange)
+    )
 }
 
 impl Site for FakeSite {
@@ -286,6 +350,9 @@ pub(crate) struct Handle {
     reports: Vec<Report>,
     tokens: Arc<dyn TokenStore>,
     keyless: bool,
+    /// The scope it acts with: its own for `Ours`, its token's for `Given`.
+    pub scope: Option<Scope>,
+    told_signed_out: bool,
 }
 
 /// What a call of a handle knows besides the world's state.
@@ -293,9 +360,20 @@ pub(crate) struct Ctx {
     pub now: At,
     pub realm: Realm,
     pub me: Option<String>,
+    /// A person's handle below `Write` standing: it edits its own alone.
+    pub below_write: bool,
 }
 
 impl Ctx {
+    /// `Forbidden` where a person below `Write` standing edits what
+    /// another account wrote.
+    pub fn own(&self, s: &State, author: Option<&Account>) -> Got<()> {
+        if self.below_write && author.map(|a| &a.login) != Some(&self.me(s).login) {
+            return Err(Outcome::Forbidden);
+        }
+        Ok(())
+    }
+
     /// The handle's account in its realm. A handle with none writes
     /// nothing, so a write asks for it after `allowed` let it be made.
     pub fn me(&self, s: &State) -> Account {
@@ -314,19 +392,94 @@ impl Handle {
     /// outcome for the reports.
     pub fn run<T>(&mut self, pool: Pool, f: impl FnOnce(&mut State, &Ctx) -> Got<T>) -> Got<T> {
         self.count(pool);
-        let ctx = Ctx {
-            now: self.world.now(),
-            realm: self.realm,
-            me: self.me.clone(),
-        };
         let answer = {
             let mut s = self.world.lock();
-            f(&mut s, &ctx)
+            let ctx = self.ctx(&s);
+            match self.stopped(&s) {
+                Some(o) => Err(o),
+                None => f(&mut s, &ctx),
+            }
         };
+        self.signed_out_once(&answer);
         if let Err(o) = &answer {
             self.report(o.clone());
         }
         answer
+    }
+
+    /// A write, checked as the site checks it: by the actor's scope and
+    /// standing, then by an archived project's `Refused(ReadOnly)`.
+    pub fn write<T>(&mut self, op: Op, f: impl FnOnce(&mut State, &Ctx) -> Got<T>) -> Got<T> {
+        let actor = self.actor.clone();
+        let scope = self.scope;
+        self.run(Pool::Writes, move |s, ctx| {
+            allowed(&actor, scope, op)?;
+            if ctx.below_write && !below_write_may(op) {
+                return Err(Outcome::Forbidden);
+            }
+            if s.archived {
+                return Err(Outcome::Refused(Refusal::ReadOnly));
+            }
+            f(s, ctx)
+        })
+    }
+
+    fn ctx(&self, s: &State) -> Ctx {
+        let below_write = matches!(self.actor, Actor::Person(_))
+            && self.me.as_deref().is_some_and(|login| {
+                s.accounts
+                    .iter()
+                    .find(|a| a.login == login)
+                    .is_none_or(|a| matches!(a.standing, Standing::Read | Standing::None))
+            });
+        Ctx {
+            now: self.world.now(),
+            realm: self.realm,
+            me: self.me.clone(),
+            below_write,
+        }
+    }
+
+    /// What the site answers every call of this handle, whatever it asks:
+    /// a credential the site forgot is `SignedOut`, an anonymous read of a
+    /// private project or a ticket of a tracker turned off `NotFound`.
+    fn stopped(&self, s: &State) -> Option<Outcome> {
+        let gone = match &self.actor {
+            Actor::Person(key) => !s.persons.iter().any(|(k, _)| k == key),
+            Actor::Deploy(key) => !s.deploys.iter().any(|(k, _)| k == key),
+            Actor::Given(key) => !s.given.iter().any(|(k, _, _)| k == key),
+            _ => false,
+        };
+        if gone {
+            Some(Outcome::SignedOut)
+        } else if (matches!(self.actor, Actor::Anonymous) && !s.public)
+            || (self.port == PortName::Tickets && !s.tracker_on)
+        {
+            Some(Outcome::NotFound)
+        } else {
+            None
+        }
+    }
+
+    /// `Forbidden` with no request where an anonymous handle asks identity
+    /// about itself or the project: it has no account to ask about.
+    fn anonymous_may(&mut self, op: IdentityOp) -> Got<()> {
+        let answer = allowed(&self.actor, self.scope, Op::Identity(op));
+        if let Err(o) = &answer {
+            answer_locally();
+            self.report(o.clone());
+        }
+        answer
+    }
+
+    /// A person's handle signed out tells the keyring once.
+    fn signed_out_once<T>(&mut self, answer: &Got<T>) {
+        if let (Err(Outcome::SignedOut), Actor::Person(key)) = (answer, &self.actor) {
+            if !self.told_signed_out {
+                self.told_signed_out = true;
+                crate::Keyring::signed_out(&self.world, key);
+            }
+        }
     }
 
     /// A read of several things, each with its own answer.
@@ -336,15 +489,15 @@ impl Handle {
         mut f: impl FnMut(&mut State, &Ctx, &K) -> Got<T>,
     ) -> Vec<(K, Got<T>)> {
         self.count(Pool::Calls);
-        let ctx = Ctx {
-            now: self.world.now(),
-            realm: self.realm,
-            me: self.me.clone(),
-        };
         let answers: Vec<(K, Got<T>)> = {
             let mut s = self.world.lock();
+            let ctx = self.ctx(&s);
+            let stopped = self.stopped(&s);
             keys.iter()
-                .map(|k| (k.clone(), f(&mut s, &ctx, k)))
+                .map(|k| match &stopped {
+                    Some(o) => (k.clone(), Err(o.clone())),
+                    None => (k.clone(), f(&mut s, &ctx, k)),
+                })
                 .collect()
         };
         for (_, a) in &answers {
@@ -458,6 +611,7 @@ impl Cites for Handle {
 
 impl Identity for Handle {
     fn me(&mut self) -> Got<Account> {
+        self.anonymous_may(IdentityOp::Me)?;
         self.run(Pool::Calls, |s, ctx| match &ctx.me {
             Some(login) => Ok(s.account(login, ctx.realm)),
             None => Err(Outcome::NotFound),
@@ -465,6 +619,7 @@ impl Identity for Handle {
     }
 
     fn standing(&mut self, who: &crate::AccountId) -> Got<Standing> {
+        self.anonymous_may(IdentityOp::Standing)?;
         self.run(Pool::Calls, |s, ctx| {
             s.login_of(who, ctx.realm)
                 .map(|a| a.standing)
@@ -506,6 +661,7 @@ impl Identity for Handle {
     }
 
     fn assignable(&mut self, who: &crate::AccountId) -> Got<bool> {
+        self.anonymous_may(IdentityOp::Assignable)?;
         self.run(Pool::Calls, |s, ctx| {
             s.login_of(who, ctx.realm)
                 .map(|a| a.assignable)

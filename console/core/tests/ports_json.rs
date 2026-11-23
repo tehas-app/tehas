@@ -578,6 +578,8 @@ fn the_fakes_and_the_laws_values_read_back_from_json() {
     round!(Op::Board(BoardOp::OpenWork));
     round!(Op::Tickets(TicketsOp::Note));
     round!(Fault::TimeoutMaybe { applied: true });
+    round!(Fault::Server { applied: false });
+    round!(Fault::Broken);
     round!(Fault::Spent {
         pool: Pool::Priced,
         until: At::new(9),
