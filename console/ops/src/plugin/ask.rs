@@ -14,11 +14,28 @@ use tehas_core::plugin::hook::open_ours;
 use tehas_core::plugin::run::Trigger;
 use tehas_core::plugin::state::Word;
 use tehas_core::plugin::{self, Cap, Grants, Pin};
-use tehas_ports::{ChangeNo, CodeHost, Got, ALL_MAX};
+use tehas_ports::{Board, Bound, ChangeAsk, ChangeFilter, ChangeNo, ChangeStates, Got};
 
-/// A code host handle on a project, acting as the factory's account whose
-/// login is given: the console's wiring makes it.
-pub type CodeHostOf<'a> = &'a dyn Fn(&str, &str) -> Got<Box<dyn CodeHost + Send>>;
+/// A board handle on a project, acting as the factory's account, given by
+/// its login and the id `state/account-ids` records for it: the console's
+/// wiring makes it.
+pub type BoardOf<'a> = &'a dyn Fn(&str, &str, u64) -> Got<Box<dyn Board + Send>>;
+
+/// The one change of `no`, in any state, with nothing beside it: one
+/// question where the site allows.
+fn one_change(no: ChangeNo) -> ChangeAsk {
+    ChangeAsk {
+        filter: ChangeFilter {
+            states: ChangeStates::All,
+            numbers: vec![no],
+            ..ChangeFilter::default()
+        },
+        files: None,
+        closing: false,
+        siblings: None,
+        activity: None,
+    }
+}
 
 /// The pin and the grants at it, or the exit that says why not.
 fn plugin_of(get: &dyn Fn(&str) -> String, what: &str, name: &str) -> Result<(Pin, Grants), u8> {
@@ -93,7 +110,7 @@ pub fn run(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String, name: &s
 
 pub fn hook(
     x: &mut dyn Exec,
-    code_host: CodeHostOf,
+    board: BoardOf,
     home: &Path,
     get: &dyn Fn(&str) -> String,
     name: &str,
@@ -111,11 +128,25 @@ pub fn hook(
     if let Err(rc) = ready(home, &pin, what, false) {
         return rc;
     }
-    let (repo, bot) = (get("TEHAS_REPO"), get("TEHAS_BOT_LOGIN"));
-    if !crate::forge::repo_shaped(&repo) || bot.is_empty() {
-        eprintln!("{what}: TEHAS_REPO and TEHAS_BOT_LOGIN are needed to read the pull request");
+    let repo = get("TEHAS_REPO");
+    if !crate::forge::repo_shaped(&repo) {
+        eprintln!("{what}: TEHAS_REPO is needed to read the pull request");
         return exit::SETTINGS;
     }
+    // The factory's pull requests are known by the bot's recorded id alone.
+    let (bot, id) = tehas_core::accounts::bot(home);
+    let Some(id) = id.filter(|_| !bot.is_empty()) else {
+        let login = if bot.is_empty() {
+            "the bot"
+        } else {
+            bot.as_str()
+        };
+        eprintln!(
+            "{what}: the account id of {login} is not recorded in {}, so no pull request is known as the bot's; tehas update records it",
+            home.join(tehas_core::accounts::FILE).display()
+        );
+        return exit::SETTINGS;
+    };
     if runs::held(&runs::hook_lock(home, name, pr)) {
         eprintln!("{what}: running: the hook of {name} on #{pr} runs");
         return exit::NO;
@@ -124,14 +155,20 @@ pub fn hook(
         eprintln!("{what}: #{pr} is no open pull request of the bot's in {repo}");
         return exit::NO;
     };
-    let change = match code_host(&repo, &bot).and_then(|mut h| h.change(no, ALL_MAX)) {
-        Ok(change) => change,
+    let one = Bound::new(1).expect("one");
+    let read = board(&repo, &bot, id).and_then(|mut b| b.open_changes(&one_change(no), one));
+    let change = match read.map(|w| w.into_items().into_iter().next()) {
+        Ok(Some(item)) => item.change,
+        Ok(None) => {
+            eprintln!("{what}: #{pr} is no pull request of {repo}");
+            return exit::NO;
+        }
         Err(why) => {
             eprintln!("{what}: GitHub did not answer for #{pr}: {}", why.line());
             return exit::FAILED;
         }
     };
-    let Some((head, base)) = open_ours(&change.digest) else {
+    let Some((head, base)) = open_ours(&change) else {
         eprintln!("{what}: #{pr} is no open pull request of the bot's in {repo}");
         return exit::NO;
     };
@@ -198,8 +235,8 @@ mod tests {
     use std::collections::BTreeMap;
     use tehas_core::plugin::state::State;
     use tehas_core::testdir::TestDir;
-    use tehas_ports::fake::{ChangeSpec, CodeHostOp, FakeSite, Fault, Faulty, Op, World};
-    use tehas_ports::{Actor, At, Caller, ChangeState, Scope, Site};
+    use tehas_ports::fake::{BoardOp, ChangeSpec, FakeSite, Fault, Faulty, Op, World};
+    use tehas_ports::{Actor, At, Caller, ChangeState, Scope, Site, ALL_MAX};
 
     const C: &str = "0123456789abcdef0123456789abcdef01234567";
     const URL: &str = "https://github.com/tehas-app/tehas-plugin-floorplan";
@@ -212,7 +249,6 @@ mod tests {
             format!("{C} product hook:after:change.offered"),
         );
         map.insert("TEHAS_REPO".into(), "acme/widget".into());
-        map.insert("TEHAS_BOT_LOGIN".into(), "acme-bot[bot]".into());
         for (k, v) in more {
             map.insert(k.to_string(), v.to_string());
         }
@@ -234,13 +270,21 @@ mod tests {
         World::new().change(42, "feature/issue-7", f)
     }
 
-    /// The code host of `w`, as the factory's account, on acme/widget for
-    /// the bot the settings name.
-    fn site(w: &World) -> impl Fn(&str, &str) -> Got<Box<dyn CodeHost + Send>> + '_ {
-        move |repo: &str, bot: &str| {
-            assert_eq!((repo, bot), ("acme/widget", "acme-bot[bot]"));
-            FakeSite::new(w).code_host(&Actor::Ours(Scope::Full), Caller::new("plugin-hook"))
+    /// The board of `w`, as the factory's account, on acme/widget for the
+    /// bot the home records.
+    fn site(w: &World) -> impl Fn(&str, &str, u64) -> Got<Box<dyn Board + Send>> + '_ {
+        move |repo: &str, bot: &str, id: u64| {
+            assert_eq!((repo, bot, id), ("acme/widget", "acme-bot[bot]", 900));
+            FakeSite::new(w).board(&Actor::Ours(Scope::Full), Caller::new("plugin-hook"))
         }
+    }
+
+    /// The bot's login and its recorded id, as install and update leave
+    /// them.
+    fn record_bot(home: &Path) {
+        std::fs::create_dir_all(home.join("state/github")).unwrap();
+        std::fs::write(home.join("state/github/login"), "acme-bot[bot]\n").unwrap();
+        std::fs::write(home.join("state/account-ids"), "acme-bot[bot] 900\n").unwrap();
     }
 
     /// The head and base commits of change 42 in `w`.
@@ -288,6 +332,7 @@ mod tests {
     #[test]
     fn a_hook_needs_an_open_pull_request_of_the_bot_and_its_grant() {
         let home = home_with("plugin-ask-hook", Some(State::new(Word::Ready, C)));
+        record_bot(&home);
         let mut x = Fake::new();
         x.on("systemctl", ok(""));
         let w = world(|c| c);
@@ -312,6 +357,7 @@ mod tests {
             ("closed", world(|c| c.state(closed))),
             ("merged", world(|c| c.state(merged))),
             ("someone's", world(|c| c.author("someone"))),
+            ("no such change", World::new()),
         ] {
             assert_eq!(
                 hook(&mut x, &site(&w), &home, &vars(&[]), "floorplan", 42),
@@ -319,16 +365,10 @@ mod tests {
                 "{what}"
             );
         }
-        let none = World::new();
-        assert_eq!(
-            hook(&mut x, &site(&none), &home, &vars(&[]), "floorplan", 42),
-            1,
-            "no such change"
-        );
         let down =
-            Faulty::new(FakeSite::new(&w)).on(Op::CodeHost(CodeHostOp::Change), Fault::Timeout);
-        let down = move |_: &str, _: &str| {
-            down.code_host(&Actor::Ours(Scope::Full), Caller::new("plugin-hook"))
+            Faulty::new(FakeSite::new(&w)).on(Op::Board(BoardOp::OpenChanges), Fault::Timeout);
+        let down = move |_: &str, _: &str, _: u64| {
+            down.board(&Actor::Ours(Scope::Full), Caller::new("plugin-hook"))
         };
         assert_eq!(hook(&mut x, &down, &home, &vars(&[]), "floorplan", 42), 1);
         let no_hook = vars(&[("TEHAS_PLUGIN_GRANTS_FLOORPLAN", &format!("{C} product"))]);
@@ -345,6 +385,29 @@ mod tests {
             hook(&mut x, &site(&w), &home, &vars(&[]), "floorplan", 42),
             3
         );
+    }
+
+    // With no id recorded for the bot no pull request is known as the
+    // bot's: that is a setting to repair, said as one, and nothing is asked.
+    #[test]
+    fn a_bot_with_no_recorded_id_is_a_setting_and_asks_nothing() {
+        let home = home_with("plugin-ask-hook-no-id", Some(State::new(Word::Ready, C)));
+        let mut x = Fake::new();
+        let unasked = |_: &str, _: &str, _: u64| -> Got<Box<dyn Board + Send>> {
+            panic!("no handle is made")
+        };
+        assert_eq!(
+            hook(&mut x, &unasked, &home, &vars(&[]), "floorplan", 42),
+            78
+        );
+        std::fs::create_dir_all(home.join("state/github")).unwrap();
+        std::fs::write(home.join("state/github/login"), "acme-bot[bot]\n").unwrap();
+        std::fs::write(home.join("state/account-ids"), "alice 101\n").unwrap();
+        assert_eq!(
+            hook(&mut x, &unasked, &home, &vars(&[]), "floorplan", 42),
+            78
+        );
+        assert!(x.ran.is_empty());
     }
 
     #[test]
