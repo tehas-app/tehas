@@ -94,8 +94,10 @@ pub enum ChangeState {
         at: At,
         /// Who merged it, if the site says.
         by: Option<Account>,
-        /// The commit it merged as.
-        commit: CommitId,
+        /// The commit it merged as. None when the site holds no merge
+        /// commit for it (an old or rewritten history): a reader that
+        /// needs a base to diff fails closed.
+        commit: Option<CommitId>,
     },
     /// Closed unmerged.
     Closed {

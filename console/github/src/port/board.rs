@@ -327,7 +327,7 @@ impl GitHub {
                     .merged_by
                     .as_ref()
                     .and_then(|a| a.account(self.bot.as_ref())),
-                commit: commit(p.merge_commit.map(|c| c.oid))?,
+                commit: p.merge_commit.map(|c| commit(Some(c.oid))).transpose()?,
             },
             "CLOSED" => ChangeState::Closed {
                 at: time(p.closed_at.as_deref())?,
@@ -586,6 +586,7 @@ struct Pull {
     author: Option<Actor>,
     editor: Option<Actor>,
     merged_by: Option<Actor>,
+    #[serde(deserialize_with = "crate::ticket::present")]
     merge_commit: Option<Oid>,
     renames: Nodes<Renamed>,
     labels: Counted<Label>,
