@@ -76,7 +76,7 @@
 .page li > ul, .page li > ol { margin-top: 0; }
 .page a { text-underline-offset: 4px; }
 .page a:hover { background: var(--accent); }
-/* Emphasis is colour and a rule, as Topaz has one weight and no italic. */
+/* Emphasis is colour and a rule, as pixel uses one weight and no italic. */
 .page strong { font-weight: 400; color: var(--text-warm); }
 .page em { font-style: normal; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 4px; }
 .page code { padding: 0 4px; background: var(--surface-quiet); font: inherit; font-family: var(--font-code); overflow-wrap: anywhere; }

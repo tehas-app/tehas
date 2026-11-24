@@ -2092,7 +2092,7 @@ both, and so is `/floor`:
 `beesknees26` is ink and one muted green on a near-white ground, white panels
 with soft shadows, IBM Plex, and no motion. It has a dark set for a page that
 lets the viewer pick it; no page of tehas does. `pixel` is the factory as a
-16-bit game, in the Topaz bitmap typeface. It is meant for a factory whose site
+16-bit game, in a monospace typeface. It is meant for a factory whose site
 is also its demo; a factory that sets nothing is drawn in `beesknees26`
 everywhere, `/` included.
 

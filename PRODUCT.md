@@ -47,8 +47,7 @@ should feel like a factory that is busy and satisfying to watch run, as in a
 management game.
 
 The Amiga demoscene heritage (the Tehdas ASCII logo by Squarepusher and its
-credit) belongs in the footer only. It is a signature, not the theme. The Topaz
-typeface is the exception: it sets every word on the front page.
+credit) belongs in the footer only. It is a signature, not the theme.
 
 That identity is the pixel design's, for a site where the factory is shown and
 demonstrated: with `TEHAS_DESIGN=pixel` it draws the whole site. A factory that

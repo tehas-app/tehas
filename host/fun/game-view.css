@@ -153,7 +153,7 @@ body[data-factory="live"] .console-state::before {
 /* The fresh live queue is the normal case and needs no tag. */
 .source[data-kind="live"] { display: none; }
 .menu { display: flex; align-items: center; gap: 0 16px; margin-left: auto; }
-/* A typeface wider than Topaz would push the state tag past the edge: the
+/* A wide typeface can push the state tag past the edge: the
    menu gives way and scrolls instead, and the tag stays in view. */
 .topbar > .menu { min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .topbar > .menu::-webkit-scrollbar { display: none; }
@@ -736,7 +736,7 @@ body[data-factory="live"] .console-state::before {
   .order-facts div:nth-child(3) { margin-top: 0; }
   .order-facts div:nth-child(n + 3) { grid-column: auto; grid-template-columns: 1fr; gap: 0; margin-top: 8px; }
 
-  /* The logo is 77 columns wide: at half size it fits, and Topaz is at its native 8px. */
+  /* The logo is 77 columns wide: at half size it fits. */
   .ascii pre { font: 8px/8px var(--font-code); }
   .footer { padding: 24px 16px 32px; }
 }

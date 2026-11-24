@@ -1,5 +1,5 @@
 /* Pixel: the factory as a 16-bit overworld, the look DESIGN.md describes.
-   Square corners, flat fills, hard shadows, one bitmap typeface.
+   Square corners, flat fills, hard shadows, one monospace typeface.
 
    A theme is one file, theme-<name>.css beside this one, that sets every token
    below; nothing else on the site names a colour, a typeface or a shadow. Every
@@ -8,18 +8,12 @@
    test/theme_test.sh checks that every theme sets the same tokens and that the
    pages use no others. Every colour here is twelve bits (#RGB). */
 
-@font-face {
-  font-family: Topaz;
-  src: url("/fun/TopazPlus_a1200_v1.0.ttf") format("truetype");
-  font-display: block;
-}
-
 :root {
   /* Type. Text is 16px and 32px in every theme: the layout counts on it. */
-  --font: Topaz, "Courier New", monospace;
-  --font-code: Topaz, "Courier New", monospace;
+  --font: "Courier New", monospace;
+  --font-code: "Courier New", monospace;
   --font-smoothing: none;
-  /* The sizes of pages.css. Pixel keeps Topaz at its two sizes. */
+  /* The sizes of pages.css. Pixel keeps one face at two sizes. */
   --type-small: 16px;
   --type-body: 16px;
   --type-big: 32px;
