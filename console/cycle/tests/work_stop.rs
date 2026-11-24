@@ -468,7 +468,10 @@ fn a_console_that_does_not_stop_on_term_is_killed_after_its_bound_and_said() {
 fn a_console_that_stops_in_time_is_not_killed() {
     let w = world("stop-console-in-time");
     w.fresh();
-    console_is(&w, "");
+    // It ends 0 on the end's TERM, and the container ends only once it stands
+    // ready for it.
+    console_is(&w, r#"trap 'exit 0' TERM; : >"$T/console.up""#);
+    w.docker_runs_until(&w.path("console.up"));
     w.env_ok();
     w.env("TEHAS_CONSOLE_WAIT", "1");
     w.container("says handoff; exit 10");

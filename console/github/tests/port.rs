@@ -271,7 +271,9 @@ fn a_cite_is_githubs_reference_and_a_new_ticket_link_its_page() {
         gh.new_ticket_link("A b", "c&d").as_str(),
         "https://github.com/acme/widget/issues/new?title=A%20b&body=c%26d"
     );
-    let long = "x".repeat(3000);
+    let fits = "x".repeat(3000);
+    assert!(gh.new_ticket_link("A", &fits).as_str().ends_with(&fits));
+    let long = "x".repeat(9000);
     assert_eq!(
         gh.new_ticket_link("A", &long).as_str(),
         "https://github.com/acme/widget/issues/new?title=A"

@@ -7,16 +7,16 @@
 use std::sync::{Arc, Mutex};
 
 use super::faulty::{IdentityOp, Op};
-use super::state::{lock, CommentRec, ItemRec, State};
+use super::state::{lock, AccountRec, CommentRec, ItemRec, State};
 use super::world::{World, FACTORY, OPERATOR};
 use super::MemoryTokens;
 use crate::{
-    Account, Actor, At, Blueprint, BlueprintNo, BlueprintWrites, Blueprints, Board, Bound, Caller,
-    Cite, Cites, CodeHost, CodeHostWrites, Comment, CommentId, Covers, Depth, Got, Identity, Join,
-    Login, Marker, MarkerEdit, MeterRow, Outcome, Pool, PortName, ProjectName, Realm, Ref, Refusal,
-    Report, Reports, Revision, Scope, Secret, SignInCode, SignInState, Site, SiteId, Standing,
-    TicketDigest, TicketKey, TicketWrites, Tickets, Token, TokenStore, Took, Unread, WebLink,
-    Whole, Window, Write, ALL_MAX,
+    Account, AccountKind, Actor, At, Blueprint, BlueprintNo, BlueprintWrites, Blueprints, Board,
+    Bound, Caller, Cite, Cites, CodeHost, CodeHostWrites, Comment, CommentId, Covers, Depth, Got,
+    Identity, Join, Login, Marker, MarkerEdit, MeterRow, Outcome, Pool, PortName, ProjectName,
+    Realm, Ref, Refusal, Report, Reports, Revision, Scope, Secret, SignInCode, SignInState, Site,
+    SiteId, Standing, TicketDigest, TicketKey, TicketWrites, Tickets, Token, TokenStore, Took,
+    Unread, WebLink, Whole, Window, Write, ALL_MAX,
 };
 
 /// How long a token the fake mints is good for, in seconds.
@@ -272,6 +272,10 @@ impl Site for FakeSite {
         mark_name(mark)
     }
 
+    fn marker_text(&self, marker: &crate::Marker) -> String {
+        marker_text(marker)
+    }
+
     /// A clone that shares the meter, the tokens and the world. A view of
     /// a view keeps the earlier deadline.
     fn until(&self, until: At) -> Arc<dyn Site> {
@@ -435,7 +439,7 @@ impl Handle {
             self.report(o.clone());
             return Err(o);
         }
-        self.count(pool);
+        self.meter_call(pool);
         let answer = {
             let mut s = self.world.lock();
             s.sent.push(self.actor.clone());
@@ -537,7 +541,7 @@ impl Handle {
             self.report(o.clone());
             return keys.iter().map(|k| (k.clone(), Err(o.clone()))).collect();
         }
-        self.count(Pool::Calls);
+        self.meter_call(Pool::Calls);
         let answers: Vec<(K, Got<T>)> = {
             let mut s = self.world.lock();
             s.sent.push(self.actor.clone());
@@ -569,7 +573,7 @@ impl Handle {
             })
     }
 
-    fn count(&self, pool: Pool) {
+    fn meter_call(&self, pool: Pool) {
         let mut meter = lock(&self.meter);
         match meter
             .iter_mut()
@@ -618,7 +622,7 @@ impl Handle {
         if self.keyless {
             return Err(Outcome::SignedOut);
         }
-        self.count(Pool::Calls);
+        self.meter_call(Pool::Calls);
         let n = {
             let mut s = self.world.lock();
             s.sent.push(self.actor.clone());
@@ -641,6 +645,20 @@ impl Handle {
             _ => false,
         }
     }
+}
+
+/// Whether `spelling` names the account, folded as the fake's site folds
+/// a login: case, and for an app `x[bot]` and `app/x` as well as `x`.
+fn same_login(a: &AccountRec, spelling: &str) -> bool {
+    let lower = spelling.to_ascii_lowercase();
+    let name = match a.kind {
+        AccountKind::Bot | AccountKind::Ours => {
+            let bare = lower.strip_suffix("[bot]").unwrap_or(&lower);
+            bare.strip_prefix("app/").unwrap_or(bare).to_string()
+        }
+        _ => lower,
+    };
+    a.login.eq_ignore_ascii_case(&name)
 }
 
 /// Whether a token of scope `own` may answer for `asked`: a full token for
@@ -681,6 +699,25 @@ impl Cites for Handle {
                 name if name.is_empty() => name,
                 name => format!("`{name}`"),
             },
+        }
+    }
+
+    fn link(&self, what: &Cite) -> Option<WebLink> {
+        self.link_of(what)
+    }
+}
+
+impl Handle {
+    /// Where a person opens what a cite names: an item of this project
+    /// whether or not the world holds it, as its own read gives it.
+    pub(crate) fn link_of(&self, what: &Cite) -> Option<WebLink> {
+        let s = self.world.lock();
+        match what {
+            Cite::Ticket(Ref::Here(k)) => Some(s.ticket_link(k)),
+            Cite::Blueprint(Ref::Here(no)) => Some(s.blueprint_link(*no)),
+            Cite::Change(Ref::Here(no)) => Some(s.change_link(*no)),
+            Cite::Account(login) => Some(web(&format!("u/{}", escaped(login.as_str())))),
+            _ => None,
         }
     }
 }
@@ -749,7 +786,7 @@ impl Identity for Handle {
             let found = s
                 .accounts
                 .iter()
-                .find(|a| a.login.eq_ignore_ascii_case(login.as_str()) && !a.organisation)
+                .find(|a| same_login(a, login.as_str()) && !a.organisation)
                 .map(|a| a.login.clone())
                 .ok_or(Outcome::NotFound)?;
             Ok(s.account(&found, ctx.realm))
@@ -843,8 +880,13 @@ impl Identity for Handle {
         answer
     }
 
-    fn sign_in_link(&self, state: &SignInState) -> WebLink {
-        web(&format!("sign-in?state={}", escaped(state.as_str())))
+    /// A world with no sign-in refuses it, as a site without a client
+    /// for people does.
+    fn sign_in_link(&self, state: &SignInState) -> Got<WebLink> {
+        if !self.world.lock().sign_in_on {
+            return Err(Outcome::Refused(Refusal::Unsupported));
+        }
+        Ok(web(&format!("sign-in?state={}", escaped(state.as_str()))))
     }
 
     /// A code good once: used again, or never handed out, is
@@ -915,6 +957,12 @@ pub(crate) fn whole<T>(items: Vec<T>, bound: Bound) -> Got<Whole<T>> {
     } else {
         Ok(Whole::new(items))
     }
+}
+
+/// A list a port gives whole with no bound of the caller's: whole up to
+/// `ALL_MAX`, as an adapter pages it, or `Unread(Cut)` past it.
+pub(crate) fn whole_kept<T>(items: Vec<T>) -> Got<Whole<T>> {
+    whole(items, ALL_MAX)
 }
 
 /// As much of a list, oldest first, as a window takes.
@@ -1007,6 +1055,7 @@ pub(crate) fn blueprint(s: &State, item: &ItemRec, depth: Depth) -> Got<Blueprin
         body: item.text.clone(),
         open: item.open,
         author: item.author.clone(),
+        author_relation: s.relation_of(item.author.as_ref()),
         editor: item.editor.clone(),
         created: item.created,
         edited: item.edited,
@@ -1026,14 +1075,14 @@ pub(crate) fn digest(s: &State, item: &ItemRec) -> Option<TicketDigest> {
             crate::TicketState::Closed(reason.clone().unwrap_or(crate::CloseReason::Done))
         }
     };
-    let target = item.target.as_ref().map(|id| crate::TargetName {
-        id: id.clone(),
-        title: s
-            .targets
-            .iter()
-            .find(|t| t.id == *id)
-            .map(|t| t.title.clone())
-            .unwrap_or_default(),
+    let target = item.target.as_ref().map(|id| {
+        let held = s.targets.iter().find(|t| t.id == *id);
+        crate::TargetName {
+            id: id.clone(),
+            title: held.map(|t| t.title.clone()).unwrap_or_default(),
+            open: held.map(|t| t.open),
+            due: held.and_then(|t| t.due),
+        }
     });
     let parent = s
         .items

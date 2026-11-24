@@ -133,6 +133,12 @@ last_attempt_marker
             },
             "<!-- tehas:link blueprint=12 remove=1 -->",
         ),
+        (
+            Marker::Declined {
+                question: CommentId::new("2501234567"),
+            },
+            "<!-- tehas:declined question=2501234567 -->",
+        ),
     ]
 }
 

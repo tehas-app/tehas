@@ -182,6 +182,9 @@ impl Under {
 /// waits up to ten seconds for a step-started line in the log. A size verb
 /// goes to the real console.
 const CONSOLE: &str = r#"[ "${1:-}" != size ] || exec "$T/console-bin" "$@"
+# As the real console, it finishes its pass when the end of the cycle stops it.
+trap 'exit 0' TERM
+: >"$T/console.up"
 prev=
 for a in "$@"; do
   case $prev in

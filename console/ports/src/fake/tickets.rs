@@ -5,7 +5,7 @@ use std::num::{NonZeroU32, NonZeroU64};
 use super::faulty::{Op, TicketsOp};
 use super::site::{
     comments_of, digest, edit_markers, first, known_mark, list_order, matches, revision, text_of,
-    whole, window, writable, Ctx, Handle,
+    whole, whole_kept, window, writable, Ctx, Handle,
 };
 use super::state::{Layout, State};
 use crate::{
@@ -40,20 +40,22 @@ fn ticket(s: &State, at: usize, depth: Depth, history: Option<Window>) -> Got<Ti
         Depth::Cut { .. } => super::site::cut(&item.text),
         _ => item.text.clone(),
     };
+    let parts = item
+        .parts
+        .iter()
+        .map(|k| Part {
+            key: Ref::Here(k.clone()),
+            open: open_of(s, k),
+        })
+        .collect();
+    let blockers = item.blockers.iter().map(|on| blocker(s, on)).collect();
     Ok(Ticket {
         digest,
         text,
         closed: item.closed,
         closer: item.closer.clone(),
-        parts: item
-            .parts
-            .iter()
-            .map(|k| Part {
-                key: Ref::Here(k.clone()),
-                open: open_of(s, k),
-            })
-            .collect(),
-        blockers: item.blockers.iter().map(|on| blocker(s, on)).collect(),
+        parts: whole_kept(parts)?.into_items(),
+        blockers: whole_kept(blockers)?.into_items(),
         assignees: item.assignees.clone(),
         markers: item.markers.clone(),
         mentioned_by: item.mentioned_by.iter().map(|n| Ref::Here(*n)).collect(),
@@ -87,6 +89,60 @@ fn listed(s: &State, keep: impl Fn(&super::state::ItemRec) -> bool) -> Vec<Ticke
         .collect();
     list_order(&mut all);
     all
+}
+
+/// Does the filter take the item?
+fn takes(filter: &Filter, i: &super::state::ItemRec) -> bool {
+    filter.open.is_none_or(|o| i.open == o)
+        && filter.carrying.iter().all(|m| i.marks.contains(m))
+        && (filter.carrying_any.is_empty()
+            || filter.carrying_any.iter().any(|m| i.marks.contains(m)))
+        && filter
+            .kind
+            .as_ref()
+            .is_none_or(|k| i.kind.as_ref() == Some(k))
+        && filter
+            .target
+            .as_ref()
+            .is_none_or(|t| i.target.as_ref() == Some(t))
+}
+
+/// Newest `updated` first; ties in reverse list order, so the order is the
+/// same on every read.
+fn newest_first<T>(all: &mut [T], digest: impl Fn(&T) -> &TicketDigest) {
+    all.reverse();
+    all.sort_by_key(|x| std::cmp::Reverse(digest(x).updated));
+}
+
+/// The closed tickets whose close time `when` takes, in list order. A
+/// ticket's merged changes are those that close it where ticket and
+/// blueprint are one item; none in a split world.
+fn closed_tickets(s: &State, when: impl Fn(At) -> bool) -> Vec<ClosedTicket> {
+    listed(s, |i| !i.open && i.closed.is_some_and(&when))
+        .into_iter()
+        .filter_map(|d| {
+            let at = s.ticket_at(&d.key)?;
+            let item = &s.items[at];
+            let merged = match (s.layout, item.blueprint) {
+                (Layout::SameItem, Some(no)) => s
+                    .changes
+                    .iter()
+                    .filter(|c| {
+                        c.closes.contains(&no) && matches!(c.state, ChangeState::Merged { .. })
+                    })
+                    .map(|c| super::code_host::change_digest(s, c, false))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            Some(ClosedTicket {
+                closed: item.closed?,
+                closer: item.closer.clone(),
+                part_count: item.parts.len() as u32,
+                merged,
+                digest: d,
+            })
+        })
+        .collect()
 }
 
 /// The notes of a ticket: its own where ticket and blueprint are apart,
@@ -245,21 +301,32 @@ impl Tickets for Handle {
 
     fn list(&mut self, filter: &Filter, bound: Bound) -> Got<Whole<TicketDigest>> {
         self.run(Pool::Calls, |s, _| {
-            let all = listed(s, |i| {
-                filter.open.is_none_or(|o| i.open == o)
-                    && filter.carrying.iter().all(|m| i.marks.contains(m))
-                    && (filter.carrying_any.is_empty()
-                        || filter.carrying_any.iter().any(|m| i.marks.contains(m)))
-                    && filter
-                        .kind
-                        .as_ref()
-                        .is_none_or(|k| i.kind.as_ref() == Some(k))
-                    && filter
-                        .target
-                        .as_ref()
-                        .is_none_or(|t| i.target.as_ref() == Some(t))
-            });
-            whole(all, bound)
+            whole(listed(s, |i| takes(filter, i)), bound)
+        })
+    }
+
+    fn recent(&mut self, filter: &Filter, n: NonZeroU32) -> Got<Took<TicketDigest>> {
+        self.run(Pool::Calls, |s, _| {
+            let mut all = listed(s, |i| takes(filter, i));
+            newest_first(&mut all, |d| d);
+            Ok(first(all, n.get()))
+        })
+    }
+
+    fn recently_closed(&mut self, n: NonZeroU32) -> Got<Took<ClosedTicket>> {
+        self.run(Pool::Calls, |s, _| {
+            let mut all = closed_tickets(s, |_| true);
+            newest_first(&mut all, |c| &c.digest);
+            Ok(first(all, n.get()))
+        })
+    }
+
+    fn count(&mut self, filter: &Filter) -> Got<u64> {
+        self.run(Pool::Calls, |s, _| {
+            if !s.count_any_on && !filter.carrying_any.is_empty() {
+                return Err(Outcome::Refused(Refusal::Unsupported));
+            }
+            Ok(listed(s, |i| takes(filter, i)).len() as u64)
         })
     }
 
@@ -316,16 +383,14 @@ impl Tickets for Handle {
     fn blockers(&mut self, key: &TicketKey) -> Got<Whole<Blocker>> {
         self.run(Pool::Calls, |s, _| {
             let at = at_ticket(s, key)?;
-            Ok(Whole::new(
-                s.items[at].blockers.iter().map(|b| blocker(s, b)).collect(),
-            ))
+            whole_kept(s.items[at].blockers.iter().map(|b| blocker(s, b)).collect())
         })
     }
 
     fn parts(&mut self, key: &TicketKey) -> Got<Whole<Part>> {
         self.run(Pool::Calls, |s, _| {
             let at = at_ticket(s, key)?;
-            Ok(Whole::new(
+            whole_kept(
                 s.items[at]
                     .parts
                     .iter()
@@ -334,42 +399,13 @@ impl Tickets for Handle {
                         open: open_of(s, k),
                     })
                     .collect(),
-            ))
+            )
         })
     }
 
-    /// A ticket's merged changes are those that close it where ticket and
-    /// blueprint are one item; none in a split world.
     fn closed_since(&mut self, since_at: At, bound: Bound) -> Got<Whole<ClosedTicket>> {
         self.run(Pool::Calls, |s, _| {
-            let closed = listed(s, |i| !i.open && i.closed.is_some_and(|c| c >= since_at));
-            let all = closed
-                .into_iter()
-                .filter_map(|d| {
-                    let at = s.ticket_at(&d.key)?;
-                    let item = &s.items[at];
-                    let merged = match (s.layout, item.blueprint) {
-                        (Layout::SameItem, Some(no)) => s
-                            .changes
-                            .iter()
-                            .filter(|c| {
-                                c.closes.contains(&no)
-                                    && matches!(c.state, ChangeState::Merged { .. })
-                            })
-                            .map(|c| super::code_host::change_digest(s, c, false))
-                            .collect(),
-                        _ => Vec::new(),
-                    };
-                    Some(ClosedTicket {
-                        closed: item.closed?,
-                        closer: item.closer.clone(),
-                        part_count: item.parts.len() as u32,
-                        merged,
-                        digest: d,
-                    })
-                })
-                .collect();
-            whole(all, bound)
+            whole(closed_tickets(s, |c| c >= since_at), bound)
         })
     }
 
@@ -431,7 +467,7 @@ impl Tickets for Handle {
                             .iter()
                             .any(|c| has_marker(&c.markers, kind, key)))
             });
-            Ok(Whole::new(found.into_iter().map(|d| d.key).collect()))
+            whole_kept(found.into_iter().map(|d| d.key).collect())
         })
     }
 
@@ -463,7 +499,7 @@ impl Tickets for Handle {
     }
 
     fn kinds(&mut self) -> Got<Whole<Kind>> {
-        self.run(Pool::Calls, |s, _| Ok(Whole::new(s.kinds.clone())))
+        self.run(Pool::Calls, |s, _| whole_kept(s.kinds.clone()))
     }
 
     fn targets(&mut self, bound: Bound) -> Got<Whole<Target>> {

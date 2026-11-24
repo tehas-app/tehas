@@ -51,6 +51,7 @@ use std::sync::atomic::AtomicBool;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use tehas_core::home::{Home, TokenDir};
+use tehas_core::lock::Held;
 use tehas_core::{read_only, settings, time};
 use tehas_cycle::renew;
 
@@ -526,15 +527,17 @@ fn keep(dir: &Path, token: &str, until: i64, read_only: Option<bool>) -> bool {
     kept
 }
 
-fn wait_for(lock: &File, wait: Duration) -> bool {
+/// The lock of `lock`, waited for up to `wait`, held until the value drops.
+fn wait_for(mut lock: File, wait: Duration) -> Option<Held> {
     let started = Instant::now();
     loop {
-        match lock.try_lock() {
-            Ok(()) => return true,
-            Err(TryLockError::WouldBlock) if started.elapsed() < wait => {
+        match Held::try_take(lock) {
+            Ok(held) => return Some(held),
+            Err((TryLockError::WouldBlock, back)) if started.elapsed() < wait => {
+                lock = back;
                 sleep(Duration::from_millis(50));
             }
-            Err(_) => return false,
+            Err(_) => return None,
         }
     }
 }
@@ -589,10 +592,10 @@ fn token(app: &App, dir: &Path, lookup: &Path, repo: &str, narrow: Option<&str>)
             return None;
         }
     };
-    if !wait_for(&lock, LOCK_WAIT) {
+    let Some(_held) = wait_for(lock, LOCK_WAIT) else {
         eprintln!("tehas: another command is making the GitHub token");
         return None;
-    }
+    };
     // Another command may have made one while this one waited.
     if let Some(token) = kept(dir, time::now() + LEFT, read_only) {
         return Some(token);
@@ -1008,11 +1011,10 @@ mod tests {
                 .open(d.join("lock"))
                 .unwrap()
         };
-        let (held, waiting) = (open(), open());
-        assert!(wait_for(&held, Duration::ZERO));
-        assert!(!wait_for(&waiting, Duration::from_millis(100)));
-        held.unlock().unwrap();
-        assert!(wait_for(&waiting, Duration::ZERO));
+        let held = wait_for(open(), Duration::ZERO).unwrap();
+        assert!(wait_for(open(), Duration::from_millis(100)).is_none());
+        drop(held);
+        assert!(wait_for(open(), Duration::ZERO).is_some());
     }
 
     #[test]

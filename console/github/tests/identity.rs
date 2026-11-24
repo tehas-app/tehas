@@ -531,10 +531,10 @@ fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
         gh.signed_in(&SignInCode::new("c")),
         Err(Outcome::Refused(Refusal::Unsupported))
     ));
-    assert_eq!(
-        gh.sign_in_link(&SignInState::new("s")).as_str(),
-        "https://github.com/login"
-    );
+    assert!(matches!(
+        gh.sign_in_link(&SignInState::new("s")),
+        Err(Outcome::Refused(Refusal::Unsupported))
+    ));
     assert_eq!(
         standing_of_unasked("abc"),
         Err(Outcome::Refused(Refusal::Invalid))
