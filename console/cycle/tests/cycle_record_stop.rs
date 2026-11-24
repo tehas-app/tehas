@@ -34,19 +34,19 @@ fn logged(rest: &str) -> String {
 #[test]
 fn a_cycle_tehas_stopped_at_its_time_limit_with_no_cap_from_the_runner_is_on_record_as_wall_clock()
 {
-    let w = World::new("rs-wall");
-    w.ended("running", "develop", "-", "");
-    w.fx("progress.json", "{}\n");
-    w.entry(|e| {
-        e["handoff"] = json!({"channel": "host", "body": "<!-- pi-rukas:handoff issue=7 cap=none -->\n## Cap hit"})
+    let (w, _, said) = twin("rs-wall", |w| {
+        w.ended("running", "develop", "-", "");
+        w.fx("progress.json", "{}\n");
+        w.entry(|e| {
+            e["handoff"] = json!({"channel": "host", "body": "<!-- pi-rukas:handoff issue=7 cap=none -->\n## Cap hit"})
+        });
+        w.work(&logged(
+            r#"echo 21600 tehas develop >"$TEHAS_HOME/state/cycles/7.timed"; exit 2"#,
+        ));
     });
-    w.work(&logged(
-        r#"echo 21600 tehas develop >"$TEHAS_HOME/state/cycles/7.timed"; exit 2"#,
-    ));
-    w.run7();
     assert_eq!(w.park()["reason"], "wall-clock");
-    has(&w.gh(), "cap `wall-clock`");
-    has(&w.gh(), "pi-rukas:handoff issue=7 cap=wall-clock -->");
+    has(&said, "cap `wall-clock`");
+    has(&said, "pi-rukas:handoff issue=7 cap=wall-clock -->");
     assert_eq!(sc(&w), json!(["timeout", "develop", "wall-clock"]));
 }
 
@@ -69,20 +69,20 @@ fn a_cycle_pi_rukas_ended_at_a_childs_run_bound_is_on_record_with_the_childs_cap
 
 #[test]
 fn a_cycle_a_signal_stopped_inside_a_gate_is_on_record_with_the_cap_signal_and_its_gate_closed() {
-    let w = World::new("rs-signal");
-    w.ended("interrupted", "develop", "", "");
-    w.fx("progress.json", "{}\n");
-    // The stream and the note as tehas work leaves them for a TERM in the gate
-    // of step develop: the gate's start, the line that closes it, and the signal.
-    let stream = [
-        json!({"v": 1, "kind": "verify-started", "issue": 7, "event": {"kind": "verify-started", "step": "develop", "command": "make test"}}),
-        json!({"v": 1, "kind": "verify-aborted", "issue": 7, "by": "tehas", "event": {"kind": "verify-aborted", "step": "develop", "command": "make test", "status": "aborted", "signal": "TERM"}}),
-    ];
-    w.fx("stream", &lines(&stream));
-    w.work(r#"cp "$T/fx/stream" "$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo TERM develop >"$TEHAS_HOME/state/cycles/7.signal"; exit 21"#);
-    w.run7();
+    let (w, _, said) = twin("rs-signal", |w| {
+        w.ended("interrupted", "develop", "", "");
+        w.fx("progress.json", "{}\n");
+        // The stream and the note as tehas work leaves them for a TERM in the gate
+        // of step develop: the gate's start, the line that closes it, and the signal.
+        let stream = [
+            json!({"v": 1, "kind": "verify-started", "issue": 7, "event": {"kind": "verify-started", "step": "develop", "command": "make test"}}),
+            json!({"v": 1, "kind": "verify-aborted", "issue": 7, "by": "tehas", "event": {"kind": "verify-aborted", "step": "develop", "command": "make test", "status": "aborted", "signal": "TERM"}}),
+        ];
+        w.fx("stream", &lines(&stream));
+        w.work(r#"cp "$T/fx/stream" "$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo TERM develop >"$TEHAS_HOME/state/cycles/7.signal"; exit 21"#);
+    });
     assert_eq!(sc(&w), json!(["interrupted", "develop", "signal"]));
-    has(&w.gh(), "tehas stopped the cycle: the cap `signal`.");
+    has(&said, "tehas stopped the cycle: the cap `signal`.");
     // The note is read once and gone.
     assert!(gone(&w, "7.signal"));
 }
@@ -133,17 +133,17 @@ exit 137"#,
 #[test]
 fn a_runner_that_stopped_itself_at_the_time_limit_with_no_result_is_on_record_as_wall_clock_at_the_step_it_was_in_not_running(
 ) {
-    let w = World::new("rs-runner-timed");
-    w.work(&logged(
-        r#"echo 21600 runner adversarial >"$TEHAS_HOME/state/cycles/7.timed"; exit 2"#,
-    ));
-    let r = w.run7();
+    let (w, r, said) = twin("rs-runner-timed", |w| {
+        w.work(&logged(
+            r#"echo 21600 runner adversarial >"$TEHAS_HOME/state/cycles/7.timed"; exit 2"#,
+        ))
+    });
     has(&r.out, "status=timeout step=adversarial");
     has(
-        &w.gh(),
+        &said,
         "It reached its time limit of 360 min at step `adversarial`, and the runner stopped there.",
     );
-    lacks(&w.gh(), "did not stop on its own");
+    lacks(&said, "did not stop on its own");
     assert_eq!(sc(&w), json!(["timeout", "adversarial", "wall-clock"]));
 }
 
@@ -173,15 +173,15 @@ fn the_step_in_the_time_limits_file_is_read_as_a_word() {
 
 #[test]
 fn a_stop_at_the_time_limit_names_the_step_tehas_work_saw_in_flight_when_the_result_names_none() {
-    let w = World::new("rs-inflight");
-    w.ended("running", "-", "", "");
-    w.work(&logged(
-        r#"echo "21600 tehas adversarial" >"$TEHAS_HOME/state/cycles/7.timed"; exit 2"#,
-    ));
-    w.run7();
+    let (w, _, said) = twin("rs-inflight", |w| {
+        w.ended("running", "-", "", "");
+        w.work(&logged(
+            r#"echo "21600 tehas adversarial" >"$TEHAS_HOME/state/cycles/7.timed"; exit 2"#,
+        ));
+    });
     assert_eq!(sc(&w), json!(["timeout", "adversarial", "wall-clock"]));
     has(
-        &w.gh(),
+        &said,
         "It ran past its time limit of 360 min at step `adversarial`",
     );
     assert!(gone(&w, "7.timed"));
@@ -190,74 +190,76 @@ fn a_stop_at_the_time_limit_names_the_step_tehas_work_saw_in_flight_when_the_res
 #[test]
 fn a_runner_stopped_mid_step_at_the_time_limit_is_on_record_with_tehass_cap_its_own_last_cap_in_the_reason(
 ) {
-    let w = World::new("rs-midstep");
-    w.ended("interrupted", "develop", "-", "verify-failed:develop");
-    w.fx("progress.json", r#"{"reason": "fence violated"}"#);
-    w.work(&logged(
-        r#"echo "21600 tehas develop" >"$TEHAS_HOME/state/cycles/7.timed"; exit 2"#,
-    ));
-    w.run7();
+    let (w, _, said) = twin("rs-midstep", |w| {
+        w.ended("interrupted", "develop", "-", "verify-failed:develop");
+        w.fx("progress.json", r#"{"reason": "fence violated"}"#);
+        w.work(&logged(
+            r#"echo "21600 tehas develop" >"$TEHAS_HOME/state/cycles/7.timed"; exit 2"#,
+        ));
+    });
     assert_eq!(sc(&w), json!(["timeout", "develop", "wall-clock"]));
     assert_eq!(w.park()["reason"], "wall-clock");
-    has(&w.gh(), "tehas stopped the cycle: the cap `wall-clock`.");
-    lacks(&w.gh(), "pi-rukas stopped on the cap");
+    has(&said, "tehas stopped the cycle: the cap `wall-clock`.");
+    lacks(&said, "pi-rukas stopped on the cap");
 }
 
 // #1207: the seconds of a stop file and its step come of one read, so a first
 // word that is no count of seconds is no stop and no step.
 #[test]
 fn a_stop_file_of_no_count_of_seconds_is_no_stalled_status_and_no_stalled_step() {
-    let w = World::new("rs-stall-nope");
-    w.ended("aborted", "develop", "", "");
-    w.work(&logged(
-        r#"printf "nope\nstall-step\n" >"$TEHAS_HOME/state/cycles/7.stalled"; exit 2"#,
-    ));
-    let r = w.run7();
+    let (w, r, said) = twin("rs-stall-nope", |w| {
+        w.ended("aborted", "develop", "", "");
+        w.work(&logged(
+            r#"printf "nope\nstall-step\n" >"$TEHAS_HOME/state/cycles/7.stalled"; exit 2"#,
+        ));
+    });
     assert_eq!(sc(&w), json!(["aborted", "develop", null]));
     lacks(&r.out, "status=stalled");
-    lacks(&w.gh(), "stall-step");
-    lacks(&w.gh(), "None of its logs changed");
+    has(&said, "Tehas cycle stopped");
+    lacks(&said, "stall-step");
+    lacks(&said, "None of its logs changed");
     assert!(gone(&w, "7.stalled"));
 }
 
 #[test]
 fn a_stop_file_of_no_count_of_seconds_is_no_timeout_and_no_step_of_the_time_limit() {
-    let w = World::new("rs-timed-nope");
-    w.ended("aborted", "develop", "", "");
-    w.work(&logged(
-        r#"echo "nope tehas timed-step" >"$TEHAS_HOME/state/cycles/7.timed"; exit 2"#,
-    ));
-    let r = w.run7();
+    let (w, r, said) = twin("rs-timed-nope", |w| {
+        w.ended("aborted", "develop", "", "");
+        w.work(&logged(
+            r#"echo "nope tehas timed-step" >"$TEHAS_HOME/state/cycles/7.timed"; exit 2"#,
+        ));
+    });
     assert_eq!(sc(&w), json!(["aborted", "develop", null]));
     lacks(&r.out, "status=timeout");
-    lacks(&w.gh(), "timed-step");
+    has(&said, "Tehas cycle stopped");
+    lacks(&said, "timed-step");
     assert!(gone(&w, "7.timed"));
 }
 
 #[test]
 fn a_stall_names_the_step_in_flight_and_is_tehass_cap_over_a_runners_mid_step_cap() {
-    let w = World::new("rs-stall");
-    w.ended("interrupted", "-", "-", "step-failed:lens-fix");
-    w.work(&logged(
-        r#"printf "3600\nlens-fix\n" >"$TEHAS_HOME/state/cycles/7.stalled"; exit 2"#,
-    ));
-    w.run7();
+    let (w, _, said) = twin("rs-stall", |w| {
+        w.ended("interrupted", "-", "-", "step-failed:lens-fix");
+        w.work(&logged(
+            r#"printf "3600\nlens-fix\n" >"$TEHAS_HOME/state/cycles/7.stalled"; exit 2"#,
+        ));
+    });
     assert_eq!(sc(&w), json!(["stalled", "lens-fix", "stall"]));
     has(
-        &w.gh(),
+        &said,
         "None of its logs changed for 60 min at step `lens-fix`",
     );
 }
 
 #[test]
 fn a_cap_the_runner_named_is_kept_when_tehas_also_stopped_the_cycle() {
-    let w = World::new("rs-cap-kept");
-    w.ended("handoff", "develop", "feature/x", "deadline");
-    w.work(r#"echo 21600 >"$TEHAS_HOME/state/cycles/7.timed"; exit 2"#);
-    w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
-    w.run7();
+    let (w, _, said) = twin("rs-cap-kept", |w| {
+        w.ended("handoff", "develop", "feature/x", "deadline");
+        w.work(r#"echo 21600 >"$TEHAS_HOME/state/cycles/7.timed"; exit 2"#);
+        w.fx("pr.txt", "https://github.com/acme/widget/pull/9\n");
+    });
     assert_eq!(w.park()["reason"], "deadline");
-    has(&w.gh(), "pi-rukas stopped on the cap `deadline`.");
+    has(&said, "pi-rukas stopped on the cap `deadline`.");
 }
 
 #[test]
@@ -275,10 +277,9 @@ fn a_runner_tehas_stopped_past_its_time_limit_is_reported_as_a_timeout_and_parke
         w.ended("interrupted", "develop", "", "");
         w.work(r#"echo 21600 >"$TEHAS_HOME/state/cycles/7.timed"; exit 2"#);
     });
-    let gh = w.gh();
-    has(&gh, "status `timeout`, last step `develop`");
+    has(&said, "status `timeout`, last step `develop`");
     has(
-        &gh,
+        &said,
         "It ran past its time limit of 360 min at step `develop`",
     );
     has(&said, "mark State(NeedsPerson)");
@@ -289,18 +290,18 @@ fn a_runner_tehas_stopped_past_its_time_limit_is_reported_as_a_timeout_and_parke
 // cap: the stop is no end tehas work gives a cap or a status for.
 #[test]
 fn a_cycle_a_person_stopped_is_on_record_with_the_stop_in_its_reason_and_no_cap_of_its_own() {
-    let w = World::new("rs-person");
-    w.ended("interrupted", "develop", "-", "deadline");
-    w.fx("progress.json", r#"{"reason": "waiting on the fence"}"#);
-    w.work(&logged(&format!(
-        r#"echo "{} alice" >"$TEHAS_HOME/state/cycles/7.stopped"; exit 2"#,
-        now()
-    )));
-    w.run7();
+    let (w, _, said) = twin("rs-person", |w| {
+        w.ended("interrupted", "develop", "-", "deadline");
+        w.fx("progress.json", r#"{"reason": "waiting on the fence"}"#);
+        w.work(&logged(&format!(
+            r#"echo "{} alice" >"$TEHAS_HOME/state/cycles/7.stopped"; exit 2"#,
+            now()
+        )));
+    });
     // The cap of the runner is kept: a person's stop is not a cap.
     assert_eq!(sc(&w), json!(["interrupted", "develop", "deadline"]));
-    has(&w.gh(), "A person stopped it with `tehas stop` (alice, at ");
-    has(&w.gh(), "pi-rukas stopped on the cap `deadline`.");
+    has(&said, "A person stopped it with `tehas stop` (alice, at ");
+    has(&said, "pi-rukas stopped on the cap `deadline`.");
     // The marker is this cycle's name: it is read once and gone.
     assert!(gone(&w, "7.stopped"));
 }
@@ -337,8 +338,11 @@ fn the_marker_says_nothing_beside_a_time_limit_or_a_stall_tehass_own_cap_stands(
 #[test]
 fn a_marker_that_holds_no_line_or_one_of_the_two_fields_is_no_marker_and_is_gone() {
     let w = World::new("rs-marker-bad");
-    w.ended("running", "develop", "", "");
-    fs::create_dir_all(w.state()).unwrap();
+    let wi = World::new("rs-marker-bad-writes");
+    for w in [&w, &wi] {
+        w.ended("running", "develop", "", "");
+        fs::create_dir_all(w.state()).unwrap();
+    }
     for bad in [
         "",
         "not-a-time alice",
@@ -348,40 +352,48 @@ fn a_marker_that_holds_no_line_or_one_of_the_two_fields_is_no_marker_and_is_gone
     ] {
         fs::write(w.state().join("7.stopped"), format!("{bad}\n")).unwrap();
         w.run7();
-        lacks(&w.gh(), "A person stopped it");
         assert!(gone(&w, "7.stopped"), "{bad:?}");
+        fs::write(wi.state().join("7.stopped"), format!("{bad}\n")).unwrap();
+        let said = wi.report_said();
+        has(&said, "Tehas cycle stopped");
+        lacks(&said, "A person stopped it");
     }
 }
 
 #[test]
 fn a_marker_that_is_a_directory_or_a_link_is_not_read_and_the_cycle_is_reported_as_it_is() {
-    let w = World::new("rs-marker-kind");
-    w.ended("interrupted", "develop", "", "");
-    let marker = w.state().join("7.stopped");
-    fs::create_dir_all(&marker).unwrap();
-    let r = w.run7();
-    lacks(&w.gh(), "A person stopped it");
+    let dir = |w: &mut World| {
+        w.ended("interrupted", "develop", "", "");
+        fs::create_dir_all(w.state().join("7.stopped")).unwrap();
+    };
+    let (_, r, said) = twin("rs-marker-kind", dir);
+    has(&said, "Tehas cycle stopped");
+    lacks(&said, "A person stopped it");
     has(&r.out, "status=interrupted");
-    fs::remove_dir(&marker).unwrap();
-    let elsewhere = w.t().join("elsewhere");
-    fs::write(&elsewhere, format!("{} alice\n", now())).unwrap();
-    std::os::unix::fs::symlink(&elsewhere, &marker).unwrap();
-    w.run7();
-    lacks(&w.gh(), "A person stopped it");
-    assert!(elsewhere.exists());
+    let link = |w: &mut World| {
+        w.ended("interrupted", "develop", "", "");
+        fs::create_dir_all(w.state()).unwrap();
+        let elsewhere = w.t().join("elsewhere");
+        fs::write(&elsewhere, format!("{} alice\n", now())).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, w.state().join("7.stopped")).unwrap();
+    };
+    let (w, _, said) = twin("rs-marker-link", link);
+    has(&said, "Tehas cycle stopped");
+    lacks(&said, "A person stopped it");
+    assert!(w.t().join("elsewhere").exists());
 }
 
 #[test]
 fn a_name_that_is_not_one_a_comment_can_carry_is_cut_and_the_stop_is_still_said() {
-    let w = World::new("rs-marker-noname");
-    w.ended("interrupted", "develop", "", "");
-    // A marker of one word: the cycle says the stop without a name rather than
-    // saying none.
-    w.fx("marker-line", &format!("{}\n", now()));
-    w.work(r#"cat "$T/fx/marker-line" >"$TEHAS_HOME/state/cycles/7.stopped"; echo {} >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 2"#);
-    w.run7();
+    let (w, _, said) = twin("rs-marker-noname", |w| {
+        w.ended("interrupted", "develop", "", "");
+        // A marker of one word: the cycle says the stop without a name rather
+        // than saying none.
+        w.fx("marker-line", &format!("{}\n", now()));
+        w.work(r#"cat "$T/fx/marker-line" >"$TEHAS_HOME/state/cycles/7.stopped"; echo {} >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 2"#);
+    });
     has(
-        &w.gh(),
+        &said,
         "A person stopped it with `tehas stop` (name not recorded, at ",
     );
     assert!(gone(&w, "7.stopped"));
@@ -389,11 +401,12 @@ fn a_name_that_is_not_one_a_comment_can_carry_is_cut_and_the_stop_is_still_said(
 
 #[test]
 fn a_stall_file_left_by_an_earlier_cycle_is_not_this_cycles() {
-    let w = World::new("rs-stall-old");
-    w.ended("running", "develop", "", "");
-    fs::create_dir_all(w.state()).unwrap();
-    fs::write(w.state().join("7.stalled"), "3600\n").unwrap();
-    let r = w.run7();
+    let (_, r, said) = twin("rs-stall-old", |w| {
+        w.ended("running", "develop", "", "");
+        fs::create_dir_all(w.state()).unwrap();
+        fs::write(w.state().join("7.stalled"), "3600\n").unwrap();
+    });
     has(&r.out, "status=running");
-    lacks(&w.gh(), "None of its logs changed");
+    has(&said, "Tehas cycle stopped");
+    lacks(&said, "None of its logs changed");
 }
