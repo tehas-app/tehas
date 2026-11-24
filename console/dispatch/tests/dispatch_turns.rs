@@ -403,6 +403,7 @@ fn the_bot_is_refused_as_an_allowed_labeller_even_with_no_question_open() {
     );
     assert_eq!(w.calls("fake-start"), "");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
 }
 
 #[test]
@@ -414,6 +415,7 @@ fn a_bot_login_that_is_not_kept_ends_the_poll_before_anything_is_written() {
     assert_eq!(r.rc, 1, "{}", r.out);
     has(&r.out, "ERROR: the bot's own login could not be read");
     lacks(&w.gh(), "issue edit");
+    assert_eq!(w.marks(None), 0);
     assert_eq!(w.notes_any(), 0);
     assert_eq!(w.calls("fake-start"), "");
 }

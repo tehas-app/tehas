@@ -90,6 +90,7 @@ fn holds(w: &World) -> Run {
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(started(w), "");
     lacks(&w.gh(), "issue edit 7");
+    assert_eq!(w.marks(Some(7)), 0);
     assert_eq!(park_of(w, "[.attempt, .retries, .question]"), "[1,0,4001]");
     r
 }
@@ -164,6 +165,7 @@ fn a_dry_run_of_the_hold_says_it_and_changes_nothing_not_its_park() {
     has(&r.out, HOLD);
     assert_eq!(started(&w), "");
     lacks(&w.gh(), "issue edit 7");
+    assert_eq!(w.marks(Some(7)), 0);
     assert_eq!(w.notes(7), 0);
     lacks(&w.gh(), "api -X");
     assert_eq!(park_of(&w, ".told_at"), "null");
@@ -405,6 +407,7 @@ fn a_busy_store_keeps_the_retry_after_an_outage_for_the_next_poll_nothing_starts
     );
     assert_eq!(park_of(&w, "[.retries, .automatic]"), "[0,true]");
     lacks(&w.gh(), "issue edit 7");
+    assert_eq!(w.marks(Some(7)), 0);
 }
 
 #[test]

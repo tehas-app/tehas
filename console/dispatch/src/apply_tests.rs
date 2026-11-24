@@ -176,6 +176,19 @@ fn sent(w: &tehas_ports::Write) -> String {
     format!("send {}", serde_json::to_string(w).unwrap())
 }
 
+/// The tests' word of a label as a mark: a mark of the project by that
+/// name. The program's own table is the adapter's, which no test names;
+/// the wiring test through the binary reads it.
+fn mark_of_word(label: &str) -> Option<tehas_ports::Mark> {
+    tehas_ports::MarkName::new(label)
+        .ok()
+        .map(tehas_ports::Mark::Project)
+}
+
+fn mark(label: &str) -> tehas_ports::Mark {
+    mark_of_word(label).unwrap()
+}
+
 fn key(n: u64) -> tehas_ports::TicketKey {
     tehas_ports::TicketKey::Number(std::num::NonZeroU64::new(n).unwrap())
 }
@@ -205,6 +218,16 @@ fn note_text(line: &str) -> String {
 fn noted(line: &str, n: Option<u64>) -> bool {
     line.starts_with(r#"send {"type":"TicketNote""#)
         && n.is_none_or(|n| line.contains(&format!(r#""ticket":{{"Number":{n}}}"#)))
+}
+
+/// The line of a mark put on (`on`) or taken off issue `n`.
+fn marked(n: u64, label: &str, on: bool) -> String {
+    let (ticket, mark) = (key(n), mark(label));
+    sent(&if on {
+        tehas_ports::Write::Mark { ticket, mark }
+    } else {
+        tehas_ports::Write::Unmark { ticket, mark }
+    })
 }
 
 struct World {
@@ -335,6 +358,7 @@ fn world() -> World {
             }),
             ..handles(&tehas_ports::fake::World::new())
         }),
+        mark_of: mark_of_word,
     };
     World {
         dir,
@@ -796,36 +820,56 @@ fn a_label_change_that_worked_is_followed_by_its_line_and_comment() {
     let a = t.apply(json!([label()]));
     assert_eq!(a.log, vec!["clear #7: done"]);
     assert!(a.left.is_empty());
+    // What comes off, then what goes on, one write each, then the note.
     assert_eq!(
         t.writes(),
         vec![
-            "gh issue edit 7 --repo example-owner/example-product --remove-label tehas:ready --add-label needs-human-attention".to_string(),
+            marked(7, "tehas:ready", false),
+            marked(7, "needs-human-attention", true),
             note(7, "Tehas took it off."),
         ]
     );
 }
 
 #[test]
-fn a_refused_label_change_logs_gh_reason() {
+fn a_refused_label_change_logs_the_sites_reason() {
     let mut t = world();
-    t.fail("gh", "issue edit|HTTP 403");
+    t.fail("send", r#""Unmark""#);
     let a = t.apply(json!([label()]));
     assert_eq!(
         a.log,
-        vec!["WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention: HTTP 403"]
+        vec!["WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention: refused: an input is not valid"]
     );
 }
 
+/// A part that fails stops the change there: what would follow it is not
+/// sent, and nothing is said.
 #[test]
 fn a_failed_label_change_logs_its_line_and_says_nothing() {
     let mut t = world();
-    t.fail("gh", "issue edit");
+    t.fail("send", r#""Unmark""#);
+    let a = t.apply(json!([label()]));
+    assert_eq!(a.log.len(), 1);
+    assert!(
+        a.log[0].starts_with("WARN: label change on #7 failed: "),
+        "{:?}",
+        a.log
+    );
+    assert_eq!(t.writes(), vec![marked(7, "tehas:ready", false)]);
+}
+
+/// A label word no mark has is refused at the send, never sent as a raw
+/// label.
+#[test]
+fn a_label_no_mark_has_is_not_sent() {
+    let mut t = world();
+    t.w.mark_of = |_| None;
     let a = t.apply(json!([label()]));
     assert_eq!(
         a.log,
-        vec!["WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention"]
+        vec!["WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention: tehas:ready is no mark this poll knows"]
     );
-    assert!(!t.calls().iter().any(|c| noted(c, None)));
+    assert!(t.writes().is_empty());
 }
 
 /// The token both token tests give the poll, and the file their stubs say
@@ -978,22 +1022,23 @@ fn every_write_is_journaled_before_and_settled_after() {
             "store journal-record" => "record",
             "store journal-attempt" => "attempt",
             "store journal-settle" => "settle",
-            "gh issue" => "gh",
             s if s.starts_with("send ") => "send",
             _ => "other",
         })
         .collect();
-    // The label change as a call of gh, then the note as a write of the
-    // ports: one row each.
-    assert_eq!(
-        steps,
-        vec!["record", "attempt", "gh", "settle", "record", "attempt", "send", "settle"]
+    // Each part of the change, then the note: one row each.
+    let row = ["record", "attempt", "send", "settle"];
+    assert_eq!(steps, row.repeat(3));
+    assert!(
+        c[0].contains(r#"--poll 1000 --write {"type":"Unmark""#),
+        "{}",
+        c[0]
     );
-    assert!(c[0].contains("--poll 1000 --kind label-add --issue 7"));
     assert!(c[0].contains("--before 990"));
     assert!(c[3].ends_with("--action 1 --result ok"));
-    assert!(c[4].contains(r#"--write {"type":"TicketNote""#));
-    assert!(c[7].ends_with("--action 2 --result read-failed"));
+    assert!(c[4].contains(r#"--write {"type":"Mark""#));
+    assert!(c[8].contains(r#"--write {"type":"TicketNote""#));
+    assert!(c[11].ends_with("--action 3 --result read-failed"));
 }
 
 #[test]
@@ -5792,12 +5837,13 @@ fn the_first_write_begins_the_poll_row_once_and_records_under_it() {
         1
     );
     assert_eq!(t.w.poll_at, 2000);
-    // The label change and the note: one row, named twice, never 0.
+    // The two parts of the label change and the note: one row, named each
+    // time, never 0.
     let polls: Vec<&String> = c
         .iter()
         .filter(|l| l.starts_with("store journal-record"))
         .collect();
-    assert_eq!(polls.len(), 2);
+    assert_eq!(polls.len(), 3);
     assert!(polls.iter().all(|l| l.contains("--poll 2000")));
 }
 
