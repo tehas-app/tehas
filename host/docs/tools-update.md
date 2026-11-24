@@ -303,6 +303,16 @@ records ignoring case too: a pair of the login in another case is its pair, so a
 case in the settings meets the check below, and the recorded pair is kept
 under the login as the settings write it, in place of every other case.
 
+A bot listed in `TEHAS_ALLOWED_LABELERS` no longer counts in 2.0: only the
+millwright (the factory's own app, or the app `TEHAS_MILLWRIGHT_APP` names) is
+a listed bot. A bot listed bare there loses its approvals, with only doubted
+lines (`<login>#<id>`) in the log. The list takes logins only (a `[` is
+refused), and a bare name is now the key of a person or an organisation of
+that name, so a bot app's label events do not count for it, where 1.x folded
+the bot onto the bare name. This narrows who counts and fails closed. If that
+bot should approve, it can only as the millwright (`TEHAS_MILLWRIGHT_APP`, in
+`host/docs/operating.md`); otherwise take it out of the list.
+
 Which logins are allowed is matched ignoring ASCII case, by the dispatcher
 as by `tehas resume`, `tehas plan`, `tehas dev` and a cycle started by hand.
 
