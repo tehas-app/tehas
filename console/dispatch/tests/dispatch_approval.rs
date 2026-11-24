@@ -177,7 +177,7 @@ fn a_bot_kept_only_under_its_bare_slug_stops_the_poll_until_the_ids_are_recorded
             uid("tehas-bot")
         ),
     ] {
-        w.home_file("state/account-ids", &text);
+        w.home_file(tehas_core::accounts::FILE, &text);
         let r = w.dispatch(&["--dry-run"]);
         assert_eq!(r.rc, 78, "{text:?}: {}", r.out);
         has(
@@ -189,7 +189,7 @@ fn a_bot_kept_only_under_its_bare_slug_stops_the_poll_until_the_ids_are_recorded
     }
     // Both kept side by side, each by its whole login, the poll runs.
     w.home_file(
-        "state/account-ids",
+        tehas_core::accounts::FILE,
         &format!(
             "code-host alice {}\ncode-host tehas-bot 5\ncode-host tehas-bot[bot] {}\n",
             uid("alice"),
