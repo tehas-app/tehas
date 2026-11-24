@@ -12,7 +12,8 @@
 #   scripts/verify.sh --full   the above, and the front page's tests even
 #                              where node is missing
 #   scripts/verify.sh --changed  only what the change since the merge base with
-#                              origin/main can affect, uncommitted and untracked
+#                              the branch the work targets can affect,
+#                              uncommitted and untracked
 #                              files included: the name lint and the bash
 #                              ceiling, then the checks
 #                              scripts/select-tests.sh names, the tests of
@@ -22,6 +23,11 @@
 #                              from .pi/verify-cmd-fast. When the selection
 #                              needs everything, or there is no merge base, it
 #                              runs as scripts/verify.sh does.
+#
+# The branch the work targets is TEHAS_VERIFY_BASE when it is set. Otherwise
+# it is the one of origin/main, origin/refactor/* and origin/release/* whose
+# merge base with HEAD is the newest, the current branch's own remote branch
+# left out, and origin/main when none is newer. It reads only local refs.
 #
 # Needs bash, git, jq, shellcheck and cargo; --full also needs node. Without
 # cargo the gate fails, fast or full: the dispatcher's rules are Rust tests. A
@@ -66,6 +72,27 @@ mode=${1:-}
 mode=${mode#--}
 mode=${mode:-plain}
 
+target_ref() {
+  local r own best=origin/main best_mb mb
+  if [ -n "${TEHAS_VERIFY_BASE:-}" ]; then
+    echo "$TEHAS_VERIFY_BASE"
+    return
+  fi
+  own=origin/$(git symbolic-ref -q --short HEAD)
+  best_mb=$(git merge-base HEAD origin/main 2>/dev/null)
+  while read -r r; do
+    [ "$r" = "$own" ] && continue
+    mb=$(git merge-base HEAD "$r" 2>/dev/null) || continue
+    # Newer: the merge base so far is an ancestor of this one.
+    if [ -z "$best_mb" ] || { [ "$mb" != "$best_mb" ] && git merge-base --is-ancestor "$best_mb" "$mb"; }; then
+      best=$r best_mb=$mb
+    fi
+  done < <(git for-each-ref --format='%(refname:short)' refs/remotes/origin/refactor/ refs/remotes/origin/release/ 2>/dev/null)
+  echo "$best"
+}
+base_ref=
+[ "$changed" = 0 ] || base_ref=$(target_ref)
+
 # A tree that passed is not checked again: the same files, tracked or not, in
 # the same mode, from the same merge base for --changed, with the same tools.
 # git add -A does not see the names list, which .gitignore keeps out of the
@@ -84,7 +111,7 @@ tree_key() {
   {
     echo "${1:-plain}"
     GIT_INDEX_FILE=$idx git write-tree
-    [ "$changed" = 0 ] || git merge-base HEAD origin/main 2>/dev/null
+    [ "$changed" = 0 ] || { echo "base $base_ref" && git merge-base HEAD "$base_ref" 2>/dev/null; }
     # The list itself, which git add -A cannot see, and CI, which is no file.
     # A file and its contents cannot print the same line: a list whose first
     # line is '42' hashes to an object id, which is no 'names 42'.
@@ -167,8 +194,8 @@ has() { command -v "$1" >/dev/null 2>&1; }
 cargo_wanted=1 tests=() nodes=() paths=() omitted=() crates=()
 if [ "$changed" = 1 ]; then
   sel=
-  if ! base=$(git merge-base HEAD "origin/main" 2>/dev/null); then
-    sel="full there is no merge base with origin/main"
+  if ! base=$(git merge-base HEAD "$base_ref" 2>/dev/null); then
+    sel="full there is no merge base with $base_ref"
   else
     mapfile -t touched < <({ git diff --name-only "$base" && git ls-files --others --exclude-standard; } | sort -u)
     for p in "${touched[@]}"; do
@@ -194,7 +221,7 @@ if [ "$changed" = 1 ]; then
     what=
     [ "$cargo_wanted" = 0 ] || what=", the workspace"
     [ "${#crates[@]}" = 0 ] || what=", the crates ${crates[*]}"
-    echo "note  ${#touched[@]} changed paths since ${base:0:12}: ${#tests[@]} test files, ${#nodes[@]} front page files$what"
+    echo "note  ${#touched[@]} changed paths since ${base:0:12} on $base_ref: ${#tests[@]} test files, ${#nodes[@]} front page files$what"
     [ "${#omitted[@]}" = 0 ] || echo "note  left to the full gate: ${omitted[*]}"
   fi
 fi

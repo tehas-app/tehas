@@ -229,6 +229,7 @@ mod tests {
             live: live.to_path_buf(),
             sessions: live.join("sessions"),
             logs: live.join("logs"),
+            links: crate::tools::no_links,
         }
     }
 
