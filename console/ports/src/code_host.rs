@@ -311,7 +311,9 @@ pub struct ChangeEvent {
     pub what: ChangeHappened,
     /// Who; None where the site names nobody.
     pub by: Option<Account>,
-    /// When.
+    /// When, as the site records it. For a push whose own time the site
+    /// does not record, the newest commit's time, as `committed`: so `at`
+    /// does not order events. The list's order does (Decided 126).
     pub at: At,
     /// For a push, when its newest commit was made, which may be long before.
     pub committed: Option<At>,
@@ -852,7 +854,9 @@ pub trait CodeHost: Reports + Cites {
     fn changed_files(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<ChangedFile>>;
     /// A change's events, oldest first: every kind the site records. An
     /// adapter that cannot give a kind refuses the read
-    /// `Refused(Unsupported)`; it never leaves one out (Decided 124).
+    /// `Refused(Unsupported)`; it never leaves one out (Decided 124). In
+    /// the site's order, not by `at`; `more` may be true where only items
+    /// the adapter leaves out remain (Decided 126).
     fn activity(&mut self, no: ChangeNo, window: Window) -> Got<Took<ChangeEvent>>;
     /// The checks on a commit, or those of this name: its check runs, the
     /// newest of each App and name, so an old failure beside a passing
