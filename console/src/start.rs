@@ -23,7 +23,9 @@ use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 use tehas_core::approval::{body_sha256, title_sha256};
+use tehas_core::retry;
 use tehas_core::{exit, time};
+use tehas_ports::{Outcome, Sent};
 
 const USAGE: &str = "usage: tehas start <issue> [--clear] [--json]";
 
@@ -114,11 +116,7 @@ fn issue_of(repo: &str, n: u64) -> Result<Value, (u8, String)> {
     if !out.status.success() {
         let said = String::from_utf8_lossy(&out.stderr);
         let said = format!("{said}{}", String::from_utf8_lossy(&out.stdout));
-        if said.contains("Not Found") || said.contains("HTTP 404") {
-            return Err(no(format!("{repo} has no issue #{n}")));
-        }
-        let line = said.lines().next().unwrap_or("").trim();
-        return Err(failed(format!("GitHub did not answer for #{n}: {line}")));
+        return Err(not_read(repo, n, &said));
     }
     let v: Value = serde_json::from_slice(&out.stdout).map_err(|_| unread())?;
     if !v.is_object() {
@@ -135,6 +133,18 @@ fn issue_of(repo: &str, n: u64) -> Result<Value, (u8, String)> {
             "#{n} is closed, and a closed issue is never started"
         ))),
         _ => Err(unread()),
+    }
+}
+
+/// Why the issue could not be read, from what gh said: its status and a line
+/// in our words, never gh's (Decided 69).
+fn not_read(repo: &str, n: u64, said: &str) -> (u8, String) {
+    match retry::outcome_of(said, Sent::No) {
+        Outcome::NotFound => (exit::NO, format!("{repo} has no issue #{n}")),
+        why => (
+            exit::FAILED,
+            format!("GitHub did not answer for #{n}: {}", why.line()),
+        ),
     }
 }
 
@@ -300,6 +310,28 @@ mod tests {
         ] {
             assert_eq!(words(&w(bad)), Err(64), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn an_issue_not_read_is_said_in_our_words() {
+        assert_eq!(
+            not_read("acme/widget", 12, "gh: Not Found (HTTP 404)\n"),
+            (exit::NO, "acme/widget has no issue #12".to_string())
+        );
+        let (rc, line) = not_read(
+            "acme/widget",
+            12,
+            "gh: HTTP 502: Bad Gateway (api.example.test)\n",
+        );
+        assert_eq!(rc, exit::FAILED);
+        assert_eq!(line, "GitHub did not answer for #12: the site failed");
+        let (rc, line) = not_read(
+            "acme/widget",
+            12,
+            "dial tcp: lookup api.example.test: no such host",
+        );
+        assert_eq!(rc, exit::FAILED);
+        assert!(!line.contains("example"), "{line}");
     }
 
     /// A test clock that is not a Unix time is a line to say, never a panic,

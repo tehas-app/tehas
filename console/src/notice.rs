@@ -24,6 +24,8 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
+use tehas_core::retry;
+use tehas_ports::{Outcome, Sent, Unread};
 
 const MARKER: &str = "<!-- tehas-preview -->";
 const MARKER_END: &str = "<!-- /tehas-preview -->";
@@ -55,27 +57,12 @@ enum Plan {
     Refuse,
 }
 
-/// One short reason for a call that failed, from what it said last. A token
-/// that lost access gets 404 for every pull request, which an operator can
-/// tell from a rate limit or a call that never came back.
-fn why_failed(said: &str) -> String {
-    let line: String = said
-        .lines()
-        .last()
-        .unwrap_or("")
-        .chars()
-        .filter(|c| !c.is_control())
-        .collect();
-    if line.contains("HTTP 404") {
-        "no such pull request (HTTP 404)".to_string()
-    } else if line.contains("HTTP 403") || line.contains("HTTP 429") || line.contains("rate limit")
-    {
-        "GitHub refused the call (HTTP 403)".to_string()
-    } else if line.is_empty() {
-        "no answer".to_string()
-    } else {
-        line.chars().take(80).collect()
-    }
+/// One short reason for a call that failed, from what gh said: a fixed line
+/// of the ports' outcomes, never gh's words (Decided 69). A token that lost
+/// access gets "not found" for every pull request, which an operator can tell
+/// from a spent budget or a call that never came back.
+fn why_failed(said: &str) -> &'static str {
+    retry::outcome_of(said, Sent::No).line()
 }
 
 fn bare(line: &str) -> &str {
@@ -270,14 +257,13 @@ impl Tell<'_> {
             }
         };
         let decided = serde_json::from_str::<Value>(&answer)
-            .map_err(|e| e.to_string())
+            .map_err(|_| Outcome::Unread(Unread::Malformed).line().to_string())
             .and_then(|answer| plan(&answer, self.n, &block, create));
         let (decided, seen) = match decided {
             Ok(decided) => decided,
             Err(why) => {
                 self.say(&format!(
-                    "the answer about this pull request was not understood ({}), tried again at the next run",
-                    why_failed(&why)
+                    "the answer about this pull request was not understood ({why}), tried again at the next run",
                 ));
                 return;
             }
@@ -434,16 +420,23 @@ mod tests {
     }
 
     #[test]
-    fn why_a_call_failed() {
+    fn why_a_call_failed_in_our_words() {
         assert_eq!(
             why_failed("x\ngh: Not Found (HTTP 404)\n"),
-            "no such pull request (HTTP 404)"
+            "not found, or not visible to this actor"
+        );
+        assert_eq!(
+            why_failed("gh: Resource not accessible by integration (HTTP 403)"),
+            "this actor may not do this"
         );
         assert_eq!(
             why_failed("API rate limit exceeded"),
-            "GitHub refused the call (HTTP 403)"
+            "the budget is spent until later"
         );
-        assert_eq!(why_failed(""), "no answer");
-        assert_eq!(why_failed(&"a".repeat(100)).len(), 80);
+        assert_eq!(why_failed(""), "the answer could not be read whole");
+        assert_eq!(
+            why_failed("Get \"https://api.example.test/x\": dial tcp: no such host"),
+            "the site could not be reached"
+        );
     }
 }

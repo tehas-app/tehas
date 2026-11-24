@@ -238,7 +238,8 @@ fn run_in(
     args: &Value,
 ) -> (Result<Value, Failed>, &'static str, Option<usize>) {
     let failed = |why: String| (Err(Failed::Tool(why)), "failed", None);
-    let (ctx, argv) = match (context(run), sandbox::plugin_run(run)) {
+    let ctx = context(run).and_then(|c| serde_json::to_string(&c).map_err(|e| e.to_string()));
+    let (ctx, argv) = match (ctx, sandbox::plugin_run(run)) {
         (Ok(c), Ok(a)) => (c, a),
         (Err(why), _) | (_, Err(why)) => return (Err(Failed::Refused(why)), "failed", None),
     };
@@ -247,7 +248,7 @@ fn run_in(
     }
     let files = [
         ("context.json", ctx),
-        ("call.json", json!({"tool": t.id, "args": args})),
+        ("call.json", json!({"tool": t.id, "args": args}).to_string()),
     ];
     for (file, v) in files {
         let wrote = write_atomic(
