@@ -820,6 +820,26 @@ impl Remote {
             .collect()
     }
 
+    /// The links of the pull requests the task opened, as the code host
+    /// gives them.
+    fn opened_links(&self) -> Vec<String> {
+        let site = FakeSite::new(&self.code);
+        let mut host = site.code_host(&BY, CALLER).unwrap();
+        let open = host
+            .changes(
+                &ChangeFilter {
+                    states: ChangeStates::Open,
+                    ..Default::default()
+                },
+                ALL_MAX,
+            )
+            .unwrap();
+        open.items()
+            .iter()
+            .map(|d| d.link.as_str().to_string())
+            .collect()
+    }
+
     fn origin(&self, a: &[&str]) -> String {
         let mut v = vec!["-C", "origin.git"];
         v.extend_from_slice(a);
@@ -1108,4 +1128,136 @@ fn a_gate_that_fails_with_the_polyfills_removed_pushes_nothing_and_keeps_a_branc
     assert!(r
         .git(&["-C", "work", "branch", "--list", "remove-polyfills-*"])
         .contains("remove-polyfills-v0.1.1"));
+}
+
+// --- The pinned tools, on the ports' fake (from test/tag_release_test.sh) ----
+
+impl Remote {
+    /// The shell's `pinned`: a head with scripts/pins.sh, a stub that records
+    /// its arguments and does what `pins_mode` says: move (a line of
+    /// host/versions.env changes, and it says so), none, or fail.
+    fn pinned(&self) {
+        self.released();
+        let d = self.dir.display();
+        self.write("up/host/versions.env", "JQ_VERSION=1.8.1\n");
+        self.exe(
+            "up/scripts/pins.sh",
+            &format!(
+                "#!/usr/bin/env bash\necho \"$*\" >>\"{d}/calls/pins\"\nroot=$(dirname \"$0\")/..\ncase \"$(cat \"{d}/pins_mode\")\" in\n  move) echo JQ_VERSION=1.8.2 >\"$root/host/versions.env\"; echo \"moved jq: 1.8.1 to 1.8.2\" ;;\n  fail) echo \"pins: jq: cannot get\" >&2; exit 1 ;;\nesac\n"
+            ),
+        );
+        self.commit("carry pins");
+        self.write("pins_mode", "move");
+    }
+}
+
+#[test]
+fn pinned_tools_that_move_go_to_a_pull_request_and_nothing_is_tagged() {
+    let r = Remote::new();
+    r.pinned();
+    // The branch the task pushes, as the code host then has it.
+    r.code.push("pins-v0.1.1", "pushed", "t");
+    let (status, heard) = r.tag(&[]);
+    assert_eq!(status, 2, "{heard}");
+    assert_eq!(r.calls("pins"), "move --release v0.1.1\n");
+    says(&heard, "tag-release: moved jq: 1.8.1 to 1.8.2");
+    let link = &r.opened_links()[0];
+    says(
+        &heard,
+        &format!("{link} moves them; merge it, then tag. Nothing was tagged"),
+    );
+    assert_eq!(r.tags(), "v0.1.0");
+    assert_eq!(r.calls("verify"), "ran\n");
+    let opened = r.opened();
+    assert_eq!(opened.len(), 1);
+    assert_eq!(
+        (opened[0].head.as_str(), opened[0].base.as_str()),
+        ("pins-v0.1.1", "main")
+    );
+    assert_eq!(
+        opened[0].title,
+        "Move the pinned tools to the newest minor and patch"
+    );
+    let Body::Text(body) = &opened[0].body else {
+        panic!("a body as text")
+    };
+    assert!(body.contains("- moved jq: 1.8.1 to 1.8.2"), "{body}");
+    assert_eq!(
+        r.origin(&["show", "pins-v0.1.1:host/versions.env"]),
+        "JQ_VERSION=1.8.2"
+    );
+    assert_eq!(
+        r.origin(&["rev-parse", "pins-v0.1.1^"]),
+        r.origin(&["rev-parse", "main"])
+    );
+    assert_eq!(
+        r.git(&["-C", "work", "worktree", "list"]).lines().count(),
+        1
+    );
+}
+
+#[test]
+fn an_open_pull_request_that_moves_the_pinned_tools_holds_the_tag() {
+    let r = Remote::new();
+    r.pinned();
+    let _ = r.code.clone().change(12, "pins-v0.1.1", |c| c);
+    let (status, heard) = r.tag(&[]);
+    assert_eq!(status, 2, "{heard}");
+    says(
+        &heard,
+        &format!("https://fake.test/{PROJECT}/c/12 moves the pinned tools; merge it, then tag"),
+    );
+    assert_eq!(r.calls("pins"), "");
+    assert!(r.opened().is_empty());
+    assert_eq!(r.tags(), "v0.1.0");
+}
+
+#[test]
+fn pinned_tools_that_are_all_at_their_newest_let_the_head_be_tagged() {
+    let r = Remote::new();
+    r.pinned();
+    r.write("pins_mode", "none");
+    let (status, heard) = r.tag(&[]);
+    assert_eq!(status, 0, "{heard}");
+    assert_eq!(r.tags(), "v0.1.0 v0.1.1");
+    assert_eq!(r.calls("pins"), "move --release v0.1.1\n");
+    assert!(r.opened().is_empty());
+}
+
+#[test]
+fn a_pinned_tool_that_cannot_be_moved_stops_the_release() {
+    let r = Remote::new();
+    r.pinned();
+    r.write("pins_mode", "fail");
+    let (status, heard) = r.tag(&[]);
+    assert_eq!(status, 1, "{heard}");
+    // pins.sh's own "pins: jq: cannot get" goes to the task's stderr as it is.
+    says(
+        &heard,
+        "a pinned tool could not be moved; nothing was tagged",
+    );
+    assert_eq!(r.tags(), "v0.1.0");
+    assert_eq!(r.calls("verify"), "");
+}
+
+#[test]
+fn a_gate_that_fails_with_the_pinned_tools_moved_pushes_nothing() {
+    let r = Remote::new();
+    r.pinned();
+    r.write("verify_rc", "1");
+    let (status, heard) = r.tag(&[]);
+    assert_eq!(status, 1, "{heard}");
+    says(&heard, "the gate failed with the pinned tools moved");
+    assert_eq!(r.origin(&["branch", "--list", "pins-*"]), "");
+    assert!(r.opened().is_empty());
+}
+
+#[test]
+fn no_pins_tags_without_moving_the_pinned_tools() {
+    let r = Remote::new();
+    r.pinned();
+    let (status, heard) = r.tag(&["--no-pins"]);
+    assert_eq!(status, 0, "{heard}");
+    assert_eq!(r.tags(), "v0.1.0 v0.1.1");
+    assert_eq!(r.calls("pins"), "");
 }
