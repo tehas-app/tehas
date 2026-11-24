@@ -508,27 +508,14 @@ fn take_out(body: &str, (s, e): (usize, usize)) -> (usize, usize, String) {
 /// spaces, line ends kept: quoted lines, fenced and indented code, code
 /// spans and HTML comments. What a reader of GitHub's closing syntax may
 /// take as said.
+///
+/// The blanked part is the union of the reader's dead parts and the line
+/// rules this used before the reader parsed blocks, so it only grows:
+/// more blanked only adds a closing line. The line rules hold where the
+/// reader sees no quote or code, an HTML block or a list item among them.
 pub fn live_text(body: &str) -> String {
-    let lines = lines(body);
-    let mut gone = dead(body, &lines);
-    // Besides the reader's indented code: every indented line at the
-    // text's start or after a blank line, in a list item or an open HTML
-    // block too, as this blanked before the reader parsed blocks. More
-    // blanked only adds a closing line.
-    let mut code_may_open = true;
-    for l in &lines {
-        let raw = &body[l.start..l.end];
-        if raw.trim().is_empty() {
-            code_may_open = true;
-            continue;
-        }
-        let indented = raw.starts_with("    ") || raw.starts_with('\t');
-        if indented && code_may_open {
-            gone.push((l.start, l.next));
-        } else {
-            code_may_open = false;
-        }
-    }
+    let mut gone = dead(body, &lines(body));
+    gone.extend(line_rules(body));
     let mut from = 0;
     while let Some(open) = body[from..].find("<!--") {
         let start = from + open;
@@ -547,6 +534,116 @@ pub fn live_text(body: &str) -> String {
             }
         })
         .collect()
+}
+
+/// What [`live_text`] blanked by lines alone, over lines split at LF and,
+/// for its indented lines, at any line end too: a fence's lines, a line
+/// whose first character past white space is `>`, a code span paired on
+/// one line, and every indented line at the text's start or after a blank
+/// line.
+fn line_rules(body: &str) -> Vec<(usize, usize)> {
+    let lf = lf_lines(body);
+    let mut out = Vec::new();
+    let mut fence: Option<(u8, usize)> = None;
+    for l in &lf {
+        let raw = &body[l.start..l.end];
+        let indent = raw.len() - raw.trim_start_matches(' ').len();
+        let text = (indent <= 3).then(|| &raw[indent..]);
+        match fence {
+            Some((c, n)) => {
+                out.push((l.start, l.next));
+                let closes = text.is_some_and(|t| {
+                    let run = t.bytes().take_while(|b| *b == c).count();
+                    run >= n && t[run..].bytes().all(|b| b == b' ' || b == b'\t')
+                });
+                if closes {
+                    fence = None;
+                }
+            }
+            None => match text.and_then(opens) {
+                Some(open) => {
+                    out.push((l.start, l.next));
+                    fence = Some(open);
+                }
+                None if raw.trim_start().starts_with('>') => out.push((l.start, l.next)),
+                None => paired(raw, l.start, &mut out),
+            },
+        }
+    }
+    for set in [lf, lines(body)] {
+        let mut code_may_open = true;
+        for l in set {
+            let raw = &body[l.start..l.end];
+            if raw.trim().is_empty() {
+                code_may_open = true;
+                continue;
+            }
+            if raw.starts_with("    ") || raw.starts_with('\t') {
+                if code_may_open {
+                    out.push((l.start, l.next));
+                }
+            } else {
+                code_may_open = false;
+            }
+        }
+    }
+    out
+}
+
+/// Lines split at LF alone, a CR before it no part of the line's text.
+fn lf_lines(body: &str) -> Vec<Line> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    while start < body.len() {
+        let next = body[start..]
+            .find('\n')
+            .map_or(body.len(), |i| start + i + 1);
+        let text = body[start..next].trim_end_matches('\n');
+        let text = text.strip_suffix('\r').unwrap_or(text);
+        out.push(Line {
+            start,
+            end: start + text.len(),
+            next,
+        });
+        start = next;
+    }
+    out
+}
+
+/// The code spans of one line, paired: a run of backticks to the next run
+/// of the same length, one after an odd run of backslashes opening none.
+fn paired(line: &str, at: usize, out: &mut Vec<(usize, usize)>) {
+    let bytes = line.as_bytes();
+    let run = |from: usize| bytes[from..].iter().take_while(|b| **b == b'`').count();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'`' || escaped(bytes, i) {
+            i += 1;
+            continue;
+        }
+        let n = run(i);
+        let mut j = i + n;
+        let mut close = None;
+        while j < bytes.len() {
+            if bytes[j] == b'`' {
+                let m = run(j);
+                if m == n {
+                    close = Some(j + m);
+                    break;
+                }
+                j += m;
+            } else {
+                j += 1;
+            }
+        }
+        match close {
+            Some(end) => {
+                out.push((at + i, at + end));
+                i = end;
+            }
+            None => i += n,
+        }
+    }
 }
 
 /// Whether [`read`] finds any marker in `text`, of any item.
