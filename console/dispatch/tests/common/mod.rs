@@ -53,9 +53,9 @@ fails() {
     left=$(<"$T/fx/$2")
     [ "$left" -gt 0 ] || return 0
     echo $((left - 1)) >"$T/fx/$2"
-    exit 1
+    refuse
   fi
-  [ ! -e "$T/fx/$1" ] || exit 1
+  [ ! -e "$T/fx/$1" ] || refuse
 }
 # The write log of the host shim (host/shim/gh), when a case keeps one: a line for
 # each write, in the format of the shim.
@@ -124,6 +124,12 @@ case "$1 $2" in
       *) echo "[]" ;;
     esac ;;
   "api user") cat "$T/fx/user.json" || exit 1 ;;
+  # An account by its login, and by its id: a person, carol unless a case
+  # names another for the id. The tail gives each login its id.
+  "api users/"*) [ ! -e "$T/fx/users-fails" ] || refuse
+    case " $* " in *" --jq "*) ;; *) printf '{"login":"%s","type":"User"}\n' "${2#users/}" ;; esac ;;
+  "api user/"*) id=${2#user/}
+    printf '{"login":"%s","type":"User","id":%s}\n' "$(cat "$T/fx/user-$id" 2>/dev/null || echo carol)" "$id" ;;
   # The label of a pull request, through the REST issues endpoint: a mark adds
   # it, an unmark takes it off. A mark fails while $fx/mark-fails-times counts
   # down, or at once when the file is there but holds nothing, so a case can
@@ -141,9 +147,18 @@ case "$1 $2" in
   # answer 404, as GitHub does for a label the repository has not got.
   "api -X")
     case "$rest_verb ${rest_path%%:*}" in
+      "POST repos/acme/widget/issues/"*/assignees)
+        n=${rest_path#repos/acme/widget/issues/}
+        who=$(jq -r '.assignees[0] // empty' <<<"$input" 2>/dev/null)
+        edit_fails "issue edit ${n%%/*} --repo acme/widget --add-assignee $who"
+        jq -cn --argjson n "${n%%/*}" --arg who "$who" \
+          '{number: $n, html_url: "https://github.com/acme/widget/issues/\($n)", assignees: [{login: $who, type: "User"}]}' ;;
       "POST repos/acme/widget/issues/"*/labels)
         [ ! -e "$T/fx/label-missing" ] || not_found
         n=${rest_path#repos/acme/widget/issues/}
+        # The approval on record as the claim's mark goes on, as for gh
+        # issue edit below.
+        case "${6#*=}" in *:running) TEHAS_HOME=$T/home/tehas "$T/store-bin" approval-current "${n%%/*}" >"$T/calls/approved.at-mark" 2>/dev/null ;; esac
         edit_fails "issue edit ${n%%/*} --repo acme/widget --add-label ${6#*=}"
         fails mark-fails mark-fails-times ;;
       "DELETE repos/acme/widget/issues/"*/labels/*)
@@ -1438,6 +1453,14 @@ impl World {
         self.writes_of(n).iter().filter(|w| **w == off).count()
     }
 
+    /// Whether the poll assigned issue `n` to anyone, as a write of the
+    /// ports.
+    pub fn assigned(&self, n: u64) -> bool {
+        self.writes_of(n)
+            .iter()
+            .any(|w| matches!(w, tehas_ports::Write::Assign { .. }))
+    }
+
     /// The marks the poll put on or took off issue `n`, or any issue with
     /// None, as writes of the ports.
     pub fn marks(&self, n: Option<u64>) -> usize {
@@ -2338,7 +2361,7 @@ exec 6<&-
 call="$*"
 case " $* " in
   *" --body-file - "*) body=$(cat); call=${call/--body-file -/--body $body} ;;
-  *" --input - "*) body=$(cat); body=$(jq -r '.body // empty' <<<"$body" 2>/dev/null); call=${call/--input -/-f body=$body} ;;
+  *" --input - "*) input=$(cat); body=$(jq -r '.body // empty' <<<"$input" 2>/dev/null); call=${call/--input -/-f body=$body} ;;
 esac
 printf '%s\n' "$call" >>"$T/calls/gh"
 f_rc=

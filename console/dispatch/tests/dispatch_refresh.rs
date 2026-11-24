@@ -10,6 +10,7 @@ use common::*;
 use refresh::*;
 use serde_json::{json, Value};
 use std::fs;
+use tehas_ports::{Mark, State};
 
 /// The REST call of rule 4b that marks a pull request.
 const MARK_CALL: &str =
@@ -87,9 +88,10 @@ fn a_refresh_starts_the_pull_request_is_marked_first_then_the_issue_and_the_requ
     has(&r.out, "start #7 (refresh by alice)");
     let edits = label_pair(&w);
     has(&edits, MARK_CALL);
-    has(
-        &edits,
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:awaiting-merge",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::State(State::AwaitingMerge)),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(edits.lines().next(), Some(MARK_CALL));
     assert_eq!(edits.lines().count(), 2);
@@ -153,7 +155,7 @@ fn the_record_was_on_disk_before_the_issue_was_marked_and_after_the_mark() {
     // record that says refresh is on disk between them.
     let pair = label_pair(&w);
     assert_eq!(pair.lines().next(), Some(MARK_CALL));
-    has(pair.lines().last().unwrap(), "--add-label tehas:running");
+    has(pair.lines().last().unwrap(), "labels[]=tehas:running");
 }
 
 #[test]
@@ -205,11 +207,12 @@ fn the_first_two_marks_fail_and_the_third_starts_the_refresh_the_failures_counte
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "7 ");
     assert_eq!(record_refreshes(&w), "1");
-    // Three marks were asked for: the two that failed and the one that worked.
+    // Three marks of the change were asked for: the two that failed and the
+    // one that worked.
     assert_eq!(
         w.gh()
             .lines()
-            .filter(|l| l.starts_with("api -X POST") && l.contains("/labels"))
+            .filter(|l| l.starts_with("api -X POST") && l.contains("/issues/50/labels"))
             .count(),
         3
     );
@@ -495,10 +498,7 @@ fn a_handed_off_issue_s_pull_request_is_refreshed_the_issue_is_marked_running_wi
     assert_eq!(w.started(), "7 ");
     let edits = label_pair(&w);
     has(&edits, MARK_CALL);
-    has(
-        &edits,
-        "issue edit 7 --repo acme/widget --add-label tehas:running",
-    );
+    assert!(w.on(7, Mark::State(State::Running)), "{:?}", w.writes_of(7));
     lacks(&edits, "--remove-label");
     assert_eq!(w.approval(".how", 7), "refresh");
 }
@@ -521,9 +521,10 @@ fn a_handed_off_issue_that_carries_tehas_question_is_refreshed_and_the_start_tak
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "7 ");
     let edits = label_pair(&w);
-    has(
-        &edits,
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     assert_eq!(edits.lines().count(), 2);
 }
@@ -535,8 +536,9 @@ fn an_issue_that_carries_tehas_awaiting_merge_and_tehas_question_has_both_taken_
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "7 ");
-    has(
-        &label_pair(&w),
-        "--remove-label tehas:awaiting-merge --remove-label tehas:question",
+    assert!(
+        w.off(7, Mark::State(State::AwaitingMerge)) && w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
 }

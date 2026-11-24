@@ -103,14 +103,22 @@ pub struct Writer {
     /// Temporary (T4.7, Decided by the branch owner): the T4.6 pull request
     /// that types decide's actions onto `Mark` removes it.
     pub mark_of: MarkOf,
+    /// The account a claim assigns: `Wiring::assignee` resolved. None
+    /// assigns nobody.
+    pub assignee: Option<tehas_ports::AccountId>,
 }
 
 /// What the program's wiring gives a poll: its handles, and the word of a
 /// label as a mark. The library names no adapter (R8).
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Wiring {
     pub handles: HandlesOf,
     pub mark_of: MarkOf,
+    /// `TEHAS_ASSIGNEE`'s account, resolved once by the program's wiring
+    /// through the site's identity: None with no such setting, Err with
+    /// why when it could not be resolved, and the claim then goes without
+    /// an assignee.
+    pub assignee: Option<Result<tehas_ports::AccountId, String>>,
 }
 
 /// The wiring's word for a label as a mark: tehas's words, None for any

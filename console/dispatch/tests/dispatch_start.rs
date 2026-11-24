@@ -35,19 +35,23 @@ fn the_cycle_is_started_for_the_issue_and_told_the_labeller_in_a_comment() {
 fn with_no_owner_the_claim_assigns_nobody() {
     let w = World::new("st-no-owner");
     w.poll();
-    lacks(&w.gh(), "--add-assignee");
+    assert!(!w.assigned(7), "{:?}", w.writes_of(7));
 }
 
+/// B5: the owner is assigned as a write of its own, after the claim's mark
+/// and the word it takes the place of.
 #[test]
-fn with_an_owner_the_claim_assigns_the_issue_to_the_owner_in_the_same_call() {
+fn with_an_owner_the_claim_assigns_the_issue_to_the_owner_after_the_mark() {
     let w = World::new("st-owner");
     w.slots(1, &["TEHAS_ASSIGNEE=carol"]);
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --add-assignee carol",
-    );
+    let writes = w.writes_of(7);
+    let at = |f: &dyn Fn(&tehas_ports::Write) -> bool| writes.iter().position(f);
+    let mark = at(&|x| matches!(x, tehas_ports::Write::Mark { .. }));
+    let off = at(&|x| matches!(x, tehas_ports::Write::Unmark { .. }));
+    let assign = at(&|x| matches!(x, tehas_ports::Write::Assign { .. }));
+    assert!(mark.is_some() && mark < off && off < assign, "{writes:?}");
     assert_eq!(w.started(), "7 ");
 }
 
@@ -62,10 +66,26 @@ fn an_assign_github_refuses_still_marks_the_issue_running_and_starts_it_and_the_
         &r.out,
         "WARN: could not assign #7 to carol, marking it running without an assignee",
     );
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready\n",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::Act(Act::Approve)),
+        "{:?}",
+        w.writes_of(7)
     );
+    assert_eq!(w.started(), "7 ");
+}
+
+/// An owner the site cannot resolve is said once, and the poll's claims go
+/// without an assignee.
+#[test]
+fn an_owner_that_cannot_be_resolved_is_said_once_and_the_claim_goes_without_one() {
+    let w = World::new("st-owner-unknown");
+    w.slots(1, &["TEHAS_ASSIGNEE=carol"]);
+    w.touch("users-fails");
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    let said = "WARN: the assignee could not be resolved";
+    assert_eq!(r.out.matches(said).count(), 1, "{}", r.out);
+    assert!(!w.assigned(7), "{:?}", w.writes_of(7));
     assert_eq!(w.started(), "7 ");
 }
 
@@ -118,13 +138,47 @@ fn a_starts_comment_is_one_note_through_the_adapter() {
     assert_eq!(notes[0].1, "done");
 }
 
+/// B5: the claim is parts. One stopped after its running mark, before the
+/// word it takes the place of comes off, leaves the issue held: the mark is
+/// on and its cycle runs, and the next poll starts nothing more and sends
+/// no part again. The approval it rests on is spent, so the word left on
+/// asks for nothing.
+#[test]
+fn a_claim_stopped_after_its_running_mark_leaves_the_issue_held() {
+    let w = World::new("st-claim-stopped");
+    w.fx("edit-fails-on", "--remove-label tehas:ready\n");
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    has(
+        &r.out,
+        "WARN: label change on #7 failed: --remove-label tehas:ready",
+    );
+    assert_eq!(w.started(), "7 ");
+    assert!(w.on(7, Mark::State(State::Running)), "{:?}", w.writes_of(7));
+    // As GitHub holds it now: the running mark on beside the word, and
+    // the cycle running.
+    w.rm_fx("edit-fails-on");
+    w.fx(
+        "ready.json",
+        r#"[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"tehas:running"}]}]"#,
+    );
+    w.fx("marked.json", r#"[{"number":7}]"#);
+    w.hold(7);
+    w.clear_calls();
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    // No second start, and no part sent again.
+    assert_eq!(w.started(), "");
+    assert_eq!(w.marks(Some(7)), 0, "{:?}", w.writes_of(7));
+}
+
 #[test]
 fn for_one_issue_the_running_label_then_the_start_comment_then_the_start() {
     let w = World::new("st-order");
     // What the gh calls held when the start was asked for.
     w.stub(
         "fake-order",
-        r#"grep -q -e "--add-label tehas:running" "$T/calls/gh" && : >"$T/calls/order.label"
+        r#"grep -q -e "labels\[\]=tehas:running" "$T/calls/gh" && : >"$T/calls/order.label"
 [ -s "$T/calls/said-$1" ] && : >"$T/calls/order.comment"
 flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >/dev/null"#,
     );
@@ -135,7 +189,7 @@ flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >/
     assert!(exists(&w, "calls/order.comment"));
     let gh = w.gh();
     let at = |p: &dyn Fn(&str) -> bool| gh.lines().position(p).unwrap();
-    let label = at(&|l| l.contains("--add-label tehas:running"));
+    let label = at(&|l| l.contains("labels[]=tehas:running"));
     let comment = at(&|l| l.contains("issues/7/comments -f body="));
     assert!(label < comment, "{gh}");
 }
