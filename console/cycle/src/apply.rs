@@ -467,8 +467,17 @@ impl Writer<'_> {
                 rules::by_comments(write, &notes, since)
             }
             Write::MarkChange { no, .. } | Write::UnmarkChange { no, .. } => {
-                let change = self.ports.code_host.change(*no, bound).ok()?;
-                rules::by_marks(write, &change.digest.marks)
+                // Its digest alone: the whole change answers Cut past its
+                // bound of files or comments, and its marks would never
+                // settle.
+                let filter = tehas_ports::ChangeFilter {
+                    states: tehas_ports::ChangeStates::All,
+                    numbers: vec![*no],
+                    ..Default::default()
+                };
+                let changes = self.ports.code_host.changes(&filter, bound).ok()?;
+                let digest = changes.items().iter().find(|d| d.no == *no)?;
+                rules::by_marks(write, &digest.marks)
             }
             Write::CommentChange { no, .. } => {
                 let change = self.ports.code_host.change(*no, bound).ok()?;
