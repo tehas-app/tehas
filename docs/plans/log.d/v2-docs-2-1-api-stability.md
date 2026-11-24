@@ -1,0 +1,1 @@
+| 2026-11-24 | Contract and events spec for 2.1 plugins: a gate's answer may gain values and fields in 2.x and a reader holds the act on one it does not know; 2.0 promises no path for a listener's answer; `change.offered` means a cycle left a change, draft or not, and a later moment is a new event name; the 1.x plugin mechanisms are not promised | v2/docs-2-1-api-stability |
