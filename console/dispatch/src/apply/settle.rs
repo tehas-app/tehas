@@ -100,7 +100,7 @@ fn live_cycle(home: &std::path::Path, a: &Value) -> bool {
         return false;
     };
     matches!(
-        probe(&home.join(format!("state/cycles/{n}.lock"))),
+        probe(&tehas_core::home::Home::new(home).cycle_note(n, "lock")),
         Probe::Held | Probe::Unknown(_)
     )
 }

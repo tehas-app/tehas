@@ -13,6 +13,7 @@ use std::io::Write as _;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tehas_core::home::{Home, State};
 
 /// The script the turn's unit runs, plan_launch's: the turn's lock held
 /// for its length, its exit status kept, and a poll asked for at its end.
@@ -478,8 +479,8 @@ impl Writer {
                 .to_string_lossy()
                 .into_owned(),
             format!("{}.rc", st.display()),
-            self.home
-                .join("state/dispatch.again")
+            Home::new(&self.home)
+                .state(State::DispatchAgain)
                 .to_string_lossy()
                 .into_owned(),
             format!("{}.lock", st.display()),
