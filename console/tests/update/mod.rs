@@ -27,7 +27,7 @@ pub const MINIMAL: &[&str] = &[
 
 /// The logins whose user ids an install records (T_LOGINS).
 pub const LOGINS: &[&str] = &[
-    "tehas-bot",
+    "tehas-bot[bot]",
     "alice",
     "bob",
     "bob-2",

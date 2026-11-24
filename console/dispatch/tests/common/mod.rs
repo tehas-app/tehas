@@ -512,7 +512,7 @@ pub const MINIMAL: &[&str] = &[
 
 /// The logins whose user ids install.sh records, as the shell tests list them.
 const LOGINS: &[&str] = &[
-    "tehas-bot",
+    "tehas-bot[bot]",
     "alice",
     "bob",
     "bob-2",

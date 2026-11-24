@@ -10,11 +10,19 @@
 //! which no check of the list matches. A login of no list is left as it is.
 //! While the file cannot be read with certainty no listed login counts.
 //!
-//! The key of a pair is the login as GraphQL gives it: REST names a GitHub
-//! App `<slug>[bot]` and GraphQL `<slug>`, one account. GitHub logins are
-//! ASCII and one account in any case, so the vouch compares them as `folded`
-//! gives them: every case variant of a listed login carries its recorded id
-//! or does not count.
+//! The key of a pair is the account's whole login, as `key` gives it: a
+//! GitHub App's bot `<slug>[bot]`, a person or an organisation its login. An
+//! organisation and the bot of an app with its name are two accounts with two
+//! keys. GitHub logins are ASCII and one account in any case, so within a kind
+//! the vouch compares them as `folded` gives them: every case variant of a
+//! listed login carries its recorded id or does not count.
+//!
+//! A file written before bots were keyed whole keeps a bot under its bare
+//! slug, which is also the key of an account of that name. Where a known bot
+//! (the factory's, the millwright, a listed one) has no whole key and its slug
+//! has a bare one, the file is not read (`settled`): nothing is guessed, no
+//! listed login counts, the dispatcher stops with 78, and `console ids record`
+//! settles the pair by the id GitHub gives the bot.
 
 use crate::grant::{self, Actor};
 use serde_json::Value;
@@ -47,6 +55,36 @@ pub fn account(login: &str) -> &str {
 /// fold of a login, for the vouch, the allowed list and the ports' adapter.
 pub fn folded(login: &str) -> String {
     login.to_ascii_lowercase()
+}
+
+/// The key of `login` in the file: a bot's whole login `<slug>[bot]`, for
+/// REST's `<slug>[bot]` and gh's `app/<slug>`, and any other login as it is.
+/// A login that is only one of the two marks is kept whole and names nobody.
+pub fn key(login: &str) -> String {
+    match login {
+        "" | "[bot]" | "app/" => login.to_string(),
+        l => match l.strip_prefix("app/") {
+            Some(slug) => bot_key(slug),
+            None => l.to_string(),
+        },
+    }
+}
+
+/// The key of the bot whose login is `login`, with `[bot]` or without: the
+/// caller knows it is a bot.
+pub fn bot_key(login: &str) -> String {
+    format!("{}[bot]", account(login))
+}
+
+/// Whether a key is a bot's.
+fn is_bot(key: &str) -> bool {
+    key.len() > "[bot]".len() && key.ends_with("[bot]")
+}
+
+/// The id `ids` records under `key`, compared as `folded` gives it.
+pub fn id_of(ids: &BTreeMap<String, u64>, key: &str) -> Option<u64> {
+    let key = folded(key);
+    ids.iter().find(|(l, _)| folded(l) == key).map(|(_, id)| *id)
 }
 
 /// Whether `login` is the factory's own, the bot's. An empty name matches
@@ -92,6 +130,8 @@ enum Repair {
     Access,
     /// Read it again.
     Again,
+    /// Record the ids again: `console ids record`.
+    Record,
 }
 
 impl Unreadable {
@@ -123,6 +163,9 @@ impl Unreadable {
             ),
             (None, Repair::Again) => format!(
                 "tehas: {file} cannot be read: {what}. Run tehas update again"
+            ),
+            (None, Repair::Record) => format!(
+                "tehas: {file} cannot be read: {what}. Run console ids record (tehas update runs it)"
             ),
             (None, _) => format!(
                 "tehas: {file} cannot be read: {what}. Make it a regular file of `<login> <id>` lines, or remove it, then run tehas update"
@@ -160,8 +203,8 @@ pub fn parse_bytes(bytes: &[u8]) -> Result<Pairs, Unreadable> {
             continue;
         }
         let (login, id) = pair(line).map_err(|what| Unreadable::at(n, what))?;
-        let key = account(login).to_string();
-        if !crate::settings::rules::is_login(&key) {
+        let key = key(login);
+        if !crate::settings::rules::is_login(account(&key)) {
             return Err(Unreadable::at(
                 n,
                 "is not `<login> <id>`: the login is not a GitHub login",
@@ -218,40 +261,96 @@ pub fn text(ids: &BTreeMap<String, u64>) -> String {
 
 /// The pairs with `new` given the user id of `old`, for an account whose
 /// login changed: a GitHub App's slug renamed its bot. The pair of `old`
-/// stays. None when nothing is to be added: `old` has no recorded id, or
+/// stays. Both are bots, keyed whole. None when nothing is to be added: `old` has no recorded id, or
 /// `new` already has one, the same or another, which only `tehas update
 /// --accept-id` changes.
 pub fn carried(ids: &BTreeMap<String, u64>, old: &str, new: &str) -> Option<BTreeMap<String, u64>> {
-    let (old, new) = (account(old), account(new));
-    let id = *ids.get(old)?;
-    if new.is_empty() || ids.contains_key(new) {
+    let (old, new) = (bot_key(old), bot_key(new));
+    let id = *ids.get(&old)?;
+    if account(&new).is_empty() || ids.contains_key(&new) {
         return None;
     }
     let mut out = ids.clone();
-    out.insert(new.to_string(), id);
+    out.insert(new, id);
     Some(out)
 }
 
 /// The factory's account as the adapter knows it: the bot's login and the
 /// user id `state/account-ids` records for it, the bot account's and not the
-/// App's. An ids file that cannot be read, or no id for the login, gives no
-/// id: then no account is the factory's own, and a write the site may have
-/// taken is settled as unknown, never sent again.
+/// App's, keyed by the bot's whole login. An ids file that cannot be read,
+/// or that is not `settled`, or no id for the login, gives no id: then no
+/// account is the factory's own, and a write the site may have taken is
+/// settled as unknown, never sent again.
 pub fn bot(home: &Path) -> (String, Option<u64>) {
+    let login = bot_login(home);
+    let id = Some(&login)
+        .filter(|l| !account(l).is_empty())
+        .and_then(|l| id_of(&settled(home).ok()?.ids, &bot_key(l)));
+    (login, id)
+}
+
+/// The bot's login as the home keeps it, trimmed; empty when it keeps none.
+fn bot_login(home: &Path) -> String {
     use crate::home::{Home, State};
-    let login = std::fs::read_to_string(Home::new(home).state(State::BotLogin))
+    std::fs::read_to_string(Home::new(home).state(State::BotLogin))
         .unwrap_or_default()
         .trim()
-        .to_string();
-    let key = folded(account(&login));
-    let id = load(home).ok().and_then(|pairs| {
-        pairs
-            .ids
-            .iter()
-            .find(|(l, _)| folded(account(l)) == key)
-            .map(|(_, id)| *id)
-    });
-    (login, id)
+        .to_string()
+}
+
+/// The bots this process knows of `home`: the factory's, the millwright and
+/// the listed logins spelled as bots.
+fn known_bots(home: &Path) -> Vec<String> {
+    let var = |k: &str| std::env::var(k).unwrap_or_default();
+    let factory = Some(bot_login(home))
+        .filter(|l| !account(l).is_empty())
+        .map(|l| bot_key(&l));
+    let listed = format!(
+        "{} {}",
+        var("TEHAS_ALLOWED_LABELERS"),
+        var("TEHAS_MILLWRIGHT_LOGIN")
+    );
+    factory
+        .into_iter()
+        .chain(listed.split_whitespace().map(key).filter(|k| is_bot(k)))
+        .collect()
+}
+
+/// The first of `bots` whose pair `ids` keeps only under its bare slug: a
+/// file written before bots were keyed whole. That key is also an account's
+/// of the slug's name, so which account it records is not known.
+pub fn ambiguous<'a>(ids: &BTreeMap<String, u64>, bots: &'a [String]) -> Option<&'a str> {
+    bots.iter()
+        .filter(|b| is_bot(&key(b)))
+        .find(|b| id_of(ids, &key(b)).is_none() && id_of(ids, account(b)).is_some())
+        .map(String::as_str)
+}
+
+/// The pairs of `home` as a reader takes them: `load`, and unreadable while a
+/// known bot is recorded only under its bare slug, until `console ids record`
+/// settles it.
+pub fn settled(home: &Path) -> Result<Pairs, Unreadable> {
+    let pairs = load(home)?;
+    match ambiguous(&pairs.ids, &known_bots(home)) {
+        Some(bot) => Err(Unreadable::whole(
+            format!(
+                "it keeps {} under the bare name, which may be the bot {bot} or another account of that name",
+                account(bot)
+            ),
+            Repair::Record,
+        )),
+        None => Ok(pairs),
+    }
+}
+
+/// The line that stops a reader of `home` whose file keeps a known bot only
+/// under its bare slug, or None. Another fault of the file is the readers'
+/// own to say.
+pub fn unsettled(home: &Path) -> Option<String> {
+    match (load(home), settled(home)) {
+        (Ok(_), Err(u)) => Some(u.says(FILE)),
+        _ => None,
+    }
 }
 
 /// The pairs recorded in `home`. An absent file is no pairs, as before the
@@ -303,18 +402,18 @@ fn unread(u: &Unreadable) -> String {
 /// cannot be read is said on standard error and gives no pairs, so no listed
 /// login counts until it is repaired.
 pub fn read(home: &Path) -> BTreeMap<String, u64> {
-    load(home).map(|p| p.ids).unwrap_or_else(|u| {
+    settled(home).map(|p| p.ids).unwrap_or_else(|u| {
         say_once(unread(&u));
         BTreeMap::new()
     })
 }
 
-/// The logins of the two settings, as `account` gives them.
+/// The logins of the two settings, as `key` gives them.
 pub fn listed(allowed: &str, millwright: &str) -> Vec<String> {
     let mut all: Vec<String> = allowed
         .split_whitespace()
         .chain(Some(millwright).filter(|m| !m.is_empty()))
-        .map(|l| account(l).to_string())
+        .map(key)
         .collect();
     all.sort();
     all.dedup();
@@ -333,8 +432,28 @@ pub enum Doubt {
     Other { recorded: u64 },
 }
 
-/// The listed logins and the pairs recorded for them, keyed as `folded`
-/// gives them.
+/// What an answer says of an account's kind: a bot, another kind, or
+/// nothing.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Kind {
+    Bot,
+    Other,
+    Unknown,
+}
+
+impl Kind {
+    /// The kind GitHub names, GraphQL's `__typename` or REST's `type`.
+    fn named(name: Option<&str>) -> Kind {
+        match name {
+            Some("Bot") => Kind::Bot,
+            Some(_) => Kind::Other,
+            None => Kind::Unknown,
+        }
+    }
+}
+
+/// The listed logins and the pairs recorded for them, keyed as `key` and
+/// `folded` give them.
 #[derive(Debug, Default)]
 pub struct Accounts {
     listed: Vec<String>,
@@ -392,7 +511,7 @@ impl Accounts {
         if home.is_empty() {
             return Accounts::new(listed, BTreeMap::new());
         }
-        match load(Path::new(&home)) {
+        match settled(Path::new(&home)) {
             Ok(p) => Accounts::new(listed, p.ids),
             Err(u) => Accounts::unreadable(listed, &u),
         }
@@ -404,10 +523,16 @@ impl Accounts {
         self.unread.as_deref()
     }
 
-    /// Whether `login` with `id` counts as the listed account it names. A
-    /// login of no list is no claim to doubt.
+    /// Whether `login` with `id` counts as the listed account it names, of
+    /// a kind the answer does not say. A login of no list is no claim to
+    /// doubt.
     pub fn doubt(&self, login: &str, id: Option<u64>) -> Option<Doubt> {
-        let a = self.actor(login, id);
+        self.doubt_as(login, Kind::Unknown, id)
+    }
+
+    /// `doubt` of an account of `kind`.
+    pub fn doubt_as(&self, login: &str, kind: Kind, id: Option<u64>) -> Option<Doubt> {
+        let a = self.actor(login, kind, id);
         grant::doubt(self.is_listed(login), a.recorded, a.carried)
     }
 
@@ -441,21 +566,54 @@ impl Accounts {
             .id
             .as_ref()
             .and_then(|i| i.as_str().parse::<u64>().ok());
-        match (self.ids.get(&folded(login)), carried) {
-            (Some(recorded), Some(id)) => *recorded == id,
+        let kind = match author.kind {
+            AccountKind::Bot => Kind::Bot,
+            AccountKind::Person => Kind::Other,
+            _ => Kind::Unknown,
+        };
+        match (self.recorded(author.login.as_str(), kind), carried) {
+            (Some(recorded), Some(id)) => recorded == id,
             _ => false,
         }
     }
 
+    /// Whether a listed login has the bare name of `login`, of any kind: an
+    /// answer may give a bot without `[bot]`, so each is checked.
     fn is_listed(&self, login: &str) -> bool {
-        let key = folded(account(login));
-        self.listed.contains(&key)
+        let bare = folded(account(login));
+        self.listed.iter().any(|l| account(l) == bare)
     }
 
-    fn actor<'a>(&self, login: &'a str, id: Option<u64>) -> Actor<&'a str> {
+    /// The id recorded for `login` of `kind`, when a login of that kind is
+    /// listed: an account of another kind with the listed name is not the
+    /// listed one. A login spelled as a bot is one. Of a kind the answer does
+    /// not say, the listed login of its name says which key, when only one
+    /// kind is listed; a person and a bot of one name both listed give none.
+    fn recorded(&self, login: &str, kind: Kind) -> Option<u64> {
+        let bare = folded(account(login));
+        let bot = format!("{bare}[bot]");
+        let k = match kind {
+            _ if is_bot(&key(login)) => bot,
+            Kind::Bot => bot,
+            Kind::Other => folded(login),
+            Kind::Unknown => {
+                match (self.listed.contains(&bare), self.listed.contains(&bot)) {
+                    (true, false) => bare,
+                    (false, true) => bot,
+                    _ => return None,
+                }
+            }
+        };
+        self.listed
+            .contains(&k)
+            .then(|| self.ids.get(&k).copied())
+            .flatten()
+    }
+
+    fn actor<'a>(&self, login: &'a str, kind: Kind, id: Option<u64>) -> Actor<&'a str> {
         Actor {
             login,
-            recorded: self.ids.get(&folded(account(login))).copied(),
+            recorded: self.recorded(login, kind),
             carried: id,
         }
     }
@@ -476,12 +634,17 @@ impl Accounts {
                         .get("databaseId")
                         .and_then(Value::as_u64)
                         .or_else(|| o.get("id").and_then(Value::as_u64));
-                    if let Some(doubt) = self.doubt(&login, id) {
+                    let kind = Kind::named(
+                        o.get("__typename")
+                            .or_else(|| o.get("type"))
+                            .and_then(Value::as_str),
+                    );
+                    if let Some(doubt) = self.doubt_as(&login, kind, id) {
                         match &self.unread {
                             Some(line) => say_once(line.clone()),
                             None => say_once(says(&login, id, &doubt)),
                         }
-                        let name = grant::counted(&self.actor(&login, id), true)
+                        let name = grant::counted(&self.actor(&login, kind, id), true)
                             .text()
                             .into_owned();
                         o.insert("login".into(), Value::String(name));
@@ -717,8 +880,8 @@ mod tests {
 
     #[test]
     fn the_file_is_one_pair_a_line() {
-        let ids = parse("alice 1001\nmill[bot] 3001\n").unwrap();
-        assert_eq!(text(&ids), "alice 1001\nmill 3001\n");
+        let ids = parse("alice 1001\napp/mill 3001\n").unwrap();
+        assert_eq!(text(&ids), "alice 1001\nmill[bot] 3001\n");
         assert!(parse("alice\n").is_err());
         assert!(parse("alice x\n").is_err());
         assert!(parse(" 5\n").is_err());
@@ -904,9 +1067,12 @@ mod tests {
 
     #[test]
     fn a_renamed_bot_keeps_its_id_under_the_new_login() {
-        let had = parse("alice 1001\nacme-old 4242\n").unwrap();
+        let had = parse("alice 1001\nacme-old[bot] 4242\n").unwrap();
         let ids = carried(&had, "acme-old[bot]", "acme-new[bot]").unwrap();
-        assert_eq!(text(&ids), "acme-new 4242\nacme-old 4242\nalice 1001\n");
+        assert_eq!(
+            text(&ids),
+            "acme-new[bot] 4242\nacme-old[bot] 4242\nalice 1001\n"
+        );
         let bot = |ids| Accounts::new(listed("alice", "acme-new[bot]"), ids);
         let mut v = json!({"author": {"login": "acme-new", "databaseId": 4242}});
         bot(had.clone()).vouch(&mut v);
@@ -917,8 +1083,103 @@ mod tests {
         // Nothing to carry, or a pair already there, adds nothing.
         assert_eq!(carried(&had, "gone[bot]", "acme-new[bot]"), None);
         assert_eq!(carried(&ids, "acme-old", "acme-new"), None);
-        let other = parse("acme-old 4242\nacme-new 7\n").unwrap();
+        let other = parse("acme-old[bot] 4242\nacme-new[bot] 7\n").unwrap();
         assert_eq!(carried(&other, "acme-old", "acme-new"), None);
+        // A bare key is not known to be the bot's: nothing is carried.
+        let old = parse("acme-old 4242\n").unwrap();
+        assert_eq!(carried(&old, "acme-old[bot]", "acme-new[bot]"), None);
+    }
+
+    /// An organisation and the bot of an app with its name are two accounts:
+    /// each is keyed by its whole login and resolves to its own id.
+    #[test]
+    fn an_organisation_and_the_bot_of_its_name_each_resolve_to_themselves() {
+        let ids = parse("tehas-app 344514095\ntehas-app[bot] 347290281\n").unwrap();
+        assert_eq!(id_of(&ids, "tehas-app"), Some(344514095));
+        assert_eq!(id_of(&ids, &key("tehas-app[bot]")), Some(347290281));
+        assert_eq!(id_of(&ids, &key("app/Tehas-App")), Some(347290281));
+        let a = Accounts::new(listed("", "tehas-app[bot]"), ids.clone());
+        let mut v = json!([
+            {"actor": {"__typename": "Bot", "login": "tehas-app", "databaseId": 347290281}},
+            {"actor": {"__typename": "Organization", "login": "tehas-app", "databaseId": 344514095}},
+            {"actor": {"type": "Bot", "login": "tehas-app[bot]", "id": 344514095}},
+            {"actor": {"login": "tehas-app", "databaseId": 347290281}},
+        ]);
+        a.vouch(&mut v);
+        let logins: Vec<&str> = (0..4)
+            .map(|i| v[i]["actor"]["login"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            logins,
+            [
+                "tehas-app",
+                "tehas-app#344514095",
+                "tehas-app[bot]#344514095",
+                "tehas-app"
+            ]
+        );
+        assert_eq!(ambiguous(&ids, &["tehas-app[bot]".to_string()]), None);
+        // Both listed, each counts with its own id.
+        let both = Accounts::new(listed("tehas-app", "tehas-app[bot]"), ids);
+        assert_eq!(both.doubt_as("tehas-app", Kind::Other, Some(344514095)), None);
+        assert_eq!(both.doubt_as("tehas-app", Kind::Bot, Some(347290281)), None);
+        assert_eq!(
+            both.doubt_as("tehas-app", Kind::Bot, Some(344514095)),
+            Some(Doubt::Other { recorded: 347290281 })
+        );
+    }
+
+    /// A person and a bot of one name: the fold holds within a kind, and an
+    /// answer that names no kind resolves only while one kind is listed.
+    #[test]
+    fn a_person_and_a_bot_of_one_name_are_two_accounts() {
+        let ids = parse("Jane 1001\njane[bot] 2002\n").unwrap();
+        let both = Accounts::new(listed("jane", "jane[bot]"), ids.clone());
+        assert_eq!(both.doubt_as("JANE", Kind::Other, Some(1001)), None);
+        assert_eq!(both.doubt_as("jane", Kind::Bot, Some(2002)), None);
+        assert_eq!(both.doubt_as("Jane[bot]", Kind::Unknown, Some(2002)), None);
+        assert_eq!(
+            both.doubt_as("jane", Kind::Bot, Some(1001)),
+            Some(Doubt::Other { recorded: 2002 })
+        );
+        assert_eq!(
+            both.doubt_as("jane", Kind::Other, Some(2002)),
+            Some(Doubt::Other { recorded: 1001 })
+        );
+        assert_eq!(both.doubt("jane", Some(1001)), Some(Doubt::Unrecorded));
+        let person = Accounts::new(listed("jane", ""), ids.clone());
+        assert_eq!(person.doubt("jane", Some(1001)), None);
+        assert_eq!(
+            person.doubt("jane", Some(2002)),
+            Some(Doubt::Other { recorded: 1001 })
+        );
+        let bot = Accounts::new(listed("", "jane[bot]"), ids);
+        assert_eq!(bot.doubt("jane", Some(2002)), None);
+        assert_eq!(
+            bot.doubt("jane", Some(1001)),
+            Some(Doubt::Other { recorded: 2002 })
+        );
+        // The person's pair is no bot's, and a person is not the listed bot.
+        let only = parse("jane 1001\n").unwrap();
+        let bot = Accounts::new(listed("", "jane[bot]"), only);
+        assert_eq!(bot.doubt_as("jane", Kind::Bot, Some(1001)), Some(Doubt::Unrecorded));
+        assert_eq!(bot.doubt_as("jane", Kind::Other, Some(1001)), Some(Doubt::Unrecorded));
+    }
+
+    /// A file of before bots were keyed whole keeps a bot under its bare
+    /// slug: a known bot with no whole key whose slug has a bare one.
+    #[test]
+    fn a_bot_kept_only_under_its_bare_slug_is_ambiguous() {
+        let bots = ["tehas-app[bot]".to_string()];
+        let old = parse("alice 1\ntehas-app 347290281\n").unwrap();
+        assert_eq!(ambiguous(&old, &bots), Some("tehas-app[bot]"));
+        let cased = parse("Tehas-App 347290281\n").unwrap();
+        assert_eq!(ambiguous(&cased, &bots), Some("tehas-app[bot]"));
+        let settled = parse("tehas-app 344514095\ntehas-app[bot] 347290281\n").unwrap();
+        assert_eq!(ambiguous(&settled, &bots), None);
+        assert_eq!(ambiguous(&parse("alice 1\n").unwrap(), &bots), None);
+        // A person of the name is no bot.
+        assert_eq!(ambiguous(&old, &["tehas-app".to_string()]), None);
     }
 
     #[test]
@@ -1012,7 +1273,7 @@ mod tests {
 
 #[cfg(test)]
 mod bot_tests {
-    use super::bot;
+    use super::{bot, unsettled};
     use crate::home::{Home, State};
     use crate::testdir::TestDir;
     use std::fs;
@@ -1037,8 +1298,29 @@ mod bot_tests {
     /// factory recorded, its key the login GraphQL gives, any case.
     #[test]
     fn the_factorys_account_is_the_bots_login_and_its_recorded_id() {
-        let d = home_with(Some("tehas-bot[bot]\n"), Some("alice 42\nTehas-Bot 7\n"));
+        let d = home_with(Some("tehas-bot[bot]\n"), Some("alice 42\nTehas-Bot[bot] 7\n"));
         assert_eq!(bot(d.path()), ("tehas-bot[bot]".to_string(), Some(7)));
+        let side = home_with(Some("tehas-bot[bot]"), Some("tehas-bot 6\ntehas-bot[bot] 7\n"));
+        assert_eq!(bot(side.path()).1, Some(7));
+        assert_eq!(unsettled(side.path()), None);
+    }
+
+    /// A file that keeps the bot only under its bare slug records no id the
+    /// factory can stand on, and says to run `console ids record`.
+    #[test]
+    fn a_bot_kept_under_its_bare_slug_is_unrecorded_until_the_ids_are_recorded() {
+        let d = home_with(Some("tehas-bot[bot]"), Some("alice 42\ntehas-bot 7\n"));
+        assert_eq!(bot(d.path()), ("tehas-bot[bot]".to_string(), None));
+        let line = unsettled(d.path()).unwrap();
+        assert!(line.contains(super::FILE), "{line}");
+        assert!(line.contains("tehas-bot[bot]"), "{line}");
+        assert!(line.contains("Run console ids record"), "{line}");
+        assert!(super::read(d.path()).is_empty());
+        // A file that cannot be read is no bare key: the readers say it.
+        let bad = home_with(Some("tehas-bot[bot]"), Some("tehas-bot x\n"));
+        assert_eq!(unsettled(bad.path()), None);
+        let none = home_with(Some("tehas-bot[bot]"), None);
+        assert_eq!(unsettled(none.path()), None);
     }
 
     /// No id the factory can stand on: no account is its own, and a write

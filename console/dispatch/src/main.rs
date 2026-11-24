@@ -13,7 +13,8 @@
 //! docker and $TEHAS_HOME/libexec/store from the PATH and the home.
 //!
 //! Exit: poll ends as tehasbot dispatch does; 64 an argument it does not know;
-//! 78 a setting tehas_load always leaves set is not set.
+//! 78 a setting tehas_load always leaves set is not set, or state/account-ids
+//! keeps a bot only under its bare name (run console ids record).
 //! refresh has its own text and statuses: tehas refresh --help.
 
 use serde_json::{json, Map, Value};
@@ -90,6 +91,12 @@ fn main() {
     let mut env = Value::Object(env);
     if let Some(why) = Settings::refused(&env) {
         eprintln!("tehas-dispatch: {why}");
+        std::process::exit(78);
+    }
+    // A bot kept only under its bare name may be another account of that
+    // name: no id is guessed, and the poll does not run until it is settled.
+    if let Some(line) = tehas_core::accounts::unsettled(Path::new(&home)) {
+        eprintln!("{line}");
         std::process::exit(78);
     }
     // tehas_branch: the setting, or the checkout's origin/HEAD. tehas_core
