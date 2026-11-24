@@ -1137,3 +1137,16 @@ pub fn said(writes: &[tehas_ports::Write]) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
+
+/// The writes the stub saw the adapter send, by their method alone: the
+/// binary's report reaches the code host through the adapter at all. No path
+/// or field is read, so no GitHub word is written here.
+#[allow(dead_code)] // each test file uses a part of this module
+pub fn write_methods(w: &World) -> Vec<String> {
+    w.gh()
+        .lines()
+        .filter_map(|l| l.strip_prefix("api -X "))
+        .filter_map(|rest| rest.split_whitespace().next())
+        .map(str::to_string)
+        .collect()
+}

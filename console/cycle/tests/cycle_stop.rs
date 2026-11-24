@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{count_lines, has, lacks, said, site, through, twin, Run, World};
+use common::{count_lines, has, lacks, said, site, through, twin, write_methods, Run, World};
 use serde_json::{json, Value};
 use std::fs;
 use std::process::Command;
@@ -484,4 +484,16 @@ fn and_a_failure_to_do_so_is_a_warning() {
     w.stub("fake-console", "exit 1");
     let r = w.run7();
     has(&r.out, "was not removed");
+}
+
+/// The binary's report after a stop reaches the code host through the
+/// adapter: its exit, the store's end, and the writes the adapter sent.
+#[test]
+fn the_report_after_a_stop_writes_through_the_adapter() {
+    let w = World::new("st-wiring");
+    w.work(&format!("{PID}\n{TRAPPED}"));
+    let (r, _) = signalled(&w, "work.ready", "TERM");
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert!(!w.history0().is_null(), "the end is on record");
+    assert_eq!(write_methods(&w), ["DELETE", "POST", "POST"]);
 }

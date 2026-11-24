@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{count_lines, has, lacks, through, twin, World};
+use common::{count_lines, has, lacks, through, twin, write_methods, World};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
@@ -545,4 +545,17 @@ fn a_404_from_a_mark_github_has_not_got_counts_as_the_mark_gone_and_is_not_tried
     // A mark the pull request has not got is taken off once, done.
     let (_, _, sent) = through("ho-404-writes", refresh_started, |f| f);
     assert_eq!(count_lines(&sent, REFRESH_UNMARK), 1);
+}
+
+/// The binary's handoff reaches the code host through the adapter: its exit,
+/// the store's end, and the writes the adapter sent.
+#[test]
+fn the_handoff_of_the_binary_writes_through_the_adapter() {
+    let w = World::new("ho-wiring");
+    w.ended("handoff", "commit-pr", "feature/x", "");
+    pr9(&w);
+    let r = w.run7();
+    assert_eq!(r.rc, 0);
+    assert!(!w.history0().is_null(), "the end is on record");
+    assert_eq!(write_methods(&w), ["DELETE", "POST"]);
 }

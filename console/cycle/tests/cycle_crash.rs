@@ -5,7 +5,7 @@
 
 mod common;
 
-use common::{has, lacks, twin, World};
+use common::{has, lacks, twin, write_methods, World};
 use serde_json::{json, Value};
 use std::fs;
 use std::time::{Duration, SystemTime};
@@ -466,4 +466,17 @@ fn a_row_with_a_word_in_place_of_one_of_its_counts_is_not_summed_into_the_totals
     });
     has(&said, "| planner | 2 | 0 | 7 | 0 | 0 |");
     has(&said, "| **total, all dispatches** | 0 | 0 | 0 | 0 | 0 |");
+}
+
+/// The binary's report reaches the code host through the adapter: its exit,
+/// the store's end, and the write the adapter sent.
+#[test]
+fn the_report_of_the_binary_writes_through_the_adapter() {
+    let w = World::new("crash-wiring");
+    died_pushed(&w, &[]);
+    w.open_pr("https://github.com/acme/widget/pull/347");
+    let r = w.run7();
+    assert_eq!(r.rc, 0);
+    assert!(!w.history0().is_null(), "the end is on record");
+    assert_eq!(write_methods(&w), ["DELETE", "POST"]);
 }
