@@ -2086,6 +2086,7 @@ dependencies = [
 name = "tehas-review-render"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "serde_json",
 ]
 
@@ -2104,6 +2105,7 @@ version = "0.1.0"
 dependencies = [
  "pulldown-cmark",
  "regex",
+ "serde",
  "serde_json",
  "tehas-core",
 ]

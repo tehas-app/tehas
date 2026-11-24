@@ -18,7 +18,9 @@
 //! and the count in the title is the count in the body: a finding that
 //! cannot be shown is never left out of the total.
 
-use serde_json::Value;
+use serde::de::{Deserializer, IgnoredAny};
+use serde::Deserialize;
+use std::collections::BTreeMap;
 
 /// The most characters of one piece of model text. A finding whose title runs
 /// on tells nothing more by running further.
@@ -40,48 +42,108 @@ pub struct Issue {
     pub body: String,
 }
 
-/// A finding of the document: the four fields the issue shows, and the words
-/// of its `line` when the document gave one at all.
-struct Found<'a> {
-    severity: &'a str,
-    lens: &'a str,
-    path: &'a str,
-    line: Option<String>,
-    shown: bool,
-    title: &'a str,
+/// The document of one review run, as much of it as the issue reads: the
+/// elements of its `findings`, in the order the document gave them.
+///
+/// Any JSON is a document. One that is no object, or whose `findings` is
+/// missing or is not an array, holds no findings; the rest of it belongs to
+/// the run and is not kept.
+#[derive(Debug, Default)]
+pub struct Document {
+    findings: Vec<Finding>,
 }
 
-/// The elements of `findings`, in the order the document gave them.
-///
-/// Each holds what the document said, with no promise about its kind. The
-/// rule of what can be shown is `is_listed`, which reads these fields: a
-/// finding the issue cannot show is counted with the ones it does not list,
-/// so the title's count and the body's lines come from one pass over the
-/// array. The document's `line` is kept as its words whatever it holds, and
-/// is shown only when those words are a number: the document of a run writes
-/// it as one.
-fn findings(document: &Value) -> Vec<Found<'_>> {
-    match document.get("findings").and_then(Value::as_array) {
-        Some(items) => items
-            .iter()
-            .map(|f| {
-                let text = |key: &str| f.get(key).and_then(Value::as_str).unwrap_or("");
-                Found {
-                    severity: text("severity"),
-                    lens: text("lens"),
-                    path: text("path"),
-                    line: f.get("line").map(|v| v.to_string()),
-                    // The four fields the issue shows must all be text: one
-                    // of them missing, or held as another kind of value, and
-                    // the finding cannot be shown.
-                    shown: ["severity", "lens", "path", "title"]
-                        .iter()
-                        .all(|key| f.get(*key).and_then(Value::as_str).is_some()),
-                    title: text("title"),
-                }
-            })
-            .collect(),
-        None => Vec::new(),
+/// One element of `findings`. Each holds what the document said, with no
+/// promise about its kind: the rule of what can be shown is `is_listed`, so
+/// a finding the issue cannot show is still counted, and the title's count
+/// and the body's lines come from one pass over the array.
+#[derive(Debug, Default)]
+struct Finding {
+    severity: Option<String>,
+    lens: Option<String>,
+    path: Option<String>,
+    title: Option<String>,
+    /// The document's `line` when it is a whole number a line can be: the
+    /// document of a run writes it as one. Any other value locates nothing.
+    line: Option<u64>,
+}
+
+/// A value of a finding's key, by the kinds the issue tells apart.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Piece {
+    Number(u64),
+    Text(String),
+    Other(IgnoredAny),
+}
+
+/// The value of the document's `findings`, or of another of its keys.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum List {
+    Of(Vec<Element>),
+    Other(IgnoredAny),
+}
+
+/// An element of `findings`: an object, by its keys, or anything else.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Element {
+    Object(BTreeMap<String, Piece>),
+    Other(IgnoredAny),
+}
+
+/// The document as a whole: an object, by its keys, or anything else.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Whole {
+    Object(BTreeMap<String, List>),
+    Other(IgnoredAny),
+}
+
+impl From<Element> for Finding {
+    fn from(e: Element) -> Self {
+        let Element::Object(mut keys) = e else {
+            return Finding::default();
+        };
+        let mut text = |k: &str| match keys.remove(k) {
+            Some(Piece::Text(s)) => Some(s),
+            _ => None,
+        };
+        let (severity, lens, path, title) =
+            (text("severity"), text("lens"), text("path"), text("title"));
+        let line = match keys.remove("line") {
+            Some(Piece::Number(n)) => Some(n),
+            _ => None,
+        };
+        Finding {
+            severity,
+            lens,
+            path,
+            title,
+            line,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Document {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let findings = match Whole::deserialize(d)? {
+            Whole::Object(mut keys) => match keys.remove("findings") {
+                Some(List::Of(items)) => items.into_iter().map(Finding::from).collect(),
+                _ => Vec::new(),
+            },
+            Whole::Other(_) => Vec::new(),
+        };
+        Ok(Document { findings })
+    }
+}
+
+impl Document {
+    /// The document of a run's answer. Text that is not JSON holds no
+    /// findings, as a document of any other shape does.
+    pub fn parse(text: &str) -> Document {
+        serde_json::from_str(text).unwrap_or_default()
     }
 }
 
@@ -94,21 +156,21 @@ fn findings(document: &Value) -> Vec<Found<'_>> {
 /// text. Every other element, and a document whose `findings` is missing or is
 /// not an array, is counted with the findings not listed, so the number in the
 /// title and the lines of the body agree.
-pub fn review_issue(document: &Value, branch: &str, commit: &str) -> Issue {
-    let all = findings(document);
+pub fn review_issue(document: &Document, branch: &str, commit: &str) -> Issue {
+    let all = &document.findings;
     // The findings the issue shows a line for, and the count of the rest of
     // the array. The count is taken from what the document holds rather than
     // from what can be shown, so a finding of a shape the issue cannot render
     // is still in the number the title gives and the two agree.
-    let rows: Vec<&Found> = all.iter().filter(|f| is_listed(f)).collect();
+    let rows: Vec<&Finding> = all.iter().filter(|f| is_listed(f)).collect();
     let low = all.len() - rows.len();
 
     let mut body = String::new();
     for (severity, heading) in SECTIONS {
-        let some: Vec<&Found> = rows
+        let some: Vec<&Finding> = rows
             .iter()
             .copied()
-            .filter(|f| f.severity == severity)
+            .filter(|f| f.severity.as_deref() == Some(severity))
             .collect();
         if some.is_empty() {
             continue;
@@ -120,7 +182,7 @@ pub fn review_issue(document: &Value, branch: &str, commit: &str) -> Issue {
         body.push_str(heading);
         body.push('\n');
         for f in some {
-            body.push_str(&finding_line(f.lens, f.path, f.line.as_deref(), f.title));
+            body.push_str(&finding_line(f));
             body.push('\n');
         }
     }
@@ -141,21 +203,33 @@ pub fn review_issue(document: &Value, branch: &str, commit: &str) -> Issue {
     }
 }
 
-/// The findings the issue shows a line for: `shown`, and a severity that
-/// names one of the sections.
-fn is_listed(f: &Found) -> bool {
-    f.shown && SECTIONS.iter().any(|(s, _)| *s == f.severity)
+/// The findings the issue shows a line for: the four fields it shows are all
+/// text, and the severity names one of the sections. One of them missing, or
+/// held as another kind of value, and the finding cannot be shown.
+fn is_listed(f: &Finding) -> bool {
+    let shown = f.lens.is_some() && f.path.is_some() && f.title.is_some();
+    shown
+        && SECTIONS
+            .iter()
+            .any(|(s, _)| f.severity.as_deref() == Some(*s))
 }
 
 /// One finding's line: the lens, the path with its line when the document
 /// gives one that is a number, and the title. A `line` of any other value
 /// leaves the path alone, because it locates nothing.
-fn finding_line(lens: &str, path: &str, line: Option<&str>, title: &str) -> String {
-    let at = match line {
-        Some(n) if n.parse::<u64>().is_ok() => format!("{path}:{n}"),
-        _ => path.to_string(),
+fn finding_line(f: &Finding) -> String {
+    let word = |w: &Option<String>| w.clone().unwrap_or_default();
+    let path = word(&f.path);
+    let at = match f.line {
+        Some(n) => format!("{path}:{n}"),
+        None => path,
     };
-    format!("- [{}] {}: {}", short(lens), short(&at), short(title))
+    format!(
+        "- [{}] {}: {}",
+        short(&word(&f.lens)),
+        short(&at),
+        short(&word(&f.title))
+    )
 }
 
 /// Model text on one line: carriage returns and newlines become spaces, and no
@@ -170,30 +244,40 @@ fn short(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use serde::Serialize;
+    use serde_json::{json, Value};
 
     const BRANCH: &str = "main";
     const HEAD: &str = "cb6912a";
 
     /// A finding as the run's document holds it. `line` is what the document
     /// gives for it, which need not be a number.
-    fn finding(severity: &str, lens: &str, path: &str, line: Value, title: &str) -> Value {
+    fn finding(
+        severity: &str,
+        lens: &str,
+        path: &str,
+        line: impl Serialize,
+        title: &str,
+    ) -> String {
         json!({"severity": severity, "lens": lens, "path": path,
                "line": line, "title": title,
                "description": "what the finding says at length",
                "suggestion": "what to do about it"})
+        .to_string()
     }
 
     /// A finding of the document a real review answers with: its line is a
     /// number.
-    fn located(severity: &str, lens: &str, path: &str, line: u64, title: &str) -> Value {
-        finding(severity, lens, path, json!(line), title)
+    fn located(severity: &str, lens: &str, path: &str, line: u64, title: &str) -> String {
+        finding(severity, lens, path, line, title)
     }
 
     /// A document of the run's shape around these findings.
-    fn document(findings: Vec<Value>) -> Value {
-        json!({"exitCode": 0, "verdict": "ISSUES_FOUND", "noReview": false,
-               "findings": findings})
+    fn document(findings: Vec<String>) -> Document {
+        Document::parse(&format!(
+            r#"{{"exitCode": 0, "verdict": "ISSUES_FOUND", "noReview": false, "findings": [{}]}}"#,
+            findings.join(",")
+        ))
     }
 
     #[test]
@@ -207,16 +291,20 @@ mod tests {
 
     #[test]
     fn no_findings_is_an_empty_body() {
+        let empty = review_issue(&document(Vec::new()), BRANCH, HEAD);
+        assert_eq!(empty.body, "");
         for doc in [
-            document(Vec::new()),
-            json!({"exitCode": 0}),
-            json!({"findings": null}),
-            json!({"findings": "none"}),
-            json!({"findings": {}}),
-            json!([]),
-            json!("not an object"),
+            r#"{"exitCode": 0}"#,
+            r#"{"findings": null}"#,
+            r#"{"findings": "none"}"#,
+            r#"{"findings": {}}"#,
+            r#"{"findings": 7, "other": [{"severity": "HIGH"}]}"#,
+            "[]",
+            "[[]]",
+            r#""not an object""#,
+            "not json",
         ] {
-            let issue = review_issue(&doc, BRANCH, HEAD);
+            let issue = review_issue(&Document::parse(doc), BRANCH, HEAD);
             assert_eq!(issue.body, "", "{doc}");
             assert!(issue.title.contains("0 findings"), "{doc}");
         }
@@ -382,6 +470,9 @@ mod tests {
             Value::Null,
             json!(""),
             json!("twelve"),
+            json!("12"),
+            json!(12.0),
+            json!(-3),
             json!({"n": 3}),
             json!([]),
         ] {
@@ -461,7 +552,7 @@ mod tests {
             json!({"lens": "security", "path": "a.rs", "title": "t"}),
         ];
         let mut findings = vec![located("HIGH", "security", "kept.rs", 1, "kept")];
-        findings.extend(odd.iter().cloned());
+        findings.extend(odd.iter().map(Value::to_string));
         let issue = review_issue(&document(findings), BRANCH, HEAD);
         assert_eq!(
             issue.body,
@@ -496,11 +587,23 @@ mod tests {
     }
 
     #[test]
-    fn the_document_is_not_changed_by_rendering() {
+    fn one_document_always_renders_one_issue() {
         let doc = document(vec![located("HIGH", "security", "a.rs", 1, "a")]);
-        let before = doc.to_string();
-        review_issue(&doc, BRANCH, HEAD);
-        assert_eq!(doc.to_string(), before);
+        assert_eq!(
+            review_issue(&doc, BRANCH, HEAD),
+            review_issue(&doc, BRANCH, HEAD)
+        );
+    }
+
+    #[test]
+    fn the_last_of_a_repeated_key_is_the_one_read() {
+        let doc = Document::parse(
+            r#"{"findings": [], "findings": [{"severity": "HIGH", "severity": "LOW", "lens": "l", "path": "p", "title": "t"}]}"#,
+        );
+        assert_eq!(
+            review_issue(&doc, BRANCH, HEAD).body,
+            "Low: 1 more findings not listed."
+        );
     }
 
     #[test]
