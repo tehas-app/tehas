@@ -146,7 +146,7 @@ impl GitHub {
         GitHub { now, ..self }
     }
 
-    /// The names the site gave that no mark can have, each once, since the
+    /// The names the site gave that no mark or kind can have, each once, since the
     /// last take: for the caller to report (Decided 61).
     pub fn take_left_out(&mut self) -> Vec<String> {
         std::mem::take(&mut self.left_out)

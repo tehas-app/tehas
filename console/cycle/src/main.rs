@@ -543,6 +543,26 @@ fn writes(
     Ok(writes)
 }
 
+/// What a finish asks of the code host, from the GitHub adapter's site acting
+/// as the factory's account, its gh the host's own under the finish's bound.
+fn finish_ports(home: &Path, repo: &str) -> tehas_ports::Got<finish::Ports> {
+    use tehas_ports::{Actor, Caller, Scope, Site};
+    let (login, id) = bot_of(home);
+    let make: tehas_github::MakeRunner = Arc::new(move |_| {
+        let mut b = tehas_core::forge::Bounded::new("gh", finish::cmd::BOUND);
+        b.grace = finish::cmd::GRACE;
+        Ok(Box::new(b) as Box<dyn tehas_core::forge::GhRunner>)
+    });
+    let site = tehas_github::GitHubSite::new(repo, &login, id, make);
+    let (by, c) = (Actor::Ours(Scope::Full), Caller::new("finish"));
+    Ok(finish::Ports {
+        code_host: site.code_host(&by, c)?,
+        writes: site.code_host_writes(&by, c)?,
+        accounts: tehas_core::accounts::Accounts::from_env(),
+        bot_id: id,
+    })
+}
+
 /// The handles a cycle's report writes through, from the GitHub adapter, its
 /// gh the host's own under the report's bound.
 fn handles(
@@ -823,7 +843,11 @@ fn finish_verb(n: u64, args: &[String], rest: &[&str]) -> ! {
         Ok(host) => host,
         Err(e) => fail(e),
     };
-    let done = finish::finish(&plan, &mut host);
+    let mut ports = match finish_ports(&plan.home, &plan.repo) {
+        Ok(p) => p,
+        Err(e) => fail(format!("the code host gives no handle: {}", e.line())),
+    };
+    let done = finish::finish(&plan, &mut host, &mut ports);
     if done.url.is_empty() {
         if !done.said.is_empty() {
             finish::say(n, &format!("{}{}", finish::SAID, done.said));
