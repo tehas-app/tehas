@@ -270,6 +270,8 @@ pub enum BoardOp {
     TargetWork,
     /// `Board::open_changes`.
     OpenChanges,
+    /// `Board::as_blockers`.
+    AsBlockers,
 }
 
 /// Every method of every port that answers an outcome. A method that
@@ -1643,6 +1645,12 @@ impl<H: Board + ?Sized> Board for Wrap<H> {
     fn open_changes(&mut self, ask: &ChangeAsk, bound: Bound) -> Got<Whole<ChangeItem>> {
         self.call(Op::Board(BoardOp::OpenChanges), Err, |h| {
             h.open_changes(ask, bound)
+        })
+    }
+    fn as_blockers(&mut self, numbers: &[NonZeroU64]) -> Vec<(NonZeroU64, Got<Blocker>)> {
+        let fail = |o: Outcome| numbers.iter().map(|&n| (n, Err(o.clone()))).collect();
+        self.call(Op::Board(BoardOp::AsBlockers), fail, |h| {
+            h.as_blockers(numbers)
         })
     }
 }

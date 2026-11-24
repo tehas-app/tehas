@@ -256,7 +256,7 @@ struct Named {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Info {
+pub(crate) struct Info {
     has_next_page: Option<bool>,
     end_cursor: Option<String>,
     has_previous_page: Option<bool>,
@@ -265,10 +265,10 @@ struct Info {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Page<T> {
+pub(crate) struct Page<T> {
     total_count: Option<u64>,
-    page_info: Option<Info>,
-    nodes: Vec<Option<T>>,
+    pub(crate) page_info: Option<Info>,
+    pub(crate) nodes: Vec<Option<T>>,
 }
 
 #[derive(Deserialize)]
@@ -358,7 +358,7 @@ struct RestUser {
 
 /// The part of an answer at `at`, its accounts vouched, in the type asked.
 /// An answer that is not that is `Unread(Malformed)`.
-fn part<T: DeserializeOwned>(out: &str, at: &str) -> Got<T> {
+pub(crate) fn part<T: DeserializeOwned>(out: &str, at: &str) -> Got<T> {
     let mut all: serde_json::Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
     tehas_core::accounts::vouch(&mut all);
     let part = all.pointer_mut(at).map(std::mem::take).ok_or(MALFORMED)?;
@@ -373,7 +373,7 @@ fn time(iso: &str) -> Got<At> {
 
 /// The pages of one list, by the cursors GitHub hands back.
 #[derive(Default)]
-struct Pages {
+pub(crate) struct Pages {
     seen: Vec<String>,
     back: bool,
 }
@@ -382,7 +382,7 @@ impl Pages {
     /// The cursor of the page after this one, None after the last. A page
     /// that does not say whether there is more, or says so with no cursor
     /// or one already used, is `Unread(Inconsistent)`.
-    fn next(&mut self, info: Option<Info>) -> Got<Option<String>> {
+    pub(crate) fn next(&mut self, info: Option<Info>) -> Got<Option<String>> {
         let info = info.ok_or(INCONSISTENT)?;
         let (more, cursor) = match self.back {
             true => (info.has_previous_page, info.start_cursor),
