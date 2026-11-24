@@ -22,8 +22,10 @@
 //! file is asked of the API by its id, and at most [`REDIRECTS`] redirects
 //! are followed, each to one of `curl::HOSTS` exactly over `https`; any
 //! other is `Refused(Unsupported)` with nothing written. The bytes go to a
-//! file in a directory of the adapter's own, held to the limit while they
-//! are read and to the listed size after, then into the caller's writer;
+//! file in a directory of the adapter's own, held to the limit on the
+//! stream (no more than `limit` bytes ever reach the temporary directory)
+//! and to the listed size after, then streamed into the caller's writer, so
+//! `limit` bounds the disk a download takes, not its memory;
 //! the directory is removed whatever happens. The whole call is bound by
 //! `curl::DOWNLOAD_LIMIT` and the deadline. `archive` stays
 //! `Refused(Unsupported)`.
@@ -261,21 +263,23 @@ fn segments(tag: &TagName) -> String {
         .join("/")
 }
 
-/// The fetched file, `size` bytes, into `into`. A file of another size is
+/// The fetched file, `size` bytes, streamed into `into`: it is never read
+/// whole, so the memory a download takes does not grow with `limit`. Its
+/// size was held to the listed one before, so a short file here is
 /// `Unread(Inconsistent)`; one that cannot be read, or a writer that fails,
 /// `Unread(Malformed)`, as the ports' fake answers a writer that fails.
 fn copy(path: &std::path::Path, size: u64, into: &mut dyn std::io::Write) -> Did {
     use std::io::Read;
     let malformed = Outcome::Unread(Unread::Malformed);
     let f = std::fs::File::open(path).map_err(|_| malformed.clone())?;
-    let mut bytes = Vec::new();
-    f.take(size.saturating_add(1))
-        .read_to_end(&mut bytes)
-        .map_err(|_| malformed.clone())?;
-    if bytes.len() as u64 != size {
+    if f.metadata().map_err(|_| malformed.clone())?.len() != size {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
-    into.write_all(&bytes).map_err(|_| malformed)
+    let copied = std::io::copy(&mut f.take(size), into).map_err(|_| malformed)?;
+    if copied != size {
+        return Err(Outcome::Unread(Unread::Inconsistent));
+    }
+    Ok(())
 }
 
 /// A private or missing project, alike.

@@ -226,8 +226,10 @@ impl Curl {
     }
 
     /// One GET of `address` within `limit` and `cap`. A 2xx answer's body
-    /// goes into `file` (made empty first), and more than `cap` bytes stop
-    /// it as `Unread(TooLarge)`; any other answer's body is not read, and
+    /// goes into `file` (made empty first), held to `cap` on the stream:
+    /// no more than `cap` bytes are ever written, and a body longer stops
+    /// curl and is `Unread(TooLarge)`. `Content-Length` is not trusted;
+    /// curl's `--max-filesize` is a second guard; any other answer's body is not read, and
     /// nothing is written. The answer's body is empty: its `written` says
     /// how much the file holds.
     pub(crate) fn fetch(
@@ -283,8 +285,10 @@ impl Curl {
 }
 
 /// curl's `--include` output read off `out`: the head, then for a 2xx
-/// answer the body into `into`, at most `cap` + 1 bytes. None for a head
-/// that is not one; with the answer, whether the body was read to its end.
+/// answer the body into `into`, never more than `cap` bytes of it. A body
+/// longer than `cap` reads one byte more, which is not written, and its
+/// answer's `written` is `cap` + 1. None for a head that is not one; with
+/// the answer, whether the body was read to its end.
 fn stream(out: impl Read, mut into: File, cap: u64) -> Option<(Answer, bool)> {
     let mut reader = BufReader::new(out);
     let mut head = Vec::new();
@@ -306,9 +310,15 @@ fn stream(out: impl Read, mut into: File, cap: u64) -> Option<(Answer, bool)> {
     if !(200..300).contains(&answer.status) {
         return Some((answer, false));
     }
-    let copied = std::io::copy(&mut Read::by_ref(&mut reader).take(cap + 1), &mut into);
+    // At most `cap` bytes reach the file; one byte more is read, never
+    // written, and says the stream is over the cap.
+    let copied = std::io::copy(&mut Read::by_ref(&mut reader).take(cap), &mut into);
     let whole = copied.is_ok() && into.flush().is_ok();
     answer.written = copied.unwrap_or(0);
+    let mut more = [0u8; 1];
+    if whole && answer.written == cap && matches!(reader.read(&mut more), Ok(1)) {
+        answer.written = cap.saturating_add(1);
+    }
     Some((answer, whole))
 }
 
@@ -564,6 +574,34 @@ mod tests {
         ] {
             assert!(!address_ok(bad), "{bad}");
         }
+    }
+
+    /// A stream over the cap is cut: the file never holds more than the
+    /// cap, and the answer says it was over.
+    #[test]
+    fn a_stream_over_the_cap_writes_no_more_than_the_cap() {
+        let dir = tehas_core::testdir::TestDir::new("github-curl-stream-cap");
+        let path = dir.join("file");
+        let mut served = b"HTTP/2 200 \r\ncontent-length: 10\r\n\r\n".to_vec();
+        served.extend([b'x'; 1000]);
+        let (answer, _) = stream(&served[..], File::create(&path).unwrap(), 100).unwrap();
+        assert_eq!(answer.written, 101, "over the cap");
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            100,
+            "cut at the cap"
+        );
+        // A body of exactly the cap is whole.
+        let mut served = b"HTTP/2 200 \r\n\r\n".to_vec();
+        served.extend([b'x'; 100]);
+        let (answer, whole) = stream(&served[..], File::create(&path).unwrap(), 100).unwrap();
+        assert_eq!((answer.written, whole), (100, true));
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 100);
+        // Any other answer writes nothing.
+        let served = b"HTTP/2 302 \r\nlocation: https://github.com/x\r\n\r\nbody".to_vec();
+        let (answer, _) = stream(&served[..], File::create(&path).unwrap(), 100).unwrap();
+        assert_eq!((answer.status, answer.written), (302, 0));
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 0);
     }
 
     #[test]
