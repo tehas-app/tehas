@@ -116,7 +116,7 @@ fn timeline(actor: &str) -> String {
 fn list(author: &str) -> String {
     format!(
         r#"{{"data":{{"repository":{{"issues":{{"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[
-{{"number":7,"title":"t","state":"OPEN","stateReason":null,"url":"https://github.com/acme/widget/issues/7",
+{{"number":7,"title":"t","body":"","state":"OPEN","stateReason":null,"url":"https://github.com/acme/widget/issues/7",
 "createdAt":"2026-01-02T03:04:05Z","updatedAt":"2026-01-03T00:00:00Z","author":{author},
 "issueType":null,"milestone":null,"labels":{{"totalCount":0,"nodes":[]}}}}]}}}}}}}}"#
     )
