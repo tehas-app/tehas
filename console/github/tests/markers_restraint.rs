@@ -5,41 +5,14 @@
 //! and GitHub, would not see it. `write` and `edit` read the whole
 //! composed text back and compare its markers with those asked.
 
-use std::num::{NonZeroU32, NonZeroU64};
+mod restraints;
+
+use restraints::restraints;
 use tehas_github::markers::{edit, read, write};
-use tehas_ports::{
-    BlueprintNo, CommentId, FinishMarker, FinishResult, LastAttemptMarker, Marker, MarkerEdit,
-    MillwrightAction, MillwrightMarker, ParkMarker, QuestionKind, Ref, Sha256, TicketKey,
-};
+use tehas_ports::{BlueprintNo, LastAttemptMarker, Marker, MarkerEdit, ParkMarker, Sha256};
 
 fn item() -> Option<BlueprintNo> {
     BlueprintNo::new(7)
-}
-
-/// One marker of each kind that holds the factory back.
-fn restraints() -> Vec<Marker> {
-    let no = BlueprintNo::new(7).unwrap();
-    let sig = Sha256::new("a".repeat(64)).unwrap();
-    let mut last = LastAttemptMarker::new(sig.clone());
-    last.note = "the last try".to_string();
-    vec![
-        Marker::Blocked {
-            by: vec![Ref::Here(TicketKey::Number(NonZeroU64::new(3).unwrap()))],
-        },
-        Marker::Declined {
-            question: CommentId::new("12"),
-        },
-        Marker::Park(ParkMarker::new(no, sig)),
-        Marker::Finish(FinishMarker::new(no, FinishResult::Opened)),
-        Marker::LastAttempt(last),
-        Marker::Millwright(MillwrightMarker::new(no, MillwrightAction::Person)),
-        Marker::Millwright(MillwrightMarker::new(no, MillwrightAction::Ask)),
-        Marker::Question {
-            kind: QuestionKind::Plan,
-            blueprint: no,
-            turn: NonZeroU32::new(1).unwrap(),
-        },
-    ]
 }
 
 /// Texts that end with something open, which may swallow what follows.
