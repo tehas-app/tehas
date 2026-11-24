@@ -822,6 +822,16 @@ mod tests {
         given.iter().map(|w| w.to_string()).collect()
     }
 
+    fn text(p: std::path::PathBuf) -> String {
+        p.display().to_string()
+    }
+
+    /// The path of five's note that ends in `end`, `.lock` say.
+    fn note(end: &str) -> String {
+        let end = end.strip_prefix('.').unwrap();
+        text(Home::new("/h/tehas").cycle_note(5, end))
+    }
+
     fn names(n: &str) -> Names {
         Names {
             home: "/h/tehas".to_string(),
@@ -887,8 +897,9 @@ mod tests {
             assert!(!path.contains('*'), "{path}");
             assert!(!fifty_one.candidates(false).contains(path), "{path}");
         }
-        assert!(all.contains(&"/h/tehas/state/cycles/5.lock".to_string()));
-        assert!(all.contains(&"/h/tehas/live/console-5.txt".to_string()));
+        let home = Home::new("/h/tehas");
+        assert!(all.contains(&text(home.cycle_note(5, "lock"))));
+        assert!(all.contains(&text(home.live_console(5))));
         assert!(all.contains(&"/h/.pi/agent/ensemble-runs/issue-5".to_string()));
         assert!(all.contains(&"/h/tehas/work/widget-5".to_string()));
         assert!(all.contains(&"/h/tehas/work/widget-5.before-retry".to_string()));
@@ -907,10 +918,7 @@ mod tests {
             ".frozen",
             ".status.new",
         ] {
-            assert!(
-                all.contains(&format!("/h/tehas/state/cycles/5{end}")),
-                "{end}"
-            );
+            assert!(all.contains(&note(end)), "{end}");
         }
     }
 
@@ -925,7 +933,7 @@ mod tests {
     fn the_candidates_keep_the_cycles_record() {
         let all = names("5").candidates(false);
         for end in [".json", ".manifest.json", ".runner_exit", ".status"] {
-            assert!(!all.contains(&format!("/h/tehas/state/cycles/5{end}")));
+            assert!(!all.contains(&note(end)));
         }
     }
 
@@ -933,8 +941,8 @@ mod tests {
     fn a_path_is_said_the_way_a_person_types_it() {
         let five = names("5");
         assert_eq!(
-            five.short("/h/tehas/state/cycles/5.lock"),
-            "state/cycles/5.lock"
+            five.short(&text(Home::new("/h/tehas").cycle_note(5, "lock"))),
+            text(Home::new("").cycle_note(5, "lock"))
         );
         assert_eq!(five.short("/h/.pi/x"), "~/.pi/x");
         assert_eq!(five.short("/other/x"), "/other/x");

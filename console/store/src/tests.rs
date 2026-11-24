@@ -555,7 +555,7 @@ fn check_names_a_failed_integrity_check_corrupt_and_exits_78_without_moving_the_
     for name in &kept {
         assert!(
             allowed.contains(name),
-            "state/ holds {name:?}, which the verb put there"
+            "the state dir holds {name:?}, which the verb put there"
         );
     }
     assert!(
@@ -1498,7 +1498,7 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
     }
     for e in fs::read_dir(&state).unwrap() {
         let name = e.unwrap().file_name();
-        assert!(allowed.contains(&name), "state/ holds {name:?}");
+        assert!(allowed.contains(&name), "the state dir holds {name:?}");
     }
     assert_eq!(
         fs::read(&copy).unwrap(),
@@ -1528,7 +1528,7 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
     let (code, err) = migrate(&home, &elsewhere).unwrap_err();
     assert_eq!(code, 78, "{err}");
     assert!(err.starts_with("unreadable "), "{err}");
-    assert!(err.contains("state/"), "{err}");
+    assert!(err.contains("is not the state/"), "{err}");
     assert_eq!(fs::read(&file).unwrap(), before, "a refused backup wrote");
     assert!(fs::read_dir(&elsewhere).unwrap().next().is_none());
 }
@@ -1600,7 +1600,10 @@ fn migrate_takes_a_backup_dir_in_a_home_reached_through_a_link() {
             .as_str()
             .unwrap(),
     );
-    assert_eq!(copy.parent().unwrap(), real.join("state").join("backup"));
+    assert_eq!(
+        copy.parent().unwrap(),
+        Home::new(real.path()).state(State::Backups)
+    );
     assert_eq!(mode(&Home::new(real.path()).state(State::Backups)), 0o700);
     migrate_at(&home, &Home::new(&home).state_dir(), 1_792_000_060).unwrap();
 }
@@ -1666,7 +1669,11 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     // holds a connection open to ask is `the_wal_and_shm_siblings_take_the_file_s_mode`.
     drop(conn);
     assert_eq!(mode(&file), 0o600, "the migrated file");
-    assert_eq!(mode(&Home::new(home.path()).state_dir()), 0o700, "state/");
+    assert_eq!(
+        mode(&Home::new(home.path()).state_dir()),
+        0o700,
+        "the state dir"
+    );
     // Every table of the schema is there, so the migrated file is one the other
     // verbs read. The count is what the schema holds, counted from the schema
     // the store was given rather than from a number written here: the schema of
