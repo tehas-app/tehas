@@ -6,11 +6,14 @@
 //!
 //! GitHub answers a number it does not know with a null node and a
 //! `NOT_FOUND` error at that alias, and gh then exits 1, so the question is
-//! read from gh's answer beside its failure, item by item.
+//! read from gh's answer beside its failure, item by item. That reading,
+//! `ask_aliased`, is shared with every other aliased question of the
+//! adapter (`port/closed.rs`).
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -54,7 +57,7 @@ struct Answer {
 #[derive(Deserialize)]
 struct Data {
     /// Each alias asked, null where GitHub has no node for it.
-    repository: Option<BTreeMap<String, Option<Node>>>,
+    repository: Option<BTreeMap<String, Value>>,
 }
 
 #[derive(Deserialize)]
@@ -117,20 +120,47 @@ impl GitHub {
 
     /// One question of distinct numbers: an answer for each, in order.
     fn ask_items(&mut self, numbers: &[u64]) -> Vec<Got<Item>> {
+        let aliases: Vec<String> = numbers.iter().map(|n| alias(*n)).collect();
+        let nodes: Vec<Got<Node>> =
+            self.ask_aliased("the items' question", &question(numbers), &aliases);
+        numbers
+            .iter()
+            .zip(nodes)
+            .map(|(n, node)| node.and_then(|node| item(*n, &node)))
+            .collect()
+    }
+
+    /// One aliased question of the repository, read beside gh's failure
+    /// alias by alias: each alias's node in the type asked, its accounts
+    /// vouched. A null node with exactly one `NOT_FOUND` at its alias is
+    /// `NotFound` (Decided 121); any other error at an alias is
+    /// `Unread(Inconsistent)` for it, and an error that names no alias for
+    /// every one. A node not of the type asked, or an alias missing, is
+    /// `Unread(Malformed)`. gh's failure with nothing to read is its
+    /// outcome for every alias.
+    pub(crate) fn ask_aliased<T: DeserializeOwned>(
+        &mut self,
+        call: &str,
+        question: &str,
+        aliases: &[String],
+    ) -> Vec<Got<T>> {
+        let all = |o: Outcome| aliases.iter().map(|_| Err(o.clone())).collect();
         let (owner, name) = self.owner_name();
-        let query = format!("query={}", question(numbers));
+        let query = format!("query={question}");
         let args = ["api", "graphql", "-F", &owner, "-F", &name, "-f", &query];
-        let (out, failed) = match self.call_answer("the items' question", &args) {
+        let (out, failed) = match self.call_answer(call, &args) {
             Ok(out) => (out, None),
             Err((e, Some(out))) => (out, Some(e)),
-            Err((e, None)) => return vec![Err(self.failed(&e, numbers.len())); numbers.len()],
+            Err((e, None)) => return all(self.failed(&e, aliases.len())),
         };
-        let answer: Answer = match serde_json::from_str(out.trim()) {
-            Ok(a) => a,
-            Err(_) => {
-                let o = failed.map_or(MALFORMED, |e| self.failed(&e, numbers.len()));
-                return vec![Err(o); numbers.len()];
-            }
+        let read = serde_json::from_str::<Value>(out.trim())
+            .ok()
+            .and_then(|mut v| {
+                tehas_core::accounts::vouch(&mut v);
+                serde_json::from_value::<Answer>(v).ok()
+            });
+        let Some(answer) = read else {
+            return all(failed.map_or(MALFORMED, |e| self.failed(&e, aliases.len())));
         };
         let repository = answer.data.and_then(|d| d.repository);
         let nodes = match (repository, failed.as_ref()) {
@@ -141,26 +171,25 @@ impl GitHub {
         let Some(mut nodes) = nodes else {
             // No node, or gh failed with no error to read the nodes by: the
             // call's own outcome.
-            let o = failed.map_or(MALFORMED, |e| self.failed(&e, numbers.len()));
-            return vec![Err(o); numbers.len()];
+            return all(failed.map_or(MALFORMED, |e| self.failed(&e, aliases.len())));
         };
         // An error that names no alias leaves no item sure.
         if answer.errors.iter().any(|e| e.alias().is_none()) {
-            return vec![Err(INCONSISTENT); numbers.len()];
+            return all(INCONSISTENT);
         }
-        numbers
+        aliases
             .iter()
-            .map(|n| {
-                let a = alias(*n);
+            .map(|a| {
                 let errors: Vec<&Error> = answer
                     .errors
                     .iter()
-                    .filter(|e| e.alias() == Some(&a))
+                    .filter(|e| e.alias() == Some(a))
                     .collect();
-                match (nodes.remove(&a), errors.as_slice()) {
+                match (nodes.remove(a), errors.as_slice()) {
                     (None, _) => Err(MALFORMED),
-                    (Some(None), [e]) if e.not_found() => Err(Outcome::NotFound),
-                    (Some(Some(node)), []) => item(*n, &node),
+                    (Some(Value::Null), [e]) if e.not_found() => Err(Outcome::NotFound),
+                    (Some(Value::Null), _) => Err(INCONSISTENT),
+                    (Some(node), []) => serde_json::from_value(node).map_err(|_| MALFORMED),
                     _ => Err(INCONSISTENT),
                 }
             })

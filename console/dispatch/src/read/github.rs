@@ -403,6 +403,12 @@ const PULL: &str = concat!(
     " } } }"
 );
 
+/// The page's field of an issue's label and title events, and the field of
+/// when an issue or an event was made: named once, for the parse here and the
+/// mapping of the board's answer (`read::board`).
+pub(super) const TIMELINE: &str = "timelineItems";
+pub(super) const CREATED: &str = "createdAt";
+
 /// One open issue as the page gave it.
 pub struct Open {
     pub number: u64,
@@ -571,7 +577,8 @@ fn rest_of(
 /// The label events of an issue as the REST events list gives them.
 pub fn events(node: &Value) -> Value {
     let list: Vec<Value> = node
-        .pointer("/timelineItems/nodes")
+        .get(TIMELINE)
+        .and_then(|t| t.get("nodes"))
         .and_then(Value::as_array)
         .map(|a| {
             a.iter()
@@ -580,7 +587,7 @@ pub fn events(node: &Value) -> Value {
                         Some(l) => json!({"login": l}),
                         None => Value::Null,
                     };
-                    let at = e.get("createdAt").cloned().unwrap_or(Value::Null);
+                    let at = e.get(CREATED).cloned().unwrap_or(Value::Null);
                     match e.get("__typename").and_then(Value::as_str)? {
                         "LabeledEvent" => Some(json!({"event": "labeled", "label": e.get("label"), "actor": actor, "created_at": at})),
                         "UnlabeledEvent" => Some(json!({"event": "unlabeled", "label": e.get("label"), "actor": actor, "created_at": at})),
@@ -636,7 +643,8 @@ pub fn dropped_events(o: &Open, exempt: &[&str]) -> bool {
     // page through an unreadable shape.
     let Some(nodes) = o
         .node
-        .pointer("/timelineItems/nodes")
+        .get(TIMELINE)
+        .and_then(|t| t.get("nodes"))
         .and_then(Value::as_array)
     else {
         return true;
@@ -678,7 +686,8 @@ pub fn epic_titled(o: &Open) -> bool {
 /// Whether the page's timeline holds an application or a removal of `label`.
 pub fn has_event_of(o: &Open, label: &str) -> bool {
     o.node
-        .pointer("/timelineItems/nodes")
+        .get(TIMELINE)
+        .and_then(|t| t.get("nodes"))
         .and_then(Value::as_array)
         .is_some_and(|nodes| {
             nodes.iter().any(|e| {
@@ -734,7 +743,7 @@ pub fn issue(o: &Open) -> Map<String, Value> {
         "edit".into(),
         json!({"lastEditedAt": n.get("lastEditedAt"), "editor": n.get("editor"),
             "body": n.get("body"), "title": n.get("title"),
-            "createdAt": n.get("createdAt"), "author": n.get("author")}),
+            CREATED: n.get(CREATED), "author": n.get("author")}),
     );
     m.insert(
         "view".into(),

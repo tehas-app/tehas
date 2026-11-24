@@ -253,7 +253,7 @@ VIPUNE_VERSION=0.20.2\nVIPUNE_MODEL_REVISION=r1\nVIPUNE_MODEL_SHA256_ONNX=cc\n";
     #[test]
     fn no_dockerfile_owes_nothing() {
         let d = dir("sandbox-none");
-        let recorded = d.file("state/sandbox.Dockerfile.sha256", "x\n");
+        let recorded = d.file("sandbox.Dockerfile.sha256", "x\n");
         assert_eq!(
             dockerfile(&d.0.join("sandbox.Dockerfile"), &recorded),
             (false, false)
@@ -264,14 +264,14 @@ VIPUNE_VERSION=0.20.2\nVIPUNE_MODEL_REVISION=r1\nVIPUNE_MODEL_SHA256_ONNX=cc\n";
     fn a_dockerfile_is_judged_against_the_recorded_hash() {
         let d = dir("sandbox-hash");
         let file = d.file("sandbox.Dockerfile", "FROM x\n");
-        let missing = d.0.join("state/none");
+        let missing = d.0.join("none");
         assert_eq!(dockerfile(&file, &missing), (true, false));
         let recorded = d.file(
-            "state/sandbox.Dockerfile.sha256",
+            "sandbox.Dockerfile.sha256",
             &format!("{}\n", sha("FROM x\n")),
         );
         assert_eq!(dockerfile(&file, &recorded), (false, false));
-        let other = d.file("state/other", &format!("{}\n", sha("FROM y\n")));
+        let other = d.file("other", &format!("{}\n", sha("FROM y\n")));
         assert_eq!(dockerfile(&file, &other), (true, false));
     }
 
@@ -283,7 +283,7 @@ VIPUNE_VERSION=0.20.2\nVIPUNE_MODEL_REVISION=r1\nVIPUNE_MODEL_SHA256_ONNX=cc\n";
         if fs::read(&file).is_ok() {
             return; // root reads it anyway
         }
-        let recorded = d.0.join("state/none");
+        let recorded = d.0.join("none");
         assert_eq!(dockerfile(&file, &recorded), (false, true));
     }
 
