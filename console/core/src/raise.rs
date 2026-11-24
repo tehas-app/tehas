@@ -78,18 +78,18 @@ pub struct StartRow {
 pub fn started(s: &StartRow) -> Option<CycleStarted> {
     let blueprint = BlueprintNo::new(s.issue)?;
     let how = s.how.as_deref().unwrap_or("hand");
-    Some(CycleStarted {
-        cycle: CycleId::new(blueprint, NonZeroU32::new(s.attempt)?)?,
+    let mut e = CycleStarted::new(
+        CycleId::new(blueprint, NonZeroU32::new(s.attempt)?)?,
         blueprint,
-        ticket: None,
-        started: At::new(s.started_at),
-        how: serde_json::from_value(Value::String(how.to_string())).unwrap_or(How::Unknown),
-        by: s
-            .started_by
-            .clone()
-            .filter(|l| !l.is_empty())
-            .map(Login::new),
-    })
+        At::new(s.started_at),
+        serde_json::from_value(Value::String(how.to_string())).unwrap_or(How::Unknown),
+    );
+    e.by = s
+        .started_by
+        .clone()
+        .filter(|l| !l.is_empty())
+        .map(Login::new);
+    Some(e)
 }
 
 /// What the store answered an end with (`cycle-end`): `already` when the
@@ -200,22 +200,20 @@ pub fn asked(q: &QuestionRow) -> Option<QuestionAsked> {
             q.options.as_deref().unwrap_or_default(),
         )
         .iter()
-        .map(|o| QuestionChoice {
-            choice: o.answer_word(),
-            label: o.label.clone(),
-        })
+        .map(|o| QuestionChoice::new(o.answer_word(), o.label.clone()))
         .collect()
     } else {
         Vec::new()
     };
-    Some(QuestionAsked {
-        question: QuestionNo::new(q.id)?,
+    let mut e = QuestionAsked::new(
+        QuestionNo::new(q.id)?,
         kind,
         blueprint,
-        cycle,
-        asked_at: At::new(q.posted_at),
-        choices,
-    })
+        At::new(q.posted_at),
+    );
+    e.cycle = cycle;
+    e.choices = choices;
+    Some(e)
 }
 
 /// Who wrote the line of an end, and so raises it.
@@ -301,38 +299,34 @@ pub fn ended(
     };
     let ended_at = At::new(line.at.floor() as i64);
     let change = line.pr.and_then(ChangeNo::new);
-    let parked = end.stop().filter(|_| line.parked).map(|stop| CycleParked {
-        cycle,
-        blueprint,
-        ticket: None,
-        at: ended_at,
-        end: stop,
-        step: word(HistoryRow::word(&line.step)),
-        cap: word(HistoryRow::word(&line.cap)),
-        park_reason: word(HistoryRow::word(&line.park_reason)),
-        failure_kind: word(HistoryRow::word(&line.failure_kind)),
-        failure_cause: word(HistoryRow::word(&line.failure_cause)),
-        provider: line.provider,
-        repeat: u32::try_from(repeats[at]).ok().and_then(NonZeroU32::new),
-        change,
+    let parked = end.stop().filter(|_| line.parked).map(|stop| {
+        let mut e = CycleParked::new(cycle, blueprint, ended_at, stop);
+        e.step = word(HistoryRow::word(&line.step));
+        e.cap = word(HistoryRow::word(&line.cap));
+        e.park_reason = word(HistoryRow::word(&line.park_reason));
+        e.failure_kind = word(HistoryRow::word(&line.failure_kind));
+        e.failure_cause = word(HistoryRow::word(&line.failure_cause));
+        e.provider = line.provider;
+        e.repeat = u32::try_from(repeats[at]).ok().and_then(NonZeroU32::new);
+        e.change = change;
+        e
     });
     let asked = question
         .filter(|q| q.kind == "park" && q.issue == issue && q.attempt == attempt)
         .and_then(asked);
-    let ended = CycleEnded {
+    let mut ended = CycleEnded::new(
         cycle,
         blueprint,
-        ticket: None,
-        started: At::new(line.started_at.unwrap_or(line.at).floor() as i64),
-        ended: ended_at,
-        recorded: line.recorded_at.map(|r| At::new(r.floor() as i64)),
+        At::new(line.started_at.unwrap_or(line.at).floor() as i64),
+        ended_at,
         end,
-        outcome: status,
-        status: line.rc.and_then(|rc| u8::try_from(rc).ok()),
-        parked: line.parked,
-        signalled: line.signalled,
-        change,
-    };
+        status,
+    );
+    ended.recorded = line.recorded_at.map(|r| At::new(r.floor() as i64));
+    ended.status = line.rc.and_then(|rc| u8::try_from(rc).ok());
+    ended.parked = line.parked;
+    ended.signalled = line.signalled;
+    ended.change = change;
     Ended {
         parked,
         asked,
@@ -346,13 +340,13 @@ pub fn ended(
 /// rule, and a merged change was skipped by its open check.
 pub fn offered(e: &CycleEnded) -> Option<ChangeOffered> {
     let free = !e.signalled && !matches!(e.end, End::Refused | End::Merged);
-    Some(ChangeOffered {
-        change: e.change.filter(|_| free)?,
-        blueprint: e.blueprint,
-        cycle: e.cycle,
-        end: e.end,
-        at: e.ended,
-    })
+    Some(ChangeOffered::new(
+        e.change.filter(|_| free)?,
+        e.blueprint,
+        e.cycle,
+        e.end,
+        e.ended,
+    ))
 }
 
 /// One verb of the store: the line it answered, or the word of its failure.

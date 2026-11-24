@@ -14,6 +14,7 @@ use serde_json::Value;
 use std::fs;
 use tehas_cycle::report::{last_attempts, report, Action, Given};
 use tehas_cycle::Facts;
+use tehas_ports::{Mark, State};
 
 use tehas_cycle::apply::BOXES;
 
@@ -45,8 +46,8 @@ fn writes(
     for a in actions {
         match a {
             Action::Relabel { remove, add } => {
-                let r: Vec<&str> = remove.iter().map(String::as_str).collect();
-                let x: Vec<&str> = add.iter().map(String::as_str).collect();
+                let r: Vec<&str> = remove.iter().map(label).collect();
+                let x: Vec<&str> = add.iter().map(label).collect();
                 if relabel(&mut out, &r, &x) {
                     stuck = false;
                 }
@@ -83,6 +84,17 @@ fn writes(
         }
     }
     out
+}
+
+/// The label the bash wrote for a mark, as the fixtures recorded it.
+fn label(m: &Mark) -> &'static str {
+    match m {
+        Mark::State(State::Running) => "tehas:running",
+        Mark::State(State::AwaitingMerge) => "tehas:awaiting-merge",
+        Mark::State(State::NeedsPerson) => "needs-human-attention",
+        Mark::State(State::Question) => "tehas:question",
+        other => panic!("no fixture names {other:?}"),
+    }
 }
 
 fn strings(v: &Value) -> Vec<String> {

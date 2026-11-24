@@ -1062,7 +1062,7 @@ fn change_digest() -> ChangeDigest {
             ChangeState::Merged {
                 at: At::new(1),
                 by: Some(account()),
-                commit: commit(),
+                commit: Some(commit()),
             },
             branch("work"),
             commit(),
@@ -2066,4 +2066,20 @@ fn a_hosts_holders_and_states_refuse_what_they_do_not_know() {
     assert!(from_node::<Holder>(future_tag.clone()).is_err());
     assert!(from_node::<Whose>(future_tag.clone()).is_err());
     assert!(from_node::<HealthState>(future_tag).is_err());
+}
+
+#[test]
+fn a_merged_change_with_no_merge_commit_reads_back() {
+    let with = ChangeState::Merged {
+        at: At::new(1),
+        by: None,
+        commit: Some(commit()),
+    };
+    let without = ChangeState::Merged {
+        at: At::new(1),
+        by: None,
+        commit: None,
+    };
+    round(with);
+    round(without);
 }

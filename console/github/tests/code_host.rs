@@ -15,9 +15,9 @@ use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
 use tehas_ports::laws;
 use tehas_ports::{
-    Access, Actor, At, Author, Bound, ChangeDigest, ChangeFilter, ChangeNo, ChangeStates,
-    CheckStatus, Checks, CodeHost, CommitId, Conclusion, Facts, Got, Mark, MarkName, Outcome,
-    Overall, Refusal, State, Unread, Whole, Window, ALL_MAX,
+    Actor, At, Author, Bound, ChangeDigest, ChangeFilter, ChangeNo, ChangeStates, CheckStatus,
+    Checks, CodeHost, CommitId, Conclusion, Facts, Got, Mark, MarkName, Outcome, Overall, Refusal,
+    State, Unread, Whole, Window, ALL_MAX,
 };
 
 fn here() -> PathBuf {
@@ -364,7 +364,7 @@ impl GhRunner for Endless {
             .map(|i| {
                 let no = page * 100 + i;
                 format!(
-                    r#"{{"number":{no},"title":"Change {no}","state":"OPEN","isDraft":false,"isCrossRepository":false,"headRefName":"topic-{no}","headRefOid":"{sha}","baseRefName":"main","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","mergedAt":null,"closedAt":null,"lastEditedAt":null,"additions":1,"deletions":0,"changedFiles":1,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","url":"https://github.com/acme/vast/pull/{no}","author":{{"__typename":"User","login":"alice","databaseId":101}},"editor":null,"mergedBy":null,"mergeCommit":null,"labels":{{"totalCount":0,"nodes":[]}},"closingIssuesReferences":{{"totalCount":0,"nodes":[]}}}}"#,
+                    r#"{{"number":{no},"title":"Change {no}","state":"OPEN","isDraft":false,"isCrossRepository":false,"headRepository":{{"databaseId":7020}},"headRefName":"topic-{no}","headRefOid":"{sha}","baseRefName":"main","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","mergedAt":null,"closedAt":null,"lastEditedAt":null,"additions":1,"deletions":0,"changedFiles":1,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","url":"https://github.com/acme/vast/pull/{no}","author":{{"__typename":"User","login":"alice","databaseId":101}},"editor":null,"mergedBy":null,"mergeCommit":null,"labels":{{"totalCount":0,"nodes":[]}},"closingIssuesReferences":{{"totalCount":0,"nodes":[]}}}}"#,
                     sha = "ab".repeat(20)
                 )
             })
@@ -435,7 +435,7 @@ impl GhRunner for Huge {
                     false => ("OPEN", "null".to_string(), "null".to_string()),
                 };
                 format!(
-                    r#"{{"number":{no},"title":"Change {no}","state":"{state}","isDraft":false,"isCrossRepository":false,"headRefName":"topic-{no}","headRefOid":"{sha}","baseRefName":"main","baseRefOid":"{sha}","createdAt":"2026-01-01T00:00:00Z","updatedAt":"{updated}","mergedAt":{merged},"closedAt":null,"lastEditedAt":null,"additions":1,"deletions":0,"changedFiles":1,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","url":"https://github.com/acme/huge/pull/{no}","author":{{"__typename":"User","login":"alice","databaseId":101}},"editor":null,"mergedBy":null,"mergeCommit":{commit},"labels":{{"totalCount":0,"nodes":[]}},"closingIssuesReferences":{{"totalCount":0,"nodes":[]}}}}"#,
+                    r#"{{"number":{no},"title":"Change {no}","state":"{state}","isDraft":false,"isCrossRepository":false,"headRepository":{{"databaseId":7030}},"headRefName":"topic-{no}","headRefOid":"{sha}","baseRefName":"main","baseRefOid":"{sha}","createdAt":"2026-01-01T00:00:00Z","updatedAt":"{updated}","mergedAt":{merged},"closedAt":null,"lastEditedAt":null,"additions":1,"deletions":0,"changedFiles":1,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","url":"https://github.com/acme/huge/pull/{no}","author":{{"__typename":"User","login":"alice","databaseId":101}},"editor":null,"mergedBy":null,"mergeCommit":{commit},"labels":{{"totalCount":0,"nodes":[]}},"closingIssuesReferences":{{"totalCount":0,"nodes":[]}}}}"#,
                     sha = "ab".repeat(20),
                     updated = iso(at)
                 )
@@ -551,7 +551,6 @@ fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
             .map(|_| ()),
         unsupported
     );
-    assert_eq!(gh.remote(Access::Fetch).map(|_| ()), unsupported);
     assert_eq!(gh.tags(bound).map(|_| ()), unsupported);
     assert_eq!(gh.latest_release().map(|_| ()), unsupported);
 }

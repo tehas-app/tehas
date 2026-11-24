@@ -1,6 +1,7 @@
-//! The code host port's writes, `CodeHostWrites`. Answered: a comment on a
-//! change (`comment_change`), and a mark put on a change or taken off it
-//! (`mark_change`, `unmark_change`). Every other write answers
+//! The code host port's writes, `CodeHostWrites`. Answered: a change opened
+//! (`open_change`, in `open.rs`), a comment on a change (`comment_change`),
+//! and a mark put on a change or taken off it (`mark_change`,
+//! `unmark_change`). Every other write answers
 //! `Refused(Unsupported)` before any request.
 //!
 //! Each write reads the pull request first, `repos/<repo>/pulls/<n>`, which
@@ -20,6 +21,8 @@
 //! beside a body yet, so one named is `Refused(Unsupported)` and a body
 //! that holds one is `Refused(Invalid)`.
 
+mod open;
+
 use super::{label_of, unsupported};
 use crate::{ForgeError, GitHub};
 use serde_json::Value;
@@ -34,8 +37,10 @@ use tehas_ports::{
 const NO_INPUT: &str = "this runner takes no input";
 
 impl CodeHostWrites for GitHub {
-    fn open_change(&mut self, _: &NewChange) -> Got<Posted<ChangeNo>> {
-        unsupported()
+    /// See [`open`]: a pull request opened from a branch of this
+    /// repository, once.
+    fn open_change(&mut self, new: &NewChange) -> Got<Posted<ChangeNo>> {
+        self.open_pull(new)
     }
 
     fn edit_change(
