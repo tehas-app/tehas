@@ -10,6 +10,7 @@
 mod activity;
 mod change;
 mod checks;
+mod numbers;
 mod remote;
 pub(super) use remote::parts;
 
@@ -59,8 +60,10 @@ impl CodeHost for GitHub {
     /// list, the total must hold, and past one page the first is asked
     /// again and must hold no pull request the read has not seen. The states, the branch and the
     /// labels of the marks carried narrow the question; the author (by
-    /// account id), the blueprints closed, the numbers, the times and every
-    /// mark carried narrow what it answers. A mark no label can be is
+    /// account id), the blueprints closed, the times and every mark carried
+    /// narrow what it answers. A filter that names numbers is asked by
+    /// number instead, the rest applied to what that answers: see
+    /// `numbers.rs`. A mark no label can be is
     /// `Refused(Invalid)` before any request. Read to the end, or to
     /// one past the bound, or `PAGES_MAX` pages: past those, `Unread(Cut)`.
     /// In the order of their numbers. With bodies, each page's question asks
@@ -72,6 +75,9 @@ impl CodeHost for GitHub {
             .iter()
             .map(|m| super::label_of(m).map(|l| Value::String(l).to_string()))
             .collect::<Got<Vec<String>>>()?;
+        if !filter.numbers.is_empty() {
+            return self.changes_by_number(filter, bound);
+        }
         let me = matches!(filter.author, Some(Author::Me));
         let since = filter.merged_since.max(filter.updated_since);
         let query = format!(
@@ -323,10 +329,19 @@ fn changes_query(
         true => "UPDATED_AT, direction: DESC",
         false => "CREATED_AT, direction: ASC",
     };
+    let fields = pull_fields(bodies);
+    format!(
+        "query($owner: String!, $name: String!, $head: String, $after: String) {{ {viewer}repository(owner: $owner, name: $name) {{ databaseId pullRequests(first: 100, after: $after, headRefName: $head{labels}, states: [{states}], orderBy: {{field: {order}}}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ {fields} }} }} }} }}"
+    )
+}
+
+/// What `read_node` reads of a pull request, its body too when `bodies`:
+/// the same of a page of the list and of a pull request asked by number.
+fn pull_fields(bodies: bool) -> String {
     let account = "{ __typename login ... on User { databaseId } ... on Bot { databaseId } }";
     let body = if bodies { " body" } else { "" };
     format!(
-        "query($owner: String!, $name: String!, $head: String, $after: String) {{ {viewer}repository(owner: $owner, name: $name) {{ databaseId pullRequests(first: 100, after: $after, headRefName: $head{labels}, states: [{states}], orderBy: {{field: {order}}}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ number title state isDraft isCrossRepository headRepository {{ databaseId }} headRefName headRefOid baseRefName baseRefOid createdAt updatedAt mergedAt closedAt lastEditedAt additions deletions changedFiles mergeable mergeStateStatus url author {account} editor {account} mergedBy {account} mergeCommit {{ oid }}{body} labels(first: 100) {{ totalCount nodes {{ name }} }} closingIssuesReferences(first: 100) {{ totalCount nodes {{ number repository {{ databaseId nameWithOwner }} }} }} }} }} }} }}"
+        "number title state isDraft isCrossRepository headRepository {{ databaseId }} headRefName headRefOid baseRefName baseRefOid createdAt updatedAt mergedAt closedAt lastEditedAt additions deletions changedFiles mergeable mergeStateStatus url author {account} editor {account} mergedBy {account} mergeCommit {{ oid }}{body} labels(first: 100) {{ totalCount nodes {{ name }} }} closingIssuesReferences(first: 100) {{ totalCount nodes {{ number repository {{ databaseId nameWithOwner }} }} }}"
     )
 }
 
@@ -421,6 +436,75 @@ fn read_page(
     if v.get("errors").is_some_and(|e| !e.is_null()) {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
+    let repo = v.pointer("/data/repository").ok_or(malformed.clone())?;
+    let here = repo.get("databaseId").and_then(Value::as_u64);
+    let list = repo.get("pullRequests").ok_or(malformed.clone())?;
+    let total = list
+        .get("totalCount")
+        .and_then(Value::as_u64)
+        .ok_or(malformed.clone())?;
+    let more = list
+        .pointer("/pageInfo/hasNextPage")
+        .and_then(Value::as_bool)
+        .ok_or(malformed.clone())?;
+    let next = match (more, list.pointer("/pageInfo/endCursor")) {
+        (false, _) => None,
+        (true, Some(Value::String(c))) => Some(c.clone()),
+        (true, _) => return Err(malformed),
+    };
+    let viewer = match (me, v.pointer("/data/viewer/databaseId")) {
+        (false, _) => None,
+        (true, Some(id)) => Some(AccountId::new(
+            id.as_u64().ok_or(malformed.clone())?.to_string(),
+        )),
+        (true, None) => return Err(malformed),
+    };
+    let nodes = list
+        .get("nodes")
+        .and_then(Value::as_array)
+        .ok_or(malformed.clone())?;
+    if more && nodes.is_empty() {
+        return Err(Outcome::Unread(Unread::Inconsistent));
+    }
+    let mut numbers = Vec::with_capacity(nodes.len());
+    let mut updated = Vec::new();
+    let mut pulls = Vec::new();
+    for n in nodes {
+        let read = read_node(n, here, viewer.as_ref(), f, bot)?;
+        numbers.push(read.no);
+        updated.extend(read.updated);
+        pulls.extend(read.pull);
+    }
+    Ok(Page {
+        total,
+        next,
+        numbers,
+        updated,
+        pulls,
+    })
+}
+
+/// One pull request as the list or the question by number reads it:
+/// its number, its updated time when the filter carries a since, and,
+/// when the filter takes it, the pull request read whole.
+struct Read {
+    no: ChangeNo,
+    updated: Option<At>,
+    pull: Option<Pull>,
+}
+
+/// A node of the pull requests question, or of the question by number,
+/// `here` the repository's id and `viewer` the account asking: its lead is
+/// read and the filter decides; only a node it takes is read whole, as
+/// `read_page` says.
+fn read_node(
+    n: &Value,
+    here: Option<u64>,
+    viewer: Option<&AccountId>,
+    f: &ChangeFilter,
+    bot: Option<&crate::tickets::Bot>,
+) -> Got<Read> {
+    let malformed = Outcome::Unread(Unread::Malformed);
     let time = |x: Option<&Value>| -> Got<Option<At>> {
         match x {
             None | Some(Value::Null) => Ok(None),
@@ -463,213 +547,178 @@ fn read_page(
         account.id = id.map(|i| AccountId::new(i.to_string()));
         Ok(Some(account))
     };
-    let repo = v.pointer("/data/repository").ok_or(malformed.clone())?;
-    let here = repo.get("databaseId").and_then(Value::as_u64);
-    let list = repo.get("pullRequests").ok_or(malformed.clone())?;
-    let total = list
-        .get("totalCount")
-        .and_then(Value::as_u64)
-        .ok_or(malformed.clone())?;
-    let more = list
-        .pointer("/pageInfo/hasNextPage")
-        .and_then(Value::as_bool)
-        .ok_or(malformed.clone())?;
-    let next = match (more, list.pointer("/pageInfo/endCursor")) {
-        (false, _) => None,
-        (true, Some(Value::String(c))) => Some(c.clone()),
-        (true, _) => return Err(malformed),
-    };
-    let viewer = match (me, v.pointer("/data/viewer/databaseId")) {
-        (false, _) => None,
-        (true, Some(id)) => Some(AccountId::new(
-            id.as_u64().ok_or(malformed.clone())?.to_string(),
-        )),
-        (true, None) => return Err(malformed),
-    };
-    let nodes = list
-        .get("nodes")
-        .and_then(Value::as_array)
-        .ok_or(malformed.clone())?;
-    if more && nodes.is_empty() {
-        return Err(Outcome::Unread(Unread::Inconsistent));
-    }
-    let mut numbers = Vec::with_capacity(nodes.len());
-    let mut updated = Vec::new();
-    let mut pulls = Vec::new();
-    for n in nodes {
-        let text = |k: &str| n.get(k).and_then(Value::as_str).ok_or(malformed.clone());
-        let flag = |k: &str| n.get(k).and_then(Value::as_bool).ok_or(malformed.clone());
-        let at = |k: &str| time(n.get(k));
-        let who = |k: &str| account(n.get(k));
-        let count = |k: &str| {
-            n.get(k)
-                .and_then(Value::as_u64)
-                .and_then(|n| u32::try_from(n).ok())
-                .ok_or(malformed.clone())
-        };
-        let whole = |k: &str| -> Got<Vec<&Value>> {
-            let part = n.get(k).ok_or(malformed.clone())?;
-            let nodes = part
-                .get("nodes")
-                .and_then(Value::as_array)
-                .ok_or(malformed.clone())?;
-            match part.get("totalCount").and_then(Value::as_u64) {
-                Some(t) if t == nodes.len() as u64 => Ok(nodes.iter().collect()),
-                Some(t) if t > nodes.len() as u64 => Err(Outcome::Unread(Unread::Cut)),
-                _ => Err(Outcome::Unread(Unread::Inconsistent)),
-            }
-        };
-        let closes = || -> Got<Vec<Ref<BlueprintNo>>> {
-            let mut closes = Vec::new();
-            for issue in whole("closingIssuesReferences")? {
-                let number = issue
-                    .get("number")
-                    .and_then(Value::as_u64)
-                    .and_then(BlueprintNo::new)
-                    .ok_or(malformed.clone())?;
-                let repo = issue.get("repository").ok_or(malformed.clone())?;
-                let id = repo.get("databaseId").and_then(Value::as_u64);
-                closes.push(match (id, here) {
-                    (Some(id), Some(here)) if id == here => Ref::Here(number),
-                    (Some(_), Some(_)) => Ref::Elsewhere {
-                        project: ProjectName::new(
-                            repo.get("nameWithOwner")
-                                .and_then(Value::as_str)
-                                .ok_or(malformed.clone())?,
-                        ),
-                        item: ItemName::new(number.get().to_string()),
-                    },
-                    _ => return Err(malformed.clone()),
-                });
-            }
-            Ok(closes)
-        };
-
-        // The lead: the number, the state, and what the filter asks.
-        let no = n
-            .get("number")
+    let text = |k: &str| n.get(k).and_then(Value::as_str).ok_or(malformed.clone());
+    let flag = |k: &str| n.get(k).and_then(Value::as_bool).ok_or(malformed.clone());
+    let at = |k: &str| time(n.get(k));
+    let who = |k: &str| account(n.get(k));
+    let count = |k: &str| {
+        n.get(k)
             .and_then(Value::as_u64)
-            .and_then(ChangeNo::new)
-            .ok_or(Outcome::Unread(Unread::Inconsistent))?;
-        numbers.push(no);
-        let state = text("state")?;
-        if !matches!(state, "OPEN" | "MERGED" | "CLOSED") {
-            return Err(malformed);
+            .and_then(|n| u32::try_from(n).ok())
+            .ok_or(malformed.clone())
+    };
+    let whole = |k: &str| -> Got<Vec<&Value>> {
+        let part = n.get(k).ok_or(malformed.clone())?;
+        let nodes = part
+            .get("nodes")
+            .and_then(Value::as_array)
+            .ok_or(malformed.clone())?;
+        match part.get("totalCount").and_then(Value::as_u64) {
+            Some(t) if t == nodes.len() as u64 => Ok(nodes.iter().collect()),
+            Some(t) if t > nodes.len() as u64 => Err(Outcome::Unread(Unread::Cut)),
+            _ => Err(Outcome::Unread(Unread::Inconsistent)),
         }
-        let lead = Lead {
-            no,
-            state,
-            merged: match (&f.merged_since, state) {
-                (Some(_), "MERGED") => Some(at("mergedAt")?.ok_or(malformed.clone())?),
-                _ => None,
-            },
-            author: match f.author {
-                Some(_) => who("author")?.and_then(|a| a.id),
-                None => None,
-            },
-            head: match f.head {
-                Some(_) => Some(text("headRefName")?),
-                None => None,
-            },
-            updated: match f.updated_since.or(f.merged_since) {
-                Some(_) => Some(at("updatedAt")?.ok_or(malformed.clone())?),
-                None => None,
-            },
-            closes: if f.closing.is_empty() {
-                Vec::new()
-            } else {
-                closes()?
-            },
-        };
-        updated.extend(lead.updated);
-        if !takes(f, viewer.as_ref(), &lead) {
-            continue;
-        }
-
-        // Taken: the rest, whole.
-        let state = match state {
-            "OPEN" => ChangeState::Open,
-            "MERGED" => ChangeState::Merged {
-                at: at("mergedAt")?.ok_or(malformed.clone())?,
-                by: who("mergedBy")?,
-                commit: match n.get("mergeCommit") {
-                    Some(Value::Null) => None,
-                    Some(c) => Some(
-                        c.get("oid")
+    };
+    let closes = || -> Got<Vec<Ref<BlueprintNo>>> {
+        let mut closes = Vec::new();
+        for issue in whole("closingIssuesReferences")? {
+            let number = issue
+                .get("number")
+                .and_then(Value::as_u64)
+                .and_then(BlueprintNo::new)
+                .ok_or(malformed.clone())?;
+            let repo = issue.get("repository").ok_or(malformed.clone())?;
+            let id = repo.get("databaseId").and_then(Value::as_u64);
+            closes.push(match (id, here) {
+                (Some(id), Some(here)) if id == here => Ref::Here(number),
+                (Some(_), Some(_)) => Ref::Elsewhere {
+                    project: ProjectName::new(
+                        repo.get("nameWithOwner")
                             .and_then(Value::as_str)
-                            .and_then(|c| CommitId::new(c).ok())
                             .ok_or(malformed.clone())?,
                     ),
-                    None => return Err(malformed),
+                    item: ItemName::new(number.get().to_string()),
                 },
-            },
-            _ => ChangeState::Closed {
-                at: at("closedAt")?.ok_or(malformed.clone())?,
-            },
-        };
-        let merge_state = mergeable(text("mergeable")?, text("mergeStateStatus")?);
-        let labels = whole("labels")?
-            .into_iter()
-            .map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
-            .collect::<Option<Vec<_>>>()
-            .ok_or(malformed.clone())?;
-        let edited = at("lastEditedAt")?;
-        let mut digest = ChangeDigest::new(
-            no,
-            state,
-            Branch::new(text("headRefName")?).map_err(|_| malformed.clone())?,
-            CommitId::new(text("headRefOid")?).map_err(|_| malformed.clone())?,
-            Branch::new(text("baseRefName")?).map_err(|_| malformed.clone())?,
-            CommitId::new(text("baseRefOid")?).map_err(|_| malformed.clone())?,
-            at("createdAt")?.ok_or(malformed.clone())?,
-            at("updatedAt")?.ok_or(malformed.clone())?,
-            WebLink::new(text("url")?).map_err(|_| malformed.clone())?,
-        );
-        digest.title = text("title")?.to_string();
-        digest.author = who("author")?;
-        // From a fork unless GitHub says it is not and its head repository is
-        // this one: a deleted head repository, or one GitHub does not name,
-        // fails closed.
-        let head_here = match n.get("headRepository") {
-            None => return Err(malformed.clone()),
-            Some(Value::Null) => false,
-            Some(r) => {
-                let id = r.get("databaseId").and_then(Value::as_u64);
-                id.ok_or(malformed.clone())?;
-                here.is_some() && id == here
-            }
-        };
-        digest.from_fork = flag("isCrossRepository")? || !head_here;
-        digest.draft = flag("isDraft")?;
-        digest.merge_state = merge_state;
-        digest.closes = closes()?;
-        let mut size = Size::default();
-        size.files = count("changedFiles")?;
-        size.added = count("additions")?;
-        size.deleted = count("deletions")?;
-        digest.size = Some(size);
-        digest.edited = edited;
-        digest.editor = match edited {
-            Some(_) => who("editor")?,
-            None => None,
-        };
-        if f.bodies {
-            let raw = n
-                .get("body")
-                .and_then(Value::as_str)
-                .ok_or(malformed.clone())?;
-            let item = BlueprintNo::new(no.get()).ok_or(malformed.clone())?;
-            let read = markers::read(raw, Some(item));
-            digest.says_closes = change::says_closes(&read.text);
-            digest.body = Some(read.text);
+                _ => return Err(malformed.clone()),
+            });
         }
-        pulls.push(Pull { digest, labels });
+        Ok(closes)
+    };
+
+    // The lead: the number, the state, and what the filter asks.
+    let no = n
+        .get("number")
+        .and_then(Value::as_u64)
+        .and_then(ChangeNo::new)
+        .ok_or(Outcome::Unread(Unread::Inconsistent))?;
+    let state = text("state")?;
+    if !matches!(state, "OPEN" | "MERGED" | "CLOSED") {
+        return Err(malformed);
     }
-    Ok(Page {
-        total,
-        next,
-        numbers,
+    let lead = Lead {
+        no,
+        state,
+        merged: match (&f.merged_since, state) {
+            (Some(_), "MERGED") => Some(at("mergedAt")?.ok_or(malformed.clone())?),
+            _ => None,
+        },
+        author: match f.author {
+            Some(_) => who("author")?.and_then(|a| a.id),
+            None => None,
+        },
+        head: match f.head {
+            Some(_) => Some(text("headRefName")?),
+            None => None,
+        },
+        updated: match f.updated_since.or(f.merged_since) {
+            Some(_) => Some(at("updatedAt")?.ok_or(malformed.clone())?),
+            None => None,
+        },
+        closes: if f.closing.is_empty() {
+            Vec::new()
+        } else {
+            closes()?
+        },
+    };
+    let updated = lead.updated;
+    if !takes(f, viewer, &lead) {
+        return Ok(Read {
+            no,
+            updated,
+            pull: None,
+        });
+    }
+
+    // Taken: the rest, whole.
+    let state = match state {
+        "OPEN" => ChangeState::Open,
+        "MERGED" => ChangeState::Merged {
+            at: at("mergedAt")?.ok_or(malformed.clone())?,
+            by: who("mergedBy")?,
+            commit: match n.get("mergeCommit") {
+                Some(Value::Null) => None,
+                Some(c) => Some(
+                    c.get("oid")
+                        .and_then(Value::as_str)
+                        .and_then(|c| CommitId::new(c).ok())
+                        .ok_or(malformed.clone())?,
+                ),
+                None => return Err(malformed),
+            },
+        },
+        _ => ChangeState::Closed {
+            at: at("closedAt")?.ok_or(malformed.clone())?,
+        },
+    };
+    let merge_state = mergeable(text("mergeable")?, text("mergeStateStatus")?);
+    let labels = whole("labels")?
+        .into_iter()
+        .map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
+        .collect::<Option<Vec<_>>>()
+        .ok_or(malformed.clone())?;
+    let edited = at("lastEditedAt")?;
+    let mut digest = ChangeDigest::new(
+        no,
+        state,
+        Branch::new(text("headRefName")?).map_err(|_| malformed.clone())?,
+        CommitId::new(text("headRefOid")?).map_err(|_| malformed.clone())?,
+        Branch::new(text("baseRefName")?).map_err(|_| malformed.clone())?,
+        CommitId::new(text("baseRefOid")?).map_err(|_| malformed.clone())?,
+        at("createdAt")?.ok_or(malformed.clone())?,
+        at("updatedAt")?.ok_or(malformed.clone())?,
+        WebLink::new(text("url")?).map_err(|_| malformed.clone())?,
+    );
+    digest.title = text("title")?.to_string();
+    digest.author = who("author")?;
+    // From a fork unless GitHub says it is not and its head repository is
+    // this one: a deleted head repository, or one GitHub does not name,
+    // fails closed.
+    let head_here = match n.get("headRepository") {
+        None => return Err(malformed.clone()),
+        Some(Value::Null) => false,
+        Some(r) => {
+            let id = r.get("databaseId").and_then(Value::as_u64);
+            id.ok_or(malformed.clone())?;
+            here.is_some() && id == here
+        }
+    };
+    digest.from_fork = flag("isCrossRepository")? || !head_here;
+    digest.draft = flag("isDraft")?;
+    digest.merge_state = merge_state;
+    digest.closes = closes()?;
+    let mut size = Size::default();
+    size.files = count("changedFiles")?;
+    size.added = count("additions")?;
+    size.deleted = count("deletions")?;
+    digest.size = Some(size);
+    digest.edited = edited;
+    digest.editor = match edited {
+        Some(_) => who("editor")?,
+        None => None,
+    };
+    if f.bodies {
+        let raw = n
+            .get("body")
+            .and_then(Value::as_str)
+            .ok_or(malformed.clone())?;
+        let item = BlueprintNo::new(no.get()).ok_or(malformed.clone())?;
+        let read = markers::read(raw, Some(item));
+        digest.says_closes = change::says_closes(&read.text);
+        digest.body = Some(read.text);
+    }
+    Ok(Read {
+        no,
         updated,
-        pulls,
+        pull: Some(Pull { digest, labels }),
     })
 }

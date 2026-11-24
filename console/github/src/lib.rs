@@ -12,6 +12,7 @@
 
 #![forbid(unsafe_code)]
 
+mod aliases;
 mod attachments;
 mod forge;
 pub mod gh;
