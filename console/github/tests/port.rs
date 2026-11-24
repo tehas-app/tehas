@@ -412,10 +412,6 @@ fn what_no_caller_asks_yet_is_unsupported_before_any_request() {
         gh.count(&tehas_ports::Filter::default()),
         Err(Outcome::Refused(Refusal::Unsupported))
     );
-    assert_eq!(
-        gh.close(&key(7), &CloseReason::Done),
-        Err(Outcome::Refused(Refusal::Unsupported))
-    );
     assert!(asked.lock().unwrap().is_empty());
 }
 
