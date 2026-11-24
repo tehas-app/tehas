@@ -6,6 +6,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use super::people::{People, PeopleClient};
 use super::unsupported;
 use crate::tickets::{Bot, NOT_STARTED};
 use crate::{table, GitHub};
@@ -30,6 +31,8 @@ pub struct GitHubSite {
     /// The time its handles stop at, if a view of `Site::until`.
     deadline: Option<At>,
     now: fn() -> i64,
+    /// The client a person signs in through, if the wiring gave one.
+    people: Option<Arc<People>>,
 }
 
 impl GitHubSite {
@@ -57,6 +60,32 @@ impl GitHubSite {
             meter: Arc::new(Mutex::new(Vec::new())),
             deadline: None,
             now: tehas_core::time::now,
+            people: None,
+        }
+    }
+
+    /// The same site with the factory's client for people: its identity
+    /// handles sign a person in (`Identity::sign_in_link`, `signed_in`),
+    /// trading the code through curl. The wiring reads the client; the
+    /// adapter reads no file and no variable.
+    pub fn with_people_client(self, client: PeopleClient) -> GitHubSite {
+        let people = People::new(client, &self.repo);
+        GitHubSite {
+            people: Some(Arc::new(people)),
+            ..self
+        }
+    }
+
+    /// The same site with the client for people trading through `trade`, a
+    /// test's GitHub in place of curl.
+    pub fn with_people_trading(
+        self,
+        client: PeopleClient,
+        trade: Arc<dyn tehas_core::access::GitHub>,
+    ) -> GitHubSite {
+        GitHubSite {
+            people: Some(Arc::new(People::trading(client, trade))),
+            ..self
         }
     }
 
@@ -71,11 +100,26 @@ impl GitHubSite {
     /// the operator's own gh are run; every other actor is
     /// `Refused(Unsupported)`: a narrower scope, a given token, a person's
     /// or a deploy credential each need a token this adapter does not mint
-    /// or keep yet, and handing them the full runner would widen them.
-    /// Anonymous asking a write handle is `Forbidden`, as the trait says.
+    /// or keep yet, and handing them the full runner would widen them. The
+    /// one exception is the identity handle of the factory's account at
+    /// read scope, on a site given a client for people: it signs a person
+    /// in and runs no gh. Anonymous asking a write handle is `Forbidden`, as
+    /// the trait says.
     fn handle(&self, by: &Actor, caller: Caller, port: PortName, write: bool) -> Got<GitHub> {
         match by {
             Actor::Ours(Scope::Full) | Actor::Operator => {}
+            // A sign-in, the factory's account at read scope (Decided 76):
+            // the client for people alone, and no runner of gh, so the
+            // handle asks GitHub nothing as the factory.
+            Actor::Ours(Scope::Read) if port == PortName::Identity && !write => {
+                let Some(people) = &self.people else {
+                    return unsupported();
+                };
+                let mut gh = GitHub::new(self.repo.clone(), Box::new(NoCalls)).on_clock(self.now);
+                gh.bot = Some(self.bot.clone());
+                gh.people = Some(Arc::clone(people));
+                return Ok(gh);
+            }
             Actor::Anonymous if write => return Err(Outcome::Forbidden),
             _ => return unsupported(),
         }
@@ -90,7 +134,18 @@ impl GitHubSite {
         };
         let mut gh = GitHub::new(self.repo.clone(), Box::new(runner)).on_clock(self.now);
         gh.bot = Some(self.bot.clone());
+        gh.people = self.people.clone();
         Ok(gh)
+    }
+}
+
+/// The runner of a sign-in's handle: it runs no gh, so the handle asks
+/// nothing as the factory. A call is refused with this reason.
+struct NoCalls;
+
+impl GhRunner for NoCalls {
+    fn run(&mut self, _: &[&str]) -> Result<String, String> {
+        Err("a sign-in's handle asks GitHub nothing as the factory".into())
     }
 }
 
