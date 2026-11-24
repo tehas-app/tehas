@@ -1,1 +1,2 @@
 : gh exited 1
+{"data":{"repository":{"pullRequest":null}},"errors":[{"type":"NOT_FOUND","path":["repository","pullRequest"],"locations":[{"line":1,"column":115}],"message":"Could not resolve to a PullRequest with the number of 15150."}]}

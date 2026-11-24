@@ -1,1 +1,2 @@
-: HTTP 429
+: gh exited 1
+{"data":null,"errors":[{"type":"RATE_LIMITED","message":"API rate limit already exceeded for user ID 100001."}]}

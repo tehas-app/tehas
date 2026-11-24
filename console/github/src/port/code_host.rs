@@ -3,8 +3,8 @@
 //! (`facts`), the changes a filter takes, with their bodies when it asks
 //! (`changes`), one change whole (`change`, in `change.rs`), the check
 //! runs and status contexts on a commit (`checks`, in `checks.rs`), and a
-//! pull request's label events and the commit a branch points at
-//! (`activity` and `branch`, in `activity.rs`). Every other read answers
+//! pull request's timeline and the commit a branch points at (`activity`
+//! and `branch`, in `activity.rs`). Every other read answers
 //! `Refused(Unsupported)` before any request.
 
 mod activity;
@@ -154,7 +154,7 @@ impl CodeHost for GitHub {
         unsupported()
     }
 
-    /// The pull request's label events alone, paged: see `activity.rs`.
+    /// The pull request's timeline, every kind, paged: see `activity.rs`.
     fn activity(&mut self, no: ChangeNo, window: Window) -> Got<Took<ChangeEvent>> {
         self.activity_of(no, window)
     }
