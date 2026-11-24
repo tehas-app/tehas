@@ -36,3 +36,5 @@ regex = "1"
 serde_json = "1"
 sha2 = "0.10"
 tehas-core = { path = "../core", features = ["mask"] }
+tehas-github = { path = "../github" }
+tehas-ports = { path = "../ports" }

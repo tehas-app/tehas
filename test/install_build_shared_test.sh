@@ -26,22 +26,22 @@ for shared in src/mask.rs src/time.rs Cargo.toml; do
   done
 done
 
-# The console, the dispatcher and the cycle supervisor take the attachment
-# library, as their manifests say; the analytics, MCP and store programs do not.
-t_case "a change to the attachment checker builds it and the three that take it, and its tests build nothing"
+# The console, dispatcher, cycle supervisor and MCP server (through the GitHub
+# adapter) take the attachment library; the analytics and store programs do not.
+t_case "a change to the attachment checker builds it and the four that take it, and its tests build nothing"
 rm -f "$T/calls/cargo"
 echo "// changed" >>"$part/console/attach/src/main.rs"
 t_run "$part/install.sh --check"
-for prog in attach console tehas-dispatch tehas-cycle; do
+for prog in attach console tehas-dispatch tehas-cycle tehas-mcp; do
   t_contains "$t_out" "differs: $th/libexec/$prog"
 done
-for prog in analytics tehas-mcp store; do
+for prog in analytics store; do
   t_lacks "$t_out" "differs: $th/libexec/$prog"
 done
 t_run "$part/install.sh"
 t_eq "$t_rc" 0
-t_eq "$(t_calls cargo | wc -l)" 4
-for prog in attach console tehas-dispatch tehas-cycle; do
+t_eq "$(t_calls cargo | wc -l)" 5
+for prog in attach console tehas-dispatch tehas-cycle tehas-mcp; do
   t_contains "$(t_calls cargo)" "-p $prog"
 done
 t_eq "$(stat -c %a "$th/libexec/attach")" 755

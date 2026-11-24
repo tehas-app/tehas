@@ -189,6 +189,7 @@ fn main() {
         live: dir(live, "--live"),
         sessions: sessions_dir,
         logs: dir(logs, "--logs"),
+        links: github_links,
     };
     let listen = listen.unwrap_or_else(|| usage("--listen is missing"));
     let version = version.unwrap_or_else(|| usage("--server-version is missing"));
@@ -243,5 +244,21 @@ fn main() {
             let line = mcp::http::serve(stream, &shared.0, &shared.1, &shared.2, shared.3);
             eprintln!("{line}");
         });
+    }
+}
+
+/// The code host's links of `repo`: GitHub's, made with no request. The
+/// server asks GitHub nothing, so the adapter is given a runner that runs no
+/// gh.
+fn github_links(repo: &str) -> Option<Box<dyn tehas_ports::Cites + Send>> {
+    Some(Box::new(tehas_github::GitHub::new(repo, Box::new(NoCalls))))
+}
+
+/// A runner of gh that runs none: the server links, and asks nothing.
+struct NoCalls;
+
+impl tehas_core::forge::GhRunner for NoCalls {
+    fn run(&mut self, _: &[&str]) -> Result<String, String> {
+        Err("the MCP server asks GitHub nothing".into())
     }
 }
