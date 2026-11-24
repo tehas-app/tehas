@@ -326,15 +326,31 @@ impl Join {
         ordered(self.code_host.changes(&filter, bound)?.into_items(), window)
     }
 
-    /// A change's state as a blocker's: whether it is open, merged or
-    /// closed unmerged.
-    fn change_state(&mut self, no: ChangeNo) -> Got<BlockerState> {
-        let change = self.code_host.change(no, crate::ALL_MAX)?;
-        Ok(match change.digest.state {
-            ChangeState::Open => BlockerState::Open,
-            ChangeState::Merged { .. } => BlockerState::Merged,
-            _ => BlockerState::Closed,
-        })
+    /// The changes' states as blockers', in one read: whether each is open,
+    /// merged or closed unmerged.
+    fn change_states(&mut self, mut nos: Vec<ChangeNo>) -> Got<Vec<(ChangeNo, BlockerState)>> {
+        nos.sort();
+        nos.dedup();
+        let Some(bound) = u32::try_from(nos.len()).ok().and_then(Bound::new) else {
+            return Ok(Vec::new());
+        };
+        let filter = ChangeFilter {
+            states: ChangeStates::All,
+            numbers: nos,
+            ..ChangeFilter::default()
+        };
+        let all = self.code_host.changes(&filter, bound)?.into_items();
+        Ok(all
+            .into_iter()
+            .map(|d| {
+                let state = match d.state {
+                    ChangeState::Open => BlockerState::Open,
+                    ChangeState::Merged { .. } => BlockerState::Merged,
+                    ChangeState::Closed { .. } => BlockerState::Closed,
+                };
+                (d.no, state)
+            })
+            .collect())
     }
 
     fn digest(&mut self, key: &TicketKey) -> Got<TicketDigest> {
@@ -396,6 +412,14 @@ impl Board for Join {
             true => Vec::new(),
             false => self.tickets.several(&keys),
         };
+        let nos: Vec<ChangeNo> = items
+            .iter()
+            .filter_map(|(_, i)| match i {
+                Ok(Item::Change(no)) => Some(*no),
+                _ => None,
+            })
+            .collect();
+        let changes = self.change_states(nos);
         numbers
             .iter()
             .map(|&n| {
@@ -413,7 +437,13 @@ impl Board for Join {
                                 TicketState::Closed(_) => BlockerState::Closed,
                             }
                         }
-                        Item::Change(no) => self.change_state(*no)?,
+                        Item::Change(no) => match &changes {
+                            Err(o) => return Err(o.clone()),
+                            Ok(all) => all
+                                .iter()
+                                .find(|(n, _)| n == no)
+                                .map_or(Err(MISMATCH), |(_, s)| Ok(*s))?,
+                        },
                     };
                     Ok(Blocker::new(Ref::Here(item), state))
                 });
