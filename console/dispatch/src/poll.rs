@@ -832,11 +832,13 @@ fn body(
     // every gh call would ask for anyway, asked once by the poll.
     src.calls.gh_token = w.calls.gh_token.clone().or_else(|| token.get(home));
     // The code host's reads go through the port, its handle from the same
-    // wiring as the writes', with the same token. Only the branch's check
+    // wiring as the writes', with the same token, its calls counted with
+    // theirs in the poll's cost. Only the branch's check
     // reads through it yet, so none is made for an instance that names none.
     if !settings.branch_check.is_empty() {
         let gh_token = src.calls.gh_token.as_deref();
-        src.code_host = handles(home, &w.repo, &w.gh, gh_token, w.bound)
+        let calls = w.port_calls.clone();
+        src.code_host = handles(home, &w.repo, &w.gh, gh_token, w.bound, calls)
             .ok()
             .map(|h| h.code_host);
     }
