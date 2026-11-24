@@ -34,6 +34,8 @@
 # tracker's key comes with a split setup, which extends this row then.
 #
 # A 1.x Millwright marker named fixer reads as Unreadable of Millwright.
+# Declined is 1.x's note that it declined a reply's choice; its question
+# is the site's id of the question's comment.
 Question	<!-- tehas:question kind={kind} issue={issue} turn={turn} -->		kind words(plan|park); issue blueprint; turn number(9)
 Blocked	<!-- tehas:blocked by={by} -->		by numbers(1-20,9)
 HoldCleared	<!-- tehas:hold-cleared -->		
@@ -43,3 +45,4 @@ LastAttempt	<!-- tehas:last-attempt base={base} -->	<!-- /tehas:last-attempt -->
 Millwright	<!-- tehas:millwright issue={issue} action={action} -->		issue blueprint; action words(retry|change|answer|finish|person|ask)
 TicketOf	<!-- tehas:ticket-of ticket={ticket} -->		ticket key(128)
 Link	<!-- tehas:link blueprint={blueprint} remove={remove} -->		blueprint number(9); remove? words(1)
+Declined	<!-- tehas:declined question={question} -->		question number(19)

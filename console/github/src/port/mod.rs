@@ -77,4 +77,9 @@ impl Cites for GitHub {
             _ => String::new(),
         }
     }
+
+    /// No caller asks it of this adapter yet: it links nothing.
+    fn link(&self, _: &Cite) -> Option<tehas_ports::WebLink> {
+        None
+    }
 }

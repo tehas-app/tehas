@@ -401,6 +401,9 @@ fn every_marker() -> Vec<Marker> {
             blueprint: bp(9),
             remove: false,
         },
+        Marker::Declined {
+            question: CommentId::new("4001"),
+        },
         Marker::Project {
             name: mark_name("hold"),
             key: Some(MarkerKey::new("k.1").unwrap()),
@@ -457,6 +460,7 @@ fn markers_read_back() {
         MarkerKind::Millwright,
         MarkerKind::TicketOf,
         MarkerKind::Link,
+        MarkerKind::Declined,
         MarkerKind::Project(mark_name("hold")),
         MarkerKind::Unknown,
     ] {
@@ -634,6 +638,7 @@ fn a_known_tag_whose_content_does_not_read_is_unknown_never_an_error() {
         MarkerKind::Millwright,
         MarkerKind::TicketOf,
         MarkerKind::Link,
+        MarkerKind::Declined,
         MarkerKind::Project(mark_name("x")),
     ];
     for k in &marker_kinds {
@@ -1277,7 +1282,12 @@ fn the_code_host_reads_back() {
         round(c);
     }
     round(new_change());
-    for how in [MergeHow::Merge, MergeHow::Squash, MergeHow::Rebase] {
+    for how in [
+        MergeHow::Merge,
+        MergeHow::Squash,
+        MergeHow::Rebase,
+        MergeHow::Site,
+    ] {
         round(how);
     }
     for t in every_takeover() {
@@ -1702,19 +1712,20 @@ fn work_item() -> WorkItem {
 
 #[test]
 fn the_boards_asks_and_answers_read_back() {
-    let ask = BoardAsk {
-        depth: Depth::Last { notes: nz32(100) },
-        history: Some(Window::Last(nz32(100))),
-        changes: Some((ChangeStates::All, Window::Last(nz32(5)))),
-        filter: Filter::default(),
-        control: Some(tkey(9)),
+    let ask = {
+        let mut ask = BoardAsk::new(Depth::Last { notes: nz32(100) });
+        ask.history = Some(Window::Last(nz32(100)));
+        ask.changes = Some((ChangeStates::All, Window::Last(nz32(5))));
+        ask.control = Some(tkey(9));
+        ask
     };
     round(ask.clone());
-    round(BoardAsk {
-        history: None,
-        changes: None,
-        control: None,
-        ..ask
+    round({
+        let mut ask = ask;
+        ask.history = None;
+        ask.changes = None;
+        ask.control = None;
+        ask
     });
     round(work_item());
     round({
