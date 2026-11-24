@@ -416,6 +416,9 @@ fn remote_of(plan: &Plan, ports: &mut Ports) -> Result<String, Why> {
         return Ok(r.clone());
     }
     match ports.code_host.remote(Access::Push) {
+        // A credential the code host gives is not used: git authenticates the
+        // push on the host as before. Wiring one in is a change of what the
+        // push is given, a stop-and-ask (Decided 80).
         Ok(r) => Ok(r.url.as_str().to_string()),
         Err(e) => Err(Why {
             why: "the remote could not be named".to_string(),
