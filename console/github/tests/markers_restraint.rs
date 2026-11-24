@@ -148,3 +148,19 @@ fn an_edit_whose_text_cut_overlaps_a_marker_is_refused() {
     );
     assert_eq!(edit(&block, Some("a\n b"), &none, item()), refused);
 }
+
+/// Another item's wrapper is text: an edit whose text cut covers it goes
+/// through.
+#[test]
+fn an_edit_whose_text_cut_covers_another_items_wrapper_is_ok() {
+    let nine = BlueprintNo::new(9).unwrap();
+    let sig = Sha256::new("a".repeat(64)).unwrap();
+    let park = write("", &[Marker::Park(ParkMarker::new(nine, sig))], Some(nine)).unwrap();
+    let body = format!("a\n{park}\nb");
+    assert_eq!(read(&body, item()).text, body);
+    assert!(read(&body, item()).markers.is_empty());
+    assert_eq!(
+        edit(&body, Some("a\n b"), &MarkerEdit::default(), item()),
+        Ok(Some("a\n b".to_string()))
+    );
+}
