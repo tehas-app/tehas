@@ -32,7 +32,8 @@
 -- number as id, the comment's id in comment_id and withdrawn_at, and is laid
 -- here whole, so init runs neither the step to 25 nor that to 27 for it; and
 -- meta holds the store's id under 'store'. Schema 31 (db::STEP_31):
--- cycle_history.reported.
+-- cycle_history.reported. Schema 32 (db::STEP_32): links, the links of a
+-- ticket to its blueprints.
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
@@ -429,3 +430,18 @@ CREATE TABLE start_order (
   reason TEXT,
   set_at INTEGER NOT NULL
 );
+-- The links of a ticket to its blueprints (ports spec, "The links"): one row a
+-- blueprint, naming the ticket's key it was made for, who made it in which
+-- realm, when, and how. `opened`: tehas opened the blueprint for the ticket;
+-- `linked`: an allowed account's act or the operator. Written only by
+-- link-record. Where ticket and blueprint are one item, as on every setup 2.0
+-- runs, the link is answered without a row and the table stays empty.
+CREATE TABLE links (
+  ticket        TEXT NOT NULL CHECK (length(ticket) BETWEEN 1 AND 128),
+  blueprint     INTEGER NOT NULL UNIQUE CHECK (blueprint > 0),
+  made_by       TEXT NOT NULL CHECK (length(made_by) > 0),
+  made_by_realm TEXT NOT NULL CHECK (made_by_realm IN ('code-host','tickets')),
+  made_at       INTEGER NOT NULL,
+  how           TEXT NOT NULL CHECK (how IN ('opened','linked'))
+);
+CREATE INDEX links_ticket ON links (ticket);

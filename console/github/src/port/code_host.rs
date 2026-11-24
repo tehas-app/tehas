@@ -13,6 +13,7 @@ mod checks;
 mod numbers;
 mod remote;
 pub(super) use remote::parts;
+pub use remote::project_of;
 
 use std::collections::BTreeSet;
 use std::num::NonZeroU32;
