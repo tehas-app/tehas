@@ -30,8 +30,10 @@ use std::path::Path;
 use tehas_core::plan::{
     checked, clip, keep_spec, made, refusal_document, text_of, APPLY_READY, CLIP, SPEC_INFO,
 };
+use tehas_core::question;
 use tehas_core::settings::rules::is_repo;
 
+mod file;
 mod start;
 mod turn;
 
@@ -238,10 +240,16 @@ pub fn outcome(
                 }
                 DRAFTED
             };
-            (
-                format!("{said}\n\n### {title}\n\n{}", clip(&spec, "the plan")),
-                json!({"question": open + tick, "options": options}),
-            )
+            let text = format!("{said}\n\n### {title}\n\n{}", clip(&spec, "the plan"));
+            // `shown`: the plan as this question displays it, which a tick to
+            // file files byte for byte (plan/file.rs). None is kept for a plan
+            // the comment does not show whole: nothing is filed for it.
+            if let Some((title, body)) = displayed(&text, &title, &spec) {
+                draft["shown"] = json!({"title": title, "body": body});
+            }
+            std::fs::write(keep.join("draft.json"), format!("{draft}\n"))
+                .map_err(|_| "the drafted plan could not be kept".to_string())?;
+            (text, json!({"question": open + tick, "options": options}))
         }
         11 if qs.len() == 1 => (said, ask(asked[0].clone())),
         11 if qs.len() > 1 => (
@@ -258,6 +266,20 @@ pub fn outcome(
         return Err("the turn said and asked nothing".into());
     }
     Ok(document(session, &text, &question, &filed, more))
+}
+
+/// The title and plan a drafted plan's question displays, as its comment
+/// shows `text` (`question::turn_text`): what a tick to file files. None when
+/// the comment does not show the plan whole, cut by `clip` or by the
+/// comment's own bound.
+fn displayed(text: &str, title: &str, spec: &str) -> Option<(String, String)> {
+    if spec.chars().nth(CLIP).is_some() {
+        return None;
+    }
+    let (title, body) = (question::turn_text(title), question::turn_text(spec));
+    let shown = question::turn_text(text);
+    let whole = !title.contains('\n') && shown.ends_with(&format!("### {title}\n\n{body}"));
+    (whole && !body.trim().is_empty()).then_some((title, body))
 }
 
 /// The first line of the brief, which is its `# ` heading, without the marker.
@@ -522,7 +544,7 @@ mod tests {
         );
         assert_eq!(
             std::fs::read_to_string(k.join("draft.json")).unwrap(),
-            "{\"spec\":\"Do it.\",\"title\":\"Fast\"}\n"
+            "{\"shown\":{\"body\":\"Do it.\",\"title\":\"Fast\"},\"spec\":\"Do it.\",\"title\":\"Fast\"}\n"
         );
         assert!(out.starts_with("{\"session\":\"abc\",\"text\":"));
     }
@@ -538,7 +560,7 @@ mod tests {
         assert_eq!(v["question"]["question"], DRAFTED);
         assert_eq!(
             std::fs::read_to_string(k.join("draft.json")).unwrap(),
-            "{\"spec\":\"Do it.\",\"title\":\"Fast\"}\n"
+            "{\"shown\":{\"body\":\"Do it.\",\"title\":\"Fast\"},\"spec\":\"Do it.\",\"title\":\"Fast\"}\n"
         );
     }
 
@@ -1160,6 +1182,72 @@ mod tests {
             .to_string()
     }
 
+    /// The plan a tick to file files is the plan the question displayed,
+    /// byte for byte: the comment the dispatcher posts is `turn_text` of the
+    /// turn's text, and it ends with the kept title and body. Mentions,
+    /// comment openers, boxes and CRs come out as the comment shows them.
+    #[test]
+    fn the_filed_plan_is_the_plan_the_question_displayed() {
+        let k = keep();
+        let spec = "## Plan\r\n\nAsk @alice about it.\n- [ ] one\n\
+                    <!-- pi-rukas:provenance v1 plan-session=abc -->\n";
+        let ran = json!({"text": "Drafted.", "title": "Ping @bob", "spec": spec, "questions": []});
+        let doc = parsed(&outcome(12, "abc", &k, &ran.to_string(), true).unwrap());
+        let kept = parsed(&std::fs::read_to_string(k.join("draft.json")).unwrap());
+        let (title, body) = (
+            kept["shown"]["title"].as_str().unwrap(),
+            kept["shown"]["body"].as_str().unwrap(),
+        );
+        let posted = question::turn_text(doc["text"].as_str().unwrap());
+        assert!(
+            posted.ends_with(&format!("### {title}\n\n{body}")),
+            "{posted}"
+        );
+        assert_eq!(title, "Ping @\u{200b}bob");
+        assert!(
+            body.contains("@\u{200b}alice") && !body.contains("@alice"),
+            "{body}"
+        );
+        assert!(
+            body.contains(r"<\!-- pi-rukas:provenance v1 plan-session=abc"),
+            "{body}"
+        );
+        assert!(!body.contains('\r') && body.contains("☐ one"), "{body}");
+    }
+
+    /// A plan the comment cuts is kept as shown by nobody: a tick files
+    /// nothing a person did not see whole.
+    #[test]
+    fn a_plan_the_comment_cuts_keeps_nothing_to_file() {
+        let k = keep();
+        let spec = "Search reads the index. ".repeat(2000);
+        let ran = json!({"text": "Drafted.", "title": "Big", "spec": spec, "questions": []});
+        outcome(12, "abc", &k, &ran.to_string(), true).unwrap();
+        let kept = parsed(&std::fs::read_to_string(k.join("draft.json")).unwrap());
+        assert!(kept.get("shown").is_none(), "{kept}");
+    }
+
+    /// An address with a line end in it names no issue filed (was
+    /// test/plan_turns_test.sh).
+    #[test]
+    fn a_filed_address_with_a_line_end_in_it_is_not_filed() {
+        let k = keep();
+        for url in [
+            "https://github.com/acme\nwidget/issues/41",
+            "https://github.com/acme/widget/issues/41\n",
+        ] {
+            let ran = json!({"title": "Faster search", "url": url}).to_string();
+            let doc = parsed(&outcome(0, "abc-123", &k, &ran, false).unwrap());
+            assert!(doc.get("filed").is_none(), "{doc}");
+        }
+        let ran = json!({"title": "T", "url": "https://github.com/acme/widget/issues/41"});
+        let doc = parsed(&outcome(0, "abc-123", &k, &ran.to_string(), false).unwrap());
+        assert_eq!(
+            doc["filed"],
+            json!(["https://github.com/acme/widget/issues/41"])
+        );
+    }
+
     const RUNNER_BLOCK: &str = "```pi-spec v1\n{\n  \"problem\": \"fast\"\n}\n```";
 
     /// The block the runner assembled is kept with the draft, and the update
@@ -1172,6 +1260,8 @@ mod tests {
         let kept = parsed(&std::fs::read_to_string(k.join("draft.json")).unwrap());
         assert_eq!(kept["block"], RUNNER_BLOCK);
         assert_eq!(kept["spec"], spec.as_str());
+        // What a tick to file files: the plan as the question shows it.
+        assert_eq!(kept["shown"]["body"], question::turn_text(&spec));
         let was = json!({"title": "search",
                          "body": "```pi-spec v1\n{\"intent\":\"old\"}\n```\n\nWhat the person wrote."});
         let v = parsed(&update("s", &k, &was.to_string()).unwrap());

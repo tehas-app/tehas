@@ -5,6 +5,7 @@
 //! The container is given what a cycle's is given, by the builder of
 //! tehas_core::sandbox, and the goldens of test/sandbox_argv_test.sh pin it.
 
+use super::file::{self, Filed};
 use super::turn::{self, Turn};
 use super::{descriptor, update};
 use crate::{account, attach, github, label, review};
@@ -152,6 +153,72 @@ fn chose_update(keep: &str, answer: &str) -> bool {
         && answer
             .split(|b| *b == b'\n')
             .any(|line| line.ends_with(format!(" chose: {}", tehas_core::plan::UPDATE).as_bytes()))
+}
+
+/// After a drafted plan, an answer that ticked "File as a new issue" runs no
+/// container either: the host files the plan the turn showed (file.rs).
+fn chose_file(keep: &str, answer: &str) -> bool {
+    captured(&format!("{keep}/exit")) == "12"
+        && turn::chose_to_file(&fs::read(answer).unwrap_or_default())
+}
+
+/// Files the drafted plan as the factory and writes the document a turn
+/// that filed it writes: 0 filed, 2 not, with why.
+fn file_plan(w: &Words) -> u8 {
+    let home = var("TEHAS_HOME");
+    let path = var("PATH");
+    let ports = crate::forge::gh_program(Some(&home), &path).and_then(|program| {
+        crate::wiring::blueprints(
+            &var("TEHAS_REPO"),
+            &program,
+            call::GH_BOUND,
+            Path::new(&home),
+        )
+        .ok()
+    });
+    let filed = match ports {
+        Some((mut read, mut write)) => {
+            file::file(Path::new(&w.keep), &w.session, &mut *read, &mut *write)
+        }
+        None => Filed::Not("the code host could not be asked, so nothing was filed".into()),
+    };
+    let (doc, rc) = match filed {
+        Filed::At { link, title } => {
+            let ran = serde_json::json!({"url": link.as_str(), "title": title}).to_string();
+            match super::outcome(0, &w.session, Path::new(&w.keep), &ran, false) {
+                Ok(doc) => (doc, 0),
+                Err(why) => (failed(&w.session, &why), 2),
+            }
+        }
+        Filed::Not(why) => (failed(&w.session, &why), 2),
+    };
+    let new = format!("{}.new", w.out);
+    let written = fs::write(&new, format!("{doc}\n")).and_then(|()| fs::rename(&new, &w.out));
+    if written.is_err() {
+        let _ = fs::remove_file(&new);
+        eprintln!("tehas plan: could not write {}", w.out);
+        return 2;
+    }
+    if rc == 0 {
+        tehas_core::outln!(
+            "tehas plan: issue={} session={} filed=yes",
+            w.issue,
+            w.session
+        );
+    } else {
+        eprintln!("tehas plan: issue={} the plan was not filed", w.issue);
+    }
+    rc
+}
+
+/// The document of a turn that failed with its session known, as
+/// `turn::give_up` writes it.
+fn failed(session: &str, why: &str) -> String {
+    serde_json::json!({
+        "session": session,
+        "why": tehas_core::jq::first(why, tehas_core::plan::WHY_MAX),
+    })
+    .to_string()
 }
 
 /// The issue's {title, body}, as gh issue view gives them.
@@ -422,6 +489,9 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
     if w.brief.is_empty() && chose_update(&w.keep, &w.answer) {
         return Ok(update_issue(w));
     }
+    if w.brief.is_empty() && chose_file(&w.keep, &w.answer) {
+        return Ok(file_plan(w));
+    }
 
     // The bot's identity is the tehas user's own.
     let (bot_name, bot_email) = (
@@ -534,7 +604,7 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
         };
         turn::first(&w.keep, &what, kind, named)
     } else {
-        turn::later(&w.keep, &w.session, &w.answer, &tree, &repo, &new)?
+        turn::later(&w.session, &w.answer, &tree, &repo, &new)?
     };
 
     // The turn's own copy of the host's code index, asked for only once this
@@ -705,5 +775,30 @@ mod tests {
         fs::write(dir.join("exit"), "12\n").unwrap();
         fs::write(&answer, "alice chose: Update this issue, but\n").unwrap();
         assert!(!chose_update(&keep, &answer));
+    }
+
+    /// A tick to file after a drafted plan is the host's to file: no turn
+    /// runs for it. Before a plan was shown, it is an answer like any other.
+    #[test]
+    fn only_a_tick_to_file_after_a_drafted_plan_files_it_on_the_host() {
+        let dir = tehas_core::testdir::TestDir::new("plan-start-file");
+        let keep = dir.display().to_string();
+        let answer = dir.join("answer.md").display().to_string();
+        fs::write(&answer, "note\nalice chose: File as a new issue\n").unwrap();
+        fs::write(dir.join("exit"), "12\n").unwrap();
+        assert!(chose_file(&keep, &answer));
+        assert!(!chose_update(&keep, &answer));
+        fs::write(dir.join("exit"), "11\n").unwrap();
+        assert!(!chose_file(&keep, &answer));
+    }
+
+    /// What a host's filing writes for the dispatcher: the turn's document of
+    /// a filed plan, or the session with why, as a failed turn's.
+    #[test]
+    fn a_failed_filing_writes_the_session_and_why() {
+        let doc: serde_json::Value =
+            serde_json::from_str(&failed("abc", "the plan was not filed: refused")).unwrap();
+        assert_eq!(doc["session"], "abc");
+        assert_eq!(doc["why"], "the plan was not filed: refused");
     }
 }

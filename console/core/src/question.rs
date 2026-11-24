@@ -315,6 +315,15 @@ pub fn box_line(label: &str, ticked: bool) -> String {
     format!("- [{}] {}", if ticked { "x" } else { " " }, label)
 }
 
+/// The most characters of a planning turn's text its comment shows.
+pub const TURN_TEXT_MAX: usize = 40_000;
+
+/// A planning turn's text as its comment shows it: the one rendering, so the
+/// plan a person ticks to file is the text the factory files.
+pub fn turn_text(text: &str) -> String {
+    q_clean(text, TURN_TEXT_MAX)
+}
+
 /// q_clean: an agent's words, safe to post on a public issue, cut at `max`
 /// characters. The secrets, private addresses and names are what
 /// `mask::mask` takes out, the one rule set the console uses too; the rules

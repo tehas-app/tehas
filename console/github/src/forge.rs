@@ -119,6 +119,9 @@ pub struct GitHub {
     /// The node id and the issue of each comment a read of comments found
     /// edited, by its REST id: an edit history is asked by node id.
     pub(crate) comment_nodes: std::collections::HashMap<u64, (String, tehas_ports::BlueprintNo)>,
+    /// The client a person signs in through, given by the site: None for a
+    /// handle made with [`GitHub::new`], which signs nobody in.
+    pub(crate) people: Option<std::sync::Arc<crate::port::People>>,
 }
 
 impl GitHub {
@@ -137,6 +140,7 @@ impl GitHub {
             left_out: Vec::new(),
             bot: None,
             comment_nodes: std::collections::HashMap::new(),
+            people: None,
         }
     }
 

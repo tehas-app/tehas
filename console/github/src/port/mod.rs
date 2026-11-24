@@ -1,6 +1,7 @@
 //! The ports of `tehas-ports`, answered by [`GitHub`] over the forge's
 //! terms: one module a trait, so each is built and reviewed apart.
-//! `tickets.rs` holds the tickets port's reads and `writes.rs` its writes;
+//! `tickets.rs` holds the tickets port's reads, `closed.rs` those of
+//! closed tickets, and `writes.rs` its writes;
 //! `identity.rs`, `code_host.rs`, `board.rs` and `blueprints.rs` hold their
 //! ports' answers as each is built. `site.rs` is the `Site` that makes the
 //! handles. What every handle answers, its reports
@@ -10,14 +11,18 @@
 mod blueprint_writes;
 mod blueprints;
 mod board;
+mod closed;
 mod code_host;
 mod code_host_writes;
 mod identity;
 mod mergeable;
+mod people;
 mod site;
 mod tickets;
 mod writes;
 
+pub(crate) use people::People;
+pub use people::PeopleClient;
 pub use site::{GitHubSite, MakeRunner};
 
 use crate::{table, GitHub};
