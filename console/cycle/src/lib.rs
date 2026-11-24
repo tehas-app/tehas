@@ -15,7 +15,8 @@
 //! of it is written, `gives` fetches what the issue links, `prepare` makes what
 //! a container starts from, `conflict` reads whether a refresh's pull request
 //! conflicts before one starts, and `watch` starts a cycle's container and sees it
-//! to its end. `progress` summarises what the runner wrote.
+//! to its end. `progress` summarises what the runner wrote; `runner` reads
+//! the runner's result and stream into types, by the rules of `loose`.
 //! `supervise` starts a cycle, runs tehas work and sees to its report, and
 //! `events` raises what it recorded: `hook`, the plugins' bridge, asks for
 //! the plugins' hooks on the change it offered.
@@ -38,6 +39,7 @@ pub mod host;
 pub mod index;
 pub mod last_attempt;
 pub mod lock;
+pub mod loose;
 pub mod pin;
 pub mod prepare;
 pub mod progress;

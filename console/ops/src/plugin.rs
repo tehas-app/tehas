@@ -886,13 +886,14 @@ mod tests {
     fn a_status_the_hook_could_not_write_is_said() {
         let mut rows = rows(&vars(&[("TEHAS_PLUGINS", &floorplan())]), &none, &never);
         assert_eq!(rows[0].status_unwritten, None);
-        rows[0].status_unwritten = Some("GitHub refused it: HTTP 403".into());
+        rows[0].status_unwritten = Some("GitHub refused it: this actor may not do this".into());
         let v: Value = serde_json::from_str(&json(&rows).dump()).unwrap();
         assert_eq!(
             v["plugins"][0]["status_unwritten"],
-            "GitHub refused it: HTTP 403"
+            "GitHub refused it: this actor may not do this"
         );
-        assert!(text(&rows)[0]
-            .ends_with("\tthe status could not be written: GitHub refused it: HTTP 403"));
+        assert!(text(&rows)[0].ends_with(
+            "\tthe status could not be written: GitHub refused it: this actor may not do this"
+        ));
     }
 }
