@@ -44,6 +44,15 @@ pub struct BoardAsk {
     pub control: Option<TicketKey>,
 }
 
+new!(
+    BoardAsk { depth: Depth },
+    history,
+    history_by_kind,
+    changes,
+    filter,
+    control
+);
+
 /// One ticket with its notes, its blueprints and their changes. A list the
 /// ask did not read is empty, with `more`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -359,7 +368,13 @@ impl Board for Join {
     /// `Depth::Cut`'s cut of each note's text is the site's own read's;
     /// this join does not apply it.
     fn work_item(&mut self, key: &TicketKey, ask: &BoardAsk) -> Got<WorkItem> {
-        let mut ticket = self.tickets.ticket(key, ask.depth, ask.history)?;
+        // Each kind's own window replaces the history, so the ticket's read
+        // takes the least: a whole one could fail on a busy kind's volume.
+        let history = match ask.history_by_kind.is_empty() {
+            true => ask.history,
+            false => Some(Window::Last(NonZeroU32::MIN)),
+        };
+        let mut ticket = self.tickets.ticket(key, ask.depth, history)?;
         if !ask.history_by_kind.is_empty() {
             let mut each = Vec::with_capacity(ask.history_by_kind.len());
             for (kind, window) in &ask.history_by_kind {

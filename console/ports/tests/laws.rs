@@ -890,6 +890,43 @@ fn lists_last_n_is_never_cut_and_more_is_exact() {
 }
 
 #[test]
+fn board_a_window_per_kind_reads_no_whole_history() {
+    // More events of one kind than `Depth::All` takes whole: the depth's
+    // window is not read, so the busy kind cannot fail the item.
+    for w in both() {
+        let at = w.now();
+        let w = w.ticket(1, |t| {
+            (0..=ALL_MAX.get())
+                .fold(t.title("busy"), |t, i| {
+                    t.event(
+                        Happened::Retitled {
+                            from: format!("t{i}"),
+                            to: format!("t{}", i + 1),
+                        },
+                        Some("alice"),
+                        Some(At::new(at.secs() + i64::from(i))),
+                    )
+                })
+                .act(Act::Approve, "alice")
+        });
+        let site = FakeSite::new(&w);
+        let mut board = site.board(&full(), C).unwrap();
+        let mut t = site.tickets(&full(), C).unwrap();
+        for history in [None, Some(Window::Whole(ALL_MAX))] {
+            let mut ask = BoardAsk::new(Depth::All);
+            ask.history = history;
+            ask.history_by_kind = vec![(HappenedKind::Marked, Window::Whole(b(50)))];
+            ok(laws::board::a_window_per_kind_cuts_no_other(
+                board.as_mut(),
+                t.as_mut(),
+                &w.key(1),
+                &ask,
+            ));
+        }
+    }
+}
+
+#[test]
 fn identity_an_accounts_spellings_fold_to_one_login() {
     let w = World::new().with_account("tehas-bot", AccountKind::Bot, Standing::Write);
     let site = FakeSite::new(&w);
