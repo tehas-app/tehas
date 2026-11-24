@@ -8,7 +8,7 @@ use common::{has, lacks, park_body, World};
 use serde_json::{json, Value};
 use std::fs;
 use std::process::{Command, Stdio};
-use tehas_ports::{Mark, State};
+use tehas_ports::{Act, Mark, State};
 
 /// The issues a cycle was started for, one per line.
 fn started(w: &World) -> String {
@@ -54,9 +54,10 @@ fn a_retry_ticked_by_an_allowed_account_starts_a_cycle() {
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(started(&w), "7");
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     // The cycle's --restart takes it off, through pi-rukas.
     lacks(&w.gh(), "--remove-label needs-human-attention");
@@ -81,9 +82,12 @@ fn a_retry_tick_takes_tehas_ready_and_the_escalation_label_off() {
     let w = World::new("park-labels");
     retry_with_labels(&w);
     assert_eq!(started(&w), "7");
-    has(
-        &w.gh(),
-        "--remove-label tehas:question --remove-label tehas:ready --remove-label tehas:millwright-escalated",
+    assert!(
+        w.off(7, Mark::State(State::Question))
+            && w.off(7, Mark::Act(Act::Approve))
+            && w.off(7, Mark::State(State::Escalated)),
+        "{:?}",
+        w.writes_of(7)
     );
 }
 
@@ -158,9 +162,10 @@ fn a_retry_whose_cycle_does_not_start_is_handed_back_exit_1() {
     let w = World::new("park-start-fails");
     let r = start_fails(&w);
     assert_eq!(r.rc, 1, "{}", r.out);
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention",
+    assert!(
+        w.off(7, Mark::State(State::Running)) && w.on(7, Mark::State(State::NeedsPerson)),
+        "{:?}",
+        w.writes_of(7)
     );
     has(&w.gh(), "Tehas could not start the cycle for this issue");
     // The start took the question off the record and spent the park's retry
@@ -255,9 +260,10 @@ fn the_issue_alone_reply_by_an_allowed_account_starts_a_cycle_with_how_reply() {
         w.at_mark("[.by, .how, .at, .comment_id] | tostring"),
         r#"["alice","reply","2026-01-01T01:00:00Z",4001]"#
     );
-    has(
-        &w.gh(),
-        "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question",
+    assert!(
+        w.on(7, Mark::State(State::Running)) && w.off(7, Mark::State(State::Question)),
+        "{:?}",
+        w.writes_of(7)
     );
     has(&w.gh(), "authorized by @alice's reply");
     has(&r.out, "start #7 (retry answered by alice)");

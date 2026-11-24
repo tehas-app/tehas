@@ -787,7 +787,8 @@ pub trait TicketWrites: Tickets {
     fn mark(&mut self, key: &TicketKey, mark: &Mark) -> Did;
     /// Take a mark off.
     fn unmark(&mut self, key: &TicketKey, mark: &Mark) -> Did;
-    /// Close the ticket.
+    /// Close the ticket. A closed ticket is done and keeps its reason:
+    /// closed is closed.
     fn close(&mut self, key: &TicketKey, reason: &CloseReason) -> Did;
     /// Write a note on the ticket, its markers beside it.
     fn note(&mut self, key: &TicketKey, body: &str, markers: &[Marker]) -> Got<Posted<CommentId>>;
