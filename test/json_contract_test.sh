@@ -1373,7 +1373,7 @@ pinned=(
   'state-copy	console/tests/state.rs'
   'state-load	console/tests/state.rs'
   'disk-cycles	console/tests/disk.rs	own'
-  'host-messages	test/host_message_test.sh'
+  'host-messages	console/tests/host_message.rs'
   'wake	console/src/wake.rs'
   'blockers	console/src/blockers.rs'
   'settings-rules	test/settings_rules_test.sh	own'
