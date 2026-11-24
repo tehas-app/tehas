@@ -47,11 +47,11 @@ const ACCOUNT: &str = "__typename login ...on User { databaseId } ...on Bot { da
 /// One page of the changes a filter takes. `{STATES}`, `{HEAD_VAR}`,
 /// `{HEAD}`, `{FILES}` and the page size are filled in by
 /// [`changes_query`], `{PULL}` by [`pull_fields`].
-const CHANGES: &str = "query($owner: String!, $name: String!, $cursor: String{HEAD_VAR}) { repository(owner: $owner, name: $name) { pullRequests(states: [{STATES}], first: {PULL_PAGE}, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}{HEAD}) { totalCount pageInfo { hasNextPage endCursor } nodes { {PULL}{FILES} } } } }";
+const CHANGES: &str = "query($owner: String!, $name: String!, $cursor: String{HEAD_VAR}) { repository(owner: $owner, name: $name) { databaseId pullRequests(states: [{STATES}], first: {PULL_PAGE}, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}{HEAD}) { totalCount pageInfo { hasNextPage endCursor } nodes { {PULL}{FILES} } } } }";
 
 /// What a change's digest is read from, a [`Pull`]: `{ACCOUNT}` and the
 /// bounds are filled in by [`pull_fields`].
-const PULL: &str = "number title url state isDraft isCrossRepository headRefName headRefOid baseRefName baseRefOid mergeable mergeStateStatus createdAt updatedAt lastEditedAt mergedAt closedAt additions deletions changedFiles author { {ACCOUNT} } editor { {ACCOUNT} } mergedBy { {ACCOUNT} } mergeCommit { oid } renames: timelineItems(itemTypes: [RENAMED_TITLE_EVENT], last: 1) { nodes { ... on RenamedTitleEvent { createdAt actor { {ACCOUNT} } } } } labels(first: {LABELS_MAX}) { totalCount nodes { name } } closingIssuesReferences(first: {CLOSES_MAX}) { totalCount nodes { number repository { nameWithOwner } } }";
+const PULL: &str = "number title url state isDraft isCrossRepository headRefName headRefOid baseRefName baseRefOid mergeable mergeStateStatus createdAt updatedAt lastEditedAt mergedAt closedAt additions deletions changedFiles author { {ACCOUNT} } editor { {ACCOUNT} } mergedBy { {ACCOUNT} } mergeCommit { oid } renames: timelineItems(itemTypes: [RENAMED_TITLE_EVENT], last: 1) { nodes { ... on RenamedTitleEvent { createdAt actor { {ACCOUNT} } } } } labels(first: {LABELS_MAX}) { totalCount nodes { name } } closingIssuesReferences(first: {CLOSES_MAX}) { totalCount nodes { number repository { databaseId nameWithOwner } } }";
 
 pub(super) fn pull_fields() -> String {
     PULL.replace("{LABELS_MAX}", &LABELS_MAX.to_string())
@@ -439,12 +439,11 @@ impl GitHub {
             .number
             .and_then(BlueprintNo::new)
             .ok_or(Outcome::Unread(Unread::Inconsistent))?;
-        let project = c.repository.name_with_owner;
-        if project.eq_ignore_ascii_case(&self.repo) {
+        if self.is_here_id(c.repository.database_id)? {
             Ok(Ref::Here(no))
         } else {
             Ok(Ref::Elsewhere {
-                project: ProjectName::new(project),
+                project: ProjectName::new(c.repository.name_with_owner),
                 item: ItemName::new(no.get().to_string()),
             })
         }
@@ -615,6 +614,9 @@ pub(super) struct Pull {
     closing_issues_references: Counted<Closing>,
     #[serde(default)]
     files: Option<FileConn>,
+    /// The repository it belongs to, where a question asks it.
+    #[serde(default)]
+    repository: Option<NamedRepo>,
 }
 
 type FileConn = Conn<File>;
@@ -644,8 +646,10 @@ struct Closing {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct NamedRepo {
-    name_with_owner: String,
+pub(super) struct NamedRepo {
+    #[serde(rename = "databaseId")]
+    pub(super) database_id: Option<u64>,
+    pub(super) name_with_owner: String,
 }
 
 #[derive(Deserialize)]

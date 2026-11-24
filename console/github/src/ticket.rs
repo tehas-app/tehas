@@ -38,12 +38,12 @@ pub(crate) const ACTOR: &str =
 const ASSIGNEE: &str =
     "assignee { __typename ...on User { login databaseId } ...on Bot { login databaseId } }";
 
-const CLOSER: &str = "stateReason closer { __typename ...on PullRequest { number merged url repository { nameWithOwner } } ...on Commit { oid } }";
+const CLOSER: &str = "stateReason closer { __typename ...on PullRequest { number merged url repository { databaseId nameWithOwner } } ...on Commit { oid } }";
 
-const BLOCKING: &str = "blockingIssue { number repository { nameWithOwner } }";
+const BLOCKING: &str = "blockingIssue { number repository { databaseId nameWithOwner } }";
 
 /// An issue another names: a part, a blocker.
-pub(crate) const NAMED: &str = "number state repository { nameWithOwner }";
+pub(crate) const NAMED: &str = "number state repository { databaseId nameWithOwner }";
 
 /// Each kind of event the history reads: the ports' kind, GitHub's item
 /// type, its node, and the fields asked of it beside its time and actor.
@@ -144,7 +144,7 @@ const MAY_BE_UNKNOWN: [&str; 7] = [
 
 /// A question of one issue of the repository. `asks` uses `$cursor`.
 fn of_issue(asks: &str) -> String {
-    format!("query($owner: String!, $name: String!, $number: Int!, $cursor: String) {{ repository(owner: $owner, name: $name) {{ issue(number: $number) {{ number {asks} }} }} }}")
+    format!("query($owner: String!, $name: String!, $number: Int!, $cursor: String) {{ repository(owner: $owner, name: $name) {{ databaseId issue(number: $number) {{ number {asks} }} }} }}")
 }
 
 /// The events of the kinds asked, a page of them: the oldest first for a
@@ -204,7 +204,7 @@ pub(crate) fn timeline(
 /// `paged`.
 pub(crate) fn mentions(paged: bool) -> String {
     let after = if paged { ", after: $cursor" } else { "" };
-    format!("mentions: timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], first: 100{after}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ __typename ... on CrossReferencedEvent {{ source {{ __typename ...on PullRequest {{ number repository {{ nameWithOwner }} }} }} }} }} }}")
+    format!("mentions: timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], first: 100{after}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ __typename ... on CrossReferencedEvent {{ source {{ __typename ...on PullRequest {{ number repository {{ databaseId nameWithOwner }} }} }} }} }} }}")
 }
 
 /// The issue's parts, a page of them, from `$cursor` when `paged`.
@@ -244,7 +244,7 @@ fn beside() -> String {
 /// of them, each with what its digest holds. `narrow` is GitHub's filter,
 /// which only narrows: every ticket is held to the caller's filter again.
 fn listed(narrow: &str) -> String {
-    format!("query($owner: String!, $name: String!, $cursor: String) {{ repository(owner: $owner, name: $name) {{ issues(first: 100, after: $cursor, orderBy: {{field: CREATED_AT, direction: ASC}}{narrow}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ {} }} }} }} }}", digest_fields())
+    format!("query($owner: String!, $name: String!, $cursor: String) {{ repository(owner: $owner, name: $name) {{ databaseId issues(first: 100, after: $cursor, orderBy: {{field: CREATED_AT, direction: ASC}}{narrow}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ {} }} }} }} }}", digest_fields())
 }
 
 /// What an issue's digest is read from, as [`GitHub::digest_from`] reads
@@ -254,7 +254,7 @@ pub(crate) fn digest_fields() -> String {
 }
 
 /// The ticket an issue is a part of, if any.
-const PARENT: &str = "parent { number repository { nameWithOwner } }";
+const PARENT: &str = "parent { number repository { databaseId nameWithOwner } }";
 
 #[derive(Deserialize)]
 pub(crate) struct Who {
@@ -289,6 +289,8 @@ pub(crate) struct Milestone {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Repo {
+    #[serde(rename = "databaseId")]
+    database_id: Option<u64>,
     name_with_owner: String,
 }
 
@@ -581,7 +583,7 @@ impl GitHub {
     /// part of none, so its absence cannot be told from an answer cut short.
     pub(crate) fn parent(&mut self, key: &TicketKey) -> Got<Option<Ref<TicketKey>>> {
         let issue = number(key)?;
-        let question = format!("query($owner: String!, $name: String!, $number: Int!) {{ repository(owner: $owner, name: $name) {{ issue(number: $number) {{ number {PARENT} }} }} }}");
+        let question = format!("query($owner: String!, $name: String!, $number: Int!) {{ repository(owner: $owner, name: $name) {{ databaseId issue(number: $number) {{ number {PARENT} }} }} }}");
         let first = self.ask_issue(issue, &question, None, false)?;
         self.parent_of(first.parent)
     }
@@ -928,7 +930,7 @@ impl GitHub {
         match by.is.as_deref() {
             Some("PullRequest") => {
                 let repo = by.repository.as_ref().ok_or(MALFORMED)?;
-                if !self.is_here(repo) {
+                if !self.is_here(repo)? {
                     let no = by.number.filter(|n| *n > 0).ok_or(MALFORMED)?;
                     let link = by.url.clone().ok_or(MALFORMED)?;
                     return Ok(Some(Closer::change_elsewhere(
@@ -952,8 +954,10 @@ impl GitHub {
         }
     }
 
-    fn is_here(&self, repo: &Repo) -> bool {
-        repo.name_with_owner.eq_ignore_ascii_case(&self.repo)
+    /// Whether a repository an answer names is this project's: by its
+    /// database id (`GitHub::is_here_id`), never by its name.
+    fn is_here(&self, repo: &Repo) -> Got<bool> {
+        self.is_here_id(repo.database_id)
     }
 
     /// The ticket an issue of GitHub's names: of this project by its
@@ -962,7 +966,7 @@ impl GitHub {
     pub(crate) fn named(&self, n: &Named) -> Got<Ref<TicketKey>> {
         let no = n.number.ok_or(INCONSISTENT)?;
         let repo = n.repository.as_ref().ok_or(INCONSISTENT)?;
-        if self.is_here(repo) {
+        if self.is_here(repo)? {
             let no = std::num::NonZeroU64::new(no).ok_or(INCONSISTENT)?;
             return Ok(Ref::Here(TicketKey::Number(no)));
         }

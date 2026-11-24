@@ -26,6 +26,39 @@ impl GitHub {
     }
 }
 
+/// The project `owner/name` a git remote of GitHub names, with no request:
+/// `https://github.com/<owner>/<name>`, `git@github.com:<owner>/<name>` or
+/// `ssh://git@github.com/<owner>/<name>`, each with or without `.git` and a
+/// trailing `/`, the host in any case. None for any other remote: another
+/// host, a path, a port, a remote that carries a credential, or a name
+/// GitHub could not hold. The caller stops on None; nothing is guessed.
+pub fn project_of(remote: &str) -> Option<String> {
+    let rest = remote.trim();
+    let path = if let Some(r) = strip_folded(rest, "https://github.com/") {
+        r
+    } else if let Some(r) = strip_folded(rest, "git@github.com:") {
+        r
+    } else {
+        strip_folded(rest, "ssh://git@github.com/")?
+    };
+    let path = path.strip_suffix('/').unwrap_or(path);
+    let path = match path.len().checked_sub(4) {
+        Some(at) if path.is_char_boundary(at) && path[at..].eq_ignore_ascii_case(".git") => {
+            &path[..at]
+        }
+        _ => path,
+    };
+    let (owner, name) = parts(path)?;
+    Some(format!("{owner}/{name}"))
+}
+
+/// `text` after `prefix`, the prefix's ASCII case folded.
+fn strip_folded<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+    let head = text.get(..prefix.len())?;
+    head.eq_ignore_ascii_case(prefix)
+        .then(|| &text[prefix.len()..])
+}
+
 /// `owner` and `name` of a repository GitHub could hold: one `/`; an owner
 /// of letters, digits and inner single dashes, at most 39; a name of
 /// letters, digits, `-`, `_` and `.`, at most 100, not `.` or `..`, not

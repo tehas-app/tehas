@@ -120,6 +120,12 @@ ports yet. T4.3 moved the last of them, so it is 0: the console's wiring
 is a module of `console/src/main.rs`, and its commands take their handles
 from there.
 
+`adapter-link-rule` (R1, T4.8) counts the adapter's `attach` line in
+`console/github/Cargo.toml`: the link rule of GitHub's store is written
+once, in `console/attach/src/link.rs`, and the adapter takes it from there
+for `Blueprints::attachments` and `attachments_in`. It is 1, a written
+floor (above): core, dispatch, items and cycle read the rule as well.
+
 ## Write guards
 
 Each of these decides whether a GitHub call writes. They are kept
@@ -231,6 +237,7 @@ its reason, as a floor; a departure from a should rule (R5) likewise.
 | --- | --- | --- | --- |
 | gh-argv, tests-stub-gh | 1 each | `console/tests/top_snapshot.rs` | the short name "gh" of a process in a fixture of /proc (`"name":"gh"`, #2859), which tehas top shows. Nothing runs gh. A pattern that skipped it would be fragile and allowing the file would hide a later gh call there, so it stays counted as a floor |
 | gh-argv, tests-stub-gh | 3 and 2 | gh-argv: `console/ops/src/pins/tools.rs` 1 and `console/ops/src/pins/tests.rs` 2; tests-stub-gh: `console/ops/src/pins/tests.rs` 2 | the pinned tool named "gh" in the release's list of pinned tools (`host/versions.env`) and its tests (ports spec, Decided 71). Nothing runs gh there; the name is the tool's |
+| adapter-link-rule | 1 | `console/github/Cargo.toml`, its `attach` line | the link rule of GitHub's store stays in `console/attach/src/link.rs`, written once, and the adapter takes it from there for `Blueprints::attachments` and `attachments_in` (the tehas lead's ruling for the alpha, 2026-11-24; ports spec, T4.8). core, dispatch, items and cycle read the rule as well and may not name the adapter; moving them onto the ports is not in the plan |
 | home-layout | 16, in the bash and the units | `install.sh` 12, `host/systemd/` 4 | T8's freeze, below |
 | T5's typed store client (no check counts it) | every caller of the store's verbs | the console and ops through `ops::store::call` and `line` (about 37 calls in 15 files), dispatch's `read/run.rs` `store()`, cycle's `host.rs` `store()` | a written floor for alpha.1 (tehas-84, 2026-11-24): the callers still pass a verb string and read `Value`. Many of them are in files other T4 lanes are changing, so typing them now would collide; the typed client is the series right after the alpha, and this row goes when it lands |
 | gh-argv | 3, in the bash | `lib/github-app.sh` 1, `host/sandbox/gh-shim` 1, `scripts/tag-release.sh` 1 | T8's freeze, below |
