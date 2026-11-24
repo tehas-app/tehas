@@ -157,6 +157,19 @@ impl GitHub {
         }
     }
 
+    /// [`GitHub::call`], and on a failure what gh answered on its standard
+    /// output, if the runner kept it: gh exits 1 on a GraphQL answer that
+    /// carries any error, and the answer says which.
+    pub(crate) fn call_answer(
+        &mut self,
+        call: &str,
+        args: &[&str],
+    ) -> Result<String, (ForgeError, Option<String>)> {
+        self.runner
+            .run_answer(args)
+            .map_err(|f| (ForgeError::new(call, f.why), f.answer))
+    }
+
     /// [`GitHub::call`] with `input` on gh's standard input, the way a write
     /// sends its text: never in an argument.
     pub(crate) fn call_input(

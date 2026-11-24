@@ -21,7 +21,8 @@ impl GitHub {
         Ok(self.read_marks(&labels).into_iter().flatten().collect())
     }
 
-    /// A ticket's digest, from the issue's REST read: the answer of
+    /// A ticket's digest, from the issue's REST read and one question for
+    /// the ticket it is a part of, which REST does not name: the answer of
     /// `Tickets::several` for one key. GitHub has no priority: every ticket
     /// is `Normal`. The revision is the sum of the title and the body as
     /// GitHub holds them, markers in (`gh::text_revision`), the one rule of
@@ -31,7 +32,9 @@ impl GitHub {
     pub(crate) fn digest(&mut self, key: &TicketKey) -> Got<TicketDigest> {
         let issue = number(key)?;
         let out = self.issue_answer(issue).map_err(|e| self.outcome(&e))?;
-        self.digest_of(key, &out)
+        let mut digest = self.digest_of(key, &out)?;
+        digest.parent = self.parent(key)?;
+        Ok(digest)
     }
 
     /// The digest of an issue's REST read. A pull request answers that read

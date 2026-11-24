@@ -184,6 +184,9 @@ pub(crate) fn timeline(
             format!("... on {node} {{ createdAt actor {{ {ACTOR} }} {fields} }}")
         })
         .collect();
+    // A first page alone says how many there are, so a page cut short
+    // without a word is seen.
+    let count = if paged { "" } else { "totalCount " };
     let (page, info) = match (window, paged) {
         (Window::Whole(_), true) => ("first: 100, after: $cursor", "hasNextPage endCursor"),
         (Window::Whole(_), false) => ("first: 100", "hasNextPage endCursor"),
@@ -191,7 +194,7 @@ pub(crate) fn timeline(
         (Window::Last(_), false) => ("last: 100", "hasPreviousPage startCursor"),
     };
     Some(format!(
-        "events: timelineItems(itemTypes: [{}], {page}) {{ pageInfo {{ {info} }} nodes {{ __typename {} }} }}",
+        "events: timelineItems(itemTypes: [{}], {page}) {{ {count}pageInfo {{ {info} }} nodes {{ __typename {} }} }}",
         types.join(", "),
         nodes.join(" ")
     ))
@@ -201,7 +204,7 @@ pub(crate) fn timeline(
 /// `paged`.
 pub(crate) fn mentions(paged: bool) -> String {
     let after = if paged { ", after: $cursor" } else { "" };
-    format!("mentions: timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], first: 100{after}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ __typename ... on CrossReferencedEvent {{ source {{ __typename ...on PullRequest {{ number repository {{ nameWithOwner }} }} }} }} }} }}")
+    format!("mentions: timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], first: 100{after}) {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ __typename ... on CrossReferencedEvent {{ source {{ __typename ...on PullRequest {{ number repository {{ nameWithOwner }} }} }} }} }} }}")
 }
 
 /// The issue's parts, a page of them, from `$cursor` when `paged`.
@@ -216,11 +219,12 @@ pub(crate) fn blocked_by() -> String {
     format!("blockedBy(first: 100) {{ totalCount nodes {{ {NAMED} }} }}")
 }
 
-/// What a ticket holds beside its digest and its history: its newest
-/// close, what it waits on, its parts and the changes that name it.
+/// What a ticket holds beside its REST digest and its history: its newest
+/// close, what it waits on, its parts, the changes that name it and the
+/// ticket it is a part of.
 fn beside() -> String {
     format!(
-        "closes: timelineItems(itemTypes: [CLOSED_EVENT], last: 1) {{ nodes {{ __typename ... on ClosedEvent {{ createdAt actor {{ {ACTOR} }} {CLOSER} }} }} }} {} {} {}",
+        "closes: timelineItems(itemTypes: [CLOSED_EVENT], last: 1) {{ nodes {{ __typename ... on ClosedEvent {{ createdAt actor {{ {ACTOR} }} {CLOSER} }} }} }} {} {} {} {PARENT}",
         blocked_by(),
         parts(true),
         mentions(true)
@@ -237,8 +241,11 @@ fn listed(narrow: &str) -> String {
 /// What an issue's digest is read from, as [`GitHub::digest_from`] reads
 /// a [`Node`].
 pub(crate) fn digest_fields() -> String {
-    format!("number title body state stateReason url createdAt updatedAt author {{ {ACTOR} }} issueType {{ name }} milestone {{ number title }} labels(first: 100) {{ totalCount nodes {{ name }} }}")
+    format!("number title body state stateReason url createdAt updatedAt author {{ {ACTOR} }} issueType {{ name }} milestone {{ number title }} labels(first: 100) {{ totalCount nodes {{ name }} }} {PARENT}")
 }
+
+/// The ticket an issue is a part of, if any.
+pub(crate) const PARENT: &str = "parent { number repository { nameWithOwner } }";
 
 #[derive(Deserialize)]
 pub(crate) struct Who {
@@ -337,6 +344,10 @@ struct Answer {
     mentions: Option<Page<Event>>,
     sub_issues: Option<Page<Named>>,
     blocked_by: Option<Page<Named>>,
+    /// None where the question did not ask it; `Some(None)` for a ticket
+    /// that is a part of none.
+    #[serde(default, deserialize_with = "given")]
+    parent: Option<Option<Named>>,
 }
 
 #[derive(Deserialize)]
@@ -355,6 +366,8 @@ pub(crate) struct Node {
     issue_type: Option<Name>,
     pub(crate) milestone: Option<Milestone>,
     pub(crate) labels: Page<Name>,
+    #[serde(deserialize_with = "present")]
+    parent: Option<Named>,
 }
 
 /// What the issue's REST read holds beside its digest. Each is there in
@@ -470,7 +483,7 @@ impl GitHub {
     ) -> Got<Ticket> {
         let issue = number(key)?;
         let out = self.issue_answer(issue).map_err(|e| self.outcome(&e))?;
-        let digest = self.digest_of(key, &out)?;
+        let mut digest = self.digest_of(key, &out)?;
         let rest: Rest = part(&out, "")?;
         let window = history.or(depth.history());
         let asks = format!(
@@ -480,6 +493,7 @@ impl GitHub {
         );
         let mut first: Answer = self.ask_issue(issue, &of_issue(&asks), None, false)?;
 
+        digest.parent = self.parent_of(first.parent.take())?;
         let closer = match (&digest.state, first.closes.take()) {
             (TicketState::Open, _) => None,
             (_, None) => return Err(MALFORMED),
@@ -559,6 +573,20 @@ impl GitHub {
             return take(Vec::new(), window);
         }
         self.pages(issue, only, window, None, true)
+    }
+
+    /// The ticket an issue is a part of, from an answer that asked it.
+    fn parent_of(&self, asked: Option<Option<Named>>) -> Got<Option<Ref<TicketKey>>> {
+        asked.ok_or(MALFORMED)?.map(|p| self.named(&p)).transpose()
+    }
+
+    /// The ticket an issue is a part of: one question, for a digest read
+    /// over REST, which names no parent.
+    pub(crate) fn parent(&mut self, key: &TicketKey) -> Got<Option<Ref<TicketKey>>> {
+        let issue = number(key)?;
+        let question = format!("query($owner: String!, $name: String!, $number: Int!) {{ repository(owner: $owner, name: $name) {{ issue(number: $number) {{ number {PARENT} }} }} }}");
+        let first = self.ask_issue(issue, &question, None, false)?;
+        self.parent_of(first.parent)
     }
 
     /// A ticket's parts, whole: `Tickets::parts`.
@@ -660,6 +688,30 @@ impl GitHub {
         issue: Option<u64>,
         cursor: Option<&str>,
     ) -> Result<String, ForgeError> {
+        let args = self.question_args(question, issue, cursor);
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.call(call, &args)
+    }
+
+    /// [`GitHub::ask`] of the repository, and on a failure what gh answered,
+    /// if the runner kept it.
+    pub(crate) fn ask_answer(
+        &mut self,
+        call: &str,
+        question: &str,
+        cursor: Option<&str>,
+    ) -> Result<String, (ForgeError, Option<String>)> {
+        let args = self.question_args(question, None, cursor);
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.call_answer(call, &args)
+    }
+
+    fn question_args(
+        &self,
+        question: &str,
+        issue: Option<u64>,
+        cursor: Option<&str>,
+    ) -> Vec<String> {
         let (owner, name) = self.owner_name();
         let mut args = vec!["api".to_string(), "graphql".to_string()];
         args.extend(["-F".to_string(), owner, "-F".to_string(), name]);
@@ -670,8 +722,7 @@ impl GitHub {
         if let Some(c) = cursor {
             args.extend(["-f".to_string(), format!("cursor={c}")]);
         }
-        let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        self.call(call, &args)
+        args
     }
 
     /// One issue's answer to a question. With `settle`, a failure gh gives
@@ -937,10 +988,13 @@ impl GitHub {
         first: Page<Event>,
     ) -> Got<Vec<Ref<ChangeNo>>> {
         let question = of_issue(&mentions(true));
+        let total = first.total_count;
         let mut out: Vec<Ref<ChangeNo>> = Vec::new();
         let mut pages = Pages::default();
         let mut page = first;
+        let mut nodes = 0u64;
         loop {
+            nodes += page.nodes.len() as u64;
             for e in page.nodes.into_iter().flatten() {
                 let Some(pull) = e
                     .source
@@ -966,7 +1020,13 @@ impl GitHub {
             let more = self.ask_issue(issue, &question, Some(&cursor), false)?;
             page = more.mentions.ok_or(MALFORMED)?;
         }
-        Ok(out)
+        // GitHub's count of them, where the question asked it: fewer read
+        // is a list cut short.
+        match total {
+            Some(t) if nodes < t => Err(CUT),
+            Some(t) if nodes > t => Err(INCONSISTENT),
+            _ => Ok(out),
+        }
     }
 
     /// A ticket's digest from the list's node, as the issue's REST read
@@ -1012,6 +1072,7 @@ impl GitHub {
             .milestone
             .map(|m| TargetName::new(TargetId::new(m.number.to_string()), m.title));
         digest.author = author;
+        digest.parent = n.parent.as_ref().map(|p| self.named(p)).transpose()?;
         Ok(digest)
     }
 }

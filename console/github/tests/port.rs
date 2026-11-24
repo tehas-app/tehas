@@ -59,11 +59,25 @@ const ISSUE: &str = r#"{"number":7,"title":"Make it so","state":"open","state_re
 "created_at":"2026-01-02T03:04:05Z","updated_at":"2026-01-03T00:00:00Z",
 "html_url":"https://github.com/acme/widget/issues/7"}"#;
 
+/// The answer of the question of the ticket #7 is a part of: #3.
+const PARENT: &str = r#"{"data":{"repository":{"issue":{"number":7,"parent":{"number":3,"repository":{"nameWithOwner":"acme/widget"}}}}}}"#;
+
+/// The same, of a ticket that is a part of none.
+const NO_PARENT: &str = r#"{"data":{"repository":{"issue":{"number":7,"parent":null}}}}"#;
+
 #[test]
-fn a_tickets_digest_is_the_issues_rest_read() {
-    let (mut gh, asked) = adapter(vec![Ok(ISSUE)]);
+fn a_tickets_digest_is_the_issues_rest_read_and_its_parent() {
+    let (mut gh, asked) = adapter(vec![Ok(ISSUE), Ok(PARENT)]);
     let got = gh.several(&[key(7)]);
-    assert_eq!(*asked.lock().unwrap(), ["api repos/acme/widget/issues/7"]);
+    let asked = asked.lock().unwrap();
+    assert_eq!(asked[0], "api repos/acme/widget/issues/7");
+    assert!(asked[1].contains("-F number=7"), "{}", asked[1]);
+    assert!(
+        asked[1].contains("parent { number repository { nameWithOwner } }"),
+        "{}",
+        asked[1]
+    );
+    assert_eq!(asked.len(), 2);
     let (k, d) = &got[0];
     assert_eq!(*k, key(7));
     let d = d.as_ref().unwrap();
@@ -89,6 +103,37 @@ fn a_tickets_digest_is_the_issues_rest_read() {
     assert_eq!(d.created, at("2026-01-02T03:04:05Z"));
     assert_eq!(d.updated, at("2026-01-03T00:00:00Z"));
     assert_eq!(d.link.as_str(), "https://github.com/acme/widget/issues/7");
+    assert_eq!(d.parent, Some(Ref::Here(key(3))));
+}
+
+#[test]
+fn a_parent_is_named_where_it_is_and_one_that_cannot_be_read_fails_the_digest() {
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(NO_PARENT)]);
+    assert_eq!(gh.several(&[key(7)]).remove(0).1.unwrap().parent, None);
+    let elsewhere = PARENT.replace("acme/widget", "other/lib");
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(&elsewhere)]);
+    assert_eq!(
+        gh.several(&[key(7)]).remove(0).1.unwrap().parent,
+        Some(Ref::Elsewhere {
+            project: tehas_ports::ProjectName::new("other/lib"),
+            item: tehas_ports::ItemName::new("3"),
+        })
+    );
+    // An answer that leaves the parent out does not say there is none.
+    let left_out = r#"{"data":{"repository":{"issue":{"number":7}}}}"#;
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Ok(left_out)]);
+    assert_eq!(
+        gh.several(&[key(7)]).remove(0).1,
+        Err(Outcome::Unread(Unread::Malformed))
+    );
+    let (mut gh, _) = adapter(vec![Ok(ISSUE), Err("HTTP 502")]);
+    assert_eq!(
+        gh.several(&[key(7)]).remove(0).1,
+        Err(Outcome::Unavailable {
+            why: Passing::Server,
+            sent: Sent::Maybe
+        })
+    );
 }
 
 #[test]
@@ -104,7 +149,7 @@ fn a_closed_issue_says_why() {
                 r#""state_reason":null"#,
                 &format!(r#""state_reason":{reason}"#),
             );
-        let (mut gh, _) = adapter(vec![Ok(&closed)]);
+        let (mut gh, _) = adapter(vec![Ok(&closed), Ok(NO_PARENT)]);
         let d = gh.several(&[key(7)]).remove(0).1.unwrap();
         assert_eq!(d.state, TicketState::Closed(want), "{reason}");
     }

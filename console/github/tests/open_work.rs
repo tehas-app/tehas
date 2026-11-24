@@ -13,7 +13,7 @@ use std::num::{NonZeroU32, NonZeroU64};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use tehas_core::forge::GhRunner;
+use tehas_core::forge::{Failed, GhRunner};
 use tehas_github::{GitHub, GitHubSite, MakeRunner};
 use tehas_ports::laws;
 use tehas_ports::{
@@ -89,32 +89,57 @@ fn recording(args: &[&str]) -> String {
     }
 }
 
+/// Answers each call from the state's recordings: `<name>.json` is gh's
+/// answer, `<name>.fail` the reason it failed, and `<name>.partial.json`
+/// what gh printed when it exited 1 on an answer with errors. The second
+/// time a name is asked, `<name>.2.json` answers it where there is one.
 struct Replay {
     state: String,
     asked: Asked,
 }
 
-impl GhRunner for Replay {
-    fn run(&mut self, args: &[&str]) -> Result<String, String> {
-        self.asked
-            .lock()
-            .unwrap()
-            .push(args.iter().map(|a| a.to_string()).collect());
+impl Replay {
+    fn answer(&mut self, args: &[&str]) -> Result<String, Failed> {
+        let mut asked = self.asked.lock().unwrap();
+        let name = recording(args);
+        let times = asked.iter().filter(|a| recording(&strs(a)) == name).count();
+        asked.push(args.iter().map(|a| a.to_string()).collect());
+        drop(asked);
         if args[..2] == ["api", "graphql"] {
             assert_eq!(field(args, "owner"), Some("acme"));
             assert_eq!(field(args, "name"), Some("widget"));
         }
-        let name = recording(args);
         let at = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/recorded/work")
             .join(&self.state);
-        if let Ok(out) = std::fs::read_to_string(at.join(format!("{name}.json"))) {
+        let read = |file: String| std::fs::read_to_string(at.join(file)).ok();
+        let again = match times {
+            0 => None,
+            n => read(format!("{name}.{}.json", n + 1)),
+        };
+        if let Some(out) = again.or_else(|| read(format!("{name}.json"))) {
             return Ok(out);
         }
-        match std::fs::read_to_string(at.join(format!("{name}.fail"))) {
-            Ok(why) => Err(why.trim_end().to_string()),
-            Err(_) => Err(format!("no recording {name} in {}", self.state)),
+        if let Some(out) = read(format!("{name}.partial.json")) {
+            return Err(Failed {
+                why: "gh exited 1".to_string(),
+                answer: Some(out),
+            });
         }
+        let why = read(format!("{name}.fail"))
+            .map(|why| why.trim_end().to_string())
+            .unwrap_or_else(|| format!("no recording {name} in {}", self.state));
+        Err(Failed { why, answer: None })
+    }
+}
+
+impl GhRunner for Replay {
+    fn run(&mut self, args: &[&str]) -> Result<String, String> {
+        self.answer(args).map_err(|f| f.why)
+    }
+
+    fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
+        self.answer(args)
     }
 }
 
@@ -242,7 +267,7 @@ fn the_queue_reads_each_open_issue_with_what_its_work_item_holds() {
 
     // Oldest filed first, whatever order the page gave.
     let keys: Vec<&TicketKey> = work.items.items().iter().map(|(k, _)| k).collect();
-    let want: Vec<TicketKey> = [1, 3, 7, 8, 9, 11, 12, 14].map(key).to_vec();
+    let want: Vec<TicketKey> = [1, 3, 7, 8, 9, 11, 12, 14, 16, 18].map(key).to_vec();
     assert_eq!(keys, want.iter().collect::<Vec<_>>());
 
     // An allowed account's approval, and nothing else read.
@@ -443,14 +468,31 @@ fn the_queue_reads_each_open_issue_with_what_its_work_item_holds() {
     // Waiting on more than the page holds fails that item alone.
     assert_eq!(item(&work, 14), &Err(Outcome::Unread(Unread::Cut)));
 
-    // The control ticket, whole, with its own answer.
+    // The page's newest event of the mark is its removal: the marks are
+    // read again, and say it was applied after.
+    let sixteen = ok(&work, 16);
+    assert_eq!(
+        said(&sixteen.ticket.history.items).last(),
+        Some(&format!(
+            "+{:?} by alice:Person at {}",
+            ready(),
+            at("2026-01-10T02:00:00Z")
+        ))
+    );
+
+    // A page that counts more retitles than it holds is read again.
+    let eighteen = ok(&work, 18);
+    assert_eq!(eighteen.ticket.history.items.len(), 2);
+
+    // The control ticket is on the page: its item's ticket, its text whole.
     let control = work.control.as_ref().unwrap().as_ref().unwrap();
     assert_eq!(control.digest.marks, [Mark::Act(Act::Pause)]);
     assert!(!control.history.more);
     assert_eq!(control.history.items.len(), 1);
+    assert_eq!(control, &ok(&work, 1).ticket);
 
     // One question for the page, one for the epic's second page of parts,
-    // two each for the timelines read again, two for the control ticket.
+    // two each for the timelines read again.
     let asked = asked.lock().unwrap();
     let names: Vec<String> = asked
         .iter()
@@ -465,8 +507,10 @@ fn the_queue_reads_each_open_issue_with_what_its_work_item_holds() {
             "issue-11-history-renamed_title_event-back",
             "events-12",
             "issue-12-history-renamed_title_event-back",
-            "issue-1",
-            "issue-1-ticket",
+            "events-16",
+            "issue-16-history-renamed_title_event-back",
+            "events-18",
+            "issue-18-history-renamed_title_event-back",
         ]
     );
     let query = field(&strs(&asked[0]), "query").unwrap().to_string();
@@ -557,10 +601,10 @@ fn a_mark_alone_asks_both_marks_and_takes_its_own() {
 fn the_list_keeps_the_law_of_bounds_and_cuts_before_any_item_is_read() {
     let (mut b, _) = board("queue");
     let mut read = |n: Bound| b.open_work(&bare(), n).map(|w| w.items);
-    assert_eq!(laws::lists::past_the_bound_is_unread(&mut read, 8), Ok(()));
+    assert_eq!(laws::lists::past_the_bound_is_unread(&mut read, 10), Ok(()));
     let (mut b, asked) = board("queue");
     assert_eq!(
-        b.open_work(&queue_ask(), bound(7)).map(|_| ()),
+        b.open_work(&queue_ask(), bound(9)).map(|_| ()),
         Err(Outcome::Unread(Unread::Cut))
     );
     assert_eq!(asked.lock().unwrap().len(), 1);
@@ -626,7 +670,6 @@ fn a_failed_or_odd_page_fails_the_read_never_a_short_list() {
         ("timeout", maybe(tehas_ports::Passing::Timeout)),
         ("forbidden", Outcome::Forbidden),
         ("errors-beside-data", Outcome::Unread(Unread::Inconsistent)),
-        ("count-changes", Outcome::Unread(Unread::Inconsistent)),
         ("same-twice", Outcome::Unread(Unread::Inconsistent)),
         ("short", Outcome::Unread(Unread::Inconsistent)),
         ("null-node", Outcome::Unread(Unread::Inconsistent)),
@@ -702,4 +745,64 @@ fn an_ask_past_the_queues_is_unsupported_before_any_request() {
             .map(|w| w.items.items().len()),
         Ok(2)
     );
+}
+
+#[test]
+fn an_error_under_one_issue_fails_that_item_alone() {
+    let (mut b, _) = board("item-error");
+    let work = b.open_work(&bare(), bound(50)).unwrap();
+    assert_eq!(item(&work, 8), &Err(Outcome::Forbidden));
+    assert!(item(&work, 3).is_ok());
+    // An error anywhere else fails the read with the call's outcome.
+    let (mut b, _) = board("error-elsewhere");
+    assert_eq!(
+        b.open_work(&bare(), bound(50)).map(|_| ()),
+        Err(Outcome::Unavailable {
+            why: tehas_ports::Passing::Server,
+            sent: tehas_ports::Sent::Maybe,
+        })
+    );
+}
+
+#[test]
+fn a_count_that_moves_between_pages_reads_the_pages_once_more() {
+    let (mut b, asked) = board("count-settles");
+    let work = b.open_work(&bare(), bound(50)).unwrap();
+    assert_eq!(work.items.items().len(), 2);
+    assert_eq!(asked.lock().unwrap().len(), 4);
+    // It moves again: the read fails.
+    let (mut b, asked) = board("count-changes");
+    assert_eq!(
+        b.open_work(&bare(), bound(50)).map(|_| ()),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    assert_eq!(asked.lock().unwrap().len(), 4);
+}
+
+#[test]
+fn marks_read_again_that_do_not_apply_a_carried_mark_fail_the_item() {
+    let (mut b, _) = board("marks-disagree");
+    let mut ask = queue_ask();
+    ask.control = None;
+    let work = b.open_work(&ask, bound(50)).unwrap();
+    assert_eq!(item(&work, 17), &Err(Outcome::Unread(Unread::Inconsistent)));
+    assert!(item(&work, 3).is_ok());
+}
+
+#[test]
+fn a_control_ticket_off_the_page_is_read_whole_on_its_own() {
+    let (mut b, asked) = board("two-pages");
+    let mut ask = queue_ask();
+    ask.changes = None;
+    let work = b.open_work(&ask, bound(50)).unwrap();
+    let control = work.control.unwrap().unwrap();
+    assert_eq!(control.digest.marks, [Mark::Act(Act::Pause)]);
+    assert_eq!(control.digest.parent, None);
+    let names: Vec<String> = asked
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|a| recording(&strs(a)))
+        .collect();
+    assert_eq!(&names[names.len() - 2..], ["issue-1", "issue-1-ticket"]);
 }
