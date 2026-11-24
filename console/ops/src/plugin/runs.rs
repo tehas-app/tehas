@@ -366,8 +366,9 @@ mod tests {
         let home = TestDir::new("plugin-runs-unwritten");
         std::fs::create_dir_all(prepare::dir(&home, "demo")).unwrap();
         assert_eq!(status_unwritten(&home, "demo"), None);
-        std::fs::write(unwritten(&home, "demo"), "HTTP 403\nmore\n").unwrap();
-        assert_eq!(status_unwritten(&home, "demo"), Some("HTTP 403".into()));
+        let line = "GitHub refused the status on #42: this actor may not do this";
+        std::fs::write(unwritten(&home, "demo"), format!("{line}\nmore\n")).unwrap();
+        assert_eq!(status_unwritten(&home, "demo"), Some(line.into()));
         std::fs::write(unwritten(&home, "demo"), "\n").unwrap();
         assert_eq!(status_unwritten(&home, "demo"), None);
     }
