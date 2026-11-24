@@ -1069,7 +1069,16 @@ fn on_github(name: &str, h: &mut Fake, grants: &str) -> (World, String) {
     w.set("TEHAS_DOMAIN", "example.org");
     h.code = Site::new();
     h.code.push("main", "base", "acme-bot");
-    h.code = h.code.clone().change(42, "tehas/pr-42", |c| c);
+    // A pull request as a real one is: several files and comments, more
+    // than a read of its digest asks for.
+    h.code = h.code.clone().change(42, "tehas/pr-42", |c| {
+        c.file("src/a.rs", 3, 1)
+            .file("src/b.rs", 2, 0)
+            .file("README.md", 1, 1)
+            .comment("alice", "One.")
+            .comment("bob", "Two.")
+            .comment("alice", "Three.")
+    });
     h.site = Arc::new(FakeSite::new(&h.code));
     let head = h.code.head("tehas/pr-42").unwrap();
     for id in ["7", "8", "9"] {

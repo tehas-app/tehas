@@ -21,8 +21,8 @@ use tehas_core::settings::edge_name;
 use tehas_core::settings::rules::switch;
 use tehas_ops::plugin::runs;
 use tehas_ports::{
-    AccountKind, Actor, Bound, Caller, ChangeNo, ChangeState, CommitId, Outcome, Scope, Status,
-    StatusState, WebLink,
+    AccountKind, Actor, Bound, Caller, ChangeFilter, ChangeNo, ChangeState, ChangeStates, CommitId,
+    Outcome, Scope, Status, StatusState, WebLink,
 };
 
 /// The most characters of a description GitHub keeps.
@@ -34,7 +34,7 @@ pub const NOT_FINISHED: &str = "the plugin's hook did not finish";
 /// The factory's account, which reads the pull request and writes its status.
 const OURS: Actor = Actor::Ours(Scope::Full);
 const CALLER: Caller = Caller::new("plugin.status");
-/// A pull request is read for its digest alone: one of each list is enough.
+/// The one change a read by its number asks for.
 fn one() -> Bound {
     Bound::new(1).unwrap_or(tehas_ports::ALL_MAX)
 }
@@ -142,12 +142,22 @@ pub fn pull(h: &mut dyn Host, pr: u64) -> Result<Option<(String, String)>, Strin
     let Some(no) = ChangeNo::new(pr) else {
         return Ok(None);
     };
+    // Its digest alone, by its number: the whole change is `Cut` past a
+    // bound of its files, comments or reviews.
+    let filter = ChangeFilter {
+        states: ChangeStates::All,
+        numbers: vec![no],
+        ..Default::default()
+    };
     let read = h
         .site()
         .code_host(&OURS, CALLER)
-        .and_then(|mut c| c.change(no, one()));
+        .and_then(|mut c| c.changes(&filter, one()));
     let digest = match read {
-        Ok(c) => c.digest,
+        Ok(found) => match found.items().iter().find(|d| d.no == no) {
+            Some(d) => d.clone(),
+            None => return Ok(None),
+        },
         Err(Outcome::NotFound) => return Ok(None),
         Err(o) => return Err(o.line().to_string()),
     };
